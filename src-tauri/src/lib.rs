@@ -167,6 +167,7 @@ pub fn run() {
             commands::quality_commands::guardrails_check,
             commands::consistency_commands::consistency_check,
             commands::consistency_commands::consistency_check_p0,
+            commands::gate_commands::run_decision_gates,
             commands::instruction_commands::classify_intent,
             commands::instruction_commands::stream_generate,
             set_proxy_env,
