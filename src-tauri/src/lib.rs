@@ -167,6 +167,8 @@ pub fn run() {
             commands::quality_commands::guardrails_check,
             commands::consistency_commands::consistency_check,
             commands::consistency_commands::consistency_check_p0,
+            commands::instruction_commands::classify_intent,
+            commands::instruction_commands::stream_generate,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
