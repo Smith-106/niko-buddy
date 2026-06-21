@@ -18,6 +18,7 @@ import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
+import { DraftStatus } from "./draft-state-machine"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -96,6 +97,8 @@ export interface ChapterSnapshot {
   organizationDetails?: Record<string, OrganizationDetail>
   itemDetails?: Record<string, ItemDetail>
   eventDetails?: Record<string, EventDetail>
+  draftStatus?: DraftStatus
+  supersedesChain?: string[]
 }
 
 function normalizeSnapshotText(value: unknown): string {
@@ -208,6 +211,12 @@ function normalizeChapterSnapshot(
     organizationDetails: normalizeSnapshotDetailRecord<OrganizationDetail>(raw.organizationDetails),
     itemDetails: normalizeSnapshotDetailRecord<ItemDetail>(raw.itemDetails),
     eventDetails: normalizeSnapshotDetailRecord<EventDetail>(raw.eventDetails),
+    draftStatus: typeof raw.draftStatus === "string" && Object.values(DraftStatus).includes(raw.draftStatus as DraftStatus)
+      ? raw.draftStatus as DraftStatus
+      : undefined,
+    supersedesChain: Array.isArray(raw.supersedesChain)
+      ? raw.supersedesChain.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : undefined,
   }
 }
 
