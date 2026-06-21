@@ -5,6 +5,7 @@ use crate::novel::setting_checker::SettingChecker;
 
 /// Consistency check dimension
 #[derive(Debug, Serialize, Clone, PartialEq, Hash, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ConsistencyDimension {
     RoleCognition,    // P0: 角色认知一致性
     Setting,          // P0: 世界观设定一致性

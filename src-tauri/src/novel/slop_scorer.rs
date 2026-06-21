@@ -77,10 +77,10 @@ impl SlopScorer {
                 weight: 6.0,
                 description: "因果链过度完整".into(),
             },
-            // 2.6 全方位观察综合征
+            // 2.6 全方位观察综合征 — 需要环境扫描指示词 + 3+ 个顿号
             SlopRule {
                 category: "panoramic_scan".into(),
-                regex: Regex::new(r"(?:有.*?)?(?:、).*?(?:、).*?(?:、)").unwrap(),
+                regex: Regex::new(r"(?:环顾|扫视|打量|放眼|环视|四下|四周|周围).{0,20}(?:、).*?(?:、).*?(?:、)").unwrap(),
                 weight: 4.0,
                 description: "全方位观察综合征".into(),
             },

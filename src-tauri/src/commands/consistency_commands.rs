@@ -11,11 +11,11 @@ pub async fn consistency_check(
     run_guarded_async("consistency_check", async move {
         let gate = ConsistencyGate::new();
         let dim = match dimension.as_str() {
-            "RoleCognition" | "role_cognition" => ConsistencyDimension::RoleCognition,
-            "Setting" | "setting" => ConsistencyDimension::Setting,
-            "Causal" | "causal" => ConsistencyDimension::Causal,
-            "Foreshadowing" | "foreshadowing" => ConsistencyDimension::Foreshadowing,
-            "Timeline" | "timeline" => ConsistencyDimension::Timeline,
+            "role_cognition" => ConsistencyDimension::RoleCognition,
+            "setting" => ConsistencyDimension::Setting,
+            "causal" => ConsistencyDimension::Causal,
+            "foreshadowing" => ConsistencyDimension::Foreshadowing,
+            "timeline" => ConsistencyDimension::Timeline,
             _ => return Err(format!("Unknown consistency dimension: {}", dimension)),
         };
         Ok(gate.check(&text, &dim, &project_path))
