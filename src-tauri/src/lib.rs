@@ -165,6 +165,8 @@ pub fn run() {
             novel::anti_ai_rules::get_anti_ai_prompt_text,
             commands::quality_commands::slop_score,
             commands::quality_commands::guardrails_check,
+            commands::consistency_commands::consistency_check,
+            commands::consistency_commands::consistency_check_p0,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
