@@ -163,6 +163,8 @@ pub fn run() {
             commands::status_commands::status_write,
             novel::anti_ai_rules::get_anti_ai_rules,
             novel::anti_ai_rules::get_anti_ai_prompt_text,
+            commands::quality_commands::slop_score,
+            commands::quality_commands::guardrails_check,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
