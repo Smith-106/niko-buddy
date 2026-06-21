@@ -4476,6 +4476,7 @@ dependencies = [
  "md-5",
  "notify",
  "pdfium-render",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

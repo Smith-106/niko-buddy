@@ -64,6 +64,7 @@ md-5 = "0.10"
 notify = "8"
 walkdir = "2"
 tauri-plugin-single-instance = "2"
+regex = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

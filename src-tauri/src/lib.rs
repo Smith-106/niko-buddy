@@ -1,5 +1,6 @@
 mod clip_server;
 mod commands;
+mod novel;
 mod panic_guard;
 mod proxy;
 mod types;
@@ -158,6 +159,8 @@ pub fn run() {
             commands::file_sync::ignore_file_change_task,
             commands::backup::export_backup,
             commands::backup::import_backup,
+            commands::status_commands::status_read,
+            commands::status_commands::status_write,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
