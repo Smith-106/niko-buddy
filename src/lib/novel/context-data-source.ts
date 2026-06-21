@@ -132,6 +132,7 @@ export class DataSourceRegistry {
       cognitionText: "",
       soulDoc: "",
       characterAuras: "",
+      antiAiRules: "",
     }
     return defaults[sourceName] ?? null
   }

@@ -29,6 +29,14 @@ export function buildDeAiSystemPrompt(customSkill?: string): string {
   return buildQmQuaiSystemPrompt(customSkill)
 }
 
+export async function buildDeAiSystemPromptWithRules(customSkill?: string, antiAiRules?: string): Promise<string> {
+  let prompt = buildDeAiSystemPrompt(customSkill)
+  if (antiAiRules && antiAiRules.trim()) {
+    prompt += "\n\n" + antiAiRules
+  }
+  return prompt
+}
+
 export function buildQmQuaiRewriteMessages(content: string, customSkill?: string): ChatMessage[] {
   if (!content.trim()) throw new Error("去AI味内容为空，无法处理")
   return [

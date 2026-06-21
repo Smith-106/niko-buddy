@@ -385,6 +385,23 @@ export const characterAurasDataSource: DataSource<string> = {
 }
 
 /**
+ * Anti-AI 规则数据源
+ * 从 Rust 后端获取 Anti-AI 规则用于预防式 prompt 注入
+ */
+export const antiAiRulesDataSource: DataSource<string> = {
+  name: "antiAiRules",
+  priority: 13,
+  async load(context: ContextLoadContext): Promise<string> {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      return await invoke<string>("get_anti_ai_prompt_text")
+    } catch {
+      return ""
+    }
+  },
+}
+
+/**
  * 获取所有数据源
  */
 export function getAllDataSources(): DataSource<any>[] {
@@ -406,5 +423,6 @@ export function getAllDataSources(): DataSource<any>[] {
     revisionFeedbackDataSource,
     cognitionTextDataSource,
     soulDocDataSource,
+    antiAiRulesDataSource,
   ]
 }

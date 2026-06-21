@@ -29,11 +29,12 @@ const SECTION_PRIORITY: Record<string, number> = {
   "当前伏笔状态": 10,
   "时间线": 11,
   "角色认知状态": 12,
-  "相关地点/组织/物品": 13,
-  "相关记忆检索": 14,
-  "修改反馈": 15,
-  "下一章推进建议": 16,
-  "写作风格": 17,
+  "Anti-AI规则": 13,
+  "相关地点/组织/物品": 14,
+  "相关记忆检索": 15,
+  "修改反馈": 16,
+  "下一章推进建议": 17,
+  "写作风格": 18,
 }
 
 export interface ContextPack {
@@ -57,6 +58,7 @@ export interface ContextPack {
   mustAvoid: string
   nextChapterAdvice: string
   revisionDirectives: string
+  antiAiRules?: string
 }
 
 export async function buildContextPack(
@@ -209,6 +211,7 @@ async function buildContextPackFromRawData(
       searchResults: rawData.searchResults,
     }),
     revisionDirectives,
+    antiAiRules: rawData.antiAiRules || undefined,
   }
 }
 
@@ -350,6 +353,7 @@ function emptyPack(task: string): ContextPack {
     mustAvoid: "",
     nextChapterAdvice: "",
     revisionDirectives: "",
+    antiAiRules: undefined,
   }
 }
 
@@ -1015,6 +1019,11 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
     fieldSections.push({ title: i18n.t(config.titleKey), content })
+  }
+
+  // Anti-AI 规则（预防式注入）
+  if (pack.antiAiRules && pack.antiAiRules.trim()) {
+    fieldSections.push({ title: "## Anti-AI规则", content: pack.antiAiRules })
   }
 
   fieldSections.sort((a, b) => {

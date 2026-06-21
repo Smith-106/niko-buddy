@@ -161,6 +161,8 @@ pub fn run() {
             commands::backup::import_backup,
             commands::status_commands::status_read,
             commands::status_commands::status_write,
+            novel::anti_ai_rules::get_anti_ai_rules,
+            novel::anti_ai_rules::get_anti_ai_prompt_text,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
