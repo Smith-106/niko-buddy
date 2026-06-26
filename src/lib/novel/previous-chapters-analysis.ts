@@ -47,6 +47,7 @@ export async function analyzePreviousChapters(
   // 调用LLM分析
   const { streamChat } = await import("@/lib/llm-client")
   let analysis = ""
+  let streamError: Error | null = null
 
   await streamChat(
     llmConfig,
@@ -54,9 +55,11 @@ export async function analyzePreviousChapters(
     {
       onToken: (token) => { analysis += token },
       onDone: () => {},
-      onError: () => {},
+      onError: (error) => { streamError = error },
     }
   )
+
+  if (streamError) throw streamError
 
   return analysis.trim()
 }

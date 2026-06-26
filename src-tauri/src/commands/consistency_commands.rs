@@ -1,15 +1,16 @@
 use crate::novel::consistency_gate::{ConsistencyGate, ConsistencyDimension, GateResult};
 use crate::panic_guard::run_guarded_async;
+use tauri::State;
 
 /// Check text for consistency in a specific dimension
 #[tauri::command]
 pub async fn consistency_check(
+    gate: State<'_, ConsistencyGate>,
     project_path: String,
     text: String,
     dimension: String,
 ) -> Result<GateResult, String> {
     run_guarded_async("consistency_check", async move {
-        let gate = ConsistencyGate::new();
         let dim = match dimension.as_str() {
             "role_cognition" => ConsistencyDimension::RoleCognition,
             "setting" => ConsistencyDimension::Setting,
@@ -26,11 +27,11 @@ pub async fn consistency_check(
 /// Check all P0 consistency dimensions
 #[tauri::command]
 pub async fn consistency_check_p0(
+    gate: State<'_, ConsistencyGate>,
     project_path: String,
     text: String,
 ) -> Result<Vec<GateResult>, String> {
     run_guarded_async("consistency_check_p0", async move {
-        let gate = ConsistencyGate::new();
         Ok(gate.check_p0(&text, &project_path))
     })
     .await

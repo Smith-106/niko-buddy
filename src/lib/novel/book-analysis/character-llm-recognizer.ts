@@ -9,7 +9,7 @@
 import { streamChat } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { stableCharacterId } from "./character-recognition-engine"
+import { stableCharacterId } from "./character-stable-id"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
 
 // ============================================================

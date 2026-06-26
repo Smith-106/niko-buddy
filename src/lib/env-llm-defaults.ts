@@ -18,7 +18,7 @@ export function loadEnvLlmDefault(): {
   const customEndpoint = trimEnv(import.meta.env.VITE_QMAI_LLM_ENDPOINT)
   const model = trimEnv(import.meta.env.VITE_QMAI_LLM_MODEL)
 
-  if (!apiKey || !customEndpoint || !model) return null
+  if (!customEndpoint || !model) return null
 
   const maxContextSize = readContextSize()
   const config: LlmConfig = {

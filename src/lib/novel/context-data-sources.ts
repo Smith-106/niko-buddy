@@ -298,6 +298,25 @@ export const writingStyleDataSource: DataSource<string> = {
   },
 }
 
+const STYLE_PROFILE_FALLBACK = ""
+
+export const styleProfileDataSource: DataSource<string> = {
+  name: "styleProfile",
+  priority: 19,
+  async load(_context: ContextLoadContext): Promise<string> {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      return await invoke<string>("get_style_profile_text")
+    } catch (error) {
+      console.warn("[DataSource] styleProfile failed to load from Tauri backend:", error)
+      throw error
+    }
+  },
+  async fallback(_context: ContextLoadContext): Promise<string> {
+    return STYLE_PROFILE_FALLBACK
+  },
+}
+
 /**
  * 搜索结果数据源
  */
@@ -387,17 +406,35 @@ export const characterAurasDataSource: DataSource<string> = {
 /**
  * Anti-AI 规则数据源
  * 从 Rust 后端获取 Anti-AI 规则用于预防式 prompt 注入
+ *
+ * load() 在 Tauri 不可用时抛出错误，触发 DataSourceRegistry
+ * 的 fallback 机制返回 ANTI_AI_RULES_FALLBACK。
+ * 这确保非 Tauri 环境（SSR/测试）下仍有有效的 Anti-AI 规则注入。
  */
+const ANTI_AI_RULES_FALLBACK = `[Anti-AI 写作规则（离线回退）]
+1. 禁用AI指纹词：赋能、抓手、底层逻辑、闭环、迭代、全方位
+2. 禁用情感标签：感到一阵/充满了/深深的恐惧/感动 — 改用身体反应
+3. 禁用解释性旁白：因为/毕竟/之所以 — 读者可从上下文推断
+4. 禁用过渡词堆叠：一段话最多一个转折词
+5. 禁用全方位观察：环顾/扫视 + 三个顿号列举
+6. 禁用判定式短句：不是X而是Y / 换句话说 / 这意味着
+7. 禁用万能动词：进行/实施/做出/采取 — 改用具体动词
+8. 禁用总结句结尾：这就是/终于还是/这意味着`
+
 export const antiAiRulesDataSource: DataSource<string> = {
   name: "antiAiRules",
   priority: 13,
-  async load(context: ContextLoadContext): Promise<string> {
+  async load(_context: ContextLoadContext): Promise<string> {
     try {
       const { invoke } = await import("@tauri-apps/api/core")
       return await invoke<string>("get_anti_ai_prompt_text")
-    } catch {
-      return ""
+    } catch (error) {
+      console.warn('[DataSource] antiAiRules failed to load from Tauri backend:', error)
+      throw error
     }
+  },
+  async fallback(_context: ContextLoadContext): Promise<string> {
+    return ANTI_AI_RULES_FALLBACK
   },
 }
 
@@ -418,6 +455,7 @@ export function getAllDataSources(): DataSource<any>[] {
     relatedSettingsDataSource,
     canonRulesDataSource,
     writingStyleDataSource,
+    styleProfileDataSource,
     searchResultsDataSource,
     graphSearchResultsDataSource,
     revisionFeedbackDataSource,

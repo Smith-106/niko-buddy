@@ -1,15 +1,8 @@
-import { createHash } from "crypto"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
+import { stableCharacterId } from "./character-stable-id"
 
-/**
- * 生成稳定 id：基于 name + sourceBook 哈希
- * 同一本书 + 同一角色名 → 同一 id（多次识别结果可复用 / 匹配）
- */
-export function stableCharacterId(name: string, sourceBook: string): string {
-  const seed = `${name}|${sourceBook}`
-  return createHash("sha256").update(seed).digest("hex").slice(0, 12)
-}
+export { stableCharacterId } from "./character-stable-id"
 
 // ============================================================
 // 启发式识别（按章节统计名字频次）

@@ -25,6 +25,7 @@ pub struct GateResult {
 }
 
 /// Main consistency gate orchestrator
+#[derive(Clone)]
 pub struct ConsistencyGate {
     role_checker: RoleCognitionChecker,
     setting_checker: SettingChecker,

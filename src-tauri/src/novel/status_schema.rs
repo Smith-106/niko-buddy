@@ -13,8 +13,15 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use crate::novel::decision_gate::DecisionGate;
+
+/// Lazily compiled regex for session_id validation (novel-YYYYMMDD-HHMMSS).
+/// Avoids recompiling the pattern on every call to `StatusSchema::validate`.
+static SESSION_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^novel-\d{8}-\d{6}$").unwrap()
+});
 
 /// Overall status of a novel-writing session.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,6 +54,8 @@ pub struct StatusSchema {
     pub status: SessionStatus,
     /// Index of the currently active step in task_decomposition, if any.
     pub active_step_index: Option<usize>,
+    /// The current orchestration task id, if a task has been created.
+    pub current_task: Option<String>,
     /// Boundary contract defining scope limits for this session.
     pub boundary_contract: serde_json::Value,
     /// Execution criteria for this session.
@@ -55,10 +64,14 @@ pub struct StatusSchema {
     pub task_decomposition: Vec<serde_json::Value>,
     /// Decision gates keyed by name ("consistency", "anti_ai", "quality").
     pub decision_gates: HashMap<String, DecisionGate>,
+    /// Structured context assembly summary for the current task.
+    pub context_assembly: Option<serde_json::Value>,
     /// Draft state, if a draft is in progress.
     pub draft: Option<serde_json::Value>,
     /// Snapshot of memory state for this session.
     pub memory_snapshot: Option<serde_json::Value>,
+    /// Evidence references produced while the task executes.
+    pub evidence_refs: Vec<String>,
 }
 
 impl StatusSchema {
@@ -74,12 +87,15 @@ impl StatusSchema {
             source,
             status: SessionStatus::Running,
             active_step_index: None,
+            current_task: None,
             boundary_contract: serde_json::Value::Null,
             execution_criteria: Vec::new(),
             task_decomposition: Vec::new(),
             decision_gates: DecisionGate::default_gates(),
+            context_assembly: None,
             draft: None,
             memory_snapshot: None,
+            evidence_refs: Vec::new(),
         }
     }
 
@@ -94,7 +110,7 @@ impl StatusSchema {
         }
 
         // session_id must match novel-YYYYMMDD-HHMMSS
-        let re = regex::Regex::new(r"^novel-\d{8}-\d{6}$").unwrap();
+        let re = &*SESSION_ID_RE;
         if !re.is_match(&self.session_id) {
             return Err(format!(
                 "Invalid session_id: must match pattern novel-YYYYMMDD-HHMMSS, got \"{}\"",
@@ -138,6 +154,17 @@ mod tests {
         assert!(schema.decision_gates.contains_key("consistency"));
         assert!(schema.decision_gates.contains_key("anti_ai"));
         assert!(schema.decision_gates.contains_key("quality"));
+    }
+
+    #[test]
+    fn new_status_has_additive_fields_empty() {
+        let schema = StatusSchema::new(
+            "novel-20260622-143000".to_string(),
+            "qmai".to_string(),
+        );
+        assert!(schema.current_task.is_none());
+        assert!(schema.context_assembly.is_none());
+        assert!(schema.evidence_refs.is_empty());
     }
 
     #[test]

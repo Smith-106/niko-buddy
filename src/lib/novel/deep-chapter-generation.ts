@@ -2,11 +2,14 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { useWikiStore } from "@/stores/wiki-store"
-import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import { runDecisionGates, type GateResultInfo, type GateSummary } from "@/commands/gates"
+import { buildContextPack, buildContextPackEnvelope, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import type { TaskRouteResult } from "./task-router"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
+import type { ContextAssemblyResult } from "./context-assembly"
+import { buildNovelTaskId } from "./novel-task-id"
 import {
   resolveChapterLengthSpec,
   type ChapterLengthSpec,
@@ -38,6 +41,7 @@ export interface DeepChapterGenerationResult {
   taskBrief: string
   draftContent: string
   reviewResults: NovelReviewResult[]
+  gateSummary: GateSummary
   revised: boolean
 }
 
@@ -51,18 +55,23 @@ export type DeepChapterGenerationResumeStage =
 export interface DeepChapterGenerationResumeCheckpoint {
   version: 1
   originalRequest: string
+  taskId?: string
   chapterNumber?: number
   stage: DeepChapterGenerationResumeStage
+  contextAssembly?: ContextAssemblyResult
   taskBrief?: string
   draftContent?: string
   reviewResults?: NovelReviewResult[]
+  gateSummary?: GateSummary
   currentContent?: string
 }
 
 export interface DeepChapterGenerationDeps {
   buildContextPack: typeof buildContextPack
+  buildContextPackEnvelope: typeof buildContextPackEnvelope
   contextPackToPrompt: typeof contextPackToPrompt
   reviewChapter: typeof reviewChapter
+  runDecisionGates: typeof runDecisionGates
   streamChat: (
     config: LlmConfig,
     messages: ChatMessage[],
@@ -74,8 +83,10 @@ export interface DeepChapterGenerationDeps {
 
 const defaultDeps: DeepChapterGenerationDeps = {
   buildContextPack,
+  buildContextPackEnvelope,
   contextPackToPrompt,
   reviewChapter,
+  runDecisionGates,
   streamChat,
 }
 
@@ -84,8 +95,41 @@ const REPEAT_WINDOW_CHARS = 120
 const REPEAT_HIT_LIMIT = 3
 const USER_ABORT_MESSAGE = "已停止生成"
 
+function alignReviewResultsWithGateSummary(
+  reviewResults: NovelReviewResult[],
+  gateSummary: GateSummary,
+): NovelReviewResult[] {
+  const failingGateTypes = new Set(
+    Object.values(gateSummary.gate_results)
+      .filter((gate) => gate.status === "failed")
+      .map((gate) => gate.gate_type),
+  )
+
+  return reviewResults.filter((item) => item.severity !== "error" || failingGateTypes.has(item.type as "consistency" | "anti_ai" | "quality"))
+}
+
 export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, enabled: boolean): boolean {
   return enabled
+}
+
+function buildManualReviewGateSummary(gateSummary: GateSummary): GateSummary {
+  const maxRetry = gateSummary.max_retry || 3
+  return {
+    ...gateSummary,
+    all_passed: false,
+    total_retries: maxRetry,
+    gate_results: Object.fromEntries(
+      Object.entries(gateSummary.gate_results).map(([key, gate]) => [
+        key,
+        gate.status === "failed"
+          ? {
+            ...gate,
+            retry_count: maxRetry,
+          }
+          : gate,
+      ]),
+    ),
+  }
 }
 
 function createResumeCheckpoint(
@@ -97,6 +141,7 @@ function createResumeCheckpoint(
   return {
     version: 1,
     originalRequest,
+    taskId: data.taskId ?? input.resumeCheckpoint?.taskId ?? buildNovelTaskId(input.userRequest, input.chapterNumber),
     chapterNumber: input.resumeCheckpoint?.chapterNumber ?? input.chapterNumber,
     stage,
     ...data,
@@ -132,13 +177,16 @@ function hasCheckpointDraft(
 
 function hasCheckpointReview(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
-): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[] } {
-  return hasCheckpointDraft(checkpoint) && Array.isArray(checkpoint.reviewResults) && checkpointStageAtLeast(checkpoint, "after_review")
+): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], gateSummary: GateSummary } {
+  return hasCheckpointDraft(checkpoint)
+    && Array.isArray(checkpoint.reviewResults)
+    && Boolean(checkpoint.gateSummary)
+    && checkpointStageAtLeast(checkpoint, "after_review")
 }
 
 function hasCheckpointRevision(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
-): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], currentContent: string } {
+): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], gateSummary: GateSummary, currentContent: string } {
   return hasCheckpointReview(checkpoint) && Boolean(checkpoint.currentContent?.trim()) && checkpointStageAtLeast(checkpoint, "after_revision")
 }
 
@@ -153,6 +201,7 @@ export async function runDeepChapterGeneration(
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
   const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
+  const taskId = resumeCheckpoint?.taskId ?? buildNovelTaskId(input.userRequest, input.chapterNumber)
 
   // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
   let customDeAiSkill: string | null = null
@@ -181,11 +230,12 @@ export async function runDeepChapterGeneration(
   }
   assertNotAborted(signal)
 
-  const contextPack = await safeBuildChapterContextPack(
+  const { pack: contextPack, assembly: contextAssembly } = await safeBuildChapterContextPack(
     deps,
     input.projectPath,
     input.userRequest,
     input.chapterNumber,
+    taskId,
   )
   assertNotAborted(signal)
 
@@ -219,7 +269,10 @@ export async function runDeepChapterGeneration(
 
   if (!resumeCheckpoint) {
     callbacks.onThinking?.(formatContextThinking(input, contextPack))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context"))
+    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context", {
+      taskId,
+      contextAssembly,
+    }))
   }
   assertNotAborted(signal)
 
@@ -244,7 +297,11 @@ export async function runDeepChapterGeneration(
     )
     assertNotAborted(signal)
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", {
+      taskId,
+      contextAssembly,
+      taskBrief,
+    }))
   }
 
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
@@ -297,84 +354,141 @@ export async function runDeepChapterGeneration(
       "",
       `初稿生成完成，约 ${countChapterChars(draftContent)} 字。`,
     ].join("\n")))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", { taskBrief, draftContent }))
+    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", {
+      taskId,
+      contextAssembly,
+      taskBrief,
+      draftContent,
+    }))
   }
 
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
+  let gateSummary = hasCheckpointReview(resumeCheckpoint)
+    ? resumeCheckpoint.gateSummary
+    : createEmptyGateSummary()
   if (!hasCheckpointReview(resumeCheckpoint)) {
     callbacks.onThinking?.(formatStageThinking(
-      "阶段4：AI审稿",
-      "正在检查正文完整性、剧情连续性、是否被截断以及是否存在阻断问题。",
+      "阶段4：正式三门控",
+      "正在运行 Consistency、Anti-AI、Quality 三门控，并补充审稿证据。",
     ))
+    gateSummary = await deps.runDecisionGates(input.projectPath, draftContent)
+    assertNotAborted(signal)
     try {
       reviewResults = signal
         ? await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking }, signal)
         : await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking })
     } catch (err) {
-      console.error("[Deep Chapter] Review failed:", err)
+      console.error("[Deep Chapter] Review enrichment failed:", err)
       reviewResults = []
     }
     reviewResults = reviewResults || []
     assertNotAborted(signal)
-    callbacks.onThinking?.(formatReviewThinking(reviewResults))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", { taskBrief, draftContent, reviewResults }))
+    callbacks.onThinking?.(formatGateThinking(gateSummary, reviewResults))
+    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+      taskId,
+      contextAssembly,
+      taskBrief,
+      draftContent,
+      reviewResults,
+      gateSummary,
+    }))
   }
 
-  const blockingIssues = reviewResults.filter((item) => item.severity === "error")
   let currentContent = draftContent
   let revised = false
 
   if (hasCheckpointRevision(resumeCheckpoint)) {
     currentContent = resumeCheckpoint.currentContent.trim()
     revised = true
-  } else if (blockingIssues.length === 0) {
-    callbacks.onThinking?.(formatStageThinking(
-      "阶段5：无需自动返修",
-      "AI审稿未发现阻断问题，跳过自动返修，进入阶段6简单审查与去AI味。",
-    ))
+    gateSummary = resumeCheckpoint.gateSummary
   } else {
-    const revisedContent = await collectModelText(
-      writingConfig,
-      [{
-        role: "user",
-        content: buildDeepChapterRevisionPrompt(
-          outlinePrompt,
-          contextPrompt,
+    let blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
+    if (blockingIssues.length === 0 && gateSummary.all_passed) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5：无需自动返修",
+        "正式三门控已通过，跳过自动返修，进入阶段6简单审查与去AI味。",
+      ))
+    } else {
+      let retryAttempt = 0
+      const maxRetry = gateSummary.max_retry || 3
+      while (blockingIssues.length > 0 && retryAttempt < maxRetry) {
+        retryAttempt += 1
+        const revisedContent = await collectModelText(
+          writingConfig,
+          [{
+            role: "user",
+            content: buildDeepChapterRevisionPrompt(
+              outlinePrompt,
+              contextPrompt,
+              taskBrief,
+              currentContent,
+              blockingIssues,
+              input.userRequest,
+              input.chapterNumber,
+              input.goldenThreeChapter,
+            ),
+          }],
+          deps,
+          signal,
+          (partial) => callbacks.onThinking?.(formatStageThinking(`阶段5：自动返修（${retryAttempt}/${maxRetry}）`, partial)),
+          { max_tokens: lengthSpec.maxOutputTokens },
+        )
+        assertNotAborted(signal)
+        callbacks.onThinking?.(formatStageThinking(
+          `阶段5：自动返修（${retryAttempt}/${maxRetry}）`,
+          [
+            `检测到 ${blockingIssues.length} 个门控阻断问题，已完成第 ${retryAttempt} 次自动返修。`,
+            "",
+            formatReviewIssueList(blockingIssues),
+            "",
+            `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
+          ].join("\n"),
+        ))
+        currentContent = revisedContent
+        revised = true
+        gateSummary = await deps.runDecisionGates(input.projectPath, currentContent)
+        blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
+        callbacks.onThinking?.(formatStageThinking(
+          `阶段5：返修后复核（${retryAttempt}/${maxRetry}）`,
+          formatGateSummaryLines(gateSummary).join("\n"),
+        ))
+        callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+          taskId,
+          contextAssembly,
           taskBrief,
           draftContent,
-          blockingIssues,
-          input.userRequest,
-          input.chapterNumber,
-          input.goldenThreeChapter,
-        ),
-      }],
-      deps,
-      signal,
-      (partial) => callbacks.onThinking?.(formatStageThinking("阶段5：自动返修", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens },
-    )
-    assertNotAborted(signal)
-    callbacks.onThinking?.(formatStageThinking(
-      "阶段5：自动返修",
-      [
-        `检测到 ${blockingIssues.length} 个阻断问题，已自动返修一次。`,
-        "",
-        formatReviewIssueList(blockingIssues),
-        "",
-        `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
-      ].join("\n"),
-    ))
-    currentContent = revisedContent
-    revised = true
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
-      taskBrief,
-      draftContent,
-      reviewResults,
-      currentContent: revisedContent,
-    }))
+          reviewResults,
+          gateSummary,
+          currentContent: revisedContent,
+        }))
+      }
+
+      if (blockingIssues.length > 0) {
+        gateSummary = buildManualReviewGateSummary(gateSummary)
+        callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+          taskId,
+          contextAssembly,
+          taskBrief,
+          draftContent,
+          reviewResults,
+          gateSummary,
+          currentContent,
+        }))
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5：转人工处理",
+          [
+            `达到 max_retry=${gateSummary.max_retry}，仍有阻断问题。`,
+            "该次任务将被标记为 manual review，保留草稿和门控结果供人工处理。",
+            "",
+            formatReviewIssueList(blockingIssues),
+          ].join("\n"),
+        ))
+        throw new Error("MANUAL_REVIEW_REQUIRED")
+      }
+    }
   }
 
-  const finalContent = await finalPolishChapter(
+  const polishedContent = await finalPolishChapter(
     writingConfig,
     outlinePrompt,
     contextPrompt,
@@ -388,6 +502,19 @@ export async function runDeepChapterGeneration(
     customDeAiSkill || undefined,
     lengthSpec,
   )
+  const finalGateSummary = await deps.runDecisionGates(input.projectPath, polishedContent)
+  const finalContent = finalGateSummary.final_text?.trim() || polishedContent
+  const finalReviewResults = alignReviewResultsWithGateSummary(reviewResults, finalGateSummary)
+  callbacks.onThinking?.(formatStageThinking(
+    "阶段7：正式门控收口",
+    [
+      ...formatGateSummaryLines(finalGateSummary),
+      "",
+      finalGateSummary.all_passed
+        ? "pre-commit 三门控已通过。"
+        : "pre-commit 三门控未完全通过，已保留门控结果供后续 accept/reject 流程使用。",
+    ].join("\n"),
+  ))
   callbacks.onThinking?.(formatStageThinking(
     "阶段7：完成",
     revised
@@ -399,7 +526,8 @@ export async function runDeepChapterGeneration(
     finalContent,
     taskBrief,
     draftContent,
-    reviewResults,
+    reviewResults: finalReviewResults,
+    gateSummary: finalGateSummary,
     revised,
   }
 }
@@ -608,18 +736,78 @@ function formatContextThinking(input: DeepChapterGenerationInput, pack: ContextP
   )
 }
 
-function formatReviewThinking(reviewResults: NovelReviewResult[]): string {
-  if (reviewResults.length === 0) {
-    return formatStageThinking("阶段4：AI审稿", "未发现阻断问题。")
+function createEmptyGateSummary(): GateSummary {
+  return {
+    all_passed: true,
+    gate_results: {},
+    total_retries: 0,
+    max_retry: 3,
+    final_text: null,
   }
+}
+
+function collectBlockingIssues(gateSummary: GateSummary, reviewResults: NovelReviewResult[]): NovelReviewResult[] {
+  void reviewResults
+  const gateIssues = Object.values(gateSummary.gate_results)
+    .filter((gate) => gate.status === "failed")
+    .flatMap((gate) => gateResultToReviewIssues(gate))
+  return gateIssues
+}
+
+function gateResultToReviewIssues(gate: GateResultInfo): NovelReviewResult[] {
+  const findings = [...gate.mechanical_findings, ...gate.semantic_findings]
+  if (findings.length === 0 && gate.status === "failed") {
+    return [{
+      severity: "error",
+      type: gate.gate_type,
+      message: `${gate.gate_type} 门控未通过`,
+      evidence: gate.findings_desc.join("；"),
+      relatedMemory: "",
+      suggestion: "按门控结果返修后重跑正式 gates。",
+    }]
+  }
+
+  return findings.map((finding) => ({
+    severity: finding.severity === "warning" ? "warning" : "error",
+    type: gate.gate_type,
+    message: `${gate.gate_type}：${finding.description}`,
+    evidence: finding.location ?? "",
+    relatedMemory: "",
+    suggestion: finding.suggestion ?? "按门控结果返修正文。",
+  }))
+}
+
+function formatGateThinking(gateSummary: GateSummary, reviewResults: NovelReviewResult[]): string {
+  const blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
   return formatStageThinking(
-    "阶段4：AI审稿",
+    "阶段4：正式三门控",
     [
-      `发现 ${reviewResults.length} 个问题，其中阻断问题 ${reviewResults.filter((item) => item.severity === "error").length} 个。`,
+      ...formatGateSummaryLines(gateSummary),
       "",
-      formatReviewIssueList(reviewResults),
-    ].join("\n"),
+      blockingIssues.length === 0
+        ? "未发现阻断问题。"
+        : `发现 ${blockingIssues.length} 个阻断问题。`,
+      blockingIssues.length > 0 ? "" : "",
+      blockingIssues.length > 0 ? formatReviewIssueList(blockingIssues) : "",
+    ].filter(Boolean).join("\n"),
   )
+}
+
+function formatGateSummaryLines(gateSummary: GateSummary): string[] {
+  const gateOrder: Array<keyof GateSummary["gate_results"] | "consistency" | "anti_ai" | "quality"> = [
+    "consistency",
+    "anti_ai",
+    "quality",
+  ]
+  const lines = gateOrder
+    .map((key) => {
+      const gate = gateSummary.gate_results[key]
+      if (!gate) return ""
+      return `- ${key}: ${gate.status}，score ${gate.score.toFixed(1)}，findings ${gate.finding_count}，retry ${gate.retry_count}`
+    })
+    .filter(Boolean)
+  if (lines.length === 0) return ["- 暂无门控结果"]
+  return lines
 }
 
 function formatStageThinking(title: string, content: string): string {
@@ -679,31 +867,46 @@ async function safeBuildChapterContextPack(
   projectPath: string,
   userRequest: string,
   chapterNumber?: number,
-): Promise<ContextPack> {
+  taskId?: string,
+): Promise<{ pack: ContextPack, assembly: ContextAssemblyResult }> {
   try {
-    return await deps.buildContextPack(projectPath, userRequest, chapterNumber)
+    return await deps.buildContextPackEnvelope(projectPath, userRequest, chapterNumber)
   } catch {
     return {
-      task: userRequest,
-      chapterGoal: "",
-      outline: "",
-      recentSummaries: [],
-      previousChapterEnding: "",
-      characterStates: "",
-      soulDoc: "",
-      characterAuras: "",
-      cognitionStates: "",
-      foreshadowingStates: "",
-      timeline: "",
-      relatedSettings: "",
-      canonRules: "",
-      writingStyle: "",
-      searchResults: "",
-      graphSearchResults: "",
-      mustDo: "",
-      mustAvoid: "",
-      nextChapterAdvice: "",
-      revisionDirectives: "",
+      pack: {
+        task: userRequest,
+        chapterGoal: "",
+        outline: "",
+        recentSummaries: [],
+        previousChapterEnding: "",
+        characterStates: "",
+        soulDoc: "",
+        characterAuras: "",
+        cognitionStates: "",
+        foreshadowingStates: "",
+        timeline: "",
+        relatedSettings: "",
+        canonRules: "",
+        writingStyle: "",
+        searchResults: "",
+        graphSearchResults: "",
+        mustDo: "",
+        mustAvoid: "",
+        nextChapterAdvice: "",
+        revisionDirectives: "",
+      },
+      assembly: {
+        task_id: taskId ?? "tsk-context-fallback",
+        sources: [],
+        token_budget: null,
+        estimated_tokens: 0,
+        prompt_chars: 0,
+        hard_constraints: [
+          "不能越过角色认知边界",
+          "禁止改写正式正文",
+        ],
+        gaps: ["context_assembly_failed"],
+      },
     }
   }
 }

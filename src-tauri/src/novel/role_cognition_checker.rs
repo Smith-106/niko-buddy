@@ -3,6 +3,7 @@ use crate::novel::types::Finding;
 /// Role cognition consistency checker (P0 dimension)
 /// Mechanical: regex-based contradiction detection
 /// Semantic: reserved for LLM-based behavioral consistency check (stub)
+#[derive(Clone)]
 pub struct RoleCognitionChecker {
     /// Patterns that indicate contradiction in character knowledge
     contradiction_patterns: Vec<(String, String)>,  // (pattern, description)

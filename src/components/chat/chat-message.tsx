@@ -16,6 +16,7 @@ import { refreshProjectState } from "@/lib/project-refresh"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import type { DisplayMessage } from "@/stores/chat-store"
+import { parseAgentResponse, type FileEditAction } from "@/lib/novel/agent-parser"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
@@ -25,6 +26,8 @@ import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { canContinueUnfinishedDeepChapter } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
+import type { DraftStatus } from "@/lib/novel/draft-state-machine"
+import type { DeepSessionStatusExplanation } from "@/lib/novel/novel-session-status"
 
 interface ChatMessageProps {
   message: DisplayMessage
@@ -32,16 +35,36 @@ interface ChatMessageProps {
   onRegenerate?: () => void
   novelMode?: boolean
   projectPath?: string | null
-  onSaveAsChapter?: (content: string) => void
+  onAcceptDraft?: () => void
+  onRejectDraft?: () => void
   onContinueNextChapter?: () => void
   onContinueUnfinished?: () => void
   onSaveAsDraft?: (content: string) => void
   onDiscardDraft?: () => void
+  draftStatus?: DraftStatus | null
+  sessionExplanation?: DeepSessionStatusExplanation | null
   saveStatus?: string
   isSaving?: boolean
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, saveStatus, isSaving }: ChatMessageProps) {
+function draftStatusLabel(status?: DraftStatus | null): string | null {
+  switch (status) {
+    case "pending":
+      return "草稿状态：pending"
+    case "ready":
+      return "草稿状态：ready"
+    case "accepted":
+      return "草稿状态：accepted"
+    case "rejected":
+      return "草稿状态：rejected"
+    case "superseded":
+      return "草稿状态：superseded"
+    default:
+      return null
+  }
+}
+
+export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onAcceptDraft, onRejectDraft, onContinueNextChapter, onContinueUnfinished, draftStatus, sessionExplanation, saveStatus, isSaving }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
@@ -93,14 +116,24 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
-            {novelMode && isLastAssistant && onSaveAsChapter && (
+            {novelMode && isLastAssistant && onAcceptDraft && (
               <button
                 type="button"
-                onClick={() => onSaveAsChapter(message.content)}
+                onClick={onAcceptDraft}
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
               >
-                {isSaving ? "保存中..." : "保存到章节库"}
+                {isSaving ? "处理中..." : "接受草稿"}
+              </button>
+            )}
+            {novelMode && isLastAssistant && onRejectDraft && (
+              <button
+                type="button"
+                onClick={onRejectDraft}
+                disabled={isSaving}
+                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {isSaving ? "处理中..." : "拒绝草稿"}
               </button>
             )}
             {novelMode && isLastAssistant && onContinueNextChapter && (
@@ -141,6 +174,16 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
         )}
         {saveStatus && (
           <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
+        )}
+        {isAssistant && novelMode && isLastAssistant && (
+          <div className="flex flex-col gap-0.5">
+            {sessionExplanation?.detail && (
+              <p className="text-[11px] text-muted-foreground/80">{sessionExplanation.detail}</p>
+            )}
+            {draftStatusLabel(draftStatus) && (
+              <p className="text-[11px] text-muted-foreground/80">{draftStatusLabel(draftStatus)}</p>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -524,11 +567,14 @@ function extractCitedPages(text: string): CitedPage[] {
 
 interface StreamingMessageProps {
   content: string
+  draftStatus?: DraftStatus | null
+  sessionExplanation?: DeepSessionStatusExplanation | null
 }
 
-export function StreamingMessage({ content }: StreamingMessageProps) {
+export function StreamingMessage({ content, draftStatus, sessionExplanation }: StreamingMessageProps) {
   const { thinking, answer } = useMemo(() => separateThinking(content), [content])
   const isThinking = thinking !== null && answer.length === 0
+  const statusLabel = draftStatusLabel(draftStatus)
 
   return (
     <div className="flex gap-2 flex-row">
@@ -542,6 +588,16 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
           <>
             {thinking && <ThinkingBlock content={thinking} />}
             <MarkdownContent content={answer} />
+            {(sessionExplanation?.detail || statusLabel) && (
+              <div className="mt-1 flex flex-col gap-0.5">
+                {sessionExplanation?.detail && (
+                  <p className="text-[11px] text-muted-foreground/80">{sessionExplanation.detail}</p>
+                )}
+                {statusLabel && (
+                  <p className="text-[11px] text-muted-foreground/80">{statusLabel}</p>
+                )}
+              </div>
+            )}
             <span className="animate-pulse">▊</span>
           </>
         )}
@@ -556,11 +612,10 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   const [dismissed, setDismissed] = useState(false)
 
   const parsed = useMemo(() => {
-    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
     return parseAgentResponse(content)
   }, [content])
 
-  const handleApply = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+  const handleApply = useCallback(async (edits: FileEditAction[]) => {
     if (!projectPath) return []
     const { applyFileEdits } = await import("@/lib/novel/agent-tools")
     const editResults = await applyFileEdits(projectPath, edits)
@@ -720,7 +775,7 @@ function StreamingThinkingBlock({ content }: { content: string }) {
   return (
     <div className="rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 px-2.5 py-2 min-h-[3rem]">
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="text-sm animate-pulse">💭</span>
+        <span className="text-sm animate-pulse">??</span>
         <span className="text-xs font-medium text-amber-700 dark:text-amber-400">思考中...</span>
       </div>
       <div className="max-h-72 overflow-y-auto pr-1 text-xs text-amber-800/70 dark:text-amber-300/60 font-mono leading-relaxed whitespace-pre-wrap break-words">
@@ -746,7 +801,7 @@ function ThinkingBlock({ content }: { content: string }) {
   return (
     <div className="mb-2 rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 min-h-[3rem]">
       <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-        <span className="text-sm">💭</span>
+        <span className="text-sm">??</span>
         <span className="font-medium">思考过程</span>
         <span className="text-[10px] text-amber-600/60 dark:text-amber-500/60">{paragraphs.length} 段</span>
       </div>

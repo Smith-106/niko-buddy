@@ -60,6 +60,7 @@ import { isTauri } from "@/lib/platform"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
+import { saveNovelMode } from "@/lib/project-store"
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
@@ -473,6 +474,7 @@ export function SidebarPanel() {
   const setSelectedMemoryCenterEntry = useWikiStore((s) => s.setSelectedMemoryCenterEntry)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileTree = useWikiStore((s) => s.setFileTree)
+  const setNovelMode = useWikiStore((s) => s.setNovelMode)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
@@ -933,6 +935,10 @@ export function SidebarPanel() {
     setCreating(true)
     try {
       const projectPath = normalizePath(project.path)
+      if (!novelMode) {
+        setNovelMode(true)
+        await saveNovelMode(true, project.id, projectPath)
+      }
       const chaptersRoot = `${projectPath}/wiki/chapters`
       const targetDir = parentDir ?? chaptersRoot
       await createDirectory(chaptersRoot).catch(() => {})

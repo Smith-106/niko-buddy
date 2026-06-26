@@ -19,7 +19,7 @@ import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
-import { stableCharacterId } from "./character-recognition-engine"
+import { stableCharacterId } from "./character-stable-id"
 
 export interface CharacterExtractionInput {
   bookPath: string

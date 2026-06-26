@@ -40,8 +40,13 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
  * land in exactly one bucket and don't slip through.
  */
 export function hasUsableLlm(
-  cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">,
+  cfg: Pick<LlmConfig, "provider" | "apiKey" | "model" | "customEndpoint" | "ollamaUrl">,
 ): boolean {
+  const model = cfg.model.trim()
+  if (!model) return false
+  if (cfg.provider === "custom") return cfg.customEndpoint.trim().length > 0
+  if (cfg.provider === "ollama") return cfg.ollamaUrl.trim().length > 0
+  if (cfg.provider === "claude-code" || cfg.provider === "codex-cli") return true
   if (PROVIDERS_WITHOUT_KEY.has(cfg.provider)) return true
   return cfg.apiKey.trim().length > 0 && cfg.model.trim().length > 0
 }

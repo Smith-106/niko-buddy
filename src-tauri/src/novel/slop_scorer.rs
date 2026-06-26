@@ -29,6 +29,7 @@ pub struct SlopReport {
     pub category_breakdown: HashMap<String, f32>,
 }
 
+#[derive(Debug, Clone)]
 pub struct SlopScorer {
     rules: Vec<SlopRule>,
 }
@@ -166,12 +167,9 @@ impl SlopScorer {
                 continue;
             }
 
-            let matches: Vec<&str> = rule.regex.find_iter(text).map(|m| m.as_str()).take(5).collect();
-            let count = if matches.is_empty() {
-                0
-            } else {
-                rule.regex.find_iter(text).count()
-            };
+            let all_matches: Vec<_> = rule.regex.find_iter(text).collect();
+            let count = all_matches.len();
+            let matches: Vec<&str> = all_matches.iter().take(5).map(|m| m.as_str()).collect();
 
             if count > 0 {
                 let weighted = (count as f32).ln_1p() * rule.weight;
@@ -187,14 +185,24 @@ impl SlopScorer {
         }
 
         let raw_score: f32 = category_breakdown.values().sum();
-        // Normalize to 0-100: raw_score / total_weight * scaling_factor
-        let score = (raw_score / total_weight * 100.0).min(100.0);
+        let score = Self::normalize_score(raw_score, total_weight);
 
         SlopReport {
             score,
             findings,
             category_breakdown,
         }
+    }
+
+    /// Normalize raw slop score to 0-100 using Michaelis-Menten curve.
+    ///
+    /// Unlike linear normalization (raw/total*100), this spreads scores more
+    /// evenly across the range. With `scaling = total_weight * 0.4`, a text
+    /// hitting all categories once lands around 70 (not 100), and moderate
+    /// slop lands in the 30-50 range (matching the 45 threshold better).
+    fn normalize_score(raw: f32, total_weight: f32) -> f32 {
+        let scaling = total_weight * 0.4;
+        (raw / (raw + scaling) * 100.0).min(100.0)
     }
 
     /// Heuristic detection for non-regex rules

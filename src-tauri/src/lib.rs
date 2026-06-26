@@ -6,6 +6,10 @@ mod proxy;
 mod types;
 
 use panic_guard::run_guarded;
+use novel::slop_scorer::SlopScorer;
+use novel::chapter_guardrails::ChapterGuardrails;
+use novel::consistency_gate::ConsistencyGate;
+use novel::decision_gate::DecisionGateOrchestrator;
 
 #[tauri::command]
 fn clip_server_status() -> String {
@@ -51,8 +55,26 @@ fn set_proxy_env(config: proxy::ProxyConfig) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let mut context = tauri::generate_context!();
+    let builder = tauri::Builder::default();
+    // Manual acceptance often needs a source-built dev instance to run
+    // alongside the packaged app. Allow an env flag to bypass the
+    // single-instance redirect without changing production behavior.
+    let disable_single_instance = std::env::var("QMAI_DISABLE_SINGLE_INSTANCE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false);
+    let remote_debugging_port = std::env::var("QMAI_WEBVIEW_REMOTE_DEBUG_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok());
+    if disable_single_instance {
+        if let Some(window) = context.config_mut().app.windows.first_mut() {
+            window.create = false;
+        }
+    }
+    let builder = if disable_single_instance {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
@@ -60,6 +82,9 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+    };
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -69,7 +94,31 @@ pub fn run() {
         // from Rust, never the webview.
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
+            if disable_single_instance {
+                use tauri::{Manager, WebviewWindowBuilder};
+
+                if app.get_webview_window("main").is_none() {
+                    let Some(window_config) = app.config().app.windows.first().cloned() else {
+                        return Err("missing main window config".into());
+                    };
+                    let data_dir = app
+                        .path()
+                        .local_data_dir()?
+                        .join("com.qingmuai.writer")
+                        .join("EBWebView-dev");
+                    let mut window_builder = WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                        .data_directory(data_dir);
+                    if let Some(port) = remote_debugging_port {
+                        let browser_args = format!("--remote-debugging-port={port}");
+                        eprintln!(
+                            "[webview] enabling dev remote debugging on http://127.0.0.1:{port}"
+                        );
+                        window_builder = window_builder.additional_browser_args(&browser_args);
+                    }
+                    window_builder.build()?;
+                }
+            }
             // Let the PDF extractor find the bundled pdfium dynamic
             // library via Tauri's platform-correct resource path.
             use tauri::Manager;
@@ -103,6 +152,10 @@ pub fn run() {
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::file_sync::FileSyncState::default());
+            app.manage(SlopScorer::new());
+            app.manage(ChapterGuardrails::default());
+            app.manage(ConsistencyGate::new());
+            app.manage(DecisionGateOrchestrator::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -202,7 +255,7 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             #[cfg(target_os = "macos")]

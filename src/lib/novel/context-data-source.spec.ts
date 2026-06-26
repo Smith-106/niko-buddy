@@ -51,4 +51,41 @@ describe("DataSourceRegistry", () => {
     expect(loaded.fallbackRecentSummaries).toEqual([])
     expect(loaded.outline).toBe("")
   })
+
+  it("provides a default empty styleProfile payload", async () => {
+    const registry = new DataSourceRegistry()
+    registry.register({
+      name: "styleProfile",
+      priority: 1,
+      load: async () => undefined,
+    })
+
+    const loaded = await registry.loadAll(context)
+
+    expect(loaded.styleProfile).toBe("")
+  })
+
+  it("records fallback status when a datasource throws and fallback succeeds", async () => {
+    const registry = new DataSourceRegistry()
+    const styleProfileSource: DataSource<string> = {
+      name: "styleProfile",
+      priority: 19,
+      load: async () => {
+        throw new Error("tauri unavailable")
+      },
+      fallback: async () => "",
+    }
+
+    registry.register(styleProfileSource)
+    const report = await registry.loadAllWithReport(context)
+
+    expect(report.data.styleProfile).toBe("")
+    expect(report.results).toEqual([
+      expect.objectContaining({
+        name: "styleProfile",
+        priority: 19,
+        status: "fallback",
+      }),
+    ])
+  })
 })

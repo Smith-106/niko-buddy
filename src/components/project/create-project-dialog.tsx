@@ -12,10 +12,11 @@ import { getTemplate } from "@/lib/templates"
 import type { WikiProject } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
-import { saveOutputLanguage } from "@/lib/project-store"
+import { saveNovelMode, saveOutputLanguage } from "@/lib/project-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { getWebFs } from "@/lib/web-fs"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
+import { createDefaultNovelProjectMeta, saveNovelProjectMeta } from "@/lib/novel/project-meta"
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -96,17 +97,19 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       const project = await createProject(name.trim(), parentDir)
       const pp = normalizePath(project.path)
 
+      const template = getTemplate("reading")
       if (isTauri()) {
-        const template = getTemplate("general")
         await writeFile(`${pp}/schema.md`, template.schema)
         await writeFile(`${pp}/purpose.md`, template.purpose)
         for (const dir of template.extraDirs) {
           await createDirectory(`${pp}/${dir}`)
         }
       } else {
-        const template = getTemplate("general")
         await getWebFs().initProjectWithTemplate(pp, template)
       }
+
+      await saveNovelProjectMeta(pp, createDefaultNovelProjectMeta(project.name))
+      await saveNovelMode(true, project.id, pp)
 
       const lang: OutputLanguage = "Chinese"
       setOutputLanguage(lang)

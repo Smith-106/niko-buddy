@@ -23,6 +23,7 @@ import {
   collectWebResearch,
   shouldUseWebResearch,
 } from "@/lib/web-research"
+import { parseAgentResponse, type FileEditAction } from "@/lib/novel/agent-parser"
 
 async function loadOutlineContext(projectPath: string): Promise<{ context: string; sources: string[] }> {
   const pp = normalizePath(projectPath)
@@ -126,13 +127,12 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
   const actionContent = answer || displayContent
 
   // Parse for file edits
-  const parsed = useMemo(() => {
-    if (!answer) return { textContent: "", edits: [], hasEdits: false }
-    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
-    return parseAgentResponse(answer)
-  }, [answer])
+  const parsed = useMemo(
+    () => (answer ? parseAgentResponse(answer) : { textContent: "", edits: [], hasEdits: false }),
+    [answer],
+  )
 
-  const handleApplyEdits = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+  const handleApplyEdits = useCallback(async (edits: FileEditAction[]) => {
     if (!projectPath) return []
     const { applyFileEdits } = await import("@/lib/novel/agent-tools")
     const results = await applyFileEdits(projectPath, edits)

@@ -9,6 +9,7 @@
 export interface ContextLoadContext {
   projectPath: string
   task: string
+  taskId?: string
   chapterNumber?: number
   config: {
     recentSummaryWindow: number
@@ -35,6 +36,13 @@ interface DataSourceResult {
   name: string
   value: any
   error: Error | null
+  priority: number
+  status: "loaded" | "fallback" | "defaulted"
+}
+
+export interface DataSourceLoadReport {
+  data: Record<string, any>
+  results: DataSourceResult[]
 }
 
 /**
@@ -64,7 +72,7 @@ export class DataSourceRegistry {
    * 并发加载所有数据源
    * 单个数据源失败不会影响整体加载
    */
-  async loadAll(context: ContextLoadContext): Promise<Record<string, any>> {
+  async loadAllWithReport(context: ContextLoadContext): Promise<DataSourceLoadReport> {
     const sources = Array.from(this.sources.values())
 
     const promises = sources.map(async (source): Promise<DataSourceResult> => {
@@ -73,7 +81,13 @@ export class DataSourceRegistry {
         const value = loadedValue === undefined || loadedValue === null
           ? this.getDefaultValue(source.name)
           : loadedValue
-        return { name: source.name, value, error: null }
+        return {
+          name: source.name,
+          value,
+          error: null,
+          priority: source.priority,
+          status: loadedValue === undefined || loadedValue === null ? "defaulted" : "loaded",
+        }
       } catch (error) {
         console.warn(`[DataSource] ${source.name} failed to load:`, error)
         
@@ -82,13 +96,21 @@ export class DataSourceRegistry {
           const fallbackValue = source.fallback 
             ? await source.fallback(context) 
             : this.getDefaultValue(source.name)
-          return { name: source.name, value: fallbackValue, error: error as Error }
+          return {
+            name: source.name,
+            value: fallbackValue,
+            error: error as Error,
+            priority: source.priority,
+            status: "fallback",
+          }
         } catch (fallbackError) {
           console.warn(`[DataSource] ${source.name} fallback also failed:`, fallbackError)
           return { 
             name: source.name, 
             value: this.getDefaultValue(source.name), 
-            error: fallbackError as Error 
+            error: fallbackError as Error,
+            priority: source.priority,
+            status: "defaulted",
           }
         }
       }
@@ -96,11 +118,21 @@ export class DataSourceRegistry {
 
     const results = await Promise.all(promises)
 
-    // 转换为记录对象
-    return results.reduce((acc, { name, value }) => {
+    const data = results.reduce((acc, { name, value }) => {
       acc[name] = value
       return acc
     }, {} as Record<string, any>)
+
+    return { data, results }
+  }
+
+  /**
+   * 并发加载所有数据源
+   * 单个数据源失败不会影响整体加载
+   */
+  async loadAll(context: ContextLoadContext): Promise<Record<string, any>> {
+    const report = await this.loadAllWithReport(context)
+    return report.data
   }
 
   /**
@@ -126,6 +158,7 @@ export class DataSourceRegistry {
       relatedSettings: "",
       canonRules: "",
       writingStyle: "",
+      styleProfile: "",
       searchResults: "",
       graphSearchResults: "",
       revisionFeedback: [],

@@ -3,6 +3,7 @@ use crate::novel::types::Finding;
 /// Setting/Worldview consistency checker (P0 dimension)
 /// Mechanical: detects setting violations via keyword patterns
 /// Semantic: reserved for LLM-based internal logic check (stub)
+#[derive(Clone)]
 pub struct SettingChecker {
     /// Era-specific violation patterns
     era_violations: Vec<(String, String)>,  // (pattern, description)

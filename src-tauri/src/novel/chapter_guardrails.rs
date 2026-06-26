@@ -19,6 +19,7 @@ pub struct GuardResult {
     pub suggestions: Vec<Suggestion>,
 }
 
+#[derive(Debug, Clone)]
 pub struct ChapterGuardrails {
     pub threshold: f32,
     scorer: SlopScorer,

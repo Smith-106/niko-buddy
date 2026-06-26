@@ -130,6 +130,11 @@ describe("stableCharacterId", () => {
     expect(a).toBe(b)
   })
 
+  it("保持和旧 sha256 截断实现兼容", () => {
+    expect(stableCharacterId("A", "B")).toBe("cfb6e8834699")
+    expect(stableCharacterId("许七安", "长夜书")).toBe("541f2e3dd156")
+  })
+
   it("不同 name 或不同 sourceBook 生成不同 id", () => {
     expect(stableCharacterId("许七安", "长夜书")).not.toBe(stableCharacterId("临安", "长夜书"))
     expect(stableCharacterId("许七安", "长夜书")).not.toBe(stableCharacterId("许七安", "其他书"))

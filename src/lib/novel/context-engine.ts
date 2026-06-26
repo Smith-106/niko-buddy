@@ -13,8 +13,9 @@ import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, type ContextLoadContext } from "./context-data-source"
+import { DataSourceRegistry, type ContextLoadContext, type DataSourceLoadReport } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
+import type { ContextAssemblyResult, ContextAssemblySource } from "./context-assembly"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -52,6 +53,7 @@ export interface ContextPack {
   relatedSettings: string
   canonRules: string
   writingStyle: string
+  styleProfile?: string
   searchResults: string
   graphSearchResults: string
   mustDo: string
@@ -61,28 +63,53 @@ export interface ContextPack {
   antiAiRules?: string
 }
 
+export interface ContextPackEnvelope {
+  pack: ContextPack
+  assembly: ContextAssemblyResult
+}
+
 export async function buildContextPack(
   projectPath: string,
   task: string,
   chapterNumber?: number,
 ): Promise<ContextPack> {
+  const envelope = await buildContextPackEnvelope(projectPath, task, chapterNumber)
+  return envelope.pack
+}
+
+export async function buildContextPackEnvelope(
+  projectPath: string,
+  task: string,
+  chapterNumber?: number,
+): Promise<ContextPackEnvelope> {
   const pp = normalizePath(projectPath)
   const novelMode = useWikiStore.getState().novelMode
   if (!novelMode) {
-    return emptyPack(task)
+    const pack = emptyPack(task)
+    return {
+      pack,
+      assembly: {
+        task_id: "tsk-context-disabled",
+        sources: [],
+        token_budget: null,
+        estimated_tokens: 0,
+        prompt_chars: 0,
+        hard_constraints: [
+          "不能越过角色认知边界",
+          "禁止改写正式正文",
+        ],
+        gaps: ["novel_mode_disabled"],
+      },
+    }
   }
 
-  // 构建加载上下文
   const context = buildLoadContext(pp, task, chapterNumber)
-  
-  // 创建数据源注册器并加载所有数据
   const registry = createDataSourceRegistry()
-  const rawData = await registry.loadAll(context)
-  
-  // 从原始数据构建上下文包
-  return buildContextPackFromRawData(rawData, context)
+  const loadReport = await registry.loadAllWithReport(context)
+  const pack = await buildContextPackFromRawData(loadReport.data, context)
+  const assembly = buildContextAssemblyResult(pack, context, loadReport)
+  return { pack, assembly }
 }
-
 /**
  * 构建加载上下文配置
  */
@@ -97,6 +124,7 @@ function buildLoadContext(
   return {
     projectPath,
     task,
+    taskId: chapterNumber ? `ctx-ch${String(chapterNumber).padStart(3, "0")}` : "ctx-generic",
     chapterNumber: chapterNumber ?? extractChapterNumberFromTask(task),
     config: {
       recentSummaryWindow: novelConfig.recentSummaryWindow > 0 ? novelConfig.recentSummaryWindow : 8,
@@ -107,6 +135,62 @@ function buildLoadContext(
   }
 }
 
+function estimatePromptTokens(text: string): number {
+  if (!text) return 0
+  return Math.ceil(text.length / 4)
+}
+
+function buildContextAssemblySources(results: DataSourceLoadReport["results"]): ContextAssemblySource[] {
+  return results
+    .slice()
+    .sort((a, b) => a.priority - b.priority)
+    .map((result) => ({
+      type: result.name,
+      ref: `context/${result.name}`,
+      priority: result.priority,
+      status: result.status,
+    }))
+}
+
+function buildContextAssemblyGaps(pack: ContextPack, results: DataSourceLoadReport["results"]): string[] {
+  const gaps = new Set<string>()
+
+  for (const result of results) {
+    if (result.error) {
+      gaps.add(`${result.name}:${result.status}`)
+    }
+  }
+
+  if (!pack.chapterGoal.trim()) gaps.add("missing:chapter_goal")
+  if (!pack.outline.trim()) gaps.add("missing:outline")
+  if (!pack.canonRules.trim()) gaps.add("missing:canon_rules")
+  if (!pack.mustAvoid.trim()) gaps.add("missing:must_avoid")
+  if (!pack.mustDo.trim()) gaps.add("missing:must_do")
+  if (!pack.cognitionStates.trim()) gaps.add("missing:cognition_states")
+
+  return Array.from(gaps)
+}
+
+function buildContextAssemblyResult(
+  pack: ContextPack,
+  context: ContextLoadContext,
+  loadReport: DataSourceLoadReport,
+): ContextAssemblyResult {
+  const tokenBudget = useWikiStore.getState().novelConfig.contextTokenBudget
+  const promptPreview = contextPackToPrompt(pack, tokenBudget > 0 ? tokenBudget : undefined)
+  return {
+    task_id: context.taskId ?? "ctx-generic",
+    sources: buildContextAssemblySources(loadReport.results),
+    token_budget: tokenBudget > 0 ? tokenBudget : null,
+    estimated_tokens: estimatePromptTokens(promptPreview),
+    prompt_chars: promptPreview.length,
+    hard_constraints: [
+      "不能越过角色认知边界",
+      "禁止改写正式正文",
+    ],
+    gaps: buildContextAssemblyGaps(pack, loadReport.results),
+  }
+}
 /**
  * 创建并配置数据源注册器
  */
@@ -198,6 +282,7 @@ async function buildContextPackFromRawData(
     relatedSettings: rawData.relatedSettings,
     canonRules: rawData.canonRules,
     writingStyle: rawData.writingStyle,
+    styleProfile: rawData.styleProfile || undefined,
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
@@ -347,6 +432,7 @@ function emptyPack(task: string): ContextPack {
     relatedSettings: "",
     canonRules: "",
     writingStyle: "",
+    styleProfile: undefined,
     searchResults: "",
     graphSearchResults: "",
     mustDo: "",
@@ -995,6 +1081,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.relatedSettings", fieldKey: "relatedSettings" },
   { titleKey: "novel.contextPack.canonRules", fieldKey: "canonRules" },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle" },
+  { titleKey: "novel.contextPack.styleProfile", fieldKey: "styleProfile" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
 ]

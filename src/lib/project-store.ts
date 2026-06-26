@@ -353,11 +353,15 @@ export async function saveNovelMode(mode: boolean, projectId?: string, projectPa
   await store.set(NOVEL_MODE_KEY, mode)
   if (projectPath) {
     try {
-      const { saveNovelProjectMeta, loadNovelProjectMeta } = await import("@/lib/novel/project-meta")
+      const { createDefaultNovelProjectMeta, saveNovelProjectMeta, loadNovelProjectMeta } = await import("@/lib/novel/project-meta")
       const existing = await loadNovelProjectMeta(projectPath)
-      if (existing) {
-        await saveNovelProjectMeta(projectPath, { ...existing, novelMode: mode })
-      }
+      const title = normalizePath(projectPath).split("/").filter(Boolean).pop() ?? "Novel"
+      await saveNovelProjectMeta(
+        projectPath,
+        existing
+          ? { ...existing, novelMode: mode }
+          : { ...createDefaultNovelProjectMeta(title), novelMode: mode },
+      )
     } catch {
       // non-critical
     }

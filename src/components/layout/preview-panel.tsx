@@ -13,7 +13,7 @@ import { FilePreview } from "@/components/editor/file-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
-import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus } from "@/lib/novel/chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -26,6 +26,7 @@ import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
+import { commitDraftToFormalLayer, readNovelDraftFromStatus } from "@/lib/novel/draft-decision"
 import {
   buildPolishSelectionMessages,
   rebuildChapterBody,
@@ -612,39 +613,49 @@ export function PreviewPanel() {
         saveTimerRef.current = null
       }
 
-      const updatedMarkdown = updateChapterStatus(fileContent, "final")
-      const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown)
-      const targetPath = syncResult.targetPath
-      savePath = targetPath
-      lastLoadedRef.current = syncResult.markdown
-      setFileContent(syncResult.markdown)
+      const chapterNumber = chapterFrontmatter.chapter_number as number | undefined
+      if (!chapterNumber || chapterNumber <= 0) {
+        updatePhase(false, "ingest_no_chapter_number")
+        return
+      }
 
-      if (novelConfig.autoIngestOnSave) {
-        const llmConfig = useWikiStore.getState().llmConfig
-        if (!hasUsableLlm(llmConfig)) {
-          updatePhase(false, "ingest_no_llm")
-        } else {
-          const verifyContent = await readFile(targetPath)
-          const verifyParsed = parseFrontmatter(verifyContent)
-          const verifyFm = verifyParsed.frontmatter as Record<string, unknown> | null
-          if (!verifyFm || !isFinalChapter(verifyFm)) {
-            await writeFile(targetPath, syncResult.markdown)
-            await new Promise((resolve) => setTimeout(resolve, 100))
-          }
-          const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-          const result = await ingestChapter(project.path, targetPath, resolveReviewModel())
-          if (result.snapshot) {
-            updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
-          } else if (result.failReason === "invalid_chapter_number") {
-            updatePhase(false, "ingest_no_chapter_number")
-          } else if (result.failReason === "not_final") {
-            updatePhase(false, "ingest_not_final")
-          } else if (result.failReason === "extract_failed") {
-            updatePhase(false, "ingest_extract_failed")
-          } else {
-            updatePhase(false, "ingest_failed")
-          }
-        }
+      const normalizedBody = parseFrontmatter(fileContent).body.trim()
+      const title = typeof chapterFrontmatter.title === "string"
+        ? chapterFrontmatter.title
+        : makeDefaultChapterTitle(chapterNumber)
+
+      const currentDraft = await readNovelDraftFromStatus(projectPath)
+      if (currentDraft && currentDraft.chapter_number === chapterNumber && currentDraft.draft_status === "ready") {
+        updatePhase(false, "blocked_by_review", { count: 1, warnings: 0 })
+        return
+      }
+
+      const committed = await commitDraftToFormalLayer({
+        projectPath,
+        chapterNumber,
+        body: normalizedBody,
+        title,
+        targetPath: selectedFile,
+        baseMarkdown: fileContent,
+      })
+
+      savePath = committed.targetPath
+      lastLoadedRef.current = committed.markdown
+      setFileContent(committed.markdown)
+      if (useWikiStore.getState().selectedFile === selectedFile && committed.targetPath !== selectedFile) {
+        useWikiStore.getState().setSelectedFile(committed.targetPath)
+      }
+
+      if (committed.ingestResult.snapshot) {
+        updatePhase(false, "ingested", { chapter: committed.ingestResult.snapshot.chapterNumber })
+      } else if (committed.ingestResult.failReason === "invalid_chapter_number") {
+        updatePhase(false, "ingest_no_chapter_number")
+      } else if (committed.ingestResult.failReason === "not_final") {
+        updatePhase(false, "ingest_not_final")
+      } else if (committed.ingestResult.failReason === "extract_failed") {
+        updatePhase(false, "ingest_extract_failed")
+      } else if (committed.ingestResult.failReason === "no_llm") {
+        updatePhase(false, "ingest_no_llm")
       } else {
         updatePhase(false, "saved")
       }
