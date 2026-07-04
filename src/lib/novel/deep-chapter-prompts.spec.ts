@@ -35,20 +35,22 @@ describe("resolveChapterLengthSpec", () => {
   })
 
   it("clamps unreasonable targets", () => {
-    expect(resolveChapterLengthSpec(10).targetChars).toBe(2000)
-    expect(resolveChapterLengthSpec(999999).targetChars).toBe(6000)
+    expect(resolveChapterLengthSpec(10).targetChars).toBe(500)
+    expect(resolveChapterLengthSpec(999999).targetChars).toBe(20000)
   })
 })
 
 describe("chapter prompts honor the configured length spec", () => {
   it("injects the configured target into brief and draft prompts", () => {
     const spec = resolveChapterLengthSpec(2000)
-    const brief = buildDeepChapterBriefPrompt("", "上下文", "继续生成下一章", 5, undefined, spec)
-    const draft = buildDeepChapterDraftPrompt("", "上下文", "任务书", "继续生成下一章", 5, undefined, spec)
+    const brief = buildDeepChapterBriefPrompt("", "context", "continue writing next chapter", 5, undefined, spec)
+    const draft = buildDeepChapterDraftPrompt("", "context", "task brief", "continue writing next chapter", 5, undefined, spec)
 
-    expect(brief).toContain("目标约 2000 字")
-    expect(draft).toContain("目标约 2000 字")
-    expect(draft).toContain(`阶段3正文草稿最多 ${spec.draftMaxChars} 字`)
-    expect(draft).not.toContain("目标约 3000 字")
+    expect(brief).toContain("[TASK_BRIEF_MARKER]")
+    expect(draft).toContain("[DRAFT_STAGE_MARKER]")
+    expect(brief).toContain("2000")
+    expect(draft).toContain("2000")
+    expect(draft).toContain(String(spec.draftMaxChars))
+    expect(draft).not.toContain(String(DEEP_CHAPTER_TARGET_CHARS))
   })
 })

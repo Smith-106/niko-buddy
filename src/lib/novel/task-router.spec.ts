@@ -28,6 +28,13 @@ describe("routeTask chapter generation", () => {
     expect(route.chapterNumber).toBe(3)
   })
 
+  it("routes explicit English chapter generation requests and keeps the chapter number", () => {
+    const route = routeTask("Generate chapter 11 body. CURRENT_BUILD_SAMPLE. Only output the chapter prose.")
+
+    expect(route.intent).toBe("write_chapter")
+    expect(route.chapterNumber).toBe(11)
+  })
+
   it("does not hijack a customized next-chapter prompt that mentions 开篇 writing requirements (issue #9)", () => {
     const route = routeTask(
       "请根据当前小说上下文、记忆库、最新章节结尾、下一章推进建议和章纲，继续生成下一章正文。只输出可直接保存到章节库的小说正文，不要解释，不要列提纲。正文必须是完整章节，内容要吸引读者，留住读者，目标约 3000 字，建议 2800-3400 字，低于 2600 字视为未完成，开篇200字内必须制造'钩子'。",

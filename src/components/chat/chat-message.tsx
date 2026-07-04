@@ -16,7 +16,6 @@ import { refreshProjectState } from "@/lib/project-refresh"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import type { DisplayMessage } from "@/stores/chat-store"
-import { parseAgentResponse, type FileEditAction } from "@/lib/novel/agent-parser"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
@@ -26,8 +25,7 @@ import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { canContinueUnfinishedDeepChapter } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
-import type { DraftStatus } from "@/lib/novel/draft-state-machine"
-import type { DeepSessionStatusExplanation } from "@/lib/novel/novel-session-status"
+import { parseAgentResponse } from "@/lib/novel/agent-parser"
 
 interface ChatMessageProps {
   message: DisplayMessage
@@ -35,40 +33,66 @@ interface ChatMessageProps {
   onRegenerate?: () => void
   novelMode?: boolean
   projectPath?: string | null
-  onAcceptDraft?: () => void
-  onRejectDraft?: () => void
+  onSaveAsChapter?: (content: string) => void
   onContinueNextChapter?: () => void
   onContinueUnfinished?: () => void
   onSaveAsDraft?: (content: string) => void
   onDiscardDraft?: () => void
-  draftStatus?: DraftStatus | null
-  sessionExplanation?: DeepSessionStatusExplanation | null
   saveStatus?: string
   isSaving?: boolean
 }
 
-function draftStatusLabel(status?: DraftStatus | null): string | null {
-  switch (status) {
-    case "pending":
-      return "草稿状态：pending"
-    case "ready":
-      return "草稿状态：ready"
-    case "accepted":
-      return "草稿状态：accepted"
-    case "rejected":
-      return "草稿状态：rejected"
-    case "superseded":
-      return "草稿状态：superseded"
-    default:
-      return null
+const TERMINAL_ASSISTANT_STATUS_RE = /^(?:已停止生成。?|出错[:：])/u
+const CHAPTER_DRAFT_HEADING_RE = /^\s*#?\s*(?:第\s*\d+\s*章[^\n]*|Chapter\s+\d+[^\n]*)/iu
+
+const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*qmai-deep-chapter-draft:([\s\S]*?)\s*-->/i
+
+type ManagedDeepChapterDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
+
+function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDraftStatus | null {
+  const match = content.match(MANAGED_DEEP_CHAPTER_DRAFT_RE)
+  if (!match?.[1]) return null
+  try {
+    const parsed = JSON.parse(decodeURIComponent(match[1])) as {
+      conversationId?: unknown
+      draftStatus?: unknown
+    }
+    if (
+      typeof parsed?.conversationId === "string"
+      && typeof parsed?.draftStatus === "string"
+      && ["pending", "ready", "accepted", "rejected", "superseded"].includes(parsed.draftStatus)
+    ) {
+      return parsed.draftStatus as ManagedDeepChapterDraftStatus
+    }
+    return null
+  } catch {
+    return null
   }
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onAcceptDraft, onRejectDraft, onContinueNextChapter, onContinueUnfinished, draftStatus, sessionExplanation, saveStatus, isSaving }: ChatMessageProps) {
+function canOperateOnDeepChapterDraft(message: DisplayMessage): boolean {
+  const draftStatus = getManagedDeepChapterDraftStatus(message.content)
+  if (!draftStatus) return false
+  const visibleContent = getCopyableAssistantContent(message.content).trim()
+  if (!visibleContent) return false
+  if (TERMINAL_ASSISTANT_STATUS_RE.test(visibleContent)) return false
+  if (canContinueUnfinishedDeepChapter(message.content)) return false
+
+  const heading = visibleContent.match(CHAPTER_DRAFT_HEADING_RE)?.[0]
+  if (!heading) return false
+
+  return visibleContent.slice(heading.length).trim().length >= 120
+}
+
+export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
   const [hovered, setHovered] = useState(false)
+  const managedDraftStatus = getManagedDeepChapterDraftStatus(message.content)
+  const canOperateOnDraft = Boolean(novelMode && isLastAssistant && canOperateOnDeepChapterDraft(message))
+  const canAcceptDraft = canOperateOnDraft && managedDraftStatus === "ready"
+  const canRejectDraft = canOperateOnDraft && (managedDraftStatus === "ready" || managedDraftStatus === "pending")
   const canResumeUnfinished = Boolean(
     novelMode && isLastAssistant && onContinueUnfinished && canContinueUnfinishedDeepChapter(message.content),
   )
@@ -116,27 +140,27 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
-            {novelMode && isLastAssistant && onAcceptDraft && (
+            {canAcceptDraft && onSaveAsChapter && (
               <button
                 type="button"
-                onClick={onAcceptDraft}
+                onClick={() => onSaveAsChapter(message.content)}
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
               >
-                {isSaving ? "处理中..." : "接受草稿"}
+                {isSaving ? "\u5904\u7406\u4e2d..." : "\u63a5\u53d7\u8349\u7a3f"}
               </button>
             )}
-            {novelMode && isLastAssistant && onRejectDraft && (
+            {canRejectDraft && onDiscardDraft && (
               <button
                 type="button"
-                onClick={onRejectDraft}
+                onClick={onDiscardDraft}
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+                className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
-                {isSaving ? "处理中..." : "拒绝草稿"}
+                {"\u62d2\u7edd\u8349\u7a3f"}
               </button>
             )}
-            {novelMode && isLastAssistant && onContinueNextChapter && (
+            {canOperateOnDraft && onContinueNextChapter && (
               <button
                 type="button"
                 onClick={onContinueNextChapter}
@@ -174,16 +198,6 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
         )}
         {saveStatus && (
           <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
-        )}
-        {isAssistant && novelMode && isLastAssistant && (
-          <div className="flex flex-col gap-0.5">
-            {sessionExplanation?.detail && (
-              <p className="text-[11px] text-muted-foreground/80">{sessionExplanation.detail}</p>
-            )}
-            {draftStatusLabel(draftStatus) && (
-              <p className="text-[11px] text-muted-foreground/80">{draftStatusLabel(draftStatus)}</p>
-            )}
-          </div>
         )}
       </div>
     </div>
@@ -567,14 +581,11 @@ function extractCitedPages(text: string): CitedPage[] {
 
 interface StreamingMessageProps {
   content: string
-  draftStatus?: DraftStatus | null
-  sessionExplanation?: DeepSessionStatusExplanation | null
 }
 
-export function StreamingMessage({ content, draftStatus, sessionExplanation }: StreamingMessageProps) {
+export function StreamingMessage({ content }: StreamingMessageProps) {
   const { thinking, answer } = useMemo(() => separateThinking(content), [content])
   const isThinking = thinking !== null && answer.length === 0
-  const statusLabel = draftStatusLabel(draftStatus)
 
   return (
     <div className="flex gap-2 flex-row">
@@ -583,21 +594,11 @@ export function StreamingMessage({ content, draftStatus, sessionExplanation }: S
       </div>
       <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
         {isThinking ? (
-          <StreamingThinkingBlock content={thinking} />
+          <StreamingWorkflowBlock content={thinking} />
         ) : (
           <>
-            {thinking && <ThinkingBlock content={thinking} />}
+            {thinking && <WorkflowBlock content={thinking} />}
             <MarkdownContent content={answer} />
-            {(sessionExplanation?.detail || statusLabel) && (
-              <div className="mt-1 flex flex-col gap-0.5">
-                {sessionExplanation?.detail && (
-                  <p className="text-[11px] text-muted-foreground/80">{sessionExplanation.detail}</p>
-                )}
-                {statusLabel && (
-                  <p className="text-[11px] text-muted-foreground/80">{statusLabel}</p>
-                )}
-              </div>
-            )}
             <span className="animate-pulse">▊</span>
           </>
         )}
@@ -611,11 +612,9 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   const [results, setResults] = useState<import("@/lib/novel/agent-tools").FileEditResult[]>([])
   const [dismissed, setDismissed] = useState(false)
 
-  const parsed = useMemo(() => {
-    return parseAgentResponse(content)
-  }, [content])
+  const parsed = useMemo(() => parseAgentResponse(content), [content])
 
-  const handleApply = useCallback(async (edits: FileEditAction[]) => {
+  const handleApply = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
     if (!projectPath) return []
     const { applyFileEdits } = await import("@/lib/novel/agent-tools")
     const editResults = await applyFileEdits(projectPath, edits)
@@ -652,7 +651,7 @@ function MarkdownContent({ content }: { content: string }) {
   // page). Same convention the file-preview uses.
   const projectPath = useWikiStore((s) => s.project?.path ?? null)
 
-  // Separate thinking blocks from main content
+  // Separate thinking blocks from main content, filter LLM English thinking but keep workflow stages
   const { thinking, answer } = useMemo(() => separateThinking(cleaned), [cleaned])
   const processed = useMemo(() => processContent(answer), [answer])
   const renderLanguage = useMemo(() => detectLanguage(answer), [answer])
@@ -661,7 +660,7 @@ function MarkdownContent({ content }: { content: string }) {
 
   return (
     <div>
-      {thinking && <ThinkingBlock content={thinking} />}
+      {thinking && <WorkflowBlock content={thinking} />}
       <div
         className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
         dir={direction}
@@ -738,8 +737,123 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 /**
+ * 检测文本是否主要是LLM英文思考内容（应隐藏）
+ * 特征：主要是英文，包含典型推理词汇，中文字符极少
+ */
+function isLlmEnglishThinking(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+
+  // 统计中文字符数
+  const chineseChars = (trimmed.match(/[\u4e00-\u9fff]/g) || []).length
+  const totalChars = trimmed.length
+  const chineseRatio = chineseChars / Math.max(totalChars, 1)
+
+  // 如果中文字符占比超过15%，认为是中文内容（工作流信息），保留
+  if (chineseRatio > 0.15) return false
+
+  // 检测典型的LLM英文思考关键词
+  const thinkingKeywords = [
+    "thinking process",
+    "let's think",
+    "let me think",
+    "analyze",
+    "let's write",
+    "wait,",
+    "word count",
+    "constraints",
+    "note:",
+    "check:",
+    "strategy",
+    "i need to",
+    "i should",
+    "first,",
+    "okay,",
+    "so,",
+    "now,",
+    "the user",
+    "based on",
+    "according to",
+  ]
+  const lower = trimmed.toLowerCase()
+  const keywordCount = thinkingKeywords.filter((kw) => lower.includes(kw)).length
+
+  // 如果包含2个以上思考关键词且中文很少，判定为LLM英文思考
+  return keywordCount >= 2
+}
+
+/**
+ * 检测一行是否是工作流阶段标题
+ */
+function isWorkflowStageHeader(line: string): boolean {
+  const trimmed = line.trim()
+  // 匹配 ## 阶段X... 格式
+  if (/^##\s*阶段/.test(trimmed)) return true
+  // 匹配 "阶段X：" 或 "阶段X:" 开头的行（即使没有##）
+  if (/^阶段\s*[\d.]+\s*[：:]/.test(trimmed)) return true
+  return false
+}
+
+/**
+ * 过滤思考块内容，保留中文工作流阶段信息，隐藏LLM英文思考
+ */
+function filterThinkingContent(thinking: string): string | null {
+  const lines = thinking.split("\n")
+  const resultLines: string[] = []
+  let currentStageHeader: string | null = null
+  let currentStageContent: string[] = []
+
+  const flushStage = () => {
+    if (currentStageHeader) {
+      resultLines.push(currentStageHeader)
+      const contentText = currentStageContent.join("\n").trim()
+      if (contentText) {
+        // 检查内容是否是LLM英文思考
+        if (!isLlmEnglishThinking(contentText)) {
+          resultLines.push(...currentStageContent)
+        }
+      }
+      resultLines.push("")
+    } else if (currentStageContent.length > 0) {
+      // 没有阶段标题的独立内容块
+      const blockText = currentStageContent.join("\n").trim()
+      if (blockText && !isLlmEnglishThinking(blockText)) {
+        resultLines.push(...currentStageContent)
+        resultLines.push("")
+      }
+    }
+    currentStageHeader = null
+    currentStageContent = []
+  }
+
+  for (const line of lines) {
+    if (isWorkflowStageHeader(line)) {
+      // 新的阶段开始，先flush之前的
+      flushStage()
+      currentStageHeader = line
+    } else if (currentStageHeader) {
+      // 当前正在收集阶段内容
+      currentStageContent.push(line)
+    } else {
+      // 不在阶段内的内容，按段落处理
+      currentStageContent.push(line)
+      // 空行表示段落结束
+      if (!line.trim()) {
+        flushStage()
+      }
+    }
+  }
+  // flush最后一个阶段
+  flushStage()
+
+  const result = resultLines.join("\n").trim()
+  return result || null
+}
+
+/**
  * Separate <think>...</think> blocks from the main answer.
  * Handles multiple think blocks and partial (unclosed) thinking during streaming.
+ * 保留工作流阶段提示（中文），过滤LLM英文思考内容。
  */
 function separateThinking(text: string): { thinking: string | null; answer: string } {
   // Match complete <think>...</think> and <thinking>...</thinking> blocks
@@ -760,52 +874,65 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
     answer = answer.replace(/<think(?:ing)?>[\s\S]*$/i, "").trim()
   }
 
-  const thinking = thinkParts.length > 0 ? thinkParts.join("\n\n") : null
-  return { thinking, answer }
+  // 处理只有结尾 </think> 标签的情况（没有开头标签）
+  const firstCloseIndex = answer.search(/<\/think(?:ing)?>/i)
+  if (firstCloseIndex >= 0) {
+    const beforeClose = answer.slice(0, firstCloseIndex)
+    if (!/<think(?:ing)?>/i.test(beforeClose)) {
+      const thinkingContent = beforeClose.trim()
+      if (thinkingContent) {
+        thinkParts.push(thinkingContent)
+      }
+      answer = answer.replace(/^[\s\S]*?<\/think(?:ing)?>\s*/i, "")
+    }
+  }
+
+  const rawThinking = thinkParts.length > 0 ? thinkParts.join("\n\n") : null
+  const filteredThinking = rawThinking ? filterThinkingContent(rawThinking) : null
+
+  return { thinking: filteredThinking, answer: answer.trim() }
 }
 
-/** Streaming thinking: show every stage so the user can inspect progress. */
-function StreamingThinkingBlock({ content }: { content: string }) {
-  // 将连续短行合并为段落，避免推理 token 逐 token 换行导致消息框过窄
+/** Streaming workflow: show stages as they come in so user can see progress. */
+function StreamingWorkflowBlock({ content }: { content: string }) {
   const paragraphs = content
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\n/g, " ").trim())
     .filter((p) => p.length > 0)
 
   return (
-    <div className="rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 px-2.5 py-2 min-h-[3rem]">
+    <div className="rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 px-2.5 py-2 min-h-[3rem]">
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="text-sm animate-pulse">??</span>
-        <span className="text-xs font-medium text-amber-700 dark:text-amber-400">思考中...</span>
+        <span className="text-sm animate-pulse">📋</span>
+        <span className="text-xs font-medium text-blue-700 dark:text-blue-400">工作流进行中...</span>
       </div>
-      <div className="max-h-72 overflow-y-auto pr-1 text-xs text-amber-800/70 dark:text-amber-300/60 font-mono leading-relaxed whitespace-pre-wrap break-words">
+      <div className="max-h-72 overflow-y-auto pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap break-words">
         {paragraphs.map((p, i) => (
           <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
             {p}
           </div>
         ))}
-        <span className="animate-pulse text-amber-500">▊</span>
+        <span className="animate-pulse text-blue-500">▊</span>
       </div>
     </div>
   )
 }
 
-/** Completed thinking: keep it fully visible; the outer chat scroll owns scrolling. */
-function ThinkingBlock({ content }: { content: string }) {
-  // 将连续短行合并为段落，避免推理 token 逐 token 换行导致消息框过窄
+/** Completed workflow stages: keep visible so user can review what happened. */
+function WorkflowBlock({ content }: { content: string }) {
   const paragraphs = content
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\n/g, " ").trim())
     .filter((p) => p.length > 0)
 
   return (
-    <div className="mb-2 rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 min-h-[3rem]">
-      <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-        <span className="text-sm">??</span>
-        <span className="font-medium">思考过程</span>
-        <span className="text-[10px] text-amber-600/60 dark:text-amber-500/60">{paragraphs.length} 段</span>
+    <div className="mb-2 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 min-h-[3rem]">
+      <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-700 dark:text-blue-400">
+        <span className="text-sm">📋</span>
+        <span className="font-medium">工作流阶段</span>
+        <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{paragraphs.length} 个阶段</span>
       </div>
-      <div className="max-h-72 overflow-y-auto border-t border-amber-500/20 px-2.5 py-2 pr-1 text-xs text-amber-800/80 dark:text-amber-300/70 whitespace-pre-wrap break-words font-mono leading-relaxed">
+      <div className="max-h-72 overflow-y-auto border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap break-words leading-relaxed">
         {paragraphs.map((p, i) => (
           <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
             {p}

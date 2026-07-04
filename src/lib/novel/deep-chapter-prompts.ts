@@ -24,7 +24,7 @@ export const DEFAULT_CHAPTER_LENGTH_SPEC: ChapterLengthSpec = {
 
 export function resolveChapterLengthSpec(targetChars?: number): ChapterLengthSpec {
   const target = Number.isFinite(targetChars) && (targetChars as number) > 0
-    ? Math.max(2000, Math.min(6000, Math.round(targetChars as number)))
+    ? Math.max(500, Math.min(20000, Math.round(targetChars as number)))
     : DEEP_CHAPTER_TARGET_CHARS
   if (target === DEEP_CHAPTER_TARGET_CHARS) return DEFAULT_CHAPTER_LENGTH_SPEC
   return {
@@ -41,6 +41,25 @@ function chapterLengthBoundary(lengthSpec: ChapterLengthSpec): string {
   return `目标约 ${lengthSpec.targetChars} 字；低于 ${lengthSpec.minChars} 字视为正文初稿未完成。`
 }
 
+/**
+ * 跨阶段稳定上下文前缀：把“完整大纲 + 上下文包”放在每个阶段提示词的最前面，
+ * 且在同一次章节生成里逐字节相同。
+ *
+ * 任务书 / 初稿 / 扩写 / 返修 / 去AI味这几个阶段都由同一份 outline + contextPrompt
+ * 拼出相同前缀，DeepSeek / OpenAI 的自动前缀缓存即可命中这段最大的内容，
+ * 重复阶段按命中价计费（约 1/10），不再每阶段全价重发整段上下文。
+ *
+ * 因此阶段专属指令、写作任务书、初稿正文、审稿问题等“会变的内容”必须排在这段
+ * 前缀之后，不能插到前面，否则会把公共前缀截断、缓存失效。
+ */
+export function buildStableContextPrefix(outline: string, contextPrompt: string): string {
+  return [
+    outline,
+    "上下文：",
+    contextPrompt,
+  ].filter(Boolean).join("\n")
+}
+
 export function buildDeepChapterBriefPrompt(
   outline: string,
   contextPrompt: string,
@@ -50,10 +69,11 @@ export function buildDeepChapterBriefPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
+    "[TASK_BRIEF_MARKER]",
     "",
     "你是小说写作任务规划助手。",
-    "请基于上下文输出一份写作任务书，供后续创作使用。",
+    "请基于上述上下文输出一份写作任务书，供后续创作使用。",
     "",
     "硬性要求：",
     "1. 只输出任务书，不要写故事片段。",
@@ -63,11 +83,9 @@ export function buildDeepChapterBriefPrompt(
     "5. 任务书必须规划足够的场景推进、冲突升级、人物互动、细节描写和结尾钩子，避免只写一个短场景。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -81,29 +99,29 @@ export function buildDeepChapterDraftPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
+    "[DRAFT_STAGE_MARKER]",
     "",
     "你是专业小说正文写作助手。",
-    "请严格根据上下文和写作任务书起草章节正文。",
+    "请严格根据上述上下文和下方写作任务书起草章节正文。",
     "",
     "输出要求：",
     "1. 只输出可直接保存到章节库的小说正文。",
-    "2. 不要输出分析、任务书、审稿说明、引用来源或后续建议。",
-    "3. 严格承接上一章结尾，遵守大纲、记忆、人设、伏笔和时间线。",
-    "4. 结尾必须留下适合下一章继续推进的钩子。",
-    `5. 字数必须接近完整章节长度：${chapterLengthBoundary(lengthSpec)}阶段3正文草稿最多 ${lengthSpec.draftMaxChars} 字，写到完整结尾后立即停止；不能提前收尾，也不能为了补细节新增额外场景。`,
-    "6. 必须写成完整章节，不要只写一个片段；需要包含场景铺陈、行动推进、对话交锋、情绪变化、冲突升级和结尾钩子。",
-    "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
+    `2. ${chapterTitleRequirement()}`,
+    "3. 不要输出分析、任务书、审稿说明、引用来源或后续建议。",
+    "4. 严格承接上一章结尾，遵守大纲、记忆、人设、伏笔和时间线。",
+    "5. 结尾必须留下适合下一章继续推进的钩子。",
+    `6. 字数必须接近完整章节长度：${chapterLengthBoundary(lengthSpec)}阶段3正文草稿最多 ${lengthSpec.draftMaxChars} 字，写到完整结尾后立即停止；不能提前收尾，也不能为了补细节新增额外场景。`,
+    "7. 必须写成完整章节，不要只写一个片段；需要包含场景铺陈、行动推进、对话交锋、情绪变化、冲突升级和结尾钩子。",
+    "8. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
     "写作任务书：",
     taskBrief,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -118,20 +136,23 @@ export function buildDeepChapterRevisionPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
+    "[REVISION_STAGE_MARKER]",
     "",
     "你是小说正文返修助手。",
     "请根据审稿问题返修章节正文。",
     "",
     "硬性要求：",
     "1. 只输出返修后的小说正文。",
-    "2. 不要输出解释、审稿说明、修改清单或后续建议。",
-    "3. 优先修复审稿指出的问题，不要无关改写。",
-    "4. 必须继续遵守写作任务书和上下文。",
-    "5. 不再强制调整到固定字数区间；只修复审稿指出的阻断问题，并保留当前章节的有效剧情容量。",
-    "6. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
+    `2. ${chapterTitleRequirement()}`,
+    "3. 不要输出解释、审稿说明、修改清单或后续建议。",
+    "4. 优先修复审稿指出的问题，不要无关改写。",
+    "5. 必须继续遵守写作任务书和上下文。",
+    "6. 不再强制调整到固定字数区间；只修复审稿指出的阻断问题，并保留当前章节的有效剧情容量。",
+    "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -143,9 +164,6 @@ export function buildDeepChapterRevisionPrompt(
     "",
     "原始初稿：",
     draftContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -160,20 +178,23 @@ export function buildDeepChapterExpansionPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
+    "[EXPANSION_STAGE_MARKER]",
     "",
     "你是小说正文扩写补足助手。",
     "当前章节正文明显过短，请在不推翻已有内容的前提下扩写补足为完整章节。",
     "",
     "硬性要求：",
     "1. 只输出扩写补足后的完整小说正文。",
-    "2. 必须保留并自然融合原有正文的有效内容，不要输出解释、分析或修改说明。",
-    `3. ${chapterLengthBoundary(lengthSpec)}`,
-    "4. 扩写时补足场景铺陈、动作细节、对话交锋、心理变化、冲突升级和结尾钩子。",
-    "5. 必须严格遵守写作任务书、上下文、人物状态、伏笔和时间线，不要新增会推翻设定的剧情。",
-    "6. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
+    `2. ${chapterTitleRequirement()}`,
+    "3. 必须保留并自然融合原有正文的有效内容，不要输出解释、分析或修改说明。",
+    `4. ${chapterLengthBoundary(lengthSpec)}`,
+    "5. 扩写时补足场景铺陈、动作细节、对话交锋、心理变化、冲突升级和结尾钩子。",
+    "6. 必须严格遵守写作任务书、上下文、人物状态、伏笔和时间线，不要新增会推翻设定的剧情。",
+    "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -182,9 +203,6 @@ export function buildDeepChapterExpansionPrompt(
     "",
     "当前过短正文：",
     currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -200,7 +218,8 @@ export function buildDeepChapterFinalPolishPrompt(
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
+    "[FINAL_POLISH_STAGE_MARKER]",
     "",
     "你是小说正文最终质检与去AI味助手。",
     "请对二次审查/返修后的章节做最后一遍简单审查，并进行去AI味处理。",
@@ -211,11 +230,13 @@ export function buildDeepChapterFinalPolishPrompt(
     "3. 保留原有剧情事实、人物关系、时间线、伏笔和章节结尾钩子，不要另起新剧情。",
     "4. 只做必要的自然化、顺滑化和轻量修补，不要大幅重写。",
     "5. 不再强制压缩到固定字数区间；只做必要的自然化、顺滑化和轻量修补，禁止为了凑字数复读。",
-    "6. 只输出最终可保存的小说正文，不要输出审查报告、解释、标题或修改说明。",
+    `6. ${chapterTitleRequirement()}`,
+    "7. 只输出最终可保存的小说正文，不要输出审查报告、解释或修改说明。",
     "",
     deAiRules,
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -224,9 +245,6 @@ export function buildDeepChapterFinalPolishPrompt(
     "",
     "待最终简单审查与去AI味正文：",
     currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -237,20 +255,24 @@ export function buildDeepChapterLengthRewritePrompt(
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
+  options?: { autoGenerateTitle?: boolean },
 ): string {
+  const autoTitle = options?.autoGenerateTitle !== false
   return [
     "你是小说正文轻量整理助手。",
     "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
     "",
     "硬性要求：",
-    "1. 只输出优化后的完整小说正文，不要输出解释、分析、标题或修改说明。",
-    "2. 不强制压缩到固定字数区间；保留当前章节的有效剧情容量。",
-    "3. 如果当前正文明显重复或循环，优先删掉重复内容，不得继续扩写。",
-    "4. 不得改变剧情因果、人物目标、已完成事件、关键对话含义和下一章钩子。",
-    "5. 可以优化环境、氛围、心理和过渡，但每一段都必须推动剧情、冲突、人物关系或期待。",
-    "6. 写到完整结尾后立即停止。",
+    "1. 只输出优化后的完整小说正文，不要输出解释、分析或修改说明。",
+    autoTitle ? `2. ${chapterTitleRequirement()}` : "2. 不要输出章节标题。",
+    "3. 不强制压缩到固定字数区间；保留当前章节的有效剧情容量。",
+    "4. 如果当前正文明显重复或循环，优先删掉重复内容，不得继续扩写。",
+    "5. 不得改变剧情因果、人物目标、已完成事件、关键对话含义和下一章钩子。",
+    "6. 可以优化环境、氛围、心理和过渡，但每一段都必须推动剧情、冲突、人物关系或期待。",
+    "7. 写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -267,6 +289,11 @@ export function buildDeepChapterLengthRewritePrompt(
 
 function goldenThreeChapterSection(goldenThreeChapter?: GoldenThreeChapterRequest): string {
   return buildGoldenThreeChapterDirective(goldenThreeChapter)
+}
+
+/** 章节标题输出要求（当 autoGenerateTitle 为 true 时使用）。 */
+function chapterTitleRequirement(): string {
+  return "正文第一行必须是章节标题，格式为：# 第X章 标题名（标题4-12字，概括本章核心内容）。"
 }
 
 function formatReviewIssues(reviewResults: NovelReviewResult[]): string {

@@ -1,6 +1,6 @@
 [package]
 name = "llm-wiki"
-version = "2.2.18"
+version = "2.2.24"
 description = "LLM Wiki - A personal knowledge base for LLM concepts"
 authors = []
 edition = "2021"
@@ -65,6 +65,7 @@ notify = "8"
 walkdir = "2"
 tauri-plugin-single-instance = "2"
 regex = "1"
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

@@ -56,6 +56,7 @@ export interface RequestOverrides {
   max_tokens?: number
   stop?: string | string[]
   reasoning?: ReasoningConfig
+  jsonSchema?: Record<string, unknown>
 }
 
 interface ProviderConfig {

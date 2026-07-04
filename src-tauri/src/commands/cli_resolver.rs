@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(windows)]
+use std::path::Path;
 #[cfg(not(windows))]
 use std::process::{Command, Stdio};
 #[cfg(not(windows))]
@@ -107,6 +109,9 @@ fn find_cli_command_uncached(
                 return Ok(path);
             }
         }
+        if let Some(path) = find_windows_cli_command(command, windows_candidates) {
+            return Ok(path);
+        }
         return Err(format!("`{command}` not found on PATH"));
     }
 
@@ -124,6 +129,54 @@ fn find_cli_command_uncached(
 
         Err(format!("`{command}` not found on PATH"))
     }
+}
+
+#[cfg(windows)]
+fn find_windows_cli_command(command: &str, windows_candidates: &[String]) -> Option<PathBuf> {
+    let app_data = std::env::var_os("APPDATA").map(PathBuf::from);
+    let user_profile = std::env::var_os("USERPROFILE").map(PathBuf::from);
+    find_windows_cli_command_with_env(
+        command,
+        windows_candidates,
+        app_data.as_deref(),
+        user_profile.as_deref(),
+    )
+}
+
+#[cfg(windows)]
+fn find_windows_cli_command_with_env(
+    command: &str,
+    windows_candidates: &[String],
+    app_data: Option<&Path>,
+    user_profile: Option<&Path>,
+) -> Option<PathBuf> {
+    let npm_dir = windows_user_npm_bin_dir(app_data, user_profile)?;
+    let mut candidates = windows_candidates.to_vec();
+    let ps1_candidate = format!("{command}.ps1");
+    if !candidates
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(&ps1_candidate))
+    {
+        candidates.push(ps1_candidate);
+    }
+
+    for candidate in candidates {
+        let path = npm_dir.join(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn windows_user_npm_bin_dir(app_data: Option<&Path>, user_profile: Option<&Path>) -> Option<PathBuf> {
+    app_data
+        .map(|path| path.join("npm"))
+        .or_else(|| {
+            user_profile.map(|path| path.join("AppData").join("Roaming").join("npm"))
+        })
+        .filter(|path| path.is_dir())
 }
 
 #[cfg(not(windows))]
@@ -220,5 +273,85 @@ mod tests {
             merge_child_path_env("/opt/homebrew/bin", None),
             "/opt/homebrew/bin"
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{find_windows_cli_command_with_env, windows_user_npm_bin_dir};
+    use std::path::PathBuf;
+
+    #[test]
+    fn windows_user_npm_bin_dir_prefers_appdata() {
+        let root = tempdir_for_test();
+        let app_data = root.join("Roaming");
+        let npm_dir = app_data.join("npm");
+        std::fs::create_dir_all(&npm_dir).unwrap();
+
+        assert_eq!(
+            windows_user_npm_bin_dir(Some(&app_data), None),
+            Some(npm_dir)
+        );
+    }
+
+    #[test]
+    fn windows_user_npm_bin_dir_falls_back_to_userprofile() {
+        let root = tempdir_for_test();
+        let user_profile = root.join("profile");
+        let npm_dir = user_profile.join("AppData").join("Roaming").join("npm");
+        std::fs::create_dir_all(&npm_dir).unwrap();
+
+        assert_eq!(
+            windows_user_npm_bin_dir(None, Some(&user_profile)),
+            Some(npm_dir)
+        );
+    }
+
+    #[test]
+    fn finds_windows_cli_command_in_appdata_npm_even_without_path_lookup() {
+        let root = tempdir_for_test();
+        let app_data = root.join("Roaming");
+        let npm_dir = app_data.join("npm");
+        std::fs::create_dir_all(&npm_dir).unwrap();
+        let shim = npm_dir.join("claude.cmd");
+        std::fs::write(&shim, "@echo off").unwrap();
+
+        let resolved = find_windows_cli_command_with_env(
+            "claude",
+            &["claude.exe".to_string(), "claude.cmd".to_string()],
+            Some(&app_data),
+            None,
+        );
+
+        assert_eq!(resolved, Some(shim));
+    }
+
+    #[test]
+    fn finds_windows_powershell_shim_when_cmd_is_missing() {
+        let root = tempdir_for_test();
+        let app_data = root.join("Roaming");
+        let npm_dir = app_data.join("npm");
+        std::fs::create_dir_all(&npm_dir).unwrap();
+        let shim = npm_dir.join("claude.ps1");
+        std::fs::write(&shim, "Write-Output test").unwrap();
+
+        let resolved = find_windows_cli_command_with_env(
+            "claude",
+            &["claude.exe".to_string(), "claude.cmd".to_string()],
+            Some(&app_data),
+            None,
+        );
+
+        assert_eq!(resolved, Some(shim));
+    }
+
+    fn tempdir_for_test() -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("qmai-cli-resolver-test-{stamp}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 }

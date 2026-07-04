@@ -4,24 +4,26 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
-import { listDirectory, openProject, fileExists } from "@/commands/fs"
-import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadAiChatModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadClipServerConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, saveLlmConfig, saveProviderConfigs, saveActivePresetId } from "@/lib/project-store"
-import { loadNovelProjectMeta } from "@/lib/novel/project-meta"
+import { listDirectory, openProject } from "@/commands/fs"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
-import { startClipWatcher } from "@/lib/clip-watcher"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
 import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
+import { hydrateChatHistoryWithInterruptedDeepChapter } from "@/components/chat/chat-resume"
 import { AppLayout } from "@/components/layout/app-layout"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { formatAppTitle } from "@/lib/app-title"
-import { resetProjectState, resetProjectStores } from "@/lib/reset-project-state"
+import { resetProjectState } from "@/lib/reset-project-state"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { loadEnvLlmDefault } from "@/lib/env-llm-defaults"
+import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
+import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 
 function App() {
   const project = useWikiStore((s) => s.project)
@@ -30,6 +32,8 @@ function App() {
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
+  const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
+  const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -37,10 +41,17 @@ function App() {
     document.documentElement.style.fontSize = `${Math.round(uiFontSizeScale * 100)}%`
   }, [uiFontSizeScale])
 
-  // Set up auto-save and clip watcher once on mount
+  // 监听社区摘要生成错误，弹窗提示
+  useEffect(() => {
+    if (communitySummaryError) {
+      toast.error(i18n.t("novel.settings.communitySummaryFailed", { message: communitySummaryError }))
+      setCommunitySummaryError(null)
+    }
+  }, [communitySummaryError, setCommunitySummaryError])
+
+  // Set up auto-save once on mount
   useEffect(() => {
     setupAutoSave()
-    startClipWatcher()
   }, [])
 
   
@@ -51,15 +62,9 @@ function App() {
       try {
         // 先加载和应用主题
         const savedTheme = await loadTheme()
-        if (savedTheme !== null) {
-          useWikiStore.getState().setTheme(savedTheme)
-          document.documentElement.classList.remove("dark", "deep-blue")
-          if (savedTheme === "dark") {
-            document.documentElement.classList.add("dark")
-          } else if (savedTheme === "deep-blue") {
-            document.documentElement.classList.add("deep-blue")
-          }
-        }
+        const themeToUse = savedTheme ?? "system"
+        useWikiStore.getState().setTheme(themeToUse)
+        applyTheme(themeToUse)
 
         const envLlmDefault = loadEnvLlmDefault()
         const savedConfig = await loadLlmConfig()
@@ -72,6 +77,10 @@ function App() {
         const savedAiChatModel = await loadAiChatModel()
         if (savedAiChatModel) {
           useWikiStore.getState().setAiChatModel(savedAiChatModel)
+        }
+        const savedDefaultLlmModel = await loadDefaultLlmModel()
+        if (savedDefaultLlmModel) {
+          useWikiStore.getState().setDefaultLlmModel(savedDefaultLlmModel)
         }
         const savedProviderConfigs = await loadProviderConfigs()
         if (savedProviderConfigs) {
@@ -110,8 +119,6 @@ function App() {
         if (savedProxy) {
           useWikiStore.getState().setProxyConfig(savedProxy)
         }
-        const savedClipServer = await loadClipServerConfig()
-        useWikiStore.getState().setClipServerConfig(savedClipServer)
         const savedLang = await loadLanguage()
         if (savedLang) {
           await i18n.changeLanguage(savedLang)
@@ -120,6 +127,10 @@ function App() {
         if (savedNovelMode !== null) {
           useWikiStore.getState().setNovelMode(savedNovelMode)
         }
+        const savedMaxHistoryMessages = await loadMaxHistoryMessages()
+        if (savedMaxHistoryMessages !== null) {
+          useChatStore.getState().setMaxHistoryMessages(savedMaxHistoryMessages)
+        }
         const savedRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig()
         useWikiStore.getState().setRevisionFeedbackWindowConfig(savedRevisionFeedbackWindowConfig)
         const lastProject = await getLastProject()
@@ -127,20 +138,34 @@ function App() {
           try {
             const proj = await openProject(lastProject.path)
             await handleProjectOpened(proj)
-          } catch {
-            // Last project no longer valid
+          } catch (err) {
+            console.error("打开上次项目失败:", err)
           }
         }
-      } catch {
-        // ignore init errors
+      } catch (err) {
+        console.error("应用初始化失败:", err)
       } finally {
         setLoading(false)
-        void checkForAppUpdate()
+        void checkForAppUpdate({ mode: "silent" })
         void initAnalytics()
       }
     }
     init()
   }, [])
+
+  // 监听系统主题变化，当设置为跟随系统时自动切换
+  const theme = useWikiStore((s) => s.theme)
+  useEffect(() => {
+    if (theme === "system") {
+      applyTheme("system")
+      const unwatch = watchSystemTheme(() => {
+        applyTheme("system")
+      })
+      return unwatch
+    } else {
+      applyTheme(theme)
+    }
+  }, [theme])
 
   useEffect(() => {
     const title = formatAppTitle(project?.name)
@@ -153,22 +178,12 @@ function App() {
   }, [project?.name])
 
   async function handleProjectOpened(proj: WikiProject) {
-    if (isTauri()) {
-      await resetProjectState()
-    } else {
-      resetProjectStores()
-    }
+    await resetProjectState()
 
     setProject(proj)
     useWikiStore.getState().clearTransientTaskState()
-    const projectNovelMeta = await loadNovelProjectMeta(proj.path)
-    const hasNovelStructure = await fileExists(`${proj.path}/wiki/chapters`)
-    const projectNovelMode = await loadNovelMode(proj.id, proj.path)
-    if (projectNovelMode !== null) {
-      useWikiStore.getState().setNovelMode(projectNovelMode)
-    } else if (projectNovelMeta?.novelMode || hasNovelStructure) {
-      useWikiStore.getState().setNovelMode(true)
-    }
+    // 默认开启小说模式
+    useWikiStore.getState().setNovelMode(true)
     const projectNovelConfig = await loadNovelConfig(proj.id, proj.path)
     if (projectNovelConfig) {
       useWikiStore.getState().setNovelConfig(projectNovelConfig)
@@ -212,8 +227,8 @@ function App() {
           lastScan: null,
         })
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("加载定时导入配置失败:", err)
     }
 
     if (isTauri()) {
@@ -237,26 +252,6 @@ function App() {
           stopProjectFileSync().catch(() => {})
         }
       }).catch((err) => console.error("配置项目文件同步失败:", err))
-
-      import("@/commands/clip-server").then(({ getClipServerUrl }) => {
-        const clipServerConfig = useWikiStore.getState().clipServerConfig
-        if (!clipServerConfig.enabled) return
-        const url = getClipServerUrl(clipServerConfig)
-        fetch(`${url}/project`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: proj.path }),
-        }).catch(() => {})
-
-        getRecentProjects().then((recents) => {
-          const projects = recents.map((p) => ({ name: p.name, path: p.path }))
-          fetch(`${url}/projects`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projects }),
-          }).catch(() => {})
-        }).catch(() => {})
-      }).catch(() => {})
     }
 
     try {
@@ -270,21 +265,27 @@ function App() {
       if (savedReview.length > 0) {
         useReviewStore.getState().setItems(savedReview)
       }
-    } catch {
-      // ignore, start fresh
+    } catch (err) {
+      console.error("加载审查项失败:", err)
     }
     try {
       const savedChat = await loadChatHistory(proj.path)
-      if (savedChat.conversations.length > 0) {
-        useChatStore.getState().setConversations(savedChat.conversations)
-        useChatStore.getState().setMessages(savedChat.messages)
-        const sorted = [...savedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
-        if (sorted[0]) {
-          useChatStore.getState().setActiveConversation(sorted[0].id)
+      const interruptedStatus = await loadNovelSessionStatus(proj.path).catch(() => null)
+      const hydratedChat = hydrateChatHistoryWithInterruptedDeepChapter(savedChat, interruptedStatus)
+      if (hydratedChat.conversations.length > 0) {
+        useChatStore.getState().setConversations(hydratedChat.conversations)
+        useChatStore.getState().setMessages(hydratedChat.messages)
+        const sorted = [...hydratedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+        const preferredConversationId = hydratedChat.focusConversationId ?? sorted[0]?.id
+        if (preferredConversationId) {
+          useChatStore.getState().setActiveConversation(preferredConversationId)
+        }
+        if (hydratedChat.focusConversationId) {
+          useWikiStore.getState().setChatExpanded(true)
         }
       }
-    } catch {
-      // ignore, start fresh
+    } catch (err) {
+      console.error("加载聊天历史失败:", err)
     }
   }
 

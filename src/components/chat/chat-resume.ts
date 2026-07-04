@@ -1,9 +1,15 @@
+import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { DeepChapterGenerationResumeCheckpoint } from "@/lib/novel/deep-chapter-generation"
+import {
+  resolveStatusResumeCheckpoint,
+  type NovelSessionStatus,
+} from "@/lib/novel/novel-session-status"
 
-const DEEP_CHAPTER_FAILURE_RE = /深度生成章节失败|继续未完成失败|deep chapter generation failed|continue unfinished failed/i
+const DEEP_CHAPTER_FAILURE_RE = /深度生成章节失败|继续未完成失败|已停止生成|deep chapter generation failed|continue unfinished failed|stopped generating/i
 const THINK_BLOCK_RE = /<think(?:ing)?>[\s\S]*?(?:<\/think(?:ing)?>|$)/i
 const MAX_RESUME_CONTEXT_CHARS = 60_000
 const RESUME_CONTEXT_COMMENT_RE = /<!--\s*qmai-continue-unfinished-context:([\s\S]*?)\s*-->/g
+const NOVEL_SESSION_DEBUG_COMMENT_RE = /<!--\s*qmai-novel-session-debug:[\s\S]*?\s*-->/g
 
 export interface ContinueUnfinishedDeepChapterContext {
   originalRequest?: string
@@ -12,8 +18,185 @@ export interface ContinueUnfinishedDeepChapterContext {
   checkpoint?: DeepChapterGenerationResumeCheckpoint
 }
 
+export interface HydratedInterruptedDeepChapterChat {
+  conversations: Conversation[]
+  messages: DisplayMessage[]
+  focusConversationId: string | null
+}
+
 export function canContinueUnfinishedDeepChapter(content: string): boolean {
   return DEEP_CHAPTER_FAILURE_RE.test(content) && THINK_BLOCK_RE.test(content)
+}
+
+function parseTimestamp(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function buildInterruptedResumeVisibleThinking(
+  status: NovelSessionStatus,
+  checkpoint: DeepChapterGenerationResumeCheckpoint,
+): string {
+  const chapterLabel = checkpoint.chapterNumber ? `第 ${checkpoint.chapterNumber} 章` : "当前章节"
+  const stepLabel = typeof status.active_step_index === "number" ? String(status.active_step_index) : "unknown"
+  return [
+    "## 恢复点",
+    `章节：${chapterLabel}`,
+    `阶段：${checkpoint.stage}`,
+    `active_step_index：${stepLabel}`,
+    "检测到上次深度章节生成在当前阶段意外中断，可从这里继续未完成流程。",
+  ].join("\n")
+}
+
+function buildInterruptedResumeContext(
+  status: NovelSessionStatus,
+  checkpoint: DeepChapterGenerationResumeCheckpoint,
+): string {
+  const chapterLabel = checkpoint.chapterNumber ? `第 ${checkpoint.chapterNumber} 章` : "当前章节"
+  const sections = [
+    "## 恢复点",
+    `章节：${chapterLabel}`,
+    `阶段：${checkpoint.stage}`,
+    `active_step_index：${typeof status.active_step_index === "number" ? status.active_step_index : "unknown"}`,
+    `原始请求：${status.current_task.user_request}`,
+  ]
+
+  if (checkpoint.taskBrief?.trim()) {
+    sections.push("", "## 已完成任务书", checkpoint.taskBrief.trim())
+  }
+
+  const currentDraft = checkpoint.currentContent?.trim() || checkpoint.draftContent?.trim()
+  if (currentDraft) {
+    sections.push("", "## 当前正文草稿", currentDraft)
+  }
+
+  return sections.join("\n")
+}
+
+export function buildInterruptedResumeContextPayload(
+  status: NovelSessionStatus | null,
+  conversationId: string,
+): ContinueUnfinishedDeepChapterContext | null {
+  if (!status) return null
+  const checkpoint = resolveStatusResumeCheckpoint(status, conversationId)
+  if (!checkpoint) return null
+  const resumeContext = buildInterruptedResumeContext(status, checkpoint)
+  return {
+    originalRequest: status.current_task.user_request,
+    resumeContext,
+    rootResumeContext: resumeContext,
+    checkpoint,
+  }
+}
+
+function buildInterruptedResumeAssistantMessage(
+  status: NovelSessionStatus,
+  context: ContinueUnfinishedDeepChapterContext,
+): string {
+  const checkpoint = context.checkpoint
+  if (!checkpoint) {
+    return "<think>## 恢复点\n缺少可恢复的检查点。</think>\n\n已停止生成。"
+  }
+  const visible = [
+    "<think>",
+    buildInterruptedResumeVisibleThinking(status, checkpoint),
+    "</think>",
+    "",
+    "已停止生成。",
+  ].join("\n")
+  return appendContinueUnfinishedDeepChapterContext(visible, context)
+}
+
+export function hydrateChatHistoryWithInterruptedDeepChapter(
+  chatData: {
+    conversations: Conversation[]
+    messages: DisplayMessage[]
+  },
+  status: NovelSessionStatus | null,
+  now: number = Date.now(),
+): HydratedInterruptedDeepChapterChat {
+  if (!status || (status.status !== "running" && status.status !== "paused")) {
+    return {
+      conversations: chatData.conversations,
+      messages: chatData.messages,
+      focusConversationId: null,
+    }
+  }
+
+  const conversationId = status.current_task.conversation_id
+  const interruptedResume = buildInterruptedResumeContextPayload(status, conversationId)
+  if (!interruptedResume?.checkpoint) {
+    return {
+      conversations: chatData.conversations,
+      messages: chatData.messages,
+      focusConversationId: null,
+    }
+  }
+
+  const createdAt = parseTimestamp(status.created_at, now)
+  const updatedAt = parseTimestamp(status.updated_at, createdAt)
+  const normalizedRequest = status.current_task.user_request.trim()
+  const fallbackTitle = normalizedRequest.slice(0, 50) || "继续未完成"
+
+  const conversations = [...chatData.conversations]
+  const existingConversationIndex = conversations.findIndex((conversation) => conversation.id === conversationId)
+  if (existingConversationIndex >= 0) {
+    const current = conversations[existingConversationIndex]
+    conversations[existingConversationIndex] = {
+      ...current,
+      title: current.title?.trim() ? current.title : fallbackTitle,
+      updatedAt: Math.max(current.updatedAt, updatedAt),
+    }
+  } else {
+    conversations.unshift({
+      id: conversationId,
+      title: fallbackTitle,
+      createdAt,
+      updatedAt,
+      deAiMode: false,
+      inputDraft: "",
+    })
+  }
+
+  const messages = [...chatData.messages]
+  const hasOriginalUserMessage = messages.some((message) =>
+    message.conversationId === conversationId
+    && message.role === "user"
+    && message.content.trim() === normalizedRequest,
+  )
+  if (!hasOriginalUserMessage) {
+    messages.push({
+      id: `resume-user-${conversationId}`,
+      role: "user",
+      content: status.current_task.user_request,
+      timestamp: createdAt,
+      conversationId,
+    })
+  }
+
+  const hasResumeAssistantMessage = messages.some((message) => {
+    if (message.conversationId !== conversationId || message.role !== "assistant") return false
+    const resumeContext = extractContinueUnfinishedDeepChapterContext(message.content)
+    return resumeContext?.originalRequest?.trim() === normalizedRequest
+  })
+
+  if (!hasResumeAssistantMessage) {
+    messages.push({
+      id: `resume-assistant-${conversationId}-${updatedAt}`,
+      role: "assistant",
+      content: buildInterruptedResumeAssistantMessage(status, interruptedResume),
+      timestamp: updatedAt,
+      conversationId,
+      references: [],
+    })
+  }
+
+  return {
+    conversations,
+    messages,
+    focusConversationId: conversationId,
+  }
 }
 
 function compactResumeContext(content: string): string {
@@ -32,7 +215,10 @@ function compactResumeContext(content: string): string {
 }
 
 export function stripContinueUnfinishedDeepChapterContext(content: string): string {
-  return content.replace(RESUME_CONTEXT_COMMENT_RE, "").trimEnd()
+  return content
+    .replace(RESUME_CONTEXT_COMMENT_RE, "")
+    .replace(NOVEL_SESSION_DEBUG_COMMENT_RE, "")
+    .trimEnd()
 }
 
 export function appendContinueUnfinishedDeepChapterContext(

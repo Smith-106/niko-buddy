@@ -1,68 +1,95 @@
 import { describe, expect, it } from "vitest"
 import { hasUsableLlm } from "./has-usable-llm"
+import type { LlmConfig } from "@/stores/wiki-store"
+
+function makeConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
+  return {
+    provider: "openai",
+    apiKey: "sk-test",
+    model: "gpt-5.4",
+    ollamaUrl: "http://localhost:11434",
+    customEndpoint: "https://example.test/v1",
+    maxContextSize: 204800,
+    apiMode: "chat_completions",
+    reasoning: { mode: "auto" },
+    ...overrides,
+  }
+}
 
 describe("hasUsableLlm", () => {
-  it("rejects the default empty openai config", () => {
-    expect(hasUsableLlm({
+  it("requires custom providers to have both model and endpoint", () => {
+    expect(hasUsableLlm(makeConfig({
+      provider: "custom",
+      apiKey: "",
+      model: "gpt-5.4",
+      customEndpoint: "",
+    }))).toBe(false)
+
+    expect(hasUsableLlm(makeConfig({
+      provider: "custom",
+      apiKey: "",
+      model: "gpt-5.4",
+      customEndpoint: "http://127.0.0.1:18080/v1",
+    }))).toBe(true)
+  })
+
+  it("requires ollama providers to have both model and base url", () => {
+    expect(hasUsableLlm(makeConfig({
+      provider: "ollama",
+      apiKey: "",
+      model: "qwen2.5",
+      ollamaUrl: "",
+    }))).toBe(false)
+
+    expect(hasUsableLlm(makeConfig({
+      provider: "ollama",
+      apiKey: "",
+      model: "qwen2.5",
+      ollamaUrl: "http://localhost:11434",
+    }))).toBe(true)
+  })
+
+  it("requires azure providers to keep their endpoint alongside key and model", () => {
+    expect(hasUsableLlm(makeConfig({
+      provider: "azure",
+      apiKey: "azure-key",
+      model: "deployment-name",
+      customEndpoint: "",
+    }))).toBe(false)
+
+    expect(hasUsableLlm(makeConfig({
+      provider: "azure",
+      apiKey: "azure-key",
+      model: "deployment-name",
+      customEndpoint: "https://example.openai.azure.com",
+    }))).toBe(true)
+  })
+
+  it("keeps hosted providers on apiKey plus model", () => {
+    expect(hasUsableLlm(makeConfig({
       provider: "openai",
       apiKey: "",
-      model: "",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(false)
+      model: "gpt-5.4",
+    }))).toBe(false)
+
+    expect(hasUsableLlm(makeConfig({
+      provider: "openai",
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+    }))).toBe(true)
   })
 
-  it("requires both model and endpoint for custom providers", () => {
-    expect(hasUsableLlm({
-      provider: "custom",
-      apiKey: "",
-      model: "mock-qmai",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(false)
-
-    expect(hasUsableLlm({
-      provider: "custom",
-      apiKey: "",
-      model: "mock-qmai",
-      customEndpoint: "http://127.0.0.1:18080/v1",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(true)
-  })
-
-  it("requires a model for ollama", () => {
-    expect(hasUsableLlm({
-      provider: "ollama",
-      apiKey: "",
-      model: "",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(false)
-
-    expect(hasUsableLlm({
-      provider: "ollama",
-      apiKey: "",
-      model: "qwen3:latest",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(true)
-  })
-
-  it("keeps local cli providers usable without API keys", () => {
-    expect(hasUsableLlm({
+  it("allows local CLI providers to fall back to the machine default model", () => {
+    expect(hasUsableLlm(makeConfig({
       provider: "claude-code",
       apiKey: "",
-      model: "claude-sonnet-4-6",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(true)
+      model: "",
+    }))).toBe(true)
 
-    expect(hasUsableLlm({
+    expect(hasUsableLlm(makeConfig({
       provider: "codex-cli",
       apiKey: "",
-      model: "gpt-5.4-mini",
-      customEndpoint: "",
-      ollamaUrl: "http://localhost:11434",
-    })).toBe(true)
+      model: "",
+    }))).toBe(true)
   })
 })

@@ -1,359 +1,658 @@
-import { describe, expect, it } from "vitest"
-import { DraftStatus } from "./draft-state-machine"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
+import type { NovelReviewResult } from "./review-adapter"
+
+const fsState = vi.hoisted(() => {
+  const fileMap = new Map<string, string>()
+  const createdDirs = new Set<string>()
+  return {
+    fileMap,
+    createdDirs,
+    createDirectory: vi.fn(async (path: string) => {
+      createdDirs.add(path)
+    }),
+    readFile: vi.fn(async (path: string) => {
+      const content = fileMap.get(path)
+      if (content === undefined) {
+        throw new Error(`ENOENT: ${path}`)
+      }
+      return content
+    }),
+    writeFileAtomic: vi.fn(async (path: string, content: string) => {
+      fileMap.set(path, content)
+    }),
+  }
+})
+
+vi.mock("@/commands/fs", () => ({
+  createDirectory: fsState.createDirectory,
+  readFile: fsState.readFile,
+  writeFileAtomic: fsState.writeFileAtomic,
+}))
+
 import {
-  applyDeepSessionStatus,
-  createEmptyStatusSchema,
-  explainDeepSessionStatus,
-  shouldResetStatusSchema,
+  acceptDeepChapterDraft,
+  blockDeepChapterSession,
+  completeDeepChapterSession,
+  createNovelSessionId,
+  loadNovelSessionStatus,
+  novelDraftArtifactPath,
+  novelSessionStatusPath,
+  pauseDeepChapterSession,
+  persistDeepChapterCheckpoint,
+  rejectDeepChapterDraft,
+  resolveInterruptedSessionResumeCheckpoint,
+  resolveStatusResumeCheckpoint,
+  startDeepChapterSession,
+  type NovelSessionStatus,
 } from "./novel-session-status"
-import type { GateSummary } from "@/commands/gates"
 
-function createGateSummary(): GateSummary {
-  return {
-    all_passed: false,
-    gate_results: {
-      consistency: {
-        gate_type: "consistency",
-        status: "failed",
-        score: 61,
-        finding_count: 1,
-        retry_count: 2,
-        mechanical_findings: [{ severity: "error", description: "timeline conflict", location: "paragraph 2", suggestion: "repair chronology" }],
-        semantic_findings: [],
-        findings_desc: ["- [error] timeline conflict"],
-      },
-      anti_ai: {
-        gate_type: "anti_ai",
-        status: "passed",
-        score: 96,
-        finding_count: 0,
-        retry_count: 0,
-        mechanical_findings: [],
-        semantic_findings: [],
-        findings_desc: [],
-      },
-      quality: {
-        gate_type: "quality",
-        status: "warning",
-        score: 82,
-        finding_count: 1,
-        retry_count: 0,
-        mechanical_findings: [{ severity: "warning", description: "sentence slightly long", location: null, suggestion: "split one sentence" }],
-        semantic_findings: [],
-        findings_desc: ["- [warning] sentence slightly long"],
-      },
-    },
-    total_retries: 2,
-    max_retry: 3,
-    final_text: null,
+function readJson(path: string): Record<string, unknown> {
+  const raw = fsState.fileMap.get(path)
+  if (!raw) {
+    throw new Error(`Missing file: ${path}`)
   }
+  return JSON.parse(raw) as Record<string, unknown>
 }
 
-function createPassingCompletedGateSummary(): GateSummary {
-  return {
-    all_passed: true,
-    gate_results: {
-      consistency: {
-        gate_type: "consistency",
-        status: "passed",
-        score: 100,
-        finding_count: 0,
-        retry_count: 0,
-        mechanical_findings: [],
-        semantic_findings: [],
-        findings_desc: [],
-      },
-      anti_ai: {
-        gate_type: "anti_ai",
-        status: "passed",
-        score: 97,
-        finding_count: 0,
-        retry_count: 0,
-        mechanical_findings: [],
-        semantic_findings: [],
-        findings_desc: [],
-      },
-      quality: {
-        gate_type: "quality",
-        status: "warning",
-        score: 84,
-        finding_count: 1,
-        retry_count: 0,
-        mechanical_findings: [{ severity: "warning", description: "style note", location: null, suggestion: "trim one phrase" }],
-        semantic_findings: [],
-        findings_desc: ["- [warning] style note"],
-      },
-    },
-    total_retries: 0,
-    max_retry: 3,
-    final_text: null,
-  }
-}
+const projectPath = "E:\\Novel"
+const normalizedProjectPath = "E:/Novel"
+const statusPath = novelSessionStatusPath(projectPath)
+const draftPath = novelDraftArtifactPath(projectPath, "conv-1")
+
+const reviewResults: NovelReviewResult[] = [
+  {
+    severity: "error",
+    type: "consistency",
+    message: "character knows forbidden fact",
+    evidence: "paragraph 3",
+    relatedMemory: "protagonist should not know the truth yet",
+    suggestion: "remove the leaked fact",
+  },
+]
 
 describe("novel-session-status", () => {
-  it("creates a default status schema with draft-first boundaries", () => {
-    const schema = createEmptyStatusSchema()
-
-    expect(schema.schema_version).toBe("1")
-    expect(schema.source).toBe("qmai")
-    expect(schema.status).toBe("running")
-    expect(schema.active_step_index).toBe(0)
-    expect(schema.session_id).toMatch(/^novel-\d{8}-\d{6}$/)
-    expect(schema.boundary_contract).toMatchObject({
-      single_source_of_truth: ".novel/status.json",
-      draft_first: true,
-      gate_priority: ["consistency", "anti_ai", "quality"],
-    })
-    expect(schema.task_decomposition).toHaveLength(6)
-    expect(schema.decision_gates.consistency.status).toBe("pending")
-    expect(schema.decision_gates.anti_ai.status).toBe("pending")
-    expect(schema.decision_gates.quality.status).toBe("pending")
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
   })
 
-  it("updates active step and draft payload after draft generation", () => {
-    const current = createEmptyStatusSchema()
-    const next = applyDeepSessionStatus(current, {
-      projectPath: "C:/test/project",
-      conversationId: "conv-draft",
-      userRequest: "Generate chapter 3",
+  it("formats deterministic ids and normalized artifact paths", () => {
+    expect(createNovelSessionId(new Date("2026-06-27T01:02:03.000Z"))).toBe("novel-20260627-010203")
+    expect(statusPath).toBe(`${normalizedProjectPath}/.novel/status.json`)
+    expect(draftPath).toBe(`${normalizedProjectPath}/.novel/drafts/conv-1.json`)
+  })
+
+  it("starts a running deep chapter session and writes status.json", async () => {
+    const status = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "  generate chapter 3  ",
       chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
+    })
+
+    expect(status.session_id).toMatch(/^novel-\d{8}-\d{6}$/)
+    expect(status.status).toBe("running")
+    expect(status.active_step_index).toBe(1)
+    expect(status.current_task.user_request).toBe("generate chapter 3")
+    expect(status.current_task.chapter_number).toBe(3)
+    expect(fsState.createdDirs).toEqual(new Set([
+      `${normalizedProjectPath}/.novel`,
+      `${normalizedProjectPath}/.novel/drafts`,
+    ]))
+
+    const saved = readJson(statusPath)
+    expect(saved.status).toBe("running")
+    expect(saved.active_step_index).toBe(1)
+    expect((saved.current_task as Record<string, unknown>).conversation_id).toBe("conv-1")
+    expect((saved.current_task as Record<string, unknown>).user_request).toBe("generate chapter 3")
+    expect(fsState.fileMap.has(draftPath)).toBe(false)
+    expect(fsState.writeFileAtomic).toHaveBeenCalledWith(
+      statusPath,
+      expect.stringContaining('"conversation_id": "conv-1"'),
+    )
+  })
+
+  it("persists checkpoints into pending draft artifacts and evidence refs", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
       stage: "after_draft",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-draft",
-        chapterNumber: 3,
-        stage: "after_draft",
-        taskBrief: "Advance the key clue without breaking cognition boundaries.",
-        draftContent: "Draft body for chapter 3.",
-        currentContent: "Draft body for chapter 3.",
-      },
-      sessionStatus: "running",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+    }
+
+    const status = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
     })
 
-    expect(next.status).toBe("running")
-    expect(next.active_step_index).toBe(2)
-    expect(next.current_task).toBe("tsk-ch003-conv-draft")
-    expect(next.task_decomposition[0]).toMatchObject({ status: "done" })
-    expect(next.task_decomposition[1]).toMatchObject({ status: "done" })
-    expect(next.task_decomposition[2]).toMatchObject({ status: "running" })
-    expect(next.draft).toMatchObject({
-      draft_id: "conv-draft-draft",
-      draft_status: "ready",
-      conversation_id: "conv-draft",
-      source_task_id: "tsk-ch003-conv-draft",
-      chapter_number: 3,
-      task_brief: "Advance the key clue without breaking cognition boundaries.",
-      draft_content: "Draft body for chapter 3.",
-      final_content: "Draft body for chapter 3.",
-    })
+    expect(status.status).toBe("running")
+    expect(status.active_step_index).toBe(2)
+    expect(status.resume_checkpoint?.stage).toBe("after_draft")
+    expect(status.evidence_refs).toEqual([draftPath])
+
+    const draft = readJson(draftPath)
+    expect(draft.draft_status).toBe("pending")
+    expect(draft.content).toBe("draft body")
+    expect(draft.review_results).toEqual([])
+    expect((draft.checkpoint as Record<string, unknown>).stage).toBe("after_draft")
+
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded?.resume_checkpoint?.stage).toBe("after_draft")
+    expect(reloaded?.draft.file_path).toBe(draftPath)
   })
 
-  it("marks the session completed and stores final content", () => {
-    const current = createEmptyStatusSchema()
-    const next = applyDeepSessionStatus(current, {
-      projectPath: "C:/test/project",
-      conversationId: "conv-completed",
-      userRequest: "Generate chapter 3",
+  it("derives the authoritative resume stage from active_step_index before using checkpoint metadata", () => {
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
       chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
-      stage: "completed",
-      sessionStatus: "completed",
-      finalContent: "Final polished chapter body.",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-completed",
-        chapterNumber: 3,
-        stage: "after_revision",
-        taskBrief: "Keep the timeline clean and land the hook.",
-        draftContent: "Revised chapter draft.",
-        currentContent: "Final polished chapter body.",
-        gateSummary: createPassingCompletedGateSummary(),
-      },
-    })
-
-    expect(next.status).toBe("completed")
-    expect(next.active_step_index).toBe(5)
-    expect(next.task_decomposition.every((step) => (step as { status: string }).status === "done")).toBe(true)
-    expect(next.draft).toMatchObject({
-      draft_status: "ready",
-      final_content: "Final polished chapter body.",
-    })
-    expect(next.memory_snapshot).toMatchObject({
-      latest_final_content: "Final polished chapter body.",
-    })
-    expect(next.evidence_refs).toContain("runs/tsk-ch003-conv-completed-gates.json")
-    expect(next.evidence_refs).toContain("drafts/tsk-ch003-conv-completed.json")
-  })
-
-  it("drops stale review error records when completed gates no longer fail", () => {
-    const current = createEmptyStatusSchema()
-    const next = applyDeepSessionStatus(current, {
-      projectPath: "C:/test/project",
-      conversationId: "conv-align",
-      userRequest: "Generate chapter 3",
-      chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
-      stage: "completed",
-      sessionStatus: "completed",
-      finalContent: "Final polished chapter body.",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-align",
-        chapterNumber: 3,
-        stage: "after_revision",
-        taskBrief: "Finish the chapter cleanly.",
-        draftContent: "Revised chapter draft.",
-        currentContent: "Final polished chapter body.",
-        reviewResults: [
-          {
-            severity: "error",
-            type: "consistency",
-            message: "timeline conflict still reported in stale review",
-          },
-          {
-            severity: "warning",
-            type: "style",
-            message: "trim one descriptive phrase",
-          },
-        ],
-        gateSummary: createPassingCompletedGateSummary(),
-      },
-    })
-
-    expect(next.decision_gates.consistency.status).toBe("passed")
-    expect(next.decision_gates.anti_ai.status).toBe("passed")
-    expect(next.decision_gates.quality.status).toBe("warning")
-    expect(next.draft).toMatchObject({
-      review_results: [
-        {
-          severity: "warning",
-          type: "style",
-          message: "trim one descriptive phrase",
-        },
-      ],
-    })
-  })
-
-  it("explains blocked status from persisted truth", () => {
-    const schema = applyDeepSessionStatus(createEmptyStatusSchema(), {
-      projectPath: "C:/test/project",
-      conversationId: "conv-blocked",
-      userRequest: "Generate chapter 3",
-      chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
-      stage: "failed",
-      sessionStatus: "blocked",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-blocked",
-        chapterNumber: 3,
-        stage: "after_review",
-        taskBrief: "Repair the chronology issue.",
-        draftContent: "Draft body for chapter 3.",
-        currentContent: "Draft body for chapter 3.",
-        gateSummary: createGateSummary(),
-      },
-    })
-
-    const explanation = explainDeepSessionStatus(schema)
-
-    expect(explanation.status).toBe("blocked")
-    expect(explanation.activeStepIndex).toBe(3)
-    expect(explanation.activeStepLabel).toBe("Review")
-    expect(explanation.label).toBe("状态真源：blocked")
-    expect(explanation.detail).toContain("流程停在 Review")
-    expect(explanation.timeline[3]).toMatchObject({
-      label: "Review",
-      status: "blocked",
-    })
-  })
-
-  it("keeps the latest completed step when the session is aborted", () => {
-    const current = applyDeepSessionStatus(createEmptyStatusSchema(), {
-      projectPath: "C:/test/project",
-      conversationId: "conv-running",
-      userRequest: "Generate chapter 3",
-      chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
-      stage: "after_revision",
-      sessionStatus: "running",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-running",
-        chapterNumber: 3,
-        stage: "after_revision",
-        taskBrief: "Prepare the final hook.",
-        draftContent: "Revision draft body.",
-        currentContent: "Revision draft body.",
-      },
-    })
-
-    const aborted = applyDeepSessionStatus(current, {
-      projectPath: "C:/test/project",
-      conversationId: "conv-running",
-      userRequest: "Generate chapter 3",
-      chapterNumber: 3,
-      draftStatus: DraftStatus.Ready,
-      stage: "aborted",
-      sessionStatus: "paused",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 3",
-        taskId: "tsk-ch003-conv-running",
-        chapterNumber: 3,
-        stage: "after_revision",
-        taskBrief: "Prepare the final hook.",
-        draftContent: "Revision draft body.",
-        currentContent: "Revision draft body.",
-      },
-    })
-
-    const explanation = explainDeepSessionStatus(aborted)
-
-    expect(aborted.active_step_index).toBe(4)
-    expect(aborted.status).toBe("paused")
-    expect(explanation.label).toBe("状态真源：paused")
-    expect(explanation.timeline[4]).toMatchObject({
-      label: "Revision",
+      stage: "after_draft",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+    }
+    const resolved = resolveStatusResumeCheckpoint({
+      schema_version: "1",
+      session_id: "novel-20260628-010203",
+      source: "deep_chapter_generation",
+      created_at: "2026-06-28T01:02:03.000Z",
+      updated_at: "2026-06-28T01:05:03.000Z",
       status: "paused",
-    })
+      active_step_index: 3,
+      current_task: {
+        task_id: "tsk-conv-1",
+        conversation_id: "conv-1",
+        user_request: "generate chapter 3",
+        chapter_number: 3,
+        checkpoint_stage: "after_review",
+        status: "paused",
+      },
+      draft: {
+        draft_id: "conv-1",
+        file_path: draftPath,
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-06-28T01:05:03.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      resume_checkpoint: checkpoint,
+      evidence_refs: [draftPath],
+    }, "conv-1")
+
+    expect(resolved?.stage).toBe("after_review")
+    expect(resolved?.chapterNumber).toBe(3)
   })
 
-  it("requests a schema reset when a new conversation starts from after_context", () => {
-    const current = applyDeepSessionStatus(createEmptyStatusSchema(), {
-      projectPath: "C:/test/project",
-      conversationId: "conv-old",
-      userRequest: "Generate chapter 2",
-      chapterNumber: 2,
-      draftStatus: DraftStatus.Ready,
-      stage: "after_review",
-      sessionStatus: "running",
-      checkpoint: {
-        version: 1,
-        originalRequest: "Generate chapter 2",
-        taskId: "tsk-ch002-conv-old",
-        chapterNumber: 2,
-        stage: "after_review",
-        taskBrief: "Keep the first branch aligned.",
-        draftContent: "Old draft body.",
-        currentContent: "Old draft body.",
+  it("only auto-resumes ordinary send flow for the same running conversation and request", () => {
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_draft",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+    }
+    const resumableStatus: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "novel-20260628-010203",
+      source: "deep_chapter_generation",
+      created_at: "2026-06-28T01:02:03.000Z",
+      updated_at: "2026-06-28T01:05:03.000Z",
+      status: "running",
+      active_step_index: 3,
+      current_task: {
+        task_id: "tsk-conv-1",
+        conversation_id: "conv-1",
+        user_request: "generate chapter 3",
+        chapter_number: 3,
+        checkpoint_stage: "after_review",
+        status: "running",
       },
+      draft: {
+        draft_id: "conv-1",
+        file_path: draftPath,
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-06-28T01:05:03.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      resume_checkpoint: checkpoint,
+      evidence_refs: [draftPath],
+    }
+
+    expect(resolveInterruptedSessionResumeCheckpoint(resumableStatus, {
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+    })?.stage).toBe("after_review")
+
+    expect(resolveInterruptedSessionResumeCheckpoint(resumableStatus, {
+      conversationId: "conv-2",
+      userRequest: "generate chapter 3",
+    })).toBeUndefined()
+
+    expect(resolveInterruptedSessionResumeCheckpoint({
+      ...resumableStatus,
+      status: "paused",
+      current_task: {
+        ...resumableStatus.current_task,
+        status: "paused",
+      },
+    }, {
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+    })).toBeUndefined()
+
+    expect(resolveInterruptedSessionResumeCheckpoint(resumableStatus, {
+      conversationId: "conv-1",
+      userRequest: "generate chapter 4",
+    })).toBeUndefined()
+  })
+
+  it("marks completed sessions as ready drafts with final content", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+    }
+
+    const status = await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
     })
 
-    expect(shouldResetStatusSchema(current, {
-      projectPath: "C:/test/project",
-      conversationId: "conv-new",
-      userRequest: "Generate chapter 3",
+    expect(status.status).toBe("completed")
+    expect(status.active_step_index).toBe(5)
+    expect(status.current_task.checkpoint_stage).toBe("completed")
+    expect(status.draft.draft_status).toBe("ready")
+
+    const draft = readJson(draftPath)
+    expect(draft.draft_status).toBe("ready")
+    expect(draft.content).toBe("final chapter body")
+    expect(draft.review_results).toEqual(reviewResults)
+
+    const savedStatus = readJson(statusPath)
+    expect(savedStatus.status).toBe("completed")
+    expect((savedStatus.current_task as Record<string, unknown>).status).toBe("completed")
+  })
+
+  it("accepts ready drafts and records the formal chapter path", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
       chapterNumber: 3,
-      draftStatus: DraftStatus.Pending,
-      stage: "after_context",
-      sessionStatus: "running",
-    })).toBe(true)
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+    }
+
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    })
+
+    expect(status.draft.draft_status).toBe("accepted")
+    expect(status.draft.formal_chapter_path).toBe(`${normalizedProjectPath}/wiki/chapters/chapter-003.md`)
+    expect(status.draft.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+
+    const draft = readJson(draftPath)
+    expect(draft.draft_status).toBe("accepted")
+    expect(draft.formal_chapter_path).toBe(`${normalizedProjectPath}/wiki/chapters/chapter-003.md`)
+    expect(typeof draft.accepted_at).toBe("string")
+  })
+
+  it("reuses the existing session id when accepting a ready draft without an explicit session id", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_review",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+    }
+
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    })
+
+    expect(status.session_id).toBe(session.session_id)
+    expect(Date.parse(status.updated_at)).toBeGreaterThanOrEqual(Date.parse(status.created_at))
+
+    const savedStatus = readJson(statusPath)
+    expect(savedStatus.session_id).toBe(session.session_id)
+  })
+
+  it("rejects ready drafts without creating a formal chapter path", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_review",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+    }
+
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    const status = await rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+    })
+
+    expect(status.draft.draft_status).toBe("rejected")
+    expect(status.draft.formal_chapter_path).toBeUndefined()
+    expect(status.draft.rejected_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+
+    const draft = readJson(draftPath)
+    expect(draft.draft_status).toBe("rejected")
+    expect(draft.formal_chapter_path).toBeUndefined()
+    expect(typeof draft.rejected_at).toBe("string")
+  })
+
+  it("refuses accept/reject when no managed deep chapter draft exists for the conversation", async () => {
+    await expect(acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-missing",
+      userRequest: "generate chapter 9",
+      chapterNumber: 9,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-009.md`,
+    })).rejects.toThrow("No managed deep chapter draft found for this conversation.")
+
+    await expect(rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-missing",
+      userRequest: "generate chapter 9",
+      chapterNumber: 9,
+    })).rejects.toThrow("No managed deep chapter draft found for this conversation.")
+  })
+
+  it("pauses failed sessions and preserves the latest checkpoint plus error", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_review",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+    }
+
+    const status = await pauseDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      errorMessage: "network timeout",
+    })
+
+    expect(status.status).toBe("paused")
+    expect(status.current_task.status).toBe("paused")
+    expect(status.current_task.last_error).toBe("network timeout")
+    expect(status.resume_checkpoint?.stage).toBe("after_review")
+    expect(status.evidence_refs).toEqual([draftPath])
+
+    const draft = readJson(draftPath)
+    expect(draft.draft_status).toBe("pending")
+    expect(draft.content).toBe("draft body")
+    expect(draft.review_results).toEqual(reviewResults)
+
+    const savedStatus = readJson(statusPath)
+    expect(savedStatus.status).toBe("paused")
+    expect((savedStatus.current_task as Record<string, unknown>).last_error).toBe("network timeout")
+  })
+
+  it("blocks manual-review sessions and keeps gate evidence in status plus draft", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+      retryCount: 3,
+      manualReviewRequired: true,
+      decisionGates: {
+        consistency: {
+          status: "failed",
+          verdict: "manual_review",
+          findings: reviewResults,
+          repair_suggestions: ["remove the leaked fact"],
+          retry_count: 3,
+          manual_review_required: true,
+        },
+        anti_ai: {
+          status: "passed",
+          verdict: "pass",
+          findings: [],
+          repair_suggestions: [],
+          retry_count: 3,
+        },
+        quality: {
+          status: "passed",
+          verdict: "pass",
+          findings: [],
+          repair_suggestions: [],
+          retry_count: 3,
+        },
+        overall: "manual_review",
+      },
+    }
+
+    const status = await blockDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      errorMessage: "MANUAL_REVIEW_REQUIRED: retry_count=3",
+    })
+
+    expect(status.status).toBe("blocked")
+    expect(status.active_step_index).toBeNull()
+    expect(status.current_task.status).toBe("blocked")
+    expect(status.decision_gates.consistency.manual_review_required).toBe(true)
+    expect(status.decision_gates.overall).toBe("manual_review")
+
+    const draft = readJson(draftPath)
+    const savedDraftGates = draft.decision_gates as Record<string, unknown>
+    expect(savedDraftGates).toBeTruthy()
+    expect((savedDraftGates.consistency as Record<string, unknown>).manual_review_required).toBe(true)
+
+    const savedStatus = readJson(statusPath)
+    const savedStatusGates = savedStatus.decision_gates as Record<string, unknown>
+    expect(savedStatus.status).toBe("blocked")
+    expect((savedStatusGates.consistency as Record<string, unknown>).retry_count).toBe(3)
+  })
+
+  it("archives previous drafts as superseded when a new session reuses the same conversation id", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-28T01:02:03.000Z"))
+    const firstSession = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: firstSession.session_id,
+      finalContent: "first draft body",
+      reviewResults: [],
+    })
+
+    vi.setSystemTime(new Date("2026-06-28T01:02:05.000Z"))
+    const secondSession = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "regenerate chapter 3",
+      chapterNumber: 3,
+    })
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "regenerate chapter 3",
+      chapterNumber: 3,
+      sessionId: secondSession.session_id,
+      finalContent: "second draft body",
+      reviewResults: [],
+    })
+
+    const supersededEntries = [...fsState.fileMap.entries()].filter(([path]) =>
+      path.includes("/.novel/drafts/conv-1.superseded."),
+    )
+    expect(supersededEntries).toHaveLength(1)
+    const superseded = JSON.parse(supersededEntries[0][1]) as Record<string, unknown>
+    expect(superseded.draft_status).toBe("superseded")
+    expect(superseded.superseded_by).toBe(draftPath)
+
+    const currentDraft = readJson(draftPath)
+    expect(currentDraft.draft_status).toBe("ready")
+    expect(currentDraft.content).toBe("second draft body")
+    vi.useRealTimers()
+  })
+
+  it("fails fast when status.json cannot be read back after writing", async () => {
+    const originalReadFile = fsState.readFile.getMockImplementation()
+    fsState.readFile.mockImplementation(async (path: string) => {
+      if (path === statusPath) {
+        throw new Error(`EACCES: ${path}`)
+      }
+      if (!originalReadFile) {
+        throw new Error(`ENOENT: ${path}`)
+      }
+      return originalReadFile(path)
+    })
+
+    await expect(startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })).rejects.toThrow(`小说会话状态文件 写入后回读失败（${statusPath}）：EACCES: ${statusPath}`)
   })
 })

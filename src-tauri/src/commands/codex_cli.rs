@@ -23,6 +23,47 @@ use super::local_cli_config::{
     apply_local_cli_environment, read_codex_local_config, resolve_home_dir, LocalCliConfigInfo,
 };
 
+// ── Event emitter abstraction ─────────────────────────────────────
+// Allows both Tauri (app.emit) and the standalone server (broadcast
+// channel) to share the same spawn logic.
+
+/// Abstraction over "emit a data line" and "emit a done signal" for codex CLI.
+pub trait CodexEmitter: Clone + Send + Sync + 'static {
+    fn emit_data(&self, stream_id: &str, data: String);
+    fn emit_done(&self, stream_id: &str, code: Option<i32>, stderr: String, stdout: String);
+}
+
+/// Tauri-based emitter that forwards to `app.emit()`.
+#[derive(Clone)]
+pub struct TauriCodexEmitter {
+    app: AppHandle,
+}
+
+impl TauriCodexEmitter {
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl CodexEmitter for TauriCodexEmitter {
+    fn emit_data(&self, stream_id: &str, data: String) {
+        let topic = format!("codex-cli:{stream_id}");
+        let _ = self.app.emit(&topic, data);
+    }
+
+    fn emit_done(&self, stream_id: &str, code: Option<i32>, stderr: String, stdout: String) {
+        let done_topic = format!("codex-cli:{stream_id}:done");
+        let _ = self.app.emit(
+            &done_topic,
+            serde_json::json!({
+                "code": code,
+                "stderr": stderr,
+                "stdout": stdout,
+            }),
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct CodexCliState {
     children: Arc<Mutex<HashMap<String, Child>>>,
@@ -59,7 +100,7 @@ fn append_capped_line(collected: &mut String, line: &str, limit_bytes: usize) {
 }
 
 async fn find_codex_command() -> Result<std::path::PathBuf, String> {
-    find_cli_command("codex", &["codex.cmd", "codex.exe"]).await
+    find_cli_command("codex", &["codex.exe", "codex.cmd"]).await
 }
 
 fn suppress_windows_console(_cmd: &mut Command) {
@@ -85,8 +126,10 @@ fn isolate_llm_api_key_env(cmd: &mut Command) {
     }
 }
 
-#[tauri::command]
-pub async fn codex_cli_detect() -> Result<DetectResult, String> {
+/// Detect whether `codex` is installed on PATH.
+///
+/// Shared implementation used by both the Tauri command and the server handler.
+pub async fn do_codex_cli_detect() -> Result<DetectResult, String> {
     let local_config = read_current_codex_local_config();
     let path = match find_codex_command().await {
         Ok(p) => p,
@@ -153,9 +196,19 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
 }
 
 #[tauri::command]
-pub async fn codex_cli_spawn(
-    app: AppHandle,
-    state: State<'_, CodexCliState>,
+pub async fn codex_cli_detect() -> Result<DetectResult, String> {
+    do_codex_cli_detect().await
+}
+
+/// Spawn `codex exec --json` and pipe stdout back via the given emitter.
+/// Closes stdin after writing the prompt so codex starts processing.
+/// Emits a final done event with `{ code, stderr, stdout }` when the
+/// child exits.
+///
+/// Shared implementation used by both the Tauri command and the server handler.
+pub async fn do_codex_cli_spawn<E: CodexEmitter>(
+    state: &CodexCliState,
+    emitter: E,
     stream_id: String,
     model: String,
     prompt: String,
@@ -219,10 +272,8 @@ pub async fn codex_cli_spawn(
     let timeout_stream_id = stream_id.clone();
     let timeout_minutes = codex_spawn_timeout_minutes(timeout_minutes);
     let timeout_duration = Duration::from_secs(timeout_minutes * 60);
-    let app_for_task = app.clone();
     let stream_id_task = stream_id.clone();
-    let topic = format!("codex-cli:{stream_id}");
-    let done_topic = format!("codex-cli:{stream_id}:done");
+    let emitter_task = emitter.clone();
 
     tokio::spawn(async move {
         tokio::time::sleep(timeout_duration).await;
@@ -235,7 +286,6 @@ pub async fn codex_cli_spawn(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         let mut stderr_reader = BufReader::new(stderr).lines();
-        let app = app_for_task;
 
         let stderr_task = tokio::spawn(async move {
             let mut collected = String::new();
@@ -251,9 +301,7 @@ pub async fn codex_cli_spawn(
             match reader.next_line().await {
                 Ok(Some(line)) => {
                     append_capped_line(&mut stdout_text, &line, STDOUT_LIMIT_BYTES);
-                    if app.emit(&topic, line).is_err() {
-                        break;
-                    }
+                    emitter_task.emit_data(&stream_id_task, line);
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -278,7 +326,9 @@ pub async fn codex_cli_spawn(
             if !stderr_text.is_empty() {
                 stderr_text.push('\n');
             }
-            stderr_text.push_str(&format!("Codex CLI timed out after {timeout_minutes} minutes."));
+            stderr_text.push_str(&format!(
+                "Codex CLI timed out after {timeout_minutes} minutes."
+            ));
         } else if stderr_text.len() >= STDERR_LIMIT_BYTES {
             stderr_text.push_str("\n[stderr truncated]");
         }
@@ -292,23 +342,40 @@ pub async fn codex_cli_spawn(
             exit_code
         };
 
-        let _ = app.emit(
-            &done_topic,
-            serde_json::json!({
-                "code": code,
-                "stderr": stderr_text,
-                "stdout": stdout_text,
-            }),
-        );
+        emitter_task.emit_done(&stream_id_task, code, stderr_text, stdout_text);
     });
 
     Ok(())
 }
 
+#[tauri::command]
+pub async fn codex_cli_spawn(
+    app: AppHandle,
+    state: State<'_, CodexCliState>,
+    stream_id: String,
+    model: String,
+    prompt: String,
+    isolate_local_config: bool,
+    timeout_minutes: Option<u64>,
+) -> Result<(), String> {
+    let emitter = TauriCodexEmitter::new(app);
+    do_codex_cli_spawn(
+        &state,
+        emitter,
+        stream_id,
+        model,
+        prompt,
+        isolate_local_config,
+        timeout_minutes,
+    )
+    .await
+}
+
 fn codex_spawn_timeout_minutes(value: Option<u64>) -> u64 {
-    value
-        .unwrap_or(DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES)
-        .clamp(MIN_CODEX_SPAWN_TIMEOUT_MINUTES, MAX_CODEX_SPAWN_TIMEOUT_MINUTES)
+    value.unwrap_or(DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES).clamp(
+        MIN_CODEX_SPAWN_TIMEOUT_MINUTES,
+        MAX_CODEX_SPAWN_TIMEOUT_MINUTES,
+    )
 }
 
 fn build_codex_cli_args(model: &str, isolate_local_config: bool) -> Vec<String> {
@@ -340,15 +407,23 @@ fn read_current_codex_local_config() -> LocalCliConfigInfo {
     read_codex_local_config(home.as_deref())
 }
 
+/// Kill a running codex child registered under `stream_id`.
+/// No-op if the id is unknown (e.g. the process already exited).
+///
+/// Shared implementation used by both the Tauri command and the server handler.
+pub async fn do_codex_cli_kill(state: &CodexCliState, stream_id: &str) -> Result<(), String> {
+    if let Some(mut child) = state.children.lock().await.remove(stream_id) {
+        let _ = child.start_kill();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn codex_cli_kill(
     state: State<'_, CodexCliState>,
     stream_id: String,
 ) -> Result<(), String> {
-    if let Some(mut child) = state.children.lock().await.remove(&stream_id) {
-        let _ = child.start_kill();
-    }
-    Ok(())
+    do_codex_cli_kill(&state, &stream_id).await
 }
 
 #[cfg(test)]
@@ -387,7 +462,10 @@ mod tests {
             codex_spawn_timeout_minutes(None),
             DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES
         );
-        assert_eq!(codex_spawn_timeout_minutes(Some(0)), MIN_CODEX_SPAWN_TIMEOUT_MINUTES);
+        assert_eq!(
+            codex_spawn_timeout_minutes(Some(0)),
+            MIN_CODEX_SPAWN_TIMEOUT_MINUTES
+        );
         assert_eq!(codex_spawn_timeout_minutes(Some(42)), 42);
         assert_eq!(
             codex_spawn_timeout_minutes(Some(999)),

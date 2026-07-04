@@ -1,41 +1,54 @@
-mod clip_server;
 mod commands;
-mod novel;
 mod panic_guard;
 mod proxy;
 mod types;
 
-use panic_guard::run_guarded;
-use novel::slop_scorer::SlopScorer;
-use novel::chapter_guardrails::ChapterGuardrails;
-use novel::consistency_gate::ConsistencyGate;
-use novel::decision_gate::DecisionGateOrchestrator;
+#[cfg(target_os = "windows")]
+fn reinforce_window_focus(window: &tauri::WebviewWindow) {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{
+            BringWindowToTop, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST,
+            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
+        },
+    };
 
-#[tauri::command]
-fn clip_server_status() -> String {
-    run_guarded("clip_server_status", || {
-        Ok(clip_server::get_daemon_status().to_string())
-    })
-    .unwrap_or_else(|e| format!("error: {e}"))
+    if let Ok(hwnd) = window.hwnd() {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+
+        let hwnd = HWND(hwnd.0 as _);
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE,
+            );
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_NOTOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE,
+            );
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+        }
+
+        let _ = window.set_focus();
+    }
 }
 
-#[tauri::command]
-fn get_clip_server_config() -> clip_server::ClipServerRuntimeConfig {
-    clip_server::get_runtime_config()
-}
-
-#[tauri::command]
-fn set_clip_server_config(
-    config: clip_server::ClipServerConfig,
-) -> Result<clip_server::ClipServerRuntimeConfig, String> {
-    clip_server::apply_clip_server_config(config)
-}
-
-#[tauri::command]
-fn stop_clip_server() -> clip_server::ClipServerRuntimeConfig {
-    clip_server::stop_clip_server();
-    clip_server::get_runtime_config()
-}
+#[cfg(not(target_os = "windows"))]
+fn reinforce_window_focus(_window: &tauri::WebviewWindow) {}
 
 /// Apply a proxy configuration to the process env immediately, so the
 /// next outbound HTTP request picks it up without needing the user to
@@ -55,36 +68,16 @@ fn set_proxy_env(config: proxy::ProxyConfig) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut context = tauri::generate_context!();
-    let builder = tauri::Builder::default();
-    // Manual acceptance often needs a source-built dev instance to run
-    // alongside the packaged app. Allow an env flag to bypass the
-    // single-instance redirect without changing production behavior.
-    let disable_single_instance = std::env::var("QMAI_DISABLE_SINGLE_INSTANCE")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false);
-    let remote_debugging_port = std::env::var("QMAI_WEBVIEW_REMOTE_DEBUG_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok());
-    if disable_single_instance {
-        if let Some(window) = context.config_mut().app.windows.first_mut() {
-            window.create = false;
-        }
-    }
-    let builder = if disable_single_instance {
-        builder
-    } else {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
+                reinforce_window_focus(&window);
             }
         }))
-    };
-
-    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -94,34 +87,13 @@ pub fn run() {
         // from Rust, never the webview.
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(move |app| {
-            if disable_single_instance {
-                use tauri::{Manager, WebviewWindowBuilder};
-
-                if app.get_webview_window("main").is_none() {
-                    let Some(window_config) = app.config().app.windows.first().cloned() else {
-                        return Err("missing main window config".into());
-                    };
-                    let data_dir = app
-                        .path()
-                        .local_data_dir()?
-                        .join("com.qingmuai.writer")
-                        .join("EBWebView-dev");
-                    let mut window_builder = WebviewWindowBuilder::from_config(app.handle(), &window_config)?
-                        .data_directory(data_dir);
-                    if let Some(port) = remote_debugging_port {
-                        let browser_args = format!("--remote-debugging-port={port}");
-                        eprintln!(
-                            "[webview] enabling dev remote debugging on http://127.0.0.1:{port}"
-                        );
-                        window_builder = window_builder.additional_browser_args(&browser_args);
-                    }
-                    window_builder.build()?;
-                }
-            }
+        .setup(|app| {
             // Let the PDF extractor find the bundled pdfium dynamic
             // library via Tauri's platform-correct resource path.
             use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                reinforce_window_focus(&window);
+            }
             if let Ok(dir) = app.path().resource_dir() {
                 commands::fs::set_resource_dir_hint(dir);
             }
@@ -137,14 +109,8 @@ pub fn run() {
                 eprintln!("[proxy] reading from {}", store_path.display());
                 let summary = proxy::apply_proxy_env_from_store(&store_path);
                 eprintln!("[proxy] {summary}");
-                let clip_cfg = clip_server::read_clip_server_config_from_store(&store_path)
-                    .unwrap_or_default();
-                if let Err(err) = clip_server::apply_clip_server_config(clip_cfg) {
-                    eprintln!("[Clip Server] config failed: {err}");
-                }
             } else {
                 eprintln!("[proxy] could not resolve app_data_dir");
-                clip_server::start_clip_server();
             }
             // Registry of running `claude` subprocesses, keyed by the
             // frontend-generated stream id. Populated by claude_cli_spawn,
@@ -152,10 +118,6 @@ pub fn run() {
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::file_sync::FileSyncState::default());
-            app.manage(SlopScorer::new());
-            app.manage(ChapterGuardrails::default());
-            app.manage(ConsistencyGate::new());
-            app.manage(DecisionGateOrchestrator::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -180,10 +142,6 @@ pub fn run() {
             commands::project::open_project,
             commands::project::open_project_folder,
             commands::project::open_file_location,
-            clip_server_status,
-            get_clip_server_config,
-            set_clip_server_config,
-            stop_clip_server,
             commands::vectorstore::vector_upsert,
             commands::vectorstore::vector_search,
             commands::vectorstore::vector_delete,
@@ -212,17 +170,6 @@ pub fn run() {
             commands::file_sync::ignore_file_change_task,
             commands::backup::export_backup,
             commands::backup::import_backup,
-            commands::status_commands::status_read,
-            commands::status_commands::status_write,
-            novel::anti_ai_rules::get_anti_ai_rules,
-            novel::anti_ai_rules::get_anti_ai_prompt_text,
-            commands::quality_commands::slop_score,
-            commands::quality_commands::guardrails_check,
-            commands::consistency_commands::consistency_check,
-            commands::consistency_commands::consistency_check_p0,
-            commands::gate_commands::run_decision_gates,
-            commands::instruction_commands::classify_intent,
-            commands::instruction_commands::stream_generate,
             set_proxy_env,
         ])
         .on_window_event(|window, event| {
@@ -255,11 +202,56 @@ pub fn run() {
                 }
             }
         })
-        .build(context)
-        .expect("error while building tauri application")
+        .build(tauri::generate_context!())
+        .unwrap_or_else(|e| {
+            // 启动失败时显示友好的错误信息，而非裸 panic
+            let msg = format!("应用程序启动失败: {e}");
+            eprintln!("{msg}");
+            // 尝试弹出 Windows 消息框（不依赖 Tauri 运行时）
+            #[cfg(windows)]
+            {
+                use std::ffi::OsStr;
+                use std::os::windows::ffi::OsStrExt;
+                extern "system" {
+                    fn MessageBoxW(
+                        hwnd: *mut std::ffi::c_void,
+                        lp_text: *const u16,
+                        lp_caption: *const u16,
+                        u_type: u32,
+                    ) -> i32;
+                }
+                fn to_wide(s: &str) -> Vec<u16> {
+                    OsStr::new(s)
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect()
+                }
+                let text = to_wide(&msg);
+                let caption = to_wide("启动错误");
+                unsafe {
+                    MessageBoxW(
+                        std::ptr::null_mut(),
+                        text.as_ptr(),
+                        caption.as_ptr(),
+                        0x10, // MB_ICONERROR
+                    );
+                }
+            }
+            std::process::exit(1);
+        })
         .run(|app, event| {
+            if let tauri::RunEvent::Ready = event {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    reinforce_window_focus(&window);
+                }
+            }
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
                 if !has_visible_windows {
                     use tauri::Manager;
                     if let Some(window) = app.get_webview_window("main") {

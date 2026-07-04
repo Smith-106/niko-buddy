@@ -1,15 +1,10 @@
-import type { LlmConfig } from "@/stores/wiki-store"
+﻿import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
-import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { useWikiStore } from "@/stores/wiki-store"
-import { runDecisionGates, type GateResultInfo, type GateSummary } from "@/commands/gates"
-import { buildContextPack, buildContextPackEnvelope, contextPackToPrompt, type ContextPack } from "./context-engine"
-import { resolveNovelModel } from "./model-resolver"
+import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import type { TaskRouteResult } from "./task-router"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
-import type { ContextAssemblyResult } from "./context-assembly"
-import { buildNovelTaskId } from "./novel-task-id"
 import {
   resolveChapterLengthSpec,
   type ChapterLengthSpec,
@@ -18,6 +13,7 @@ import {
   buildDeepChapterExpansionPrompt,
   buildDeepChapterFinalPolishPrompt,
   buildDeepChapterRevisionPrompt,
+  buildStableContextPrefix,
 } from "./deep-chapter-prompts"
 
 export interface DeepChapterGenerationInput {
@@ -33,7 +29,7 @@ export interface DeepChapterGenerationInput {
 export interface DeepChapterGenerationCallbacks {
   onThinking?: (content: string) => void
   onFinalContent?: (content: string) => void
-  onCheckpoint?: (checkpoint: DeepChapterGenerationResumeCheckpoint) => void
+  onCheckpoint?: (checkpoint: DeepChapterGenerationResumeCheckpoint) => void | Promise<void>
 }
 
 export interface DeepChapterGenerationResult {
@@ -41,8 +37,30 @@ export interface DeepChapterGenerationResult {
   taskBrief: string
   draftContent: string
   reviewResults: NovelReviewResult[]
-  gateSummary: GateSummary
   revised: boolean
+  decisionGates: DeepChapterDecisionGates
+  manualReviewRequired: boolean
+  retryCount: number
+}
+
+export type DeepChapterDecisionGateKey = "consistency" | "anti_ai" | "quality"
+export type DeepChapterGateVerdict = "pending" | "pass" | "warning" | "fail" | "manual_review"
+
+export interface DeepChapterDecisionGate {
+  status: "pending" | "passed" | "failed"
+  verdict: DeepChapterGateVerdict
+  findings: NovelReviewResult[]
+  repair_suggestions: string[]
+  retry_count: number
+  updated_at?: string
+  manual_review_required?: boolean
+}
+
+export interface DeepChapterDecisionGates {
+  consistency: DeepChapterDecisionGate
+  anti_ai: DeepChapterDecisionGate
+  quality: DeepChapterDecisionGate
+  overall: DeepChapterGateVerdict
 }
 
 export type DeepChapterGenerationResumeStage =
@@ -55,23 +73,21 @@ export type DeepChapterGenerationResumeStage =
 export interface DeepChapterGenerationResumeCheckpoint {
   version: 1
   originalRequest: string
-  taskId?: string
   chapterNumber?: number
   stage: DeepChapterGenerationResumeStage
-  contextAssembly?: ContextAssemblyResult
   taskBrief?: string
   draftContent?: string
   reviewResults?: NovelReviewResult[]
-  gateSummary?: GateSummary
   currentContent?: string
+  decisionGates?: DeepChapterDecisionGates
+  retryCount?: number
+  manualReviewRequired?: boolean
 }
 
 export interface DeepChapterGenerationDeps {
   buildContextPack: typeof buildContextPack
-  buildContextPackEnvelope: typeof buildContextPackEnvelope
   contextPackToPrompt: typeof contextPackToPrompt
   reviewChapter: typeof reviewChapter
-  runDecisionGates: typeof runDecisionGates
   streamChat: (
     config: LlmConfig,
     messages: ChatMessage[],
@@ -83,53 +99,86 @@ export interface DeepChapterGenerationDeps {
 
 const defaultDeps: DeepChapterGenerationDeps = {
   buildContextPack,
-  buildContextPackEnvelope,
   contextPackToPrompt,
   reviewChapter,
-  runDecisionGates,
   streamChat,
 }
 
 const REPEAT_CHECK_MIN_CHARS = 600
 const REPEAT_WINDOW_CHARS = 120
 const REPEAT_HIT_LIMIT = 3
+const MAX_GATE_RETRY = 3
+const MAX_TASK_BRIEF_REPAIR_ATTEMPTS = 2
 const USER_ABORT_MESSAGE = "已停止生成"
-
-function alignReviewResultsWithGateSummary(
-  reviewResults: NovelReviewResult[],
-  gateSummary: GateSummary,
-): NovelReviewResult[] {
-  const failingGateTypes = new Set(
-    Object.values(gateSummary.gate_results)
-      .filter((gate) => gate.status === "failed")
-      .map((gate) => gate.gate_type),
-  )
-
-  return reviewResults.filter((item) => item.severity !== "error" || failingGateTypes.has(item.type as "consistency" | "anti_ai" | "quality"))
-}
+const TASK_BRIEF_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u
+const TASK_BRIEF_META_REFUSAL_RE = /只给任务书|不写正文|本轮只|无法开写|无法推进/u
+const DRAFT_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u
+const DRAFT_META_REFUSAL_RE = /只给任务书|不写正文|本轮只|任务书|错误草稿/u
+const TASK_BRIEF_STRUCTURAL_MARKERS = [
+  "必须完成",
+  "禁止违背",
+  "角色状态",
+  "伏笔推进",
+  "结尾钩子",
+] as const
+const TASK_BRIEF_SOURCE_MAX_SEGMENTS = 2
+const TASK_BRIEF_SOURCE_MAX_SEGMENT_LENGTH = 72
+const TASK_BRIEF_SOURCE_MAX_TOTAL_LENGTH = 160
+const TASK_BRIEF_SOURCE_PREFIX_RE = /^(?:(?:本章必须完成|禁止违背|角色状态|伏笔推进|结尾钩子|暂定设定|长度要求|原始请求对齐|优先承接上一章结尾|注意推进或回应相关伏笔|不要违背既有设定|不要写乱当前时间线|不要写错当前人物状态|优先延续上一章结尾带出的悬念或动作|结合近期伏笔决定是否继续铺设、推进或回收|保持时间线连续|参考记忆库相关命中补足场景细节|注意承接最近剧情|场景必须承接)\s*[：:]\s*)+/u
+const TASK_BRIEF_NOISE_MARKERS = [
+  "---",
+  "--- type:",
+  "memory_type:",
+  "snapshot_id:",
+  "sources: [",
+  "source_type:",
+  "source_sequence:",
+  "source_revision:",
+  "chapter_status:",
+  "chapter_number:",
+  "[[",
+  "]]",
+] as const
+const TASK_BRIEF_NOISE_LINE_RE = /^(?:-+\s*)?(?:type|memory_type|title|created|updated|tags|aliases|related|snapshot_id|source_type|source_sequence|source_revision|is_historical|sources|chapter_number|chapter_status)\s*[:：]/iu
+const TASK_BRIEF_NOISE_FRAGMENT_RE = /(?:---(?:\s*type:)?|snapshot_id:|sources:\s*\[|source_(?:type|sequence|revision):|chapter_status:|chapter_number:|memory_type:|\[\[|\]\]|\{"knows":|\{"doesNotKnow":)/iu
+const TASK_BRIEF_NOISE_LABELS = new Set([
+  "正式设定记忆",
+  "时间线记忆",
+  "角色认知记忆",
+  "人物状态记忆",
+  "章节信息",
+  "候选区",
+  "当前正式认知",
+  "当前正式状态",
+  "正式事实",
+  "最新来源",
+  "相关章节",
+  "关键事件",
+  "关系变化",
+  "角色认知",
+  "当前持有者",
+  "前持有者",
+  "能力",
+  "限制",
+  "区域",
+  "类型",
+])
+const CONSISTENCY_REVIEW_TYPES = new Set([
+  "consistency",
+  "character_consistency",
+  "timeline",
+  "foreshadowing",
+  "setting",
+])
+const ANTI_AI_REVIEW_TYPES = new Set([
+  "anti_ai",
+  "style",
+  "de_ai",
+  "slop",
+])
 
 export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, enabled: boolean): boolean {
   return enabled
-}
-
-function buildManualReviewGateSummary(gateSummary: GateSummary): GateSummary {
-  const maxRetry = gateSummary.max_retry || 3
-  return {
-    ...gateSummary,
-    all_passed: false,
-    total_retries: maxRetry,
-    gate_results: Object.fromEntries(
-      Object.entries(gateSummary.gate_results).map(([key, gate]) => [
-        key,
-        gate.status === "failed"
-          ? {
-            ...gate,
-            retry_count: maxRetry,
-          }
-          : gate,
-      ]),
-    ),
-  }
 }
 
 function createResumeCheckpoint(
@@ -141,11 +190,109 @@ function createResumeCheckpoint(
   return {
     version: 1,
     originalRequest,
-    taskId: data.taskId ?? input.resumeCheckpoint?.taskId ?? buildNovelTaskId(input.userRequest, input.chapterNumber),
     chapterNumber: input.resumeCheckpoint?.chapterNumber ?? input.chapterNumber,
     stage,
     ...data,
   }
+}
+
+function createEmptyDecisionGate(): DeepChapterDecisionGate {
+  return {
+    status: "pending",
+    verdict: "pending",
+    findings: [],
+    repair_suggestions: [],
+    retry_count: 0,
+  }
+}
+
+function emptyDecisionGates(): DeepChapterDecisionGates {
+  return {
+    consistency: createEmptyDecisionGate(),
+    anti_ai: createEmptyDecisionGate(),
+    quality: createEmptyDecisionGate(),
+    overall: "pending",
+  }
+}
+
+function resolveDecisionGateKey(type: string): DeepChapterDecisionGateKey {
+  const normalized = type.trim().toLowerCase()
+  if (CONSISTENCY_REVIEW_TYPES.has(normalized)) {
+    return "consistency"
+  }
+  if (ANTI_AI_REVIEW_TYPES.has(normalized)) {
+    return "anti_ai"
+  }
+  return "quality"
+}
+
+function uniqueSuggestions(findings: NovelReviewResult[]): string[] {
+  return [...new Set(
+    findings
+      .map((item) => item.suggestion?.trim())
+      .filter((value): value is string => Boolean(value)),
+  )]
+}
+
+function buildDecisionGates(
+  reviewResults: NovelReviewResult[],
+  retryCount: number,
+  manualReviewRequired = false,
+): DeepChapterDecisionGates {
+  const grouped: Record<DeepChapterDecisionGateKey, NovelReviewResult[]> = {
+    consistency: [],
+    anti_ai: [],
+    quality: [],
+  }
+  for (const item of reviewResults) {
+    grouped[resolveDecisionGateKey(item.type)].push(item)
+  }
+  const updatedAt = new Date().toISOString()
+  const createGate = (findings: NovelReviewResult[]): DeepChapterDecisionGate => {
+    const hasError = findings.some((item) => item.severity === "error")
+    const hasWarning = findings.some((item) => item.severity === "warning")
+    return {
+      status: hasError ? "failed" : "passed",
+      verdict: manualReviewRequired && hasError
+        ? "manual_review"
+        : hasError
+          ? "fail"
+          : hasWarning
+            ? "warning"
+            : "pass",
+      findings,
+      repair_suggestions: uniqueSuggestions(findings),
+      retry_count: retryCount,
+      updated_at: updatedAt,
+      manual_review_required: manualReviewRequired && hasError ? true : undefined,
+    }
+  }
+  const gates: DeepChapterDecisionGates = {
+    consistency: createGate(grouped.consistency),
+    anti_ai: createGate(grouped.anti_ai),
+    quality: createGate(grouped.quality),
+    overall: "pass",
+  }
+  gates.overall = manualReviewRequired
+    ? "manual_review"
+    : gates.consistency.status === "failed" || gates.anti_ai.status === "failed"
+      ? "fail"
+      : gates.quality.verdict === "warning"
+        ? "warning"
+        : gates.quality.status === "failed"
+          ? "fail"
+          : "pass"
+  return gates
+}
+
+function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+  for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
+    const gate = decisionGates[gateKey]
+    if (gate.status === "failed") {
+      return gate.findings.filter((item) => item.severity === "error")
+    }
+  }
+  return []
 }
 
 function checkpointStageAtLeast(
@@ -177,17 +324,290 @@ function hasCheckpointDraft(
 
 function hasCheckpointReview(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
-): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], gateSummary: GateSummary } {
-  return hasCheckpointDraft(checkpoint)
-    && Array.isArray(checkpoint.reviewResults)
-    && Boolean(checkpoint.gateSummary)
-    && checkpointStageAtLeast(checkpoint, "after_review")
+): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[] } {
+  return hasCheckpointDraft(checkpoint) && Array.isArray(checkpoint.reviewResults) && checkpointStageAtLeast(checkpoint, "after_review")
 }
 
 function hasCheckpointRevision(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
-): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], gateSummary: GateSummary, currentContent: string } {
+): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], currentContent: string } {
   return hasCheckpointReview(checkpoint) && Boolean(checkpoint.currentContent?.trim()) && checkpointStageAtLeast(checkpoint, "after_revision")
+}
+
+function normalizeMetaText(content: string): string {
+  return content.replace(/\s+/g, "")
+}
+
+function sanitizeTaskBriefSourceText(value: string | null | undefined): string {
+  if (typeof value !== "string" || !value.trim()) return ""
+
+  const normalized = value
+    .replace(/\r\n/g, "\n")
+    .replace(/(?:^|\s)---+(?=\s|$)/gu, "\n")
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/gu, "$2")
+    .replace(/\[\[([^\]]+)\]\]/gu, "$1")
+    .replace(/`([^`]*)`/gu, "$1")
+    .replace(/\*\*([^*]+)\*\*/gu, "$1")
+    .replace(/[（(]来源[:：][^）)]*[）)]/gu, "")
+    .replace(/\{[^{}]{0,200}\}/gu, " ")
+    .replace(/\s+-\s+/gu, "\n- ")
+
+  const segments = normalized
+    .split(/\n+/u)
+    .flatMap((line) => line.split(/[；;]/u))
+    .map((line) => normalizeTaskBriefCandidateLine(line))
+    .filter((line) => isUsableTaskBriefCandidateLine(line))
+
+  const preferredSegments = segments.some(containsCjkTaskBriefText)
+    ? segments.filter((line) => containsCjkTaskBriefText(line))
+    : segments
+
+  const deduped: string[] = []
+  for (const segment of preferredSegments) {
+    if (deduped.includes(segment)) continue
+    deduped.push(trimForThinking(segment, TASK_BRIEF_SOURCE_MAX_SEGMENT_LENGTH))
+    if (deduped.length >= TASK_BRIEF_SOURCE_MAX_SEGMENTS) break
+  }
+
+  if (deduped.length === 0) return ""
+  return trimForThinking(deduped.join("；"), TASK_BRIEF_SOURCE_MAX_TOTAL_LENGTH)
+}
+
+function normalizeTaskBriefCandidateLine(value: string): string {
+  const trimmed = value.trim()
+  const isHeading = /^#{1,6}\s*/u.test(trimmed)
+  let normalized = trimmed
+    .replace(/^#{1,6}\s*/u, "")
+    .replace(/^-+\s*/u, "")
+    .replace(/^第\d+章[：:]\s*/u, "")
+    .replace(/^Chapter\s*\d+[：:]\s*/iu, "")
+    .replace(/^(?:当前状态|最近更新|关系变化|角色认知|关键事件|说明|已知|未知|当前正式事实|当前正式认知|当前正式状态)[：:]\s*/u, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+
+  while (TASK_BRIEF_SOURCE_PREFIX_RE.test(normalized)) {
+    normalized = normalized.replace(TASK_BRIEF_SOURCE_PREFIX_RE, "").trim()
+  }
+
+  if (isHeading && !/[：:，。！？；,.!?]/u.test(normalized)) {
+    return ""
+  }
+
+  return normalized
+}
+
+function containsCjkTaskBriefText(value: string): boolean {
+  return /[\u3400-\u9FFF]/u.test(value)
+}
+
+function isUsableTaskBriefCandidateLine(value: string): boolean {
+  if (!value) return false
+  if (TASK_BRIEF_NOISE_LABELS.has(value)) return false
+  if (TASK_BRIEF_NOISE_LINE_RE.test(value) || TASK_BRIEF_NOISE_FRAGMENT_RE.test(value)) return false
+  if (looksLikeNarrativeTaskBrief(value)) return false
+  return value.length >= 6
+}
+
+function chapterLengthRequirement(lengthSpec: ChapterLengthSpec): string {
+  return `目标约 ${lengthSpec.targetChars} 字；低于 ${lengthSpec.minChars} 字视为未完成。`
+}
+
+function isNonExecutableTaskBrief(taskBrief: string): boolean {
+  const normalized = normalizeMetaText(taskBrief)
+  if (!normalized) return false
+  return TASK_BRIEF_META_REQUEST_RE.test(normalized) && TASK_BRIEF_META_REFUSAL_RE.test(normalized)
+}
+
+function countTaskBriefStructureHits(taskBrief: string): number {
+  return TASK_BRIEF_STRUCTURAL_MARKERS.reduce((count, marker) => (
+    taskBrief.includes(marker) ? count + 1 : count
+  ), 0)
+}
+
+function containsPollutedTaskBriefMarkers(taskBrief: string): boolean {
+  const trimmed = taskBrief.trim()
+  if (!trimmed) return false
+  const markerHits = TASK_BRIEF_NOISE_MARKERS.reduce((count, marker) => (
+    trimmed.includes(marker) ? count + 1 : count
+  ), 0)
+  if (markerHits === 0) return false
+  return countTaskBriefStructureHits(trimmed) >= 2 || trimmed.length >= 240
+}
+
+function looksLikeNarrativeTaskBrief(taskBrief: string): boolean {
+  const trimmed = taskBrief.trim()
+  if (!trimmed) return false
+  if (/^\[N\]/u.test(trimmed)) return true
+  if (/^#\s*第.{0,20}章/mu.test(trimmed) || /^第.{0,20}章(?:\s|$)/mu.test(trimmed)) {
+    return true
+  }
+  if (countTaskBriefStructureHits(trimmed) >= 2) return false
+  const longParagraphs = trimmed
+    .split(/\n\s*\n/u)
+    .map((paragraph) => paragraph.replace(/\s+/g, ""))
+    .filter((paragraph) => paragraph.length >= 40)
+  return longParagraphs.length >= 3
+}
+
+function shouldRepairTaskBrief(taskBrief: string): boolean {
+  return isNonExecutableTaskBrief(taskBrief)
+    || looksLikeNarrativeTaskBrief(taskBrief)
+    || containsPollutedTaskBriefMarkers(taskBrief)
+}
+
+function shouldUseDeterministicTaskBriefFallback(taskBrief: string): boolean {
+  const trimmed = taskBrief.trim()
+  if (!trimmed) return false
+  if (containsPollutedTaskBriefMarkers(trimmed)) return true
+  if (countTaskBriefStructureHits(trimmed) >= 2 && trimmed.length >= 600) return true
+  return looksLikeNarrativeTaskBrief(trimmed) && trimmed.length >= 600
+}
+
+function isMetaDraftContent(draftContent: string): boolean {
+  const normalized = normalizeMetaText(draftContent)
+  if (!normalized) return false
+  if (/^\[N\]/u.test(draftContent.trim())) return true
+  return DRAFT_META_REQUEST_RE.test(normalized) && DRAFT_META_REFUSAL_RE.test(normalized)
+}
+
+function buildTaskBriefRepairPrompt(
+  outlinePrompt: string,
+  contextPrompt: string,
+  invalidTaskBrief: string,
+  userRequest: string,
+  chapterNumber: number | undefined,
+  lengthSpec: ChapterLengthSpec,
+): string {
+  return [
+    buildStableContextPrefix(outlinePrompt, contextPrompt),
+    "[TASK_BRIEF_MARKER]",
+    "",
+    "你刚才输出的写作任务书不可直接执行。",
+    "它可能把缺失信息转回给用户、声明本轮不直接写正文，或者直接漂移成了小说正文片段。",
+    "请把它改写成一份可以立刻开写的结构化章节任务书。",
+    "",
+    "硬性要求：",
+    "1. 不得向用户追问，不得要求“补充设定”“给我五句话”“下一轮再写”。",
+    "2. 不得写“只给任务书”“不写正文”“待补全后再推进”这类元说明。",
+    "3. 不得输出小说正文、对话片段、场景描写、章节标题或任何可直接作为正文保存的内容。",
+    "4. 如果上下文不足，必须自行补出最小必要设定，并明确标成“暂定设定”。",
+    "5. 任务书必须显式覆盖：本章必须完成、禁止违背、角色状态、伏笔推进、结尾钩子。",
+    `6. 这份任务书必须足以直接写出完整章节正文，${chapterLengthRequirement(lengthSpec)}`,
+    "7. 严格按下面的结构输出，不得改标题，不得额外添加章节标题、正文片段或解释：",
+    "本章必须完成：...",
+    "禁止违背：...",
+    "角色状态：...",
+    "伏笔推进：...",
+    "结尾钩子：...",
+    "暂定设定：...",
+    "",
+    chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    `用户请求：${userRequest}`,
+    "",
+    "不可执行任务书：",
+    invalidTaskBrief,
+  ].join("\n")
+}
+
+function pickTaskBriefFallbackValue(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const normalized = sanitizeTaskBriefSourceText(value)
+    if (normalized) return normalized
+  }
+  return ""
+}
+
+function taskBriefFallbackLine(label: string, value: string): string {
+  return `${label}：${value.trim()}`
+}
+
+function buildFallbackTaskBrief(
+  contextPack: ContextPack,
+  userRequest: string,
+  chapterNumber: number | undefined,
+  lengthSpec: ChapterLengthSpec,
+): string {
+  const chapterLabel = chapterNumber ? `第${chapterNumber}章` : "当前章节"
+  const mustDo = pickTaskBriefFallbackValue(
+    contextPack.mustDo,
+    contextPack.chapterGoal,
+    `承接上一章结尾，完成 ${chapterLabel} 的核心冲突推进，并自然落出下一步行动。`,
+  )
+  const mustAvoid = pickTaskBriefFallbackValue(
+    contextPack.mustAvoid,
+    contextPack.canonRules,
+    contextPack.timeline,
+    "不得违背既有设定、角色认知边界与时间线。",
+  )
+  const characterState = pickTaskBriefFallbackValue(
+    contextPack.characterStates,
+    contextPack.cognitionStates,
+    "沿用现有角色状态与认知边界，不擅自越界知晓或反常行动。",
+  )
+  const foreshadowing = pickTaskBriefFallbackValue(
+    contextPack.foreshadowingStates,
+    contextPack.searchResults,
+    contextPack.graphSearchResults,
+    "至少推进一个既有线索或伏笔，并把它和本章结果绑定。",
+  )
+  const endingHook = pickTaskBriefFallbackValue(
+    contextPack.nextChapterAdvice,
+    contextPack.previousChapterEnding && `结尾需承接上一章留下的压力：${contextPack.previousChapterEnding}`,
+    "结尾保留下一章可直接承接的新压力、线索或选择题。",
+  )
+  const provisionalSetting = pickTaskBriefFallbackValue(
+    contextPack.relatedSettings,
+    contextPack.previousChapterEnding && `场景必须承接：${contextPack.previousChapterEnding}`,
+    "若上下文仍有缺口，只补最小必要场景设定，不新增会推翻既有设定的事实。",
+  )
+
+  return [
+    taskBriefFallbackLine("本章必须完成", mustDo),
+    taskBriefFallbackLine("禁止违背", mustAvoid),
+    taskBriefFallbackLine("角色状态", characterState),
+    taskBriefFallbackLine("伏笔推进", foreshadowing),
+    taskBriefFallbackLine("结尾钩子", endingHook),
+    taskBriefFallbackLine("暂定设定", provisionalSetting),
+    taskBriefFallbackLine("长度要求", chapterLengthRequirement(lengthSpec)),
+    taskBriefFallbackLine(
+      "原始请求对齐",
+      sanitizeTaskBriefSourceText(userRequest) || `围绕 ${chapterLabel} 的写作需求推进。`,
+    ),
+  ].join("\n")
+}
+
+function buildDraftRecoveryPrompt(
+  outlinePrompt: string,
+  contextPrompt: string,
+  taskBrief: string,
+  invalidDraft: string,
+  userRequest: string,
+  chapterNumber: number | undefined,
+  lengthSpec: ChapterLengthSpec,
+): string {
+  return [
+    buildStableContextPrefix(outlinePrompt, contextPrompt),
+    "[DRAFT_STAGE_MARKER]",
+    "",
+    "你上一次输出成了任务说明、追问用户或其他元文本，而不是小说正文。",
+    "请丢弃那份错误输出，重新直接写出可审查、可保存的章节正文。",
+    "",
+    "硬性要求：",
+    "1. 只输出小说正文，不得输出任务书、解释、追问、补设定请求或后续说明。",
+    "2. 如果任务书里仍有缺口，必须自行补出最小必要设定并自然写进正文，不得把任务转回给用户。",
+    `3. 必须写成完整章节，${chapterLengthRequirement(lengthSpec)}`,
+    "4. 必须保留冲突推进、人物互动、细节描写和结尾钩子。",
+    "5. 禁止复读、循环输出、重复段落，以及任何“等你补充后再写”的元文本。",
+    "",
+    chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    `用户请求：${userRequest}`,
+    "",
+    "写作任务书：",
+    taskBrief,
+    "",
+    "错误草稿（仅用于识别错误模式，不可沿用其元文本表达）：",
+    invalidDraft,
+  ].join("\n")
 }
 
 export async function runDeepChapterGeneration(
@@ -200,15 +620,15 @@ export async function runDeepChapterGeneration(
   const resumeCheckpoint = input.resumeCheckpoint
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
+  const novelConfig = useWikiStore.getState().novelConfig
   const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
-  const taskId = resumeCheckpoint?.taskId ?? buildNovelTaskId(input.userRequest, input.chapterNumber)
 
   // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
   let customDeAiSkill: string | null = null
 
-  // 阶段0：前情分析（仅当章节号>1时）
+  // 阶段0：前情分析（仅当章节号>1，且设置开启时；记忆库的近期摘要与上一章结尾仍会注入）
   let previousChaptersAnalysis = ""
-  if (input.chapterNumber && input.chapterNumber > 1 && !resumeCheckpoint) {
+  if (input.chapterNumber && input.chapterNumber > 1 && !resumeCheckpoint && novelConfig.deepPreviousChaptersAnalysis) {
     callbacks.onThinking?.(formatStageThinking("阶段0：前情分析", "正在读取并分析前3章完整内容..."))
     const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
     try {
@@ -230,12 +650,11 @@ export async function runDeepChapterGeneration(
   }
   assertNotAborted(signal)
 
-  const { pack: contextPack, assembly: contextAssembly } = await safeBuildChapterContextPack(
+  const contextPack = await safeBuildChapterContextPack(
     deps,
     input.projectPath,
     input.userRequest,
     input.chapterNumber,
-    taskId,
   )
   assertNotAborted(signal)
 
@@ -267,12 +686,14 @@ export async function runDeepChapterGeneration(
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 
+  // 稳定上下文前缀：与任务书/初稿/扩写/返修/去AI味各阶段提示词开头逐字节一致。
+  // 作为显式 prompt 缓存断点传入（Anthropic/MiniMax 走 cache_control；
+  // OpenAI/DeepSeek 该断点被折叠回字符串、由其自动前缀缓存命中）。
+  const cachePrefix = buildStableContextPrefix(outlinePrompt, contextPrompt)
+
   if (!resumeCheckpoint) {
     callbacks.onThinking?.(formatContextThinking(input, contextPack))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context", {
-      taskId,
-      contextAssembly,
-    }))
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context"))
   }
   assertNotAborted(signal)
 
@@ -294,14 +715,90 @@ export async function runDeepChapterGeneration(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
+      undefined,
+      cachePrefix,
     )
     assertNotAborted(signal)
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", {
-      taskId,
-      contextAssembly,
-      taskBrief,
-    }))
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+  }
+
+  const taskBriefNeedsDeterministicFallback =
+    shouldUseDeterministicTaskBriefFallback(taskBrief)
+    || (Boolean(resumeCheckpoint) && shouldRepairTaskBrief(taskBrief))
+
+  if (taskBriefNeedsDeterministicFallback) {
+    taskBrief = buildFallbackTaskBrief(
+      contextPack,
+      input.userRequest,
+      input.chapterNumber,
+      lengthSpec,
+    )
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段2.5：任务书纠偏",
+      [
+        resumeCheckpoint
+          ? "检测到恢复检查点里的任务书已经漂移成正文或元说明。"
+          : "检测到任务书已经膨胀成超长章节化说明，继续追加一次模型纠偏只会放大不稳定性。",
+        resumeCheckpoint
+          ? "为避免恢复链再次卡在一次额外的模型纠偏调用，这次直接切换到本地结构化 fallback 任务书。"
+          : "这次直接切换到本地结构化 fallback 任务书，绕过额外的阶段2.5 模型调用。",
+        "",
+        taskBrief,
+      ].join("\n"),
+    ))
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+  } else if (shouldRepairTaskBrief(taskBrief)) {
+    let repairAttempt = 0
+    while (shouldRepairTaskBrief(taskBrief) && repairAttempt < MAX_TASK_BRIEF_REPAIR_ATTEMPTS) {
+      repairAttempt += 1
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段2.5：任务书纠偏",
+        repairAttempt === 1
+          ? "检测到任务书不可直接执行，或已经漂移成正文片段，正在改写为可直接开写的结构化任务书。"
+          : `上一次纠偏仍未产出可执行任务书，正在进行第 ${repairAttempt} 次重试。`,
+      ))
+      taskBrief = await collectModelText(
+        writingConfig,
+        [{
+          role: "user",
+          content: buildTaskBriefRepairPrompt(
+            outlinePrompt,
+            contextPrompt,
+            taskBrief,
+            input.userRequest,
+            input.chapterNumber,
+            lengthSpec,
+          ),
+        }],
+        deps,
+        signal,
+        (partial) => callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", partial)),
+        undefined,
+        cachePrefix,
+      )
+      assertNotAborted(signal)
+      callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", taskBrief))
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+    }
+
+    if (shouldRepairTaskBrief(taskBrief)) {
+      taskBrief = buildFallbackTaskBrief(
+        contextPack,
+        input.userRequest,
+        input.chapterNumber,
+        lengthSpec,
+      )
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段2.5：任务书纠偏",
+        [
+          `模型连续 ${MAX_TASK_BRIEF_REPAIR_ATTEMPTS} 次仍输出正文型任务书，已切换到本地结构化 fallback，避免阶段3继续使用坏 taskBrief。`,
+          "",
+          taskBrief,
+        ].join("\n"),
+      ))
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+    }
   }
 
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
@@ -324,6 +821,7 @@ export async function runDeepChapterGeneration(
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
+      cachePrefix,
     )
     assertNotAborted(signal)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -346,6 +844,7 @@ export async function runDeepChapterGeneration(
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
         { max_tokens: lengthSpec.maxOutputTokens },
+        cachePrefix,
       )
       assertNotAborted(signal)
     }
@@ -354,44 +853,108 @@ export async function runDeepChapterGeneration(
       "",
       `初稿生成完成，约 ${countChapterChars(draftContent)} 字。`,
     ].join("\n")))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", {
-      taskId,
-      contextAssembly,
-      taskBrief,
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", { taskBrief, draftContent }))
+  }
+
+  if (isMetaDraftContent(draftContent)) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段3.5：草稿纠偏",
+      "检测到模型输出了任务说明或追问用户，正在重写为可直接审查的章节正文。",
+    ))
+    draftContent = await collectModelText(
+      writingConfig,
+      [{
+        role: "user",
+        content: buildDraftRecoveryPrompt(
+          outlinePrompt,
+          contextPrompt,
+          taskBrief,
+          draftContent,
+          input.userRequest,
+          input.chapterNumber,
+          lengthSpec,
+        ),
+      }],
+      deps,
+      signal,
+      (partial) => callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", partial)),
+      { max_tokens: lengthSpec.maxOutputTokens },
+      cachePrefix,
+    )
+    assertNotAborted(signal)
+    if (countChapterChars(draftContent) < lengthSpec.minChars) {
+      draftContent = await collectModelText(
+        writingConfig,
+        [{
+          role: "user",
+          content: buildDeepChapterExpansionPrompt(
+            outlinePrompt,
+            contextPrompt,
+            taskBrief,
+            draftContent,
+            input.userRequest,
+            input.chapterNumber,
+            input.goldenThreeChapter,
+            lengthSpec,
+          ),
+        }],
+        deps,
+        signal,
+        (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
+        { max_tokens: lengthSpec.maxOutputTokens },
+        cachePrefix,
+      )
+      assertNotAborted(signal)
+    }
+    callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", [
       draftContent,
-    }))
+      "",
+      `纠偏后正文约 ${countChapterChars(draftContent)} 字。`,
+    ].join("\n")))
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", { taskBrief, draftContent }))
   }
 
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
-  let gateSummary = hasCheckpointReview(resumeCheckpoint)
-    ? resumeCheckpoint.gateSummary
-    : createEmptyGateSummary()
+  let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
+  let retryCount = resumeCheckpoint?.retryCount ?? 0
+  let manualReviewRequired = Boolean(resumeCheckpoint?.manualReviewRequired)
   if (!hasCheckpointReview(resumeCheckpoint)) {
-    callbacks.onThinking?.(formatStageThinking(
-      "阶段4：正式三门控",
-      "正在运行 Consistency、Anti-AI、Quality 三门控，并补充审稿证据。",
-    ))
-    gateSummary = await deps.runDecisionGates(input.projectPath, draftContent)
-    assertNotAborted(signal)
-    try {
-      reviewResults = signal
-        ? await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking }, signal)
-        : await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking })
-    } catch (err) {
-      console.error("[Deep Chapter] Review enrichment failed:", err)
-      reviewResults = []
+    if (!novelConfig.deepChapterReview) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段4-5：已跳过审稿与返修",
+        "已按设置关闭 AI 审稿，初稿将直接进入阶段6简单审查与去AI味。",
+      ))
+    } else {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段4：AI审稿",
+        "正在检查正文完整性、剧情连续性、是否被截断以及是否存在阻断问题。",
+      ))
+      try {
+        // 复用阶段1已构建的 contextPack，避免审稿内部再 buildContextPack 一次
+        // （会重复跑检索 / 向量 / 图谱）。
+        reviewResults = signal
+          ? await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack }, signal)
+          : await deps.reviewChapter(input.projectPath, draftContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack })
+      } catch (err) {
+        console.error("[Deep Chapter] Review failed:", err)
+        throw err
+      }
+      reviewResults = reviewResults || []
+      decisionGates = buildDecisionGates(reviewResults, retryCount)
+      assertNotAborted(signal)
+      callbacks.onThinking?.(formatReviewThinking(reviewResults))
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+        taskBrief,
+        draftContent,
+        reviewResults,
+        decisionGates,
+        retryCount,
+      }))
     }
-    reviewResults = reviewResults || []
-    assertNotAborted(signal)
-    callbacks.onThinking?.(formatGateThinking(gateSummary, reviewResults))
-    callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
-      taskId,
-      contextAssembly,
-      taskBrief,
-      draftContent,
-      reviewResults,
-      gateSummary,
-    }))
+  }
+
+  if (hasCheckpointReview(resumeCheckpoint) && decisionGates.overall === "pending") {
+    decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired)
   }
 
   let currentContent = draftContent
@@ -400,95 +963,161 @@ export async function runDeepChapterGeneration(
   if (hasCheckpointRevision(resumeCheckpoint)) {
     currentContent = resumeCheckpoint.currentContent.trim()
     revised = true
-    gateSummary = resumeCheckpoint.gateSummary
-  } else {
-    let blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
-    if (blockingIssues.length === 0 && gateSummary.all_passed) {
+    if (novelConfig.deepChapterReview && decisionGates.overall === "pending") {
       callbacks.onThinking?.(formatStageThinking(
-        "阶段5：无需自动返修",
-        "正式三门控已通过，跳过自动返修，进入阶段6简单审查与去AI味。",
+        "阶段5.5：返修后复审",
+        "正在恢复返修后的完整门控审查，确认上次中断前的返修结果。",
       ))
-    } else {
-      let retryAttempt = 0
-      const maxRetry = gateSummary.max_retry || 3
-      while (blockingIssues.length > 0 && retryAttempt < maxRetry) {
-        retryAttempt += 1
-        const revisedContent = await collectModelText(
-          writingConfig,
-          [{
-            role: "user",
-            content: buildDeepChapterRevisionPrompt(
-              outlinePrompt,
-              contextPrompt,
-              taskBrief,
-              currentContent,
-              blockingIssues,
-              input.userRequest,
-              input.chapterNumber,
-              input.goldenThreeChapter,
-            ),
-          }],
-          deps,
-          signal,
-          (partial) => callbacks.onThinking?.(formatStageThinking(`阶段5：自动返修（${retryAttempt}/${maxRetry}）`, partial)),
-          { max_tokens: lengthSpec.maxOutputTokens },
-        )
-        assertNotAborted(signal)
-        callbacks.onThinking?.(formatStageThinking(
-          `阶段5：自动返修（${retryAttempt}/${maxRetry}）`,
-          [
-            `检测到 ${blockingIssues.length} 个门控阻断问题，已完成第 ${retryAttempt} 次自动返修。`,
-            "",
-            formatReviewIssueList(blockingIssues),
-            "",
-            `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
-          ].join("\n"),
-        ))
-        currentContent = revisedContent
-        revised = true
-        gateSummary = await deps.runDecisionGates(input.projectPath, currentContent)
-        blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
-        callbacks.onThinking?.(formatStageThinking(
-          `阶段5：返修后复核（${retryAttempt}/${maxRetry}）`,
-          formatGateSummaryLines(gateSummary).join("\n"),
-        ))
-        callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
-          taskId,
-          contextAssembly,
-          taskBrief,
-          draftContent,
-          reviewResults,
-          gateSummary,
-          currentContent: revisedContent,
-        }))
+      try {
+        reviewResults = signal
+          ? await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack }, signal)
+          : await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack })
+      } catch (err) {
+        console.error("[Deep Chapter] 恢复返修后复审失败:", err)
+        throw err
       }
-
-      if (blockingIssues.length > 0) {
-        gateSummary = buildManualReviewGateSummary(gateSummary)
-        callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
-          taskId,
-          contextAssembly,
-          taskBrief,
-          draftContent,
-          reviewResults,
-          gateSummary,
-          currentContent,
-        }))
-        callbacks.onThinking?.(formatStageThinking(
-          "阶段5：转人工处理",
-          [
-            `达到 max_retry=${gateSummary.max_retry}，仍有阻断问题。`,
-            "该次任务将被标记为 manual review，保留草稿和门控结果供人工处理。",
-            "",
-            formatReviewIssueList(blockingIssues),
-          ].join("\n"),
-        ))
-        throw new Error("MANUAL_REVIEW_REQUIRED")
-      }
+      reviewResults = reviewResults || []
+      decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired)
+      assertNotAborted(signal)
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+        taskBrief,
+        draftContent,
+        reviewResults,
+        currentContent,
+        decisionGates,
+        retryCount,
+      }))
     }
   }
 
-  const polishedContent = await finalPolishChapter(
+  let blockingIssues = collectBlockingIssues(decisionGates)
+  if (!revised && blockingIssues.length === 0 && novelConfig.deepChapterReview) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5：无需自动返修",
+      "AI审稿未发现阻断问题，跳过自动返修，进入阶段6简单审查与去AI味。",
+    ))
+  }
+
+  while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
+    if (retryCount >= MAX_GATE_RETRY) {
+      manualReviewRequired = true
+      decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5.5：转人工处理",
+        [
+          `阻断问题在 ${retryCount} 次自动返修后仍未解除，已转人工处理。`,
+          "",
+          formatReviewIssueList(blockingIssues),
+          "",
+          "当前草稿与 gate 结果将保留在运行态真源中，等待人工继续处理。",
+        ].join("\n"),
+      ))
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
+        taskBrief,
+        draftContent,
+        reviewResults,
+        currentContent,
+        decisionGates,
+        retryCount,
+        manualReviewRequired: true,
+      }))
+      callbacks.onFinalContent?.(currentContent)
+      return {
+        finalContent: currentContent,
+        taskBrief,
+        draftContent,
+        reviewResults,
+        revised,
+        decisionGates,
+        manualReviewRequired: true,
+        retryCount,
+      }
+    }
+
+    const nextRetryCount = retryCount + 1
+    const revisedContent = await collectModelText(
+      writingConfig,
+      [{
+        role: "user",
+        content: buildDeepChapterRevisionPrompt(
+          outlinePrompt,
+          contextPrompt,
+          taskBrief,
+          currentContent,
+          blockingIssues,
+          input.userRequest,
+          input.chapterNumber,
+          input.goldenThreeChapter,
+        ),
+      }],
+      deps,
+      signal,
+      (partial) => callbacks.onThinking?.(formatStageThinking("阶段5：自动返修", partial)),
+      { max_tokens: lengthSpec.maxOutputTokens },
+      cachePrefix,
+    )
+    assertNotAborted(signal)
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5：自动返修",
+      [
+        `检测到 ${blockingIssues.length} 个阻断问题，已自动返修第 ${nextRetryCount} 次。`,
+        "",
+        formatReviewIssueList(blockingIssues),
+        "",
+        `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
+      ].join("\n"),
+    ))
+    currentContent = revisedContent
+    revised = true
+    retryCount = nextRetryCount
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+      taskBrief,
+      draftContent,
+      reviewResults,
+      currentContent: revisedContent,
+      decisionGates,
+      retryCount,
+    }))
+
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5.5：返修后复审",
+      "正在对返修后的正文重新运行完整门控审查，确认阻断问题是否已经解除。",
+    ))
+    try {
+      reviewResults = signal
+        ? await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack }, signal)
+        : await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack })
+    } catch (err) {
+      console.error("[Deep Chapter] 返修后复审失败:", err)
+      throw err
+    }
+    reviewResults = reviewResults || []
+    decisionGates = buildDecisionGates(reviewResults, retryCount)
+    blockingIssues = collectBlockingIssues(decisionGates)
+    assertNotAborted(signal)
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+      taskBrief,
+      draftContent,
+      reviewResults,
+      currentContent,
+      decisionGates,
+      retryCount,
+    }))
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5.5：返修后复审",
+      blockingIssues.length === 0
+        ? "返修后复审未发现新的阻断问题，进入阶段6。"
+        : [
+            `返修后复审仍发现 ${blockingIssues.length} 个阻断问题。`,
+            "",
+            formatReviewIssueList(blockingIssues),
+            "",
+            `当前自动返修次数：${retryCount}/${MAX_GATE_RETRY}。`,
+          ].join("\n"),
+    ))
+  }
+
+  const finalContent = await finalPolishChapter(
     writingConfig,
     outlinePrompt,
     contextPrompt,
@@ -501,20 +1130,8 @@ export async function runDeepChapterGeneration(
     signal,
     customDeAiSkill || undefined,
     lengthSpec,
+    cachePrefix,
   )
-  const finalGateSummary = await deps.runDecisionGates(input.projectPath, polishedContent)
-  const finalContent = finalGateSummary.final_text?.trim() || polishedContent
-  const finalReviewResults = alignReviewResultsWithGateSummary(reviewResults, finalGateSummary)
-  callbacks.onThinking?.(formatStageThinking(
-    "阶段7：正式门控收口",
-    [
-      ...formatGateSummaryLines(finalGateSummary),
-      "",
-      finalGateSummary.all_passed
-        ? "pre-commit 三门控已通过。"
-        : "pre-commit 三门控未完全通过，已保留门控结果供后续 accept/reject 流程使用。",
-    ].join("\n"),
-  ))
   callbacks.onThinking?.(formatStageThinking(
     "阶段7：完成",
     revised
@@ -526,9 +1143,11 @@ export async function runDeepChapterGeneration(
     finalContent,
     taskBrief,
     draftContent,
-    reviewResults: finalReviewResults,
-    gateSummary: finalGateSummary,
+    reviewResults,
     revised,
+    decisionGates,
+    manualReviewRequired: false,
+    retryCount,
   }
 }
 
@@ -545,6 +1164,7 @@ async function finalPolishChapter(
   signal?: AbortSignal,
   customDeAiSkill?: string,
   lengthSpec: ChapterLengthSpec = resolveChapterLengthSpec(),
+  cachePrefix?: string,
 ): Promise<string> {
   assertNotAborted(signal)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
@@ -567,6 +1187,7 @@ async function finalPolishChapter(
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", partial)),
     { max_tokens: lengthSpec.maxOutputTokens },
+    cachePrefix,
   )
   assertNotAborted(signal)
   return polished.trim() ? polished : currentContent
@@ -578,8 +1199,37 @@ function resolveCurrentChapterLengthSpec(): ChapterLengthSpec {
 }
 
 function resolveWritingConfig(llmConfig: LlmConfig): LlmConfig {
-  const novelConfig = useWikiStore.getState().novelConfig
-  return resolveNovelModel(llmConfig, novelConfig, "writing")
+  // 写作模型已移除，始终使用 AI 会话当前模型。
+  // llmConfig 已在 chat-panel.tsx 中通过 effectiveChatLlmConfig 正确解析，
+  // 不再通过 resolveNovelModel 重新解析，避免二次解析使用不同 API 端点/密钥
+  return llmConfig
+}
+
+/**
+ * 把以 cachePrefix 开头的 user 字符串消息拆成 [前缀块(cacheControl), 余下块]，
+ * 让 provider 在稳定上下文前缀上打缓存断点。其余消息原样返回。
+ * 注：Anthropic/MiniMax 会据此发出 cache_control；OpenAI/DeepSeek 端纯文本块会被
+ * 折叠回与原字符串逐字节一致的内容，不影响其自动前缀缓存。
+ */
+function applyCachePrefix(messages: ChatMessage[], cachePrefix?: string): ChatMessage[] {
+  if (!cachePrefix) return messages
+  return messages.map((message) => {
+    if (
+      message.role === "user" &&
+      typeof message.content === "string" &&
+      message.content.startsWith(cachePrefix)
+    ) {
+      const rest = message.content.slice(cachePrefix.length)
+      return {
+        role: message.role,
+        content: [
+          { type: "text" as const, text: cachePrefix, cacheControl: true },
+          ...(rest ? [{ type: "text" as const, text: rest }] : []),
+        ],
+      }
+    }
+    return message
+  })
 }
 
 async function collectModelText(
@@ -589,6 +1239,7 @@ async function collectModelText(
   signal?: AbortSignal,
   onUpdate?: (content: string) => void,
   requestOverrides?: RequestOverrides,
+  cachePrefix?: string,
 ): Promise<string> {
   let content = ""
   let reasoningBuffer = ""
@@ -606,7 +1257,7 @@ async function collectModelText(
 
   await deps.streamChat(
     config,
-    messages,
+    applyCachePrefix(messages, cachePrefix),
     {
       onToken: (token) => {
         if (signal?.aborted) {
@@ -642,12 +1293,38 @@ async function collectModelText(
     combinedSignal,
     {
       ...requestOverrides,
-      reasoning: requestOverrides?.reasoning ?? resolveUserVisibleReasoning(config.reasoning),
+      reasoning: requestOverrides?.reasoning ?? config.reasoning,
     },
   )
 
+  // `streamError` is assigned inside the `onError` callback above, so TS
+  // control-flow treats it as `null` here. Read it through a closure accessor
+  // so the real `Error | null` type survives for the recoverability check.
+  const readStreamError = (): Error | null => streamError
+
   if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE)
-  if (streamError && !(cutoffReason && isRequestCancelledError(streamError))) throw streamError
+  // Transport inactivity/timeout errors are recoverable when the model already
+  // streamed real partial content: the transport simply lost patience before
+  // the next token arrived. Discarding that content would force a full stage-3
+  // re-run from an empty draft, which is the documented `after_task_brief`
+  // stall mechanism. Preserve the partial text so the caller can checkpoint it
+  // as a pausable partial draft and `continue-unfinished` can resume from real
+  // progress instead of from zero. Genuine hangs (no content at all) and
+  // deterministic errors (auth/config/cancellation) still throw so the chat
+  // panel pause path records the failure.
+  //
+  // `streamError` is assigned inside the `onError` callback, so TS control-flow
+  // treats it as `null` here; read it through an accessor to defeat that
+  // narrowing and recover the real `Error | null` type.
+  const errorNow = readStreamError()
+  const partialContent = content.trim()
+  if (errorNow && !(cutoffReason && isRequestCancelledError(errorNow))) {
+    if (partialContent && isTransportInactivityError(errorNow)) {
+      onUpdate?.(`${partialContent}\n\n（${errorNow.message}，已保留已生成的部分正文以便继续未完成。）`)
+    } else {
+      throw errorNow
+    }
+  }
   if (cutoffReason) {
     onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`)
   }
@@ -664,6 +1341,19 @@ function assertNotAborted(signal?: AbortSignal): void {
 
 function isRequestCancelledError(error: Error): boolean {
   return /request cancelled|request canceled|aborted|aborterror/i.test(error.message)
+}
+
+/**
+ * True for Claude Code CLI transport timeouts where the subprocess stayed
+ * alive but stalled before/after producing output. These are recoverable when
+ * partial content exists: a fresh subprocess on `continue-unfinished` can
+ * complete the draft. Distinct from cancellation (client intent) and from
+ * deterministic auth/config errors (retrying won't help).
+ */
+function isTransportInactivityError(error: Error): boolean {
+  return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
+    error.message,
+  )
 }
 
 function combineAbortSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
@@ -736,78 +1426,32 @@ function formatContextThinking(input: DeepChapterGenerationInput, pack: ContextP
   )
 }
 
-function createEmptyGateSummary(): GateSummary {
-  return {
-    all_passed: true,
-    gate_results: {},
-    total_retries: 0,
-    max_retry: 3,
-    final_text: null,
+function formatReviewThinking(reviewResults: NovelReviewResult[]): string {
+  if (reviewResults.length === 0) {
+    return formatStageThinking("阶段4：AI审稿", "未发现阻断问题。")
   }
-}
-
-function collectBlockingIssues(gateSummary: GateSummary, reviewResults: NovelReviewResult[]): NovelReviewResult[] {
-  void reviewResults
-  const gateIssues = Object.values(gateSummary.gate_results)
-    .filter((gate) => gate.status === "failed")
-    .flatMap((gate) => gateResultToReviewIssues(gate))
-  return gateIssues
-}
-
-function gateResultToReviewIssues(gate: GateResultInfo): NovelReviewResult[] {
-  const findings = [...gate.mechanical_findings, ...gate.semantic_findings]
-  if (findings.length === 0 && gate.status === "failed") {
-    return [{
-      severity: "error",
-      type: gate.gate_type,
-      message: `${gate.gate_type} 门控未通过`,
-      evidence: gate.findings_desc.join("；"),
-      relatedMemory: "",
-      suggestion: "按门控结果返修后重跑正式 gates。",
-    }]
-  }
-
-  return findings.map((finding) => ({
-    severity: finding.severity === "warning" ? "warning" : "error",
-    type: gate.gate_type,
-    message: `${gate.gate_type}：${finding.description}`,
-    evidence: finding.location ?? "",
-    relatedMemory: "",
-    suggestion: finding.suggestion ?? "按门控结果返修正文。",
-  }))
-}
-
-function formatGateThinking(gateSummary: GateSummary, reviewResults: NovelReviewResult[]): string {
-  const blockingIssues = collectBlockingIssues(gateSummary, reviewResults)
-  return formatStageThinking(
-    "阶段4：正式三门控",
-    [
-      ...formatGateSummaryLines(gateSummary),
-      "",
-      blockingIssues.length === 0
-        ? "未发现阻断问题。"
-        : `发现 ${blockingIssues.length} 个阻断问题。`,
-      blockingIssues.length > 0 ? "" : "",
-      blockingIssues.length > 0 ? formatReviewIssueList(blockingIssues) : "",
-    ].filter(Boolean).join("\n"),
-  )
-}
-
-function formatGateSummaryLines(gateSummary: GateSummary): string[] {
-  const gateOrder: Array<keyof GateSummary["gate_results"] | "consistency" | "anti_ai" | "quality"> = [
-    "consistency",
-    "anti_ai",
-    "quality",
+  const characterIssues = reviewResults.filter((item) => item.type === "character_consistency")
+  const otherIssues = reviewResults.filter((item) => item.type !== "character_consistency")
+  const errorCount = reviewResults.filter((item) => item.severity === "error").length
+  const sections: string[] = [
+    `发现 ${reviewResults.length} 个问题，其中阻断问题 ${errorCount} 个。`,
   ]
-  const lines = gateOrder
-    .map((key) => {
-      const gate = gateSummary.gate_results[key]
-      if (!gate) return ""
-      return `- ${key}: ${gate.status}，score ${gate.score.toFixed(1)}，findings ${gate.finding_count}，retry ${gate.retry_count}`
-    })
-    .filter(Boolean)
-  if (lines.length === 0) return ["- 暂无门控结果"]
-  return lines
+
+  // 角色命中记忆库报告（单独展示 character_consistency 类型的问题）
+  if (characterIssues.length > 0) {
+    sections.push("")
+    sections.push("【角色命中记忆库报告】")
+    sections.push(formatReviewIssueList(characterIssues))
+  }
+
+  // 其他问题
+  if (otherIssues.length > 0) {
+    sections.push("")
+    sections.push("【其他审查问题】")
+    sections.push(formatReviewIssueList(otherIssues))
+  }
+
+  return formatStageThinking("阶段4：AI审稿", sections.join("\n"))
 }
 
 function formatStageThinking(title: string, content: string): string {
@@ -867,46 +1511,31 @@ async function safeBuildChapterContextPack(
   projectPath: string,
   userRequest: string,
   chapterNumber?: number,
-  taskId?: string,
-): Promise<{ pack: ContextPack, assembly: ContextAssemblyResult }> {
+): Promise<ContextPack> {
   try {
-    return await deps.buildContextPackEnvelope(projectPath, userRequest, chapterNumber)
+    return await deps.buildContextPack(projectPath, userRequest, chapterNumber)
   } catch {
     return {
-      pack: {
-        task: userRequest,
-        chapterGoal: "",
-        outline: "",
-        recentSummaries: [],
-        previousChapterEnding: "",
-        characterStates: "",
-        soulDoc: "",
-        characterAuras: "",
-        cognitionStates: "",
-        foreshadowingStates: "",
-        timeline: "",
-        relatedSettings: "",
-        canonRules: "",
-        writingStyle: "",
-        searchResults: "",
-        graphSearchResults: "",
-        mustDo: "",
-        mustAvoid: "",
-        nextChapterAdvice: "",
-        revisionDirectives: "",
-      },
-      assembly: {
-        task_id: taskId ?? "tsk-context-fallback",
-        sources: [],
-        token_budget: null,
-        estimated_tokens: 0,
-        prompt_chars: 0,
-        hard_constraints: [
-          "不能越过角色认知边界",
-          "禁止改写正式正文",
-        ],
-        gaps: ["context_assembly_failed"],
-      },
+      task: userRequest,
+      chapterGoal: "",
+      outline: "",
+      recentSummaries: [],
+      previousChapterEnding: "",
+      characterStates: "",
+      soulDoc: "",
+      characterAuras: "",
+      cognitionStates: "",
+      foreshadowingStates: "",
+      timeline: "",
+      relatedSettings: "",
+      canonRules: "",
+      writingStyle: "",
+      searchResults: "",
+      graphSearchResults: "",
+      mustDo: "",
+      mustAvoid: "",
+      nextChapterAdvice: "",
+      revisionDirectives: "",
     }
   }
 }
