@@ -244,8 +244,21 @@ describe("review-adapter staged review", () => {
       callbacks.onDone()
     })
 
-    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
-    expect(results).toEqual([])
+    await expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow(
+      "did not return a JSON array",
+    )
+  })
+
+  it("propagates stream failures instead of silently degrading to an empty review result", async () => {
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onError(new Error("review stream hung"))
+    })
+
+    await expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow("review stream hung")
   })
 
   it("uses the configured review reasoning effort instead of forcing high", async () => {

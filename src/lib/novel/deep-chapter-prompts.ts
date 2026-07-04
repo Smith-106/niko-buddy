@@ -70,6 +70,7 @@ export function buildDeepChapterBriefPrompt(
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
+    "[TASK_BRIEF_MARKER]",
     "",
     "你是小说写作任务规划助手。",
     "请基于上述上下文输出一份写作任务书，供后续创作使用。",
@@ -82,6 +83,7 @@ export function buildDeepChapterBriefPrompt(
     "5. 任务书必须规划足够的场景推进、冲突升级、人物互动、细节描写和结尾钩子，避免只写一个短场景。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
   ].filter(Boolean).join("\n")
@@ -98,6 +100,7 @@ export function buildDeepChapterDraftPrompt(
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
+    "[DRAFT_STAGE_MARKER]",
     "",
     "你是专业小说正文写作助手。",
     "请严格根据上述上下文和下方写作任务书起草章节正文。",
@@ -113,6 +116,7 @@ export function buildDeepChapterDraftPrompt(
     "8. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -133,6 +137,7 @@ export function buildDeepChapterRevisionPrompt(
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
+    "[REVISION_STAGE_MARKER]",
     "",
     "你是小说正文返修助手。",
     "请根据审稿问题返修章节正文。",
@@ -147,6 +152,7 @@ export function buildDeepChapterRevisionPrompt(
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -173,6 +179,7 @@ export function buildDeepChapterExpansionPrompt(
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
+    "[EXPANSION_STAGE_MARKER]",
     "",
     "你是小说正文扩写补足助手。",
     "当前章节正文明显过短，请在不推翻已有内容的前提下扩写补足为完整章节。",
@@ -187,6 +194,7 @@ export function buildDeepChapterExpansionPrompt(
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -211,6 +219,7 @@ export function buildDeepChapterFinalPolishPrompt(
   const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
   return [
     buildStableContextPrefix(outline, contextPrompt),
+    "[FINAL_POLISH_STAGE_MARKER]",
     "",
     "你是小说正文最终质检与去AI味助手。",
     "请对二次审查/返修后的章节做最后一遍简单审查，并进行去AI味处理。",
@@ -227,6 +236,7 @@ export function buildDeepChapterFinalPolishPrompt(
     deAiRules,
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",
@@ -262,6 +272,7 @@ export function buildDeepChapterLengthRewritePrompt(
     "7. 写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
+    chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
     "",

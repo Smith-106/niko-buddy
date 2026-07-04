@@ -8,13 +8,36 @@ type UpdaterBindings = {
   message: (message: string, options?: Record<string, unknown>) => Promise<unknown>
 }
 
+export interface AppUpdateFlowOptions {
+  mode?: "interactive" | "silent"
+}
+
+export interface AppUpdateFlowResult {
+  status: "no_update" | "update_available" | "declined" | "downloaded" | "installed"
+  prompted: boolean
+  version?: string
+}
+
 let updateCheckStarted = false
 
-export async function runAppUpdateFlow(bindings: UpdaterBindings) {
-  if (!bindings.isTauri) return
+export async function runAppUpdateFlow(
+  bindings: UpdaterBindings,
+  options: AppUpdateFlowOptions = {},
+): Promise<AppUpdateFlowResult> {
+  if (!bindings.isTauri) {
+    return { status: "no_update", prompted: false }
+  }
+
+  const mode = options.mode ?? "interactive"
 
   const update = await bindings.check()
-  if (!update) return
+  if (!update) {
+    return { status: "no_update", prompted: false }
+  }
+
+  if (mode === "silent") {
+    return { status: "update_available", prompted: false, version: update.version }
+  }
 
   const notes = update.body?.trim() ? `\n\n更新说明：\n${update.body.trim()}` : ""
   const confirmed = await bindings.confirm(
@@ -26,7 +49,9 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
       cancelLabel: "稍后再说",
     },
   )
-  if (!confirmed) return
+  if (!confirmed) {
+    return { status: "declined", prompted: true, version: update.version }
+  }
 
   // 先下载更新包
   try {
@@ -48,7 +73,7 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
         okLabel: "知道了",
       },
     )
-    return
+    return { status: "declined", prompted: true, version: update.version }
   }
 
   // 下载完成后，提示用户即将退出并安装
@@ -61,17 +86,22 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
       cancelLabel: "稍后安装",
     },
   )
-  if (!installConfirmed) return
+  if (!installConfirmed) {
+    return { status: "downloaded", prompted: true, version: update.version }
+  }
 
   // 调用安装，软件会在安装前自动退出
   try {
     await update.install()
+    return { status: "installed", prompted: true, version: update.version }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     // 正常退出关键词：软件在安装过程中重启属于预期行为
     const normalExitKeywords = ["process exited", "disconnected", "closed"]
     const isNormalExit = normalExitKeywords.some((kw) => msg.toLowerCase().includes(kw.toLowerCase()))
-    if (isNormalExit) return
+    if (isNormalExit) {
+      return { status: "installed", prompted: true, version: update.version }
+    }
     console.error("安装更新失败：", error)
     try {
       await bindings.message(
@@ -85,10 +115,11 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
     } catch {
       console.error("显示安装失败对话框也失败了：", error)
     }
+    return { status: "downloaded", prompted: true, version: update.version }
   }
 }
 
-export async function checkForAppUpdate() {
+export async function checkForAppUpdate(options: AppUpdateFlowOptions = {}) {
   if (!isTauri() || updateCheckStarted) return
 
   updateCheckStarted = true
@@ -102,7 +133,7 @@ export async function checkForAppUpdate() {
       check,
       confirm,
       message,
-    })
+    }, options)
   } catch (error) {
     console.warn("检查应用更新失败：", error)
   } finally {

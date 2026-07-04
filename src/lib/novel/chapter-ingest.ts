@@ -99,6 +99,47 @@ export interface ChapterSnapshot {
   eventDetails?: Record<string, EventDetail>
 }
 
+function extractFirstBalancedJsonObject(text: string): string | null {
+  const start = text.indexOf("{")
+  if (start < 0) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (ch === "\\") {
+      escape = true
+      continue
+    }
+    if (ch === "\"") {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (ch === "{") {
+      depth += 1
+      continue
+    }
+    if (ch === "}") {
+      depth -= 1
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+
+  return null
+}
+
+function extractJsonObjectFromModelText(text: string): string | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
+  return extractFirstBalancedJsonObject(fenced ?? text)
+}
+
 function normalizeSnapshotText(value: unknown): string {
   if (typeof value === "string") return value
   if (typeof value === "number" || typeof value === "boolean") return String(value)
@@ -630,6 +671,57 @@ ${chapterBody.slice(0, 8000)}
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ]
+    const snapshotSchema = {
+      type: "object",
+      properties: {
+        chapterId: { type: "string" },
+        chapterNumber: { type: "number" },
+        summary: { type: "string" },
+        characters: { type: "array", items: { type: "string" } },
+        characterAliases: {
+          type: "object",
+          additionalProperties: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        locations: { type: "array", items: { type: "string" } },
+        organizations: { type: "array", items: { type: "string" } },
+        items: { type: "array", items: { type: "string" } },
+        events: { type: "array", items: { type: "string" } },
+        characterStateChanges: { type: "array", items: { type: "string" } },
+        relationshipChanges: { type: "array", items: { type: "string" } },
+        knowledgeChanges: { type: "array", items: { type: "string" } },
+        foreshadowingChanges: { type: "array", items: { type: "string" } },
+        newCanonFacts: { type: "array", items: { type: "string" } },
+        timelineEvents: { type: "array", items: { type: "string" } },
+        conflicts: { type: "array", items: { type: "string" } },
+        endingHook: { type: "string" },
+        graphNodes: { type: "array", items: { type: "string" } },
+        graphEdges: { type: "array", items: { type: "string" } },
+      },
+      required: [
+        "chapterId",
+        "chapterNumber",
+        "summary",
+        "characters",
+        "characterAliases",
+        "locations",
+        "organizations",
+        "items",
+        "events",
+        "characterStateChanges",
+        "relationshipChanges",
+        "knowledgeChanges",
+        "foreshadowingChanges",
+        "newCanonFacts",
+        "timelineEvents",
+        "conflicts",
+        "endingHook",
+        "graphNodes",
+        "graphEdges",
+      ],
+    } satisfies Record<string, unknown>
 
     let result = ""
     let streamError: Error | null = null
@@ -643,19 +735,21 @@ ${chapterBody.slice(0, 8000)}
       },
     }
 
-    await streamChat(llmConfig, messages, callbacks, signal)
+    await streamChat(llmConfig, messages, callbacks, signal, {
+      jsonSchema: snapshotSchema,
+    })
     if (streamError) throw streamError
 
-    const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.match(/\{[\s\S]*\}/) ?? result.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    const jsonText = extractJsonObjectFromModelText(result)
+    if (!jsonText) {
       throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")
     }
 
-    const parsed = JSON.parse(jsonMatch[0])
+    const parsed = JSON.parse(jsonText)
     return normalizeChapterSnapshot({
       ...parsed,
-      chapterId: parsed.chapterId || `chapter-${chapterNumber}`,
-      chapterNumber: parsed.chapterNumber || chapterNumber,
+      chapterId: `chapter-${chapterNumber}`,
+      chapterNumber,
       entityIsNew: {},
       validationWarnings: [],
       characterDetails: parsed.characterDetails || undefined,
@@ -1467,12 +1561,12 @@ ${body}
     await streamChat(runtimeLlmConfig, messages, callbacks, signal)
     if (streamError) throw streamError
 
-    const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.match(/\{[\s\S]*\}/) ?? result.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    const jsonText = extractJsonObjectFromModelText(result)
+    if (!jsonText) {
       throw new Error("大纲摄取失败：模型没有返回可解析的 JSON")
     }
 
-    const parsed = JSON.parse(jsonMatch[0])
+    const parsed = JSON.parse(jsonText)
     const snapshot = normalizeChapterSnapshot({
       ...parsed,
       chapterId,

@@ -17,6 +17,10 @@ export interface NovelReviewResult {
   suggestion: string
 }
 
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
 export interface NovelReviewCallbacks {
   onThinking?: (content: string) => void
 }
@@ -255,14 +259,14 @@ ${langReminder}`
 
       const jsonMatch = extractJsonArray(result)
       if (!jsonMatch) {
-        console.warn(`[Novel Review] No JSON array found in chunk ${i + 1}:`, result.slice(0, 500))
-        return []
+        throw new Error(
+          `[Novel Review] Chunk ${i + 1} did not return a JSON array. Output preview: ${result.slice(0, 200)}`,
+        )
       }
 
       const parsed = JSON.parse(jsonMatch)
       if (!Array.isArray(parsed)) {
-        console.warn(`[Novel Review] Parsed result is not an array in chunk ${i + 1}:`, parsed)
-        return []
+        throw new Error(`[Novel Review] Chunk ${i + 1} returned a non-array JSON payload.`)
       }
 
       return parsed.map((item: Record<string, unknown>) => ({
@@ -278,7 +282,7 @@ ${langReminder}`
     return chunkResults.flat()
   } catch (err) {
     console.error("[Novel Review] Failed:", err)
-    return []
+    throw toError(err)
   }
 }
 
@@ -323,6 +327,7 @@ async function runReviewStage(
 
   let result = ""
   let reasoning = ""
+  let streamError: Error | null = null
   const renderThinking = () => {
     const combined = reasoning
       ? `${reasoning}${result ? `\n\n${result}` : ""}`
@@ -343,6 +348,7 @@ async function runReviewStage(
     onDone: () => {},
     onError: (error: Error) => {
       console.error("[Novel Review] Stream error:", error)
+      streamError = error
     },
   }
 
@@ -362,6 +368,7 @@ async function runReviewStage(
       { reasoning: { mode: reasoningMode } },
     )
     clearTimeout(timeoutId)
+    if (streamError) throw streamError
   } catch (err) {
     clearTimeout(timeoutId)
     if (signal?.aborted) throw new Error("已停止生成")

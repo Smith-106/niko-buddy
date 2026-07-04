@@ -3,6 +3,53 @@ mod panic_guard;
 mod proxy;
 mod types;
 
+#[cfg(target_os = "windows")]
+fn reinforce_window_focus(window: &tauri::WebviewWindow) {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{
+            BringWindowToTop, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST,
+            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
+        },
+    };
+
+    if let Ok(hwnd) = window.hwnd() {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+
+        let hwnd = HWND(hwnd.0 as _);
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE,
+            );
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_NOTOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE,
+            );
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+        }
+
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn reinforce_window_focus(_window: &tauri::WebviewWindow) {}
+
 /// Apply a proxy configuration to the process env immediately, so the
 /// next outbound HTTP request picks it up without needing the user to
 /// restart the app. tauri-plugin-http builds a fresh
@@ -28,6 +75,7 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
+                reinforce_window_focus(&window);
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -43,6 +91,9 @@ pub fn run() {
             // Let the PDF extractor find the bundled pdfium dynamic
             // library via Tauri's platform-correct resource path.
             use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                reinforce_window_focus(&window);
+            }
             if let Ok(dir) = app.path().resource_dir() {
                 commands::fs::set_resource_dir_hint(dir);
             }
@@ -170,7 +221,10 @@ pub fn run() {
                     ) -> i32;
                 }
                 fn to_wide(s: &str) -> Vec<u16> {
-                    OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+                    OsStr::new(s)
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect()
                 }
                 let text = to_wide(&msg);
                 let caption = to_wide("启动错误");
@@ -186,8 +240,18 @@ pub fn run() {
             std::process::exit(1);
         })
         .run(|app, event| {
+            if let tauri::RunEvent::Ready = event {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    reinforce_window_focus(&window);
+                }
+            }
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
                 if !has_visible_windows {
                     use tauri::Manager;
                     if let Some(window) = app.get_webview_window("main") {

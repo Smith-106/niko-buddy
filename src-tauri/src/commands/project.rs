@@ -228,7 +228,10 @@ related: []
   "outgoing-link": true,
   "starred": true
 }"#;
-    write_file_inner(root.join(".obsidian/core-plugins.json"), obsidian_core_plugins)?;
+    write_file_inner(
+        root.join(".obsidian/core-plugins.json"),
+        obsidian_core_plugins,
+    )?;
 
     Ok(WikiProject {
         name,
@@ -407,8 +410,13 @@ fn rename_project_dir_if_safe(root: &Path, from: &str, to: &str) -> Result<(), S
 
 fn write_file_inner(path: std::path::PathBuf, contents: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create parent dirs for '{}': {}", path.display(), e))?;
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create parent dirs for '{}': {}",
+                path.display(),
+                e
+            )
+        })?;
     }
     fs::write(&path, contents)
         .map_err(|e| format!("Failed to write file '{}': {}", path.display(), e))

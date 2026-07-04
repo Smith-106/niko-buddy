@@ -1,4 +1,5 @@
-import { writeFile, readFile, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
+import { withProjectLock } from "@/lib/project-mutex"
 import type { ReviewItem } from "@/stores/review-store"
 import type { DisplayMessage, Conversation } from "@/stores/chat-store"
 import { normalizePath } from "@/lib/path-utils"
@@ -25,7 +26,7 @@ async function ensureDir(projectPath: string): Promise<void> {
 export async function saveReviewItems(projectPath: string, items: ReviewItem[]): Promise<void> {
   const pp = normalizePath(projectPath)
   await ensureDir(pp)
-  await writeFile(`${pp}/.qmai/review.json`, JSON.stringify(items, null, 2))
+  await writeFileAtomic(`${pp}/.qmai/review.json`, JSON.stringify(items, null, 2))
 }
 
 export async function loadReviewItems(projectPath: string): Promise<ReviewItem[]> {
@@ -43,6 +44,60 @@ interface PersistedChatData {
   messages: DisplayMessage[]
 }
 
+function describePersistError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function writeVerifiedJsonArray<T>(
+  path: string,
+  items: T[],
+  label: string,
+  verify: (parsed: unknown) => boolean,
+): Promise<void> {
+  await writeFileAtomic(path, JSON.stringify(items, null, 2))
+
+  let raw: string
+  try {
+    raw = await readFile(path)
+  } catch (error) {
+    throw new Error(`${label} 写入后回读失败（${path}）：${describePersistError(error)}`)
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    throw new Error(`${label} 写入后不是有效 JSON（${path}）：${describePersistError(error)}`)
+  }
+
+  if (!verify(parsed)) {
+    throw new Error(`${label} 写入后校验失败（${path}）`)
+  }
+}
+
+function matchesConversationSnapshot(parsed: unknown, conversations: Conversation[]): boolean {
+  return Array.isArray(parsed)
+    && parsed.length === conversations.length
+    && parsed.every((item, index) => (
+      typeof item === "object"
+      && item !== null
+      && (item as Conversation).id === conversations[index]?.id
+      && typeof (item as Conversation).title === "string"
+    ))
+}
+
+function matchesMessageSnapshot(parsed: unknown, messages: DisplayMessage[]): boolean {
+  return Array.isArray(parsed)
+    && parsed.length === messages.length
+    && parsed.every((item, index) => (
+      typeof item === "object"
+      && item !== null
+      && (item as DisplayMessage).id === messages[index]?.id
+      && (item as DisplayMessage).conversationId === messages[index]?.conversationId
+      && (item as DisplayMessage).role === messages[index]?.role
+    ))
+}
+
 export async function saveChatHistory(
   projectPath: string,
   conversations: Conversation[],
@@ -50,30 +105,33 @@ export async function saveChatHistory(
   maxMessages?: number
 ): Promise<void> {
   const pp = normalizePath(projectPath)
-  await ensureDir(pp)
+  await withProjectLock(`${pp}::chat-persist`, async () => {
+    await ensureDir(pp)
 
-  // Save conversation list
-  await writeFile(
-    `${pp}/.qmai/conversations.json`,
-    JSON.stringify(conversations, null, 2)
-  )
-
-  // Save each conversation's messages separately
-  const byConversation = new Map<string, DisplayMessage[]>()
-  for (const msg of messages) {
-    const list = byConversation.get(msg.conversationId) ?? []
-    list.push(msg)
-    byConversation.set(msg.conversationId, list)
-  }
-
-  for (const [convId, msgs] of byConversation) {
-    // Keep last N messages per conversation
-    const toSave = msgs.slice(-(maxMessages || 100))
-    await writeFile(
-      `${pp}/.qmai/chats/${convId}.json`,
-      JSON.stringify(toSave, null, 2)
+    await writeVerifiedJsonArray(
+      `${pp}/.qmai/conversations.json`,
+      conversations,
+      "聊天会话索引",
+      (parsed) => matchesConversationSnapshot(parsed, conversations),
     )
-  }
+
+    const byConversation = new Map<string, DisplayMessage[]>()
+    for (const msg of messages) {
+      const list = byConversation.get(msg.conversationId) ?? []
+      list.push(msg)
+      byConversation.set(msg.conversationId, list)
+    }
+
+    for (const [convId, msgs] of byConversation) {
+      const toSave = msgs.slice(-(maxMessages || 100))
+      await writeVerifiedJsonArray(
+        `${pp}/.qmai/chats/${convId}.json`,
+        toSave,
+        `聊天消息文件 ${convId}`,
+        (parsed) => matchesMessageSnapshot(parsed, toSave),
+      )
+    }
+  })
 }
 
 export async function loadChatHistory(projectPath: string): Promise<PersistedChatData> {

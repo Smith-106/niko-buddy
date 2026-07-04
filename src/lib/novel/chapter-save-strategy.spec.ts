@@ -70,8 +70,9 @@ describe("decideChapterSaveStrategy", () => {
 })
 
 describe("detectGeneratedTargetChapterNumber", () => {
-  it("detects an explicit generated chapter number from the content", () => {
+  it("detects an explicit generated chapter number from Chinese or English chapter titles", () => {
     expect(detectGeneratedTargetChapterNumber("# 第7章 夜雨旧屋\n\n正文内容")).toBe(7)
+    expect(detectGeneratedTargetChapterNumber("# Chapter 7 Cold Key\n\nBody content")).toBe(7)
     expect(detectGeneratedTargetChapterNumber("普通正文，没有章节号")).toBeNull()
   })
 })

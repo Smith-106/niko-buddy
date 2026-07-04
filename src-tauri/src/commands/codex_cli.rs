@@ -100,7 +100,7 @@ fn append_capped_line(collected: &mut String, line: &str, limit_bytes: usize) {
 }
 
 async fn find_codex_command() -> Result<std::path::PathBuf, String> {
-    find_cli_command("codex", &["codex.cmd", "codex.exe"]).await
+    find_cli_command("codex", &["codex.exe", "codex.cmd"]).await
 }
 
 fn suppress_windows_console(_cmd: &mut Command) {
@@ -326,7 +326,9 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
             if !stderr_text.is_empty() {
                 stderr_text.push('\n');
             }
-            stderr_text.push_str(&format!("Codex CLI timed out after {timeout_minutes} minutes."));
+            stderr_text.push_str(&format!(
+                "Codex CLI timed out after {timeout_minutes} minutes."
+            ));
         } else if stderr_text.len() >= STDERR_LIMIT_BYTES {
             stderr_text.push_str("\n[stderr truncated]");
         }
@@ -357,13 +359,23 @@ pub async fn codex_cli_spawn(
     timeout_minutes: Option<u64>,
 ) -> Result<(), String> {
     let emitter = TauriCodexEmitter::new(app);
-    do_codex_cli_spawn(&state, emitter, stream_id, model, prompt, isolate_local_config, timeout_minutes).await
+    do_codex_cli_spawn(
+        &state,
+        emitter,
+        stream_id,
+        model,
+        prompt,
+        isolate_local_config,
+        timeout_minutes,
+    )
+    .await
 }
 
 fn codex_spawn_timeout_minutes(value: Option<u64>) -> u64 {
-    value
-        .unwrap_or(DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES)
-        .clamp(MIN_CODEX_SPAWN_TIMEOUT_MINUTES, MAX_CODEX_SPAWN_TIMEOUT_MINUTES)
+    value.unwrap_or(DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES).clamp(
+        MIN_CODEX_SPAWN_TIMEOUT_MINUTES,
+        MAX_CODEX_SPAWN_TIMEOUT_MINUTES,
+    )
 }
 
 fn build_codex_cli_args(model: &str, isolate_local_config: bool) -> Vec<String> {
@@ -450,7 +462,10 @@ mod tests {
             codex_spawn_timeout_minutes(None),
             DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES
         );
-        assert_eq!(codex_spawn_timeout_minutes(Some(0)), MIN_CODEX_SPAWN_TIMEOUT_MINUTES);
+        assert_eq!(
+            codex_spawn_timeout_minutes(Some(0)),
+            MIN_CODEX_SPAWN_TIMEOUT_MINUTES
+        );
         assert_eq!(codex_spawn_timeout_minutes(Some(42)), 42);
         assert_eq!(
             codex_spawn_timeout_minutes(Some(999)),

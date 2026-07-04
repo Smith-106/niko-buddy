@@ -11,6 +11,7 @@ import { setupAutoSave } from "@/lib/auto-save"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
 import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
+import { hydrateChatHistoryWithInterruptedDeepChapter } from "@/components/chat/chat-resume"
 import { AppLayout } from "@/components/layout/app-layout"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
@@ -19,6 +20,7 @@ import { resetProjectState } from "@/lib/reset-project-state"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { loadEnvLlmDefault } from "@/lib/env-llm-defaults"
+import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
 import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
@@ -144,7 +146,7 @@ function App() {
         console.error("应用初始化失败:", err)
       } finally {
         setLoading(false)
-        void checkForAppUpdate()
+        void checkForAppUpdate({ mode: "silent" })
         void initAnalytics()
       }
     }
@@ -268,12 +270,18 @@ function App() {
     }
     try {
       const savedChat = await loadChatHistory(proj.path)
-      if (savedChat.conversations.length > 0) {
-        useChatStore.getState().setConversations(savedChat.conversations)
-        useChatStore.getState().setMessages(savedChat.messages)
-        const sorted = [...savedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
-        if (sorted[0]) {
-          useChatStore.getState().setActiveConversation(sorted[0].id)
+      const interruptedStatus = await loadNovelSessionStatus(proj.path).catch(() => null)
+      const hydratedChat = hydrateChatHistoryWithInterruptedDeepChapter(savedChat, interruptedStatus)
+      if (hydratedChat.conversations.length > 0) {
+        useChatStore.getState().setConversations(hydratedChat.conversations)
+        useChatStore.getState().setMessages(hydratedChat.messages)
+        const sorted = [...hydratedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+        const preferredConversationId = hydratedChat.focusConversationId ?? sorted[0]?.id
+        if (preferredConversationId) {
+          useChatStore.getState().setActiveConversation(preferredConversationId)
+        }
+        if (hydratedChat.focusConversationId) {
+          useWikiStore.getState().setChatExpanded(true)
         }
       }
     } catch (err) {

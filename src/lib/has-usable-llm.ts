@@ -25,6 +25,10 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
   "codex-cli",
 ])
 
+function hasText(value?: string): boolean {
+  return typeof value === "string" && value.trim().length > 0
+}
+
 /**
  * Single source of truth for "is the user's LLM configuration good
  * enough to make calls?" Replaces ad-hoc `apiKey || provider ===
@@ -40,8 +44,29 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
  * land in exactly one bucket and don't slip through.
  */
 export function hasUsableLlm(
-  cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">,
+  cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">
+    & Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>,
 ): boolean {
-  if (PROVIDERS_WITHOUT_KEY.has(cfg.provider)) return true
-  return cfg.apiKey.trim().length > 0 && cfg.model.trim().length > 0
+  switch (cfg.provider) {
+    case "custom":
+      return hasText(cfg.model) && hasText(cfg.customEndpoint)
+    case "ollama":
+      return hasText(cfg.model) && hasText(cfg.ollamaUrl)
+    case "azure":
+      return hasText(cfg.apiKey) && hasText(cfg.model) && hasText(cfg.customEndpoint)
+    case "claude-code":
+    case "codex-cli":
+      // Local CLI providers can inherit the machine's default model when
+      // the explicit model field is left blank.
+      return true
+    case "openai":
+    case "anthropic":
+    case "google":
+    case "minimax":
+      return hasText(cfg.apiKey) && hasText(cfg.model)
+    default: {
+      const neverProvider: never = cfg.provider
+      return neverProvider
+    }
+  }
 }

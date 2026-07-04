@@ -25,6 +25,7 @@ import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { canContinueUnfinishedDeepChapter } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
+import { parseAgentResponse } from "@/lib/novel/agent-parser"
 
 interface ChatMessageProps {
   message: DisplayMessage
@@ -41,11 +42,57 @@ interface ChatMessageProps {
   isSaving?: boolean
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, saveStatus, isSaving }: ChatMessageProps) {
+const TERMINAL_ASSISTANT_STATUS_RE = /^(?:已停止生成。?|出错[:：])/u
+const CHAPTER_DRAFT_HEADING_RE = /^\s*#?\s*(?:第\s*\d+\s*章[^\n]*|Chapter\s+\d+[^\n]*)/iu
+
+const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*qmai-deep-chapter-draft:([\s\S]*?)\s*-->/i
+
+type ManagedDeepChapterDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
+
+function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDraftStatus | null {
+  const match = content.match(MANAGED_DEEP_CHAPTER_DRAFT_RE)
+  if (!match?.[1]) return null
+  try {
+    const parsed = JSON.parse(decodeURIComponent(match[1])) as {
+      conversationId?: unknown
+      draftStatus?: unknown
+    }
+    if (
+      typeof parsed?.conversationId === "string"
+      && typeof parsed?.draftStatus === "string"
+      && ["pending", "ready", "accepted", "rejected", "superseded"].includes(parsed.draftStatus)
+    ) {
+      return parsed.draftStatus as ManagedDeepChapterDraftStatus
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function canOperateOnDeepChapterDraft(message: DisplayMessage): boolean {
+  const draftStatus = getManagedDeepChapterDraftStatus(message.content)
+  if (!draftStatus) return false
+  const visibleContent = getCopyableAssistantContent(message.content).trim()
+  if (!visibleContent) return false
+  if (TERMINAL_ASSISTANT_STATUS_RE.test(visibleContent)) return false
+  if (canContinueUnfinishedDeepChapter(message.content)) return false
+
+  const heading = visibleContent.match(CHAPTER_DRAFT_HEADING_RE)?.[0]
+  if (!heading) return false
+
+  return visibleContent.slice(heading.length).trim().length >= 120
+}
+
+export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
   const [hovered, setHovered] = useState(false)
+  const managedDraftStatus = getManagedDeepChapterDraftStatus(message.content)
+  const canOperateOnDraft = Boolean(novelMode && isLastAssistant && canOperateOnDeepChapterDraft(message))
+  const canAcceptDraft = canOperateOnDraft && managedDraftStatus === "ready"
+  const canRejectDraft = canOperateOnDraft && (managedDraftStatus === "ready" || managedDraftStatus === "pending")
   const canResumeUnfinished = Boolean(
     novelMode && isLastAssistant && onContinueUnfinished && canContinueUnfinishedDeepChapter(message.content),
   )
@@ -93,17 +140,27 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
-            {novelMode && isLastAssistant && onSaveAsChapter && (
+            {canAcceptDraft && onSaveAsChapter && (
               <button
                 type="button"
                 onClick={() => onSaveAsChapter(message.content)}
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
               >
-                {isSaving ? "保存中..." : "保存到章节库"}
+                {isSaving ? "\u5904\u7406\u4e2d..." : "\u63a5\u53d7\u8349\u7a3f"}
               </button>
             )}
-            {novelMode && isLastAssistant && onContinueNextChapter && (
+            {canRejectDraft && onDiscardDraft && (
+              <button
+                type="button"
+                onClick={onDiscardDraft}
+                disabled={isSaving}
+                className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              >
+                {"\u62d2\u7edd\u8349\u7a3f"}
+              </button>
+            )}
+            {canOperateOnDraft && onContinueNextChapter && (
               <button
                 type="button"
                 onClick={onContinueNextChapter}
@@ -555,10 +612,7 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   const [results, setResults] = useState<import("@/lib/novel/agent-tools").FileEditResult[]>([])
   const [dismissed, setDismissed] = useState(false)
 
-  const parsed = useMemo(() => {
-    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
-    return parseAgentResponse(content)
-  }, [content])
+  const parsed = useMemo(() => parseAgentResponse(content), [content])
 
   const handleApply = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
     if (!projectPath) return []
