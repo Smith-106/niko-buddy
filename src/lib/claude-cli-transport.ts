@@ -402,7 +402,14 @@ export async function streamClaudeCodeCli(
 
         const setupAttempt = async () => {
           try {
-            unlistenData = await listen<string>(`claude-cli:${streamId}`, (event) => {
+            // Capture the unlisten fn and only assign it to the outer handle
+            // when still active. If settle() fired during the await listen()
+            // window (startup timeout or abort), cleanup() already ran with
+            // unlistenData undefined — so we must unregister the just-registered
+            // listener ourselves here, otherwise it leaks for the webview
+            // lifetime (the second cleanup() at the settled check below is a
+            // no-op due to the cleanedUp guard).
+            const unlistenDataFn = await listen<string>(`claude-cli:${streamId}`, (event) => {
               const parsed = parse(event.payload)
               if (parsed.kind === "token") {
                 emittedToken = true
@@ -426,11 +433,12 @@ export async function streamClaudeCodeCli(
               }
             })
             if (settled) {
-              cleanup()
+              unlistenDataFn()
               return
             }
+            unlistenData = unlistenDataFn
 
-            unlistenDone = await listen<{ code: number | null; stderr: string }>(
+            const unlistenDoneFn = await listen<{ code: number | null; stderr: string }>(
               `claude-cli:${streamId}:done`,
               (event) => {
                 const code = event.payload?.code
@@ -458,9 +466,10 @@ export async function streamClaudeCodeCli(
               },
             )
             if (settled) {
-              cleanup()
+              unlistenDoneFn()
               return
             }
+            unlistenDone = unlistenDoneFn
             if (aborted || signal?.aborted) {
               settle({ kind: "done" })
               return

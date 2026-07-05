@@ -247,7 +247,7 @@ describe("runDeepChapterGeneration", () => {
       { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
-    )).resolves.toMatchObject({ finalContent: expect.any(String) })
+    )).resolves.toMatchObject({ finalContent: expect.any(String), partial: false, partialReason: null })
 
     expect(thinking.join("\n")).toContain("近期剧情")
   })
@@ -1289,6 +1289,60 @@ describe("runDeepChapterGeneration", () => {
       // would have rejected; instead the partial flowed through to draftContent
       // so `continue-unfinished` can resume from real progress.
       expect(result.draftContent).toBe(partialDraft)
+      // The result must surface partiality so the caller (chat-panel) routes to
+      // pauseDeepChapterSession (draft_status "pending" / continue-unfinished)
+      // instead of completeDeepChapterSession ("ready"), which would persist a
+      // truncated chapter as completed (Draft-first boundary violation).
+      expect(result.partial).toBe(true)
+      expect(result.partialReason).toContain("produced no additional stream output")
+    } finally {
+      useWikiStore.setState({ novelConfig: priorNovelConfig })
+    }
+  })
+
+  it("marks a partial result when stage-3 draft expansion stalls with a transport inactivity timeout", async () => {
+    const priorNovelConfig = useWikiStore.getState().novelConfig
+    useWikiStore.setState({
+      novelConfig: { ...priorNovelConfig, deepChapterReview: false, deepPreviousChaptersAnalysis: false },
+    })
+    try {
+      // Stage 3 draft is short (< minChars) so expansion runs; expansion then
+      // stalls mid-stream and partial-preserves. The result must be partial.
+      const shortDraft = chapterText("短初稿", 50)
+      const partialExpansion = chapterText("扩写阶段被截断的部分正文", 2000)
+      const inactivityError = new Error(
+        "Claude Code CLI produced no additional stream output within 30 seconds. The local runtime may still be hanging during startup or MCP bootstrap, or the upstream provider may be stalling before the first token.",
+      )
+      let callIndex = 0
+      const deps: DeepChapterGenerationDeps = {
+        buildContextPack: vi.fn(async () => contextPack),
+        contextPackToPrompt: vi.fn(() => "上下文包内容"),
+        reviewChapter: vi.fn(async () => []),
+        streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+          callIndex += 1
+          if (callIndex === 2) {
+            callbacks.onToken(shortDraft)
+            callbacks.onDone()
+            return
+          }
+          if (callIndex === 3) {
+            callbacks.onToken(partialExpansion)
+            callbacks.onError(inactivityError)
+            return
+          }
+          callbacks.onToken("写作任务书内容")
+          callbacks.onDone()
+        }),
+      }
+
+      const result = await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第4章", chapterNumber: 4, llmConfig },
+        {},
+        deps,
+      )
+
+      expect(result.partial).toBe(true)
+      expect(result.partialReason).toContain("produced no additional stream output")
     } finally {
       useWikiStore.setState({ novelConfig: priorNovelConfig })
     }

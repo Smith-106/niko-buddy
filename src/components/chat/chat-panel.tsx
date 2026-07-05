@@ -889,6 +889,29 @@ export function ChatPanel() {
               draftStatus: blockedState.draft.draft_status,
               updatedAt: blockedState.updated_at,
             }
+          } else if (generationResult.partial) {
+            // The transport timed out mid-generation and collectModelText
+            // preserved a partial draft. Route to pause (draft_status "pending")
+            // so continue-unfinished resumes from the partial via the
+            // after_draft checkpoint, instead of persisting a truncated chapter
+            // as completed/ready (Draft-first boundary). See
+            // DeepChapterGenerationResult.partial + collectModelText partial-
+            // preserve branch.
+            const pausedState = await pauseDeepChapterSession({
+              projectPath: pp,
+              conversationId: capturedConvId,
+              userRequest: text,
+              chapterNumber: effectiveTaskRoute?.chapterNumber,
+              sessionId: novelSessionId,
+              checkpoint: latestCheckpoint,
+              errorMessage: `PARTIAL_DRAFT_PRESERVED: ${generationResult.partialReason ?? "transport inactivity timeout"} — 已保留部分正文，可用“继续未完成”恢复。`,
+            })
+            sessionDebug.finalWrite = {
+              status: pausedState.status,
+              activeStepIndex: pausedState.active_step_index,
+              draftStatus: pausedState.draft.draft_status,
+              updatedAt: pausedState.updated_at,
+            }
           } else {
             const completedState = await completeDeepChapterSession({
               projectPath: pp,
@@ -912,7 +935,11 @@ export function ChatPanel() {
               appendManagedDeepChapterDraftMarker(accumulated, {
                 conversationId: capturedConvId,
                 sessionId: novelSessionId,
-                draftStatus: generationResult.manualReviewRequired ? "pending" : "ready",
+                draftStatus: generationResult.manualReviewRequired
+                  ? "pending"
+                  : generationResult.partial
+                    ? "pending"
+                    : "ready",
               }),
               [],
               capturedConvId,
@@ -1669,6 +1696,26 @@ export function ChatPanel() {
             draftStatus: blockedState.draft.draft_status,
             updatedAt: blockedState.updated_at,
           }
+        } else if (generationResult.partial) {
+          // Continue-unfinished itself stalled mid-generation and preserved a
+          // partial. Re-pause (draft_status "pending") so the user can retry
+          // continue-unfinished again, rather than persisting a still-truncated
+          // chapter as completed/ready. See DeepChapterGenerationResult.partial.
+          const pausedState = await pauseDeepChapterSession({
+            projectPath: pp,
+            conversationId: convId,
+            userRequest: originalRequest,
+            chapterNumber: resumeRoute?.chapterNumber,
+            sessionId: novelSessionId,
+            checkpoint: latestCheckpoint,
+            errorMessage: `PARTIAL_DRAFT_PRESERVED: ${generationResult.partialReason ?? "transport inactivity timeout"} — 已保留部分正文，可再次“继续未完成”恢复。`,
+          })
+          sessionDebug.finalWrite = {
+            status: pausedState.status,
+            activeStepIndex: pausedState.active_step_index,
+            draftStatus: pausedState.draft.draft_status,
+            updatedAt: pausedState.updated_at,
+          }
         } else {
           const completedState = await completeDeepChapterSession({
             projectPath: pp,
@@ -1696,7 +1743,11 @@ export function ChatPanel() {
               {
                 conversationId: convId,
                 sessionId: novelSessionId,
-                draftStatus: generationResult.manualReviewRequired ? "pending" : "ready",
+                draftStatus: generationResult.manualReviewRequired
+                  ? "pending"
+                  : generationResult.partial
+                    ? "pending"
+                    : "ready",
               },
             ),
             [],
