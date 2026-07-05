@@ -41,6 +41,17 @@ export interface DeepChapterGenerationResult {
   decisionGates: DeepChapterDecisionGates
   manualReviewRequired: boolean
   retryCount: number
+  /**
+   * True when any collectModelText stage took the transport-inactivity
+   * partial-preserve branch — i.e. finalContent was truncated mid-generation by
+   * a transport timeout rather than completed normally. Callers MUST route a
+   * partial result to the pause / continue-unfinished path (draft_status
+   * "pending"), NOT to completeDeepChapterSession ("ready"), so the truncated
+   * draft is not persisted as a completed chapter. See collectModelText + the
+   * Draft-first boundary invariant.
+   */
+  partial: boolean
+  partialReason: string | null
 }
 
 export type DeepChapterDecisionGateKey = "consistency" | "anti_ai" | "quality"
@@ -617,6 +628,14 @@ export async function runDeepChapterGeneration(
   signal?: AbortSignal,
 ): Promise<DeepChapterGenerationResult> {
   assertNotAborted(signal)
+  // Tracks whether any collectModelText stage took the transport-inactivity
+  // partial-preserve branch. The first partial reason wins; later stages
+  // (expansion/polish) keep the flag set so the caller routes the result to the
+  // pause / continue-unfinished path instead of completeDeepChapterSession.
+  let partialReason: string | null = null
+  const notePartial = (reason: string) => {
+    if (partialReason === null) partialReason = reason
+  }
   const resumeCheckpoint = input.resumeCheckpoint
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
@@ -822,6 +841,7 @@ export async function runDeepChapterGeneration(
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
+      notePartial,
     )
     assertNotAborted(signal)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -845,6 +865,7 @@ export async function runDeepChapterGeneration(
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
         { max_tokens: lengthSpec.maxOutputTokens },
         cachePrefix,
+        notePartial,
       )
       assertNotAborted(signal)
     }
@@ -880,6 +901,7 @@ export async function runDeepChapterGeneration(
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
+      notePartial,
     )
     assertNotAborted(signal)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -903,6 +925,7 @@ export async function runDeepChapterGeneration(
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
         { max_tokens: lengthSpec.maxOutputTokens },
         cachePrefix,
+        notePartial,
       )
       assertNotAborted(signal)
     }
@@ -1031,6 +1054,8 @@ export async function runDeepChapterGeneration(
         decisionGates,
         manualReviewRequired: true,
         retryCount,
+        partial: partialReason !== null,
+        partialReason,
       }
     }
 
@@ -1055,6 +1080,7 @@ export async function runDeepChapterGeneration(
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段5：自动返修", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
+      notePartial,
     )
     assertNotAborted(signal)
     callbacks.onThinking?.(formatStageThinking(
@@ -1131,6 +1157,7 @@ export async function runDeepChapterGeneration(
     customDeAiSkill || undefined,
     lengthSpec,
     cachePrefix,
+    notePartial,
   )
   callbacks.onThinking?.(formatStageThinking(
     "阶段7：完成",
@@ -1148,6 +1175,8 @@ export async function runDeepChapterGeneration(
     decisionGates,
     manualReviewRequired: false,
     retryCount,
+    partial: partialReason !== null,
+    partialReason,
   }
 }
 
@@ -1165,6 +1194,7 @@ async function finalPolishChapter(
   customDeAiSkill?: string,
   lengthSpec: ChapterLengthSpec = resolveChapterLengthSpec(),
   cachePrefix?: string,
+  onPartial?: (reason: string) => void,
 ): Promise<string> {
   assertNotAborted(signal)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
@@ -1188,6 +1218,7 @@ async function finalPolishChapter(
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", partial)),
     { max_tokens: lengthSpec.maxOutputTokens },
     cachePrefix,
+    onPartial,
   )
   assertNotAborted(signal)
   return polished.trim() ? polished : currentContent
@@ -1240,11 +1271,21 @@ async function collectModelText(
   onUpdate?: (content: string) => void,
   requestOverrides?: RequestOverrides,
   cachePrefix?: string,
+  onPartial?: (reason: string) => void,
 ): Promise<string> {
   let content = ""
   let reasoningBuffer = ""
   let streamError: Error | null = null
   let cutoffReason: string | null = null
+  // Repeat-detection only needs to re-run once enough new content has arrived
+  // to change the trailing window (REPEAT_WINDOW_CHARS). Without this gate the
+  // per-token findRepeatedTailStart call did 3 full passes over the entire
+  // growing draft on every text_delta, making collectModelText O(n^2) in draft
+  // length — pathological under --include-partial-messages where every token is
+  // a separate stream event. The tail changes meaningfully only after
+  // REPEAT_WINDOW_CHARS new chars, so gating on that drops per-token cost to
+  // O(1) amortized and the whole-draft cost to O(n).
+  let lastRepeatCheckLen = 0
   const streamController = new AbortController()
   const combinedSignal = combineAbortSignals(signal, streamController.signal)
   const stopStream = (reason: string) => {
@@ -1265,12 +1306,18 @@ async function collectModelText(
           return
         }
         content += token
-        const loopStart = findRepeatedTailStart(content)
-        if (loopStart !== null) {
-          content = content.slice(0, loopStart).trimEnd()
-          onUpdate?.(`${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`)
-          stopStream("检测到模型重复输出，已自动停止重复内容。")
-          return
+        // Only re-scan for repeated tail when the content has grown by at least
+        // REPEAT_WINDOW_CHARS since the last check; the trailing window cannot
+        // form a new 3x repeat until that much new content arrives.
+        if (content.length - lastRepeatCheckLen >= REPEAT_WINDOW_CHARS) {
+          lastRepeatCheckLen = content.length
+          const loopStart = findRepeatedTailStart(content)
+          if (loopStart !== null) {
+            content = content.slice(0, loopStart).trimEnd()
+            onUpdate?.(`${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`)
+            stopStream("检测到模型重复输出，已自动停止重复内容。")
+            return
+          }
         }
         onUpdate?.(content)
       },
@@ -1320,6 +1367,12 @@ async function collectModelText(
   const partialContent = content.trim()
   if (errorNow && !(cutoffReason && isRequestCancelledError(errorNow))) {
     if (partialContent && isTransportInactivityError(errorNow)) {
+      // Surface partiality to the caller so the orchestration layer can route
+      // this draft to the pause / continue-unfinished path instead of the
+      // complete->ready->writeback path. Without this signal the truncated
+      // draft would be persisted as a completed, ready chapter (Draft-first
+      // boundary violation). See DeepChapterGenerationResult.partial.
+      onPartial?.(errorNow.message)
       onUpdate?.(`${partialContent}\n\n（${errorNow.message}，已保留已生成的部分正文以便继续未完成。）`)
     } else {
       throw errorNow
