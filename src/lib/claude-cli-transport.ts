@@ -199,7 +199,15 @@ export async function streamClaudeCodeCli(
 
   try {
     // Listen FIRST so we don't miss the very first event on fast CLIs.
-    unlistenData = await listen<string>(`claude-cli:${streamId}`, (event) => {
+    // Atomic listen+settled check: capture the unlisten fn, then if the
+    // session already settled during the await (abort/timeout), call it
+    // immediately to unregister the just-registered listener. Assigning
+    // to the outer handle only when not settled prevents the listener leak
+    // where a naive `unlistenData = await listen(...)` + later
+    // `if (settled) cleanup()` runs cleanup as a no-op (unlistenData was
+    // undefined at the earlier cleanup pass) and leaves the listener
+    // registered forever.
+    const unlistenDataFn = await listen<string>(`claude-cli:${streamId}`, (event) => {
       const token = parse(event.payload)
       if (token !== null) {
         emittedToken = true
@@ -213,11 +221,13 @@ export async function streamClaudeCodeCli(
       }
     })
     if (aborted || finished) {
+      unlistenDataFn()
       cleanup()
       return
     }
+    unlistenData = unlistenDataFn
 
-    unlistenDone = await listen<{ code: number | null; stderr: string }>(
+    const unlistenDoneFn = await listen<{ code: number | null; stderr: string }>(
       `claude-cli:${streamId}:done`,
       (event) => {
         const code = event.payload?.code
@@ -243,9 +253,11 @@ export async function streamClaudeCodeCli(
       },
     )
     if (aborted || finished) {
+      unlistenDoneFn()
       cleanup()
       return
     }
+    unlistenDone = unlistenDoneFn
 
     const payload: SpawnPayload = {
       streamId,

@@ -401,6 +401,15 @@ fn build_claude_cli_args(model: &str, isolate_local_config: bool) -> Vec<String>
         "--input-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
+        // Stream partial `stream_event`/`content_block_delta` tokens as they
+        // are generated. Without this flag the CLI only emits the complete
+        // `AssistantMessage` after the model finishes thinking + generating,
+        // so a long-form draft with heavy reasoning produces zero stream-json
+        // lines for longer than the transport's first-meaningful-output
+        // timeout and gets killed mid-generation. The TS parser already
+        // routes `text_delta` events to `onToken`, so partial streaming both
+        // feeds the UI live and keeps the inactivity watchdog alive.
+        "--include-partial-messages".to_string(),
     ];
 
     if isolate_local_config {
@@ -450,6 +459,24 @@ pub async fn claude_cli_kill(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_args_include_partial_messages_so_long_generations_stream_tokens() {
+        // Without --include-partial-messages the CLI only emits the complete
+        // AssistantMessage after the model finishes thinking + generating, so a
+        // long-form draft with heavy reasoning produces no stream-json lines
+        // for longer than the transport's first-meaningful-output timeout and
+        // gets killed mid-generation. Partial streaming must be on in both
+        // isolated and non-isolated modes.
+        let isolated = build_claude_cli_args("sonnet", true);
+        let plain = build_claude_cli_args("sonnet", false);
+        for (label, args) in [("isolated", &isolated), ("plain", &plain)] {
+            assert!(
+                args.contains(&"--include-partial-messages".to_string()),
+                "{label} args must include --include-partial-messages, got {args:?}"
+            );
+        }
+    }
 
     #[test]
     fn claude_content_blocks_maps_frontend_image_blocks_to_anthropic_shape() {

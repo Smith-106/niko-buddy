@@ -594,6 +594,15 @@ async function collectModelText(
   let reasoningBuffer = ""
   let streamError: Error | null = null
   let cutoffReason: string | null = null
+  // Repeat-detection only needs to re-run once enough new content has arrived
+  // to change the trailing window (REPEAT_WINDOW_CHARS). Without this gate the
+  // per-token findRepeatedTailStart call does 3 full passes over the entire
+  // growing draft on every text_delta, making collectModelText O(n^2) in draft
+  // length — pathological under --include-partial-messages where every token is
+  // a separate stream event. The tail changes meaningfully only after
+  // REPEAT_WINDOW_CHARS new chars, so gating on that drops per-token cost to
+  // O(1) amortized and the whole-draft cost to O(n).
+  let lastRepeatCheckLen = 0
   const streamController = new AbortController()
   const combinedSignal = combineAbortSignals(signal, streamController.signal)
   const stopStream = (reason: string) => {
@@ -614,12 +623,18 @@ async function collectModelText(
           return
         }
         content += token
-        const loopStart = findRepeatedTailStart(content)
-        if (loopStart !== null) {
-          content = content.slice(0, loopStart).trimEnd()
-          onUpdate?.(`${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`)
-          stopStream("检测到模型重复输出，已自动停止重复内容。")
-          return
+        // Only re-scan for repeated tail when the content has grown by at least
+        // REPEAT_WINDOW_CHARS since the last check; the trailing window cannot
+        // form a new 3x repeat until that much new content arrives.
+        if (content.length - lastRepeatCheckLen >= REPEAT_WINDOW_CHARS) {
+          lastRepeatCheckLen = content.length
+          const loopStart = findRepeatedTailStart(content)
+          if (loopStart !== null) {
+            content = content.slice(0, loopStart).trimEnd()
+            onUpdate?.(`${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`)
+            stopStream("检测到模型重复输出，已自动停止重复内容。")
+            return
+          }
         }
         onUpdate?.(content)
       },
