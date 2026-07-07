@@ -8,6 +8,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
+import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
 import {
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
@@ -263,8 +264,13 @@ async function buildContextPackFromRawData(
     || rawData.fallbackPreviousEnding
   
   const characterStates = joinNonEmpty([
-    rawData.snapshots.characterStates, 
-    rawData.fallbackCharacterStates
+    rawData.snapshots.characterStates,
+    rawData.fallbackCharacterStates,
+    // R4 (S4 / ANL-013): emotional-arcs projection injected as protected-tier
+    // canon — character emotion is part of character state. Loaded directly
+    // from the .novel/emotional-arcs.json store (same pattern as
+    // readCognitionStates). Empty when no arcs recorded (backward compatible).
+    await readEmotionalArcsText(context.projectPath),
   ], "\n\n")
   
   const timeline = joinNonEmpty([
@@ -764,6 +770,22 @@ async function readCognitionStates(pp: string): Promise<string> {
     const state = await loadCognitionState(pp)
     if (!state) return ""
     return cognitionToContextText(state)
+  } catch {}
+  return ""
+}
+
+/**
+ * R4 (S4 / ANL-013): load the emotional-arcs projection store and render its
+ * protected-tier context text. Returns "" when the store is empty or absent
+ * (backward compatible — no arcs recorded = no injection). Failures are
+ * swallowed (non-fatal) to match the readCognitionStates contract; the
+ * projection's own commit/fail status is tracked by the
+ * ProjectionStatusLedger, not here.
+ */
+async function readEmotionalArcsText(pp: string): Promise<string> {
+  try {
+    const store = await loadEmotionalArcs(pp)
+    return emotionalArcsToContextText(store)
   } catch {}
   return ""
 }

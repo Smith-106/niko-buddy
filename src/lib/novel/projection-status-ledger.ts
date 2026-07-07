@@ -65,6 +65,12 @@ export const PROJECTION_CATEGORIES: Record<string, ProjectionCategory> = {
   character: "fold_rebuildable",
   foreshadow: "fold_rebuildable",
   summary_structured_memory: "fold_rebuildable",
+  // R4 (S4 / ANL-013): 3 new structured-field projections — same-layer
+  // siblings of character/foreshadow (NOT a Truth Files module; ANL-013 C4).
+  // All fold_rebuildable: re-derivable from the committed snapshot sequence.
+  emotional_arc: "fold_rebuildable",
+  subplot_board: "fold_rebuildable",
+  resource_ledger: "fold_rebuildable",
   graph_entity_pages: "mutates_existing_non_rebuildable",
   // CORR-009: distinct key for the wiki-patch-field write path (was shared
   // with graph_entity_pages, masking partial failures). Same category.

@@ -14,6 +14,9 @@ import { buildNameAliasMap } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
+import { createEmptyEmotionalArcStore, loadEmotionalArcs, saveEmotionalArcs, type EmotionalArcStore } from "./emotional-arcs"
+import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard } from "./subplot-board"
+import { createEmptyResourceLedgerStore, loadResourceLedger, saveResourceLedger, type ResourceLedgerStore } from "./resource-ledger"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
@@ -601,6 +604,38 @@ export async function ingestChapter(
           await saveForeshadowingTracker(pp, existingForeshadows)
         })
       }
+
+      // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs. Derived from
+      // snapshot.characterDetails[name].arcChange. No new LLM extract field
+      // (additive only); failure → ledger (IC-02: no silent degrade).
+      await runProjection("emotional_arc", async () => {
+        const arcStore = await loadEmotionalArcs(pp)
+        applyEmotionalArcsToStore(arcStore, snapshot, buildAliasMapsFromSnapshot(snapshot))
+        await saveEmotionalArcs(pp, arcStore)
+      })
+
+      // R4 (S4 / ANL-013): fold_rebuildable — resource ledger. Derived from
+      // snapshot.itemDetails[name].holder + previousHolders. No new LLM
+      // extract field (additive only); failure → ledger (IC-02).
+      await runProjection("resource_ledger", async () => {
+        const ledger = await loadResourceLedger(pp)
+        applyResourceLedgerToStore(ledger, snapshot, buildAliasMapsFromSnapshot(snapshot))
+        await saveResourceLedger(pp, ledger)
+      })
+
+      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. ANL-013 G2
+      // audit: QMAI has no支线剧情进度 projection. The snapshot has no
+      // dedicated subplot field yet (LLM extract-prompt extension is out of
+      // scope for this additive projection-infra task), so this commits an
+      // empty store until a snapshot field is added — but the projection is
+      // REGISTERED + tracked so future wiring is a one-line change. The
+      // projection stays alive (committed-empty, not missing) so the ledger
+      // shows it is reachable. Failure → ledger (IC-02).
+      await runProjection("subplot_board", async () => {
+        const board = await loadSubplotBoard(pp)
+        board.lastUpdated = new Date().toISOString()
+        await saveSubplotBoard(pp, board)
+      })
 
       // fold_rebuildable: summary_structured_memory.
       await runProjection("summary_structured_memory", async () => {
@@ -1385,6 +1420,77 @@ async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSn
 }
 
 /**
+ * R4 (S4 / ANL-013): fold emotional-arc beats from a snapshot's
+ * characterDetails.arcChange into the store. Shared by ingest + rebuild so
+ * the fold is deterministic (fold_rebuildable contract — re-folding the
+ * committed snapshot sequence yields the same beats).
+ */
+function applyEmotionalArcsToStore(
+  arcStore: EmotionalArcStore,
+  snapshot: ChapterSnapshot,
+  aliasMaps?: readonly NameAliasMap[],
+): EmotionalArcStore {
+  const details = snapshot.characterDetails ?? {}
+  for (const [rawName, detail] of Object.entries(details)) {
+    const arcChange = (detail?.arcChange ?? "").trim()
+    if (!arcChange) continue
+    const canonical = resolveCanonicalName(rawName, resolveMatchingMap(rawName, aliasMaps))
+    arcStore.beats.push({
+      character: canonical,
+      chapterNumber: snapshot.chapterNumber,
+      emotion: arcChange,
+      intensity: 0,
+      trigger: "",
+      notes: "",
+    })
+  }
+  arcStore.lastUpdated = new Date().toISOString()
+  return arcStore
+}
+
+/**
+ * R4 (S4 / ANL-013): fold resource-ledger entries from a snapshot's
+ * itemDetails.holder / previousHolders. Shared by ingest + rebuild so the
+ * fold is deterministic (fold_rebuildable contract). Each chapter's holder
+ * becomes a transfer entry; the first holder seeds acquiredChapter.
+ */
+function applyResourceLedgerToStore(
+  ledger: ResourceLedgerStore,
+  snapshot: ChapterSnapshot,
+  aliasMaps?: readonly NameAliasMap[],
+): ResourceLedgerStore {
+  const details = snapshot.itemDetails ?? {}
+  for (const [itemName, detail] of Object.entries(details)) {
+    const rawHolder = (detail?.holder ?? "").trim()
+    if (!itemName) continue
+    const entry = ledger.entries.find((e) => e.item === itemName)
+    const canonicalHolder = rawHolder
+      ? resolveCanonicalName(rawHolder, resolveMatchingMap(rawHolder, aliasMaps))
+      : ""
+    if (!entry) {
+      ledger.entries.push({
+        item: itemName,
+        currentHolder: canonicalHolder,
+        acquiredChapter: snapshot.chapterNumber,
+        transferredFrom: (detail?.previousHolders ?? "").trim() || undefined,
+        transferHistory: canonicalHolder
+          ? [{ fromChapter: snapshot.chapterNumber, fromHolder: "", toHolder: canonicalHolder }]
+          : [],
+      })
+    } else if (canonicalHolder && canonicalHolder !== entry.currentHolder) {
+      entry.transferHistory.push({
+        fromChapter: snapshot.chapterNumber,
+        fromHolder: entry.currentHolder,
+        toHolder: canonicalHolder,
+      })
+      entry.currentHolder = canonicalHolder
+    }
+  }
+  ledger.lastUpdated = new Date().toISOString()
+  return ledger
+}
+
+/**
  * F-002 (ANL-010 R4 / C-002): rebuild ALL derived projections from the
  * committed snapshot sequence. Previously `rebuildDerivedMemoryFromSnapshots`
  * only re-derived cognition / character / foreshadow / structured-memory
@@ -1429,6 +1535,23 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
     applyForeshadowingChangesToStore(foreshadowingStore, snapshot)
   }
   await saveForeshadowingTracker(projectPath, foreshadowingStore)
+
+  // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs / resource ledger /
+  // subplot board. Re-folded from the committed snapshot sequence (same
+  // shared apply* helpers as ingest → deterministic rebuild). Subplot board
+  // has no snapshot field yet → commits empty (projection stays alive).
+  const emotionalArcStore = createEmptyEmotionalArcStore()
+  const resourceLedger = createEmptyResourceLedgerStore()
+  const subplotBoard = createEmptySubplotBoardStore()
+  for (const snapshot of snapshots) {
+    const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
+    applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps)
+    applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps)
+  }
+  await saveEmotionalArcs(projectPath, emotionalArcStore)
+  await saveResourceLedger(projectPath, resourceLedger)
+  subplotBoard.lastUpdated = new Date().toISOString()
+  await saveSubplotBoard(projectPath, subplotBoard)
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
 
