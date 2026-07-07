@@ -1,4 +1,8 @@
 import type { ChapterSnapshot } from "./chapter-ingest"
+import {
+  getFactsAt,
+  type TemporalFact,
+} from "./temporal-memory"
 
 export interface FactCheckResult {
   severity: "blocking" | "high" | "medium" | "low"
@@ -11,6 +15,12 @@ export interface FactCheckResult {
   chapters: [number, number]
   confidence: number
   suggestion: string
+  /**
+   * TASK-004: optional back-reference to the temporal fact id whose
+   * supersession / negation chain surfaced this finding. Absent for
+   * findings produced by the legacy rule engine (backward compatible).
+   */
+  temporalFactId?: string
 }
 
 export interface FactCheckReport {
@@ -23,11 +33,20 @@ export interface FactCheckReport {
 export interface FactCheckOptions {
   llmMode?: boolean
   projectPath?: string
+  /**
+   * TASK-004: optional temporal fact view (derived from committed snapshots
+   * via factsFromCommittedSnapshots). When provided, runFactCheck runs an
+   * additional time-point consistency pass per chapter using getFactsAt, so
+   * "what the character knows at chapter N" is checked against the fact
+   * validity windows. Absent → legacy rule-engine behavior (backward
+   * compatible).
+   */
+  temporalFacts?: readonly TemporalFact[]
 }
 
 export async function runFactCheck(
   snapshots: ChapterSnapshot[],
-  _options?: FactCheckOptions,
+  options?: FactCheckOptions,
 ): Promise<FactCheckReport> {
   const startTime = Date.now()
 
@@ -54,11 +73,78 @@ export async function runFactCheck(
     results.push(...checkCausalityBreak(prev, curr))
   }
 
+  // TASK-004: temporal time-point consistency pass (additive enhancement,
+  // not a replacement for the legacy rule engine). Only runs when the caller
+  // supplies a temporalFacts view; otherwise behavior is unchanged.
+  const temporalFacts = options?.temporalFacts
+  if (temporalFacts && temporalFacts.length > 0) {
+    for (const snapshot of sorted) {
+      results.push(...checkTemporalConsistency(snapshot, temporalFacts))
+    }
+  }
+
   return {
     results,
     checkedChapterCount: sorted.length,
     ruleEngineTime: Date.now() - startTime,
   }
+}
+
+/**
+ * TASK-004: per-chapter temporal consistency check. For each canon fact
+ * authored at this chapter, verify the subject's currently-valid temporal
+ * facts (validFrom<=chapter && validUntil>chapter or unset) are not
+ * contradicted by the new canon statement. Findings carry temporalFactId for
+ * supersession-chain traceability.
+ */
+function checkTemporalConsistency(
+  snapshot: ChapterSnapshot,
+  temporalFacts: readonly TemporalFact[],
+): FactCheckResult[] {
+  const results: FactCheckResult[] = []
+  const activeFacts = getFactsAt(snapshot.chapterNumber, undefined, temporalFacts)
+
+  for (const rawFact of snapshot.newCanonFacts) {
+    const subject = extractFactSubject(rawFact)
+    if (!subject) continue
+
+    const subjectActive = activeFacts.filter(
+      (f) => f.subject === subject || f.subject === resolveCanonicalNameInline(subject),
+    )
+    for (const prior of subjectActive) {
+      // Only flag when the new canon statement contradicts a still-valid
+      // prior fact (negation-style). Affirmations are not flagged — the
+      // rule engine's setting_conflict detector already covers plain
+      // contradictions; this pass focuses on time-window violations.
+      if (prior.validFrom >= snapshot.chapterNumber) continue
+      const contradicted = areFactsContradictory(prior.object || prior.predicate, rawFact)
+      if (!contradicted) continue
+
+      results.push({
+        severity: "high",
+        type: "setting_conflict",
+        message: `时序矛盾：第${snapshot.chapterNumber}章关于"${subject}"的描述与第${prior.validFrom}章起生效的事实冲突`,
+        evidenceA: `第${prior.validFrom}章（生效中）：${prior.subject} ${prior.predicate} ${prior.object}`.trim(),
+        evidenceB: `第${snapshot.chapterNumber}章：${rawFact}`,
+        chapters: [prior.validFrom, snapshot.chapterNumber],
+        confidence: 0.8,
+        suggestion: `请确认"${subject}"的事实变化，或通过显式事件关闭第${prior.validFrom}章的事实（supersession/negation）。`,
+        temporalFactId: prior.id,
+      })
+    }
+  }
+
+  return results
+}
+
+/**
+ * Inline canonical-name resolver for the temporal pass. The full
+ * resolveCanonicalName requires an alias map which the rule engine doesn't
+ * carry; here we only need NFKC-level matching to avoid a cross-module
+ * import cycle in the hot path.
+ */
+function resolveCanonicalNameInline(name: string): string {
+  return name.trim().normalize("NFKC")
 }
 
 function checkCharacterJump(

@@ -8,6 +8,11 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
+import {
+  factsFromCommittedSnapshots,
+  renderTemporalCanonBlock,
+} from "./temporal-memory"
+import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { getChapterVolumes } from "./volume"
 import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
@@ -305,6 +310,30 @@ async function buildContextPackFromRawData(
     ], "\n\n"),
   })
 
+  // TASK-004: temporal memory — derive the time-ordered fact view from the
+  // committed snapshot chain + ledger and inject as a protected-tier canon
+  // block. getFactsAt (via renderTemporalCanonBlock) yields only facts
+  // authoritative at the current chapter, so superseded / negated facts are
+  // automatically excluded. Failure to load is non-fatal: canonRules falls
+  // back to the raw canon rules (backward compatible).
+  const targetChapter = context.chapterNumber ?? 0
+  let canonRules = rawData.canonRules
+  if (targetChapter > 0) {
+    try {
+      const [ledger, snapshots] = await Promise.all([
+        loadProjectionStatusLedger(context.projectPath),
+        loadAllSnapshots(context.projectPath),
+      ])
+      const temporalFacts = factsFromCommittedSnapshots(snapshots, ledger)
+      const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
+      if (temporalBlock) {
+        canonRules = joinNonEmpty([canonRules, temporalBlock], "\n\n")
+      }
+    } catch (error) {
+      console.warn("[ContextEngine] temporal-memory load failed, falling back to raw canonRules:", error)
+    }
+  }
+
   return {
     task: context.task,
     chapterGoal,
@@ -319,12 +348,12 @@ async function buildContextPackFromRawData(
     foreshadowingStates,
     timeline,
     relatedSettings: rawData.relatedSettings,
-    canonRules: rawData.canonRules,
+    canonRules,
     writingStyle: rawData.writingStyle,
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
-    mustAvoid: buildMustAvoid(rawData.canonRules, timeline, characterStates),
+    mustAvoid: buildMustAvoid(canonRules, timeline, characterStates),
     nextChapterAdvice: buildNextChapterAdvice({
       chapterGoal,
       recentSummaries,
@@ -336,6 +365,18 @@ async function buildContextPackFromRawData(
     revisionDirectives,
     gaps: [],
   }
+}
+
+/**
+ * TASK-004: load every committed snapshot for the temporal-memory fold.
+ * Uses listSnapshots + loadSnapshot (already imported). Returns an empty
+ * array on failure so the temporal block is skipped (backward compatible).
+ */
+async function loadAllSnapshots(projectPath: string): Promise<ChapterSnapshot[]> {
+  const pp = normalizePath(projectPath)
+  const numbers = await listSnapshots(pp)
+  const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
+  return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
 }
 
 export function extractChapterNumberFromTask(task: string): number | undefined {
