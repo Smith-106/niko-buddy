@@ -755,10 +755,34 @@ export async function runDeepChapterGeneration(
       ].join("\n")
     : ""
 
+  // TASK-003 (ANL-013 S4): pre-generation community-summary generate side.
+  // After context assembly, before prose generation: generate (or reuse the
+  // cached) narrative summaries for the communities most relevant to the
+  // current chapter's task tokens, and inject them into the compressible
+  // context tier. This closes the previously-orphaned generate side — only
+  // the retrieval side (`searchCommunitySummaries` via graphSearchResults)
+  // was wired before. `generateCommunitySummariesForChapter` is the per-chapter
+  // lazy-cached entry point; it internally calls `generateSingleCommunitySummary`
+  // (community-summary.ts) for each relevant community. Best-effort: failure
+  // returns "" and does not block.
+  let communitySummaryInjection = ""
+  try {
+    const { generateCommunitySummariesForChapter } = await import("./community-summary")
+    communitySummaryInjection = await generateCommunitySummariesForChapter(
+      input.projectPath,
+      input.userRequest,
+      input.chapterNumber,
+      input.llmConfig,
+    )
+  } catch (err) {
+    console.warn("[Deep Chapter] 社区摘要生成失败（非阻断）:", err)
+  }
+
   // 其他上下文可以进行token预算管理，但大纲已被排除
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
     deps.contextPackToPrompt(contextPack, 32000, { excludeOutline: true }),
+    communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 

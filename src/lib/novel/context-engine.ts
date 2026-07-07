@@ -36,6 +36,110 @@ const SECTION_PRIORITY: Record<string, number> = {
   "写作风格": 17,
 }
 
+/**
+ * Tier caps (TASK-003 protected/compressible layering).
+ *
+ * Protected sources carry load-bearing constraints for the current chapter
+ * and get a generous cap — they SHOULD survive whole into the prompt.
+ * Canon rules in particular are never compressed, only truncated as a last
+ * resort with a `budget_exceeded` gap.
+ *
+ * Compressible sources are budget-elastic; they're truncated under pressure
+ * with a `tier_compressible` gap and are candidates for community-summary
+ * compression (TASK-003 subtask 3) before injection.
+ */
+const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
+const CANON_RULES_PROTECTED_CAP = 8000
+const PROTECTED_FALLBACK_CAP = 4000
+const COMPRESSIBLE_FALLBACK_CAP = 2000
+
+/**
+ * ANL-013 S4 (TASK-003): protected/compressible context tiering.
+ *
+ * Context sources are classified into two tiers:
+ *   - `protected`: canon facts / character cognition (knows + doesNotKnow) /
+ *     current chapter outline / active foreshadowing. These MUST NOT be
+ *     silently compressed — they carry load-bearing constraints. Truncation
+ *     (only when a single source file vastly exceeds the cap) is recorded
+ *     as a gap with reason `budget_exceeded`.
+ *   - `compressible`: historical chapter summaries / community summaries /
+ *     older snapshots / derived fallback state. These are budget-elastic —
+ *     truncated under budget pressure and the compression is recorded as a
+ *     gap with reason `tier_compressible`.
+ *
+ * `gaps[]` is the IC-02 contract: every compression / truncation MUST be
+ * surfaced explicitly, never silently degraded. Callers (and tests) can
+ * inspect `pack.gaps` to verify no source was silently dropped.
+ */
+export type SourceTier = "protected" | "compressible"
+
+export interface ContextGap {
+  type: "compressed" | "truncated"
+  ref: string
+  reason: "budget_exceeded" | "tier_compressible"
+  originalLength: number
+  retainedLength: number
+}
+
+/**
+ * Module-level gap recorder.
+ *
+ * The read helpers (`readCharacterStates`, `readCanonRules`, ...) are
+ * consumed via dynamic import from `context-data-sources.ts`, so their
+ * signatures cannot grow a `gaps` out-param without crossing the task
+ * scope. Instead, `buildContextPack` resets this buffer before loading
+ * data sources and collects the recorded gaps after. The lifecycle is
+ * exactly one `buildContextPack` call — the buffer is per-build, not
+ * global-persistent.
+ */
+const contextGaps: ContextGap[] = []
+let contextGapsActive = false
+
+function resetContextGaps(): void {
+  contextGaps.length = 0
+  contextGapsActive = true
+}
+
+function collectContextGaps(): ContextGap[] {
+  contextGapsActive = false
+  return [...contextGaps]
+}
+
+/**
+ * Tier-aware slice. Replaces the bare `content.slice(0, N)` calls that
+ * previously truncated sources indiscriminately.
+ *
+ * - `protected` tier: cap is generous (the source SHOULD survive whole).
+ *   If the source still exceeds the cap, record a `truncated` gap with
+ *   reason `budget_exceeded` and return the prefix. We never route
+ *   protected sources through community-summary compression.
+ * - `compressible` tier: cap is tighter; when the source exceeds it,
+ *   record a `truncated` gap with reason `tier_compressible`. The
+ *   community-summary integration (TASK-003 subtask 3) consumes
+ *   compressible-tier sources for summarization before injection.
+ */
+function tieredSlice(
+  content: string,
+  tier: SourceTier,
+  cap: number,
+  ref: string,
+): string {
+  if (!content) return ""
+  const originalLength = content.length
+  if (originalLength <= cap) return content
+  const retained = content.slice(0, cap)
+  if (contextGapsActive) {
+    contextGaps.push({
+      type: "truncated",
+      ref,
+      reason: tier === "protected" ? "budget_exceeded" : "tier_compressible",
+      originalLength,
+      retainedLength: retained.length,
+    })
+  }
+  return retained
+}
+
 export interface ContextPack {
   task: string
   chapterGoal: string
@@ -58,6 +162,17 @@ export interface ContextPack {
   mustAvoid: string
   nextChapterAdvice: string
   revisionDirectives: string
+  /**
+   * IC-02 contract: explicit record of every compressed / truncated
+   * source during assembly. Never silently degrade — callers inspect
+   * this to know which sources were budget-capped.
+   *
+   * Optional for backward compatibility: legacy ContextPack constructors
+   * (safeBuildChapterContextPack fallback, outline-generation, test
+   * fixtures) that don't run through buildContextPack leave this
+   * undefined; buildContextPack always populates it.
+   */
+  gaps?: ContextGap[]
 }
 
 export async function buildContextPack(
@@ -73,13 +188,18 @@ export async function buildContextPack(
 
   // 构建加载上下文
   const context = buildLoadContext(pp, task, chapterNumber)
-  
+
+  // 重置 gap recorder — 生命周期为本次 buildContextPack 调用
+  resetContextGaps()
+
   // 创建数据源注册器并加载所有数据
   const registry = createDataSourceRegistry()
   const rawData = await registry.loadAll(context)
-  
+
   // 从原始数据构建上下文包
-  return buildContextPackFromRawData(rawData, context)
+  const pack = await buildContextPackFromRawData(rawData, context)
+  pack.gaps = collectContextGaps()
+  return pack
 }
 
 /**
@@ -214,6 +334,7 @@ async function buildContextPackFromRawData(
       searchResults: rawData.searchResults,
     }),
     revisionDirectives,
+    gaps: [],
   }
 }
 
@@ -356,6 +477,7 @@ function emptyPack(task: string): ContextPack {
     mustAvoid: "",
     nextChapterAdvice: "",
     revisionDirectives: "",
+    gaps: [],
   }
 }
 
@@ -433,12 +555,12 @@ export function pickChapterOutlineByNumber(
   chapterNumber: number,
 ): string {
   const frontmatterMatch = candidates.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
-  if (frontmatterMatch) return frontmatterMatch.content.slice(0, 4000)
+  if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:frontmatter`)
 
   const headingMatch = candidates.find((candidate) =>
     includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
   )
-  if (headingMatch) return headingMatch.content.slice(0, 4000)
+  if (headingMatch) return tieredSlice(headingMatch.content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:heading`)
 
   return ""
 }
@@ -475,7 +597,8 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
     try {
       const results = await searchWiki(pp, query)
       if (results.length > 0) {
-        return (await readFile(results[0].path)).slice(0, 3000)
+        const content = await readFile(results[0].path)
+        return tieredSlice(content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:search`)
       }
     } catch {}
   }
@@ -559,7 +682,7 @@ async function readRecentChapterSummaries(pp: string, count: number): Promise<st
         if (meta) {
           const bodyStart = content.indexOf("---", 4)
           const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-          summaries.push(`第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 500)}`)
+          summaries.push(`第${meta.chapterNumber}章 (${meta.status}): ${tieredSlice(body, "compressible", COMPRESSIBLE_FALLBACK_CAP, `recent-summary:${meta.chapterNumber}`)}`)
         }
       } catch {}
     }
@@ -588,7 +711,7 @@ async function readCharacterStates(pp: string): Promise<string> {
     const results = await searchWiki(pp, "type:entity character")
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 5).map(r => readFile(r.path).catch(() => "")))
-      return contents.filter(Boolean).join("\n---\n").slice(0, 3000)
+      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "protected", PROTECTED_FALLBACK_CAP, "character-states:fallback")
     }
   } catch {}
   return ""
@@ -610,7 +733,7 @@ async function readForeshadowingStates(pp: string): Promise<string> {
     const results = await searchWiki(pp, "伏笔 foreshadowing")
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
-      return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
+      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "protected", PROTECTED_FALLBACK_CAP, "foreshadowing:fallback")
     }
   } catch {}
   return ""
@@ -622,7 +745,7 @@ async function readTimeline(pp: string): Promise<string> {
     const results = await searchWiki(pp, "timeline 时间线")
     if (results.length > 0) {
       const content = await readFile(results[0].path)
-      return content.slice(0, 2000)
+      return tieredSlice(content, "protected", PROTECTED_FALLBACK_CAP, "timeline:fallback")
     }
   } catch {}
   return ""
@@ -634,7 +757,7 @@ async function readRelatedSettings(pp: string): Promise<string> {
     const results = await searchWiki(pp, "setting 设定 location 地点")
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
-      return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
+      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "compressible", COMPRESSIBLE_FALLBACK_CAP, "related-settings:fallback")
     }
   } catch {}
   return ""
@@ -646,7 +769,7 @@ async function readCanonRules(pp: string): Promise<string> {
     const results = await searchWiki(pp, "canon 正史 rule 规则")
     if (results.length > 0) {
       const content = await readFile(results[0].path)
-      return content.slice(0, 2000)
+      return tieredSlice(content, "protected", CANON_RULES_PROTECTED_CAP, "canon-rules:fallback")
     }
   } catch {}
   return ""
@@ -666,7 +789,7 @@ async function readWritingStyle(pp: string): Promise<string> {
     const results = await searchWiki(pp, "style 风格 writing 写作")
     if (results.length > 0) {
       const content = await readFile(results[0].path)
-      return content.slice(0, 1000)
+      return tieredSlice(content, "compressible", COMPRESSIBLE_FALLBACK_CAP, "writing-style:fallback")
     }
   } catch {}
   return ""

@@ -94,8 +94,17 @@ export async function generateCommunitySummaries(
   }
 }
 
-/** 为单个社区生成叙事摘要（200-400 字） */
-async function generateSingleCommunitySummary(
+/**
+ * 为单个社区生成叙事摘要（200-400 字）。
+ *
+ * TASK-003 (ANL-013 S4): exported so deep-chapter-generation can generate a
+ * community summary for the communities most relevant to the current
+ * chapter (pre-generation stage, after context assembly) and inject it
+ * into the compressible context tier. Previously only the retrieval side
+ * (`searchCommunitySummaries`) was wired into context-engine; the generate
+ * side was orphaned.
+ */
+export async function generateSingleCommunitySummary(
   community: CommunityInfo,
   members: GraphNode[],
   llmConfig: LlmConfig,
@@ -186,4 +195,134 @@ export async function searchCommunitySummaries(
   } catch {
     return ""
   }
+}
+
+/**
+ * TASK-003 (ANL-013 S4): per-chapter lazy-cached community summary generation
+ * for the compressible context tier.
+ *
+ * Called from deep-chapter-generation's pre-generation stage (after context
+ * assembly, before prose generation). For each community whose top nodes
+ * overlap the current task's entity tokens, generate (or reuse the cached)
+ * narrative summary via `generateSingleCommunitySummary` and return the
+ * concatenation for injection into the compressible tier of the prompt.
+ *
+ * Lazy per-chapter caching: summaries are keyed by `${projectPath}:${communityId}`
+ * in a process-level Map, so the same community is not re-summarized on every
+ * chapter — only communities not yet seen get a fresh LLM call. This is a
+ * best-effort enrichment: any failure (graph build, LLM call, etc.) returns
+ * an empty string and does not block the main generation flow.
+ *
+ * Note: this is the GENERATE side (previously orphaned — only the retrieval
+ * side `searchCommunitySummaries` was wired into context-engine). Together
+ * with the retrieval side it closes the generate-then-inject loop.
+ */
+const communitySummaryCache = new Map<string, string>()
+let lastProjectFreshnessKey: string | null = null
+
+export async function generateCommunitySummariesForChapter(
+  projectPath: string,
+  task: string,
+  chapterNumber: number | undefined,
+  llmConfig: LlmConfig,
+  topK: number = 3,
+): Promise<string> {
+  const pp = normalizePath(projectPath)
+  const novelConfig = useWikiStore.getState().novelConfig
+  // Respect the user's community-summary toggle. Disabled → no generate side.
+  if (!novelConfig?.communitySummaryEnabled) return ""
+
+  try {
+    const { nodes, communities } = await buildWikiGraph(pp)
+    if (communities.length === 0) return ""
+
+    // Tokenize task the same way search does — 2+ char CJK / word tokens.
+    const taskTokens = tokenizeTask(task)
+    if (taskTokens.length === 0) return ""
+
+    // chapterNumber drives per-chapter cache freshness: when the chapter
+    // advances past the communitySummaryInterval, stale cache entries for
+    // this project are dropped so the next relevant community regenerates
+    // with up-to-date wiki content. Within the interval, cached summaries
+    // are reused (lazy per-chapter caching — no per-chapter recompute).
+    const interval = Math.max(1, novelConfig.communitySummaryInterval || 5)
+    const chapterBucket = chapterNumber !== undefined && chapterNumber > 0
+      ? Math.floor(chapterNumber / interval)
+      : 0
+    const projectFreshnessKey = `${pp}:bucket:${chapterBucket}`
+    if (lastProjectFreshnessKey !== projectFreshnessKey) {
+      communitySummaryCache.clear()
+      lastProjectFreshnessKey = projectFreshnessKey
+    }
+
+    const nodesByCommunity = new Map<number, GraphNode[]>()
+    for (const node of nodes) {
+      const bucket = nodesByCommunity.get(node.community) ?? []
+      bucket.push(node)
+      nodesByCommunity.set(node.community, bucket)
+    }
+
+    // Rank communities by how many of their top-node labels match a task token.
+    const scored = communities.map(community => {
+      const topLabels = community.topNodes
+      const hitCount = topLabels.reduce(
+        (count, label) => count + (taskTokens.some(token => label.includes(token)) ? 1 : 0),
+        0,
+      )
+      return { community, hitCount }
+    })
+    const relevant = scored
+      .filter(item => item.hitCount > 0)
+      .sort((a, b) => b.hitCount - a.hitCount)
+      .slice(0, topK)
+
+    if (relevant.length === 0) return ""
+
+    const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
+    const lines: string[] = []
+    for (const { community } of relevant) {
+      const cacheKey = `${pp}:${community.id}`
+      let summary = communitySummaryCache.get(cacheKey)
+      if (summary === undefined) {
+        const members = nodesByCommunity.get(community.id) ?? []
+        if (members.length === 0) continue
+        try {
+          summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
+          communitySummaryCache.set(cacheKey, summary)
+        } catch (err) {
+          // Non-blocking: skip this community, keep others.
+          console.warn(
+            `[CommunitySummary] 生成社区 ${community.id} 摘要失败:`,
+            err instanceof Error ? err.message : err,
+          )
+          continue
+        }
+      }
+      if (summary) {
+        lines.push(`- 【社区摘要·社区${community.id}】: ${summary.slice(0, 400)}`)
+      }
+    }
+    return lines.join("\n")
+  } catch {
+    return ""
+  }
+}
+
+/** Minimal task tokenizer matching search-adapter's CJK/word splitting intent. */
+function tokenizeTask(task: string): string[] {
+  const trimmed = task.trim()
+  if (!trimmed) return []
+  // CJK 2+ char runs and latin 2+ char words.
+  const cjk = trimmed.match(/[㐀-鿿]{2,}/g) ?? []
+  const latin = trimmed.match(/[A-Za-z]{2,}/g) ?? []
+  const all = [...cjk, ...latin]
+  // De-dup, drop generic filler.
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const token of all) {
+    if (seen.has(token)) continue
+    seen.add(token)
+    result.push(token)
+  }
+  return result
 }
