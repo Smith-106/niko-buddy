@@ -1,4 +1,4 @@
-import { readFile, writeFile, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
 export interface Foreshadowing {
@@ -29,7 +29,12 @@ export async function saveForeshadowingTracker(
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   await createDirectory(`${pp}/.novel`)
-  await writeFile(
+  // F-002 (ANL-010 C5): upgrade writeFile → writeFileAtomic. Same
+  // crash-corruption risk as character-state.ts:30 — a truncated
+  // foreshadowing-tracker.json breaks ingest on next load. fold_rebuildable
+  // via rebuildDerivedMemoryFromSnapshots, but atomicity protects the
+  // rebuild path itself.
+  await writeFileAtomic(
     `${pp}/.novel/foreshadowing-tracker.json`,
     JSON.stringify(store, null, 2),
   )

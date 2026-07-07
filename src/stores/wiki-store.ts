@@ -98,6 +98,16 @@ interface LlmConfig {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
+  /**
+   * F-004 (S3 / ANL-010 f004_correction): true when the user explicitly
+   * selected this provider in the settings dropdown (vs. it being a
+   * carry-over default). `resolveProviderOverride` honors this to preserve
+   * explicit-selection precedence — an API-key user who deliberately chose
+   * `claude-code` (subprocess/OAuth path) is NOT silently rerouted to the
+   * anthropic HTTP case. Optional & additive; undefined = treated as false
+   * (not an explicit selection). See preset-resolver.ts.
+   */
+  explicitProviderSelection?: boolean
 }
 
 export type SearchProvider = "tavily" | "serpapi" | "searxng" | "none"

@@ -805,6 +805,14 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       // streams), not HTTP. Dispatch happens one layer up in
       // streamChat() before getProviderConfig is called. Reaching this
       // branch means wiring is broken somewhere upstream.
+      //
+      // F-004 (ANL-010 f004_correction): API-key users on the `claude-code`
+      // default who did NOT explicitly select it are rerouted to the
+      // anthropic HTTP case (lines 709-720, REUSED UNCHANGED) via
+      // resolveProviderOverride in llm-client.ts BEFORE dispatch reaches
+      // here — so this branch is only hit by users who explicitly chose
+      // the subprocess/OAuth path (explicitProviderSelection === true) or
+      // who have no Anthropic API key configured.
       throw new Error(
         `${provider} provider uses subprocess transport; getProviderConfig should not be called for it`,
       )

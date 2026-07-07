@@ -435,12 +435,61 @@ function applyProjectionSnapshotMeta(
   content: string,
   snapshotMeta: ReturnType<typeof projectionSnapshotMeta>,
 ): string {
-  let updated = replaceOrInsertFrontmatterLine(content, "snapshot_id", `"${snapshotMeta.snapshotId}"`)
+  // F-002 (ANL-010 L4 / C-002): supersession-aware projection meta. Previously
+  // each ingest destructively OVERWROTE the entity page's snapshot_id /
+  // source_* / is_historical frontmatter in place, losing the prior-version
+  // provenance. Under the ProjectionStatusLedger category
+  // `mutates_existing_non_rebuildable`, graph entity pages must NOT have fact
+  // fields clobbered — a new snapshot SUPERSEDES the old one (the prior
+  // snapshot_id is preserved as `superseded_by_snapshot` before the new id is
+  // written), so the version history is recoverable for a delete+re-fold
+  // rebuild via cleanupSupersededEntityFiles. is_historical flips to true on
+  // the superseded version. This is additive (new frontmatter key) — existing
+  // readers that only look at `snapshot_id` see the latest, unchanged.
+  let updated = content
+  const priorSnapshotIdMatch = /^snapshot_id:\s*"([^"]*)"/m.exec(updated)
+  const priorSnapshotId = priorSnapshotIdMatch?.[1]
+  if (priorSnapshotId && priorSnapshotId !== snapshotMeta.snapshotId) {
+    // Record the superseded version's id before overwriting, so the chain
+    // of versions is recoverable (supersession, not destructive overwrite).
+    // NOTE (CORR-002 fix): is_historical is NOT set to true here — this page
+    // IS the new/current version, so is_historical must reflect the new
+    // snapshot (false). The supersession chain is preserved by
+    // `superseded_by_snapshot` (which prior rebuild readers follow to find
+    // the version that was active before this snapshot). A prior version of
+    // this code set is_historical=true here then immediately overwrote it
+    // below with the new snapshot's value — the true was dead and
+    // contradicted the page's current-version status.
+    updated = replaceOrInsertFrontmatterLine(updated, "superseded_by_snapshot", `"${snapshotMeta.snapshotId}"`)
+  }
+  updated = replaceOrInsertFrontmatterLine(updated, "snapshot_id", `"${snapshotMeta.snapshotId}"`)
   updated = replaceOrInsertFrontmatterLine(updated, "source_type", `"${snapshotMeta.sourceType}"`)
   updated = replaceOrInsertFrontmatterLine(updated, "source_sequence", String(snapshotMeta.sourceSequence))
   updated = replaceOrInsertFrontmatterLine(updated, "source_revision", String(snapshotMeta.sourceRevision))
   updated = replaceOrInsertFrontmatterLine(updated, "is_historical", snapshotMeta.isHistorical ? "true" : "false")
   return updated
+}
+
+/**
+ * F-002 (ANL-010 L4): supersede a fact on a graph entity page WITHOUT
+ * destructive overwrite. Appends the new fact value alongside the old
+ * (versioned), rather than replacing the old value in place. The old value
+ * remains in the page body for auditability until a delete+re-fold rebuild
+ * (cleanupSupersededEntityFiles) collects it. For the
+ * `mutates_existing_non_rebuildable` ledger category, this is the
+ * supersession path; the delete+re-fold path is invoked by
+ * rebuildFromCommittedSnapshot in chapter-ingest.ts when rebuilding graph
+ * projections from the committed snapshot sequence.
+ */
+export function supersedeFact(content: string, key: string, newValue: string): string {
+  // Append the superseding value as a versioned line; do NOT remove the old.
+  // Callers that want only the latest read the last match for `key`.
+  const versionedLine = `${key}_v: "${newValue}"`
+  const closeFm = content.indexOf("---", 4)
+  if (closeFm < 0) return content
+  const bodyStart = content.indexOf("\n", closeFm + 3) + 1
+  if (bodyStart <= 0) return content
+  return `${content.slice(0, bodyStart)}${versionedLine}\n${content.slice(bodyStart)}`
 }
 
 const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]/g

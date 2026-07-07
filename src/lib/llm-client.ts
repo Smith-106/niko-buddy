@@ -5,6 +5,7 @@ import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
+import { resolveProviderOverride } from "@/components/settings/preset-resolver"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -98,9 +99,25 @@ export async function streamChat(
    */
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
-  const runtimeConfig = await resolveRuntimeLocalCliConfig(config)
+  const resolvedLocal = await resolveRuntimeLocalCliConfig(config)
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
+
+  // F-004 (ANL-010 f004_correction): NEW routing logic. BS-003 framed this
+  // as "zero new code"; verified INACCURATE — no default-routing existed
+  // (preset.provider was 1:1). An API-key user on the `claude-code` default
+  // (subprocess/OAuth) who did NOT explicitly select it is rerouted to the
+  // sanctioned `anthropic` HTTP case (llm-providers.ts:709-720, REUSED
+  // UNCHANGED) using their OWN apiKey. Explicit selection precedence is
+  // preserved (resolveProviderOverride returns the provider unchanged when
+  // `explicitProviderSelection === true`). This is also the SA-02 fallback
+  // target hook point: TASK-001's SessionTransportFallback reroutes a
+  // stalled CLI stream here on a 2nd stall. Boundary (ANL-009 NO-GO) intact:
+  // no direct-API call, no OAuth-credential reuse.
+  const effectiveProvider = resolveProviderOverride(resolvedLocal)
+  const runtimeConfig: LlmConfig = effectiveProvider === resolvedLocal.provider
+    ? resolvedLocal
+    : { ...resolvedLocal, provider: effectiveProvider }
 
   // Claude Code CLI uses a subprocess transport (stdin/stdout), not
   // HTTP. Dispatch before getProviderConfig — that function throws for

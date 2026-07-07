@@ -6,6 +6,7 @@ import type {
   DeepChapterGenerationResumeStage,
 } from "./deep-chapter-generation"
 import type { NovelReviewResult } from "./review-adapter"
+import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 
 export type NovelSessionLifecycleStatus = "running" | "completed" | "paused" | "blocked"
 export type NovelDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
@@ -62,6 +63,17 @@ export interface NovelSessionStatus {
   decision_gates: DeepChapterDecisionGates
   resume_checkpoint?: DeepChapterGenerationResumeCheckpoint
   evidence_refs: string[]
+  /**
+   * F-003 (ANL-010 C1): additive field persisting the 6-dimension review
+   * results. Previously the 6 dims were generated but orphaned (never
+   * reached reviewResults / session status). Now wired into the 18→3 fold
+   * via dimensionResultsToReviewResults, they are also persisted here for
+   * auditability and post-hoc inspection. Optional & additive: the
+   * Partial<NovelSessionStatus> spread in loadNovelSessionStatus (:550)
+   * round-trips an undefined field safely, so older status files without
+   * this field load unchanged.
+   */
+  dimension_results?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
 }
 
 interface DeepChapterSessionInput {
@@ -654,6 +666,12 @@ export async function persistDeepChapterCheckpoint(
     decision_gates: cloneDecisionGates(input.checkpoint.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
+    // CORR-006 (from quality-review): persist the raw 6-dimension review map
+    // so the structured per-dimension view (score/status/summary) survives the
+    // checkpoint round-trip — not just the flattened NovelReviewResult[] form
+    // that already lives in resume_checkpoint.reviewResults. Additive field:
+    // older status files lack it; loadNovelSessionStatus spreads Partial safely.
+    dimension_results: input.checkpoint.dimensionResults ?? base.dimension_results,
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next

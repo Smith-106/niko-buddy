@@ -36,8 +36,32 @@ use super::local_cli_config::{
     apply_local_cli_environment, read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
 };
 
-const CLAUDE_STARTUP_OUTPUT_TIMEOUT_SECONDS: u64 = 30;
+/// C-101 (GRL-008): Rust-side startup watchdog. Fires if the CLI produces
+/// zero output (not even a heartbeat) within this many seconds — i.e. the
+/// process is stuck before its first byte. Overridable via the
+/// `QMAI_CLAUDE_STARTUP_TIMEOUT_SECS` env var for slow/portable/cold-start
+/// environments. The TS transport separately enforces a (longer, also
+/// configurable) "first meaningful output" timeout; the two are intentionally
+/// layered (Rust = process-liveness, TS = provider-progress).
+fn resolve_startup_output_timeout_secs() -> u64 {
+    const DEFAULT: u64 = 30;
+    const MIN: u64 = 5;
+    match std::env::var("QMAI_CLAUDE_STARTUP_TIMEOUT_SECS") {
+        Ok(v) => v.trim().parse::<u64>().ok().filter(|n| *n >= MIN).unwrap_or(DEFAULT),
+        Err(_) => DEFAULT,
+    }
+}
 const CLAUDE_STDERR_LIMIT_BYTES: usize = 1024 * 1024;
+/// F-001 (ANL-010 C1): bounded stdout JSON buffer cap. The stdout BufReader
+/// drain loop previously had NO cap (only stderr was capped at
+/// CLAUDE_STDERR_LIMIT_BYTES), so a pipe-buffer-deadlock — the CLI blocks on
+/// writing to a full stdout pipe while QMAI stops draining — could grow
+/// stdout unbounded and stall indefinitely (the S2 Chapter-12 root cause).
+/// Symmetric with codex_cli.rs STDOUT_LIMIT_BYTES (raised to match). On
+/// overflow the drain emits a final `stdout-buffer-overflow` marker line and
+/// breaks, surfacing the failure instead of deadlocking. 64MB is generous
+/// (a full novel chapter stream-json is well under this) but finite.
+const CLAUDE_STDOUT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const EMPTY_MCP_CONFIG_JSON: &[u8] = br#"{"mcpServers":{}}"#;
 const CLAUDE_CLI_TEXT_STDIN_MAX_BYTES: usize = 8 * 1024;
 
@@ -681,9 +705,10 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     let saw_output_for_timeout = Arc::clone(&saw_startup_output);
     let startup_timed_out = Arc::new(AtomicBool::new(false));
     let timeout_flag = Arc::clone(&startup_timed_out);
+    let startup_timeout_secs = resolve_startup_output_timeout_secs();
 
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(CLAUDE_STARTUP_OUTPUT_TIMEOUT_SECONDS)).await;
+        tokio::time::sleep(Duration::from_secs(startup_timeout_secs)).await;
         if saw_output_for_timeout.load(Ordering::SeqCst) {
             return;
         }
@@ -726,10 +751,34 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
             collected
         });
 
+        // F-001 (ANL-010 C1): bounded stdout buffer. Track accumulated stdout
+        // bytes; on overflow (pipe-buffer-deadlock would otherwise grow this
+        // unbounded and stall) emit a final `stdout-buffer-overflow` marker
+        // line to the stream and break the drain. The marker lets the TS
+        // transport surface the failure (and trigger SessionTransportFallback)
+        // instead of hanging forever on a full pipe.
+        let mut stdout_bytes: usize = 0;
+        let mut stdout_overflowed = false;
+
         loop {
             match reader.next_line().await {
                 Ok(Some(line)) => {
                     saw_startup_output.store(true, Ordering::SeqCst);
+                    if !stdout_overflowed {
+                        stdout_bytes = stdout_bytes.saturating_add(line.len() + 1);
+                        if stdout_bytes >= CLAUDE_STDOUT_LIMIT_BYTES {
+                            stdout_overflowed = true;
+                            // Emit the overflow marker as a final stdout line
+                            // so the TS parser can detect it and fall back.
+                            emitter_task.emit_data(
+                                &stream_id_task,
+                                "{\"type\":\"stdout-buffer-overflow\"}".to_string(),
+                            );
+                            // Continue draining (don't hard-break) so the child
+                            // can still exit cleanly, but stop accumulating —
+                            // further lines are discarded to bound memory.
+                        }
+                    }
                     emitter_task.emit_data(&stream_id_task, line);
                 }
                 Ok(None) => break,
@@ -759,10 +808,21 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                 stderr_text.push('\n');
             }
             stderr_text.push_str(
-                "Claude Code CLI produced no output within 30 seconds. The local runtime may be hanging during startup or MCP bootstrap. Try enabling local CLI isolation, or run `claude -p ... --verbose` in a terminal to inspect the environment.",
+                "Claude Code CLI produced no output within 30 seconds (process stuck before first byte; MCP is disabled by QMAI so this is not an MCP-bootstrap hang). The transport will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex), or set QMAI_CLAUDE_STARTUP_TIMEOUT_SECS for slow/portable/cold-start environments, or run `claude -p ... --verbose` in a terminal to inspect the environment.",
             );
         } else if stderr_text.len() >= CLAUDE_STDERR_LIMIT_BYTES {
             stderr_text.push_str("\n[stderr truncated]");
+        }
+
+        // F-001 (ANL-010 C1): surface the stdout-buffer-overflow in the final
+        // done event so the TS transport can detect it (the stream was
+        // truncated because stdout exceeded CLAUDE_STDOUT_LIMIT_BYTES — a
+        // pipe-buffer-deadlock symptom) and trigger SessionTransportFallback.
+        if stdout_overflowed {
+            if !stderr_text.is_empty() {
+                stderr_text.push('\n');
+            }
+            stderr_text.push_str("stdout-buffer-overflow: stdout exceeded CLAUDE_STDOUT_LIMIT_BYTES, stream truncated. The CLI transport will retry with backoff; if this persists, switch provider in Settings.");
         }
 
         let code = if timeout_hit.load(Ordering::SeqCst) {
@@ -909,6 +969,79 @@ pub async fn claude_cli_kill(
     stream_id: String,
 ) -> Result<(), String> {
     do_claude_cli_kill(&state, &stream_id).await
+}
+
+/// F-001 (ANL-010): graceful terminate of a running child. This is the
+/// Rust-side counterpart to the TS `gracefulAbortStream` helper: the TS
+/// transport calls `claude_cli_terminate` first, waits the configured
+/// `sigtermGraceMs` window for the child to self-exit, then escalates to
+/// `claude_cli_kill` (SIGKILL) if it's still alive. The grace period is
+/// enforced in TS (per the S3 boundary: NO Rust spawn-lifecycle rewrite),
+/// so this command only emits the best-effort soft signal and leaves the
+/// child registered so the subsequent kill (or natural exit) still works.
+///
+/// On Unix we send SIGTERM via libc::kill (no new direct dependency — the
+/// symbol is resolved by the platform libc). On Windows there is no
+/// portable SIGTERM equivalent for a child console process, so we fall
+/// back to start_kill (TerminateProcess); the TS grace window still gives
+/// the stdout-drain task time to flush buffered output before the hard
+/// kill path runs.
+pub async fn do_claude_cli_terminate(state: &ClaudeCliState, stream_id: &str) -> Result<(), String> {
+    // BP-001 (from quality-review): named constant, not a magic number.
+    // SIGTERM = 15 on every Unix target we ship (Linux, macOS).
+    const SIGTERM: i32 = 15;
+    let mut guard = state.children.lock().await;
+    if let Some(running) = guard.get_mut(stream_id) {
+        #[cfg(unix)]
+        {
+            // extern C shim — avoids adding libc as a direct dependency.
+            extern "C" {
+                fn kill(pid: i32, sig: i32) -> i32;
+            }
+            // SEC-001 (from quality-review): TOCTOU / pid-recycling guard.
+            // If the child has already exited, the OS may have recycled its
+            // pid to an unrelated process, and a bare kill(pid, SIGTERM) would
+            // signal that process. try_wait() returns Ok(Some(status)) only
+            // for a child that has definitively exited; Ok(None) means still
+            // running. We skip the signal when the child is already dead (the
+            // drain task will remove it on done). A residual race remains
+            // between try_wait and kill (the child can exit in that window),
+            // but this narrows the window from "anytime since spawn" to
+            // "microseconds between try_wait and kill" — acceptable under the
+            // S3 boundary (NO spawn-lifecycle rewrite; a race-free path needs
+            // pidfd_send_signal which is Linux-only and a new dependency).
+            // We hold the registry mutex, so no concurrent Rust code can drop
+            // this ChildHandle while we inspect it.
+            let already_exited = running.child.try_wait().map(|s| s.is_some()).unwrap_or(false);
+            if !already_exited {
+                if let Some(pid) = running.child.id() {
+                    let _ = unsafe { kill(pid, SIGTERM) };
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows: no portable graceful signal; best-effort hard kill
+            // is deferred to the TS-driven kill escalation after grace.
+            // We intentionally do NOT start_kill here so the TS grace
+            // window can elapse first (the done-listener fires if the
+            // child exits naturally during the window).
+            let _ = running;
+        }
+    }
+    // NOTE: do NOT remove the child from the registry here — the TS layer
+    // escalates to claude_cli_kill (which removes it) or the child exits
+    // naturally (the drain task removes it on done). Removing here would
+    // race the kill path.
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn claude_cli_terminate(
+    state: State<'_, ClaudeCliState>,
+    stream_id: String,
+) -> Result<(), String> {
+    do_claude_cli_terminate(&state, &stream_id).await
 }
 
 #[cfg(test)]

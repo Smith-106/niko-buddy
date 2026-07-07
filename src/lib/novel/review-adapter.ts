@@ -17,6 +17,25 @@ export interface NovelReviewResult {
   suggestion: string
 }
 
+/**
+ * F-003 (ISS-20260705-020): error class for malformed review JSON. The
+ * 18-dim review path parses the model's final JSON array with an unguarded
+ * JSON.parse — a truncated or code-fence-leaking response threw a bare
+ * SyntaxError indistinguishable from a transport failure. Wrapping it lets
+ * callers tell a parse failure (re-ask the model / surface "invalid JSON")
+ * from a runtime/stream failure.
+ */
+export class ReviewParseError extends Error {
+  readonly raw: string
+  readonly parseMessage: string
+  constructor(raw: string, parseMessage: string) {
+    super(`Novel review JSON parse failed: ${parseMessage}`)
+    this.name = "ReviewParseError"
+    this.raw = raw
+    this.parseMessage = parseMessage
+  }
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
@@ -264,7 +283,19 @@ ${langReminder}`
         )
       }
 
-      const parsed = JSON.parse(jsonMatch)
+      // F-003 (ISS-20260705-020): harden the unguarded JSON.parse. Wrap
+      // SyntaxError in ReviewParseError so callers can distinguish a parse
+      // failure (malformed/truncated JSON from the model) from a runtime
+      // failure. Non-SyntaxError throwables are re-thrown unchanged.
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(jsonMatch)
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          throw new ReviewParseError(jsonMatch, error.message)
+        }
+        throw error
+      }
       if (!Array.isArray(parsed)) {
         throw new Error(`[Novel Review] Chunk ${i + 1} returned a non-array JSON payload.`)
       }

@@ -3,6 +3,12 @@ import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbac
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
+import {
+  dimensionResultsToReviewResults,
+  runSixDimensionReview,
+  type SixReviewDimensionKey,
+  type DimensionReviewResult,
+} from "./dimension-review-adapter"
 import type { TaskRouteResult } from "./task-router"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
 import {
@@ -89,6 +95,13 @@ export interface DeepChapterGenerationResumeCheckpoint {
   taskBrief?: string
   draftContent?: string
   reviewResults?: NovelReviewResult[]
+  /**
+   * CORR-006 (from quality-review): the raw 6-dimension review map, persisted
+   * to NovelSessionStatus.dimension_results for auditability. The flattened
+   * form already lives in reviewResults (via dimensionResultsToReviewResults);
+   * this preserves the structured per-dimension view (score/status/summary).
+   */
+  dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
   currentContent?: string
   decisionGates?: DeepChapterDecisionGates
   retryCount?: number
@@ -99,6 +112,13 @@ export interface DeepChapterGenerationDeps {
   buildContextPack: typeof buildContextPack
   contextPackToPrompt: typeof contextPackToPrompt
   reviewChapter: typeof reviewChapter
+  /**
+   * F-003 (ANL-010): the 6-dimension review. Results are wired into
+   * reviewResults via dimensionResultsToReviewResults before the 18→3 fold,
+   * so the previously-orphaned 6 dims now reach the decision gates. Defaults
+   * to the real runSixDimensionReview; tests can inject a stub.
+   */
+  runSixDimensionReview?: typeof runSixDimensionReview
   streamChat: (
     config: LlmConfig,
     messages: ChatMessage[],
@@ -112,6 +132,7 @@ const defaultDeps: DeepChapterGenerationDeps = {
   buildContextPack,
   contextPackToPrompt,
   reviewChapter,
+  runSixDimensionReview,
   streamChat,
 }
 
@@ -245,7 +266,7 @@ function uniqueSuggestions(findings: NovelReviewResult[]): string[] {
   )]
 }
 
-function buildDecisionGates(
+export function buildDecisionGates(
   reviewResults: NovelReviewResult[],
   retryCount: number,
   manualReviewRequired = false,
@@ -288,7 +309,7 @@ function buildDecisionGates(
     ? "manual_review"
     : gates.consistency.status === "failed" || gates.anti_ai.status === "failed"
       ? "fail"
-      : gates.quality.verdict === "warning"
+      : gates.anti_ai.verdict === "warning" || gates.quality.verdict === "warning"
         ? "warning"
         : gates.quality.status === "failed"
           ? "fail"
@@ -296,14 +317,50 @@ function buildDecisionGates(
   return gates
 }
 
-function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+export function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+  // CORR-005 fix (GRL-008 C-104): accumulate error-severity findings across
+  // ALL failed gates, not just the first. The prior early-return dropped
+  // errors from subsequent failed gates (e.g. if consistency AND quality
+  // both fail, quality's errors never reached the repair prompt). Warnings
+  // are still routed separately via collectRepairIssues (error-only here is
+  // by design — warnings never block).
+  const blocking: NovelReviewResult[] = []
   for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
     const gate = decisionGates[gateKey]
     if (gate.status === "failed") {
-      return gate.findings.filter((item) => item.severity === "error")
+      for (const finding of gate.findings) {
+        if (finding.severity === "error") {
+          blocking.push(finding)
+        }
+      }
     }
   }
-  return []
+  return blocking
+}
+
+/**
+ * F-003 (ANL-010): route WARNING-severity review findings to the stage-5
+ * repair loop. `collectBlockingIssues` (above) is error-only and MUST stay
+ * that way — warnings never block. But warnings SHOULD still reach the
+ * repair model so it can fix non-blocking quality issues in the same pass.
+ * This function gathers all warning-severity findings across the 3 gates
+ * (in the same gate precedence order as collectBlockingIssues) for the
+ * revision prompt, WITHOUT changing the 3-gate verdict logic (gate.status
+ * remains 'failed'-only-by-hasError at buildDecisionGates).
+ *
+ * Exported for TS-01 testing (verify warning dims reach stage-5).
+ */
+export function collectRepairIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+  const warnings: NovelReviewResult[] = []
+  for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
+    const gate = decisionGates[gateKey]
+    for (const finding of gate.findings) {
+      if (finding.severity === "warning") {
+        warnings.push(finding)
+      }
+    }
+  }
+  return warnings
 }
 
 function checkpointStageAtLeast(
@@ -963,6 +1020,32 @@ export async function runDeepChapterGeneration(
         throw err
       }
       reviewResults = reviewResults || []
+      // F-003 (ANL-010): wire the 6-dimension review into reviewResults.
+      // Previously the 6 dims were generated by runSixDimensionReview but
+      // orphaned — they never reached reviewResults (no import here; verified
+      // grep-zero-match pre-F-003). Now they're flattened via
+      // dimensionResultsToReviewResults (each dim tagged with DIM_TO_GATE_TYPE
+      // so resolveDecisionGateKey buckets correctly — character → consistency
+      // gate, NOT quality) and merged BEFORE the 18→3 fold in buildDecisionGates.
+      // Best-effort: a 6-dim failure must NOT break the main review flow.
+      let dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
+      try {
+        dimensionResults = deps.runSixDimensionReview
+          ? await deps.runSixDimensionReview({
+              projectPath: input.projectPath,
+              chapterContent: draftContent,
+              chapterNumber: input.chapterNumber,
+            })
+          : {}
+        if (dimensionResults && Object.keys(dimensionResults).length > 0) {
+          reviewResults = [
+            ...(reviewResults || []),
+            ...dimensionResultsToReviewResults(dimensionResults),
+          ]
+        }
+      } catch (err) {
+        console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", err)
+      }
       decisionGates = buildDecisionGates(reviewResults, retryCount)
       assertNotAborted(signal)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
@@ -970,6 +1053,7 @@ export async function runDeepChapterGeneration(
         taskBrief,
         draftContent,
         reviewResults,
+        dimensionResults,
         decisionGates,
         retryCount,
       }))
@@ -1060,6 +1144,18 @@ export async function runDeepChapterGeneration(
     }
 
     const nextRetryCount = retryCount + 1
+    // F-003 (ANL-010): route WARNING-severity findings to the stage-5 repair
+    // loop alongside the error-severity blockingIssues. collectBlockingIssues
+    // stays error-only (warnings never block); collectRepairIssues gathers
+    // the warnings so the repair model can fix non-blocking quality issues
+    // (TS-01: warning dims reach stage-5) in the same pass. Dedup by message
+    // to avoid double-listing an issue that is both blocking and warned.
+    const repairIssues = collectRepairIssues(decisionGates)
+    const repairIssueMessages = new Set(repairIssues.map((i) => i.message))
+    const revisionIssues = [
+      ...blockingIssues,
+      ...repairIssues.filter((i) => !repairIssueMessages.has(i.message) || blockingIssues.every((b) => b.message !== i.message)),
+    ]
     const revisedContent = await collectModelText(
       writingConfig,
       [{
@@ -1069,7 +1165,7 @@ export async function runDeepChapterGeneration(
           contextPrompt,
           taskBrief,
           currentContent,
-          blockingIssues,
+          revisionIssues,
           input.userRequest,
           input.chapterNumber,
           input.goldenThreeChapter,

@@ -82,7 +82,14 @@ const DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES: u64 = 10;
 const MIN_CODEX_SPAWN_TIMEOUT_MINUTES: u64 = 1;
 const MAX_CODEX_SPAWN_TIMEOUT_MINUTES: u64 = 240;
 const STDERR_LIMIT_BYTES: usize = 1024 * 1024;
-const STDOUT_LIMIT_BYTES: usize = 1024 * 1024;
+// F-001 (ANL-010): raised from 1MB to 64MB to match the Claude Code CLI
+// bounded-buffer cap (claude_cli.rs CLAUDE_STDOUT_LIMIT_BYTES). The prior 1MB
+// cap was a pipe-buffer-deadlock risk for long-form Codex responses: once the
+// accumulated stdout crosses the cap the transport stops forwarding and the
+// caller sees a truncated/empty response (the S2 Chapter-12 stall root cause
+// for the Claude path, which the same fix addresses). stderr stays at 1MB
+// (diagnostic-only, never the response channel).
+const STDOUT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 fn append_capped_line(collected: &mut String, line: &str, limit_bytes: usize) {
     if collected.len() >= limit_bytes {

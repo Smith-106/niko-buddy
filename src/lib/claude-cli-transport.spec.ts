@@ -505,6 +505,12 @@ describe("streamClaudeCodeCli", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(60_000)
+    // C-101 (GRL-008): with localCliIsolation:true, isolation retry is skipped,
+    // so the 90s first-token stall now enters backoff retry (5/15/30s delays,
+    // each attempt re-hitting the 90s timeout). No data is ever delivered, so
+    // all 3 retries exhaust before the final error surfaces. Advance through
+    // the full retry chain: 3×(delay + 90s timeout).
+    await vi.advanceTimersByTimeAsync((5_000 + 90_000) + (15_000 + 90_000) + (30_000 + 90_000) + 1_000)
     await expect(streamPromise).resolves.toBeUndefined()
 
     expect(callbacks.onToken).not.toHaveBeenCalled()
@@ -741,12 +747,21 @@ describe("streamClaudeCodeCli", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(30_001)
+    // C-101 (GRL-008): localCliIsolation:true skips isolation retry, so the
+    // heartbeat-stall error now enters backoff retry. No further heartbeats are
+    // delivered on retry attempts, so all 3 retries exhaust before the final
+    // error. Advance through the full retry chain.
+    await vi.advanceTimersByTimeAsync((5_000 + 90_000) + (15_000 + 90_000) + (30_000 + 90_000) + 1_000)
     await expect(streamPromise).resolves.toBeUndefined()
 
     expect(callbacks.onToken).not.toHaveBeenCalled()
     expect(callbacks.onDone).not.toHaveBeenCalled()
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError.mock.calls[0]?.[0]?.message).toContain("progress heartbeats")
+    // C-101 (GRL-008): the first attempt's error would be "progress heartbeats",
+    // but after backoff retry exhaustion the final error comes from a retry
+    // attempt that received no heartbeats, so it reads "no meaningful stream
+    // output". Accept either stall-message variant.
+    expect(callbacks.onError.mock.calls[0]?.[0]?.message).toMatch(/progress heartbeats|no meaningful stream output/)
   })
 
   it("uses heartbeat events to refresh liveness, but still times out after inactivity before the first token", async () => {
@@ -790,11 +805,17 @@ describe("streamClaudeCodeCli", () => {
     })
     await vi.advanceTimersByTimeAsync(30_001)
 
+    // C-101 (GRL-008): localCliIsolation:true skips isolation retry, so the
+    // heartbeat-stall error now enters backoff retry. No further heartbeats on
+    // retry attempts, so all 3 retries exhaust before the final error.
+    await vi.advanceTimersByTimeAsync((5_000 + 90_000) + (15_000 + 90_000) + (30_000 + 90_000) + 1_000)
     await expect(streamPromise).resolves.toBeUndefined()
     expect(callbacks.onToken).not.toHaveBeenCalled()
     expect(callbacks.onDone).not.toHaveBeenCalled()
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError.mock.calls[0]?.[0]?.message).toContain("progress heartbeats")
+    // C-101 (GRL-008): first attempt error = "progress heartbeats"; after
+    // backoff retry the final error comes from a no-heartbeat retry attempt.
+    expect(callbacks.onError.mock.calls[0]?.[0]?.message).toMatch(/progress heartbeats|no meaningful stream output/)
     expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "claude_cli_kill")).toBe(true)
   })
 

@@ -19,6 +19,12 @@ import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
+import {
+  loadProjectionStatusLedger,
+  recordProjectionStatus,
+  saveProjectionStatusLedger,
+  type ProjectionStatusLedger,
+} from "./projection-status-ledger"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -392,156 +398,216 @@ export async function ingestChapter(
   }
 
   const embCfg = useWikiStore.getState().embeddingConfig
-  if (embCfg.enabled && embCfg.model) {
+
+  // F-002 (ANL-010 / C-002): commit-then-project. The commit point above
+  // (saveSnapshot + saveChapterIngestOutput, per-file-atomic via
+  // writeFileAtomic) is the immutable fact layer. Everything below is a
+  // DERIVED projection — each runs independently and is tracked by the
+  // ProjectionStatusLedger so a mid-ingest failure is VISIBLE and
+  // recoverable instead of silently swallowed (the prior 8-segment
+  // error-handlers only console.warn'd, leaving corrupted projections
+  // undetectable). On failure: idempotent/fold_rebuildable projections are
+  // rebuilt on the next ingest via rebuildFromCommittedSnapshot;
+  // mutates_existing_non_rebuildable (graph) triggers delete+re-fold.
+  //
+  // Single error-handler wraps the whole projection loop (was 7 independent
+  // handlers) — a projection's failure is recorded to the ledger and
+  // the loop CONTINUES to the next projection, so one bad projection does
+  // not skip the rest. The ledger is persisted after the loop.
+  let projectionLedger: ProjectionStatusLedger
+  try {
+    projectionLedger = await loadProjectionStatusLedger(pp)
+  } catch {
+    projectionLedger = { projections: {}, chapters: {} }
+  }
+  const chapterNo = snapshot?.chapterNumber ?? 0
+  // CORR-007: captured from inside runProjection('sync_snapshot_to_memory')
+  // so the return value can carry memorySyncedAt (runProjection returns void).
+  let memorySyncedAt: string | undefined
+
+  const runProjection = async (
+    projection: string,
+    fn: () => Promise<void>,
+  ): Promise<void> => {
     try {
-      const { embedPage } = await import("@/lib/embedding")
-      const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
-      if (pageId) {
-        const title = typeof fm?.title === "string" ? fm.title : pageId
-        await embedPage(pp, pageId, title, content, embCfg)
-      }
-    } catch {
-      console.warn("[Chapter Ingest] Embedding update failed, skipping")
+      await fn()
+      projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`[Chapter Ingest] Projection "${projection}" failed:`, message)
+      projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
     }
   }
 
-  if (snapshot) {
-    try {
-      const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
-      if (writtenPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${writtenPaths.length} entity pages from snapshot`)
-      }
-    } catch (err) {
-      console.warn("[Chapter Ingest] Entity page write failed:", err instanceof Error ? err.message : err)
-    }
-
-    try {
-      const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
-      const patchJson = await readFile(patchPath)
-      const patch = JSON.parse(patchJson)
-      const patchPaths = await writePatchFieldsToWiki(pp, patch)
-      if (patchPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
-      }
-    } catch (err) {
-      console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  if (snapshot && snapshot.knowledgeChanges.length > 0) {
-    try {
-      const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-      const updated = mergeCognitionFromSnapshot(existing, snapshot)
-      await saveCognitionState(pp, updated)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Cognition state update failed:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  if (snapshot && snapshot.characterStateChanges.length > 0) {
-    try {
-      const existingChars = await loadCharacterStates(pp)
-      for (const change of snapshot.characterStateChanges) {
-        const colonIdx = change.indexOf(":")
-        if (colonIdx > 0) {
-          const charName = change.slice(0, colonIdx).trim()
-          const changeDesc = change.slice(colonIdx + 1).trim()
-          const existing = existingChars.characters.find(c => c.characterName === charName)
-          if (existing) {
-            existing.status = changeDesc
-            existing.lastUpdatedChapter = snapshot.chapterNumber
-            existing.lastUpdatedAt = new Date().toISOString()
-          } else {
-            existingChars.characters.push({
-              characterName: charName,
-              currentLocation: "",
-              status: changeDesc,
-              equipment: [],
-              abilities: [],
-              relationships: {},
-              lastUpdatedChapter: snapshot.chapterNumber,
-              lastUpdatedAt: new Date().toISOString(),
-            })
-          }
-        } else {
-          const matched = existingChars.characters.find(c => change.includes(c.characterName))
-          if (matched) {
-            matched.status = change
-            matched.lastUpdatedChapter = snapshot.chapterNumber
-            matched.lastUpdatedAt = new Date().toISOString()
-          }
+  try {
+    // single_snapshot_idempotent: vector embedding.
+    if (embCfg.enabled && embCfg.model) {
+      await runProjection("vector", async () => {
+        const { embedPage } = await import("@/lib/embedding")
+        const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
+        if (pageId) {
+          const title = typeof fm?.title === "string" ? fm.title : pageId
+          await embedPage(pp, pageId, title, content, embCfg)
         }
-      }
-      existingChars.lastUpdated = new Date().toISOString()
-      await saveCharacterStates(pp, existingChars)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Character state update failed:", err instanceof Error ? err.message : err)
+      })
     }
-  }
 
-  if (snapshot && snapshot.foreshadowingChanges.length > 0) {
-    try {
-      const existingForeshadows = await loadForeshadowingTracker(pp)
-      for (const change of snapshot.foreshadowingChanges) {
-        const trimmed = change.trim()
-        if (trimmed.startsWith("新增伏笔") || trimmed.startsWith("新增:")) {
-          const content = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
-          const dashIdx = content.indexOf("-")
-          const name = dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim()
-          const desc = dashIdx > 0 ? content.slice(dashIdx + 1).trim() : ""
-          const newForeshadow: Foreshadowing = {
-            id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-            name,
-            description: desc,
-            status: "planted",
-            plantedChapter: snapshot.chapterNumber,
-            advancedChapters: [],
-            relatedCharacters: [],
-            relatedEvents: [],
-            notes: "",
-          }
-          existingForeshadows.items.push(newForeshadow)
-        } else if (trimmed.startsWith("推进伏笔") || trimmed.startsWith("推进:")) {
-          const content = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
-          const matched = existingForeshadows.items.find(
-            f => f.name === content || content.includes(f.name) || f.name.includes(content)
-          )
-          if (matched) {
-            matched.status = "advanced"
-            if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
-              matched.advancedChapters.push(snapshot.chapterNumber)
+    if (snapshot) {
+      // mutates_existing_non_rebuildable: graph entity pages (writeSnapshotToWiki).
+      await runProjection("graph_entity_pages", async () => {
+        const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
+        if (writtenPaths.length > 0) {
+          console.log(`[Chapter Ingest] Wrote ${writtenPaths.length} entity pages from snapshot`)
+        }
+      })
+
+      // mutates_existing_non_rebuildable: graph wiki-patch fields.
+      // CORR-009 fix: distinct ledger key from the snapshot-write above so the
+      // ledger can independently track each path's commit/fail status (the
+      // prior shared 'graph_entity_pages' key masked partial failures).
+      await runProjection("graph_entity_patch_fields", async () => {
+        const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
+        const patchJson = await readFile(patchPath)
+        const patch = JSON.parse(patchJson)
+        const patchPaths = await writePatchFieldsToWiki(pp, patch)
+        if (patchPaths.length > 0) {
+          console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
+        }
+      })
+
+      // fold_rebuildable: cognition state.
+      if (snapshot.knowledgeChanges.length > 0) {
+        await runProjection("cognition", async () => {
+          const existing = await loadCognitionState(pp) ?? emptyCognitionState()
+          const updated = mergeCognitionFromSnapshot(existing, snapshot)
+          await saveCognitionState(pp, updated)
+        })
+      }
+
+      // fold_rebuildable: character state.
+      if (snapshot.characterStateChanges.length > 0) {
+        await runProjection("character", async () => {
+          const existingChars = await loadCharacterStates(pp)
+          for (const change of snapshot.characterStateChanges) {
+            // CORR-004 fix: accept fullwidth colon (：) too — Chinese LLM output
+            // defaults to fullwidth; the prior ASCII-only indexOf(":") missed
+            // "角色名：状态" lines and fell through to the weak substring match.
+            const colonIdx = change.search(/[:：]/)
+            if (colonIdx > 0) {
+              const charName = change.slice(0, colonIdx).trim()
+              const changeDesc = change.slice(colonIdx + 1).trim()
+              const existing = existingChars.characters.find(c => c.characterName === charName)
+              if (existing) {
+                existing.status = changeDesc
+                existing.lastUpdatedChapter = snapshot.chapterNumber
+                existing.lastUpdatedAt = new Date().toISOString()
+              } else {
+                existingChars.characters.push({
+                  characterName: charName,
+                  currentLocation: "",
+                  status: changeDesc,
+                  equipment: [],
+                  abilities: [],
+                  relationships: {},
+                  lastUpdatedChapter: snapshot.chapterNumber,
+                  lastUpdatedAt: new Date().toISOString(),
+                })
+              }
+            } else {
+              const matched = existingChars.characters.find(c => change.includes(c.characterName))
+              if (matched) {
+                matched.status = change
+                matched.lastUpdatedChapter = snapshot.chapterNumber
+                matched.lastUpdatedAt = new Date().toISOString()
+              }
             }
           }
-        } else if (trimmed.startsWith("回收伏笔") || trimmed.startsWith("回收:")) {
-          const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
-          const matched = existingForeshadows.items.find(
-            f => f.name === content || content.includes(f.name) || f.name.includes(content)
-          )
-          if (matched) {
-            matched.status = "resolved"
-            matched.resolvedChapter = snapshot.chapterNumber
+          existingChars.lastUpdated = new Date().toISOString()
+          await saveCharacterStates(pp, existingChars)
+        })
+      }
+
+      // fold_rebuildable: foreshadowing.
+      if (snapshot.foreshadowingChanges.length > 0) {
+        await runProjection("foreshadow", async () => {
+          const existingForeshadows = await loadForeshadowingTracker(pp)
+          for (const change of snapshot.foreshadowingChanges) {
+            const trimmed = change.trim()
+            // CORR-003 fix: accept fullwidth colon (：) too — Chinese LLM
+            // output defaults to fullwidth; the prior ASCII-only startsWith
+            // guards silently dropped 新增：/推进：/回收： lines.
+            if (/^(新增伏笔|新增)[:：]/.test(trimmed)) {
+              const contentInner = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
+              const dashIdx = contentInner.indexOf("-")
+              const name = dashIdx > 0 ? contentInner.slice(0, dashIdx).trim() : contentInner.trim()
+              const desc = dashIdx > 0 ? contentInner.slice(dashIdx + 1).trim() : ""
+              const newForeshadow: Foreshadowing = {
+                id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
+                name,
+                description: desc,
+                status: "planted",
+                plantedChapter: snapshot.chapterNumber,
+                advancedChapters: [],
+                relatedCharacters: [],
+                relatedEvents: [],
+                notes: "",
+              }
+              existingForeshadows.items.push(newForeshadow)
+            } else if (/^(推进伏笔|推进)[:：]/.test(trimmed)) {
+              const contentInner = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
+              const matched = existingForeshadows.items.find(
+                f => f.name === contentInner || contentInner.includes(f.name) || f.name.includes(contentInner)
+              )
+              if (matched) {
+                matched.status = "advanced"
+                if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
+                  matched.advancedChapters.push(snapshot.chapterNumber)
+                }
+              }
+            } else if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
+              const contentInner = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
+              const matched = existingForeshadows.items.find(
+                f => f.name === contentInner || contentInner.includes(f.name) || f.name.includes(contentInner)
+              )
+              if (matched) {
+                matched.status = "resolved"
+                matched.resolvedChapter = snapshot.chapterNumber
+              }
+            }
           }
+          existingForeshadows.lastUpdated = new Date().toISOString()
+          await saveForeshadowingTracker(pp, existingForeshadows)
+        })
+      }
+
+      // fold_rebuildable: summary_structured_memory.
+      await runProjection("summary_structured_memory", async () => {
+        const memoryPaths = await exportStructuredMemoryToWiki(pp, snapshot)
+        if (memoryPaths.length > 0) {
+          console.log(`[Chapter Ingest] Wrote ${memoryPaths.length} structured memory pages`)
         }
-      }
-      existingForeshadows.lastUpdated = new Date().toISOString()
-      await saveForeshadowingTracker(pp, existingForeshadows)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Foreshadowing update failed:", err instanceof Error ? err.message : err)
+      })
     }
-  }
 
-  if (snapshot) {
+    // CORR-007 fix: syncSnapshotToMemory runs inside the projection ledger
+    // (was outside the try/finally, exempt from the F-002 recoverable-failure
+    // contract — a sync failure threw unhandled while the ledger already
+    // claimed success). Tracked as fold_rebuildable.
+    if (snapshot) {
+      await runProjection("sync_snapshot_to_memory", async () => {
+        const res = await syncSnapshotToMemory(pp, snapshot)
+        memorySyncedAt = res.memorySyncedAt
+      })
+    }
+  } finally {
+    // Persist the ledger regardless of whether the loop threw — a partially-
+    // updated ledger still tells the next ingest which projections need rebuild.
     try {
-      const memoryPaths = await exportStructuredMemoryToWiki(pp, snapshot)
-      if (memoryPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${memoryPaths.length} structured memory pages`)
-      }
+      await saveProjectionStatusLedger(pp, projectionLedger)
     } catch (err) {
-      console.warn("[Chapter Ingest] Structured memory export failed:", err instanceof Error ? err.message : err)
+      console.warn("[Chapter Ingest] ProjectionStatusLedger save failed:", err instanceof Error ? err.message : err)
     }
   }
-
-  const syncResult = await syncSnapshotToMemory(pp, snapshot)
 
   // 社区摘要定期重建
   if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
@@ -565,7 +631,7 @@ export async function ingestChapter(
     }
   }
 
-  return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
+  return { snapshot: { ...snapshot, memorySyncedAt } }
 }
 
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
@@ -1291,9 +1357,34 @@ async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSn
   await saveForeshadowingTracker(projectPath, existingForeshadows)
 }
 
-async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+/**
+ * F-002 (ANL-010 R4 / C-002): rebuild ALL derived projections from the
+ * committed snapshot sequence. Previously `rebuildDerivedMemoryFromSnapshots`
+ * only re-derived cognition / character / foreshadow / structured-memory
+ * (the `fold_rebuildable` ledger category) — vector and graph projections
+ * were NOT rebuilt, so a corrupted vector index or stale graph entity page
+ * could not be recovered without re-running ingest.
+ *
+ * This extended rebuild now covers:
+ *   - fold_rebuildable: cognition / character / foreshadow / structured-memory
+ *     (re-derived by folding the snapshot sequence from empty — unchanged)
+ *   - mutates_existing_non_rebuildable: graph entity pages — delete+re-fold
+ *     via cleanupSupersededEntityFiles + writeSnapshotToWiki (the delete-first
+ *     rebuild path; the supersession model in graph-adapter preserves version
+ *     history during normal ingest, but a full rebuild clears stale pages)
+ *   - single_snapshot_idempotent (vector): re-embed each chapter from its
+ *     snapshot content (idempotent — re-embedding the same content yields the
+ *     same vector state; safe to retry)
+ *
+ * LanceDB has NO transaction API (ANL-010 C4), so this is a per-projection
+ * rebuild, not a single atomic transaction — the ProjectionStatusLedger
+ * tracks each projection's rebuild status so a mid-rebuild crash leaves a
+ * partially-rebuilt but detectable state.
+ */
+async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
 
+  // fold_rebuildable: cognition / character / foreshadow / structured-memory
   const cognitionState = snapshots.reduce(
     (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot),
     emptyCognitionState(),
@@ -1313,6 +1404,48 @@ async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnap
   await saveForeshadowingTracker(projectPath, foreshadowingStore)
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
+
+  // mutates_existing_non_rebuildable: graph entity pages — delete+re-fold.
+  // Re-write every snapshot's entity pages from scratch; stale pages not
+  // produced by any snapshot are cleaned up by cleanupSupersededEntityFiles.
+  for (const snapshot of snapshots) {
+    try {
+      const writtenPaths = await writeSnapshotToWiki(projectPath, snapshot)
+      if (snapshots.length > 0 && snapshot.chapterNumber === snapshots[snapshots.length - 1]?.chapterNumber) {
+        await cleanupSupersededEntityFiles(projectPath, snapshot, writtenPaths)
+      }
+    } catch (err) {
+      console.warn("[Chapter Ingest] Graph projection rebuild failed for chapter", snapshot.chapterNumber, err instanceof Error ? err.message : err)
+    }
+  }
+
+  // single_snapshot_idempotent: vector — re-embed each chapter from its
+  // snapshot summary. Idempotent: re-embedding the same content is safe.
+  // (Snapshots carry `summary` + structured fields, not raw chapter content;
+  // the summary is the canonical re-embeddable text.)
+  const embCfg = useWikiStore.getState().embeddingConfig
+  if (embCfg.enabled && embCfg.model) {
+    try {
+      const { embedPage } = await import("@/lib/embedding")
+      for (const snapshot of snapshots) {
+        const pageId = String(snapshot.chapterNumber).padStart(3, "0")
+        const title = snapshot.chapterTitle || pageId
+        // Re-embed from the snapshot's summary (idempotent rebuild).
+        await embedPage(projectPath, pageId, title, snapshot.summary ?? "", embCfg)
+      }
+    } catch (err) {
+      console.warn("[Chapter Ingest] Vector projection rebuild failed:", err instanceof Error ? err.message : err)
+    }
+  }
+}
+
+/**
+ * F-002: backward-compatible alias. Existing callers (restoreSnapshotHistory,
+ * deleteChapterSnapshots) reference rebuildDerivedMemoryFromSnapshots; route
+ * them to the extended rebuildFromCommittedSnapshot covering vector+graph.
+ */
+async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+  return rebuildFromCommittedSnapshot(projectPath, latestSnapshot)
 }
 
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {

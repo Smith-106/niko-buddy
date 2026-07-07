@@ -1,4 +1,4 @@
-import { readFile, writeFile, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
 export interface CharacterState {
@@ -27,7 +27,14 @@ export async function saveCharacterStates(
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   await createDirectory(`${pp}/.novel`)
-  await writeFile(
+  // F-002 (ANL-010 C5): upgrade writeFile → writeFileAtomic. A crash mid-write
+  // (power loss, panic) left a truncated character-states.json that broke
+  // ingest on next load. writeFileAtomic (fs.rs:1190 temp+fsync+rename) is
+  // crash-safe — the file is either the old or the new version, never half.
+  // This projection is fold_rebuildable (rebuildDerivedMemoryFromSnapshots
+  // re-derives it from the snapshot sequence), but a corrupt file blocks
+  // the rebuild itself, so atomicity still matters here.
+  await writeFileAtomic(
     `${pp}/.novel/character-states.json`,
     JSON.stringify(store, null, 2),
   )
