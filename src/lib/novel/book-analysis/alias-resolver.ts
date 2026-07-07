@@ -13,6 +13,8 @@
 
 import type { NameAliasMap } from "./types"
 
+export type { NameAliasMap } from "./types"
+
 const MAX_ALIAS_LEN = 20
 
 function normalize(s: string): string {

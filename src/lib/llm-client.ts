@@ -143,17 +143,23 @@ export async function streamChat(
   let timeoutController: AbortController | undefined
   let timeoutFired = false
   let onSignalAbort: (() => void) | undefined
+  // ISS-004: hoisted to the outer scope so the `finally` block can clear it on
+  // EVERY exit path (success return included). Previously the timer was only
+  // cleared on the user-abort path (`onSignalAbort`), leaking one 30-min timer
+  // per successful LLM request. clearTimeout is idempotent, so the abort path's
+  // clear and the finally clear coexist safely.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
 
   if (typeof AbortSignal.timeout === "function") {
     timeoutController = new AbortController()
-    const timeoutId = setTimeout(() => {
+    timeoutId = setTimeout(() => {
       timeoutFired = true
       timeoutController?.abort()
     }, timeoutMs)
 
     if (signal) {
       onSignalAbort = () => {
-        clearTimeout(timeoutId)
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
         timeoutController?.abort()
       }
       signal.addEventListener("abort", onSignalAbort)
@@ -407,6 +413,14 @@ export async function streamChat(
   } finally {
     if (onSignalAbort && signal) {
       signal.removeEventListener("abort", onSignalAbort)
+    }
+    // ISS-004: clear the long-horizon backstop timer on every exit path. On
+    // success the timer was previously left to run its full 30-min window,
+    // leaking one Node.js timer handle per LLM request. Idempotent: if the
+    // user-abort path already cleared it, this is a no-op. Mirrors the
+    // waitForRetry clear pattern (llm-client.ts:65) for consistency.
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
     }
   }
 }

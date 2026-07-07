@@ -15,6 +15,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
+import { classifyTransportError, type TransportError } from "./transport-error"
+import { hasAnthropicApiKey } from "@/components/settings/preset-resolver"
 
 export type ClaudeCodeStreamParseResult =
   | { kind: "token"; text: string }
@@ -410,27 +412,23 @@ function waitForClaudeCliRetry(ms: number, signal?: AbortSignal): Promise<boolea
   })
 }
 
+/**
+ * ISS-019: the prior string-matching classifier is now a thin wrapper over
+ * `classifyTransportError`. `shouldRetryClaudeCliError` preserves its public export signature
+ * (the spec tests import it) and delegates to the typed classifier — string matching now lives in
+ * exactly one place. The classifier returns `retryable` which is the same boolean the prior regex
+ * produced, so the retry contract is unchanged.
+ */
 export function shouldRetryClaudeCliError(message: string): boolean {
-  const text = message.trim()
+  const text = message?.trim() ?? ""
   if (!text) return false
-  // C-101 (GRL-008): "no meaningful stream output" / "never produced assistant
-  // text" now ALSO match the regular backoff retry whitelist (in addition to
-  // the single isolation-retry in shouldRetryClaudeCliWithIsolation). Previously
-  // a first-token stall only got one same-binary isolation retry then gave up —
-  // which is the exact S2 Chapter-12 deterministic failure loop: provider
-  // stalls before first token, isolation retry re-spawns same binary, fails
-  // the same way, continue-unfinished reproduces the same failure. A provider
-  // stall is frequently transient (overload, cold start), so backoff retry
-  // (5/15/30s) gives the upstream time to recover before surfacing — the
-  // minimal break-the-loop fix. The isolation retry still runs first.
-  return /(api error:\s*(429|500|502|503|504)\b|rate limit|overloaded|temporarily unavailable|service unavailable|gateway timeout|connection closed mid-response|failed to (write to|flush) claude stdin|broken pipe|os error 109|管道已结束|produced no meaningful stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|produced no additional stream output within \d+ seconds)/i.test(text)
+  return classifyTransportError({ message }).retryable
 }
 
-function shouldRetryClaudeCliWithIsolation(message: string): boolean {
-  const text = message.trim()
-  if (!text) return false
-  return /produced no meaningful stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|failed to (write to|flush) claude stdin|broken pipe|os error 109|管道已结束/i.test(text)
-}
+// ISS-019: the prior `shouldRetryClaudeCliWithIsolation(message)` (a second regex matching the
+// strict isolation-retry subset) is REMOVED — its logic now lives in `classifyTransportError` as
+// the `isolation_retry` kind. Call sites branch on `transportError.kind === "isolation_retry"`
+// directly. The function was never exported, so removing it has no external impact.
 
 function appendClaudeCliIsolationRetryNote(message: string): string {
   return [
@@ -770,10 +768,16 @@ export async function streamClaudeCodeCli(
         return
       }
 
+      // ISS-019: classify ONCE per attempt, branch on `error.kind` (not message.includes).
+      // `retryable` covers both rate_limit and isolation_retry (the strict subset), preserving
+      // the prior `isStallError = shouldRetryClaudeCliError(msg) || shouldRetryClaudeCliWithIsolation(msg)`
+      // contract: any transient failure (rate-limit, stall, isolation-retry) qualifies for backoff.
+      const transportError: TransportError = classifyTransportError(attemptResult)
+
       if (
         !attemptResult.emittedToken
         && !isolateLocalConfig
-        && shouldRetryClaudeCliWithIsolation(attemptResult.message)
+        && transportError.kind === "isolation_retry"
       ) {
         isolateLocalConfig = true
         usedIsolationFallback = true
@@ -781,8 +785,7 @@ export async function streamClaudeCodeCli(
       }
 
       const retryDelay = CLAUDE_CLI_RETRY_DELAYS_MS[transportRetryAttempt]
-      const isStallError = shouldRetryClaudeCliError(attemptResult.message)
-        || shouldRetryClaudeCliWithIsolation(attemptResult.message)
+      const isStallError = transportError.retryable
       if (
         !attemptResult.emittedToken
         && retryDelay !== undefined
@@ -805,48 +808,40 @@ export async function streamClaudeCodeCli(
         // a key, we fall through to the existing error surface (the user
         // is on OAuth-only and must fix the CLI environment).
         if (transportRetryAttempt >= 2 && isStallError) {
-          // F-001: cheap inline pre-check before the dynamic import so the
-          // no-key path (the common OAuth-only case, incl. all unit tests)
-          // never pays the import cost or risks an unresolved import promise
-          // under fake timers. hasAnthropicApiKey is just apiKey+env, so we
-          // inline the same logic; the full resolver is only loaded when a
-          // key is actually present and we're about to reroute.
-          const hasKeyInline = (typeof config.apiKey === "string" && config.apiKey.trim().length > 0)
-            || (typeof process !== "undefined"
-              && typeof process.env?.ANTHROPIC_API_KEY === "string"
-              && process.env.ANTHROPIC_API_KEY.trim().length > 0)
-          if (hasKeyInline) {
-            const { hasAnthropicApiKey } = await import("@/components/settings/preset-resolver")
-            if (hasAnthropicApiKey(config)) {
-              // Spool a diagnostic so the UI shows why the stream resumed via
-              // the HTTP path rather than the subprocess transport.
-              const fallbackNote = "[SessionTransportFallback] Claude Code CLI stalled twice; rerouting to the Anthropic API (HTTP) using your saved API key. The CLI transport will retry on the next request."
-              try {
-                onToken(fallbackNote + "\n\n")
-              } catch {
-                // best-effort diagnostic
-              }
-              // CORR-012 (from quality-review): the dynamic import + streamChat
-              // are the last-resort fallback. If they throw (HTTP error,
-              // network failure, unresolved module), surface a single clean
-              // error instead of letting it propagate to the outer catch —
-              // which would call onError AGAIN (streamChat may already have
-              // surfaced its own onError internally), causing a double-onError
-              // and a misleading "CLI not found"-style message. We do NOT
-              // retry the CLI after a fallback failure; HTTP was the escape
-              // hatch and it failed.
-              try {
-                const { streamChat } = await import("./llm-client")
-                const fallbackConfig = { ...config, provider: "anthropic" as const }
-                await streamChat(fallbackConfig, messages, callbacks, signal, overrides)
-                return
-              } catch (fallbackErr) {
-                const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-                onError(new Error(
-                  `SessionTransportFallback to the Anthropic API failed after the CLI stalled twice: ${fallbackMessage}. The CLI transport will retry on the next request.`,
-                ))
-                return
-              }
+          // ISS-002: statically-import the key-presence resolver (synchronous,
+          // apiKey+env) so the no-key path (the common OAuth-only case, incl.
+          // all unit tests) never risks an unresolved dynamic-import promise
+          // under fake timers. Single source of truth for the key check — no
+          // duplicated inline logic.
+          if (hasAnthropicApiKey(config)) {
+            // Spool a diagnostic so the UI shows why the stream resumed via
+            // the HTTP path rather than the subprocess transport.
+            const fallbackNote = "[SessionTransportFallback] Claude Code CLI stalled twice; rerouting to the Anthropic API (HTTP) using your saved API key. The CLI transport will retry on the next request."
+            try {
+              onToken(fallbackNote + "\n\n")
+            } catch {
+              // best-effort diagnostic
+            }
+            // CORR-012 (from quality-review): the dynamic import + streamChat
+            // are the last-resort fallback. If they throw (HTTP error,
+            // network failure, unresolved module), surface a single clean
+            // error instead of letting it propagate to the outer catch —
+            // which would call onError AGAIN (streamChat may already have
+            // surfaced its own onError internally), causing a double-onError
+            // and a misleading "CLI not found"-style message. We do NOT
+            // retry the CLI after a fallback failure; HTTP was the escape
+            // hatch and it failed.
+            try {
+              const { streamChat } = await import("./llm-client")
+              const fallbackConfig = { ...config, provider: "anthropic" as const }
+              await streamChat(fallbackConfig, messages, callbacks, signal, overrides)
+              return
+            } catch (fallbackErr) {
+              const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
+              onError(new Error(
+                `SessionTransportFallback to the Anthropic API failed after the CLI stalled twice: ${fallbackMessage}. The CLI transport will retry on the next request.`,
+              ))
+              return
             }
           }
         }
@@ -856,7 +851,8 @@ export async function streamClaudeCodeCli(
         return
       }
 
-      const finalMessage = usedIsolationFallback && shouldRetryClaudeCliWithIsolation(attemptResult.message)
+      // ISS-019: branch on `kind` for the isolation-retry note (was shouldRetryClaudeCliWithIsolation).
+      const finalMessage = usedIsolationFallback && transportError.kind === "isolation_retry"
         ? appendClaudeCliIsolationRetryNote(attemptResult.message)
         : attemptResult.message
       onError(new Error(finalMessage))

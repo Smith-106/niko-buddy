@@ -1,6 +1,8 @@
 import { createDirectory, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
+import { matchesAnyAlias } from "./book-analysis/alias-resolver"
+import type { NameAliasMap } from "./book-analysis/types"
 
 export interface CharacterCognition {
   character: string
@@ -22,6 +24,48 @@ const READER_KNOW_RE = /^读者知道[了了]?(.+)$/
 const KNOW_RE = /^(.+?)知道[了了]?(.+)$/
 const EXTRA_KNOW_RES = [/^(.+?)得知[了了]?(.+)$/, /^(.+?)察觉到?(.+)$/, /^(.+?)意识到(.+)$/]
 
+/**
+ * F-003 (identity-resolution): NFKC normalize + strip Japanese nakaguro (・)
+ * so "菜月昴" / "菜月・昴" collapse to the same canonical key even when no
+ * alias map is available. Backwards-compatible fallback — callers that pass
+ * an aliasMap get matchesAnyAlias first; this only runs when aliasMap is
+ * absent or does not match.
+ */
+function nfkcCanonical(name: string): string {
+  return name.normalize("NFKC").replace(/・/g, "")
+}
+
+/**
+ * Resolve a raw character name to its canonical form.
+ *
+ * (1) If aliasMap is provided and matchesAnyAlias hits, use aliasMap.canonical.
+ * (2) Otherwise fall back to NFKC + nakaguro-strip so mid-dot variants of the
+ *     same name fold together. Returns the trimmed original when no map hits.
+ */
+export function resolveCanonicalName(name: string, aliasMap?: NameAliasMap): string {
+  const trimmed = name.trim()
+  if (!trimmed) return trimmed
+  if (aliasMap && matchesAnyAlias(trimmed, aliasMap)) {
+    return aliasMap.canonical
+  }
+  return nfkcCanonical(trimmed)
+}
+
+/**
+ * Given a list of per-character alias maps, find the one whose canonical or
+ * alias entries contain `name`. Returns undefined when no map matches — the
+ * caller then falls back to resolveCanonicalName's NFKC path.
+ */
+export function resolveMatchingMap(name: string, aliasMaps?: readonly NameAliasMap[]): NameAliasMap | undefined {
+  if (!aliasMaps || aliasMaps.length === 0) return undefined
+  const trimmed = name.trim()
+  if (!trimmed) return undefined
+  for (const map of aliasMaps) {
+    if (matchesAnyAlias(trimmed, map)) return map
+  }
+  return undefined
+}
+
 export function emptyCognitionState(): CognitionState {
   return {
     characters: [],
@@ -33,6 +77,7 @@ export function emptyCognitionState(): CognitionState {
 export function mergeCognitionFromSnapshot(
   current: CognitionState,
   snapshot: ChapterSnapshot,
+  aliasMaps?: readonly NameAliasMap[],
 ): CognitionState {
   const next: CognitionState = {
     characters: current.characters.map(c => ({ ...c, knows: [...c.knows], doesNotKnow: [...c.doesNotKnow] })),
@@ -48,7 +93,7 @@ export function mergeCognitionFromSnapshot(
     if (notKnowMatch) {
       const charName = notKnowMatch[1].trim()
       const info = notKnowMatch[2].trim()
-      const entry = ensureCharacter(next, charName)
+      const entry = ensureCharacter(next, charName, resolveMatchingMap(charName, aliasMaps))
       if (!entry.doesNotKnow.includes(info)) {
         entry.doesNotKnow.push(info)
       }
@@ -68,7 +113,7 @@ export function mergeCognitionFromSnapshot(
     if (knowMatch) {
       const charName = knowMatch[1].trim()
       const info = knowMatch[2].trim()
-      const entry = ensureCharacter(next, charName)
+      const entry = ensureCharacter(next, charName, resolveMatchingMap(charName, aliasMaps))
       if (!entry.knows.includes(info)) {
         entry.knows.push(info)
       }
@@ -81,7 +126,7 @@ export function mergeCognitionFromSnapshot(
       if (extraMatch) {
         const charName = extraMatch[1].trim()
         const info = extraMatch[2].trim()
-        const entry = ensureCharacter(next, charName)
+        const entry = ensureCharacter(next, charName, resolveMatchingMap(charName, aliasMaps))
         if (!entry.knows.includes(info)) {
           entry.knows.push(info)
         }
@@ -136,10 +181,11 @@ export function cognitionToContextText(state: CognitionState): string {
   return lines.join("\n")
 }
 
-function ensureCharacter(state: CognitionState, name: string): CharacterCognition {
-  let entry = state.characters.find(c => c.character === name)
+function ensureCharacter(state: CognitionState, name: string, aliasMap?: NameAliasMap): CharacterCognition {
+  const canonical = resolveCanonicalName(name, aliasMap)
+  let entry = state.characters.find(c => c.character === canonical)
   if (!entry) {
-    entry = { character: name, knows: [], doesNotKnow: [] }
+    entry = { character: canonical, knows: [], doesNotKnow: [] }
     state.characters.push(entry)
   }
   return entry

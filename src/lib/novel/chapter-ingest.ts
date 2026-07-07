@@ -9,7 +9,9 @@ import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki } from "./graph-adapter"
 import { resolveNovelModel } from "./model-resolver"
-import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
+import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState, resolveCanonicalName, resolveMatchingMap } from "./character-cognition"
+import { buildNameAliasMap } from "./book-analysis/alias-resolver"
+import type { NameAliasMap } from "./book-analysis/types"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -179,6 +181,24 @@ function normalizeSnapshotAliasRecord(value: unknown): Record<string, string[]> 
   )
 
   return Object.keys(aliases).length > 0 ? aliases : undefined
+}
+
+/**
+ * F-003 (identity-resolution): build per-character NameAliasMap[] from the
+ * snapshot's own characterAliases record. Each entry {canonical, aliases} is
+ * fed to alias-resolver.matchesAnyAlias so cognition / character-state folds
+ * collapse "菜月昴" / "菜月・昴" / "昴" onto one CharacterCognition entry
+ * instead of accumulating three. Empty/absent alias records return undefined
+ * so callers fall back to the NFKC path in resolveCanonicalName.
+ */
+function buildAliasMapsFromSnapshot(snapshot: ChapterSnapshot): NameAliasMap[] | undefined {
+  if (!snapshot.characterAliases) return undefined
+  const maps: NameAliasMap[] = []
+  for (const [canonical, aliases] of Object.entries(snapshot.characterAliases)) {
+    if (!canonical.trim()) continue
+    maps.push(buildNameAliasMap(canonical, aliases ?? []))
+  }
+  return maps.length > 0 ? maps : undefined
 }
 
 function normalizeEntityFlags(value: unknown): Record<string, boolean> | undefined {
@@ -479,7 +499,7 @@ export async function ingestChapter(
       if (snapshot.knowledgeChanges.length > 0) {
         await runProjection("cognition", async () => {
           const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-          const updated = mergeCognitionFromSnapshot(existing, snapshot)
+          const updated = mergeCognitionFromSnapshot(existing, snapshot, buildAliasMapsFromSnapshot(snapshot))
           await saveCognitionState(pp, updated)
         })
       }
@@ -488,6 +508,7 @@ export async function ingestChapter(
       if (snapshot.characterStateChanges.length > 0) {
         await runProjection("character", async () => {
           const existingChars = await loadCharacterStates(pp)
+          const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
           for (const change of snapshot.characterStateChanges) {
             // CORR-004 fix: accept fullwidth colon (：) too — Chinese LLM output
             // defaults to fullwidth; the prior ASCII-only indexOf(":") missed
@@ -496,14 +517,15 @@ export async function ingestChapter(
             if (colonIdx > 0) {
               const charName = change.slice(0, colonIdx).trim()
               const changeDesc = change.slice(colonIdx + 1).trim()
-              const existing = existingChars.characters.find(c => c.characterName === charName)
+              const canonical = resolveCanonicalName(charName, resolveMatchingMap(charName, aliasMaps))
+              const existing = existingChars.characters.find(c => c.characterName === canonical)
               if (existing) {
                 existing.status = changeDesc
                 existing.lastUpdatedChapter = snapshot.chapterNumber
                 existing.lastUpdatedAt = new Date().toISOString()
               } else {
                 existingChars.characters.push({
-                  characterName: charName,
+                  characterName: canonical,
                   currentLocation: "",
                   status: changeDesc,
                   equipment: [],
@@ -1159,7 +1181,7 @@ export async function syncSnapshotToMemory(
 
   if (syncedSnapshot.knowledgeChanges.length > 0) {
     const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-    const updated = mergeCognitionFromSnapshot(existing, syncedSnapshot)
+    const updated = mergeCognitionFromSnapshot(existing, syncedSnapshot, buildAliasMapsFromSnapshot(syncedSnapshot))
     await saveCognitionState(pp, updated)
   }
 
@@ -1263,20 +1285,25 @@ async function cleanupSupersededEntityFiles(
   }
 }
 
-function applyCharacterStateChangesToStore(existingChars: CharacterStateStore, snapshot: ChapterSnapshot): CharacterStateStore {
+function applyCharacterStateChangesToStore(
+  existingChars: CharacterStateStore,
+  snapshot: ChapterSnapshot,
+  aliasMaps?: readonly NameAliasMap[],
+): CharacterStateStore {
   for (const change of snapshot.characterStateChanges) {
     const colonIdx = change.indexOf(":") >= 0 ? change.indexOf(":") : change.indexOf("：")
     if (colonIdx > 0) {
       const charName = change.slice(0, colonIdx).trim()
       const changeDesc = change.slice(colonIdx + 1).trim()
-      const existing = existingChars.characters.find(c => c.characterName === charName)
+      const canonical = resolveCanonicalName(charName, resolveMatchingMap(charName, aliasMaps))
+      const existing = existingChars.characters.find(c => c.characterName === canonical)
       if (existing) {
         existing.status = changeDesc
         existing.lastUpdatedChapter = snapshot.chapterNumber
         existing.lastUpdatedAt = new Date().toISOString()
       } else {
         existingChars.characters.push({
-          characterName: charName,
+          characterName: canonical,
           currentLocation: "",
           status: changeDesc,
           equipment: [],
@@ -1301,7 +1328,7 @@ function applyCharacterStateChangesToStore(existingChars: CharacterStateStore, s
 
 async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
   const existingChars = await loadCharacterStates(projectPath)
-  applyCharacterStateChangesToStore(existingChars, snapshot)
+  applyCharacterStateChangesToStore(existingChars, snapshot, buildAliasMapsFromSnapshot(snapshot))
   await saveCharacterStates(projectPath, existingChars)
 }
 
@@ -1386,14 +1413,14 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
 
   // fold_rebuildable: cognition / character / foreshadow / structured-memory
   const cognitionState = snapshots.reduce(
-    (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot),
+    (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot, buildAliasMapsFromSnapshot(snapshot)),
     emptyCognitionState(),
   )
   await saveCognitionState(projectPath, cognitionState)
 
   const characterStateStore = createEmptyCharacterStateStore()
   for (const snapshot of snapshots) {
-    applyCharacterStateChangesToStore(characterStateStore, snapshot)
+    applyCharacterStateChangesToStore(characterStateStore, snapshot, buildAliasMapsFromSnapshot(snapshot))
   }
   await saveCharacterStates(projectPath, characterStateStore)
 
