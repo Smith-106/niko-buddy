@@ -9,6 +9,9 @@ src-tauri/target/
 .env
 .env.*
 
+# === 运行时数据 ===
+.novel/
+
 # === 依赖 ===
 node_modules/
 
