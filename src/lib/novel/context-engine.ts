@@ -303,6 +303,14 @@ async function buildContextPackFromRawData(
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
   
+  // PERF-NEW-04: pre-fetch the three projection-store texts in parallel
+  // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
+  // array literal). The stores are independent.
+  const [emotionalText, subplotText, resourceText] = await Promise.all([
+    readEmotionalArcsText(context.projectPath),
+    readSubplotBoardText(context.projectPath),
+    readResourceLedgerText(context.projectPath),
+  ])
   const characterStates = joinNonEmpty([
     rawData.snapshots.characterStates,
     rawData.fallbackCharacterStates,
@@ -310,15 +318,15 @@ async function buildContextPackFromRawData(
     // canon — character emotion is part of character state. Loaded directly
     // from the .novel/emotional-arcs.json store (same pattern as
     // readCognitionStates). Empty when no arcs recorded (backward compatible).
-    await readEmotionalArcsText(context.projectPath),
+    emotionalText,
     // MAINT-002 (TASK-008): subplot-board + resource-ledger projections
     // injected as protected-tier canon alongside emotional-arcs — active
     // subplots and current item holders are load-bearing for the current
     // chapter (renderer docstrings: subplot-board.ts:70, resource-ledger.ts:78
     // say 'protected-tier context'). Empty stores render '' (backward
     // compatible — no injection when unwired).
-    await readSubplotBoardText(context.projectPath),
-    await readResourceLedgerText(context.projectPath),
+    subplotText,
+    resourceText,
   ], "\n\n")
   
   const timeline = joinNonEmpty([

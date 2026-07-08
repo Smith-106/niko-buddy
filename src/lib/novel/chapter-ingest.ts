@@ -486,6 +486,10 @@ export async function ingestChapter(
     }
 
     if (snapshot) {
+      // PERF-NEW-05: compute alias maps once for this snapshot and reuse across
+      // all projection closures (was recomputed 4x — character/cognition/
+      // emotional-arc/resource-ledger — for the same snapshot).
+      const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
       // mutates_existing_non_rebuildable: graph entity pages (writeSnapshotToWiki).
       await runProjection("graph_entity_pages", async () => {
         const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
@@ -512,7 +516,7 @@ export async function ingestChapter(
       if (snapshot.knowledgeChanges.length > 0) {
         await runProjection("cognition", async () => {
           const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-          const updated = mergeCognitionFromSnapshot(existing, snapshot, buildAliasMapsFromSnapshot(snapshot))
+          const updated = mergeCognitionFromSnapshot(existing, snapshot, aliasMaps)
           await saveCognitionState(pp, updated)
         })
       }
@@ -521,7 +525,8 @@ export async function ingestChapter(
       if (snapshot.characterStateChanges.length > 0) {
         await runProjection("character", async () => {
           const existingChars = await loadCharacterStates(pp)
-          const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
+          // PERF-NEW-05: reuse the aliasMaps computed once at the top of the
+          // projection block (was recomputed per-projection here).
           // CORR-001/002 fix: the live ingest path now calls the same
           // applyCharacterStateChangesToStore helper as rebuildFromCommittedSnapshot
           // (matching the emotional-arcs/resource-ledger pattern at ~611-624),
@@ -555,7 +560,7 @@ export async function ingestChapter(
       // (additive only); failure → ledger (IC-02: no silent degrade).
       await runProjection("emotional_arc", async () => {
         const arcStore = await loadEmotionalArcs(pp)
-        applyEmotionalArcsToStore(arcStore, snapshot, buildAliasMapsFromSnapshot(snapshot))
+        applyEmotionalArcsToStore(arcStore, snapshot, aliasMaps)
         await saveEmotionalArcs(pp, arcStore)
       })
 
@@ -564,7 +569,7 @@ export async function ingestChapter(
       // extract field (additive only); failure → ledger (IC-02).
       await runProjection("resource_ledger", async () => {
         const ledger = await loadResourceLedger(pp)
-        applyResourceLedgerToStore(ledger, snapshot, buildAliasMapsFromSnapshot(snapshot))
+        applyResourceLedgerToStore(ledger, snapshot, aliasMaps)
         await saveResourceLedger(pp, ledger)
       })
 
@@ -1334,17 +1339,25 @@ function parseForeshadowingChange(change: string):
     }
   }
   if (/^(推进伏笔|推进)[:：]/.test(trimmed)) {
+    // CORR-105: capture the post-colon detail (LLM-provided advance reason)
+    // instead of discarding it. The add branch splits on '-'; advance/resolve
+    // names are typically bare, so capture the whole remainder as desc.
+    const content = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "")
+    const dashIdx = content.indexOf("-")
     return {
       kind: "advance",
-      name: trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim(),
-      desc: "",
+      name: dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim(),
+      desc: dashIdx > 0 ? content.slice(dashIdx + 1).trim() : "",
     }
   }
   if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
+    // CORR-105: capture the post-colon detail (LLM-provided resolution reason).
+    const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "")
+    const dashIdx = content.indexOf("-")
     return {
       kind: "resolve",
-      name: trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim(),
-      desc: "",
+      name: dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim(),
+      desc: dashIdx > 0 ? content.slice(dashIdx + 1).trim() : "",
     }
   }
   return null
@@ -1435,6 +1448,13 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
         if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
           matched.advancedChapters.push(snapshot.chapterNumber)
         }
+        // CORR-105: preserve the LLM-provided advance detail in notes (was
+        // silently discarded by the prior `desc: ""` parser). Append with
+        // chapter context so repeated advances accumulate rather than overwrite.
+        if (parsed.desc) {
+          const noteLine = `[第${snapshot.chapterNumber}章推进] ${parsed.desc}`
+          matched.notes = matched.notes ? `${matched.notes}\n${noteLine}` : noteLine
+        }
       }
     } else if (parsed.kind === "resolve") {
       const matched = existingForeshadows.items.find(
@@ -1443,6 +1463,11 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
       if (matched) {
         matched.status = "resolved"
         matched.resolvedChapter = snapshot.chapterNumber
+        // CORR-105: preserve the LLM-provided resolution detail in notes.
+        if (parsed.desc) {
+          const noteLine = `[第${snapshot.chapterNumber}章回收] ${parsed.desc}`
+          matched.notes = matched.notes ? `${matched.notes}\n${noteLine}` : noteLine
+        }
       }
     }
   }

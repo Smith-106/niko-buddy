@@ -217,7 +217,14 @@ function normalizeGraphEdgeRelation(raw: string): string {
     if (label === relation) return type
   }
 
-  return relation
+  // SEC-004: no label/type matched — the extract LLM emitted an unknown
+  // relation string. Returning it raw would persist arbitrary LLM text
+  // (including markdown/wikilink/control chars like `[[`, `]]`, newlines,
+  // backticks) into entity-page relation lines (`- [[${otherSlug}]] — ${label}`)
+  // and re-inject it into later generation prompts (context-engine) — a
+  // stored-injection / prompt-injection-persistence vector. Fall back to the
+  // safe canonical default so only allow-listed relations are ever persisted.
+  return "AFFECTS"
 }
 
 export function snapshotToGraphEdges(snapshot: ChapterSnapshot): NovelGraphEdge[] {

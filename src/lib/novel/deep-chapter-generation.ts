@@ -139,6 +139,15 @@ const defaultDeps: DeepChapterGenerationDeps = {
 const REPEAT_CHECK_MIN_CHARS = 600
 const REPEAT_WINDOW_CHARS = 120
 const REPEAT_HIT_LIMIT = 3
+// CORR-101 (documented constraint): findRepeatedTailStart detects a 3x-repeated
+// loop ONLY when the repeated block's period is a divisor of REPEAT_WINDOW_CHARS
+// (120) — it anchors on the last 120 chars of the compacted draft and counts
+// exact 120-char matches. A loop whose unique-cycle length is not a 120-divisor
+// (e.g. a 180-char cycle repeated 3x) is silently missed because its last-120
+// window differs from the first cycle's last-120 window. This is a known
+// precision limitation of the tail-anchored detector, not a bug. Sliding
+// multiple window sizes (40/80/120) or a suffix-array approach would widen
+// coverage but risks false positives on legitimate prose; deferred.
 const MAX_GATE_RETRY = 3
 const MAX_TASK_BRIEF_REPAIR_ATTEMPTS = 2
 const USER_ABORT_MESSAGE = "已停止生成"
@@ -716,6 +725,22 @@ export async function runFullReviewWithSixDim(
   // (a) reviewChapter — signal-aware ternary (both branches must stay or
   // non-signal callers break). Matches the original stage-4 call shape.
   let reviewResults: NovelReviewResult[]
+  // PERF-NEW-06: reviewChapter and runSixDimensionReview have NO data
+  // dependency between them — launch both concurrently. reviewChapter keeps
+  // its rethrow-on-failure semantics (await it first so its error surfaces
+  // before the non-blocking 6-dim result is merged), while runSixDim runs
+  // in parallel and is merged only after reviewChapter resolves.
+  const runSixDim = deps.runSixDimensionReview
+  const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
+    ? runSixDim({ projectPath, chapterContent: content, chapterNumber })
+        .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
+        .catch((err: unknown) => {
+          // Non-blocking: capture the original error so the gap log can print
+          // the real Error object (matches the prior console.error shape).
+          // Re-throws are NOT propagated (preserves 6-dim-non-blocking contract).
+          return { __sixDimError: err }
+        })
+    : Promise.resolve(undefined)
   try {
     reviewResults = signal
       ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack }, signal)
@@ -733,40 +758,36 @@ export async function runFullReviewWithSixDim(
   // (c)+(d) F-003 6-dim block: non-blocking. A 6-dim failure must not break
   // the main review flow.
   let dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
-  try {
-    const runSixDim = deps.runSixDimensionReview
-    if (runSixDim) {
-      dimensionResults = await runSixDim({
-        projectPath,
-        chapterContent: content,
-        chapterNumber,
-      })
-    }
-    if (dimensionResults && Object.keys(dimensionResults).length > 0) {
-      reviewResults = [
-        ...(reviewResults || []),
-        ...dimensionResultsToReviewResults(dimensionResults),
-      ]
-    }
-  } catch (err) {
+  const sixDimOutcome = await sixDimP
+  if (sixDimOutcome && typeof sixDimOutcome === "object" && "__sixDimError" in sixDimOutcome) {
     // CORR-109 (IC-02 contract): record the gap. The prior catch only logged
     // and left dimensionResults={}, so a chapter whose 6-dim review threw was
     // indistinguishable downstream from one where 6-dim passed clean (the
     // F-003/ARCH-001 "6-dim orphan" silently recurred). Push an info-severity
     // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
     // review was skipped, not clean. Non-blocking preserved (info, not error).
-    console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", err)
+    const sixDimErr = sixDimOutcome.__sixDimError
+    console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", sixDimErr)
+    const errMsg = sixDimErr instanceof Error ? sixDimErr.message : String(sixDimErr)
     reviewResults = [
-      ...(reviewResults || []),
+      ...reviewResults,
       {
         severity: "info",
         type: "quality",
-        message: `[6-dim review unavailable: ${err instanceof Error ? err.message : String(err)}]`,
+        message: `[6-dim review unavailable: ${errMsg}]`,
         evidence: "",
         relatedMemory: "",
         suggestion: "",
       },
     ]
+  } else if (sixDimOutcome) {
+    dimensionResults = sixDimOutcome
+    if (Object.keys(dimensionResults).length > 0) {
+      reviewResults = [
+        ...reviewResults,
+        ...dimensionResultsToReviewResults(dimensionResults),
+      ]
+    }
   }
   return { reviewResults, dimensionResults }
 }
@@ -1655,7 +1676,10 @@ function sourceIndexFromCompactIndex(content: string, compactIndex: number): num
   for (let index = 0; index < content.length; index += 1) {
     if (/\s/.test(content[index])) continue
     seen += 1
-    if (seen >= compactIndex) return index + 1
+    // CORR-102: return `index` (not `index + 1`) so slice(0, index) lands at
+    // the start of the second repeated copy, not one char past it. The prior
+    // +1 dropped the first non-whitespace char after the cut point.
+    if (seen >= compactIndex) return index
   }
   return content.length
 }

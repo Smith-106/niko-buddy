@@ -11,6 +11,13 @@
  * (除非显式传入已知触发条件), 实际轮询逻辑 (URL / SDK 版本) 由后续
  * wiring 注入。
  *
+ * ARCH-008 (wiring status): buildReassessmentIssue 生成的 issue JSON 当前
+ * 无 production caller 追加到 issues.jsonl — 这是 ANL-009 S5 的预期状态
+ * (NO-GO 仍 enforced, 触发条件未满足)。wiring 推迟到 Stage 5 sidecar:
+ * 届时 app 启动时调用 monitorTosTriggers, hasTrigger=true 时将 issue JSON
+ * 追加 issues.jsonl。在此之前, 本模块作为 read-only safety-valve 文档化
+ * 存在, 不构成执行路径。
+ *
  * 边界守恒:
  *   - 不做直接 API 复用
  *   - 不改 llm-client.ts transport

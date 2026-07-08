@@ -47,17 +47,23 @@ describe("TASK-008 subplot/resource renderer wiring in context-engine", () => {
   })
 
   it("wires both helpers into the characterStates joinNonEmpty (protected-tier)", () => {
-    // The characterStates join must include await readSubplotBoardText(...) and
-    // await readResourceLedgerText(...). This guards against accidental
-    // deletion of the wiring in future cleanup passes.
-    // Source literal: `], "\n\n")` — the \n are JS string escapes (literal
-    // backslash-n in the file), so the regex matches backslash-n, not newline.
+    // The characterStates join must include readSubplotBoardText(...) and
+    // readResourceLedgerText(...). This guards against accidental deletion of
+    // the wiring in future cleanup passes.
+    // PERF-NEW-04: the three store reads are now pre-fetched in parallel via
+    // Promise.all just before the joinNonEmpty, then the resolved strings are
+    // passed into joinNonEmpty. The wiring intent (all 3 helpers feed
+    // characterStates) is preserved — assert the helpers are called in the
+    // pre-fetch and their results feed the join.
     const src = readSource("context-engine.ts")
     const joinBlock = src.match(/const characterStates = joinNonEmpty\([\s\S]*?\], "\\n\\n"\)/)
     expect(joinBlock).not.toBeNull()
-    expect(joinBlock![0]).toContain("await readEmotionalArcsText(context.projectPath)")
-    expect(joinBlock![0]).toContain("await readSubplotBoardText(context.projectPath)")
-    expect(joinBlock![0]).toContain("await readResourceLedgerText(context.projectPath)")
+    expect(joinBlock![0]).toContain("emotionalText")
+    expect(joinBlock![0]).toContain("subplotText")
+    expect(joinBlock![0]).toContain("resourceText")
+    // The pre-fetch block must call all three helpers (parallelized).
+    const preFetch = src.match(/Promise\.all\([\s\S]*?readEmotionalArcsText[\s\S]*?readSubplotBoardText[\s\S]*?readResourceLedgerText[\s\S]*?\)/)
+    expect(preFetch).not.toBeNull()
   })
 
   it("does not re-introduce @ts-expect-error (TASK-006 cleared it)", () => {
