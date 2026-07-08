@@ -512,42 +512,13 @@ export async function ingestChapter(
         await runProjection("character", async () => {
           const existingChars = await loadCharacterStates(pp)
           const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
-          for (const change of snapshot.characterStateChanges) {
-            // CORR-004 fix: accept fullwidth colon (：) too — Chinese LLM output
-            // defaults to fullwidth; the prior ASCII-only indexOf(":") missed
-            // "角色名：状态" lines and fell through to the weak substring match.
-            const colonIdx = change.search(/[:：]/)
-            if (colonIdx > 0) {
-              const charName = change.slice(0, colonIdx).trim()
-              const changeDesc = change.slice(colonIdx + 1).trim()
-              const canonical = resolveCanonicalName(charName, resolveMatchingMap(charName, aliasMaps))
-              const existing = existingChars.characters.find(c => c.characterName === canonical)
-              if (existing) {
-                existing.status = changeDesc
-                existing.lastUpdatedChapter = snapshot.chapterNumber
-                existing.lastUpdatedAt = new Date().toISOString()
-              } else {
-                existingChars.characters.push({
-                  characterName: canonical,
-                  currentLocation: "",
-                  status: changeDesc,
-                  equipment: [],
-                  abilities: [],
-                  relationships: {},
-                  lastUpdatedChapter: snapshot.chapterNumber,
-                  lastUpdatedAt: new Date().toISOString(),
-                })
-              }
-            } else {
-              const matched = existingChars.characters.find(c => change.includes(c.characterName))
-              if (matched) {
-                matched.status = change
-                matched.lastUpdatedChapter = snapshot.chapterNumber
-                matched.lastUpdatedAt = new Date().toISOString()
-              }
-            }
-          }
-          existingChars.lastUpdated = new Date().toISOString()
+          // CORR-001/002 fix: the live ingest path now calls the same
+          // applyCharacterStateChangesToStore helper as rebuildFromCommittedSnapshot
+          // (matching the emotional-arcs/resource-ledger pattern at ~611-624),
+          // so fullwidth-colon "角色名：状态" lines parse identically on both
+          // paths. The shared parseCharacterStateChange helper guarantees the
+          // fold_rebuildable contract (ingest == rebuild).
+          applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps)
           await saveCharacterStates(pp, existingChars)
         })
       }
@@ -556,51 +527,15 @@ export async function ingestChapter(
       if (snapshot.foreshadowingChanges.length > 0) {
         await runProjection("foreshadow", async () => {
           const existingForeshadows = await loadForeshadowingTracker(pp)
-          for (const change of snapshot.foreshadowingChanges) {
-            const trimmed = change.trim()
-            // CORR-003 fix: accept fullwidth colon (：) too — Chinese LLM
-            // output defaults to fullwidth; the prior ASCII-only startsWith
-            // guards silently dropped 新增：/推进：/回收： lines.
-            if (/^(新增伏笔|新增)[:：]/.test(trimmed)) {
-              const contentInner = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
-              const dashIdx = contentInner.indexOf("-")
-              const name = dashIdx > 0 ? contentInner.slice(0, dashIdx).trim() : contentInner.trim()
-              const desc = dashIdx > 0 ? contentInner.slice(dashIdx + 1).trim() : ""
-              const newForeshadow: Foreshadowing = {
-                id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-                name,
-                description: desc,
-                status: "planted",
-                plantedChapter: snapshot.chapterNumber,
-                advancedChapters: [],
-                relatedCharacters: [],
-                relatedEvents: [],
-                notes: "",
-              }
-              existingForeshadows.items.push(newForeshadow)
-            } else if (/^(推进伏笔|推进)[:：]/.test(trimmed)) {
-              const contentInner = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
-              const matched = existingForeshadows.items.find(
-                f => f.name === contentInner || contentInner.includes(f.name) || f.name.includes(contentInner)
-              )
-              if (matched) {
-                matched.status = "advanced"
-                if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
-                  matched.advancedChapters.push(snapshot.chapterNumber)
-                }
-              }
-            } else if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
-              const contentInner = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
-              const matched = existingForeshadows.items.find(
-                f => f.name === contentInner || contentInner.includes(f.name) || f.name.includes(contentInner)
-              )
-              if (matched) {
-                matched.status = "resolved"
-                matched.resolvedChapter = snapshot.chapterNumber
-              }
-            }
-          }
-          existingForeshadows.lastUpdated = new Date().toISOString()
+          // CORR-001/002 fix: the live ingest path now calls the same
+          // applyForeshadowingChangesToStore helper as rebuildFromCommittedSnapshot
+          // (matching the emotional-arcs/resource-ledger pattern at ~611-624),
+          // so fullwidth-colon "新增：/推进：/回收：" lines parse identically on
+          // both paths. The shared parseForeshadowingChange helper guarantees the
+          // fold_rebuildable contract (ingest == rebuild). applyForeshadowingChangesToStore
+          // takes no aliasMaps param (foreshadow matching is name-substring, not
+          // alias-resolved) — signature unchanged.
+          applyForeshadowingChangesToStore(existingForeshadows, snapshot)
           await saveForeshadowingTracker(pp, existingForeshadows)
         })
       }
@@ -1320,16 +1255,73 @@ async function cleanupSupersededEntityFiles(
   }
 }
 
+/**
+ * CORR-001/002 fix: shared colon parser for character-state change lines.
+ * Accepts both ASCII ":" and fullwidth "：" (Chinese LLM default). Returns
+ * {charName, changeDesc} split at the first colon, or null when the change
+ * has no colon (freeform string — handled by the weak includes-fallback in
+ * applyCharacterStateChangesToStore). Shared by the live ingest path and
+ * applyCharacterStateChangesToStore so the fold is deterministic
+ * (fold_rebuildable contract — ingest == rebuild for fullwidth-colon lines).
+ */
+function parseCharacterStateChange(change: string): { charName: string; changeDesc: string } | null {
+  const colonIdx = change.search(/[:：]/)
+  if (colonIdx <= 0) return null
+  return {
+    charName: change.slice(0, colonIdx).trim(),
+    changeDesc: change.slice(colonIdx + 1).trim(),
+  }
+}
+
+/**
+ * CORR-001/002 fix: shared colon parser for foreshadowing change lines.
+ * Accepts both ASCII ":" and fullwidth "：" (Chinese LLM default). Classifies
+ * the line as add/advance/resolve via the /^(新增伏笔|新增|推进伏笔|推进|回收伏笔|回收)[:：]/
+ * guards. Shared by the live ingest path and applyForeshadowingChangesToStore
+ * so the fold is deterministic (fold_rebuildable contract — ingest == rebuild
+ * for fullwidth-colon lines). Returns null for unrecognized lines.
+ */
+function parseForeshadowingChange(change: string):
+  | { kind: "add"; name: string; desc: string }
+  | { kind: "advance"; name: string; desc: string }
+  | { kind: "resolve"; name: string; desc: string }
+  | null {
+  const trimmed = change.trim()
+  if (/^(新增伏笔|新增)[:：]/.test(trimmed)) {
+    const content = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
+    const dashIdx = content.indexOf("-")
+    return {
+      kind: "add",
+      name: dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim(),
+      desc: dashIdx > 0 ? content.slice(dashIdx + 1).trim() : "",
+    }
+  }
+  if (/^(推进伏笔|推进)[:：]/.test(trimmed)) {
+    return {
+      kind: "advance",
+      name: trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim(),
+      desc: "",
+    }
+  }
+  if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
+    return {
+      kind: "resolve",
+      name: trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim(),
+      desc: "",
+    }
+  }
+  return null
+}
+
 function applyCharacterStateChangesToStore(
   existingChars: CharacterStateStore,
   snapshot: ChapterSnapshot,
   aliasMaps?: readonly NameAliasMap[],
 ): CharacterStateStore {
   for (const change of snapshot.characterStateChanges) {
-    const colonIdx = change.indexOf(":") >= 0 ? change.indexOf(":") : change.indexOf("：")
-    if (colonIdx > 0) {
-      const charName = change.slice(0, colonIdx).trim()
-      const changeDesc = change.slice(colonIdx + 1).trim()
+    const parsed = parseCharacterStateChange(change)
+    if (parsed) {
+      const { charName, changeDesc } = parsed
       const canonical = resolveCanonicalName(charName, resolveMatchingMap(charName, aliasMaps))
       const existing = existingChars.characters.find(c => c.characterName === canonical)
       if (existing) {
@@ -1369,16 +1361,13 @@ async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterS
 
 function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot): ForeshadowingStore {
   for (const change of snapshot.foreshadowingChanges) {
-    const trimmed = change.trim()
-    if (trimmed.startsWith("新增伏笔") || trimmed.startsWith("新增:")) {
-      const content = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
-      const dashIdx = content.indexOf("-")
-      const name = dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim()
-      const desc = dashIdx > 0 ? content.slice(dashIdx + 1).trim() : ""
+    const parsed = parseForeshadowingChange(change)
+    if (!parsed) continue
+    if (parsed.kind === "add") {
       const newForeshadow: Foreshadowing = {
         id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-        name,
-        description: desc,
+        name: parsed.name,
+        description: parsed.desc,
         status: "planted",
         plantedChapter: snapshot.chapterNumber,
         advancedChapters: [],
@@ -1387,10 +1376,9 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
         notes: "",
       }
       existingForeshadows.items.push(newForeshadow)
-    } else if (trimmed.startsWith("推进伏笔") || trimmed.startsWith("推进:")) {
-      const content = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
+    } else if (parsed.kind === "advance") {
       const matched = existingForeshadows.items.find(
-        f => f.name === content || content.includes(f.name) || f.name.includes(content)
+        f => f.name === parsed.name || parsed.name.includes(f.name) || f.name.includes(parsed.name)
       )
       if (matched) {
         matched.status = "advanced"
@@ -1398,10 +1386,9 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
           matched.advancedChapters.push(snapshot.chapterNumber)
         }
       }
-    } else if (trimmed.startsWith("回收伏笔") || trimmed.startsWith("回收:")) {
-      const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
+    } else if (parsed.kind === "resolve") {
       const matched = existingForeshadows.items.find(
-        f => f.name === content || content.includes(f.name) || f.name.includes(content)
+        f => f.name === parsed.name || parsed.name.includes(f.name) || f.name.includes(parsed.name)
       )
       if (matched) {
         matched.status = "resolved"
