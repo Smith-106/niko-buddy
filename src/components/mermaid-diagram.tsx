@@ -117,7 +117,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           </div>
         ) : (
           <div className="flex items-center justify-center h-full p-4">
-            <span className="text-xs text-muted-foreground/50">Diagram</span>
+            <span className="text-xs text-muted-foreground">Diagram</span>
           </div>
         )}
       </div>

@@ -28,7 +28,7 @@ export function PanelHeaderWithHelp({
         <span
           role="button"
           tabIndex={0}
-          className={`cursor-pointer ${className}`}
+          className={`cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm ${className}`}
           title={helpTitle ?? `${title}使用说明`}
           onClick={(e) => {
             e.stopPropagation()
