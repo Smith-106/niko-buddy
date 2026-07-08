@@ -12,6 +12,24 @@ export type NovelSessionLifecycleStatus = "running" | "completed" | "paused" | "
 export type NovelDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
 export type NovelGateStatus = "pending" | "passed" | "failed"
 
+// CORR-008 (odyssey): enum value lists for load-time validation of the
+// status.json truth-source. Rejecting unknown values at load prevents a
+// corrupted file from being spread through and silently treated as a
+// "still running" session by downstream === checks.
+const SESSION_LIFECYCLE_STATUSES: readonly NovelSessionLifecycleStatus[] = [
+  "running",
+  "completed",
+  "paused",
+  "blocked",
+]
+const DRAFT_STATUSES: readonly NovelDraftStatus[] = [
+  "pending",
+  "ready",
+  "accepted",
+  "rejected",
+  "superseded",
+]
+
 export interface NovelDraftArtifact {
   draft_id: string
   session_id?: string
@@ -158,13 +176,27 @@ function draftsDirPath(projectPath: string): string {
   return `${novelDirPath(projectPath)}/${DRAFTS_DIR}`
 }
 
+/**
+ * SEC-001 (odyssey): sanitize draftId (= conversationId) before interpolating
+ * into a drafts/ path. The conversationId is currently generated internally
+ * (conv_<timestamp>_<random36>, safe chars only) so path traversal is not
+ * reachable today, but loadNovelDraftArtifact/requireManagedDeepChapterDraft
+ * accept externally-supplied conversationId parameters without validation,
+ * and the Rust fs backend has no project-root containment. Align with the
+ * taskIdForConversation sanitizer (same [^a-zA-Z0-9_-] → - replacement) as
+ * defense-in-depth, so a future caller passing `../` cannot escape drafts/.
+ */
+function sanitizeDraftId(draftId: string): string {
+  return draftId.replace(/[^a-zA-Z0-9_-]/g, "-")
+}
+
 export function novelDraftArtifactPath(projectPath: string, draftId: string): string {
-  return `${draftsDirPath(projectPath)}/${draftId}.json`
+  return `${draftsDirPath(projectPath)}/${sanitizeDraftId(draftId)}.json`
 }
 
 function novelSupersededDraftArtifactPath(projectPath: string, draftId: string, timestamp: string): string {
   const safeTimestamp = timestamp.replace(/[:.]/g, "-")
-  return `${draftsDirPath(projectPath)}/${draftId}.superseded.${safeTimestamp}.json`
+  return `${draftsDirPath(projectPath)}/${sanitizeDraftId(draftId)}.superseded.${safeTimestamp}.json`
 }
 
 async function ensureNovelSessionDirs(projectPath: string): Promise<void> {
@@ -547,6 +579,12 @@ export async function requireManagedDeepChapterDraft(
     throw new Error("No managed deep chapter draft found for this conversation.")
   }
 
+  // CORR-007 (odyssey): reject accepts both "ready" and "pending". The Draft-first
+  // spec (coding-009) describes the normal flow pending→ready→accepted|rejected,
+  // but reject-from-pending is the intentional abort path — a user abandoning an
+  // in-progress (not-yet-ready) draft. Accept requires "ready" (the generation
+  // completed and passed gates) so a partial/aborted draft cannot be accepted.
+  // Confirmed-not-bug: the asymmetry is by design.
   const allowedStatuses: NovelDraftStatus[] = mode === "accept"
     ? ["ready"]
     : ["ready", "pending"]
@@ -570,6 +608,13 @@ export async function loadNovelSessionStatus(projectPath: string): Promise<Novel
       || typeof parsed.current_task?.user_request !== "string"
       || typeof parsed.draft?.draft_id !== "string"
       || typeof parsed.draft?.file_path !== "string"
+      // CORR-008 (odyssey): validate the lifecycle + draft enum values so a
+      // corrupted status.json (e.g. status:"foo" or draft_status:"bar") is
+      // rejected at the truth-source load boundary, not spread through and
+      // silently treated as "still running/pending" by downstream === checks.
+      || !SESSION_LIFECYCLE_STATUSES.includes(parsed.status as NovelSessionLifecycleStatus)
+      || !DRAFT_STATUSES.includes(parsed.draft?.draft_status as NovelDraftStatus)
+      || (parsed.active_step_index !== null && typeof parsed.active_step_index !== "number")
     ) {
       return null
     }

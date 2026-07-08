@@ -242,7 +242,12 @@ export function routeTask(userInput: string): TaskRouteResult {
 
   scores.sort((a, b) => b.score - a.score)
   const best = scores[0]
-  const maxPossible = 16 // weight(10) + keyword(6)
+  // CORR-006 (odyssey): compute maxPossible from the actual max weight, not a
+  // hardcoded 16. continue_chapter has weight 12, so its pattern+keyword score
+  // is 12 + 12*0.6 = 19.2; the old constant 16 capped it at 100% identically to
+  // a weight-10 intent, making relative confidence uncomparable. max score for
+  // any intent = weight * (1 + 0.6) = weight * 1.6.
+  const maxPossible = Math.max(...INTENT_PATTERNS.map((p) => p.weight * 1.6))
   const confidence = Math.min(best.score / maxPossible, 1)
 
   return {
@@ -358,7 +363,7 @@ function parseChineseChapterNumber(text: string): number {
     九: 9,
   }
 
-  if (!/[十百]/.test(normalized)) {
+  if (!/[十百千]/.test(normalized)) {
     const digits = [...normalized].map((char) => digitMap[char])
     if (digits.some((digit) => digit === undefined)) return NaN
     return Number(digits.join(""))
@@ -367,7 +372,12 @@ function parseChineseChapterNumber(text: string): number {
   let total = 0
   let current = 0
   for (const char of normalized) {
-    if (char === "百") {
+    if (char === "千") {
+      // CORR-006 (odyssey): support the thousands multiplier so multi-volume
+      // chapter numbers (>1000, e.g. 第两千三百四十五) parse correctly.
+      total += (current || 1) * 1000
+      current = 0
+    } else if (char === "百") {
       total += (current || 1) * 100
       current = 0
     } else if (char === "十") {

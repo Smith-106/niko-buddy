@@ -9,6 +9,15 @@ export type ChapterSaveStrategy =
 
 export function decideChapterSaveStrategy(input: {
   selectedChapterNumber: number | null
+  /**
+   * CORR-012 (odyssey): this field is currently unused by the decision logic
+   * below (the sole caller chat-panel.tsx hardcodes false). It was intended
+   * to guard against overwriting an existing chapter that already has body
+   * content, but that guard was never implemented. Kept in the signature for
+   * backward compatibility; implementing the guard is a behavior change that
+   * needs a product decision (block overwrite vs prompt vs skip) — tracked as
+   * a documented constraint, not fixed here.
+   */
   selectedChapterHasBody: boolean
   generatedTargetChapterNumber: number | null
   generatedTargetExists: boolean
