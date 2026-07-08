@@ -21,6 +21,7 @@ import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
+import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -105,6 +106,26 @@ function collectContextGaps(): ContextGap[] {
   contextGapsActive = false
   return [...contextGaps]
 }
+
+/**
+ * PERF-011 (TASK-007): module-level build-scoped budget.
+ *
+ * The `chapterOutlineDataSource` runs during `registry.loadAll` — BEFORE
+ * `buildContextPackFromRawData`. So the tieredSlice caps in
+ * `readChapterOutlineContent` / `pickChapterOutlineByNumber` can't read the
+ * budget off `context` directly (the budget is computed in `buildContextPack`,
+ * not threaded through the DataSource load contract). We mirror the existing
+ * `contextGaps` module-level pattern: `buildContextPack` populates this before
+ * loading data sources and clears it after; the tieredSlice call sites read it
+ * to drive adaptive caps. Lifecycle is exactly one `buildContextPack` call,
+ * matching `contextGaps` — never global-persistent.
+ *
+ * `null` (outside a build, or when `computeContextBudget` wasn't called)
+ * falls back to the legacy `CHAPTER_OUTLINE_PROTECTED_CAP` constant so every
+ * existing caller that doesn't go through `buildContextPack` (tests, direct
+ * `readChapterOutlineContent` invocations) keeps the original static behavior.
+ */
+let currentBuildBudget: ContextBudget | null = null
 
 /**
  * Tier-aware slice. Replaces the bare `content.slice(0, N)` calls that
@@ -193,6 +214,15 @@ export async function buildContextPack(
   // 重置 gap recorder — 生命周期为本次 buildContextPack 调用
   resetContextGaps()
 
+  // PERF-011 (TASK-007): compute the adaptive budget BEFORE loading data
+  // sources so the tieredSlice call sites in readChapterOutlineContent /
+  // pickChapterOutlineByNumber (invoked via chapterOutlineDataSource during
+  // registry.loadAll) can drive the protected-tier cap from
+  // computeContextBudget's chapterAdaptiveScale instead of the static
+  // CHAPTER_OUTLINE_PROTECTED_CAP. Cleared after the build so direct
+  // callers (tests / non-build invocations) fall back to the legacy cap.
+  currentBuildBudget = computeContextBudget(context.maxContextSize, context.chapterNumber)
+
   // 创建数据源注册器并加载所有数据
   const registry = createDataSourceRegistry()
   const rawData = await registry.loadAll(context)
@@ -200,6 +230,7 @@ export async function buildContextPack(
   // 从原始数据构建上下文包
   const pack = await buildContextPackFromRawData(rawData, context)
   pack.gaps = collectContextGaps()
+  currentBuildBudget = null
   return pack
 }
 
@@ -213,11 +244,17 @@ function buildLoadContext(
 ): ContextLoadContext {
   const novelConfig = useWikiStore.getState().novelConfig
   const revisionFeedbackWindowConfig = useWikiStore.getState().revisionFeedbackWindowConfig
-  
+  // PERF-011 (TASK-007): wire llmConfig.maxContextSize through so
+  // computeContextBudget's chapterAdaptiveScale is live on the read path
+  // (was dead code — no read-path caller). Optional field: absent →
+  // computeContextBudget falls back to DEFAULT_MAX_CTX (backward compatible).
+  const llmConfig = useWikiStore.getState().llmConfig
+
   return {
     projectPath,
     task,
     chapterNumber: chapterNumber ?? extractChapterNumberFromTask(task),
+    maxContextSize: llmConfig.maxContextSize,
     config: {
       recentSummaryWindow: novelConfig.recentSummaryWindow > 0 ? novelConfig.recentSummaryWindow : 8,
       searchTopK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
@@ -244,6 +281,14 @@ async function buildContextPackFromRawData(
   rawData: Record<string, any>,
   context: ContextLoadContext,
 ): Promise<ContextPack> {
+  // PERF-011 (TASK-007): the adaptive budget for this build was already
+  // computed in `buildContextPack` (stored as `currentBuildBudget`) before
+  // the data-source load, so the tieredSlice call sites in
+  // readChapterOutlineContent / pickChapterOutlineByNumber drive their caps
+  // from `currentBuildBudget.maxPageSize` (which supersedes the static
+  // CHAPTER_OUTLINE_PROTECTED_CAP) instead of the legacy hardcoded constant.
+  // No recompute here — single source of truth via the module-level budget.
+
   // 合并快照数据和降级数据
   const snapshotRecentSummaries = Array.isArray(rawData.snapshots?.recentSummaries)
     ? rawData.snapshots.recentSummaries
@@ -705,17 +750,34 @@ function includesChapterMarker(text: string, chapterNumber: number): boolean {
     new RegExp(`chapter\\s*${chapterNumber}\\b`, "i").test(text)
 }
 
+/**
+ * PERF-011 (TASK-007): resolve the protected-tier cap for chapter-outline
+ * truncation. When invoked inside a `buildContextPack` call, the
+ * module-level `currentBuildBudget` carries `computeContextBudget`'s
+ * adaptive `maxPageSize` (driven by chapterAdaptiveScale + maxContextSize)
+ * — chapter 500 gets a tighter cap than chapter 5, reflecting the larger
+ * wiki at that point. Outside a build (direct `readChapterOutlineContent`
+ * calls in tests / non-build paths), `currentBuildBudget` is null and we
+ * fall back to the legacy static `CHAPTER_OUTLINE_PROTECTED_CAP` so
+ * backward compatibility holds for every existing caller.
+ */
+function resolveChapterOutlineProtectedCap(): number {
+  const budget = currentBuildBudget
+  if (budget) return budget.maxPageSize
+  return CHAPTER_OUTLINE_PROTECTED_CAP
+}
+
 export function pickChapterOutlineByNumber(
   candidates: Array<{ path: string; content: string }>,
   chapterNumber: number,
 ): string {
   const frontmatterMatch = candidates.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
-  if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:frontmatter`)
+  if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:frontmatter`)
 
   const headingMatch = candidates.find((candidate) =>
     includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
   )
-  if (headingMatch) return tieredSlice(headingMatch.content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:heading`)
+  if (headingMatch) return tieredSlice(headingMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:heading`)
 
   return ""
 }
@@ -753,7 +815,7 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
       const results = await searchWiki(pp, query)
       if (results.length > 0) {
         const content = await readFile(results[0].path)
-        return tieredSlice(content, "protected", CHAPTER_OUTLINE_PROTECTED_CAP, `chapter-outline:${chapterNumber}:search`)
+        return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
       }
     } catch {}
   }

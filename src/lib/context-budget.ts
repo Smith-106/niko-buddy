@@ -59,6 +59,17 @@ const PER_PAGE_FRAC = 0.3
 const PER_PAGE_FLOOR = 5_000
 
 /**
+ * CORR-013 (TASK-007): floor for the index budget. Without this, tiny
+ * `maxContextSize` configs (e.g. 10K) produce an indexBudget of ~500 chars
+ * (5% of 10K), which is too small to list every page's title — the wiki
+ * index summary becomes a single truncated line. The floor is applied
+ * AFTER adaptive scaling so tiny configs at all chapter scales still list
+ * page titles. For normal configs (200K+) the floor sits well below the
+ * scaled value, so behavior is unchanged (additive, backward compatible).
+ */
+const MIN_INDEX_FLOOR = 2_000
+
+/**
  * TASK-003 (ANL-013 S4): chapterNumber-adaptive budget scaling.
  *
  * The static budget (5% index / 50% pages / 15% response) was invariant to
@@ -118,7 +129,11 @@ export function computeContextBudget(
   // Adaptive scale: compress index/page budgets as the novel grows.
   // Undefined chapterNumber → scale 1.0 → original static behavior.
   const scale = chapterAdaptiveScale(chapterNumber)
-  const indexBudget = Math.floor(maxCtx * INDEX_BUDGET_FRAC * scale)
+  // CORR-013 (TASK-007): MIN_INDEX_FLOOR applied AFTER scaling so tiny
+  // maxContextSize configs still list every page's title in the wiki index
+  // summary. Additive — for normal configs the floor is below the scaled
+  // value, so behavior is unchanged.
+  const indexBudget = Math.max(MIN_INDEX_FLOOR, Math.floor(maxCtx * INDEX_BUDGET_FRAC * scale))
   const pageBudget = Math.floor(maxCtx * PAGE_BUDGET_FRAC * scale)
 
   // Per-page cap rules:
