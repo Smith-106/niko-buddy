@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css"
 import {
   Bot, User, FileText, ChevronDown, ChevronRight, RefreshCw, Copy, Check,
   Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, Layout, Globe,
-  Image as ImageIcon,
+  Image as ImageIcon, Loader2,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
@@ -44,6 +44,24 @@ interface ChatMessageProps {
 
 const TERMINAL_ASSISTANT_STATUS_RE = /^(?:已停止生成。?|出错[:：])/u
 const CHAPTER_DRAFT_HEADING_RE = /^\s*#?\s*(?:第\s*\d+\s*章[^\n]*|Chapter\s+\d+[^\n]*)/iu
+
+// A11Y-005 / IS-001 / IS-002 / POLISH-06 (odyssey-ui): shared focus + base
+// styling for native action buttons. The audit found chat-message.tsx uses raw
+// <button> elements with only hover/transition classes — no focus-visible ring,
+// so keyboard users cannot see focus (WCAG 2.4.7). shadcn <Button> carries
+// focus-visible:ring-3 ring-ring/50; these raw buttons opted out. This constant
+// mirrors the project's input.tsx:12 focus-visible:ring convention and is reused
+// across draft/copy/regenerate/cited buttons to prevent per-instance drift.
+const ACTION_BUTTON_BASE =
+  "rounded px-2 py-0.5 text-xs transition-colors duration-150 " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
+
+// EC-02 (odyssey-ui): detect terminal error/stop status so the bubble can
+// render with a destructive variant instead of looking like a normal reply.
+function isTerminalAssistantError(content: string): boolean {
+  const visible = getCopyableAssistantContent(content).trim()
+  return TERMINAL_ASSISTANT_STATUS_RE.test(visible)
+}
 
 const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*qmai-deep-chapter-draft:([\s\S]*?)\s*-->/i
 
@@ -116,16 +134,26 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
       </div>
       <div className="max-w-[80%] flex flex-col gap-1.5">
         <div
-          className={`rounded-lg px-3 py-2 text-sm ${
+          className={`rounded-lg px-3 py-2 text-sm min-w-0 overflow-x-auto ${
             isUser
               ? "bg-primary text-primary-foreground"
               : message.discarded
-                ? "bg-muted/50 text-muted-foreground/50"
-                : "bg-muted text-foreground"
+                // A11Y-001 (odyssey-ui): dropped the /50 opacity stack —
+                // muted-foreground/50 on muted/50 computed ~1.85:1 (light) /
+                // 3.2:1 (dark), failing WCAG 1.4.3 (4.5:1). De-emphasize via the
+                // muted bg + italic style + smaller text, NOT opacity-on-muted.
+                ? "bg-muted text-muted-foreground"
+                : isTerminalAssistantError(message.content)
+                  // EC-02 (odyssey-ui): stream/generation errors ('出错：',
+                  // '已停止生成。') were indistinguishable from success replies.
+                  // Render the bubble with a destructive variant so a glance
+                  // distinguishes a failed generation.
+                  ? "border border-destructive/40 bg-destructive/5 text-destructive"
+                  : "bg-muted text-foreground"
           }`}
         >
           {message.discarded ? (
-            <span className="italic text-xs opacity-60">已废弃</span>
+            <span className="italic text-xs">已废弃</span>
           ) : isUser ? (
             <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
           ) : (
@@ -134,9 +162,12 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
         </div>
         {isAssistant && !message.discarded && <CitedReferencesPanel content={message.content} savedReferences={message.references} />}
         {isAssistant && !message.discarded && (
-          <div className="flex items-center gap-1 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {canResumeUnfinished && (
-              <div className="basis-full rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[11px] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+              // VH-001 (odyssey-ui): replaced hardcoded amber-* scale (not in
+              // QMAI oklch token system, inconsistent across 3 themes) with
+              // primary-token opacity tiers that adapt per-theme automatically.
+              <div className="basis-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-xs leading-5 text-primary">
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
@@ -145,9 +176,14 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 type="button"
                 onClick={() => onSaveAsChapter(message.content)}
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+                aria-busy={isSaving}
+                // POLISH-09 (odyssey-ui): accept is the primary commitment \u2014
+                // solid-fill primary with Check icon, visually dominant over
+                // reject/continue so the safe/forward action is unmistakable.
+                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary bg-primary font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                {isSaving ? "\u5904\u7406\u4e2d..." : "\u63a5\u53d7\u8349\u7a3f"}
+                {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                {isSaving ? "\u4fdd\u5b58\u4e2d" : "\u63a5\u53d7\u8349\u7a3f"}
               </button>
             )}
             {canRejectDraft && onDiscardDraft && (
@@ -155,9 +191,9 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 type="button"
                 onClick={onDiscardDraft}
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                className={`${ACTION_BUTTON_BASE} border border-destructive/40 text-destructive hover:bg-destructive/5 disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                {"\u62d2\u7edd\u8349\u7a3f"}
+                \u62d2\u7edd\u8349\u7a3f
               </button>
             )}
             {canOperateOnDraft && onContinueNextChapter && (
@@ -165,7 +201,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 type="button"
                 onClick={onContinueNextChapter}
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+                className={`${ACTION_BUTTON_BASE} border border-border text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 继续生成下一章
               </button>
@@ -175,7 +211,9 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 type="button"
                 onClick={onContinueUnfinished}
                 disabled={isSaving}
-                className="rounded border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/35"
+                // VH-002 (odyssey-ui): amber resume button → primary token tier,
+                // consistent with the primary-tinted info banner above.
+                className={`${ACTION_BUTTON_BASE} border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
                 title="基于已有思考过程继续生成，减少重复消耗"
               >
                 继续未完成
@@ -188,7 +226,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
               <button
                 type="button"
                 onClick={onRegenerate}
-                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
                 title="重新生成这条回复"
               >
                 <RefreshCw className="h-3 w-3" /> 重新生成
@@ -218,7 +256,7 @@ function CopyButton({ content }: { content: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+      className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
       title="复制到剪贴板"
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -402,7 +440,8 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
       <button
         type="button"
         onClick={() => hasMore && setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors"
+        aria-expanded={hasMore ? expanded : undefined}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <FileText className="h-3 w-3 shrink-0" />
         <span className="font-medium">引用资料（{citedPages.length}）</span>
@@ -455,7 +494,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               className="flex w-full items-center gap-1.5 rounded text-left"
               title={page.path}
             >
-              <span className="text-[10px] text-muted-foreground/60 w-4 shrink-0 text-right">[{i + 1}]</span>
+              <span className="text-[10px] tabular-nums text-muted-foreground w-4 shrink-0 text-right">[{i + 1}]</span>
               {/*
                * Image badge — clickable, separately from the page
                * row. Click → resolve the FIRST image's raw source
@@ -473,7 +512,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
                 <button
                   type="button"
                   onClick={() => handleJumpToImageSource(info.firstUrl!, page.path)}
-                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-blue-600 hover:bg-blue-100/40 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors"
                   title={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
                 >
                   <ImageIcon className="h-3 w-3" />
@@ -483,10 +522,10 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               <button
                 type="button"
                 onClick={openCitedPage}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/50 transition-colors"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <Icon className={`h-3 w-3 shrink-0 ${config.color}`} />
-                <span className="truncate text-foreground/80">{page.title}</span>
+                <span className="truncate text-foreground">{page.title}</span>
               </button>
             </div>
           )
@@ -495,7 +534,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="w-full text-center text-[10px] text-muted-foreground hover:text-primary pt-0.5"
+            className="w-full text-center text-[10px] text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             +{citedPages.length - MAX_COLLAPSED} 条更多引用...
           </button>
@@ -901,18 +940,18 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
     .filter((p) => p.length > 0)
 
   return (
-    <div className="rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 px-2.5 py-2 min-h-[3rem]">
+    <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 px-2.5 py-2 min-h-[3rem]">
       <div className="flex items-center gap-1.5 mb-1.5">
         <span className="text-sm animate-pulse">📋</span>
-        <span className="text-xs font-medium text-blue-700 dark:text-blue-400">工作流进行中...</span>
+        <span className="text-xs font-medium text-primary">工作流进行中...</span>
       </div>
-      <div className="max-h-72 overflow-y-auto pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap break-words">
+      <div className="max-h-72 overflow-y-auto pr-1 text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
         {paragraphs.map((p, i) => (
           <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
             {p}
           </div>
         ))}
-        <span className="animate-pulse text-blue-500">▊</span>
+        <span className="animate-pulse text-primary">▊</span>
       </div>
     </div>
   )
@@ -926,13 +965,13 @@ function WorkflowBlock({ content }: { content: string }) {
     .filter((p) => p.length > 0)
 
   return (
-    <div className="mb-2 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 min-h-[3rem]">
-      <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-700 dark:text-blue-400">
+    <div className="mb-2 rounded-md border border-dashed border-border bg-muted/40 min-h-[3rem]">
+      <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
         <span className="text-sm">📋</span>
         <span className="font-medium">工作流阶段</span>
-        <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{paragraphs.length} 个阶段</span>
+        <span className="text-[10px] tabular-nums">{paragraphs.length} 个阶段</span>
       </div>
-      <div className="max-h-72 overflow-y-auto border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap break-words leading-relaxed">
+      <div className="max-h-72 overflow-y-auto border-t border-border px-2.5 py-2 pr-1 text-xs text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">
         {paragraphs.map((p, i) => (
           <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
             {p}
