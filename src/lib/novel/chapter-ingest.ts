@@ -1541,6 +1541,17 @@ function applyResourceLedgerToStore(
     const canonicalHolder = rawHolder
       ? resolveCanonicalName(rawHolder, resolveMatchingMap(rawHolder, aliasMaps))
       : ""
+
+    // PAT-M1 (odyssey sibling) analysis: this store IS idempotent on re-fold
+    // of the same snapshot — the `canonicalHolder !== entry.currentHolder`
+    // guard prevents duplicate transition pushes (re-fold sees an equal
+    // currentHolder and skips), and the seed branch only fires when the entry
+    // does not yet exist (so live re-ingest matches clean rebuild, which also
+    // seeds only once per item). The earlier semantic-scan suspicion of a
+    // missing (item, chapterNumber) dedup key was a false positive: holder
+    // equality is the correct idempotency signal here because a holder that
+    // does not change produces no new transfer row by design. Left as-is.
+
     if (!entry) {
       ledger.entries.push({
         item: itemName,

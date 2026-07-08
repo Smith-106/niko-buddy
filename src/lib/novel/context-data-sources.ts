@@ -209,18 +209,31 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
     const summaries: string[] = []
     try {
       const results = await searchWiki(context.projectPath, "type:chapter")
-      for (const r of results.slice(0, context.config.recentSummaryWindow)) {
-        try {
-          const content = await readFile(r.path)
-          const parsed = parseFrontmatter(content)
-          const fm = parsed.frontmatter as Record<string, unknown> | null
-          const meta = fm ? parseChapterMeta(fm) : null
-          if (meta) {
-            const bodyStart = content.indexOf("---", 4)
-            const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-            summaries.push(`第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}`)
+      // PAT-T1 (odyssey sibling): parallelize the per-chapter read+parse —
+      // the fallback twin of recentChapterContentsDataSource (PERF-NEW-03
+      // fixed the primary; this fallback was still serial). Each iteration is
+      // independent (own file path + own parse), so Promise.all + filter
+      // preserves order without serial N IPC round-trips.
+      const fetched = await Promise.all(
+        results.slice(0, context.config.recentSummaryWindow).map(async (r) => {
+          try {
+            const content = await readFile(r.path)
+            const parsed = parseFrontmatter(content)
+            const fm = parsed.frontmatter as Record<string, unknown> | null
+            const meta = fm ? parseChapterMeta(fm) : null
+            if (meta) {
+              const bodyStart = content.indexOf("---", 4)
+              const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+              return `第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}`
+            }
+            return null
+          } catch {
+            return null
           }
-        } catch {}
+        }),
+      )
+      for (const s of fetched) {
+        if (s !== null) summaries.push(s)
       }
     } catch {}
     return summaries

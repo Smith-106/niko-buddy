@@ -6,7 +6,7 @@ import { useChatStore } from "@/stores/chat-store"
 import i18n from "@/i18n"
 import { useActivityStore } from "@/stores/activity-store"
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
-import { getFileName, normalizePath } from "@/lib/path-utils"
+import { getFileName, normalizePath, sanitizeFileStem } from "@/lib/path-utils"
 import { checkIngestCache, saveIngestCache } from "@/lib/ingest-cache"
 import { sanitizeIngestedFileContent } from "@/lib/ingest-sanitize"
 import { mergePageContent, type MergeFn } from "@/lib/page-merge"
@@ -639,7 +639,7 @@ async function autoIngestImpl(
   }
 
   // Ensure source summary page exists (LLM may not have generated it correctly)
-  const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
+  const sourceBaseName = sanitizeFileStem(fileName.replace(/\.[^.]+$/, ""))
   const sourceSummaryPath = `wiki/sources/${sourceBaseName}.md`
   const sourceSummaryFullPath = `${pp}/${sourceSummaryPath}`
   const hasSourceSummary = writtenPaths.some((p) => p.startsWith("wiki/sources/"))
@@ -1031,7 +1031,7 @@ export function buildAnalysisPrompt(purpose: string, index: string, sourceConten
  */
 export function buildGenerationPrompt(schema: string, purpose: string, index: string, sourceFileName: string, overview?: string, sourceContent: string = ""): string {
   // Use original filename (without extension) as the source summary page name
-  const sourceBaseName = sourceFileName.replace(/\.[^.]+$/, "")
+  const sourceBaseName = sanitizeFileStem(sourceFileName.replace(/\.[^.]+$/, ""))
   const novelMode = useWikiStore.getState().novelMode
 
   return [
@@ -1322,7 +1322,7 @@ async function injectImagesIntoSourceSummary(
   savedImages: { relPath: string; page: number | null; sha256?: string }[],
 ): Promise<void> {
   if (savedImages.length === 0) return
-  const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
+  const sourceBaseName = sanitizeFileStem(fileName.replace(/\.[^.]+$/, ""))
   const sourceSummaryPath = `wiki/sources/${sourceBaseName}.md`
   const sourceSummaryFullPath = `${pp}/${sourceSummaryPath}`
   console.log(`[ingest:diag] injectImagesIntoSourceSummary: target=${sourceSummaryFullPath}, images=${savedImages.length}`)
@@ -1398,7 +1398,7 @@ async function injectImagesIntoSourceSummary(
 async function reembedSourceSummary(pp: string, fileName: string): Promise<void> {
   const embCfg = useWikiStore.getState().embeddingConfig
   if (!embCfg.enabled || !embCfg.model) return
-  const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
+  const sourceBaseName = sanitizeFileStem(fileName.replace(/\.[^.]+$/, ""))
   const sourceSummaryFullPath = `${pp}/wiki/sources/${sourceBaseName}.md`
   try {
     const content = await readFile(sourceSummaryFullPath)

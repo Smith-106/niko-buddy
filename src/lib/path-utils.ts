@@ -34,6 +34,29 @@ export function getFileStem(p: string): string {
 }
 
 /**
+ * Sanitize a user-supplied filename stem into a path-safe slug before it is
+ * interpolated into a wiki path such as `wiki/sources/${stem}.md`.
+ *
+ * PAT-S1 (odyssey sibling of SEC-001): uploaded file names are external input
+ * and may carry path separators / parent-dir traversal / control chars that
+ * would let a crafted filename escape `wiki/sources/`. `getFileName` already
+ * strips directory components, but a bare stem (e.g. `../../etc/passwd`) can
+ * still traverse. This strips separators, collapses `..`, drops control chars,
+ * and maps an empty result to a stable fallback so the path is always confined
+ * to the intended directory.
+ */
+export function sanitizeFileStem(raw: string): string {
+  let stem = (raw ?? "").trim()
+  stem = getFileName(stem) // strip any directory component first
+  stem = stem.replace(/[\/\\]/g, "").replace(/\.\.+/g, ".").replace(/[\x00-\x1f]/g, "")
+  // Strip a leading Windows drive-letter prefix so it cannot anchor an abs path.
+  stem = stem.replace(/^[A-Za-z]:/, "")
+  // Collapse leading dots/colons that could still be path-meaningful.
+  stem = stem.replace(/^[.:]+/, "")
+  return stem.length > 0 ? stem : "unnamed-source"
+}
+
+/**
  * Get relative path from base.
  */
 export function getRelativePath(fullPath: string, basePath: string): string {

@@ -12,6 +12,7 @@ import { pauseQueue as pauseIngestQueue } from "@/lib/ingest-queue"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useReviewStore } from "@/stores/review-store"
+import { clearTemporalFactsCache } from "@/lib/novel/context-engine"
 
 export function resetProjectStores(): void {
   useChatStore.setState({
@@ -77,6 +78,18 @@ export async function resetProjectState(): Promise<void> {
     }
   } else {
     console.warn("[Reset Project State] Failed to load graph-relevance:", graphMod.reason)
+  }
+
+  // PAT-S2 (odyssey sibling): clearGraphCache must be paired with
+  // clearTemporalFactsCache on project switch. temporalFactsCache is a
+  // module-level Map keyed by project path; without this clear, the previous
+  // project's folded canon facts linger and are re-injected when the user
+  // switches back to that project (cross-project contamination). No
+  // projectPath is available here (switch context), so clear the whole cache.
+  try {
+    clearTemporalFactsCache()
+  } catch (err) {
+    console.warn("[Reset Project State] clearTemporalFactsCache failed:", err)
   }
 
   if (fileSyncMod.status === "fulfilled") {

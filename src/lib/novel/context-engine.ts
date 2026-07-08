@@ -223,15 +223,23 @@ export async function buildContextPack(
   // callers (tests / non-build invocations) fall back to the legacy cap.
   currentBuildBudget = computeContextBudget(context.maxContextSize, context.chapterNumber)
 
-  // 创建数据源注册器并加载所有数据
-  const registry = createDataSourceRegistry()
-  const rawData = await registry.loadAll(context)
+  // PAT-M2 (odyssey sibling): currentBuildBudget is a module-level flag. If
+  // loadAll / buildContextPackFromRawData throw, the flag would leak into the
+  // next build (stale budget). Wrap the build body in try/finally so the
+  // flag is always cleared — same shape as the partialReason clear-on-recover
+  // fix (CORR-107).
+  try {
+    // 创建数据源注册器并加载所有数据
+    const registry = createDataSourceRegistry()
+    const rawData = await registry.loadAll(context)
 
-  // 从原始数据构建上下文包
-  const pack = await buildContextPackFromRawData(rawData, context)
-  pack.gaps = collectContextGaps()
-  currentBuildBudget = null
-  return pack
+    // 从原始数据构建上下文包
+    const pack = await buildContextPackFromRawData(rawData, context)
+    pack.gaps = collectContextGaps()
+    return pack
+  } finally {
+    currentBuildBudget = null
+  }
 }
 
 /**
