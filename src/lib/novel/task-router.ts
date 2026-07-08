@@ -178,7 +178,11 @@ const INTENT_PATTERNS: IntentPattern[] = [
 
 const CHAPTER_NUMBER_PATTERNS = [
   /第\s*(\d+)\s*章/,
-  /第\s*([一二三四五六七八九十百〇零两]+)\s*章/,
+  // PAT-G9 (odyssey generalize): include 千 so multi-volume chapter numbers
+  // (>1000, e.g. 第一千章) match here and reach parseChineseChapterNumber,
+  // which already handles the 千 multiplier (CORR-006). Without 千 in the
+  // capture class, 第一千章 failed at this regex and never entered parsing.
+  /第\s*([一二三四五六七八九十百千〇零两]+)\s*章/,
   /chapter\s*(\d+)/i,
   /ch\.?\s*(\d+)/i,
 ]

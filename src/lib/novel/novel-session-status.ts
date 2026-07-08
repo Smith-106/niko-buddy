@@ -557,6 +557,13 @@ export async function loadNovelDraftArtifact(
       || !Array.isArray(parsed?.review_results)
       || typeof parsed?.created_at !== "string"
       || typeof parsed?.updated_at !== "string"
+      // PAT-G2 (odyssey generalize): validate draft_status enum membership, not
+      // just typeof string. CORR-008 added this guard to loadNovelSessionStatus;
+      // the sibling draft loader only got the typeof check. An unknown value
+      // (e.g. "garbage") bypasses the superseded-audit-copy branch in
+      // writeDraftArtifact (unknown !== "superseded" is true) and could be
+      // silently overwritten without an audit copy. Reject at the load boundary.
+      || !DRAFT_STATUSES.includes(parsed.draft_status as NovelDraftStatus)
     ) {
       return null
     }
@@ -614,6 +621,13 @@ export async function loadNovelSessionStatus(projectPath: string): Promise<Novel
       // silently treated as "still running/pending" by downstream === checks.
       || !SESSION_LIFECYCLE_STATUSES.includes(parsed.status as NovelSessionLifecycleStatus)
       || !DRAFT_STATUSES.includes(parsed.draft?.draft_status as NovelDraftStatus)
+      // PAT-G2 (odyssey generalize): current_task.status is the same
+      // NovelSessionLifecycleStatus enum as the top-level status (line 68), but
+      // CORR-008 only guarded the outer field. A corrupted current_task.status
+      // (e.g. "foo") passed validation and was spread through, then misbehaved
+      // in downstream === "running"/=== "completed" checks. Guard the nested
+      // twin field of the same enum.
+      || !SESSION_LIFECYCLE_STATUSES.includes(parsed.current_task?.status as NovelSessionLifecycleStatus)
       || (parsed.active_step_index !== null && typeof parsed.active_step_index !== "number")
     ) {
       return null
@@ -786,6 +800,13 @@ export async function completeDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
+    // PAT-G1 (odyssey generalize): mirror persist/pause/block — persist the raw
+    // 6-dimension review map explicitly rather than relying on `...base` spread.
+    // On the fresh-base path (existing null / session_id mismatch → createBaseStatus,
+    // which never sets dimension_results), the spread yields undefined and the 6-dim
+    // map carried in input.checkpoint.dimensionResults is silently dropped on
+    // completion. Same F-003 twin-path omission class as ARCH-006 (pause/block).
+    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
