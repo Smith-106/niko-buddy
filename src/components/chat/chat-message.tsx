@@ -193,7 +193,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 disabled={isSaving}
                 className={`${ACTION_BUTTON_BASE} border border-destructive/40 text-destructive hover:bg-destructive/5 disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                \u62d2\u7edd\u8349\u7a3f
+                {"拒绝草稿"}
               </button>
             )}
             {canOperateOnDraft && onContinueNextChapter && (
@@ -625,14 +625,26 @@ interface StreamingMessageProps {
 export function StreamingMessage({ content }: StreamingMessageProps) {
   const { thinking, answer } = useMemo(() => separateThinking(content), [content])
   const isThinking = thinking !== null && answer.length === 0
+  // POLISH-01 (odyssey-ui): skeleton for the empty window before the first
+  // token lands. Previously this rendered an empty bubble with a lone blinking
+  // cursor — visually indistinguishable from a broken/stuck response. Three
+  // placeholder lines with a staggered pulse read clearly as "loading" and
+  // match the motion vocabulary (animate-pulse) used elsewhere.
+  const isEmpty = !isThinking && answer.trim().length === 0
 
   return (
     <div className="flex gap-2 flex-row">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
-        {isThinking ? (
+      <div className="max-w-[80%] min-w-0 overflow-x-auto rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
+        {isEmpty ? (
+          <div className="flex flex-col gap-1.5 py-1" aria-label="正在生成回复" role="status">
+            <div className="h-3 w-48 animate-pulse rounded bg-muted-foreground/20" />
+            <div className="h-3 w-40 animate-pulse rounded bg-muted-foreground/20" style={{ animationDelay: "150ms" }} />
+            <div className="h-3 w-44 animate-pulse rounded bg-muted-foreground/20" style={{ animationDelay: "300ms" }} />
+          </div>
+        ) : isThinking ? (
           <StreamingWorkflowBlock content={thinking} />
         ) : (
           <>
