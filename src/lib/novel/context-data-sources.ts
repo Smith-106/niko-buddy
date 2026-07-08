@@ -180,18 +180,25 @@ export const recentChapterContentsDataSource: DataSource<string[]> = {
     )
     if (chapterNumbers.length === 0) return []
 
-    const contents: string[] = []
-    for (const chapterNumber of chapterNumbers) {
-      try {
-        const results = await searchWiki(context.projectPath, `chapter_number:${chapterNumber}`)
-        if (results.length === 0) continue
-        const content = await readFile(results[0].path)
-        const body = stripFrontmatterBody(content)
-        if (!body) continue
-        contents.push(`## 第${chapterNumber}章正文片段\n${excerptChapterContent(body)}`)
-      } catch {}
-    }
-    return contents
+    // PERF-NEW-03: parallelize the per-chapter searchWiki+readFile pairs.
+    // The chapters are independent, so the prior serial for-loop (N sequential
+    // search+read IPC round-trips) becomes a single Promise.all. Order is
+    // preserved via map-then-filter (null entries dropped).
+    const results = await Promise.all(
+      chapterNumbers.map(async (chapterNumber) => {
+        try {
+          const results = await searchWiki(context.projectPath, `chapter_number:${chapterNumber}`)
+          if (results.length === 0) return null
+          const content = await readFile(results[0].path)
+          const body = stripFrontmatterBody(content)
+          if (!body) return null
+          return `## 第${chapterNumber}章正文片段\n${excerptChapterContent(body)}`
+        } catch {
+          return null
+        }
+      }),
+    )
+    return results.filter((r): r is string => r !== null)
   },
 }
 

@@ -749,7 +749,24 @@ export async function runFullReviewWithSixDim(
       ]
     }
   } catch (err) {
+    // CORR-109 (IC-02 contract): record the gap. The prior catch only logged
+    // and left dimensionResults={}, so a chapter whose 6-dim review threw was
+    // indistinguishable downstream from one where 6-dim passed clean (the
+    // F-003/ARCH-001 "6-dim orphan" silently recurred). Push an info-severity
+    // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
+    // review was skipped, not clean. Non-blocking preserved (info, not error).
     console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", err)
+    reviewResults = [
+      ...(reviewResults || []),
+      {
+        severity: "info",
+        type: "quality",
+        message: `[6-dim review unavailable: ${err instanceof Error ? err.message : String(err)}]`,
+        evidence: "",
+        relatedMemory: "",
+        suggestion: "",
+      },
+    ]
   }
   return { reviewResults, dimensionResults }
 }

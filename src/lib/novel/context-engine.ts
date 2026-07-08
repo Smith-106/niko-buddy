@@ -1088,7 +1088,15 @@ export async function searchGraphRelevantContent(
     // Snapshot the seed set so expansion never reads a mutating collection.
     const seedNames = Array.from(candidateNames)
     for (const [, node] of graph.nodes) {
-      if (task.includes(node.title) || task.includes(node.id)) {
+      // CORR-110: guard against empty/short titles polluting the candidate set.
+      // `task.includes('')` is ALWAYS true (empty string is a substring of every
+      // string), so a malformed entity page with an empty title would match
+      // every task and pull in every empty-titled node. Apply the same
+      // `length >= 2` minimum the token-seed path (line ~1083) uses.
+      if (node.title.length >= 2 && task.includes(node.title)) {
+        nextNames.add(node.title)
+        nextNames.add(node.id)
+      } else if (node.id.length >= 2 && task.includes(node.id)) {
         nextNames.add(node.title)
         nextNames.add(node.id)
       }
@@ -1118,20 +1126,36 @@ export async function searchGraphRelevantContent(
       }
     }
 
+    // PERF-NEW-02: collect all unseen related-node reads first (dedup against
+    // seenIds), then read them in parallel. The prior nested for...of awaited
+    // readFile serially (up to M×5 sequential IPC round-trips). Each matched
+    // node's related set is independent, so the reads parallelize cleanly.
+    type PendingRead = { title: string; path: string; relevance: number }
+    const pendingReads: PendingRead[] = []
     for (const matchedNode of matchedNodes) {
       const related = getRelatedNodes(matchedNode.id, graph, 5)
       for (const { node, relevance } of related) {
         if (seenIds.has(node.id)) continue
         seenIds.add(node.id)
-        try {
-          const content = await readFile(node.path)
-          scoredNodes.push({
-            title: node.title,
-            snippet: content.slice(0, 300).replace(/\n/g, " "),
-            relevance: Math.round(relevance * 100) / 100,
-          })
-        } catch {}
+        pendingReads.push({ title: node.title, path: node.path, relevance })
       }
+    }
+    const readResults = await Promise.all(
+      pendingReads.map(async (entry) => {
+        try {
+          const content = await readFile(entry.path)
+          return {
+            title: entry.title,
+            snippet: content.slice(0, 300).replace(/\n/g, " "),
+            relevance: Math.round(entry.relevance * 100) / 100,
+          }
+        } catch {
+          return null
+        }
+      }),
+    )
+    for (const r of readResults) {
+      if (r) scoredNodes.push(r)
     }
 
     scoredNodes.sort((a, b) => b.relevance - a.relevance)
