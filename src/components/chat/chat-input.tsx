@@ -73,6 +73,45 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
     }
   }, [])
 
+  // A11Y-006 (odyssey-ui): keyboard-operable resize. role="separator" alone is
+  // not keyboard-reachable without tabIndex; WCAG 2.1.1 (Level A) requires every
+  // operable element be usable from the keyboard. Arrow keys nudge by a step,
+  // PageUp/PageDown jump by a larger increment, Home/End snap to the bounds —
+  // matching the WAI-ARIA separator pattern for resizable regions.
+  const handleResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const { minHeight, maxHeight } = getResizeBounds()
+      const step = Math.max(16, Math.round((maxHeight - minHeight) / 20))
+      const bigStep = step * 5
+      let next = inputHeight
+      switch (e.key) {
+        case "ArrowUp":
+          next = inputHeight + step
+          break
+        case "ArrowDown":
+          next = inputHeight - step
+          break
+        case "PageUp":
+          next = inputHeight + bigStep
+          break
+        case "PageDown":
+          next = inputHeight - bigStep
+          break
+        case "Home":
+          next = maxHeight
+          break
+        case "End":
+          next = minHeight
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+      setInputHeight(clampResizableInputHeight(next, getResizeBounds()))
+    },
+    [getResizeBounds, inputHeight],
+  )
+
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value)
     const ta = e.target
@@ -144,12 +183,22 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
     <div ref={rootRef} className="border-t">
       <div
         role="separator"
+        aria-orientation="horizontal"
         aria-label="拖动调整输入框高度"
-        title="拖动调整输入框高度"
-        className="flex h-2 cursor-ns-resize items-center justify-center"
+        aria-valuenow={Math.round(inputHeight)}
+        aria-valuemin={DEFAULT_RESIZABLE_INPUT_HEIGHT}
+        aria-valuemax={getResizeBounds().maxHeight}
+        tabIndex={0}
+        title="拖动调整输入框高度（聚焦后可用方向键调节）"
+        // IS-011/MI-005 (odyssey-ui): the grip bar was a static bg-border line
+        // with no hover/active affordance — looked decorative, not grabbable.
+        // Group hover/active + focus-visible raise the contrast so the affordance
+        // reads at the exact moment the user is about to grab or keyboard-focus it.
+        className="group flex h-2 cursor-ns-resize items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         onPointerDown={handleResizePointerDown}
+        onKeyDown={handleResizeKeyDown}
       >
-        <span className="h-0.5 w-10 rounded-full bg-border" />
+        <span className="h-0.5 w-10 rounded-full bg-border transition-colors group-hover:bg-foreground/30 group-active:bg-foreground/40 group-focus-visible:bg-foreground/30" />
       </div>
       {leadingControls ? (
         <div className="px-3 pb-2">
