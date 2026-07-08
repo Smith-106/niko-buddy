@@ -782,6 +782,14 @@ export async function pauseDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
+    // ARCH-006 (odyssey): persist dimension_results on pause, mirroring
+    // persistDeepChapterCheckpoint (:674, CORR-006). Without this, a pause on
+    // a session that had 6-dim review results silently drops the structured
+    // per-dimension map from status.json when the base is freshly created
+    // (createBaseStatus never sets dimension_results). F-003 orphaned-6-dim
+    // pattern resurfacing in the pause path — fallback twin missed by the
+    // main-path fix.
+    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -836,6 +844,9 @@ export async function blockDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
+    // ARCH-006 (odyssey): persist dimension_results on block, mirroring
+    // persistDeepChapterCheckpoint (:674) and pause above. Same F-003 twin fix.
+    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
