@@ -99,7 +99,9 @@ export function getFactsAt(
  * Record that `newFact` supersedes `oldFactId`: close the old fact's validity
  * window at the new fact's validFrom and link the supersedes chain. Mutates
  * the facts array in place (callers pass the live array). No-op if the old
- * fact is missing or already closed past the new fact's validFrom.
+ * fact is missing. The validity window only ever narrows (monotonic
+ * convergence, CORR-003): repeated calls settle validUntil to the minimum of
+ * all validFrom values passed, regardless of call order.
  */
 export function recordSupersession(
   newFact: TemporalFact,
@@ -114,9 +116,13 @@ export function recordSupersession(
   if (!newFact.supersedes.includes(oldFactId)) {
     newFact.supersedes.push(oldFactId)
   }
-  // Don't reopen a window already closed before the new fact's validFrom.
-  if (oldFact.validUntil !== undefined && oldFact.validUntil <= newFact.validFrom) return
-  oldFact.validUntil = newFact.validFrom
+  // Monotonic convergence (CORR-003): only ever NARROW the validity window,
+  // never widen it. The final validUntil is the min of all validFrom values
+  // ever passed, regardless of call order — order-independent.
+  const newValidUntil = newFact.validFrom
+  if (newValidUntil < (oldFact.validUntil ?? Infinity)) {
+    oldFact.validUntil = newValidUntil
+  }
 }
 
 /**
@@ -124,6 +130,9 @@ export function recordSupersession(
  * fact's validity window and return the NegationPair for audit. The negating
  * fact remains authoritative from its own validFrom. Returns the pair so
  * callers can accumulate an audit log; the negated fact is mutated in place.
+ * The validity window only ever narrows (monotonic convergence, CORR-003):
+ * repeated calls settle validUntil to the minimum of all validFrom values
+ * passed, regardless of call order.
  */
 export function resolveNegation(
   negatingFact: TemporalFact,
@@ -133,8 +142,11 @@ export function resolveNegation(
 ): NegationPair | null {
   const negated = facts.find((f) => f.id === negatedFactId)
   if (!negated) return null
-  if (negated.validUntil === undefined || negated.validUntil > negatingFact.validFrom) {
-    negated.validUntil = negatingFact.validFrom
+  // Monotonic convergence (CORR-003): only ever NARROW the validity window,
+  // never widen it. Order-independent across repeated calls.
+  const newValidUntil = negatingFact.validFrom
+  if (newValidUntil < (negated.validUntil ?? Infinity)) {
+    negated.validUntil = newValidUntil
   }
   return {
     negatingId: negatingFact.id,

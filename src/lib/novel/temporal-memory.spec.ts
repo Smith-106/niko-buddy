@@ -88,6 +88,32 @@ describe("recordSupersession", () => {
     recordSupersession(makeFact({ id: "b", validFrom: 5 }), "missing", facts)
     expect(facts[0]!.validUntil).toBeUndefined()
   })
+
+  it("narrows validUntil to the smallest validFrom across calls (ch7 then ch3)", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "old", validFrom: 1 }),
+      makeFact({ id: "new7", validFrom: 7 }),
+      makeFact({ id: "new3", validFrom: 3 }),
+    ]
+    recordSupersession(facts[1]!, "old", facts)
+    expect(facts[0]!.validUntil).toBe(7)
+    recordSupersession(facts[2]!, "old", facts)
+    // Monotonic: 3 < 7 → narrows to 3 (never widens back to 7).
+    expect(facts[0]!.validUntil).toBe(3)
+  })
+
+  it("is order-independent (ch3 then ch7 yields same validUntil=3)", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "old", validFrom: 1 }),
+      makeFact({ id: "new3", validFrom: 3 }),
+      makeFact({ id: "new7", validFrom: 7 }),
+    ]
+    recordSupersession(facts[1]!, "old", facts)
+    expect(facts[0]!.validUntil).toBe(3)
+    recordSupersession(facts[2]!, "old", facts)
+    // 7 < 3 is false → no widening; validUntil stays at 3.
+    expect(facts[0]!.validUntil).toBe(3)
+  })
 })
 
 describe("resolveNegation", () => {
@@ -109,6 +135,60 @@ describe("resolveNegation", () => {
     const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 1 })]
     const pair = resolveNegation(makeFact({ id: "b", validFrom: 3 }), "missing", facts)
     expect(pair).toBeNull()
+  })
+
+  it("narrows validUntil to the smallest validFrom across calls (ch7 then ch3)", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "negated", subject: "主角", object: "凡人", validFrom: 1 }),
+      makeFact({ id: "neg7", subject: "主角", object: "非凡人", validFrom: 7 }),
+      makeFact({ id: "neg3", subject: "主角", object: "非凡人", validFrom: 3 }),
+    ]
+    resolveNegation(facts[1]!, "negated", facts)
+    expect(facts[0]!.validUntil).toBe(7)
+    resolveNegation(facts[2]!, "negated", facts)
+    // Monotonic: 3 < 7 → narrows to 3.
+    expect(facts[0]!.validUntil).toBe(3)
+  })
+
+  it("is order-independent (ch3 then ch7 yields same validUntil=3)", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "negated", subject: "主角", object: "凡人", validFrom: 1 }),
+      makeFact({ id: "neg3", subject: "主角", object: "非凡人", validFrom: 3 }),
+      makeFact({ id: "neg7", subject: "主角", object: "非凡人", validFrom: 7 }),
+    ]
+    resolveNegation(facts[1]!, "negated", facts)
+    expect(facts[0]!.validUntil).toBe(3)
+    resolveNegation(facts[2]!, "negated", facts)
+    // 7 < 3 is false → no widening; validUntil stays at 3.
+    expect(facts[0]!.validUntil).toBe(3)
+  })
+})
+
+describe("recordSupersession + resolveNegation cross-function order-independence", () => {
+  it("mix: recordSupersession(@ch7) then resolveNegation(@ch3) settles validUntil=3", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "target", subject: "主角", object: "凡人", validFrom: 1 }),
+      makeFact({ id: "sup7", subject: "主角", object: "剑修", validFrom: 7 }),
+      makeFact({ id: "neg3", subject: "主角", object: "非凡人", validFrom: 3 }),
+    ]
+    recordSupersession(facts[1]!, "target", facts)
+    expect(facts[0]!.validUntil).toBe(7)
+    resolveNegation(facts[2]!, "target", facts)
+    // resolveNegation @ch3 narrows 7 → 3 (monotonic, never widens).
+    expect(facts[0]!.validUntil).toBe(3)
+  })
+
+  it("mix reverse: resolveNegation(@ch7) then recordSupersession(@ch3) settles validUntil=3", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "target", subject: "主角", object: "凡人", validFrom: 1 }),
+      makeFact({ id: "sup3", subject: "主角", object: "剑修", validFrom: 3 }),
+      makeFact({ id: "neg7", subject: "主角", object: "非凡人", validFrom: 7 }),
+    ]
+    resolveNegation(facts[2]!, "target", facts)
+    expect(facts[0]!.validUntil).toBe(7)
+    recordSupersession(facts[1]!, "target", facts)
+    // recordSupersession @ch3 narrows 7 → 3 (monotonic, never widens).
+    expect(facts[0]!.validUntil).toBe(3)
   })
 })
 
