@@ -3,6 +3,8 @@ import {
   getFactsAt,
   type TemporalFact,
 } from "./temporal-memory"
+import { resolveCanonicalName } from "./character-cognition"
+import type { NameAliasMap } from "./book-analysis/types"
 
 export interface FactCheckResult {
   severity: "blocking" | "high" | "medium" | "low"
@@ -42,6 +44,15 @@ export interface FactCheckOptions {
    * compatible).
    */
   temporalFacts?: readonly TemporalFact[]
+  /**
+   * TASK-004 (CORR-004): optional alias map so the temporal pass matches
+   * subject names the same way factsFromCommittedSnapshots does — an alias
+   * like "昴" authored at chapter N then matches a canonical "菜月昴" fact
+   * still valid at that chapter. Absent → NFKC-only fallback (legacy
+   * behavior, backward compatible). Must be the SAME map the caller used to
+   * build temporalFacts, otherwise subjects will not align.
+   */
+  aliasMap?: NameAliasMap
 }
 
 export async function runFactCheck(
@@ -79,7 +90,7 @@ export async function runFactCheck(
   const temporalFacts = options?.temporalFacts
   if (temporalFacts && temporalFacts.length > 0) {
     for (const snapshot of sorted) {
-      results.push(...checkTemporalConsistency(snapshot, temporalFacts))
+      results.push(...checkTemporalConsistency(snapshot, temporalFacts, options?.aliasMap))
     }
   }
 
@@ -96,20 +107,29 @@ export async function runFactCheck(
  * facts (validFrom<=chapter && validUntil>chapter or unset) are not
  * contradicted by the new canon statement. Findings carry temporalFactId for
  * supersession-chain traceability.
+ *
+ * CORR-004: subject matching goes through resolveCanonicalName with the SAME
+ * aliasMap the caller used to build temporalFacts, so an alias authored at
+ * chapter N ("昴") matches a canonical fact still valid at that chapter
+ * ("菜月昴"). Both sides of the comparison run through the resolver so the
+ * match is symmetric — this mirrors factsFromCommittedSnapshots /
+ * getFactsAt parity. Absent aliasMap → NFKC-only fallback (legacy behavior).
  */
 function checkTemporalConsistency(
   snapshot: ChapterSnapshot,
   temporalFacts: readonly TemporalFact[],
+  aliasMap?: NameAliasMap,
 ): FactCheckResult[] {
   const results: FactCheckResult[] = []
-  const activeFacts = getFactsAt(snapshot.chapterNumber, undefined, temporalFacts)
+  const activeFacts = getFactsAt(snapshot.chapterNumber, undefined, temporalFacts, aliasMap)
 
   for (const rawFact of snapshot.newCanonFacts) {
-    const subject = extractFactSubject(rawFact)
-    if (!subject) continue
+    const rawSubject = extractFactSubject(rawFact)
+    if (!rawSubject) continue
+    const subject = resolveCanonicalName(rawSubject, aliasMap)
 
     const subjectActive = activeFacts.filter(
-      (f) => f.subject === subject || f.subject === resolveCanonicalNameInline(subject),
+      (f) => resolveCanonicalName(f.subject, aliasMap) === subject,
     )
     for (const prior of subjectActive) {
       // Only flag when the new canon statement contradicts a still-valid
@@ -135,16 +155,6 @@ function checkTemporalConsistency(
   }
 
   return results
-}
-
-/**
- * Inline canonical-name resolver for the temporal pass. The full
- * resolveCanonicalName requires an alias map which the rule engine doesn't
- * carry; here we only need NFKC-level matching to avoid a cross-module
- * import cycle in the hot path.
- */
-function resolveCanonicalNameInline(name: string): string {
-  return name.trim().normalize("NFKC")
 }
 
 function checkCharacterJump(
