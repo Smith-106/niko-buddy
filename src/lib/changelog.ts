@@ -78,6 +78,56 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_THREE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.3.1",
+  date: "2026-07-08",
+  highlights: {
+    en: [
+      "Fixed critical regression: the 6-dimension review (thrill/pacing/character/continuity/pull) now fires at all three review points in deep chapter generation — stage-4 initial, stage-5.5 resume, and stage-5 post-repair — not just stage-4. Repaired chapters no longer re-review with dimension findings silently dropped.",
+      "Restored the fold_rebuildable contract: fullwidth-colon changes (新增：/角色名：) now parse identically on the live ingest and rebuild paths; validUntil supersession/negation is monotonic and order-independent; temporal consistency check matches alias-mapped subjects against active facts.",
+      "Fixed subplot_board projection category: reclassified from fold_rebuildable to single_snapshot_idempotent to reflect the empty-store commit (no snapshot field wired yet).",
+      "Context engine hardening: deduplicated the ~500-snapshot reload on repeated context builds via an mtime-keyed cache; fixed a Set mutation during graph candidate iteration; deleted 11 dead @ts-expect-error read helpers.",
+      "Wired computeContextBudget adaptive scaling onto the read path — chapter 500 context builds now compress index/page budgets per the chapter-adaptive curve (was dead code); added a MIN_INDEX_FLOOR so tiny context windows still list page titles.",
+      "Sidecar crash-safety: inspiration entries now use atomic write (writeFileAtomic) and degrade to empty on parse failure, matching sibling projections; extracted a shared createAtomicJsonStore helper deduping the save/load boilerplate.",
+      "Wired the subplot-board and resource-ledger renderers into the context engine protected tier (were exported+tested but never imported).",
+    ],
+    zh: [
+      "修复关键回归：深度章节生成的 6 维审查（爽感/节奏/角色/连贯/拉力）现已在三个复审点全部触发——stage-4 初审、stage-5.5 恢复复审、stage-5 返修后复审，不再只在 stage-4 触发。返修章节不再静默丢失维度发现。",
+      "恢复 fold_rebuildable 契约：全角冒号变更（新增：/角色名：）在实时摄取与重建路径解析一致；validUntil 的 supersession/negation 单调收敛、与调用顺序无关；时间一致性检查用别名映射匹配活跃事实的主体。",
+      "修复 subplot_board 投影分类：从 fold_rebuildable 改为 single_snapshot_idempotent，反映空存储提交的真实语义（快照子情节字段尚未接线）。",
+      "上下文引擎加固：通过 mtime 键缓存去重重复上下文构建时的约 500 次快照重载；修复图候选节点迭代时的 Set 突变；删除 11 个死代码 @ts-expect-error read 辅助函数。",
+      "将 computeContextBudget 自适应缩放接入读取路径——第 500 章的上下文构建现按章节自适应曲线压缩索引/页面预算（原为死代码）；新增 MIN_INDEX_FLOOR 让极小上下文窗口仍能列出页面标题。",
+      "Sidecar 崩溃安全：灵感条目改用原子写（writeFileAtomic）并在解析失败时降级为空，与兄弟投影一致；抽取共享 createAtomicJsonStore 辅助函数去重 save/load 样板。",
+      "将 subplot-board 与 resource-ledger 渲染器接入上下文引擎 protected 层（原先已导出+测试但从未被引用）。",
+    ],
+  },
+}
+
+const TWO_POINT_THREE_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "2.3.0",
+  date: "2026-07-06",
+  highlights: {
+    en: [
+      "Added identity resolution: characters referenced by alias now resolve to their canonical name across the writing mainchain via matchesAnyAlias, keeping character state and cognition consistent regardless of which name the LLM uses.",
+      "Added a protected/compressible SourceTier layering to the context engine: canon-current state (character/emotional/subplot/resource) is protected from compression, while summaries and history compress adaptively under the token budget.",
+      "Added chapter-number-adaptive context budget: the context pack scales with novel length so early chapters get full context and later chapters compress per a decay curve.",
+      "Added a pure temporal-memory view: supersession chains and negation pairs are derived from the committed episode log via factsFromCommittedSnapshots/getFactsAt — no second truth source, no persistence layer.",
+      "Added three structured projection fields: EmotionalArcs, SubplotBoard, and ResourceLedger, each with a fold-from-snapshot contract and a context renderer.",
+      "Added a TransportError discriminated union so CLI-subprocess transport failures (timeout/crash/encoding) surface as typed errors instead of generic strings.",
+      "Added three sidecar enhancements: a P14-style writing-style profile, multi-endpoint inspiration capture, and a deferred-trigger workflow for background inspiration ingestion.",
+    ],
+    zh: [
+      "新增身份解析：通过 matchesAnyAlias 将别名引用的角色解析为规范名，贯穿写作主链，无论 LLM 用哪个名字都保持角色状态与认知一致。",
+      "上下文引擎新增 protected/compressible SourceTier 分层：当前正典状态（角色/情感/子情节/资源）受保护不被压缩，摘要与历史在 token 预算下自适应压缩。",
+      "新增章节号自适应上下文预算：上下文包随小说篇幅缩放，早期章节获完整上下文，后期章节按衰减曲线压缩。",
+      "新增纯 temporal-memory 视图：supersession 链与 negation 对由已提交剧集日志经 factsFromCommittedSnapshots/getFactsAt 派生——无第二真源、无持久层。",
+      "新增三个结构化投影字段：EmotionalArcs、SubplotBoard、ResourceLedger，各有 fold-from-snapshot 契约与上下文渲染器。",
+      "新增 TransportError 判别联合类型：CLI 子进程传输失败（超时/崩溃/编码）以类型化错误呈现，而非泛型字符串。",
+      "新增三项 sidecar 增强：P14 风格仿写画像、多端灵感捕获、后台灵感摄取的延迟触发工作流。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG: ChangelogEntry = {
   version: "2.2.24",
   date: "2026-06-26",
@@ -592,6 +642,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_THREE_ONE_CHANGELOG.version) return [TWO_POINT_THREE_ONE_CHANGELOG]
+  if (version === TWO_POINT_THREE_ZERO_CHANGELOG.version) return [TWO_POINT_THREE_ZERO_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_THREE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_THREE_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_TWO_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_TWO_CHANGELOG]
@@ -621,6 +673,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_THREE_ONE_CHANGELOG,
+    TWO_POINT_THREE_ZERO_CHANGELOG,
     TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG,
     TWO_POINT_TWO_TWENTY_THREE_CHANGELOG,
     TWO_POINT_TWO_TWENTY_TWO_CHANGELOG,
