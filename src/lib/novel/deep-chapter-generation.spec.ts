@@ -4,9 +4,11 @@ import { useWikiStore } from "@/stores/wiki-store"
 import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { NovelReviewResult } from "./review-adapter"
+import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 import {
   shouldUseDeepChapterGeneration,
   runDeepChapterGeneration,
+  runFullReviewWithSixDim,
   type DeepChapterGenerationDeps,
   type DeepChapterGenerationResumeCheckpoint,
 } from "./deep-chapter-generation"
@@ -1425,5 +1427,206 @@ describe("runDeepChapterGeneration", () => {
       expect.objectContaining({}),
       controller.signal,
     )
+  })
+})
+
+describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005)", () => {
+  // Helper that builds a non-empty 6-dimension result map for a single dim,
+  // carrying one issue. Used to prove the helper merges 6-dim findings into
+  // reviewResults (the ARCH-001 regression — the 2 resume/repair paths
+  // previously skipped the 6-dim review entirely).
+  function makeDimResult(
+    key: SixReviewDimensionKey,
+    overrides: Partial<DimensionReviewResult> = {},
+  ): DimensionReviewResult {
+    return {
+      dimensionKey: key,
+      score: 40,
+      status: "medium",
+      summary: `${key}摘要`,
+      thinking: "",
+      issues: [{
+        severity: "warning",
+        type: key,
+        dimensionKey: key,
+        message: `${key} 维度问题`,
+        evidence: "正文片段",
+        relatedMemory: "",
+        suggestion: "修正",
+      }],
+      ...overrides,
+    }
+  }
+
+  function reviewOnlyDeps(reviewSequence: NovelReviewResult[][]): DeepChapterGenerationDeps {
+    let reviewCallIndex = 0
+    return {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => reviewSequence[Math.min(reviewCallIndex++, reviewSequence.length - 1)] ?? []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+          ? chapterText("最终去AI味正文", 3000)
+          : prompt.includes("返修")
+            ? chapterText("返修正文内容", 3000)
+            : prompt.includes("正文")
+              ? chapterText("初稿正文内容", 3000)
+              : "写作任务书内容"
+        callbacks.onToken(content)
+        callbacks.onDone()
+      }),
+    }
+  }
+
+  it("stage-5 post-repair re-review invokes runSixDimensionReview and feeds dimension findings into buildDecisionGates", async () => {
+    // Drive the repair loop: stage-4 returns a blocking error → while-loop
+    // runs ≥1 repair iteration → stage-5 post-repair re-review fires. The
+    // re-review must invoke runSixDimensionReview (ARCH-001 regression: it
+    // previously called reviewChapter only, silently skipping 6-dim on the
+    // revised content).
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "plot",
+      message: "没有承接上一章门缝声。",
+      evidence: "初稿正文内容",
+      relatedMemory: "上一章结尾",
+      suggestion: "补上门缝声的承接。",
+    }
+    // reviewSequence: [stage-4 initial review, stage-5 post-repair re-review]
+    // — both go through runFullReviewWithSixDim. The first returns the
+    // blocking issue (drives the repair loop); the second returns [] so the
+    // loop exits after one repair.
+    const deps = reviewOnlyDeps([[blockingIssue], []])
+    const runSixDim = vi.fn<(args: { projectPath: string, chapterContent: string, chapterNumber?: number }) => Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>>>(async () => ({
+      // A pacing-dimension finding with status "medium" → flattened to a
+      // warning-severity NovelReviewResult of type "plot" (quality gate).
+      pacing: makeDimResult("pacing"),
+    }))
+    deps.runSixDimensionReview = runSixDim
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+    )
+
+    // The repair loop ran (revised=true) and resolved to a final polish.
+    expect(result.revised).toBe(true)
+    expect(result.finalContent).toContain("最终去AI味正文")
+    // runSixDimensionReview fired at least twice: stage-4 + stage-5
+    // post-repair. (It may fire more if the loop iterates; here it exits
+    // after one repair so exactly 2.)
+    expect(runSixDim).toHaveBeenCalledTimes(2)
+    // The stage-5 post-repair call passed the REVISED content (返修正文内容),
+    // not the original draft — proving the 6-dim review runs on revised
+    // content, which was the ARCH-001 blindness.
+    const secondCall = runSixDim.mock.calls[1][0] as { chapterContent: string }
+    expect(secondCall.chapterContent).toContain("返修正文内容")
+    // A dimension-tagged finding reached the final reviewResults (the pacing
+    // issue message is present), proving the 6-dim merge happened at the
+    // post-repair re-review and the finding reached buildDecisionGates.
+    expect(result.reviewResults.some((r) => r.message.includes("pacing 维度问题"))).toBe(true)
+  })
+
+  it("runFullReviewWithSixDim helper invokes runSixDimensionReview and merges dimension findings (covers the stage-5.5-resume contract)", async () => {
+    // The stage-5.5-resume path (hasCheckpointRevision + overall === "pending")
+    // is structurally hard to reach end-to-end because buildDecisionGates
+    // never returns overall "pending" — line 1087 resets decisionGates from
+    // the empty (pending) state to pass/fail/warning before the stage-5.5
+    // guard at line 1097 can fire. So we test the shared helper directly:
+    // it is the exact code the stage-5.5-resume path calls, and proving it
+    // merges 6-dim findings proves the stage-5.5 contract holds whenever
+    // that path does fire.
+    const reviewChapter = vi.fn(async () => [
+      {
+        severity: "info",
+        type: "plot",
+        message: "reviewChapter 基础发现",
+        evidence: "",
+        relatedMemory: "",
+        suggestion: "",
+      },
+    ] as NovelReviewResult[])
+    const runSixDim = vi.fn<(args: { projectPath: string, chapterContent: string, chapterNumber?: number }) => Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>>>(async () => ({
+      character: makeDimResult("character"),
+    }))
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      runSixDimensionReview: runSixDim,
+      streamChat: vi.fn(async () => {}),
+    }
+
+    const { reviewResults, dimensionResults } = await runFullReviewWithSixDim(
+      "章节正文内容",
+      3,
+      "E:/Novel",
+      deps,
+      undefined,
+      contextPack,
+      {},
+    )
+
+    expect(runSixDim).toHaveBeenCalledTimes(1)
+    expect(runSixDim).toHaveBeenCalledWith(expect.objectContaining({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文内容",
+      chapterNumber: 3,
+    }))
+    // The 6-dim result map is returned for checkpoint persistence.
+    expect(dimensionResults.character).toBeDefined()
+    // The flattened dimension finding is merged into reviewResults alongside
+    // the reviewChapter finding. character → character_consistency type
+    // (DIM_TO_GATE_TYPE), so it lands in the CONSISTENCY gate downstream.
+    expect(reviewResults.some((r) => r.message.includes("character 维度问题"))).toBe(true)
+    expect(reviewResults.some((r) => r.type === "character_consistency")).toBe(true)
+    expect(reviewResults.some((r) => r.message.includes("reviewChapter 基础发现"))).toBe(true)
+  })
+
+  it("runFullReviewWithSixDim keeps the main review flow alive when runSixDimensionReview throws (non-blocking)", async () => {
+    // The 6-dim try/catch MUST be non-blocking: a 6-dim failure must not
+    // break the main review flow (preserved from the original stage-4
+    // pattern). The helper returns reviewChapter's results and an empty
+    // dimensionResults map; the caller proceeds normally.
+    const reviewChapter = vi.fn(async () => [
+      {
+        severity: "info",
+        type: "plot",
+        message: "基础发现",
+        evidence: "",
+        relatedMemory: "",
+        suggestion: "",
+      },
+    ] as NovelReviewResult[])
+    const runSixDim = vi.fn<(args: { projectPath: string, chapterContent: string, chapterNumber?: number }) => Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>>>(async () => { throw new Error("6-dim stalled") })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      runSixDimensionReview: runSixDim,
+      streamChat: vi.fn(async () => {}),
+    }
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    const { reviewResults, dimensionResults } = await runFullReviewWithSixDim(
+      "章节正文内容",
+      3,
+      "E:/Novel",
+      deps,
+      undefined,
+      contextPack,
+      {},
+    )
+
+    // reviewChapter's findings survive; the 6-dim failure did not propagate.
+    expect(reviewResults.some((r) => r.message.includes("基础发现"))).toBe(true)
+    expect(dimensionResults).toEqual({})
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Deep Chapter] 6-dimension review failed (non-blocking):",
+      expect.any(Error),
+    )
+    errorSpy.mockRestore()
   })
 })
