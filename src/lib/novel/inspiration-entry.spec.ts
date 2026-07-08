@@ -5,6 +5,7 @@ const fsMocks = vi.hoisted(() => ({
   fileExists: vi.fn(async () => false),
   readFile: vi.fn(async () => ""),
   writeFile: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn(async () => {}),
 }))
 
 const cryptoMocks = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ vi.mock("@/commands/fs", () => ({
   fileExists: fsMocks.fileExists,
   readFile: fsMocks.readFile,
   writeFile: fsMocks.writeFile,
+  writeFileAtomic: fsMocks.writeFileAtomic,
 }))
 
 vi.mock("node:crypto", () => ({
@@ -141,10 +143,21 @@ describe("loadInspirationCollection", () => {
     expect(col.updatedAt).toBe("2026-07-08T00:00:00.000Z")
   })
 
-  it("rejects invalid schemaVersion", async () => {
+  it("degrades to empty collection on invalid schemaVersion (BP-003 crash-safety)", async () => {
     fsMocks.fileExists.mockResolvedValue(true)
     fsMocks.readFile.mockResolvedValue(JSON.stringify({ schemaVersion: 2, entries: [] }))
-    await expect(loadInspirationCollection("E:/Novel")).rejects.toThrow(/invalid inspirations\.json/)
+    const col = await loadInspirationCollection("E:/Novel")
+    // BP-003: corrupt/invalid inspirations.json degrades to empty, not throw.
+    expect(col.schemaVersion).toBe(1)
+    expect(col.entries).toEqual([])
+  })
+
+  it("degrades to empty collection on unparseable (truncated) JSON (BP-003 crash-safety)", async () => {
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockResolvedValue("{ truncated")
+    const col = await loadInspirationCollection("E:/Novel")
+    expect(col.schemaVersion).toBe(1)
+    expect(col.entries).toEqual([])
   })
 })
 
@@ -154,11 +167,12 @@ describe("appendInspiration", () => {
     fsMocks.fileExists.mockReset()
     fsMocks.readFile.mockReset()
     fsMocks.writeFile.mockClear()
+    fsMocks.writeFileAtomic.mockClear()
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-08T10:00:00.000Z"))
   })
 
-  it("creates dir, loads existing, appends, persists", async () => {
+  it("creates dir, loads existing, appends, persists via writeFileAtomic (BP-003)", async () => {
     fsMocks.fileExists.mockResolvedValue(true)
     const existing = {
       schemaVersion: 1,
@@ -176,10 +190,12 @@ describe("appendInspiration", () => {
     expect(col.entries).toHaveLength(2)
     expect(col.entries[1]).toBe(entry)
     expect(col.updatedAt).toBe("2026-07-08T10:00:00.000Z")
-    expect(fsMocks.writeFile).toHaveBeenCalledWith(
+    // BP-003: atomic write used, not bare writeFile.
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
       "E:/Novel/.novel/inspirations.json",
       expect.stringContaining("new idea"),
     )
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
   })
 
   it("starts from empty collection when file missing", async () => {
@@ -187,6 +203,19 @@ describe("appendInspiration", () => {
     const entry = createInspirationEntry("first", "scene")
     const col = await appendInspiration("E:/Novel", entry)
     expect(col.entries).toEqual([entry])
-    expect(fsMocks.writeFile).toHaveBeenCalledOnce()
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledOnce()
+  })
+
+  it("starts from empty collection when existing file is corrupt (BP-003)", async () => {
+    // Corrupt file: load degrades to empty, append still succeeds (no throw).
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockResolvedValue("{ broken json")
+    const entry = createInspirationEntry("recovery", "setting")
+    const col = await appendInspiration("E:/Novel", entry)
+    expect(col.entries).toEqual([entry])
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.novel/inspirations.json",
+      expect.stringContaining("recovery"),
+    )
   })
 })

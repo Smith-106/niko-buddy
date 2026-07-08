@@ -7,6 +7,8 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
 import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
+import { loadSubplotBoard, subplotBoardToContextText } from "./subplot-board"
+import { loadResourceLedger, resourceLedgerToContextText } from "./resource-ledger"
 import {
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
@@ -264,6 +266,14 @@ async function buildContextPackFromRawData(
     // from the .novel/emotional-arcs.json store (same pattern as
     // readCognitionStates). Empty when no arcs recorded (backward compatible).
     await readEmotionalArcsText(context.projectPath),
+    // MAINT-002 (TASK-008): subplot-board + resource-ledger projections
+    // injected as protected-tier canon alongside emotional-arcs — active
+    // subplots and current item holders are load-bearing for the current
+    // chapter (renderer docstrings: subplot-board.ts:70, resource-ledger.ts:78
+    // say 'protected-tier context'). Empty stores render '' (backward
+    // compatible — no injection when unwired).
+    await readSubplotBoardText(context.projectPath),
+    await readResourceLedgerText(context.projectPath),
   ], "\n\n")
   
   const timeline = joinNonEmpty([
@@ -762,6 +772,34 @@ async function readEmotionalArcsText(pp: string): Promise<string> {
   try {
     const store = await loadEmotionalArcs(pp)
     return emotionalArcsToContextText(store)
+  } catch {}
+  return ""
+}
+
+/**
+ * MAINT-002 (TASK-008): read subplot-board store and render as protected-tier
+ * context text. Returns "" when the store is empty/absent (backward
+ * compatible). Failures swallowed (non-fatal) — same contract as
+ * readEmotionalArcsText.
+ */
+async function readSubplotBoardText(pp: string): Promise<string> {
+  try {
+    const store = await loadSubplotBoard(pp)
+    return subplotBoardToContextText(store)
+  } catch {}
+  return ""
+}
+
+/**
+ * MAINT-002 (TASK-008): read resource-ledger store and render as
+ * protected-tier context text. Returns "" when the store is empty/absent
+ * (backward compatible). Failures swallowed (non-fatal) — same contract as
+ * readEmotionalArcsText.
+ */
+async function readResourceLedgerText(pp: string): Promise<string> {
+  try {
+    const store = await loadResourceLedger(pp)
+    return resourceLedgerToContextText(store)
   } catch {}
   return ""
 }

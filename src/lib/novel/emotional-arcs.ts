@@ -1,5 +1,4 @@
-import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { createAtomicJsonStore } from "./projection-store"
 
 /**
  * R4 (S4 / ANL-013): EmotionalArcs projection — per-chapter character
@@ -16,6 +15,10 @@ import { normalizePath } from "@/lib/path-utils"
  * Persistence uses writeFileAtomic (fs.rs:1190 temp+fsync+rename) so a crash
  * mid-write never leaves a truncated emotional-arcs.json that would break
  * ingest on next load (same crash-safety contract as character-state.ts).
+ *
+ * MAINT-002: save/load delegated to createAtomicJsonStore (shared boilerplate
+ * with resource-ledger / subplot-board). Function-name exports preserved as
+ * thin wrappers — chapter-ingest.ts imports them by name.
  */
 
 export interface EmotionalArcBeat {
@@ -42,32 +45,25 @@ export function createEmptyEmotionalArcStore(): EmotionalArcStore {
   return { beats: [], lastUpdated: new Date().toISOString() }
 }
 
+// MAINT-002: shared atomic JSON store (createDirectory + writeFileAtomic /
+// readFile + JSON.parse with emptyCtor fallback). Replaces duplicated
+// save/load boilerplate.
+const emotionalArcsStore = createAtomicJsonStore<EmotionalArcStore>(
+  "emotional-arcs.json",
+  createEmptyEmotionalArcStore,
+)
+
 export async function saveEmotionalArcs(
   projectPath: string,
   store: EmotionalArcStore,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — a truncated
-  // emotional-arcs.json would break ingest on next load. fold_rebuildable
-  // via the committed snapshot sequence, but atomicity protects the rebuild
-  // path itself (same contract as character-state.ts:30).
-  await writeFileAtomic(
-    `${pp}/.novel/emotional-arcs.json`,
-    JSON.stringify(store, null, 2),
-  )
+  await emotionalArcsStore.save(projectPath, store)
 }
 
 export async function loadEmotionalArcs(
   projectPath: string,
 ): Promise<EmotionalArcStore> {
-  const pp = normalizePath(projectPath)
-  try {
-    const raw = await readFile(`${pp}/.novel/emotional-arcs.json`)
-    return JSON.parse(raw)
-  } catch {
-    return createEmptyEmotionalArcStore()
-  }
+  return emotionalArcsStore.load(projectPath)
 }
 
 /**

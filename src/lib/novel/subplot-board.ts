@@ -1,5 +1,4 @@
-import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { createAtomicJsonStore } from "./projection-store"
 
 /**
  * R4 (S4 / ANL-013): SubplotBoard projection —支线剧情进度板. ANL-013 G2
@@ -13,6 +12,10 @@ import { normalizePath } from "@/lib/path-utils"
  * Fold-rebuildable (S3 F-002): re-derivable from the committed snapshot
  * sequence. Persistence uses writeFileAtomic (fs.rs:1190 temp+fsync+rename)
  * — crash-safe, same contract as foreshadowing-tracker.ts.
+ *
+ * MAINT-002: save/load delegated to createAtomicJsonStore (shared boilerplate
+ * with emotional-arcs / resource-ledger). Function-name exports preserved as
+ * thin wrappers — chapter-ingest.ts imports them by name.
  */
 
 export type SubplotStatus = "proposed" | "active" | "paused" | "resolved"
@@ -39,32 +42,25 @@ export function createEmptySubplotBoardStore(): SubplotBoardStore {
   return { items: [], lastUpdated: new Date().toISOString() }
 }
 
+// MAINT-002: shared atomic JSON store (createDirectory + writeFileAtomic /
+// readFile + JSON.parse with emptyCtor fallback). Replaces duplicated
+// save/load boilerplate.
+const subplotBoardStore = createAtomicJsonStore<SubplotBoardStore>(
+  "subplot-board.json",
+  createEmptySubplotBoardStore,
+)
+
 export async function saveSubplotBoard(
   projectPath: string,
   store: SubplotBoardStore,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — a truncated
-  // subplot-board.json would break ingest on next load. fold_rebuildable
-  // via the committed snapshot sequence (same contract as
-  // foreshadowing-tracker.ts:30).
-  await writeFileAtomic(
-    `${pp}/.novel/subplot-board.json`,
-    JSON.stringify(store, null, 2),
-  )
+  await subplotBoardStore.save(projectPath, store)
 }
 
 export async function loadSubplotBoard(
   projectPath: string,
 ): Promise<SubplotBoardStore> {
-  const pp = normalizePath(projectPath)
-  try {
-    const raw = await readFile(`${pp}/.novel/subplot-board.json`)
-    return JSON.parse(raw)
-  } catch {
-    return createEmptySubplotBoardStore()
-  }
+  return subplotBoardStore.load(projectPath)
 }
 
 /**

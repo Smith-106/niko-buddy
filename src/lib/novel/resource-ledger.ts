@@ -1,5 +1,4 @@
-import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { createAtomicJsonStore } from "./projection-store"
 
 /**
  * R4 (S4 / ANL-013): ResourceLedger projection —物品归属转移时序账本.
@@ -15,6 +14,10 @@ import { normalizePath } from "@/lib/path-utils"
  * sequence — ItemDetail.holder folds into transferHistory deterministically.
  * Persistence uses writeFileAtomic (fs.rs:1190 temp+fsync+rename) —
  * crash-safe, same contract as character-state.ts.
+ *
+ * MAINT-002: save/load delegated to createAtomicJsonStore (shared boilerplate
+ * with emotional-arcs / subplot-board). Function-name exports preserved as
+ * thin wrappers — chapter-ingest.ts imports them by name.
  */
 
 export interface ResourceTransfer {
@@ -48,31 +51,25 @@ export function createEmptyResourceLedgerStore(): ResourceLedgerStore {
   return { entries: [], lastUpdated: new Date().toISOString() }
 }
 
+// MAINT-002: shared atomic JSON store (createDirectory + writeFileAtomic /
+// readFile + JSON.parse with emptyCtor fallback). Replaces duplicated
+// save/load boilerplate.
+const resourceLedgerStore = createAtomicJsonStore<ResourceLedgerStore>(
+  "resource-ledger.json",
+  createEmptyResourceLedgerStore,
+)
+
 export async function saveResourceLedger(
   projectPath: string,
   store: ResourceLedgerStore,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — a truncated
-  // resource-ledger.json would break ingest on next load. fold_rebuildable
-  // via the committed snapshot sequence (same contract as character-state.ts:30).
-  await writeFileAtomic(
-    `${pp}/.novel/resource-ledger.json`,
-    JSON.stringify(store, null, 2),
-  )
+  await resourceLedgerStore.save(projectPath, store)
 }
 
 export async function loadResourceLedger(
   projectPath: string,
 ): Promise<ResourceLedgerStore> {
-  const pp = normalizePath(projectPath)
-  try {
-    const raw = await readFile(`${pp}/.novel/resource-ledger.json`)
-    return JSON.parse(raw)
-  } catch {
-    return createEmptyResourceLedgerStore()
-  }
+  return resourceLedgerStore.load(projectPath)
 }
 
 /**

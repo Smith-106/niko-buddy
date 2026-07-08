@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto"
-import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
 /** 移动端灵感记录 (最小可行结构, 本地文件交换非云同步) */
@@ -111,21 +111,34 @@ export function renderInspirationsForRouting(collection: InspirationCollection):
   return `# 移动端灵感 (导入桌面深写)\n\n${sections.join("\n\n")}`
 }
 
-/** 从 .novel/inspirations.json 加载灵感集合 (桌面端导入移动端记录)。文件不存在返回空集合。 */
+/**
+ * 从 .novel/inspirations.json 加载灵感集合 (桌面端导入移动端记录)。
+ * 文件不存在返回空集合。文件存在但解析失败 (截断 / 损坏 — 写中途崩溃
+ * 留下的 truncated .json) 降级为空集合并 warn, 不抛出 — 与
+ * loadEmotionalArcs 一致 (BP-003 fix: 裸 writeFile 改 writeFileAtomic
+ * 后, 崩溃截断不再可能, 但 load 仍需防御历史/外部损坏, 非阻断)。
+ */
 export async function loadInspirationCollection(projectPath: string): Promise<InspirationCollection> {
   const filePath = inspirationsPath(projectPath)
   const exists = await fileExists(filePath)
   if (!exists) return emptyCollection()
 
-  const raw = await readFile(filePath)
-  const parsed = JSON.parse(raw) as Partial<InspirationCollection>
-  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
-    throw new Error(`invalid inspirations.json: schemaVersion/entries mismatch at ${filePath}`)
-  }
-  return {
-    schemaVersion: 1,
-    entries: parsed.entries as InspirationEntry[],
-    updatedAt: parsed.updatedAt ?? new Date().toISOString(),
+  try {
+    const raw = await readFile(filePath)
+    const parsed = JSON.parse(raw) as Partial<InspirationCollection>
+    if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
+      console.warn(`[Inspiration] invalid inspirations.json at ${filePath}, falling back to empty collection`)
+      return emptyCollection()
+    }
+    return {
+      schemaVersion: 1,
+      entries: parsed.entries as InspirationEntry[],
+      updatedAt: parsed.updatedAt ?? new Date().toISOString(),
+    }
+  } catch (error) {
+    // 截断 / 损坏文件 — 降级而非中断移动端灵感导入 (BP-003 crash-safety)。
+    console.warn(`[Inspiration] failed to parse inspirations.json at ${filePath}, falling back to empty collection:`, error instanceof Error ? error.message : error)
+    return emptyCollection()
   }
 }
 
@@ -141,13 +154,15 @@ export async function appendInspiration(
   const dir = filePath.slice(0, filePath.lastIndexOf("/"))
   await createDirectory(dir)
 
-  const collection = await loadInspirationCollection(projectPath).catch((error) => {
-    // load 失败仅当文件存在但解析错误时抛出；文件不存在走 emptyCollection 路径不会抛。
-    throw error
-  })
+  // loadInspirationCollection 降级返回空集合 (不抛), 故这里直接 await —
+  // 文件不存在或解析失败都已在上层转为 emptyCollection (BP-003 crash-safety)。
+  const collection = await loadInspirationCollection(projectPath)
   collection.entries.push(entry)
   collection.updatedAt = new Date().toISOString()
 
-  await writeFile(filePath, JSON.stringify(collection, null, 2))
+  // BP-003 fix: writeFileAtomic (temp + fsync + rename) — 写中途崩溃不留
+  // 截断 inspirations.json, 与 .novel/ 下所有其他投影 (emotional-arcs /
+  // subplot-board / resource-ledger / projection-status / cognition) 一致。
+  await writeFileAtomic(filePath, JSON.stringify(collection, null, 2))
   return collection
 }
