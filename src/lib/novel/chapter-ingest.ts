@@ -444,7 +444,16 @@ export async function ingestChapter(
   } catch {
     projectionLedger = { projections: {}, chapters: {} }
   }
-  const chapterNo = snapshot?.chapterNumber ?? 0
+  // CORR-111 fix: derive chapterNo from the frontmatter-validated chapter
+  // number (line ~392, available regardless of snapshot extraction outcome),
+  // NOT from `snapshot?.chapterNumber ?? 0`. The vector projection below runs
+  // OUTSIDE the `if (snapshot)` guard (it uses content/fm, not snapshot), so
+  // when extraction fails (snapshot === null) the prior `?? 0` recorded the
+  // embedding under chapter 0 — orphaning the ledger entry and risking a
+  // duplicate embedding on re-ingest under the real number. Frontmatter
+  // validation already guarantees chapterNumber > 0 here (invalid numbers
+  // early-return at the parseChapterNumber guard above).
+  const chapterNo = chapterNumber
   // CORR-007: captured from inside runProjection('sync_snapshot_to_memory')
   // so the return value can carry memorySyncedAt (runProjection returns void).
   let memorySyncedAt: string | undefined
@@ -1365,18 +1374,31 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
     const parsed = parseForeshadowingChange(change)
     if (!parsed) continue
     if (parsed.kind === "add") {
-      const newForeshadow: Foreshadowing = {
-        id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-        name: parsed.name,
-        description: parsed.desc,
-        status: "planted",
-        plantedChapter: snapshot.chapterNumber,
-        advancedChapters: [],
-        relatedCharacters: [],
-        relatedEvents: [],
-        notes: "",
+      // fold_rebuildable idempotency (CORR-104): an "add" foreshadow is keyed
+      // by (plantedChapter, name). Re-ingesting the same snapshot MUST NOT
+      // append a duplicate with a fresh length+1 id — otherwise live re-ingest
+      // diverges from a clean rebuild (which folds each snapshot exactly once)
+      // and ids collide/drift. If an item with the same name was already
+      // planted by this chapter, update it in place instead of pushing.
+      const existing = existingForeshadows.items.find(
+        f => f.name === parsed.name && f.plantedChapter === snapshot.chapterNumber,
+      )
+      if (existing) {
+        existing.description = parsed.desc
+      } else {
+        const newForeshadow: Foreshadowing = {
+          id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
+          name: parsed.name,
+          description: parsed.desc,
+          status: "planted",
+          plantedChapter: snapshot.chapterNumber,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        }
+        existingForeshadows.items.push(newForeshadow)
       }
-      existingForeshadows.items.push(newForeshadow)
     } else if (parsed.kind === "advance") {
       const matched = existingForeshadows.items.find(
         f => f.name === parsed.name || parsed.name.includes(f.name) || f.name.includes(parsed.name)
@@ -1423,14 +1445,26 @@ function applyEmotionalArcsToStore(
     const arcChange = (detail?.arcChange ?? "").trim()
     if (!arcChange) continue
     const canonical = resolveCanonicalName(rawName, resolveMatchingMap(rawName, aliasMaps))
-    arcStore.beats.push({
-      character: canonical,
-      chapterNumber: snapshot.chapterNumber,
-      emotion: arcChange,
-      intensity: 0,
-      trigger: "",
-      notes: "",
-    })
+    // fold_rebuildable idempotency (CORR-103): a beat is keyed by
+    // (character, chapterNumber). Re-ingesting the same snapshot (or re-running
+    // the fold over a store that already holds this chapter's beat) MUST update
+    // the existing beat rather than append a duplicate — otherwise live re-ingest
+    // diverges from a clean rebuild (which folds each snapshot exactly once).
+    const existing = arcStore.beats.find(
+      b => b.character === canonical && b.chapterNumber === snapshot.chapterNumber,
+    )
+    if (existing) {
+      existing.emotion = arcChange
+    } else {
+      arcStore.beats.push({
+        character: canonical,
+        chapterNumber: snapshot.chapterNumber,
+        emotion: arcChange,
+        intensity: 0,
+        trigger: "",
+        notes: "",
+      })
+    }
   }
   arcStore.lastUpdated = new Date().toISOString()
   return arcStore
