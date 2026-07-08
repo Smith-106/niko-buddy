@@ -430,9 +430,15 @@ async function writeDraftArtifact(
   const draftId = input.conversationId
   const filePath = novelDraftArtifactPath(input.projectPath, draftId)
   const existing = await loadNovelDraftArtifact(input.projectPath, draftId)
+  // CORR-003 (odyssey): supersede when the existing draft belongs to a
+  // different session OR is a legacy draft with no session_id (the field is
+  // optional — loadNovelDraftArtifact does not require it). Previously the
+  // `existing.session_id` truthiness guard let legacy drafts fall through to
+  // a silent overwrite, losing the original content/review_results without
+  // creating a superseded.{timestamp}.json audit copy. `undefined !== sessionId`
+  // is true, so legacy drafts now route through the supersede path.
   if (
     existing
-    && existing.session_id
     && existing.session_id !== sessionId
     && existing.draft_status !== "superseded"
   ) {
@@ -457,6 +463,15 @@ async function writeDraftArtifact(
     )
   }
   const content = extractDraftContent(checkpoint, options.finalContent)
+  // CORR-001 (odyssey): preserve the original creation timestamp across
+  // rewrites. Previously every writeDraftArtifact call reset created_at to
+  // `now`, making it semantically identical to updated_at and losing the
+  // draft's first-creation time (used for audit/timeline). Keep existing
+  // when rewriting the same draft (same session_id, not superseded); only a
+  // brand-new draft (no existing, or existing is being superseded) uses `now`.
+  const createdAt = existing && existing.session_id === sessionId && existing.draft_status !== "superseded"
+    ? existing.created_at
+    : now
   const artifact: NovelDraftArtifact = {
     draft_id: draftId,
     session_id: sessionId,
@@ -470,7 +485,7 @@ async function writeDraftArtifact(
     review_results: reviewResults,
     checkpoint,
     decision_gates: cloneDecisionGates(options.decisionGates ?? checkpoint?.decisionGates),
-    created_at: now,
+    created_at: createdAt,
     updated_at: now,
     accepted_at: options.acceptedAt,
     rejected_at: options.rejectedAt,

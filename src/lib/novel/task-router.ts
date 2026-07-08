@@ -302,6 +302,17 @@ function isAmbientOpeningKeywordRequest(text: string): boolean {
 function isOpeningChapterRequest(text: string): boolean {
   if (hasNextChapterContinuationWording(text)) return false
   if (hasExplicitLaterChapterNumber(text)) return false
+  // CORR-005 (odyssey): guard against negative directives. Bare `/第一章/` and
+  // `/开篇章节/` patterns match any mention, so "不要写第一章" (don't write
+  // chapter 1) was misclassified as write_chapter intent=1. If the opening
+  // keyword is preceded by a negation within the same clause, treat as
+  // non-opening (falls through to general intent scoring). This is a
+  // best-effort guard — regex routing cannot fully resolve negation semantics
+  // (documented constraint); the deep-chapter-generation mainchain still
+  // derives the final target from context, so a misroute here is recoverable.
+  if (/(?:不要|别|禁止|避免|勿|不用|不需)[^。！？\n]{0,12}(?:第一章|第\s*1\s*章|开篇章节|小说开头|开篇|开局|首章)/.test(text)) {
+    return false
+  }
   if ([
     /生成前三章/,
     /写前三章/,
