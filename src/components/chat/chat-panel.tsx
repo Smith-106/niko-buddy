@@ -141,11 +141,25 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
   const setActiveConversation = useChatStore((s) => s.setActiveConversation)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // MI-009 (odyssey-ui): delete is destructive — two-step confirm so a stray
+  // click (or a touch tap meant to switch tabs) can't silently wipe a
+  // conversation. Single shared state keyed by conv id keeps the map flat.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const sorted = sortConversationsByUpdatedAt(conversations)
 
   function getMessageCount(convId: string): number {
     return messages.filter((m) => m.conversationId === convId).length
+  }
+
+  function handleDeleteConversation(convId: string, onAbortStream: (convId: string) => void) {
+    onAbortStream(convId)
+    deleteConversation(convId)
+    const proj = useWikiStore.getState().project
+    if (proj) {
+      deleteFile(`${proj.path}/.qmai/chats/${convId}.json`).catch(() => {})
+    }
+    setConfirmDeleteId(null)
   }
 
   return (
@@ -171,43 +185,80 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
             const isThisStreaming = conv.id in streamingContents
             const msgCount = getMessageCount(conv.id)
             return (
-              <button
+              <div
                 key={conv.id}
-                type="button"
-                className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                role="tab"
+                tabIndex={0}
+                aria-selected={isActive}
+                // IS-006/A11Y-008 (odyssey-ui): outer was a <button> with a
+                // nested <span onClick> delete — nested interactive elements
+                // are invalid HTML and the delete was keyboard-unreachable.
+                // Switched to a div[role=tab] so the delete can be a real
+                // focusable <button>. Enter/Space activates the tab (W3C ARIA
+                // Pattern for tabs). focus-visible ring restored.
+                className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 ${
                   isActive
                     ? "border-primary/40 bg-background text-foreground shadow-sm"
                     : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
                 onClick={() => setActiveConversation(conv.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    setActiveConversation(conv.id)
+                  }
+                }}
                 onMouseEnter={() => setHoveredId(conv.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 title={conv.title}
               >
-                {isThisStreaming && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />}
+                {isThisStreaming && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />}
                 <span className="max-w-[140px] truncate font-medium">
                   {getConversationTabTitle(conv.title, 10)}
                 </span>
-                <span className="text-[10px] opacity-70">{msgCount}</span>
-                <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
-                {hoveredId === conv.id && (
-                  <span
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      // 先 abort 该会话的流式请求，防止后台继续运行
-                      onAbortStream(conv.id)
-                      deleteConversation(conv.id)
-                      const proj = useWikiStore.getState().project
-                      if (proj) {
-                        deleteFile(`${proj.path}/.qmai/chats/${conv.id}.json`).catch(() => {})
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </span>
-                )}
-              </button>
+                <span className="text-[10px] tabular-nums text-muted-foreground">{msgCount}</span>
+                <span className="text-[10px] tabular-nums text-muted-foreground">{formatDate(conv.updatedAt)}</span>
+                {/*
+                 * MI-002/MI-009 (odyssey-ui): delete button.
+                 * - Real <button> with aria-label (was <span onClick> — AT + keyboard blind).
+                 * - Visible on hover AND focus-within AND when active, so touch users
+                 *   who can't hover still get it on the active tab (touch fallback).
+                 * - Two-step confirm: first click arms (icon → "确认?" text), second
+                 *   click within the same tab deletes. Leaving the tab resets.
+                 */}
+                {(() => {
+                  const armed = confirmDeleteId === conv.id
+                  const visible = hoveredId === conv.id || isActive || armed
+                  if (!visible) return null
+                  return (
+                    <button
+                      type="button"
+                      aria-label={armed ? "确认删除该会话" : "删除该会话"}
+                      title={armed ? "再次点击确认删除" : "删除该会话"}
+                      className={`shrink-0 rounded p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                        armed
+                          ? "bg-destructive/10 px-1.5 text-destructive"
+                          : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (armed) {
+                          handleDeleteConversation(conv.id, onAbortStream)
+                        } else {
+                          setConfirmDeleteId(conv.id)
+                        }
+                      }}
+                      onBlur={() => setConfirmDeleteId((cur) => (cur === conv.id ? null : cur))}
+                    >
+                      {armed ? (
+                        <span className="text-[10px] font-medium">确认?</span>
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                    </button>
+                  )
+                })()}
+              </div>
             )
           })
         )}
@@ -2075,7 +2126,14 @@ export function ChatPanel() {
                                 variant="ghost"
                                 size="icon"
                                 aria-pressed={chatEditModeEnabled}
-                                className={chatEditModeEnabled ? "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100" : ""}
+                                // VH-003 (odyssey-ui): edit-mode active was
+                                // hardcoded amber-* with no dark/deep-blue
+                                // variant — clashing with the adjacent
+                                // deep-chapter toggle which uses primary tokens.
+                                // Route through the same token-based helper so
+                                // all "enabled mode" toggles share one visual
+                                // language across the 3 themes.
+                                className={getDeepChapterToggleButtonClass(chatEditModeEnabled)}
                                 onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
                                 title="编辑章节"
                                 aria-label="编辑章节"
