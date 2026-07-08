@@ -10,6 +10,14 @@ export interface ContextLoadContext {
   projectPath: string
   task: string
   chapterNumber?: number
+  /**
+   * LLM max context window (chars). TASK-007 (PERF-011): wired through from
+   * useWikiStore.llmConfig.maxContextSize so computeContextBudget's adaptive
+   * scaling (chapterAdaptiveScale) is live on the read path. Optional — when
+   * absent, computeContextBudget falls back to DEFAULT_MAX_CTX (backward
+   * compatible with callers that don't supply it).
+   */
+  maxContextSize?: number
   config: {
     recentSummaryWindow: number
     searchTopK: number
