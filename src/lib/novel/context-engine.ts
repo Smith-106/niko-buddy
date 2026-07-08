@@ -531,11 +531,27 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
 }
 
 /**
+ * Clear the temporal-facts cache. Pass projectPath to clear a single project's
+ * entry; omit it to clear the whole cache. Production callers (e.g.
+ * deleteChapterSnapshots) MUST clear after deleting a non-max snapshot — the
+ * cache key `${maxSnapshotNumber}:${maxSnapshotMtime}` is unchanged by such a
+ * delete, so a stale hit would inject deleted-chapter canon facts into the
+ * next context build.
+ */
+export function clearTemporalFactsCache(projectPath?: string): void {
+  if (projectPath === undefined) {
+    temporalFactsCache.clear()
+    return
+  }
+  temporalFactsCache.delete(normalizePath(projectPath))
+}
+
+/**
  * Test-only: clear the temporal-facts cache. Lets tests assert cold-cache
  * behavior without leaking state across cases. Not for production use.
  */
 export function __resetTemporalFactsCacheForTests(): void {
-  temporalFactsCache.clear()
+  clearTemporalFactsCache()
 }
 
 export function extractChapterNumberFromTask(task: string): number | undefined {

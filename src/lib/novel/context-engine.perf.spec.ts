@@ -65,6 +65,7 @@ vi.mock("./community-summary", () => ({
 
 import {
   loadTemporalFactsCached,
+  clearTemporalFactsCache,
   __resetTemporalFactsCacheForTests,
   searchGraphRelevantContent,
   contextPackToPrompt,
@@ -164,6 +165,82 @@ describe("PERF-001 loadTemporalFactsCached", () => {
     const second = await loadTemporalFactsCached("/Empty")
     expect(second).toEqual([])
     expect(chapterIngestMocks.loadSnapshot).not.toHaveBeenCalled()
+  })
+})
+
+// --- REG-001 clearTemporalFactsCache -------------------------------------
+// Bug: deleteChapterSnapshots deleted a non-max-number chapter whose file
+// mtime was unchanged, so the cache key (`maxNumber:maxMtime`) stayed the
+// same → loadTemporalFactsCached returned the stale pre-delete facts.
+// Fix: deleteChapterSnapshots now calls clearTemporalFactsCache(pp) after
+// rebuildDerivedMemoryFromSnapshots. This test asserts the cache-invalidation
+// contract directly: after clearTemporalFactsCache, the next load reloads
+// even when the cache key (number+mtime) would otherwise be identical.
+
+describe("REG-001 clearTemporalFactsCache invalidates the temporal-facts cache", () => {
+  beforeEach(() => {
+    __resetTemporalFactsCacheForTests()
+    chapterIngestMocks.loadSnapshot.mockReset()
+    chapterIngestMocks.listSnapshots.mockReset()
+    fsMocks.listDirectory.mockReset()
+    fsMocks.getFileModifiedTime.mockReset()
+  })
+
+  it("forces a reload on the next loadTemporalFactsCached even with identical number+mtime", async () => {
+    // One snapshot, chapter 1, mtime 1000 — stable across both loads.
+    fsMocks.listDirectory.mockResolvedValue([snapshotFile("001.snapshot.json")])
+    chapterIngestMocks.listSnapshots.mockResolvedValue([1])
+    fsMocks.getFileModifiedTime.mockResolvedValue(1_000)
+    chapterIngestMocks.loadSnapshot.mockImplementation(async (_pp: string, n: number) =>
+      n === 1 ? makeSnapshot(1, "主角：凡人") : makeSnapshot(n, "占位"),
+    )
+
+    // First load fills the cache (1 loadSnapshot call).
+    const first = await loadTemporalFactsCached("/P")
+    expect(chapterIngestMocks.loadSnapshot).toHaveBeenCalledTimes(1)
+    expect(first.map((f: TemporalFact) => f.object)).toContain("凡人")
+
+    // Simulate deleteChapterSnapshots clearing the cache. Without this call
+    // the next load would be a cache HIT (same number+mtime) and return the
+    // stale "凡人" facts — the REG-001 bug.
+    clearTemporalFactsCache("/P")
+
+    // Reload returns fresh facts (the snapshot store was rebuilt by the delete
+    // path; here we model the post-delete content as "剑修" to prove reload).
+    chapterIngestMocks.loadSnapshot.mockImplementation(async (_pp: string, n: number) =>
+      n === 1 ? makeSnapshot(1, "主角：剑修") : makeSnapshot(n, "占位"),
+    )
+    const second = await loadTemporalFactsCached("/P")
+    // Reload happened despite identical number+mtime → cache was invalidated.
+    expect(chapterIngestMocks.loadSnapshot).toHaveBeenCalledTimes(2)
+    expect(second.map((f: TemporalFact) => f.object)).toContain("剑修")
+    expect(second.map((f: TemporalFact) => f.object)).not.toContain("凡人")
+    expect(second).not.toBe(first)
+  })
+
+  it("clears only the targeted project path, leaving other projects cached", async () => {
+    // Project /A and /B each have one snapshot; both loaded once. Use
+    // ordered mockResolvedValueOnce (not pp-based branching) so the test is
+    // robust to however normalizePath renders the path on the host OS.
+    fsMocks.listDirectory.mockResolvedValue([snapshotFile("001.snapshot.json")])
+    chapterIngestMocks.listSnapshots.mockResolvedValue([1])
+    fsMocks.getFileModifiedTime.mockResolvedValue(1_000)
+    chapterIngestMocks.loadSnapshot
+      .mockResolvedValueOnce(makeSnapshot(1, "A角色：凡人"))
+      .mockResolvedValueOnce(makeSnapshot(1, "B角色：剑修"))
+
+    await loadTemporalFactsCached("/A")
+    await loadTemporalFactsCached("/B")
+    expect(chapterIngestMocks.loadSnapshot).toHaveBeenCalledTimes(2)
+
+    // Clear only /A. /B's cache entry must survive.
+    clearTemporalFactsCache("/A")
+
+    // Reloading /B is a cache hit (loadSnapshot NOT called again for /B).
+    chapterIngestMocks.loadSnapshot.mockClear()
+    const bAgain = await loadTemporalFactsCached("/B")
+    expect(chapterIngestMocks.loadSnapshot).not.toHaveBeenCalled()
+    expect(bAgain.map((f: TemporalFact) => f.object)).toContain("剑修")
   })
 })
 

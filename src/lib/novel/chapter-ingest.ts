@@ -24,6 +24,7 @@ import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
+import { clearTemporalFactsCache } from "./context-engine"
 import {
   loadProjectionStatusLedger,
   recordProjectionStatus,
@@ -1751,6 +1752,7 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch { /* ignore */ }
   await rebuildDerivedMemoryFromSnapshots(pp)
   clearGraphCache()
+  clearTemporalFactsCache(pp)
   useWikiStore.getState().bumpDataVersion()
 }
 
