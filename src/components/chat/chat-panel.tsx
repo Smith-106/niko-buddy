@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Plus, Trash2, MessageSquare, FileEdit } from "lucide-react"
+import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -314,6 +314,12 @@ export function ChatPanel() {
   const soulDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
   const userScrolledUpRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  // POLISH-02 (odyssey-ui): scroll-to-bottom FAB visibility. The ref tracks
+  // auto-scroll lock for the streaming effect; this state mirrors it so the
+  // FAB can reactively appear/disappear. Kept separate from the ref so the
+  // streaming effect (which only reads the ref) doesn't re-render on every
+  // scroll tick.
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const [chapterSaveState, setChapterSaveState] = useState<{
     conversationId: string
@@ -566,6 +572,7 @@ export function ChatPanel() {
         userScrolledUpRef.current = false
       }
       lastScrollTopRef.current = currentScrollTop
+      setShowScrollToBottom(userScrolledUpRef.current)
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)
@@ -575,12 +582,23 @@ export function ChatPanel() {
   useEffect(() => {
     if (!isStreaming) {
       userScrolledUpRef.current = false
+      setShowScrollToBottom(false)
     }
   }, [isStreaming])
 
   useEffect(() => {
     userScrolledUpRef.current = false
+    setShowScrollToBottom(false)
   }, [activeConversationId])
+
+  const scrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTop = container.scrollHeight
+    lastScrollTopRef.current = container.scrollTop
+    userScrolledUpRef.current = false
+    setShowScrollToBottom(false)
+  }, [])
 
   // 切换会话时不再中断后台生成——每个会话独立运行
 
@@ -2031,18 +2049,55 @@ export function ChatPanel() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {!activeConversationId ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <MessageSquare className="mx-auto mb-3 h-8 w-8 opacity-30" />
-              <p className="text-sm">{t(novelMode ? "novel.chat.startNewConversation" : "chat.startNewConversation")}</p>
-              <p className="mt-1 text-xs opacity-60">{t(novelMode ? "novel.chat.clickNewChatToBegin" : "chat.clickNewChatToBegin")}</p>
+          // POLISH-08/D2 (odyssey-ui): empty state was a passive icon + two
+          // muted lines with opacity-stacked text (A11Y-002 contrast hit).
+          // Replaced with an actionable hero: token-colored icon, readable
+          // copy, and suggestion chips that one-click create+a conversation
+          // (handleSend auto-creates the conversation). Turns a dead-end into
+          // an on-ramp — especially important for first-run users who don't
+          // yet know what the chat can do.
+          <div className="flex flex-1 items-center justify-center bg-muted/20 p-6">
+            <div className="w-full max-w-md text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <h3 className="text-base font-medium text-foreground">
+                {t(novelMode ? "novel.chat.startNewConversation" : "chat.startNewConversation")}
+              </h3>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                {t(novelMode ? "novel.chat.clickNewChatToBegin" : "chat.clickNewChatToBegin")}
+              </p>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                {(novelMode
+                  ? [
+                      "帮我梳理当前小说的世界观和主要矛盾",
+                      "根据上一章结尾，构思下一章的冲突推进",
+                      "分析主角当前的性格弧线和发展空间",
+                    ]
+                  : [
+                      "总结一下当前项目的知识结构",
+                      "这个概念和哪些实体有关联？",
+                      "帮我对比这两个来源的观点差异",
+                    ]
+                ).map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => handleSend(suggestion)}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
           <>
+            <div className="relative flex-1 overflow-hidden">
             <div
               ref={scrollContainerRef}
-              className="flex-1 overflow-y-auto px-3 py-2"
+              className="h-full overflow-y-auto px-3 py-2"
             >
               {/* key 强制在切换会话时重新挂载消息列表，避免旧会话内容残留 */}
               <div key={activeConversationId} className="flex flex-col gap-3">
@@ -2076,6 +2131,22 @@ export function ChatPanel() {
                 {isStreaming && <StreamingMessage content={streamingContent} />}
                 <div ref={bottomRef} />
               </div>
+            </div>
+            {showScrollToBottom && (
+              // POLISH-02 (odyssey-ui): scroll-to-bottom FAB. While streaming,
+              // users often scroll up to re-read earlier context; the auto-scroll
+              // lock correctly stops yanking them back down, but left no way to
+              // return. This button snaps back to bottom and re-enables auto-scroll.
+              // animate-in fade/zoom matches the dialog motion vocabulary.
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                aria-label="滚动到最新消息"
+                className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </button>
+            )}
             </div>
 
             {showWriteButton && (
