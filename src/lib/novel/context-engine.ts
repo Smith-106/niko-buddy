@@ -1,20 +1,18 @@
-import { listDirectory, readFile } from "@/commands/fs"
+import { listDirectory, readFile, getFileModifiedTime } from "@/commands/fs"
 import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
-import { parseChapterMeta } from "./chapter-meta"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
-import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
 import {
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
+  type TemporalFact,
 } from "./temporal-memory"
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
-import { getChapterVolumes } from "./volume"
 import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
@@ -55,9 +53,6 @@ const SECTION_PRIORITY: Record<string, number> = {
  * compression (TASK-003 subtask 3) before injection.
  */
 const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
-const CANON_RULES_PROTECTED_CAP = 8000
-const PROTECTED_FALLBACK_CAP = 4000
-const COMPRESSIBLE_FALLBACK_CAP = 2000
 
 /**
  * ANL-013 S4 (TASK-003): protected/compressible context tiering.
@@ -90,13 +85,11 @@ export interface ContextGap {
 /**
  * Module-level gap recorder.
  *
- * The read helpers (`readCharacterStates`, `readCanonRules`, ...) are
- * consumed via dynamic import from `context-data-sources.ts`, so their
- * signatures cannot grow a `gaps` out-param without crossing the task
- * scope. Instead, `buildContextPack` resets this buffer before loading
- * data sources and collects the recorded gaps after. The lifecycle is
- * exactly one `buildContextPack` call — the buffer is per-build, not
- * global-persistent.
+ * The per-source data sources in `context-data-sources.ts` record gaps when
+ * they compress/truncate their payload (tieredSlice reports into this
+ * buffer). `buildContextPack` resets the buffer before loading data sources
+ * and collects the recorded gaps after. The lifecycle is exactly one
+ * `buildContextPack` call — the buffer is per-build, not global-persistent.
  */
 const contextGaps: ContextGap[] = []
 let contextGapsActive = false
@@ -326,11 +319,17 @@ async function buildContextPackFromRawData(
   let canonRules = rawData.canonRules
   if (targetChapter > 0) {
     try {
-      const [ledger, snapshots] = await Promise.all([
-        loadProjectionStatusLedger(context.projectPath),
-        loadAllSnapshots(context.projectPath),
-      ])
-      const temporalFacts = factsFromCommittedSnapshots(snapshots, ledger)
+      // PERF-001 (ISS-010): dedupe snapshot load for the temporal fold. The
+      // snapshot chain is loaded once per project-revision and memoized in
+      // `temporalFactsCache`; subsequent builds within the same revision
+      // (e.g. multiple chapter generations, review runs) reuse the folded
+      // TemporalFact[] without re-reading every snapshot file. The cache key
+      // is `${maxSnapshotNumber}:${maxSnapshotMtime}` — mtime disambiguates a
+      // same-numbered re-ingest (snapshot file rewritten → mtime changes →
+      // cache miss → no stale projection). This stays ENTIRELY within
+      // context-engine.ts (in-memory derived-view memo, no disk persistence,
+      // no chapter-ingest coordination) per ANL-013 C4 no-dual-truth-source.
+      const temporalFacts = await loadTemporalFactsCached(context.projectPath)
       const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
       if (temporalBlock) {
         canonRules = joinNonEmpty([canonRules, temporalBlock], "\n\n")
@@ -383,6 +382,105 @@ async function loadAllSnapshots(projectPath: string): Promise<ChapterSnapshot[]>
   const numbers = await listSnapshots(pp)
   const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
   return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
+}
+
+/**
+ * PERF-001 (ISS-010): in-memory memo for the temporal-facts fold.
+ *
+ * Keyed by projectPath, the value records the `latestRevision` string the
+ * cache was built against (`${maxSnapshotNumber}:${maxSnapshotMtime}`) plus
+ * the folded `TemporalFact[]`. A cache hit skips reloading every snapshot
+ * file; a miss reloads + re-folds. The cache is additive — on any miss the
+ * original loadAllSnapshots + factsFromCommittedSnapshots path runs, so
+ * behavior is identical to the uncached path (backward compatible).
+ *
+ * Boundary: this is a derived-view memo (ANL-013 C4), NOT a persistence
+ * layer — nothing is written to disk, the ledger remains the single source
+ * of truth for projection commit state. Single-user desktop rarely exceeds
+ * ~10 projects, so unbounded growth is acceptable for this patch.
+ */
+const temporalFactsCache = new Map<string, { latestRevision: string; facts: TemporalFact[] }>()
+
+/**
+ * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
+ * while also collecting each file's mtime(ms) in the same readdir pass. The
+ * mtime is fetched per-file via getFileModifiedTime because the listDirectory
+ * FileNode shape ({name,path,is_dir}) does not carry mtime. Returns the parsed
+ * chapter numbers paired with their mtimes; empty on failure (backward
+ * compatible).
+ */
+async function listSnapshotEntriesWithMtime(
+  projectPath: string,
+): Promise<{ number: number; snapshotMtime: number }[]> {
+  const pp = normalizePath(projectPath)
+  const snapshotDir = `${pp}/.novel/snapshots`
+  try {
+    const tree = await listDirectory(snapshotDir)
+    const entries = tree
+      .filter((f) => f.name.endsWith(".snapshot.json"))
+      .map((f) => {
+        const stem = f.name.split(".")[0]
+        const outlineMatch = stem.match(/^outline-(\d+)$/)
+        const num = outlineMatch ? -parseInt(outlineMatch[1], 10) : parseInt(stem, 10)
+        return { file: f, num }
+      })
+      .filter((e) => !isNaN(e.num))
+    const withMtimes = await Promise.all(
+      entries.map(async (e) => ({
+        number: e.num,
+        snapshotMtime: await getFileModifiedTime(e.file.path).catch(() => 0),
+      })),
+    )
+    return withMtimes
+  } catch {
+    return []
+  }
+}
+
+/**
+ * PERF-001 (ISS-010): load + fold the temporal facts for `projectPath`,
+ * memoized per project-revision. Cache key combines the highest snapshot
+ * number and the latest mtime among snapshot files so a re-ingest of the
+ * same-numbered snapshot (rewritten file → newer mtime) invalidates the
+ * cache. On cache miss the full snapshot chain is loaded and folded via
+ * factsFromCommittedSnapshots; the result is cached and returned. On
+ * failure returns [] (backward compatible — temporal block is skipped).
+ *
+ * Exported for test instrumentation (cache-hit / mtime-invalidation tests).
+ */
+export async function loadTemporalFactsCached(projectPath: string): Promise<TemporalFact[]> {
+  const pp = normalizePath(projectPath)
+  const entries = await listSnapshotEntriesWithMtime(pp)
+  if (entries.length === 0) {
+    // No snapshots → nothing to fold. Still cache the empty result so
+    // repeated builds don't re-readdir, but use a stable revision token.
+    const emptyRevision = "0:0"
+    const cached = temporalFactsCache.get(pp)
+    if (cached && cached.latestRevision === emptyRevision) return cached.facts
+    const facts: TemporalFact[] = []
+    temporalFactsCache.set(pp, { latestRevision: emptyRevision, facts })
+    return facts
+  }
+  const maxSnapshotNumber = entries.reduce((m, e) => Math.max(m, e.number), -Infinity)
+  const maxSnapshotMtime = entries.reduce((m, e) => Math.max(m, e.snapshotMtime), 0)
+  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}`
+  const cached = temporalFactsCache.get(pp)
+  if (cached && cached.latestRevision === latestRevision) {
+    return cached.facts
+  }
+  const snapshots = await loadAllSnapshots(pp)
+  const ledger = await loadProjectionStatusLedger(pp)
+  const facts = factsFromCommittedSnapshots(snapshots, ledger)
+  temporalFactsCache.set(pp, { latestRevision, facts })
+  return facts
+}
+
+/**
+ * Test-only: clear the temporal-facts cache. Lets tests assert cold-cache
+ * behavior without leaking state across cases. Not for production use.
+ */
+export function __resetTemporalFactsCacheForTests(): void {
+  temporalFactsCache.clear()
 }
 
 export function extractChapterNumberFromTask(task: string): number | undefined {
@@ -652,128 +750,6 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
   return ""
 }
 
-// 以下函数已被数据源模式使用，但通过动态导入，TypeScript 无法检测到
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readSnapshotContext(
-  pp: string,
-  chapterNumber: number | undefined,
-  recentSummaryWindow: number,
-  snapshotLookback: number,
-): Promise<{
-  recentSummaries: string[]
-  previousChapterEnding: string
-  characterStates: string
-  foreshadowingSignals: string[]
-  timeline: string
-}> {
-  const snapshotNumbers = await listSnapshots(pp)
-  if (snapshotNumbers.length === 0) {
-    return {
-      recentSummaries: [],
-      previousChapterEnding: "",
-      characterStates: "",
-      foreshadowingSignals: [],
-      timeline: "",
-    }
-  }
-
-  const lookbackNumbers = chapterNumber
-    ? selectLookbackChapterNumbers(chapterNumber, snapshotLookback)
-    : [...snapshotNumbers].sort((a, b) => b - a).slice(0, snapshotLookback)
-  const summaryNumbers = chapterNumber
-    ? snapshotNumbers.filter((n) => n < chapterNumber).slice(-recentSummaryWindow)
-    : snapshotNumbers.slice(-recentSummaryWindow)
-
-  const [lookbackSnapshots, summarySnapshots] = await Promise.all([
-    Promise.all(lookbackNumbers.map((n) => loadSnapshot(pp, n))),
-    Promise.all(summaryNumbers.map((n) => loadSnapshot(pp, n))),
-  ])
-
-  const validLookback = lookbackSnapshots.filter((snapshot): snapshot is ChapterSnapshot => Boolean(snapshot))
-  const validSummarySnapshots = summarySnapshots.filter((snapshot): snapshot is ChapterSnapshot => Boolean(snapshot))
-
-  const previousSnapshot = validLookback[0]
-  const recentSummaries = validSummarySnapshots.map((snapshot) => `第${snapshot.chapterNumber}章：${snapshot.summary}`)
-  const characterStates = joinNonEmpty(
-    validLookback
-      .flatMap((snapshot) => snapshot.characterStateChanges.map((change) => `第${snapshot.chapterNumber}章：${change}`)),
-    "\n",
-  )
-  const foreshadowingSignals = validLookback.flatMap((snapshot) => snapshot.foreshadowingChanges)
-  const timeline = joinNonEmpty(
-    validLookback
-      .flatMap((snapshot) => snapshot.timelineEvents.map((event) => `第${snapshot.chapterNumber}章：${event}`)),
-    "\n",
-  )
-
-  return {
-    recentSummaries,
-    previousChapterEnding: previousSnapshot?.endingHook || "",
-    characterStates,
-    foreshadowingSignals,
-    timeline,
-  }
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readRecentChapterSummaries(pp: string, count: number): Promise<string[]> {
-  const summaries: string[] = []
-  try {
-    const results = await searchWiki(pp, "type:chapter")
-    for (const r of results.slice(0, count)) {
-      try {
-        const content = await readFile(r.path)
-        const parsed = parseFrontmatter(content)
-        const fm = parsed.frontmatter as Record<string, unknown> | null
-        const meta = fm ? parseChapterMeta(fm) : null
-        if (meta) {
-          const bodyStart = content.indexOf("---", 4)
-          const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-          summaries.push(`第${meta.chapterNumber}章 (${meta.status}): ${tieredSlice(body, "compressible", COMPRESSIBLE_FALLBACK_CAP, `recent-summary:${meta.chapterNumber}`)}`)
-        }
-      } catch {}
-    }
-  } catch {}
-  return summaries
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readPreviousChapterEnding(pp: string, chapterNumber?: number): Promise<string> {
-  if (!chapterNumber || chapterNumber <= 1) return ""
-  try {
-    const results = await searchWiki(pp, `chapter_number:${chapterNumber - 1}`)
-    if (results.length > 0) {
-      const content = await readFile(results[0].path)
-      const lines = content.split("\n")
-      const lastLines = lines.slice(-10).join("\n")
-      return lastLines
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readCharacterStates(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "type:entity character")
-    if (results.length > 0) {
-      const contents = await Promise.all(results.slice(0, 5).map(r => readFile(r.path).catch(() => "")))
-      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "protected", PROTECTED_FALLBACK_CAP, "character-states:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readCognitionStates(pp: string): Promise<string> {
-  try {
-    const state = await loadCognitionState(pp)
-    if (!state) return ""
-    return cognitionToContextText(state)
-  } catch {}
-  return ""
-}
-
 /**
  * R4 (S4 / ANL-013): load the emotional-arcs projection store and render its
  * protected-tier context text. Returns "" when the store is empty or absent
@@ -788,98 +764,6 @@ async function readEmotionalArcsText(pp: string): Promise<string> {
     return emotionalArcsToContextText(store)
   } catch {}
   return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readForeshadowingStates(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "伏笔 foreshadowing")
-    if (results.length > 0) {
-      const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
-      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "protected", PROTECTED_FALLBACK_CAP, "foreshadowing:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readTimeline(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "timeline 时间线")
-    if (results.length > 0) {
-      const content = await readFile(results[0].path)
-      return tieredSlice(content, "protected", PROTECTED_FALLBACK_CAP, "timeline:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readRelatedSettings(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "setting 设定 location 地点")
-    if (results.length > 0) {
-      const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
-      return tieredSlice(contents.filter(Boolean).join("\n---\n"), "compressible", COMPRESSIBLE_FALLBACK_CAP, "related-settings:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readCanonRules(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "canon 正史 rule 规则")
-    if (results.length > 0) {
-      const content = await readFile(results[0].path)
-      return tieredSlice(content, "protected", CANON_RULES_PROTECTED_CAP, "canon-rules:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readWritingStyle(pp: string): Promise<string> {
-  // 优先：已启用的拆书作品文风预设（feature/book-style-extraction）。
-  // buildWritingStyleContext 内部已做长度上限与"只学文风不借剧情"硬约束。
-  try {
-    const { buildWritingStyleContext } = await import("./writing-style-store")
-    const styleContext = await buildWritingStyleContext(pp)
-    if (styleContext.trim()) return styleContext
-  } catch {}
-  // 回退：wiki 中的风格页（旧行为）。
-  try {
-    const results = await searchWiki(pp, "style 风格 writing 写作")
-    if (results.length > 0) {
-      const content = await readFile(results[0].path)
-      return tieredSlice(content, "compressible", COMPRESSIBLE_FALLBACK_CAP, "writing-style:fallback")
-    }
-  } catch {}
-  return ""
-}
-
-// @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
-async function readVolumeContext(
-  pp: string,
-  chapterNumber: number | undefined,
-): Promise<string> {
-  if (!chapterNumber) return ""
-  try {
-    const volumes = await getChapterVolumes(pp, chapterNumber)
-    if (volumes.length === 0) return ""
-    return volumes
-      .map(v => {
-        const parts = [`第${v.volumeNumber}卷：${v.title}`]
-        if (v.summary) parts.push(`概要：${v.summary}`)
-        if (v.chapterRangeStart !== undefined && v.chapterRangeEnd !== undefined) {
-          parts.push(`章节范围：第${v.chapterRangeStart}章 - 第${v.chapterRangeEnd}章`)
-        }
-        return parts.join("\n")
-      })
-      .join("\n\n")
-  } catch {
-    return ""
-  }
 }
 
 export async function searchRelevantContent(
@@ -1074,49 +958,63 @@ export async function searchGraphRelevantContent(
     if (graph.nodes.size === 0) return ""
 
     const tokens = tokenizeQuery(task)
+    // PERF-004 (ISS-011): two-phase candidate collection — Phase 1 seeds
+    // from query tokens, Phase 2 expands by scanning graph nodes ONCE into
+    // a SEPARATE `nextNames` Set (do NOT mutate candidateNames during
+    // iteration — Set mutation during for...of is a correctness hazard and
+    // can skip nodes depending on insertion order).
     const candidateNames = new Set<string>()
-
     for (const token of tokens) {
       if (token.length >= 2) candidateNames.add(token)
     }
 
+    const nextNames = new Set<string>()
+    // Snapshot the seed set so expansion never reads a mutating collection.
+    const seedNames = Array.from(candidateNames)
     for (const [, node] of graph.nodes) {
       if (task.includes(node.title) || task.includes(node.id)) {
-        candidateNames.add(node.title)
-        candidateNames.add(node.id)
+        nextNames.add(node.title)
+        nextNames.add(node.id)
       }
-      for (const name of candidateNames) {
+      for (let i = 0; i < seedNames.length; i++) {
+        const name = seedNames[i]
         if (node.title.includes(name) || node.id.includes(name)) {
-          candidateNames.add(node.title)
-          candidateNames.add(node.id)
+          nextNames.add(node.title)
+          nextNames.add(node.id)
+          break
+        }
+      }
+    }
+    const allNames = [...candidateNames, ...nextNames]
+
+    // PERF-004 (ISS-011): SINGLE-PASS match collection — iterate graph.nodes
+    // once, matching against ALL candidate names, dedup by node id. Replaces
+    // the per-name full-graph rescan (was O(names × nodes), now O(nodes)).
+    const seenIds = new Set<string>()
+    const scoredNodes: { title: string; snippet: string; relevance: number }[] = []
+    const matchedNodes = []
+    for (const [, node] of graph.nodes) {
+      if (allNames.some((name) => node.title.includes(name) || node.id.includes(name))) {
+        if (!seenIds.has(node.id)) {
+          seenIds.add(node.id)
+          matchedNodes.push(node)
         }
       }
     }
 
-    const seenIds = new Set<string>()
-    const scoredNodes: { title: string; snippet: string; relevance: number }[] = []
-
-    for (const name of candidateNames) {
-      const matchedNodes = Array.from(graph.nodes.values()).filter(
-        n => n.title.includes(name) || n.id.includes(name),
-      )
-      for (const matchedNode of matchedNodes) {
-        if (seenIds.has(matchedNode.id)) continue
-        seenIds.add(matchedNode.id)
-
-        const related = getRelatedNodes(matchedNode.id, graph, 5)
-        for (const { node, relevance } of related) {
-          if (seenIds.has(node.id)) continue
-          seenIds.add(node.id)
-          try {
-            const content = await readFile(node.path)
-            scoredNodes.push({
-              title: node.title,
-              snippet: content.slice(0, 300).replace(/\n/g, " "),
-              relevance: Math.round(relevance * 100) / 100,
-            })
-          } catch {}
-        }
+    for (const matchedNode of matchedNodes) {
+      const related = getRelatedNodes(matchedNode.id, graph, 5)
+      for (const { node, relevance } of related) {
+        if (seenIds.has(node.id)) continue
+        seenIds.add(node.id)
+        try {
+          const content = await readFile(node.path)
+          scoredNodes.push({
+            title: node.title,
+            snippet: content.slice(0, 300).replace(/\n/g, " "),
+            relevance: Math.round(relevance * 100) / 100,
+          })
+        } catch {}
       }
     }
 
