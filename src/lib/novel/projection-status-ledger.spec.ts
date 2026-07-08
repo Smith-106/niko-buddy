@@ -39,6 +39,14 @@ describe("F-002 ProjectionStatusLedger (C-002 mixed_per_projection)", () => {
     expect(ledger.chapters).toEqual({})
   })
 
+  it("subplot_board is single_snapshot_idempotent (ARCH-002: empty-store commit, no snapshot field wired yet)", () => {
+    // ARCH-002 / ISS-20260708-006: chapter-ingest commits an empty store
+    // (no snapshot subplot field wired — LLM-extract extension out of scope),
+    // so the category is single_snapshot_idempotent, NOT fold_rebuildable.
+    // Re-classify to fold_rebuildable when a snapshot subplot field is added.
+    expect(PROJECTION_CATEGORIES.subplot_board).toBe("single_snapshot_idempotent")
+  })
+
   it("recordProjectionStatus records a committed projection additively (failure is VISIBLE, not silent)", () => {
     // The core F-002 invariant: a projection failure is recorded to the ledger
     // so it is detectable — replacing the prior 8-segment silent console.warn.

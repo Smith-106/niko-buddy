@@ -20,9 +20,15 @@ describe("R4 SubplotBoard projection (S4 / ANL-013)", () => {
     expect(src).not.toMatch(/import\s*\{[^}]*\bwriteFile\b[^}]*\}/)
   })
 
-  it("registered as fold_rebuildable in PROJECTION_CATEGORIES (S3 F-002)", () => {
+  it("registered as single_snapshot_idempotent in PROJECTION_CATEGORIES (ARCH-002)", () => {
+    // ARCH-002 / ISS-20260708-006: subplot_board commits an EMPTY store
+    // (no snapshot subplot field wired yet — LLM-extract extension out of
+    // scope), so it is single_snapshot_idempotent (re-run = same empty
+    // state), NOT fold_rebuildable (there is nothing to fold). Re-classify
+    // to fold_rebuildable when a snapshot subplot field is added.
     const src = readSource("projection-status-ledger.ts")
-    expect(src).toMatch(/subplot_board:\s*"fold_rebuildable"/)
+    expect(src).toMatch(/subplot_board:\s*"single_snapshot_idempotent"/)
+    expect(src).not.toMatch(/subplot_board:\s*"fold_rebuildable"/)
   })
 
   it("is a character-state SAME-LAYER sibling, NOT a Truth Files module (ANL-013 C4)", () => {

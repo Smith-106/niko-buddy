@@ -67,9 +67,14 @@ export const PROJECTION_CATEGORIES: Record<string, ProjectionCategory> = {
   summary_structured_memory: "fold_rebuildable",
   // R4 (S4 / ANL-013): 3 new structured-field projections — same-layer
   // siblings of character/foreshadow (NOT a Truth Files module; ANL-013 C4).
-  // All fold_rebuildable: re-derivable from the committed snapshot sequence.
+  // emotional_arc / resource_ledger are fold_rebuildable: re-derivable from
+  // the committed snapshot sequence (characterDetails.arcChange /
+  // itemDetails.holder). subplot_board is currently single_snapshot_idempotent:
+  // chapter-ingest commits an empty store (no snapshot subplot field wired yet
+  // — LLM-extract extension out of scope). Re-classify to fold_rebuildable when
+  // a snapshot subplot field is added.
   emotional_arc: "fold_rebuildable",
-  subplot_board: "fold_rebuildable",
+  subplot_board: "single_snapshot_idempotent",
   resource_ledger: "fold_rebuildable",
   graph_entity_pages: "mutates_existing_non_rebuildable",
   // CORR-009: distinct key for the wiki-patch-field write path (was shared
