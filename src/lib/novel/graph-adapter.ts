@@ -362,6 +362,38 @@ function nodeIdToSlug(nodeId: string): string {
   return idx >= 0 ? nodeId.slice(idx + 1) : nodeId
 }
 
+/**
+ * Sanitize an LLM/user-supplied entity name into a path-safe slug before it is
+ * interpolated into a file path (`${entitiesDir}/${slug}.md`).
+ *
+ * SEC-001/SEC-002 fix: entity names originate from `extractSnapshotWithLLM`
+ * (characters/locations/organizations/items/events), which ingests arbitrary
+ * user-authored chapter bodies — a prompt-injected chapter can make the extract
+ * LLM emit a traversal name like `../../` or an absolute path, causing
+ * writeFileAtomic/readFile/fileExists to escape `wiki/entities/`. Rust's
+ * `resolve_project_storage_path` only aliases legacy dir names and does no
+ * project-root containment, so the TS layer MUST sanitize here.
+ *
+ * Defense-in-depth (the Rust-side containment guard, SEC-005) is tracked
+ * separately; this is the TS-side boundary.
+ */
+export function sanitizeEntitySlug(raw: string): string {
+  let slug = (raw ?? "").trim()
+  // Strip path separators, parent-dir traversal, null bytes, and control chars.
+  slug = slug.replace(/[\/\\]/g, "").replace(/\.\.+/g, ".").replace(/[\x00-\x1f]/g, "")
+  // Strip a leading Windows drive-letter prefix (e.g. "C:" / "D:") so it cannot
+  // form an absolute path after a later segment is appended.
+  slug = slug.replace(/^[a-zA-Z]:/, "")
+  // Collapse any residual leading dots/colons that could still trick a path join.
+  slug = slug.replace(/^[.:]+/, "")
+  // Map empty/whitespace-only (or names that were entirely path chars) to a
+  // stable fallback so the file path is never `${entitiesDir}/.md`.
+  if (!slug) {
+    slug = "unnamed-entity"
+  }
+  return slug
+}
+
 function snapshotSourceFileName(chapterNumber: number): string {
   if (chapterNumber < 0) {
     return `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}.snapshot.json`
@@ -541,7 +573,9 @@ export async function writeSnapshotToWiki(
 
   const slugMap = new Map<string, string>()
   for (const node of nodes) {
-    slugMap.set(node.id, node.label)
+    // SEC-001: sanitize LLM-supplied node.label before it becomes a path
+    // segment in `${entitiesDir}/${slug}.md` (see sanitizeEntitySlug).
+    slugMap.set(node.id, sanitizeEntitySlug(node.label))
   }
 
   const relatedMap = new Map<string, Set<string>>()
@@ -563,7 +597,7 @@ export async function writeSnapshotToWiki(
 
   for (const node of nodes) {
     try {
-      const slug = slugMap.get(node.id) ?? nodeIdToSlug(node.id)
+      const slug = slugMap.get(node.id) ?? sanitizeEntitySlug(nodeIdToSlug(node.id))
       const filePath = `${entitiesDir}/${slug}.md`
       const tag = NODE_TYPE_TO_TAG[node.type] ?? "concept"
       const aliases = node.type === "character"
@@ -577,8 +611,8 @@ export async function writeSnapshotToWiki(
         .filter(e => (e.source === node.id || e.target === node.id) && slugMap.has(e.source) && slugMap.has(e.target))
         .map(e => {
           const otherSlug = e.source === node.id
-            ? (slugMap.get(e.target) ?? nodeIdToSlug(e.target))
-            : (slugMap.get(e.source) ?? nodeIdToSlug(e.source))
+            ? (slugMap.get(e.target) ?? sanitizeEntitySlug(nodeIdToSlug(e.target)))
+            : (slugMap.get(e.source) ?? sanitizeEntitySlug(nodeIdToSlug(e.source)))
           const label = NOVEL_RELATION_LABELS[e.relation] ?? e.relation
           return `- [[${otherSlug}]] — ${label}`
         })
@@ -761,7 +795,7 @@ export async function writePatchFieldsToWiki(
       continue
     }
     try {
-      const slug = nodeIdToSlug(entry.entryId)
+      const slug = sanitizeEntitySlug(nodeIdToSlug(entry.entryId))
       const filePath = `${entitiesDir}/${slug}.md`
       const tag = entryTypeToTag(entry.entryType)
       const sectionMd = buildChapterInfoSection(entry)

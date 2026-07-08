@@ -305,15 +305,23 @@ export function buildDecisionGates(
     quality: createGate(grouped.quality),
     overall: "pass",
   }
+  // CORR-108 fix (ADR-17 priority: Consistency > Anti-AI > Quality): a
+  // Quality-gate FAILURE must still produce overall='fail', even when the
+  // Anti-AI gate has only a warning. The prior ternary chain checked the
+  // anti_ai/quality warning branch BEFORE the quality.status==='failed'
+  // branch, so an Anti-AI warning demoted a Quality failure to 'warning'.
+  // Group all status==='failed' checks first (any failed gate → 'fail'),
+  // then warnings, then pass. collectBlockingIssues still fires the repair
+  // loop either way; this only corrects the reported overall verdict.
   gates.overall = manualReviewRequired
     ? "manual_review"
-    : gates.consistency.status === "failed" || gates.anti_ai.status === "failed"
+    : gates.consistency.status === "failed"
+      || gates.anti_ai.status === "failed"
+      || gates.quality.status === "failed"
       ? "fail"
       : gates.anti_ai.verdict === "warning" || gates.quality.verdict === "warning"
         ? "warning"
-        : gates.quality.status === "failed"
-          ? "fail"
-          : "pass"
+        : "pass"
   return gates
 }
 
@@ -761,6 +769,12 @@ export async function runDeepChapterGeneration(
   const notePartial = (reason: string) => {
     if (partialReason === null) partialReason = reason
   }
+  // CORR-107: a subsequent full successful generation supersedes an earlier
+  // transport-inactivity partial — clear it so a recovered draft is not
+  // falsely marked partial (which would route it to pause instead of complete).
+  const clearPartial = () => {
+    partialReason = null
+  }
   const resumeCheckpoint = input.resumeCheckpoint
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
@@ -1015,6 +1029,7 @@ export async function runDeepChapterGeneration(
         { max_tokens: lengthSpec.maxOutputTokens },
         cachePrefix,
         notePartial,
+        clearPartial,
       )
       assertNotAborted(signal)
     }
@@ -1075,6 +1090,7 @@ export async function runDeepChapterGeneration(
         { max_tokens: lengthSpec.maxOutputTokens },
         cachePrefix,
         notePartial,
+        clearPartial,
       )
       assertNotAborted(signal)
     }
@@ -1424,6 +1440,14 @@ async function collectModelText(
   requestOverrides?: RequestOverrides,
   cachePrefix?: string,
   onPartial?: (reason: string) => void,
+  // CORR-107 fix: when this collectModelText call completes WITHOUT taking the
+  // transport-inactivity partial-preserve branch (i.e. a full successful
+  // generation), the caller clears any earlier partialReason set by a prior
+  // stage — so a recovered draft (initial partial + successful expansion) is
+  // not falsely marked partial. Without this, the 'first partial reason wins,
+  // never cleared' policy produces false-positive partial flags on recovered
+  // drafts, routing a complete chapter to pause instead of complete.
+  onCompleteClearPartial?: () => void,
 ): Promise<string> {
   let content = ""
   let reasoningBuffer = ""
@@ -1517,6 +1541,7 @@ async function collectModelText(
   // narrowing and recover the real `Error | null` type.
   const errorNow = readStreamError()
   const partialContent = content.trim()
+  let tookPartialPreserve = false
   if (errorNow && !(cutoffReason && isRequestCancelledError(errorNow))) {
     if (partialContent && isTransportInactivityError(errorNow)) {
       // Surface partiality to the caller so the orchestration layer can route
@@ -1526,12 +1551,19 @@ async function collectModelText(
       // boundary violation). See DeepChapterGenerationResult.partial.
       onPartial?.(errorNow.message)
       onUpdate?.(`${partialContent}\n\n（${errorNow.message}，已保留已生成的部分正文以便继续未完成。）`)
+      tookPartialPreserve = true
     } else {
       throw errorNow
     }
   }
   if (cutoffReason) {
     onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`)
+  }
+  // CORR-107: a full successful generation (no partial-preserve branch taken)
+  // supersedes any earlier partialReason set by a prior stage — clear it so a
+  // recovered draft is not falsely marked partial.
+  if (!tookPartialPreserve) {
+    onCompleteClearPartial?.()
   }
   return content.trim()
 }

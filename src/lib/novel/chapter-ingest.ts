@@ -7,7 +7,7 @@ import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki } from "./graph-adapter"
+import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki, sanitizeEntitySlug } from "./graph-adapter"
 import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState, resolveCanonicalName, resolveMatchingMap } from "./character-cognition"
 import { buildNameAliasMap } from "./book-analysis/alias-resolver"
@@ -965,7 +965,15 @@ export async function restoreSnapshotHistory(
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
   await backupSnapshotBeforeOverwrite(pp, chapterNumber)
-  const historyPath = `${snapshotHistoryDir(pp, chapterNumber)}/${historyFileName}`
+  // SEC-003: historyFileName is user-supplied (e.g. from the UI snapshot-history
+  // picker). Reject path traversal: no separators, no parent-dir, must be a
+  // bare `*.snapshot.json` filename so `${dir}/${historyFileName}` cannot
+  // escape the chapter's snapshot-history directory.
+  const safeName = (historyFileName ?? "").trim()
+  if (!safeName || /[\/\\]/.test(safeName) || safeName.includes("..") || !safeName.endsWith(".snapshot.json")) {
+    throw new Error("Invalid snapshot history file name.")
+  }
+  const historyPath = `${snapshotHistoryDir(pp, chapterNumber)}/${safeName}`
   const snapshot = normalizeChapterSnapshot(
     JSON.parse(await readFile(historyPath)),
     { chapterId: `chapter-${chapterNumber}`, chapterNumber },
@@ -978,6 +986,11 @@ export async function restoreSnapshotHistory(
   const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
   await cleanupSupersededEntityFiles(pp, restoredCurrent, writtenEntityPaths)
   await rebuildDerivedMemoryFromSnapshots(pp, restoredCurrent)
+  // ARCH-006 (REG-001 sibling): restoring a history snapshot replaces the
+  // current snapshot content, so the mtime-keyed temporalFactsCache may hold
+  // pre-restore facts — clear it for this project (same root cause as the
+  // delete path fixed in REG-001; restore was missed).
+  clearTemporalFactsCache(pp)
   clearGraphCache()
   useWikiStore.getState().bumpDataVersion()
   return restoredCurrent
@@ -995,6 +1008,11 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
   }
   await backupSnapshotBeforeOverwrite(pp, snapshot.chapterNumber)
   await saveSnapshot(pp, materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot))
+  // ARCH-006 (REG-001 sibling): overwriting the current snapshot changes its
+  // content/mtime, so the mtime-keyed temporalFactsCache may hold stale facts
+  // from the pre-edit version — clear it for this project (same root cause as
+  // delete/restore; saveEdited was missed).
+  clearTemporalFactsCache(pp)
 }
 
 function appendPreviewSection(lines: string[], title: string, items: string[]): void {
@@ -1176,6 +1194,15 @@ export async function syncSnapshotToMemory(
   await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
   await saveSnapshot(pp, syncedSnapshot)
   const memoryPagePaths = await exportStructuredMemoryToWiki(pp, syncedSnapshot)
+  // ARCH-005/EG-006 (REG-001 sibling): syncSnapshotToMemory rewrites the
+  // current snapshot + entity pages + cognition/character/foreshadow stores,
+  // so the mtime-keyed temporalFactsCache may hold pre-sync facts. clearGraphCache
+  // alone is insufficient (temporalFactsCache is a separate module-level cache).
+  // Note (ARCH-005 SoC, recorded decision): this path still calls sync*Changes
+  // helpers directly rather than via runProjection — wrapping it in the
+  // ProjectionStatusLedger is a larger SoC refactor tracked separately; the
+  // concrete cache-invalidation gap (the REG-001 sibling) is fixed here.
+  clearTemporalFactsCache(pp)
   clearGraphCache()
   useWikiStore.getState().bumpDataVersion()
 
@@ -1675,7 +1702,11 @@ async function validateEntityReferences(
   for (const { key, label } of categories) {
     for (const name of snapshot[key]) {
       try {
-        const filePath = `${entitiesDir}/${name}.md`
+        // SEC-002: sanitize the LLM-supplied entity name before interpolating
+        // into `${entitiesDir}/${name}.md` (traversal via prompt-injected name).
+        // `entityIsNew` is keyed by the original `name` (in-memory lookup key),
+        // only the on-disk path uses the sanitized slug.
+        const filePath = `${entitiesDir}/${sanitizeEntitySlug(name)}.md`
         const exists = await fileExists(filePath)
         snapshot.entityIsNew[name] = !exists
         if (!exists) {

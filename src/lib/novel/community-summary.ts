@@ -218,7 +218,15 @@ export async function searchCommunitySummaries(
  * with the retrieval side it closes the generate-then-inject loop.
  */
 const communitySummaryCache = new Map<string, string>()
-let lastProjectFreshnessKey: string | null = null
+// ARCH-003 fix: track freshness per-project so a project switch (or another
+// project's bucket advance) does NOT clear a different project's in-flight /
+// cached community summaries. The prior single `lastProjectFreshnessKey`
+// value meant project B's freshness change cleared ALL entries (including
+// project A's), and project A's still-running async rebuildCommunitySummary
+// (chapter-ingest.ts:684 `void ...`) would then repopulate into a cache that
+// project B's freshness would sweep again — cross-project cache pollution.
+// Per-project tracking scopes each clear to that project's cacheKey prefix.
+const lastProjectFreshnessKeyByProject = new Map<string, string>()
 
 export async function generateCommunitySummariesForChapter(
   projectPath: string,
@@ -250,9 +258,17 @@ export async function generateCommunitySummariesForChapter(
       ? Math.floor(chapterNumber / interval)
       : 0
     const projectFreshnessKey = `${pp}:bucket:${chapterBucket}`
-    if (lastProjectFreshnessKey !== projectFreshnessKey) {
-      communitySummaryCache.clear()
-      lastProjectFreshnessKey = projectFreshnessKey
+    if (lastProjectFreshnessKeyByProject.get(pp) !== projectFreshnessKey) {
+      // ARCH-003: clear ONLY this project's cache entries (cacheKey prefix
+      // `${pp}:`), never another project's, so cross-project sessions don't
+      // pollute each other's freshness.
+      const prefix = `${pp}:`
+      for (const key of communitySummaryCache.keys()) {
+        if (key.startsWith(prefix)) {
+          communitySummaryCache.delete(key)
+        }
+      }
+      lastProjectFreshnessKeyByProject.set(pp, projectFreshnessKey)
     }
 
     const nodesByCommunity = new Map<number, GraphNode[]>()
