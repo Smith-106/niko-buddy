@@ -55,5 +55,5 @@
 ## 验收与证据
 
 - 交付验收标准见 `@../docs/qmai-codex-delivery/11-test-plan.md`，绑定写作质量目标而非仅编译通过。
-- 发布证据链见 `12-acceptance-evidence-*.md`（最新 `2026-07-06-release-complete`）。
+- 发布证据链见 `12-acceptance-evidence-*.md`（最新 `2026-07-08-v2.3.1-patch`，REV-002 收口）。
 - 缺陷台账见 `15-release-defect-ledger.md`。
