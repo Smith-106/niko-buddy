@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
+import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 import type { NovelReviewResult } from "./review-adapter"
 
 const fsState = vi.hoisted(() => {
@@ -452,6 +453,130 @@ describe("novel-session-status", () => {
     expect(draft.draft_status).toBe("rejected")
     expect(draft.formal_chapter_path).toBeUndefined()
     expect(typeof draft.rejected_at).toBe("string")
+  })
+
+  it("persists dimension_results through complete/accept/reject (DC-2 twin-safe regression)", async () => {
+    // DC-2 (odyssey-improve): accept/reject previously omitted dimension_results
+    // entirely — on a fresh base (createBaseStatus never sets it) the 6-dim
+    // review map was dropped. This test guards the resolveDimensionResults
+    // helper so the F-003 twin-path defect cannot recur (4th recurrence fixed).
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-dim",
+      userRequest: "generate chapter 4",
+      chapterNumber: 4,
+    })
+    const dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {
+      consistency: {
+        dimensionKey: "consistency",
+        score: 92,
+        status: "pass",
+        summary: "no consistency issues",
+        thinking: "",
+        issues: [],
+      },
+      thrill: {
+        dimensionKey: "thrill",
+        score: 70,
+        status: "medium",
+        summary: "could be more thrilling",
+        thinking: "",
+        issues: [],
+      },
+    }
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 4",
+      chapterNumber: 4,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+      dimensionResults,
+    }
+
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-dim",
+      userRequest: "generate chapter 4",
+      chapterNumber: 4,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    // complete: dimension_results persisted to status.json
+    const statusAfterComplete = readJson(statusPath)
+    expect(statusAfterComplete.dimension_results).toEqual(dimensionResults)
+
+    // accept: dimension_results survives the accept transition (was dropped
+    // before DC-2 fix because accept omitted the field and base was fresh).
+    await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-dim",
+      userRequest: "generate chapter 4",
+      chapterNumber: 4,
+      sessionId: session.session_id,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-004.md`,
+    })
+    const statusAfterAccept = readJson(statusPath)
+    expect(statusAfterAccept.dimension_results).toEqual(dimensionResults)
+  })
+
+  it("persists dimension_results through reject on a fresh base (DC-2)", async () => {
+    // Companion to the accept test above: reject was the other twin that
+    // omitted dimension_results. Verify the 6-dim map survives reject even
+    // when the base has no prior dimension_results (fresh createBaseStatus).
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-rej-dim",
+      userRequest: "generate chapter 5",
+      chapterNumber: 5,
+    })
+    const dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {
+      pacing: {
+        dimensionKey: "pacing",
+        score: 65,
+        status: "medium",
+        summary: "pacing drags in act 2",
+        thinking: "",
+        issues: [],
+      },
+    }
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 5",
+      chapterNumber: 5,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+      dimensionResults,
+    }
+
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-rej-dim",
+      userRequest: "generate chapter 5",
+      chapterNumber: 5,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    await rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-rej-dim",
+      userRequest: "generate chapter 5",
+      chapterNumber: 5,
+      sessionId: session.session_id,
+    })
+    const statusAfterReject = readJson(statusPath)
+    expect(statusAfterReject.dimension_results).toEqual(dimensionResults)
   })
 
   it("refuses accept/reject when no managed deep chapter draft exists for the conversation", async () => {
