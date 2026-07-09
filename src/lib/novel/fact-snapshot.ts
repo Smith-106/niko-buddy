@@ -597,10 +597,22 @@ ${itemsText}`
     const jsonMatch = response.match(/\[[\s\S]*\]/)
     if (!jsonMatch) return results
 
-    const verdicts = JSON.parse(jsonMatch[0])
+    // DC (odyssey-improve, maintainability L): wrap JSON.parse so a malformed
+    // LLM verdict array degrades to "unverified" (return existing results)
+    // instead of throwing a bare SyntaxError indistinguishable from a
+    // transport failure. Mirrors the review-adapter:291 ReviewParseError guard
+    // pattern but degrades (fact-check is advisory) rather than throws.
+    let verdicts: { index?: number; adjustedConfidence?: number; note?: string }[]
+    try {
+      verdicts = JSON.parse(jsonMatch[0])
+    } catch (error) {
+      console.error("[FactCheck LLM] Verdict JSON parse failed:", error)
+      return results
+    }
     if (!Array.isArray(verdicts)) return results
 
     for (const verdict of verdicts) {
+      if (typeof verdict.index !== "number") continue
       const idx = verdict.index - 1
       if (idx < 0 || idx >= pendingItems.length) continue
 

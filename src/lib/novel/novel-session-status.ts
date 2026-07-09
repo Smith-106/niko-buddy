@@ -248,6 +248,11 @@ function stageToActiveStepIndex(
       return 4
     case "completed":
       return 5
+    // DC (odyssey-improve, maintainability L): runtime fallback so a future
+    // stage enum value that TS exhaustiveness can't yet see (e.g. added in a
+    // type re-export) returns a sane default instead of implicit undefined.
+    default:
+      return 0
   }
 }
 
