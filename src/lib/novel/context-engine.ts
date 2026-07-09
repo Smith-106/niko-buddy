@@ -1051,27 +1051,36 @@ async function runVectorSearchForContext(
     const items: { title: string; snippet: string; path: string }[] = []
     const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
 
+    // PERF-NEW-06 (odyssey-improve DC-4): parallelize the per-vr path probe.
+    // Previously this was a serial `for (dir of dirs) await readFile(...)` —
+    // up to 6 serial IPC round-trips per vector result (N×M = limit×7 worst
+    // case), all on the searchRelevantContentUnified hot path. Now each vr
+    // probes all 7 candidate paths (6 dirs + 1 root) concurrently via
+    // Promise.allSettled, preserving first-success semantics (dirs order
+    // wins over root) by scanning settled results in priority order.
+    const probePath = async (tryPath: string): Promise<{ title: string; snippet: string; path: string } | null> => {
+      try {
+        const content = await readFile(tryPath)
+        const title = content.match(/^#\s+(.+)/m)?.[1]?.trim()
+          ?? content.match(/^---\ntitle:\s*(.+)/m)?.[1]?.trim()
+          ?? vr.id
+        return { title, snippet: content.slice(0, 300).replace(/\n/g, " "), path: tryPath }
+      } catch {
+        return null
+      }
+    }
+
     for (const vr of vectorResults.slice(0, limit)) {
-      let found = false
-      for (const dir of dirs) {
-        const tryPath = `${pp}/wiki/${dir}/${vr.id}.md`
-        try {
-          const content = await readFile(tryPath)
-          const title = content.match(/^#\s+(.+)/m)?.[1]?.trim()
-            ?? content.match(/^---\ntitle:\s*(.+)/m)?.[1]?.trim()
-            ?? vr.id
-          items.push({ title, snippet: content.slice(0, 300).replace(/\n/g, " "), path: tryPath })
-          found = true
-          break
-        } catch {}
-      }
-      if (!found) {
-        const tryPath = `${pp}/wiki/${vr.id}.md`
-        try {
-          const content = await readFile(tryPath)
-          items.push({ title: vr.id, snippet: content.slice(0, 300).replace(/\n/g, " "), path: tryPath })
-        } catch {}
-      }
+      const candidatePaths = [
+        ...dirs.map((dir) => `${pp}/wiki/${dir}/${vr.id}.md`),
+        `${pp}/wiki/${vr.id}.md`,
+      ]
+      const settled = await Promise.allSettled(candidatePaths.map(probePath))
+      // Priority order: dirs first (in declared order), then root fallback.
+      const hit = settled
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .find((v): v is { title: string; snippet: string; path: string } => v !== null)
+      if (hit) items.push(hit)
     }
     return items
   } catch {

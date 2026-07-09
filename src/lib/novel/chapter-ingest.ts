@@ -1146,41 +1146,21 @@ export async function syncSnapshotToMemory(
   }
   const syncedSnapshot = materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot)
 
-  // 获取同步前该快照关联的旧实体文件（用于清理）
-  const entitiesDir = `${pp}/wiki/entities`
-  let oldEntityFiles: string[] = []
-  try {
-    const tree = await listDirectory(entitiesDir)
-    oldEntityFiles = tree.filter(f => f.name.endsWith(".md")).map(f => f.name)
-  } catch { /* entities dir may not exist */ }
-
   const writtenEntityPaths = await writeSnapshotToWiki(pp, syncedSnapshot)
   await cleanupSupersededEntityFiles(pp, syncedSnapshot, writtenEntityPaths)
 
-  // 清理旧实体：如果一个实体文件不在新写入列表中，且其内容引用了当前快照的 source，则删除
-  const writtenFileNames = new Set(writtenEntityPaths.map(p => p.split("/").pop() ?? ""))
-  const snapshotSourceFiles = new Set(snapshotSourceFileNameCandidates(syncedSnapshot.chapterNumber))
-
-  for (const oldFile of oldEntityFiles) {
-    if (writtenFileNames.has(oldFile)) continue // 仍然存在于新快照中，保留
-    try {
-      const filePath = `${entitiesDir}/${oldFile}`
-      const content = await readFile(filePath)
-      if (shouldDeleteSupersededProjectionContent(content, syncedSnapshot)) {
-        await deleteFile(filePath)
-        continue
-      }
-      // 只删除引用了当前快照 source 的实体文件
-      if (Array.from(snapshotSourceFiles).some(sourceFile => content.includes(sourceFile))) {
-        // 检查是否还被其他快照引用
-        const allSources = content.match(/[A-Za-z0-9_-]+\.snapshot\.json/g) ?? []
-        const onlyCurrentSource = allSources.length > 0 && allSources.every(s => snapshotSourceFiles.has(s))
-        if (onlyCurrentSource) {
-          await deleteFile(filePath)
-        }
-      }
-    } catch { /* skip errors */ }
-  }
+  // PERF-NEW-08 / ARCH-005 (odyssey-improve DC-3+DC-4+maintainability-M):
+  // The previous inline block here duplicated cleanupSupersededEntityFiles
+  // (called on the line above) verbatim — same writtenFileNames filter,
+  // same shouldDeleteSupersededProjectionContent check, same
+  // snapshotSourceFiles includes + onlyCurrentSource guard. Running it a
+  // second time re-read every entity file (serial IPC, N round-trips) only
+  // to find them already deleted by the call above (readFile fails → catch
+  // skip). Removed the duplicate; cleanupSupersededEntityFiles (now
+  // parallelized via PERF-NEW-08) is the single source of truth for
+  // superseded-entity cleanup. The ARCH-005 SoC note (syncSnapshotToMemory
+  // still calls sync*Changes directly rather than via runProjection) stands
+  // as a larger separate refactor.
 
   if (syncedSnapshot.knowledgeChanges.length > 0) {
     const existing = await loadCognitionState(pp) ?? emptyCognitionState()
@@ -1275,26 +1255,53 @@ async function cleanupSupersededEntityFiles(
     return
   }
 
-  for (const oldFile of oldEntityFiles) {
-    if (writtenFileNames.has(oldFile)) continue
-    try {
-      const filePath = `${entitiesDir}/${oldFile}`
-      const content = await readFile(filePath)
-      if (shouldDeleteSupersededProjectionContent(content, snapshot)) {
-        await deleteFile(filePath)
-        continue
+  // PERF-NEW-08 (odyssey-improve DC-4): parallelize the per-file readFile probe.
+  // Previously a serial `for (oldFile) await readFile + await deleteFile` —
+  // N entity files of serial IPC on the syncSnapshotToMemory/cleanup hot path
+  // (entities dir can reach hundreds of files in long novels). Now read all
+  // candidate files concurrently, classify in memory, then delete the
+  // superseded set in parallel. Reads are independent (no cross-file
+  // dependency); deletes target distinct files (safe to parallelize).
+  const candidateFiles = oldEntityFiles
+    .filter((oldFile) => !writtenFileNames.has(oldFile))
+    .map((oldFile) => ({ oldFile, filePath: `${entitiesDir}/${oldFile}` }))
+
+  const readResults = await Promise.all(
+    candidateFiles.map(async (entry) => {
+      try {
+        const content = await readFile(entry.filePath)
+        return { entry, content, ok: true }
+      } catch {
+        return { entry, content: null, ok: false }
       }
-      if (Array.from(snapshotSourceFiles).some((sourceFile) => content.includes(sourceFile))) {
-        const allSources = content.match(/[A-Za-z0-9_-]+\.snapshot\.json/g) ?? []
-        const onlyCurrentSource = allSources.length > 0 && allSources.every((sourceFile) => snapshotSourceFiles.has(sourceFile))
-        if (onlyCurrentSource) {
-          await deleteFile(filePath)
-        }
+    }),
+  )
+
+  const toDelete: string[] = []
+  for (const { entry, content, ok } of readResults) {
+    if (!ok || content === null) continue
+    if (shouldDeleteSupersededProjectionContent(content, snapshot)) {
+      toDelete.push(entry.filePath)
+      continue
+    }
+    if (Array.from(snapshotSourceFiles).some((sourceFile) => content.includes(sourceFile))) {
+      const allSources = content.match(/[A-Za-z0-9_-]+\.snapshot\.json/g) ?? []
+      const onlyCurrentSource = allSources.length > 0 && allSources.every((sourceFile) => snapshotSourceFiles.has(sourceFile))
+      if (onlyCurrentSource) {
+        toDelete.push(entry.filePath)
       }
-    } catch {
-      // ignore cleanup failures per file
     }
   }
+
+  await Promise.all(
+    toDelete.map(async (filePath) => {
+      try {
+        await deleteFile(filePath)
+      } catch {
+        // ignore cleanup failures per file
+      }
+    }),
+  )
 }
 
 /**
@@ -1735,28 +1742,41 @@ async function validateEntityReferences(
     snapshot.entityIsNew = {}
   }
 
+  // PERF-NEW-07 (odyssey-improve DC-4): parallelize the per-entity fileExists
+  // probe. Previously a serial `for (name of snapshot[key]) await fileExists`
+  // — N entities × 4 categories of serial IPC on the ingestChapter hot path.
+  // Collect all (name, filePath, label) probes first, run fileExists
+  // concurrently, then apply results. entityIsNew writes target distinct
+  // keys (no cross-entity dependency), so parallel application is safe.
+  const probes: { name: string; filePath: string; label: string }[] = []
   for (const { key, label } of categories) {
     for (const name of snapshot[key]) {
+      // SEC-002: sanitize the LLM-supplied entity name before interpolating
+      // into `${entitiesDir}/${name}.md` (traversal via prompt-injected name).
+      // `entityIsNew` is keyed by the original `name` (in-memory lookup key),
+      // only the on-disk path uses the sanitized slug.
+      probes.push({ name, filePath: `${entitiesDir}/${sanitizeEntitySlug(name)}.md`, label })
+    }
+  }
+
+  const existsResults = await Promise.all(
+    probes.map(async (probe) => {
       try {
-        // SEC-002: sanitize the LLM-supplied entity name before interpolating
-        // into `${entitiesDir}/${name}.md` (traversal via prompt-injected name).
-        // `entityIsNew` is keyed by the original `name` (in-memory lookup key),
-        // only the on-disk path uses the sanitized slug.
-        const filePath = `${entitiesDir}/${sanitizeEntitySlug(name)}.md`
-        const exists = await fileExists(filePath)
-        snapshot.entityIsNew[name] = !exists
-        if (!exists) {
-          warnings.push({
-            type: "entity_new",
-            message: `新${label}: ${name}`,
-          })
-        }
+        return { probe, exists: await fileExists(probe.filePath), errored: false }
       } catch {
-        snapshot.entityIsNew[name] = true
-        warnings.push({
-          type: "entity_new",
-          message: `新${label}: ${name}`,
-        })
+        return { probe, exists: false, errored: true }
+      }
+    }),
+  )
+
+  for (const { probe, exists, errored } of existsResults) {
+    if (errored) {
+      snapshot.entityIsNew[probe.name] = true
+      warnings.push({ type: "entity_new", message: `新${probe.label}: ${probe.name}` })
+    } else {
+      snapshot.entityIsNew[probe.name] = !exists
+      if (!exists) {
+        warnings.push({ type: "entity_new", message: `新${probe.label}: ${probe.name}` })
       }
     }
   }
