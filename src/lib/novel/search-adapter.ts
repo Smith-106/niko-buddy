@@ -4,6 +4,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { rerankCandidates } from "@/lib/rerank"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
+import { sanitizeEntitySlug } from "./graph-adapter"
 
 export interface NovelSearchParams {
   projectPath: string
@@ -196,11 +197,19 @@ async function runVectorSearch(
     const items: NovelSearchResult[] = []
     for (const vr of vectorResults.slice(0, topK)) {
       try {
+        // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
+        // before path construction — symmetric with context-engine.ts
+        // runVectorSearchForContent. vr.id is external stored state in LanceDB;
+        // Rust readFile has no project-root containment, so this TS path join
+        // is the only traversal boundary. PAT-G2 twin: this function is the
+        // same-shape sibling of runVectorSearchForContent and must mirror its
+        // sanitize defense.
         const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
+        const safeId = sanitizeEntitySlug(vr.id)
         let content = ""
         let foundPath = ""
         for (const dir of dirs) {
-          const tryPath = `${pp}/wiki/${dir}/${vr.id}.md`
+          const tryPath = `${pp}/wiki/${dir}/${safeId}.md`
           try {
             content = await readFile(tryPath)
             foundPath = tryPath
@@ -208,14 +217,14 @@ async function runVectorSearch(
           } catch {}
         }
         if (!foundPath) {
-          const tryPath = `${pp}/wiki/${vr.id}.md`
+          const tryPath = `${pp}/wiki/${safeId}.md`
           try {
             content = await readFile(tryPath)
             foundPath = tryPath
           } catch {}
         }
         if (foundPath && content) {
-          const title = extractTitle(content, vr.id)
+          const title = extractTitle(content, safeId)
           items.push({
             type: "vector",
             path: foundPath,
