@@ -1704,8 +1704,14 @@ async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Pro
   const mdPath = snapshotMarkdownPath(projectPath, normalizedSnapshot.chapterNumber)
 
   await createDirectory(snapshotDir)
-  await writeFileAtomic(jsonPath, JSON.stringify(normalizedSnapshot, null, 2))
-  await writeFileAtomic(mdPath, snapshotToMarkdown(normalizedSnapshot))
+  // PERF-NEW-09 (odyssey-improve DC-3): parallelize the independent json+md
+  // writes. writeFileAtomic is a single Tauri invoke doing atomic write +
+  // read-back on distinct paths — no cross-file dependency, safe to run
+  // concurrently. Halves the 2 serial IPC round-trips to ~1 concurrent batch.
+  await Promise.all([
+    writeFileAtomic(jsonPath, JSON.stringify(normalizedSnapshot, null, 2)),
+    writeFileAtomic(mdPath, snapshotToMarkdown(normalizedSnapshot)),
+  ])
 
   await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)
 }
@@ -1716,10 +1722,17 @@ async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSna
   const prefix = `${outputDir}/${String(snapshot.chapterNumber).padStart(3, "0")}`
 
   await createDirectory(outputDir)
-  await writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2))
-  await writeFileAtomic(`${prefix}.wiki-patch.json`, JSON.stringify(output.wikiUpdatePatch, null, 2))
-  await writeFileAtomic(`${prefix}.search-index.json`, JSON.stringify(output.searchIndexText, null, 2))
-  await writeFileAtomic(`${prefix}.vector-index.json`, JSON.stringify(output.vectorIndexText, null, 2))
+  // PERF-NEW-09 (odyssey-improve DC-3): parallelize the 4 independent ingest
+  // output writes. All four files derive from the already-built `output`
+  // object (no cross-file dependency) and target distinct paths, so
+  // writeFileAtomic invocations are safe to run concurrently. Drops 4 serial
+  // IPC round-trips to ~1 concurrent batch.
+  await Promise.all([
+    writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2)),
+    writeFileAtomic(`${prefix}.wiki-patch.json`, JSON.stringify(output.wikiUpdatePatch, null, 2)),
+    writeFileAtomic(`${prefix}.search-index.json`, JSON.stringify(output.searchIndexText, null, 2)),
+    writeFileAtomic(`${prefix}.vector-index.json`, JSON.stringify(output.vectorIndexText, null, 2)),
+  ])
 
   return output
 }
