@@ -450,6 +450,28 @@ function mergeEvidenceRefs(...refs: Array<string | undefined>): string[] {
   return [...new Set(refs.filter((value): value is string => Boolean(value)))]
 }
 
+/**
+ * DC-2 (odyssey-improve): single source of truth for the `dimension_results`
+ * field on a lifecycle `next` status. The 6 lifecycle functions
+ * (persist/complete/pause/block/accept/reject) each previously inlined
+ * `input.checkpoint?.dimensionResults ?? base.dimension_results` — or, in the
+ * accept/reject twin, omitted it entirely. That omission was the F-003
+ * twin-path defect recurring for the 4th time (SH-5 → ARCH-006 → PAT-G1 →
+ * here): on the fresh-base path (createBaseStatus never sets dimension_results),
+ * the `...base` spread yields undefined and the 6-dim review map carried in the
+ * checkpoint is silently dropped. Centralizing the resolution here means a new
+ * lifecycle function cannot forget the field — it calls this helper.
+ *
+ * Preference: checkpoint's raw dimensionResults (authoritative, just produced)
+ * over base's (may be stale or absent on fresh base).
+ */
+function resolveDimensionResults(
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  base: NovelSessionStatus,
+): NovelSessionStatus["dimension_results"] {
+  return checkpoint?.dimensionResults ?? base.dimension_results
+}
+
 async function writeDraftArtifact(
   input: DeepChapterSessionInput,
   sessionId: string,
@@ -740,12 +762,10 @@ export async function persistDeepChapterCheckpoint(
     decision_gates: cloneDecisionGates(input.checkpoint.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
-    // CORR-006 (from quality-review): persist the raw 6-dimension review map
-    // so the structured per-dimension view (score/status/summary) survives the
-    // checkpoint round-trip — not just the flattened NovelReviewResult[] form
-    // that already lives in resume_checkpoint.reviewResults. Additive field:
-    // older status files lack it; loadNovelSessionStatus spreads Partial safely.
-    dimension_results: input.checkpoint.dimensionResults ?? base.dimension_results,
+    // CORR-006 / DC-2: 6-dim review map persisted via resolveDimensionResults
+    // (centralized twin-safe helper). Additive field: older status files lack
+    // it; loadNovelSessionStatus spreads Partial safely.
+    dimension_results: resolveDimensionResults(input.checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -800,13 +820,11 @@ export async function completeDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
-    // PAT-G1 (odyssey generalize): mirror persist/pause/block — persist the raw
-    // 6-dimension review map explicitly rather than relying on `...base` spread.
-    // On the fresh-base path (existing null / session_id mismatch → createBaseStatus,
-    // which never sets dimension_results), the spread yields undefined and the 6-dim
-    // map carried in input.checkpoint.dimensionResults is silently dropped on
-    // completion. Same F-003 twin-path omission class as ARCH-006 (pause/block).
-    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
+    // DC-2: 6-dim review map via centralized resolveDimensionResults helper
+    // (was inlined ?? base.dimension_results; on fresh-base path the spread
+    // yielded undefined and the checkpoint's 6-dim map was dropped on
+    // completion — F-003 twin-path omission, now twin-safe via helper).
+    dimension_results: resolveDimensionResults(input.checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -863,14 +881,9 @@ export async function pauseDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
-    // ARCH-006 (odyssey): persist dimension_results on pause, mirroring
-    // persistDeepChapterCheckpoint (:674, CORR-006). Without this, a pause on
-    // a session that had 6-dim review results silently drops the structured
-    // per-dimension map from status.json when the base is freshly created
-    // (createBaseStatus never sets dimension_results). F-003 orphaned-6-dim
-    // pattern resurfacing in the pause path — fallback twin missed by the
-    // main-path fix.
-    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
+    // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix,
+    // now twin-safe — cannot be omitted by a future lifecycle function).
+    dimension_results: resolveDimensionResults(input.checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -925,9 +938,8 @@ export async function blockDeepChapterSession(
     decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
-    // ARCH-006 (odyssey): persist dimension_results on block, mirroring
-    // persistDeepChapterCheckpoint (:674) and pause above. Same F-003 twin fix.
-    dimension_results: input.checkpoint?.dimensionResults ?? base.dimension_results,
+    // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix).
+    dimension_results: resolveDimensionResults(input.checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -1014,6 +1026,11 @@ export async function acceptDeepChapterDraft(
     decision_gates: cloneDecisionGates(decisionGates),
     resume_checkpoint: checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath, input.formalChapterPath),
+    // DC-2 (odyssey-improve): accept was the F-003 twin-path 4th recurrence —
+    // it omitted dimension_results entirely, so on a fresh base (createBaseStatus
+    // never sets it) the 6-dim review map was dropped when a draft was accepted.
+    // Mirror the other 4 lifecycle functions via the centralized helper.
+    dimension_results: resolveDimensionResults(checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
@@ -1076,6 +1093,9 @@ export async function rejectDeepChapterDraft(
     decision_gates: cloneDecisionGates(decisionGates),
     resume_checkpoint: checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
+    // DC-2 (odyssey-improve): reject twin of accept — omitted dimension_results,
+    // dropping the 6-dim review map on fresh base. Mirror via centralized helper.
+    dimension_results: resolveDimensionResults(checkpoint, base),
   }
   await saveNovelSessionStatus(input.projectPath, next)
   return next
