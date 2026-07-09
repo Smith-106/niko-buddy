@@ -17,6 +17,7 @@ import {
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
+import { sanitizeEntitySlug } from "./graph-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
@@ -410,7 +411,7 @@ async function buildContextPackFromRawData(
   const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback)
   
   // 构建角色氛围上下文（依赖其他数据）
-  const characterAuras = await buildCharacterAuraContext(context.projectPath, context.task, {
+  const characterAuraPromise = buildCharacterAuraContext(context.projectPath, context.task, {
     matchingText: joinNonEmpty([
       chapterGoal,
       rawData.chapterOutline,
@@ -426,27 +427,25 @@ async function buildContextPackFromRawData(
   // authoritative at the current chapter, so superseded / negated facts are
   // automatically excluded. Failure to load is non-fatal: canonRules falls
   // back to the raw canon rules (backward compatible).
+  //
+  // PERF (odyssey-review): run loadTemporalFactsCached in parallel with
+  // buildCharacterAuraContext — the two have no data dependency (character
+  // aura uses rawData + chapterGoal; temporal facts use only projectPath).
+  // Previously these awaited serially, adding one extra round-trip latency
+  // per build.
   const targetChapter = context.chapterNumber ?? 0
   let canonRules = rawData.canonRules
-  if (targetChapter > 0) {
-    try {
-      // PERF-001 (ISS-010): dedupe snapshot load for the temporal fold. The
-      // snapshot chain is loaded once per project-revision and memoized in
-      // `temporalFactsCache`; subsequent builds within the same revision
-      // (e.g. multiple chapter generations, review runs) reuse the folded
-      // TemporalFact[] without re-reading every snapshot file. The cache key
-      // is `${maxSnapshotNumber}:${maxSnapshotMtime}` — mtime disambiguates a
-      // same-numbered re-ingest (snapshot file rewritten → mtime changes →
-      // cache miss → no stale projection). This stays ENTIRELY within
-      // context-engine.ts (in-memory derived-view memo, no disk persistence,
-      // no chapter-ingest coordination) per ANL-013 C4 no-dual-truth-source.
-      const temporalFacts = await loadTemporalFactsCached(context.projectPath)
-      const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
-      if (temporalBlock) {
-        canonRules = joinNonEmpty([canonRules, temporalBlock], "\n\n")
-      }
-    } catch (error) {
-      console.warn("[ContextEngine] temporal-memory load failed, falling back to raw canonRules:", error)
+  const temporalFactsPromise = targetChapter > 0
+    ? loadTemporalFactsCached(context.projectPath).catch((error) => {
+        console.warn("[ContextEngine] temporal-memory load failed, falling back to raw canonRules:", error)
+        return null
+      })
+    : Promise.resolve(null)
+  const [characterAuras, temporalFacts] = await Promise.all([characterAuraPromise, temporalFactsPromise])
+  if (temporalFacts) {
+    const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
+    if (temporalBlock) {
+      canonRules = joinNonEmpty([canonRules, temporalBlock], "\n\n")
     }
   }
 
@@ -512,6 +511,25 @@ async function loadAllSnapshots(projectPath: string): Promise<ChapterSnapshot[]>
  */
 const temporalFactsCache = new Map<string, { latestRevision: string; facts: TemporalFact[] }>()
 
+// PERF/ARCH (odyssey-review): bound the cache to avoid unbounded growth when
+// the user opens many projects. Map preserves insertion order, so on a set
+// beyond the cap we evict the oldest entry (LRU-ish; access does not promote,
+// but projects are rarely revisited after switching away). 16 comfortably
+// exceeds the "~10 projects" assumption while still capping worst case.
+const TEMPORAL_FACTS_CACHE_MAX = 16
+
+/** Set a cache entry, evicting the oldest (first-inserted) entry when over cap. */
+function setTemporalFactsCache(pp: string, entry: { latestRevision: string; facts: TemporalFact[] }): void {
+  // delete first so re-setting an existing key moves it to the end of insertion order (most-recent).
+  temporalFactsCache.delete(pp)
+  temporalFactsCache.set(pp, entry)
+  while (temporalFactsCache.size > TEMPORAL_FACTS_CACHE_MAX) {
+    const oldest = temporalFactsCache.keys().next().value
+    if (oldest === undefined) break
+    temporalFactsCache.delete(oldest)
+  }
+}
+
 /**
  * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
  * while also collecting each file's mtime(ms) in the same readdir pass. The
@@ -570,7 +588,7 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
     const cached = temporalFactsCache.get(pp)
     if (cached && cached.latestRevision === emptyRevision) return cached.facts
     const facts: TemporalFact[] = []
-    temporalFactsCache.set(pp, { latestRevision: emptyRevision, facts })
+    setTemporalFactsCache(pp, { latestRevision: emptyRevision, facts })
     return facts
   }
   const maxSnapshotNumber = entries.reduce((m, e) => Math.max(m, e.number), -Infinity)
@@ -597,7 +615,7 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
   const snapshots = await loadAllSnapshots(pp)
   const ledger = await loadProjectionStatusLedger(pp)
   const facts = factsFromCommittedSnapshots(snapshots, ledger)
-  temporalFactsCache.set(pp, { latestRevision, facts })
+  setTemporalFactsCache(pp, { latestRevision, facts })
   return facts
 }
 
@@ -897,14 +915,19 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
     `chapter ${chapterNumber} outline`,
     `chapter_number:${chapterNumber} outline_type:chapter-outline`,
   ]
-  for (const query of queries) {
-    try {
-      const results = await searchWiki(pp, query)
-      if (results.length > 0) {
+  // PERF (odyssey-review): probe all queries concurrently, then pick the
+  // first (by original query priority order) that returned any result.
+  // Previously each query awaited searchWiki serially (up to 3×2 round-trips).
+  const allResults = await Promise.all(
+    queries.map((query) => searchWiki(pp, query).catch(() => [])),
+  )
+  for (const results of allResults) {
+    if (results.length > 0) {
+      try {
         const content = await readFile(results[0].path)
         return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
-      }
-    } catch {}
+      } catch {}
+    }
   }
   return ""
 }
@@ -1061,7 +1084,7 @@ export async function searchRelevantContentUnified(
       id: `vector-context:${index}:${result.title}`,
       path: result.path,
       title: result.title,
-      snippet: result.snippet,
+      snippet: result.snippet ?? "",
       source: "vector_context",
     })),
   ].filter((item) => {
@@ -1069,7 +1092,7 @@ export async function searchRelevantContentUnified(
       ? (item as { path?: string }).path ?? ""
       : ""
     const snippet = item.snippet ?? ""
-    if (!path || isHistoricalProjectionSnippet(path, snippet)) return false
+    if (!snippet || !path || isHistoricalProjectionSnippet(path, snippet)) return false
     return isAuthoritativeGenerationPath(path)
   })
 
@@ -1136,11 +1159,20 @@ async function runVectorSearchForContext(
     }
 
     for (const vr of vectorResults.slice(0, limit)) {
+      // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
+      // before path construction. vr.id is external stored state in LanceDB
+      // and could be polluted (manual DB edit, non-entity write path, future
+      // embedPage callers). The write path (chapter-ingest.ts:1798) already
+      // sanitizes via sanitizeEntitySlug, but the read path must be self-
+      // sufficient — Rust readFile (file_reader.rs) has no project-root
+      // containment, so this TS path join is the only traversal boundary.
+      // Symmetric with the write path; defense-in-depth.
+      const safeId = sanitizeEntitySlug(vr.id)
       const candidatePaths = [
-        ...dirs.map((dir) => `${pp}/wiki/${dir}/${vr.id}.md`),
-        `${pp}/wiki/${vr.id}.md`,
+        ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
+        `${pp}/wiki/${safeId}.md`,
       ]
-      const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, vr.id)))
+      const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, safeId)))
       // Priority order: dirs first (in declared order), then root fallback.
       const hit = settled
         .map((r) => (r.status === "fulfilled" ? r.value : null))
@@ -1379,7 +1411,13 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
   const fullPrompt = sections.join("\n")
 
   if (tokenBudget && tokenBudget > 0 && fullPrompt.length > tokenBudget) {
-    const estimatedTokens = Math.ceil(fullPrompt.length / 4)
+    // COR (odyssey-review): CJK chars tokenize ~1 token/1.5char, not 1/4.
+    // QMAI novel prompts are predominantly Chinese, so a naive length/4
+    // underestimates real token count → budget gate misjudges and returns
+    // an over-budget prompt untrimmed. Weight CJK at ~1.5 char/token.
+    const cjkCount = (fullPrompt.match(/[一-鿿]/g) ?? []).length
+    const nonCjk = fullPrompt.length - cjkCount
+    const estimatedTokens = Math.ceil(nonCjk / 4 + cjkCount / 1.5)
     if (estimatedTokens <= tokenBudget) return fullPrompt
     const targetChars = tokenBudget * 4
     const headChars = Math.floor(targetChars * 0.4)
