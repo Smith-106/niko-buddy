@@ -139,6 +139,15 @@ const defaultDeps: DeepChapterGenerationDeps = {
 const REPEAT_CHECK_MIN_CHARS = 600
 const REPEAT_WINDOW_CHARS = 120
 const REPEAT_HIT_LIMIT = 3
+// F-4/F-12: throttle onUpdate so it does not pass the entire growing content /
+// reasoningBuffer string to the caller on every single token. Without this,
+// each token triggers an O(content-length) callback (formatStageThinking trims
+// + slices + UI state write), making streaming O(N²) in draft length under
+// --include-partial-messages where every token is a separate event. Flush only
+// when at least this many new chars have accumulated; a final flush is always
+// emitted before collectModelText returns so the caller never sees a stale
+// truncated view on completion / cutoff / partial-preserve.
+const ONUPDATE_FLUSH_CHARS = 256
 // CORR-101 (documented constraint): findRepeatedTailStart detects a 3x-repeated
 // loop ONLY when the repeated block's period is a divisor of REPEAT_WINDOW_CHARS
 // (120) — it anchors on the last 120 chars of the compacted draft and counts
@@ -322,11 +331,20 @@ export function buildDecisionGates(
   // Group all status==='failed' checks first (any failed gate → 'fail'),
   // then warnings, then pass. collectBlockingIssues still fires the repair
   // loop either way; this only corrects the reported overall verdict.
-  gates.overall = manualReviewRequired
+  // F-18: manual_review requires at least one failed gate (matches the
+  // createGate verdict at :297 which also gates on hasError). The prior
+  // `manualReviewRequired ? "manual_review"` branch could mark overall as
+  // manual_review with all gates passed when an external caller passed
+  // manualReviewRequired=true with empty reviewResults — a semantic
+  // contradiction for this exported pure function. In the live call chain
+  // manualReviewRequired=true only happens at MAX_GATE_RETRY (which guarantees
+  // a failed gate), so this is a robustness guard, not a behavior change.
+  const anyFailed = gates.consistency.status === "failed"
+    || gates.anti_ai.status === "failed"
+    || gates.quality.status === "failed"
+  gates.overall = manualReviewRequired && anyFailed
     ? "manual_review"
-    : gates.consistency.status === "failed"
-      || gates.anti_ai.status === "failed"
-      || gates.quality.status === "failed"
+    : anyFailed
       ? "fail"
       : gates.anti_ai.verdict === "warning" || gates.quality.verdict === "warning"
         ? "warning"
@@ -447,9 +465,15 @@ function sanitizeTaskBriefSourceText(value: string | null | undefined): string {
     ? segments.filter((line) => containsCjkTaskBriefText(line))
     : segments
 
+  // F-21a (PAT-G2 mirror of uniqueSuggestions :271): Set-based dedup instead
+  // of deduped.includes (which is O(n) per segment → O(n²) overall). Dedup is
+  // keyed on the raw segment to match the prior .includes semantics (the
+  // pushed value is the trimmed segment, but the dedup key stays raw).
   const deduped: string[] = []
+  const dedupedSet = new Set<string>()
   for (const segment of preferredSegments) {
-    if (deduped.includes(segment)) continue
+    if (dedupedSet.has(segment)) continue
+    dedupedSet.add(segment)
     deduped.push(trimForThinking(segment, TASK_BRIEF_SOURCE_MAX_SEGMENT_LENGTH))
     if (deduped.length >= TASK_BRIEF_SOURCE_MAX_SEGMENTS) break
   }
@@ -750,7 +774,27 @@ export async function runFullReviewWithSixDim(
     // The 3 call sites previously each had their own try/catch with slightly
     // different log messages; consolidating into the helper eliminates that
     // copy-paste drift along with the 6-dim block.
-    console.error("[Deep Chapter] Review failed:", err)
+    // F-16 (CWE-532): log only the message, not the full error object — streamChat
+    // errors may carry provider request details (URL/headers) that should not
+    // reach the app's stderr. Matches the :778 six-dim error-message extraction.
+    console.error("[Deep Chapter] Review failed:", err instanceof Error ? err.message : String(err))
+    // F-1 (orphan 6-dim process): when reviewChapter throws, the `await
+    // sixDimP` at the coalesce step below is unreachable, so the 6-dim review
+    // launched in parallel keeps running as an orphan background LLM stream
+    // (up to 6 dimensions × stream timeout). sixDimP already has a .catch
+    // above so it never rejects — the hazard is wasted tokens/quota + a result
+    // that is silently dropped. We cannot abort it here because
+    // runSixDimensionReview does not accept an AbortSignal (cross-file signal
+    // propagation tracked as a deferred issue). Attach a terminal .catch so
+    // the orphan is explicitly owned (never becomes an unhandled rejection if
+    // the .catch above is ever changed) and log that it was orphaned, rather
+    // than leaving it silent. The 6-dim result is discarded: reviewChapter's
+    // failure already fails the whole review, so there is nowhere to merge
+    // the 6-dim outcome into.
+    if (runSixDim) {
+      void sixDimP.catch(() => {})
+      console.warn("[Deep Chapter] 6-dimension review was orphaned by reviewChapter failure; cannot abort (runSixDimensionReview has no AbortSignal).")
+    }
     throw err
   }
   // (c) coalesce — reviewChapter may return null/undefined.
@@ -767,8 +811,9 @@ export async function runFullReviewWithSixDim(
     // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
     // review was skipped, not clean. Non-blocking preserved (info, not error).
     const sixDimErr = sixDimOutcome.__sixDimError
-    console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", sixDimErr)
     const errMsg = sixDimErr instanceof Error ? sixDimErr.message : String(sixDimErr)
+    // F-16 (CWE-532): message-only to avoid leaking provider request details.
+    console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", errMsg)
     reviewResults = [
       ...reviewResults,
       {
@@ -841,7 +886,8 @@ export async function runDeepChapterGeneration(
         ))
       }
     } catch (error) {
-      console.error("[deep-chapter-generation] 前情分析失败:", error)
+      // F-16 (CWE-532): message-only to avoid leaking provider request details.
+      console.error("[deep-chapter-generation] 前情分析失败:", error instanceof Error ? error.message : String(error))
     }
   }
   assertNotAborted(signal)
@@ -895,7 +941,8 @@ export async function runDeepChapterGeneration(
       input.llmConfig,
     )
   } catch (err) {
-    console.warn("[Deep Chapter] 社区摘要生成失败（非阻断）:", err)
+    // F-16 (CWE-532): message-only.
+    console.warn("[Deep Chapter] 社区摘要生成失败（非阻断）:", err instanceof Error ? err.message : String(err))
   }
 
   // 其他上下文可以进行token预算管理，但大纲已被排除
@@ -1323,6 +1370,17 @@ export async function runDeepChapterGeneration(
     // blindness). dimensionResults checkpointed additively.
     const stage5 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
     reviewResults = stage5.reviewResults
+    // F-9: intentionally NOT passing manualReviewRequired here. The only path
+    // that sets manualReviewRequired=true (retryCount >= MAX_GATE_RETRY at the
+    // loop top) returns immediately, so reaching this post-repair gate rebuild
+    // means the loop continued — a fresh re-evaluation against the revised
+    // content, where manualReviewRequired must reset to false (its default).
+    // The resume branches (:1206/:1225) DO pass it because they restore the
+    // checkpointed value (may already be true from a prior manual-handoff). The
+    // asymmetry is deliberate: resume preserves prior manual state, fresh
+    // post-repair re-evaluates from scratch. Changing the loop to no longer
+    // return at MAX_GATE_RETRY would make this divergence a real bug — keep the
+    // early return, or thread manualReviewRequired explicitly here too.
     decisionGates = buildDecisionGates(reviewResults, retryCount)
     blockingIssues = collectBlockingIssues(decisionGates)
     assertNotAborted(signal)
@@ -1500,6 +1558,25 @@ async function collectModelText(
   // REPEAT_WINDOW_CHARS new chars, so gating on that drops per-token cost to
   // O(1) amortized and the whole-draft cost to O(n).
   let lastRepeatCheckLen = 0
+  // F-4/F-12: throttle onUpdate flushes. Track how much content/reasoning we
+  // have already pushed so we only invoke onUpdate (which re-formats the whole
+  // string on the caller side) when enough new chars accumulated. A final flush
+  // before return / cutoff / partial-preserve guarantees the caller never ends
+  // on a stale truncated view.
+  let lastPushedContentLen = 0
+  let lastPushedReasoningLen = 0
+  const flushContent = () => {
+    if (content.length > lastPushedContentLen) {
+      lastPushedContentLen = content.length
+      onUpdate?.(content)
+    }
+  }
+  const flushReasoning = () => {
+    if (!content && reasoningBuffer.length > lastPushedReasoningLen) {
+      lastPushedReasoningLen = reasoningBuffer.length
+      onUpdate?.(reasoningBuffer)
+    }
+  }
   const streamController = new AbortController()
   const combinedSignal = combineAbortSignals(signal, streamController.signal)
   const stopStream = (reason: string) => {
@@ -1528,12 +1605,18 @@ async function collectModelText(
           const loopStart = findRepeatedTailStart(content)
           if (loopStart !== null) {
             content = content.slice(0, loopStart).trimEnd()
+            // Reset the flush tracker: content shrank, so the next flush must
+            // emit even if length compares as "not greater" than the old value.
+            lastPushedContentLen = 0
             onUpdate?.(`${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`)
             stopStream("检测到模型重复输出，已自动停止重复内容。")
             return
           }
         }
-        onUpdate?.(content)
+        // F-4: flush only every ONUPDATE_FLUSH_CHARS to keep streaming O(n).
+        if (content.length - lastPushedContentLen >= ONUPDATE_FLUSH_CHARS) {
+          flushContent()
+        }
       },
       onReasoningToken: (token) => {
         if (signal?.aborted) {
@@ -1542,8 +1625,9 @@ async function collectModelText(
         }
         // 推理 token 只用于进度显示，不计入最终 content
         reasoningBuffer += token
-        if (!content) {
-          onUpdate?.(reasoningBuffer)
+        // F-12: throttle reasoningBuffer flushes the same way as content.
+        if (!content && reasoningBuffer.length - lastPushedReasoningLen >= ONUPDATE_FLUSH_CHARS) {
+          flushReasoning()
         }
       },
       onDone: () => {},
@@ -1588,6 +1672,9 @@ async function collectModelText(
       // draft would be persisted as a completed, ready chapter (Draft-first
       // boundary violation). See DeepChapterGenerationResult.partial.
       onPartial?.(errorNow.message)
+      // Final flush of the partial content (tracker reset so it emits even if
+      // length did not grow past the throttle threshold since the last push).
+      lastPushedContentLen = 0
       onUpdate?.(`${partialContent}\n\n（${errorNow.message}，已保留已生成的部分正文以便继续未完成。）`)
       tookPartialPreserve = true
     } else {
@@ -1595,7 +1682,14 @@ async function collectModelText(
     }
   }
   if (cutoffReason) {
+    // Final flush on cutoff (tracker reset to emit the cutoff-annotated view).
+    lastPushedContentLen = 0
     onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`)
+  } else {
+    // F-4: final flush of the complete content so the caller's last onUpdate
+    // reflects the full draft, not a throttle-stale truncated view.
+    flushContent()
+    flushReasoning()
   }
   // CORR-107: a full successful generation (no partial-preserve branch taken)
   // supersedes any earlier partialReason set by a prior stage — clear it so a
@@ -1792,7 +1886,16 @@ async function safeBuildChapterContextPack(
 ): Promise<ContextPack> {
   try {
     return await deps.buildContextPack(projectPath, userRequest, chapterNumber)
-  } catch {
+  } catch (err) {
+    // F-10: log the failure (matches the :844 previous-chapters-analysis catch
+    // observability) so context-assembly failure is not silent. Without this the
+    // whole main chain runs 7 stages on an all-empty ContextPack, producing a
+    // superficially-successful but semantically-empty chapter with no partial/
+    // fail signal. Surfacing this as a partial flag would require either passing
+    // notePartial here or returning a {contextPack, error} tuple — both are part
+    // of the broader partial-state-object refactor (F-8) and tracked as an issue;
+    // the log at least makes the failure observable in the app's stderr.
+    console.error("[Deep Chapter] Context pack assembly failed (continuing with empty context):", err instanceof Error ? err.message : String(err))
     return {
       task: userRequest,
       chapterGoal: "",

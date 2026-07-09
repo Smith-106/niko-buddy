@@ -1623,9 +1623,11 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     // reviewChapter's findings survive; the 6-dim failure did not propagate.
     expect(reviewResults.some((r) => r.message.includes("基础发现"))).toBe(true)
     expect(dimensionResults).toEqual({})
+    // F-16 (CWE-532): the error is logged as its .message string, not the full
+    // Error object, so provider request details are not leaked to stderr.
     expect(errorSpy).toHaveBeenCalledWith(
       "[Deep Chapter] 6-dimension review failed (non-blocking):",
-      expect.any(Error),
+      "6-dim stalled",
     )
     errorSpy.mockRestore()
   })
