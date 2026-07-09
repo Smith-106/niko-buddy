@@ -648,6 +648,15 @@ function normalizeOutlineIngestError(err: unknown): Error {
   if (/request cancelled|aborted|cancelled/i.test(message)) {
     return new Error("大纲摄取已中断，请稍后重试")
   }
+  // ISS-026 (PAT-IM3): a malformed/truncated model outline output throws a
+  // bare SyntaxError from JSON.parse (@1975) that, after this normalizer only
+  // regex-matches abort, passes through as a raw parser message to outline
+  // consumers. Surface a friendly "invalid JSON" message so a model that
+  // emitted code-fenced/leaking/truncated JSON is distinguishable from a
+  // transport failure (which carries no "Unexpected token" signature).
+  if (err instanceof SyntaxError) {
+    return new Error("大纲摄取失败：模型返回了无法解析的 JSON，请重试或调整提示")
+  }
   return new Error(message)
 }
 
@@ -818,7 +827,25 @@ ${chapterBody.slice(0, 8000)}
       throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")
     }
 
-    const parsed = JSON.parse(jsonText)
+    // ISS-026 (PAT-IM3): a malformed/truncated/code-fence-leaking model output
+    // throws a bare SyntaxError here that escapes ingestChapter (no try-catch
+    // at the call site @400), bypassing the friendly failReason:"extract_failed"
+    // branch (@403-404) — which only covers the narrow "valid but non-object
+    // JSON" path via normalizeChapterSnapshot returning null. Wrap the parse so
+    // a SyntaxError (the common case) returns null, honoring the
+    // Promise<ChapterSnapshot | null> contract and letting ingestChapter route
+    // to the friendly UX. A non-SyntaxError (transport/stream failure) is
+    // re-thrown unchanged so abort/timeout paths stay distinct.
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        console.error("[Chapter Ingest] Malformed snapshot JSON:", error.message)
+        return null
+      }
+      throw error
+    }
     return normalizeChapterSnapshot({
       ...parsed,
       chapterId: `chapter-${chapterNumber}`,
