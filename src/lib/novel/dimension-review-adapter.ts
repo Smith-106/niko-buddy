@@ -381,7 +381,8 @@ async function runDimensionStage(
     },
     onDone: () => {},
     onError: (error: Error) => {
-      console.error(`[Dimension Review] ${dimension.key} stream error:`, error)
+      // F-16 (CWE-532): message-only to avoid leaking provider request details.
+      console.error(`[Dimension Review] ${dimension.key} stream error:`, error instanceof Error ? error.message : String(error))
     },
   }
 

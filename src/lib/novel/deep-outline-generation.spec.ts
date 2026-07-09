@@ -114,9 +114,12 @@ describe("runDeepOutlineGeneration", () => {
       deps,
     )
 
-    expect(thinking).toContain("## 阶段2：大纲任务书\n任务书第一段")
+    // F-4/PAT-G2: onUpdate is throttled (ONUPDATE_FLUSH_CHARS=256), so short
+    // stage content (< 256 chars) no longer produces per-token intermediate
+    // frames — only the final full frame is flushed. The full content still
+    // reaches thinking, just at completion granularity instead of per-token.
     expect(thinking).toContain("## 阶段2：大纲任务书\n任务书第一段任务书第二段")
-    expect(thinking).toContain("## 阶段3：大纲草稿\n草稿第一段")
-    expect(thinking).toContain("## 阶段4：大纲自检\n结论")
+    expect(thinking).toContain("## 阶段3：大纲草稿\n草稿第一段草稿第二段")
+    expect(thinking).toContain("## 阶段4：大纲自检\n结论：通过")
   })
 })

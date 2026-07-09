@@ -100,7 +100,8 @@ export async function startSixDimensionReviewRun({
     })
     await onHistorySaved?.()
   } catch (error) {
-    console.error("六维审查失败:", error)
+    // F-16 (CWE-532): message-only to avoid leaking provider request details.
+    console.error("六维审查失败:", error instanceof Error ? error.message : String(error))
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
     const current = useWikiStore.getState().reviewRun

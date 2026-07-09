@@ -1,6 +1,15 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 
+// PAT-G2 mirror of deep-chapter-generation.ts F-4: throttle onUpdate so it
+// does not pass the entire growing content string to the caller on every
+// token (O(N²) streaming under --include-partial-messages). Flush only when at
+// least this many new chars accumulate; a final flush before return guarantees
+// the caller's last onUpdate reflects the full outline, not a stale truncated
+// view. deep-outline's collectModelText has no cutoff/partial-preserve exits,
+// so only the normal-completion flush is needed.
+const ONUPDATE_FLUSH_CHARS = 256
+
 export interface DeepOutlineGenerationInput {
   llmConfig: LlmConfig
   userRequest: string
@@ -105,6 +114,9 @@ async function collectModelText(
 ): Promise<string> {
   let content = ""
   let streamError: Error | null = null
+  // F-4/PAT-G2: throttle onUpdate flushes — only invoke when content grew by
+  // at least ONUPDATE_FLUSH_CHARS since the last push.
+  let lastPushedLen = 0
 
   await deps.streamChat(
     config,
@@ -112,7 +124,10 @@ async function collectModelText(
     {
       onToken: (token) => {
         content += token
-        onUpdate?.(content)
+        if (content.length - lastPushedLen >= ONUPDATE_FLUSH_CHARS) {
+          lastPushedLen = content.length
+          onUpdate?.(content)
+        }
       },
       onDone: () => {},
       onError: (error) => {
@@ -123,6 +138,12 @@ async function collectModelText(
     { reasoning: config.reasoning },
   )
 
+  // Final flush so the caller's last onUpdate reflects the full content, not a
+  // throttle-stale truncated view (reset tracker so it emits even if the last
+  // token batch did not cross the threshold).
+  if (content.length > lastPushedLen) {
+    onUpdate?.(content)
+  }
   if (streamError) throw streamError
   return content.trim()
 }

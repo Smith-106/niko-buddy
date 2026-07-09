@@ -90,7 +90,8 @@ export async function startNovelReviewRun({
       )
     }
   } catch (error) {
-    console.error("审查失败:", error)
+    // F-16 (CWE-532): message-only to avoid leaking provider request details.
+    console.error("审查失败:", error instanceof Error ? error.message : String(error))
     thinkingPublisher.flush()
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {

@@ -1681,15 +1681,22 @@ async function collectModelText(
       throw errorNow
     }
   }
-  if (cutoffReason) {
-    // Final flush on cutoff (tracker reset to emit the cutoff-annotated view).
-    lastPushedContentLen = 0
-    onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`)
-  } else {
-    // F-4: final flush of the complete content so the caller's last onUpdate
-    // reflects the full draft, not a throttle-stale truncated view.
-    flushContent()
-    flushReasoning()
+  // F-4 regression guard (S_CONFIRM): the partial-preserve path already
+  // emitted its final annotated view at :1678, so neither the cutoff flush nor
+  // the normal-completion flush must run afterward — otherwise flushContent()
+  // would overwrite the partial-preserve annotation with a bare content frame
+  // (last-onUpdate-wins), hiding the partial signal from the caller's UI.
+  if (!tookPartialPreserve) {
+    if (cutoffReason) {
+      // Final flush on cutoff (tracker reset to emit the cutoff-annotated view).
+      lastPushedContentLen = 0
+      onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`)
+    } else {
+      // F-4: final flush of the complete content so the caller's last onUpdate
+      // reflects the full draft, not a throttle-stale truncated view.
+      flushContent()
+      flushReasoning()
+    }
   }
   // CORR-107: a full successful generation (no partial-preserve branch taken)
   // supersedes any earlier partialReason set by a prior stage — clear it so a

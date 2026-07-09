@@ -227,7 +227,8 @@ export async function reviewChapter(
       contextPack = { ...baseContextPack, characterAuras: draftCharacterAuras }
     }
   } catch (err) {
-    console.error("[Novel Review] 重新匹配角色光环失败，沿用阶段1的光环:", err)
+    // F-16 (CWE-532): message-only to avoid leaking provider request details.
+    console.error("[Novel Review] 重新匹配角色光环失败，沿用阶段1的光环:", err instanceof Error ? err.message : String(err))
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
@@ -312,7 +313,9 @@ ${langReminder}`
 
     return chunkResults.flat()
   } catch (err) {
-    console.error("[Novel Review] Failed:", err)
+    // F-16 (CWE-532): message-only; the full error is still propagated via
+    // toError(err) for the caller, so the stderr log only needs the message.
+    console.error("[Novel Review] Failed:", err instanceof Error ? err.message : String(err))
     throw toError(err)
   }
 }
@@ -378,7 +381,8 @@ async function runReviewStage(
     },
     onDone: () => {},
     onError: (error: Error) => {
-      console.error("[Novel Review] Stream error:", error)
+      // F-16 (CWE-532): message-only to avoid leaking provider request details.
+      console.error("[Novel Review] Stream error:", error instanceof Error ? error.message : String(error))
       streamError = error
     },
   }
