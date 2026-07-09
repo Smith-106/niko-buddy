@@ -836,7 +836,7 @@ ${chapterBody.slice(0, 8000)}
     // Promise<ChapterSnapshot | null> contract and letting ingestChapter route
     // to the friendly UX. A non-SyntaxError (transport/stream failure) is
     // re-thrown unchanged so abort/timeout paths stay distinct.
-    let parsed: unknown
+    let parsed: any
     try {
       parsed = JSON.parse(jsonText)
     } catch (error) {
