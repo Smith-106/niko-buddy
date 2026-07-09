@@ -1,6 +1,7 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath, getFileStem } from "@/lib/path-utils"
+import { sanitizeEntitySlug } from "./novel/graph-adapter"
 
 /**
  * One image reference extracted from a matched page's markdown.
@@ -319,12 +320,18 @@ export async function searchWiki(
         let added = 0
         for (const vr of vectorResults) {
           if (knownIds.has(vr.id)) continue
+          // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
+          // before path construction — symmetric with context-engine.ts
+          // runVectorSearchForContent + search-adapter.ts runVectorSearch. PAT-RV3
+          // twin: read path must self-sufficiently sanitize, not rely on the write
+          // path's sanitize invariant (Rust readFile has no project-root containment).
           const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
+          const safeId = sanitizeEntitySlug(vr.id)
           for (const dir of dirs) {
-            const tryPath = `${pp}/wiki/${dir}/${vr.id}.md`
+            const tryPath = `${pp}/wiki/${dir}/${safeId}.md`
             try {
               const content = await readFile(tryPath)
-              const title = extractTitle(content, `${vr.id}.md`)
+              const title = extractTitle(content, `${safeId}.md`)
               results.push({
                 path: tryPath,
                 title,
