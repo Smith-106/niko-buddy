@@ -862,12 +862,13 @@ const chapterMarkerRegexCache = new Map<number, RegExp>()
 
 function includesChapterMarker(text: string, chapterNumber: number): boolean {
   const compact = text.replace(/\s+/g, "")
-  return chapterLabels(chapterNumber).some((label) => compact.includes(label)) ||
-    (chapterMarkerRegexCache.get(chapterNumber) ?? (() => {
-      const re = new RegExp(`chapter\\s*${chapterNumber}\\b`, "i")
-      chapterMarkerRegexCache.set(chapterNumber, re)
-      return re
-    })()).test(text)
+  if (chapterLabels(chapterNumber).some((label) => compact.includes(label))) return true
+  let re = chapterMarkerRegexCache.get(chapterNumber)
+  if (!re) {
+    re = new RegExp(`chapter\\s*${chapterNumber}\\b`, "i")
+    chapterMarkerRegexCache.set(chapterNumber, re)
+  }
+  return re.test(text)
 }
 
 /**
