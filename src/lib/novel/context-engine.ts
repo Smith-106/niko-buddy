@@ -238,7 +238,18 @@ export async function buildContextPack(
     pack.gaps = collectContextGaps()
     return pack
   } finally {
+    // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.
+    // `collectContextGaps()` (normal path above) sets contextGapsActive=false,
+    // but if `buildContextPackFromRawData` throws, collectContextGaps never
+    // runs and contextGapsActive stays true — leaving tieredSlice (line ~153)
+    // recording gaps into a stale buffer that the next build's reset would
+    // clear only at its start. Clear both flags here so the post-build window
+    // (between an aborted build and the next reset) is not vulnerable to
+    // stray gap recording, and contextGaps array doesn't accumulate across a
+    // failed build. Idempotent on the normal path (collect already set false).
     currentBuildBudget = null
+    contextGapsActive = false
+    contextGaps.length = 0
   }
 }
 
@@ -511,11 +522,12 @@ async function listSnapshotEntriesWithMtime(
 /**
  * PERF-001 (ISS-010): load + fold the temporal facts for `projectPath`,
  * memoized per project-revision. Cache key combines the highest snapshot
- * number and the latest mtime among snapshot files so a re-ingest of the
- * same-numbered snapshot (rewritten file → newer mtime) invalidates the
- * cache. On cache miss the full snapshot chain is loaded and folded via
- * factsFromCommittedSnapshots; the result is cached and returned. On
- * failure returns [] (backward compatible — temporal block is skipped).
+ * number, the latest mtime among snapshot files, the snapshot COUNT, and the
+ * SUM of all snapshot mtimes — so any single-file rewrite (including a
+ * NON-max snapshot, e.g. rewriting chapter 5 in a 100-chapter project)
+ * invalidates the cache (DC-6, REG-001 同形 fix). On cache miss the full
+ * snapshot chain is loaded and folded via factsFromCommittedSnapshots; the
+ * result is cached and returned. On failure returns [] (backward compatible).
  *
  * Exported for test instrumentation (cache-hit / mtime-invalidation tests).
  */
@@ -534,7 +546,21 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
   }
   const maxSnapshotNumber = entries.reduce((m, e) => Math.max(m, e.number), -Infinity)
   const maxSnapshotMtime = entries.reduce((m, e) => Math.max(m, e.snapshotMtime), 0)
-  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}`
+  // DC-6 (odyssey-improve, REG-001 同形): the previous max-only key
+  // (`maxSnapshotNumber:maxSnapshotMtime`) failed to invalidate when a NON-max
+  // snapshot was rewritten — rewriting chapter 5 in a 100-chapter project left
+  // both max fields unchanged, so the cache returned stale temporal facts that
+  // missed chapter 5's new content. Augment the key with snapshot COUNT and the
+  // SUM of all snapshot mtimes: any single-file rewrite bumps its mtime → sum
+  // changes → key changes → cache invalidates, regardless of which chapter was
+  // rewritten. The explicit clearTemporalFactsCache calls on saveEditedSnapshot
+  // / restoreSnapshotHistory / syncSnapshotToMemory remain as belt-and-suspenders;
+  // this hardens the key itself so any FUTURE rewrite path that forgets to call
+  // clear no longer silently serves stale facts. O(n) over entries (mtimes
+  // already fetched above), no crypto needed.
+  const snapshotCount = entries.length
+  const sumSnapshotMtime = entries.reduce((s, e) => s + e.snapshotMtime, 0)
+  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}:${snapshotCount}:${sumSnapshotMtime}`
   const cached = temporalFactsCache.get(pp)
   if (cached && cached.latestRevision === latestRevision) {
     return cached.facts
