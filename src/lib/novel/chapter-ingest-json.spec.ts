@@ -86,4 +86,17 @@ describe("chapter-ingest JSON extraction hardening", () => {
 
     expect(source).toMatch(/if \(err instanceof SyntaxError\)\s*\{[^}]*无法解析的 JSON/s)
   })
+
+  it("ISS-026 sibling: ingestOutline malformed JSON returns null (caller friendly ternary) instead of throwing", () => {
+    // ingestOutline is the sibling of extractSnapshotWithLLM — same
+    // Promise<ChapterSnapshot | null> contract, same malformed-JSON failure
+    // mode. A SyntaxError from JSON.parse must return null so the caller
+    // (outline-generation.ts:708) routes to the friendly 'ingestFailed'
+    // ternary branch, not escape via the catch@2017 throw path. PAT-G2 twin
+    // mirror: the parse wrap must mirror extractSnapshotWithLLM's fix.
+    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+
+    // The outline parse is wrapped: SyntaxError → return null.
+    expect(source).toMatch(/\[Outline Ingest\] Malformed outline JSON/s)
+  })
 })

@@ -1999,7 +1999,24 @@ ${body}
       throw new Error("大纲摄取失败：模型没有返回可解析的 JSON")
     }
 
-    const parsed = JSON.parse(jsonText)
+    // ISS-026 (PAT-ID1, sibling of extractSnapshotWithLLM@821): wrap the parse
+    // so a malformed/truncated/code-fence-leaking outline JSON throws a bare
+    // SyntaxError that escapes via the catch@2017 -> normalizeOutlineIngestError
+    // throw path, bypassing the caller's (outline-generation.ts:708) friendly
+    // `snapshot ? 'done' : 'error'` UX branch (only reachable via the no-LLM
+    // early-exit return null @1930). Return null here honors the
+    // Promise<ChapterSnapshot | null> contract and lets the caller route to
+    // the friendly ingestFailedNotification. A non-SyntaxError re-throws.
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        console.error("[Outline Ingest] Malformed outline JSON:", error.message)
+        return null
+      }
+      throw error
+    }
     const snapshot = normalizeChapterSnapshot({
       ...parsed,
       chapterId,
