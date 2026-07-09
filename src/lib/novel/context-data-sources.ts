@@ -257,7 +257,11 @@ export const fallbackPreviousEndingDataSource: DataSource<string> = {
         const lines = body.split("\n")
         return lines.slice(-30).join("\n").slice(-1200)
       }
-    } catch {}
+    } catch {
+      // DC-8 (odyssey-improve): surface the load failure as a pack.gap (IC-02)
+      // instead of silently swallowing. Returns "" (best-effort fallback).
+      context.recordGap?.("fallbackPreviousEnding", "datasource_error")
+    }
     return ""
   },
 }
@@ -275,7 +279,9 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
         const contents = await Promise.all(results.slice(0, 5).map(r => readFile(r.path).catch(() => "")))
         return contents.filter(Boolean).join("\n---\n").slice(0, 3000)
       }
-    } catch {}
+    } catch {
+      context.recordGap?.("fallbackCharacterStates", "datasource_error")
+    }
     return ""
   },
 }
@@ -293,7 +299,9 @@ export const fallbackForeshadowingStatesDataSource: DataSource<string> = {
         const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
         return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
       }
-    } catch {}
+    } catch {
+      context.recordGap?.("fallbackForeshadowingStates", "datasource_error")
+    }
     return ""
   },
 }
@@ -311,7 +319,9 @@ export const fallbackTimelineDataSource: DataSource<string> = {
         const content = await readFile(results[0].path)
         return content.slice(0, 2000)
       }
-    } catch {}
+    } catch {
+      context.recordGap?.("fallbackTimeline", "datasource_error")
+    }
     return ""
   },
 }
@@ -329,7 +339,9 @@ export const relatedSettingsDataSource: DataSource<string> = {
         const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
         return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
       }
-    } catch {}
+    } catch {
+      context.recordGap?.("relatedSettings", "datasource_error")
+    }
     return ""
   },
 }
@@ -347,7 +359,9 @@ export const canonRulesDataSource: DataSource<string> = {
         const content = await readFile(results[0].path)
         return content.slice(0, 2000)
       }
-    } catch {}
+    } catch {
+      context.recordGap?.("canonRules", "datasource_error")
+    }
     return ""
   },
 }

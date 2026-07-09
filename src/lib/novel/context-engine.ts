@@ -78,9 +78,9 @@ const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
 export type SourceTier = "protected" | "compressible"
 
 export interface ContextGap {
-  type: "compressed" | "truncated"
+  type: "compressed" | "truncated" | "load_failed"
   ref: string
-  reason: "budget_exceeded" | "tier_compressible"
+  reason: "budget_exceeded" | "tier_compressible" | "datasource_error"
   originalLength: number
   retainedLength: number
 }
@@ -93,6 +93,12 @@ export interface ContextGap {
  * buffer). `buildContextPack` resets the buffer before loading data sources
  * and collects the recorded gaps after. The lifecycle is exactly one
  * `buildContextPack` call — the buffer is per-build, not global-persistent.
+ *
+ * DC-8 (odyssey-improve): `recordDatasourceLoadFailure` is exported so data
+ * sources can record a `load_failed` gap when their load throws (previously
+ * the `catch {}` swallowed the error silently, violating the IC-02 contract
+ * that every context truncation/omission be visible in pack.gaps). The
+ * helper is guarded by `contextGapsActive` so it is a no-op outside a build.
  */
 const contextGaps: ContextGap[] = []
 let contextGapsActive = false
@@ -105,6 +111,24 @@ function resetContextGaps(): void {
 function collectContextGaps(): ContextGap[] {
   contextGapsActive = false
   return [...contextGaps]
+}
+
+/**
+ * DC-8 (odyssey-improve): record a `load_failed` gap for a data source whose
+ * `load()` threw. Exposed to buildContextPack via the `recordGap` callback on
+ * ContextLoadContext (injected into the context object), so data sources in
+ * context-data-sources.ts can record failures without importing context-engine
+ * (avoids the circular dependency). No-op outside an active build.
+ */
+function recordDatasourceLoadFailure(ref: string, reason = "datasource_error"): void {
+  if (!contextGapsActive) return
+  contextGaps.push({
+    type: "load_failed",
+    ref,
+    reason,
+    originalLength: 0,
+    retainedLength: 0,
+  })
 }
 
 /**
@@ -280,6 +304,11 @@ function buildLoadContext(
       snapshotLookback: 3,
       revisionFeedbackWindowConfig,
     },
+    // DC-8 (odyssey-improve): inject the gap recorder so data sources can
+    // surface load failures into pack.gaps (IC-02) without importing
+    // context-engine (avoids circular dependency). No-op outside a build
+    // (guarded by contextGapsActive inside recordDatasourceLoadFailure).
+    recordGap: recordDatasourceLoadFailure,
   }
 }
 

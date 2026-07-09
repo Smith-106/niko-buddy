@@ -24,6 +24,14 @@ export interface ContextLoadContext {
     snapshotLookback: number
     revisionFeedbackWindowConfig: any
   }
+  /**
+   * DC-8 (odyssey-improve): optional gap recorder injected by buildContextPack.
+   * Data sources call this in their `catch` block (instead of a bare `catch {}`)
+   * so a failed load surfaces in `pack.gaps` (IC-02: every context omission
+   * visible). No-op when absent (backward compatible with callers that don't
+   * supply it — e.g. tests, direct DataSource.load invocations).
+   */
+  recordGap?: (ref: string, reason?: string) => void
 }
 
 /**
