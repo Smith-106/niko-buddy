@@ -19,7 +19,7 @@ import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, type ContextLoadContext } from "./context-data-source"
+import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
 import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 
@@ -80,7 +80,7 @@ export type SourceTier = "protected" | "compressible"
 export interface ContextGap {
   type: "compressed" | "truncated" | "load_failed"
   ref: string
-  reason: "budget_exceeded" | "tier_compressible" | "datasource_error"
+  reason: ContextGapReason
   originalLength: number
   retainedLength: number
 }
@@ -120,7 +120,7 @@ function collectContextGaps(): ContextGap[] {
  * context-data-sources.ts can record failures without importing context-engine
  * (avoids the circular dependency). No-op outside an active build.
  */
-function recordDatasourceLoadFailure(ref: string, reason = "datasource_error"): void {
+function recordDatasourceLoadFailure(ref: string, reason: ContextGapReason = "datasource_error"): void {
   if (!contextGapsActive) return
   contextGaps.push({
     type: "load_failed",
@@ -1113,12 +1113,22 @@ async function runVectorSearchForContext(
     // probes all 7 candidate paths (6 dirs + 1 root) concurrently via
     // Promise.allSettled, preserving first-success semantics (dirs order
     // wins over root) by scanning settled results in priority order.
-    const probePath = async (tryPath: string): Promise<{ title: string; snippet: string; path: string } | null> => {
+    //
+    // F-002 (odyssey-review): probePath takes an explicit `vrId` param rather
+    // than closing over the loop variable `vr`. Defining probePath outside the
+    // `for (const vr ...)` loop (for object reuse) while reading `vr.id` via
+    // closure is a scope error (TS2304) and a contract smell (signature
+    // implies only tryPath matters, but vr.id decided the title fallback).
+    // Passing vrId explicitly fixes both.
+    const probePath = async (
+      tryPath: string,
+      vrId: string,
+    ): Promise<{ title: string; snippet: string; path: string } | null> => {
       try {
         const content = await readFile(tryPath)
         const title = content.match(/^#\s+(.+)/m)?.[1]?.trim()
           ?? content.match(/^---\ntitle:\s*(.+)/m)?.[1]?.trim()
-          ?? vr.id
+          ?? vrId
         return { title, snippet: content.slice(0, 300).replace(/\n/g, " "), path: tryPath }
       } catch {
         return null
@@ -1130,7 +1140,7 @@ async function runVectorSearchForContext(
         ...dirs.map((dir) => `${pp}/wiki/${dir}/${vr.id}.md`),
         `${pp}/wiki/${vr.id}.md`,
       ]
-      const settled = await Promise.allSettled(candidatePaths.map(probePath))
+      const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, vr.id)))
       // Priority order: dirs first (in declared order), then root fallback.
       const hit = settled
         .map((r) => (r.status === "fulfilled" ? r.value : null))

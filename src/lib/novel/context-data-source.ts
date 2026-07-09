@@ -4,6 +4,14 @@
  */
 
 /**
+ * ContextGap.reason 的字面量联合类型 (IC-02: gaps 可靠语义)。
+ * 定义在此处 (而非 context-engine.ts) 以避免 context-data-source → context-engine
+ * 反向 import 加重循环依赖 (ARCH F-007)。context-engine.ts 的 ContextGap.reason
+ * 复用此类型, recordGap 注入契约也用它, 使调用方传非 union 字符串时编译期报错。
+ */
+export type ContextGapReason = "budget_exceeded" | "tier_compressible" | "datasource_error"
+
+/**
  * 上下文加载配置
  */
 export interface ContextLoadContext {
@@ -31,7 +39,7 @@ export interface ContextLoadContext {
    * visible). No-op when absent (backward compatible with callers that don't
    * supply it — e.g. tests, direct DataSource.load invocations).
    */
-  recordGap?: (ref: string, reason?: string) => void
+  recordGap?: (ref: string, reason?: ContextGapReason) => void
 }
 
 /**
