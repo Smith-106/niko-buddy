@@ -584,7 +584,10 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
   if (entries.length === 0) {
     // No snapshots → nothing to fold. Still cache the empty result so
     // repeated builds don't re-readdir, but use a stable revision token.
-    const emptyRevision = "0:0"
+    // COR (odyssey-review): match the 4-segment shape of latestRevision
+    // (`max:max:count:sum`) so a future field addition caught by the PAT-G2
+    // twin-scan doesn't miss the empty path. Empty = all zeros.
+    const emptyRevision = "0:0:0:0"
     const cached = temporalFactsCache.get(pp)
     if (cached && cached.latestRevision === emptyRevision) return cached.facts
     const facts: TemporalFact[] = []
@@ -653,7 +656,9 @@ export function extractChapterNumberFromTask(task: string): number | undefined {
     const match = task.match(pattern)
     if (match) {
       const value = Number(match[1])
-      if (Number.isFinite(value) && value > 0) return value
+      // COR (odyssey-review): bound the chapter number to avoid pathological
+      // task text (e.g. "第999999999章") driving downstream loops/scans.
+      if (Number.isFinite(value) && value > 0 && value < 100000) return value
     }
   }
   return undefined
@@ -849,10 +854,20 @@ function chapterLabels(chapterNumber: number): string[] {
   return [`第${chapterNumber}章`, `第${numberToChineseChapter(chapterNumber)}章`]
 }
 
+// PERF (odyssey-review): memoize the per-chapterNumber RegExp. includesChapterMarker
+// is called per-candidate (2× per candidate: content + path) inside
+// pickChapterOutlineByNumber's `candidates.find`, and chapterNumber is constant
+// within one call — compiling `new RegExp` 160×/build is wasteful.
+const chapterMarkerRegexCache = new Map<number, RegExp>()
+
 function includesChapterMarker(text: string, chapterNumber: number): boolean {
   const compact = text.replace(/\s+/g, "")
   return chapterLabels(chapterNumber).some((label) => compact.includes(label)) ||
-    new RegExp(`chapter\\s*${chapterNumber}\\b`, "i").test(text)
+    (chapterMarkerRegexCache.get(chapterNumber) ?? (() => {
+      const re = new RegExp(`chapter\\s*${chapterNumber}\\b`, "i")
+      chapterMarkerRegexCache.set(chapterNumber, re)
+      return re
+    })()).test(text)
 }
 
 /**
@@ -1096,7 +1111,21 @@ export async function searchRelevantContentUnified(
     return isAuthoritativeGenerationPath(path)
   })
 
-  const reranked = await rerankCandidates(query, candidates, {
+  // PERF (odyssey-review): dedupe candidates by path before rerank. The three
+  // sources (semantic > index > vector) can return the same path with different
+  // ids/titles; keeping only the first-seen (source-priority order) avoids
+  // wasting rerank scoring budget on cross-source duplicates.
+  const dedupedCandidates = (() => {
+    const seenPaths = new Set<string>()
+    return candidates.filter((item) => {
+      const p = item.path
+      if (seenPaths.has(p)) return false
+      seenPaths.add(p)
+      return true
+    })
+  })()
+
+  const reranked = await rerankCandidates(query, dedupedCandidates, {
     topK: Math.max(limit * 2, limit),
     purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
   }).catch(() => candidates)
