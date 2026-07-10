@@ -139,6 +139,31 @@ function severityForIssue(
   return order[issueSeverity] > order[fromStatus] ? issueSeverity : fromStatus
 }
 
+/**
+ * EPIC-004 / ADR-33 / TASK-009: pure read accessor over the `dimension_results`
+ * field persisted on NovelSessionStatus (S3 F-003 additive field). Returns the
+ * non-undefined dimension results in the canonical SIX_REVIEW_DIMENSION_ORDER,
+ * deriving a view over the status.json truth-source — NOT a module-level cache
+ * (HARD-1: no second truth source). Inspector (queryInspectorState) consumes
+ * this to render cached 6-dim findings without triggering a new review run.
+ *
+ * Accepts `undefined` (older status files without the field, or fresh-base
+ * status) and returns `[]` — graceful degradation. The caller is expected to
+ * pass `status.dimension_results` from loadNovelSessionStatus; this function
+ * performs no I/O and mutates nothing.
+ */
+export function getCachedDimensionResults(
+  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | undefined,
+): DimensionReviewResult[] {
+  if (!dimensionResults) return []
+  const out: DimensionReviewResult[] = []
+  for (const key of SIX_REVIEW_DIMENSION_ORDER) {
+    const result = dimensionResults[key]
+    if (result) out.push(result)
+  }
+  return out
+}
+
 export function dimensionResultsToReviewResults(
   dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>,
 ): NovelReviewResult[] {

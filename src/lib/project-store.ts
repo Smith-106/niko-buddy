@@ -635,6 +635,7 @@ function normalizeNovelConfig(
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
     exemplarEnabled: config.exemplarEnabled ?? DEFAULT_NOVEL_CONFIG.exemplarEnabled,
     conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,
+    inspectorEnabled: config.inspectorEnabled ?? DEFAULT_NOVEL_CONFIG.inspectorEnabled,
   }
 }
 

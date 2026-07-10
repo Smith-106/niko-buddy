@@ -299,6 +299,13 @@ export interface NovelConfig {
    * 优雅降级（回退全桶，不减少现有上下文，加性原则）（默认开）。
    */
   conditionalRoutingEnabled: boolean
+  /**
+   * EPIC-004 / ADR-33 / TASK-009：Inspector 只读查询面板开关。开启后 Chat 主链旁
+   * 渲染 26 维只读面板（cognition-state/draft/contextPack/scene/review/decision
+   * 6 分块），复用 status.dimension_results 缓存 + 静态 de-ai slop 扫描，零 LLM
+   * 调用零 status 写入（默认开）。
+   */
+  inspectorEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -322,6 +329,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoGenerateChapterTitle: true,
   exemplarEnabled: true,
   conditionalRoutingEnabled: true,
+  inspectorEnabled: true,
 }
 
 export interface RevisionFeedbackWindowConfig {
