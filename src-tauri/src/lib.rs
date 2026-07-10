@@ -161,6 +161,8 @@ pub fn run() {
             commands::codex_cli::codex_cli_kill,
             commands::extract_images::extract_pdf_images_cmd,
             commands::extract_images::extract_office_images_cmd,
+            commands::exemplar_commands::mark_style_exemplar,
+            commands::exemplar_commands::load_style_exemplars,
             commands::extract_images::extract_and_save_pdf_images_cmd,
             commands::extract_images::extract_and_save_office_images_cmd,
             commands::file_sync::start_project_file_watcher,

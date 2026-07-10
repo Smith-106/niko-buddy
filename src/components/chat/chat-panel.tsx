@@ -16,6 +16,12 @@ import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
 import { routeTask, buildTaskDirective } from "@/lib/novel/task-router"
 import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
+import {
+  markStyleExemplarViaRust,
+  loadStyleExemplarsViaRust,
+  type StyleExemplarMarkType,
+} from "@/commands/exemplar"
+import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel/character-cognition"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
 import { buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
@@ -328,6 +334,17 @@ export function ChatPanel() {
     isSaving: boolean
   } | null>(null)
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
+  // EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI 状态。
+  // C-001 Draft-first 例外 — 用户主动标记非 AI 产出，直写正式层。
+  const [exemplarDialog, setExemplarDialog] = useState<{
+    open: boolean
+    text: string
+    chapterId: string
+  }>({ open: false, text: "", chapterId: "" })
+  const [exemplarMarkType, setExemplarMarkType] = useState<StyleExemplarMarkType>("style")
+  const [exemplarNote, setExemplarNote] = useState("")
+  const [exemplarCount, setExemplarCount] = useState<number>(0)
+  const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
   const [deepChapterEnabled, setDeepChapterEnabledState] = useState(sharedDeepChapterEnabledRef.current)
   const setDeepChapterEnabled = useCallback((nextValue: boolean | ((prev: boolean) => boolean)) => {
     const resolvedValue = typeof nextValue === "function"
@@ -349,6 +366,71 @@ export function ChatPanel() {
       soulDialogResolverRef.current = resolve
     })
   }, [])
+
+  // EPIC-001 / TASK-005 / ADR-29: 从当前选段打开 exemplar 标记 Dialog。
+  // 用 window.getSelection() 取选段文本（最小侵入 — 不改消息渲染结构）。
+  // C-001 措辞：UI 明确标注「用户标记锚点」非自动生成。
+  const openExemplarDialogFromSelection = useCallback(async () => {
+    if (!project) return
+    const selection = window.getSelection?.()
+    const text = selection?.toString().trim() ?? ""
+    if (!text) {
+      setExemplarFeedback("请先在消息中选中一段文本")
+      return
+    }
+    const pp = normalizePath(project.path)
+    const chapterId = selectedFile ? getFileName(selectedFile) : "chat-selection"
+    setExemplarDialog({ open: true, text, chapterId })
+    setExemplarMarkType("style")
+    setExemplarNote("")
+    setExemplarFeedback("")
+    // 刷新计数（标记前基线）
+    try {
+      const list = await loadStyleExemplarsViaRust(pp)
+      setExemplarCount(list.length)
+    } catch {
+      // non-fatal — 计数失败不阻断标记
+    }
+  }, [project, selectedFile])
+
+  // EPIC-001 / TASK-005: 提交 exemplar 标记 → Rust command 写 .novel/style-exemplars.json
+  // （Draft-first 例外 C-001，直写正式层）+ 刷新计数。
+  const submitExemplarMark = useCallback(async () => {
+    if (!project) return
+    const pp = normalizePath(project.path)
+    try {
+      await markStyleExemplarViaRust(pp, {
+        chapterId: exemplarDialog.chapterId,
+        text: exemplarDialog.text,
+        markType: exemplarMarkType,
+        note: exemplarNote.trim() || undefined,
+      })
+      const list = await loadStyleExemplarsViaRust(pp)
+      setExemplarCount(list.length)
+      setExemplarFeedback("已标记为用户锚点（非自动生成）")
+      setExemplarDialog({ open: false, text: "", chapterId: "" })
+    } catch (e) {
+      setExemplarFeedback(`标记失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
+
+  // EPIC-001 / TASK-005: 提交文风主观评分（1-5 星）→ cognition-state.json A/B 埋点。
+  // G-002 UI 埋点驱动 PM-03 文风一致性 ROI 可量化。
+  const submitExemplarABScore = useCallback(async (score: number, variant: "enabled" | "disabled") => {
+    if (!project) return
+    const pp = normalizePath(project.path)
+    await appendExemplarABSample(pp, {
+      variant,
+      score,
+      chapterId: selectedFile ? getFileName(selectedFile) : "chat",
+      timestamp: new Date().toISOString(),
+    })
+    const state = await loadCognitionState(pp)
+    const stats = exemplarABStats(state)
+    const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
+    const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
+    setExemplarFeedback(`已记录评分 ${score}★（${variant}）— enabled 均分 ${enabledStr} vs disabled ${disabledStr}`)
+  }, [project, selectedFile])
 
   const getLatestAssistantDraftContext = useCallback(() => {
     if (!activeConversationId) return null
@@ -2177,6 +2259,23 @@ export function ChatPanel() {
                     <ChatDockControls />
                     {novelMode ? (
                       <>
+                        {/* EPIC-001 / TASK-005: 标记 Style Exemplar（C-001 用户标记锚点非自动生成） */}
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={(
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={openExemplarDialogFromSelection}
+                                title="标记为 Style Exemplar"
+                                aria-label="标记为 Style Exemplar"
+                              />
+                            )}
+                          >
+                            <TooltipContent>标记为 Style Exemplar（用户锚点）</TooltipContent>
+                          </TooltipTrigger>
+                        </Tooltip>
                         <Button
                           type="button"
                           variant="ghost"
@@ -2253,6 +2352,83 @@ export function ChatPanel() {
             <DialogFooter>
               <Button variant="outline" onClick={() => closeSoulDialog(false)}>取消本次生成</Button>
               <Button onClick={() => closeSoulDialog(true)}>继续生成</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI（C-001 Draft-first 例外，用户标记锚点非自动生成） */}
+        <Dialog open={exemplarDialog.open} onOpenChange={(open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>标记为 Style Exemplar</DialogTitle>
+              <DialogDescription>
+                用户标记锚点（非自动生成）— 作为 de-AI 正向锚点经 contextPack 注入，Draft-first 例外直写正式层。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3 text-xs leading-6 text-foreground whitespace-pre-wrap">
+              {exemplarDialog.text}
+            </div>
+            <div className="flex flex-col gap-2 text-xs">
+              <label className="flex items-center gap-2">
+                <span className="w-16 text-muted-foreground">markType</span>
+                <select
+                  className="rounded border bg-background px-2 py-1 text-xs"
+                  value={exemplarMarkType}
+                  onChange={(e) => setExemplarMarkType(e.target.value as StyleExemplarMarkType)}
+                >
+                  <option value="style">style — 整体文风</option>
+                  <option value="voice">voice — 角色声线</option>
+                  <option value="pacing">pacing — 叙事节奏</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">note（可选）</span>
+                <textarea
+                  className="rounded border bg-background px-2 py-1 text-xs"
+                  rows={2}
+                  value={exemplarNote}
+                  onChange={(e) => setExemplarNote(e.target.value)}
+                  placeholder="为什么这段是好文风锚点？"
+                />
+              </label>
+              <div className="text-muted-foreground">
+                当前项目已标记 exemplar：<span className="font-mono">{exemplarCount}</span> 条
+              </div>
+              {exemplarFeedback && (
+                <div className="rounded bg-muted/40 px-2 py-1 text-xs text-foreground">{exemplarFeedback}</div>
+              )}
+            </div>
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+              <div className="flex gap-1">
+                <span className="self-center text-xs text-muted-foreground">A/B 评分：</span>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Button
+                    key={`en-${s}`}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => submitExemplarABScore(s, "enabled")}
+                    title="exemplar+slop 评分"
+                  >
+                    {s}★E
+                  </Button>
+                ))}
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Button
+                    key={`dis-${s}`}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => submitExemplarABScore(s, "disabled")}
+                    title="slop-only 评分"
+                  >
+                    {s}★D
+                  </Button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setExemplarDialog({ open: false, text: "", chapterId: "" })}>取消</Button>
+                <Button onClick={submitExemplarMark}>标记锚点</Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

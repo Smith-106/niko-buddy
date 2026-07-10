@@ -31,6 +31,27 @@ export interface RoutingROISample {
   timestamp: string
 }
 
+/**
+ * EPIC-001 / TASK-005 / ADR-29: exemplar A/B ROI 埋点样本。
+ *
+ * 每次 de-AI 运行后 UI 埋点文风主观评分（1-5 星），用于跨章节验证
+ * exemplar+slop（exemplarEnabled=true）是否优于 slop-only（false）。
+ * G-002 UI 埋点驱动 PM-03 文风一致性 ROI 可量化。
+ *
+ * 写入 cognition-state.json 现有 key（`exemplarABuckets` 字段，additive
+ * optional — HARD-1 守恒：不新建第二份真源文件，复用 cognition-state.json）。
+ */
+export interface ExemplarABSample {
+  /** A/B 分组：'enabled' = exemplarEnabled=true，'disabled' = false。 */
+  variant: "enabled" | "disabled"
+  /** 文风主观评分（1-5 星，UI 用户评分）。 */
+  score: number
+  /** 当前章节号（用于跨章节统计）。 */
+  chapterId: string
+  /** 采集时间戳 ISO 串。 */
+  timestamp: string
+}
+
 export interface CognitionState {
   characters: CharacterCognition[]
   readerKnows: string[]
@@ -41,6 +62,12 @@ export interface CognitionState {
    * 缺失时 [] — 向后兼容（pre-TASK-008 cognition-state.json 无此字段）。
    */
   routingROIBuckets?: RoutingROISample[]
+  /**
+   * EPIC-001 / TASK-005: exemplar A/B ROI 埋点样本数组（additive optional）。
+   * 跨章节累积，A/B 验证 enabled vs disabled 平均文风主观评分。
+   * 缺失时 [] — 向后兼容（pre-TASK-005 cognition-state.json 无此字段）。
+   */
+  exemplarABuckets?: ExemplarABSample[]
 }
 
 const COGNITION_DIR = ".novel"
@@ -225,6 +252,69 @@ export async function appendRoutingROISample(
   } catch {
     // non-fatal — ROI 采集失败不影响主链
   }
+}
+
+/**
+ * EPIC-001 / TASK-005: 追加一条 exemplar A/B ROI 埋点样本到 cognition-state.json。
+ *
+ * 读现有 cognition-state.json → append 样本 → 写回（复用 loadCognitionState +
+ * saveCognitionState，HARD-1 守恒：写 cognition-state.json 现有文件非新真源）。
+ * 文件不存在时创建最小 CognitionState（空 characters + readerKnows）承载样本。
+ * 失败非致命（non-fatal）— ROI 采集不影响主链。
+ *
+ * @param projectPath 项目根路径
+ * @param sample      A/B 样本（variant/score/chapterId/timestamp）
+ */
+export async function appendExemplarABSample(
+  projectPath: string,
+  sample: ExemplarABSample,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  try {
+    const existing = await loadCognitionState(pp)
+    const state: CognitionState = existing ?? {
+      characters: [],
+      readerKnows: [],
+      lastUpdatedChapter: 0,
+    }
+    const buckets = Array.isArray(state.exemplarABuckets)
+      ? state.exemplarABuckets
+      : []
+    // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets 一致，1024 条）。
+    const AB_BUCKETS_MAX = 1024
+    const next = [...buckets, sample]
+    while (next.length > AB_BUCKETS_MAX) {
+      next.shift()
+    }
+    state.exemplarABuckets = next
+    await saveCognitionState(pp, state)
+  } catch {
+    // non-fatal — ROI 采集失败不影响主链
+  }
+}
+
+/**
+ * EPIC-001 / TASK-005: 统计 exemplar A/B 两组平均分（跨章节 ROI 验证）。
+ *
+ * @param state cognition-state（含 exemplarABuckets）
+ * @returns `{ enabledAvg, disabledAvg }` — 缺数据组返回 null
+ */
+export function exemplarABStats(state: CognitionState | null): {
+  enabledAvg: number | null
+  disabledAvg: number | null
+} {
+  if (!state || !Array.isArray(state.exemplarABuckets) || state.exemplarABuckets.length === 0) {
+    return { enabledAvg: null, disabledAvg: null }
+  }
+  const enabledScores: number[] = []
+  const disabledScores: number[] = []
+  for (const sample of state.exemplarABuckets) {
+    if (sample.variant === "enabled") enabledScores.push(sample.score)
+    else disabledScores.push(sample.score)
+  }
+  const avg = (scores: number[]): number | null =>
+    scores.length === 0 ? null : scores.reduce((a, b) => a + b, 0) / scores.length
+  return { enabledAvg: avg(enabledScores), disabledAvg: avg(disabledScores) }
 }
 
 export function cognitionToContextText(state: CognitionState): string {
