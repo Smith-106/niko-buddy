@@ -477,6 +477,126 @@ function resolveDimensionResults(
   return checkpoint?.dimensionResults ?? base.dimension_results
 }
 
+/**
+ * ADR-31 (EPIC-000, lifecycle-twin factory extraction): single source of truth
+ * for constructing a `next` NovelSessionStatus from a `base` + delta overrides.
+ *
+ * The 6 lifecycle functions (persist/complete/pause/block/accept/reject) each
+ * previously inlined a manually-copied `next` status literal spread from base
+ * with 9 repeated fields. That manual duplication
+ * triggered the lifecycle-twin omission 4 times (SH-5 → ARCH-006 → PAT-G1 →
+ * DC-2): each recurrence was a field silently dropped on one of the mirrored
+ * sites. Centralizing here means a future lifecycle function (e.g. F-002
+ * scene-breakdown's pending→ready→accept path) cannot forget a field — it calls
+ * this factory with delta-only overrides.
+ *
+ * The factory owns all 9 fields that drifted across the 4 recurrences:
+ * dimension_results / updated_at / status / active_step_index / current_task /
+ * draft / decision_gates / resume_checkpoint / evidence_refs. Each defaults to
+ * the base value when not supplied in overrides (so callers only pass what
+ * changes), mirroring the prior `...base` spread semantics but explicit.
+ *
+ * `dimension_results` is resolved via resolveDimensionResults when a checkpoint
+ * is supplied (centralized twin-safe helper, DC-2); callers may also override
+ * directly for the accept/reject twin that resolves from draft.checkpoint.
+ */
+export function buildNextStatus(
+  base: NovelSessionStatus,
+  overrides: {
+    updated_at: string
+    status: NovelSessionLifecycleStatus
+    active_step_index?: number | null
+    current_task?: Partial<NovelSessionStatus["current_task"]>
+    draft?: Partial<NovelSessionStatus["draft"]>
+    decision_gates?: DeepChapterDecisionGates
+    resume_checkpoint?: DeepChapterGenerationResumeCheckpoint
+    evidence_refs?: string[]
+    dimension_results?: NovelSessionStatus["dimension_results"]
+  },
+): NovelSessionStatus {
+  // Use `key in overrides` (not `!== undefined`) so a caller passing
+  // `resume_checkpoint: undefined` explicitly clears the field, faithfully
+  // mirroring the prior `...base, resume_checkpoint: input.checkpoint` spread
+  // semantics (where input.checkpoint may be undefined and overwrites base).
+  // A caller omitting the key entirely inherits base — the delta-only path.
+  const currentTask: NovelSessionStatus["current_task"] = "current_task" in overrides && overrides.current_task
+    ? { ...base.current_task, ...overrides.current_task }
+    : base.current_task
+  const draft: NovelSessionStatus["draft"] = "draft" in overrides && overrides.draft
+      ? { ...base.draft, ...overrides.draft }
+      : base.draft
+  const decisionGates = "decision_gates" in overrides
+    ? cloneDecisionGates(overrides.decision_gates)
+    : base.decision_gates
+  const resumeCheckpoint = "resume_checkpoint" in overrides
+    ? overrides.resume_checkpoint
+    : base.resume_checkpoint
+  const evidenceRefs = "evidence_refs" in overrides
+    ? overrides.evidence_refs
+    : base.evidence_refs
+  const dimensionResults = "dimension_results" in overrides
+    ? overrides.dimension_results
+    : base.dimension_results
+  return {
+    schema_version: base.schema_version,
+    session_id: base.session_id,
+    source: base.source,
+    created_at: base.created_at,
+    updated_at: overrides.updated_at,
+    status: overrides.status,
+    active_step_index: "active_step_index" in overrides
+      ? overrides.active_step_index
+      : base.active_step_index,
+    current_task: currentTask,
+    draft,
+    decision_gates: decisionGates,
+    resume_checkpoint: resumeCheckpoint,
+    evidence_refs: evidenceRefs,
+    dimension_results: dimensionResults,
+  }
+}
+
+/**
+ * ADR-31 (EPIC-000, lifecycle-twin factory extraction): shared checkpoint
+ * persistence helper. Encapsulates the status.json truth-source write (the
+ * `.novel/status.json` file, which carries the embedded resume_checkpoint as a
+ * nested field — no separate checkpoint file is created, which would
+ * violate HARD-1 status.json sole truth-source) plus optional evidence_refs
+ * append, so the 6 lifecycle functions share one write path instead of each
+ * inlining saveNovelSessionStatus + evidence merge.
+ *
+ * `evidenceEntries`, when supplied, are merged into next.evidence_refs (deduped
+ * via mergeEvidenceRefs) before the status.json write — mirroring the prior
+ * `mergeEvidenceRefs(...base.evidence_refs, draftPath[, formalChapterPath])`
+ * pattern but centralized so a future lifecycle function cannot forget to
+ * thread evidence refs through.
+ *
+ * HARD-1 (status.json sole truth-source): writes only .novel/status.json via
+ * saveNovelSessionStatus; no new session-state file is created. `sessionId`
+ * is accepted for parity with the lifecycle function signatures and MUST match
+ * next.session_id (the truth-source identity); it is not used to derive a
+ * separate file path.
+ */
+export async function persistCheckpointBase(
+  projectPath: string,
+  sessionId: string,
+  next: NovelSessionStatus,
+  evidenceEntries?: string[],
+): Promise<void> {
+  if (evidenceEntries && evidenceEntries.length > 0) {
+    next.evidence_refs = mergeEvidenceRefs(...next.evidence_refs, ...evidenceEntries)
+  }
+  // Guard the truth-source identity: a caller passing a mismatched sessionId
+  // would persist a next.status belonging to a different session, corrupting
+  // the truth-source. Throw rather than silently write.
+  if (next.session_id !== sessionId) {
+    throw new Error(
+      `persistCheckpointBase 真源身份不匹配：next.session_id=${next.session_id} 但传入 sessionId=${sessionId}`,
+    )
+  }
+  await saveNovelSessionStatus(projectPath, next)
+}
+
 async function writeDraftArtifact(
   input: DeepChapterSessionInput,
   sessionId: string,
@@ -743,13 +863,11 @@ export async function persistDeepChapterCheckpoint(
     input.checkpoint.reviewResults ?? [],
     { decisionGates: input.checkpoint.decisionGates },
   )
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "running",
     active_step_index: stageToActiveStepIndex(input.checkpoint.stage),
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: input.checkpoint.chapterNumber ?? input.chapterNumber,
       checkpoint_stage: input.checkpoint.stage,
@@ -757,22 +875,21 @@ export async function persistDeepChapterCheckpoint(
       last_error: undefined,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: "pending",
       checkpoint_stage: input.checkpoint.stage,
       updated_at: now,
     },
-    decision_gates: cloneDecisionGates(input.checkpoint.decisionGates ?? base.decision_gates),
+    decision_gates: input.checkpoint.decisionGates ?? base.decision_gates,
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // CORR-006 / DC-2: 6-dim review map persisted via resolveDimensionResults
     // (centralized twin-safe helper). Additive field: older status files lack
     // it; loadNovelSessionStatus spreads Partial safely.
     dimension_results: resolveDimensionResults(input.checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -801,13 +918,11 @@ export async function completeDeepChapterSession(
       decisionGates: input.checkpoint?.decisionGates ?? base.decision_gates,
     },
   )
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: input.checkpoint?.chapterNumber ?? input.chapterNumber,
       checkpoint_stage: "completed",
@@ -815,14 +930,13 @@ export async function completeDeepChapterSession(
       last_error: undefined,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: "ready",
       checkpoint_stage: input.checkpoint?.stage,
       updated_at: now,
     },
-    decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
+    decision_gates: input.checkpoint?.decisionGates ?? base.decision_gates,
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // DC-2: 6-dim review map via centralized resolveDimensionResults helper
@@ -830,8 +944,8 @@ export async function completeDeepChapterSession(
     // yielded undefined and the checkpoint's 6-dim map was dropped on
     // completion — F-003 twin-path omission, now twin-safe via helper).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -860,15 +974,13 @@ export async function pauseDeepChapterSession(
       { decisionGates: input.checkpoint.decisionGates ?? base.decision_gates },
     )
   }
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "paused",
     active_step_index: input.checkpoint
       ? stageToActiveStepIndex(input.checkpoint.stage)
       : base.active_step_index,
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: input.checkpoint?.chapterNumber ?? input.chapterNumber,
       checkpoint_stage: input.checkpoint?.stage ?? base.current_task.checkpoint_stage,
@@ -876,21 +988,20 @@ export async function pauseDeepChapterSession(
       last_error: input.errorMessage,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: input.checkpoint ? "pending" : base.draft.draft_status,
       checkpoint_stage: input.checkpoint?.stage ?? base.draft.checkpoint_stage,
       updated_at: now,
     },
-    decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
+    decision_gates: input.checkpoint?.decisionGates ?? base.decision_gates,
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix,
     // now twin-safe — cannot be omitted by a future lifecycle function).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -919,13 +1030,11 @@ export async function blockDeepChapterSession(
       { decisionGates: input.checkpoint.decisionGates ?? base.decision_gates },
     )
   }
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "blocked",
     active_step_index: null,
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: input.checkpoint?.chapterNumber ?? input.chapterNumber,
       checkpoint_stage: input.checkpoint?.stage ?? base.current_task.checkpoint_stage,
@@ -933,20 +1042,19 @@ export async function blockDeepChapterSession(
       last_error: input.errorMessage,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: input.checkpoint ? "pending" : base.draft.draft_status,
       checkpoint_stage: input.checkpoint?.stage ?? base.draft.checkpoint_stage,
       updated_at: now,
     },
-    decision_gates: cloneDecisionGates(input.checkpoint?.decisionGates ?? base.decision_gates),
+    decision_gates: input.checkpoint?.decisionGates ?? base.decision_gates,
     resume_checkpoint: input.checkpoint ?? base.resume_checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -1004,13 +1112,11 @@ export async function acceptDeepChapterDraft(
       decisionGates,
     },
   )
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: chapterNumber,
       checkpoint_stage: "completed",
@@ -1018,7 +1124,6 @@ export async function acceptDeepChapterDraft(
       last_error: undefined,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: "accepted",
@@ -1028,7 +1133,7 @@ export async function acceptDeepChapterDraft(
       rejected_at: undefined,
       formal_chapter_path: input.formalChapterPath,
     },
-    decision_gates: cloneDecisionGates(decisionGates),
+    decision_gates: decisionGates,
     resume_checkpoint: checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath, input.formalChapterPath),
     // DC-2 (odyssey-improve): accept was the F-003 twin-path 4th recurrence —
@@ -1036,8 +1141,8 @@ export async function acceptDeepChapterDraft(
     // never sets it) the 6-dim review map was dropped when a draft was accepted.
     // Mirror the other 4 lifecycle functions via the centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, base.session_id, next)
   return next
 }
 
@@ -1071,13 +1176,11 @@ export async function rejectDeepChapterDraft(
       decisionGates,
     },
   )
-  const next: NovelSessionStatus = {
-    ...base,
+  const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
     current_task: {
-      ...base.current_task,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: chapterNumber,
       checkpoint_stage: "completed",
@@ -1085,7 +1188,6 @@ export async function rejectDeepChapterDraft(
       last_error: undefined,
     },
     draft: {
-      ...base.draft,
       draft_id: input.conversationId,
       file_path: draftPath,
       draft_status: "rejected",
@@ -1095,13 +1197,13 @@ export async function rejectDeepChapterDraft(
       rejected_at: now,
       formal_chapter_path: undefined,
     },
-    decision_gates: cloneDecisionGates(decisionGates),
+    decision_gates: decisionGates,
     resume_checkpoint: checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // DC-2 (odyssey-improve): reject twin of accept — omitted dimension_results,
     // dropping the 6-dim review map on fresh base. Mirror via centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
-  }
-  await saveNovelSessionStatus(input.projectPath, next)
+  })
+  await persistCheckpointBase(input.projectPath, base.session_id, next)
   return next
 }
