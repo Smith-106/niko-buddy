@@ -532,7 +532,7 @@ export function buildNextStatus(
     ? overrides.resume_checkpoint
     : base.resume_checkpoint
   const evidenceRefs = "evidence_refs" in overrides
-    ? overrides.evidence_refs
+    ? (overrides.evidence_refs ?? base.evidence_refs)
     : base.evidence_refs
   const dimensionResults = "dimension_results" in overrides
     ? overrides.dimension_results
@@ -544,7 +544,7 @@ export function buildNextStatus(
     created_at: base.created_at,
     updated_at: overrides.updated_at,
     status: overrides.status,
-    active_step_index: "active_step_index" in overrides
+    active_step_index: "active_step_index" in overrides && overrides.active_step_index !== undefined
       ? overrides.active_step_index
       : base.active_step_index,
     current_task: currentTask,

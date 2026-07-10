@@ -286,6 +286,19 @@ export interface NovelConfig {
   communitySummaryAsync: boolean
   /** 生成章节时自动输出标题：开启后AI在正文开头输出 # 第X章 标题名 格式的标题，保存时自动使用（默认开）。 */
   autoGenerateChapterTitle: boolean
+  /**
+   * EPIC-001 / ADR-29 / TASK-004：Style Exemplars 注入开关。开启后
+   * buildContextPack 调用 loadStyleExemplars 注入 top-K=3 exemplar 作正向锚点
+   * 进入 de-AI LLM 输入（单次 pass 不变）。零 exemplar 优雅降级（默认开）。
+   */
+  exemplarEnabled: boolean
+  /**
+   * EPIC-003 / ADR-32 / TASK-006：条件性上下文路由开关。开启后按 entity-page
+   * frontmatter tags（`location:chapter-N` / `relevance:high`）+ chapter outline
+   * mentions + scene characters 双源过滤场景候选注入 activeEntities。零 entity
+   * 优雅降级（回退全桶，不减少现有上下文，加性原则）（默认开）。
+   */
+  conditionalRoutingEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -307,6 +320,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryInterval: 5,
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
+  exemplarEnabled: true,
+  conditionalRoutingEnabled: true,
 }
 
 export interface RevisionFeedbackWindowConfig {

@@ -633,6 +633,8 @@ function normalizeNovelConfig(
     communitySummaryInterval: Math.max(1, Math.min(50, config.communitySummaryInterval ?? DEFAULT_NOVEL_CONFIG.communitySummaryInterval)),
     communitySummaryAsync: config.communitySummaryAsync ?? DEFAULT_NOVEL_CONFIG.communitySummaryAsync,
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
+    exemplarEnabled: config.exemplarEnabled ?? DEFAULT_NOVEL_CONFIG.exemplarEnabled,
+    conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,
   }
 }
 

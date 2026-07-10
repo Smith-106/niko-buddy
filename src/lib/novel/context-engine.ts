@@ -23,6 +23,9 @@ import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
 import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
+// EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
+// de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
+import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -220,6 +223,40 @@ export interface ContextPack {
    * undefined; buildContextPack always populates it.
    */
   gaps?: ContextGap[]
+  /**
+   * EPIC-001 / ADR-29 / TASK-004: Style Exemplars 正向锚点（用户标记的好
+   * 段落）。经 contextPack 注入，de-ai-adapter 单次 pass 消费作正向风格锚点
+   * （与 slop 词表反向排除互补）。top-K=3 按 markType 多样性排名，文本截断至
+   * 2000 chars。exemplarEnabled=false 或零 exemplar 时为 `[]`（优雅降级）。
+   *
+   * Optional：legacy constructors / emptyPack 不注入时 undefined（向后兼容）。
+   */
+  styleExemplars?: StyleExemplar[]
+  /**
+   * EPIC-003 / ADR-32 / TASK-006: 条件性路由筛选出的当前章节活跃 entity 列表。
+   * 按 chapter outline mentions + scene characters 双源匹配 entity-page
+   * frontmatter tags（`location:chapter-N` / `relevance:high`）后注入。
+   * 零 entity 优雅降级（回退全桶，标 warning），conditionalRoutingEnabled=false
+   * 时跳过路由回退全量。
+   *
+   * Optional：legacy constructors / emptyPack 不注入时 undefined（向后兼容）。
+   */
+  activeEntities?: ContextEntity[]
+}
+
+/**
+ * EPIC-003 / ADR-32 / TASK-006: 条件性路由筛选出的最小 entity 表示。
+ *
+ * 复用 graph-adapter entity-page frontmatter 读取（`type` / `title` / `tags`），
+ * 不改 entity pages 数据模型（additive frontmatter only，ADR-32 明确禁止新数据层）。
+ * Entity 本地最小集定义 — graph-adapter.ts 未导出 Entity 类型（其节点类型是
+ * internal SnapshotNode），路由仅需 entity 的 frontmatter 字段子集。
+ */
+export interface ContextEntity {
+  entityId: string
+  name: string
+  type: string
+  tags?: string[]
 }
 
 export async function buildContextPack(
@@ -258,9 +295,40 @@ export async function buildContextPack(
     const registry = createDataSourceRegistry()
     const rawData = await registry.loadAll(context)
 
-    // 从原始数据构建上下文包
-    const pack = await buildContextPackFromRawData(rawData, context)
+    // EPIC-001 + EPIC-003 / TASK-004 + TASK-006: 并行加载 exemplar + activeEntities，
+    // 与 buildContextPackFromRawData 无数据依赖（两者在 pack 返回后 merge 注入）。
+    // 两个新字段都是 additive — 失败/空数据优雅降级为 []，不影响现有 pack 字段。
+    const novelConfig = useWikiStore.getState().novelConfig
+    const [pack, exemplars, activeEntities] = await Promise.all([
+      buildContextPackFromRawData(rawData, context),
+      // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
+      novelConfig.exemplarEnabled
+        ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)).catch((error) => {
+            console.warn("[ContextEngine] style exemplars load failed, skipping injection:", error)
+            return [] as StyleExemplar[]
+          })
+        : Promise.resolve([] as StyleExemplar[]),
+      // TASK-006: conditionalRoutingEnabled 默认 true；关闭时跳过路由返回 []。
+      // 零 entity 优雅降级在 selectActiveEntities 内部处理（回退全量 + warning）。
+      novelConfig.conditionalRoutingEnabled
+        ? selectActiveEntities(pp, {
+            chapterNumber: context.chapterNumber,
+            outline: joinNonEmpty([rawData.outline, rawData.chapterOutline], "\n\n"),
+            sceneCharacters: extractSceneCharacters(rawData),
+          }).catch((error) => {
+            console.warn("[ContextEngine] conditional entity routing failed, skipping injection:", error)
+            return [] as ContextEntity[]
+          })
+        : Promise.resolve([] as ContextEntity[]),
+    ])
+
     pack.gaps = collectContextGaps()
+    // EPIC-001 / ADR-29: exemplar 注入（top-K=3 按 markType 多样性排名，text 截断）。
+    // 零 exemplar 时 [] — de-ai-adapter 单次 pass 不变（contextPack.styleExemplars 消费）。
+    pack.styleExemplars = exemplars
+    // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
+    // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
+    pack.activeEntities = activeEntities
     return pack
   } finally {
     // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.
@@ -788,6 +856,9 @@ function emptyPack(task: string): ContextPack {
     nextChapterAdvice: "",
     revisionDirectives: "",
     gaps: [],
+    // EPIC-001/003: emptyPack 不注入（非小说模式 / legacy fallback）。
+    styleExemplars: [],
+    activeEntities: [],
   }
 }
 
@@ -990,6 +1061,139 @@ async function readResourceLedgerText(pp: string): Promise<string> {
     return resourceLedgerToContextText(store)
   } catch {}
   return ""
+}
+
+/**
+ * EPIC-003 / ADR-32 / TASK-006: 从 rawData 提取场景角色文本（双源之一）。
+ *
+ * 场景角色来源 = snapshots.characterStates（characterStateChanges 渲染文本，
+ * 含角色名 + 第N章变更）+ fallbackCharacterStates。与 chapter outline mentions
+ * 互补构成 entity 匹配双源（grep 验证 'chapter outline mentions' + 'scene characters'
+ * 两 term）。
+ */
+function extractSceneCharacters(rawData: Record<string, any>): string {
+  const parts: string[] = []
+  const snapshotCharStates = rawData.snapshots?.characterStates
+  if (typeof snapshotCharStates === "string" && snapshotCharStates.trim()) {
+    parts.push(snapshotCharStates)
+  }
+  const fallbackCharStates = rawData.fallbackCharacterStates
+  if (typeof fallbackCharStates === "string" && fallbackCharStates.trim()) {
+    parts.push(fallbackCharStates)
+  }
+  return parts.join("\n\n")
+}
+
+/**
+ * EPIC-003 / ADR-32 / TASK-006: 条件性 entity-tags 路由。
+ *
+ * 从 `${pp}/wiki/entities` 读取 entity pages（graph-adapter.ts:577 entitiesDir
+ * 现存路径，read-only 复用），解析 frontmatter（type/title/tags），按双源匹配：
+ *   - chapter outline mentions：outline 文本中出现 entity name
+ *   - scene characters：characterStates 文本中出现 entity name
+ *
+ * 当 conditionalRoutingEnabled && tags 存在时，进一步按 frontmatter tags
+ * （`location:chapter-N` / `relevance:high|medium|low`）过滤 + 排序。token 预算
+ * 内 entity 优先级（主线 relevance:high > 配角 relevance:medium > 背景 relevance:low）。
+ *
+ * 零 entity 优雅降级：匹配为空时回退全量 entity 并标 warning（加性原则，MUST NOT
+ * 减少现有上下文）。HARD-1：路由仅读 entity-page frontmatter，MUST NOT 写 status.json
+ * （本函数无 writeStatus/saveStatus/persistCheckpoint 调用）。
+ *
+ * 不改 entity pages 数据模型（additive frontmatter only，ADR-32 明确禁止新数据层）。
+ *
+ * 导出用于 conditional-routing.spec.ts 直接测试（entity 匹配双源 + 零 entity 降级）。
+ */
+export async function selectActiveEntities(
+  pp: string,
+  hints: { chapterNumber?: number; outline: string; sceneCharacters: string },
+): Promise<ContextEntity[]> {
+  const entitiesDir = `${pp}/wiki/entities`
+  let files: FileNode[]
+  try {
+    files = await listDirectory(entitiesDir)
+  } catch {
+    // entities 目录不存在（项目未摄取过任何章节）— 优雅降级返回空。
+    return []
+  }
+
+  const mdFiles = files.filter((f) => !f.is_dir && f.name.toLowerCase().endsWith(".md"))
+  if (mdFiles.length === 0) return []
+
+  // 读取所有 entity page 内容（并行）。
+  const contents = await Promise.all(
+    mdFiles.map(async (f) => {
+      try {
+        return { path: f.path, content: await readFile(f.path) }
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  const chapterN = hints.chapterNumber
+  // 双源匹配文本：chapter outline mentions + scene characters。
+  const outlineText = hints.outline ?? ""
+  const sceneCharactersText = hints.sceneCharacters ?? ""
+  const matchSource = (entityName: string): boolean => {
+    if (!entityName || entityName.length < 1) return false
+    // chapter outline mentions（源 A）：entity name 出现在 outline 文本中。
+    if (outlineText.includes(entityName)) return true
+    // scene characters（源 B）：entity name 出现在 characterStates 文本中。
+    if (sceneCharactersText.includes(entityName)) return true
+    return false
+  }
+
+  const matched: ContextEntity[] = []
+  for (const entry of contents) {
+    if (!entry) continue
+    const fm = parseFrontmatter(entry.content).frontmatter
+    const name = typeof fm?.title === "string" ? fm.title : ""
+    const type = typeof fm?.type === "string" ? fm.type : "entity"
+    const rawTags = fm?.tags
+    const tags: string[] = Array.isArray(rawTags)
+      ? rawTags.filter((t): t is string => typeof t === "string")
+      : typeof rawTags === "string"
+        ? rawTags.split(",").map((t) => t.trim()).filter(Boolean)
+        : []
+    if (!name) continue
+    if (!matchSource(name)) continue
+    matched.push({ entityId: entry.path, name, type, tags })
+  }
+
+  // 零 entity 优雅降级：双源匹配为空时回退全量（加性原则，不减少上下文）+ warning。
+  if (matched.length === 0) {
+    console.warn(
+      "[ContextEngine] conditional routing matched zero entities, falling back to all entities (additive — no context reduced)",
+    )
+    return contents.filter(Boolean).map((entry) => {
+      const fm = parseFrontmatter(entry!.content).frontmatter
+      const name = typeof fm?.title === "string" ? fm.title : ""
+      const type = typeof fm?.type === "string" ? fm.type : "entity"
+      const rawTags = fm?.tags
+      const tags: string[] = Array.isArray(rawTags)
+        ? rawTags.filter((t): t is string => typeof t === "string")
+        : typeof rawTags === "string"
+          ? rawTags.split(",").map((t) => t.trim()).filter(Boolean)
+          : []
+      return { entityId: entry!.path, name, type, tags }
+    }).filter((e) => e.name.length > 0)
+  }
+
+  // token 预算内 entity 优先级：主线 > 配角 > 背景层级（relevance tags）。
+  // 同时用 location:chapter-N tag 提升当前章节关联的 entity。
+  const relevanceRank = (e: ContextEntity): number => {
+    let rank = 1 // 默认配角层级
+    const tagStr = (e.tags ?? []).join(" ")
+    if (tagStr.includes("relevance:high")) rank = 0 // 主线
+    else if (tagStr.includes("relevance:low")) rank = 2 // 背景
+    // location:chapter-N 匹配当前章节 → 提升至主线层级。
+    if (chapterN && tagStr.includes(`location:chapter-${chapterN}`)) rank = 0
+    return rank
+  }
+  matched.sort((a, b) => relevanceRank(a) - relevanceRank(b))
+
+  return matched
 }
 
 export async function searchRelevantContent(
