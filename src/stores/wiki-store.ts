@@ -306,6 +306,16 @@ export interface NovelConfig {
    * 调用零 status 写入（默认开）。
    */
   inspectorEnabled: boolean
+  /**
+   * EPIC-003 / ADR-32 / TASK-007：temporal-facts 轨 B 路由维度开关。ISS-014
+   * temporal-memory 路由维度（按 chapter 时间线注入 temporal facts 作路由筛选维度）
+   * 落地后激活。ISS-014 未落地，默认 **false** — 仅 Track A entity-tags 轨运行
+   * （G-001 两轨独立交付，不被阻塞）。stub：flag + TODO(ISS-014) 注释占位，
+   * 无实际 temporal-facts 路由读取逻辑（temporalFactsCache read 仅在 flag=true
+   * 分支占位）。两轨并存时 entity-tags + temporal-facts 双源融合，token 预算协调
+   * （注释占位，stub）。
+   */
+  temporalFactsEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -330,6 +340,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   exemplarEnabled: true,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,
+  // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false（G-001
+  // 两轨独立交付，仅 Track A entity-tags 轨运行）。
+  temporalFactsEnabled: false,
 }
 
 export interface RevisionFeedbackWindowConfig {

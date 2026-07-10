@@ -26,6 +26,8 @@ import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
+// EPIC-003 / TASK-008: ROI 埋点写入 cognition-state.json（现有 key，HARD-1 守恒）。
+import { appendRoutingROISample, type RoutingROISample } from "./character-cognition"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -329,6 +331,50 @@ export async function buildContextPack(
     // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
     // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
     pack.activeEntities = activeEntities
+
+    // EPIC-003 / ADR-32 / TASK-007: temporal-facts 轨 B stub（ISS-014 未落地）。
+    // G-001 两轨策略：Track A entity-tags 轨（上方 activeEntities）已交付独立运行；
+    // Track B temporal-facts 轨依赖 ISS-014 temporal-memory 路由维度（按 chapter
+    // 时间线注入 temporal facts 作路由筛选维度），ISS-014 未落地 → 仅 stub 占位。
+    //
+    // stub 语义（temporalFactsEnabled=false 时）：
+    //   - 仅 Track A entity-tags 轨运行（G-001 独立交付不被阻塞）
+    //   - 无 temporalFactsCache read（temporalFactsCache 路由维度 read 仅在 flag=true
+    //     分支占位，flag=false 时完全不触达）
+    //   - 两轨并存时 entity-tags + temporal-facts 双源融合，token 预算协调（注释占位）
+    //
+    // ISS-014 落地后激活路径（flag=true 时，当前 stub 不实现实际读取）：
+    //   TODO(ISS-014): 当 temporalFactsEnabled=true 时，调用 temporal-facts 缓存按
+    //   chapter 时间线注入 temporal facts 作路由维度，与 entity-tags 双源融合，
+    //   token 预算内协调（relevance:high entity + current-chapter temporal fact 优先）。
+    //   back-reference: knowhow DCS-20260710-g-001（G-001 两轨交付）。
+    if (novelConfig.temporalFactsEnabled) {
+      // TODO(ISS-014): temporal-facts 轨 B 路由维度读取占位。
+      // ISS-014 未落地 — 此分支仅为 flag=true 时的激活锚点，无实际 temporalFactsCache
+      // 路由读取逻辑。落地后在此注入 temporal facts 作路由维度（与 activeEntities 融合）。
+      // HARD-1/2/3 守恒：stub 仅注释 + flag 检查，不写 status.json，不改 Draft-first，
+      // 不改三门控顺序。
+    }
+
+    // EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点（fire-and-forget，非阻塞）。
+    // contextPack 装配后统计无关内容占比，写入 cognition-state.json routingROIBuckets
+    // （现有 key，HARD-1 守恒 — 不写 status.json）。A/B 分组：conditionalRoutingEnabled
+    // true → 'enabled'，false → 'disabled'。G-002/G-003 跨章节累积统计。
+    // 失败非致命（.catch 吞噬）— ROI 采集不影响主链装配。
+    const variant: RoutingROISample["variant"] = novelConfig.conditionalRoutingEnabled
+      ? "enabled"
+      : "disabled"
+    const irrelevantRatio = computeIrrelevantRatio(pack, activeEntities)
+    const roiSample: RoutingROISample = {
+      variant,
+      irrelevantRatio,
+      chapterId: context.chapterNumber != null ? String(context.chapterNumber) : "unknown",
+      timestamp: new Date().toISOString(),
+    }
+    void appendRoutingROISample(pp, roiSample).catch((error) => {
+      // non-fatal — ROI 采集失败不阻塞主链装配
+      console.warn("[ContextEngine] routing ROI sample append failed (non-fatal):", error)
+    })
     return pack
   } finally {
     // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.
@@ -1194,6 +1240,72 @@ export async function selectActiveEntities(
   matched.sort((a, b) => relevanceRank(a) - relevanceRank(b))
 
   return matched
+}
+
+/**
+ * EPIC-003 / ADR-32 / TASK-008: contextPack 无关内容占比启发式统计（ROI 采集）。
+ *
+ * 启发式：从 contextPack 的 characterStates + relatedSettings + cognitionStates
+ * 字段提取候选 entity name（行首 / "X知道" / "X不知道" 模式 + 标点分隔的短词），
+ * 统计其中未被 activeEntities name 覆盖的比例 = irrelevantRatio。
+ *
+ * 这是 stub-grade 启发式（非精确 NER），用于 A/B 趋势对比（enabled vs disabled
+ * 平均占比下降即验证条件路由降低无关内容）。零候选时返回 0（无法判定）。
+ *
+ * G-002/G-003 跨章节统计：多次 contextPack 装配累积样本，A/B variant 对比。
+ * 导出用于 conditional-routing-roi.spec.ts 直接测试。
+ */
+export function computeIrrelevantRatio(
+  pack: ContextPack,
+  activeEntities: ContextEntity[],
+): number {
+  // 从 contextPack 字段提取候选 entity name（character/setting 类）。
+  const candidateNames = new Set<string>()
+  const fields = [pack.characterStates, pack.relatedSettings, pack.cognitionStates]
+  for (const field of fields) {
+    if (!field || typeof field !== "string") continue
+    for (const line of field.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      // 模式1："X知道：..." / "X不知道：..." / "X知晓：..."（cognitionStates 典型）
+      // 注意：doesNotKnow 模式 "X不知道：" 必须先匹配（否则 knows 正则的 `(.+?)`
+      // 会贪婪捕获 "X不" 作 name 污染候选集）。`[^不\n]+?` 排除 "不" 前缀。
+      const doesNotKnowMatch = trimmed.match(/^([^不\n]+?)不知道[了了]?[：:]/)
+      if (doesNotKnowMatch && doesNotKnowMatch[1]) {
+        const name = doesNotKnowMatch[1].trim()
+        if (name.length >= 1 && name.length <= 20) candidateNames.add(name)
+        continue
+      }
+      const cognitionMatch = trimmed.match(/^([^不\n]+?)知道[了了]?[：:]/)
+      if (cognitionMatch && cognitionMatch[1]) {
+        const name = cognitionMatch[1].trim()
+        if (name.length >= 1 && name.length <= 20) candidateNames.add(name)
+        continue
+      }
+      // 模式2：行首短名词（characterStates / relatedSettings 列表项 "- Alice：..."）
+      const listItemMatch = trimmed.match(/^[-*]?\s*([^\s：:、，,]{1,20})[：:]/)
+      if (listItemMatch && listItemMatch[1]) {
+        candidateNames.add(listItemMatch[1].trim())
+      }
+    }
+  }
+  if (candidateNames.size === 0) return 0 // 无候选 → 0（无法判定无关占比）
+
+  // activeEntities name 集合（路由筛选出的相关 entity）。
+  const activeNames = new Set(
+    activeEntities.map((e) => e.name).filter((n) => n.length > 0),
+  )
+  if (activeNames.size === 0) {
+    // 零 active entity（路由降级全量或 disabled）→ 全部候选视为无关。
+    return 1
+  }
+
+  // 统计未被 activeEntities 覆盖的候选占比 = irrelevantRatio。
+  let irrelevantCount = 0
+  for (const name of candidateNames) {
+    if (!activeNames.has(name)) irrelevantCount += 1
+  }
+  return irrelevantCount / candidateNames.size
 }
 
 export async function searchRelevantContent(

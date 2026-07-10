@@ -10,10 +10,37 @@ export interface CharacterCognition {
   doesNotKnow: string[]
 }
 
+/**
+ * EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点样本。
+ *
+ * 每次 contextPack 装配后记录一条 A/B 统计样本，用于跨章节验证条件路由
+ * （conditionalRoutingEnabled=true）是否降低 contextPack 无关内容占比。
+ * G-002/G-003 跨章节数据统计驱动 G-003 长篇规模 ROI 可量化。
+ *
+ * 写入 cognition-state.json 现有 key（`routingROIBuckets` 字段，additive
+ * optional — HARD-1 守恒：不新建第二份真源文件，复用 cognition-state.json）。
+ */
+export interface RoutingROISample {
+  /** A/B 分组：'enabled' = conditionalRoutingEnabled=true，'disabled' = false。 */
+  variant: "enabled" | "disabled"
+  /** contextPack 内容中与 activeEntities 无关的比例（0~1，启发式标记）。 */
+  irrelevantRatio: number
+  /** 当前章节号（用于跨章节统计）。 */
+  chapterId: string
+  /** 采集时间戳 ISO 串。 */
+  timestamp: string
+}
+
 export interface CognitionState {
   characters: CharacterCognition[]
   readerKnows: string[]
   lastUpdatedChapter: number
+  /**
+   * EPIC-003 / TASK-008: 条件路由 ROI 埋点样本数组（additive optional）。
+   * 跨章节累积，A/B 验证 enabled vs disabled 平均 irrelevantRatio。
+   * 缺失时 [] — 向后兼容（pre-TASK-008 cognition-state.json 无此字段）。
+   */
+  routingROIBuckets?: RoutingROISample[]
 }
 
 const COGNITION_DIR = ".novel"
@@ -157,6 +184,46 @@ export async function loadCognitionState(projectPath: string): Promise<Cognition
     return JSON.parse(raw) as CognitionState
   } catch {
     return null
+  }
+}
+
+/**
+ * EPIC-003 / ADR-32 / TASK-008: 追加一条条件路由 ROI 埋点样本到 cognition-state.json。
+ *
+ * 读现有 cognition-state.json → append 样本 → 写回（复用 loadCognitionState +
+ * saveCognitionState，HARD-1 守恒：写 cognition-state.json 现有文件非新真源）。
+ * 文件不存在时创建最小 CognitionState（空 characters + readerKnows）承载 ROI 样本。
+ * 失败非致命（non-fatal）— ROI 采集不影响主链装配。
+ *
+ * @param projectPath 项目根路径
+ * @param sample ROI 样本（variant/irrelevantRatio/chapterId/timestamp）
+ */
+export async function appendRoutingROISample(
+  projectPath: string,
+  sample: RoutingROISample,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  try {
+    const existing = await loadCognitionState(pp)
+    const state: CognitionState = existing ?? {
+      characters: [],
+      readerKnows: [],
+      lastUpdatedChapter: 0,
+    }
+    const buckets = Array.isArray(state.routingROIBuckets)
+      ? state.routingROIBuckets
+      : []
+    // 上限保护：单项目跨章节累积样本封顶，避免无界增长（LRU-ish 弹最旧）。
+    // 1024 条足够 A/B 统计置信度，单条 ~120B → ~120KB 上限可接受。
+    const ROI_BUCKETS_MAX = 1024
+    const next = [...buckets, sample]
+    while (next.length > ROI_BUCKETS_MAX) {
+      next.shift()
+    }
+    state.routingROIBuckets = next
+    await saveCognitionState(pp, state)
+  } catch {
+    // non-fatal — ROI 采集失败不影响主链
   }
 }
 

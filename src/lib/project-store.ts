@@ -636,6 +636,8 @@ function normalizeNovelConfig(
     exemplarEnabled: config.exemplarEnabled ?? DEFAULT_NOVEL_CONFIG.exemplarEnabled,
     conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,
     inspectorEnabled: config.inspectorEnabled ?? DEFAULT_NOVEL_CONFIG.inspectorEnabled,
+    // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false。
+    temporalFactsEnabled: config.temporalFactsEnabled ?? DEFAULT_NOVEL_CONFIG.temporalFactsEnabled,
   }
 }
 
