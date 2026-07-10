@@ -21,6 +21,11 @@ import {
   buildDeepChapterRevisionPrompt,
   buildStableContextPrefix,
 } from "./deep-chapter-prompts"
+import {
+  runSceneBreakdown,
+  persistSceneBreakdownDraft,
+  type SceneBreakdownResult,
+} from "./scene-breakdown"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -82,6 +87,7 @@ export interface DeepChapterDecisionGates {
 
 export type DeepChapterGenerationResumeStage =
   | "after_context"
+  | "after_scene_breakdown"
   | "after_task_brief"
   | "after_draft"
   | "after_review"
@@ -405,6 +411,7 @@ function checkpointStageAtLeast(
   if (!checkpoint) return false
   const order: DeepChapterGenerationResumeStage[] = [
     "after_context",
+    "after_scene_breakdown",
     "after_task_brief",
     "after_draft",
     "after_review",
@@ -961,6 +968,58 @@ export async function runDeepChapterGeneration(
   if (!resumeCheckpoint) {
     callbacks.onThinking?.(formatContextThinking(input, contextPack))
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context"))
+  }
+  assertNotAborted(signal)
+
+  // 阶段 1.5：Scene Breakdown（ADR-30 / EPIC-002 / TASK-012）。
+  // 仅当 sceneBreakdownEnabled 开启时，在 contextPack（阶段 1）之后、task_brief
+  // （阶段 2）之前插入单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
+  // .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
+  // ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
+  // 向后兼容（ADR-30）：flag=false 时跳过整段，after_task_brief 恢复序不变。
+  // resume 时若已过 after_scene_breakdown 也跳过（避免重复拆解已 checkpoint 的章节）。
+  if (
+    novelConfig.sceneBreakdownEnabled
+    && !resumeCheckpoint
+    && !checkpointStageAtLeast(resumeCheckpoint, "after_scene_breakdown")
+  ) {
+    callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
+    const chapterId = String(input.chapterNumber ?? "")
+    let sceneResult: SceneBreakdownResult | null = null
+    try {
+      // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
+      // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
+      sceneResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
+    } catch (error) {
+      // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
+      // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
+      console.error("[deep-chapter-generation] 场景拆解失败（非阻断，跳过阶段1.5）:", error instanceof Error ? error.message : String(error))
+    }
+    assertNotAborted(signal)
+    if (sceneResult && sceneResult.scenes.length > 0) {
+      // 工厂持久化（ADR-31 硬先决）：persistSceneBreakdownDraft 内部用
+      // buildNextStatus + persistCheckpointBase 写 status.json，非手动 const next 块。
+      try {
+        await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
+      } catch (error) {
+        // 持久化失败不阻断主链（加性中间层），仅记日志。
+        console.error("[deep-chapter-generation] 场景拆解持久化失败（非阻断）:", error instanceof Error ? error.message : String(error))
+      }
+      // spec S-444k typed signal 传播：sceneResult.partial 经 notePartial 进入
+      // runDeepChapter 的 partialReason，最终 DeepChapterGenerationResult.partial=true
+      // → chat-panel pauseDeepChapterSession（draft_status pending）而非
+      // completeDeepChapterSession（ready），防 partial 误标 complete（Draft-first 边界）。
+      // first-partial-reason-wins：仅当主链尚未记录 partial 时才记 scene 的 reason
+      // （与 collectModelText 的 notePartial 语义一致，:852）。
+      if (sceneResult.partial && sceneResult.partialReason) {
+        notePartial(`scene-breakdown: ${sceneResult.partialReason}`)
+      }
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段1.5：场景拆解",
+        `已完成场景拆解（${sceneResult.scenes.length}个场景${sceneResult.partial ? "，部分保留" : ""}）`,
+      ))
+    }
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_scene_breakdown"))
   }
   assertNotAborted(signal)
 

@@ -634,6 +634,8 @@ function normalizeNovelConfig(
     communitySummaryAsync: config.communitySummaryAsync ?? DEFAULT_NOVEL_CONFIG.communitySummaryAsync,
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
     exemplarEnabled: config.exemplarEnabled ?? DEFAULT_NOVEL_CONFIG.exemplarEnabled,
+    // EPIC-002/ADR-30: scene-breakdown 阶段 1.5 默认 false 向后兼容。
+    sceneBreakdownEnabled: config.sceneBreakdownEnabled ?? DEFAULT_NOVEL_CONFIG.sceneBreakdownEnabled,
     conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,
     inspectorEnabled: config.inspectorEnabled ?? DEFAULT_NOVEL_CONFIG.inspectorEnabled,
     // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false。

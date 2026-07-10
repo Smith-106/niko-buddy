@@ -293,6 +293,17 @@ export interface NovelConfig {
    */
   exemplarEnabled: boolean
   /**
+   * EPIC-002 / ADR-30 / TASK-012：Scene Breakdown 阶段 1.5 中间层开关。开启后
+   * 在 contextPack（阶段 1）之后、task_brief（阶段 2）之前插入 runSceneBreakdown
+   * 单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
+   * .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
+   * ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
+   * sceneBreakdownResult.partial 经 collectModelText notePartial → partialReason →
+   * chat-panel pauseDeepChapterSession 路由（spec S-444k typed signal）。默认 **false**
+   * 向后兼容（ADR-30）：关闭时跳过阶段 1.5，保持现有 after_task_brief 恢复序不变。
+   */
+  sceneBreakdownEnabled: boolean
+  /**
    * EPIC-003 / ADR-32 / TASK-006：条件性上下文路由开关。开启后按 entity-page
    * frontmatter tags（`location:chapter-N` / `relevance:high`）+ chapter outline
    * mentions + scene characters 双源过滤场景候选注入 activeEntities。零 entity
@@ -338,6 +349,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
   exemplarEnabled: true,
+  // EPIC-002/ADR-30: scene-breakdown 阶段 1.5 默认 false 向后兼容（关闭时
+  // 跳过阶段 1.5，after_task_brief 恢复序不变）。
+  sceneBreakdownEnabled: false,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,
   // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false（G-001
