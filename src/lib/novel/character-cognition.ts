@@ -52,6 +52,27 @@ export interface ExemplarABSample {
   timestamp: string
 }
 
+/**
+ * EPIC-002 / ADR-30 / TASK-013: scene-breakdown rewrite 率 A/B 埋点样本。
+ *
+ * 每次 6-dim review 后记录一条 A/B 统计样本，用于跨章节验证 scene-breakdown
+ * （sceneBreakdownEnabled=true）是否降低 rewrite 率（severity=error findings 占
+ * 总 findings 的比例）。G-002 跨章节数据统计驱动 PM-03 ROI 验证。
+ *
+ * 写入 cognition-state.json 现有 key（`rewriteRateABuckets` 字段，additive
+ * optional — HARD-1 守恒：不新建第二份真源文件，复用 cognition-state.json）。
+ */
+export interface RewriteRateABSample {
+  /** A/B 分组：'enabled' = sceneBreakdownEnabled=true，'disabled' = false。 */
+  variant: "enabled" | "disabled"
+  /** rewrite 率 = severity=error findings 数 / 总 findings 数（0~1）。 */
+  rewriteRate: number
+  /** 当前章节号（用于跨章节统计）。 */
+  chapterId: string
+  /** 采集时间戳 ISO 串。 */
+  timestamp: string
+}
+
 export interface CognitionState {
   characters: CharacterCognition[]
   readerKnows: string[]
@@ -68,6 +89,12 @@ export interface CognitionState {
    * 缺失时 [] — 向后兼容（pre-TASK-005 cognition-state.json 无此字段）。
    */
   exemplarABuckets?: ExemplarABSample[]
+  /**
+   * EPIC-002 / TASK-013: scene-breakdown rewrite 率 A/B 埋点样本数组（additive optional）。
+   * 跨章节累积，A/B 验证 enabled vs disabled 平均 rewriteRate（enabled < disabled）。
+   * 缺失时 [] — 向后兼容（pre-TASK-013 cognition-state.json 无此字段）。
+   */
+  rewriteRateABuckets?: RewriteRateABSample[]
 }
 
 const COGNITION_DIR = ".novel"
@@ -315,6 +342,72 @@ export function exemplarABStats(state: CognitionState | null): {
   const avg = (scores: number[]): number | null =>
     scores.length === 0 ? null : scores.reduce((a, b) => a + b, 0) / scores.length
   return { enabledAvg: avg(enabledScores), disabledAvg: avg(disabledScores) }
+}
+
+/**
+ * EPIC-002 / TASK-013: 追加一条 scene-breakdown rewrite 率 A/B 埋点样本到
+ * cognition-state.json。
+ *
+ * 读现有 cognition-state.json → append 样本 → 写回（复用 loadCognitionState +
+ * saveCognitionState，HARD-1 守恒：写 cognition-state.json 现有文件非新真源）。
+ * 文件不存在时创建最小 CognitionState（空 characters + readerKnows）承载样本。
+ * 失败非致命（non-fatal）— ROI 采集不影响主链装配。
+ *
+ * @param projectPath 项目根路径
+ * @param sample      A/B 样本（variant/rewriteRate/chapterId/timestamp）
+ */
+export async function appendRewriteRateASample(
+  projectPath: string,
+  sample: RewriteRateABSample,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  try {
+    const existing = await loadCognitionState(pp)
+    const state: CognitionState = existing ?? {
+      characters: [],
+      readerKnows: [],
+      lastUpdatedChapter: 0,
+    }
+    const buckets = Array.isArray(state.rewriteRateABuckets)
+      ? state.rewriteRateABuckets
+      : []
+    // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets/exemplarABuckets
+    // 一致，1024 条）。
+    const AB_BUCKETS_MAX = 1024
+    const next = [...buckets, sample]
+    while (next.length > AB_BUCKETS_MAX) {
+      next.shift()
+    }
+    state.rewriteRateABuckets = next
+    await saveCognitionState(pp, state)
+  } catch {
+    // non-fatal — ROI 采集失败不影响主链
+  }
+}
+
+/**
+ * EPIC-002 / TASK-013: 统计 scene-breakdown rewrite 率 A/B 两组平均（跨章节
+ * ROI 验证）。
+ *
+ * @param state cognition-state（含 rewriteRateABuckets）
+ * @returns `{ enabledAvg, disabledAvg }` — 缺数据组返回 null
+ */
+export function rewriteRateABStats(state: CognitionState | null): {
+  enabledAvg: number | null
+  disabledAvg: number | null
+} {
+  if (!state || !Array.isArray(state.rewriteRateABuckets) || state.rewriteRateABuckets.length === 0) {
+    return { enabledAvg: null, disabledAvg: null }
+  }
+  const enabledRates: number[] = []
+  const disabledRates: number[] = []
+  for (const sample of state.rewriteRateABuckets) {
+    if (sample.variant === "enabled") enabledRates.push(sample.rewriteRate)
+    else disabledRates.push(sample.rewriteRate)
+  }
+  const avg = (rates: number[]): number | null =>
+    rates.length === 0 ? null : rates.reduce((a, b) => a + b, 0) / rates.length
+  return { enabledAvg: avg(enabledRates), disabledAvg: avg(disabledRates) }
 }
 
 export function cognitionToContextText(state: CognitionState): string {

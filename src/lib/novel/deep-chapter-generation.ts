@@ -26,6 +26,12 @@ import {
   persistSceneBreakdownDraft,
   type SceneBreakdownResult,
 } from "./scene-breakdown"
+import {
+  appendStageMetric,
+} from "./novel-session-status"
+import {
+  appendRewriteRateASample,
+} from "./character-cognition"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -1005,6 +1011,18 @@ export async function runDeepChapterGeneration(
         // 持久化失败不阻断主链（加性中间层），仅记日志。
         console.error("[deep-chapter-generation] 场景拆解持久化失败（非阻断）:", error instanceof Error ? error.message : String(error))
       }
+      // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
+      // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/
+      // latencyMs/partial 从 runSceneBreakdown 单次 LLM 调用采集，O-201 成本经验
+      // 决策可据。non-fatal — 指标采集失败不阻断主链。
+      await appendStageMetric(input.projectPath, {
+        stage: "scene_breakdown",
+        tokenCost: sceneResult.tokenCost,
+        latencyMs: sceneResult.latencyMs,
+        partial: sceneResult.partial,
+        chapterId,
+        timestamp: new Date().toISOString(),
+      })
       // spec S-444k typed signal 传播：sceneResult.partial 经 notePartial 进入
       // runDeepChapter 的 partialReason，最终 DeepChapterGenerationResult.partial=true
       // → chat-panel pauseDeepChapterSession（draft_status pending）而非
@@ -1270,6 +1288,20 @@ export async function runDeepChapterGeneration(
       decisionGates = buildDecisionGates(reviewResults, retryCount)
       assertNotAborted(signal)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
+      // EPIC-002 / TASK-013 / Story 2.3: rewrite 率 A/B 埋点（severity=error /
+      // 总 findings）。variant 由 sceneBreakdownEnabled 决定（enabled 章节
+      // 经历过阶段 1.5 scene 拆解，disabled 跳过）。每章首次完整 review 结果
+      // 代表该章 rewrite 率，返修后复审不重复埋点避免样本污染。写 cognition-
+      // state.json rewriteRateABuckets（HARD-1 守恒，非新真源）。non-fatal。
+      const totalFindings = reviewResults.length
+      const errorFindings = reviewResults.filter((item) => item.severity === "error").length
+      const rewriteRate = totalFindings > 0 ? errorFindings / totalFindings : 0
+      await appendRewriteRateASample(input.projectPath, {
+        variant: novelConfig.sceneBreakdownEnabled ? "enabled" : "disabled",
+        rewriteRate,
+        chapterId: String(input.chapterNumber ?? ""),
+        timestamp: new Date().toISOString(),
+      })
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
         taskBrief,
         draftContent,

@@ -92,6 +92,36 @@ export interface NovelSessionStatus {
    * this field load unchanged.
    */
   dimension_results?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
+  /**
+   * EPIC-002 / TASK-013 / Story 2.3: additive field persisting structured
+   * stage-level metrics (tokenCost/latencyMs/partial) for ADR-30 scene-breakdown
+   * and future stages. Mirrors the `dimension_results` additive-optional pattern:
+   * optional & additive, the Partial<NovelSessionStatus> spread in
+   * loadNovelSessionStatus round-trips an undefined field safely, so older
+   * status files without this field load unchanged.
+   *
+   * HARD-1 (status.json sole truth-source): these structured metrics live ON
+   * status.json (the existing truth-source), NOT a second session-state file.
+   * The flat `evidence_refs: string[]` contract stays a pure path list (merged
+   * via mergeEvidenceRefs Set-dedup) — structured stage metrics need their own
+   * slot, so they go here rather than polluting the string[] path contract.
+   */
+  stage_metrics?: StageMetricEntry[]
+}
+
+/**
+ * EPIC-002 / ADR-30 / TASK-013: 阶段指标溯源条目（status.json additive
+ * optional 字段 stage_metrics 的元素类型）。每条记录一个 LLM 调用阶段的
+ * tokenCost/latencyMs/partial，O-201 成本经验决策可据。
+ */
+export interface StageMetricEntry {
+  /** 阶段标记：'scene_breakdown' = ADR-30 阶段 1.5 场景拆解。 */
+  stage: "scene_breakdown"
+  tokenCost?: number
+  latencyMs?: number
+  partial?: boolean
+  chapterId: string
+  timestamp: string
 }
 
 interface DeepChapterSessionInput {
@@ -512,6 +542,7 @@ export function buildNextStatus(
     resume_checkpoint?: DeepChapterGenerationResumeCheckpoint
     evidence_refs?: string[]
     dimension_results?: NovelSessionStatus["dimension_results"]
+    stage_metrics?: StageMetricEntry[]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -537,6 +568,9 @@ export function buildNextStatus(
   const dimensionResults = "dimension_results" in overrides
     ? overrides.dimension_results
     : base.dimension_results
+  const stageMetrics = "stage_metrics" in overrides
+    ? overrides.stage_metrics
+    : base.stage_metrics
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -553,6 +587,7 @@ export function buildNextStatus(
     resume_checkpoint: resumeCheckpoint,
     evidence_refs: evidenceRefs,
     dimension_results: dimensionResults,
+    stage_metrics: stageMetrics,
   }
 }
 
@@ -595,6 +630,45 @@ export async function persistCheckpointBase(
     )
   }
   await saveNovelSessionStatus(projectPath, next)
+}
+
+/**
+ * EPIC-002 / ADR-30 / TASK-013 / Story 2.3: 追加一条结构化阶段指标到
+ * status.json `stage_metrics` additive optional 字段。
+ *
+ * 读现有 status.json（HARD-1 唯一真源）→ append 条目 → buildNextStatus 工厂
+ * （ADR-31）→ persistCheckpointBase 写回。不新建第二份真源文件（HARD-1 守恒），
+ * 复用现有 stage_metrics additive optional 字段（缺时 []，向后兼容）。
+ *
+ * 失败非致命（non-fatal）— 阶段指标采集不影响主链生成。
+ *
+ * @param projectPath 项目根路径
+ * @param entry      阶段指标条目（stage/tokenCost/latencyMs/partial/chapterId/timestamp）
+ */
+export async function appendStageMetric(
+  projectPath: string,
+  entry: StageMetricEntry,
+): Promise<void> {
+  try {
+    const existing = await loadNovelSessionStatus(projectPath)
+    if (!existing) return
+    const metrics = Array.isArray(existing.stage_metrics) ? existing.stage_metrics : []
+    // 上限保护：单项目跨章节累积阶段指标封顶，避免无界增长（与
+    // routingROIBuckets/exemplarABuckets 一致，1024 条）。
+    const STAGE_METRICS_MAX = 1024
+    const next = [...metrics, entry]
+    while (next.length > STAGE_METRICS_MAX) {
+      next.shift()
+    }
+    const updated = buildNextStatus(existing, {
+      updated_at: new Date().toISOString(),
+      status: existing.status,
+      stage_metrics: next,
+    })
+    await persistCheckpointBase(projectPath, existing.session_id, updated)
+  } catch {
+    // non-fatal — 阶段指标采集失败不阻断主链
+  }
 }
 
 async function writeDraftArtifact(
