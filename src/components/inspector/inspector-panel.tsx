@@ -71,15 +71,19 @@ function Section({ title, defaultOpen = false, children }: SectionProps) {
 
 function StatusBadge({ status }: { status: string }) {
   // P2: 用 oklch 语义 token (success/warning/destructive) 替代硬编码 green/red/yellow，
-  // 3 主题统一调校。此前 text-green-600/red-600/yellow-600 绕过 token 体系（PAT-U2 同形）。
+  // 3 主题统一调校。覆盖 DimensionReviewStatus(error|high|medium|low|pass) 与
+  // DeepChapterGateVerdict(pending|pass|warning|fail|manual_review) 全枚举，
+  // 阻断态(error/fail/high)→destructive / 警告态(warning/medium/manual_review)→warning /
+  // 中性态(pending/low)→muted / 通过态(pass)→success，避免阻断项与低优项扁平化为同色。
+  // 此前只映射 passed/failed/warning，error→muted 把阻断项降级为中性灰。
   const tone =
-    status === "passed" || status === "pass"
+    status === "pass" || status === "passed"
       ? "text-success"
-      : status === "failed" || status === "fail"
+      : status === "fail" || status === "failed" || status === "error" || status === "high"
         ? "text-destructive"
-        : status === "warning"
+        : status === "warning" || status === "medium" || status === "manual_review"
           ? "text-warning"
-          : "text-muted-foreground"
+          : "text-muted-foreground" // pending / low / unknown → 中性
   return <span className={`font-mono ${tone}`}>{status}</span>
 }
 
@@ -144,7 +148,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
 
   return (
     <div
-      className={`inspector-panel border-b border-border/40 px-2 py-2 ${isStale ? "opacity-50" : ""}`}
+      className={`inspector-panel border-b border-border/40 px-2 py-2 ${isStale ? "opacity-50 saturate-0" : ""}`}
       data-stale={isStale ? "true" : "false"}
     >
       <div className="flex items-center justify-between mb-2">
@@ -185,7 +189,6 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
       {error && (
         <div
           role="alert"
-          aria-live="assertive"
           className="mb-2 flex items-center justify-between gap-1 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive"
         >
           <span>{error}</span>
@@ -213,6 +216,9 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
           <div className="h-3 w-full animate-pulse rounded bg-muted/60" />
           <div className="h-3 w-3/4 animate-pulse rounded bg-muted/60" />
           <div className="h-3 w-5/6 animate-pulse rounded bg-muted/60" />
+          <span className="sr-only" role="status" aria-live="polite">
+            {t("novel.inspector.loading", "加载中…")}
+          </span>
         </div>
       )}
 
@@ -252,7 +258,8 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
             {snapshot.draft.contentPreview && (
               <details className="mt-1">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                  {t("novel.inspector.preview", "预览（{n} 字）", { n: snapshot.draft.contentPreview.length })}
+                  {/* n 为 query 层截断后的长度（inspector-query.ts 截断至 4000 字符），非原始草稿长度 */}
+                  {t("novel.inspector.preview", "预览（前 {{n}} 字）", { n: snapshot.draft.contentPreview.length })}
                 </summary>
                 <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-1 text-[11px]">
                   {snapshot.draft.contentPreview}
@@ -263,7 +270,11 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
 
           {/* 分块 3: contextPack */}
           <Section title={t("novel.inspector.contextPack", "上下文包")}>
-            <div>{snapshot.contextPack.cognitionSummary}</div>
+            {snapshot.contextPack.characterCount === 0 ? (
+              <div className="text-muted-foreground">{t("novel.inspector.noCognition", "无角色认知")}</div>
+            ) : (
+              <div>{snapshot.contextPack.cognitionSummary}</div>
+            )}
             <div>{t("novel.inspector.characterCount", "角色数：")}{snapshot.contextPack.characterCount}</div>
             <div>{t("novel.inspector.readerKnowsCount", "读者已知：")}{snapshot.contextPack.readerKnowsCount}</div>
           </Section>
@@ -281,6 +292,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
           </Section>
 
           {/* 分块 5: review */}
+          {/* 截断阈值: messages 单条较长(含 issue 描述)→5, deAiSlopHits 单行(word+count)→10 */}
           <Section title={t("novel.inspector.review", "审查")}>
             {snapshot.review.findings.length === 0 ? (
               <div className="text-muted-foreground">{t("novel.inspector.noReviewFindings", "无缓存审查发现")}</div>
@@ -301,7 +313,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                         ))}
                         {f.messages.length > 5 && (
                           <li className="text-[11px] text-muted-foreground">
-                            {t("novel.inspector.moreMessages", "…另有 {n} 条", { n: f.messages.length - 5 })}
+                            {t("novel.inspector.moreMessages", "…另有 {{n}} 条", { n: f.messages.length - 5 })}
                           </li>
                         )}
                       </ul>
@@ -324,7 +336,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                   ))}
                   {snapshot.deAiSlopHits.length > 10 && (
                     <li className="text-[11px] text-muted-foreground">
-                      {t("novel.inspector.moreSlop", "…及其余 {n} 项", { n: snapshot.deAiSlopHits.length - 10 })}
+                      {t("novel.inspector.moreSlop", "…及其余 {{n}} 项", { n: snapshot.deAiSlopHits.length - 10 })}
                     </li>
                   )}
                 </ul>

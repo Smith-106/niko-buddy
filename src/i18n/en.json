@@ -1448,6 +1448,7 @@
       "refresh": "Refresh",
       "retry": "Retry",
       "noData": "No Inspector data yet",
+      "loading": "Loading…",
       "queryFailed": "Query failed",
       "staleHint": "Draft changed; review cache may be stale",
       "cognitionState": "Cognition",
