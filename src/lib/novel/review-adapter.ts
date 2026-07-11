@@ -103,17 +103,20 @@ const REVIEW_MAX_CHUNKS = 3
 
 /**
  * 把超长章节分段用于审查。章节 ≤ 8000 字时返回单段；
- * 超过时按 8000 字一段切分，最多 3 段（覆盖 24000 字），超出部分追加到最后一段。
+ * 超过时按 8000 字一段切分，最多 3 段（覆盖 24000 字）。
+ *
+ * ISS-20260711-001: 超出 24000 字的部分**截断**而非追加到最后一段。
+ * 之前 `chunks[REVIEW_MAX_CHUNKS - 1] += content.slice(totalCovered)` 会让第 3 段
+ * 膨胀到任意长度（超长 UAT 稿可达 25 万字 → 第 3 段 24 万字），LLM 在如此
+ * 长的输入上要么 token 上限截断要么直接放弃 JSON 输出，导致 review chunk parse
+ * 失败 → fix-loop 死循环 → watchdog paused。审查只需覆盖足够正文即可，丢掉
+ * 远超 24000 字的尾部比让 LLM 输出崩成非 JSON 更安全。
  */
 function splitChapterForReview(content: string): string[] {
   if (content.length <= REVIEW_CHUNK_SIZE) return [content]
   const chunks: string[] = []
   for (let i = 0; i < content.length && chunks.length < REVIEW_MAX_CHUNKS; i += REVIEW_CHUNK_SIZE) {
     chunks.push(content.slice(i, i + REVIEW_CHUNK_SIZE))
-  }
-  const totalCovered = REVIEW_MAX_CHUNKS * REVIEW_CHUNK_SIZE
-  if (chunks.length === REVIEW_MAX_CHUNKS && content.length > totalCovered) {
-    chunks[REVIEW_MAX_CHUNKS - 1] += content.slice(totalCovered)
   }
   return chunks
 }
@@ -257,7 +260,7 @@ ${langReminder}`
         ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
         : (options.characterOnly ? "角色一致性审查" : "深度审查")
 
-      const result = await runReviewStage(
+      const parsed = await runReviewStage(
         llmConfig,
         systemPrompt,
         [
@@ -275,33 +278,14 @@ ${langReminder}`
         stageThinking,
         signal,
         reviewReasoningEffort,
+        0,
+        i,
       )
 
-      const jsonMatch = extractJsonArray(result)
-      if (!jsonMatch) {
-        throw new Error(
-          `[Novel Review] Chunk ${i + 1} did not return a JSON array. Output preview: ${result.slice(0, 200)}`,
-        )
-      }
-
-      // F-003 (ISS-20260705-020): harden the unguarded JSON.parse. Wrap
-      // SyntaxError in ReviewParseError so callers can distinguish a parse
-      // failure (malformed/truncated JSON from the model) from a runtime
-      // failure. Non-SyntaxError throwables are re-thrown unchanged.
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(jsonMatch)
-      } catch (error) {
-        if (error instanceof SyntaxError) {
-          throw new ReviewParseError(jsonMatch, error.message)
-        }
-        throw error
-      }
-      if (!Array.isArray(parsed)) {
-        throw new Error(`[Novel Review] Chunk ${i + 1} returned a non-array JSON payload.`)
-      }
-
-      return parsed.map((item: Record<string, unknown>) => ({
+      // ISS-20260711-001: parse now happens inside runReviewStage (with retry),
+      // so `parsed` is already a raw findings array. `ReviewParseError`
+      // (F-003) still propagates from a SyntaxError after retries exhaust.
+      return (parsed as Record<string, unknown>[]).map((item) => ({
         severity: validateSeverity(item.severity),
         type: String(item.type || "unknown"),
         message: String(item.message || ""),
@@ -318,6 +302,44 @@ ${langReminder}`
     console.error("[Novel Review] Failed:", err instanceof Error ? err.message : String(err))
     throw toError(err)
   }
+}
+
+/**
+ * Parse a single review-chunk LLM response into a raw findings array.
+ *
+ * ISS-20260711-001 (PAT-G2 twin recurrence #9): previously `extractJsonArray`
+ * returned null on a non-JSON response (token-truncated / format-drifted
+ * output) and the caller threw immediately with zero retry. The throw
+ * happened *after* `runReviewStage` returned, so its streamError-only retry
+ * never covered a parse/null-JSON failure — a single malformed chunk drove
+ * the whole review (and thus the fix-loop) into watchdog `paused`. Hoisting
+ * the parse here lets `runReviewStage` treat a null-JSON / parse failure the
+ * same as a stream failure and re-ask the model.
+ *
+ * `ReviewParseError` (F-003 / ISS-20260705-020) is still thrown for
+ * `SyntaxError` so callers keep distinguishing malformed-JSON from
+ * runtime failures.
+ */
+function parseReviewChunkResult(result: string, chunkIndex: number): unknown[] {
+  const jsonMatch = extractJsonArray(result)
+  if (!jsonMatch) {
+    throw new Error(
+      `[Novel Review] Chunk ${chunkIndex + 1} did not return a JSON array. Output preview: ${result.slice(0, 200)}`,
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonMatch)
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new ReviewParseError(jsonMatch, error.message)
+    }
+    throw error
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`[Novel Review] Chunk ${chunkIndex + 1} returned a non-array JSON payload.`)
+  }
+  return parsed
 }
 
 /**
@@ -352,7 +374,8 @@ async function runReviewStage(
   signal?: AbortSignal,
   reasoningMode: "low" | "medium" | "high" = "high",
   retryCount = 0,
-): Promise<string> {
+  chunkIndex = 0,
+): Promise<unknown[]> {
   publishReviewStageThinking(stageThinking, callbacks, stageTitle, "正在分析...")
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
@@ -404,6 +427,14 @@ async function runReviewStage(
     )
     clearTimeout(timeoutId)
     if (streamError) throw streamError
+
+    // ISS-20260711-001: parse inside the try so a null-JSON / malformed-JSON
+    // response retries via the same path as a stream failure (re-ask the
+    // model up to 2×). Previously this parse lived in the caller *after*
+    // runReviewStage returned, so parse failures had zero retry.
+    const parsed = parseReviewChunkResult(result.trim(), chunkIndex)
+    if (signal?.aborted) throw new Error("已停止生成")
+    return parsed
   } catch (err) {
     clearTimeout(timeoutId)
     if (signal?.aborted) throw new Error("已停止生成")
@@ -411,13 +442,12 @@ async function runReviewStage(
       console.warn(`[Novel Review] Stage "${stageTitle}" failed, retrying (${retryCount + 1}/2)...`)
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1)
+      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex)
     }
     throw err
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
-  return result.trim()
 }
 
 function combineSignals(signalA: AbortSignal, signalB: AbortSignal): AbortSignal {

@@ -249,6 +249,34 @@ describe("review-adapter staged review", () => {
     )
   })
 
+  it("ISS-20260711-001: retries re-asking the model when a chunk returns no JSON array before giving up", async () => {
+    // Previously extractJsonArray==null threw immediately with zero retry
+    // because the parse ran in the caller after runReviewStage returned.
+    // Now parse lives inside runReviewStage and a null-JSON response retriggers
+    // the stream up to 2× (3 calls total) before surfacing the error.
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      streamChatMock.mockImplementation(async (
+        _config: LlmConfig,
+        _messages: Array<{ role: string; content: string }>,
+        callbacks: StreamCallbacks,
+      ) => {
+        calls += 1
+        callbacks.onToken("# 第16章 标题\n\n正文 markdown，没有 JSON 数组。")
+        callbacks.onDone()
+      })
+      const pending = expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow(
+        "did not return a JSON array",
+      )
+      await vi.runAllTimersAsync()
+      await pending
+      expect(streamChatMock).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("propagates stream failures instead of silently degrading to an empty review result", async () => {
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,
