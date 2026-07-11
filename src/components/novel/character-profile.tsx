@@ -85,18 +85,18 @@ export function CharacterProfile({ characterName, projectPath }: { characterName
         <div className="space-y-2">
           <h4 className="text-xs font-semibold text-muted-foreground">{t("novel.cognition.title")}</h4>
           {charCognition.knows.length > 0 && (
-            <div className="rounded-md border border-green-200 bg-green-50 p-2 dark:border-green-800 dark:bg-green-950">
-              <p className="text-xs font-medium text-green-700 dark:text-green-400">{t("novel.cognition.knows")}</p>
+            <div className="rounded-md border border-success/30 bg-success/10 p-2">
+              <p className="text-xs font-medium text-success">{t("novel.cognition.knows")}</p>
               <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
-                {charCognition.knows.map((item, i) => <li key={i}>{item}</li>)}
+                {charCognition.knows.map((item, i) => <li key={`${i}-${item.slice(0, 16)}`}>{item}</li>)}
               </ul>
             </div>
           )}
           {charCognition.doesNotKnow.length > 0 && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 dark:border-red-800 dark:bg-red-950">
-              <p className="text-xs font-medium text-red-700 dark:text-red-400">{t("novel.cognition.doesNotKnow")}</p>
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2">
+              <p className="text-xs font-medium text-destructive">{t("novel.cognition.doesNotKnow")}</p>
               <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
-                {charCognition.doesNotKnow.map((item, i) => <li key={i}>{item}</li>)}
+                {charCognition.doesNotKnow.map((item, i) => <li key={`${i}-${item.slice(0, 16)}`}>{item}</li>)}
               </ul>
             </div>
           )}

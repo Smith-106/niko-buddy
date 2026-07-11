@@ -73,24 +73,24 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                 <p className="font-semibold text-foreground">{char.character}</p>
                 {char.knows.length > 0 && (
                   <div className="mt-1.5">
-                    <span className="text-xs font-medium text-green-600 dark:text-green-400">
+                    <span className="text-xs font-medium text-success">
                       {t("novel.cognition.knows")}
                     </span>
                     <ul className="mt-0.5 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
                       {char.knows.map((item, i) => (
-                        <li key={i}>{item}</li>
+                        <li key={`${i}-${item.slice(0, 16)}`}>{item}</li>
                       ))}
                     </ul>
                   </div>
                 )}
                 {char.doesNotKnow.length > 0 && (
                   <div className="mt-1.5">
-                    <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                    <span className="text-xs font-medium text-destructive">
                       {t("novel.cognition.doesNotKnow")}
                     </span>
                     <ul className="mt-0.5 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
                       {char.doesNotKnow.map((item, i) => (
-                        <li key={i}>{item}</li>
+                        <li key={`${i}-${item.slice(0, 16)}`}>{item}</li>
                       ))}
                     </ul>
                   </div>
@@ -98,11 +98,11 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
               </div>
             ))}
             {state.readerKnows.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
                 <p className="font-semibold text-foreground">{t("novel.cognition.readerKnows")}</p>
                 <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
                   {state.readerKnows.map((item, i) => (
-                    <li key={i}>{item}</li>
+                    <li key={`${i}-${item.slice(0, 16)}`}>{item}</li>
                   ))}
                 </ul>
               </div>
