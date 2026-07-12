@@ -1,5 +1,5 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
@@ -1805,23 +1805,6 @@ function countChapterChars(content: string): number {
 
 function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE)
-}
-
-function isRequestCancelledError(error: Error): boolean {
-  return /request cancelled|request canceled|aborted|aborterror/i.test(error.message)
-}
-
-/**
- * True for Claude Code CLI transport timeouts where the subprocess stayed
- * alive but stalled before/after producing output. These are recoverable when
- * partial content exists: a fresh subprocess on `continue-unfinished` can
- * complete the draft. Distinct from cancellation (client intent) and from
- * deterministic auth/config errors (retrying won't help).
- */
-function isTransportInactivityError(error: Error): boolean {
-  return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
-    error.message,
-  )
 }
 
 function findRepeatedTailStart(content: string): number | null {

@@ -1,6 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, PersonalityProfile } from "./types"
 import { buildSimpleExtractionPrompt } from "./simple-extraction-prompts"
+import { defaultLlmCall } from "@/lib/llm-client"
 
 export interface SimpleExtractionInput {
   candidates: RecognizedCharacter[]
@@ -182,8 +183,4 @@ export async function extractSingleProfile(
 
 function emptyProfile(): PersonalityProfile {
   return { personality: "", motivation: "", speechStyle: "", behaviorPatterns: "", quotes: [] }
-}
-
-async function defaultLlmCall(_prompt: string): Promise<string> {
-  throw new Error("defaultLlmCall not implemented in this context")
 }

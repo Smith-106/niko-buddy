@@ -31,6 +31,11 @@ vi.mock("@/lib/llm-client", () => ({
     return controller.signal
   },
   DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+  // mirror real defaultLlmCall (ISS-20260712-MAINT-3: now exported from
+  // @/lib/llm-client). Error string byte-for-byte — :142 asserts it.
+  defaultLlmCall: async (_prompt: string): Promise<string> => {
+    throw new Error("defaultLlmCall not implemented in this context")
+  },
 }))
 
 vi.mock("./simple-extraction-engine", () => ({

@@ -106,6 +106,14 @@ vi.mock("@/lib/llm-client", () => ({
     const greedy = cleaned.match(/\[[\s\S]*\]/)
     return greedy ? greedy[0] : null
   },
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+  // Mirror real transport error classifiers (ISS-20260712-MAINT-3: now
+  // exported from @/lib/llm-client). Regex byte-for-byte with the host impl
+  // so the partial-preserve path in scene-breakdown behaves like production.
+  isRequestCancelledError: (error: Error): boolean =>
+    /request cancelled|request canceled|aborted|aborterror/i.test(error.message),
+  isTransportInactivityError: (error: Error): boolean =>
+    /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(error.message),
 }))
 
 vi.mock("@/stores/wiki-store", () => ({

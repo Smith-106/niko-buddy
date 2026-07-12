@@ -1,5 +1,5 @@
 import { useWikiStore } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, extractJsonArraySpan, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, extractJsonArraySpan, isRequestCancelledError, isTransportInactivityError, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { resolveNovelModel } from "./model-resolver"
@@ -55,20 +55,12 @@ const SCENES_FORMAL_FILE = "scenes.json"
 /**
  * Transport inactivity errors are recoverable when partial scene content already
  * streamed: the transport simply lost patience before the next token arrived.
- * Mirrors deep-chapter-generation.ts:1729 isTransportInactivityError so the
- * partial-preserve path matches the main chapter pipeline's recoverability
- * contract (spec S-444k). Genuine hangs (no content) and deterministic errors
- * (auth/config/cancellation) still throw.
+ * isTransportInactivityError / isRequestCancelledError now imported from
+ * @/lib/llm-client (ISS-20260712-MAINT-3 consolidation) so the partial-preserve
+ * path matches the main chapter pipeline's recoverability contract (spec S-444k).
+ * Genuine hangs (no content) and deterministic errors (auth/config/cancellation)
+ * still throw.
  */
-function isTransportInactivityError(error: Error): boolean {
-  return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
-    error.message,
-  )
-}
-
-function isRequestCancelledError(error: Error): boolean {
-  return /request cancelled|request canceled|aborted|aborterror/i.test(error.message)
-}
 
 /**
  * ADR-31 (EPIC-000, lifecycle-twin factory extraction): chapter-level scene

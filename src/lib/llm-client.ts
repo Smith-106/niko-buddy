@@ -115,6 +115,38 @@ export function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
   return /client not allowed/i.test(errorDetail) && /tauri-plugin-http/i.test(errorDetail)
 }
 
+/**
+ * True for client-cancelled LLM requests (AbortError / "request cancelled").
+ * Used by deep-chapter-generation + scene-breakdown partial-preserve paths to
+ * distinguish user-intent cancel from transport failure (formerly twin-mirror
+ * in both files, consolidated ISS-20260712-MAINT-3).
+ */
+export function isRequestCancelledError(error: Error): boolean {
+  return /request cancelled|request canceled|aborted|aborterror/i.test(error.message)
+}
+
+/**
+ * True for Claude Code CLI transport timeouts where the subprocess stayed
+ * alive but stalled before/after producing output. These are recoverable when
+ * partial content exists: a fresh subprocess on `continue-unfinished` can
+ * complete the draft. Distinct from cancellation (client intent) and from
+ * deterministic auth/config errors (retrying won't help).
+ */
+export function isTransportInactivityError(error: Error): boolean {
+  return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
+    error.message,
+  )
+}
+
+/**
+ * 占位 LLM 调用 fallback：实际项目里应调真实 LLM endpoint。
+ * 抛错让回退逻辑生效。错误字符串 "defaultLlmCall not implemented in this context"
+ * 被 character-extraction-engine.spec.ts 字面断言,迁移时保持字节不变。
+ */
+export async function defaultLlmCall(_prompt: string): Promise<string> {
+  throw new Error("defaultLlmCall not implemented in this context")
+}
+
 function parseLines(chunk: Uint8Array, buffer: string, decoder: TextDecoder): [string[], string] {
   const text = buffer + decoder.decode(chunk, { stream: true })
   const lines = text.split("\n")

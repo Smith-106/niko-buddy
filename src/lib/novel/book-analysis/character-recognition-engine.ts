@@ -1,6 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
 import { fingerprintText } from "./content-fingerprint"
+import { defaultLlmCall } from "@/lib/llm-client"
 
 /**
  * 生成稳定 id：基于 name + sourceBook 哈希
@@ -190,12 +191,6 @@ export async function llmScoreCharacters(
     // LLM 失败 → 保留启发式分数
     return { scored: candidates }
   }
-}
-
-async function defaultLlmCall(_prompt: string): Promise<string> {
-  // 占位：实际项目里应调真实 LLM endpoint
-  // 暂时 throw 让回退逻辑生效
-  throw new Error("defaultLlmCall not implemented in this context")
 }
 
 // ============================================================
