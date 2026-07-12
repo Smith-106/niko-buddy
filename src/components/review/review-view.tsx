@@ -205,7 +205,7 @@ export function ReviewView({
   }, [project?.path])
 
   const showAiRewriteAlert = useCallback((message: string) => {
-    window.alert(`AI修改暂时无法继续：${message}`)
+    setRewriteError(message)
   }, [])
 
   const openNovelReviewActionItem = useCallback(async (item: NovelReviewActionItem, highlight = false) => {
