@@ -876,37 +876,168 @@ export async function runDeepChapterGeneration(
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
   const novelConfig = useWikiStore.getState().novelConfig
+
+  // 阶段0：前情分析
+  const previousChaptersAnalysis = await runPreviousChaptersAnalysis(
+    input, writingConfig, novelConfig, resumeCheckpoint, callbacks, signal,
+  )
+  assertNotAborted(signal)
+
+  // 阶段1：上下文装配
   const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
+  const ctx1 = await assembleContext(
+    deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
+  )
+  const { contextPack, customDeAiSkill, outlinePrompt, contextPrompt, cachePrefix } = ctx1
+  assertNotAborted(signal)
 
-  // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
-  let customDeAiSkill: string | null = null
+  // 阶段1.5：场景拆解
+  await runSceneBreakdownStage(
+    input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
+  )
+  assertNotAborted(signal)
 
-  // 阶段0：前情分析（仅当章节号>1，且设置开启时；记忆库的近期摘要与上一章结尾仍会注入）
-  let previousChaptersAnalysis = ""
-  if (input.chapterNumber && input.chapterNumber > 1 && !resumeCheckpoint && novelConfig.deepPreviousChaptersAnalysis) {
-    callbacks.onThinking?.(formatStageThinking("阶段0：前情分析", "正在读取并分析前3章完整内容..."))
-    const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
-    try {
-      previousChaptersAnalysis = await analyzePreviousChapters(
-        input.projectPath,
-        input.chapterNumber,
-        writingConfig,
-        3,
-        signal,
-      )
-      if (previousChaptersAnalysis) {
-        callbacks.onThinking?.(formatStageThinking(
-          "阶段0：前情分析",
-          `已完成前情分析（${previousChaptersAnalysis.length}字）\n\n${previousChaptersAnalysis.slice(0, 500)}...`
-        ))
-      }
-    } catch (error) {
-      // F-16 (CWE-532): message-only to avoid leaking provider request details.
-      console.error("[deep-chapter-generation] 前情分析失败:", error instanceof Error ? error.message : String(error))
+  // 阶段2 + 2.5：任务书生成 + 纠偏
+  const taskBrief = await generateTaskBrief(
+    input, writingConfig, deps, signal, callbacks,
+    outlinePrompt, contextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
+  )
+  assertNotAborted(signal)
+
+  // 阶段3 + 3.5：正文初稿 + 草稿纠偏
+  const draftContent = await generateDraft(
+    input, writingConfig, deps, signal, callbacks,
+    outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
+    notePartial, clearPartial,
+  )
+  assertNotAborted(signal)
+
+  // 阶段4-5：AI 审稿 + 返修循环
+  const stage45 = await runReviewAndRepair(
+    input, novelConfig, deps, signal, callbacks,
+    contextPack, draftContent, resumeCheckpoint,
+    writingConfig, outlinePrompt, contextPrompt, taskBrief, lengthSpec, cachePrefix, notePartial,
+  )
+  // MAX_GATE_RETRY 转人工：原内联此处 callbacks.onFinalContent + 完整 return。
+  // 提取后在编排器层构造 result（能访问 partialReason，partial 语义绝对正确）。
+  if (stage45.manualHandoff) {
+    callbacks.onFinalContent?.(stage45.currentContent)
+    return {
+      finalContent: stage45.currentContent,
+      taskBrief,
+      draftContent,
+      reviewResults: stage45.reviewResults,
+      revised: stage45.revised,
+      decisionGates: stage45.decisionGates,
+      manualReviewRequired: true,
+      retryCount: stage45.retryCount,
+      partial: partialReason !== null,
+      partialReason,
     }
   }
   assertNotAborted(signal)
 
+  // 阶段7：简单审查与去AI味
+  const finalContent = await finalPolishChapter(
+    writingConfig,
+    outlinePrompt,
+    contextPrompt,
+    taskBrief,
+    stage45.currentContent,
+    input,
+    contextPack,
+    callbacks,
+    deps,
+    signal,
+    customDeAiSkill || undefined,
+    lengthSpec,
+    cachePrefix,
+    notePartial,
+  )
+  callbacks.onThinking?.(formatStageThinking(
+    "阶段7：完成",
+    stage45.revised
+      ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
+      : "未发现阻断问题，已完成最后一遍简单审查与去AI味。",
+  ))
+  callbacks.onFinalContent?.(finalContent)
+  return {
+    finalContent,
+    taskBrief,
+    draftContent,
+    reviewResults: stage45.reviewResults,
+    revised: stage45.revised,
+    decisionGates: stage45.decisionGates,
+    manualReviewRequired: false,
+    retryCount: stage45.retryCount,
+    partial: partialReason !== null,
+    partialReason,
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 阶段函数（ISS-20260712-MAINT-1 拆分）
+// 每个函数对应 runDeepChapterGeneration 的一个自然边界阶段。
+// 扁平参数 + 返回阶段产出，遵循既有 finalPolishChapter 模式。
+// 编排器持有可变累积状态，阶段函数只读入参 / 返回新值。
+// ───────────────────────────────────────────────────────────────────
+
+// 阶段0：前情分析（仅当章节号>1，且设置开启时；记忆库的近期摘要与上一章结尾仍会注入）
+async function runPreviousChaptersAnalysis(
+  input: DeepChapterGenerationInput,
+  writingConfig: LlmConfig,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  callbacks: DeepChapterGenerationCallbacks,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!(input.chapterNumber && input.chapterNumber > 1 && !resumeCheckpoint && novelConfig.deepPreviousChaptersAnalysis)) {
+    return ""
+  }
+  callbacks.onThinking?.(formatStageThinking("阶段0：前情分析", "正在读取并分析前3章完整内容..."))
+  const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
+  let previousChaptersAnalysis = ""
+  try {
+    previousChaptersAnalysis = await analyzePreviousChapters(
+      input.projectPath,
+      input.chapterNumber,
+      writingConfig,
+      3,
+      signal,
+    )
+    if (previousChaptersAnalysis) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段0：前情分析",
+        `已完成前情分析（${previousChaptersAnalysis.length}字）\n\n${previousChaptersAnalysis.slice(0, 500)}...`
+      ))
+    }
+  } catch (error) {
+    // F-16 (CWE-532): message-only to avoid leaking provider request details.
+    console.error("[deep-chapter-generation] 前情分析失败:", error instanceof Error ? error.message : String(error))
+  }
+  return previousChaptersAnalysis
+}
+
+// 阶段1：上下文装配（contextPack + 智能skill + 大纲提取 + 社区摘要 + cachePrefix）
+// 返回阶段产出的全部上下文对象；customDeAiSkill 经返回值回传给编排器。
+interface AssembledContext {
+  contextPack: ContextPack
+  customDeAiSkill: string | null
+  outlinePrompt: string
+  communitySummaryInjection: string
+  contextPrompt: string
+  cachePrefix: string
+}
+
+async function assembleContext(
+  deps: DeepChapterGenerationDeps,
+  input: DeepChapterGenerationInput,
+  callbacks: DeepChapterGenerationCallbacks,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  signal: AbortSignal | undefined,
+  previousChaptersAnalysis: string,
+  loadSmartDeAiSkill: (projectPath: string, userRequest: string, contextPack: ContextPack) => Promise<string | null>,
+): Promise<AssembledContext> {
   const contextPack = await safeBuildChapterContextPack(
     deps,
     input.projectPath,
@@ -916,7 +1047,7 @@ export async function runDeepChapterGeneration(
   assertNotAborted(signal)
 
   // 阶段1后：加载智能skill（传递contextPack用于场景检测）
-  customDeAiSkill = await loadSmartDeAiSkill(input.projectPath, input.userRequest, contextPack)
+  const customDeAiSkill = await loadSmartDeAiSkill(input.projectPath, input.userRequest, contextPack)
 
   // 独立提取大纲，不通过contextPackToPrompt
   const outlinePrompt = contextPack.outline
@@ -979,70 +1110,99 @@ export async function runDeepChapterGeneration(
   }
   assertNotAborted(signal)
 
-  // 阶段 1.5：Scene Breakdown（ADR-30 / EPIC-002 / TASK-012）。
-  // 仅当 sceneBreakdownEnabled 开启时，在 contextPack（阶段 1）之后、task_brief
-  // （阶段 2）之前插入单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
-  // .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
-  // ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
-  // 向后兼容（ADR-30）：flag=false 时跳过整段，after_task_brief 恢复序不变。
-  // resume 时若已过 after_scene_breakdown 也跳过（避免重复拆解已 checkpoint 的章节）。
+  return { contextPack, customDeAiSkill, outlinePrompt, communitySummaryInjection, contextPrompt, cachePrefix }
+}
+
+// 阶段1.5：Scene Breakdown（ADR-30 / EPIC-002 / TASK-012）。
+// 仅当 sceneBreakdownEnabled 开启时，在 contextPack（阶段 1）之后、task_brief
+// （阶段 2）之前插入单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
+// .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
+// ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
+// 向后兼容（ADR-30）：flag=false 时跳过整段，after_task_brief 恢复序不变。
+// resume 时若已过 after_scene_breakdown 也跳过（避免重复拆解已 checkpoint 的章节）。
+async function runSceneBreakdownStage(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  contextPack: ContextPack,
+  callbacks: DeepChapterGenerationCallbacks,
+  signal: AbortSignal | undefined,
+  notePartial: (reason: string) => void,
+): Promise<void> {
   if (
-    novelConfig.sceneBreakdownEnabled
-    && !resumeCheckpoint
-    && !checkpointStageAtLeast(resumeCheckpoint, "after_scene_breakdown")
+    !novelConfig.sceneBreakdownEnabled
+    || resumeCheckpoint
+    || checkpointStageAtLeast(resumeCheckpoint, "after_scene_breakdown")
   ) {
-    callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
-    const chapterId = String(input.chapterNumber ?? "")
-    let sceneResult: SceneBreakdownResult | null = null
-    try {
-      // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
-      // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
-      sceneResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
-    } catch (error) {
-      // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
-      // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
-      console.error("[deep-chapter-generation] 场景拆解失败（非阻断，跳过阶段1.5）:", error instanceof Error ? error.message : String(error))
-    }
-    assertNotAborted(signal)
-    if (sceneResult && sceneResult.scenes.length > 0) {
-      // 工厂持久化（ADR-31 硬先决）：persistSceneBreakdownDraft 内部用
-      // buildNextStatus + persistCheckpointBase 写 status.json，非手动 const next 块。
-      try {
-        await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
-      } catch (error) {
-        // 持久化失败不阻断主链（加性中间层），仅记日志。
-        console.error("[deep-chapter-generation] 场景拆解持久化失败（非阻断）:", error instanceof Error ? error.message : String(error))
-      }
-      // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
-      // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/
-      // latencyMs/partial 从 runSceneBreakdown 单次 LLM 调用采集，O-201 成本经验
-      // 决策可据。non-fatal — 指标采集失败不阻断主链。
-      await appendStageMetric(input.projectPath, {
-        stage: "scene_breakdown",
-        tokenCost: sceneResult.tokenCost,
-        latencyMs: sceneResult.latencyMs,
-        partial: sceneResult.partial,
-        chapterId,
-        timestamp: new Date().toISOString(),
-      })
-      // spec S-444k typed signal 传播：sceneResult.partial 经 notePartial 进入
-      // runDeepChapter 的 partialReason，最终 DeepChapterGenerationResult.partial=true
-      // → chat-panel pauseDeepChapterSession（draft_status pending）而非
-      // completeDeepChapterSession（ready），防 partial 误标 complete（Draft-first 边界）。
-      // first-partial-reason-wins：仅当主链尚未记录 partial 时才记 scene 的 reason
-      // （与 collectModelText 的 notePartial 语义一致，:852）。
-      if (sceneResult.partial && sceneResult.partialReason) {
-        notePartial(`scene-breakdown: ${sceneResult.partialReason}`)
-      }
-      callbacks.onThinking?.(formatStageThinking(
-        "阶段1.5：场景拆解",
-        `已完成场景拆解（${sceneResult.scenes.length}个场景${sceneResult.partial ? "，部分保留" : ""}）`,
-      ))
-    }
-    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_scene_breakdown"))
+    return
+  }
+  callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
+  const chapterId = String(input.chapterNumber ?? "")
+  let sceneResult: SceneBreakdownResult | null = null
+  try {
+    // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
+    // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
+    sceneResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
+  } catch (error) {
+    // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
+    // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
+    console.error("[deep-chapter-generation] 场景拆解失败（非阻断，跳过阶段1.5）:", error instanceof Error ? error.message : String(error))
   }
   assertNotAborted(signal)
+  if (sceneResult && sceneResult.scenes.length > 0) {
+    // 工厂持久化（ADR-31 硬先决）：persistSceneBreakdownDraft 内部用
+    // buildNextStatus + persistCheckpointBase 写 status.json，非手动 const next 块。
+    try {
+      await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
+    } catch (error) {
+      // 持久化失败不阻断主链（加性中间层），仅记日志。
+      console.error("[deep-chapter-generation] 场景拆解持久化失败（非阻断）:", error instanceof Error ? error.message : String(error))
+    }
+    // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
+    // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/
+    // latencyMs/partial 从 runSceneBreakdown 单次 LLM 调用采集，O-201 成本经验
+    // 决策可据。non-fatal — 指标采集失败不阻断主链。
+    await appendStageMetric(input.projectPath, {
+      stage: "scene_breakdown",
+      tokenCost: sceneResult.tokenCost,
+      latencyMs: sceneResult.latencyMs,
+      partial: sceneResult.partial,
+      chapterId,
+      timestamp: new Date().toISOString(),
+    })
+    // spec S-444k typed signal 传播：sceneResult.partial 经 notePartial 进入
+    // runDeepChapter 的 partialReason，最终 DeepChapterGenerationResult.partial=true
+    // → chat-panel pauseDeepChapterSession（draft_status pending）而非
+    // completeDeepChapterSession（ready），防 partial 误标 complete（Draft-first 边界）。
+    // first-partial-reason-wins：仅当主链尚未记录 partial 时才记 scene 的 reason
+    // （与 collectModelText 的 notePartial 语义一致，:852）。
+    if (sceneResult.partial && sceneResult.partialReason) {
+      notePartial(`scene-breakdown: ${sceneResult.partialReason}`)
+    }
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段1.5：场景拆解",
+      `已完成场景拆解（${sceneResult.scenes.length}个场景${sceneResult.partial ? "，部分保留" : ""}）`,
+    ))
+  }
+  await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_scene_breakdown"))
+}
 
+// 阶段2 + 2.5：任务书生成 + 纠偏（含 repair while 循环）。
+// resume 时若检查点已有 taskBrief 则短路；否则模型生成，再按需 deterministic
+// fallback 或循环纠偏，最终产出可执行 taskBrief。
+async function generateTaskBrief(
+  input: DeepChapterGenerationInput,
+  writingConfig: LlmConfig,
+  deps: DeepChapterGenerationDeps,
+  signal: AbortSignal | undefined,
+  callbacks: DeepChapterGenerationCallbacks,
+  outlinePrompt: string,
+  contextPrompt: string,
+  lengthSpec: ChapterLengthSpec,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  contextPack: ContextPack,
+  cachePrefix: string | undefined,
+): Promise<string> {
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
   if (!taskBrief) {
     taskBrief = await collectModelText(
@@ -1146,7 +1306,27 @@ export async function runDeepChapterGeneration(
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
     }
   }
+  return taskBrief
+}
 
+// 阶段3 + 3.5：正文初稿（+ 长度不足时扩写补足）+ 草稿纠偏（meta 漂移时重写）。
+// resume 时若检查点已有 draftContent 则短路。notePartial/clearPartial 闭包由
+// 编排器传入，partial 状态机语义不变（first-partial-wins + 成功 clear）。
+async function generateDraft(
+  input: DeepChapterGenerationInput,
+  writingConfig: LlmConfig,
+  deps: DeepChapterGenerationDeps,
+  signal: AbortSignal | undefined,
+  callbacks: DeepChapterGenerationCallbacks,
+  outlinePrompt: string,
+  contextPrompt: string,
+  taskBrief: string,
+  lengthSpec: ChapterLengthSpec,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  cachePrefix: string | undefined,
+  notePartial: (reason: string) => void,
+  clearPartial: () => void,
+): Promise<string> {
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
   if (!draftContent) {
     draftContent = await collectModelText(
@@ -1265,7 +1445,40 @@ export async function runDeepChapterGeneration(
     ].join("\n")))
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_draft", { taskBrief, draftContent }))
   }
+  return draftContent
+}
 
+// 阶段4-5：AI 审稿 + 返修循环（含 MAX_GATE_RETRY 转人工）。
+// 返回阶段产出 + manualHandoff 标志。manualHandoff=true 表示命中
+// MAX_GATE_RETRY 转人工路径——编排器据此构造完整 result（含 partial 字段，
+// 需访问编排器层 partialReason，故不在本函数内构造 earlyReturn）。
+interface ReviewAndRepairResult {
+  reviewResults: NovelReviewResult[]
+  decisionGates: DeepChapterDecisionGates
+  retryCount: number
+  manualReviewRequired: boolean
+  currentContent: string
+  revised: boolean
+  manualHandoff: boolean
+}
+
+async function runReviewAndRepair(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  deps: DeepChapterGenerationDeps,
+  signal: AbortSignal | undefined,
+  callbacks: DeepChapterGenerationCallbacks,
+  contextPack: ContextPack,
+  draftContent: string,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  writingConfig: LlmConfig,
+  outlinePrompt: string,
+  contextPrompt: string,
+  taskBrief: string,
+  lengthSpec: ChapterLengthSpec,
+  cachePrefix: string | undefined,
+  notePartial: (reason: string) => void,
+): Promise<ReviewAndRepairResult> {
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
   let retryCount = resumeCheckpoint?.retryCount ?? 0
@@ -1380,18 +1593,17 @@ export async function runDeepChapterGeneration(
         retryCount,
         manualReviewRequired: true,
       }))
-      callbacks.onFinalContent?.(currentContent)
+      // 原编排器此处 callbacks.onFinalContent?.(currentContent) + 完整 return。
+      // 提取后改为 manualHandoff 标志回传——编排器层据此构造完整 result（含
+      // partial 字段，需访问编排器 partialReason，故不在本函数构造 earlyReturn）。
       return {
-        finalContent: currentContent,
-        taskBrief,
-        draftContent,
         reviewResults,
-        revised,
         decisionGates,
-        manualReviewRequired: true,
         retryCount,
-        partial: partialReason !== null,
-        partialReason,
+        manualReviewRequired: true,
+        currentContent,
+        revised,
+        manualHandoff: true,
       }
     }
 
@@ -1468,12 +1680,12 @@ export async function runDeepChapterGeneration(
     // loop top) returns immediately, so reaching this post-repair gate rebuild
     // means the loop continued — a fresh re-evaluation against the revised
     // content, where manualReviewRequired must reset to false (its default).
-    // The resume branches (:1206/:1225) DO pass it because they restore the
-    // checkpointed value (may already be true from a prior manual-handoff). The
-    // asymmetry is deliberate: resume preserves prior manual state, fresh
-    // post-repair re-evaluates from scratch. Changing the loop to no longer
-    // return at MAX_GATE_RETRY would make this divergence a real bug — keep the
-    // early return, or thread manualReviewRequired explicitly here too.
+    // The resume branches DO pass it because they restore the checkpointed
+    // value (may already be true from a prior manual-handoff). The asymmetry
+    // is deliberate: resume preserves prior manual state, fresh post-repair
+    // re-evaluates from scratch. Changing the loop to no longer return at
+    // MAX_GATE_RETRY would make this divergence a real bug — keep the early
+    // return, or thread manualReviewRequired explicitly here too.
     decisionGates = buildDecisionGates(reviewResults, retryCount)
     blockingIssues = collectBlockingIssues(decisionGates)
     assertNotAborted(signal)
@@ -1500,40 +1712,14 @@ export async function runDeepChapterGeneration(
     ))
   }
 
-  const finalContent = await finalPolishChapter(
-    writingConfig,
-    outlinePrompt,
-    contextPrompt,
-    taskBrief,
-    currentContent,
-    input,
-    contextPack,
-    callbacks,
-    deps,
-    signal,
-    customDeAiSkill || undefined,
-    lengthSpec,
-    cachePrefix,
-    notePartial,
-  )
-  callbacks.onThinking?.(formatStageThinking(
-    "阶段7：完成",
-    revised
-      ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
-      : "未发现阻断问题，已完成最后一遍简单审查与去AI味。",
-  ))
-  callbacks.onFinalContent?.(finalContent)
   return {
-    finalContent,
-    taskBrief,
-    draftContent,
     reviewResults,
-    revised,
     decisionGates,
-    manualReviewRequired: false,
     retryCount,
-    partial: partialReason !== null,
-    partialReason,
+    manualReviewRequired,
+    currentContent,
+    revised,
+    manualHandoff: false,
   }
 }
 
