@@ -100,6 +100,12 @@ const REVIEW_STAGES = [
 
 const REVIEW_CHUNK_SIZE = 8000
 const REVIEW_MAX_CHUNKS = 3
+// F-4/PAT-G2: throttle thinking render flushes — only invoke when content grew
+// by at least ONUPDATE_FLUSH_CHARS since the last push. Mirrors
+// deep-chapter-generation.ts:162 ONUPDATE_FLUSH_CHARS to keep streaming O(n)
+// instead of O(n²) per-token re-render. A final flush before return/error
+// ensures the caller never sees a stale truncated view.
+const REVIEW_ONUPDATE_FLUSH_CHARS = 256
 
 /**
  * 把超长章节分段用于审查。章节 ≤ 8000 字时返回单段；
@@ -385,10 +391,14 @@ async function runReviewStage(
   let result = ""
   let reasoning = ""
   let streamError: Error | null = null
-  const renderThinking = () => {
+  // F-4/PAT-G2: track last pushed combined length to throttle renderThinking.
+  let lastPushedLen = 0
+  const renderThinking = (force = false) => {
     const combined = reasoning
       ? `${reasoning}${result ? `\n\n${result}` : ""}`
       : result
+    if (!force && combined.length - lastPushedLen < REVIEW_ONUPDATE_FLUSH_CHARS) return
+    lastPushedLen = combined.length
     publishReviewStageThinking(stageThinking, callbacks, stageTitle, combined || "正在分析...")
   }
   const streamCallbacks: StreamCallbacks = {
@@ -426,6 +436,9 @@ async function runReviewStage(
       { reasoning: { mode: reasoningMode } },
     )
     clearTimeout(timeoutId)
+    // F-4/PAT-G2: final flush so the caller's last thinking view reflects the
+    // full content, not a throttle-stale truncated view.
+    renderThinking(true)
     if (streamError) throw streamError
 
     // ISS-20260711-001: parse inside the try so a null-JSON / malformed-JSON

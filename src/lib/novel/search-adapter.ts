@@ -195,6 +195,24 @@ async function runVectorSearch(
     if (vectorResults.length === 0) return []
 
     const items: NovelSearchResult[] = []
+    // PERF-NEW-06/PAT-G2 (odyssey-improve): parallelize the per-vr path probe.
+    // This function is the same-shape sibling of context-engine.ts
+    // runVectorSearchForContext — previously a serial `for (dir of dirs) await
+    // readFile(...)` (up to 7 serial IPC round-trips per vr, N×7 worst case).
+    // Now each vr probes all 7 candidate paths concurrently via
+    // Promise.allSettled, preserving first-success semantics (dirs order wins
+    // over root) by scanning settled results in priority order.
+    const probePath = async (
+      tryPath: string,
+      safeId: string,
+    ): Promise<{ path: string; content: string } | null> => {
+      try {
+        const content = await readFile(tryPath)
+        return { path: tryPath, content }
+      } catch {
+        return null
+      }
+    }
     for (const vr of vectorResults.slice(0, topK)) {
       try {
         // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
@@ -206,30 +224,22 @@ async function runVectorSearch(
         // sanitize defense.
         const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
         const safeId = sanitizeEntitySlug(vr.id)
-        let content = ""
-        let foundPath = ""
-        for (const dir of dirs) {
-          const tryPath = `${pp}/wiki/${dir}/${safeId}.md`
-          try {
-            content = await readFile(tryPath)
-            foundPath = tryPath
-            break
-          } catch {}
-        }
-        if (!foundPath) {
-          const tryPath = `${pp}/wiki/${safeId}.md`
-          try {
-            content = await readFile(tryPath)
-            foundPath = tryPath
-          } catch {}
-        }
-        if (foundPath && content) {
-          const title = extractTitle(content, safeId)
+        const candidatePaths = [
+          ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
+          `${pp}/wiki/${safeId}.md`,
+        ]
+        const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, safeId)))
+        // Priority order: dirs first (in declared order), then root fallback.
+        const hit = settled
+          .map((r) => (r.status === "fulfilled" ? r.value : null))
+          .find((v): v is { path: string; content: string } => v !== null)
+        if (hit) {
+          const title = extractTitle(hit.content, safeId)
           items.push({
             type: "vector",
-            path: foundPath,
+            path: hit.path,
             title,
-            snippet: content.slice(0, 300).replace(/\n/g, " "),
+            snippet: hit.content.slice(0, 300).replace(/\n/g, " "),
             relevance: vr.score,
           })
         }
@@ -269,29 +279,54 @@ async function runGraphSearch(
     const seenIds = new Set<string>()
     const scoredNodes: { title: string; path: string; snippet: string; relevance: number }[] = []
 
-    for (const name of candidateNames) {
-      const matchedNodes = Array.from(graph.nodes.values()).filter(
-        n => n.title.includes(name) || n.id.includes(name),
-      )
-      for (const matchedNode of matchedNodes) {
-        if (seenIds.has(matchedNode.id)) continue
-        seenIds.add(matchedNode.id)
-
-        const related = getRelatedNodes(matchedNode.id, graph, 5)
-        for (const { node, relevance } of related) {
-          if (seenIds.has(node.id)) continue
-          seenIds.add(node.id)
-          try {
-            const content = await readFile(node.path)
-            scoredNodes.push({
-              title: node.title,
-              path: node.path,
-              snippet: content.slice(0, 300).replace(/\n/g, " "),
-              relevance: Math.round(relevance * 100) / 100,
-            })
-          } catch {}
-        }
+    // PERF-004/PAT-G2 (odyssey-improve): SINGLE-PASS match collection — iterate
+    // graph.nodes once, matching against ALL candidate names, dedup by node id.
+    // Replaces the prior per-name full-graph rescan (was O(names × nodes)).
+    // This function is the same-shape sibling of context-engine.ts
+    // searchGraphRelevantContent and must mirror its PERF-004 optimization.
+    const matchedNodes: { id: string; title: string; path: string }[] = []
+    for (const [, node] of graph.nodes) {
+      if (
+        seenIds.has(node.id) === false &&
+        Array.from(candidateNames).some(
+          (name) => node.title.includes(name) || node.id.includes(name),
+        )
+      ) {
+        seenIds.add(node.id)
+        matchedNodes.push({ id: node.id, title: node.title, path: node.path })
       }
+    }
+
+    // PERF-NEW-02/PAT-G2: collect all unseen related-node reads first (dedup
+    // against seenIds), then read them in parallel. The prior nested for...of
+    // awaited readFile serially (up to M×5 sequential IPC round-trips).
+    type PendingRead = { title: string; path: string; relevance: number }
+    const pendingReads: PendingRead[] = []
+    for (const matchedNode of matchedNodes) {
+      const related = getRelatedNodes(matchedNode.id, graph, 5)
+      for (const { node, relevance } of related) {
+        if (seenIds.has(node.id)) continue
+        seenIds.add(node.id)
+        pendingReads.push({ title: node.title, path: node.path, relevance })
+      }
+    }
+    const readResults = await Promise.all(
+      pendingReads.map(async (entry) => {
+        try {
+          const content = await readFile(entry.path)
+          return {
+            title: entry.title,
+            path: entry.path,
+            snippet: content.slice(0, 300).replace(/\n/g, " "),
+            relevance: Math.round(entry.relevance * 100) / 100,
+          }
+        } catch {
+          return null
+        }
+      }),
+    )
+    for (const r of readResults) {
+      if (r) scoredNodes.push(r)
     }
 
     scoredNodes.sort((a, b) => b.relevance - a.relevance)
