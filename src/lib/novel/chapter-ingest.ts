@@ -824,7 +824,17 @@ ${chapterBody.slice(0, 8000)}
 
     const jsonText = extractJsonObjectFromModelText(result)
     if (!jsonText) {
-      throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")
+      // ISS-20260712-001 (PAT-G2 twin recurrence #10, sibling of ISS-026 @841):
+      // LLM returned no parseable JSON object at all (empty / prose-only /
+      // truncated before any `{...}`). Previously threw, which violated the
+      // Promise<ChapterSnapshot | null> contract and bypassed the caller's
+      // (ingestChapter @400 → :403) friendly `failReason: "extract_failed"`
+      // degrade — the user saw the raw technical error instead of the i18n
+      // UX. Return null here honors the contract (same as the JSON.parse
+      // SyntaxError path @845) and lets ingestChapter route to the friendly
+      // UX. Spec S-20260711-6ed4.
+      console.error("[Chapter Ingest] extractSnapshotWithLLM: model returned no parseable JSON object")
+      return null
     }
 
     // ISS-026 (PAT-IM3): a malformed/truncated/code-fence-leaking model output
@@ -1996,7 +2006,19 @@ ${body}
 
     const jsonText = extractJsonObjectFromModelText(result)
     if (!jsonText) {
-      throw new Error("大纲摄取失败：模型没有返回可解析的 JSON")
+      // ISS-20260712-002 (PAT-G2 twin recurrence #10, sibling of ISS-026
+      // PAT-ID1 @2012): LLM returned no parseable JSON object at all.
+      // Previously threw, contradicting the ISS-026 comment @2002-2009 which
+      // explicitly states "Return null here honors the Promise<ChapterSnapshot
+      // | null> contract and lets the caller route to the friendly
+      // ingestFailedNotification" — the throw blocked exactly that route,
+      // sending the caller (outline-generation.ts:703 → :707-719) into the
+      // catch branch with the raw error.message instead of the i18n
+      // ingestFailedNotification. Return null here aligns the no-JSON path
+      // with the JSON.parse SyntaxError path @2016 and honors the contract
+      // the ISS-026 comment already claimed. Spec S-20260711-6ed4.
+      console.error("[Outline Ingest] ingestOutline: model returned no parseable JSON object")
+      return null
     }
 
     // ISS-026 (PAT-ID1, sibling of extractSnapshotWithLLM@821): wrap the parse
@@ -2026,7 +2048,23 @@ ${body}
       validationWarnings: [],
     }, { chapterId, chapterNumber: outlineNumber })
     if (!snapshot) {
-      throw new Error("Outline snapshot payload is invalid.")
+      // ISS-20260712-003 (PAT-G2 twin recurrence #10, third adjacent sibling of
+      // ISS-026 PAT-ID1 @2012 + ISS-20260712-002 @2008): normalizeChapterSnapshot
+      // returns null when the LLM emitted valid JSON but the top-level value is
+      // not an object (e.g. a JSON array / string / number — see
+      // normalizeChapterSnapshot @241). Previously threw, which — exactly like
+      // the !jsonText path @2008 — contradicted the ISS-026 comment @2030-2031
+      // claiming "lets the caller route to the friendly ingestFailedNotification"
+      // and sent outline-generation.ts:703 → :707-713 into the catch branch with
+      // the raw "Outline snapshot payload is invalid." instead of the i18n
+      // ingestFailedNotification. Return null here aligns the third null path
+      // (normalize null) with the two already-fixed ones (no-JSON @2008 +
+      // SyntaxError @2038) and mirrors extractSnapshotWithLLM @859 which
+      // correctly propagates normalizeChapterSnapshot's null to its caller.
+      // Spec S-20260711-6ed4: parse/structure-validation failure must route to
+      // the caller's friendly degrade, not bare-throw past it.
+      console.error("[Outline Ingest] normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object")
+      return null
     }
 
     const syncResult = await syncSnapshotToMemory(pp, snapshot)

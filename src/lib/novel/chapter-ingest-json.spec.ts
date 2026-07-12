@@ -99,4 +99,60 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // The outline parse is wrapped: SyntaxError → return null.
     expect(source).toMatch(/\[Outline Ingest\] Malformed outline JSON/s)
   })
+
+  it("ISS-20260712-001: extractSnapshotWithLLM no-JSON-text path returns null (not throw), honoring Promise<ChapterSnapshot | null> contract", () => {
+    // PAT-G2 twin recurrence #10 (sibling of ISS-026 @841): when the LLM
+    // returns NO parseable JSON object at all (empty / prose-only / truncated
+    // before any `{...}`), extractJsonObjectFromModelText returns null. The
+    // prior `throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")`
+    // violated the Promise<ChapterSnapshot | null> contract and bypassed
+    // ingestChapter @400 → :403 friendly `failReason: "extract_failed"`
+    // degrade. Return null here mirrors the JSON.parse SyntaxError path @845
+    // and lets the caller route to the friendly UX. Spec S-20260711-6ed4.
+    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+
+    // The old throw on the no-JSON-text path must be gone for extractSnapshotWithLLM.
+    expect(source).not.toContain("章节快照提取失败：模型没有返回可解析的 JSON")
+    // Replaced by a console.error + return null degrade.
+    expect(source).toMatch(/\[Chapter Ingest\] extractSnapshotWithLLM: model returned no parseable JSON object/)
+  })
+
+  it("ISS-20260712-002: ingestOutline no-JSON-text path returns null (not throw), aligning with ISS-026 comment @2002-2009", () => {
+    // PAT-G2 twin recurrence #10 (sibling of ISS-026 PAT-ID1 @2012): same
+    // form in ingestOutline. The prior throw contradicted the ISS-026 comment
+    // @2002-2009 which explicitly claims "Return null here honors the
+    // Promise<ChapterSnapshot | null> contract and lets the caller route to
+    // the friendly ingestFailedNotification" — the throw blocked exactly that
+    // route, sending outline-generation.ts:703 → :707-719 into the catch
+    // branch with raw error.message instead of the i18n ingestFailedNotification.
+    // Spec S-20260711-6ed4.
+    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+
+    // The old throw on the no-JSON-text path must be gone for ingestOutline.
+    expect(source).not.toContain("大纲摄取失败：模型没有返回可解析的 JSON")
+    // Replaced by a console.error + return null degrade.
+    expect(source).toMatch(/\[Outline Ingest\] ingestOutline: model returned no parseable JSON object/)
+  })
+
+  it("ISS-20260712-003: ingestOutline normalizeChapterSnapshot-null path returns null (not throw), third adjacent sibling", () => {
+    // PAT-G2 twin recurrence #10 (third adjacent sibling of ISS-026 PAT-ID1
+    // @2012 + ISS-20260712-002 @2008): normalizeChapterSnapshot returns null
+    // when the LLM emitted valid JSON but the top-level value is not an object
+    // (array / string / number — see normalizeChapterSnapshot @241). The prior
+    // `throw new Error("Outline snapshot payload is invalid.")` contradicted
+    // the ISS-026 comment @2030-2031 claiming "lets the caller route to the
+    // friendly ingestFailedNotification" — same contradiction as ISS-20260712-002.
+    // Return null here aligns the third null path (normalize null) with the two
+    // already-fixed ones (no-JSON + SyntaxError) and mirrors
+    // extractSnapshotWithLLM @859 which correctly propagates normalize null.
+    // Spec S-20260711-6ed4.
+    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+
+    // The old throw on the normalize-null path must be gone — assert the
+    // throw statement form is absent (not just the string, since the test
+    // comment itself references the old message).
+    expect(source).not.toMatch(/throw new Error\("Outline snapshot payload is invalid\."\)/)
+    // Replaced by a console.error + return null degrade.
+    expect(source).toMatch(/\[Outline Ingest\] normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object/)
+  })
 })
