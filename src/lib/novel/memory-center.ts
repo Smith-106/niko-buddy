@@ -1,6 +1,6 @@
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
+import { listSnapshots, loadSnapshot, snapshotMarkdownPath, type ChapterSnapshot } from "./chapter-ingest"
 import { loadDismantlingLibrary } from "./dismantling"
 
 export interface MemoryCenterGroup {
@@ -84,13 +84,6 @@ function trimList(items: string[], maxItems: number): { items: string[]; hasMore
 
 function isMemoryCenterFilePreview(file: MemoryCenterFilePreview | null): file is MemoryCenterFilePreview {
   return file !== null
-}
-
-function snapshotMarkdownPath(projectPath: string, chapterNumber: number): string {
-  const prefix = chapterNumber < 0
-    ? `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}`
-    : String(chapterNumber).padStart(3, "0")
-  return `${projectPath}/.novel/snapshots/${prefix}.snapshot.md`
 }
 
 function hasSectionContent(section: MemoryCenterSection | null): section is MemoryCenterSection {

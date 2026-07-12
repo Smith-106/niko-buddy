@@ -953,7 +953,7 @@ function snapshotJsonPath(projectPath: string, chapterNumber: number): string {
   return `${projectPath}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.json`
 }
 
-function snapshotMarkdownPath(projectPath: string, chapterNumber: number): string {
+export function snapshotMarkdownPath(projectPath: string, chapterNumber: number): string {
   return `${projectPath}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.md`
 }
 
