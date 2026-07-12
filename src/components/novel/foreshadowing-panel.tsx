@@ -4,10 +4,10 @@ import { Lightbulb } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadForeshadowingTracker, type ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
 
-const STATUS_LABELS: Record<string, string> = {
-  planted: "已埋设",
-  advanced: "推进中",
-  resolved: "已回收",
+const STATUS_LABEL_KEY: Record<string, string> = {
+  planted: "novel.foreshadowing.planted",
+  advanced: "novel.foreshadowing.advanced",
+  resolved: "novel.foreshadowing.resolved",
 }
 
 // PAT-U4: 状态语义色走 oklch token (planted=warning 未推进, advanced=accent 推进中, resolved=success 已回收)
@@ -94,7 +94,7 @@ export function ForeshadowingPanel() {
                           <span className="font-medium truncate">{f.name}</span>
                         </div>
                         <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[f.status] ?? ""}`}>
-                          {STATUS_LABELS[f.status]}
+                          {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
                       {f.description && (
@@ -122,7 +122,7 @@ export function ForeshadowingPanel() {
                           <span className="font-medium line-through">{f.name}</span>
                         </div>
                         <span className="shrink-0 rounded px-1.5 py-0.5 text-xs bg-success/15 text-success">
-                          {STATUS_LABELS[f.status]}
+                          {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">

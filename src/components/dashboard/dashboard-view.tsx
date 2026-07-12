@@ -308,18 +308,18 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
 
   const runAiRewrite = useCallback(async (item: DashItem) => {
     if (!project) {
-      showAiRewriteAlert("当前没有打开项目。")
+      showAiRewriteAlert(t("dashboard.rewrite.alertNoProject"))
       return
     }
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
-      showAiRewriteAlert("请先在设置里配置可用的 AI 模型。")
+      showAiRewriteAlert(t("dashboard.rewrite.alertNoModel"))
       return
     }
 
     const resolved = await resolveDashboardItemTarget(item)
     if (!resolved) {
-      showAiRewriteAlert("没有找到对应章节，暂时无法改写。")
+      showAiRewriteAlert(t("dashboard.rewrite.alertNoChapter"))
       return
     }
 
@@ -329,7 +329,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         item,
         targetPath: resolved.path,
         anchor: null,
-        sourceContent: "AI 正在根据当前章节判断补写位置。",
+        sourceContent: t("dashboard.rewrite.factCheckPlaceholder"),
         candidateContent: "",
       }
       : (() => {
@@ -355,7 +355,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
       })()
 
     if (item.source !== "factcheck" && !initialDialog.anchor) {
-      showAiRewriteAlert("没有定位到可改写的正文片段。")
+      showAiRewriteAlert(t("dashboard.rewrite.alertNoAnchor"))
       return
     }
 
@@ -395,12 +395,12 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               if (item.source === "factcheck") {
                 const plan = parseFactCheckInsertPlan(rawResponse)
                 if (!plan) {
-                  setRewriteError("AI 返回格式不正确，请重新生成。")
+                  setRewriteError(t("dashboard.rewrite.errorParsePlan"))
                   return current
                 }
                 const anchor = findChapterSelectionByEvidence(resolved.content, [plan.anchorText])
                 if (!anchor) {
-                  setRewriteError("AI 没有找到可用的补写落点，请重新生成。")
+                  setRewriteError(t("dashboard.rewrite.errorNoInsertAnchor"))
                   return current
                 }
                 return {
@@ -413,7 +413,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
 
               const nextContent = current.candidateContent.trim()
               if (nextContent.length === 0) {
-                setRewriteError("AI 没有返回可替换内容，请重新生成或检查模型设置。")
+                setRewriteError(t("dashboard.rewrite.errorEmptyCandidate"))
                 return current
               }
               return {
@@ -425,17 +425,17 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           },
           onError: (error) => {
             console.error("[Dashboard] rewrite failed:", error)
-            setRewriteError(error.message || "生成失败，请稍后重试。")
+            setRewriteError(error.message || t("dashboard.rewrite.errorFallback"))
             setRewriteBusyId(null)
           },
         },
       )
     } catch (err) {
       console.error("[Dashboard] rewrite failed:", err)
-      setRewriteError(err instanceof Error ? err.message : "生成失败，请稍后重试。")
+      setRewriteError(err instanceof Error ? err.message : t("dashboard.rewrite.errorFallback"))
       setRewriteBusyId(null)
     }
-  }, [project, resolveDashboardItemTarget, showAiRewriteAlert])
+  }, [project, resolveDashboardItemTarget, showAiRewriteAlert, t])
 
   const handleApplyRewrite = useCallback(async () => {
     if (!rewriteDialog) return

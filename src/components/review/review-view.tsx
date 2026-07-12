@@ -129,6 +129,7 @@ export function ReviewView({
   const [rewriteDialog, setRewriteDialog] = useState<ReviewRewriteDialogState | null>(null)
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
+  const [alertMessage, setAlertMessage] = useState<string | null>(null)
 
   const dimensionScoped = Boolean(dimensionKey) || resultScoreDimensionKeys !== undefined
   const selectedDimensionResult = dimensionKey ? reviewRun?.dimensionResults?.[dimensionKey] : undefined
@@ -205,7 +206,7 @@ export function ReviewView({
   }, [project?.path])
 
   const showAiRewriteAlert = useCallback((message: string) => {
-    setRewriteError(message)
+    setAlertMessage(message)
   }, [])
 
   const openNovelReviewActionItem = useCallback(async (item: NovelReviewActionItem, highlight = false) => {
@@ -290,18 +291,18 @@ export function ReviewView({
 
   const runNovelReviewAiRewrite = useCallback(async (item: NovelReviewActionItem) => {
     if (!project) {
-      showAiRewriteAlert("当前没有打开项目。")
+      showAiRewriteAlert(t("review.rewrite.alertNoProject"))
       return
     }
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
-      showAiRewriteAlert("请先在设置里配置可用的 AI 模型。")
+      showAiRewriteAlert(t("review.rewrite.alertNoModel"))
       return
     }
 
     const chapterContent = await readFile(item.targetPath).catch(() => "")
     if (!chapterContent) {
-      showAiRewriteAlert("没有找到对应章节，暂时无法改写。")
+      showAiRewriteAlert(t("review.rewrite.alertNoChapter"))
       return
     }
 
@@ -334,7 +335,7 @@ export function ReviewView({
       })
     } catch (error) {
       console.error("[ReviewView] AI review rewrite failed:", error)
-      setRewriteError(error instanceof Error ? error.message : "生成失败，请稍后重试。")
+      setRewriteError(error instanceof Error ? error.message : t("review.rewrite.errorRegenerate"))
     } finally {
       setRewriteBusyId(null)
     }
@@ -353,7 +354,7 @@ export function ReviewView({
         note: edit.note,
       }))
     if (activeEdits.length === 0) {
-      setRewriteError("没有可确认的修改项。")
+      setRewriteError(t("review.rewrite.errorNoActiveEdits"))
       return
     }
 
@@ -412,7 +413,7 @@ export function ReviewView({
       const edits = await generateNovelReviewRewriteEdits(rewriteDialog.item, latestMarkdown, edit.originalText)
       const nextEdit = edits[0]
       if (!nextEdit) {
-        setRewriteError("AI 没有返回可用的单条修改结果。")
+        setRewriteError(t("review.rewrite.errorSingleNoResult"))
         return
       }
       setRewriteDialog((current) => {
@@ -828,6 +829,19 @@ export function ReviewView({
           </Button>
         )}
       </div>
+
+      {alertMessage && (
+        <div role="alert" className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+          {t("review.rewriteAlertPrefix")}: {alertMessage}
+          <button
+            type="button"
+            className="ml-2 underline-offset-2 hover:underline"
+            onClick={() => setAlertMessage(null)}
+          >
+            {t("common.dismiss")}
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {reviewError && (
