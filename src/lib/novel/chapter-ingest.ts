@@ -869,7 +869,7 @@ ${chapterBody.slice(0, 8000)}
       eventDetails: parsed.eventDetails || undefined,
     }, { chapterId: `chapter-${chapterNumber}`, chapterNumber })
   } catch (err) {
-    console.error("[Chapter Ingest] Failed to extract snapshot:", err)
+    console.error("[Chapter Ingest] Failed to extract snapshot:", err instanceof Error ? err.message : String(err))
     throw err
   }
 }
@@ -2070,7 +2070,7 @@ ${body}
     const syncResult = await syncSnapshotToMemory(pp, snapshot)
     return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
   } catch (err) {
-    console.error("[Outline Ingest] Failed:", err)
+    console.error("[Outline Ingest] Failed:", err instanceof Error ? err.message : String(err))
     throw normalizeOutlineIngestError(err)
   }
 }

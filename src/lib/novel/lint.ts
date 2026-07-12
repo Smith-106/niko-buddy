@@ -112,7 +112,7 @@ ${langReminder}`
       suggestion: String(item.suggestion || ""),
     }))
   } catch (err) {
-    console.error("[Novel Lint] Failed:", err)
+    console.error("[Novel Lint] Failed:", err instanceof Error ? err.message : String(err))
     return []
   }
 }

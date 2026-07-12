@@ -124,7 +124,7 @@ async function callLlmForDimension(
       },
       onDone: () => {},
       onError: (err) => {
-        console.error("[six-dimension] LLM error:", err)
+        console.error("[six-dimension] LLM error:", err instanceof Error ? err.message : String(err))
       },
     },
     signal

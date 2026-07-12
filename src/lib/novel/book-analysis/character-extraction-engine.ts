@@ -93,7 +93,7 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
     await streamChat(llmConfig, messages, {
       onToken: (text) => { response += text },
       onDone: () => {},
-      onError: (err) => { console.error(err) },
+      onError: (err) => { console.error("[Character Extraction] LLM error:", err instanceof Error ? err.message : String(err)) },
     }, signal)
 
     // 解析 JSON
@@ -165,7 +165,7 @@ ${corpus}
     await streamChat(llmConfig, messages, {
       onToken: (text) => { response += text },
       onDone: () => {},
-      onError: (err) => { console.error(err) },
+      onError: (err) => { console.error("[Character Extraction] LLM error:", err instanceof Error ? err.message : String(err)) },
     }, signal)
 
     // 解析 JSON
@@ -469,7 +469,7 @@ export async function extractSingleCharacter(
       {
         onToken: (text) => { response += text },
         onDone: () => {},
-        onError: (err) => { console.error("[single-reextract] LLM error:", err) },
+        onError: (err) => { console.error("[single-reextract] LLM error:", err instanceof Error ? err.message : String(err)) },
       },
       signal,
     )

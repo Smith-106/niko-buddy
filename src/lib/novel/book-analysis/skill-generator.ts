@@ -150,7 +150,7 @@ export async function generateCharacterSkill(
     await streamChat(llmConfig, messages, {
       onToken: (text) => { skillContent += text },
       onDone: () => {},
-      onError: (err) => { console.error(err) },
+      onError: (err) => { console.error("[Skill Generator] LLM error:", err instanceof Error ? err.message : String(err)) },
     }, signal)
 
     // 如果生成的内容没有 frontmatter，添加一个

@@ -588,7 +588,7 @@ ${itemsText}`
         },
         onDone: () => {},
         onError: (error: Error) => {
-          console.error("[FactCheck LLM] Stream error:", error)
+          console.error("[FactCheck LLM] Stream error:", error instanceof Error ? error.message : String(error))
         },
       },
       AbortSignal.timeout(60000),
@@ -606,7 +606,7 @@ ${itemsText}`
     try {
       verdicts = JSON.parse(jsonMatch[0])
     } catch (error) {
-      console.error("[FactCheck LLM] Verdict JSON parse failed:", error)
+      console.error("[FactCheck LLM] Verdict JSON parse failed:", error instanceof Error ? error.message : String(error))
       return results
     }
     if (!Array.isArray(verdicts)) return results
@@ -632,7 +632,7 @@ ${itemsText}`
 
     return results
   } catch (error) {
-    console.error("[FactCheck LLM] Failed:", error)
+    console.error("[FactCheck LLM] Failed:", error instanceof Error ? error.message : String(error))
     return results
   }
 }
