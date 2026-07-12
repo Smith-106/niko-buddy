@@ -1,5 +1,5 @@
 import { useWikiStore } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, extractJsonArraySpan, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { resolveNovelModel } from "./model-resolver"
@@ -161,14 +161,10 @@ function buildSceneBreakdownPrompt(blueprint: string, contextPack: ContextPack):
 function parseScenes(raw: string): Scene[] {
   const text = raw.trim()
   if (!text) return []
-  // Strip a leading ```json or ``` fence if present (model sometimes wraps).
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  const jsonText = fenceMatch ? fenceMatch[1].trim() : text
-  // Extract the first JSON array span (model may prepend prose).
-  const start = jsonText.indexOf("[")
-  const end = jsonText.lastIndexOf("]")
-  if (start === -1 || end === -1 || end <= start) return []
-  const span = jsonText.slice(start, end + 1)
+  // 提取首个 JSON 数组 span（PAT-G2 dedup: 共享 @/lib/llm-client
+  // extractJsonArraySpan，含 stripCodeFence + 配平提取）。
+  const span = extractJsonArraySpan(text)
+  if (!span) return []
   let parsed: unknown
   try {
     parsed = JSON.parse(span)

@@ -1,4 +1,4 @@
-import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, extractJsonArraySpan, type StreamCallbacks } from "@/lib/llm-client"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -349,25 +349,15 @@ function parseReviewChunkResult(result: string, chunkIndex: number): unknown[] {
 }
 
 /**
- * 从单次审稿回复里取出最终 JSON 数组。优先取“最后一个”完整数组：
+ * 从单次审稿回复里取出最终 JSON 数组 span。优先取“最后一个”完整数组：
  * 单次调用里模型可能先输出分析文字再给 JSON，贪婪匹配第一个 `[` 到最后一个
  * `]` 容易把分析里的方括号一起吞掉，这里从末尾的 `]` 向前找配平的 `[`。
+ *
+ * 实现已提升到 @/lib/llm-client extractJsonArraySpan（PAT-G2 same-name dedup，
+ * 与 character-llm-recognizer / scene-breakdown 共享）。
  */
 function extractJsonArray(text: string): string | null {
-  const end = text.lastIndexOf("]")
-  if (end === -1) return null
-  let depth = 0
-  for (let i = end; i >= 0; i -= 1) {
-    const ch = text[i]
-    if (ch === "]") depth += 1
-    else if (ch === "[") {
-      depth -= 1
-      if (depth === 0) return text.slice(i, end + 1)
-    }
-  }
-  // 兜底：配平失败时退回贪婪匹配。
-  const greedy = text.match(/\[[\s\S]*\]/)
-  return greedy ? greedy[0] : null
+  return extractJsonArraySpan(text)
 }
 
 async function runReviewStage(

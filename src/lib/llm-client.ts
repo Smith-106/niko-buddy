@@ -70,6 +70,47 @@ export function combineAbortSignals(
   return controller.signal
 }
 
+/**
+ * Strip a leading ```json / ``` fence if the model wrapped its output.
+ * Returns the inner content (trimmed), or the original text if no fence.
+ */
+export function stripCodeFence(text: string): string {
+  const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
+  return fenceMatch ? fenceMatch[1].trim() : text.trim()
+}
+
+/**
+ * Extract the raw JSON array span (including the enclosing `[` ... `]`) from
+ * LLM output that may prepend analysis prose. Uses a bracket-balancing scan
+ * from the LAST `]` backward to find its matching `[` — greedily matching the
+ * first `[` to the last `]` would swallow prose brackets. Falls back to a
+ * greedy `[\s\S]*` match if balancing fails. Returns null if no balanced
+ * span exists.
+ *
+ * Callers own JSON.parse + error routing (throw / null / []) — this helper
+ * only isolates the span so the extraction logic is shared once. Consolidated
+ * from three same-shape local helpers in review-adapter /
+ * character-llm-recognizer / scene-breakdown (PAT-G2 same-name dedup,
+ * odyssey-improve novel-mainchain 2026-07-12).
+ */
+export function extractJsonArraySpan(text: string): string | null {
+  const cleaned = stripCodeFence(text)
+  const end = cleaned.lastIndexOf("]")
+  if (end === -1) return null
+  let depth = 0
+  for (let i = end; i >= 0; i -= 1) {
+    const ch = cleaned[i]
+    if (ch === "]") depth += 1
+    else if (ch === "[") {
+      depth -= 1
+      if (depth === 0) return cleaned.slice(i, end + 1)
+    }
+  }
+  // Fallback: balancing failed, try greedy match.
+  const greedy = cleaned.match(/\[[\s\S]*\]/)
+  return greedy ? greedy[0] : null
+}
+
 export function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
   return /client not allowed/i.test(errorDetail) && /tauri-plugin-http/i.test(errorDetail)
 }

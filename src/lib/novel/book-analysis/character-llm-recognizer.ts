@@ -6,7 +6,7 @@
  * 缺点：依赖真实 LLM endpoint（失败时回退到 heuristicRecognizeCharacters）。
  */
 
-import { streamChat } from "@/lib/llm-client"
+import { streamChat, extractJsonArraySpan } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { stableCharacterId } from "./character-recognition-engine"
@@ -173,19 +173,12 @@ function parseRecognitionResponse(raw: string): Array<{
   aliases?: string[]
 }> {
   if (!raw) return []
-  // 尝试提取 JSON 数组
-  const cleaned = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim()
-  // 找到第一个 [ 和最后一个 ]
-  const start = cleaned.indexOf("[")
-  const end = cleaned.lastIndexOf("]")
-  if (start === -1 || end === -1 || end <= start) {
+  // 尝试提取 JSON 数组 span（PAT-G2 dedup: 共享 @/lib/llm-client
+  // extractJsonArraySpan，含 stripCodeFence + 配平提取，比原 indexOf+slice 更稳健）。
+  const jsonStr = extractJsonArraySpan(raw)
+  if (!jsonStr) {
     throw new Error("LLM 响应中未找到 JSON 数组")
   }
-  const jsonStr = cleaned.slice(start, end + 1)
   try {
     const parsed = JSON.parse(jsonStr)
     if (!Array.isArray(parsed)) throw new Error("LLM 响应不是 JSON 数组")

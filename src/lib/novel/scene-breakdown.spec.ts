@@ -88,6 +88,24 @@ vi.mock("@/lib/llm-client", () => ({
     }
     return controller.signal
   },
+  extractJsonArraySpan: (text: string): string | null => {
+    // Mirror real implementation for test use.
+    const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
+    const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
+    const end = cleaned.lastIndexOf("]")
+    if (end === -1) return null
+    let depth = 0
+    for (let i = end; i >= 0; i -= 1) {
+      const ch = cleaned[i]
+      if (ch === "]") depth += 1
+      else if (ch === "[") {
+        depth -= 1
+        if (depth === 0) return cleaned.slice(i, end + 1)
+      }
+    }
+    const greedy = cleaned.match(/\[[\s\S]*\]/)
+    return greedy ? greedy[0] : null
+  },
 }))
 
 vi.mock("@/stores/wiki-store", () => ({
