@@ -3,6 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
+import { validateSeverity } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -104,7 +105,7 @@ ${langReminder}`
     if (!Array.isArray(parsed)) return []
 
     return parsed.map((item: Record<string, unknown>) => ({
-      severity: validateLintSeverity(item.severity),
+      severity: validateSeverity(item.severity),
       type: String(item.type || "unknown"),
       message: String(item.message || ""),
       evidence: String(item.evidence || ""),
@@ -115,9 +116,4 @@ ${langReminder}`
     console.error("[Novel Lint] Failed:", err instanceof Error ? err.message : String(err))
     return []
   }
-}
-
-function validateLintSeverity(value: unknown): "error" | "warning" | "info" {
-  if (value === "error" || value === "warning" || value === "info") return value
-  return "warning"
 }

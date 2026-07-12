@@ -1,5 +1,6 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { pad, toErrorMessage } from "@/lib/utils"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -168,14 +169,6 @@ type DraftDecisionMode = "accept" | "reject"
 const NOVEL_DIR = ".novel"
 const DRAFTS_DIR = "drafts"
 const STATUS_FILE = "status.json"
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, "0")
-}
 
 export function createNovelSessionId(now: Date = new Date()): string {
   return [

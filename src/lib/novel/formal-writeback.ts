@@ -1,4 +1,5 @@
 import { deleteFile, fileExists, writeFileAtomic } from "@/commands/fs"
+import { toErrorMessage } from "@/lib/utils"
 import { acceptDeepChapterDraft } from "./novel-session-status"
 
 export interface CommitAcceptedDeepChapterDraftInput {
@@ -9,10 +10,6 @@ export interface CommitAcceptedDeepChapterDraftInput {
   chapterPath: string
   finalChapterContent: string
   sessionId?: string
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 export async function commitAcceptedDeepChapterDraft(

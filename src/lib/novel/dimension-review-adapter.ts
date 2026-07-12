@@ -2,6 +2,7 @@ import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { validateSeverity } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -509,9 +510,4 @@ function validateStatus(value: unknown, issueCount: number): DimensionReviewStat
     return value
   }
   return issueCount === 0 ? "pass" : "medium"
-}
-
-function validateSeverity(value: unknown): "error" | "warning" | "info" {
-  if (value === "error" || value === "warning" || value === "info") return value
-  return "warning"
 }

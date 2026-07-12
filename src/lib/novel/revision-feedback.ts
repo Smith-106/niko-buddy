@@ -1,6 +1,7 @@
 import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
 import i18n from "@/i18n"
 import type { LintResult } from "@/lib/lint"
+import { uniqueNonEmpty } from "@/lib/utils"
 import type { NovelReviewResult } from "./review-adapter"
 
 export interface NovelRevisionFeedback {
@@ -261,10 +262,6 @@ function dedupeRevisionFeedback(feedback: NovelRevisionFeedback): NovelRevisionF
     shouldImprove: uniqueNonEmpty(feedback.shouldImprove),
     carryToNextChapter: uniqueNonEmpty(feedback.carryToNextChapter),
   }
-}
-
-function uniqueNonEmpty(items: string[]): string[] {
-  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)))
 }
 
 function normalizeRevisionEntry(message: string, suggestion: string): string {

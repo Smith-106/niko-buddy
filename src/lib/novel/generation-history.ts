@@ -2,6 +2,7 @@ import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/
 import type { LintResult } from "@/lib/lint"
 import { normalizePath } from "@/lib/path-utils"
 import { moveFileToTrash } from "@/lib/trash"
+import { pad } from "@/lib/utils"
 import type { NovelReviewResult } from "./review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 
@@ -28,10 +29,6 @@ export interface SaveGenerationHistoryInput {
   sourcePath?: string
   results: GenerationHistoryResult[]
   dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, "0")
 }
 
 function formatDateTime(value: number): string {

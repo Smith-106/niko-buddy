@@ -3,6 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
+import { validateSeverity } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
@@ -480,9 +481,4 @@ function publishReviewStageThinking(
 
 function formatReviewStageThinking(stageTitle: string, content: string): string {
   return `## ${stageTitle}\n${content.trim()}`
-}
-
-function validateSeverity(value: unknown): "error" | "warning" | "info" {
-  if (value === "error" || value === "warning" || value === "info") return value
-  return "warning"
 }

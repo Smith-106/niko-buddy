@@ -1,6 +1,7 @@
 import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { mergeArrayFieldsIntoContent } from "@/lib/sources-merge"
+import { uniqueNonEmpty } from "@/lib/utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
@@ -32,10 +33,6 @@ export type NovelNodeType =
   | "timeline-point"
   | "canon-rule"
   | "concept"
-
-function uniqueNonEmpty(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
-}
 
 function normalizeCharacterAliases(snapshot: ChapterSnapshot): Record<string, string[]> | undefined {
   if (!snapshot.characterAliases) return undefined
