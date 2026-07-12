@@ -1,5 +1,5 @@
 import { useWikiStore } from "@/stores/wiki-store"
-import { streamChat, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { resolveNovelModel } from "./model-resolver"
@@ -462,24 +462,8 @@ export async function deleteChapterScenes(
 }
 
 /**
- * Combine AbortSignals (PAT-DC3 cascade + timeout). Mirrors
- * deep-chapter-generation.ts:1735 combineAbortSignals — when either signal
- * aborts, the combined signal aborts. Exported for test use.
+ * Combine AbortSignals — re-exported from llm-client (consolidated to avoid
+ * PAT-G2 same-name duplication across deep-chapter-generation / scene-breakdown).
+ * PAT-DC3 cascade + timeout: when either signal aborts, the combined aborts.
  */
-export function combineAbortSignals(
-  ...signals: Array<AbortSignal | undefined>
-): AbortSignal | undefined {
-  const activeSignals = signals.filter(Boolean) as AbortSignal[]
-  if (activeSignals.length === 0) return undefined
-  if (activeSignals.length === 1) return activeSignals[0]
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  for (const s of activeSignals) {
-    if (s.aborted) {
-      controller.abort()
-      break
-    }
-    s.addEventListener("abort", abort, { once: true })
-  }
-  return controller.signal
-}
+export { combineAbortSignals } from "@/lib/llm-client"

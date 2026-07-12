@@ -1,5 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 
 // PAT-G2 mirror of deep-chapter-generation.ts F-4: throttle onUpdate so it
 // does not pass the entire growing content string to the caller on every
@@ -134,7 +134,7 @@ async function collectModelText(
         streamError = error
       },
     },
-    signal,
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
     { reasoning: config.reasoning },
   )
 

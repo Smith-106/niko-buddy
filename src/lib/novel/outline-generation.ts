@@ -1,5 +1,5 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
-import { streamChat } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import { getOutputLanguage } from "@/lib/output-language"
 import { getFileName, normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -273,7 +273,7 @@ async function streamOutlineSectionContent(
     onError: (err) => {
       streamError = err
     },
-  }, signal)
+  }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
   if (streamError) throw streamError
   return content.trim()
@@ -427,7 +427,7 @@ export async function generateOutlineFile(
     onError: (err) => {
       streamError = err
     },
-  }, signal)
+  }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
   if (streamError) {
     throw streamError

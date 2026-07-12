@@ -1,5 +1,5 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
@@ -1669,7 +1669,7 @@ async function collectModelText(
     }
   }
   const streamController = new AbortController()
-  const combinedSignal = combineAbortSignals(signal, streamController.signal)
+  const combinedSignal = combineAbortSignals(signal, streamController.signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
   const stopStream = (reason: string) => {
     if (cutoffReason) return
     cutoffReason = reason
@@ -1821,23 +1821,6 @@ function isTransportInactivityError(error: Error): boolean {
   return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
     error.message,
   )
-}
-
-function combineAbortSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
-  const activeSignals = signals.filter(Boolean) as AbortSignal[]
-  if (activeSignals.length === 0) return undefined
-  if (activeSignals.length === 1) return activeSignals[0]
-
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      controller.abort()
-      break
-    }
-    signal.addEventListener("abort", abort, { once: true })
-  }
-  return controller.signal
 }
 
 function findRepeatedTailStart(content: string): number | null {

@@ -75,6 +75,19 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/llm-client", () => ({
   streamChat: mocks.streamChatMock,
+  combineAbortSignals: (...signals: Array<AbortSignal | undefined>) => {
+    // Mirror real implementation for test use.
+    const active = signals.filter(Boolean) as AbortSignal[]
+    if (active.length === 0) return undefined
+    if (active.length === 1) return active[0]
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    for (const s of active) {
+      if (s.aborted) { controller.abort(); break }
+      s.addEventListener("abort", abort, { once: true })
+    }
+    return controller.signal
+  },
 }))
 
 vi.mock("@/stores/wiki-store", () => ({

@@ -1,6 +1,6 @@
 import { createDirectory, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { joinPath } from "@/lib/path-utils"
@@ -1035,7 +1035,7 @@ async function runAuraModelPrompt(systemPrompt: string, userPrompt: string): Pro
     onToken: (token) => { result += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
-  })
+  }, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
   if (streamError) throw streamError
   return result.trim()
 }

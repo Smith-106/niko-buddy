@@ -44,6 +44,32 @@ async function streamViaCodexCli(
 const NETWORK_RETRY_DELAYS_MS = [30_000, 60_000, 90_000, 120_000]
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
 
+/**
+ * Combine multiple AbortSignals (e.g. caller-supplied cancel signal + timeout)
+ * so the combined signal aborts when ANY input aborts. Undefined inputs are
+ * ignored. Returns undefined if no active signals remain.
+ *
+ * Mirrors the prior local helpers in deep-chapter-generation.ts and
+ * scene-breakdown.ts (consolidated here to avoid PAT-G2 same-name duplication).
+ */
+export function combineAbortSignals(
+  ...signals: Array<AbortSignal | undefined>
+): AbortSignal | undefined {
+  const activeSignals = signals.filter(Boolean) as AbortSignal[]
+  if (activeSignals.length === 0) return undefined
+  if (activeSignals.length === 1) return activeSignals[0]
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  for (const s of activeSignals) {
+    if (s.aborted) {
+      controller.abort()
+      break
+    }
+    s.addEventListener("abort", abort, { once: true })
+  }
+  return controller.signal
+}
+
 export function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
   return /client not allowed/i.test(errorDetail) && /tauri-plugin-http/i.test(errorDetail)
 }

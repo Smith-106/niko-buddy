@@ -1,5 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 
 /**
  * 使用 LLM 为章节生成标题。
@@ -58,7 +58,7 @@ ${contentPreview}
         streamError = e
       },
     },
-    signal,
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
     {
       temperature: 0.7,
       max_tokens: 100,
