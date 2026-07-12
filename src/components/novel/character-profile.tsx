@@ -3,26 +3,39 @@ import { useTranslation } from "react-i18next"
 import { User, Loader2, MapPin, Swords, Package } from "lucide-react"
 import { loadCharacterStates, type CharacterState } from "@/lib/novel/character-state"
 import { loadCognitionState, type CognitionState } from "@/lib/novel/character-cognition"
+import { useWikiStore } from "@/stores/wiki-store"
 
 export function CharacterProfile({ characterName, projectPath }: { characterName: string; projectPath: string }) {
   const { t } = useTranslation()
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const [charState, setCharState] = useState<CharacterState | null>(null)
   const [cognition, setCognition] = useState<CognitionState | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // dataVersion 监听: chapter-ingest saveCharacterStates+bumpDataVersion 后须 refetch,
+  // 否则显示陈旧 charState(location/status/equipment/abilities — 正是本面板渲染的核心字段)。
+  // 此前 deps 仅 [characterName, projectPath] 不监听 dataVersion, 与 cognition-panel 不一致(PAT-G2 twin)。
+  // cancelled flag 防 race: characterName/projectPath/dataVersion 快速变化时旧 Promise 的 setState 覆盖最新。
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
     Promise.all([
       loadCharacterStates(projectPath),
       loadCognitionState(projectPath),
     ]).then(([chars, cog]) => {
+      if (cancelled) return
       setCharState(chars.characters.find(c => c.characterName === characterName) ?? null)
       setCognition(cog)
     }).catch(() => {
-      setCharState(null)
-      setCognition(null)
-    }).finally(() => setLoading(false))
-  }, [characterName, projectPath])
+      if (!cancelled) {
+        setCharState(null)
+        setCognition(null)
+      }
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [characterName, projectPath, dataVersion])
 
   const charCognition = cognition?.characters.find(c => c.character === characterName)
 

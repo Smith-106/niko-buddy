@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, RefreshCw } from "lucide-react"
 import { loadCognitionState, type CognitionState } from "@/lib/novel/character-cognition"
@@ -15,7 +15,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
   const [state, setState] = useState<CognitionState | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const s = await loadCognitionState(projectPath)
@@ -25,9 +25,26 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectPath])
 
-  useEffect(() => { load() }, [projectPath, dataVersion])
+  // cancelled flag 防 race: dataVersion 快速 bump(章节 ingest 连续保存)时,
+  // 旧 fetch 的 setState 可能后于新 fetch 解析,用陈旧数据覆盖最新状态。
+  // 加 ignore 守卫让 cancelled 后的 setState 静默丢弃。
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      try {
+        const s = await loadCognitionState(projectPath)
+        if (!cancelled) setState(s)
+      } catch {
+        if (!cancelled) setState(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projectPath, dataVersion])
 
   return (
     <div className="flex h-full flex-col">
