@@ -135,6 +135,7 @@ interface DashboardViewProps {
 export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const reviewRun = useWikiStore((s) => s.reviewRun)
   const lintRun = useWikiStore((s) => s.lintRun)
   const selectedFile = useWikiStore((s) => s.selectedFile)
@@ -205,7 +206,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
     })()
 
     return () => { cancelled = true }
-  }, [project?.path])
+  }, [project?.path, dataVersion])
 
   const toggleCollapse = useCallback((key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))

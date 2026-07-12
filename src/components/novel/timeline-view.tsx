@@ -7,23 +7,29 @@ import { getTimelineEvents, type TimelineEntry } from "@/lib/novel/timeline"
 export function TimelineView() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const [events, setEvents] = useState<TimelineEntry[]>([])
   const [loading, setLoading] = useState(true)
 
+  // dataVersion 监听: chapter-ingest saveSnapshot(1217) 后 bumpDataVersion(1229),
+  // timeline 从 snapshots 派生, 不订阅则 ingest 后显示陈旧时间线条目。
+  // cancelled flag 防 race: project/dataVersion 快速变化时旧 fetch 的 setEvents 覆盖最新。
   useEffect(() => {
     if (!project) return
+    let cancelled = false
     setLoading(true)
     ;(async () => {
       try {
         const entries = await getTimelineEvents(project.path)
-        setEvents(entries)
+        if (!cancelled) setEvents(entries)
       } catch {
-        setEvents([])
+        if (!cancelled) setEvents([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     })()
-  }, [project])
+    return () => { cancelled = true }
+  }, [project, dataVersion])
 
   if (!project) return null
 

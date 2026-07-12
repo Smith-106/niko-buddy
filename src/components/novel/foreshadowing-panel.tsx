@@ -19,17 +19,23 @@ const STATUS_COLORS: Record<string, string> = {
 export function ForeshadowingPanel() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const [store, setStore] = useState<ForeshadowingStore | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // dataVersion 监听: chapter-ingest saveForeshadowingTracker(554/1525/1666)
+  // 后 bumpDataVersion(1037/1229/1927), 不订阅则 ingest 后显示陈旧伏笔列表。
+  // cancelled flag 防 race: project/dataVersion 快速变化时旧 fetch 的 setStore 覆盖最新。
   useEffect(() => {
     if (!project) return
+    let cancelled = false
     setLoading(true)
     loadForeshadowingTracker(project.path)
-      .then(setStore)
-      .catch(() => setStore(null))
-      .finally(() => setLoading(false))
-  }, [project])
+      .then((s) => { if (!cancelled) setStore(s) })
+      .catch(() => { if (!cancelled) setStore(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [project, dataVersion])
 
   const unresolved = store?.items.filter(f => f.status !== "resolved") ?? []
   const resolved = store?.items.filter(f => f.status === "resolved") ?? []

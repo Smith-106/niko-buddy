@@ -111,6 +111,7 @@ export function ReviewView({
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const setPendingEditorHighlight = useWikiStore((s) => s.setPendingEditorHighlight)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const reviewRun = useWikiStore((s) => s.reviewRun)
   const allReviewResults = reviewRun?.results ?? []
   // characterOnly 模式下只展示角色一致性（character_consistency）类型的问题
@@ -155,8 +156,12 @@ export function ReviewView({
       setCognitionState(null)
       return
     }
-    loadCognitionState(project.path).then(setCognitionState).catch(() => setCognitionState(null))
-  }, [novelMode, project, novelReviewResults])
+    let cancelled = false
+    loadCognitionState(project.path)
+      .then((s) => { if (!cancelled) setCognitionState(s) })
+      .catch(() => { if (!cancelled) setCognitionState(null) })
+    return () => { cancelled = true }
+  }, [novelMode, project, novelReviewResults, dataVersion])
 
   useEffect(() => {
     if (!project?.path) {
