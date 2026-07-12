@@ -231,3 +231,51 @@
 .legend-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* 滚动容器边界渐隐遮罩 — 提示列表可滚动方向 (WCAG 感知) */
+.scroll-fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+}
+
+/* 折叠展开高度过渡 — grid-template-rows 0fr→1fr 无需测量内容高度 (Tailwind v4 原生) */
+.collapsible-panel {
+  display: grid;
+  transition: grid-template-rows 200ms ease-out;
+  grid-template-rows: 0fr;
+}
+
+.collapsible-panel[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.collapsible-panel > * {
+  overflow: hidden;
+}
+
+/* Skeleton 占位条 — content-aware 加载骨架复用 */
+.skeleton-bar {
+  @apply rounded-sm bg-muted;
+  animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* 前庭障碍降级 — 所有动画/过渡在 prefers-reduced-motion 下近禁用 (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton-bar {
+    animation: none;
+  }
+}

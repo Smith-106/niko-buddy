@@ -12,6 +12,7 @@ import {
   X,
   Check,
   Trash2,
+  ChevronDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -60,11 +61,11 @@ import {
 } from "@/lib/review-rewrite-plan"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
-  contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-amber-500" },
-  duplicate: { icon: Copy, labelKey: "review.typeLabels.duplicate", novelLabelKey: "novel.review.typeLabels.duplicate", color: "text-blue-500" },
-  "missing-page": { icon: FileQuestion, labelKey: "review.typeLabels.missingPage", novelLabelKey: "novel.review.typeLabels.missingPage", color: "text-purple-500" },
+  contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
+  duplicate: { icon: Copy, labelKey: "review.typeLabels.duplicate", novelLabelKey: "novel.review.typeLabels.duplicate", color: "text-chart-3" },
+  "missing-page": { icon: FileQuestion, labelKey: "review.typeLabels.missingPage", novelLabelKey: "novel.review.typeLabels.missingPage", color: "text-chart-1" },
   confirm: { icon: MessageSquare, labelKey: "review.typeLabels.confirm", novelLabelKey: "novel.review.typeLabels.confirm", color: "text-foreground" },
-  suggestion: { icon: Lightbulb, labelKey: "review.typeLabels.suggestion", novelLabelKey: "novel.review.typeLabels.suggestion", color: "text-emerald-500" },
+  suggestion: { icon: Lightbulb, labelKey: "review.typeLabels.suggestion", novelLabelKey: "novel.review.typeLabels.suggestion", color: "text-success" },
 }
 
 interface ReviewRewriteEditState extends ReviewRewriteEdit {
@@ -316,7 +317,7 @@ export function ReviewView({
     try {
       const edits = await generateNovelReviewRewriteEdits(item, chapterContent)
       if (edits.length === 0) {
-        setRewriteError("AI 没有返回可用的修改项，请重新生成或检查模型设置。")
+        setRewriteError(t("review.rewrite.errorNoEdits"))
         return
       }
       setRewriteDialog((current) => {
@@ -361,7 +362,7 @@ export function ReviewView({
 
     const applyResult = applyReviewRewriteEditsToMarkdown(latestMarkdown, activeEdits)
     if (!applyResult.ok) {
-      setRewriteError(`有 ${applyResult.failed.length} 条原文片段没有定位到，已取消写入。请重新生成或编辑原文片段。`)
+      setRewriteError(t("review.rewrite.errorAnchorFailed", { count: applyResult.failed.length }))
       return
     }
 
@@ -429,7 +430,7 @@ export function ReviewView({
         }
       })
     } catch (error) {
-      setRewriteError(error instanceof Error ? error.message : "重新生成失败，请稍后重试。")
+      setRewriteError(error instanceof Error ? error.message : t("review.rewrite.errorRegenerate"))
     } finally {
       setRewriteBusyId(null)
     }
@@ -793,10 +794,10 @@ export function ReviewView({
   const showReviewHistory = !dimensionScoped && reviewHistory.length > 0
   const showCognition = !dimensionScoped && novelMode && cognitionState
   const reviewThinkingContent = dimensionKey ? selectedDimensionThinking : reviewRun?.thinking
-  const reviewThinkingTitle = dimensionKey ? "六维阶段式审查" : "阶段式深度审稿"
+  const reviewThinkingTitle = dimensionKey ? t("review.sixDimensionTitle") : t("review.stagedDeepTitle")
   const reviewButtonLabel = isReviewing
-    ? (dimensionKey ? reviewRun?.dimensionProgress || "正在审查此维度" : t("novel.review.reviewing"))
-    : (dimensionKey ? "重新审查此维度" : t("novel.review.startReview"))
+    ? (dimensionKey ? reviewRun?.dimensionProgress || t("review.reviewingDimension") : t("novel.review.reviewing"))
+    : (dimensionKey ? t("review.rereviewDimension") : t("novel.review.startReview"))
 
   return (
     <div className="flex h-full flex-col">
@@ -859,9 +860,10 @@ export function ReviewView({
           </div>
         )}
         {pending.length === 0 && resolved.length === 0 && novelReviewActionItems.length === 0 && !showReviewHistory ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <CheckCircle2 className="h-8 w-8 text-muted-foreground/30" />
+          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-success">
+            <CheckCircle2 className="h-8 w-8 animate-pulse text-success" style={{ animationDuration: "1.5s" }} aria-hidden="true" />
             <p>{emptyMessage || t(novelMode ? "novel.review.allClear" : "review.allClear")}</p>
+            <p className="text-xs italic text-muted-foreground">{t(novelMode ? "novel.review.allClearHint" : "review.allClearHint")}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-3">
@@ -902,16 +904,30 @@ export function ReviewView({
                   return (
                     <div
                       key={item.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => void openNovelReviewActionItem(item)}
-                      className={`cursor-pointer rounded-md border p-3 text-sm transition-colors hover:border-primary/50 ${
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          void openNovelReviewActionItem(item)
+                        }
+                      }}
+                      className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
                         item.reviewSeverity === "error"
-                          ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950"
+                          ? "border-destructive/30 bg-destructive/5"
                           : item.reviewSeverity === "warning"
-                            ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950"
-                            : "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950"
+                            ? "border-warning/30 bg-warning/5"
+                            : "border-border bg-muted/20"
                       }`}
                     >
                       <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-block h-1.5 w-1.5 rounded-full ${
+                            item.reviewSeverity === "error" ? "bg-destructive" : item.reviewSeverity === "warning" ? "bg-warning" : "bg-muted-foreground"
+                          }`}
+                          aria-hidden="true"
+                        />
                         <span className="font-medium">{typeLabel}</span>
                         <span className="text-xs text-muted-foreground">{severityLabel}</span>
                       </div>
@@ -920,7 +936,7 @@ export function ReviewView({
                         <p className="mt-1 text-xs text-muted-foreground italic">「{item.evidence}」</p>
                       )}
                       {item.suggestion && (
-                        <p className="mt-1 text-xs text-green-700 dark:text-green-400">
+                        <p className="mt-1 text-xs text-success">
                           💡 {item.suggestion}
                         </p>
                       )}
@@ -945,8 +961,10 @@ export function ReviewView({
                       <div className="flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          className="min-w-0 flex-1 text-left font-medium hover:text-primary"
+                          className="min-w-0 flex-1 text-left font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => setExpandedHistoryId(expanded ? null : entry.id)}
+                          aria-expanded={expanded}
+                          aria-controls={`review-history-${entry.id}`}
                         >
                           <span className="block truncate">{entry.title}</span>
                           <span className="text-muted-foreground">{entry.createdAt.slice(0, 10)} · {t("novel.review.historySummary", { errors, warnings })}</span>
@@ -954,24 +972,27 @@ export function ReviewView({
                         <button
                           type="button"
                           onClick={() => void handleDeleteHistory(entry)}
-                          className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+                          className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={t("novel.history.delete")}
                         >
                           {t("novel.history.delete")}
                         </button>
                       </div>
-                      {expanded && (
-                        <div className="mt-2 space-y-1 border-t pt-2">
-                          {entryResults.length === 0 ? (
-                            <p className="text-muted-foreground">{t("novel.history.emptyResult")}</p>
-                          ) : entryResults.map((result, index) => (
-                            <div key={`${entry.id}-${index}`} className="rounded bg-muted/50 p-2">
-                              <div className="font-medium">{i18n.exists(`review.results.dimension.${result.type}`) ? i18n.t(`review.results.dimension.${result.type}`) : result.type}</div>
-                              <div className="text-muted-foreground">{result.message}</div>
-                              {result.suggestion && <div className="mt-1 text-green-700 dark:text-green-400">{result.suggestion}</div>}
-                            </div>
-                          ))}
+                      <div id={`review-history-${entry.id}`} className="collapsible-panel" data-open={expanded}>
+                        <div>
+                          <div className="mt-2 space-y-1 border-t pt-2">
+                            {entryResults.length === 0 ? (
+                              <p className="text-muted-foreground">{t("novel.history.emptyResult")}</p>
+                            ) : entryResults.map((result, index) => (
+                              <div key={`${entry.id}-${result.type}-${index}`} className="rounded bg-muted/50 p-2">
+                                <div className="font-medium">{i18n.exists(`review.results.dimension.${result.type}`) ? i18n.t(`review.results.dimension.${result.type}`) : result.type}</div>
+                                <div className="text-muted-foreground">{result.message}</div>
+                                {result.suggestion && <div className="mt-1 text-success">{result.suggestion}</div>}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   )
                 })}
@@ -980,14 +1001,18 @@ export function ReviewView({
             {showCognition && (
               <div className="mt-4 rounded-md border">
                 <button
-                  className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/50"
+                  type="button"
+                  className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => setCognitionExpanded(!cognitionExpanded)}
+                  aria-expanded={cognitionExpanded}
+                  aria-controls="review-cognition-panel"
                 >
                   <span>{t("novel.cognition.title")}</span>
-                  <span className="text-[10px]">{cognitionExpanded ? "▲" : "▼"}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${cognitionExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
                 </button>
-                {cognitionExpanded && (
-                  <div className="space-y-2 border-t px-3 py-2 text-xs">
+                <div id="review-cognition-panel" className="collapsible-panel" data-open={cognitionExpanded}>
+                  <div>
+                    <div className="space-y-2 border-t px-3 py-2 text-xs">
                     {cognitionState.lastUpdatedChapter > 0 && (
                       <p className="text-muted-foreground">
                         {t("novel.cognition.lastUpdated", { chapter: cognitionState.lastUpdatedChapter })}
@@ -1020,8 +1045,9 @@ export function ReviewView({
                         )}
                       </>
                     )}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>
@@ -1082,14 +1108,15 @@ function ReviewRewritePreviewDialog({
 }) {
   const activeCount = edits.filter((edit) => edit.status !== "ignored").length
   const hasPendingContent = edits.some((edit) => edit.status !== "ignored" && edit.replacementText.trim())
+  const { t } = useTranslation()
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose() }}>
       <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>AI修改预览</DialogTitle>
+          <DialogTitle>{t("review.rewrite.title")}</DialogTitle>
           <DialogDescription>
-            左侧是需要修改的原文，右侧是 AI 生成的新内容。确认后才会写入原章节。
+            {t("review.rewrite.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1101,23 +1128,23 @@ function ReviewRewritePreviewDialog({
 
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={onRegenerateAll} disabled={busy}>
-            全部重新生成
+            {t("review.rewrite.regenerateAll")}
           </Button>
           <Button variant="outline" size="sm" onClick={onIgnoreAll} disabled={busy || edits.length === 0}>
-            全部忽略
+            {t("review.rewrite.ignoreAll")}
           </Button>
           <Button variant="outline" size="sm" onClick={onEditAll} disabled={busy || edits.length === 0}>
-            全部编辑
+            {t("review.rewrite.editAll")}
           </Button>
           {busy && (
-            <span className="text-xs text-muted-foreground">正在生成修改内容，请稍候...</span>
+            <span className="text-xs text-muted-foreground">{t("review.rewrite.generating")}</span>
           )}
         </div>
 
         <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
           {edits.length === 0 ? (
             <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
-              正在等待 AI 返回修改项。
+              {t("review.rewrite.waiting")}
             </div>
           ) : edits.map((edit, index) => {
             const ignored = edit.status === "ignored"
@@ -1125,10 +1152,10 @@ function ReviewRewritePreviewDialog({
             return (
               <div
                 key={edit.id}
-                className={`rounded-md border p-3 ${ignored ? "bg-muted/40 opacity-60" : "bg-background"}`}
+                className={`rounded-md border p-3 ${ignored ? "border-muted-foreground/20 bg-muted/40 italic" : "bg-background"}`}
               >
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">修改 {index + 1}</span>
+                  <span className="text-xs font-medium text-muted-foreground">{t("review.rewrite.editLabel", { n: index + 1 })}</span>
                   {edit.note ? <span className="text-xs text-muted-foreground">{edit.note}</span> : null}
                   <div className="ml-auto flex items-center gap-2">
                     <Button
@@ -1136,18 +1163,18 @@ function ReviewRewritePreviewDialog({
                       size="sm"
                       onClick={() => onRegenerateOne(edit.id)}
                       disabled={busy}
-                      className="h-7 text-xs"
+                      className="h-8 text-xs"
                     >
-                      {rowBusy ? "生成中..." : "重新生成"}
+                      {rowBusy ? t("review.rewrite.generatingShort") : t("review.rewrite.regenerate")}
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => onIgnoredChange(edit.id, !ignored)}
                       disabled={busy}
-                      className="h-7 text-xs"
+                      className="h-8 text-xs"
                     >
-                      {ignored ? "恢复修改" : "忽略不改"}
+                      {ignored ? t("review.rewrite.restore") : t("review.rewrite.ignore")}
                     </Button>
                   </div>
                 </div>
@@ -1168,9 +1195,9 @@ function ReviewRewritePreviewDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>取消</Button>
+          <Button variant="outline" onClick={onClose} disabled={busy}>{t("common.cancel")}</Button>
           <Button onClick={onApply} disabled={busy || !hasPendingContent || activeCount === 0}>
-            确认修改
+            {t("review.rewrite.apply")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1194,8 +1221,8 @@ function ReviewCard({
 
   return (
     <div
-      className={`rounded-lg border p-3 text-sm transition-opacity ${
-        item.resolved ? "opacity-50" : ""
+      className={`rounded-lg border p-3 text-sm transition-colors ${
+        item.resolved ? "border-success/30 bg-success/5" : ""
       }`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
@@ -1205,10 +1232,12 @@ function ReviewCard({
           <span className="font-medium">{item.title}</span>
         </div>
         <button
+          type="button"
           onClick={() => onDismiss(item.id)}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t("common.dismiss")}
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 
@@ -1227,7 +1256,7 @@ function ReviewCard({
               key={opt.action}
               variant="outline"
               size="sm"
-              className="h-7 text-xs"
+              className="h-8 text-xs"
               onClick={() => onResolve(item.id, opt.action)}
             >
               {opt.label}
@@ -1235,8 +1264,8 @@ function ReviewCard({
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-1 text-xs text-emerald-600">
-          <Check className="h-3 w-3" />
+        <div className="flex items-center gap-1 text-xs text-success">
+          <Check className="h-3 w-3" aria-hidden="true" />
           {item.resolvedAction}
         </div>
       )}

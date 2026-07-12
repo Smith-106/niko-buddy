@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
+  Loader2,
 } from "lucide-react"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { LintResult } from "@/lib/lint"
@@ -63,11 +63,11 @@ interface RewriteDialogState {
   candidateContent: string
 }
 
-const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelKey: string; color: string; bgColor: string }> = {
-  blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-red-600 dark:text-red-400", bgColor: "border-red-300 bg-red-50 dark:border-red-900/70 dark:bg-red-950/35" },
-  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-orange-600 dark:text-orange-400", bgColor: "border-orange-300 bg-orange-50 dark:border-orange-900/70 dark:bg-orange-950/30" },
-  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-amber-600 dark:text-amber-400", bgColor: "border-amber-300 bg-amber-50 dark:border-amber-900/70 dark:bg-amber-950/30" },
-  low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-blue-600 dark:text-blue-400", bgColor: "border-blue-300 bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/30" },
+const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelKey: string; color: string; bgColor: string; dotClass: string }> = {
+  blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-destructive", bgColor: "border-destructive/30 bg-destructive/5", dotClass: "bg-destructive" },
+  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-warning", bgColor: "border-warning/30 bg-warning/5", dotClass: "bg-warning" },
+  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-warning", bgColor: "border-warning/20 bg-warning/5", dotClass: "bg-warning" },
+  low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-muted-foreground", bgColor: "border-border bg-muted/30", dotClass: "bg-muted-foreground" },
 }
 
 const FACT_CHECK_TYPE_LABELS: Record<FactCheckResult["type"], string> = {
@@ -158,6 +158,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   const [rewriteDialog, setRewriteDialog] = useState<RewriteDialogState | null>(null)
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
+  const [alertMessage, setAlertMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!project?.path) {
@@ -220,7 +221,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   }, [project?.path])
 
   const showAiRewriteAlert = useCallback((message: string) => {
-    window.alert(`AI修改暂时无法继续：${message}`)
+    setAlertMessage(message)
   }, [])
 
   const resolveDashboardItemTarget = useCallback(async (item: DashItem) => {
@@ -628,8 +629,9 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             void runAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
+          {isRewriting && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
         </button>
         {hasBackup ? (
@@ -639,7 +641,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -651,7 +653,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -662,7 +664,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             event.stopPropagation()
             void handleIgnoreDashItem(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+          className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("dashboard.actions.ignore")}
         </button>
@@ -673,10 +675,19 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   const renderDashCard = useCallback((item: DashItem, config: (typeof SEVERITY_CONFIG)[DashSeverity], key: string) => (
     <div
       key={key}
+      role="button"
+      tabIndex={0}
       onClick={() => void handleOpenDashItem(item)}
-      className={`cursor-pointer rounded-md border p-2 text-sm transition-colors hover:border-primary/50 ${config.bgColor}`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          void handleOpenDashItem(item)
+        }
+      }}
+      className={`group cursor-pointer rounded-lg border p-2 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${config.bgColor}`}
     >
       <div className="flex items-center gap-2">
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${config.dotClass}`} aria-hidden="true" />
         <span className="text-xs text-muted-foreground">
           [{item.source === "review" ? t("dashboard.source.review") : item.source === "lint" ? t("dashboard.source.lint") : t("dashboard.section.factCheck")}]
         </span>
@@ -696,12 +707,12 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         </button>
       )}
       {item.secondaryEvidence && (
-        <p className="mt-1 text-xs text-muted-foreground/80">
+        <p className="mt-1 text-xs text-muted-foreground">
           {String.fromCharCode(0x300C)}{item.secondaryEvidence}{String.fromCharCode(0x300D)}
         </p>
       )}
       {item.suggestion && (
-        <p className="mt-1 text-xs text-green-700 dark:text-green-400">{item.suggestion}</p>
+        <p className="mt-1 text-xs text-success">{item.suggestion}</p>
       )}
       {renderActionBar(item)}
     </div>
@@ -714,22 +725,22 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         <div className="flex items-center gap-3">
           {items.length > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="text-red-500">{grouped.blocking.length} {t("dashboard.severity.blocking")}</span>
-              <span className="text-orange-500">{grouped.high.length} {t("dashboard.severity.high")}</span>
-              <span className="text-amber-500">{grouped.medium.length} {t("dashboard.severity.medium")}</span>
-              <span className="text-blue-500">{grouped.low.length} {t("dashboard.severity.low")}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{grouped.blocking.length} {t("dashboard.severity.blocking")}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{grouped.high.length} {t("dashboard.severity.high")}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{grouped.medium.length} {t("dashboard.severity.medium")}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />{grouped.low.length} {t("dashboard.severity.low")}</span>
             </div>
           )}
           {headerActions}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scroll-fade-y">
         {noIssues ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <Info className="h-8 w-8 text-muted-foreground/30" />
+            <Info className="h-8 w-8 text-success/50" />
             <p>{t("dashboard.noIssues")}</p>
-            <p className="text-xs">{t("dashboard.noIssuesHint")}</p>
+            <p className="text-xs italic">{t("dashboard.noIssuesHint")}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-1 p-3">
@@ -739,22 +750,28 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               const config = SEVERITY_CONFIG[severity]
               const Icon = config.icon
               const isCollapsed = collapsed[severity]
+              const panelId = `dash-panel-${severity}`
               return (
                 <div key={severity} className="mb-2">
                   <button
-                    className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-muted/50 ${config.color}`}
+                    type="button"
+                    className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${config.color}`}
                     onClick={() => toggleCollapse(severity)}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={panelId}
                   >
                     {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     <Icon className="h-4 w-4" />
                     <span>{t(config.labelKey)}</span>
                     <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs">{group.length}</span>
                   </button>
-                  {!isCollapsed && (
-                    <div className="mt-1 space-y-1 pl-8">
-                      {group.map((item) => renderDashCard(item, config, item.id))}
+                  <div id={panelId} role="region" aria-label={t(config.labelKey)} className="collapsible-panel mt-1" data-open={!isCollapsed}>
+                    <div>
+                      <div className="space-y-1 pl-8 pt-1">
+                        {group.map((item) => renderDashCard(item, config, item.id))}
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               )
             })}
@@ -786,13 +803,13 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               </span>
             </div>
             <div className="mb-2 flex gap-2 text-xs">
-              <span className="text-red-500">{debtReport.criticalCount} 严重</span>
-              <span className="text-amber-500">{debtReport.warningCount} 警告</span>
+              <span className="flex items-center gap-1 text-destructive"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{debtReport.criticalCount} {DEBT_LEVEL_LABELS.critical}</span>
+              <span className="flex items-center gap-1 text-warning"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{debtReport.warningCount} {DEBT_LEVEL_LABELS.warning}</span>
             </div>
-            {debtReport.items.filter((item) => item.debtLevel !== "normal").map((item, index) => (
-              <div key={index} className="mb-1 rounded border bg-muted/30 p-2 text-xs">
+            {debtReport.items.filter((item) => item.debtLevel !== "normal").map((item) => (
+              <div key={item.name} className="mb-1 rounded-md border bg-muted/30 p-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <span className={item.debtLevel === "critical" ? "text-red-500" : "text-amber-500"}>
+                  <span className={item.debtLevel === "critical" ? "text-destructive" : "text-warning"}>
                     [{item.debtLevel === "critical" ? DEBT_LEVEL_LABELS.critical : DEBT_LEVEL_LABELS.warning}]
                   </span>
                   <span>{item.name}</span>
@@ -809,12 +826,28 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         )}
 
         {extrasLoading && (
-          <div className="border-t p-3 text-center text-xs text-muted-foreground">
-            <RefreshCw className="mr-1 inline-block h-3 w-3 animate-spin" />
-            {t("dashboard.section.loadingExtras")}
+          <div className="border-t p-3">
+            <div className="space-y-2" role="status" aria-label={t("dashboard.section.loadingExtras")}>
+              <div className="skeleton-bar h-4 w-3/4" />
+              <div className="skeleton-bar h-4 w-1/2" />
+              <div className="skeleton-bar h-4 w-2/3" />
+            </div>
           </div>
         )}
       </div>
+
+      {alertMessage && (
+        <div role="alert" className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+          {t("dashboard.rewriteAlertPrefix")}: {alertMessage}
+          <button
+            type="button"
+            className="ml-2 underline-offset-2 hover:underline"
+            onClick={() => setAlertMessage(null)}
+          >
+            {t("common.dismiss")}
+          </button>
+        </div>
+      )}
 
       <TextTransformPreviewDialog
         open={Boolean(rewriteDialog)}

@@ -13,7 +13,8 @@
     "error": "错误",
     "success": "成功",
     "warning": "警告",
-    "info": "提示"
+    "info": "提示",
+    "dismiss": "关闭提示"
   },
   "app": {
     "title": "青幕AI写作",
@@ -44,6 +45,7 @@
     "title": "项目仪表盘",
     "noIssues": "未发现任何问题",
     "noIssuesHint": "项目质量良好，可以放心继续创作",
+    "rewriteAlertPrefix": "AI修改暂时无法继续",
     "severity": {
       "blocking": "阻塞",
       "high": "高",
@@ -1139,6 +1141,29 @@
     "review": {
       "title": "AI 审稿",
       "allClear": "审稿通过，无需修改",
+      "allClearHint": "好小说是改出来的，继续创作下一章",
+      "sixDimensionTitle": "六维阶段式审查",
+      "stagedDeepTitle": "阶段式深度审稿",
+      "reviewingDimension": "正在审查此维度",
+      "rereviewDimension": "重新审查此维度",
+      "rewrite": {
+        "title": "AI修改预览",
+        "description": "左侧是需要修改的原文，右侧是 AI 生成的新内容。确认后才会写入原章节。",
+        "regenerateAll": "全部重新生成",
+        "ignoreAll": "全部忽略",
+        "editAll": "全部编辑",
+        "generating": "正在生成修改内容，请稍候...",
+        "generatingShort": "生成中...",
+        "waiting": "正在等待 AI 返回修改项。",
+        "editLabel": "修改 {{n}}",
+        "regenerate": "重新生成",
+        "restore": "恢复修改",
+        "ignore": "忽略不改",
+        "apply": "确认修改",
+        "errorNoEdits": "AI 没有返回可用的修改项，请重新生成或检查模型设置。",
+        "errorAnchorFailed": "有 {{count}} 条原文片段没有定位到，已取消写入。请重新生成或编辑原文片段。",
+        "errorRegenerate": "重新生成失败，请稍后重试。"
+      },
       "clearResolved": "清除已解决",
       "clearAll": "清空全部",
       "historyTitle": "历史审稿记录",
@@ -1427,6 +1452,7 @@
       "readerKnows": "读者知道",
       "noData": "暂无认知数据",
       "noDataHint": "保存正式章节并自动提取记忆后，认知数据将在此展示",
+      "empty": "无",
       "lastUpdated": "最后更新：第{{chapter}}章",
       "loading": "加载中...",
       "refresh": "刷新"
@@ -1435,12 +1461,14 @@
       "title": "小说时间线",
       "loading": "加载时间线...",
       "noEvents": "暂无时间线事件。保存正式章节并提取记忆后，时间线将在此展示。",
+      "noEventsHint": "章节生成后会自动记录时间线",
       "chapter": "第{{num}}章"
     },
     "foreshadowing": {
       "title": "伏笔管理",
       "loading": "加载中...",
       "noData": "暂无伏笔数据。保存正式章节并提取记忆后，伏笔信息将在此展示。",
+      "noDataHint": "埋下第一颗伏笔，让故事有回响",
       "summary": "共{{total}}个伏笔，{{unresolved}}个待回收，{{resolved}}个已回收",
       "unresolved": "进行中",
       "resolved": "已回收",

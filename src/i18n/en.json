@@ -27,7 +27,8 @@
     "close": "Close",
     "confirm": "Confirm",
     "back": "Back",
-    "next": "Next"
+    "next": "Next",
+    "dismiss": "Dismiss"
   },
   "appLayout": {
     "bookAnalysis": {
@@ -151,6 +152,7 @@
     "title": "Project Dashboard",
     "noIssues": "No issues found",
     "noIssuesHint": "Project quality is good, continue writing with confidence",
+    "rewriteAlertPrefix": "AI rewrite cannot continue",
     "severity": {
       "blocking": "Blocking",
       "high": "High",
@@ -1387,6 +1389,29 @@
     "review": {
       "title": "AI Review",
       "allClear": "Review passed, no changes needed",
+      "allClearHint": "Good novels are born from revision — keep writing",
+      "sixDimensionTitle": "Six-Dimension Staged Review",
+      "stagedDeepTitle": "Staged Deep Review",
+      "reviewingDimension": "Reviewing this dimension",
+      "rereviewDimension": "Re-review this dimension",
+      "rewrite": {
+        "title": "AI Rewrite Preview",
+        "description": "The left side is the original text to be modified, the right side is the AI-generated new content. It will be written to the chapter only after confirmation.",
+        "regenerateAll": "Regenerate All",
+        "ignoreAll": "Ignore All",
+        "editAll": "Edit All",
+        "generating": "Generating rewrite content, please wait...",
+        "generatingShort": "Generating...",
+        "waiting": "Waiting for AI to return rewrite items.",
+        "editLabel": "Edit {{n}}",
+        "regenerate": "Regenerate",
+        "restore": "Restore Edit",
+        "ignore": "Ignore",
+        "apply": "Apply Changes",
+        "errorNoEdits": "AI returned no usable edit items. Please regenerate or check the model settings.",
+        "errorAnchorFailed": "{{count}} original text segments could not be located; the write was cancelled. Please regenerate or edit the original segments.",
+        "errorRegenerate": "Regeneration failed, please try again later."
+      },
       "clearResolved": "Clear resolved",
       "clearAll": "Clear all",
       "historyTitle": "Review history",
@@ -1550,6 +1575,7 @@
       "readerKnows": "Reader Knows",
       "noData": "No cognition data",
       "noDataHint": "Cognition data will appear here after saving canon chapters with auto-ingest.",
+      "empty": "None",
       "lastUpdated": "Last updated: Chapter {{chapter}}",
       "loading": "Loading...",
       "refresh": "Refresh"
@@ -1558,12 +1584,14 @@
       "title": "Novel Timeline",
       "loading": "Loading timeline...",
       "noEvents": "No timeline events yet. Timeline will appear here after saving canon chapters with memory extraction.",
+      "noEventsHint": "Timeline events are recorded automatically when chapters are generated",
       "chapter": "Chapter {{num}}"
     },
     "foreshadowing": {
       "title": "Foreshadowing Management",
       "loading": "Loading...",
       "noData": "No foreshadowing data yet. Foreshadowing information will appear here after saving canon chapters with memory extraction.",
+      "noDataHint": "Plant the first foreshadowing to give the story an echo",
       "summary": "Total: {{total}}, Unresolved: {{unresolved}}, Resolved: {{resolved}}",
       "unresolved": "In Progress",
       "resolved": "Resolved",
