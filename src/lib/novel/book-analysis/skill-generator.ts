@@ -17,7 +17,7 @@ import type {
 } from "./types"
 import { writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { ALL_DIMENSIONS, DIMENSION_LABELS } from "./six-dimension-prompts"
 
 /**
@@ -151,7 +151,7 @@ export async function generateCharacterSkill(
       onToken: (text) => { skillContent += text },
       onDone: () => {},
       onError: (err) => { console.error("[Skill Generator] LLM error:", err instanceof Error ? err.message : String(err)) },
-    }, signal)
+    }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 如果生成的内容没有 frontmatter，添加一个
     if (!skillContent.startsWith("---")) {
@@ -168,7 +168,7 @@ category: character-skill
 
     return skillContent
   } catch (error) {
-    console.error(`Failed to generate skill for ${character.name}:`, error)
+    console.error(`Failed to generate skill for ${character.name}:`, error instanceof Error ? error.message : String(error))
 
     // 返回一个基础的 Skill 模板
     return `---

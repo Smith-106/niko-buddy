@@ -891,6 +891,7 @@ export async function runDeepChapterGeneration(
         input.chapterNumber,
         writingConfig,
         3,
+        signal,
       )
       if (previousChaptersAnalysis) {
         callbacks.onThinking?.(formatStageThinking(

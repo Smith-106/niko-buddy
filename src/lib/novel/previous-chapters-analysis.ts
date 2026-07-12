@@ -1,6 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { searchWiki } from "@/lib/search"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 
 export interface PreviousChapterAnalysis {
   chapterNumber: number
@@ -19,6 +20,7 @@ export async function analyzePreviousChapters(
   currentChapterNumber: number,
   llmConfig: LlmConfig,
   analysisCount: number = 3,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (currentChapterNumber <= 1) return ""
 
@@ -45,7 +47,6 @@ export async function analyzePreviousChapters(
   const analysisPrompt = buildPreviousChaptersAnalysisPrompt(previousChapters, currentChapterNumber)
 
   // 调用LLM分析
-  const { streamChat } = await import("@/lib/llm-client")
   let analysis = ""
 
   await streamChat(
@@ -54,8 +55,9 @@ export async function analyzePreviousChapters(
     {
       onToken: (token) => { analysis += token },
       onDone: () => {},
-      onError: () => {},
-    }
+      onError: (err) => { console.error("[previous-chapters] LLM error:", err instanceof Error ? err.message : String(err)) },
+    },
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
   )
 
   return analysis.trim()

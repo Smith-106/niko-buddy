@@ -9,6 +9,19 @@ vi.mock("@/lib/llm-client", () => ({
     callbacks.onToken?.("## 模拟章节\n模拟正文")
     callbacks.onDone?.()
   }),
+  // mirror real combineAbortSignals: 任一 abort 即合并 abort
+  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+    if (signals.length === 0) return undefined
+    if (signals.length === 1) return signals[0]
+    const controller = new AbortController()
+    for (const s of signals) {
+      if (s.aborted) { controller.abort(); break }
+      s.addEventListener("abort", () => controller.abort(), { once: true })
+    }
+    return controller.signal
+  },
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
 }))
 
 vi.mock("@/lib/novel/book-analysis/web-search", () => ({

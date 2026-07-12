@@ -3,7 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
-import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import type { LlmConfig } from "@/stores/wiki-store"
@@ -817,7 +817,7 @@ ${chapterBody.slice(0, 8000)}
       },
     }
 
-    await streamChat(llmConfig, messages, callbacks, signal, {
+    await streamChat(llmConfig, messages, callbacks, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)), {
       jsonSchema: snapshotSchema,
     })
     if (streamError) throw streamError
@@ -2001,7 +2001,7 @@ ${body}
       onError: (error: Error) => { streamError = error },
     }
 
-    await streamChat(runtimeLlmConfig, messages, callbacks, signal)
+    await streamChat(runtimeLlmConfig, messages, callbacks, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
     if (streamError) throw streamError
 
     const jsonText = extractJsonObjectFromModelText(result)

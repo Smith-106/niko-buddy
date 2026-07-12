@@ -91,7 +91,7 @@ ${langReminder}`
       },
       onDone: () => {},
       onError: (error: Error) => {
-        console.error("[Novel Lint] Stream error:", error)
+        console.error("[Novel Lint] Stream error:", error instanceof Error ? error.message : String(error))
       },
     }
 

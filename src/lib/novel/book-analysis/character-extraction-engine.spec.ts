@@ -18,6 +18,19 @@ vi.mock("@/commands/fs", () => ({
 const streamChatMock = vi.fn()
 vi.mock("@/lib/llm-client", () => ({
   streamChat: (...args: unknown[]) => streamChatMock(...args),
+  // mirror real combineAbortSignals
+  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+    if (signals.length === 0) return undefined
+    if (signals.length === 1) return signals[0]
+    const controller = new AbortController()
+    for (const s of signals) {
+      if (s.aborted) { controller.abort(); break }
+      s.addEventListener("abort", () => controller.abort(), { once: true })
+    }
+    return controller.signal
+  },
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
 }))
 
 vi.mock("./simple-extraction-engine", () => ({

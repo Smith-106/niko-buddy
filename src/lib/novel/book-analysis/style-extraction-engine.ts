@@ -9,7 +9,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import type { BookStyleProfile } from "./types"
 import { loadChapterList, loadMetadata } from "./analysis-engine"
 import {
@@ -104,7 +104,7 @@ export async function analyzeWritingStyle(
       onDone: () => {},
       onError: (err) => { streamError = err },
     },
-    signal,
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
     { reasoning: llmConfig.reasoning },
   )
   if (signal?.aborted) throw new Error("用户取消提取")

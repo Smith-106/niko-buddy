@@ -21,7 +21,7 @@ import type {
   SixDimensionResearch,
   SixDimensionStatus,
 } from "./types"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import {
   ALL_DIMENSIONS,
   DIMENSION_LABELS,
@@ -127,7 +127,7 @@ async function callLlmForDimension(
         console.error("[six-dimension] LLM error:", err instanceof Error ? err.message : String(err))
       },
     },
-    signal
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
   )
   return response.trim()
 }

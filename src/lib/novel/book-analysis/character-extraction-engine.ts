@@ -17,7 +17,7 @@ import type {
 } from "./types"
 import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
 import { stableCharacterId } from "./character-recognition-engine"
 
@@ -94,7 +94,7 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
       onToken: (text) => { response += text },
       onDone: () => {},
       onError: (err) => { console.error("[Character Extraction] LLM error:", err instanceof Error ? err.message : String(err)) },
-    }, signal)
+    }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON
     const jsonMatch = response.match(/\{[\s\S]*\}/)
@@ -105,7 +105,7 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
 
     return []
   } catch (error) {
-    console.error(`Failed to identify characters in chapter ${chapterTitle}:`, error)
+    console.error(`Failed to identify characters in chapter ${chapterTitle}:`, error instanceof Error ? error.message : String(error))
     return []
   }
 }
@@ -166,7 +166,7 @@ ${corpus}
       onToken: (text) => { response += text },
       onDone: () => {},
       onError: (err) => { console.error("[Character Extraction] LLM error:", err instanceof Error ? err.message : String(err)) },
-    }, signal)
+    }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON
     const jsonMatch = response.match(/\{[\s\S]*\}/)
@@ -196,7 +196,7 @@ ${corpus}
 
     return null
   } catch (error) {
-    console.error(`Failed to analyze character ${characterName}:`, error)
+    console.error(`Failed to analyze character ${characterName}:`, error instanceof Error ? error.message : String(error))
     return null
   }
 }
@@ -395,7 +395,7 @@ export async function extractCharactersFromChapters(
         })
         characters[i] = result.character
       } catch (e) {
-        console.error(`[6d] failed for ${character.name}:`, e)
+        console.error(`[6d] failed for ${character.name}:`, e instanceof Error ? e.message : String(e))
       }
       // 保存更新后的角色（feature/fix-six-dim-extract：writeFile 失败不应中断整个 6 维流程）
       try {
@@ -471,7 +471,7 @@ export async function extractSingleCharacter(
         onDone: () => {},
         onError: (err) => { console.error("[single-reextract] LLM error:", err instanceof Error ? err.message : String(err)) },
       },
-      signal,
+      combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
     )
     return response.trim()
   }

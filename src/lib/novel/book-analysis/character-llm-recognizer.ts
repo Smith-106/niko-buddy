@@ -6,7 +6,7 @@
  * 缺点：依赖真实 LLM endpoint（失败时回退到 heuristicRecognizeCharacters）。
  */
 
-import { streamChat, extractJsonArraySpan } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, extractJsonArraySpan } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { stableCharacterId } from "./character-recognition-engine"
@@ -155,7 +155,7 @@ async function callLlmForRecognition(
         streamError = err
       },
     },
-    signal
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
   )
   if (streamError) throw streamError
   return response.trim()
