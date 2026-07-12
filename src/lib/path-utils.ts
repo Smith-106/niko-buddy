@@ -1,3 +1,5 @@
+import { fileExists } from "@/commands/fs"
+
 /**
  * Normalize a path to use forward slashes (works on both macOS and Windows).
  * Windows APIs accept forward slashes, so normalizing to / is safe everywhere.
@@ -84,4 +86,28 @@ export function isAbsolutePath(p: string): boolean {
   if (/^[A-Za-z]:[\\/]/.test(p)) return true
   if (p.startsWith("\\\\") || p.startsWith("//")) return true
   return false
+}
+
+/**
+ * Resolve a non-colliding outline path under `dir` for the requested `fileName`.
+ * If `dir/fileName` is free, return it; otherwise append `-2`, `-3`, … `-99`
+ * before the extension, then fall back to a `Date.now()` suffix.
+ *
+ * Consolidated (ISS-20260712-MAINT-3): three outline pipelines — outline-import,
+ * outline-generation, source-outline-import — carried byte-identical copies of
+ * this loop. Hoisted here so a future naming change lands once.
+ */
+export async function getUniqueOutlinePath(dir: string, fileName: string): Promise<string> {
+  const firstPath = `${dir}/${fileName}`
+  if (!(await fileExists(firstPath))) return firstPath
+
+  const extensionIndex = fileName.lastIndexOf(".")
+  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
+  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
+  for (let index = 2; index <= 99; index += 1) {
+    const candidate = `${dir}/${stem}-${index}${extension}`
+    if (!(await fileExists(candidate))) return candidate
+  }
+
+  return `${dir}/${stem}-${Date.now()}${extension}`
 }

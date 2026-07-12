@@ -1,6 +1,6 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
-import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 import type { FileNode } from "@/types/wiki"
 
 export const CHAPTER_IMPORT_EXTENSIONS = ["txt", "md", "mdx", "doc", "docx"] as const
@@ -42,10 +42,6 @@ type IngestChapterDependency = (
   chapterPath: string,
   reviewModel?: string,
 ) => Promise<{ snapshot: unknown | null; failReason?: string }>
-
-function yamlEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-}
 
 function normalizeFullWidthDigits(value: string): string {
   return value.replace(/[０-９]/g, (char) => String(char.charCodeAt(0) - 0xff10))

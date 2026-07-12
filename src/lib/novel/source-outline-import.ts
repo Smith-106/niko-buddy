@@ -1,6 +1,6 @@
 import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
-import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
-import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { getFileName, getRelativePath, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
+import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 
 export type SourceOutlineImportTarget =
   | "story-outline"
@@ -35,27 +35,8 @@ function getTargetConfig(target: SourceOutlineImportTarget): SourceOutlineImport
   return config
 }
 
-function yamlEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-}
-
 function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "")
-}
-
-async function getUniqueOutlinePath(dir: string, fileName: string): Promise<string> {
-  const firstPath = `${dir}/${fileName}`
-  if (!(await fileExists(firstPath))) return firstPath
-
-  const extensionIndex = fileName.lastIndexOf(".")
-  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
-  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
-  for (let index = 2; index <= 99; index += 1) {
-    const candidate = `${dir}/${stem}-${index}${extension}`
-    if (!(await fileExists(candidate))) return candidate
-  }
-
-  return `${dir}/${stem}-${Date.now()}${extension}`
 }
 
 function buildSourceSection(sourcePath: string, relativeSourcePath: string, sourceContent: string): string {

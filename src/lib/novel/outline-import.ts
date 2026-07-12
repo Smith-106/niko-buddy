@@ -1,7 +1,7 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
-import { getFileName, getFileStem, getRelativePath, normalizePath } from "@/lib/path-utils"
+import { getFileName, getFileStem, getRelativePath, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
-import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 
 export const OUTLINE_IMPORT_EXTENSIONS = [
   "md",
@@ -31,10 +31,6 @@ export interface OutlineImportCandidate {
   path: string
   name: string
   targetFolders: string[]
-}
-
-function yamlEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
 }
 
 function sanitizeImportedBody(content: string): string {
@@ -88,21 +84,6 @@ async function ensureOutlineDirectory(projectPath: string, segments: string[]): 
   }
 
   return current
-}
-
-async function getUniqueOutlinePath(dir: string, fileName: string): Promise<string> {
-  const firstPath = `${dir}/${fileName}`
-  if (!(await fileExists(firstPath))) return firstPath
-
-  const extensionIndex = fileName.lastIndexOf(".")
-  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
-  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
-  for (let index = 2; index <= 99; index += 1) {
-    const candidate = `${dir}/${stem}-${index}${extension}`
-    if (!(await fileExists(candidate))) return candidate
-  }
-
-  return `${dir}/${stem}-${Date.now()}${extension}`
 }
 
 async function importSingleOutlineFile(

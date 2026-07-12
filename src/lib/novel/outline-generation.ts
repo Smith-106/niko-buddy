@@ -1,7 +1,7 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import { getOutputLanguage } from "@/lib/output-language"
-import { getFileName, normalizePath } from "@/lib/path-utils"
+import { getFileName, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
@@ -277,20 +277,6 @@ async function streamOutlineSectionContent(
 
   if (streamError) throw streamError
   return content.trim()
-}
-
-async function getUniqueOutlinePath(outlinesDir: string, fileName: string): Promise<string> {
-  const firstPath = `${outlinesDir}/${fileName}`
-  if (!(await fileExists(firstPath))) return firstPath
-
-  const extensionIndex = fileName.lastIndexOf(".")
-  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
-  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
-  for (let index = 2; index <= 99; index += 1) {
-    const candidate = `${outlinesDir}/${stem}-${index}${extension}`
-    if (!(await fileExists(candidate))) return candidate
-  }
-  return `${outlinesDir}/${stem}-${Date.now()}${extension}`
 }
 
 async function writeOutlineSectionFile(

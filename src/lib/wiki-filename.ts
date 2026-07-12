@@ -70,3 +70,13 @@ export function makeChapterFileStem(title: string, chapterNumber?: number | null
 export function makeChapterFileName(title: string, chapterNumber?: number | null): string {
   return `${makeChapterFileStem(title, chapterNumber)}.md`
 }
+
+/**
+ * Escape a string for safe interpolation into a YAML double-quoted scalar:
+ * backslash → `\\`, double-quote → `\"`. Consolidated (ISS-20260712-MAINT-3)
+ * from three outline pipelines (chapter-import / outline-import /
+ * source-outline-import) that carried byte-identical copies.
+ */
+export function yamlEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+}
