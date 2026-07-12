@@ -196,6 +196,20 @@
       "errorNoInsertAnchor": "AI could not find a usable insertion point. Please regenerate.",
       "errorEmptyCandidate": "AI returned no replaceable content. Please regenerate or check the model settings.",
       "errorFallback": "Generation failed, please try again later."
+    },
+    "factCheckType": {
+      "character_jump": "Character State Jump",
+      "location_conflict": "Location Conflict",
+      "item_holder_change": "Item Holder Change",
+      "org_flip": "Organization Flip",
+      "timeline_conflict": "Timeline Conflict",
+      "setting_conflict": "Setting Conflict",
+      "relationship_reversal": "Relationship Reversal",
+      "causality_break": "Causality Break"
+    },
+    "debtLevel": {
+      "critical": "Critical",
+      "warning": "Warning"
     }
   },
   "reviewCenter": {

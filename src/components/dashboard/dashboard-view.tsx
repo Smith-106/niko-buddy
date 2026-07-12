@@ -70,20 +70,20 @@ const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelK
   low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-muted-foreground", bgColor: "border-border bg-muted/30", dotClass: "bg-muted-foreground" },
 }
 
-const FACT_CHECK_TYPE_LABELS: Record<FactCheckResult["type"], string> = {
-  character_jump: "人物状态跳变",
-  location_conflict: "地点冲突",
-  item_holder_change: "物品持有变化",
-  org_flip: "组织立场变化",
-  timeline_conflict: "时间线冲突",
-  setting_conflict: "设定冲突",
-  relationship_reversal: "关系反转",
-  causality_break: "因果断裂",
+const FACT_CHECK_TYPE_LABEL_KEYS: Record<FactCheckResult["type"], string> = {
+  character_jump: "dashboard.factCheckType.character_jump",
+  location_conflict: "dashboard.factCheckType.location_conflict",
+  item_holder_change: "dashboard.factCheckType.item_holder_change",
+  org_flip: "dashboard.factCheckType.org_flip",
+  timeline_conflict: "dashboard.factCheckType.timeline_conflict",
+  setting_conflict: "dashboard.factCheckType.setting_conflict",
+  relationship_reversal: "dashboard.factCheckType.relationship_reversal",
+  causality_break: "dashboard.factCheckType.causality_break",
 }
 
-const DEBT_LEVEL_LABELS: Record<"critical" | "warning", string> = {
-  critical: "严重",
-  warning: "警告",
+const DEBT_LEVEL_LABEL_KEYS: Record<"critical" | "warning", string> = {
+  critical: "dashboard.debtLevel.critical",
+  warning: "dashboard.debtLevel.warning",
 }
 
 function mapReviewSeverity(severity: NovelReviewResult["severity"]): DashSeverity {
@@ -122,8 +122,8 @@ function extractChapterNumberFromTargetPath(targetPath: string | null | undefine
 }
 
 function formatDashItemDetail(item: DashItem): string {
-  if (item.source === "factcheck" && item.detail in FACT_CHECK_TYPE_LABELS) {
-    return FACT_CHECK_TYPE_LABELS[item.detail as FactCheckResult["type"]]
+  if (item.source === "factcheck" && item.detail in FACT_CHECK_TYPE_LABEL_KEYS) {
+    return FACT_CHECK_TYPE_LABEL_KEYS[item.detail as FactCheckResult["type"]]
   }
   return item.detail
 }
@@ -691,7 +691,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         <span className="text-xs text-muted-foreground">
           [{item.source === "review" ? t("dashboard.source.review") : item.source === "lint" ? t("dashboard.source.lint") : t("dashboard.section.factCheck")}]
         </span>
-        <span className="truncate text-xs text-muted-foreground">{formatDashItemDetail(item)}</span>
+        <span className="truncate text-xs text-muted-foreground">{t(formatDashItemDetail(item), item.detail)}</span>
       </div>
       <p className="mt-1 text-xs">{item.message}</p>
       {item.evidence && (
@@ -803,14 +803,14 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               </span>
             </div>
             <div className="mb-2 flex gap-2 text-xs">
-              <span className="flex items-center gap-1 text-destructive"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{debtReport.criticalCount} {DEBT_LEVEL_LABELS.critical}</span>
-              <span className="flex items-center gap-1 text-warning"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{debtReport.warningCount} {DEBT_LEVEL_LABELS.warning}</span>
+              <span className="flex items-center gap-1 text-destructive"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{debtReport.criticalCount} {t(DEBT_LEVEL_LABEL_KEYS.critical)}</span>
+              <span className="flex items-center gap-1 text-warning"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{debtReport.warningCount} {t(DEBT_LEVEL_LABEL_KEYS.warning)}</span>
             </div>
             {debtReport.items.filter((item) => item.debtLevel !== "normal").map((item) => (
               <div key={item.name} className="mb-1 rounded-md border bg-muted/30 p-2 text-xs">
                 <div className="flex items-center gap-2">
                   <span className={item.debtLevel === "critical" ? "text-destructive" : "text-warning"}>
-                    [{item.debtLevel === "critical" ? DEBT_LEVEL_LABELS.critical : DEBT_LEVEL_LABELS.warning}]
+                    [{item.debtLevel === "critical" ? t(DEBT_LEVEL_LABEL_KEYS.critical) : t(DEBT_LEVEL_LABEL_KEYS.warning)}]
                   </span>
                   <span>{item.name}</span>
                 </div>

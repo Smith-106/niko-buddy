@@ -89,6 +89,20 @@
       "errorNoInsertAnchor": "AI 没有找到可用的补写落点，请重新生成。",
       "errorEmptyCandidate": "AI 没有返回可替换内容，请重新生成或检查模型设置。",
       "errorFallback": "生成失败，请稍后重试。"
+    },
+    "factCheckType": {
+      "character_jump": "人物状态跳变",
+      "location_conflict": "地点冲突",
+      "item_holder_change": "物品持有变化",
+      "org_flip": "组织立场变化",
+      "timeline_conflict": "时间线冲突",
+      "setting_conflict": "设定冲突",
+      "relationship_reversal": "关系反转",
+      "causality_break": "因果断裂"
+    },
+    "debtLevel": {
+      "critical": "严重",
+      "warning": "警告"
     }
   },
   "reviewCenter": {
