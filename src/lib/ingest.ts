@@ -1604,6 +1604,19 @@ export async function executeIngestWrites(
 
     if (!relativePath) continue
 
+    // Path-traversal guard. relativePath comes straight from LLM output
+    // (FILE_BLOCK_REGEX match), which is untrusted — prompt injection could
+    // emit ../../../etc/passwd. parseFileBlocks:253 applies the same guard on
+    // the autoIngest path; this function parses FILE blocks inline
+    // (:1599 matchAll) and bypasses parseFileBlocks, so the guard must be
+    // mirrored here (PAT-G2 twin). See isSafeIngestPath for the threat model.
+    if (!isSafeIngestPath(relativePath)) {
+      const msg = `FILE 代码块路径 "${relativePath}" 不安全，已拒绝（必须在 wiki/ 下，禁止 ..、绝对路径及不安全的文件名）。`
+      console.warn(`[ingest] ${msg}`)
+      store.addMessage("system", msg)
+      continue
+    }
+
     const fullPath = `${pp}/${relativePath}`
 
     try {
