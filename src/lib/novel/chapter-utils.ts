@@ -9,18 +9,53 @@ export function extractChapterNumber(text: string): number | null {
   return null
 }
 
-export function flattenMdFiles(nodes: Array<{ name: string; path: string; is_dir: boolean; children?: any[] }>): Array<{ name: string; path: string }> {
+/**
+ * Coerce an unknown streaming accumulator value to a string. Consolidated
+ * (ISS-20260712-MAINT-3) from deep-outline-generation.ts:232 — the
+ * `formatStageThinking` defensive path needs this so a non-string chunk
+ * (undefined / null from a failed stream callback) renders as "" instead of
+ * the literal "undefined" string.
+ */
+export function ensureString(value: unknown): string {
+  return typeof value === "string" ? value : ""
+}
+
+/**
+ * Format a stage-thinking block as a level-2 heading + trimmed content.
+ * Consolidated (ISS-20260712-MAINT-3) from deep-chapter-generation.ts:1894
+ * and deep-outline-generation.ts:228 — unified on the defensive variant
+ * (ensureString before trim). Callers in deep-chapter always pass strings, so
+ * ensureString is a no-op there; deep-outline relies on it for chunk safety.
+ */
+export function formatStageThinking(title: string, content: string): string {
+  return `## ${title}\n${ensureString(content).trim()}`
+}
+
+/**
+ * Recursively flatten a file tree into the list of `.md` files, **without**
+ * sorting. Consolidated (ISS-20260712-MAINT-3) base shape shared by
+ * export.ts / rebuild.ts (which want raw traversal order) and by
+ * `flattenMdFiles` below (which adds chapter-number sort). Hoisting the base
+ * keeps the two callers from re-implementing the recursion a third/fourth time.
+ */
+export function flattenMdFilesBase(
+  nodes: Array<{ name: string; path: string; is_dir: boolean; children?: any[] }>,
+): Array<{ name: string; path: string }> {
   const out: Array<{ name: string; path: string }> = []
   for (const node of nodes) {
     if (node.is_dir) {
-      if (node.children) out.push(...flattenMdFiles(node.children))
+      if (node.children) out.push(...flattenMdFilesBase(node.children))
       continue
     }
     if (node.name.endsWith(".md")) {
       out.push({ name: node.name, path: node.path })
     }
   }
-  return out.sort((a, b) => {
+  return out
+}
+
+export function flattenMdFiles(nodes: Array<{ name: string; path: string; is_dir: boolean; children?: any[] }>): Array<{ name: string; path: string }> {
+  return flattenMdFilesBase(nodes).sort((a, b) => {
     const aNum = extractChapterNumber(a.name)
     const bNum = extractChapterNumber(b.name)
     if (aNum !== null && bNum !== null && aNum !== bNum) return aNum - bNum

@@ -10,6 +10,7 @@ import {
   type DimensionReviewResult,
 } from "./dimension-review-adapter"
 import type { TaskRouteResult } from "./task-router"
+import { formatStageThinking } from "./chapter-utils"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
 import {
   resolveChapterLengthSpec,
@@ -1889,10 +1890,6 @@ function formatReviewThinking(reviewResults: NovelReviewResult[]): string {
   }
 
   return formatStageThinking("阶段4：AI审稿", sections.join("\n"))
-}
-
-function formatStageThinking(title: string, content: string): string {
-  return `## ${title}\n${content.trim()}`
 }
 
 function formatReviewIssueList(reviewResults: NovelReviewResult[]): string {

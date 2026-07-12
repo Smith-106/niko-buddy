@@ -8,6 +8,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter } from "./chapter-meta"
 import { ingestChapter } from "./chapter-ingest"
+import { flattenMdFilesBase } from "./chapter-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 
@@ -19,18 +20,6 @@ export interface RebuildProgress {
 }
 
 export type RebuildProgressCallback = (progress: RebuildProgress) => void
-
-function flattenMdFiles(nodes: FileNode[]): Array<{ name: string; path: string }> {
-  const out: Array<{ name: string; path: string }> = []
-  for (const node of nodes) {
-    if (node.is_dir) {
-      if (node.children) out.push(...flattenMdFiles(node.children))
-      continue
-    }
-    if (node.name.endsWith(".md")) out.push({ name: node.name, path: node.path })
-  }
-  return out
-}
 
 /**
  * 重建所有正式章节的快照和图谱
@@ -51,12 +40,12 @@ export async function rebuildAllSnapshots(
   let files: { name: string; path: string }[] = []
   try {
     const tree = await listDirectory(chaptersDir)
-    files = flattenMdFiles(tree)
+    files = flattenMdFilesBase(tree)
   } catch {
     // 尝试从 wiki 根目录搜索
     try {
       const tree = await listDirectory(`${pp}/wiki`)
-      files = flattenMdFiles(tree)
+      files = flattenMdFilesBase(tree)
     } catch {
       return { success: 0, failed: 0, errors: ["无法读取章节目录"] }
     }
@@ -139,7 +128,7 @@ export async function rebuildVectorIndex(
   let files: { name: string; path: string }[] = []
   try {
     const tree = await listDirectory(wikiDir)
-    files = flattenMdFiles(tree)
+    files = flattenMdFilesBase(tree)
   } catch {
     return { indexed: 0, errors: ["无法读取 wiki 目录"] }
   }

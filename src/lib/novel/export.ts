@@ -1,5 +1,6 @@
 import { readFile, writeFile, listDirectory, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { flattenMdFilesBase } from "./chapter-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 import { loadCharacterStates } from "./character-state"
@@ -22,18 +23,6 @@ export interface ExportResult {
   message: string
 }
 
-function flattenMdFiles(nodes: FileNode[]): Array<{ name: string; path: string }> {
-  const out: Array<{ name: string; path: string }> = []
-  for (const node of nodes) {
-    if (node.is_dir) {
-      if (node.children) out.push(...flattenMdFiles(node.children))
-      continue
-    }
-    if (node.name.endsWith(".md")) out.push({ name: node.name, path: node.path })
-  }
-  return out
-}
-
 export async function exportProject(options: ExportOptions): Promise<ExportResult> {
   const pp = normalizePath(options.projectPath)
   const {
@@ -52,7 +41,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
       let files: { name: string; path: string }[] = []
       try {
         const tree = await listDirectory(chaptersDir)
-        files = flattenMdFiles(tree)
+        files = flattenMdFilesBase(tree)
       } catch {
         files = []
       }

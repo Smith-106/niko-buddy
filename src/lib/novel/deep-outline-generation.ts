@@ -1,5 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { formatStageThinking, ensureString } from "./chapter-utils"
 
 // PAT-G2 mirror of deep-chapter-generation.ts F-4: throttle onUpdate so it
 // does not pass the entire growing content string to the caller on every
@@ -223,12 +224,4 @@ function formatRecentHistory(messages: ChatMessage[]): string {
     .slice(-6)
     .map((message) => `${message.role === "user" ? "用户" : "AI"}：${ensureString(message.content).slice(0, 1200)}`)
     .join("\n\n")
-}
-
-function formatStageThinking(title: string, content: string): string {
-  return `## ${title}\n${ensureString(content).trim()}`
-}
-
-function ensureString(value: unknown): string {
-  return typeof value === "string" ? value : ""
 }
