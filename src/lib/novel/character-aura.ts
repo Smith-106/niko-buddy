@@ -715,7 +715,9 @@ async function hasCharacterProfile(projectPath: string, characterName: string): 
     try {
       const content = await readFile(result.path)
       if (/人物小传|人物设定/.test(content) && content.includes(characterName)) return true
-    } catch {}
+    } catch (err) {
+      console.warn("[Character Aura] readFile failed for research file:", err instanceof Error ? err.message : String(err))
+    }
   }
   return false
 }

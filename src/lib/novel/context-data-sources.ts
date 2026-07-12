@@ -235,7 +235,9 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
       for (const s of fetched) {
         if (s !== null) summaries.push(s)
       }
-    } catch {}
+    } catch (err) {
+      context.recordGap?.("fallbackRecentSummaries", "datasource_error")
+    }
     return summaries
   },
 }
@@ -376,7 +378,9 @@ export const writingStyleDataSource: DataSource<string> = {
     try {
       const enabledStyle = await buildWritingStyleContext(context.projectPath)
       if (enabledStyle.trim()) return enabledStyle
-    } catch {}
+    } catch (err) {
+      context.recordGap?.("writingStyle", "datasource_error")
+    }
 
     try {
       const results = await searchWiki(context.projectPath, "style 风格 writing 写作")
@@ -384,7 +388,9 @@ export const writingStyleDataSource: DataSource<string> = {
         const content = await readFile(results[0].path)
         return content.slice(0, 1000)
       }
-    } catch {}
+    } catch (err) {
+      context.recordGap?.("writingStyle", "datasource_error_fallback")
+    }
     return ""
   },
 }
@@ -447,7 +453,9 @@ export const cognitionTextDataSource: DataSource<string> = {
       const state = await loadCognitionState(context.projectPath)
       if (!state) return ""
       return cognitionToContextText(state)
-    } catch {}
+    } catch (err) {
+      context.recordGap?.("cognitionText", "datasource_error")
+    }
     return ""
   },
 }

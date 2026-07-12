@@ -60,7 +60,6 @@ export function isHistoricalProjectionSnippet(path: string, snippet: string): bo
 }
 
 export async function novelMixedSearch(params: NovelSearchParams): Promise<NovelSearchResult[]> {
-  console.log("[novelMixedSearch] START, includeKeyword=", params.includeKeyword, "includeVector=", params.includeVector, "includeGraph=", params.includeGraph, "includeRecentChapters=", params.includeRecentChapters, "includeCanon=", params.includeCanon)
   const pp = normalizePath(params.projectPath)
   const topK = params.topK ?? 5
   const results: RankedNovelSearchResult[] = []
@@ -69,7 +68,6 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeKeyword !== false) {
     const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query)).then(items => {
-      console.log("[novelMixedSearch] keyword done, got", items.length)
       results.push(...items.slice(0, topK).map((item, sourceRank) => ({
         type: "keyword" as const,
         path: item.path,
@@ -84,7 +82,6 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeVector) {
     const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, topK)).then(items => {
-      console.log("[novelMixedSearch] vector done, got", items.length)
       results.push(...rankSourceResults(items))
     })
     promises.push(pVector)
@@ -92,7 +89,6 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeGraph) {
     const pGraph = runSearchBranch("graph", runGraphSearch(pp, params.query, topK)).then(items => {
-      console.log("[novelMixedSearch] graph done, got", items.length)
       results.push(...rankSourceResults(items))
     })
     promises.push(pGraph)
@@ -100,7 +96,6 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeRecentChapters) {
     const pRecent = runSearchBranch("recent_chapter", runRecentChapterSearch(pp, topK)).then(items => {
-      console.log("[novelMixedSearch] recent_chapter done, got", items.length)
       results.push(...rankSourceResults(items))
     })
     promises.push(pRecent)
@@ -108,15 +103,12 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeCanon) {
     const pCanon = runSearchBranch("canon", runCanonSearch(pp, params.query)).then(items => {
-      console.log("[novelMixedSearch] canon done, got", items.length)
       results.push(...rankSourceResults(items))
     })
     promises.push(pCanon)
   }
 
-  console.log("[novelMixedSearch] waiting for", promises.length, "promises...")
   await Promise.all(promises)
-  console.log("[novelMixedSearch] all promises resolved, total results:", results.length)
 
   const merged = deduplicateResults(results, topK)
   const filtered = params.authoritativeOnly
@@ -126,9 +118,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       return isAuthoritativeGenerationPath(item.path)
     })
     : merged
-  console.log("[novelMixedSearch] dedup done, merged:", merged.length, "filtered:", filtered.length)
 
-  console.log("[novelMixedSearch] calling rerankCandidates...")
   const reranked = await rerankCandidates(
     params.query,
     filtered.map((item) => ({
@@ -141,7 +131,6 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       purpose: "用于小说剧情搜索，优先返回最能支撑当前剧情推进、设定一致性和记忆调用的结果。",
     },
   )
-  console.log("[novelMixedSearch] rerank done, got", reranked.length)
   return reranked
 }
 
@@ -149,7 +138,7 @@ async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T
   try {
     return await withTimeout(promise, SEARCH_SOURCE_TIMEOUT_MS, label)
   } catch (err) {
-    console.log(`[novelMixedSearch] ${label} error:`, err)
+    console.error(`[novelMixedSearch] ${label} error:`, err instanceof Error ? err.message : String(err))
     return [] as T
   }
 }
