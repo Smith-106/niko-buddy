@@ -133,7 +133,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
       const result = [...ordered, ...candidates.slice(candidateLimit)]
       return result.slice(0, options.topK ?? result.length)
     } catch (error) {
-      console.warn("[rerank] direct rerank endpoint failed, using original order:", error)
+      console.warn("[rerank] direct rerank endpoint failed, using original order:", error instanceof Error ? error.message : String(error))
       return candidates.slice(0, options.topK ?? candidates.length)
     }
   }
@@ -155,7 +155,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
   })
 
   if (streamError) {
-    console.warn("[rerank] falling back to original order:", streamError)
+    console.warn("[rerank] falling back to original order:", streamError instanceof Error ? streamError.message : String(streamError))
     return candidates.slice(0, options.topK ?? candidates.length)
   }
 

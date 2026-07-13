@@ -127,7 +127,7 @@ export function useCharacterRecognition({
       const errorMessage = isTimeout
         ? `${rawMessage}（请求超时：可少选几章、或更换更快 / 更稳定的模型后重试）`
         : rawMessage
-      console.error("[角色识别] 失败：", err)
+      console.error("[角色识别] 失败：", err instanceof Error ? err.message : String(err))
       setRecognitionStatus("error")
       setRecognitionError(errorMessage)
       updateTaskProgress(taskId, {

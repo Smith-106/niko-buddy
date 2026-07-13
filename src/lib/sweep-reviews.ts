@@ -252,7 +252,7 @@ async function judgeBatch(
       signal,
     )
   } catch (err) {
-    console.warn("[Sweep Reviews] LLM call failed:", err)
+    console.warn("[Sweep Reviews] LLM call failed:", err instanceof Error ? err.message : String(err))
     return new Set()
   }
 

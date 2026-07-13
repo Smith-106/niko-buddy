@@ -468,7 +468,7 @@ async function onQueueDrained(projectId: string, projectPath: string): Promise<v
     const { sweepResolvedReviews } = await import("@/lib/sweep-reviews")
     await sweepResolvedReviews(projectPath, signal)
   } catch (err) {
-    console.error("[Ingest Queue] Failed to load sweep-reviews:", err)
+    console.error("[Ingest Queue] Failed to load sweep-reviews:", err instanceof Error ? err.message : String(err))
   } finally {
     if (sweepAbortController && sweepAbortController.signal === signal) {
       sweepAbortController = null
@@ -487,7 +487,7 @@ async function processNext(projectId: string): Promise<void> {
     // Queue drained — trigger review cleanup (auto-resolve stale items)
     const pathAtDrain = currentProjectPath
     onQueueDrained(projectId, pathAtDrain).catch((err) =>
-      console.error("[Ingest Queue] sweep failed:", err)
+      console.error("[Ingest Queue] sweep failed:", err instanceof Error ? err.message : String(err))
     )
     return
   }
