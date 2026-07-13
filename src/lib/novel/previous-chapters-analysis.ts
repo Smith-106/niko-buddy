@@ -24,22 +24,30 @@ export async function analyzePreviousChapters(
 ): Promise<string> {
   if (currentChapterNumber <= 1) return ""
 
-  const previousChapters: Array<{ number: number; content: string }> = []
-
   // 读取前N章的完整内容
-  for (let i = Math.max(1, currentChapterNumber - analysisCount); i < currentChapterNumber; i++) {
-    try {
-      const results = await searchWiki(projectPath, `chapter_number:${i}`)
-      if (results.length > 0) {
-        const content = await readFile(results[0].path)
-        const bodyStart = content.indexOf("---", 4)
-        const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-        previousChapters.push({ number: i, content: body })
+  // PERF (odyssey-review): chapters are independent — parallelize searchWiki +
+  // readFile per chapter instead of serial await-in-loop (N+1 IPC round-trips
+  // → 1 batch). Per-chapter try/catch preserved (one read failure must not abort
+  // the others). Order preserved via index mapping.
+  const startChapter = Math.max(1, currentChapterNumber - analysisCount)
+  const chapters = await Promise.all(
+    Array.from({ length: currentChapterNumber - startChapter }, async (_, offset) => {
+      const i = startChapter + offset
+      try {
+        const results = await searchWiki(projectPath, `chapter_number:${i}`)
+        if (results.length > 0) {
+          const content = await readFile(results[0].path)
+          const bodyStart = content.indexOf("---", 4)
+          const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+          return { number: i, content: body }
+        }
+      } catch {
+        // 忽略读取失败的章节
       }
-    } catch {
-      // 忽略读取失败的章节
-    }
-  }
+      return null
+    }),
+  )
+  const previousChapters = chapters.filter((c): c is { number: number; content: string } => c !== null)
 
   if (previousChapters.length === 0) return ""
 

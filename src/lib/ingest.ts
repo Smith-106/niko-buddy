@@ -551,7 +551,13 @@ async function autoIngestImpl(
       onToken: (token) => { analysis += token },
       onDone: () => {},
       onError: (err) => {
-        activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.analysisFailed", { message: err.message }) })
+        // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
+        // carry provider endpoint URL / auth header — strip before surfacing in
+        // the user-visible Activity panel. Raw message logged to console only.
+        const raw = err instanceof Error ? err.message : String(err)
+        console.error("[ingest] analysis stream error:", raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.analysisFailed", { message: safe }) })
       },
     },
     signal,
@@ -605,7 +611,12 @@ async function autoIngestImpl(
       onToken: (token) => { generation += token },
       onDone: () => {},
       onError: (err) => {
-        activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.generationFailed", { message: err.message }) })
+        // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
+        // before surfacing in the user-visible Activity panel (twin of analysis site).
+        const raw = err instanceof Error ? err.message : String(err)
+        console.error("[ingest] generation stream error:", raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.generationFailed", { message: safe }) })
       },
     },
     signal,
@@ -723,18 +734,24 @@ async function autoIngestImpl(
   if (embCfg.enabled && embCfg.model && writtenPaths.length > 0) {
     try {
       const { embedPage } = await import("@/lib/embedding")
-      for (const wpath of writtenPaths) {
-        const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
-        if (!pageId || ["index", "log", "overview"].includes(pageId)) continue
-        try {
-          const content = await readFile(`${pp}/${wpath}`)
-          const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-          const title = titleMatch ? titleMatch[1].trim() : pageId
-          await embedPage(pp, pageId, title, content, embCfg)
-        } catch {
-          // non-critical
-        }
-      }
+      // PERF (odyssey-review): pages are independent (each writes its own pageId
+      // rows) — parallelize readFile + embedPage per page instead of serial
+      // await-in-loop. Per-page try/catch preserved (non-critical, one failure
+      // must not abort the others). Bounded by Promise.all's natural concurrency.
+      await Promise.all(
+        writtenPaths.map(async (wpath) => {
+          const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
+          if (!pageId || ["index", "log", "overview"].includes(pageId)) return
+          try {
+            const content = await readFile(`${pp}/${wpath}`)
+            const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
+            const title = titleMatch ? titleMatch[1].trim() : pageId
+            await embedPage(pp, pageId, title, content, embCfg)
+          } catch {
+            // non-critical
+          }
+        }),
+      )
     } catch {
       // embedding module not available
     }
@@ -763,15 +780,24 @@ async function autoIngestImpl(
  * language (observed ~once in 5 real-LLM runs on MiniMax-M2.7-highspeed).
  */
 function contentMatchesTargetLanguage(content: string, target: string): boolean {
-  // Strip frontmatter
-  const fmEnd = content.indexOf("\n---\n", 3)
-  let body = fmEnd > 0 ? content.slice(fmEnd + 5) : content
-  // Strip code + math
-  body = body
+  // Strip frontmatter — only if content actually starts with a `---\n` opener
+  // (CORR fix: previously indexOf("\n---\n", 3) could match a `---` horizontal
+  // rule in the body of a frontmatter-less page, slicing off the title + first
+  // paragraph and biasing language detection). Validate the opener at index 0.
+  let body = content
+  if (content.startsWith("---\n")) {
+    const fmEnd = content.indexOf("\n---\n", 4)
+    if (fmEnd > 0) body = content.slice(fmEnd + 5)
+  }
+  // PERF (odyssey-review): slice a bounded sample before stripping — detectLanguage
+  // only uses 1500 chars, so scanning the full body (potentially tens of KB) with
+  // 3 global regexes was wasted work. Sample 2000 to account for stripped code
+  // blocks, then re-slice to 1500 after stripping.
+  const sample = body.slice(0, 2000)
     .replace(/```[\s\S]*?```/g, "")
     .replace(/\$\$[\s\S]*?\$\$/g, "")
     .replace(/\$[^$\n]*\$/g, "")
-  const sample = body.slice(0, 1500)
+    .slice(0, 1500)
   if (sample.trim().length < 20) return true // too short to judge
 
   const detected = detectLanguage(sample)
@@ -1504,7 +1530,12 @@ export async function startIngest(
         getStore().finalizeStream(accumulated)
       },
       onError: (err) => {
-        getStore().finalizeStream(`Error during ingest: ${err.message}`)
+        // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
+        // before writing into the user-visible chat stream.
+        const raw = err instanceof Error ? err.message : String(err)
+        console.error("[ingest] startIngest stream error:", raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        getStore().finalizeStream(`Error during ingest: ${safe}`)
       },
     },
     signal,
@@ -1589,7 +1620,12 @@ export async function executeIngestWrites(
         getStore().finalizeStream(accumulated)
       },
       onError: (err) => {
-        getStore().finalizeStream(`Error generating wiki files: ${err.message}`)
+        // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth before surfacing
+        // in the user-visible chat stream (twin of startIngest site).
+        const raw = err instanceof Error ? err.message : String(err)
+        console.error("[ingest] executeIngestWrites stream error:", raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        getStore().finalizeStream(`Error generating wiki files: ${safe}`)
       },
     },
     signal,

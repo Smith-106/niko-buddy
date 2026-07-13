@@ -359,7 +359,9 @@ export function buildDecisionGates(
     ? "manual_review"
     : anyFailed
       ? "fail"
-      : gates.anti_ai.verdict === "warning" || gates.quality.verdict === "warning"
+      : gates.consistency.verdict === "warning"
+          || gates.anti_ai.verdict === "warning"
+          || gates.quality.verdict === "warning"
         ? "warning"
         : "pass"
   return gates
