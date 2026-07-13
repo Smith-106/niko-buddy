@@ -1,4 +1,4 @@
-import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getFileStem, getRelativePath, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"

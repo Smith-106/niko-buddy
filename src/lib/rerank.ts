@@ -139,7 +139,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
   }
 
   let content = ""
-  let streamError: Error | null = null
+  let streamErrorMessage: string | null = null
 
   await streamChat(modelConfig, [{ role: "user", content: prompt }], {
     onToken: (token) => {
@@ -147,15 +147,17 @@ export async function rerankCandidates<T extends RerankCandidate>(
     },
     onDone: () => {},
     onError: (error) => {
-      streamError = error
+      // 存 message 而非 Error 对象：本函数只用文案做 warn，且 string 闭包变量
+      // 不触发 TS 对 Error | null 闭包赋值的 CFA 窄化（await 后误判为 null）。
+      streamErrorMessage = error instanceof Error ? error.message : String(error)
     },
   }, AbortSignal.timeout(45000), {
     temperature: 0,
     max_tokens: 1200,
   })
 
-  if (streamError) {
-    console.warn("[rerank] falling back to original order:", streamError instanceof Error ? streamError.message : String(streamError))
+  if (streamErrorMessage) {
+    console.warn("[rerank] falling back to original order:", streamErrorMessage)
     return candidates.slice(0, options.topK ?? candidates.length)
   }
 

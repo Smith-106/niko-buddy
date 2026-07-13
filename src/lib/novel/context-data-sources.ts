@@ -389,7 +389,7 @@ export const writingStyleDataSource: DataSource<string> = {
         return content.slice(0, 1000)
       }
     } catch (err) {
-      context.recordGap?.("writingStyle", "datasource_error_fallback")
+      context.recordGap?.("writingStyle", "datasource_error")
     }
     return ""
   },

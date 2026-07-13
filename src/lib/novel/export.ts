@@ -6,7 +6,6 @@ import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 import { loadCharacterStates } from "./character-state"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadCognitionState } from "./character-cognition"
-import type { FileNode } from "@/types/wiki"
 
 export interface ExportOptions {
   projectPath: string

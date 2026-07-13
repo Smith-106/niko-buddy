@@ -10,7 +10,6 @@ import { isChapterPage, isFinalChapter } from "./chapter-meta"
 import { ingestChapter } from "./chapter-ingest"
 import { flattenMdFilesBase } from "./chapter-utils"
 import { useWikiStore } from "@/stores/wiki-store"
-import type { FileNode } from "@/types/wiki"
 
 export interface RebuildProgress {
   total: number

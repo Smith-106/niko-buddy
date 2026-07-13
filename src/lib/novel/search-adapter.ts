@@ -193,7 +193,6 @@ async function runVectorSearch(
     // over root) by scanning settled results in priority order.
     const probePath = async (
       tryPath: string,
-      safeId: string,
     ): Promise<{ path: string; content: string } | null> => {
       try {
         const content = await readFile(tryPath)
@@ -217,7 +216,7 @@ async function runVectorSearch(
           ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
           `${pp}/wiki/${safeId}.md`,
         ]
-        const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, safeId)))
+        const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p)))
         // Priority order: dirs first (in declared order), then root fallback.
         const hit = settled
           .map((r) => (r.status === "fulfilled" ? r.value : null))
