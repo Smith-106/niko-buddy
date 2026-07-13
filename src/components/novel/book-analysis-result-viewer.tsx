@@ -332,7 +332,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
         toast.success(`「${character.name}」${mode === "simple" ? "简单" : "深度"}提取完成`)
       } catch (err) {
-        console.error('[单角色提取] 错误:', err)
+        console.error('[单角色提取] 错误:', err instanceof Error ? err.message : String(err))
         toast.error(
           `「${character.name}」${mode === "simple" ? "简单" : "深度"}提取失败：${
             err instanceof Error ? err.message : String(err)

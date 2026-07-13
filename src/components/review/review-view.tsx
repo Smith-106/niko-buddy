@@ -334,7 +334,7 @@ export function ReviewView({
         }
       })
     } catch (error) {
-      console.error("[ReviewView] AI review rewrite failed:", error)
+      console.error("[ReviewView] AI review rewrite failed:", error instanceof Error ? error.message : String(error))
       setRewriteError(error instanceof Error ? error.message : t("review.rewrite.errorRegenerate"))
     } finally {
       setRewriteBusyId(null)

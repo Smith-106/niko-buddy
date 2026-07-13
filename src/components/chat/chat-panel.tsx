@@ -2112,7 +2112,7 @@ export function ChatPanel() {
         // ignore
       }
     } catch (err) {
-      console.error("写入 wiki 失败:", err)
+      console.error("写入 wiki 失败:", err instanceof Error ? err.message : String(err))
     }
   }, [project, llmConfig])
 

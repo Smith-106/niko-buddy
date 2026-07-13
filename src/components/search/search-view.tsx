@@ -219,7 +219,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
           setResults(found)
         }
       } catch (err) {
-        console.error("[Search] FAILED:", err)
+        console.error("[搜索] 失败：", err instanceof Error ? err.message : String(err))
         setResults([])
       } finally {
         console.log("[Search] FINISHED, searching=", false)

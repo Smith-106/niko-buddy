@@ -776,13 +776,13 @@ export function PreviewPanel() {
             setDeAiProcessing(false)
           },
           onError: (error) => {
-            console.error("去AI味处理失败:", error)
+            console.error("去AI味处理失败:", error instanceof Error ? error.message : String(error))
             setDeAiProcessing(false)
           },
         },
       )
     } catch (err) {
-      console.error("去AI味处理失败:", err)
+      console.error("去AI味处理失败:", err instanceof Error ? err.message : String(err))
       setDeAiProcessing(false)
     }
   }, [fileContent])
@@ -855,7 +855,7 @@ export function PreviewPanel() {
           },
           onError: (error) => {
             if (selectedFileRef.current !== actionFile) return
-            console.error(`${actionLabel}失败:`, error)
+            console.error(`${actionLabel}失败:`, error instanceof Error ? error.message : String(error))
             setSaveStatus(`${actionLabel}失败：${error.message}`)
           },
         },
@@ -863,7 +863,7 @@ export function PreviewPanel() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (selectedFileRef.current !== actionFile) return
-      console.error(`${actionLabel}失败:`, err)
+      console.error(`${actionLabel}失败:`, err instanceof Error ? err.message : String(err))
       setSaveStatus(`${actionLabel}失败：${message}`)
     }
   }, [])

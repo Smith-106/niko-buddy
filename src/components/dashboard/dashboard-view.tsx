@@ -424,14 +424,14 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             setRewriteBusyId(null)
           },
           onError: (error) => {
-            console.error("[Dashboard] rewrite failed:", error)
+            console.error("[Dashboard] rewrite failed:", error instanceof Error ? error.message : String(error))
             setRewriteError(error.message || t("dashboard.rewrite.errorFallback"))
             setRewriteBusyId(null)
           },
         },
       )
     } catch (err) {
-      console.error("[Dashboard] rewrite failed:", err)
+      console.error("[Dashboard] rewrite failed:", err instanceof Error ? err.message : String(err))
       setRewriteError(err instanceof Error ? err.message : t("dashboard.rewrite.errorFallback"))
       setRewriteBusyId(null)
     }
