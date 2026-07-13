@@ -412,7 +412,10 @@ export async function searchWiki(
     console.log("[searchWiki] rerankCandidates done, got", reranked.length)
     return reranked
   } catch (error) {
-    console.warn("[search] rerank failed, using fused order:", error)
+    // F-16 (CWE-532): rerank may hit an embedding/rerank provider whose error
+    // object carries request URL/auth — message-only, mirroring :356 vector
+    // search catch (PAT-G2 file-internal twin).
+    console.warn("[search] rerank failed, using fused order:", error instanceof Error ? error.message : String(error))
     return limited
   }
 }
