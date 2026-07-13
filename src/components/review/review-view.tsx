@@ -334,8 +334,14 @@ export function ReviewView({
         }
       })
     } catch (error) {
-      console.error("[ReviewView] AI review rewrite failed:", error instanceof Error ? error.message : String(error))
-      setRewriteError(error instanceof Error ? error.message : t("review.rewrite.errorRegenerate"))
+      // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
+      // carry provider endpoint URL / auth header — strip before surfacing in
+      // the rewriteError banner. Raw message logged to console only.
+      // (Twin of dashboard-view.tsx rewrite catch + ingest.ts activity sites.)
+      const raw = error instanceof Error ? error.message : String(error)
+      console.error("[ReviewView] AI review rewrite failed:", raw)
+      const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+      setRewriteError(safe || t("review.rewrite.errorRegenerate"))
     } finally {
       setRewriteBusyId(null)
     }
@@ -431,7 +437,12 @@ export function ReviewView({
         }
       })
     } catch (error) {
-      setRewriteError(error instanceof Error ? error.message : t("review.rewrite.errorRegenerate"))
+      // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of the generate-rewrite
+      // catch above. err.message may carry provider URL/auth — strip before UI.
+      const raw = error instanceof Error ? error.message : String(error)
+      console.error("[ReviewView] rewrite apply failed:", raw)
+      const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+      setRewriteError(safe || t("review.rewrite.errorRegenerate"))
     } finally {
       setRewriteBusyId(null)
     }

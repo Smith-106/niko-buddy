@@ -1579,7 +1579,15 @@ export function ChatPanel() {
           },
           onError: (err) => {
             streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
-              finalizeStream(`出错：${err.message}`, undefined, capturedConvId)
+              // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport
+              // may carry provider endpoint URL / auth header — strip before surfacing
+              // in the user-visible chat stream. Raw message logged to console only.
+              // (Twin of ingest.ts:1532/1622 startIngest/executeIngestWrites sites,
+              // PAT-G2 16th recurrence — chat-panel main stream was the missed twin.)
+              const raw = err instanceof Error ? err.message : String(err)
+              console.error("[chat] stream error:", raw)
+              const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+              finalizeStream(`出错：${safe}`, undefined, capturedConvId)
               delete activeStreamSessionsRef.current[capturedConvId]
               delete abortControllersRef.current[capturedConvId]
             })

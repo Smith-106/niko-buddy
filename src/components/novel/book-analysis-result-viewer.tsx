@@ -332,11 +332,16 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
         toast.success(`「${character.name}」${mode === "simple" ? "简单" : "深度"}提取完成`)
       } catch (err) {
-        console.error('[单角色提取] 错误:', err instanceof Error ? err.message : String(err))
+        // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport
+        // (character-llm-recognizer streamChat → throw streamError chain) may
+        // carry provider endpoint URL / auth header — strip before surfacing in
+        // the toast. Raw message logged to console only.
+        // (Twin of ingest.ts activity sites; PAT-G2 LLM throw-chain variant.)
+        const raw = err instanceof Error ? err.message : String(err)
+        console.error('[单角色提取] 错误:', raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         toast.error(
-          `「${character.name}」${mode === "simple" ? "简单" : "深度"}提取失败：${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          `「${character.name}」${mode === "simple" ? "简单" : "深度"}提取失败：${safe}`,
         )
       } finally {
         // 解除后台提取标记（fix/character-reextract-and-loading-state）

@@ -424,15 +424,25 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             setRewriteBusyId(null)
           },
           onError: (error) => {
-            console.error("[Dashboard] rewrite failed:", error instanceof Error ? error.message : String(error))
-            setRewriteError(error.message || t("dashboard.rewrite.errorFallback"))
+            // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
+            // carry provider endpoint URL / auth header — strip before surfacing in
+            // the rewriteError banner. Raw message logged to console only.
+            // (Twin of ingest.ts activity sites; PAT-G2 console-sanitized but UI-twin
+            // missed — both onError and catch paths now strip.)
+            const raw = error instanceof Error ? error.message : String(error)
+            console.error("[Dashboard] rewrite failed:", raw)
+            const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+            setRewriteError(safe || t("dashboard.rewrite.errorFallback"))
             setRewriteBusyId(null)
           },
         },
       )
     } catch (err) {
-      console.error("[Dashboard] rewrite failed:", err instanceof Error ? err.message : String(err))
-      setRewriteError(err instanceof Error ? err.message : t("dashboard.rewrite.errorFallback"))
+      // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of onError above.
+      const raw = err instanceof Error ? err.message : String(err)
+      console.error("[Dashboard] rewrite failed:", raw)
+      const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+      setRewriteError(safe || t("dashboard.rewrite.errorFallback"))
       setRewriteBusyId(null)
     }
   }, [project, resolveDashboardItemTarget, showAiRewriteAlert, t])
