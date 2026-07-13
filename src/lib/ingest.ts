@@ -1596,27 +1596,19 @@ export async function executeIngestWrites(
   )
 
   const writtenPaths: string[] = []
-  const matches = accumulated.matchAll(FILE_BLOCK_REGEX)
+  // Route through the hardened line-level parser (parseFileBlocks) instead of
+  // the legacy FILE_BLOCK_REGEX matchAll. parseFileBlocks already applies
+  // isSafeIngestPath (:253) and handles the H1/H3/H5 hazards the bare regex
+  // silently drops (CRLF endings, marker whitespace/case variants, fenced-code
+  // ---END FILE---, empty paths). Keeping a second inline parser here was a
+  // PAT-G2 twin-drift hazard — SEC-1 mirrored only the path guard, not the
+  // parse correctness. Reusing the single parser closes both the guard twin
+  // and the parse-hazard divergence between the autoIngest and Save-to-Wiki
+  // paths (S-20260712-bur3 consolidation).
+  const { blocks, warnings } = parseFileBlocks(accumulated)
+  for (const w of warnings) store.addMessage("system", w)
 
-  for (const match of matches) {
-    const relativePath = match[1].trim()
-    const content = match[2]
-
-    if (!relativePath) continue
-
-    // Path-traversal guard. relativePath comes straight from LLM output
-    // (FILE_BLOCK_REGEX match), which is untrusted — prompt injection could
-    // emit ../../../etc/passwd. parseFileBlocks:253 applies the same guard on
-    // the autoIngest path; this function parses FILE blocks inline
-    // (:1599 matchAll) and bypasses parseFileBlocks, so the guard must be
-    // mirrored here (PAT-G2 twin). See isSafeIngestPath for the threat model.
-    if (!isSafeIngestPath(relativePath)) {
-      const msg = `FILE 代码块路径 "${relativePath}" 不安全，已拒绝（必须在 wiki/ 下，禁止 ..、绝对路径及不安全的文件名）。`
-      console.warn(`[ingest] ${msg}`)
-      store.addMessage("system", msg)
-      continue
-    }
-
+  for (const { path: relativePath, content } of blocks) {
     const fullPath = `${pp}/${relativePath}`
 
     try {
@@ -1631,7 +1623,9 @@ export async function executeIngestWrites(
       }
       writtenPaths.push(fullPath)
     } catch (err) {
-      console.error(`写入 ${fullPath} 失败：`, err)
+      // F-16 (CWE-532): message-only to avoid leaking OS/IPC error payload.
+      // Mirrors writeFileBlocks catch at :902 (PAT-G2 file-internal twin).
+      console.error(`[ingest] 写入 ${fullPath} 失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

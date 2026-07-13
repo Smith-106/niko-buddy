@@ -2010,7 +2010,12 @@ function findRepeatedTailStart(content: string): number | null {
     if (found === -1) break
     hits += 1
     if (hits >= REPEAT_HIT_LIMIT) {
-      return sourceIndexFromCompactIndex(normalized, first + REPEAT_WINDOW_CHARS)
+      // Pass the RAW content (not `normalized`) so the returned index lands in
+      // the caller's coordinate space — :1886 slices raw `content`, and slicing
+      // a CRLF string at an LF-normalized index cuts N chars too early (one per
+      // \r\n). sourceIndexFromCompactIndex skips whitespace via /\s/.test so \r
+      // doesn't perturb the `seen` count; only the returned index space differs.
+      return sourceIndexFromCompactIndex(content, first + REPEAT_WINDOW_CHARS)
     }
     searchIndex = found + Math.max(1, tail.length)
   }
