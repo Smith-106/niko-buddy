@@ -1713,7 +1713,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
         await embedPage(projectPath, pageId, title, snapshot.summary ?? "", embCfg)
       }
     } catch (err) {
-      console.warn("[Chapter Ingest] Vector projection rebuild failed:", err instanceof Error ? err.message : err)
+      console.warn("[Chapter Ingest] Vector projection rebuild failed:", err instanceof Error ? err.message : String(err))
     }
   }
 }

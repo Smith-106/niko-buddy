@@ -200,7 +200,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         const debt = analyzeForeshadowingDebt(store, snapshots.length || 1)
         if (!cancelled) setDebtReport(debt)
       } catch (err) {
-        console.error("[Dashboard] Failed to load extras:", err)
+        console.error("[Dashboard] Failed to load extras:", err instanceof Error ? err.message : String(err))
       } finally {
         if (!cancelled) setExtrasLoading(false)
       }

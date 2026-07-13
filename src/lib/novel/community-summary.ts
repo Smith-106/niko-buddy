@@ -81,14 +81,14 @@ export async function generateCommunitySummaries(
         } catch (err) {
           console.warn(
             `[CommunitySummary] 向量化社区 ${community.id} 失败:`,
-            err instanceof Error ? err.message : err,
+            err instanceof Error ? err.message : String(err),
           )
         }
       }
     } catch (err) {
       console.warn(
         `[CommunitySummary] 生成社区 ${community.id} 摘要失败:`,
-        err instanceof Error ? err.message : err,
+        err instanceof Error ? err.message : String(err),
       )
     }
   }
@@ -309,7 +309,7 @@ export async function generateCommunitySummariesForChapter(
           // Non-blocking: skip this community, keep others.
           console.warn(
             `[CommunitySummary] 生成社区 ${community.id} 摘要失败:`,
-            err instanceof Error ? err.message : err,
+            err instanceof Error ? err.message : String(err),
           )
           continue
         }

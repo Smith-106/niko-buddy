@@ -402,7 +402,7 @@ export async function captionMarkdownImages(
     } catch (err) {
       console.warn(
         `[caption-pipeline] caption failed for ${absPath}:`,
-        err instanceof Error ? err.message : err,
+        err instanceof Error ? err.message : String(err),
       )
       failed++
     }

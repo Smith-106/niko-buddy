@@ -127,7 +127,7 @@ export async function mergePageContent(
     )
   } catch (err) {
     console.warn(
-      `[page-merge] LLM merge failed for ${opts.pagePath}, falling back to incoming + array-field union: ${err instanceof Error ? err.message : err}`,
+      `[page-merge] LLM merge failed for ${opts.pagePath}, falling back to incoming + array-field union: ${err instanceof Error ? err.message : String(err)}`,
     )
     await tryBackup(opts, existingContent)
     return arrayMerged

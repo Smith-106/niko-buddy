@@ -138,7 +138,7 @@ export function LintView() {
         )
       }
     } catch (err) {
-      console.error("检查失败:", err)
+      console.error("检查失败:", err instanceof Error ? err.message : String(err))
       useWikiStore.getState().finishLintRun(runId, { running: false, hasRun: true, error: t("lint.messages.runFailed") })
     } finally {
       const current = useWikiStore.getState().lintRun

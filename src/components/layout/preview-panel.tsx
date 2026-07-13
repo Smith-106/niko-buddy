@@ -669,7 +669,7 @@ export function PreviewPanel() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
-      console.error("[preview-panel] ingest failed:", error)
+      console.error("[preview-panel] ingest failed:", error instanceof Error ? error.message : String(error))
     } finally {
       setIsSavingFinal(false)
     }

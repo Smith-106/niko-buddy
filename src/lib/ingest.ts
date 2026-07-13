@@ -382,7 +382,7 @@ async function autoIngestImpl(
             } catch (err) {
               console.warn(
                 `[ingest:caption] 缓存命中图片标注失败：`,
-                err instanceof Error ? err.message : err,
+                err instanceof Error ? err.message : String(err),
               )
             }
           }
@@ -523,7 +523,7 @@ async function autoIngestImpl(
     } catch (err) {
       console.warn(
         `[ingest:caption] 处理流程失败，文件 "${fileName}"：`,
-        err instanceof Error ? err.message : err,
+        err instanceof Error ? err.message : String(err),
       )
       // Fall through with original (empty-alt) source content —
       // captioning failure must NEVER break ingest.
@@ -1412,7 +1412,7 @@ async function reembedSourceSummary(pp: string, fileName: string): Promise<void>
   } catch (err) {
     console.warn(
       `[ingest:caption] 重新嵌入 ${sourceBaseName} 失败：`,
-      err instanceof Error ? err.message : err,
+      err instanceof Error ? err.message : String(err),
     )
   }
 }
