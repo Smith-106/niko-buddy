@@ -78,6 +78,33 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_THREE_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.3.2",
+  date: "2026-07-13",
+  highlights: {
+    en: [
+      "Full-project CWE-532 sanitization sweep: every LLM/provider transport error path now strips provider endpoint URLs and Bearer/api-key credentials before the message reaches any user-visible surface (Activity panel, chat stream, rewrite banner, save status, toast). Raw messages stay in the console for diagnostics only.",
+      "Path-traversal guard on the ingest write path: executeIngestWrites now routes every emitted file path through the isSafeIngestPath guard (reusing parseFileBlocks), closing the single site that bypassed the line-level parser with a raw FILE_BLOCK_REGEX match.",
+      "Split the runDeepChapterGeneration god function (685 lines) into an orchestrator plus six independent stage functions, with early-return handoffs carried via a manualHandoff flag so the partial-recovery state stays constructed at the orchestrator layer (no mirror drift).",
+      "Consolidated 13 same-name helpers (isRequestCancelledError / isTransportInactivityError / defaultLlmCall / getUniqueOutlinePath / yamlEscape / pad / toErrorMessage / validateSeverity / uniqueNonEmpty / formatStageThinking / ensureString / flattenMdFilesBase / snapshotMarkdownPath) into their host modules, eliminating the twin-mirror recurrence where single-site fixes silently missed identically-shaped copies.",
+      "Added a 2x re-ask retry loop to the review chunk parser: when the LLM returns markdown instead of the JSON review result, it now re-prompts (up to 2 retries with 2s delay) instead of throwing straight to the fix-loop death cycle.",
+      "Restored the buildDecisionGates P0 consistency gate: the overall-warning verdict now includes gates.consistency.verdict==='warning' alongside anti-AI and quality, matching the fixed Consistency>Anti-AI>Quality priority.",
+      "Parallelized serial await loops on independent data items (autoIngest embeddings, analyzePreviousChapters wiki reads) via Promise.all with per-item try/catch and index-mapped ordering, cutting per-chapter latency from N round-trips to one batch.",
+      "Fixed contentMatchesTargetLanguage frontmatter mis-strip: the language detector no longer slices off the title and first paragraph of frontmatter-less pages by matching a body horizontal rule, and now samples a bounded 2000-char window before stripping code/math blocks.",
+    ],
+    zh: [
+      "全项目 CWE-532 脱敏：所有 LLM/提供商传输错误路径在消息进入用户可见界面（活动面板、聊天流、重写横幅、保存状态、toast）前剥离提供商端点 URL 与 Bearer/api-key 凭据。原始消息仅留在控制台用于诊断。",
+      "摄取写入路径遍历守卫：executeIngestWrites 现将每个产出文件路径经 isSafeIngestPath 守卫路由（复用 parseFileBlocks），关闭唯一一处用裸 FILE_BLOCK_REGEX 绕过行级解析器的站点。",
+      "拆分 runDeepChapterGeneration 巨函数（685 行）为编排器 + 六个独立阶段函数，提前返回用 manualHandoff 标志位回传，partial 恢复状态留在编排器层构造（无镜像漂移）。",
+      "合并 13 个同名 helper（isRequestCancelledError / isTransportInactivityError / defaultLlmCall / getUniqueOutlinePath / yamlEscape / pad / toErrorMessage / validateSeverity / uniqueNonEmpty / formatStageThinking / ensureString / flattenMdFilesBase / snapshotMarkdownPath）到各自宿主模块，消除单点修复静默漏掉同形副本的孪生镜像复发。",
+      "审查块解析器加 2 次 re-ask 重试：LLM 返回 markdown 而非 JSON 审查结果时，现会重新提示（最多 2 次重试 + 2s 延迟），而非直接抛进 fix-loop 死循环。",
+      "恢复 buildDecisionGates 的 P0 一致性门控：overall-warning 判定现包含 gates.consistency.verdict==='warning'（与 anti-AI/quality 并列），对齐 Consistency>Anti-AI>Quality 固定优先级。",
+      "独立数据项的串行 await 循环并行化（autoIngest embeddings、analyzePreviousChapters wiki 读取）改 Promise.all + 逐项 try/catch + index 保序，每章延迟从 N 轮往返降为 1 批。",
+      "修复 contentMatchesTargetLanguage 的 frontmatter 误剥离：语言检测不再因匹配正文分隔线而切掉无 frontmatter 页面的标题与首段，并改为先取 2000 字有界样本再剥离代码/数学块。",
+    ],
+  },
+}
+
 const TWO_POINT_THREE_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.3.1",
   date: "2026-07-08",
@@ -642,6 +669,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_THREE_TWO_CHANGELOG.version) return [TWO_POINT_THREE_TWO_CHANGELOG]
   if (version === TWO_POINT_THREE_ONE_CHANGELOG.version) return [TWO_POINT_THREE_ONE_CHANGELOG]
   if (version === TWO_POINT_THREE_ZERO_CHANGELOG.version) return [TWO_POINT_THREE_ZERO_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG]
@@ -673,6 +701,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_THREE_TWO_CHANGELOG,
     TWO_POINT_THREE_ONE_CHANGELOG,
     TWO_POINT_THREE_ZERO_CHANGELOG,
     TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG,
