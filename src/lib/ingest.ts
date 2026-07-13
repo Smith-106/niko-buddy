@@ -401,7 +401,7 @@ async function autoIngestImpl(
     } catch (err) {
       console.warn(
         `[ingest:images] 缓存命中注入失败，文件 "${fileName}"：`,
-        err instanceof Error ? err.message : err,
+        err instanceof Error ? err.message : String(err),
       )
     }
     activity.updateItem(activityId, {
