@@ -2,7 +2,7 @@ import { streamChat, combineAbortSignals, type StreamCallbacks } from "@/lib/llm
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { validateSeverity } from "@/lib/utils"
+import { validateSeverity, logger } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -433,7 +433,7 @@ async function runDimensionStage(
     onDone: () => {},
     onError: (error: Error) => {
       // F-16 (CWE-532): message-only to avoid leaking provider request details.
-      console.error(`[Dimension Review] ${dimension.key} stream error:`, error instanceof Error ? error.message : String(error))
+      logger.error("Dimension Review", `${dimension.key} stream error`, { error: error instanceof Error ? error.message : String(error) })
     },
   }
 

@@ -5,6 +5,7 @@ import {
 } from "./temporal-memory"
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
+import { logger } from "@/lib/utils"
 
 export interface FactCheckResult {
   severity: "blocking" | "high" | "medium" | "low"
@@ -588,7 +589,7 @@ ${itemsText}`
         },
         onDone: () => {},
         onError: (error: Error) => {
-          console.error("[FactCheck LLM] Stream error:", error instanceof Error ? error.message : String(error))
+          logger.error("FactCheck LLM", "Stream error", { error: error instanceof Error ? error.message : String(error) })
         },
       },
       AbortSignal.timeout(60000),
@@ -606,7 +607,7 @@ ${itemsText}`
     try {
       verdicts = JSON.parse(jsonMatch[0])
     } catch (error) {
-      console.error("[FactCheck LLM] Verdict JSON parse failed:", error instanceof Error ? error.message : String(error))
+      logger.error("FactCheck LLM", "Verdict JSON parse failed", { error: error instanceof Error ? error.message : String(error) })
       return results
     }
     if (!Array.isArray(verdicts)) return results
@@ -632,7 +633,7 @@ ${itemsText}`
 
     return results
   } catch (error) {
-    console.error("[FactCheck LLM] Failed:", error instanceof Error ? error.message : String(error))
+    logger.error("FactCheck LLM", "Failed", { error: error instanceof Error ? error.message : String(error) })
     return results
   }
 }

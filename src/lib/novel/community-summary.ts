@@ -6,6 +6,7 @@ import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { embedPage, searchByEmbedding } from "@/lib/embedding"
 import { useWikiStore, type NovelConfig, type LlmConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 
 /** 社区摘要持久化结构 */
 export interface CommunitySummaryRecord {
@@ -79,17 +80,11 @@ export async function generateCommunitySummaries(
           const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
           await embedPage(pp, pageId, title, summary, embCfg)
         } catch (err) {
-          console.warn(
-            `[CommunitySummary] 向量化社区 ${community.id} 失败:`,
-            err instanceof Error ? err.message : String(err),
-          )
+          logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: err instanceof Error ? err.message : String(err) })
         }
       }
     } catch (err) {
-      console.warn(
-        `[CommunitySummary] 生成社区 ${community.id} 摘要失败:`,
-        err instanceof Error ? err.message : String(err),
-      )
+      logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
     }
   }
 }
@@ -307,10 +302,7 @@ export async function generateCommunitySummariesForChapter(
           communitySummaryCache.set(cacheKey, summary)
         } catch (err) {
           // Non-blocking: skip this community, keep others.
-          console.warn(
-            `[CommunitySummary] 生成社区 ${community.id} 摘要失败:`,
-            err instanceof Error ? err.message : String(err),
-          )
+          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
           continue
         }
       }

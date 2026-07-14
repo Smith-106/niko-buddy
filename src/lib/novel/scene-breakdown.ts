@@ -2,6 +2,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, extractJsonArraySpan, isRequestCancelledError, isTransportInactivityError, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { resolveNovelModel } from "./model-resolver"
 import type { ContextPack } from "./context-engine"
 import {
@@ -264,7 +265,7 @@ export async function runSceneBreakdown(
     // pause path never logs raw provider internals. console.error logs only the
     // message string (CWE-532), matching runDimensionStage's pattern.
     const errMsg = error instanceof Error ? error.message : String(error)
-    console.error("[Scene Breakdown] stream error:", errMsg)
+    logger.error("Scene Breakdown", "stream error", { error: errMsg })
     // If the user aborted, surface the abort (not a generic failure) so the
     // caller's pause path records a cancellation, not a crash.
     if (signal?.aborted || isRequestCancelledError(error instanceof Error ? error : new Error(errMsg))) {
@@ -302,7 +303,7 @@ export async function runSceneBreakdown(
       }
     }
     // PAT-DC1: message-only log, generic throw.
-    console.error("[Scene Breakdown] stream error:", cause.message)
+    logger.error("Scene Breakdown", "stream error", { error: cause.message })
     if (isRequestCancelledError(cause)) {
       throw new Error(USER_ABORT_MESSAGE)
     }
