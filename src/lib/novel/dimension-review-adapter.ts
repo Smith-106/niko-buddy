@@ -352,38 +352,56 @@ export async function runSixDimensionReview({
   )
 
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
-  for (const key of dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER) {
-    const dimension = SIX_REVIEW_DIMENSIONS[key]
-    callbacks.onDimensionProgress?.(key, `${dimension.label}：正在开始专业审查`)
-    try {
-      const result = await reviewChapterDimension({
-        llmConfig,
-        contextPack,
-        chapterContent,
-        dimension,
-        callbacks: {
-          onThinking: (dimensionKey, thinking) => {
-            callbacks.onDimensionThinking?.(dimensionKey, thinking)
+  const keys = dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER
+  // PERF-NEW-07: 6 维审查无相互依赖（每维独立 LLM 调用 + 独立 contextPack 只读消费 +
+  // results 按 key 独立存储），串行 for-await 每维 1 轮 LLM 往返共 6 轮。
+  // 改 Promise.all 并行 → 6 维并发，墙钟从 6×LLM 降到 1×LLM。
+  // 与 context-data-sources.ts PERF-NEW-03 / context-engine.ts runVectorSearch 同形孪生
+  // （PAT-G2：单点并行化须镜像同形 sibling，否则下次扫描漏改）。
+  // 逐项 try/catch 保留 F-003 DimParseError 区分（parse 失败 vs stream 错误），
+  // 失败维度走 buildFailedDimensionResult 不阻断其他维度。顺序由 keys 数组保序。
+  callbacks.onDimensionProgress?.(keys[0], "六维审查并行启动")
+  const settled = await Promise.all(
+    keys.map(async (key) => {
+      const dimension = SIX_REVIEW_DIMENSIONS[key]
+      try {
+        const result = await reviewChapterDimension({
+          llmConfig,
+          contextPack,
+          chapterContent,
+          dimension,
+          callbacks: {
+            onThinking: (dimensionKey, thinking) => {
+              callbacks.onDimensionThinking?.(dimensionKey, thinking)
+            },
           },
-        },
-      })
+        })
+        return { key, result, error: null as Error | null }
+      } catch (error) {
+        // F-003 (ISS-20260705-020): distinguish a JSON parse failure
+        // (DimParseError / SyntaxError — the model emitted malformed JSON)
+        // from a runtime/stream error, so the failed-dimension result records
+        // the actual failure mode instead of an opaque "未知错误".
+        return { key, result: null, error: error as Error }
+      }
+    }),
+  )
+  for (const { key, result, error } of settled) {
+    if (result) {
       results[key] = result
       callbacks.onDimensionResult?.(key, result)
-    } catch (error) {
-      // F-003 (ISS-20260705-020): distinguish a JSON parse failure
-      // (DimParseError / SyntaxError — the model emitted malformed JSON)
-      // from a runtime/stream error, so the failed-dimension result records
-      // the actual failure mode instead of an opaque "未知错误".
+      callbacks.onDimensionThinking?.(key, result.thinking)
+    } else {
+      const dimension = SIX_REVIEW_DIMENSIONS[key]
       const isParseFailure = error instanceof DimParseError || error instanceof SyntaxError
-      const result = buildFailedDimensionResult(
+      results[key] = buildFailedDimensionResult(
         dimension,
         isParseFailure
-          ? new Error(`${dimension.label}审查返回的 JSON 无法解析：${(error as Error).message}`)
-          : error,
+          ? new Error(`${dimension.label}审查返回的 JSON 无法解析：${error?.message}`)
+          : (error ?? new Error("unknown error")),
       )
-      results[key] = result
-      callbacks.onDimensionThinking?.(key, result.thinking)
-      callbacks.onDimensionResult?.(key, result)
+      callbacks.onDimensionResult?.(key, results[key]!)
+      callbacks.onDimensionThinking?.(key, results[key]!.thinking)
     }
   }
   return results
