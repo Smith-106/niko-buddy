@@ -1,5 +1,5 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, flushMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { setLogTraceId, logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
@@ -984,6 +984,11 @@ export async function runDeepChapterGeneration(
       : "未发现阻断问题，已完成最后一遍简单审查与去AI味。",
   ))
   callbacks.onFinalContent?.(finalContent)
+  // ISS-20260714-002: explicit run-end flush of buffered LLM metrics. Fire-
+  // and-forget (void) — the run is done, metrics persist async after return.
+  // Abort/throw paths rely on the collectLLMMetric auto-flush safety valve
+  // (buffer≥500) since this line is unreachable on a throw.
+  void flushMetrics()
   return {
     finalContent,
     taskBrief,

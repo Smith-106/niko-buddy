@@ -73,7 +73,10 @@ describe("chapter-ingest JSON extraction hardening", () => {
     const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
 
     // The parse is wrapped: SyntaxError → return null, non-SyntaxError → throw.
-    expect(source).toMatch(/if \(error instanceof SyntaxError\)\s*\{[^}]*return null/s)
+    // ISS-20260709-019: the block now contains a logger.error call whose
+    // context object has its own `}`, so [^}]* no longer spans to return null.
+    // Match the block boundary by structure (SyntaxError → ... → return null).
+    expect(source).toMatch(/if \(error instanceof SyntaxError\)\s*\{[\s\S]*?return null/s)
     // Non-SyntaxError is re-thrown unchanged (transport/abort paths stay distinct).
     expect(source).toMatch(/throw error/)
   })
@@ -97,7 +100,10 @@ describe("chapter-ingest JSON extraction hardening", () => {
     const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
 
     // The outline parse is wrapped: SyntaxError → return null.
-    expect(source).toMatch(/\[Outline Ingest\] Malformed outline JSON/s)
+    // ISS-20260709-019: logger.error splits scope + message into separate
+    // args, so assert both substrings are present (no longer a single
+    // "[Outline Ingest] Malformed outline JSON" string).
+    expect(source).toMatch(/"Outline Ingest", "Malformed outline JSON"/s)
   })
 
   it("ISS-20260712-001: extractSnapshotWithLLM no-JSON-text path returns null (not throw), honoring Promise<ChapterSnapshot | null> contract", () => {
@@ -113,8 +119,9 @@ describe("chapter-ingest JSON extraction hardening", () => {
 
     // The old throw on the no-JSON-text path must be gone for extractSnapshotWithLLM.
     expect(source).not.toContain("章节快照提取失败：模型没有返回可解析的 JSON")
-    // Replaced by a console.error + return null degrade.
-    expect(source).toMatch(/\[Chapter Ingest\] extractSnapshotWithLLM: model returned no parseable JSON object/)
+    // Replaced by a logger.error + return null degrade (ISS-20260709-019:
+    // scope + message are separate logger args).
+    expect(source).toMatch(/"Chapter Ingest", "extractSnapshotWithLLM: model returned no parseable JSON object"/s)
   })
 
   it("ISS-20260712-002: ingestOutline no-JSON-text path returns null (not throw), aligning with ISS-026 comment @2002-2009", () => {
@@ -130,8 +137,8 @@ describe("chapter-ingest JSON extraction hardening", () => {
 
     // The old throw on the no-JSON-text path must be gone for ingestOutline.
     expect(source).not.toContain("大纲摄取失败：模型没有返回可解析的 JSON")
-    // Replaced by a console.error + return null degrade.
-    expect(source).toMatch(/\[Outline Ingest\] ingestOutline: model returned no parseable JSON object/)
+    // Replaced by a logger.error + return null degrade (ISS-20260709-019).
+    expect(source).toMatch(/"Outline Ingest", "ingestOutline: model returned no parseable JSON object"/s)
   })
 
   it("ISS-20260712-003: ingestOutline normalizeChapterSnapshot-null path returns null (not throw), third adjacent sibling", () => {
@@ -152,7 +159,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // throw statement form is absent (not just the string, since the test
     // comment itself references the old message).
     expect(source).not.toMatch(/throw new Error\("Outline snapshot payload is invalid\."\)/)
-    // Replaced by a console.error + return null degrade.
-    expect(source).toMatch(/\[Outline Ingest\] normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object/)
+    // Replaced by a logger.error + return null degrade (ISS-20260709-019).
+    expect(source).toMatch(/"Outline Ingest", "normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object"/s)
   })
 })

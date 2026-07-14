@@ -4,6 +4,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
+import { logger } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import type { LlmConfig } from "@/stores/wiki-store"
@@ -385,13 +386,13 @@ export async function ingestChapter(
   const fm = parsed.frontmatter as Record<string, unknown> | null
   if (!fm || !isChapterPage(fm)) return { snapshot: null, failReason: "not_chapter" }
   if (!isFinalChapter(fm)) {
-    console.warn(`[Chapter Ingest] Chapter status is not final, skipping ingest.`)
+    logger.warn("Chapter Ingest", "Chapter status is not final, skipping ingest.")
     return { snapshot: null, failReason: "not_final" }
   }
 
   const chapterNumber = parseChapterNumber(fm.chapter_number) ?? 0
   if (chapterNumber <= 0) {
-    console.warn("[Chapter Ingest] Invalid chapter number, skipping ingest.")
+    logger.warn("Chapter Ingest", "Invalid chapter number, skipping ingest.")
     return { snapshot: null, failReason: "invalid_chapter_number" }
   }
   const body = parsed.body
@@ -411,7 +412,7 @@ export async function ingestChapter(
       snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
       snapshot.entityIsNew = snapshot.entityIsNew || {}
     } catch (err) {
-      console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
+      logger.warn("Chapter Ingest", "Validation failed", { error: err instanceof Error ? err.message : String(err) })
       snapshot.validationWarnings = []
       snapshot.entityIsNew = {}
     }
@@ -467,7 +468,7 @@ export async function ingestChapter(
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[Chapter Ingest] Projection "${projection}" failed:`, message)
+      logger.warn("Chapter Ingest", `Projection "${projection}" failed`, { error: message })
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
     }
   }
@@ -612,7 +613,7 @@ export async function ingestChapter(
     try {
       await saveProjectionStatusLedger(pp, projectionLedger)
     } catch (err) {
-      console.warn("[Chapter Ingest] ProjectionStatusLedger save failed:", err instanceof Error ? err.message : err)
+      logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -623,7 +624,7 @@ export async function ingestChapter(
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        console.warn("[Chapter Ingest] 社区摘要生成失败:", message)
+        logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
         // 弹窗提示（通过 store 触发 UI 通知）
         useWikiStore.getState().setCommunitySummaryError(message)
       }
@@ -833,7 +834,7 @@ ${chapterBody.slice(0, 8000)}
       // UX. Return null here honors the contract (same as the JSON.parse
       // SyntaxError path @845) and lets ingestChapter route to the friendly
       // UX. Spec S-20260711-6ed4.
-      console.error("[Chapter Ingest] extractSnapshotWithLLM: model returned no parseable JSON object")
+      logger.error("Chapter Ingest", "extractSnapshotWithLLM: model returned no parseable JSON object")
       return null
     }
 
@@ -851,7 +852,7 @@ ${chapterBody.slice(0, 8000)}
       parsed = JSON.parse(jsonText)
     } catch (error) {
       if (error instanceof SyntaxError) {
-        console.error("[Chapter Ingest] Malformed snapshot JSON:", error.message)
+        logger.error("Chapter Ingest", "Malformed snapshot JSON", { error: error.message })
         return null
       }
       throw error
@@ -869,7 +870,7 @@ ${chapterBody.slice(0, 8000)}
       eventDetails: parsed.eventDetails || undefined,
     }, { chapterId: `chapter-${chapterNumber}`, chapterNumber })
   } catch (err) {
-    console.error("[Chapter Ingest] Failed to extract snapshot:", err instanceof Error ? err.message : String(err))
+    logger.error("Chapter Ingest", "Failed to extract snapshot", { error: err instanceof Error ? err.message : String(err) })
     throw err
   }
 }
@@ -1694,7 +1695,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
         await cleanupSupersededEntityFiles(projectPath, snapshot, writtenPaths)
       }
     } catch (err) {
-      console.warn("[Chapter Ingest] Graph projection rebuild failed for chapter", snapshot.chapterNumber, err instanceof Error ? err.message : err)
+      logger.warn("Chapter Ingest", "Graph projection rebuild failed for chapter", { chapter: snapshot.chapterNumber, error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -1713,7 +1714,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
         await embedPage(projectPath, pageId, title, snapshot.summary ?? "", embCfg)
       }
     } catch (err) {
-      console.warn("[Chapter Ingest] Vector projection rebuild failed:", err instanceof Error ? err.message : String(err))
+      logger.warn("Chapter Ingest", "Vector projection rebuild failed", { error: err instanceof Error ? err.message : String(err) })
     }
   }
 }
@@ -2017,7 +2018,7 @@ ${body}
       // ingestFailedNotification. Return null here aligns the no-JSON path
       // with the JSON.parse SyntaxError path @2016 and honors the contract
       // the ISS-026 comment already claimed. Spec S-20260711-6ed4.
-      console.error("[Outline Ingest] ingestOutline: model returned no parseable JSON object")
+      logger.error("Outline Ingest", "ingestOutline: model returned no parseable JSON object")
       return null
     }
 
@@ -2034,7 +2035,7 @@ ${body}
       parsed = JSON.parse(jsonText)
     } catch (error) {
       if (error instanceof SyntaxError) {
-        console.error("[Outline Ingest] Malformed outline JSON:", error.message)
+        logger.error("Outline Ingest", "Malformed outline JSON", { error: error.message })
         return null
       }
       throw error
@@ -2063,14 +2064,14 @@ ${body}
       // correctly propagates normalizeChapterSnapshot's null to its caller.
       // Spec S-20260711-6ed4: parse/structure-validation failure must route to
       // the caller's friendly degrade, not bare-throw past it.
-      console.error("[Outline Ingest] normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object")
+      logger.error("Outline Ingest", "normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object")
       return null
     }
 
     const syncResult = await syncSnapshotToMemory(pp, snapshot)
     return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
   } catch (err) {
-    console.error("[Outline Ingest] Failed:", err instanceof Error ? err.message : String(err))
+    logger.error("Outline Ingest", "Failed", { error: err instanceof Error ? err.message : String(err) })
     throw normalizeOutlineIngestError(err)
   }
 }
