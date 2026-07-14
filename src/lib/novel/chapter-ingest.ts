@@ -1453,7 +1453,7 @@ async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterS
   await saveCharacterStates(projectPath, existingChars)
 }
 
-function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot): ForeshadowingStore {
+export function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot): ForeshadowingStore {
   for (const change of snapshot.foreshadowingChanges) {
     const parsed = parseForeshadowingChange(change)
     if (!parsed) continue
@@ -1531,7 +1531,7 @@ async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSn
  * the fold is deterministic (fold_rebuildable contract — re-folding the
  * committed snapshot sequence yields the same beats).
  */
-function applyEmotionalArcsToStore(
+export function applyEmotionalArcsToStore(
   arcStore: EmotionalArcStore,
   snapshot: ChapterSnapshot,
   aliasMaps?: readonly NameAliasMap[],
