@@ -1625,10 +1625,16 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     expect(dimensionResults).toEqual({})
     // F-16 (CWE-532): the error is logged as its .message string, not the full
     // Error object, so provider request details are not leaked to stderr.
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[Deep Chapter] 6-dimension review failed (non-blocking):",
-      "6-dim stalled",
-    )
+    // ISS-20260709-019: logger.error formats as "[scope] message {context}";
+    // verify the message + sanitized error string are present and no raw
+    // Error object was passed to console.error.
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    const logged = errorSpy.mock.calls[0][0] as string
+    expect(logged).toContain("[Deep Chapter]")
+    expect(logged).toContain("6-dimension review failed (non-blocking)")
+    expect(logged).toContain("6-dim stalled")
+    // No raw Error object leaked — only the formatted string arg.
+    expect(errorSpy.mock.calls[0].length).toBe(1)
     errorSpy.mockRestore()
   })
 })

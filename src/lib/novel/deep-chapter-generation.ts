@@ -1,6 +1,6 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
-import { setLogTraceId } from "@/lib/utils"
+import { setLogTraceId, logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
@@ -802,7 +802,7 @@ export async function runFullReviewWithSixDim(
     // F-16 (CWE-532): log only the message, not the full error object — streamChat
     // errors may carry provider request details (URL/headers) that should not
     // reach the app's stderr. Matches the :778 six-dim error-message extraction.
-    console.error("[Deep Chapter] Review failed:", err instanceof Error ? err.message : String(err))
+    logger.error("Deep Chapter", "Review failed", { error: err instanceof Error ? err.message : String(err) })
     // F-1 (orphan 6-dim process): when reviewChapter throws, the `await
     // sixDimP` at the coalesce step below is unreachable, so the 6-dim review
     // launched in parallel would keep running as an orphan background LLM
@@ -819,7 +819,7 @@ export async function runFullReviewWithSixDim(
     if (runSixDim) {
       sixDimController.abort()
       void sixDimP.catch(() => {})
-      console.warn("[Deep Chapter] 6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
+      logger.warn("Deep Chapter", "6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
     }
     throw err
   }
@@ -839,7 +839,7 @@ export async function runFullReviewWithSixDim(
     const sixDimErr = sixDimOutcome.__sixDimError
     const errMsg = sixDimErr instanceof Error ? sixDimErr.message : String(sixDimErr)
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    console.error("[Deep Chapter] 6-dimension review failed (non-blocking):", errMsg)
+    logger.error("Deep Chapter", "6-dimension review failed (non-blocking)", { error: errMsg })
     reviewResults = [
       ...reviewResults,
       {
@@ -1036,7 +1036,7 @@ async function runPreviousChaptersAnalysis(
     }
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    console.error("[deep-chapter-generation] 前情分析失败:", error instanceof Error ? error.message : String(error))
+    logger.error("deep-chapter-generation", "前情分析失败", { error: error instanceof Error ? error.message : String(error) })
   }
   return previousChaptersAnalysis
 }
@@ -1111,7 +1111,7 @@ async function assembleContext(
     )
   } catch (err) {
     // F-16 (CWE-532): message-only.
-    console.warn("[Deep Chapter] 社区摘要生成失败（非阻断）:", err instanceof Error ? err.message : String(err))
+    logger.warn("Deep Chapter", "社区摘要生成失败（非阻断）", { error: err instanceof Error ? err.message : String(err) })
   }
 
   // 其他上下文可以进行token预算管理，但大纲已被排除
@@ -1169,7 +1169,7 @@ async function runSceneBreakdownStage(
   } catch (error) {
     // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
     // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
-    console.error("[deep-chapter-generation] 场景拆解失败（非阻断，跳过阶段1.5）:", error instanceof Error ? error.message : String(error))
+    logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: error instanceof Error ? error.message : String(error) })
   }
   assertNotAborted(signal)
   if (sceneResult && sceneResult.scenes.length > 0) {
@@ -1179,7 +1179,7 @@ async function runSceneBreakdownStage(
       await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
     } catch (error) {
       // 持久化失败不阻断主链（加性中间层），仅记日志。
-      console.error("[deep-chapter-generation] 场景拆解持久化失败（非阻断）:", error instanceof Error ? error.message : String(error))
+      logger.error("deep-chapter-generation", "场景拆解持久化失败（非阻断）", { error: error instanceof Error ? error.message : String(error) })
     }
     // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
     // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/
@@ -2171,7 +2171,7 @@ async function safeBuildChapterContextPack(
     // notePartial here or returning a {contextPack, error} tuple — both are part
     // of the broader partial-state-object refactor (F-8) and tracked as an issue;
     // the log at least makes the failure observable in the app's stderr.
-    console.error("[Deep Chapter] Context pack assembly failed (continuing with empty context):", err instanceof Error ? err.message : String(err))
+    logger.error("Deep Chapter", "Context pack assembly failed (continuing with empty context)", { error: err instanceof Error ? err.message : String(err) })
     return {
       task: userRequest,
       chapterGoal: "",

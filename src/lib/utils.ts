@@ -73,13 +73,13 @@ export function getLogTraceId(): string {
   return logTraceId
 }
 
-const LOG_JSON = Boolean(
-  typeof process !== "undefined" && process.env && process.env.NOVEL_LOG_JSON,
-)
+function isLogJson(): boolean {
+  return typeof process !== "undefined" && !!process.env && !!process.env.NOVEL_LOG_JSON
+}
 
 function emitLog(level: LogLevel, scope: string, message: string, context?: Record<string, unknown>): void {
   const traceId = logTraceId
-  if (LOG_JSON) {
+  if (isLogJson()) {
     // JSON line to stderr — machine-consumable, one object per call.
     const line = JSON.stringify({
       ts: new Date().toISOString(),
