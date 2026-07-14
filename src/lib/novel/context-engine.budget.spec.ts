@@ -63,7 +63,8 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
     const src = readSource("context-engine.ts")
     // The optional maxContextSize field (added by commit 1a49601) is now
     // populated from the live LLM config so adaptive scaling is live.
-    expect(src).toMatch(/const\s+llmConfig\s*=\s*useWikiStore\.getState\(\)\.llmConfig/)
+    // ISS-20260709-023 (DC-7): llmConfig now injection-first with store fallback.
+    expect(src).toMatch(/options\.llmConfig\s*\?\?\s*useWikiStore\.getState\(\)\.llmConfig/)
     expect(src).toMatch(/maxContextSize:\s*llmConfig\.maxContextSize/)
   })
 

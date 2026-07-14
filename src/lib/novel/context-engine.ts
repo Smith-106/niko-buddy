@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
@@ -275,6 +275,18 @@ export interface ContextEntity {
 }
 
 /**
+ * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接使用,
+ * 缺省回退 useWikiStore.getState() 保持向后兼容。
+ */
+export interface BuildContextOptions {
+  llmConfig?: LlmConfig
+  novelConfig?: NovelConfig
+  novelMode?: boolean
+  revisionFeedbackWindowConfig?: unknown
+  embeddingConfig?: EmbeddingConfig
+}
+
+/**
  * ISS-20260709-029 (F-003) mutex wrapper: 串行化所有 buildContextPack 调用。
  * 每次 build 排队等前一次完成后才执行，消除跨调用 interleave race（gaps 串包
  * + budget 错配）。buildContextPackUnlocked 是原实现；本 wrapper 把它接到模块
@@ -285,10 +297,11 @@ export async function buildContextPack(
   projectPath: string,
   task: string,
   chapterNumber?: number,
+  options: BuildContextOptions = {},
 ): Promise<ContextPack> {
   const releasePromise = new Promise<ContextPack>((resolve, reject) => {
     void buildMutex
-      .then(() => buildContextPackUnlocked(projectPath, task, chapterNumber))
+      .then(() => buildContextPackUnlocked(projectPath, task, chapterNumber, options))
       .then(resolve, reject)
   })
   // 续接链: 前次 settle 后本次才执行。catch 掉 releasePromise 的 reject 以
@@ -301,15 +314,17 @@ async function buildContextPackUnlocked(
   projectPath: string,
   task: string,
   chapterNumber?: number,
+  options: BuildContextOptions = {},
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
-  const novelMode = useWikiStore.getState().novelMode
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) {
     return emptyPack(task)
   }
 
   // 构建加载上下文
-  const context = buildLoadContext(pp, task, chapterNumber)
+  const context = buildLoadContext(pp, task, chapterNumber, options)
 
   // 重置 gap recorder — 生命周期为本次 buildContextPack 调用
   resetContextGaps()
@@ -336,7 +351,8 @@ async function buildContextPackUnlocked(
     // EPIC-001 + EPIC-003 / TASK-004 + TASK-006: 并行加载 exemplar + activeEntities，
     // 与 buildContextPackFromRawData 无数据依赖（两者在 pack 返回后 merge 注入）。
     // 两个新字段都是 additive — 失败/空数据优雅降级为 []，不影响现有 pack 字段。
-    const novelConfig = useWikiStore.getState().novelConfig
+    // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+    const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
     const [pack, exemplars, activeEntities] = await Promise.all([
       buildContextPackFromRawData(rawData, context),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
@@ -435,14 +451,16 @@ function buildLoadContext(
   projectPath: string,
   task: string,
   chapterNumber?: number,
+  options: BuildContextOptions = {},
 ): ContextLoadContext {
-  const novelConfig = useWikiStore.getState().novelConfig
-  const revisionFeedbackWindowConfig = useWikiStore.getState().revisionFeedbackWindowConfig
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  const revisionFeedbackWindowConfig = options.revisionFeedbackWindowConfig ?? useWikiStore.getState().revisionFeedbackWindowConfig
   // PERF-011 (TASK-007): wire llmConfig.maxContextSize through so
   // computeContextBudget's chapterAdaptiveScale is live on the read path
   // (was dead code — no read-path caller). Optional field: absent →
   // computeContextBudget falls back to DEFAULT_MAX_CTX (backward compatible).
-  const llmConfig = useWikiStore.getState().llmConfig
+  const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
 
   return {
     projectPath,
@@ -1347,6 +1365,7 @@ export async function searchRelevantContent(
   task: string,
   chapterNumber: number | undefined,
   limit: number,
+  options: BuildContextOptions = {},
 ): Promise<string> {
   const tokens = tokenizeQuery(task)
   const entityHints = tokens.filter(t => t.length >= 2).slice(0, 5)
@@ -1364,7 +1383,7 @@ export async function searchRelevantContent(
   const [keywordResults, indexResults, vectorResults] = await Promise.all([
     searchWiki(pp, query).catch(() => []),
     searchWiki(pp, `关键词索引 向量索引 ${task}`).catch(() => []),
-    runVectorSearchForContext(pp, query, limit).catch(() => []),
+    runVectorSearchForContext(pp, query, limit, options).catch(() => []),
   ])
 
   const seen = new Set<string>()
@@ -1428,7 +1447,7 @@ export async function searchRelevantContentUnified(
       topK: Math.max(limit, 4),
       rerankPurpose: "用于补充剧情上下文中的索引和记忆条目。",
     }).catch(() => []),
-    runVectorSearchForContext(pp, query, limit).catch(() => []),
+    runVectorSearchForContext(pp, query, limit, options).catch(() => []),
   ])
 
   const candidates = [
@@ -1497,8 +1516,10 @@ async function runVectorSearchForContext(
   pp: string,
   query: string,
   limit: number,
+  options: BuildContextOptions = {},
 ): Promise<{ title: string; snippet: string; path: string }[]> {
-  const embCfg = useWikiStore.getState().embeddingConfig
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
   if (!embCfg.enabled || !embCfg.model) return []
 
   try {
