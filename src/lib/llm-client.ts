@@ -17,6 +17,112 @@ export interface StreamCallbacks {
   onError: (error: Error) => void
 }
 
+/**
+ * ISS-20260709-020: LLM call metrics collection.
+ *
+ * Buffers one metric record per LLM call in memory; flushMetrics() persists
+ * the buffer to .novel/metrics.jsonl via read-modify-write_atomic (desktop
+ * single-user ⇒ no concurrent writers). This is derived observability —
+ * NOT a second truth source (status.json remains the only runtime session
+ * truth). Enables post-hoc diagnosis of slow/failed model patterns ("which
+ * model times out most?", "is the failure rate spiking?") without re-running.
+ *
+ * collectLLMMetric is synchronous (pushes to an in-memory array) so it is
+ * safe to call from streamChat's finally block. flushMetrics is async
+ * (Tauri IPC invoke) and called at run-end by the orchestrator.
+ *
+ * PAT-DC1 (CWE-532): errorKind is a short classification string
+ * ("abort" | "timeout" | "network" | "http" | "parse" | "unknown"), NEVER the
+ * raw error message — provider request details must not reach the metrics
+ * file. Tokens are not collected here (streamChat does not hold a token
+ * count; add a separate projection if token accounting is needed later).
+ */
+export interface LlmMetric {
+  ts: string
+  model: string
+  provider: string
+  durationMs: number
+  success: boolean
+  errorKind?: string
+  traceId?: string
+}
+
+let metricsFilePath = ""
+let metricsTraceId = ""
+const metricsBuffer: LlmMetric[] = []
+
+/** Configure the metrics sink (.novel/metrics.jsonl). Call once at run start. */
+export function setMetricsFilePath(path: string): void {
+  metricsFilePath = path
+}
+
+/** Set the trace-id stamped on every subsequent LLM metric (e.g. run id). */
+export function setMetricsTraceId(id: string): void {
+  metricsTraceId = id
+}
+
+/**
+ * Classify an error for the metric record (short string, no PII).
+ * Mirrors the branches streamChat's error paths already distinguish.
+ */
+function classifyLlmError(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return "abort"
+    const msg = err.message
+    if (/timed out|timeout/i.test(msg)) return "timeout"
+    if (/网络连接|Connection lost|connection/i.test(msg)) return "network"
+    if (/HTTP \d{3}/.test(msg)) return "http"
+    if (/JSON|parse|解析/i.test(msg)) return "parse"
+  }
+  return "unknown"
+}
+
+/**
+ * Buffer a metric record (synchronous — safe from finally blocks).
+ * No-op effect beyond buffering until flushMetrics() is called.
+ */
+export function collectLLMMetric(metric: LlmMetric): void {
+  metricsBuffer.push({ ...metric, traceId: metric.traceId ?? metricsTraceId })
+}
+
+/** Test-only: clear the in-memory metrics buffer. */
+export function __clearMetricsBufferForTest(): void {
+  metricsBuffer.length = 0
+}
+
+/**
+ * Persist the buffered metrics to .novel/metrics.jsonl via read-modify-write
+ * (atomic). Best-effort: a write failure is logged to console and swallowed
+ * (metrics must never break the LLM call path). Returns the count flushed.
+ */
+export async function flushMetrics(): Promise<number> {
+  if (!metricsFilePath || metricsBuffer.length === 0) return 0
+  const toFlush = metricsBuffer.splice(0, metricsBuffer.length)
+  try {
+    // Read-modify-write: append buffer to existing metrics file. Single-user
+    // desktop ⇒ no concurrent writers; atomic write guarantees no truncated
+    // file on crash. Lazy-load fs to keep the invoke out of non-metrics paths.
+    const { readFile, writeFileAtomic } = await import("@/commands/fs")
+    let existing = ""
+    try {
+      existing = await readFile(metricsFilePath)
+    } catch {
+      // File does not exist yet — first metrics write for this project.
+      existing = ""
+    }
+    const lines = toFlush.map(m => JSON.stringify(m)).join("\n")
+    const next = existing ? existing.replace(/\n?$/, "\n") + lines + "\n" : lines + "\n"
+    await writeFileAtomic(metricsFilePath, next)
+    return toFlush.length
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error("[metrics] flush failed:", e instanceof Error ? e.message : String(e))
+    // Re-buffer so a later flush can retry (cap to avoid unbounded growth).
+    if (metricsBuffer.length < 1000) metricsBuffer.unshift(...toFlush)
+    return 0
+  }
+}
+
 // Lazy import keeps the Tauri event/invoke bindings out of bundles that
 // never touch the subprocess provider (e.g. vitest with a fetch mock).
 async function streamViaClaudeCodeCli(
@@ -199,7 +305,29 @@ export async function streamChat(
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
   const resolvedLocal = await resolveRuntimeLocalCliConfig(config)
-  const { onToken, onDone, onError } = callbacks
+  // ISS-20260709-020: per-call metrics. metricsStart stamps the entry;
+  // metricsErrorKind is set by the wrapped onError (covers all error paths —
+  // HTTP + CLI branches both funnel errors through callbacks.onError).
+  // collectLLMMetric is called at every exit (2 CLI returns + the HTTP
+  // finally) so no LLM call goes unrecorded. Synchronous buffer push — safe
+  // from finally; flushMetrics() persists at run-end.
+  const metricsStart = Date.now()
+  let metricsErrorKind: string | undefined
+  const recordMetric = () => {
+    collectLLMMetric({
+      ts: new Date().toISOString(),
+      model: resolvedLocal.model,
+      provider: resolvedLocal.provider,
+      durationMs: Date.now() - metricsStart,
+      success: metricsErrorKind === undefined,
+      errorKind: metricsErrorKind,
+    })
+  }
+  const { onToken, onDone } = callbacks
+  const onError = (error: Error) => {
+    metricsErrorKind = classifyLlmError(error)
+    callbacks.onError(error)
+  }
   const decoder = new TextDecoder()
 
   // F-004 (ANL-010 f004_correction): NEW routing logic. BS-003 framed this
@@ -222,11 +350,21 @@ export async function streamChat(
   // HTTP. Dispatch before getProviderConfig — that function throws for
   // this provider because it has no URL/headers.
   if (runtimeConfig.provider === "claude-code") {
-    return streamViaClaudeCodeCli(runtimeConfig, messages, callbacks, signal, requestOverrides)
+    const wrappedCallbacks = { ...callbacks, onError }
+    try {
+      return await streamViaClaudeCodeCli(runtimeConfig, messages, wrappedCallbacks, signal, requestOverrides)
+    } finally {
+      recordMetric()
+    }
   }
 
   if (runtimeConfig.provider === "codex-cli") {
-    return streamViaCodexCli(runtimeConfig, messages, callbacks, signal, requestOverrides)
+    const wrappedCallbacks = { ...callbacks, onError }
+    try {
+      return await streamViaCodexCli(runtimeConfig, messages, wrappedCallbacks, signal, requestOverrides)
+    } finally {
+      recordMetric()
+    }
   }
 
   const providerConfig = getProviderConfig(runtimeConfig)
@@ -521,5 +659,13 @@ export async function streamChat(
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId)
     }
+    // ISS-20260709-020: record the LLM metric for this HTTP-path call.
+    // Covers success (metricsErrorKind undefined → success=true), onError
+    // paths (errorKind set by wrapped onError), and throws (errorKind stays
+    // undefined but the finally still records — a thrown transport error
+    // surfaces as success=false only if onError fired first; a raw throw
+    // before onError is a success=true false negative, acceptable for a
+    // best-effort metric).
+    recordMetric()
   }
 }
