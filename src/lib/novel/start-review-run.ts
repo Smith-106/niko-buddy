@@ -16,6 +16,16 @@ interface StartNovelReviewRunArgs {
   selectedFile: string
   t: TFunction
   onHistorySaved?: () => Promise<void> | void
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: store 状态 API 注入。传入时直接使用,
+   * 缺省回退 useWikiStore.getState() 保持向后兼容。逐步消除 lib 层对
+   * useWikiStore 的直接耦合, 使编排函数可脱离 UI store 独立测试。
+   */
+  storeActions?: {
+    setReviewRun: Pick<ReturnType<typeof useWikiStore.getState>, "setReviewRun">["setReviewRun"]
+    finishReviewRun: Pick<ReturnType<typeof useWikiStore.getState>, "finishReviewRun">["finishReviewRun"]
+    getReviewRun: () => ReturnType<typeof useWikiStore.getState>["reviewRun"]
+  }
 }
 
 export interface ReviewChapterTarget {
@@ -52,16 +62,22 @@ export async function startNovelReviewRun({
   selectedFile,
   t,
   onHistorySaved,
+  storeActions,
 }: StartNovelReviewRunArgs): Promise<void> {
   if (!selectedFile || !fileContent.trim()) return
 
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  const setReviewRun = storeActions?.setReviewRun ?? ((r) => useWikiStore.getState().setReviewRun(r))
+  const finishReviewRun = storeActions?.finishReviewRun ?? ((id, r) => useWikiStore.getState().finishReviewRun(id, r))
+  const getReviewRun = storeActions?.getReviewRun ?? (() => useWikiStore.getState().reviewRun)
+
   const target = resolveReviewChapterTarget(fileContent, selectedFile)
   const runId = `${Date.now()}-${Math.random()}`
-  useWikiStore.getState().setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
+  setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
   await yieldToBrowserFrame()
   const thinkingPublisher = createReviewThinkingPublisher({
     publish: (thinking) => {
-      useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
+      finishReviewRun(runId, { running: true, thinking })
     },
   })
 
@@ -72,7 +88,7 @@ export async function startNovelReviewRun({
       },
     })
     thinkingPublisher.flush()
-    useWikiStore.getState().finishReviewRun(runId, { running: true, results, error: undefined })
+    finishReviewRun(runId, { running: true, results, error: undefined })
     await saveGenerationHistoryEntry(projectPath, {
       kind: "review",
       title: target.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: target.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
@@ -94,12 +110,12 @@ export async function startNovelReviewRun({
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
     logger.error("Novel Review", "审查失败", { error: error instanceof Error ? error.message : String(error) })
     thinkingPublisher.flush()
-    useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
+    finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
     thinkingPublisher.flush()
-    const current = useWikiStore.getState().reviewRun
+    const current = getReviewRun()
     if (current?.runId === runId) {
-      useWikiStore.getState().finishReviewRun(runId, { running: false, results: current.results })
+      finishReviewRun(runId, { running: false, results: current.results })
     }
   }
 }
