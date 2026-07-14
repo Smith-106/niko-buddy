@@ -6,6 +6,7 @@ import {
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
 import { logger } from "@/lib/utils"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 
 export interface FactCheckResult {
   severity: "blocking" | "high" | "medium" | "low"
@@ -525,6 +526,13 @@ export async function verifyFactCheckLlm(
   results: FactCheckResult[],
   chapterContents: Record<number, string>,
   _projectPath: string,
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接
+   * 使用, 不再 import useWikiStore；缺省时回退到 useWikiStore.getState()
+   * 保持向后兼容（现有调用方未传则行为不变）。逐步消除 lib 层对
+   * useWikiStore 的直接耦合, 使函数可脱离 UI store 独立测试。
+   */
+  injectedStore?: { llmConfig?: LlmConfig; novelConfig?: NovelConfig },
 ): Promise<FactCheckResult[]> {
   if (results.length === 0) return results
 
@@ -534,12 +542,21 @@ export async function verifyFactCheckLlm(
   try {
     const { resolveNovelModel } = await import("./model-resolver")
     const { streamChat } = await import("@/lib/llm-client")
-    const { useWikiStore } = await import("@/stores/wiki-store")
     const { hasUsableLlm } = await import("@/lib/has-usable-llm")
 
+    // ISS-20260709-023: 注入优先, 缺省回退 store（向后兼容）
+    let llmConfigArg: LlmConfig | undefined = injectedStore?.llmConfig
+    let novelConfigArg: NovelConfig | undefined = injectedStore?.novelConfig
+    if (llmConfigArg === undefined || novelConfigArg === undefined) {
+      const { useWikiStore } = await import("@/stores/wiki-store")
+      const state = useWikiStore.getState()
+      if (llmConfigArg === undefined) llmConfigArg = state.llmConfig
+      if (novelConfigArg === undefined) novelConfigArg = state.novelConfig
+    }
+
     const llmConfig = resolveNovelModel(
-      useWikiStore.getState().llmConfig,
-      useWikiStore.getState().novelConfig,
+      llmConfigArg as LlmConfig,
+      novelConfigArg as NovelConfig,
       "review",
     )
     if (!hasUsableLlm(llmConfig)) return results
