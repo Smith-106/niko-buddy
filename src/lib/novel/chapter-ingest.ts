@@ -1,13 +1,12 @@
 import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import { logger } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import type { LlmConfig } from "@/stores/wiki-store"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki, sanitizeEntitySlug } from "./graph-adapter"
 import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState, resolveCanonicalName, resolveMatchingMap } from "./character-cognition"
@@ -365,18 +364,37 @@ export interface IngestResult {
   failReason?: IngestFailReason
 }
 
+/**
+ * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接使用,
+ * 缺省回退 useWikiStore.getState() 保持向后兼容。逐步消除 lib 层对
+ * useWikiStore 的直接耦合, 使函数可脱离 UI store 独立测试。
+ */
+export interface IngestChapterOptions {
+  llmConfig?: LlmConfig
+  novelConfig?: NovelConfig
+  novelMode?: boolean
+  embeddingConfig?: EmbeddingConfig
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: 社区摘要生成失败通知 callback。
+   * 缺省回退 useWikiStore.getState().setCommunitySummaryError（向后兼容）。
+   */
+  onCommunitySummaryError?: (message: string) => void
+}
+
 export async function ingestChapter(
   projectPath: string,
   chapterPath: string,
   _reviewModel?: string,
   signal?: AbortSignal,
+  options: IngestChapterOptions = {},
 ): Promise<IngestResult> {
   const pp = normalizePath(projectPath)
-  const novelMode = useWikiStore.getState().novelMode
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return { snapshot: null }
 
-  const llmConfig = useWikiStore.getState().llmConfig
-  const novelConfig = useWikiStore.getState().novelConfig
+  const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换）
   const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
   if (!hasUsableLlm(runtimeLlmConfig)) return { snapshot: null, failReason: "no_llm" }
@@ -422,7 +440,7 @@ export async function ingestChapter(
     })
   }
 
-  const embCfg = useWikiStore.getState().embeddingConfig
+  const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
 
   // F-002 (ANL-010 / C-002): commit-then-project. The commit point above
   // (saveSnapshot + saveChapterIngestOutput, per-file-atomic via
@@ -626,7 +644,9 @@ export async function ingestChapter(
         const message = err instanceof Error ? err.message : String(err)
         logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
         // 弹窗提示（通过 store 触发 UI 通知）
-        useWikiStore.getState().setCommunitySummaryError(message)
+        // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
+        const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
+        onErr(message)
       }
     }
 
@@ -1004,6 +1024,7 @@ export async function restoreSnapshotHistory(
   projectPath: string,
   chapterNumber: number,
   historyFileName: string,
+  onDataVersionBump?: () => void,
 ): Promise<ChapterSnapshot> {
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
@@ -1035,7 +1056,9 @@ export async function restoreSnapshotHistory(
   // delete path fixed in REG-001; restore was missed).
   clearTemporalFactsCache(pp)
   clearGraphCache()
-  useWikiStore.getState().bumpDataVersion()
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
+  const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
+  bump()
   return restoredCurrent
 }
 
@@ -1171,6 +1194,7 @@ export interface SyncSnapshotToMemoryResult {
 export async function syncSnapshotToMemory(
   projectPath: string,
   snapshot: ChapterSnapshot,
+  onDataVersionBump?: () => void,
 ): Promise<SyncSnapshotToMemoryResult> {
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
@@ -1227,7 +1251,9 @@ export async function syncSnapshotToMemory(
   // concrete cache-invalidation gap (the REG-001 sibling) is fixed here.
   clearTemporalFactsCache(pp)
   clearGraphCache()
-  useWikiStore.getState().bumpDataVersion()
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
+  const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
+  bump()
 
   return { writtenEntityPaths, memoryPagePaths, memorySyncedAt }
 }
@@ -1703,7 +1729,8 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   // snapshot summary. Idempotent: re-embedding the same content is safe.
   // (Snapshots carry `summary` + structured fields, not raw chapter content;
   // the summary is the canonical re-embeddable text.)
-  const embCfg = useWikiStore.getState().embeddingConfig
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
   if (embCfg.enabled && embCfg.model) {
     try {
       const { embedPage } = await import("@/lib/embedding")
@@ -1724,7 +1751,11 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
  * deleteChapterSnapshots) reference rebuildDerivedMemoryFromSnapshots; route
  * them to the extended rebuildFromCommittedSnapshot covering vector+graph.
  */
-async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+async function rebuildDerivedMemoryFromSnapshots(
+  projectPath: string,
+  latestSnapshot?: ChapterSnapshot,
+  options: { embeddingConfig?: EmbeddingConfig } = {},
+): Promise<void> {
   return rebuildFromCommittedSnapshot(projectPath, latestSnapshot)
 }
 
@@ -1914,7 +1945,7 @@ export async function listSnapshots(projectPath: string): Promise<number[]> {
   }
 }
 
-export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number): Promise<void> {
+export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number, onDataVersionBump?: () => void): Promise<void> {
   const pp = normalizePath(projectPath)
   const jsonPath = snapshotJsonPath(pp, chapterNumber)
   const mdPath = snapshotMarkdownPath(pp, chapterNumber)
@@ -1925,17 +1956,21 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   await rebuildDerivedMemoryFromSnapshots(pp)
   clearGraphCache()
   clearTemporalFactsCache(pp)
-  useWikiStore.getState().bumpDataVersion()
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
+  const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
+  bump()
 }
 
 export async function ingestOutline(
   projectPath: string,
   outlinePath: string,
   signal?: AbortSignal,
+  options: IngestChapterOptions = {},
 ): Promise<ChapterSnapshot | null> {
   const pp = normalizePath(projectPath)
-  const llmConfig = useWikiStore.getState().llmConfig
-  const novelConfig = useWikiStore.getState().novelConfig
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换），与 ingestChapter 保持一致
   const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
   if (!hasUsableLlm(runtimeLlmConfig)) return null
