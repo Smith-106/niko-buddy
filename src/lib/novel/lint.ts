@@ -1,7 +1,7 @@
 import { DEFAULT_LLM_REQUEST_TIMEOUT_MS, streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
@@ -53,15 +53,20 @@ export async function runNovelLint(
   projectPath: string,
   chapterContent: string,
   chapterNumber?: number,
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。缺省回退 useWikiStore
+   * 保持向后兼容。
+   */
+  options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean } = {},
 ): Promise<NovelLintResult[]> {
   const llmConfig = resolveNovelModel(
-    useWikiStore.getState().llmConfig,
-    useWikiStore.getState().novelConfig,
+    options.llmConfig ?? useWikiStore.getState().llmConfig,
+    options.novelConfig ?? useWikiStore.getState().novelConfig,
     "lint",
   )
   if (!hasUsableLlm(llmConfig)) return []
 
-  const novelMode = useWikiStore.getState().novelMode
+  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
 
   const contextPack = await buildContextPack(

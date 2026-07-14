@@ -9,7 +9,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter } from "./chapter-meta"
 import { ingestChapter } from "./chapter-ingest"
 import { flattenMdFilesBase } from "./chapter-utils"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 
 export interface RebuildProgress {
   total: number
@@ -27,9 +27,10 @@ export type RebuildProgressCallback = (progress: RebuildProgress) => void
 export async function rebuildAllSnapshots(
   projectPath: string,
   onProgress?: RebuildProgressCallback,
+  options: { novelMode?: boolean } = {},
 ): Promise<{ success: number; failed: number; errors: string[] }> {
   const pp = normalizePath(projectPath)
-  const novelMode = useWikiStore.getState().novelMode
+  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) {
     return { success: 0, failed: 0, errors: ["小说模式未开启"] }
   }
@@ -115,11 +116,12 @@ export async function rebuildAllSnapshots(
 export async function rebuildVectorIndex(
   projectPath: string,
   onProgress?: RebuildProgressCallback,
+  embCfg?: EmbeddingConfig,
 ): Promise<{ indexed: number; errors: string[] }> {
   const pp = normalizePath(projectPath)
-  const embCfg = useWikiStore.getState().embeddingConfig
+  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
 
-  if (!embCfg.enabled || !embCfg.model) {
+  if (!embCfgResolved.enabled || !embCfgResolved.model) {
     return { indexed: 0, errors: ["向量嵌入未启用或未配置模型"] }
   }
 
@@ -151,7 +153,7 @@ export async function rebuildVectorIndex(
       const pageId = file.name.replace(/\.md$/, "")
       const titleMatch = content.match(/^#\s+(.+)/m)
       const title = titleMatch?.[1]?.trim() ?? pageId
-      await embedPage(pp, pageId, title, content, embCfg)
+      await embedPage(pp, pageId, title, content, embCfgResolved)
       indexed++
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

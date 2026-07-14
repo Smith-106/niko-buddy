@@ -40,8 +40,24 @@ export function resolveModelConfig(
  * 优先级：defaultLlmModel > aiChatModel > baseConfig
  * 用于提取记忆、提取角色等后台 AI 任务。
  */
-export function resolveDefaultModel(baseConfig: LlmConfig): LlmConfig {
-  const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
+/**
+ * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段子集注入。缺省回退
+ * useWikiStore.getState() 保持向后兼容。
+ */
+export interface ModelResolverStoreSnapshot {
+  providerConfigs?: ProviderOverride[]
+  defaultLlmModel?: string
+  aiChatModel?: string
+}
+
+export function resolveDefaultModel(baseConfig: LlmConfig, storeSnapshot?: ModelResolverStoreSnapshot): LlmConfig {
+  const { providerConfigs, defaultLlmModel, aiChatModel } = storeSnapshot
+    ? {
+        providerConfigs: storeSnapshot.providerConfigs ?? useWikiStore.getState().providerConfigs,
+        defaultLlmModel: storeSnapshot.defaultLlmModel ?? useWikiStore.getState().defaultLlmModel,
+        aiChatModel: storeSnapshot.aiChatModel ?? useWikiStore.getState().aiChatModel,
+      }
+    : useWikiStore.getState()
   const targetModel = defaultLlmModel?.trim() || aiChatModel?.trim()
   if (targetModel) {
     return resolveModelConfig(targetModel, baseConfig, providerConfigs)
@@ -53,6 +69,7 @@ export function resolveNovelModel(
   llmConfig: LlmConfig,
   novelConfig: NovelConfig,
   taskType: NovelTaskType,
+  storeSnapshot?: ModelResolverStoreSnapshot,
 ): LlmConfig {
   const modelMap: Record<NovelTaskType, string> = {
     writing: "", // 写作模型已移除，始终使用 AI 会话当前模型
@@ -62,7 +79,13 @@ export function resolveNovelModel(
     lint: novelConfig.reviewModel,
   }
 
-  const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
+  const { providerConfigs, defaultLlmModel, aiChatModel } = storeSnapshot
+    ? {
+        providerConfigs: storeSnapshot.providerConfigs ?? useWikiStore.getState().providerConfigs,
+        defaultLlmModel: storeSnapshot.defaultLlmModel ?? useWikiStore.getState().defaultLlmModel,
+        aiChatModel: storeSnapshot.aiChatModel ?? useWikiStore.getState().aiChatModel,
+      }
+    : useWikiStore.getState()
 
   const taskModel = modelMap[taskType]
   if (!taskModel) {

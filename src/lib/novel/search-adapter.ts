@@ -3,7 +3,7 @@ import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 import { rerankCandidates } from "@/lib/rerank"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { sanitizeEntitySlug } from "./graph-adapter"
 
@@ -18,6 +18,8 @@ export interface NovelSearchParams {
   includeKeyword?: boolean
   includeRecentChapters?: boolean
   includeCanon?: boolean
+  /** ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore。 */
+  embCfg?: EmbeddingConfig
 }
 
 export interface NovelSearchResult {
@@ -82,7 +84,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   }
 
   if (params.includeVector) {
-    const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, topK)).then(items => {
+    const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, topK, params.embCfg)).then(items => {
       results.push(...rankSourceResults(items))
     })
     promises.push(pVector)
@@ -175,13 +177,14 @@ async function runVectorSearch(
   pp: string,
   query: string,
   topK: number,
+  embCfg?: EmbeddingConfig,
 ): Promise<NovelSearchResult[]> {
-  const embCfg = useWikiStore.getState().embeddingConfig
-  if (!embCfg.enabled || !embCfg.model) return []
+  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
+  if (!embCfgResolved.enabled || !embCfgResolved.model) return []
 
   try {
     const { searchByEmbedding } = await import("@/lib/embedding")
-    const vectorResults = await searchByEmbedding(pp, query, embCfg, Math.max(topK * 2, 10))
+    const vectorResults = await searchByEmbedding(pp, query, embCfgResolved, Math.max(topK * 2, 10))
     if (vectorResults.length === 0) return []
 
     const items: NovelSearchResult[] = []

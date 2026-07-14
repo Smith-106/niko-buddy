@@ -4,7 +4,7 @@ import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from
 import type { ChatMessage } from "@/lib/llm-providers"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { embedPage, searchByEmbedding } from "@/lib/embedding"
-import { useWikiStore, type NovelConfig, type LlmConfig } from "@/stores/wiki-store"
+import { useWikiStore, type NovelConfig, type LlmConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 
@@ -33,6 +33,7 @@ export async function generateCommunitySummaries(
   projectPath: string,
   llmConfig: LlmConfig,
   novelConfig: NovelConfig,
+  embCfg?: EmbeddingConfig,
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   const { nodes, communities } = await buildWikiGraph(pp)
@@ -52,7 +53,7 @@ export async function generateCommunitySummaries(
 
   // 解析摘要模型
   const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
-  const embCfg = useWikiStore.getState().embeddingConfig
+  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
 
   // 逐个社区生成摘要
   for (const community of communities) {
@@ -74,11 +75,11 @@ export async function generateCommunitySummaries(
       await writeFile(summaryPath, JSON.stringify(record, null, 2))
 
       // 向量化写入 LanceDB（page_id = community:xxx）
-      if (embCfg.enabled && embCfg.model) {
+      if (embCfgResolved.enabled && embCfgResolved.model) {
         try {
           const pageId = `community:${community.id}`
           const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
-          await embedPage(pp, pageId, title, summary, embCfg)
+          await embedPage(pp, pageId, title, summary, embCfgResolved)
         } catch (err) {
           logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: err instanceof Error ? err.message : String(err) })
         }
@@ -169,13 +170,14 @@ export async function searchCommunitySummaries(
   projectPath: string,
   query: string,
   topK: number = 3,
+  embCfg?: EmbeddingConfig,
 ): Promise<string> {
   const pp = normalizePath(projectPath)
-  const embCfg = useWikiStore.getState().embeddingConfig
-  if (!embCfg.enabled || !embCfg.model) return ""
+  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
+  if (!embCfgResolved.enabled || !embCfgResolved.model) return ""
 
   try {
-    const results = await searchByEmbedding(pp, query, embCfg, topK * 3)
+    const results = await searchByEmbedding(pp, query, embCfgResolved, topK * 3)
     // 只保留 community: 前缀的结果
     const communityResults = results.filter(r => r.id.startsWith("community:"))
     if (communityResults.length === 0) return ""
@@ -229,11 +231,12 @@ export async function generateCommunitySummariesForChapter(
   chapterNumber: number | undefined,
   llmConfig: LlmConfig,
   topK: number = 3,
+  novelConfig?: NovelConfig,
 ): Promise<string> {
   const pp = normalizePath(projectPath)
-  const novelConfig = useWikiStore.getState().novelConfig
+  const novelConfigResolved = novelConfig ?? useWikiStore.getState().novelConfig
   // Respect the user's community-summary toggle. Disabled → no generate side.
-  if (!novelConfig?.communitySummaryEnabled) return ""
+  if (!novelConfigResolved?.communitySummaryEnabled) return ""
 
   try {
     const { nodes, communities } = await buildWikiGraph(pp)
@@ -248,7 +251,7 @@ export async function generateCommunitySummariesForChapter(
     // this project are dropped so the next relevant community regenerates
     // with up-to-date wiki content. Within the interval, cached summaries
     // are reused (lazy per-chapter caching — no per-chapter recompute).
-    const interval = Math.max(1, novelConfig.communitySummaryInterval || 5)
+    const interval = Math.max(1, novelConfigResolved.communitySummaryInterval || 5)
     const chapterBucket = chapterNumber !== undefined && chapterNumber > 0
       ? Math.floor(chapterNumber / interval)
       : 0
@@ -289,7 +292,7 @@ export async function generateCommunitySummariesForChapter(
 
     if (relevant.length === 0) return ""
 
-    const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
+    const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfigResolved, "summary")
     const lines: string[] = []
     for (const { community } of relevant) {
       const cacheKey = `${pp}:${community.id}`

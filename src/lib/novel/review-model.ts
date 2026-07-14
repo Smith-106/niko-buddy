@@ -1,7 +1,11 @@
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 
-export function resolveReviewModel(): string {
-  const reviewModel = useWikiStore.getState().novelConfig.reviewModel
+/**
+ * ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore 保持向后兼容。
+ */
+export function resolveReviewModel(novelConfig?: NovelConfig): string {
+  const cfg = novelConfig ?? useWikiStore.getState().novelConfig
+  const reviewModel = cfg.reviewModel
   return reviewModel?.trim() || ""
 }
 

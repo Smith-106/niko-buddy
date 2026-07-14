@@ -1,4 +1,4 @@
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, extractJsonArraySpan, isRequestCancelledError, isTransportInactivityError, type ChatMessage, type StreamCallbacks } from "@/lib/llm-client"
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
@@ -210,14 +210,17 @@ export async function runSceneBreakdown(
   blueprint: string,
   contextPack: ContextPack,
   signal?: AbortSignal,
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore 保持向后兼容。
+   */
+  injectedStore?: { llmConfig?: LlmConfig; novelConfig?: NovelConfig },
 ): Promise<SceneBreakdownResult> {
   const startedAt = Date.now()
   if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE)
 
-  const storeState = useWikiStore.getState()
   const llmConfig = resolveNovelModel(
-    storeState.llmConfig,
-    storeState.novelConfig,
+    injectedStore?.llmConfig ?? useWikiStore.getState().llmConfig,
+    injectedStore?.novelConfig ?? useWikiStore.getState().novelConfig,
     "writing",
   )
 
@@ -257,7 +260,7 @@ export async function runSceneBreakdown(
 
   try {
     await streamChat(llmConfig, messages, streamCallbacks, combinedSignal, {
-      reasoning: { mode: storeState.novelConfig.reviewReasoningEffort ?? "high" },
+      reasoning: { mode: (injectedStore?.novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
     })
   } catch (error) {
     // PAT-DC1: sanitize. The thrown error from streamChat may carry provider

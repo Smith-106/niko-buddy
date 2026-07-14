@@ -1,6 +1,6 @@
 import { streamChat, combineAbortSignals, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
-import type { LlmConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { validateSeverity, logger } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
@@ -297,6 +297,7 @@ export async function reviewChapterDimension({
   dimension,
   callbacks = {},
   signal,
+  novelConfig,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
@@ -304,6 +305,10 @@ export async function reviewChapterDimension({
   dimension: SixReviewDimensionDefinition
   callbacks?: DimensionReviewCallbacks
   signal?: AbortSignal
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore 保持向后兼容。
+   */
+  novelConfig?: NovelConfig
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension)
@@ -313,6 +318,7 @@ export async function reviewChapterDimension({
     analysisPrompt,
     callbacks,
     signal,
+    novelConfig,
   )
 
   const finalPrompt = [
@@ -324,7 +330,7 @@ export async function reviewChapterDimension({
     "最终 JSON：",
     "只输出最终 JSON 对象，不要输出解释、标题或 markdown。",
   ].join("\n")
-  const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks, signal)
+  const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks, signal, novelConfig)
   return parseDimensionReviewResult(dimension, finalText, analysis)
 }
 
@@ -335,6 +341,9 @@ export async function runSixDimensionReview({
   dimensionKeys,
   callbacks = {},
   signal,
+  llmConfig,
+  novelConfig,
+  novelMode,
 }: {
   projectPath: string
   chapterContent: string
@@ -342,13 +351,21 @@ export async function runSixDimensionReview({
   dimensionKeys?: SixReviewDimensionKey[]
   callbacks?: SixDimensionReviewCallbacks
   signal?: AbortSignal
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。缺省回退 useWikiStore
+   * 保持向后兼容。
+   */
+  llmConfig?: LlmConfig
+  novelConfig?: NovelConfig
+  novelMode?: boolean
 }): Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>> {
-  const llmConfig = resolveNovelModel(
-    useWikiStore.getState().llmConfig,
-    useWikiStore.getState().novelConfig,
+  const injectedNovelConfig = novelConfig ?? useWikiStore.getState().novelConfig
+  const llmConfigResolved = resolveNovelModel(
+    llmConfig ?? useWikiStore.getState().llmConfig,
+    injectedNovelConfig,
     "review",
   )
-  if (!hasUsableLlm(llmConfig) || !useWikiStore.getState().novelMode) return {}
+  if (!hasUsableLlm(llmConfigResolved) || !(novelMode ?? useWikiStore.getState().novelMode)) return {}
 
   const contextPack = await buildContextPack(
     projectPath,
@@ -371,11 +388,12 @@ export async function runSixDimensionReview({
       const dimension = SIX_REVIEW_DIMENSIONS[key]
       try {
         const result = await reviewChapterDimension({
-          llmConfig,
+          llmConfig: llmConfigResolved,
           contextPack,
           chapterContent,
           dimension,
           signal,
+          novelConfig: injectedNovelConfig,
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)
@@ -419,6 +437,7 @@ async function runDimensionStage(
   userPrompt: string,
   callbacks: DimensionReviewCallbacks,
   signal?: AbortSignal,
+  novelConfig?: NovelConfig,
 ): Promise<string> {
   const messages: ChatMessage[] = [
     { role: "system", content: `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。` },
@@ -450,7 +469,7 @@ async function runDimensionStage(
     messages,
     streamCallbacks,
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
-    { reasoning: { mode: useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high" } },
+    { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
   )
   return result.trim()
 }
