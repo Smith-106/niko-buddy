@@ -1,7 +1,7 @@
 import { streamChat, extractJsonArraySpan, type StreamCallbacks } from "@/lib/llm-client"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
@@ -57,6 +57,14 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
    * 用于返修后复审，降低 token 消耗。默认 false 走全量审查。
    */
   characterOnly?: boolean
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接
+   * 使用, 不再读 useWikiStore.getState()；缺省时回退到 store 保持向后兼容。
+   * 逐步消除 lib 层对 useWikiStore 的直接耦合, 使函数可脱离 UI store 独立测试。
+   */
+  llmConfig?: LlmConfig
+  novelConfig?: NovelConfig
+  novelMode?: boolean
 }
 
 /** 角色一致性相关的审查维度，用于 characterOnly 轻量审查模式 */
@@ -202,14 +210,15 @@ export async function reviewChapter(
   signal?: AbortSignal,
 ): Promise<NovelReviewResult[]> {
   if (signal?.aborted) throw new Error("已停止生成")
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
   const llmConfig = resolveNovelModel(
-    useWikiStore.getState().llmConfig,
-    useWikiStore.getState().novelConfig,
+    options.llmConfig ?? useWikiStore.getState().llmConfig,
+    options.novelConfig ?? useWikiStore.getState().novelConfig,
     "review",
   )
   if (!hasUsableLlm(llmConfig)) return []
 
-  const novelMode = useWikiStore.getState().novelMode
+  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
@@ -245,7 +254,8 @@ export async function reviewChapter(
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
   // 审稿 reasoning 档位可配置（默认 high）；下调可省审稿推理 Token。
-  const reviewReasoningEffort = useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high"
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const reviewReasoningEffort = options.novelConfig?.reviewReasoningEffort ?? useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high"
 
   const systemPrompt = `你是一个专业的小说审稿编辑。你的任务是检查章节内容是否存在连贯性问题。
 请在一次回复里先完成分阶段审查分析，再在最后只输出最终审查 JSON 数组，JSON 之外不要有多余内容。
