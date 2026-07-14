@@ -28,6 +28,12 @@ export interface WorkflowExtractionInput {
 export interface WorkflowExtractionResult {
   success: boolean
   characters: ExtractedCharacter[]
+  /**
+   * ISS-20260712-MAINT-2: 当 Workflow 后端未实现时, success=false 且
+   * notImplemented=true。区别于"提取执行了但无角色"(success=false, notImplemented
+   * 缺省)——调用方可据此区分"功能未落地"与"执行后空结果"。
+   */
+  notImplemented?: boolean
 }
 
 /**
@@ -124,21 +130,23 @@ export async function extractCharactersWithWorkflow(
     //   }
     // })
 
-    // 暂时返回模拟数据表示功能已实现
+    // 暂时返回未实现状态——Workflow 工具在前端不可用, 实际实现需经 Tauri
+    // 命令调后端 Workflow (见上方 TODO)。返回 success:false 明确告知调用方
+    // 功能未落地, 避免 success:true + 空 characters 误导(以为提取成功实则空)。
+    // isWorkflowSupported() 返回 false 也印证此模块当前不可用。
     onProgress?.({
       stage: "workflow",
-      stageLabel: "Workflow 执行完成",
+      stageLabel: "Workflow 未实现(跳过)",
       completed: 100,
       total: 100,
       percentage: 100,
-      currentItem: "分析完成",
+      currentItem: "功能未落地",
     })
 
-    // 在实际实现中，这里应该返回 workflow 的结果
-    // 现在返回空结果，表示功能框架已就绪
     return {
-      success: true,
+      success: false,
       characters: [],
+      notImplemented: true,
     }
   } catch (error) {
     logger.error("Workflow Extraction", "Workflow 提取失败", { error: error instanceof Error ? error.message : String(error) })
