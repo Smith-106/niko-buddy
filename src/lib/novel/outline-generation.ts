@@ -550,13 +550,28 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
   }
 }
 
-export async function openGeneratedOutline(taskId: string): Promise<void> {
+export async function openGeneratedOutline(
+  taskId: string,
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: UI navigation action 注入。缺省回退
+   * useWikiStore.getState() 保持向后兼容。逐步消除 lib 层对 useWikiStore
+   * 的直接耦合。
+   */
+  navActions?: {
+    setActiveView: Pick<ReturnType<typeof useWikiStore.getState>, "setActiveView">["setActiveView"]
+    setSelectedFile: Pick<ReturnType<typeof useWikiStore.getState>, "setSelectedFile">["setSelectedFile"]
+    setFileContent: Pick<ReturnType<typeof useWikiStore.getState>, "setFileContent">["setFileContent"]
+  },
+): Promise<void> {
   const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
   if (!task?.outlinePath) return
   const content = await readFile(task.outlinePath)
-  useWikiStore.getState().setActiveView("sources")
-  useWikiStore.getState().setSelectedFile(task.outlinePath)
-  useWikiStore.getState().setFileContent(content)
+  const setActiveView = navActions?.setActiveView ?? ((v) => useWikiStore.getState().setActiveView(v))
+  const setSelectedFile = navActions?.setSelectedFile ?? ((p) => useWikiStore.getState().setSelectedFile(p))
+  const setFileContent = navActions?.setFileContent ?? ((c) => useWikiStore.getState().setFileContent(c))
+  setActiveView("sources")
+  setSelectedFile(task.outlinePath)
+  setFileContent(content)
   useOutlineGenerationStore.getState().updateTask(taskId, {
     status: "generated",
     message: i18n.t("novel.outlineGenerator.openedNotification"),
