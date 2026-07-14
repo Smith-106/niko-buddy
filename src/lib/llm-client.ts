@@ -83,6 +83,15 @@ function classifyLlmError(err: unknown): string {
  */
 export function collectLLMMetric(metric: LlmMetric): void {
   metricsBuffer.push({ ...metric, traceId: metric.traceId ?? metricsTraceId })
+  // Auto-flush safety valve: if the buffer grows large without an explicit
+  // flushMetrics() call from the run lifecycle (e.g. a long session where the
+  // orchestrator's finally hook was not wired), self-flush at 500 records so
+  // metrics are not lost to unbounded memory growth. Fire-and-forget — the
+  // caller (streamChat finally) never awaits this. A concurrent explicit
+  // flushMetrics is safe: splice is atomic, the loser gets an empty buffer.
+  if (metricsBuffer.length >= 500 && metricsFilePath) {
+    void flushMetrics()
+  }
 }
 
 /** Test-only: clear the in-memory metrics buffer. */

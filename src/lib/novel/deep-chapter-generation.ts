@@ -1,5 +1,6 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { setLogTraceId } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
@@ -869,6 +870,17 @@ export async function runDeepChapterGeneration(
   signal?: AbortSignal,
 ): Promise<DeepChapterGenerationResult> {
   assertNotAborted(signal)
+  // ISS-20260709-019/020: configure the observability sinks for this run.
+  // setMetricsFilePath enables LLM metrics buffering (collectLLMMetric in
+  // streamChat); setMetricsTraceId + setLogTraceId stamp every metric/log
+  // line with this run's id so post-hoc diagnosis can correlate them. The
+  // auto-flush safety valve in collectLLMMetric persists at 500 records;
+  // an explicit run-end flushMetrics() is the follow-up (ISS-20260714-002).
+  const metricsFile = `${input.projectPath.replace(/\\/g, "/")}/.novel/metrics.jsonl`
+  setMetricsFilePath(metricsFile)
+  const runTraceId = `ch${input.chapterNumber ?? "?"}`
+  setMetricsTraceId(runTraceId)
+  setLogTraceId(runTraceId)
   // Tracks whether any collectModelText stage took the transport-inactivity
   // partial-preserve branch. The first partial reason wins; later stages
   // (expansion/polish) keep the flag set so the caller routes the result to the
