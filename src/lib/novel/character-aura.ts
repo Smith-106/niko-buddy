@@ -10,7 +10,7 @@ import { searchWiki } from "@/lib/search"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type SearchApiConfig } from "@/stores/wiki-store"
 import { pinyin } from "pinyin-pro"
 import * as OpenCC from "opencc-js"
 
@@ -69,6 +69,12 @@ export interface BuildCharacterAuraContextOptions {
   fallbackAuraId?: string
   previewMode?: "context" | "writing"
   matchingText?: string
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。缺省回退 useWikiStore
+   * 保持向后兼容。逐步消除内部 helper 对 useWikiStore 的直接耦合。
+   */
+  llmConfig?: LlmConfig
+  searchApiConfig?: SearchApiConfig
 }
 
 export interface CharacterAuraStore {
@@ -168,6 +174,12 @@ export interface CharacterAuraGenerationProgress {
 
 export interface CharacterAuraGenerationOptions {
   onProgress?: (progress: CharacterAuraGenerationProgress) => void
+  /**
+   * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。透传到内部 helper,
+   * 缺省回退 useWikiStore.getState() 保持向后兼容。
+   */
+  llmConfig?: LlmConfig
+  searchApiConfig?: SearchApiConfig
 }
 
 interface AuraWorkflowStage {
@@ -335,6 +347,11 @@ export async function createCustomCharacterAuraSkill(
   options: CharacterAuraGenerationOptions = {},
 ): Promise<CharacterAura> {
   const store = await loadCharacterAuraStore(projectPath)
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 透传注入 config 到内部 helper。
+  const injectedConfig: AuraInjectedConfig = {
+    llmConfig: options.llmConfig,
+    searchApiConfig: options.searchApiConfig,
+  }
   const now = Date.now()
   const id = `custom-${now}-${Math.random().toString(36).slice(2, 8)}`
   const skillFolder = `${normalizePath(projectPath)}/.qmai/character-auras/${safeSkillSlug(id, input.name)}-perspective`
@@ -366,7 +383,7 @@ export async function createCustomCharacterAuraSkill(
       : "当前仅基于你提供的资料生成，不启用联网搜索。",
   )
   const searchPack = input.enableWebSearch
-    ? await collectCustomAuraWebSearch(input)
+    ? await collectCustomAuraWebSearch(input, injectedConfig)
     : { searchQueries: [], webSearchResults: [], importedSearchDocuments: [], failedSearchUrls: [], generationNotes: [] }
   generationInput.searchQueries = searchPack.searchQueries
   generationInput.webSearchResults = searchPack.webSearchResults
@@ -377,11 +394,11 @@ export async function createCustomCharacterAuraSkill(
   const workflowResearchFiles: Partial<Record<CharacterAuraResearchFileName, string>> = {}
   for (const stage of AURA_WORKFLOW_STAGES) {
     emitProgress(stage.label, `正在生成 ${stage.label}，写入 ${stage.fileName}。`, stage.fileName)
-    workflowResearchFiles[stage.fileName] = await buildAuraResearchStage(stage, generationInput, workflowResearchFiles)
+    workflowResearchFiles[stage.fileName] = await buildAuraResearchStage(stage, generationInput, workflowResearchFiles, injectedConfig)
   }
 
   emitProgress("汇总灵魂", "正在把 6 份研究文件合成为角色灵魂核心字段。")
-  const generated = await synthesizeCustomAuraFields(generationInput, workflowResearchFiles)
+  const generated = await synthesizeCustomAuraFields(generationInput, workflowResearchFiles, injectedConfig)
   const aura: CharacterAura = {
     id,
     builtIn: false,
@@ -894,19 +911,29 @@ async function readCustomAuraUrls(input: CustomCharacterAuraSkillInput): Promise
   return { importedUrls, failedUrls }
 }
 
+/**
+ * ISS-20260709-023 (DC-7) 渐进式 DI: custom aura 生成子系统的 store 字段注入。
+ * 缺省回退 useWikiStore.getState() 保持向后兼容。
+ */
+interface AuraInjectedConfig {
+  llmConfig?: LlmConfig
+  searchApiConfig?: SearchApiConfig
+}
+
 async function collectCustomAuraWebSearch(
   input: CustomCharacterAuraSkillInput,
+  injectedConfig: AuraInjectedConfig = {},
 ): Promise<Pick<CustomCharacterAuraGenerationInput, "searchQueries" | "webSearchResults" | "importedSearchDocuments" | "failedSearchUrls" | "generationNotes">> {
   const generationNotes: string[] = []
   const searchQueries = planCustomAuraSearchQueries(input)
   const webSearchResults: WebSearchResult[] = []
+  const searchApiConfig = injectedConfig.searchApiConfig ?? useWikiStore.getState().searchApiConfig
   const failedSearchUrls: string[] = []
   const importedSearchDocuments: SearchDocumentImportResult[] = []
   if (searchQueries.length === 0) {
     return { searchQueries, webSearchResults, importedSearchDocuments, failedSearchUrls, generationNotes }
   }
 
-  const searchApiConfig = useWikiStore.getState().searchApiConfig
   for (const query of searchQueries.slice(0, 3)) {
     try {
       const results = await webSearch(query, searchApiConfig, 4)
@@ -991,13 +1018,16 @@ async function buildAuraResearchStage(
   stage: AuraWorkflowStage,
   input: CustomCharacterAuraGenerationInput,
   previousResearchFiles: Partial<Record<CharacterAuraResearchFileName, string>>,
+  injectedConfig: AuraInjectedConfig = {},
 ): Promise<string> {
-  const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const llmConfig = resolveDefaultModel(injectedConfig.llmConfig ?? useWikiStore.getState().llmConfig)
   if (hasUsableLlm(llmConfig)) {
     try {
       const raw = await runAuraModelPrompt(
         "你是一名小说角色灵魂研究工作流助手。必须只输出用户要求的 Markdown 正文，不要输出解释，不要输出代码围栏。",
         buildAuraResearchStagePrompt(stage, input, previousResearchFiles),
+        injectedConfig,
       )
       if (raw.trim()) return ensureResearchMarkdownShape(raw, stage, input.name)
     } catch (error) {
@@ -1010,13 +1040,16 @@ async function buildAuraResearchStage(
 async function synthesizeCustomAuraFields(
   input: CustomCharacterAuraGenerationInput,
   researchFiles: Partial<Record<CharacterAuraResearchFileName, string>>,
+  injectedConfig: AuraInjectedConfig = {},
 ): Promise<CustomAuraGeneratedFields> {
-  const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const llmConfig = resolveDefaultModel(injectedConfig.llmConfig ?? useWikiStore.getState().llmConfig)
   if (hasUsableLlm(llmConfig)) {
     try {
       const raw = await runAuraModelPrompt(
         "你是一名小说角色灵魂总结助手。只输出 JSON，不要解释，不要代码围栏。",
         buildAuraSynthesisPrompt(input, researchFiles),
+        injectedConfig,
       )
       return parseCustomAuraSummaryResult(raw)
     } catch (error) {
@@ -1026,8 +1059,9 @@ async function synthesizeCustomAuraFields(
   return buildFallbackCustomAuraFields(input, researchFiles)
 }
 
-async function runAuraModelPrompt(systemPrompt: string, userPrompt: string): Promise<string> {
-  const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
+async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, injectedConfig: AuraInjectedConfig = {}): Promise<string> {
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const llmConfig = resolveDefaultModel(injectedConfig.llmConfig ?? useWikiStore.getState().llmConfig)
   let result = ""
   let streamError: Error | null = null
   const messages: ChatMessage[] = [
