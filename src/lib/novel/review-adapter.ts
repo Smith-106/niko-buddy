@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { validateSeverity } from "@/lib/utils"
+import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
@@ -238,7 +238,7 @@ export async function reviewChapter(
     }
   } catch (err) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    console.error("[Novel Review] 重新匹配角色光环失败，沿用阶段1的光环:", err instanceof Error ? err.message : String(err))
+    logger.error("Novel Review", "重新匹配角色光环失败，沿用阶段1的光环", { error: err instanceof Error ? err.message : String(err) })
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
@@ -306,7 +306,7 @@ ${langReminder}`
   } catch (err) {
     // F-16 (CWE-532): message-only; the full error is still propagated via
     // toError(err) for the caller, so the stderr log only needs the message.
-    console.error("[Novel Review] Failed:", err instanceof Error ? err.message : String(err))
+    logger.error("Novel Review", "Failed", { error: err instanceof Error ? err.message : String(err) })
     throw toError(err)
   }
 }
@@ -406,7 +406,7 @@ async function runReviewStage(
     onDone: () => {},
     onError: (error: Error) => {
       // F-16 (CWE-532): message-only to avoid leaking provider request details.
-      console.error("[Novel Review] Stream error:", error instanceof Error ? error.message : String(error))
+      logger.error("Novel Review", "Stream error", { error: error instanceof Error ? error.message : String(error) })
       streamError = error
     },
   }
@@ -443,7 +443,7 @@ async function runReviewStage(
     clearTimeout(timeoutId)
     if (signal?.aborted) throw new Error("已停止生成")
     if (retryCount < 2) {
-      console.warn(`[Novel Review] Stage "${stageTitle}" failed, retrying (${retryCount + 1}/2)...`)
+      logger.warn("Novel Review", `Stage "${stageTitle}" failed, retrying`, { retry: `${retryCount + 1}/2` })
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
       return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex)

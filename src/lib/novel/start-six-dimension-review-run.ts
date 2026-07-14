@@ -3,6 +3,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { runSixDimensionReview, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import { logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface StartSixDimensionReviewRunArgs {
@@ -101,7 +102,7 @@ export async function startSixDimensionReviewRun({
     await onHistorySaved?.()
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    console.error("六维审查失败:", error instanceof Error ? error.message : String(error))
+    logger.error("Six-Dim Review", "六维审查失败", { error: error instanceof Error ? error.message : String(error) })
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
     const current = useWikiStore.getState().reviewRun

@@ -5,6 +5,7 @@ import { reviewChapter } from "@/lib/novel/review-adapter"
 import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResults } from "@/lib/novel/revision-feedback"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 import { yieldToBrowserFrame } from "./yield-to-browser"
@@ -91,7 +92,7 @@ export async function startNovelReviewRun({
     }
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    console.error("审查失败:", error instanceof Error ? error.message : String(error))
+    logger.error("Novel Review", "审查失败", { error: error instanceof Error ? error.message : String(error) })
     thinkingPublisher.flush()
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {

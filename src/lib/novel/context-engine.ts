@@ -2,6 +2,7 @@ import { listDirectory, readFile, getFileModifiedTime } from "@/commands/fs"
 import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
@@ -306,7 +307,7 @@ export async function buildContextPack(
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
         ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)).catch((error) => {
-            console.warn("[ContextEngine] style exemplars load failed, skipping injection:", error)
+            logger.warn("ContextEngine", "style exemplars load failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
             return [] as StyleExemplar[]
           })
         : Promise.resolve([] as StyleExemplar[]),
@@ -318,7 +319,7 @@ export async function buildContextPack(
             outline: joinNonEmpty([rawData.outline, rawData.chapterOutline], "\n\n"),
             sceneCharacters: extractSceneCharacters(rawData),
           }).catch((error) => {
-            console.warn("[ContextEngine] conditional entity routing failed, skipping injection:", error)
+            logger.warn("ContextEngine", "conditional entity routing failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
             return [] as ContextEntity[]
           })
         : Promise.resolve([] as ContextEntity[]),
@@ -373,7 +374,7 @@ export async function buildContextPack(
     }
     void appendRoutingROISample(pp, roiSample).catch((error) => {
       // non-fatal — ROI 采集失败不阻塞主链装配
-      console.warn("[ContextEngine] routing ROI sample append failed (non-fatal):", error)
+      logger.warn("ContextEngine", "routing ROI sample append failed (non-fatal)", { error: error instanceof Error ? error.message : String(error) })
     })
     return pack
   } finally {
@@ -551,7 +552,7 @@ async function buildContextPackFromRawData(
   let canonRules = rawData.canonRules
   const temporalFactsPromise = targetChapter > 0
     ? loadTemporalFactsCached(context.projectPath).catch((error) => {
-        console.warn("[ContextEngine] temporal-memory load failed, falling back to raw canonRules:", error)
+        logger.warn("ContextEngine", "temporal-memory load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
         return null
       })
     : Promise.resolve(null)
@@ -1209,9 +1210,7 @@ export async function selectActiveEntities(
 
   // 零 entity 优雅降级：双源匹配为空时回退全量（加性原则，不减少上下文）+ warning。
   if (matched.length === 0) {
-    console.warn(
-      "[ContextEngine] conditional routing matched zero entities, falling back to all entities (additive — no context reduced)",
-    )
+    logger.warn("ContextEngine", "conditional routing matched zero entities, falling back to all entities (additive — no context reduced)")
     return contents.filter(Boolean).map((entry) => {
       const fm = parseFrontmatter(entry!.content).frontmatter
       const name = typeof fm?.title === "string" ? fm.title : ""
