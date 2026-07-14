@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto"
 import { createDirectory, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 
 /** 移动端灵感记录 (最小可行结构, 本地文件交换非云同步) */
 export interface InspirationEntry {
@@ -127,7 +128,7 @@ export async function loadInspirationCollection(projectPath: string): Promise<In
     const raw = await readFile(filePath)
     const parsed = JSON.parse(raw) as Partial<InspirationCollection>
     if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
-      console.warn(`[Inspiration] invalid inspirations.json at ${filePath}, falling back to empty collection`)
+      logger.warn("Inspiration", `invalid inspirations.json at ${filePath}, falling back to empty collection`)
       return emptyCollection()
     }
     return {
@@ -137,7 +138,7 @@ export async function loadInspirationCollection(projectPath: string): Promise<In
     }
   } catch (error) {
     // 截断 / 损坏文件 — 降级而非中断移动端灵感导入 (BP-003 crash-safety)。
-    console.warn(`[Inspiration] failed to parse inspirations.json at ${filePath}, falling back to empty collection:`, error instanceof Error ? error.message : error)
+    logger.warn("Inspiration", `failed to parse inspirations.json at ${filePath}, falling back to empty collection`, { error: error instanceof Error ? error.message : String(error) })
     return emptyCollection()
   }
 }

@@ -1,6 +1,7 @@
 import { searchWiki } from "@/lib/search"
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { rerankCandidates } from "@/lib/rerank"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
@@ -138,7 +139,7 @@ async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T
   try {
     return await withTimeout(promise, SEARCH_SOURCE_TIMEOUT_MS, label)
   } catch (err) {
-    console.error(`[novelMixedSearch] ${label} error:`, err instanceof Error ? err.message : String(err))
+    logger.error("Novel Search", `${label} error`, { error: err instanceof Error ? err.message : String(err) })
     return [] as T
   }
 }

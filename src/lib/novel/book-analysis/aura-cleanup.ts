@@ -20,6 +20,7 @@
 
 import { deleteCustomCharacterAura, listCharacterAuras } from "@/lib/novel/character-aura"
 import { loadCharacterAuraStore } from "@/lib/novel/character-aura"
+import { logger } from "@/lib/utils"
 
 const BOOK_TITLE_IN_SOURCE_NOTE = (title: string) =>
   new RegExp(`《\\s*${escapeRegExp(title)}\\s*》`)
@@ -72,7 +73,7 @@ export async function deleteOrphanAurasForBook(
       await deleteCustomCharacterAura(projectPath, id)
       removed += 1
     } catch (error) {
-      console.warn(`[book-analysis] 删除孤儿灵魂 ${id} 失败`, error)
+      logger.warn("Aura Cleanup", `删除孤儿灵魂 ${id} 失败`, { error: error instanceof Error ? error.message : String(error) })
     }
   }
   return removed

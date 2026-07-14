@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { searchWiki } from "@/lib/search"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
+import { logger } from "@/lib/utils"
 
 export interface PreviousChapterAnalysis {
   chapterNumber: number
@@ -63,7 +64,7 @@ export async function analyzePreviousChapters(
     {
       onToken: (token) => { analysis += token },
       onDone: () => {},
-      onError: (err) => { console.error("[previous-chapters] LLM error:", err instanceof Error ? err.message : String(err)) },
+      onError: (err) => { logger.error("Previous Chapters", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
     },
     combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
   )

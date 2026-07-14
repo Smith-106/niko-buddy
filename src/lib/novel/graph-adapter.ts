@@ -1,7 +1,7 @@
 import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { mergeArrayFieldsIntoContent } from "@/lib/sources-merge"
-import { uniqueNonEmpty } from "@/lib/utils"
+import { uniqueNonEmpty, logger } from "@/lib/utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
@@ -636,10 +636,7 @@ export async function writeSnapshotToWiki(
       await writeFileAtomic(filePath, contentToWrite)
       writtenPaths.push(filePath)
     } catch (err) {
-      console.warn(
-        `[graph-adapter] Failed to write entity page for node ${node.id}:`,
-        err instanceof Error ? err.message : err,
-      )
+      logger.warn("Graph Adapter", `Failed to write entity page for node ${node.id}`, { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -818,10 +815,7 @@ export async function writePatchFieldsToWiki(
       await writeFileAtomic(filePath, contentToWrite)
       writtenPaths.push(filePath)
     } catch (err) {
-      console.warn(
-        `[graph-adapter] Failed to write patch fields for entry ${entry.entryId}:`,
-        err instanceof Error ? err.message : err,
-      )
+      logger.warn("Graph Adapter", `Failed to write patch fields for entry ${entry.entryId}`, { error: err instanceof Error ? err.message : String(err) })
     }
   }
 

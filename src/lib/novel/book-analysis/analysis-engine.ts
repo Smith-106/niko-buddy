@@ -12,6 +12,7 @@ import { createDirectory, writeFile, readFile, listDirectory } from "@/commands/
 import { normalizePath, joinPath } from "@/lib/path-utils"
 import { fingerprintFileSample } from "./content-fingerprint"
 import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
+import { logger } from "@/lib/utils"
 
 export interface SplitChaptersInput {
   sourcePath: string
@@ -278,7 +279,7 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
           }
         }
       } catch (err) {
-        console.error(`Failed to read chapter ${file.path}:`, err)
+        logger.error("Analysis Engine", `Failed to read chapter ${file.path}`, { error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -287,7 +288,7 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
 
     return chapters
   } catch (error) {
-    console.error("Failed to load chapter list:", error)
+    logger.error("Analysis Engine", "Failed to load chapter list", { error: error instanceof Error ? error.message : String(error) })
     return []
   }
 }
@@ -301,7 +302,7 @@ export async function loadMetadata(bookPath: string): Promise<BookAnalysisMetada
     const content = await readFile(metadataPath)
     return JSON.parse(content) as BookAnalysisMetadata
   } catch (error) {
-    console.error("Failed to load metadata:", error)
+    logger.error("Analysis Engine", "Failed to load metadata", { error: error instanceof Error ? error.message : String(error) })
     return null
   }
 }

@@ -4,6 +4,7 @@ import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { joinPath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { parseFrontmatter, type FrontmatterValue } from "@/lib/frontmatter"
 import { searchWiki } from "@/lib/search"
 import { getHttpFetch } from "@/lib/tauri-fetch"
@@ -716,7 +717,7 @@ async function hasCharacterProfile(projectPath: string, characterName: string): 
       const content = await readFile(result.path)
       if (/人物小传|人物设定/.test(content) && content.includes(characterName)) return true
     } catch (err) {
-      console.warn("[Character Aura] readFile failed for research file:", err instanceof Error ? err.message : String(err))
+      logger.warn("Character Aura", "readFile failed for research file", { error: err instanceof Error ? err.message : String(err) })
     }
   }
   return false

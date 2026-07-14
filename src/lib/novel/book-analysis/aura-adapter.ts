@@ -1,5 +1,6 @@
 import type { CharacterAura, GeneratedCharacterAuraSkillInput } from "@/lib/novel/character-aura"
 import { createCustomCharacterAuraFromGeneratedSkill, loadCharacterAuraStore } from "@/lib/novel/character-aura"
+import { logger } from "@/lib/utils"
 import { bookAnalysisAuraKey, isSameBookAnalysisCharacterAura } from "./aura-match"
 import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter, PersonalityProfile } from "./types"
 
@@ -195,7 +196,7 @@ export async function importBookAnalysisSkillsAsAuras(
     // 先按 characterId 精确匹配，再按 characterName 回退匹配
     let character = characterById.get(skill.characterId) ?? characterByName.get(skill.characterName)
     if (!character) {
-      console.warn(`[加入灵魂库] 跳过 Skill「${skill.characterName}」：找不到对应角色（characterId=${skill.characterId}）`)
+      logger.warn("Aura Adapter", `加入灵魂库 跳过 Skill「${skill.characterName}」找不到对应角色`, { characterId: skill.characterId })
       continue
     }
     const auraKey = bookAnalysisAuraKey(metadata.title, character.name)

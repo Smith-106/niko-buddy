@@ -18,6 +18,7 @@ import type {
 import { writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
+import { logger } from "@/lib/utils"
 import { ALL_DIMENSIONS, DIMENSION_LABELS } from "./six-dimension-prompts"
 
 /**
@@ -150,7 +151,7 @@ export async function generateCharacterSkill(
     await streamChat(llmConfig, messages, {
       onToken: (text) => { skillContent += text },
       onDone: () => {},
-      onError: (err) => { console.error("[Skill Generator] LLM error:", err instanceof Error ? err.message : String(err)) },
+      onError: (err) => { logger.error("Skill Generator", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 如果生成的内容没有 frontmatter，添加一个
@@ -168,7 +169,7 @@ category: character-skill
 
     return skillContent
   } catch (error) {
-    console.error(`Failed to generate skill for ${character.name}:`, error instanceof Error ? error.message : String(error))
+    logger.error("Skill Generator", `Failed to generate skill for ${character.name}`, { error: error instanceof Error ? error.message : String(error) })
 
     // 返回一个基础的 Skill 模板
     return `---

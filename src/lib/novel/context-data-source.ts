@@ -1,3 +1,5 @@
+import { logger } from "@/lib/utils"
+
 /**
  * 上下文数据源抽象层
  * 用于统一管理和加载各种上下文数据源
@@ -99,7 +101,7 @@ export class DataSourceRegistry {
           : loadedValue
         return { name: source.name, value, error: null }
       } catch (error) {
-        console.warn(`[DataSource] ${source.name} failed to load:`, error)
+        logger.warn("DataSource", `${source.name} failed to load`, { error: error instanceof Error ? error.message : String(error) })
         
         // 尝试使用降级策略
         try {
@@ -108,7 +110,7 @@ export class DataSourceRegistry {
             : this.getDefaultValue(source.name)
           return { name: source.name, value: fallbackValue, error: error as Error }
         } catch (fallbackError) {
-          console.warn(`[DataSource] ${source.name} fallback also failed:`, fallbackError)
+          logger.warn("DataSource", `${source.name} fallback also failed`, { error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) })
           return { 
             name: source.name, 
             value: this.getDefaultValue(source.name), 

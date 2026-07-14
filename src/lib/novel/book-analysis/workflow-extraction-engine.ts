@@ -7,6 +7,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { ExtractedCharacter, BookAnalysisMetadata } from "./types"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 
 export interface WorkflowExtractionInput {
   bookPath: string
@@ -79,7 +80,7 @@ export async function extractCharactersWithWorkflow(
           })
         }
       } catch (err) {
-        console.error(`加载章节 ${chapterId} 失败:`, err)
+        logger.error("Workflow Extraction", `加载章节 ${chapterId} 失败`, { error: err instanceof Error ? err.message : String(err) })
       }
 
       onProgress?.({
@@ -140,7 +141,7 @@ export async function extractCharactersWithWorkflow(
       characters: [],
     }
   } catch (error) {
-    console.error("Workflow 提取失败:", error)
+    logger.error("Workflow Extraction", "Workflow 提取失败", { error: error instanceof Error ? error.message : String(error) })
     return {
       success: false,
       characters: [],

@@ -1,5 +1,6 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 import type { FileNode } from "@/types/wiki"
 
@@ -306,7 +307,7 @@ async function importChapterCandidates(
       }))
       imported.push({ sourcePath: candidate.path, path: targetPath, title, chapterNumber })
     } catch (error) {
-      console.error("[chapter-import] failed to import chapter file:", candidate.path, error)
+      logger.error("Chapter Import", "failed to import chapter file", { path: candidate.path, error: error instanceof Error ? error.message : String(error) })
     }
   }
 

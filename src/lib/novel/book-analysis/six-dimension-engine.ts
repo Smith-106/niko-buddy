@@ -22,6 +22,7 @@ import type {
   SixDimensionStatus,
 } from "./types"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
+import { logger } from "@/lib/utils"
 import {
   ALL_DIMENSIONS,
   DIMENSION_LABELS,
@@ -124,7 +125,7 @@ async function callLlmForDimension(
       },
       onDone: () => {},
       onError: (err) => {
-        console.error("[six-dimension] LLM error:", err instanceof Error ? err.message : String(err))
+        logger.error("Six-Dimension", "LLM error", { error: err instanceof Error ? err.message : String(err) })
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))

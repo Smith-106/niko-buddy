@@ -1,4 +1,5 @@
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { deleteFile, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { parseSources, writeSources } from "@/lib/sources-merge"
 import type { FileNode } from "@/types/wiki"
@@ -93,7 +94,7 @@ async function cleanupDeletedSourceEntities(projectPath: string, snapshotNumber:
 
       await writeFileAtomic(file.path, writeSources(content, remainingSources))
     } catch (error) {
-      console.error("[delete-source-memory] failed to clean entity source:", file.path, error)
+      logger.error("Delete Source Memory", "failed to clean entity source", { path: file.path, error: error instanceof Error ? error.message : String(error) })
     }
   }
 }
