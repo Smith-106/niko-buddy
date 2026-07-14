@@ -110,6 +110,18 @@ export interface ContextGap {
 const contextGaps: ContextGap[] = []
 let contextGapsActive = false
 
+/**
+ * ISS-20260709-029 (F-003) 短期缓解: build-scoped mutex 串行化 buildContextPack
+ * 调用。消除跨调用 interleave race——两并发 buildContextPack 在 await
+ * registry.loadAll 让出事件循环后交错，致 gaps 串包 + budget 错配。模块级
+ * Promise 链把所有 buildContextPack 调用排队串行执行，牺牲并发换正确性。
+ * 保留现有 try/finally（单次内泄漏已修 PAT-M2/DC-6），mutex 防的是跨调用层级。
+ * 触发需特定并发时序（生成+审查同进程交错），单用户桌面串行为主，mutex 是
+ * 保险。fix_direction 标注的完整 build-scoped BuildContext 对象重构（6+
+ * 函数签名改动）归 Stage 3/4 稳定化推进。
+ */
+let buildMutex: Promise<unknown> = Promise.resolve()
+
 function resetContextGaps(): void {
   contextGaps.length = 0
   contextGapsActive = true
@@ -262,7 +274,30 @@ export interface ContextEntity {
   tags?: string[]
 }
 
+/**
+ * ISS-20260709-029 (F-003) mutex wrapper: 串行化所有 buildContextPack 调用。
+ * 每次 build 排队等前一次完成后才执行，消除跨调用 interleave race（gaps 串包
+ * + budget 错配）。buildContextPackUnlocked 是原实现；本 wrapper 把它接到模块
+ * 级 Promise 链尾串行执行。链续接吞掉 build 错误（避免 reject 卡死后续排队
+ * 调用），错误经 releasePromise 原样透传给调用方。保留 try/finally 单次内清理。
+ */
 export async function buildContextPack(
+  projectPath: string,
+  task: string,
+  chapterNumber?: number,
+): Promise<ContextPack> {
+  const releasePromise = new Promise<ContextPack>((resolve, reject) => {
+    void buildMutex
+      .then(() => buildContextPackUnlocked(projectPath, task, chapterNumber))
+      .then(resolve, reject)
+  })
+  // 续接链: 前次 settle 后本次才执行。catch 掉 releasePromise 的 reject 以
+  // 避免链本身 reject 传播卡死后续排队 build(错误已透传给原调用方)。
+  buildMutex = buildMutex.then(() => releasePromise).catch(() => {})
+  return releasePromise
+}
+
+async function buildContextPackUnlocked(
   projectPath: string,
   task: string,
   chapterNumber?: number,
