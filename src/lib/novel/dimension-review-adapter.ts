@@ -1,4 +1,4 @@
-import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -296,12 +296,14 @@ export async function reviewChapterDimension({
   chapterContent,
   dimension,
   callbacks = {},
+  signal,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
   chapterContent: string
   dimension: SixReviewDimensionDefinition
   callbacks?: DimensionReviewCallbacks
+  signal?: AbortSignal
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension)
@@ -310,6 +312,7 @@ export async function reviewChapterDimension({
     dimension,
     analysisPrompt,
     callbacks,
+    signal,
   )
 
   const finalPrompt = [
@@ -321,7 +324,7 @@ export async function reviewChapterDimension({
     "最终 JSON：",
     "只输出最终 JSON 对象，不要输出解释、标题或 markdown。",
   ].join("\n")
-  const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks)
+  const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks, signal)
   return parseDimensionReviewResult(dimension, finalText, analysis)
 }
 
@@ -331,12 +334,14 @@ export async function runSixDimensionReview({
   chapterNumber,
   dimensionKeys,
   callbacks = {},
+  signal,
 }: {
   projectPath: string
   chapterContent: string
   chapterNumber?: number
   dimensionKeys?: SixReviewDimensionKey[]
   callbacks?: SixDimensionReviewCallbacks
+  signal?: AbortSignal
 }): Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>> {
   const llmConfig = resolveNovelModel(
     useWikiStore.getState().llmConfig,
@@ -370,6 +375,7 @@ export async function runSixDimensionReview({
           contextPack,
           chapterContent,
           dimension,
+          signal,
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)
@@ -412,6 +418,7 @@ async function runDimensionStage(
   dimension: SixReviewDimensionDefinition,
   userPrompt: string,
   callbacks: DimensionReviewCallbacks,
+  signal?: AbortSignal,
 ): Promise<string> {
   const messages: ChatMessage[] = [
     { role: "system", content: `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。` },
@@ -430,11 +437,19 @@ async function runDimensionStage(
     },
   }
 
+  // ISS-20260709-049: thread an external AbortSignal down to the LLM stream so a
+  // caller-side cancel (reviewChapter throw → 6-dim orphan) can cascade-abort
+  // the in-flight dimension LLM call instead of letting it run to its 120s
+  // timeout. combineAbortSignals merges the external signal with the internal
+  // 120s timeout — either firing aborts the stream. Undefined external signal
+  // falls back to the prior behavior (timeout-only), so existing callers
+  // (start-six-dimension-review-run.ts manual UI trigger, no external signal)
+  // are unaffected.
   await streamChat(
     llmConfig,
     messages,
     streamCallbacks,
-    AbortSignal.timeout(120000),
+    combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high" } },
   )
   return result.trim()

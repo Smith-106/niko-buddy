@@ -53,6 +53,22 @@ const contextPack = mocks.contextPack satisfies ContextPack
 
 vi.mock("@/lib/llm-client", () => ({
   streamChat: mocks.streamChatMock,
+  // ISS-20260709-049: runDimensionStage now calls combineAbortSignals to merge
+  // the external signal with the internal 120s timeout. Mirror the real
+  // implementation so the mock module exports it (spec-mock must mirror new
+  // exports — see memory maint3-same-name-helper-consolidation).
+  combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
+    const active = signals.filter(Boolean) as AbortSignal[]
+    if (active.length === 0) return undefined
+    if (active.length === 1) return active[0]
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    for (const s of active) {
+      if (s.aborted) { controller.abort(); break }
+      s.addEventListener("abort", abort, { once: true })
+    }
+    return controller.signal
+  },
 }))
 
 vi.mock("@/stores/wiki-store", () => ({

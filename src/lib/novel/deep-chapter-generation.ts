@@ -771,8 +771,16 @@ export async function runFullReviewWithSixDim(
   // before the non-blocking 6-dim result is merged), while runSixDim runs
   // in parallel and is merged only after reviewChapter resolves.
   const runSixDim = deps.runSixDimensionReview
+  // ISS-20260709-049: own a local AbortController for the 6-dim review so a
+  // reviewChapter throw can cascade-abort the orphan 6-dim LLM stream instead
+  // of letting it run to its 120s timeout. The external `signal` (caller-side
+  // cancel / user abort) is merged in via combineAbortSignals so it propagates
+  // to 6-dim too — but we cannot abort the external signal ourselves, so the
+  // local controller is the only handle we hold for orphan cancellation.
+  const sixDimController = new AbortController()
+  const sixDimSignal = combineAbortSignals(signal, sixDimController.signal)
   const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
-    ? runSixDim({ projectPath, chapterContent: content, chapterNumber })
+    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal })
         .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
         .catch((err: unknown) => {
           // Non-blocking: capture the original error so the gap log can print
@@ -796,20 +804,21 @@ export async function runFullReviewWithSixDim(
     console.error("[Deep Chapter] Review failed:", err instanceof Error ? err.message : String(err))
     // F-1 (orphan 6-dim process): when reviewChapter throws, the `await
     // sixDimP` at the coalesce step below is unreachable, so the 6-dim review
-    // launched in parallel keeps running as an orphan background LLM stream
-    // (up to 6 dimensions × stream timeout). sixDimP already has a .catch
-    // above so it never rejects — the hazard is wasted tokens/quota + a result
-    // that is silently dropped. We cannot abort it here because
-    // runSixDimensionReview does not accept an AbortSignal (cross-file signal
-    // propagation tracked as a deferred issue). Attach a terminal .catch so
-    // the orphan is explicitly owned (never becomes an unhandled rejection if
-    // the .catch above is ever changed) and log that it was orphaned, rather
-    // than leaving it silent. The 6-dim result is discarded: reviewChapter's
-    // failure already fails the whole review, so there is nowhere to merge
-    // the 6-dim outcome into.
+    // launched in parallel would keep running as an orphan background LLM
+    // stream (up to 6 dimensions × stream timeout). ISS-20260709-049: now
+    // that runSixDimensionReview accepts an AbortSignal, abort the local
+    // sixDimController to cascade-cancel the in-flight 6-dim LLM streams,
+    // reclaiming the orphaned token/quota. sixDimP already has a .catch above
+    // so the abort surfaces as a non-blocking __sixDimError (discarded: the
+    // coalesce step is unreachable on this path, and reviewChapter's failure
+    // already fails the whole review). Attach a terminal .catch so the orphan
+    // is explicitly owned (never becomes an unhandled rejection if the .catch
+    // above is ever changed). The external signal is NOT aborted — only the
+    // local controller, so the caller's cancel semantics are untouched.
     if (runSixDim) {
+      sixDimController.abort()
       void sixDimP.catch(() => {})
-      console.warn("[Deep Chapter] 6-dimension review was orphaned by reviewChapter failure; cannot abort (runSixDimensionReview has no AbortSignal).")
+      console.warn("[Deep Chapter] 6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
     }
     throw err
   }
