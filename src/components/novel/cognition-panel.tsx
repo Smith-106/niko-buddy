@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { X, RefreshCw } from "lucide-react"
+import { X, RefreshCw, MapPin, Swords, Package } from "lucide-react"
 import { loadCognitionState, type CognitionState } from "@/lib/novel/character-cognition"
+import { loadCharacterStates, type CharacterState } from "@/lib/novel/character-state"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface Props {
@@ -13,15 +14,25 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
   const { t } = useTranslation()
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const [state, setState] = useState<CognitionState | null>(null)
+  // ISS-20260709-008: CharacterProfile 孤儿组件合并进 CognitionPanel。
+  // 角色单卡视图(location/status/equipment/abilities)折叠展示，避免第三个
+  // 只读角色面板。dataVersion 监听与 cognition 同步(chapter-ingest
+  // saveCharacterStates+bumpDataVersion 后 refetch)。
+  const [charStates, setCharStates] = useState<Map<string, CharacterState>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const s = await loadCognitionState(projectPath)
+      const [s, chars] = await Promise.all([
+        loadCognitionState(projectPath),
+        loadCharacterStates(projectPath),
+      ])
       setState(s)
+      setCharStates(new Map(chars.characters.map((c) => [c.characterName, c])))
     } catch {
       setState(null)
+      setCharStates(new Map())
     } finally {
       setLoading(false)
     }
@@ -35,10 +46,19 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
     void (async () => {
       setLoading(true)
       try {
-        const s = await loadCognitionState(projectPath)
-        if (!cancelled) setState(s)
+        const [s, chars] = await Promise.all([
+          loadCognitionState(projectPath),
+          loadCharacterStates(projectPath),
+        ])
+        if (!cancelled) {
+          setState(s)
+          setCharStates(new Map(chars.characters.map((c) => [c.characterName, c])))
+        }
       } catch {
-        if (!cancelled) setState(null)
+        if (!cancelled) {
+          setState(null)
+          setCharStates(new Map())
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -90,9 +110,54 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                 {t("novel.cognition.lastUpdated", { chapter: state.lastUpdatedChapter })}
               </p>
             )}
-            {state.characters.map((char) => (
+            {state.characters.map((char) => {
+              const cs = charStates.get(char.character)
+              const hasStateDetail = cs && (
+                cs.currentLocation || cs.status || cs.equipment.length > 0 || cs.abilities.length > 0
+              )
+              return (
               <div key={char.character} className="rounded-lg border p-3">
                 <p className="font-semibold text-foreground">{char.character}</p>
+                {hasStateDetail && cs && (
+                  <details className="mt-1 group">
+                    <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded">
+                      {t("novel.character.status")}
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-md border p-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3" aria-hidden="true" />
+                            {t("novel.character.location")}
+                          </div>
+                          <p className="mt-1 text-xs font-medium">{cs.currentLocation || t("novel.character.unknown")}</p>
+                        </div>
+                        <div className="rounded-md border p-2">
+                          <div className="text-xs text-muted-foreground">{t("novel.character.status")}</div>
+                          <p className="mt-1 text-xs font-medium">{cs.status || t("novel.character.unknown")}</p>
+                        </div>
+                      </div>
+                      {cs.equipment.length > 0 && (
+                        <div className="rounded-md border p-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Package className="h-3 w-3" aria-hidden="true" />
+                            {t("novel.character.equipment")}
+                          </div>
+                          <p className="mt-1 text-xs">{cs.equipment.join("、")}</p>
+                        </div>
+                      )}
+                      {cs.abilities.length > 0 && (
+                        <div className="rounded-md border p-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Swords className="h-3 w-3" aria-hidden="true" />
+                            {t("novel.character.abilities")}
+                          </div>
+                          <p className="mt-1 text-xs">{cs.abilities.join("、")}</p>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
                 {(char.knows.length > 0 || char.doesNotKnow.length > 0) && (
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-md border-l-2 border-success/50 bg-success/5 p-2">
@@ -126,7 +191,8 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                   </div>
                 )}
               </div>
-            ))}
+              )
+            })}
             {state.readerKnows.length > 0 && (
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
                 <p className="font-semibold text-foreground">{t("novel.cognition.readerKnows")}</p>
