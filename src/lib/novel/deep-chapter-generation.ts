@@ -43,6 +43,17 @@ export interface DeepChapterGenerationInput {
   dismantlingReferenceDirective?: string
   llmConfig: LlmConfig
   resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+  /**
+   * ISS-20260709-042: novelConfig injected by caller (chat-panel) rather than
+   * read via useWikiStore.getState() inside the generator. Deep-chapter is a
+   * lib module and must not reach into the React/zustand store directly
+   * (same pattern as ISS-033 context-engine fix). Freezing the config at
+   * generation-start is intentional — a single generation run applies a
+   * consistent config snapshot rather than reading mid-run config mutations.
+   * Type is NovelConfig (store state declares it non-optional, default
+   * DEFAULT_NOVEL_CONFIG), so callers always supply a concrete value.
+   */
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"]
 }
 
 export interface DeepChapterGenerationCallbacks {
@@ -897,8 +908,8 @@ export async function runDeepChapterGeneration(
   }
   const resumeCheckpoint = input.resumeCheckpoint
   const writingConfig = resolveWritingConfig(input.llmConfig)
-  const lengthSpec = resolveCurrentChapterLengthSpec()
-  const novelConfig = useWikiStore.getState().novelConfig
+  const novelConfig = input.novelConfig
+  const lengthSpec = resolveCurrentChapterLengthSpec(novelConfig)
 
   // 阶段0：前情分析
   const previousChaptersAnalysis = await runPreviousChaptersAnalysis(
@@ -1795,8 +1806,7 @@ async function finalPolishChapter(
   return polished.trim() ? polished : currentContent
 }
 
-function resolveCurrentChapterLengthSpec(): ChapterLengthSpec {
-  const novelConfig = useWikiStore.getState().novelConfig
+function resolveCurrentChapterLengthSpec(novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"]): ChapterLengthSpec {
   return resolveChapterLengthSpec(novelConfig?.chapterTargetChars)
 }
 

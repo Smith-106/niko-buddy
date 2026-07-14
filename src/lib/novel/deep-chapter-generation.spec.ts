@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import type { LlmConfig } from "@/stores/wiki-store"
-import { useWikiStore } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
+import { useWikiStore, DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
 import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { NovelReviewResult } from "./review-adapter"
@@ -30,6 +30,10 @@ const llmConfig = {
   maxContextSize: 120000,
   reasoning: { mode: "high" },
 } satisfies LlmConfig
+
+// ISS-20260709-042: novelConfig now injected via DeepChapterGenerationInput
+// (no longer read from useWikiStore inside the generator).
+const novelConfig = { ...DEFAULT_NOVEL_CONFIG } satisfies NovelConfig
 
 const contextPack: ContextPack = {
   task: "生成第3章",
@@ -163,7 +167,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -201,7 +205,7 @@ describe("runDeepChapterGeneration", () => {
     })
 
     await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )
@@ -220,6 +224,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "给我生成第1章内容",
         chapterNumber: 1,
         llmConfig,
+
+        novelConfig,
         goldenThreeChapter: {
           enabled: true,
           targetChapter: 1,
@@ -246,7 +252,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     await expect(runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )).resolves.toMatchObject({ finalContent: expect.any(String), partial: false, partialReason: null })
@@ -260,7 +266,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     await expect(runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "???3?", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "???3?", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )).resolves.toMatchObject({ finalContent: expect.any(String) })
@@ -282,7 +288,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -323,7 +329,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )
@@ -381,7 +387,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第7章正文", chapterNumber: 7, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第7章正文", chapterNumber: 7, llmConfig, novelConfig },
       {},
       deps,
     )
@@ -441,7 +447,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第7章正文", chapterNumber: 7, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第7章正文", chapterNumber: 7, llmConfig, novelConfig },
       {},
       deps,
     )
@@ -501,6 +507,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "生成第7章正文",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
         resumeCheckpoint: {
           version: 1,
           originalRequest: "生成第7章正文",
@@ -565,6 +573,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "生成第7章正文",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
       },
       {},
       deps,
@@ -664,6 +674,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "生成第7章正文",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
       },
       {},
       deps,
@@ -718,6 +730,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
         resumeCheckpoint: {
           version: 1,
           originalRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
@@ -775,6 +789,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
         resumeCheckpoint: {
           version: 1,
           originalRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
@@ -834,6 +850,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
         chapterNumber: 7,
         llmConfig,
+
+        novelConfig,
         resumeCheckpoint: {
           version: 1,
           originalRequest: "请生成第7章正文，只输出可直接保存到章节库的完整章节正文，约300字。",
@@ -881,7 +899,7 @@ describe("runDeepChapterGeneration", () => {
     ])
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )
@@ -911,7 +929,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     await expect(runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )).rejects.toThrow("review stalled")
@@ -941,7 +959,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -974,7 +992,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成首章", chapterNumber: 1, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成首章", chapterNumber: 1, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1010,7 +1028,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1041,7 +1059,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1072,7 +1090,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1103,7 +1121,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1133,7 +1151,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1165,7 +1183,7 @@ describe("runDeepChapterGeneration", () => {
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
@@ -1207,6 +1225,8 @@ describe("runDeepChapterGeneration", () => {
         userRequest: "生成第3章",
         chapterNumber: 3,
         llmConfig,
+
+        novelConfig,
         resumeCheckpoint: checkpoint,
       },
       { onThinking: (content) => thinking.push(content) },
@@ -1243,7 +1263,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     await expect(runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )).rejects.toThrow("Request cancelled")
@@ -1281,7 +1301,7 @@ describe("runDeepChapterGeneration", () => {
       }
 
       const result = await runDeepChapterGeneration(
-        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
         {},
         deps,
       )
@@ -1338,7 +1358,7 @@ describe("runDeepChapterGeneration", () => {
       }
 
       const result = await runDeepChapterGeneration(
-        { projectPath: "E:/Novel", userRequest: "生成第4章", chapterNumber: 4, llmConfig },
+        { projectPath: "E:/Novel", userRequest: "生成第4章", chapterNumber: 4, llmConfig, novelConfig },
         {},
         deps,
       )
@@ -1377,7 +1397,7 @@ describe("runDeepChapterGeneration", () => {
       }
 
       await expect(runDeepChapterGeneration(
-        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
         {},
         deps,
       )).rejects.toThrow("no meaningful stream output within 90 seconds")
@@ -1401,7 +1421,7 @@ describe("runDeepChapterGeneration", () => {
     }
 
     await expect(runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
       controller.signal,
@@ -1414,7 +1434,7 @@ describe("runDeepChapterGeneration", () => {
     const controller = new AbortController()
 
     await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
       controller.signal,
@@ -1506,7 +1526,7 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     deps.runSixDimensionReview = runSixDim
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       {},
       deps,
     )

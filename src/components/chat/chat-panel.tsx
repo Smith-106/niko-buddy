@@ -986,6 +986,7 @@ export function ChatPanel() {
               goldenThreeChapter: goldenThreeChapter?.enabled ? goldenThreeChapter : undefined,
               dismantlingReferenceDirective: dismantlingDirective,
               llmConfig: effectiveChatLlmConfig,
+              novelConfig,
               resumeCheckpoint: interruptedResumeCheckpoint,
             },
             {
@@ -1797,6 +1798,7 @@ export function ChatPanel() {
             goldenThreeChapter: goldenResume?.enabled ? goldenResume : undefined,
             dismantlingReferenceDirective: dismantlingDirective,
             llmConfig: effectiveChatLlmConfig,
+            novelConfig,
             resumeCheckpoint,
           },
           {

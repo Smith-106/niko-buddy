@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { LlmConfig } from "@/stores/wiki-store"
-import { useWikiStore } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
+import { useWikiStore, DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
 import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { NovelReviewResult } from "./review-adapter"
@@ -34,6 +34,10 @@ const llmConfig = {
   maxContextSize: 120000,
   reasoning: { mode: "high" },
 } satisfies LlmConfig
+
+// ISS-20260709-042: novelConfig injected via input. Base fixture; specs that
+// need sceneBreakdownEnabled=true build a local override (see setState sites).
+const baseNovelConfig = { ...DEFAULT_NOVEL_CONFIG } satisfies NovelConfig
 
 const contextPack: ContextPack = {
   task: "生成第3章",
@@ -152,7 +156,7 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
     const thinking: string[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig: { ...baseNovelConfig, sceneBreakdownEnabled: true } },
       {
         onThinking: (content) => thinking.push(content),
         onCheckpoint: async (checkpoint) => { checkpoints.push(checkpoint) },
@@ -198,7 +202,7 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
     const checkpoints: DeepChapterGenerationResumeCheckpoint[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig: baseNovelConfig },
       { onCheckpoint: async (checkpoint) => { checkpoints.push(checkpoint) } },
       deps,
     )
@@ -229,7 +233,7 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
 
     const deps = createDeps()
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig: { ...baseNovelConfig, sceneBreakdownEnabled: true } },
       {},
       deps,
     )
@@ -255,7 +259,7 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
     const checkpoints: DeepChapterGenerationResumeCheckpoint[] = []
 
     const result = await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig: { ...baseNovelConfig, sceneBreakdownEnabled: true } },
       { onCheckpoint: async (checkpoint) => { checkpoints.push(checkpoint) } },
       deps,
     )
@@ -287,7 +291,7 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
     }
 
     await runDeepChapterGeneration(
-      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, resumeCheckpoint },
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig: { ...baseNovelConfig, sceneBreakdownEnabled: true }, resumeCheckpoint },
       {},
       deps,
     )
