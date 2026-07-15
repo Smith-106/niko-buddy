@@ -10,7 +10,7 @@
  *   - 增加"已提取角色"按钮，加载以前提取过的角色
  */
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
@@ -101,6 +101,37 @@ export function ChapterSelectionPanel({
     setSelectAll(true)
   }, [chapters])
 
+  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
+  // role=dialog/aria-modal + Escape 关闭 + focus trap(Tab 循环限于模态内)。
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onCancel()
+        return
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    dialogRef.current?.focus()
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [onCancel])
+
   const handleToggleChapter = (chapterId: string) => {
     setSelectedChapters(prev => {
       const next = new Set(prev)
@@ -156,7 +187,14 @@ export function ChapterSelectionPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="章节选择"
+        tabIndex={-1}
+        className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none"
+      >
         {/* 标题栏 */}
         <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
           <div>

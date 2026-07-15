@@ -643,11 +643,50 @@ function DeleteMemoryConfirmDialog({
   onConfirm: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
+  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
+  // role=dialog/aria-modal + Escape 关闭 + focus trap。
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        if (!deleting) onCancel()
+        return
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    dialogRef.current?.focus()
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [open, onCancel, deleting])
+
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
-      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background shadow-xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("novel.memoryCenter.deleteConfirmTitle")}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-lg border border-destructive/60 bg-background shadow-xl outline-none"
+      >
         <div className="flex items-start gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-destructive">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="min-w-0">

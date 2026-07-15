@@ -3,7 +3,7 @@
  * 显示提取的角色列表和生成的 Skills
  */
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { User, X, Plus, Feather } from "lucide-react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
@@ -109,6 +109,40 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       cancelled = true
     }
   }, [currentProject?.path])
+
+  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
+  // role=dialog/aria-modal 让屏幕阅读器识别为模态; Escape 键关闭; 打开时
+  // 聚焦模态(非背景元素),Tab 循环限于模态内(focus trap)。
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (error) return // error 态模态有自己的关闭按钮，不抢 Escape
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    dialogRef.current?.focus()
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [onClose, error])
+
   const characters = effectiveResult?.characters || []
   const skills = effectiveResult?.skills || []
   // feature/book-style-extraction：当前作品的文风画像 + 是否已启用
@@ -456,7 +490,12 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   if (error) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-background rounded-lg p-6">
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-label="分析结果加载失败"
+          className="bg-background rounded-lg p-6 outline-none"
+        >
           <div className="text-center text-destructive">{error}</div>
           <Button onClick={onClose} className="mt-4 w-full">关闭</Button>
         </div>
@@ -466,7 +505,14 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="拆书分析结果"
+        tabIndex={-1}
+        className="w-full max-w-6xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none"
+      >
         {/* 标题栏 */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>

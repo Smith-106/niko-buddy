@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
 
@@ -97,6 +97,39 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const [history, setHistory] = useState<SnapshotHistoryEntry[]>([])
   const [restoring, setRestoring] = useState(false)
   const [saveMessage, setSaveMessage] = useState("")
+
+  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
+  // role=dialog/aria-modal 让屏幕阅读器识别为模态; Escape 键关闭; 打开时
+  // 聚焦模态(非背景元素),Tab 循环限于模态内(focus trap)。
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    // 打开时聚焦模态容器(不抢第一个按钮的焦点,但让 Tab 从模态内开始)
+    dialogRef.current?.focus()
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [onClose])
 
   useEffect(() => {
     let cancelled = false
@@ -233,9 +266,19 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
       <div
-        className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background shadow-xl"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={chapterNumber < 0 && snapshot?.chapterTitle
+          ? `${snapshot.chapterTitle}快照`
+          : t("novel.snapshot.title", { number: chapterNumber })}
+        tabIndex={-1}
+        className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
