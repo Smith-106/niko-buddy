@@ -1670,7 +1670,7 @@ function applyResourceLedgerToStore(
  * tracks each projection's rebuild status so a mid-rebuild crash leaves a
  * partially-rebuilt but detectable state.
  */
-async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot, options: { embeddingConfig?: EmbeddingConfig } = {}): Promise<void> {
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
 
   // fold_rebuildable: cognition / character / foreshadow / structured-memory
@@ -1756,7 +1756,7 @@ async function rebuildDerivedMemoryFromSnapshots(
   latestSnapshot?: ChapterSnapshot,
   options: { embeddingConfig?: EmbeddingConfig } = {},
 ): Promise<void> {
-  return rebuildFromCommittedSnapshot(projectPath, latestSnapshot)
+  return rebuildFromCommittedSnapshot(projectPath, latestSnapshot, options)
 }
 
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {

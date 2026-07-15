@@ -1,4 +1,4 @@
-import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride, type ProviderConfigs } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 
@@ -45,7 +45,7 @@ export function resolveModelConfig(
  * useWikiStore.getState() 保持向后兼容。
  */
 export interface ModelResolverStoreSnapshot {
-  providerConfigs?: ProviderOverride[]
+  providerConfigs?: ProviderConfigs
   defaultLlmModel?: string
   aiChatModel?: string
 }

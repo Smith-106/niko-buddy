@@ -1415,6 +1415,7 @@ export async function searchRelevantContentUnified(
   task: string,
   chapterNumber: number | undefined,
   limit: number,
+  options: BuildContextOptions = {},
 ): Promise<string> {
   const tokens = tokenizeQuery(task)
   const entityHints = tokens.filter((t) => t.length >= 2).slice(0, 5)
