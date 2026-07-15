@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -326,6 +327,18 @@ export function ChatPanel() {
   // streaming effect (which only reads the ref) doesn't re-render on every
   // scroll tick.
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+
+  // ISS-20260709-010 (EC-004): 虚拟列表只渲染可见消息,避免 1000+ 消息全量
+  // 挂载 ChatMessage + ReactMarkdown 解析拖垮滚动。measureElement 动态测高
+  // (markdown 每条高度不一),estimateSize 200 仅作初次渲染前的占位估算。
+  // getItemKey 用 msg.id 稳定 key,滚动时 virtualizer 复用 DOM。
+  const virtualizer = useVirtualizer({
+    getScrollElement: () => scrollContainerRef.current,
+    count: activeMessages.length,
+    estimateSize: () => 200,
+    overscan: 4,
+    getItemKey: (index) => activeMessages[index]?.id ?? `msg-${index}`,
+  })
 
   const [chapterSaveState, setChapterSaveState] = useState<{
     conversationId: string
@@ -2192,34 +2205,59 @@ export function ChatPanel() {
               className="h-full overflow-y-auto px-3 py-2"
             >
               {/* key 强制在切换会话时重新挂载消息列表，避免旧会话内容残留 */}
-              <div key={activeConversationId} className="flex flex-col gap-3">
-                {activeMessages.map((msg, idx) => {
-                  // Check if this is the last assistant message
-                  const isLastAssistant = msg.role === "assistant" &&
-                    !activeMessages.slice(idx + 1).some((m) => m.role === "assistant")
-                  const messageSaveState =
-                    chapterSaveState &&
-                    chapterSaveState.conversationId === msg.conversationId &&
-                    chapterSaveState.messageId === msg.id
-                      ? chapterSaveState
-                      : null
-                  return (
-                    <ChatMessage
-                      key={msg.id}
-                      message={msg}
-                      isLastAssistant={isLastAssistant && !isStreaming}
-                      onRegenerate={isLastAssistant ? handleRegenerate : undefined}
-                      novelMode={novelMode}
-                      projectPath={project?.path ?? null}
-                      onSaveAsChapter={handleSaveAsChapter}
-                      onDiscardDraft={isLastAssistant ? handleDiscardDraft : undefined}
-                      onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
-                      onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
-                      saveStatus={messageSaveState?.status}
-                      isSaving={messageSaveState?.isSaving ?? false}
-                    />
-                  )
-                })}
+              <div key={activeConversationId} className="flex flex-col">
+                {/* ISS-20260709-010: 虚拟列表。内层 absolute 容器撑起
+                    virtualizer.getTotalSize() 高度,每条消息 translateY 定位。
+                    measureElement 测真实高度后 virtualizer 重算,无需 flex gap
+                    (gap 在虚拟 spacer 间无效,改用每条 padding-bottom)。 */}
+                <div
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    position: "relative",
+                  }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const msg = activeMessages[virtualItem.index]
+                    if (!msg) return null
+                    const isLastAssistant = msg.role === "assistant" &&
+                      !activeMessages.slice(virtualItem.index + 1).some((m) => m.role === "assistant")
+                    const messageSaveState =
+                      chapterSaveState &&
+                      chapterSaveState.conversationId === msg.conversationId &&
+                      chapterSaveState.messageId === msg.id
+                        ? chapterSaveState
+                        : null
+                    return (
+                      <div
+                        key={virtualItem.key}
+                        data-index={virtualItem.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualItem.start}px)`,
+                          paddingBottom: "0.75rem",
+                        }}
+                      >
+                        <ChatMessage
+                          message={msg}
+                          isLastAssistant={isLastAssistant && !isStreaming}
+                          onRegenerate={isLastAssistant ? handleRegenerate : undefined}
+                          novelMode={novelMode}
+                          projectPath={project?.path ?? null}
+                          onSaveAsChapter={handleSaveAsChapter}
+                          onDiscardDraft={isLastAssistant ? handleDiscardDraft : undefined}
+                          onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
+                          onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
+                          saveStatus={messageSaveState?.status}
+                          isSaving={messageSaveState?.isSaving ?? false}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
                 {isStreaming && <StreamingMessage content={streamingContent} />}
                 <div ref={bottomRef} />
               </div>

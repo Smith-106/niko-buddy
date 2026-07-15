@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { useCallback, useEffect, useRef, useState, useMemo, memo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
@@ -102,7 +102,12 @@ function canOperateOnDeepChapterDraft(message: DisplayMessage): boolean {
   return visibleContent.slice(heading.length).trim().length >= 120
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
+// ISS-20260709-010 (EC-004): ChatMessage 用 React.memo 避免 1000+ 消息列表
+// 在父级任何 state 变化(hover/scroll/streaming)时全量重渲染。memo 浅比较
+// props;回调引用由父级 chat-panel useCallback 稳定,message 对象引用稳定
+// (chat-store 按 id 去重)。isLastAssistant 只对末条 assistant 消息变化,
+// 非末条消息该 prop 恒定 false,不触发重渲染。
+function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
@@ -618,6 +623,8 @@ function extractCitedPages(text: string): CitedPage[] {
   return []
 }
 
+export const ChatMessage = memo(ChatMessageImpl)
+
 interface StreamingMessageProps {
   content: string
 }
@@ -692,7 +699,10 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   )
 }
 
-function MarkdownContent({ content }: { content: string }) {
+// ISS-20260709-010 (EC-004): MarkdownContent memo — content 不变时跳过
+// ReactMarkdown/remark/rehype 重新解析(KaTeX/Mermaid 重算昂贵)。content 是
+// string 浅比较即可,父 ChatMessage 已 memo 保证 content 引用稳定。
+const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
   // Strip hidden comments
   const cleaned = content.replace(/<!--.*?-->/gs, "").trimEnd()
 
@@ -785,7 +795,7 @@ function MarkdownContent({ content }: { content: string }) {
       </div>
     </div>
   )
-}
+})
 
 /**
  * 检测文本是否主要是LLM英文思考内容（应隐藏）
