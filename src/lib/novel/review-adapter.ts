@@ -7,6 +7,7 @@ import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
+import { slopScore, classifySlop, slopReportToText } from "./mechanical-slop-detector"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
 export interface NovelReviewResult {
@@ -220,6 +221,24 @@ export async function reviewChapter(
 
   const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
+
+  // A19 机械层零 LLM 前置门控 (借鉴点 #1, PLN-20260716-mechanical-regex-audit):
+  // LLM 审查前先跑机械 slopScore, penalty>=8 (block) 直接返回 anti_ai error 跳过
+  // LLM 审查 (机械层先于语义层, 省 token + 防 LLM 自我纵容 slop)。slop 属 Anti-AI(P1),
+  // 不覆盖 Consistency(P0) — 一致性仍由 LLM 审查维度管, 机械 slop 只管 AI 味。
+  // 5-8 (warn) / <5 (clean) 暂不注入 LLM (最小侵入, detector 已暴露
+  // slopReportToText 供未来 prompt 注入); >=8 阻断已覆盖最高 ROI 省流场景。
+  const slopReport = slopScore(chapterContent)
+  if (classifySlop(slopReport) === "block") {
+    return [{
+      severity: "error" as const,
+      type: "anti_ai",
+      message: `机械 slop 阻断: ${slopReportToText(slopReport)}`,
+      evidence: `penalty ${slopReport.slopPenalty.toFixed(1)}/10 (机械正则检测, 零 LLM)`,
+      relatedMemory: "",
+      suggestion: "降低 AI 味: 删总结腔/解释腔, 打破机械句式, 具体化情绪替代概述",
+    }]
+  }
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
   const baseContextPack = options.contextPack ?? await buildContextPack(
