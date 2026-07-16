@@ -4,6 +4,11 @@ import { setLogTraceId, logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { loadEmotionLedger, checkEmotionCircuitBreaker } from "./emotion-ledger"
+import {
+  scoreCandidate,
+  detectRegression,
+  type CandidateVersion,
+} from "./candidate-selector"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
@@ -1614,7 +1619,24 @@ async function runReviewAndRepair(
     ))
   }
 
+  // A19 借鉴点 #4 (PLN-20260716-elo-fixloop-selection): fix-loop 候选退化检测。
+  // currentContent=revisedContent 直接覆盖 (file:1752 原编排器) 无版本对比, 返修可能
+  // 越改越差 (slop 上升)。prevCandidate 滑动窗口记前版机械 slop 分, 返修后 detectRegression
+  // 退化时回退前版。零 LLM (scoreCandidate 复用 #1 slopScore)。最小侵入: 只加 candidate
+  // 变量 + 退化分支, 不改 buildDeepChapterRevisionPrompt/collectModelText/MAX_GATE_RETRY
+  // (守 MAINT-1 拆分结构)。首次进循环时 prevCandidate===null, 用当前 currentContent 初始化。
+  let prevCandidate: CandidateVersion | null = null
+
   while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
+    // 借鉴点 #4 首次进循环: 用当前 currentContent (初稿/resume 版) 记前版候选。
+    // 后续迭代由退化检测分支更新 (滑动窗口 2 版, DD-1)。
+    if (prevCandidate === null) {
+      prevCandidate = {
+        content: currentContent,
+        slopPenalty: scoreCandidate(currentContent),
+        retryCount,
+      }
+    }
     // A19 emotion-ledger pilot Circuit Breaker (ADR-17 fix-loop 配套): 返修循环
     // 中若某角色情绪债务超阈值 (netValue < EMOTION_CB_THRESHOLD), 提前转人工而非
     // 继续返修——角色情绪已崩时继续重写只会加深不一致。最小侵入: 复用与
@@ -1744,7 +1766,27 @@ async function runReviewAndRepair(
         `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
       ].join("\n"),
     ))
-    currentContent = revisedContent
+    // 借鉴点 #4 退化检测: 返修后跑 detectRegression 比当前版 vs 前版 slop 分。
+    // 退化 (当前版 slop 比前版高 +threshold) → 回退前版 (不采用更差返修), 但 retryCount
+    // 仍 +1 (占一次重试额度防无限循环)。不退化 → 采用当前版 + 更新 prevCandidate (滑动窗口)。
+    // 零 LLM (scoreCandidate/detectRegression 复用 #1 slopScore 纯算术)。
+    const currCandidate: CandidateVersion = {
+      content: revisedContent,
+      slopPenalty: scoreCandidate(revisedContent),
+      retryCount: nextRetryCount,
+    }
+    const selection = detectRegression(prevCandidate, currCandidate)
+    if (selection.regressed) {
+      currentContent = selection.keep.content
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5：返修退化回退",
+        [selection.reason, "", "已回退前版草稿, retryCount 仍计数以防无限循环。"].join("\n"),
+      ))
+      // prevCandidate 保持不变 (前版仍是基准, 下一轮继续对比)
+    } else {
+      currentContent = revisedContent
+      prevCandidate = currCandidate
+    }
     revised = true
     retryCount = nextRetryCount
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
