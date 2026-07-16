@@ -11,6 +11,7 @@ import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
 import { loadSubplotBoard, subplotBoardToContextText } from "./subplot-board"
 import { loadResourceLedger, resourceLedgerToContextText } from "./resource-ledger"
 import { loadEmotionLedger, emotionLedgerToContextText } from "./emotion-ledger"
+import { loadAuraEvolution, auraEvolutionToContextText } from "./aura-evolution"
 import {
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
@@ -524,11 +525,12 @@ async function buildContextPackFromRawData(
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
   // array literal). The stores are independent.
-  const [emotionalText, subplotText, resourceText, emotionLedgerText] = await Promise.all([
+  const [emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText] = await Promise.all([
     readEmotionalArcsText(context.projectPath),
     readSubplotBoardText(context.projectPath),
     readResourceLedgerText(context.projectPath),
     readEmotionLedgerText(context.projectPath),
+    readAuraEvolutionText(context.projectPath),
   ])
   const characterStates = joinNonEmpty([
     rawData.snapshots.characterStates,
@@ -543,6 +545,10 @@ async function buildContextPackFromRawData(
     // 结果，LLM 只读不推断。与 emotional-arcs 互补（弧线 beat vs 债务净值），
     // 不重叠。空 store 渲染 ''（向后兼容 — 未接入时不注入）。
     emotionLedgerText,
+    // A19 借鉴点 #3: P14 画像漂移历史注入 (机械字段 diff 文本化, LLM 只读)。
+    // 与 emotional-arcs/emotion-ledger 互补不重叠。空 store 渲染 '' (写入端未接入
+    // 时不注入, backward compatible)。
+    auraEvolutionText,
     // MAINT-002 (TASK-008): subplot-board + resource-ledger projections
     // injected as protected-tier canon alongside emotional-arcs — active
     // subplots and current item holders are load-bearing for the current
@@ -1181,6 +1187,27 @@ async function readEmotionLedgerText(pp: string): Promise<string> {
   try {
     const store = await loadEmotionLedger(pp)
     return emotionLedgerToContextText(store)
+  } catch {}
+  return ""
+}
+
+/**
+ * A19 借鉴点 #3 (PLN-20260716-p14-aura-evolution): P14 画像漂移历史注入为
+ * protected-tier canon — 机械层零 LLM 字段 diff 产出的画像变化记录文本化结果，
+ * LLM 只读不推断 (语义风格漂移交 LLM 审查, 非本层)。与 emotional-arcs/emotion-ledger
+ * 互补 (弧线 beat / 情绪债务 / 画像字段变化 三者不重叠)。空 store 渲染 '' (向后兼容 —
+ * 写入端未接入时不注入, 与 emotion-ledger pilot 同款先读端后写入端)。
+ * currentChapter 未知时传 0 (time-decay 退化为全保留权重 1, 仍输出历史)。
+ */
+async function readAuraEvolutionText(pp: string): Promise<string> {
+  try {
+    const store = await loadAuraEvolution(pp)
+    const names = Object.keys(store.entries)
+    if (names.length === 0) return ""
+    return names
+      .map((n) => auraEvolutionToContextText(store, n, 0))
+      .filter((t) => t.length > 0)
+      .join("\n")
   } catch {}
   return ""
 }
