@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
@@ -7,11 +7,58 @@ import {
   checkEmotionCircuitBreaker,
   createEmptyEmotionLedgerStore,
   emotionLedgerToContextText,
+  extractChapterEmotionTone,
   formatEmotionContext,
   getTopEmotionalDebt,
+  resolveSceneCharacterNames,
+  updateEmotionLedgerFromChapter,
   type EmotionLedgerEntry,
   type EmotionLedgerStore,
 } from "./emotion-ledger"
+
+// vi.hoisted: 内存文件系统 mock, 控制 loadCharacterStates/loadEmotionLedger 读 +
+// saveEmotionLedger 写 (走 @/commands/fs readFile/writeFileAtomic/createDirectory)。
+const fsMocks = vi.hoisted(() => {
+  const files = new Map<string, string>()
+  return {
+    files,
+    readFile: vi.fn(async (p: string) => {
+      const k = String(p).replace(/\\/g, "/")
+      if (!files.has(k)) throw new Error(`ENOENT: ${p}`)
+      return files.get(k)!
+    }),
+    writeFileAtomic: vi.fn(async (p: string, c: string) => {
+      files.set(String(p).replace(/\\/g, "/"), c)
+    }),
+    createDirectory: vi.fn(async () => {}),
+  }
+})
+
+vi.mock("@/commands/fs", () => ({
+  readFile: fsMocks.readFile,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+  createDirectory: fsMocks.createDirectory,
+}))
+
+// 写入 character-states.json (供 loadCharacterStates 读取) + 清空 emotion-ledger.json。
+function seedCharacterStates(projectPath: string, names: string[]) {
+  const pp = projectPath.replace(/\\/g, "/")
+  const store = {
+    characters: names.map((name) => ({
+      characterName: name,
+      currentLocation: "loc",
+      status: "active",
+      equipment: [],
+      abilities: [],
+      relationships: {},
+      lastUpdatedChapter: 0,
+      lastUpdatedAt: new Date().toISOString(),
+    })),
+    lastUpdated: new Date().toISOString(),
+  }
+  fsMocks.files.set(`${pp}/.novel/character-states.json`, JSON.stringify(store))
+  fsMocks.files.delete(`${pp}/.novel/emotion-ledger.json`)
+}
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -193,3 +240,178 @@ describe("A19 emotion-ledger pilot (NovelForge-v5 EmotionTracker 移植, 机械�
     expect(cb.tripped).toBe(false)
   })
 })
+
+describe("A19 emotion-ledger 写入端 (B 方案双层机械层, TASK-001/002/003)", () => {
+  beforeEach(() => {
+    fsMocks.files.clear()
+    fsMocks.readFile.mockClear()
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.createDirectory.mockClear()
+  })
+
+  it("extractChapterEmotionTone returns zero delta for empty content (backward compat)", () => {
+    const empty = extractChapterEmotionTone("")
+    expect(empty.valence).toBe(0)
+    expect(empty.arousal).toBe(0)
+    expect(empty.dominance).toBe(0)
+    expect(empty.reason).toBe("无情绪标记")
+  })
+
+  it("extractChapterEmotionTone detects payoff keywords → positive valence/arousal/dominance", () => {
+    const content = "主角打脸反派, 实现逆袭, 觉醒新力量"
+    const tone = extractChapterEmotionTone(content)
+    // payoff weights: 打脸3 + 逆袭3 + 觉醒2 = 8; pressure 0.
+    // valence = (8-0)/10 = 0.8, arousal = (8+0)/10 = 0.8, dominance = 0.8.
+    expect(tone.valence).toBeCloseTo(0.8, 5)
+    expect(tone.arousal).toBeCloseTo(0.8, 5)
+    expect(tone.dominance).toBeCloseTo(0.8, 5)
+    expect(tone.reason).toContain("payoff:8")
+    expect(tone.reason).toContain("pressure:0")
+  })
+
+  it("extractChapterEmotionTone detects pressure keywords → negative valence/dominance", () => {
+    const content = "角色遭遇背叛, 失去一切, 陷入绝望"
+    const tone = extractChapterEmotionTone(content)
+    // pressure weights: 背叛3 + 失去2.5 + 绝望2.5 = 8; payoff 0.
+    expect(tone.valence).toBeCloseTo(-0.8, 5)
+    expect(tone.dominance).toBeCloseTo(-0.8, 5)
+    // arousal = (0+8)/10 = 0.8 (压抑也激增唤醒).
+    expect(tone.arousal).toBeCloseTo(0.8, 5)
+  })
+
+  it("extractChapterEmotionTone mixed payoff+pressure → net by weight difference", () => {
+    const content = "打脸 背叛"
+    const tone = extractChapterEmotionTone(content)
+    // payoff: 打脸3; pressure: 背叛3 → valence = (3-3)/10 = 0.
+    expect(tone.valence).toBe(0)
+    // arousal = (3+3)/10 = 0.6.
+    expect(tone.arousal).toBeCloseTo(0.6, 5)
+  })
+
+  it("extractChapterEmotionTone clamps heavy payoff to [-1,1] (base 10 normalize)", () => {
+    const content = "爽点 大高潮 大高潮 大高潮 大高潮 大高潮"
+    const tone = extractChapterEmotionTone(content)
+    // 爽点8 + 大高潮10 (重复只计一次权重) = 18 → /10 = 1.8 → clamp 1.
+    expect(tone.valence).toBe(1)
+    expect(tone.arousal).toBe(1)
+  })
+
+  it("extractChapterEmotionTone neutral-only content → zero delta (不污染账本)", () => {
+    const content = "本章是过渡铺垫, 日常场景"
+    const tone = extractChapterEmotionTone(content)
+    expect(tone.valence).toBe(0)
+    expect(tone.arousal).toBe(0)
+    expect(tone.dominance).toBe(0)
+    expect(tone.reason).toContain("无情绪标记")
+  })
+
+  it("resolveSceneCharacterNames returns [] for empty character set", () => {
+    expect(resolveSceneCharacterNames("任何正文", [])).toEqual([])
+  })
+
+  it("resolveSceneCharacterNames matches only characters present in content", () => {
+    const content = "昴走向艾米莉亚, 雷格鲁斯旁观"
+    const names = resolveSceneCharacterNames(content, ["昴", "艾米莉亚", "雷格鲁斯", "碧翠丝"])
+    // 碧翠丝 not in content → excluded.
+    expect(names).toEqual(["昴", "艾米莉亚", "雷格鲁斯"])
+  })
+
+  it("resolveSceneCharacterNames handles substring names (long name matched independently)", () => {
+    // '白' is a substring of '白月'. Both present in content → both matched.
+    const content = "白月看着白"
+    const names = resolveSceneCharacterNames(content, ["白", "白月"])
+    expect(names).toContain("白月")
+    expect(names).toContain("白")
+  })
+
+  it("resolveSceneCharacterNames returns [] when no known character in content", () => {
+    const content = "无角色名出现的叙述"
+    expect(resolveSceneCharacterNames(content, ["昴", "艾米莉亚"])).toEqual([])
+  })
+
+  it("updateEmotionLedgerFromChapter writes per-character delta for scene characters (均分, 不除以人数)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴", "艾米莉亚"])
+    // 正文只含昴 + 爽点关键词, 艾米莉亚未出场.
+    const content = "昴打脸反派, 觉醒力量"
+    await updateEmotionLedgerFromChapter(pp, 2, content)
+    // saveEmotionLedger 走 writeFileAtomic → 读回 fsMocks.files 验证.
+    const savedRaw = fsMocks.files.get(`${pp}/.novel/emotion-ledger.json`)
+    expect(savedRaw).toBeDefined()
+    const saved: EmotionLedgerStore = JSON.parse(savedRaw!)
+    // 只昴出场 → 只 1 entry.
+    expect(saved.entries).toHaveLength(1)
+    expect(saved.entries[0].characterName).toBe("昴")
+    // 打脸3 + 觉醒2 = 5 → valence 0.5, arousal 0.5, dominance 0.5.
+    // applyEmotionDelta: netValue = valence*0.4+arousal*0.3+dominance*0.3 + history delta.
+    // base 0.5*0.4+0.5*0.3+0.5*0.3 = 0.5; history delta = 5+5+5=15 (三轴和)?
+    // deltaMagnitude = valence+arousal+dominance delta = 0.5+0.5+0.5 = 1.5.
+    // netValue = 0.5 + 1.5 = 2.0.
+    const subaru = saved.entries[0]
+    expect(subaru.history).toHaveLength(1)
+    expect(subaru.history[0].chapter).toBe(2)
+    expect(subaru.netValue).toBeCloseTo(calculateEmotionNetValue(subaru), 5)
+  })
+
+  it("updateEmotionLedgerFromChapter applies full tone to EACH scene character (not divided)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴", "艾米莉亚"])
+    // 两个角色都出场 + 爽点正文 → 每个都获完整 tone delta.
+    const content = "昴与艾米莉亚打脸反派"
+    await updateEmotionLedgerFromChapter(pp, 3, content)
+    const saved: EmotionLedgerStore = JSON.parse(
+      fsMocks.files.get(`${pp}/.novel/emotion-ledger.json`)!,
+    )
+    expect(saved.entries).toHaveLength(2)
+    // 两角色 netValue 相同 (均得完整 tone delta, 不除以人数).
+    const a = saved.entries.find((e) => e.characterName === "昴")!
+    const b = saved.entries.find((e) => e.characterName === "艾米莉亚")!
+    expect(a.netValue).toBeCloseTo(b.netValue, 5)
+    expect(a.netValue).toBeCloseTo(calculateEmotionNetValue(a), 5)
+  })
+
+  it("updateEmotionLedgerFromChapter no-op when tone is zero (neutral chapter, 不污染账本)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴"])
+    const content = "本章是过渡铺垫日常"
+    await updateEmotionLedgerFromChapter(pp, 4, content)
+    // 无 payoff/pressure 关键词 → tone 全 0 → 不写账本 → emotion-ledger.json 不存在.
+    expect(fsMocks.files.has(`${pp}/.novel/emotion-ledger.json`)).toBe(false)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("updateEmotionLedgerFromChapter no-op when no scene characters (正文无已知角色)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴"])
+    // 爽点正文但昴未出场.
+    const content = "神秘人打脸反派"
+    await updateEmotionLedgerFromChapter(pp, 5, content)
+    // tone 非零但无出场角色 → 不写账本.
+    expect(fsMocks.files.has(`${pp}/.novel/emotion-ledger.json`)).toBe(false)
+  })
+
+  it("updateEmotionLedgerFromChapter upserts existing entries (累积 history, 不覆盖)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴"])
+    // 第一次写入.
+    await updateEmotionLedgerFromChapter(pp, 1, "昴打脸反派")
+    // 第二次写入同角色 — 应 upsert 追加 history 不覆盖.
+    await updateEmotionLedgerFromChapter(pp, 2, "昴逆袭成功")
+    const saved: EmotionLedgerStore = JSON.parse(
+      fsMocks.files.get(`${pp}/.novel/emotion-ledger.json`)!,
+    )
+    expect(saved.entries).toHaveLength(1)
+    expect(saved.entries[0].history).toHaveLength(2)
+    expect(saved.entries[0].history[0].chapter).toBe(1)
+    expect(saved.entries[0].history[1].chapter).toBe(2)
+  })
+
+  it("updateEmotionLedgerFromChapter propagates saveEmotionLedger failure (caller formal-writeback 降级)", async () => {
+    const pp = "E:/Novel"
+    seedCharacterStates(pp, ["昴"])
+    fsMocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
+    // updateEmotionLedgerFromChapter 抛错 (不在内部吞错, 由 formal-writeback catch 降级).
+    await expect(updateEmotionLedgerFromChapter(pp, 1, "昴打脸反派")).rejects.toThrow("disk full")
+  })
+})
+
