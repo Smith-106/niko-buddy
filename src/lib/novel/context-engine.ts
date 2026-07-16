@@ -10,6 +10,7 @@ import { buildRevisionDirectives } from "./revision-feedback"
 import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
 import { loadSubplotBoard, subplotBoardToContextText } from "./subplot-board"
 import { loadResourceLedger, resourceLedgerToContextText } from "./resource-ledger"
+import { loadEmotionLedger, emotionLedgerToContextText } from "./emotion-ledger"
 import {
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
@@ -520,13 +521,14 @@ async function buildContextPackFromRawData(
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
   
-  // PERF-NEW-04: pre-fetch the three projection-store texts in parallel
+  // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
   // array literal). The stores are independent.
-  const [emotionalText, subplotText, resourceText] = await Promise.all([
+  const [emotionalText, subplotText, resourceText, emotionLedgerText] = await Promise.all([
     readEmotionalArcsText(context.projectPath),
     readSubplotBoardText(context.projectPath),
     readResourceLedgerText(context.projectPath),
+    readEmotionLedgerText(context.projectPath),
   ])
   const characterStates = joinNonEmpty([
     rawData.snapshots.characterStates,
@@ -536,6 +538,11 @@ async function buildContextPackFromRawData(
     // from the .novel/emotional-arcs.json store (same pattern as
     // readCognitionStates). Empty when no arcs recorded (backward compatible).
     emotionalText,
+    // A19 emotion-ledger pilot (NovelForge-v5 移植): 情绪债务账本注入为
+    // protected-tier canon — 机械层零 LLM 算术产出的 netValue/history 文本化
+    // 结果，LLM 只读不推断。与 emotional-arcs 互补（弧线 beat vs 债务净值），
+    // 不重叠。空 store 渲染 ''（向后兼容 — 未接入时不注入）。
+    emotionLedgerText,
     // MAINT-002 (TASK-008): subplot-board + resource-ledger projections
     // injected as protected-tier canon alongside emotional-arcs — active
     // subplots and current item holders are load-bearing for the current
@@ -1159,6 +1166,21 @@ async function readResourceLedgerText(pp: string): Promise<string> {
   try {
     const store = await loadResourceLedger(pp)
     return resourceLedgerToContextText(store)
+  } catch {}
+  return ""
+}
+
+/**
+ * A19 emotion-ledger pilot: read emotion-ledger store and render as
+ * protected-tier context text (top-N emotional-debt characters). Returns ""
+ * when the store is empty/absent (backward compatible). Failures swallowed
+ * (non-fatal) — same contract as readEmotionalArcsText. 机械层零 LLM: netValue
+ * 与 history delta 由确定性算术产出，LLM 只读文本化结果作生成约束不参与推断。
+ */
+async function readEmotionLedgerText(pp: string): Promise<string> {
+  try {
+    const store = await loadEmotionLedger(pp)
+    return emotionLedgerToContextText(store)
   } catch {}
   return ""
 }
