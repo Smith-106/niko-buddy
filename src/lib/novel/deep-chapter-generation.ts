@@ -3,6 +3,7 @@ import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequ
 import { setLogTraceId, logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import { loadEmotionLedger, checkEmotionCircuitBreaker } from "./emotion-ledger"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
@@ -183,6 +184,10 @@ const ONUPDATE_FLUSH_CHARS = 256
 // multiple window sizes (40/80/120) or a suffix-array approach would widen
 // coverage but risks false positives on legitimate prose; deferred.
 const MAX_GATE_RETRY = 3
+// A19 emotion-ledger pilot: 情绪债务熔断阈值。任一角色 netValue 低于此值即触发
+// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 选自 NovelForge-v5
+// EmotionTracker 经验值: 三轴负偏 + history 负累积达此深度时角色状态已不可逆。
+const EMOTION_CB_THRESHOLD = -0.6
 const MAX_TASK_BRIEF_REPAIR_ATTEMPTS = 2
 const USER_ABORT_MESSAGE = "已停止生成"
 const TASK_BRIEF_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u
@@ -1610,6 +1615,53 @@ async function runReviewAndRepair(
   }
 
   while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
+    // A19 emotion-ledger pilot Circuit Breaker (ADR-17 fix-loop 配套): 返修循环
+    // 中若某角色情绪债务超阈值 (netValue < EMOTION_CB_THRESHOLD), 提前转人工而非
+    // 继续返修——角色情绪已崩时继续重写只会加深不一致。最小侵入: 复用与
+    // MAX_GATE_RETRY 相同的 manualHandoff 回传路径, 不扰动 MAINT-1 拆分结构。
+    // 仅在已返修过 (retryCount > 0) 时检查, 避免首次 review 即误触发。零 LLM:
+    // loadEmotionLedger 只读 store, checkEmotionCircuitBreaker 纯算术判定。
+    if (retryCount > 0) {
+      try {
+        const emotionStore = await loadEmotionLedger(input.projectPath)
+        const cb = checkEmotionCircuitBreaker(emotionStore, EMOTION_CB_THRESHOLD)
+        if (cb.tripped) {
+          manualReviewRequired = true
+          decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+          callbacks.onThinking?.(formatStageThinking(
+            "阶段5.5：情绪债务熔断转人工",
+            [
+              cb.reason,
+              "",
+              "角色情绪债务已达熔断阈值，继续自动返修将加深角色状态不一致，已转人工处理。",
+              "",
+              formatReviewIssueList(blockingIssues),
+            ].join("\n"),
+          ))
+          await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
+            taskBrief,
+            draftContent,
+            reviewResults,
+            currentContent,
+            decisionGates,
+            retryCount,
+            manualReviewRequired: true,
+          }))
+          return {
+            reviewResults,
+            decisionGates,
+            retryCount,
+            manualReviewRequired: true,
+            currentContent,
+            revised,
+            manualHandoff: true,
+          }
+        }
+      } catch {
+        // emotion-ledger store 缺失/损坏 → 跳过熔断检查, 降级为原返修逻辑 (非致命)。
+      }
+    }
+
     if (retryCount >= MAX_GATE_RETRY) {
       manualReviewRequired = true
       decisionGates = buildDecisionGates(reviewResults, retryCount, true)
