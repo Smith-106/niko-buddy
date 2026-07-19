@@ -116,6 +116,8 @@ describe("ReviewView dismiss UI rendering (G3)", () => {
     expect(html).toContain("review.results.dismiss.dismissButton")
     // data_gap subtype 的 finding 不应渲染 dismiss 按钮 (DD-5)
     expect(html).not.toContain("review.results.dismiss.titleLabel")
+    // subtype 标签渲染: continuity finding 展示 subtype.* key (mock i18n.t 返 key)
+    expect(html).toContain("review.results.subtype.consistency_mechanical")
     // PAT-U5: 折叠面板按钮 SSR 初始 aria-expanded="false" (dismissTarget=null → match false)
     // + aria-controls 指向 dismissPanelId (useId 生成, 非空)。panel (role=region) 初始不渲染。
     expect(html).toMatch(/aria-expanded="false"/)
@@ -146,6 +148,8 @@ describe("ReviewView dismiss UI rendering (G3)", () => {
     // data_gap subtype 不渲染 dismiss 按钮 (DD-5 UI 层双守, 类型层 dismissFinding severity 已拒 info)
     expect(html).not.toContain("review.results.dismiss.dismissButton")
     expect(html).not.toContain("review.results.dismiss.titleLabel")
+    // subtype 标签仍渲染 (标签展示与 dismiss DD-5 隐藏无关, data_gap 也展示 subtype)
+    expect(html).toContain("review.results.subtype.data_gap")
   })
 
   it("does not render dismiss button for non-continuity LLM finding (no continuityMeta)", () => {
@@ -168,5 +172,7 @@ describe("ReviewView dismiss UI rendering (G3)", () => {
     const html = renderToStaticMarkup(<ReviewView />)
     // 非 continuity finding 无 continuityMeta → 不渲染 dismiss 按钮 (DD-1 additive, 零行为变更)
     expect(html).not.toContain("review.results.dismiss.dismissButton")
+    // 非 continuity finding 无 continuityMeta → 不渲染 subtype 标签 (DD-1 additive)
+    expect(html).not.toContain("review.results.subtype.")
   })
 })

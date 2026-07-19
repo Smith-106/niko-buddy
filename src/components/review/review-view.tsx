@@ -1077,6 +1077,11 @@ export function ReviewView({
                           aria-hidden="true"
                         />
                         <span className="font-medium">{typeLabel}</span>
+                        {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
+                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
+                          </span>
+                        ) : null}
                         <span className="text-xs text-muted-foreground">{severityLabel}</span>
                       </div>
                       <p className="mt-1">{item.message}</p>
