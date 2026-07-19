@@ -44,6 +44,20 @@ export interface NovelReviewResult {
   evidence: string
   relatedMemory: string
   suggestion: string
+  /**
+   * 连续性 finding 透传元数据 (G2 DD-2): 仅 consistency_mechanical type 的 result 携带
+   * (由 deterministic-continuity-engine.toConsistencyReviewResult 填充)。LLM 审查结果
+   * 无此字段 (undefined) — additive 可选, 零行为变更。供 review-view dismiss UI 消费
+   * (subtype/ref/chapter, ref 作稳定跨检测 dismiss key)。
+   * 类型用宽松 string subtype (非 ContinuityFindingSubtype literal) 避免 review-adapter
+   * 依赖引擎模块 (守模块边界)。
+   */
+  continuityMeta?: {
+    subtype: string
+    ref: string
+    chapter: number
+    missingField?: string
+  }
 }
 
 /**

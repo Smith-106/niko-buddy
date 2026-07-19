@@ -593,6 +593,19 @@ export interface ContinuityReviewResult {
   evidence: string
   relatedMemory: string
   suggestion: string
+  /**
+   * 连续性 finding 透传元数据 (G2 DD-2/DD-3): 供审查 UI dismiss 闭环消费。
+   * ref 移到此处 (非 evidence 字段) — ref 是实体标识非正文片段, 旧 evidence=f.ref
+   * 语义错位 (review-view.tsx:960-962 italic「{evidence}」把 ref 当正文渲染)。
+   * subtype/ref/chapter 透传 finding 原值; missingField 仅 data_gap subtype 有值。
+   * 非 continuity finding 无此字段, buildNovelReviewActionItem 透传时 undefined 零行为变更。
+   */
+  continuityMeta?: {
+    subtype: ContinuityFindingSubtype
+    ref: string
+    chapter: number
+    missingField?: string
+  }
 }
 
 const SUGGESTION_BY_TYPE: Record<ContinuityFindingType, string> = {
@@ -610,13 +623,23 @@ export function toConsistencyReviewResult(
   return findings.map((f) => {
     const severity: ContinuityReviewResult["severity"] =
       f.severity === "critical" ? "error" : f.severity === "warning" ? "warning" : "info"
+    // DD-2: evidence 留空字符串 (非 f.ref) — ref 是实体标识非正文片段,
+    // 旧 evidence=f.ref 被 review-view.tsx:960-962 italic「{evidence}」当正文渲染语义错位。
+    // ref 透传到 continuityMeta.ref 供 dismiss UI 独立消费 (DD-3 稳定跨检测 key)。
+    const missingField = f.subtype === "data_gap" ? (f as DataGapFinding).missingField : undefined
     return {
       severity,
       type: "consistency_mechanical",
       message: f.message,
-      evidence: f.ref,
+      evidence: "",
       relatedMemory: "",
       suggestion: SUGGESTION_BY_TYPE[f.type] ?? "检查状态层一致性",
+      continuityMeta: {
+        subtype: f.subtype,
+        ref: f.ref,
+        chapter: f.chapter,
+        ...(missingField !== undefined ? { missingField } : {}),
+      },
     }
   })
 }

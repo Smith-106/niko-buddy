@@ -423,7 +423,11 @@ describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
     expect(results[0].severity).toBe("error")
     expect(results[0].type).toBe("consistency_mechanical")
     expect(results[0].message).toContain("死亡角色")
-    expect(results[0].evidence).toBe("character:死者")
+    // G2 DD-2: evidence 改空字符串 (非 f.ref) — ref 是实体标识非正文片段, 透传到 continuityMeta.ref
+    expect(results[0].evidence).toBe("")
+    expect(results[0].continuityMeta?.ref).toBe("character:死者")
+    expect(results[0].continuityMeta?.subtype).toBe("consistency_mechanical")
+    expect(results[0].continuityMeta?.chapter).toBe(8)
     expect(results[0].suggestion).toBeTruthy()
   })
 

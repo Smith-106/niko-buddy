@@ -16,6 +16,19 @@ export interface NovelReviewActionItem {
   secondaryEvidence?: string
   suggestion?: string
   targetPath: string
+  /**
+   * 连续性 finding 透传元数据 (G2 DD-1/DD-3): 仅 consistency_mechanical finding 携带,
+   * 供 review-view dismiss UI 消费 (调 dismissFinding 写 override store)。ref 作稳定
+   * 跨检测 dismiss key (非 id — id 含 message/evidence 跨检测会变)。subtype==='data_gap'
+   * 时 UI 隐藏 dismiss 按钮 (info 级禁 dismiss, DD-5 双守)。additive 可选, 非连续性
+   * finding undefined 零行为变更。
+   */
+  continuityMeta?: {
+    subtype: string
+    ref: string
+    chapter: number
+    missingField?: string
+  }
 }
 
 export function mapNovelReviewActionSeverity(severity: NovelReviewResult["severity"]): NovelReviewActionSeverity {
@@ -38,6 +51,8 @@ export function buildNovelReviewActionItem(targetPath: string, result: NovelRevi
     evidence: result.evidence,
     suggestion: result.suggestion,
     targetPath,
+    // G2 DD-1: 透传 continuityMeta (continuity finding 携带, LLM 审查 result 无此字段 → undefined 零行为变更)
+    ...(result.continuityMeta ? { continuityMeta: result.continuityMeta } : {}),
   }
 }
 
