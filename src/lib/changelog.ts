@@ -78,6 +78,31 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "2.4.0",
+  date: "2026-07-19",
+  highlights: {
+    en: [
+      "Added a deterministic (non-LLM) continuity engine: dormancy/absence/overdue/unresolved-foreshadowing and dead-character-state checks run before any semantic review, with a 3-level severity scheme (critical/warning/info) aligned to ADR-30. Mechanical critical findings block chapter approval via the Consistency P0 gate, never waiting for the LLM.",
+      "Dual-layer mounting of the continuity engine: a non-blocking bullet reminder at the generation layer (preserving Draft-first) plus a review-layer mechanical preflight that short-circuits the LLM review on critical findings.",
+      "Mechanical critical findings route to manualHandoff (reusing the emotion-ledger circuit-breaker path) instead of entering the Q4 fix-loop, so a consistency break surfaces as an explicit handoff rather than an auto-rewrite.",
+      "Override persistence store with a 6-value reasonCode union (intentional_death / intentional_absence / intentional_flashback / posthumous_by_design / false_positive / state_layer_fix) so dismissed findings carry auditable rationale instead of free-text.",
+      "Consistency metric data flow: collectContinuityMetric records execution time, finding counts by severity, data-gap count, override hits, short-circuit hits, and engine errors across all three thin wrappers, persisted via the atomic flushMetrics pattern.",
+      "Structured logger + LLM metrics infrastructure wired into the deep-chapter runtime: level/traceId/NOVEL_LOG_JSON logging, per-call LLM metrics (collectLLMMetric) with streamChat as the single ingestion point, plus an automatic flush safety valve (buffer>=500) and explicit run-end flush.",
+      "Restored the consistency_mechanical review type into the Consistency P0 gate set so mechanical findings are routed through the fixed Consistency>Anti-AI>Quality priority rather than silently falling to a quality gate.",
+    ],
+    zh: [
+      "新增确定性（无 LLM）连续性引擎：休眠/缺席/超期/未回收伏笔与死亡角色状态检测在语义审查前运行，采用对齐 ADR-30 的 3 级严重度方案（critical/warning/info）。机械 critical 发现经 Consistency P0 门控阻断章节通过，绝不等待 LLM。",
+      "连续性引擎双层挂载：生成层非阻断 bullet 提醒（守 Draft-first）+ 审查层机械预检在 critical 发现时短路 LLM 审查。",
+      "机械 critical 发现走 manualHandoff（复用 emotion-ledger 熔断路径）而非进入 Q4 fix-loop，使一致性破坏以显式人工交接而非自动重写呈现。",
+      "Override 持久化 store 配 6 值 reasonCode 枚举（intentional_death / intentional_absence / intentional_flashback / posthumous_by_design / false_positive / state_layer_fix），被驳回的发现携带可审计理由而非自由文本。",
+      "一致性 metric 数据流：collectContinuityMetric 在三处薄包装记录执行耗时、各级别发现数、data-gap 数、override 命中、短路命中、引擎错误，经原子 flushMetrics 模式持久化。",
+      "结构化 logger + LLM metrics 基础设施接入 deep-chapter 运行时：level/traceId/NOVEL_LOG_JSON 日志、按调用 LLM 指标（collectLLMMetric，streamChat 单点录入）+ 自动 flush 安全阀（buffer>=500）+ 显式 run-end flush。",
+      "恢复 consistency_mechanical 审查类型进 Consistency P0 门控集合，使机械发现按固定 Consistency>Anti-AI>Quality 优先级路由，而非静默落到 quality 门控。",
+    ],
+  },
+}
+
 const TWO_POINT_THREE_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.3.2",
   date: "2026-07-13",
@@ -669,6 +694,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_ZERO_CHANGELOG.version) return [TWO_POINT_FOUR_ZERO_CHANGELOG]
   if (version === TWO_POINT_THREE_TWO_CHANGELOG.version) return [TWO_POINT_THREE_TWO_CHANGELOG]
   if (version === TWO_POINT_THREE_ONE_CHANGELOG.version) return [TWO_POINT_THREE_ONE_CHANGELOG]
   if (version === TWO_POINT_THREE_ZERO_CHANGELOG.version) return [TWO_POINT_THREE_ZERO_CHANGELOG]
@@ -701,6 +727,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_ZERO_CHANGELOG,
     TWO_POINT_THREE_TWO_CHANGELOG,
     TWO_POINT_THREE_ONE_CHANGELOG,
     TWO_POINT_THREE_ZERO_CHANGELOG,
