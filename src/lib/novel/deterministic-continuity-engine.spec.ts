@@ -37,6 +37,7 @@ import {
   type ContinuityInput,
   type ReadonlyStore,
   type ContinuityOverride,
+  type ContinuityOverrideStore,
   type ContinuityOverrideReasonCode,
 } from "./deterministic-continuity-engine"
 
@@ -283,6 +284,95 @@ describe("EPIC-001 5 项检测三态 (ADR-30 subtype consistency_mechanical)", (
       })
       const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
       expect(findings.find((f) => f.type === "overdue_thread")).toBeUndefined()
+    })
+
+    // 覆盖 line 328 warning 分支 (debtLevel==='warning'): status='advanced' 且距上次推进 >= 10 章
+    it("true-positive: advanced 状态伏笔长期未推进产 unresolved_foreshadowing warning (line 328 分支)", () => {
+      const store = buildStore({
+        foreshadowing: [
+          makeForeshadowing({
+            id: "F2",
+            name: "推进后停滞伏笔",
+            status: "advanced",
+            plantedChapter: 1,
+            advancedChapters: [5],
+          }),
+        ],
+        currentChapter: 20, // 距上次推进 15 章 >= DEFAULT_ADVANCED_STALE(10)
+      })
+      const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      const unresolved = findings.find((f) => f.type === "unresolved_foreshadowing")
+      expect(unresolved).toBeDefined()
+      expect(unresolved?.severity).toBe("warning")
+      expect(unresolved?.subtype).toBe("consistency_mechanical")
+      expect(unresolved?.ref).toBe("foreshadowing:F2")
+      // 不应同时产 overdue_thread critical
+      expect(findings.find((f) => f.type === "overdue_thread")).toBeUndefined()
+    })
+
+    it("true-negative: advanced 状态伏笔近期已推进不产 unresolved_foreshadowing", () => {
+      const store = buildStore({
+        foreshadowing: [
+          makeForeshadowing({
+            id: "F3",
+            status: "advanced",
+            plantedChapter: 1,
+            advancedChapters: [18],
+          }),
+        ],
+        currentChapter: 20, // 距上次推进 2 章 < 10
+      })
+      const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      expect(findings.find((f) => f.type === "unresolved_foreshadowing")).toBeUndefined()
+    })
+  })
+
+  // --- checkContinuity overrideStore 集成分支 (line 648) ---
+  describe("checkContinuity overrideStore 集成 (ADR-34 跨检测持久自动降级)", () => {
+    it("传入非空 overrideStore 触发 applyOverrides 路径 (line 648 真分支)", () => {
+      const store = buildStore({
+        subplots: [makeSubplot({ id: "S1", lastSeenChapter: 1, status: "active" })],
+        currentChapter: 20,
+      })
+      // 产 dormant_thread warning (critical 可能也有, 取 warning 降级)
+      const rawFindings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      const dormantWarning = rawFindings.find(
+        (f) => f.type === "dormant_thread" && f.severity === "warning",
+      )
+      expect(dormantWarning).toBeDefined()
+
+      // override 降级匹配的 warning → info
+      const overrideStore: ContinuityOverrideStore = {
+        overrides: [
+          {
+            ref: dormantWarning!.ref,
+            reasonCode: "false_positive",
+            note: "误报, 设计性休眠",
+            severity: "warning",
+            dismissedAtChapter: 20,
+          },
+        ],
+        lastUpdated: "",
+      }
+      const withOverrides = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG, overrideStore)
+      // 匹配的 finding 应降级为 info
+      const overridden = withOverrides.find((f) => f.ref === dormantWarning!.ref)
+      expect(overridden?.severity).toBe("info")
+    })
+
+    it("空 overrides 数组不触发 applyOverrides 路径 (走 rawFindings 直返)", () => {
+      const store = buildStore({
+        subplots: [makeSubplot({ id: "S1", lastSeenChapter: 1, status: "active" })],
+        currentChapter: 20,
+      })
+      const emptyOverrideStore: ContinuityOverrideStore = {
+        overrides: [],
+        lastUpdated: "",
+      }
+      const withEmpty = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG, emptyOverrideStore)
+      const without = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      // 空 overrides 与不传 overrideStore 行为一致
+      expect(withEmpty).toEqual(without)
     })
   })
 
