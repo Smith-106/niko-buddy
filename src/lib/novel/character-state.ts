@@ -15,6 +15,24 @@ export interface CharacterState {
   // (.novel/emotion-ledger.json) — 职责分离避免双真源。可选字段保向后兼容
   // (旧 character-states.json 无 emotion 字段, load 时 undefined 不报错)。
   emotion?: EmotionState
+  /**
+   * ADR-31 Phase 2 deferred 升级: 结构化死亡标记 (替代 status 自由文本正则匹配)。
+   * Additive optional — 引擎 detectDeadCharacterState 先读此字段 (undefined 回退
+   * deathChapter? → status 自由文本正则匹配 deadCharacterPatterns, 守 NFR-compat-001/
+   * ADR-31 引擎对缺字段回退不抛错)。旧 character-states.json 无此字段 load 时 undefined。
+   */
+  isAlive?: boolean
+  /**
+   * ADR-31 Phase 2 deferred 升级: 结构化死亡章号。
+   * Additive optional — 引擎先读 deathChapter? (undefined 回退 status 自由文本)。
+   */
+  deathChapter?: number
+  /**
+   * ADR-31 Phase 4 deferred 升级: 角色最后出现章号 (替代 fold 反推 lastSeenChapter)。
+   * Additive optional — 引擎 detectAbsentCharacter 先读此字段 (undefined 回退
+   * lastUpdatedChapter, 守 NFR-compat-001/ADR-31)。
+   */
+  lastSeenChapter?: number
 }
 
 // A19 机械层情绪维度: valence(效价 -1消极~1积极) / arousal(唤醒 -1平静~1激动) /

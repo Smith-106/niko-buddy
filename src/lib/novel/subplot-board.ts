@@ -31,6 +31,27 @@ export interface Subplot {
   /** Per-chapter progress log entries (append-only). */
   progress: string[]
   notes: string
+  /**
+   * A19 连续性引擎休眠检测用: 该 subplot 最后一次在正文中出现的章号。
+   * Additive optional — 旧 subplot-board.json 无此字段 load 时 undefined 不 throw
+   * (createAtomicJsonStore.load JSON.parse 后字段缺失即为 undefined, backward compat)。
+   * 由 updateSubplotLastSeenChapter writehook 增量更新 (每章 accept 后调) 或
+   * deriveSubplotLastSeenChapter fold 一次性反推落盘。引擎 checkDormantThreads
+   * 优先读此字段, undefined 产 data_gap finding (守 IC-02 不静默降级)。
+   */
+  lastSeenChapter?: number
+  /**
+   * ADR-31 Phase 3 deferred 升级: subplot 目标回收章号 (结构化逾期判定字段)。
+   * Additive optional — 引擎对缺字段回退不抛错 (守 NFR-compat-001/ADR-31)。
+   * 当前 detectOverdueThread 复用 analyzeForeshadowingDebt 产 foreshadowing 逾期,
+   * subplot 逾期检测待 Phase 3 升级后激活; 缺此字段产 data_gap finding 不阻断。
+   */
+  targetResolutionChapter?: number
+  /**
+   * ADR-31 Phase 3 deferred 升级: subplot 显式标记废弃 (结构化状态字段)。
+   * Additive optional — 引擎对缺字段回退不抛错 (守 NFR-compat-001/ADR-31)。
+   */
+  abandoned?: boolean
 }
 
 export interface SubplotBoardStore {
