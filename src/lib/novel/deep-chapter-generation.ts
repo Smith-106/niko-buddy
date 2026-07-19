@@ -45,8 +45,10 @@ import {
   summarizeContinuityFindings,
   type ContinuityInput,
   type ContinuityFinding,
+  type ContinuityOverrideStore,
 } from "./deterministic-continuity-engine"
 import { collectContinuityMetric } from "@/lib/llm-client"
+import { loadContinuityOverrides } from "./continuity-overrides-store"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
@@ -932,7 +934,21 @@ async function runContinuityPreCheck(
       snapshots: [],
       currentChapter: chapterNum,
     }
-    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    // G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级, 失败
+    // 返 undefined 走 rawFindings 不阻断 (守 fold_rebuildable)。生成层不双跑
+    // (不关心 overrides_hit metric, Decision 5)。overrideStore 仅传非空。
+    let overrideStore: ContinuityOverrideStore | undefined
+    try {
+      const loaded = await loadContinuityOverrides(projectPath)
+      overrideStore = loaded.overrides.length > 0 ? loaded : undefined
+    } catch (err) {
+      logger.warn(
+        "continuity-engine",
+        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      overrideStore = undefined
+    }
+    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput, overrideStore)
     const summary = summarizeContinuityFindings(findings)
     // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
     // 生成层预检注入 critical+warning 提醒级 (非阻断守 Draft-first)。
@@ -944,6 +960,7 @@ async function runContinuityPreCheck(
     // TASK-010 (Decision 7.2): continuity 观测层 metric — 生成层预检 gate=consistency,
     // 只记 count+ms (CWE-532)。short_circuit_hits=0 (预检非阻断不短路 LLM)。
     // high_count=0 (3 级方案无 high, dormant/absent/unresolved 归 warning)。
+    // overrides_hit=0 (生成层不双跑, 不关心 override metric, Decision 5)。
     collectContinuityMetric({
       execution_ms: Date.now() - startMs,
       critical_count: summary.critical,
@@ -1013,7 +1030,21 @@ async function checkContinuityCritical(
       snapshots: [],
       currentChapter: chapterNum,
     }
-    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    // G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级, 失败
+    // 返 undefined 走 rawFindings 不阻断 (守 fold_rebuildable)。生成层不双跑
+    // (不关心 overrides_hit metric, Decision 5)。overrideStore 仅传非空。
+    let overrideStore: ContinuityOverrideStore | undefined
+    try {
+      const loaded = await loadContinuityOverrides(projectPath)
+      overrideStore = loaded.overrides.length > 0 ? loaded : undefined
+    } catch (err) {
+      logger.warn(
+        "continuity-engine",
+        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      overrideStore = undefined
+    }
+    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput, overrideStore)
     const summary = summarizeContinuityFindings(findings)
     const critical = findings.filter(
       (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",
@@ -1021,6 +1052,7 @@ async function checkContinuityCritical(
     // TASK-010 (Decision 7.2): critical 分流 metric — short_circuit_hits=tripped 数
     // (机械 critical 短路 LLM fix-loop, 走 manualHandoff 非 LLM 重写)。
     // high_count=0 (3 级方案无 high, ADR-30 blueprint 对齐)。
+    // overrides_hit=0 (生成层不双跑, 不关心 override metric, Decision 5)。
     collectContinuityMetric({
       execution_ms: Date.now() - startMs,
       critical_count: summary.critical,

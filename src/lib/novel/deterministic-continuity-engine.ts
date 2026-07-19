@@ -660,8 +660,16 @@ export function checkContinuity(
  * (review-adapter.runContinuityMechanicalPreflight / deep-chapter-generation
  * runContinuityPreCheck / checkContinuityCritical) 已工作, 一次性迁移
  * 风险大违反 incremental progress。legacy 别名零行为变更守 backward compat。
+ *
+ * runContinuityEngine(input, overrideStore?): legacy 别名入口。overrideStore 为
+ * ADR-34 AC-006.5 跨检测持久可选参 — 调用点 loadContinuityOverrides 后传入, 引擎
+ * applyOverrides 在生产路径触发 (dismissFinding writehook 经读端消费闭环)。不传
+ * (undefined) 零行为变更走 rawFindings, 守 backward compat。
  */
-export function runContinuityEngine(input: ContinuityInput): ContinuityFinding[] {
+export function runContinuityEngine(
+  input: ContinuityInput,
+  overrideStore?: ContinuityOverrideStore,
+): ContinuityFinding[] {
   const store: ReadonlyStore = {
     foreshadowing: input.foreshadowing,
     subplots: input.subplots,
@@ -669,5 +677,5 @@ export function runContinuityEngine(input: ContinuityInput): ContinuityFinding[]
     snapshots: input.snapshots,
     currentChapter: input.currentChapter,
   }
-  return checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+  return checkContinuity(store, DEFAULT_CONTINUITY_CONFIG, overrideStore)
 }

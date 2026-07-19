@@ -19,11 +19,16 @@ import {
   summarizeContinuityFindings,
   type ContinuityInput,
   type ContinuityFinding,
+  type ContinuityOverrideStore,
 } from "./deterministic-continuity-engine"
 // TASK-010 (GRL-011 Decision 7.2): continuity 观测层 metric sink — 薄包装层在引擎
 // 执行后调 collectContinuityMetric 记录 count+ms+gate (CWE-532: 只记统计不记正文)。
 // 同 flushMetrics atomic 模式持久化 .novel/continuity-metrics.jsonl。
 import { collectContinuityMetric, type ContinuityMetric } from "@/lib/llm-client"
+// G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级, 失败
+// 返 undefined 走 rawFindings 原路径不阻断审查 (复用 projection-store catch 降级
+// 模式, 守 fold_rebuildable)。dismissFinding writehook 经此读端消费闭环。
+import { loadContinuityOverrides } from "./continuity-overrides-store"
 // 薄包装 load 结构化 store (Decision 2.3 idempotent try/catch 降级)。loader 内部已
 // catch 返空 store (character-state/foreshadowing-tracker) 或走 createAtomicJsonStore
 // (subplot-board), 不再额外包 try/catch — 复用 loader 内建降级守 fold_rebuildable。
@@ -274,8 +279,33 @@ async function runContinuityMechanicalPreflight(
       snapshots,
       currentChapter: chapterNumber,
     }
-    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    // G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级,
+    // 失败返 undefined 走 rawFindings 原路径不阻断审查 (守 fold_rebuildable, 复用
+    // projection-store catch 降级模式)。dismissFinding writehook 经此读端消费闭环。
+    let overrideStore: ContinuityOverrideStore | undefined
+    try {
+      overrideStore = await loadContinuityOverrides(projectPath)
+      if (overrideStore.overrides.length === 0) overrideStore = undefined
+    } catch (err) {
+      logger.warn(
+        "continuity-engine",
+        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      overrideStore = undefined
+    }
+    // 审查层双跑 (Decision 5): raw 跑拿降级前 findings, override 跑拿降级后 findings。
+    // 差值 = 被 dismiss 的 critical+warning 数 = overrides_hit (CWE-532 只记数字不引用
+    // 正文)。finalFindings (降级后) 是实际返回给审查的, applyOverrides 单一降级真源。
+    const rawFindings = runContinuityEngine(continuityInput)
+    const findings = overrideStore
+      ? runContinuityEngine(continuityInput, overrideStore)
+      : rawFindings
     const summary = summarizeContinuityFindings(findings)
+    const rawCriticalWarning =
+      summarizeContinuityFindings(rawFindings).critical +
+      summarizeContinuityFindings(rawFindings).warning
+    const finalCriticalWarning = summary.critical + summary.warning
+    const overridesHit = Math.max(0, rawCriticalWarning - finalCriticalWarning)
     // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
     // high_count metric 保留 0 (llm-client ContinuityMetric 接口仍含 high_count 字段,
     // 3 级方案下 dormant/absent/unresolved 归 warning, high_count 恒 0 守 metric 兼容)。
@@ -286,14 +316,15 @@ async function runContinuityMechanicalPreflight(
     // TASK-010 (Decision 7.2): continuity 观测层 metric — 只记 count+ms+gate 枚举
     // (CWE-532: finding.ref/override 正文不进 metric)。short_circuit_hits 此路径为 0
     // (机械预门未短路 LLM, 短路走 critical 分支); engine_error_count 此路径 0 (异常走 catch)。
-    // overrides_hit 薄包装层暂不查 override store (TODO 接入 isFindingDismissed 过滤后)。
+    // overrides_hit 接双跑差值计数 (raw critical+warning - final critical+warning,
+    // = 被 dismiss 的 finding 数, 守 applyOverrides 单一降级真源)。
     const metric: ContinuityMetric = {
       execution_ms: Date.now() - startMs,
       critical_count: summary.critical,
       high_count: 0,
       warning_count: summary.warning,
       data_gap_count: summary.data_gap,
-      overrides_hit: 0,
+      overrides_hit: overridesHit,
       short_circuit_hits: 0,
       engine_error_count: 0,
       gate: "consistency",
