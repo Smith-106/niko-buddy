@@ -1,5 +1,5 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, flushMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { setLogTraceId, logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
@@ -1108,6 +1108,18 @@ export async function runDeepChapterGeneration(
   // an explicit run-end flushMetrics() is the follow-up (ISS-20260714-002).
   const metricsFile = `${input.projectPath.replace(/\\/g, "/")}/.novel/metrics.jsonl`
   setMetricsFilePath(metricsFile)
+  // ISS-20260719-CE-001: configure the continuity metrics sink for this run.
+  // setContinuityMetricsFilePath enables continuity metric persistence
+  // (collectContinuityMetric buffers engine run records); without it the
+  // path stays empty and the buffer only ever drains via the >=500 auto-flush
+  // safety valve (collectContinuityMetric :191). An explicit run-end
+  // flushContinuityMetrics() is the follow-up below. Same source pattern as
+  // setMetricsFilePath above. CWE-532: ContinuityMetric records only counts
+  // /ms/gate enum (llm-client.ts :156-167) — no chapter content / finding.ref
+  // / override text reaches this sink. SEC-1: path is derived from
+  // projectPath (non-user-input), same form as metricsFile.
+  const continuityMetricsFile = `${input.projectPath.replace(/\\/g, "/")}/.novel/continuity-metrics.jsonl`
+  setContinuityMetricsFilePath(continuityMetricsFile)
   const runTraceId = `ch${input.chapterNumber ?? "?"}`
   setMetricsTraceId(runTraceId)
   setLogTraceId(runTraceId)
@@ -1227,6 +1239,11 @@ export async function runDeepChapterGeneration(
   // Abort/throw paths rely on the collectLLMMetric auto-flush safety valve
   // (buffer≥500) since this line is unreachable on a throw.
   void flushMetrics()
+  // ISS-20260719-CE-001: explicit run-end flush of buffered continuity metrics.
+  // Fire-and-forget (void) — same pattern as flushMetrics above. flushContinuityMetrics
+  // internally re-buffers on write failure (llm-client.ts :229) so a flush error
+  // never breaks the run return; no-op when the buffer is empty (:209).
+  void flushContinuityMetrics()
   return {
     finalContent,
     taskBrief,
