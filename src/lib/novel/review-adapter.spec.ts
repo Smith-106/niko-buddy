@@ -6,6 +6,12 @@ import { buildReviewPrompt, reviewChapter } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
+  // REV-CE-003 test-gen: runContinuityEngineMock 用于驱动 review-adapter production path
+  // 的 critical 短路分支 (review-adapter.ts:430-432) + toConsistencyReviewResult 非空
+  // findings 调用 (review-adapter.ts:351)。默认调用真实 runContinuityEngine (via
+  // vi.importActual in factory), 仅在 continuityFindingsOverride 非 undefined 时覆写。
+  runContinuityEngineMock: vi.fn(),
+  continuityFindingsOverride: undefined as unknown,
   novelConfig: { reviewModel: "", reviewReasoningEffort: "high" as "low" | "medium" | "high" },
   llmConfig: {
     provider: "custom" as const,
@@ -87,6 +93,26 @@ vi.mock("@/lib/has-usable-llm", () => ({
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,
 }))
+
+// REV-CE-003 test-gen: partial mock for ./deterministic-continuity-engine。
+// PAT-G2 spec-mock mirror: factory spreads real module (via vi.importActual) so
+// 全部 export 透传, only runContinuityEngine is wrapped. 默认透传真实行为
+// (continuityFindingsOverride undefined → 调真实 runContinuityEngine), 仅 critical
+// 短路测试设 continuityFindingsOverride 强制返 critical finding 驱动 :430-432 分支。
+vi.mock("./deterministic-continuity-engine", async () => {
+  const actual = await vi.importActual<typeof import("./deterministic-continuity-engine")>(
+    "./deterministic-continuity-engine",
+  )
+  return {
+    ...actual,
+    runContinuityEngine: mocks.runContinuityEngineMock.mockImplementation((input, overrideStore) => {
+      if (mocks.continuityFindingsOverride !== undefined) {
+        return mocks.continuityFindingsOverride
+      }
+      return actual.runContinuityEngine(input, overrideStore)
+    }),
+  }
+})
 
 vi.mock("./context-engine", () => ({
   buildContextPack: vi.fn(async () => mocks.contextPack),
@@ -354,5 +380,93 @@ describe("review-adapter staged review", () => {
     for (const signal of receivedSignals) {
       expect(signal?.aborted).toBe(true)
     }
+  })
+})
+
+// ============================================================================
+// REV-CE-003 test-gen: toConsistencyReviewResult production-path 接线覆盖
+// ============================================================================
+// 本次 gapfix (175bdbe) 删 review-adapter 内联 continuityFindingToReviewResult 改调
+// engine export toConsistencyReviewResult。函数行为已有 deterministic-continuity-engine
+// .spec.ts 4 个单元测试覆盖, 但 review-adapter production path 调用点 (review-adapter.ts
+// :351) + critical 短路分支 (:430-432 Consistency P0 门控) 需独立接线测试。守 fix-don't-
+// hide: 不 mock toConsistencyReviewResult 自身, 只覆写 runContinuityEngine 驱动 preflight
+// 拿到非空 critical findings, 让 toConsistencyReviewResult 走真实 production path。
+describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    mocks.continuityFindingsOverride = undefined
+    mocks.runContinuityEngineMock.mockClear()
+  })
+
+  it("critical 机械 finding 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)", async () => {
+    // runContinuityEngine 返 1 个 dead_character_state critical finding → preflight
+    // toConsistencyReviewResult 映射 critical→error → reviewChapter:430 some(r=>r.severity
+    // ==='error') 短路 return continuityResults, 不调 streamChat (Consistency P0 先于 LLM)。
+    mocks.continuityFindingsOverride = [
+      {
+        type: "dead_character_state",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: "character:死者",
+        message: "死亡角色在第8章仍出现活跃状态变更",
+        chapter: 8,
+      },
+    ]
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    // 短路: streamChat 不被调 (Consistency P0 阻断 approve 不走 LLM 审查)
+    expect(streamChatMock).not.toHaveBeenCalled()
+    // toConsistencyReviewResult production path: critical→error, type=consistency_mechanical
+    expect(results).toHaveLength(1)
+    expect(results[0].severity).toBe("error")
+    expect(results[0].type).toBe("consistency_mechanical")
+    expect(results[0].message).toContain("死亡角色")
+    expect(results[0].evidence).toBe("character:死者")
+    expect(results[0].suggestion).toBeTruthy()
+  })
+
+  it("warning 机械 finding 不短路, 走 LLM 审查并合并 mechanical+LLM 结果", async () => {
+    // runContinuityEngine 返 1 个 dormant_thread warning finding → toConsistencyReviewResult
+    // 映射 warning→warning (非 error) → 不短路 → 走 LLM 审查 → 合并 mechanical+LLM 结果。
+    mocks.continuityFindingsOverride = [
+      {
+        type: "dormant_thread",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: "subplot:S1",
+        message: "休眠 subplot 5 章未推进",
+        chapter: 8,
+      },
+    ]
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onToken(JSON.stringify([{
+        severity: "warning",
+        type: "cognition",
+        message: "LLM 审查发现认知问题",
+        evidence: "证据",
+        relatedMemory: "",
+        suggestion: "建议",
+      }]))
+      callbacks.onDone()
+    })
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    // 不短路: streamChat 被调 (warning 非阻断走 LLM 审查)
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    // 合并: mechanical warning (dormant_thread) + LLM warning (cognition) 共 2 条
+    expect(results).toHaveLength(2)
+    const mechanical = results.find((r) => r.type === "consistency_mechanical")
+    expect(mechanical).toBeDefined()
+    expect(mechanical?.severity).toBe("warning")
+    expect(mechanical?.message).toContain("休眠 subplot")
+    const llm = results.find((r) => r.type === "cognition")
+    expect(llm).toBeDefined()
   })
 })
