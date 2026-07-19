@@ -15,7 +15,9 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 // resolveDecisionGateKey 归 consistency gate P0)。守门控优先级 Consistency(P0):
 // critical 映射 severity:'error' 经 collectBlockingIssues 阻断 approve。
 import {
-  runContinuityEngine,
+  checkContinuity,
+  buildReadonlyStoreFromInput,
+  DEFAULT_CONTINUITY_CONFIG,
   summarizeContinuityFindings,
   toConsistencyReviewResult,
   type ContinuityInput,
@@ -249,7 +251,8 @@ ${i18n.t("novel.reviewPrompt.emptyArrayFallback")}`
  *
  * 薄包装 load 结构化 store (loadForeshadowingTracker/loadSubplotBoard/
  * loadCharacterStates + snapshots via listSnapshots/loadSnapshot), 组装
- * ContinuityInput, 调 runContinuityEngine (纯函数零 IO 零 LLM), 映射产出的
+ * ContinuityInput, 经 buildReadonlyStoreFromInput 转 ReadonlyStore 调
+ * checkContinuity (纯函数零 IO 零 LLM), 映射产出的
  * ContinuityFinding[] 为 NovelReviewResult[]。loader 内部 catch 降级返空 store
  * (fold_rebuildable), 故不再额外包 try/catch。snapshots 需独立 load (引擎用于
  * subplot lastSeenChapter fold 反推)。
@@ -322,9 +325,11 @@ async function runContinuityMechanicalPreflight(
     // 审查层双跑 (Decision 5): raw 跑拿降级前 findings, override 跑拿降级后 findings。
     // 差值 = 被 dismiss 的 critical+warning 数 = overrides_hit (CWE-532 只记数字不引用
     // 正文)。finalFindings (降级后) 是实际返回给审查的, applyOverrides 单一降级真源。
-    const rawFindings = runContinuityEngine(continuityInput)
+    // 复用 store (一次转换双跑) 守 DRY — checkContinuity 权威 API (ADR-29)。
+    const store = buildReadonlyStoreFromInput(continuityInput)
+    const rawFindings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
     const findings = overrideStore
-      ? runContinuityEngine(continuityInput, overrideStore)
+      ? checkContinuity(store, DEFAULT_CONTINUITY_CONFIG, overrideStore)
       : rawFindings
     const summary = summarizeContinuityFindings(findings)
     const rawCriticalWarning =

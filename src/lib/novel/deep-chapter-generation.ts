@@ -41,7 +41,9 @@ import {
   appendRewriteRateASample,
 } from "./character-cognition"
 import {
-  runContinuityEngine,
+  checkContinuity,
+  buildReadonlyStoreFromInput,
+  DEFAULT_CONTINUITY_CONFIG,
   summarizeContinuityFindings,
   formatContinuityFindingsForPrompt,
   type ContinuityInput,
@@ -920,7 +922,8 @@ export async function runFullReviewWithSixDim(
  *
  * 薄包装: load foreshadowing-tracker / subplot-board / character-states 结构化
  * store (幂等 try/catch 降级, 缺失/损坏返回空数组非致命), 组装 ContinuityInput,
- * 调 runContinuityEngine 纯函数拿 ContinuityFinding[]。过滤 critical+high 且排除
+ * 经 buildReadonlyStoreFromInput 转 ReadonlyStore 调 checkContinuity 纯函数拿
+ * ContinuityFinding[]。过滤 critical+high 且排除
  * data_gap (Decision 1.3 bullet 只注入提醒级 findings, 不阻断生成守 Draft-first 三
  * 大硬约束 #2; data_gap 是 info 级标注非一致性问题不注入生成层)。文本化为简短
  * bullet list 注入任务书 prompt 末尾 (非长文, 守 context 预算)。空则返回 "" 不污染
@@ -966,7 +969,11 @@ async function runContinuityPreCheck(
       )
       overrideStore = undefined
     }
-    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput, overrideStore)
+    const findings: ContinuityFinding[] = checkContinuity(
+      buildReadonlyStoreFromInput(continuityInput),
+      DEFAULT_CONTINUITY_CONFIG,
+      overrideStore,
+    )
     const summary = summarizeContinuityFindings(findings)
     // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
     // 生成层预检注入 critical+warning 提醒级 (非阻断守 Draft-first)。
@@ -1016,8 +1023,9 @@ async function runContinuityPreCheck(
  * ADR-17 Q4 机械 critical 不进 fix-loop LLM 重写)。
  *
  * 薄包装: load foreshadowing-tracker / subplot-board / character-states store
- * (幂等 try/catch 降级), 组装 ContinuityInput, 调 runContinuityEngine 纯函数拿
- * findings, 检查是否存在 severity==='critical' 且 subtype==='consistency_mechanical'
+ * (幂等 try/catch 降级), 组装 ContinuityInput, 经 buildReadonlyStoreFromInput
+ * 转 ReadonlyStore 调 checkContinuity 纯函数拿 findings, 检查是否存在
+ * severity==='critical' 且 subtype==='consistency_mechanical'
  * 的 finding (dead_character_state / overdue_thread; 两者 type 不同但 subtype 都是
  * consistency_mechanical)。用 subtype 而非 type 判定 (ContinuityFinding.subtype 字段
  * 是 consistency_mechanical 标记)。有则返回 {tripped:true, reason: 模板化摘要 (critical
@@ -1059,7 +1067,11 @@ async function checkContinuityCritical(
       )
       overrideStore = undefined
     }
-    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput, overrideStore)
+    const findings: ContinuityFinding[] = checkContinuity(
+      buildReadonlyStoreFromInput(continuityInput),
+      DEFAULT_CONTINUITY_CONFIG,
+      overrideStore,
+    )
     const summary = summarizeContinuityFindings(findings)
     const critical = findings.filter(
       (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",

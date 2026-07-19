@@ -30,10 +30,10 @@
  *
  * 引擎双入口:
  *   - checkContinuity(store: ReadonlyStore, config): ContinuityFinding[] (blueprint
- *     权威 API, ADR-29 Route B-1 + ContinuityEngineConfig)
+ *     权威 API, ADR-29 Route B-1 + ContinuityEngineConfig)。生产调用点 (review-adapter /
+ *     deep-chapter-generation) 经 buildReadonlyStoreFromInput 转 ContinuityInput 后调用。
  *   - runContinuityEngine(input: ContinuityInput): ContinuityFinding[] (legacy 别名,
- *     现有 review-adapter / deep-chapter-generation 调用点兼容, 薄包装经 ContinuityInput
- *     组装 → 委托 checkContinuity)
+ *     外部 caller backward compat, 经 buildReadonlyStoreFromInput → 委托 checkContinuity)
  */
 
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
@@ -680,31 +680,38 @@ export function checkContinuity(
 }
 
 /**
- * runContinuityEngine (legacy 别名): 现有 review-adapter / deep-chapter-generation
- * 调用点兼容入口。接受 ContinuityInput (无 readonly 修饰), 内部转 ReadonlyStore
- * 后委托 checkContinuity。后续 plan session 可逐步迁移调用点到 checkContinuity +
- * ContinuityEngineConfig (ADR-29 blueprint 权威 API)。
- *
- * 保留原因: 守 QMAI CLAUDE.md "已有锚点能承载职责就不新开平行实现" — 现有调用点
- * (review-adapter.runContinuityMechanicalPreflight / deep-chapter-generation
- * runContinuityPreCheck / checkContinuityCritical) 已工作, 一次性迁移
- * 风险大违反 incremental progress。legacy 别名零行为变更守 backward compat。
- *
- * runContinuityEngine(input, overrideStore?): legacy 别名入口。overrideStore 为
- * ADR-34 AC-006.5 跨检测持久可选参 — 调用点 loadContinuityOverrides 后传入, 引擎
- * applyOverrides 在生产路径触发 (dismissFinding writehook 经读端消费闭环)。不传
- * (undefined) 零行为变更走 rawFindings, 守 backward compat。
+ * buildReadonlyStoreFromInput: ContinuityInput → ReadonlyStore 转换 helper。
+ * 字段同构 (foreshadowing/subplots/characters/snapshots/currentChapter), 仅补
+ * readonly 修饰供 checkContinuity 权威 API 消费。提取自 runContinuityEngine 供
+ * 调用点迁移复用 (ADR-29 逐步迁移), 守 DRY 不在 4 调用点重复转换逻辑。
  */
-export function runContinuityEngine(
-  input: ContinuityInput,
-  overrideStore?: ContinuityOverrideStore,
-): ContinuityFinding[] {
-  const store: ReadonlyStore = {
+export function buildReadonlyStoreFromInput(input: ContinuityInput): ReadonlyStore {
+  return {
     foreshadowing: input.foreshadowing,
     subplots: input.subplots,
     characters: input.characters,
     snapshots: input.snapshots,
     currentChapter: input.currentChapter,
   }
-  return checkContinuity(store, DEFAULT_CONTINUITY_CONFIG, overrideStore)
+}
+
+/**
+ * runContinuityEngine (legacy 别名): 外部 caller 兼容入口。接受 ContinuityInput
+ * (无 readonly 修饰), 经 buildReadonlyStoreFromInput 转 ReadonlyStore 后委托
+ * checkContinuity。内部调用点已迁移到 checkContinuity + buildReadonlyStoreFromInput
+ * (ADR-29 blueprint 权威 API), 本别名仅供外部 caller backward compat。
+ *
+ * 保留原因: 守 QMAI CLAUDE.md "Never break backward compatibility" — legacy 别名
+ * 零行为变更, 外部 caller (含测试 + 未来下游) 仍可用 ContinuityInput 入参。
+ *
+ * runContinuityEngine(input, overrideStore?): overrideStore 为 ADR-34 AC-006.5
+ * 跨检测持久可选参 — 调用点 loadContinuityOverrides 后传入, 引擎 applyOverrides 在
+ * 生产路径触发 (dismissFinding writehook 经读端消费闭环)。不传 (undefined) 零行为
+ * 变更走 rawFindings, 守 backward compat。
+ */
+export function runContinuityEngine(
+  input: ContinuityInput,
+  overrideStore?: ContinuityOverrideStore,
+): ContinuityFinding[] {
+  return checkContinuity(buildReadonlyStoreFromInput(input), DEFAULT_CONTINUITY_CONFIG, overrideStore)
 }

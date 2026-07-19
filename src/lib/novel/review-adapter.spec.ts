@@ -6,11 +6,13 @@ import { buildReviewPrompt, reviewChapter } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
-  // REV-CE-003 test-gen: runContinuityEngineMock 用于驱动 review-adapter production path
+  // REV-CE-003 test-gen: checkContinuityMock 用于驱动 review-adapter production path
   // 的 critical 短路分支 (review-adapter.ts:430-432) + toConsistencyReviewResult 非空
-  // findings 调用 (review-adapter.ts:351)。默认调用真实 runContinuityEngine (via
-  // vi.importActual in factory), 仅在 continuityFindingsOverride 非 undefined 时覆写。
-  runContinuityEngineMock: vi.fn(),
+  // findings 调用 (review-adapter.ts:351)。production path 调 checkContinuity (ADR-29
+  // 权威 API, 经 buildReadonlyStoreFromInput 转 store)。默认调用真实 checkContinuity
+  // (via vi.importActual in factory), 仅在 continuityFindingsOverride 非 undefined
+  // 时覆写。
+  checkContinuityMock: vi.fn(),
   continuityFindingsOverride: undefined as unknown,
   novelConfig: { reviewModel: "", reviewReasoningEffort: "high" as "low" | "medium" | "high" },
   llmConfig: {
@@ -96,20 +98,23 @@ vi.mock("./model-resolver", () => ({
 
 // REV-CE-003 test-gen: partial mock for ./deterministic-continuity-engine。
 // PAT-G2 spec-mock mirror: factory spreads real module (via vi.importActual) so
-// 全部 export 透传, only runContinuityEngine is wrapped. 默认透传真实行为
-// (continuityFindingsOverride undefined → 调真实 runContinuityEngine), 仅 critical
-// 短路测试设 continuityFindingsOverride 强制返 critical finding 驱动 :430-432 分支。
+// 全部 export 透传, only checkContinuity is wrapped (production path 迁移后调
+// checkContinuity + buildReadonlyStoreFromInput, legacy runContinuityEngine 不在
+// production path)。默认透传真实行为 (continuityFindingsOverride undefined → 调真实
+// checkContinuity), 仅 critical 短路测试设 continuityFindingsOverride 强制返 critical
+// finding 驱动 :430-432 分支。buildReadonlyStoreFromInput / DEFAULT_CONTINUITY_CONFIG
+// 经 ...actual 透传 (PAT-G2 mirror 全 export)。
 vi.mock("./deterministic-continuity-engine", async () => {
   const actual = await vi.importActual<typeof import("./deterministic-continuity-engine")>(
     "./deterministic-continuity-engine",
   )
   return {
     ...actual,
-    runContinuityEngine: mocks.runContinuityEngineMock.mockImplementation((input, overrideStore) => {
+    checkContinuity: mocks.checkContinuityMock.mockImplementation((store, config, overrideStore) => {
       if (mocks.continuityFindingsOverride !== undefined) {
         return mocks.continuityFindingsOverride
       }
-      return actual.runContinuityEngine(input, overrideStore)
+      return actual.checkContinuity(store, config, overrideStore)
     }),
   }
 })
@@ -390,17 +395,17 @@ describe("review-adapter staged review", () => {
 // engine export toConsistencyReviewResult。函数行为已有 deterministic-continuity-engine
 // .spec.ts 4 个单元测试覆盖, 但 review-adapter production path 调用点 (review-adapter.ts
 // :351) + critical 短路分支 (:430-432 Consistency P0 门控) 需独立接线测试。守 fix-don't-
-// hide: 不 mock toConsistencyReviewResult 自身, 只覆写 runContinuityEngine 驱动 preflight
+// hide: 不 mock toConsistencyReviewResult 自身, 只覆写 checkContinuity 驱动 preflight
 // 拿到非空 critical findings, 让 toConsistencyReviewResult 走真实 production path。
 describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
   beforeEach(() => {
     streamChatMock.mockReset()
     mocks.continuityFindingsOverride = undefined
-    mocks.runContinuityEngineMock.mockClear()
+    mocks.checkContinuityMock.mockClear()
   })
 
   it("critical 机械 finding 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)", async () => {
-    // runContinuityEngine 返 1 个 dead_character_state critical finding → preflight
+    // checkContinuity 返 1 个 dead_character_state critical finding → preflight
     // toConsistencyReviewResult 映射 critical→error → reviewChapter:430 some(r=>r.severity
     // ==='error') 短路 return continuityResults, 不调 streamChat (Consistency P0 先于 LLM)。
     mocks.continuityFindingsOverride = [
@@ -432,7 +437,7 @@ describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
   })
 
   it("warning 机械 finding 不短路, 走 LLM 审查并合并 mechanical+LLM 结果", async () => {
-    // runContinuityEngine 返 1 个 dormant_thread warning finding → toConsistencyReviewResult
+    // checkContinuity 返 1 个 dormant_thread warning finding → toConsistencyReviewResult
     // 映射 warning→warning (非 error) → 不短路 → 走 LLM 审查 → 合并 mechanical+LLM 结果。
     mocks.continuityFindingsOverride = [
       {
