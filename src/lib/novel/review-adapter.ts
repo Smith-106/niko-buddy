@@ -259,6 +259,18 @@ async function runContinuityMechanicalPreflight(
   const startMs = Date.now()
   try {
     // 并发 load 4 路 store (idempotent, loader 内 catch 降级返空 store)
+    //
+    // REV-CE-004 (2026-07-19 评估结论): 此处 load 的 4 store 中, loadSubplotBoard
+    // 与下游 buildContextPack→readSubplotBoardText (context-engine.ts:1157-1163)
+    // 存在 1 处重叠 reload; loadForeshadowingTracker/loadCharacterStates 仅此处 load
+    // (buildContextPack 不 reload); listSnapshots+loadSnapshot (:271-273) 审查层需要
+    // fold-derived lastSeenChapter 做严格一致性反推, 不可跳过 (RC-4: generation-layer
+    // precheck 可走 snapshots:[] 接受 data_gap, 审查层严格不可照搬)。短期决策: 接受
+    // loadSubplotBoard 1 处有限重叠, 不消除。理由: (1) buildContextPack 是公开 export,
+    // 加 injectedStores 参数改动链长 (buildContextPackFromRawData 须改逻辑跳过 reload,
+    // 影响全部调用方); (2) 单用户桌面低频路径 (审查非热点), loader 内 catch 降级已守
+    // fold_rebuildable; (3) 守 minimize changes + 不破坏 backward compat。这不是
+    // suppression (重叠 load 是性能优化项非 bug), 是合理工程决策。后续若审查变热点再重构。
     const [foreshadowingStore, subplotBoard, characterStateStore, snapshotNumbers] =
       await Promise.all([
         loadForeshadowingTracker(projectPath),
