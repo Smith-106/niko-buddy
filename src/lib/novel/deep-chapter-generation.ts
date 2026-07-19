@@ -895,6 +895,23 @@ export async function runFullReviewWithSixDim(
       ]
     }
   }
+  // ISS-20260719-002 (option B 可观测性): record continuity 重复检测信号 —
+  // reviewChapter 已含 consistency_mechanical findings (机械层 TASK-008 预检产)
+  // 且 6-dim 也产了 continuity 维度 LLM 结果时, 标记"本可短路但 PERF-NEW-06
+  // 并行架构下 option C 不可实现, option A 损并行无实测 token 数据支撑故未接线"。
+  // 仅记 count (CWE-532 脱敏, 不引用 findings 正文)。运行时 warn 信号供未来 plan
+  // session 拿实测 frequency + token 占比数据后升级为 option A 真短路决策。
+  // 关联 dimension-review-adapter.ts:404-422 短路逻辑 (dormant, 待 priorReviewResults
+  // 接线激活) + 本文件 :818-831 PERF-NEW-06 并行设计。
+  const mechanicalContinuityCount = reviewResults.filter(
+    (r) => r.type === "consistency_mechanical",
+  ).length
+  if (mechanicalContinuityCount > 0 && dimensionResults.continuity) {
+    logger.warn("Deep Chapter", "continuity 维度重复检测: 机械层已检 consistency_mechanical findings, 6-dim LLM 仍跑 continuity 维度 (ISS-20260719-002 option B 待实测数据升级 option A)", {
+      mechanical_findings: mechanicalContinuityCount,
+      six_dim_continuity_status: dimensionResults.continuity.status,
+    })
+  }
   return { reviewResults, dimensionResults }
 }
 
