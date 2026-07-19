@@ -28,17 +28,19 @@ function readSource(rel: string): string {
 
 describe("TASK-008 subplot/resource renderer wiring in context-engine", () => {
   it("imports loadSubplotBoard + subplotBoardToContextText from ./subplot-board", () => {
-    const src = readSource("context-engine.ts")
+    // ISS-20260712-ARCH-1 (Wave 1): 派生 store 读取群拆到 context-derived-stores.ts,
+    // import 随移。本断言读拆分后文件。
+    const src = readSource("context-derived-stores.ts")
     expect(src).toMatch(/import\s*\{[^}]*loadSubplotBoard[^}]*subplotBoardToContextText[^}]*\}\s*from\s*["']\.\/subplot-board["']/)
   })
 
   it("imports loadResourceLedger + resourceLedgerToContextText from ./resource-ledger", () => {
-    const src = readSource("context-engine.ts")
+    const src = readSource("context-derived-stores.ts")
     expect(src).toMatch(/import\s*\{[^}]*loadResourceLedger[^}]*resourceLedgerToContextText[^}]*\}\s*from\s*["']\.\/resource-ledger["']/)
   })
 
   it("defines readSubplotBoardText and readResourceLedgerText helpers (same pattern as readEmotionalArcsText)", () => {
-    const src = readSource("context-engine.ts")
+    const src = readSource("context-derived-stores.ts")
     expect(src).toMatch(/async function readSubplotBoardText\b/)
     expect(src).toMatch(/async function readResourceLedgerText\b/)
     // Both call load* + *ToContextText (not dead).
