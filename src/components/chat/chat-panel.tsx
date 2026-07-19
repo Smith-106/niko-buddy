@@ -2202,7 +2202,11 @@ export function ChatPanel() {
             <div className="relative flex-1 overflow-hidden">
             <div
               ref={scrollContainerRef}
-              className="h-full overflow-y-auto px-3 py-2"
+              // ISS-20260709-011 (RESP-001): @container 让 chat 消息区按容器宽度
+              // (docked 侧栏窄 / 全宽宽) 自适应, 而非 viewport (sm:/md: 对 docked 侧栏
+              // 无效, 因 viewport 可能仍宽)。Tailwind v4 原生 @container variant, 子组件
+              // chat-message 用 @sm:/@md: 感知此容器宽度调气泡宽度+操作按钮排列。
+              className="@container h-full overflow-y-auto px-3 py-2"
             >
               {/* key 强制在切换会话时重新挂载消息列表，避免旧会话内容残留 */}
               <div key={activeConversationId} className="flex flex-col">

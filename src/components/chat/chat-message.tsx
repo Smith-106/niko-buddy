@@ -137,7 +137,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="max-w-[80%] flex flex-col gap-1.5">
+      <div className="max-w-[95%] @md:max-w-[80%] flex flex-col gap-1.5">
         <div
           className={`rounded-lg px-3 py-2 text-sm min-w-0 overflow-x-auto ${
             isUser
@@ -167,7 +167,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
         </div>
         {isAssistant && !message.discarded && <CitedReferencesPanel content={message.content} savedReferences={message.references} />}
         {isAssistant && !message.discarded && (
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex flex-col @sm:flex-row items-start @sm:items-center gap-1.5 @sm:flex-wrap">
             {canResumeUnfinished && (
               // VH-001 (odyssey-ui): replaced hardcoded amber-* scale (not in
               // QMAI oklch token system, inconsistent across 3 themes) with
@@ -644,7 +644,7 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="max-w-[80%] min-w-0 overflow-x-auto rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
+      <div className="max-w-[95%] @md:max-w-[80%] min-w-0 overflow-x-auto rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
         {isEmpty ? (
           <div className="flex flex-col gap-1.5 py-1" aria-label="正在生成回复" role="status">
             <div className="h-3 w-48 animate-pulse rounded bg-muted-foreground/20" />
