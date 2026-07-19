@@ -552,6 +552,7 @@ export function summarizeContinuityFindings(
  */
 export function formatContinuityFindingsForPrompt(
   findings: readonly ContinuityFinding[],
+  options?: { includeChapter?: boolean },
 ): string {
   // 只注入提醒级 findings (critical+warning), 排除 data_gap (info 级标注非一致性
   // 问题不注入生成层守 context 预算)。critical 也注入生成层提醒 (虽审查层会阻断,
@@ -563,8 +564,13 @@ export function formatContinuityFindingsForPrompt(
       f.type !== "data_gap",
   )
   if (injected.length === 0) return ""
+  // ADR-32 / REV-CE-003: includeChapter 承载 generation-layer 省略章号的故意差异。
+  // 默认 true 保持现有 export 行为 (审查层/测试断言带 ` (章 ${f.chapter})` 后缀);
+  // deep-chapter-generation 传 { includeChapter: false } 消除内联 reimplementation
+  // (生成层已在章内上下文无需重复章号)。守 additive-only: 新增可选参数不破坏 4 处现有调用。
+  const includeChapter = options?.includeChapter !== false
   const bullets = injected
-    .map((f) => `- [${f.severity}] ${f.ref}: ${f.message} (章 ${f.chapter})`)
+    .map((f) => `- [${f.severity}] ${f.ref}: ${f.message}${includeChapter ? ` (章 ${f.chapter})` : ""}`)
     .join("\n")
   return `\n\n[连续性预检提醒]\n${bullets}\n`
 }

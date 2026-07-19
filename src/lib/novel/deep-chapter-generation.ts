@@ -43,6 +43,7 @@ import {
 import {
   runContinuityEngine,
   summarizeContinuityFindings,
+  formatContinuityFindingsForPrompt,
   type ContinuityInput,
   type ContinuityFinding,
   type ContinuityOverrideStore,
@@ -954,9 +955,6 @@ async function runContinuityPreCheck(
     // 生成层预检注入 critical+warning 提醒级 (非阻断守 Draft-first)。
     // warning 级 = dormant_thread/absent_character/unresolved_foreshadowing (3 级方案)。
     // data_gap (info) 不注入 (仅可见标注)。
-    const injected = findings.filter(
-      (f) => (f.severity === "critical" || f.severity === "warning") && f.subtype !== "data_gap" && f.type !== "data_gap",
-    )
     // TASK-010 (Decision 7.2): continuity 观测层 metric — 生成层预检 gate=consistency,
     // 只记 count+ms (CWE-532)。short_circuit_hits=0 (预检非阻断不短路 LLM)。
     // high_count=0 (3 级方案无 high, dormant/absent/unresolved 归 warning)。
@@ -973,11 +971,11 @@ async function runContinuityPreCheck(
       gate: "consistency",
       timestamp: new Date().toISOString(),
     })
-    if (injected.length === 0) return ""
-    const bullets = injected
-      .map((f) => `- [${f.severity}] ${f.ref}: ${f.message}`)
-      .join("\n")
-    return `\n\n[连续性预检提醒]\n${bullets}\n`
+    // REV-CE-003: 调 engine export formatContinuityFindingsForPrompt 消除内联 filter+bullet
+    // reimplementation。includeChapter=false 承载生成层省略章号的故意差异 (生成层已在章内
+    // 上下文无需重复章号; 审查层/默认 export 带 ` (章 ${f.chapter})` 后缀)。空守卫由 engine
+    // export :565 接管 (injected.length===0 返 "")。filter 逻辑与 engine export :559-564 等价。
+    return formatContinuityFindingsForPrompt(findings, { includeChapter: false })
   } catch (err) {
     logger.warn("continuity-engine", "precheck degraded: " + (err as Error).message)
     collectContinuityMetric({

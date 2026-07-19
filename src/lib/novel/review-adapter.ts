@@ -17,8 +17,8 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import {
   runContinuityEngine,
   summarizeContinuityFindings,
+  toConsistencyReviewResult,
   type ContinuityInput,
-  type ContinuityFinding,
   type ContinuityOverrideStore,
 } from "./deterministic-continuity-engine"
 // TASK-010 (GRL-011 Decision 7.2): continuity 观测层 metric sink — 薄包装层在引擎
@@ -331,7 +331,12 @@ async function runContinuityMechanicalPreflight(
       timestamp: new Date().toISOString(),
     }
     collectContinuityMetric(metric)
-    return findings.map((finding) => continuityFindingToReviewResult(finding))
+    // REV-CE-003: 调 engine export toConsistencyReviewResult 消除内联
+    // continuityFindingToReviewResult reimplementation。两者行为完全等价 (severity
+    // 映射 critical→error/warning→warning/info→info; type='consistency_mechanical';
+    // message/evidence/suggestion 文本一致)。ContinuityReviewResult 是 NovelReviewResult
+    // 的结构性子类型 (type 字面量是 string 子类型), 数组协变兼容无需 cast。
+    return toConsistencyReviewResult(findings)
   } catch (err) {
     // Decision 7.3 + fold_rebuildable: 引擎异常降级 LLM continuity 维度兜底, 不阻断审查。
     // logger 双参 scope='continuity-engine' (memory a19-emotion-ledger 坑: 单参丢 scope)。
@@ -356,39 +361,6 @@ async function runContinuityMechanicalPreflight(
       relatedMemory: "",
       suggestion: "检查 store 文件完整性后重新审查; 或继续 LLM continuity 维度兜底",
     }]
-  }
-}
-
-/**
- * TASK-008: ContinuityFinding → NovelReviewResult 映射。
- *
- * ADR-30: 3 级 severity (critical/warning/info) 映射到 NovelReviewResult 3 级
- * (error/warning/info): critical→error (阻断 approve), warning→warning (提醒不阻断),
- * info (data_gap)→info (非阻断仅可见)。type 统一 'consistency_mechanical' (已
- * 加入 CONSISTENCY_REVIEW_TYPES set, 经 resolveDecisionGateKey 归 consistency gate P0)。
- * message 用 finding.message 模板化字段 (引擎已守 CWE-532 不引用正文); evidence 用
- * finding.ref (实体标识, 非正文); suggestion 按 finding.type 给机械层针对性建议。
- */
-function continuityFindingToReviewResult(finding: ContinuityFinding): NovelReviewResult {
-  const severity: NovelReviewResult["severity"] =
-    finding.severity === "critical" ? "error"
-    : finding.severity === "warning" ? "warning"
-    : "info"
-  const suggestionByType: Record<ContinuityFinding["type"], string> = {
-    dormant_thread: "推进休眠 subplot 或显式标记 resolved; 接入 writehook 更新 lastSeenChapter",
-    overdue_thread: "回收逾期伏笔或显式标记 resolved; 严重逾期走 override 人工 dismiss",
-    unresolved_foreshadowing: "规划伏笔回收章节推进; 标记推进状态",
-    absent_character: "补角色出场或显式标记离场; 配角降级 info 仅主角 warning",
-    dead_character_state: "修正死亡角色状态层矛盾; 死亡后不应再有活跃状态变更",
-    data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
-  }
-  return {
-    severity,
-    type: "consistency_mechanical",
-    message: finding.message,
-    evidence: finding.ref,
-    relatedMemory: "",
-    suggestion: suggestionByType[finding.type] ?? "检查状态层一致性",
   }
 }
 

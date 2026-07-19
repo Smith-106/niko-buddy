@@ -478,6 +478,22 @@ describe("EPIC-001 ADR-32 双层薄包装 (产不同 result type)", () => {
     expect(Array.isArray(reviewResults)).toBe(true)
     expect(reviewResults[0]).toHaveProperty("suggestion")
   })
+
+  // REV-CE-003: includeChapter 可选参数承载 generation-layer 省略章号的故意差异。
+  it("formatContinuityFindingsForPrompt: includeChapter=false 省略章号 (生成层)", () => {
+    const findings: ContinuityFinding[] = [
+      {
+        type: "dormant_thread", subtype: "consistency_mechanical", severity: "warning",
+        ref: "subplot:S1", message: "休眠 5 章", chapter: 10,
+      },
+    ]
+    // 默认 true: 带章号后缀
+    expect(formatContinuityFindingsForPrompt(findings)).toContain("(章 10)")
+    // false: 省略章号 (生成层已在章内上下文无需重复)
+    const withoutChapter = formatContinuityFindingsForPrompt(findings, { includeChapter: false })
+    expect(withoutChapter).not.toContain("(章 10)")
+    expect(withoutChapter).toContain("subplot:S1")
+  })
 })
 
 // ============================================================================
