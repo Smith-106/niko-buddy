@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useEffect, useMemo, useId } from "react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
@@ -39,6 +39,8 @@ import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-revi
 import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
+import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
 import {
   createEmptyDashboardIssueState,
   loadDashboardIssueState,
@@ -130,6 +132,13 @@ export function ReviewView({
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
+  // G3 dismiss 闭环 state: dismissTarget 是当前展开 dismiss 折叠面板的 continuity finding
+  // (用 ref 作稳定 key, PAT-U6); reason/note 是面板内表单值。PAT-ALERT-ABSTRACT:
+  // 反馈复用 alertMessage state (line 132 已存在), 不混入业务 error state。
+  const [dismissTarget, setDismissTarget] = useState<NovelReviewActionItem | null>(null)
+  const [dismissReason, setDismissReason] = useState<ContinuityOverrideReasonCode>("false_positive")
+  const [dismissNote, setDismissNote] = useState("")
+  const dismissPanelId = useId()
 
   const dimensionScoped = Boolean(dimensionKey) || resultScoreDimensionKeys !== undefined
   const selectedDimensionResult = dimensionKey ? reviewRun?.dimensionResults?.[dimensionKey] : undefined
@@ -242,6 +251,45 @@ export function ReviewView({
       },
     })
   }, [issueState, persistIssueState])
+
+  /**
+   * handleDismissFinding (G3 DD-3/DD-5): 调 dismissFinding 写 override store 实现
+   * 跨检测持久降级 (区分 handleIgnoreNovelReviewItem 仅写 session issueState.ignored)。
+   * severity 映射: error→critical / warning→warning (info 不会出现因 data_gap subtype
+   * UI 层已隐藏 dismiss 按钮, DD-5 双守; type assert 收窄避免 TS 'info' 不能赋值)。
+   * projectPath 从 project.path 取 (review-view 已有 project state, caveat 解决)。
+   * 反馈走 alertMessage (PAT-ALERT-ABSTRACT), 不复用业务 error state。
+   */
+  const handleDismissFinding = useCallback(async (
+    item: NovelReviewActionItem,
+    reasonCode: ContinuityOverrideReasonCode,
+    note: string,
+  ) => {
+    const meta = item.continuityMeta
+    const projectPath = project?.path
+    if (!meta || !projectPath) {
+      setAlertMessage(t("review.results.dismiss.titleLabel") + ": " + (projectPath ? "no meta" : "no project"))
+      return
+    }
+    const severity: "warning" | "critical" =
+      item.reviewSeverity === "error" ? "critical" : "warning"
+    try {
+      await dismissFinding(projectPath, {
+        ref: meta.ref,
+        reasonCode,
+        note,
+        severity,
+      }, meta.chapter)
+      setAlertMessage(`${t("review.results.dismiss.confirmButton")} (${meta.ref})`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAlertMessage(`${t("review.results.dismiss.titleLabel")}: ${message}`)
+    } finally {
+      setDismissTarget(null)
+      setDismissReason("false_positive")
+      setDismissNote("")
+    }
+  }, [project?.path, t])
 
   const generateNovelReviewRewriteEdits = useCallback(async (
     item: NovelReviewActionItem,
@@ -559,9 +607,84 @@ export function ReviewView({
         >
           {t("dashboard.actions.ignore")}
         </button>
+        {item.continuityMeta && item.continuityMeta.subtype !== "data_gap" ? (
+          <button
+            type="button"
+            aria-expanded={dismissTarget?.id === item.id}
+            aria-controls={dismissPanelId}
+            onClick={(event) => {
+              event.stopPropagation()
+              setDismissTarget(dismissTarget?.id === item.id ? null : item)
+              if (dismissTarget?.id !== item.id) {
+                setDismissReason("false_positive")
+                setDismissNote("")
+              }
+            }}
+            className="rounded border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10"
+          >
+            {t("review.results.dismiss.dismissButton")}
+          </button>
+        ) : null}
+      {item.continuityMeta && item.continuityMeta.subtype !== "data_gap" && dismissTarget?.id === item.id ? (
+        <div
+          key={item.continuityMeta.ref}
+          id={dismissPanelId}
+          role="region"
+          aria-labelledby={`${dismissPanelId}-title`}
+          className="mt-2 rounded border border-primary/30 bg-primary/5 p-3 text-xs"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div id={`${dismissPanelId}-title`} className="font-medium text-foreground">
+            {t("review.results.dismiss.titleLabel")}
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            <select
+              value={dismissReason}
+              onChange={(event) => setDismissReason(event.target.value as ContinuityOverrideReasonCode)}
+              className="rounded border border-border bg-background px-2 py-1 text-foreground"
+            >
+              {(["intentional_death", "intentional_absence", "intentional_flashback", "posthumous_by_design", "false_positive", "state_layer_fix"] as const).map((code) => (
+                <option key={code} value={code}>
+                  {t(`review.results.dismiss.reason.${code}`)}
+                </option>
+              ))}
+            </select>
+            <textarea
+              value={dismissNote}
+              onChange={(event) => setDismissNote(event.target.value)}
+              maxLength={200}
+              placeholder={t("review.results.dismiss.notePlaceholder")}
+              className="rounded border border-border bg-background px-2 py-1 text-foreground"
+              rows={2}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleDismissFinding(item, dismissReason, dismissNote)
+                }}
+                className="rounded border border-primary px-2 py-1 text-foreground hover:bg-primary/10"
+              >
+                {t("review.results.dismiss.confirmButton")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDismissTarget(null)
+                  setDismissReason("false_positive")
+                  setDismissNote("")
+                }}
+                className="rounded border border-border px-2 py-1 text-foreground hover:bg-accent"
+              >
+                {t("review.results.dismiss.cancelButton")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       </div>
     )
-  }, [handleIgnoreNovelReviewItem, handleRestoreRewrite, handleViewRewrite, issueState.rewrites, rewriteBusyId, runNovelReviewAiRewrite, t])
+  }, [dismissPanelId, dismissNote, dismissReason, dismissTarget, handleDismissFinding, handleIgnoreNovelReviewItem, handleRestoreRewrite, handleViewRewrite, issueState.rewrites, rewriteBusyId, runNovelReviewAiRewrite, t])
 
   const handleRewriteEditReplacementChange = useCallback((editId: string, replacementText: string) => {
     setRewriteDialog((current) => current
