@@ -414,7 +414,32 @@
         "foreshadowing": "伏笔回收",
         "setting": "世界设定",
         "plot": "剧情推进",
-        "style": "行文语气"
+        "style": "行文语气",
+        "consistency_mechanical": "连续性机械检测"
+      },
+      "subtype": {
+        "consistency_mechanical": "机械一致性",
+        "data_gap": "数据缺失",
+        "dormant_thread": "休眠支线",
+        "overdue_thread": "逾期支线",
+        "unresolved_foreshadowing": "未回收伏笔",
+        "absent_character": "缺席角色",
+        "dead_character_state": "死亡角色状态矛盾"
+      },
+      "dismiss": {
+        "titleLabel": "忽略连续性 finding",
+        "dismissButton": "跨检测降级",
+        "cancelButton": "取消",
+        "confirmButton": "确认忽略",
+        "notePlaceholder": "脱敏备注（不引用正文，如：设计内角色已死亡）",
+        "reason": {
+          "intentional_death": "角色已死亡（设计内）",
+          "intentional_absence": "角色缺席（设计内）",
+          "intentional_flashback": "闪回设计",
+          "posthumous_by_design": "死后设计",
+          "false_positive": "误报",
+          "state_layer_fix": "状态层已修复"
+        }
       }
     },
     "typeLabels": {

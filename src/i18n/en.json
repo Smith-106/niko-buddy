@@ -683,7 +683,32 @@
         "foreshadowing": "Foreshadowing payoff",
         "setting": "World details",
         "plot": "Plot progression",
-        "style": "Writing tone"
+        "style": "Writing tone",
+        "consistency_mechanical": "Continuity Mechanical"
+      },
+      "subtype": {
+        "consistency_mechanical": "Mechanical consistency",
+        "data_gap": "Data gap",
+        "dormant_thread": "Dormant thread",
+        "overdue_thread": "Overdue thread",
+        "unresolved_foreshadowing": "Unresolved foreshadowing",
+        "absent_character": "Absent character",
+        "dead_character_state": "Dead character state conflict"
+      },
+      "dismiss": {
+        "titleLabel": "Dismiss continuity finding",
+        "dismissButton": "Cross-run demote",
+        "cancelButton": "Cancel",
+        "confirmButton": "Confirm dismiss",
+        "notePlaceholder": "Redacted note (do not quote prose, e.g. character death by design)",
+        "reason": {
+          "intentional_death": "Character death (by design)",
+          "intentional_absence": "Character absence (by design)",
+          "intentional_flashback": "Flashback design",
+          "posthumous_by_design": "Posthumous by design",
+          "false_positive": "False positive",
+          "state_layer_fix": "State layer fixed"
+        }
       }
     },
     "typeLabels": {
