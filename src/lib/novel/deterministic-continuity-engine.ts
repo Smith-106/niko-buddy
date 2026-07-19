@@ -159,7 +159,11 @@ export interface ContinuityInput {
 
 /**
  * DEFAULT_CONTINUITY_CONFIG (ADR-31): 引擎阈值缺省值。
- * [需校准] 待 UAT 跑真实章节样本调参 (blueprint caveats + ADR-31 明确)。
+ * [需校准-样本不足] 待用户提供 ≥3 本中文长篇 QMAI 项目样本 (50+ 章/本,
+ * 群像/慢热/快节奏各一) 跑 scripts/calibrate-continuity-thresholds.mjs (ISS-001)
+ * 校准。当前沿用默认值, 基于 A19 中文校准模式 (CV 0.1 + max(N,floor) 公式) 有
+ * 合理 fallback, 非硬阻塞。校准脚本镜像 deriveSubplotLastSeenChapter 纯函数
+ * (PAT-G2 孪生), 输出候选阈值 JSON 供手动替换本常量。
  * - dormantThresholdChapters: 3 (保底 max(3, floor(total*0.02)))
  * - absentThresholdChapters: 5 (默认 5 章, protagonist warning 配角 info)
  * - overdueRatio: 0.02
