@@ -40,6 +40,16 @@ import {
 import {
   appendRewriteRateASample,
 } from "./character-cognition"
+import {
+  runContinuityEngine,
+  summarizeContinuityFindings,
+  type ContinuityInput,
+  type ContinuityFinding,
+} from "./deterministic-continuity-engine"
+import { collectContinuityMetric } from "@/lib/llm-client"
+import { loadForeshadowingTracker } from "./foreshadowing-tracker"
+import { loadSubplotBoard } from "./subplot-board"
+import { loadCharacterStates } from "./character-state"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -254,6 +264,7 @@ const CONSISTENCY_REVIEW_TYPES = new Set([
   "timeline",
   "foreshadowing",
   "setting",
+  "consistency_mechanical",
 ])
 const ANTI_AI_REVIEW_TYPES = new Set([
   "anti_ai",
@@ -884,6 +895,172 @@ export async function runFullReviewWithSixDim(
   return { reviewResults, dimensionResults }
 }
 
+/**
+ * TASK-007: 确定性连续性引擎生成层预检 (grill GRL-011 Decision 1.3 bullet 模式)。
+ *
+ * 薄包装: load foreshadowing-tracker / subplot-board / character-states 结构化
+ * store (幂等 try/catch 降级, 缺失/损坏返回空数组非致命), 组装 ContinuityInput,
+ * 调 runContinuityEngine 纯函数拿 ContinuityFinding[]。过滤 critical+high 且排除
+ * data_gap (Decision 1.3 bullet 只注入提醒级 findings, 不阻断生成守 Draft-first 三
+ * 大硬约束 #2; data_gap 是 info 级标注非一致性问题不注入生成层)。文本化为简短
+ * bullet list 注入任务书 prompt 末尾 (非长文, 守 context 预算)。空则返回 "" 不污染
+ * prompt (空守卫)。try/catch 降级: 引擎或 store 读取失败返回 "" 不阻断草稿生成
+ * (生成层绝不阻断, 阻断职责归审查层 TASK-008)。
+ *
+ * snapshots 传空数组: 预检轻量化, 不全量 load snapshots (O(C) 读盘开销大)。
+ * 引擎 checkDormantThreads 优先读 subplot.lastSeenChapter 落盘值 (writehook 增量
+ * 更新), 仅 undefined 时 fold 反推需 snapshots——此时 deriveSubplotLastSeenChapter
+ * 返回 undefined, 引擎产 data_gap (info) 标注缺数据, 不阻断。其余 3 项检测
+ * (absent_character/overdue_threads/dead_character_state) 不依赖 snapshots。
+ */
+async function runContinuityPreCheck(
+  projectPath: string,
+  currentChapter: number | undefined,
+): Promise<string> {
+  const startMs = Date.now()
+  try {
+    const chapterNum = currentChapter ?? 0
+    const [foreshadowingStore, subplotStore, characterStore] = await Promise.all([
+      loadForeshadowingTracker(projectPath).catch(() => ({ items: [], lastUpdated: "" })),
+      loadSubplotBoard(projectPath).catch(() => ({ items: [], lastUpdated: "" })),
+      loadCharacterStates(projectPath).catch(() => ({ characters: [], lastUpdated: "" })),
+    ])
+    const continuityInput: ContinuityInput = {
+      foreshadowing: foreshadowingStore.items,
+      subplots: subplotStore.items,
+      characters: characterStore.characters,
+      snapshots: [],
+      currentChapter: chapterNum,
+    }
+    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    const summary = summarizeContinuityFindings(findings)
+    // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
+    // 生成层预检注入 critical+warning 提醒级 (非阻断守 Draft-first)。
+    // warning 级 = dormant_thread/absent_character/unresolved_foreshadowing (3 级方案)。
+    // data_gap (info) 不注入 (仅可见标注)。
+    const injected = findings.filter(
+      (f) => (f.severity === "critical" || f.severity === "warning") && f.subtype !== "data_gap" && f.type !== "data_gap",
+    )
+    // TASK-010 (Decision 7.2): continuity 观测层 metric — 生成层预检 gate=consistency,
+    // 只记 count+ms (CWE-532)。short_circuit_hits=0 (预检非阻断不短路 LLM)。
+    // high_count=0 (3 级方案无 high, dormant/absent/unresolved 归 warning)。
+    collectContinuityMetric({
+      execution_ms: Date.now() - startMs,
+      critical_count: summary.critical,
+      high_count: 0,
+      warning_count: summary.warning,
+      data_gap_count: summary.data_gap,
+      overrides_hit: 0,
+      short_circuit_hits: 0,
+      engine_error_count: 0,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    })
+    if (injected.length === 0) return ""
+    const bullets = injected
+      .map((f) => `- [${f.severity}] ${f.ref}: ${f.message}`)
+      .join("\n")
+    return `\n\n[连续性预检提醒]\n${bullets}\n`
+  } catch (err) {
+    logger.warn("continuity-engine", "precheck degraded: " + (err as Error).message)
+    collectContinuityMetric({
+      execution_ms: Date.now() - startMs,
+      critical_count: 0,
+      high_count: 0,
+      warning_count: 0,
+      data_gap_count: 0,
+      overrides_hit: 0,
+      short_circuit_hits: 0,
+      engine_error_count: 1,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    })
+    return ""
+  }
+}
+
+/**
+ * TASK-009: 确定性连续性引擎机械 critical 检测 (grill GRL-011 Decision 3.1 +
+ * ADR-17 Q4 机械 critical 不进 fix-loop LLM 重写)。
+ *
+ * 薄包装: load foreshadowing-tracker / subplot-board / character-states store
+ * (幂等 try/catch 降级), 组装 ContinuityInput, 调 runContinuityEngine 纯函数拿
+ * findings, 检查是否存在 severity==='critical' 且 subtype==='consistency_mechanical'
+ * 的 finding (dead_character_state / overdue_thread; 两者 type 不同但 subtype 都是
+ * consistency_mechanical)。用 subtype 而非 type 判定 (ContinuityFinding.subtype 字段
+ * 是 consistency_mechanical 标记)。有则返回 {tripped:true, reason: 模板化摘要 (critical
+ * findings 的 ref+type 列表, 不引用正文守 CWE-532)}; 无则 {tripped:false, reason:''}。
+ * 该分流走 emotion-ledger Circuit Breaker 同款 manualHandoff 路径 (Decision 3.1 复用
+ * 不新建独立 audit)。调用点在 fix-loop LLM 重写分支前, 通过 manualHandoff 提前返回
+ * 绕过 max_retry=3 LLM 重写 (守 ADR-17)。
+ */
+async function checkContinuityCritical(
+  projectPath: string,
+  currentChapter: number | undefined,
+): Promise<{ tripped: boolean; reason: string }> {
+  const startMs = Date.now()
+  try {
+    const chapterNum = currentChapter ?? 0
+    const [foreshadowingStore, subplotStore, characterStore] = await Promise.all([
+      loadForeshadowingTracker(projectPath).catch(() => ({ items: [], lastUpdated: "" })),
+      loadSubplotBoard(projectPath).catch(() => ({ items: [], lastUpdated: "" })),
+      loadCharacterStates(projectPath).catch(() => ({ characters: [], lastUpdated: "" })),
+    ])
+    const continuityInput: ContinuityInput = {
+      foreshadowing: foreshadowingStore.items,
+      subplots: subplotStore.items,
+      characters: characterStore.characters,
+      snapshots: [],
+      currentChapter: chapterNum,
+    }
+    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    const summary = summarizeContinuityFindings(findings)
+    const critical = findings.filter(
+      (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",
+    )
+    // TASK-010 (Decision 7.2): critical 分流 metric — short_circuit_hits=tripped 数
+    // (机械 critical 短路 LLM fix-loop, 走 manualHandoff 非 LLM 重写)。
+    // high_count=0 (3 级方案无 high, ADR-30 blueprint 对齐)。
+    collectContinuityMetric({
+      execution_ms: Date.now() - startMs,
+      critical_count: summary.critical,
+      high_count: 0,
+      warning_count: summary.warning,
+      data_gap_count: summary.data_gap,
+      overrides_hit: 0,
+      short_circuit_hits: critical.length,
+      engine_error_count: 0,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    })
+    if (critical.length === 0) {
+      return { tripped: false, reason: "" }
+    }
+    const list = critical
+      .map((f) => `${f.ref}(${f.type})`)
+      .join(", ")
+    return {
+      tripped: true,
+      reason: `连续性机械 critical: ${list} (死亡角色活跃态/伏笔逾期未回收, 走人工处理避免 fix-loop LLM 重写加深不一致)`,
+    }
+  } catch (err) {
+    logger.warn("continuity-engine", "critical check degraded: " + (err as Error).message)
+    collectContinuityMetric({
+      execution_ms: Date.now() - startMs,
+      critical_count: 0,
+      high_count: 0,
+      warning_count: 0,
+      data_gap_count: 0,
+      overrides_hit: 0,
+      short_circuit_hits: 0,
+      engine_error_count: 1,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    })
+    return { tripped: false, reason: "" }
+  }
+}
+
 export async function runDeepChapterGeneration(
   input: DeepChapterGenerationInput,
   callbacks: DeepChapterGenerationCallbacks = {},
@@ -932,7 +1109,15 @@ export async function runDeepChapterGeneration(
   const ctx1 = await assembleContext(
     deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
   )
-  const { contextPack, customDeAiSkill, outlinePrompt, contextPrompt, cachePrefix } = ctx1
+  const { contextPack, customDeAiSkill, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
+  assertNotAborted(signal)
+
+  // TASK-007: 确定性连续性引擎生成层预检 (grill GRL-011 Decision 1.3 bullet 模式)。
+  // 非阻断: 只产提醒级 bullet 文本拼入任务书 prompt 末尾, 不阻止 generateDraft。
+  // 空守卫: 预检返回 "" 时 contextPrompt 不变 (不污染 prompt)。阻断职责归审查层
+  // (TASK-008)。logger 双参 scope='continuity-engine'。
+  const continuityPreCheckText = await runContinuityPreCheck(input.projectPath, input.chapterNumber)
+  const contextPrompt = continuityPreCheckText ? rawContextPrompt + continuityPreCheckText : rawContextPrompt
   assertNotAborted(signal)
 
   // 阶段1.5：场景拆解
@@ -1681,6 +1866,51 @@ async function runReviewAndRepair(
         }
       } catch {
         // emotion-ledger store 缺失/损坏 → 跳过熔断检查, 降级为原返修逻辑 (非致命)。
+      }
+    }
+
+    // TASK-009: 确定性连续性引擎机械 critical 分流 (grill GRL-011 Decision 3.1 +
+    // ADR-17 Q4)。复用 emotion-ledger Circuit Breaker 同款 manualHandoff 路径 (Decision
+    // 3.1 复用不新建独立 audit)。机械 critical (dead_character_state / overdue_thread)
+    // 不进 fix-loop LLM 重写——继续返修只会加深角色状态不一致/伏笔债务。调用点在
+    // LLM 重写分支 (collectModelText buildDeepChapterRevisionPrompt) 前, 通过 manualHandoff
+    // 提前返回绕过 max_retry=3。仅 retryCount > 0 时检查 (与 emotion CB 一致, 避免首次
+    // review 即误触发; 首次 review 的 critical 已由 review-adapter 审查层处理)。零 LLM:
+    // checkContinuityCritical 调 runContinuityEngine 纯函数。
+    if (retryCount > 0) {
+      const continuityCritical = await checkContinuityCritical(input.projectPath, input.chapterNumber)
+      if (continuityCritical.tripped) {
+        logger.warn("continuity-engine", "critical continuity findings, manual handoff: " + continuityCritical.reason)
+        manualReviewRequired = true
+        decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5.5：连续性机械 critical 转人工",
+          [
+            continuityCritical.reason,
+            "",
+            "检测到确定性连续性机械 critical (死亡角色活跃态/伏笔逾期未回收), 继续 LLM 重写将加深不一致, 已转人工处理。",
+            "",
+            formatReviewIssueList(blockingIssues),
+          ].join("\n"),
+        ))
+        await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
+          taskBrief,
+          draftContent,
+          reviewResults,
+          currentContent,
+          decisionGates,
+          retryCount,
+          manualReviewRequired: true,
+        }))
+        return {
+          reviewResults,
+          decisionGates,
+          retryCount,
+          manualReviewRequired: true,
+          currentContent,
+          revised,
+          manualHandoff: true,
+        }
       }
     }
 

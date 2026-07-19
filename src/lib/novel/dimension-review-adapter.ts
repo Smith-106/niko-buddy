@@ -344,6 +344,7 @@ export async function runSixDimensionReview({
   llmConfig,
   novelConfig,
   novelMode,
+  priorReviewResults,
 }: {
   projectPath: string
   chapterContent: string
@@ -358,6 +359,17 @@ export async function runSixDimensionReview({
   llmConfig?: LlmConfig
   novelConfig?: NovelConfig
   novelMode?: boolean
+  /**
+   * TASK-008 (GRL-011 Decision 4.2): 机械先于语义短路。调用方 (deep-chapter-
+   * generation.runFullReviewWithSixDim) 把 review-adapter.reviewChapter 已产出的
+   * findings 传入, continuity 维度读到含 consistency_mechanical subtype 时降级
+   * pass 跳 LLM 调用省 token。短路范围 ONLY 机械已检 subtype (休眠/缺席/逾期/
+   * 死亡活跃), LLM continuity 仍检机械覆盖外语义矛盾 (时间线逻辑矛盾非章号偏移)。
+   * 可选参数, 未传时六维全跑 LLM (向后兼容, 当前 runFullReviewWithSixDim 并行
+   * 调用未传 — 接线由后续 plan session 在 deep-chapter-generation.ts 调用点做,
+   * 本 TASK 不改 deep-chapter-generation.ts 出 scope)。
+   */
+  priorReviewResults?: NovelReviewResult[]
 }): Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>> {
   const injectedNovelConfig = novelConfig ?? useWikiStore.getState().novelConfig
   const llmConfigResolved = resolveNovelModel(
@@ -383,9 +395,32 @@ export async function runSixDimensionReview({
   // 逐项 try/catch 保留 F-003 DimParseError 区分（parse 失败 vs stream 错误），
   // 失败维度走 buildFailedDimensionResult 不阻断其他维度。顺序由 keys 数组保序。
   callbacks.onDimensionProgress?.(keys[0], "六维审查并行启动")
+  // TASK-008 (GRL-011 Decision 4.2): 机械先于语义短路 — continuity 维度机械已检
+  // (priorReviewResults 含 consistency_mechanical subtype) 时跳 LLM 调用省 token。
+  // 短路范围 ONLY 机械已检 subtype (休眠/缺席/逾期/死亡活跃); LLM continuity 仍
+  // 检机械覆盖外语义矛盾 (时间线逻辑矛盾非章号偏移) — 故短路产 pass + 备注, 不
+  // 替代全量 LLM continuity 审查的语义覆盖。priorReviewResults 缺省 (undefined)
+  // 时六维全跑 LLM (向后兼容)。
+  const hasMechanicalContinuity = Boolean(
+    priorReviewResults && priorReviewResults.some(r => r.type === "consistency_mechanical"),
+  )
   const settled = await Promise.all(
     keys.map(async (key) => {
       const dimension = SIX_REVIEW_DIMENSIONS[key]
+      // continuity 维度机械短路 (Decision 4.2): 跳 LLM 调用, 产 pass 占位结果
+      if (key === "continuity" && hasMechanicalContinuity) {
+        const shortCircuitResult: DimensionReviewResult = {
+          dimensionKey: "continuity",
+          score: 100,
+          status: "pass",
+          summary: "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语语矛盾仍需人工复核",
+          thinking: formatDimensionThinking(dimension, "机械短路: 引擎已检休眠/缺席/逾期/死亡活跃 subtype"),
+          issues: [],
+        }
+        callbacks.onDimensionResult?.(key, shortCircuitResult)
+        callbacks.onDimensionThinking?.(key, shortCircuitResult.thinking)
+        return { key, result: shortCircuitResult, error: null as Error | null }
+      }
       try {
         const result = await reviewChapterDimension({
           llmConfig: llmConfigResolved,

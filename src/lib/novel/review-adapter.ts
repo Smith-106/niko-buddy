@@ -9,6 +9,28 @@ import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
 import { slopScore, classifySlop, slopReportToText } from "./mechanical-slop-detector"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+// TASK-008 (GRL-011 Decision 4.3): deterministic-continuity-engine 是纯函数零 IO 零 LLM
+// 引擎, 由审查层薄包装调用产 ContinuityFinding[], 映射 NovelReviewResult type
+// 'consistency_mechanical' (TASK-006 已加入 CONSISTENCY_REVIEW_TYPES set, 经
+// resolveDecisionGateKey 归 consistency gate P0)。守门控优先级 Consistency(P0):
+// critical 映射 severity:'error' 经 collectBlockingIssues 阻断 approve。
+import {
+  runContinuityEngine,
+  summarizeContinuityFindings,
+  type ContinuityInput,
+  type ContinuityFinding,
+} from "./deterministic-continuity-engine"
+// TASK-010 (GRL-011 Decision 7.2): continuity 观测层 metric sink — 薄包装层在引擎
+// 执行后调 collectContinuityMetric 记录 count+ms+gate (CWE-532: 只记统计不记正文)。
+// 同 flushMetrics atomic 模式持久化 .novel/continuity-metrics.jsonl。
+import { collectContinuityMetric, type ContinuityMetric } from "@/lib/llm-client"
+// 薄包装 load 结构化 store (Decision 2.3 idempotent try/catch 降级)。loader 内部已
+// catch 返空 store (character-state/foreshadowing-tracker) 或走 createAtomicJsonStore
+// (subplot-board), 不再额外包 try/catch — 复用 loader 内建降级守 fold_rebuildable。
+import { loadForeshadowingTracker } from "./foreshadowing-tracker"
+import { loadSubplotBoard } from "./subplot-board"
+import { loadCharacterStates } from "./character-state"
+import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 
 export interface NovelReviewResult {
   severity: "error" | "warning" | "info"
@@ -203,6 +225,142 @@ ${i18n.t("novel.reviewPrompt.outputFormat")}
 ${i18n.t("novel.reviewPrompt.emptyArrayFallback")}`
 }
 
+/**
+ * TASK-008 (GRL-011): deterministic-continuity-engine 审查层薄包装。
+ *
+ * 薄包装 load 结构化 store (loadForeshadowingTracker/loadSubplotBoard/
+ * loadCharacterStates + snapshots via listSnapshots/loadSnapshot), 组装
+ * ContinuityInput, 调 runContinuityEngine (纯函数零 IO 零 LLM), 映射产出的
+ * ContinuityFinding[] 为 NovelReviewResult[]。loader 内部 catch 降级返空 store
+ * (fold_rebuildable), 故不再额外包 try/catch。snapshots 需独立 load (引擎用于
+ * subplot lastSeenChapter fold 反推)。
+ *
+ * severity 映射 (对齐 grill-report.md line 127 Constraint):
+ *   critical (dead_character_state/overdue_thread) → severity:'error' (阻断 approve)
+ *   high (dormant_thread/absent_character/unresolved_foreshadowing) → severity:'warning' (提醒不阻断)
+ *   warning → severity:'warning'
+ *   info (data_gap) → severity:'info' (非阻断仅可见标注)
+ *
+ * chapterNumber 缺失 (undefined) 时无法算章号 gap, 返空数组跳过引擎 (不阻断审查)。
+ * 引擎异常 catch 产单一 consistency_mechanical severity:'warning' engine_error finding
+ * 不阻断 (守 Decision 7.3 + fold_rebuildable)。logger 双参 scope='continuity-engine'。
+ */
+async function runContinuityMechanicalPreflight(
+  projectPath: string,
+  chapterNumber?: number,
+): Promise<NovelReviewResult[]> {
+  // chapterNumber 缺失无法算 gap, 跳过引擎 (不阻断)
+  if (chapterNumber === undefined || chapterNumber < 1) return []
+  const startMs = Date.now()
+  try {
+    // 并发 load 4 路 store (idempotent, loader 内 catch 降级返空 store)
+    const [foreshadowingStore, subplotBoard, characterStateStore, snapshotNumbers] =
+      await Promise.all([
+        loadForeshadowingTracker(projectPath),
+        loadSubplotBoard(projectPath),
+        loadCharacterStates(projectPath),
+        listSnapshots(projectPath),
+      ])
+    // snapshots 引擎用于 subplot lastSeenChapter fold 反推, 只 load 引擎实际需要的
+    // (writehook 增量更新落盘值后引擎直接读, fold 是 fallback)。全 load 避免遗漏。
+    const snapshots = (await Promise.all(
+      snapshotNumbers.map((n) => loadSnapshot(projectPath, n)),
+    )).filter((s): s is NonNullable<typeof s> => Boolean(s))
+
+    const continuityInput: ContinuityInput = {
+      foreshadowing: foreshadowingStore.items,
+      subplots: subplotBoard.items,
+      characters: characterStateStore.characters,
+      snapshots,
+      currentChapter: chapterNumber,
+    }
+    const findings: ContinuityFinding[] = runContinuityEngine(continuityInput)
+    const summary = summarizeContinuityFindings(findings)
+    // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
+    // high_count metric 保留 0 (llm-client ContinuityMetric 接口仍含 high_count 字段,
+    // 3 级方案下 dormant/absent/unresolved 归 warning, high_count 恒 0 守 metric 兼容)。
+    logger.warn(
+      "continuity-engine",
+      `found ${summary.total} findings (critical:${summary.critical}, warning:${summary.warning}, info:${summary.info}, data_gap:${summary.data_gap})`,
+    )
+    // TASK-010 (Decision 7.2): continuity 观测层 metric — 只记 count+ms+gate 枚举
+    // (CWE-532: finding.ref/override 正文不进 metric)。short_circuit_hits 此路径为 0
+    // (机械预门未短路 LLM, 短路走 critical 分支); engine_error_count 此路径 0 (异常走 catch)。
+    // overrides_hit 薄包装层暂不查 override store (TODO 接入 isFindingDismissed 过滤后)。
+    const metric: ContinuityMetric = {
+      execution_ms: Date.now() - startMs,
+      critical_count: summary.critical,
+      high_count: 0,
+      warning_count: summary.warning,
+      data_gap_count: summary.data_gap,
+      overrides_hit: 0,
+      short_circuit_hits: 0,
+      engine_error_count: 0,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    }
+    collectContinuityMetric(metric)
+    return findings.map((finding) => continuityFindingToReviewResult(finding))
+  } catch (err) {
+    // Decision 7.3 + fold_rebuildable: 引擎异常降级 LLM continuity 维度兜底, 不阻断审查。
+    // logger 双参 scope='continuity-engine' (memory a19-emotion-ledger 坑: 单参丢 scope)。
+    logger.error("continuity-engine", `engine degraded: ${err instanceof Error ? err.message : String(err)}`)
+    collectContinuityMetric({
+      execution_ms: Date.now() - startMs,
+      critical_count: 0,
+      high_count: 0,
+      warning_count: 0,
+      data_gap_count: 0,
+      overrides_hit: 0,
+      short_circuit_hits: 0,
+      engine_error_count: 1,
+      gate: "consistency",
+      timestamp: new Date().toISOString(),
+    })
+    return [{
+      severity: "warning",
+      type: "consistency_mechanical",
+      message: "连续性引擎执行异常, 降级到 LLM continuity 维度兜底",
+      evidence: "engine_error",
+      relatedMemory: "",
+      suggestion: "检查 store 文件完整性后重新审查; 或继续 LLM continuity 维度兜底",
+    }]
+  }
+}
+
+/**
+ * TASK-008: ContinuityFinding → NovelReviewResult 映射。
+ *
+ * ADR-30: 3 级 severity (critical/warning/info) 映射到 NovelReviewResult 3 级
+ * (error/warning/info): critical→error (阻断 approve), warning→warning (提醒不阻断),
+ * info (data_gap)→info (非阻断仅可见)。type 统一 'consistency_mechanical' (已
+ * 加入 CONSISTENCY_REVIEW_TYPES set, 经 resolveDecisionGateKey 归 consistency gate P0)。
+ * message 用 finding.message 模板化字段 (引擎已守 CWE-532 不引用正文); evidence 用
+ * finding.ref (实体标识, 非正文); suggestion 按 finding.type 给机械层针对性建议。
+ */
+function continuityFindingToReviewResult(finding: ContinuityFinding): NovelReviewResult {
+  const severity: NovelReviewResult["severity"] =
+    finding.severity === "critical" ? "error"
+    : finding.severity === "warning" ? "warning"
+    : "info"
+  const suggestionByType: Record<ContinuityFinding["type"], string> = {
+    dormant_thread: "推进休眠 subplot 或显式标记 resolved; 接入 writehook 更新 lastSeenChapter",
+    overdue_thread: "回收逾期伏笔或显式标记 resolved; 严重逾期走 override 人工 dismiss",
+    unresolved_foreshadowing: "规划伏笔回收章节推进; 标记推进状态",
+    absent_character: "补角色出场或显式标记离场; 配角降级 info 仅主角 warning",
+    dead_character_state: "修正死亡角色状态层矛盾; 死亡后不应再有活跃状态变更",
+    data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
+  }
+  return {
+    severity,
+    type: "consistency_mechanical",
+    message: finding.message,
+    evidence: finding.ref,
+    relatedMemory: "",
+    suggestion: suggestionByType[finding.type] ?? "检查状态层一致性",
+  }
+}
+
 export async function reviewChapter(
   projectPath: string,
   chapterContent: string,
@@ -210,6 +368,7 @@ export async function reviewChapter(
   options: ReviewChapterOptions = {},
   signal?: AbortSignal,
 ): Promise<NovelReviewResult[]> {
+
   if (signal?.aborted) throw new Error("已停止生成")
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
   const llmConfig = resolveNovelModel(
@@ -238,6 +397,24 @@ export async function reviewChapter(
       relatedMemory: "",
       suggestion: "降低 AI 味: 删总结腔/解释腔, 打破机械句式, 具体化情绪替代概述",
     }]
+  }
+
+  // TASK-008 (GRL-011 Decision 4.3): 确定性连续性引擎 — 机械层零 LLM 纯函数,
+  // 与 slopScore 同层机械预门 (机械先于语义, 三层叠加 runFactCheck→引擎→slop→LLM)。
+  // 引擎检累积态异常 (休眠/缺席/逾期/死亡活跃), 产 consistency_mechanical type;
+  // runFactCheck 产 timeline/setting/character_consistency — 不同 type 不双写同进
+  // consistency gate (Decision 4.3 正交叠加)。critical (死亡角色活跃/逾期伏笔) 映射
+  // severity:'error' 经 collectBlockingIssues 阻断 approve (守门控优先级 P0)。
+  // critical 存在时短路 LLM 审查 (同 slopScore penalty>=8 block 跳 LLM 模式, 省 token);
+  // 否则把机械 findings 前置到 reviewResults 与 LLM 结果合并 (high/warning 提醒不阻断,
+  // data_gap info 可见)。引擎异常 catch 产 engine_error warning 不阻断 (Decision 7.3 +
+  // fold_rebuildable 派生观测层失败不回滚正文)。logger 双参 scope='continuity-engine'
+  // (memory a19-emotion-ledger 坑: 单参 logger 调用会丢 scope)。CWE-532: message 用
+  // finding.message 模板化字段, 不引用章节正文。
+  const continuityResults = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
+  if (continuityResults.some(r => r.severity === "error")) {
+    // critical 机械 finding 阻断 approve, 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)
+    return continuityResults
   }
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
@@ -331,7 +508,10 @@ ${langReminder}`
       }))
     }))
 
-    return chunkResults.flat()
+    // TASK-008: 把机械连续性 findings (high/warning/data_gap, 非阻断) 前置到 LLM
+    // 审查结果之前 — critical 已在上面短路返回, 这里只剩提醒级。合并后经
+    // collectBlockingIssues 收集 (只有 severity:'error' 阻断, warning/info 可见)。
+    return [...continuityResults, ...chunkResults.flat()]
   } catch (err) {
     // F-16 (CWE-532): message-only; the full error is still propagated via
     // toError(err) for the caller, so the stderr log only needs the message.

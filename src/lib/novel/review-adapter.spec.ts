@@ -46,6 +46,10 @@ const contextPack = mocks.contextPack satisfies ContextPack
 
 vi.mock("@/lib/llm-client", () => ({
   streamChat: mocks.streamChatMock,
+  // TASK-010: collectContinuityMetric mirror — 薄包装层调, 测试不验证 metric 持久化,
+  // no-op mock 即可 (PAT-G2 spec-mock 须镜像新 export 否则 runContinuityMechanicalPreflight
+  // catch 块调用抛 "No export defined")。
+  collectContinuityMetric: () => {},
   extractJsonArraySpan: (text: string): string | null => {
     // Mirror real implementation for test use.
     const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)

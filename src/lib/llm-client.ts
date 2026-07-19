@@ -132,6 +132,105 @@ export async function flushMetrics(): Promise<number> {
   }
 }
 
+/**
+ * TASK-010: Deterministic continuity engine metrics collection.
+ *
+ * Mirrors the LlmMetric pattern (ISS-20260709-020): buffer in memory,
+ * flushContinuityMetrics persists to a SEPARATE file
+ * (.novel/continuity-metrics.jsonl) so the continuity engine's observability
+ * stream does not pollute the LLM metrics stream (Decision 7.2 — independent
+ * metric file). The continuity engine is a mechanical pre-check layer, not an
+ * LLM call; its metrics are counts (findings by severity, overrides,
+ * short-circuits, data gaps, engine errors) plus execution_ms and a gate
+ * classification — no narrative content, no override bodies.
+ *
+ * PAT-DC1 (CWE-532): only counts + timing + gate enum are recorded. The
+ * finding.ref / override text / chapter content never reach the metrics file.
+ *
+ * The engine + thin-wrapper integration (summarizeContinuityFindings helper
+ * and the collectContinuityMetric call site in the wrapper layer) are owned by
+ * TASK-007/TASK-008 agents; this file only owns the metric definition +
+ * buffer + flush infrastructure, reusing the flushMetrics atomic
+ * read-modify-write pattern verbatim.
+ */
+export interface ContinuityMetric {
+  execution_ms: number
+  critical_count: number
+  high_count: number
+  warning_count: number
+  data_gap_count: number
+  overrides_hit: number
+  short_circuit_hits: number
+  engine_error_count: number
+  gate: "consistency" | "quality" | "anti_ai"
+  timestamp: string
+}
+
+let continuityMetricsFilePath = ""
+const continuityMetricBuffer: ContinuityMetric[] = []
+
+/** Configure the continuity metrics sink (.novel/continuity-metrics.jsonl). */
+export function setContinuityMetricsFilePath(path: string): void {
+  continuityMetricsFilePath = path
+}
+
+/** Test-only: clear the in-memory continuity metrics buffer. */
+export function __clearContinuityMetricsBufferForTest(): void {
+  continuityMetricBuffer.length = 0
+}
+
+/**
+ * Buffer a continuity metric record (synchronous — safe from the engine's
+ * finally / warn path). No-op beyond buffering until flushContinuityMetrics.
+ * Reuses the same auto-flush safety valve pattern as collectLLMMetric
+ * (buffer>=500 → fire-and-forget flush) so a long session without an explicit
+ * run-end flush does not lose metrics to unbounded memory growth.
+ */
+export function collectContinuityMetric(metric: ContinuityMetric): void {
+  continuityMetricBuffer.push(metric)
+  if (continuityMetricBuffer.length >= 500 && continuityMetricsFilePath) {
+    void flushContinuityMetrics()
+  }
+}
+
+/**
+ * Persist buffered continuity metrics to .novel/continuity-metrics.jsonl via
+ * read-modify-write (atomic). Reuses the flushMetrics pattern verbatim
+ * (splice-then-write, lazy fs import, re-buffer on failure with cap). Best
+ * effort: a write failure is logged and swallowed — continuity metrics must
+ * never break the generation/review path. Returns the count flushed.
+ *
+ * CWE-22: continuityMetricsFilePath is set from a literal
+ * `{projectPath}/.novel/continuity-metrics.jsonl` at run start (non-user-input
+ * path, same form as setMetricsFilePath); no dynamic path components reach
+ * this sink.
+ */
+export async function flushContinuityMetrics(): Promise<number> {
+  if (!continuityMetricsFilePath || continuityMetricBuffer.length === 0) return 0
+  const toFlush = continuityMetricBuffer.splice(0, continuityMetricBuffer.length)
+  try {
+    const { readFile, writeFileAtomic } = await import("@/commands/fs")
+    let existing = ""
+    try {
+      existing = await readFile(continuityMetricsFilePath)
+    } catch {
+      existing = ""
+    }
+    const lines = toFlush.map(m => JSON.stringify(m)).join("\n")
+    const next = existing ? existing.replace(/\n?$/, "\n") + lines + "\n" : lines + "\n"
+    await writeFileAtomic(continuityMetricsFilePath, next)
+    return toFlush.length
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "[continuity-metrics] flush failed:",
+      e instanceof Error ? e.message : String(e),
+    )
+    if (continuityMetricBuffer.length < 1000) continuityMetricBuffer.unshift(...toFlush)
+    return 0
+  }
+}
+
 // Lazy import keeps the Tauri event/invoke bindings out of bundles that
 // never touch the subprocess provider (e.g. vitest with a fetch mock).
 async function streamViaClaudeCodeCli(
