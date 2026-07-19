@@ -116,6 +116,12 @@ describe("ReviewView dismiss UI rendering (G3)", () => {
     expect(html).toContain("review.results.dismiss.dismissButton")
     // data_gap subtype 的 finding 不应渲染 dismiss 按钮 (DD-5)
     expect(html).not.toContain("review.results.dismiss.titleLabel")
+    // PAT-U5: 折叠面板按钮 SSR 初始 aria-expanded="false" (dismissTarget=null → match false)
+    // + aria-controls 指向 dismissPanelId (useId 生成, 非空)。panel (role=region) 初始不渲染。
+    expect(html).toMatch(/aria-expanded="false"/)
+    expect(html).toMatch(/aria-controls="[^"]+"/)
+    // 初始折叠: role=region panel 仅在 dismissTarget?.id === item.id 时渲染 (line 628 守)
+    expect(html).not.toContain('role="region"')
   })
 
   it("does not render dismiss button for data_gap subtype finding (DD-5 UI guard)", () => {
