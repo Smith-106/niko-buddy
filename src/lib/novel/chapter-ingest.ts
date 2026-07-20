@@ -1,4 +1,4 @@
-import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+﻿import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -10,7 +10,6 @@ import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki, sanitizeEntitySlug } from "./graph-adapter"
 import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState, resolveCanonicalName, resolveMatchingMap } from "./character-cognition"
-import { buildNameAliasMap } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
@@ -152,168 +151,14 @@ function extractJsonObjectFromModelText(text: string): string | null {
   return extractFirstBalancedJsonObject(fenced ?? text)
 }
 
-function normalizeSnapshotText(value: unknown): string {
-  if (typeof value === "string") return value
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
-  return ""
-}
-
-function normalizePositiveInteger(value: unknown): number | undefined {
-  const parsed = parseChapterNumber(value)
-  if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0) return undefined
-  return parsed
-}
-
-function normalizeSnapshotList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeSnapshotText(item).trim())
-      .filter(Boolean)
-  }
-
-  const single = normalizeSnapshotText(value).trim()
-  return single ? [single] : []
-}
-
-function normalizeSnapshotAliasRecord(value: unknown): Record<string, string[]> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-
-  const aliases = Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .map(([name, rawAliases]) => [name.trim(), normalizeSnapshotList(rawAliases)] as const)
-      .filter(([name, names]) => name.length > 0 && names.length > 0),
-  )
-
-  return Object.keys(aliases).length > 0 ? aliases : undefined
-}
-
-/**
- * F-003 (identity-resolution): build per-character NameAliasMap[] from the
- * snapshot's own characterAliases record. Each entry {canonical, aliases} is
- * fed to alias-resolver.matchesAnyAlias so cognition / character-state folds
- * collapse "菜月昴" / "菜月・昴" / "昴" onto one CharacterCognition entry
- * instead of accumulating three. Empty/absent alias records return undefined
- * so callers fall back to the NFKC path in resolveCanonicalName.
- */
-function buildAliasMapsFromSnapshot(snapshot: ChapterSnapshot): NameAliasMap[] | undefined {
-  if (!snapshot.characterAliases) return undefined
-  const maps: NameAliasMap[] = []
-  for (const [canonical, aliases] of Object.entries(snapshot.characterAliases)) {
-    if (!canonical.trim()) continue
-    maps.push(buildNameAliasMap(canonical, aliases ?? []))
-  }
-  return maps.length > 0 ? maps : undefined
-}
-
-function normalizeEntityFlags(value: unknown): Record<string, boolean> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key.trim().length > 0)
-      .map(([key, flag]) => [key, Boolean(flag)]),
-  )
-}
-
-function normalizeValidationWarnings(value: unknown): ValidationWarning[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const warnings = value.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return []
-    const rawType = (item as { type?: unknown }).type
-    const message = normalizeSnapshotText((item as { message?: unknown }).message).trim()
-    if (!message) return []
-    if (rawType === "entity_new" || rawType === "canon_conflict") {
-      return [{ type: rawType as ValidationWarning["type"], message }]
-    }
-    return []
-  })
-  return warnings.length > 0 ? warnings : undefined
-}
-
-function normalizeSnapshotDetailRecord<T extends object>(value: unknown): Record<string, T> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  return value as Record<string, T>
-}
-
-function normalizeChapterSnapshot(
-  value: unknown,
-  fallback: Partial<Pick<ChapterSnapshot, "chapterId" | "chapterNumber">> = {},
-): ChapterSnapshot | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
-
-  const raw = value as Record<string, unknown>
-  const chapterNumber = parseChapterNumber(raw.chapterNumber) ?? fallback.chapterNumber ?? 0
-  const normalizedChapterId = normalizeSnapshotText(raw.chapterId).trim()
-  const chapterId = normalizedChapterId || fallback.chapterId || `chapter-${chapterNumber}`
-
-  return {
-    chapterId,
-    chapterNumber,
-    chapterTitle: normalizeSnapshotText(raw.chapterTitle) || undefined,
-    summary: normalizeSnapshotText(raw.summary),
-    characters: normalizeSnapshotList(raw.characters),
-    characterAliases: normalizeSnapshotAliasRecord(raw.characterAliases),
-    locations: normalizeSnapshotList(raw.locations),
-    organizations: normalizeSnapshotList(raw.organizations),
-    items: normalizeSnapshotList(raw.items),
-    events: normalizeSnapshotList(raw.events),
-    characterStateChanges: normalizeSnapshotList(raw.characterStateChanges),
-    relationshipChanges: normalizeSnapshotList(raw.relationshipChanges),
-    knowledgeChanges: normalizeSnapshotList(raw.knowledgeChanges),
-    foreshadowingChanges: normalizeSnapshotList(raw.foreshadowingChanges),
-    newCanonFacts: normalizeSnapshotList(raw.newCanonFacts),
-    timelineEvents: normalizeSnapshotList(raw.timelineEvents),
-    conflicts: normalizeSnapshotList(raw.conflicts),
-    endingHook: normalizeSnapshotText(raw.endingHook),
-    graphNodes: normalizeSnapshotList(raw.graphNodes),
-    graphEdges: normalizeSnapshotList(raw.graphEdges),
-    sourceType: raw.sourceType === "chapter" || raw.sourceType === "outline" ? raw.sourceType : undefined,
-    sourceSequence: normalizePositiveInteger(raw.sourceSequence),
-    revision: normalizePositiveInteger(raw.revision),
-    snapshotId: normalizeSnapshotText(raw.snapshotId) || undefined,
-    supersedes: normalizeSnapshotText(raw.supersedes) || undefined,
-    isHistorical: typeof raw.isHistorical === "boolean" ? raw.isHistorical : undefined,
-    entityIsNew: normalizeEntityFlags(raw.entityIsNew),
-    validationWarnings: normalizeValidationWarnings(raw.validationWarnings),
-    memorySyncedAt: normalizeSnapshotText(raw.memorySyncedAt) || undefined,
-    characterDetails: normalizeSnapshotDetailRecord<CharacterDetail>(raw.characterDetails),
-    locationDetails: normalizeSnapshotDetailRecord<LocationDetail>(raw.locationDetails),
-    organizationDetails: normalizeSnapshotDetailRecord<OrganizationDetail>(raw.organizationDetails),
-    itemDetails: normalizeSnapshotDetailRecord<ItemDetail>(raw.itemDetails),
-    eventDetails: normalizeSnapshotDetailRecord<EventDetail>(raw.eventDetails),
-  }
-}
-
-function inferSnapshotSourceType(snapshot: Pick<ChapterSnapshot, "chapterNumber">): "chapter" | "outline" {
-  return snapshot.chapterNumber < 0 ? "outline" : "chapter"
-}
-
-function inferSnapshotSourceSequence(snapshot: Pick<ChapterSnapshot, "chapterNumber">): number {
-  return Math.abs(snapshot.chapterNumber)
-}
-
-function buildSnapshotRevisionId(snapshot: Pick<ChapterSnapshot, "chapterId">, revision: number): string {
-  return `${snapshot.chapterId}-r${revision}`
-}
-
-function ensureSnapshotIdentity(
-  snapshot: ChapterSnapshot,
-  overrides: Partial<Pick<ChapterSnapshot, "sourceType" | "sourceSequence" | "revision" | "snapshotId" | "supersedes" | "isHistorical">> = {},
-): ChapterSnapshot {
-  const sourceType = overrides.sourceType ?? snapshot.sourceType ?? inferSnapshotSourceType(snapshot)
-  const sourceSequence = overrides.sourceSequence ?? snapshot.sourceSequence ?? inferSnapshotSourceSequence(snapshot)
-  const revision = overrides.revision ?? snapshot.revision ?? 1
-  const snapshotId = overrides.snapshotId ?? snapshot.snapshotId ?? buildSnapshotRevisionId(snapshot, revision)
-
-  return {
-    ...snapshot,
-    sourceType,
-    sourceSequence,
-    revision,
-    snapshotId,
-    supersedes: overrides.supersedes ?? snapshot.supersedes,
-    isHistorical: overrides.isHistorical ?? snapshot.isHistorical ?? false,
-  }
-}
+import {
+  normalizeChapterSnapshot,
+  ensureSnapshotIdentity,
+  buildAliasMapsFromSnapshot,
+  inferSnapshotSourceType,
+  inferSnapshotSourceSequence,
+  buildSnapshotRevisionId,
+} from "./chapter-snapshot-normalize"
 
 async function readCurrentSnapshot(projectPath: string, chapterNumber: number): Promise<ChapterSnapshot | null> {
   try {
