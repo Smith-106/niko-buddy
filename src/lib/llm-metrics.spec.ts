@@ -62,6 +62,11 @@ describe("ISS-20260709-020 LLM metrics — collectLLMMetric + flushMetrics", () 
       durationMs: 800,
       success: false,
       errorKind: "timeout",
+      // ISS-20260719-002: token accounting fields flow through the buffer
+      // unchanged to the persisted metrics file — the decision-data channel
+      // for the priorReviewResults option-A short-circuit tradeoff.
+      inputTokens: 3200,
+      outputTokens: 640,
     })
 
     const flushed = await flushMetrics()
@@ -79,6 +84,9 @@ describe("ISS-20260709-020 LLM metrics — collectLLMMetric + flushMetrics", () 
     const second = JSON.parse(lines[1])
     expect(second.success).toBe(false)
     expect(second.errorKind).toBe("timeout")
+    // ISS-20260719-002: token fields round-trip through flushMetrics.
+    expect(second.inputTokens).toBe(3200)
+    expect(second.outputTokens).toBe(640)
     // Buffer cleared after flush.
     const secondFlush = await flushMetrics()
     expect(secondFlush).toBe(0)

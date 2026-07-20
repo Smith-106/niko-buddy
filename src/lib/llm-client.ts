@@ -45,6 +45,20 @@ export interface LlmMetric {
   success: boolean
   errorKind?: string
   traceId?: string
+  /**
+   * ISS-20260719-002: token accounting for option-A upgrade decision data.
+   * Optional — undefined when the provider's transport does not surface
+   * usage (e.g. CLI subprocess transports, or HTTP providers whose SSE
+   * stream omits usage). When present, lets a future plan session compute
+   * "what fraction of total LLM tokens did the 6-dim continuity dimension
+   * consume" — the missing input to the priorReviewResults short-circuit
+   * (option A vs B) tradeoff. Cross-referenced with runFullReviewWithSixDim's
+   * continuity-repeat warn (deep-chapter-generation.ts:898-913) by run
+   * timestamp, not by an inline dimension label (streamChat is the generic
+   * entry point; dimension tagging would touch 31 call sites).
+   */
+  inputTokens?: number
+  outputTokens?: number
 }
 
 let metricsFilePath = ""
@@ -421,6 +435,17 @@ export async function streamChat(
   // from finally; flushMetrics() persists at run-end.
   const metricsStart = Date.now()
   let metricsErrorKind: string | undefined
+  // ISS-20260719-002: accumulate token usage surfaced by the provider's SSE
+  // stream (best-effort — stays 0 when the transport/lines carry no usage,
+  // e.g. CLI subprocess path or providers that omit usage). Captured by the
+  // closure below so every recordMetric exit (CLI returns + HTTP finally)
+  // stamps the same accumulated counts. Anthropic splits input (message_start)
+  // / output (message_delta) across two events; OpenAI surfaces both in the
+  // final chunk; Google in the final usageMetadata. Last-write-wins per axis
+  // within a single stream (each provider emits each axis at most once, so
+  // accumulation == assignment in practice; we sum defensively regardless).
+  let metricsInputTokens = 0
+  let metricsOutputTokens = 0
   const recordMetric = () => {
     collectLLMMetric({
       ts: new Date().toISOString(),
@@ -429,6 +454,9 @@ export async function streamChat(
       durationMs: Date.now() - metricsStart,
       success: metricsErrorKind === undefined,
       errorKind: metricsErrorKind,
+      ...(metricsInputTokens > 0 || metricsOutputTokens > 0
+        ? { inputTokens: metricsInputTokens, outputTokens: metricsOutputTokens }
+        : {}),
     })
   }
   const { onToken, onDone } = callbacks
@@ -688,6 +716,17 @@ export async function streamChat(
         callbacks.onReasoningToken?.(part)
       }
     }
+    // ISS-20260719-002: best-effort token usage capture. Each provider
+    // surfaces usage in 1-2 specific SSE event types (or not at all);
+    // extractUsage returns null for the common no-usage line, so this is a
+    // cheap JSON probe gated behind a startsWith check inside extractUsage.
+    // Never throws into the call path (try/catch inside extractUsage).
+    const recordUsage = (line: string) => {
+      const usage = providerConfig.extractUsage?.(line)
+      if (!usage) return
+      if (usage.input > 0) metricsInputTokens = usage.input
+      if (usage.output > 0) metricsOutputTokens = usage.output
+    }
 
     try {
       while (true) {
@@ -700,6 +739,7 @@ export async function streamChat(
             recordReasoning(trimmed)
             const token = providerConfig.parseStream(trimmed)
             if (token !== null) recordToken(token)
+            recordUsage(trimmed)
           }
           break
         }
@@ -714,6 +754,7 @@ export async function streamChat(
           recordReasoning(trimmed)
           const token = providerConfig.parseStream(trimmed)
           if (token !== null) recordToken(token)
+          recordUsage(trimmed)
         }
       }
 

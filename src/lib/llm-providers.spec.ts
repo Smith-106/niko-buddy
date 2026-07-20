@@ -147,3 +147,72 @@ describe("prompt caching cache_control breakpoints", () => {
     expect(messages[0].content).toBe("AB")
   })
 })
+
+// ISS-20260719-002: token usage extraction — the option-A short-circuit
+// decision data channel. Each provider surfaces usage in different SSE event
+// types; extractUsage must return the counts from those specific events and
+// null for the common no-usage line (the streamChat loop probes every line).
+describe("ISS-20260719-002 extractUsage token data channel", () => {
+  it("anthropic: extracts input from message_start, output from message_delta", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
+    const start = cfg.extractUsage!(
+      `data: {"type":"message_start","message":{"usage":{"input_tokens":1200,"cache_read_input_tokens":800}}}`,
+    )
+    expect(start).toEqual({ input: 2000, output: 0 })
+
+    const delta = cfg.extractUsage!(
+      `data: {"type":"message_delta","usage":{"output_tokens":450}}`,
+    )
+    expect(delta).toEqual({ input: 0, output: 450 })
+  })
+
+  it("anthropic: returns null for content_block_delta (the common streaming line)", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
+    expect(cfg.extractUsage!(`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`)).toBeNull()
+    expect(cfg.extractUsage!(`not a data line`)).toBeNull()
+  })
+
+  it("openai: extracts usage from the final chunk (prompt/completion_tokens)", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "openai", apiKey: "sk-openai" })
+    const usage = cfg.extractUsage!(
+      `data: {"choices":[],"usage":{"prompt_tokens":300,"completion_tokens":150,"total_tokens":450}}`,
+    )
+    expect(usage).toEqual({ input: 300, output: 150 })
+  })
+
+  it("openai: returns null for delta chunks and [DONE]", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "openai", apiKey: "sk-openai" })
+    expect(cfg.extractUsage!(`data: {"choices":[{"delta":{"content":"hi"}}]}`)).toBeNull()
+    expect(cfg.extractUsage!(`data: [DONE]`)).toBeNull()
+  })
+
+  it("google: extracts usageMetadata (thoughts folded into output)", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "google", apiKey: "sk-google" })
+    const usage = cfg.extractUsage!(
+      `data: {"candidates":[],"usageMetadata":{"promptTokenCount":500,"candidatesTokenCount":200,"thoughtsTokenCount":80}}`,
+    )
+    expect(usage).toEqual({ input: 500, output: 280 })
+  })
+
+  it("custom responses: extracts from response.completed event", () => {
+    const cfg = getProviderConfig(customConfig({ apiMode: "responses" }))
+    const usage = cfg.extractUsage!(
+      `data: {"type":"response.completed","response":{"usage":{"input_tokens":700,"output_tokens":220}}}`,
+    )
+    expect(usage).toEqual({ input: 700, output: 220 })
+  })
+
+  it("custom chat_completions: routes to openai usage extractor", () => {
+    const cfg = getProviderConfig(customConfig({ apiMode: "chat_completions" }))
+    const usage = cfg.extractUsage!(
+      `data: {"choices":[],"usage":{"prompt_tokens":42,"completion_tokens":17}}`,
+    )
+    expect(usage).toEqual({ input: 42, output: 17 })
+  })
+
+  it("best-effort: malformed JSON returns null, never throws", () => {
+    const cfg = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
+    expect(() => cfg.extractUsage!(`data: {broken`)).not.toThrow()
+    expect(cfg.extractUsage!(`data: {broken`)).toBeNull()
+  })
+})

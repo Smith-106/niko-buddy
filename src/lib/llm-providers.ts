@@ -64,6 +64,17 @@ interface ProviderConfig {
   headers: Record<string, string>
   buildBody: (messages: ChatMessage[], overrides?: RequestOverrides) => unknown
   parseStream: (line: string) => string | null
+  /**
+   * ISS-20260719-002: optional usage extraction from an SSE line. Returns the
+   * input/output token counts carried by this line, or null when the line
+   * carries no usage (the common case — usage arrives in 1-2 specific event
+   * types per provider, e.g. Anthropic message_start/message_delta, OpenAI
+   * final chunk with stream_options.include_usage). The streamChat loop
+   * accumulates these into LlmMetric.inputTokens/outputTokens. Undefined for
+   * providers/lines that never surface usage (token accounting stays
+   * best-effort, never blocks the call path).
+   */
+  extractUsage?: (line: string) => { input: number; output: number } | null
 }
 
 const JSON_CONTENT_TYPE = "application/json"
@@ -168,6 +179,32 @@ function parseOpenAiLine(line: string): string | null {
   }
 }
 
+/**
+ * ISS-20260719-002: extract token usage from an OpenAI chat-completion SSE line.
+ * OpenAI only surfaces usage in the final chunk, and ONLY when the request set
+ * stream_options: { include_usage: true } (otherwise usage is absent — token
+ * accounting silently stays undefined for that call, which is acceptable:
+ * best-effort, never blocks). The final chunk has choices: [] and a top-level
+ * usage: { prompt_tokens, completion_tokens, total_tokens }.
+ */
+function extractOpenAiUsage(line: string): { input: number; output: number } | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as { usage?: { prompt_tokens?: number; completion_tokens?: number } }
+    if (parsed.usage) {
+      return {
+        input: parsed.usage.prompt_tokens ?? 0,
+        output: parsed.usage.completion_tokens ?? 0,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function parseResponsesLine(line: string): string | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
@@ -176,6 +213,31 @@ function parseResponsesLine(line: string): string | null {
     const parsed = JSON.parse(data) as { type?: string; delta?: string }
     if (parsed.type === "response.output_text.delta") {
       return parsed.delta ?? null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ISS-20260719-002: extract token usage from an OpenAI Responses-API SSE line.
+ * The response.completed event carries response.usage with input_tokens /
+ * output_tokens (Responses API naming, not prompt_tokens/completion_tokens).
+ */
+function extractResponsesUsage(line: string): { input: number; output: number } | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      type?: string
+      response?: { usage?: { input_tokens?: number; output_tokens?: number } }
+    }
+    if (parsed.type === "response.completed" && parsed.response?.usage) {
+      return {
+        input: parsed.response.usage.input_tokens ?? 0,
+        output: parsed.response.usage.output_tokens ?? 0,
+      }
     }
     return null
   } catch {
@@ -196,6 +258,39 @@ function parseAnthropicLine(line: string): string | null {
       parsed.delta?.type === "text_delta"
     ) {
       return parsed.delta.text ?? null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ISS-20260719-002: extract token usage from an Anthropic SSE line.
+ * Anthropic surfaces usage in two events:
+ *   - message_start: { message: { usage: { input_tokens, cache_read_input_tokens, ... } } }
+ *   - message_delta: { usage: { output_tokens } } (cumulative at stream end)
+ * input_tokens arrives once at the start; output_tokens arrives once at the
+ * end. The streamChat loop accumulates (last-write-wins per axis, since each
+ * arrives in its own event). Cache tokens are folded into input for the
+ * decision-data purpose (total input billable).
+ */
+function extractAnthropicUsage(line: string): { input: number; output: number } | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      type?: string
+      message?: { usage?: Record<string, number> }
+      usage?: Record<string, number>
+    }
+    if (parsed.type === "message_start" && parsed.message?.usage) {
+      const u = parsed.message.usage
+      const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+      return { input, output: u.output_tokens ?? 0 }
+    }
+    if (parsed.type === "message_delta" && parsed.usage) {
+      return { input: parsed.usage.input_tokens ?? 0, output: parsed.usage.output_tokens ?? 0 }
     }
     return null
   } catch {
@@ -227,6 +322,36 @@ export function parseGoogleLine(line: string): string | null {
       if (p.text) out += p.text
     }
     return out.length > 0 ? out : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ISS-20260719-002: extract token usage from a Google/Gemini SSE line.
+ * Gemini streams usageMetadata in the final chunk of the stream (and may
+ * repeat it on the last partial). Fields: promptTokenCount (input),
+ * candidatesTokenCount (output), thoughtsTokenCount (reasoning — folded
+ * into output for decision-data purposes since it is billable generation).
+ */
+export function extractGoogleUsage(line: string): { input: number; output: number } | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      usageMetadata?: {
+        promptTokenCount?: number
+        candidatesTokenCount?: number
+        thoughtsTokenCount?: number
+      }
+    }
+    if (parsed.usageMetadata) {
+      return {
+        input: parsed.usageMetadata.promptTokenCount ?? 0,
+        output: (parsed.usageMetadata.candidatesTokenCount ?? 0) + (parsed.usageMetadata.thoughtsTokenCount ?? 0),
+      }
+    }
+    return null
   } catch {
     return null
   }
@@ -704,6 +829,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           model,
         }),
         parseStream: parseOpenAiLine,
+        extractUsage: extractOpenAiUsage,
       }
 
     case "anthropic": {
@@ -716,6 +842,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           model,
         }),
         parseStream: parseAnthropicLine,
+        extractUsage: extractAnthropicUsage,
       }
     }
 
@@ -736,6 +863,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           reasoning: effectiveReasoning(config, overrides),
         }),
         parseStream: parseGoogleLine,
+        extractUsage: extractGoogleUsage,
       }
     }
 
@@ -753,6 +881,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         buildBody: (messages, overrides) =>
           buildOpenAiCompatibleBody(config, messages, overrides),
         parseStream: parseOpenAiLine,
+        extractUsage: extractOpenAiUsage,
       }
     }
 
@@ -778,6 +907,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           model,
         }),
         parseStream: parseOpenAiLine,
+        extractUsage: extractOpenAiUsage,
       }
     }
 
@@ -796,6 +926,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           model,
         }),
         parseStream: parseAnthropicLine,
+        extractUsage: extractAnthropicUsage,
       }
     }
 
@@ -833,6 +964,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
             model,
           }),
           parseStream: parseAnthropicLine,
+          extractUsage: extractAnthropicUsage,
         }
       }
       if (mode === "responses") {
@@ -845,6 +977,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           headers: getCustomCompatibleHeaders(apiKey, url),
           buildBody: (messages, overrides) => buildResponsesBody(config, messages, overrides),
           parseStream: parseResponsesLine,
+          extractUsage: extractResponsesUsage,
         }
       }
       // Defense-in-depth: settings-side EndpointField normalizes URLs on
@@ -879,6 +1012,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           return body
         },
         parseStream: parseOpenAiLine,
+        extractUsage: extractOpenAiUsage,
       }
     }
 
