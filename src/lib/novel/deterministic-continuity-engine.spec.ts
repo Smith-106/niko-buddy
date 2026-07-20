@@ -503,7 +503,7 @@ describe("EPIC-001 ADR-32 双层薄包装 (产不同 result type)", () => {
 describe("EPIC-004 ADR-31 中文阈值校准 + 向后兼容 additive-only", () => {
   it("DEFAULT_CONTINUITY_CONFIG 缺省值落地 (camelCase DA-07)", () => {
     expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(3)
-    expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(5)
+    expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(7)
     expect(DEFAULT_CONTINUITY_CONFIG.overdueRatio).toBe(0.02)
     expect(DEFAULT_CONTINUITY_CONFIG.unresolvedForeshadowingRatio).toBe(0.05)
     expect(DEFAULT_CONTINUITY_CONFIG.deadCharacterPatterns).toEqual(["死", "亡", "殒", "逝", "毙"])
@@ -810,13 +810,15 @@ describe("EPIC-004 ADR-31 AC-007.6 UAT 假阳性风暴测试 ([需校准] 预校
     expect(info.length).toBeGreaterThanOrEqual(warning.length)
   })
 
-  it("[需校准] 阈值默认值待 UAT 真实样本调参 (守 ADR-31 + blueprint caveats)", () => {
-    // 本测试是预校准 fixture, 真实样本调参需 Claude-Book 中文样本跑分布取
-    // P75/P90 分位替换 DEFAULT_CONTINUITY_CONFIG 默认值。
-    // 标注 [需校准] 守 ADR-31 + blueprint caveats 明确待 UAT 真实样本调参。
+  it("[已校准] 阈值经 Re0 10 卷 312 样本 P75 校准 (守 ADR-31)", () => {
+    // [中文校准 2026-07-20] 已用 scripts/calibrate-from-epub.mjs 对 Re0 从零
+    // 开始的异世界生活 10 卷 138 章正文 (312 卷内 absent gap 样本) 跑校准,
+    // absent 分布 P50=3 P75=7 P90=11, absentThresholdChapters 从默认 5 上调到 7
+    // (P75 校准值, 保守偏高防假阳性守 GRL-011 Risk 3). dormant 维度 epub 无法
+    // 推 subplot lastSeen 保留默认 3 待 QMAI snapshot chain 校准.
     expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(3)
-    expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(5)
-    // [需校准] 待真实样本调参
+    expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(7)
+    // [dormant 待校准] 待 QMAI 项目 snapshot chain 跑 calibrate-continuity-thresholds.mjs
   })
 })
 

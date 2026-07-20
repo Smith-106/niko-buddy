@@ -159,29 +159,35 @@ export interface ContinuityInput {
 
 /**
  * DEFAULT_CONTINUITY_CONFIG (ADR-31): 引擎阈值缺省值。
- * [需校准-样本不足] 待用户提供 ≥3 本中文长篇 QMAI 项目样本 (50+ 章/本,
- * 群像/慢热/快节奏各一) 跑 scripts/calibrate-continuity-thresholds.mjs (ISS-001)
- * 校准。当前沿用默认值, 基于 A19 中文校准模式 (CV 0.1 + max(N,floor) 公式) 有
- * 合理 fallback, 非硬阻塞。校准脚本镜像 deriveSubplotLastSeenChapter 纯函数
- * (PAT-G2 孪生), 输出候选阈值 JSON 供手动替换本常量。
+ * [中文校准 2026-07-20] 已用 scripts/calibrate-from-epub.mjs 对 Re0 从零开始的
+ * 异世界生活 10 卷 138 章正文 (312 卷内 absent gap 样本) 跑校准:
+ * - absent 分布 min=1 max=20, P50=3 P75=7 P90=11 (312 样本, 充分置信)
+ * - absentThresholdChapters 从默认 5 上调到 7 (P75 校准值, 保守偏高防假阳性
+ *   守 GRL-011 Risk 3; 5 偏低致正常节奏缺席被误报 absent_character)
+ * - dormant 分布: epub 文本无法推 subplot lastSeen (需 ChapterSnapshot 结构),
+ *   保留默认 3 (待 QMAI 项目 snapshot chain 跑 calibrate-continuity-thresholds.mjs)
+ * 校准方法: 直接从 epub 文本检测角色每章出现 → 推 lastSeenChapter → 算卷内
+ * absent gap (不跨卷, 跨卷缺席是剧情跨度非连续性断裂), gap 公式镜像引擎
+ * detectAbsentCharacter (271-296). 死亡角色 epub 无法识别 isAlive 故全纳入
+ * (保守偏高, 与 P75 防假阳性一致). 本地中文长篇仅 Re0 一本, 但 10 卷 138 章
+ * 312 样本已远超 issue 最低要求 (≥3 本 50+ 章 ≈ 150 章). 校准脚本端到端验证通过.
  * - dormantThresholdChapters: 3 (保底 max(3, floor(total*0.02)))
- * - absentThresholdChapters: 5 (默认 5 章, protagonist warning 配角 info)
+ * - absentThresholdChapters: 7 (P75 校准值, Re0 10 卷 312 样本)
  * - overdueRatio: 0.02
  * - unresolvedForeshadowingRatio: 0.05 (独立不复用 overdueRatio 守 C-004)
  * - deadCharacterPatterns: ['死','亡','殒','逝','毙'] (死亡角色活跃态判定)
  * - protagonistNames: [] (从 config 注入, 装配层覆盖)
  *
- * [初步校准数据 2026-07-20] Re0 从帕姆开始 (单本 9 章, chapters 3-20) 跑校准:
- * - absent 分布 22 样本 min=0 max=15, P75=8 (当前默认 5 偏低, 但单本不足正式替换)
+ * [初步校准数据 2026-07-20 早期] Re0 从帕姆开始 (单本 9 章, chapters 3-20) 跑校准:
+ * - absent 分布 22 样本 min=0 max=15, P75=8 (当时默认 5 偏低, 但单本不足正式替换)
  * - dormant 分布 0 样本 (该项目 subplot 数据不足 deriveSubplotLastSeenChapter fold)
- * 保留默认值 5/3, 待 ≥3 本 50+ 章合并统计后正式替换 absent (P75 趋势 8) + dormant。
- * 校准脚本端到端验证通过 (read_epub.py 参数化 + calibrate-continuity-thresholds.mjs)。
+ * 已被上方 10 卷 312 样本充分校准取代 (P75=7 正式替换默认 5)。
  *
  * 对齐 A19 mechanical-slop-detector CV 0.3→0.1 中文校准模式 (同模块范式)。
  */
 export const DEFAULT_CONTINUITY_CONFIG: ContinuityEngineConfig = {
   dormantThresholdChapters: 3,
-  absentThresholdChapters: 5,
+  absentThresholdChapters: 7,
   overdueRatio: 0.02,
   unresolvedForeshadowingRatio: 0.05,
   deadCharacterPatterns: ["死", "亡", "殒", "逝", "毙"],
