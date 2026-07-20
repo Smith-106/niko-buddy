@@ -171,6 +171,12 @@ export interface ContinuityInput {
  * - deadCharacterPatterns: ['死','亡','殒','逝','毙'] (死亡角色活跃态判定)
  * - protagonistNames: [] (从 config 注入, 装配层覆盖)
  *
+ * [初步校准数据 2026-07-20] Re0 从帕姆开始 (单本 9 章, chapters 3-20) 跑校准:
+ * - absent 分布 22 样本 min=0 max=15, P75=8 (当前默认 5 偏低, 但单本不足正式替换)
+ * - dormant 分布 0 样本 (该项目 subplot 数据不足 deriveSubplotLastSeenChapter fold)
+ * 保留默认值 5/3, 待 ≥3 本 50+ 章合并统计后正式替换 absent (P75 趋势 8) + dormant。
+ * 校准脚本端到端验证通过 (read_epub.py 参数化 + calibrate-continuity-thresholds.mjs)。
+ *
  * 对齐 A19 mechanical-slop-detector CV 0.3→0.1 中文校准模式 (同模块范式)。
  */
 export const DEFAULT_CONTINUITY_CONFIG: ContinuityEngineConfig = {
