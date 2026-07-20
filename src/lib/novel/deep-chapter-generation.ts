@@ -9,7 +9,7 @@ import {
   detectRegression,
   type CandidateVersion,
 } from "./candidate-selector"
-import { reviewChapter, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, runContinuityMechanicalPreflight, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
   runSixDimensionReview,
@@ -817,8 +817,17 @@ export async function runFullReviewWithSixDim(
   // local controller is the only handle we hold for orphan cancellation.
   const sixDimController = new AbortController()
   const sixDimSignal = combineAbortSignals(signal, sixDimController.signal)
+  // ISS-20260719-002 (option C1 真接线): 启动 6-dim 前先串行跑一次机械连续性预检,
+  // 结果同时注入 (a) sixDimP 的 priorReviewResults 激活 continuity 维度短路跳 LLM,
+  // (b) reviewChapter 的 injectedContinuityResults 跳过内部重跑。串行插入的仅是
+  // 机械 IO (4-store load + 纯函数 checkContinuity), 不取消任何 LLM 并发 —
+  // PERF-NEW-06 的 invariant 是 reviewChapter 的 LLM 审查与 6-dim 的 LLM 审查并发,
+  // 机械预检非 LLM 不在 invariant 范围。净成本 0 (现状 reviewChapter 内也要跑这步),
+  // 净收益 = 省 1 轮 continuity LLM (短路命中时)。守 S-20260718-ito3 (复用已加载 store
+  // 不独立 reload): injectedContinuityResults 消除重复 load, 总 preflight 调用次数 = 1。
+  const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
   const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
-    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal })
+    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity })
         .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
         .catch((err: unknown) => {
           // Non-blocking: capture the original error so the gap log can print
@@ -829,8 +838,8 @@ export async function runFullReviewWithSixDim(
     : Promise.resolve(undefined)
   try {
     reviewResults = signal
-      ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack }, signal)
-      : await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack })
+      ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity }, signal)
+      : await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity })
   } catch (err) {
     // (b) log + rethrow (matches the original stage-4 ~1042-1044 pattern).
     // The 3 call sites previously each had their own try/catch with slightly
@@ -897,19 +906,18 @@ export async function runFullReviewWithSixDim(
       ]
     }
   }
-  // ISS-20260719-002 (option B 可观测性): record continuity 重复检测信号 —
-  // reviewChapter 已含 consistency_mechanical findings (机械层 TASK-008 预检产)
-  // 且 6-dim 也产了 continuity 维度 LLM 结果时, 标记"本可短路但 PERF-NEW-06
-  // 并行架构下 option C 不可实现, option A 损并行无实测 token 数据支撑故未接线"。
-  // 仅记 count (CWE-532 脱敏, 不引用 findings 正文)。运行时 warn 信号供未来 plan
-  // session 拿实测 frequency + token 占比数据后升级为 option A 真短路决策。
-  // 关联 dimension-review-adapter.ts:404-422 短路逻辑 (dormant, 待 priorReviewResults
-  // 接线激活) + 本文件 :818-831 PERF-NEW-06 并行设计。
+  // ISS-20260719-002 (option C1 真接线已激活): 机械预检在 sixDimP 启动前先跑
+  // (见上方 preflightContinuity), 结果注入 6-dim 的 priorReviewResults 激活
+  // continuity 维度短路 (dimension-review-adapter.ts:404-422), 命中 consistency_mechanical
+  // findings 时 6-dim continuity 维度产 pass 占位跳 LLM。此处仅记短路激活频次信号
+  // (CWE-532 脱敏, 只记 count 不引用 findings 正文), 供未来 plan session 评估短路收益
+  // (省了多少 continuity LLM token)。短路未命中 (mechanical=0 或 6-dim 仍跑 continuity)
+  // 不记。守 logger 双参 scope='Deep Chapter'。
   const mechanicalContinuityCount = reviewResults.filter(
     (r) => r.type === "consistency_mechanical",
   ).length
   if (mechanicalContinuityCount > 0 && dimensionResults.continuity) {
-    logger.warn("Deep Chapter", "continuity 维度重复检测: 机械层已检 consistency_mechanical findings, 6-dim LLM 仍跑 continuity 维度 (ISS-20260719-002 option B 待实测数据升级 option A)", {
+    logger.warn("Deep Chapter", "ISS-20260719-002 continuity 短路接线运行信号", {
       mechanical_findings: mechanicalContinuityCount,
       six_dim_continuity_status: dimensionResults.continuity.status,
     })

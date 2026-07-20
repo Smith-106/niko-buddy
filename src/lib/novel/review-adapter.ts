@@ -109,6 +109,15 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
   llmConfig?: LlmConfig
   novelConfig?: NovelConfig
   novelMode?: boolean
+  /**
+   * ISS-20260719-002 (option C1 真接线): 调用方已先行跑过
+   * runContinuityMechanicalPreflight 拿到的结果 (用于 runFullReviewWithSixDim
+   * 启动 6-dim 前先跑一次机械预检, 同一份结果同时注入 6-dim 的
+   * priorReviewResults 激活 continuity 短路 + reviewChapter 此处跳过内部重跑,
+   * 消除 PERF-NEW-06 并行架构下的重复 4-store load + snapshot fold)。未提供
+   * 时回退到内部自行跑 (向后兼容, 不破坏现有调用方)。additive-only。
+   */
+  injectedContinuityResults?: NovelReviewResult[]
 }
 
 /** 角色一致性相关的审查维度，用于 characterOnly 轻量审查模式 */
@@ -267,7 +276,7 @@ ${i18n.t("novel.reviewPrompt.emptyArrayFallback")}`
  * 引擎异常 catch 产单一 consistency_mechanical severity:'warning' engine_error finding
  * 不阻断 (守 Decision 7.3 + fold_rebuildable)。logger 双参 scope='continuity-engine'。
  */
-async function runContinuityMechanicalPreflight(
+export async function runContinuityMechanicalPreflight(
   projectPath: string,
   chapterNumber?: number,
 ): Promise<NovelReviewResult[]> {
@@ -445,7 +454,8 @@ export async function reviewChapter(
   // fold_rebuildable 派生观测层失败不回滚正文)。logger 双参 scope='continuity-engine'
   // (memory a19-emotion-ledger 坑: 单参 logger 调用会丢 scope)。CWE-532: message 用
   // finding.message 模板化字段, 不引用章节正文。
-  const continuityResults = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
+  const continuityResults = options.injectedContinuityResults
+    ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber)
   if (continuityResults.some(r => r.severity === "error")) {
     // critical 机械 finding 阻断 approve, 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)
     return continuityResults
