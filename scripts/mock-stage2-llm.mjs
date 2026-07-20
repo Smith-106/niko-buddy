@@ -383,6 +383,24 @@ async function streamText(res, text, options = {}) {
       await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
   }
+  // Final chunk with usage — mimics OpenAI's final chunk carrying token usage.
+  // ISS-20260719-002: lets extractOpenAiUsage capture input/output tokens so the
+  // token data channel (LlmMetric inputTokens/outputTokens) can be end-to-end
+  // exercised against this mock server. Token numbers are synthetic (mock), but
+  // the wire format + extraction + flushMetrics pipeline is real.
+  const usagePayload = JSON.stringify({
+    id: "mock-stage2-chatcmpl",
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: MODEL,
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    usage: {
+      prompt_tokens: 42,
+      completion_tokens: Math.ceil(text.length / 4),
+      total_tokens: 42 + Math.ceil(text.length / 4),
+    },
+  })
+  res.write(`data: ${usagePayload}\n\n`)
   res.write("data: [DONE]\n\n")
   res.end()
 }
