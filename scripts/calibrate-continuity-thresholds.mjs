@@ -15,14 +15,17 @@
  *      跑 deriveSubplotLastSeenChapter fold 反推 lastSeenChapter
  *   3. 统计休眠分布 (currentChapter - lastSeenChapter 直方图)
  *   4. 取 P75 分位作候选值 (保守偏高防假阳性, 守 GRL-011 Risk 3 mitigation)
- *   5. 同步角色缺席分布 (currentChapter - lastUpdatedChapter)
+ *   5. 同步角色缺席分布 (currentChapter - (lastSeenChapter ?? lastUpdatedChapter),
+ *      排除死亡角色 isAlive===false)
  *
  * 输出: 候选阈值 JSON (dormantThresholdChapters / absentThresholdChapters),
  *       供手动替换 DEFAULT_CONTINUITY_CONFIG (deterministic-continuity-engine.ts)。
  *
- * 状态: 框架就绪, 待用户提供 >=3 本中文长篇 QMAI 项目样本 (50+ 章/本, 群像/
- *       慢热/快节奏各一) 跑校准。当前 DEFAULT_CONTINUITY_CONFIG 沿用默认值标
- *       [需校准-样本不足]。
+ * 状态: 双分布统计就绪 (dormant_thread + absent_character 两条腿), 待用户提供
+ *       >=3 本中文长篇 QMAI 项目样本 (50+ 章/本, 群像/慢热/快节奏各一) 跑校准。
+ *       当前 DEFAULT_CONTINUITY_CONFIG 沿用默认值标 [需校准-样本不足]。
+ *       (absent 分布已排除死亡角色 isAlive===false, 引擎 detectDeadCharacterState
+ *       单独处理; lastSeenChapter 优先回退 lastUpdatedChapter 守 ADR-31 additive。)
  *
  * PAT-G2 孪生镜像: deriveSubplotLastSeenChapterInline 镜像
  * deterministic-continuity-engine.ts:397-414 纯函数逻辑。引擎逻辑变更须同步
@@ -92,6 +95,26 @@ function loadSubplots(projectPath) {
   return []
 }
 
+/**
+ * 镜像 character-state.ts loadCharacterStates + 引擎 detectAbsentCharacter
+ * (deterministic-continuity-engine.ts:271-296) 的 lastSeen 优先回退逻辑。
+ * store 路径: .novel/character-states.json → { characters: CharacterState[] }
+ * CharacterState 含 characterName (必填) + lastUpdatedChapter (必填) +
+ * lastSeenChapter? (ADR-31 Phase 4 deferred 可选)。引擎判缺席:
+ *   gap = currentChapter - (c.lastSeenChapter ?? c.lastUpdatedChapter)
+ *   gap > absentThresholdChapters → absent_character
+ * 校准统计所有 character × currentChapter 的 gap 分布取 P75 (镜像 dormant 分布逻辑)。
+ */
+function loadCharacterStates(projectPath) {
+  try {
+    const raw = JSON.parse(readFileSync(join(projectPath, ".novel", "character-states.json"), "utf8"))
+    const list = raw.characters || raw
+    if (Array.isArray(list)) return list
+  } catch {}
+  console.warn("WARN: character-states store 未找到, 校准跳过角色缺席分布统计")
+  return []
+}
+
 function percentile(sortedValues, p) {
   if (sortedValues.length === 0) return undefined
   const idx = Math.ceil((p / 100) * sortedValues.length) - 1
@@ -126,27 +149,49 @@ function main() {
     }
   }
 
-  // 角色缺席分布: currentChapter - lastUpdatedChapter (character-state store)
+  // 角色缺席分布: 镜像引擎 detectAbsentCharacter (engine.ts:271-296)
+  // 对每个 character, 每个 currentChapter 计算
+  //   gap = currentChapter - (c.lastSeenChapter ?? c.lastUpdatedChapter)
+  // (lastSeenChapter 优先, undefined 回退 lastUpdatedChapter, 守 ADR-31 additive)
+  // gap 分布取 P75 作 absentThresholdChapters 候选。死亡角色 (isAlive===false 或
+  // deathChapter 存在) 排除 — 引擎 detectDeadCharacterState 单独处理, 不进缺席统计。
+  const characters = loadCharacterStates(projectPath)
   const absences = []
-  // TODO: 角色缺席需读 character-state store + per-character lastUpdatedChapter,
-  //   框架待补 (需确认 character-state store 路径与结构, 详见
-  //   deterministic-continuity-engine.ts absent_character 检测逻辑)
+  for (const c of characters) {
+    if (!c?.characterName) continue
+    if (c.isAlive === false) continue // 死亡角色排除 (引擎 detectDeadCharacterState 处理)
+    const lastSeen = c.lastSeenChapter ?? c.lastUpdatedChapter
+    if (typeof lastSeen !== "number") continue
+    for (const snap of snapshots) {
+      const gap = snap.chapterNumber - lastSeen
+      if (gap >= 0) absences.push(gap)
+    }
+  }
 
   const dormantSorted = dormancies.filter((d) => d >= 0).sort((a, b) => a - b)
   const dormantP75 = percentile(dormantSorted, 75)
+  const absentSorted = absences.filter((d) => d >= 0).sort((a, b) => a - b)
+  const absentP75 = percentile(absentSorted, 75)
 
   console.log(`\n=== 休眠分布 (dormant_thread) ===`)
   console.log(`样本数: ${dormantSorted.length}`)
   console.log(`分布: min=${dormantSorted[0]} max=${dormantSorted[dormantSorted.length - 1]}`)
   console.log(`P75 候选 dormantThresholdChapters: ${dormantP75}`)
   console.log(`\n=== 角色缺席分布 (absent_character) ===`)
-  console.log(`TODO: 待补 character-state store 读取逻辑`)
+  console.log(`样本数: ${absentSorted.length}`)
+  if (absentSorted.length > 0) {
+    console.log(`分布: min=${absentSorted[0]} max=${absentSorted[absentSorted.length - 1]}`)
+    console.log(`P75 候选 absentThresholdChapters: ${absentP75}`)
+  } else {
+    console.log(`WARN: 无角色缺席样本 (character-states store 缺失或角色全无 lastUpdatedChapter)`)
+  }
 
   console.log(`\n=== 候选阈值 (手动替换 DEFAULT_CONTINUITY_CONFIG) ===`)
   console.log(JSON.stringify({
     dormantThresholdChapters: dormantP75 ?? 3,
-    absentThresholdChapters: 5, // 待角色缺席统计补齐后替换
-    note: "P75 保守偏高防假阳性; 单本样本不足, 需 >=3 本合并统计后替换",
+    absentThresholdChapters: absentP75 ?? 5,
+    note: "P75 保守偏高防假阳性; 单本样本不足, 需 >=3 本合并统计后替换; " +
+          "absent 已排除死亡角色 (isAlive===false), 引擎 detectDeadCharacterState 单独处理",
   }, null, 2))
 }
 
