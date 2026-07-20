@@ -170,7 +170,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
   }
 
   return (
-    <div className="shrink-0 border-b bg-muted/20 px-2 py-2">
+    <div className="@container shrink-0 border-b bg-muted/20 px-2 py-2">
       <div className="flex items-center gap-2 overflow-x-auto pb-1">
         <Button
           variant="outline"
@@ -223,8 +223,8 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 <span className="max-w-[140px] truncate font-medium">
                   {getConversationTabTitle(conv.title, 10)}
                 </span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">{msgCount}</span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">{formatDate(conv.updatedAt)}</span>
+                <span className="hidden text-[10px] tabular-nums text-muted-foreground @md:inline">{msgCount}</span>
+                <span className="hidden text-[10px] tabular-nums text-muted-foreground @md:inline">{formatDate(conv.updatedAt)}</span>
                 {/*
                  * MI-002/MI-009 (odyssey-ui): delete button.
                  * - Real <button> with aria-label (was <span onClick> — AT + keyboard blind).
