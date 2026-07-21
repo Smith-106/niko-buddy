@@ -184,7 +184,7 @@ describe("EPIC-001 5 项检测三态 (ADR-30 subtype consistency_mechanical)", (
     it("true-positive: subplot 休眠超阈值产 dormant_thread warning", () => {
       const store = buildStore({
         subplots: [makeSubplot({ id: "S1", title: "复仇线", lastSeenChapter: 1, status: "active" })],
-        currentChapter: 10,
+        currentChapter: 12,
       })
       const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
       const dormant = findings.find((f) => f.type === "dormant_thread")
@@ -502,7 +502,7 @@ describe("EPIC-001 ADR-32 双层薄包装 (产不同 result type)", () => {
 
 describe("EPIC-004 ADR-31 中文阈值校准 + 向后兼容 additive-only", () => {
   it("DEFAULT_CONTINUITY_CONFIG 缺省值落地 (camelCase DA-07)", () => {
-    expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(3)
+    expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(10)
     expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(7)
     expect(DEFAULT_CONTINUITY_CONFIG.overdueRatio).toBe(0.02)
     expect(DEFAULT_CONTINUITY_CONFIG.unresolvedForeshadowingRatio).toBe(0.05)
@@ -510,10 +510,11 @@ describe("EPIC-004 ADR-31 中文阈值校准 + 向后兼容 additive-only", () =
     expect(DEFAULT_CONTINUITY_CONFIG.protagonistNames).toEqual([])
   })
 
-  it("resolveDormantThreshold: max(N, floor(total*0.02)) 保底公式 — 小章数保底 3", () => {
-    expect(resolveDormantThreshold(10, DEFAULT_CONTINUITY_CONFIG)).toBe(3) // max(3, 0) = 3
-    expect(resolveDormantThreshold(100, DEFAULT_CONTINUITY_CONFIG)).toBe(3) // max(3, 2) = 3
-    expect(resolveDormantThreshold(200, DEFAULT_CONTINUITY_CONFIG)).toBe(4) // max(3, 4) = 4
+  it("resolveDormantThreshold: max(N, floor(total*0.02)) 保底公式 — 校准后保底 10", () => {
+    expect(resolveDormantThreshold(10, DEFAULT_CONTINUITY_CONFIG)).toBe(10) // max(10, 0) = 10
+    expect(resolveDormantThreshold(100, DEFAULT_CONTINUITY_CONFIG)).toBe(10) // max(10, 2) = 10
+    expect(resolveDormantThreshold(200, DEFAULT_CONTINUITY_CONFIG)).toBe(10) // max(10, 4) = 10
+    expect(resolveDormantThreshold(1000, DEFAULT_CONTINUITY_CONFIG)).toBe(20) // max(10, 20) = 20 (大书走比例)
   })
 
   it("resolveUnresolvedForeshadowingThreshold: max(10, floor(total*0.05)) 保底 10 (独立 ratio)", () => {
@@ -650,7 +651,7 @@ describe("runContinuityEngine legacy 别名 (ADR-29 backward compat)", () => {
   it("接受 ContinuityInput 产 ContinuityFinding[] (委托 checkContinuity)", () => {
     const input = buildInput({
       subplots: [makeSubplot({ id: "S1", lastSeenChapter: 1, status: "active" })],
-      currentChapter: 10,
+      currentChapter: 12,
     })
     const findings = runContinuityEngine(input)
     expect(findings.some((f) => f.type === "dormant_thread")).toBe(true)
@@ -810,15 +811,15 @@ describe("EPIC-004 ADR-31 AC-007.6 UAT 假阳性风暴测试 ([需校准] 预校
     expect(info.length).toBeGreaterThanOrEqual(warning.length)
   })
 
-  it("[已校准] 阈值经 Re0 10 卷 312 样本 P75 校准 (守 ADR-31)", () => {
+  it("[已校准] 阈值经 Re0 10 卷 312+753 样本 P75 校准 (守 ADR-31)", () => {
     // [中文校准 2026-07-20] 已用 scripts/calibrate-from-epub.mjs 对 Re0 从零
-    // 开始的异世界生活 10 卷 138 章正文 (312 卷内 absent gap 样本) 跑校准,
-    // absent 分布 P50=3 P75=7 P90=11, absentThresholdChapters 从默认 5 上调到 7
-    // (P75 校准值, 保守偏高防假阳性守 GRL-011 Risk 3). dormant 维度 epub 无法
-    // 推 subplot lastSeen 保留默认 3 待 QMAI snapshot chain 校准.
-    expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(3)
+    // 开始的异世界生活 10 卷 138 章正文跑校准. absent 312 样本 P75=7, dormant
+    // 753 样本 P75=10. absentThresholdChapters 5→7, dormantThresholdChapters 3→10
+    // (P75 校准值, 保守偏高防假阳性守 GRL-011 Risk 3). 双维度均经真实中文样本
+    // 正式校准替换, 校准脚本 calibrate-from-epub.mjs (epub 直校准, 绕过 snapshot
+    // chain 依赖) 端到端验证通过.
+    expect(DEFAULT_CONTINUITY_CONFIG.dormantThresholdChapters).toBe(10)
     expect(DEFAULT_CONTINUITY_CONFIG.absentThresholdChapters).toBe(7)
-    // [dormant 待校准] 待 QMAI 项目 snapshot chain 跑 calibrate-continuity-thresholds.mjs
   })
 })
 

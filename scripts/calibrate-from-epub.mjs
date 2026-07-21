@@ -58,6 +58,31 @@ const DEFAULT_NAMES = [
   "克莱因",
 ]
 
+// Re0 贯穿剧情线索关键词表 (作 subplot.title 代理). 每个关键词 = 一条伏笔/
+// 副线, 引擎 detectDormantThread 检测其 lastSeenChapter (关键词最后出现章),
+// gap = currentChapter - lastSeen > threshold 产 dormant_thread. 镜像引擎
+// deriveSubplotLastSeenChapter (413-430) 的 includes(subplot.title) 逻辑 —
+// epub 章节正文是 snapshot summary 的超集, 同样可做关键词出现检测.
+// 用户可用 --subplots 覆盖.
+const DEFAULT_SUBPLOT_KEYWORDS = [
+  "魔女教",
+  "圣域",
+  "强欲",
+  "嫉妒",
+  "暴食",
+  "傲慢",
+  "愤怒",
+  "色欲",
+  "契约",
+  "诅咒",
+  "贤者",
+  "试炼",
+  "死亡回归",
+  "半精灵",
+  "多娜",
+  "书信",
+]
+
 const MIN_CHAPTER_TEXT_LEN = 200 // 跳过目录/版权页等非正文"章"
 
 function percentile(sortedValues, p) {
@@ -67,18 +92,26 @@ function percentile(sortedValues, p) {
 }
 
 function main() {
-  // 收集所有非 --names 的位置参数作 chaptersJson (支持多卷合并)
+  // 收集所有非 --names/--subplots 的位置参数作 chaptersJson (支持多卷合并)
   const namesArgIdx = process.argv.indexOf("--names")
+  const subplotsArgIdx = process.argv.indexOf("--subplots")
   const argv = process.argv.slice(2)
-  const chaptersJsonPaths = argv.filter((a, i) => a !== "--names" && argv[i - 1] !== "--names")
+  const chaptersJsonPaths = argv.filter(
+    (a, i) => a !== "--names" && a !== "--subplots" && argv[i - 1] !== "--names" && argv[i - 1] !== "--subplots",
+  )
   if (chaptersJsonPaths.length === 0) {
-    console.error("Usage: node scripts/calibrate-from-epub.mjs <chaptersJson...> [--names name1,name2,...]")
+    console.error("Usage: node scripts/calibrate-from-epub.mjs <chaptersJson...> [--names name1,...] [--subplots kw1,...]")
     process.exit(1)
   }
 
   let names = DEFAULT_NAMES
   if (namesArgIdx !== -1 && process.argv[namesArgIdx + 1]) {
     names = process.argv[namesArgIdx + 1].split(",").map((s) => s.trim()).filter(Boolean)
+  }
+
+  let subplotKeywords = DEFAULT_SUBPLOT_KEYWORDS
+  if (subplotsArgIdx !== -1 && process.argv[subplotsArgIdx + 1]) {
+    subplotKeywords = process.argv[subplotsArgIdx + 1].split(",").map((s) => s.trim()).filter(Boolean)
   }
 
   // 合并多卷, 但每卷内独立统计 absent gap (不跨卷 — 跨卷缺席是剧情跨度
@@ -166,11 +199,75 @@ function main() {
     }
   }
 
-  console.log(`\n=== 候选 absentThresholdChapters (手动替换 DEFAULT_CONTINUITY_CONFIG) ===`)
+  // dormant gap 分布: 每卷内独立算 (不跨卷, 同 absent). 对每卷, 对每关键词 × 每章,
+  //   lastSeen = 关键词在该卷 <= N 的最新出现章号 (镜像引擎 deriveSubplotLastSeenChapter
+  //   413-430 的 includes(subplot.title) 逻辑 — epub 正文是 snapshot summary 超集)
+  //   gap = N - lastSeen, gap > 0 即线索在 N 章休眠了 gap 章.
+  //   镜像引擎 detectDormantThread (245-280): gap > threshold 产 dormant_thread.
+  //   注: 引擎 resolveDormantThreshold = max(3, floor(total*0.02)) 比例保底,
+  //   校准统计 gap 分布取 P75 作候选绝对值 (dormantThresholdChapters 字段).
+  //   已 resolved 的 subplot 引擎跳过 — epub 无法判断线索 resolved, 故全纳入
+  //   (保守偏高, 与 P75 防假阳性一致).
+  const dormancies = []
+  const perKeywordGaps = new Map()
+  for (const kw of subplotKeywords) {
+    perKeywordGaps.set(kw, [])
+  }
+  for (const volChapters of perVolumeChapters) {
+    const presenceByChapter = new Map()
+    for (const kw of subplotKeywords) presenceByChapter.set(kw, new Set())
+    for (const ch of volChapters) {
+      for (const kw of subplotKeywords) {
+        if (ch.text.includes(kw)) presenceByChapter.get(kw).add(ch.chapter)
+      }
+    }
+    for (const kw of subplotKeywords) {
+      const presentChapters = [...presenceByChapter.get(kw)].sort((a, b) => a - b)
+      for (const ch of volChapters) {
+        if (presentChapters.length === 0) continue
+        let lastSeen
+        for (const pc of presentChapters) {
+          if (pc <= ch.chapter) lastSeen = pc
+          else break
+        }
+        if (lastSeen === undefined) continue
+        const gap = ch.chapter - lastSeen
+        if (gap > 0) {
+          dormancies.push(gap)
+          perKeywordGaps.get(kw).push(gap)
+        }
+      }
+    }
+  }
+
+  const dormantSorted = dormancies.sort((a, b) => a - b)
+  const dormantP75 = percentile(dormantSorted, 75)
+
+  console.log(`\n=== 线索休眠分布 (dormant_thread) — 镜像引擎 detectDormantThread gap ===`)
+  console.log(`样本数: ${dormantSorted.length}`)
+  if (dormantSorted.length > 0) {
+    console.log(`分布: min=${dormantSorted[0]} max=${dormantSorted[dormantSorted.length - 1]}`)
+    console.log(`P50=${percentile(dormantSorted, 50)} P75=${dormantP75} P90=${percentile(dormantSorted, 90)}`)
+  } else {
+    console.log(`WARN: 休眠样本`)
+  }
+
+  console.log(`\n=== 每关键词休眠 gap 分布 ===`)
+  for (const kw of subplotKeywords) {
+    const gaps = perKeywordGaps.get(kw).sort((a, b) => a - b)
+    if (gaps.length > 0) {
+      const p75 = percentile(gaps, 75)
+      console.log(`  ${kw}: 样本${gaps.length} min=${gaps[0]} max=${gaps[gaps.length - 1]} P75=${p75}`)
+    }
+  }
+
+  console.log(`\n=== 候选阈值 (手动替换 DEFAULT_CONTINUITY_CONFIG) ===`)
   console.log(JSON.stringify({
+    dormantThresholdChapters: dormantP75 ?? 3,
     absentThresholdChapters: absentP75 ?? 5,
-    sampleCount: absentSorted.length,
-    note: "P75 保守偏高防假阳性 (GRL-011 Risk 3); 直接从 epub 文本检测角色出现推 lastSeenChapter, gap 公式镜像引擎 detectAbsentCharacter; 死亡角色 epub 无法识别 isAlive 故全纳入 (保守); 需 >=3 本合并统计后替换默认值 5",
+    absentSampleCount: absentSorted.length,
+    dormantSampleCount: dormantSorted.length,
+    note: "P75 保守偏高防假阳性 (GRL-011 Risk 3); 直接从 epub 文本检测角色/关键词出现推 lastSeenChapter, gap 公式镜像引擎 detectAbsentCharacter (289-296) + detectDormantThread (245-280); 死亡角色/已 resolved subplot epub 无法识别故全纳入 (保守); 引擎 resolveDormantThreshold = max(3, floor(total*0.02)) 比例保底, 校准 P75 作绝对值候选; 需 >=3 本合并统计后替换默认值 5/3",
   }, null, 2))
 }
 
