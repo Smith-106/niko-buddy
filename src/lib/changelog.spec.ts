@@ -6,12 +6,13 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions[0]).toBe("2.4.0")
-    expect(versions[1]).toBe("2.3.2")
-    expect(versions[2]).toBe("2.3.1")
-    expect(versions[3]).toBe("2.3.0")
-    // 2.2.x patch chain (2.4.0 insert 后整体后移, 用 toEqual 前缀断言避免逐索引漂移)
-    expect(versions.slice(4, 24)).toEqual([
+    expect(versions[0]).toBe("2.4.1")
+    expect(versions[1]).toBe("2.4.0")
+    expect(versions[2]).toBe("2.3.2")
+    expect(versions[3]).toBe("2.3.1")
+    expect(versions[4]).toBe("2.3.0")
+    // 2.2.x patch chain (2.4.1 insert 后整体后移, 用 toEqual 前缀断言避免逐索引漂移)
+    expect(versions.slice(5, 25)).toEqual([
       "2.2.24", "2.2.23", "2.2.22", "2.2.21", "2.2.20",
       "2.2.19", "2.2.18", "2.2.17", "2.2.16", "2.2.14",
       "2.2.13", "2.2.12", "2.2.11", "2.2.10", "2.2.9",

@@ -78,6 +78,29 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.4.1",
+  date: "2026-07-21",
+  highlights: {
+    en: [
+      "Calibrated the continuity engine's absence and dormancy thresholds against a real Chinese long-form sample (Re0, 10 volumes / 138 chapters): absentThresholdChapters 5→7 (312 samples, P75) and dormantThresholdChapters 3→10 (753 samples, P75), replacing placeholder defaults with statistics measured from actual chapter text via scripts/calibrate-from-epub.mjs.",
+      "Closed the ISS-002 real-LLM token observability gap with double coverage: a mock-server integration test (real fetch SSE + real streamChat + real node-fs persistence, synthetic tokens) plus a real Anthropic-wire test that produces real billable tokens (message_start input_tokens + message_delta output_tokens captured by extractAnthropicUsage), env-gated and skipped in CI when credentials are absent.",
+      "Completed the ARCH-1 SRP split of four god modules (8713 lines): context-engine (f587696), character-aura bindable-characters cluster (0750fd7), deep-chapter task-brief cluster (f543693), and chapter-ingest snapshot-normalize leaf (97974fe) — each split by abstraction layer, not function count, preserving backward-compat via re-export + import.",
+      "Wired the option C1 priorReviewResults short-circuit (aacb8ec) so the continuity mechanical preflight runs once serially before the 6-dimension review, injecting its results to activate the short-circuit and eliminate the duplicate load in reviewChapter.",
+      "Built the ISS-002 token data channel (fe50512): LlmMetric gains inputTokens/outputTokens, ProviderConfig gains extractUsage, four extractors (Anthropic/OpenAI/Responses/Google) bind 9 provider branches, streamChat accumulates usage via recordUsage.",
+      "Fixed the chat panel tab metadata so the hidden responsive @md:inline element carries real metadata (1155829), and vite build produces the @container(width>=28rem){.@md\:inline{display:inline}} rule as proof.",
+    ],
+    zh: [
+      "用真实中文长篇样本（Re0 10 卷 138 章）校准连续性引擎的缺席与休眠阈值：absentThresholdChapters 5→7（312 样本 P75）、dormantThresholdChapters 3→10（753 样本 P75），经 scripts/calibrate-from-epub.mjs 从真实章节文本统计替换占位默认值。",
+      "ISS-002 真实 LLM token 可观测性缺口双覆盖收口：mock server 集成测试（真实 fetch SSE + 真实 streamChat + 真实 node fs 落盘，合成 token）+ 真实 Anthropic wire 测试产真实计费 token（message_start input_tokens + message_delta output_tokens 经 extractAnthropicUsage 捕获），环境变量门控缺凭证时 CI 跳过。",
+      "完成 ARCH-1 四巨函数（8713 行）SRP 拆分：context-engine（f587696）、character-aura 可绑定角色集群（0750fd7）、deep-chapter task-brief 集群（f543693）、chapter-ingest 规范化叶子（97974fe）——按抽象层非按函数数拆分，re-export + import 保向后兼容。",
+      "option C1 priorReviewResults 短路真接线（aacb8ec）：连续性机械预检在 6 维审查前串行跑一次注入结果激活短路，消除 reviewChapter 重复 load。",
+      "建 ISS-002 token 数据通道（fe50512）：LlmMetric 加 inputTokens/outputTokens、ProviderConfig 加 extractUsage、4 extractor（Anthropic/OpenAI/Responses/Google）绑定 9 provider 分支、streamChat 经 recordUsage 累加 usage。",
+      "修复 chat 面板 tab 元数据：隐藏的响应式 @md:inline 元素携带真实元数据（1155829），vite build 产 @container(width>=28rem){.@md\\:inline{display:inline}} 规则铁证。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_ZERO_CHANGELOG: ChangelogEntry = {
   version: "2.4.0",
   date: "2026-07-19",
@@ -694,6 +717,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_ONE_CHANGELOG.version) return [TWO_POINT_FOUR_ONE_CHANGELOG]
   if (version === TWO_POINT_FOUR_ZERO_CHANGELOG.version) return [TWO_POINT_FOUR_ZERO_CHANGELOG]
   if (version === TWO_POINT_THREE_TWO_CHANGELOG.version) return [TWO_POINT_THREE_TWO_CHANGELOG]
   if (version === TWO_POINT_THREE_ONE_CHANGELOG.version) return [TWO_POINT_THREE_ONE_CHANGELOG]
@@ -727,6 +751,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_ONE_CHANGELOG,
     TWO_POINT_FOUR_ZERO_CHANGELOG,
     TWO_POINT_THREE_TWO_CHANGELOG,
     TWO_POINT_THREE_ONE_CHANGELOG,
