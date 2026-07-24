@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mochocyang/QMAI/releases">
-    <img src="https://img.shields.io/github/v/release/Mochocyang/QMAI?style=flat-square" alt="Release" />
+  <a href="https://github.com/Smith-106/niko-hub/releases">
+    <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.2.24-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.4.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
@@ -206,6 +206,17 @@
 
 自动统计长期未回收的伏笔，计算债务评分，提醒作者哪些伏笔需要推进或收束。
 
+**确定性连续性引擎（v2.4.0+）：**
+
+零 LLM 的机械层连续性预检引擎，双层挂载在生成层与审查层之间：
+
+- **角色缺席检测**（`detectAbsentCharacter`）：角色超过阈值章节未出场则报警
+- **支线休眠检测**（`detectDormantThread`）：未 resolved 的 subplot 长期无推进则报警
+- **情绪账本**（`emotion-ledger`）：追踪角色情绪弧线变化，生成层前置注入
+- **机械 AI 味检测**（`mechanical-slop-detector`）：词库命中式 AI 味打分，审查层前置惩罚
+
+阈值经真实中文长篇样本校准（absent/dormant 双维度），不依赖 LLM 即可确定性检测结构性连续性断裂，再交由审查层语义判定。机械层只做"防退化/检测"，不做"正向选优/语义判定"——正向选优仍归 LLM 审查。
+
 ---
 <img width="1072" height="780" alt="image" src="https://github.com/user-attachments/assets/a685a212-7a56-4354-b018-f243b9357141" />
 
@@ -345,7 +356,7 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 
 **方式一：下载安装包（推荐）**
 
-前往 [GitHub Releases](https://github.com/Mochocyang/QMAI/releases) 下载最新版本安装包。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新版本安装包。
 
 ### 基本使用流程
 
@@ -379,8 +390,13 @@ QMAI/
 │   ├── lib/                      # 业务逻辑库
 │   │   ├── novel/                # 小说核心模块
 │   │   │   ├── book-analysis/    # 拆书库（角色提取、文风提取、别名匹配等）
-│   │   │   ├── context-engine.ts # 上下文引擎
-│   │   │   ├── chapter-ingest.ts # 章节摄取
+│   │   │   ├── context-engine.ts # 上下文引擎（+ context-data-sources.ts / context-derived-stores.ts）
+│   │   │   ├── chapter-ingest.ts # 章节摄取（+ chapter-snapshot-normalize.ts）
+│   │   │   ├── deep-chapter-generation.ts # 章节生成（+ deep-chapter-task-brief.ts）
+│   │   │   ├── character-aura.ts  # 角色光环（+ bindable-characters.ts）
+│   │   │   ├── deterministic-continuity-engine.ts # 确定性连续性引擎（+ emotion-ledger.ts）
+│   │   │   ├── mechanical-slop-detector.ts # 机械 AI 味检测
+│   │   │   ├── scene-breakdown.ts # 场景拆解（阶段 1.5）
 │   │   │   ├── review-adapter.ts # 审查适配器（含角色一致性）
 │   │   │   ├── model-resolver.ts # 默认模型解析
 │   │   │   ├── de-ai-adapter.ts  # 去AI化
@@ -466,6 +482,6 @@ npm run build:github-release
 
 ## 相关链接
 
-- 📦 [Releases 下载](https://github.com/Mochocyang/QMAI/releases)
-- 🐛 [问题反馈](https://github.com/Mochocyang/QMAI/issues)
-- 💬 [功能建议](https://github.com/Mochocyang/QMAI/issues/new)
+- 📦 [Releases 下载](https://github.com/Smith-106/niko-hub/releases)
+- 🐛 [问题反馈](https://github.com/Smith-106/niko-hub/issues)
+- 💬 [功能建议](https://github.com/Smith-106/niko-hub/issues/new)
