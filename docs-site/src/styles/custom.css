@@ -1,0 +1,21 @@
+/* niko-hub 文档站自定义样式 */
+:root {
+  --sl-color-accent: #4f46e5;
+  --sl-color-accent-low: #312e81;
+  --sl-color-accent-high: #a5b4fc;
+}
+
+/* 中文排版优化 */
+:root {
+  --sl-font: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei",
+    "Helvetica Neue", sans-serif;
+}
+
+html {
+  font-feature-settings: "kern";
+}
+
+/* 中英文混排间距 */
+:lang(zh-CN) body {
+  text-spacing-trim: space-all;
+}

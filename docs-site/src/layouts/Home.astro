@@ -1,0 +1,41 @@
+---
+// 产品官网门面 layout：首页用，覆盖 Starlight 默认两栏布局为全宽着陆页
+import Layout from '@astrojs/starlight/components/Layout.astro';
+
+const { title, description } = Astro.props;
+---
+
+<Layout title={title} description={description}>
+  <div class="home-content">
+    <slot />
+  </div>
+</Layout>
+
+<style>
+  .home-content {
+    max-width: 72ch;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+  .home-content :global(h1) {
+    font-size: clamp(2.4rem, 5vw, 3.2rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+  .home-content :global(h2) {
+    margin-top: 3rem;
+    font-size: 1.6rem;
+    font-weight: 700;
+    border-top: 1px solid var(--sl-color-divider);
+    padding-top: 2rem;
+  }
+  .home-content :global(blockquote) {
+    font-size: 1.15rem;
+    margin: 1.5rem 0;
+    padding: 1rem 1.5rem;
+    border-left: 3px solid var(--sl-color-accent);
+    background: var(--sl-color-gray-7, transparent);
+    border-radius: 0.25rem;
+  }
+</style>
