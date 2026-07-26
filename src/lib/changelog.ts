@@ -78,6 +78,25 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.4.2",
+  date: "2026-07-25",
+  highlights: {
+    en: [
+      "Fixed the updater endpoint drift: the Tauri updater and release URL sources now point to Smith-106/niko-hub instead of the upstream Mochocyang/QMAI, so in-app auto-update reaches the correct release artifacts (compile-time embedded, takes effect from this version).",
+      "Added MIT LICENSE file and aligned README badge/release-links from 2.2.24/Mochocyang to 2.4.1/Smith-106, plus a v2.4.0+ core-features section (continuity engine / emotion-ledger / mechanical-slop-detector) and ARCH-1 split file names.",
+      "Launched the niko-hub documentation site (Astro + Starlight, Chinese-first) deployed on GitHub Pages at smith-106.github.io/niko-hub, with product front-page, download, quickstart, six feature pages, and three developer pages.",
+      "Synced the delivery doc 09-implementation-plan.md (was stalled at Stage 2) to the actual v2.4.1 release state and the v2.4.2 patch scope.",
+    ],
+    zh: [
+      "修复 updater endpoint 漂移：Tauri 更新器与 release URL 源改指向 Smith-106/niko-hub，不再指向上游 Mochocyang/QMAI，应用内自动更新能到达正确的 release 产物（编译期嵌入，自本版本生效）。",
+      "新增 MIT LICENSE 文件，README badge/release 链接从 2.2.24/Mochocyang 对齐到 2.4.1/Smith-106，补 v2.4.0+ 核心功能节（连续性引擎/emotion-ledger/mechanical-slop-detector）与 ARCH-1 拆分后文件名。",
+      "上线 niko-hub 文档站（Astro + Starlight，中文优先），部署于 GitHub Pages smith-106.github.io/niko-hub，含产品门面、下载、快速开始、6 功能页、3 开发者页。",
+      "同步交付文档 09-implementation-plan.md（原滞后在 Stage 2）至 v2.4.1 实际发布状态与 v2.4.2 patch 范围。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.4.1",
   date: "2026-07-21",
@@ -717,6 +736,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_TWO_CHANGELOG.version) return [TWO_POINT_FOUR_TWO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ONE_CHANGELOG.version) return [TWO_POINT_FOUR_ONE_CHANGELOG]
   if (version === TWO_POINT_FOUR_ZERO_CHANGELOG.version) return [TWO_POINT_FOUR_ZERO_CHANGELOG]
   if (version === TWO_POINT_THREE_TWO_CHANGELOG.version) return [TWO_POINT_THREE_TWO_CHANGELOG]
@@ -751,6 +771,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_TWO_CHANGELOG,
     TWO_POINT_FOUR_ONE_CHANGELOG,
     TWO_POINT_FOUR_ZERO_CHANGELOG,
     TWO_POINT_THREE_TWO_CHANGELOG,

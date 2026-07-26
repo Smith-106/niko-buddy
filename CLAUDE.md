@@ -54,7 +54,7 @@
 
 ## 当前执行视图
 
-按 Stage 推进（旧 Phase 仅作历史来源）：`1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar`。Stage 2 已 strict PASS（b51ab03，v2.2.24）；Stage 3/4/5 + 加固层 v2.3.2 + Post-v2.3.2 演进（连续性引擎 + ARCH-1 拆分 + ISS-001/002/011）已落地，v2.4.1 已发布 GitHub 2026-07-21（tsc 0 + vitest 985/985）。详见 `@../.workflow/project.md` 与 `@../docs/qmai-codex-delivery/09-implementation-plan.md`。
+按 Stage 推进（旧 Phase 仅作历史来源）：`1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar`。Stage 2 已 strict PASS（b51ab03，v2.2.24）；Stage 3/4/5 + 加固层 v2.3.2 + Post-v2.3.2 演进（连续性引擎 + ARCH-1 拆分 + ISS-001/002/011）已落地，v2.4.1 已发布 GitHub 2026-07-21，v2.4.2 patch 已发布 2026-07-25（updater endpoint 修复 + 文档站上线 + LICENSE + 09 文档同步，tsc 0 + vitest 985/985）。详见 `@../.workflow/project.md` 与 `@../docs/qmai-codex-delivery/09-implementation-plan.md`。
 
 ## 验收与证据
 
