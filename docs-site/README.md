@@ -53,6 +53,6 @@ docs-site/
 
 ## 内容真源
 
-- 产品功能描述来自 QMAI README 与实际代码（v2.4.1）
+- 产品功能描述来自 QMAI README 与实际代码（v2.4.2）
 - 技术架构来自 `docs/qmai-codex-delivery/` 交付文档包，已转译为面向用户/开发者的公开语言
 - 阈值数据（absent/dormant）经 `scripts/calibrate-from-epub.mjs` 真实中文长篇样本校准
