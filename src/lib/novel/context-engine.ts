@@ -30,6 +30,7 @@ import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
+import { selectRelevantNovelVectorResults } from "./vector-relevance"
 import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
@@ -1502,6 +1503,22 @@ async function runVectorSearchForContext(
     const vectorResults = await searchByEmbedding(pp, query, embCfg, Math.max(limit * 2, 10))
     if (vectorResults.length === 0) return []
 
+    // IC-02: 向量结果按 0.45 相关性门控，低于阈值的视为噪音不进入包装/候选池。
+    // 取 matchedChunks 真实命中分（fallback result.score）。被过滤结果记 ContextGap
+    // （type=truncated / reason=tier_compressible），不静默降级。
+    // (backport from Mochocyang/QMAI v3.0.1 xiangliangzaoyinzhili)
+    const gatedVectorResults = selectRelevantNovelVectorResults(vectorResults, limit)
+    if (contextGapsActive && vectorResults.length - gatedVectorResults.length > 0) {
+      contextGaps.push({
+        type: "truncated",
+        ref: "vector-context",
+        reason: "tier_compressible",
+        originalLength: vectorResults.length,
+        retainedLength: gatedVectorResults.length,
+      })
+    }
+    const relevantVectorResults = gatedVectorResults
+
     const items: { title: string; snippet: string; path: string }[] = []
     const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
 
@@ -1534,7 +1551,7 @@ async function runVectorSearchForContext(
       }
     }
 
-    for (const vr of vectorResults.slice(0, limit)) {
+    for (const vr of relevantVectorResults) {
       // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
       // before path construction. vr.id is external stored state in LanceDB
       // and could be polluted (manual DB edit, non-entity write path, future
