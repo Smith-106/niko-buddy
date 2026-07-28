@@ -2,19 +2,28 @@
   <img src="QM-LOGO.png" width="120" alt="青幕AI写作 Logo" />
 </p>
 
-<h1 align="center">青幕AI写作（QMAI）</h1>
+<h1 align="center">niko-hub · 青幕AI写作（QMAI）</h1>
 
 <p align="center">
   面向长篇小说的记忆型 AI 写作桌面系统
 </p>
 
 <p align="center">
+  <a href="https://smith-106.github.io/niko-hub/">
+    <img src="https://img.shields.io/badge/docs-smith--106.github.io%2Fniko--hub-orange?style=flat-square" alt="Docs" />
+  </a>
   <a href="https://github.com/Smith-106/niko-hub/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/version-2.4.2-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
+</p>
+
+<p align="center">
+  <a href="https://smith-106.github.io/niko-hub/">📖 文档站</a> ·
+  <a href="https://github.com/Smith-106/niko-hub/releases">📦 下载</a> ·
+  <a href="https://github.com/Smith-106/niko-hub/issues">🐛 问题反馈</a>
 </p>
 
 ---
@@ -482,6 +491,7 @@ npm run build:github-release
 
 ## 相关链接
 
+- 📖 [文档站](https://smith-106.github.io/niko-hub/)——产品介绍、功能详解、开发者文档
 - 📦 [Releases 下载](https://github.com/Smith-106/niko-hub/releases)
 - 🐛 [问题反馈](https://github.com/Smith-106/niko-hub/issues)
 - 💬 [功能建议](https://github.com/Smith-106/niko-hub/issues/new)
