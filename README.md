@@ -352,6 +352,36 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 - 草稿隔离机制：未确认内容不会污染正式记忆库
 - 角色一致性闭环：从别名拼音/简繁模糊匹配到分段并行审查再到返修复审
 
+**Rust 后端与本地存储：**
+
+- **向量存储**：采用 LanceDB 本地向量数据库，章节摄取后的记忆向量直接落盘于项目目录，无需外部服务。
+- **IPC 通信**：前端通过 Tauri 的 invoke 调用 src-tauri/src/commands/ 中注册的 Rust 命令（如 vector_search_chunks、chapter_ingest），所有文件、向量、PDF 操作均在 Rust 侧执行，前端不直接触碰文件系统。
+- **PDF 解析**：基于 PDFium 提取参考素材文本，供拆书库与大纲生成消费。
+- **进程与代理**：Rust 侧负责后台 LLM 任务调度、默认模型统筹与本地代理转发。
+
+**端到端数据流：**
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FE as 前端 React
+    participant IP as Tauri IPC
+    participant RS as Rust 后端
+    participant DB as 本地存储 LanceDB JSON MD
+    U->>FE: 输入写作指令
+    FE->>IP: invoke 生成上下文包
+    IP->>RS: 组装上下文包 记忆 图谱 检索
+    RS->>DB: 读取章节 向量 状态
+    RS-->>FE: 返回上下文包
+    FE->>FE: 调用 LLM 生成草稿
+    U->>FE: 确认保存
+    FE->>IP: invoke chapter_ingest
+    IP->>RS: 章节摄取 结构化记忆
+    RS->>DB: 写入记忆 图谱边 向量
+```
+
+---
+
 ---
 
 ## 安装与使用
@@ -484,6 +514,12 @@ npm run build:github-release
 - Commit Message 遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范
 - 新功能请在 `src/lib/novel/` 中集中实现，避免散落到无关模块
 - Rust 代码遵循 `cargo fmt` 和 `cargo clippy` 标准
+
+### 质量门槛
+
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 985+ 用例；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
+- **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 
 ---
 
