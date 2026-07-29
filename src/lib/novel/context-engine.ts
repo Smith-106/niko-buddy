@@ -337,7 +337,7 @@ export async function buildContextPack(
  * reason 'tier_compressible'）——绝不静默。调用方 push 到 pack.gaps。
  * budget 为 undefined（无 build 预算场景，如单测直调）时原样返回不截断不记 gap。
  */
-function truncateActiveEntitiesByBudget(
+export function truncateActiveEntitiesByBudget(
   entities: ContextEntity[],
   budget: ContextBudget["activeEntitiesBudget"] | undefined,
   chapterNumber: number,

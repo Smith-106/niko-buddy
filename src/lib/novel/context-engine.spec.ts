@@ -1,8 +1,24 @@
-import { describe, expect, it } from "vitest"
-import { contextPackToPrompt, type ContextPack, type SourceTier, type ContextGap, type ContextEntity } from "./context-engine"
+import { describe, expect, it, vi } from "vitest"
+import { contextPackToPrompt, truncateActiveEntitiesByBudget, type ContextPack, type SourceTier, type ContextGap, type ContextEntity } from "./context-engine"
 import { computeContextBudget } from "@/lib/context-budget"
 import { rerankActiveEntitiesByTemporalFacts, type TemporalFact } from "./temporal-memory"
 import i18n from "@/i18n"
+
+// HARD-1/2/3 守恒断言 (TASK-006): Track B 纯 contextPack 内变换不得触达
+// wiki-store 的写入类 setter (status.json / chapter-save-strategy / decision_gates)。
+// 用 vi.hoisted 捕获 vi.fn，经 vi.mock 覆盖对应 setter，集成测全流后断言未被调用
+// (WARNING-5 修法: 非 grep 缺席弱断言)。真实 useWikiStore 经 importOriginal 透传，
+// 不影响其余测试。
+const hoisted = vi.hoisted(() => ({
+  setNovelConfig: vi.fn(),
+}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+    setNovelConfig: hoisted.setNovelConfig,
+  }
+})
 
 const basePack: ContextPack = {
   task: "生成第2章正文",
@@ -271,5 +287,92 @@ describe("TASK-003 chapterNumber 自适应预算", () => {
     expect(fromZero.maxCtx).toBe(204_800)
     expect(fromUndefined.maxCtx).toBe(204_800)
     expect(fromExplicit.maxCtx).toBe(204_800)
+  })
+})
+
+describe("Track B temporal-facts routing integration", () => {
+  const mkFact = (subject: string, validFrom: number): TemporalFact => ({
+    id: `fact-${subject}`,
+    subject,
+    predicate: "持有",
+    object: "轩辕剑",
+    validFrom,
+    source: `chapter-${validFrom}`,
+  })
+  const mkEntity = (name: string, tags: string[]): ContextEntity => ({
+    entityId: name,
+    name,
+    type: "character",
+    tags,
+  })
+
+  it("flag=true 全流: rerank boost + activeEntities 段渲染 + budget tier 应用", () => {
+    const facts: TemporalFact[] = [mkFact("林晚秋", 3)]
+    const entities: ContextEntity[] = [
+      mkEntity("苏明月", ["relevance:low"]),
+      mkEntity("林晚秋", ["relevance:low"]),
+      mkEntity("陈墨", ["relevance:high"]),
+    ]
+    const reranked = rerankActiveEntitiesByTemporalFacts(entities, facts, 5)
+    expect(reranked[0].name).toBe("林晚秋")
+
+    const tierBudget = { rank0Floor: 8, rank1CompressibleCap: 2, rank2CompressibleCap: 1 }
+    const many: ContextEntity[] = [
+      mkEntity("r0a", ["relevance:high"]),
+      ...Array.from({ length: 5 }, (_, i) => mkEntity(`r1_${i}`, [])),
+      ...Array.from({ length: 5 }, (_, i) => mkEntity(`r2_${i}`, ["relevance:low"])),
+    ]
+    const truncated = truncateActiveEntitiesByBudget(many, tierBudget, 5)
+    expect(truncated.entities.filter((e) => e.tags?.includes("relevance:high")).length).toBe(1)
+    expect(truncated.entities.filter((e) => e.name.startsWith("r1_")).length).toBe(2)
+    expect(truncated.entities.filter((e) => e.name.startsWith("r2_")).length).toBe(1)
+    expect(truncated.gap).not.toBeNull()
+
+    const pack: ContextPack = { ...basePack, activeEntities: reranked }
+    const prompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: true })
+    expect(prompt).toContain(i18n.t("novel.contextPack.activeEntities"))
+    expect(prompt).toContain("- 林晚秋")
+    expect(prompt).not.toContain("[object Object]")
+  })
+
+  it("flag=false 字节级不变: 不渲染 activeEntities 段, 输出 === 无 activeEntities 基线 (R1)", () => {
+    const entities = [mkEntity("林晚秋", ["relevance:high"]), mkEntity("陈墨", [])]
+    const promptOff = contextPackToPrompt(
+      { ...basePack, activeEntities: entities },
+      undefined,
+      { temporalFactsEnabled: false },
+    )
+    const baseline = contextPackToPrompt({ ...basePack })
+    expect(promptOff).toBe(baseline)
+    expect(promptOff).not.toContain("林晚秋")
+  })
+
+  it("canon baseline 无条件: flag=false 与 flag=true 两态都含 canonRules 段 (D4)", () => {
+    const pack: ContextPack = {
+      ...basePack,
+      canonRules: "## 禁止违背\n不得违背已确立的时序事实。",
+      activeEntities: [mkEntity("林晚秋", ["relevance:high"])],
+    }
+    const falsePrompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: false })
+    const truePrompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: true })
+    expect(falsePrompt).toContain("## 禁止违背")
+    expect(truePrompt).toContain("## 禁止违背")
+  })
+
+  it("HARD-1/2/3 守恒: Track B 全流不触 status.json / Draft-first / 门控 (mock 断言非 grep)", () => {
+    const reranked = rerankActiveEntitiesByTemporalFacts(
+      [mkEntity("林晚秋", ["relevance:low"])],
+      [mkFact("林晚秋", 3)],
+      5,
+    )
+    const budget = computeContextBudget(200_000, 5)
+    const truncated = truncateActiveEntitiesByBudget(reranked, budget.activeEntitiesBudget, 5)
+    const prompt = contextPackToPrompt(
+      { ...basePack, activeEntities: truncated.entities },
+      undefined,
+      { temporalFactsEnabled: true },
+    )
+    expect(prompt).toContain("林晚秋")
+    expect(hoisted.setNovelConfig).not.toHaveBeenCalled()
   })
 })
