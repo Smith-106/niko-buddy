@@ -1274,3 +1274,74 @@ export async function rejectDeepChapterDraft(
   await persistCheckpointBase(input.projectPath, base.session_id, next)
   return next
 }
+
+
+// ---------------------------------------------------------------------------
+// Finding-rewrite draft helpers (RPC-2 / TASK-007)
+//
+// 守 HARD-1 (status.json 唯一真源) + HARD-2 (Draft-first)：改写片段经
+// NovelDraftStatus (pending/accepted/rejected) 流转，复用已导出
+// novelDraftArtifactPath + writeFileAtomic，NOT module-private writeDraftArtifact
+// (其强耦合 DeepChapterSessionInput / checkpoint_stage / decision_gates)。draft
+// artifact 路径用 `finding-rewrite-${sessionId}` key 隔离，避免与 deep-chapter
+// draft 碰撞（CLAUDE.md 文件锚点：草稿/会话状态 anchor = novel-session-status.ts）。
+// ---------------------------------------------------------------------------
+
+export interface FindingRewriteDraftInput {
+  chapterId: string
+  originalText: string
+  replacementText: string
+  findingId?: string
+}
+
+export async function writeFindingRewriteDraft(
+  projectPath: string,
+  sessionId: string,
+  input: FindingRewriteDraftInput,
+): Promise<void> {
+  const path = novelDraftArtifactPath(projectPath, `finding-rewrite-${sessionId}`)
+  await createDirectory(path.replace(/[^/]+$/, ""))
+  const draft = {
+    draft_id: `finding-rewrite-${sessionId}`,
+    chapter_id: input.chapterId,
+    original_text: input.originalText,
+    replacement_text: input.replacementText,
+    finding_id: input.findingId,
+    draft_status: "pending" as const,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+  await writeFileAtomic(path, JSON.stringify(draft, null, 2))
+}
+
+export async function acceptFindingRewriteDraft(
+  projectPath: string,
+  sessionId: string,
+): Promise<void> {
+  const path = novelDraftArtifactPath(projectPath, `finding-rewrite-${sessionId}`)
+  const raw = await readFile(path)
+  const draft = JSON.parse(raw) as {
+    draft_status: NovelDraftStatus
+    updated_at: string
+    [key: string]: unknown
+  }
+  draft.draft_status = "accepted"
+  draft.updated_at = new Date().toISOString()
+  await writeFileAtomic(path, JSON.stringify(draft, null, 2))
+}
+
+export async function rejectFindingRewriteDraft(
+  projectPath: string,
+  sessionId: string,
+): Promise<void> {
+  const path = novelDraftArtifactPath(projectPath, `finding-rewrite-${sessionId}`)
+  const raw = await readFile(path)
+  const draft = JSON.parse(raw) as {
+    draft_status: NovelDraftStatus
+    updated_at: string
+    [key: string]: unknown
+  }
+  draft.draft_status = "rejected"
+  draft.updated_at = new Date().toISOString()
+  await writeFileAtomic(path, JSON.stringify(draft, null, 2))
+}

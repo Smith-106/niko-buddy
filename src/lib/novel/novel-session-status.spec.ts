@@ -47,6 +47,7 @@ import {
   startDeepChapterSession,
   type NovelSessionStatus,
 } from "./novel-session-status"
+import { acceptFindingRewriteDraft, rejectFindingRewriteDraft, writeFindingRewriteDraft } from "./novel-session-status"
 
 function readJson(path: string): Record<string, unknown> {
   const raw = fsState.fileMap.get(path)
@@ -779,5 +780,54 @@ describe("novel-session-status", () => {
       userRequest: "generate chapter 3",
       chapterNumber: 3,
     })).rejects.toThrow(`小说会话状态文件 写入后回读失败（${statusPath}）：EACCES: ${statusPath}`)
+  })
+})
+
+
+describe("finding-rewrite draft helpers (RPC-2 / TASK-007)", () => {
+  const sessionId = "sess-t07"
+  const findingId = "finding-t07"
+  const chapterId = "ch-t07"
+
+  function draftPath() {
+    return novelDraftArtifactPath(normalizedProjectPath, `finding-rewrite-${sessionId}`)
+  }
+
+  it("writeFindingRewriteDraft 写入 draft_status=pending 的 draft", async () => {
+    await writeFindingRewriteDraft(normalizedProjectPath, sessionId, {
+      chapterId,
+      originalText: "原文片段",
+      replacementText: "改写片段",
+      findingId,
+    })
+    const draft = readJson(draftPath()) as Record<string, unknown>
+    expect(draft.draft_status).toBe("pending")
+    expect(draft.original_text).toBe("原文片段")
+    expect(draft.replacement_text).toBe("改写片段")
+    expect(draft.finding_id).toBe(findingId)
+  })
+
+  it("acceptFindingRewriteDraft 改 draft_status=accepted", async () => {
+    await writeFindingRewriteDraft(normalizedProjectPath, sessionId, {
+      chapterId,
+      originalText: "原文片段",
+      replacementText: "改写片段",
+      findingId,
+    })
+    await acceptFindingRewriteDraft(normalizedProjectPath, sessionId)
+    const draft = readJson(draftPath()) as Record<string, unknown>
+    expect(draft.draft_status).toBe("accepted")
+  })
+
+  it("rejectFindingRewriteDraft 改 draft_status=rejected", async () => {
+    await writeFindingRewriteDraft(normalizedProjectPath, sessionId, {
+      chapterId,
+      originalText: "原文片段",
+      replacementText: "改写片段",
+      findingId,
+    })
+    await rejectFindingRewriteDraft(normalizedProjectPath, sessionId)
+    const draft = readJson(draftPath()) as Record<string, unknown>
+    expect(draft.draft_status).toBe("rejected")
   })
 })

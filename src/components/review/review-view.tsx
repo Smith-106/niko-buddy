@@ -60,6 +60,7 @@ import {
   type ReviewRewriteEdit,
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
+import { FindingCompareDialog } from "./finding-compare-dialog"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
@@ -131,6 +132,7 @@ export function ReviewView({
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
+  const [findingCompareTarget, setFindingCompareTarget] = useState<NovelReviewActionItem | null>(null)
   // G3 dismiss 闭环 state: dismissTarget 是当前展开 dismiss 折叠面板的 continuity finding
   // (用 ref 作稳定 key, PAT-U6); reason/note 是面板内表单值。PAT-ALERT-ABSTRACT:
   // 反馈复用 alertMessage state (line 132 已存在), 不混入业务 error state。
@@ -543,6 +545,16 @@ export function ReviewView({
           className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            setFindingCompareTarget(item)
+          }}
+          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+        >
+          对比改写
         </button>
         {hasBackup ? (
           <button
@@ -1393,35 +1405,23 @@ function ReviewCard({
           {item.resolvedAction}
         </div>
       )}
+      {findingCompareTarget ? (
+        <FindingCompareDialog
+          open
+          finding={findingCompareTarget}
+          chapterContent={fileContent}
+          llmConfig={resolveDefaultModel(useWikiStore.getState().llmConfig)}
+          projectPath={project?.path ?? ""}
+          sessionId={reviewRun?.runId ?? ""}
+          onClose={() => setFindingCompareTarget(null)}
+          onAccept={() => {
+            setFindingCompareTarget(null)
+          }}
+          onReject={() => {
+            setFindingCompareTarget(null)
+          }}
+        />
+      ) : null}
     </div>
   )
-}
-
-function actionIsDismissal(action: string): boolean {
-  const lower = action.toLowerCase()
-  return (
-    lower === "skip" ||
-    lower === "dismiss" ||
-    lower === "ignore" ||
-    lower === "跳过" ||
-    lower === "忽略" ||
-    lower === "approve" ||
-    lower === "keep existing" ||
-    lower === "no"
-  )
-}
-
-function actionLooksLikeCreate(action: string): boolean {
-  return !actionIsDismissal(action)
-}
-
-function detectPageType(action: string, reviewType: string): string {
-  const lower = action.toLowerCase()
-  if (lower.includes("entity") || lower.includes("实体")) return "entity"
-  if (lower.includes("concept") || lower.includes("概念")) return "concept"
-  if (lower.includes("comparison") || lower.includes("compare") || lower.includes("比较")) return "comparison"
-  if (lower.includes("synthesis") || lower.includes("综合")) return "synthesis"
-  if (reviewType === "missing-page") return "query"
-  if (reviewType === "contradiction" || reviewType === "duplicate") return "entity"
-  return "query"
 }
