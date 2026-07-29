@@ -18,6 +18,7 @@ import {
   readAuraEvolutionText,
 } from "./context-derived-stores"
 import {
+  rerankActiveEntitiesByTemporalFacts,
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
   type TemporalFact,
@@ -265,6 +266,13 @@ export interface ContextPack {
    * Optional：legacy constructors / emptyPack 不注入时 undefined（向后兼容）。
    */
   activeEntities?: ContextEntity[]
+  /**
+   * EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): temporal facts 透传字段。
+   * 承载 canon 路径已 load 的章节时间线 temporal facts，供 :393 Track B 接线
+   * rerank activeEntities（D7 避免 PAT-G2 孪生重复 load）。可选 + 兼容 null：
+   * legacy 构造器不填（IC-02 向后兼容，TASK-002 渲染器本就先查 flag）。
+   */
+  temporalFacts?: TemporalFact[] | null
 }
 
 /**
@@ -318,6 +326,64 @@ export async function buildContextPack(
   return releasePromise
 }
 
+/**
+ * EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): compressible-with-floor 预算截断
+ * （TASK-004 仅出数字，本函数落地）。rank0 entity（relevance:high 或
+ * location:chapter-N 当前章节）floor 保护全保；rank1/rank2 按 tier cap
+ * （rank1CompressibleCap / rank2CompressibleCap）压缩。原序保持（仅按 tier 配额
+ * 丢弃超额 entity，不重排），故 flag=false 时 activeEntities 原序不变（D4）。
+ *
+ * IC-02：rank1/rank2 被 tier cap 截断时返回显式 ContextGap（type 'truncated'，
+ * reason 'tier_compressible'）——绝不静默。调用方 push 到 pack.gaps。
+ * budget 为 undefined（无 build 预算场景，如单测直调）时原样返回不截断不记 gap。
+ */
+function truncateActiveEntitiesByBudget(
+  entities: ContextEntity[],
+  budget: ContextBudget["activeEntitiesBudget"] | undefined,
+  chapterNumber: number,
+): { entities: ContextEntity[]; gap: ContextGap | null } {
+  if (!budget) {
+    return { entities, gap: null }
+  }
+  const rankOf = (e: ContextEntity): number => {
+    const tagStr = (e.tags ?? []).join(" ")
+    if (tagStr.includes("relevance:high")) return 0
+    if (chapterNumber && tagStr.includes(`location:chapter-${chapterNumber}`)) return 0
+    if (tagStr.includes("relevance:low")) return 2
+    return 1
+  }
+  let rank1Used = 0
+  let rank2Used = 0
+  const kept: ContextEntity[] = []
+  let truncated = false
+  for (const e of entities) {
+    const r = rankOf(e)
+    if (r === 0) {
+      kept.push(e)
+    } else if (r === 1) {
+      if (rank1Used < budget.rank1CompressibleCap) {
+        kept.push(e)
+        rank1Used++
+      } else {
+        truncated = true
+      }
+    } else {
+      if (rank2Used < budget.rank2CompressibleCap) {
+        kept.push(e)
+        rank2Used++
+      } else {
+        truncated = true
+      }
+    }
+  }
+  const originalLength = entities.length
+  const retainedLength = kept.length
+  // IC-02: active_entities_truncated —— 压缩 tier 被预算截断时显式记 gap。
+  const gap: ContextGap | null = truncated
+    ? { type: "truncated", ref: "activeEntities", reason: "tier_compressible", originalLength, retainedLength }
+    : null
+  return { entities: kept, gap }
+}
 async function buildContextPackUnlocked(
   projectPath: string,
   task: string,
@@ -390,32 +456,19 @@ async function buildContextPackUnlocked(
     pack.styleExemplars = exemplars
     // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
     // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
-    pack.activeEntities = activeEntities
-
-    // EPIC-003 / ADR-32 / TASK-007: temporal-facts 轨 B stub（ISS-014 未落地）。
-    // G-001 两轨策略：Track A entity-tags 轨（上方 activeEntities）已交付独立运行；
-    // Track B temporal-facts 轨依赖 ISS-014 temporal-memory 路由维度（按 chapter
-    // 时间线注入 temporal facts 作路由筛选维度），ISS-014 未落地 → 仅 stub 占位。
-    //
-    // stub 语义（temporalFactsEnabled=false 时）：
-    //   - 仅 Track A entity-tags 轨运行（G-001 独立交付不被阻塞）
-    //   - 无 temporalFactsCache read（temporalFactsCache 路由维度 read 仅在 flag=true
-    //     分支占位，flag=false 时完全不触达）
-    //   - 两轨并存时 entity-tags + temporal-facts 双源融合，token 预算协调（注释占位）
-    //
-    // ISS-014 落地后激活路径（flag=true 时，当前 stub 不实现实际读取）：
-    //   TODO(ISS-014): 当 temporalFactsEnabled=true 时，调用 temporal-facts 缓存按
-    //   chapter 时间线注入 temporal facts 作路由维度，与 entity-tags 双源融合，
-    //   token 预算内协调（relevance:high entity + current-chapter temporal fact 优先）。
-    //   back-reference: knowhow DCS-20260710-g-001（G-001 两轨交付）。
-    if (novelConfig.temporalFactsEnabled) {
-      // TODO(ISS-014): temporal-facts 轨 B 路由维度读取占位。
-      // ISS-014 未落地 — 此分支仅为 flag=true 时的激活锚点，无实际 temporalFactsCache
-      // 路由读取逻辑。落地后在此注入 temporal facts 作路由维度（与 activeEntities 融合）。
-      // HARD-1/2/3 守恒：stub 仅注释 + flag 检查，不写 status.json，不改 Draft-first，
-      // 不改三门控顺序。
-    }
-
+    // EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): Track B rerank 接线（接上方
+    // activeEntities 注入）。temporalFactsEnabled=true 时按章节时间线 temporal facts
+    // （载体 pack.temporalFacts，已由 canon 路径 load，D7 避免 PAT-G2 孪生重复 load）
+    // rerank activeEntities；只升不降（D6 rank0 封顶），关闭时回退原序（D4 canon
+    // baseline + Track A 原序保持）。rerank 后按 compressible-with-floor 预算
+    // （TASK-004）截断 rank1/rank2（rank0 floor 保护全保），截断显式推 IC-02
+    // ContextGap，绝不静默。
+    const reranked = novelConfig.temporalFactsEnabled
+      ? rerankActiveEntitiesByTemporalFacts(activeEntities, pack.temporalFacts ?? null, context.chapterNumber ?? 0)
+      : activeEntities
+    const wired = truncateActiveEntitiesByBudget(reranked, currentBuildBudget?.activeEntitiesBudget, context.chapterNumber ?? 0)
+    pack.activeEntities = wired.entities
+    if (wired.gap) pack.gaps.push(wired.gap)
     // EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点（fire-and-forget，非阻塞）。
     // contextPack 装配后统计无关内容占比，写入 cognition-state.json routingROIBuckets
     // （现有 key，HARD-1 守恒 — 不写 status.json）。A/B 分组：conditionalRoutingEnabled
@@ -666,6 +719,7 @@ async function buildContextPackFromRawData(
     }),
     revisionDirectives,
     gaps: [],
+    temporalFacts,
   }
 }
 
