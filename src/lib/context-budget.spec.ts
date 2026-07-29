@@ -72,3 +72,40 @@ describe("TASK-007 CORR-013 MIN_INDEX_FLOOR", () => {
     expect(normalLate.indexBudget).toBeGreaterThan(2000)
   })
 })
+
+describe("TASK-004 active entities budget (compressible-with-floor)", () => {
+  it("activeEntitiesBudget 字段含 rank0Floor/rank1CompressibleCap/rank2CompressibleCap 三子字段", () => {
+    const b = computeContextBudget(204_800, 5)
+    expect(b.activeEntitiesBudget).toBeDefined()
+    expect(typeof b.activeEntitiesBudget.rank0Floor).toBe("number")
+    expect(typeof b.activeEntitiesBudget.rank1CompressibleCap).toBe("number")
+    expect(typeof b.activeEntitiesBudget.rank2CompressibleCap).toBe("number")
+  })
+
+  it("rank0 floor 全保: 任意 config (含 tiny) rank0Floor >= 8, 不受 scale 压缩", () => {
+    const tiny = computeContextBudget(10_000)
+    const tinyLate = computeContextBudget(10_000, 500)
+    const normal = computeContextBudget(204_800, 5)
+    const normalLate = computeContextBudget(204_800, 500)
+    // rank0 floor 镜像 MIN_INDEX_FLOOR: 永不低于常数下限 (ACTIVE_ENTITY_FLOOR=8)
+    expect(tiny.activeEntitiesBudget.rank0Floor).toBeGreaterThanOrEqual(8)
+    expect(tinyLate.activeEntitiesBudget.rank0Floor).toBeGreaterThanOrEqual(8)
+    expect(normal.activeEntitiesBudget.rank0Floor).toBeGreaterThanOrEqual(8)
+    expect(normalLate.activeEntitiesBudget.rank0Floor).toBeGreaterThanOrEqual(8)
+    // 正常 config 的 rank0 floor 随 maxCtx 增大而增大 (scale 不降低 floor)
+    expect(normal.activeEntitiesBudget.rank0Floor).toBeGreaterThan(tiny.activeEntitiesBudget.rank0Floor)
+  })
+
+  it("rank1/rank2 compressible cap 随 rank0 floor 计算 (正整数且 rank1 > rank2)", () => {
+    const b = computeContextBudget(204_800, 5)
+    expect(b.activeEntitiesBudget.rank1CompressibleCap).toBeGreaterThanOrEqual(2)
+    expect(b.activeEntitiesBudget.rank2CompressibleCap).toBeGreaterThanOrEqual(1)
+    expect(b.activeEntitiesBudget.rank1CompressibleCap).toBeGreaterThan(b.activeEntitiesBudget.rank2CompressibleCap)
+  })
+
+  it("canon baseline 不动: 既有 indexBudget/pageBudget 字段不受新字段影响", () => {
+    const withField = computeContextBudget(204_800, 5)
+    expect(withField.indexBudget).toBe(Math.floor(204_800 * 0.05))
+    expect(withField.pageBudget).toBe(Math.floor(204_800 * 0.5))
+  })
+})

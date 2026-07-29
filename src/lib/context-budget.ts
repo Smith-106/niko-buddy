@@ -49,6 +49,24 @@ export interface ContextBudget {
    *  pageBudget (used to be hard-capped at 30,000 chars regardless
    *  of context size — that wasted budget on long-context models). */
   maxPageSize: number
+  /**
+   * TASK-004 (RPC-4 Track B): active entities budget - a compressible tier
+   * with a rank-0 floor. ADR-32 additive: does NOT touch the protected canon
+   * baseline (canonRules index/page budget untouched). rank0 entities are
+   * always fully kept (floor mirrors MIN_INDEX_FLOOR); rank1/rank2 entities
+   * are compressed by their tier caps. The truncation itself is applied at
+   * the T3 wiring point (buildContextPackUnlocked) - this field only carries
+   * the numbers.
+   *
+   * IC-02 contract: when rank1/rank2 entities are truncated by these caps, the
+   * caller MUST push a ContextGap { type: 'active_entities_truncated' }
+   * (explicit, never silent).
+   */
+  activeEntitiesBudget: {
+    rank0Floor: number
+    rank1CompressibleCap: number
+    rank2CompressibleCap: number
+  }
 }
 
 const DEFAULT_MAX_CTX = 204_800
@@ -68,6 +86,12 @@ const PER_PAGE_FLOOR = 5_000
  * scaled value, so behavior is unchanged (additive, backward compatible).
  */
 const MIN_INDEX_FLOOR = 2_000
+/**
+ * TASK-004 (RPC-4 Track B): floor for the rank-0 active entity tier. Mirrors
+ * MIN_INDEX_FLOOR - applied so tiny configs still keep at least this many
+ * rank-0 entities fully injected (additive, backward compatible).
+ */
+const ACTIVE_ENTITY_FLOOR = 8
 
 /**
  * TASK-003 (ANL-013 S4): chapterNumber-adaptive budget scaling.
@@ -149,11 +173,17 @@ export function computeContextBudget(
     Math.max(PER_PAGE_FLOOR, Math.floor(pageBudget * PER_PAGE_FRAC)),
   )
 
+  // TASK-004 (RPC-4 Track B) active entities budget (compressible tier + rank0 floor, mirrors MIN_INDEX_FLOOR)
+  const activeEntityFrac = 0.02
+  const rank0Floor = Math.max(ACTIVE_ENTITY_FLOOR, Math.floor(maxCtx * activeEntityFrac * scale))
+  const rank1CompressibleCap = Math.max(2, Math.floor(rank0Floor * 1.5))
+  const rank2CompressibleCap = Math.max(1, Math.floor(rank0Floor * 0.5))
   return {
     maxCtx,
     responseReserve,
     indexBudget,
     pageBudget,
     maxPageSize,
+    activeEntitiesBudget: { rank0Floor, rank1CompressibleCap, rank2CompressibleCap },
   }
 }
