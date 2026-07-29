@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img src="QM-LOGO.png" width="120" alt="青幕AI写作 Logo" />
 </p>
 
@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/version-2.4.2-blue?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
@@ -358,7 +358,10 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 
 ### 环境要求
 
-- **操作系统**：Windows 10+（主要支持平台）、macOS、Linux
+- **操作系统**：Windows 10+（当前发布平台）；macOS / Linux 版本规划中
+- **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
+
+> 注：v2.4.2 发布产物为 Windows 安装包与便携版，macOS / Linux 暂未提供官方构建。
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
 ### 安装方式
@@ -366,6 +369,15 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 **方式一：下载安装包（推荐）**
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新版本安装包。
+
+### 最快上手（5 分钟）
+
+1. 从 GitHub Releases 下载 Windows 安装包，完成安装并启动。
+2. 首次启动后，进入 设置 到 模型，点击 添加模型，填入 LLM API 地址与密钥（支持 OpenAI 兼容接口；也可填 Ollama 本地地址）。建议设置 默认模型 统筹后台任务。
+3. 新建小说项目，写一句指令（如 写第 1 章开头），AI 即生成草稿。
+4. 满意后点 确认保存，该章自动进入正式库并触发记忆摄取。
+
+> 详细图文指引见 文档站 到 快速开始。
 
 ### 基本使用流程
 
@@ -495,3 +507,4 @@ npm run build:github-release
 - 📦 [Releases 下载](https://github.com/Smith-106/niko-hub/releases)
 - 🐛 [问题反馈](https://github.com/Smith-106/niko-hub/issues)
 - 💬 [功能建议](https://github.com/Smith-106/niko-hub/issues/new)
+- 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-hub/releases) —— 各版本功能变更与修复记录
