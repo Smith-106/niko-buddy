@@ -1736,6 +1736,15 @@ export function extractChapterGoal(outline: string, chapterNumber?: number): str
 interface FieldConfig {
   titleKey: string
   fieldKey: keyof ContextPack
+  /**
+   * F-06: 条件渲染谓词 — 仅当返回 true 才把该段渲染进 prompt.
+   * flag=false 时完全跳过该段, 保 prompt 字节级不变 (R1).
+   */
+  renderIf?: (pack: ContextPack, flags: { temporalFactsEnabled: boolean }) => boolean
+  /**
+   * 对象数组序列化 — 把 ContextEntity[] 格式化为 string[], 避免 [object Object].
+   */
+  serialize?: (content: unknown, pack: ContextPack, flags: { temporalFactsEnabled: boolean }) => string | string[]
 }
 
 const FIELD_CONFIGS: FieldConfig[] = [
@@ -1759,9 +1768,18 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
+  {
+    titleKey: "novel.contextPack.activeEntities",
+    fieldKey: "activeEntities",
+    renderIf: (pack, flags) => flags.temporalFactsEnabled === true && (pack.activeEntities?.length ?? 0) > 0,
+    serialize: (content) => {
+      const entities = content as ContextEntity[]
+      return entities.map((e) => "- " + e.name + (e.tags && e.tags.length ? " (tags: " + e.tags.join(", ") + ")" : ""))
+    },
+  },
 ]
 
-export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }): string {
+export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean; temporalFactsEnabled?: boolean }): string {
   const sections: string[] = []
 
   sections.push(i18n.t("novel.contextPack.title"))
@@ -1777,7 +1795,12 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
       continue
     }
 
-    const content = pack[config.fieldKey] as string | string[]
+    // F-06: 条件渲染守卫 — renderIf 返回 false (如 temporalFactsEnabled=false) 时完全跳过该段, 保 prompt 字节级不变
+    const flags = { temporalFactsEnabled: options?.temporalFactsEnabled === true }
+    if (config.renderIf && !config.renderIf(pack, flags)) continue
+
+    const raw = pack[config.fieldKey] as string | string[]
+    const content = config.serialize ? config.serialize(raw, pack, flags) : raw
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
     fieldSections.push({ title: i18n.t(config.titleKey), content })

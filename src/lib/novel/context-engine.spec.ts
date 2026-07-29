@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { contextPackToPrompt, type ContextPack, type SourceTier, type ContextGap, type ContextEntity } from "./context-engine"
 import { computeContextBudget } from "@/lib/context-budget"
 import { rerankActiveEntitiesByTemporalFacts, type TemporalFact } from "./temporal-memory"
+import i18n from "@/i18n"
 
 const basePack: ContextPack = {
   task: "生成第2章正文",
@@ -98,6 +99,53 @@ describe("rerankActiveEntitiesByTemporalFacts", () => {
     const result = rerankActiveEntitiesByTemporalFacts(entities, facts, 5)
     // 乙、甲都 boost 到 rank0, 稳定排序保持原序 乙→甲; 丙 rank1 在最后
     expect(result.map((e) => e.name)).toEqual(["乙", "甲", "丙"])
+  })
+})
+
+describe("contextPackToPrompt activeEntities conditional render + serialize", () => {
+  const mkEntity = (name: string, tags: string[]): ContextEntity => ({
+    entityId: name,
+    name,
+    type: "character",
+    tags,
+  })
+
+  it("flag=true 且 activeEntities 非空: 渲染 '- {entity.name}' 行且无 [object Object]", () => {
+    const pack: ContextPack = {
+      ...basePack,
+      canonRules: "## 禁止违背\n不得违背已确立的时序事实。",
+      activeEntities: [mkEntity("林晚秋", ["relevance:high"]), mkEntity("苏明月", [])],
+    }
+    const prompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: true })
+    expect(prompt).toContain("- 林晚秋")
+    expect(prompt).toContain("- 苏明月")
+    expect(prompt).not.toContain("[object Object]")
+  })
+
+  it("flag=true 含 activeEntities 段 title (i18n)", () => {
+    const pack: ContextPack = { ...basePack, activeEntities: [mkEntity("林晚秋", [])] }
+    const prompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: true })
+    expect(prompt).toContain(i18n.t("novel.contextPack.activeEntities"))
+  })
+
+  it("flag=false 字节级不变: 扩后输出 === 无 activeEntities 时的 baseline (严格 ===)", () => {
+    const baseline = contextPackToPrompt(basePack) // 无 activeEntities 字段
+    const packWithEntities: ContextPack = { ...basePack, activeEntities: [mkEntity("林晚秋", [])] }
+    const flagFalse = contextPackToPrompt(packWithEntities, undefined, { temporalFactsEnabled: false })
+    expect(flagFalse).toBe(baseline) // 严格 ===, 字节级不变 (R1)
+    expect(flagFalse).not.toContain("- 林晚秋")
+  })
+
+  it("canon baseline 无条件: flag=false 与 flag=true 两态都渲染 canonRules 段 (D4)", () => {
+    const pack: ContextPack = {
+      ...basePack,
+      canonRules: "## 禁止违背\n不得违背已确立的时序事实。",
+      activeEntities: [mkEntity("林晚秋", [])],
+    }
+    const falsePrompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: false })
+    const truePrompt = contextPackToPrompt(pack, undefined, { temporalFactsEnabled: true })
+    expect(falsePrompt).toContain("## 禁止违背")
+    expect(truePrompt).toContain("## 禁止违背")
   })
 })
 
