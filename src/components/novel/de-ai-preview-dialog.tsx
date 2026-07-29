@@ -6,6 +6,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { MonacoDiffEditor } from "./monaco-diff-editor"
 
 export interface DeAiPreviewDialogProps {
   open: boolean
@@ -30,19 +31,12 @@ export function DeAiPreviewDialog({
         <DialogHeader>
           <DialogTitle>去AI味预览</DialogTitle>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium text-muted-foreground">原文</div>
-            <div className="max-h-96 overflow-y-auto rounded-md border bg-muted/20 p-3 text-sm leading-6 whitespace-pre-wrap">
-              {sourceContent}
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium text-muted-foreground">去AI味稿</div>
-            <div className="max-h-96 overflow-y-auto rounded-md border bg-muted/20 p-3 text-sm leading-6 whitespace-pre-wrap">
-              {candidateContent}
-            </div>
-          </div>
+        <div className="flex flex-col gap-2">
+          <MonacoDiffEditor
+            original={sourceContent}
+            modified={candidateContent}
+            height={480}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>取消</Button>
