@@ -37,7 +37,6 @@ import {
 import { startNovelReviewRun } from "@/lib/novel/start-review-run"
 import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
 import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
-import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
 import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
@@ -56,10 +55,10 @@ import {
 } from "@/lib/novel-review-action-items"
 import {
   applyReviewRewriteEditsToMarkdown,
-  buildReviewRewritePlanMessages,
   findReviewRewriteAnchors,
-  parseReviewRewritePlan,
+  generateReviewRewriteEdits,
   type ReviewRewriteEdit,
+  type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
@@ -297,44 +296,16 @@ export function ReviewView({
     targetOriginalText?: string,
   ): Promise<ReviewRewriteEdit[]> => {
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
-    const directAnchors = targetOriginalText
-      ? findReviewRewriteAnchors(chapterContent, [targetOriginalText])
-      : findReviewRewriteAnchors(chapterContent, [item.evidence, item.secondaryEvidence])
-
-    let rawResponse = ""
-    await streamChat(
-      llmConfig,
-      buildReviewRewritePlanMessages({
-        message: item.message,
-        suggestion: item.suggestion,
-        evidence: targetOriginalText || item.evidence,
-        secondaryEvidence: targetOriginalText ? undefined : item.secondaryEvidence,
-        chapterContent,
-        directAnchors,
-      }),
-      {
-        onToken: (token) => {
-          rawResponse += token
-        },
-        onDone: () => {},
-        onError: (error) => {
-          throw error
-        },
-      },
-    )
-    const parsed = parseReviewRewritePlan(rawResponse)
-    if (parsed.length > 0 || !targetOriginalText) return parsed
-    const fallbackReplacement = rawResponse
-      .trim()
-      .replace(/^```(?:json|markdown|md)?/i, "")
-      .replace(/```$/i, "")
-      .trim()
-    if (!fallbackReplacement) return []
-    return [{
-      id: "edit-1",
-      originalText: targetOriginalText,
-      replacementText: fallbackReplacement,
-    }]
+    const issue: ReviewRewriteIssue = {
+      message: item.message,
+      suggestion: item.suggestion,
+      evidence: item.evidence,
+      secondaryEvidence: item.secondaryEvidence,
+      chapterContent,
+    }
+    return generateReviewRewriteEdits(issue, chapterContent, llmConfig, {
+      targetOriginalText,
+    })
   }, [])
 
   const runNovelReviewAiRewrite = useCallback(async (item: NovelReviewActionItem) => {

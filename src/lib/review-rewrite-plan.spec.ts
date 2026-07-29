@@ -1,132 +1,71 @@
-import { describe, expect, it } from "vitest"
-import {
-  applyReviewRewriteEditsToMarkdown,
-  parseReviewRewritePlan,
-} from "./review-rewrite-plan"
+import { describe, it, expect, vi } from "vitest"
+import { generateReviewRewriteEdits } from "./review-rewrite-plan"
+import type { ReviewRewriteIssue } from "./review-rewrite-plan"
+import type { LlmConfig } from "@/stores/wiki-store"
 
-describe("review rewrite plan", () => {
-  it("parses multiple original/replacement pairs from model JSON", () => {
-    const raw = `\`\`\`json
-[
-  {
-    "original_text": "手机由杨栋持有",
-    "replacement_text": "手机已从杨栋转移到黑玉残镜手中",
-    "note": "补足物品转移"
-  },
-  {
-    "original_text": "黑玉残镜并未说明手机来源",
-    "replacement_text": "黑玉残镜说明手机来自杨栋，并保留持有者痕迹"
-  }
-]
-\`\`\``
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: vi.fn(),
+}))
 
-    const edits = parseReviewRewritePlan(raw)
+import { streamChat } from "@/lib/llm-client"
 
-    expect(edits).toHaveLength(2)
-    expect(edits[0]).toMatchObject({
-      originalText: "手机由杨栋持有",
-      replacementText: "手机已从杨栋转移到黑玉残镜手中",
-      note: "补足物品转移",
+const fakeLlmConfig = {} as LlmConfig
+
+describe("generateReviewRewriteEdits", () => {
+  it("返回 ReviewRewriteEdit[] 且 prompt 语义独立于 de-ai-adapter (A2 intent)", async () => {
+    const plan = JSON.stringify([
+      { original_text: "原文片段", replacement_text: "改写片段", note: "test" },
+    ])
+
+    let capturedMessages: unknown
+    vi.mocked(streamChat).mockImplementation(async (_config, messages, callbacks) => {
+      capturedMessages = messages
+      callbacks.onToken(plan)
+      callbacks.onDone()
     })
+
+    const issue: ReviewRewriteIssue = {
+      message: "这段逻辑不通",
+      suggestion: "请修正",
+      evidence: "原文片段",
+      secondaryEvidence: "补充证据",
+      chapterContent: "这是原文片段示例。",
+    }
+
+    const edits = await generateReviewRewriteEdits(issue, issue.chapterContent, fakeLlmConfig)
+
+    expect(edits).toHaveLength(1)
+    expect(edits[0].originalText).toBe("原文片段")
+    expect(edits[0].replacementText).toBe("改写片段")
+
+    const promptText = JSON.stringify(capturedMessages)
+    // prompt 含审稿问题/修改建议/证据（finding-aware 语义）
+    expect(promptText).toContain("审稿问题")
+    expect(promptText).toContain("修改建议")
+    expect(promptText).toContain("证据")
+    // 不含 de-ai-adapter 关键词（A2 intent：独立 prompt 非去 AI 味）
+    expect(promptText).not.toContain("去AI味")
+    expect(promptText).not.toContain("QM-QUAI")
+    expect(promptText).not.toContain("de-ai-writing")
   })
 
-  it("applies multiple edits only when each original text can be located", () => {
-    const markdown = [
-      "---",
-      "type: chapter",
-      "---",
-      "",
-      "# 第1章",
-      "",
-      "杨栋把手机塞进口袋，黑玉残镜没有解释它从何而来。",
-      "孙小晴的病症显得异常。",
-    ].join("\n")
+  it("targetOriginalText 优先作为 evidence 定位改写片段", async () => {
+    vi.mocked(streamChat).mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken(JSON.stringify([{ original_text: "旧证据", replacement_text: "Y" }]))
+      callbacks.onDone()
+    })
 
-    const result = applyReviewRewriteEditsToMarkdown(markdown, [
-      {
-        id: "a",
-        originalText: "杨栋把手机塞进口袋",
-        replacementText: "杨栋把手机交给黑玉残镜",
-      },
-      {
-        id: "b",
-        originalText: "孙小晴的病症显得异常",
-        replacementText: "孙小晴的病症被补充为普通遗传病线索",
-      },
-    ])
+    const issue: ReviewRewriteIssue = {
+      message: "问题",
+      evidence: "旧证据",
+      chapterContent: "旧证据在这里。",
+    }
 
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.markdown).toContain("杨栋把手机交给黑玉残镜")
-    expect(result.markdown).toContain("孙小晴的病症被补充为普通遗传病线索")
-    expect(result.applied).toHaveLength(2)
-  })
+    const edits = await generateReviewRewriteEdits(issue, issue.chapterContent, fakeLlmConfig, {
+      targetOriginalText: "旧证据",
+    })
 
-  it("reports unapplied edits instead of silently changing the wrong text", () => {
-    const result = applyReviewRewriteEditsToMarkdown("# 第1章\n\n正文没有目标片段。", [
-      {
-        id: "a",
-        originalText: "不存在的原文",
-        replacementText: "不应该写入",
-      },
-    ])
-
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.failed[0].originalText).toBe("不存在的原文")
-  })
-
-  it("does not replace a partial evidence fragment when the full original text is missing", () => {
-    const markdown = "# 第1章\n\n灶火就在不远处烧着，可她还是冷。她说话时，唇边透出白气。"
-
-    const result = applyReviewRewriteEditsToMarkdown(markdown, [
-      {
-        id: "a",
-        originalText: "灶火就在不远处烧着，可她还是冷。她说话时，缺少的半句并不在正文里。",
-        replacementText: "灶火就在不远处烧着，可她还是冷。她说话时，唇边透出一线极淡的白气。",
-      },
-    ])
-
-    expect(result.ok).toBe(false)
-    expect(result.markdown).toBe(markdown)
-  })
-
-  it("locates original text when line breaks or spacing differ between the model output and markdown", () => {
-    const markdown = [
-      "# 第1章",
-      "",
-      "杨栋把手机塞进口袋，",
-      "黑玉残镜没有解释它从何而来。",
-      "",
-      "孙小晴的病症显得异常。",
-    ].join("\r\n")
-
-    const result = applyReviewRewriteEditsToMarkdown(markdown, [
-      {
-        id: "a",
-        originalText: "杨栋把手机塞进口袋， 黑玉残镜没有解释它从何而来。",
-        replacementText: "杨栋把手机交给黑玉残镜，黑玉残镜低声说明它来自上一章的失踪现场。",
-      },
-    ])
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.markdown).toContain("杨栋把手机交给黑玉残镜")
-    expect(result.markdown).not.toContain("杨栋把手机塞进口袋")
-  })
-
-  it("does not guess when the same original text appears more than once", () => {
-    const markdown = "# 第1章\n\n杨栋瑞碗的手顿了顿。\n杨栋瑞碗的手顿了顿。"
-
-    const result = applyReviewRewriteEditsToMarkdown(markdown, [
-      {
-        id: "a",
-        originalText: "杨栋瑞碗的手顿了顿。",
-        replacementText: "杨栋瑞端碗的手微微一停。",
-      },
-    ])
-
-    expect(result.ok).toBe(false)
-    expect(result.markdown).toBe(markdown)
+    expect(edits[0].originalText).toBe("旧证据")
+    expect(edits[0].replacementText).toBe("Y")
   })
 })

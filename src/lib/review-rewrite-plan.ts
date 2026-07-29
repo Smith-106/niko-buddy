@@ -10,6 +10,8 @@ import {
   type DashboardIssueAnchor,
   type DashboardIssueRewriteBackup,
 } from "@/lib/dashboard-issue-actions"
+import { streamChat } from "@/lib/llm-client"
+import type { LlmConfig } from "@/stores/wiki-store"
 
 export interface ReviewRewriteEdit {
   id: string
@@ -249,4 +251,80 @@ function replaceReviewRewriteAnchor(
   const replaced = replaceChapterBodySelection(body, anchor.selection, replacement)
   if (!replaced.ok) return null
   return rawBlock + rebuildChapterBody(heading, replaced.body)
+}
+
+export interface GenerateReviewRewriteEditsOptions {
+  /** 已定位到的原文片段；优先只改写这一段。不传则由 evidence 定位。 */
+  targetOriginalText?: string
+  signal?: AbortSignal
+}
+
+/**
+ * 可复用的 finding→LLM 段落改写 helper（RPC-2 / TASK-003）。
+ *
+ * 提取原 review-view `generateNovelReviewRewriteEdits` 的内联编排：
+ * findReviewRewriteAnchors（evidence/secondaryEvidence 定位） →
+ * buildReviewRewritePlanMessages（审稿 prompt，语义独立于 de-ai-adapter，满足 A2 intent） →
+ * streamChat → parseReviewRewritePlan。
+ *
+ * 守 owner ZERO logic delegation cap + CLAUDE.md 禁止平行实现：扩展既有
+ * finding-aware lib，不新建 finding-rewrite-adapter.ts wrapper。A2 字面"新建文件"
+ * 冲突由本 task 结尾的 `maestro spec conflict mark` 记录。
+ */
+export async function generateReviewRewriteEdits(
+  issue: ReviewRewriteIssue,
+  chapterContent: string,
+  llmConfig: LlmConfig,
+  options: GenerateReviewRewriteEditsOptions = {},
+): Promise<ReviewRewriteEdit[]> {
+  const anchors = findReviewRewriteAnchors(chapterContent, [
+    issue.evidence,
+    issue.secondaryEvidence,
+  ])
+  const targetOriginalText =
+    options.targetOriginalText ??
+    anchors[0]?.selection.text ??
+    issue.evidence ??
+    ""
+
+  const messages = buildReviewRewritePlanMessages({
+    ...issue,
+    evidence: targetOriginalText,
+    chapterContent,
+    directAnchors: anchors.length > 0 ? anchors : undefined,
+  })
+
+  let rawResponse = ""
+  await streamChat(
+    llmConfig,
+    messages,
+    {
+      onToken: (token) => {
+        rawResponse += token
+      },
+      onDone: () => {},
+      onError: (error) => {
+        throw error
+      },
+    },
+    options.signal,
+  )
+
+  const parsed = parseReviewRewritePlan(rawResponse)
+  if (parsed.length > 0 || !targetOriginalText) return parsed
+
+  // 回退：定位到原文片段但 LLM 没返回标准 JSON 时，把整段响应当作替换文本
+  const fallbackReplacement = rawResponse
+    .trim()
+    .replace(/^```(?:json|markdown|md)?/i, "")
+    .replace(/```$/i, "")
+    .trim()
+  if (!fallbackReplacement) return []
+  return [
+    {
+      id: "edit-1",
+      originalText: targetOriginalText,
+      replacementText: fallbackReplacement,
+    },
+  ]
 }
