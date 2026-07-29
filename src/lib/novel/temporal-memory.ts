@@ -29,6 +29,7 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
+import type { ContextEntity } from "./context-engine"
 
 export interface TemporalFact {
   /** Stable id (e.g. `fact-ch5-<idx>`). */
@@ -253,4 +254,63 @@ export function renderTemporalCanonBlock(
     return `- [第${f.validFrom}章起] ${f.subject}${tail ? "：" + tail : ""}`
   })
   return `# 时序事实（截至第${chapterNumber}章有效）\n${lines.join("\n")}`
+}
+
+/**
+ * TASK-001 (RPC-4 Track B): rerank active entities by temporal facts.
+ *
+ * 纯函数 —— 无 IO，无 LLM。接收 Track A (selectActiveEntities) 已筛选的
+ * activeEntities，叠加 canon 路已 load 的 temporalFacts，将「在 chapterNumber
+ * 章有效的时序事实 subject 命中」的 entity boost 到 rank 0。
+ *
+ * 不变量 (D6 —— 只升不降, 上限 rank 0, additive):
+ *   - 已是 rank 0 的 entity (依 relevance tags) 永不降级；
+ *   - rank > 0 且命中的 entity 升到 rank 0 (上限 rank 0)；
+ *   - 未命中的 entity 保持原 rank 不变；
+ *   - temporalFacts 为 null 或 activeEntities 为空时返回原序 (零命中退化加性,
+ *     永不破坏 Track A 基线)。
+ *
+ * 稳定排序显式编码 (NEW-W7): 用 (finalRank, originalIndex) tuple 双键比较器,
+ * 不依赖 V8 TimSort 运行时稳定性。
+ */
+export function rerankActiveEntitiesByTemporalFacts(
+  activeEntities: ContextEntity[],
+  temporalFacts: readonly TemporalFact[] | null,
+  chapterNumber: number,
+): ContextEntity[] {
+  // 零命中退化：temporalFacts 为 null 或 activeEntities 为空时原序返回 (加性)。
+  if (temporalFacts === null || activeEntities.length === 0) {
+    return activeEntities
+  }
+
+  // 复刻 selectActiveEntities:1258-1266 的 rank 重算 —— ContextEntity 无持久化
+  // 的 relevanceRank 字段 (仅 closure 局部), 故须从 entity.tags 推 rank。
+  const computeRank = (e: ContextEntity, chapterN: number): number => {
+    let rank = 1
+    const tagStr = (e.tags ?? []).join(" ")
+    if (tagStr.includes("relevance:high")) rank = 0
+    else if (tagStr.includes("relevance:low")) rank = 2
+    if (chapterN && tagStr.includes(`location:chapter-${chapterN}`)) rank = 0
+    return rank
+  }
+
+  const tuples = activeEntities.map((entity, originalIndex) => {
+    const rank = computeRank(entity, chapterNumber)
+    // 简化路径 ii: 对每个 entity 用空 aliases 兜底构造 NameAliasMap 传 getFactsAt,
+    // resolveCanonicalName 折叠别名匹配 fact.subject (F-07 覆盖度不足则退化原序)。
+    const hits = getFactsAt(
+      chapterNumber,
+      entity.name,
+      temporalFacts,
+      { canonical: resolveCanonicalName(entity.name), aliases: [] } as NameAliasMap,
+    )
+    // 只升不降: 命中且 computeRank>0 → boost rank 0; 已 rank 0 命中也不动 (D6)。
+    const boosted = hits.length > 0 && rank > 0
+    const finalRank = boosted ? 0 : rank
+    return { entity, originalIndex, finalRank }
+  })
+
+  // 稳定排序显式编码: finalRank 升序主键 + originalIndex 升序次键保稳定。
+  tuples.sort((a, b) => a.finalRank - b.finalRank || a.originalIndex - b.originalIndex)
+  return tuples.map((t) => t.entity)
 }

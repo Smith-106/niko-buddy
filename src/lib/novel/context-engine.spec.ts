@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { contextPackToPrompt, type ContextPack, type SourceTier, type ContextGap } from "./context-engine"
+import { contextPackToPrompt, type ContextPack, type SourceTier, type ContextGap, type ContextEntity } from "./context-engine"
 import { computeContextBudget } from "@/lib/context-budget"
+import { rerankActiveEntitiesByTemporalFacts, type TemporalFact } from "./temporal-memory"
 
 const basePack: ContextPack = {
   task: "生成第2章正文",
@@ -38,6 +39,65 @@ describe("contextPackToPrompt", () => {
 
     expect(prompt).toContain("最近章节正文片段")
     expect(prompt).toContain("黑背心纹身大汉倒在雨里")
+  })
+})
+
+describe("rerankActiveEntitiesByTemporalFacts", () => {
+  const mkFact = (subject: string, validFrom: number): TemporalFact => ({
+    id: `fact-${subject}`,
+    subject,
+    predicate: "持有",
+    object: "轩辕剑",
+    validFrom,
+    source: `chapter-${validFrom}`,
+  })
+
+  const mkEntity = (name: string, tags: string[]): ContextEntity => ({
+    entityId: name,
+    name,
+    type: "character",
+    tags,
+  })
+
+  it("全名匹配: temporal fact subject 命中 → entity boost 到 rank0", () => {
+    const entities = [
+      mkEntity("苏明月", ["relevance:low"]), // rank 2, 不命中
+      mkEntity("林晚秋", ["relevance:low"]), // rank 2, 命中
+    ]
+    const facts = [mkFact("林晚秋", 3)]
+    const result = rerankActiveEntitiesByTemporalFacts(entities, facts, 5)
+    expect(result[0].name).toBe("林晚秋")
+    expect(result[1].name).toBe("苏明月")
+  })
+
+  it("零命中退化: temporalFacts 为 null → 原序返回 (加性不破坏)", () => {
+    const entities = [mkEntity("苏明月", []), mkEntity("林晚秋", [])]
+    const result = rerankActiveEntitiesByTemporalFacts(entities, null, 5)
+    expect(result.map((e) => e.name)).toEqual(["苏明月", "林晚秋"])
+  })
+
+  it("只升不降: rank0 entity 命中不动, rank1/2 命中升 rank0", () => {
+    const entities = [
+      mkEntity("高_rank0", ["relevance:high"]), // rank 0, 命中也不动
+      mkEntity("低_rank2", ["relevance:low"]), // rank 2, 命中升 0
+    ]
+    const facts = [mkFact("高_rank0", 3), mkFact("低_rank2", 3)]
+    const result = rerankActiveEntitiesByTemporalFacts(entities, facts, 5)
+    // 两者都最终 rank0, 稳定排序保持原相对顺序 (只升不降, D6)
+    expect(result[0].name).toBe("高_rank0")
+    expect(result[1].name).toBe("低_rank2")
+  })
+
+  it("稳定排序: 同 finalRank 内保持原 activeEntities 数组顺序 (NEW-W7)", () => {
+    const entities = [
+      mkEntity("乙", ["relevance:low"]), // rank 2, 命中 → boost 0
+      mkEntity("甲", ["relevance:low"]), // rank 2, 命中 → boost 0
+      mkEntity("丙", []), // rank 1, 不命中 → 1
+    ]
+    const facts = [mkFact("乙", 3), mkFact("甲", 3)]
+    const result = rerankActiveEntitiesByTemporalFacts(entities, facts, 5)
+    // 乙、甲都 boost 到 rank0, 稳定排序保持原序 乙→甲; 丙 rank1 在最后
+    expect(result.map((e) => e.name)).toEqual(["乙", "甲", "丙"])
   })
 })
 
