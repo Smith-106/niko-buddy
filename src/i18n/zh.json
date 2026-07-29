@@ -1167,6 +1167,8 @@
       "feedbackWindowLookbackIncludeMustFixOnlyHelp": "开启后，回溯的那些历史章节只保留「必须修复」级别的反馈（如设定冲突、逻辑错误等严重问题），忽略改进建议，减少旧反馈对当前写作的干扰。关闭后，回溯章节不仅保留必须修复项，也会贡献改进建议，让 AI 参考更多历史意见。",
       "communitySummaryEnabled": "社区摘要自动提取",
       "communitySummaryEnabledHint": "开启后，每 N 章自动用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（如角色阵营、主要关系网络等）。需要先启用向量模型。",
+      "temporalFactsEnabled": "时序事实路由",
+      "temporalFactsEnabledHint": "开启后 contextPack 按章节时间线 rerank 活跃实体 (Track B, ISS-014)",
       "communitySummaryInterval": "社区摘要提取间隔",
       "communitySummaryIntervalHint": "每摄取多少章后自动重建一次社区摘要。数值越小，摘要越新鲜，但 LLM 调用越频繁。",
       "communitySummaryAsync": "后台异步执行",
@@ -1569,6 +1571,7 @@
       "writingStyle": "## 写作风格",
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
+      "activeEntities": "## 当前章节关联实体",
       "foreshadowing": {
         "repeatedUnresolved": "以下伏笔近期反复出现，但尚未明显推进，需注意是否在本章继续铺设或回收：{{names}}"
       },

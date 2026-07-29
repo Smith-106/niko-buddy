@@ -359,6 +359,22 @@ export function NovelSection({ draft, setDraft }: Props) {
             </button>
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.temporalFactsEnabled")}</Label>
+              {settingTooltip("temporalFactsEnabledHint")}
+            </div>
+            <button
+              type="button"
+              onClick={() => updateNovelConfig({ temporalFactsEnabled: !draft.novelConfig.temporalFactsEnabled })}
+              className={"relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors " + (draft.novelConfig.temporalFactsEnabled ? "bg-primary" : "bg-input")}
+            >
+              <span
+                className={"pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform " + (draft.novelConfig.temporalFactsEnabled ? "translate-x-5" : "translate-x-0")}
+              />
+            </button>
+          </div>
+
           {draft.novelConfig.communitySummaryEnabled && (
             <>
               <div className="space-y-2">

@@ -1288,6 +1288,8 @@
       "testUsingCurrentModel": "Testing model: {{model}}",
       "communitySummaryEnabled": "Auto Community Summary",
       "communitySummaryEnabledHint": "When enabled, an LLM generates narrative summaries for graph communities every N chapters, used to answer global questions (e.g., character factions, main relationship networks). Requires vector model to be enabled.",
+      "temporalFactsEnabled": "Temporal Facts Routing",
+      "temporalFactsEnabledHint": "When enabled, contextPack reranks active entities by chapter timeline (Track B, ISS-014)",
       "communitySummaryInterval": "Community Summary Interval",
       "communitySummaryIntervalHint": "How many chapters to ingest before auto-rebuilding community summaries. Smaller values mean fresher summaries but more frequent LLM calls.",
       "communitySummaryAsync": "Background Async Execution",
@@ -1691,6 +1693,7 @@
       "writingStyle": "## Writing Style",
       "searchResults": "## Related Search Results",
       "graphSearchResults": "## Graph Related Nodes",
+      "activeEntities": "## Active Entities (Current Chapter)",
       "foreshadowing": {
         "repeatedUnresolved": "These foreshadowing threads have reappeared recently without clear progression. Decide whether to continue planting, advancing, or resolving them in this chapter: {{names}}"
       },
