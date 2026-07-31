@@ -126,7 +126,7 @@ export function FindingCompareDialog({
       )
       const rewritten = applyReviewRewriteEditsToMarkdown(chapterContent, finalEdits)
 
-      const results = await reviewChapter(projectPath, rewritten, undefined, {}, undefined)
+      const results = await reviewChapter(projectPath, rewritten.markdown, undefined, {}, undefined)
       const blocking = results.filter((r) => r.severity === "error")
       if (blocking.length > 0) {
         setGateErrors(blocking)

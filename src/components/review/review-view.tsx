@@ -91,6 +91,20 @@ interface ReviewViewProps {
   characterOnly?: boolean
 }
 
+/** Heuristic: does this action string look like a page-creation action? */
+function actionLooksLikeCreate(action: string): boolean {
+  return action.startsWith("create:") || action.startsWith("new:") || action.includes("创建") || action.includes("新增")
+}
+
+/** Detect the target page type from action string and item type */
+function detectPageType(action: string, itemType: string): "query" | "entity" | "concept" {
+  if (action.includes("query") || action.includes("问题")) return "query"
+  if (action.includes("entity") || action.includes("人物") || action.includes("地点") || action.includes("组织")) return "entity"
+  if (action.includes("concept") || action.includes("设定") || action.includes("概念")) return "concept"
+  if (itemType === "character" || itemType === "location" || itemType === "organization") return "entity"
+  return "query"
+}
+
 export function ReviewView({
   title,
   emptyMessage,
@@ -1209,6 +1223,23 @@ export function ReviewView({
           setRewriteDialog(null)
         }}
       />
+      {findingCompareTarget ? (
+        <FindingCompareDialog
+          open
+          finding={findingCompareTarget}
+          chapterContent={fileContent}
+          llmConfig={resolveDefaultModel(useWikiStore.getState().llmConfig)}
+          projectPath={project?.path ?? ""}
+          sessionId={reviewRun?.runId ?? ""}
+          onClose={() => setFindingCompareTarget(null)}
+          onAccept={() => {
+            setFindingCompareTarget(null)
+          }}
+          onReject={() => {
+            setFindingCompareTarget(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1405,23 +1436,6 @@ function ReviewCard({
           {item.resolvedAction}
         </div>
       )}
-      {findingCompareTarget ? (
-        <FindingCompareDialog
-          open
-          finding={findingCompareTarget}
-          chapterContent={fileContent}
-          llmConfig={resolveDefaultModel(useWikiStore.getState().llmConfig)}
-          projectPath={project?.path ?? ""}
-          sessionId={reviewRun?.runId ?? ""}
-          onClose={() => setFindingCompareTarget(null)}
-          onAccept={() => {
-            setFindingCompareTarget(null)
-          }}
-          onReject={() => {
-            setFindingCompareTarget(null)
-          }}
-        />
-      ) : null}
     </div>
   )
 }

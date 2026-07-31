@@ -7,7 +7,7 @@ vi.mock("@/lib/novel/monaco-loader", () => ({
 }))
 
 // mock @monaco-editor/react：DiffEditor 捕获 props，loader 提供 no-op config
-const mockDiffEditor = vi.fn((props: Record<string, unknown>) => null)
+const mockDiffEditor = vi.fn((_props: Record<string, unknown>) => null)
 vi.mock("@monaco-editor/react", () => ({
   DiffEditor: (props: Record<string, unknown>) => mockDiffEditor(props),
   loader: { config: vi.fn() },

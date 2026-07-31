@@ -14,7 +14,7 @@ vi.mock("@/components/ui/button", () => ({
 }))
 
 // mock MonacoDiffEditor，捕获透传 props
-const mockDiff = vi.fn((props: Record<string, unknown>) => null)
+const mockDiff = vi.fn((_props: Record<string, unknown>) => null)
 vi.mock("./monaco-diff-editor", () => ({
   MonacoDiffEditor: (props: Record<string, unknown>) => mockDiff(props),
 }))
