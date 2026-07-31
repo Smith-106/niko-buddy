@@ -78,6 +78,23 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_THREE_CHANGELOG: ChangelogEntry = {
+  version: "2.4.3",
+  date: "2026-07-31",
+  highlights: {
+    en: [
+      "Product renamed to Niko Buddy: npm package and Rust crate renamed to niko-buddy, README and workspace docs updated to the three-tier naming (niko-hub workspace / Niko Buddy product / reference projects), resolving the naming clash with the upstream Mochocyang/QMAI.",
+      "Fixed all 44 TypeScript build errors: added the missing graphology-types dev dependency, switched wiki-graph to the UndirectedGraph constructor, restored the missing review-view helper functions and moved FindingCompareDialog into the parent scope, fixed the finding-compare-dialog rewritten-markdown type mismatch, and cleaned unused test variables.",
+      "Rebuilt and re-signed the Windows installer and portable package from the fixed source tree.",
+    ],
+    zh: [
+      "产品更名为 Niko Buddy：npm 包与 Rust crate 改名为 niko-buddy，README 与工作区文档同步为三层命名体系（niko-hub 工作区 / Niko Buddy 产品 / reference 参考项目），解决与上游 Mochocyang/QMAI 的重名冲突。",
+      "修复全部 44 个 TypeScript 构建错误：补装缺失的 graphology-types 类型依赖、wiki-graph 改用 UndirectedGraph 构造、补齐 review-view 缺失的辅助函数并将 FindingCompareDialog 移至父组件作用域、修正 finding-compare-dialog 的 rewritten.markdown 类型不匹配、清理测试文件未使用变量。",
+      "基于修复后的源码重新构建并签名 Windows 安装包与便携版。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.4.2",
   date: "2026-07-25",
@@ -736,6 +753,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_THREE_CHANGELOG.version) return [TWO_POINT_FOUR_THREE_CHANGELOG]
   if (version === TWO_POINT_FOUR_TWO_CHANGELOG.version) return [TWO_POINT_FOUR_TWO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ONE_CHANGELOG.version) return [TWO_POINT_FOUR_ONE_CHANGELOG]
   if (version === TWO_POINT_FOUR_ZERO_CHANGELOG.version) return [TWO_POINT_FOUR_ZERO_CHANGELOG]
@@ -771,6 +789,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_THREE_CHANGELOG,
     TWO_POINT_FOUR_TWO_CHANGELOG,
     TWO_POINT_FOUR_ONE_CHANGELOG,
     TWO_POINT_FOUR_ZERO_CHANGELOG,
