@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState } from "react"
 import { Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -6,6 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { submitFeedback, type FeedbackType } from "@/lib/feedback"
 
+/**
+ * Feedback section allowing users to submit suggestions, bug reports,
+ * and other feedback to the development team.
+ */
 export function FeedbackSection() {
   const [type, setType] = useState<FeedbackType>("suggestion")
   const [message, setMessage] = useState("")
@@ -32,6 +39,8 @@ export function FeedbackSection() {
     }
   }
 
+  const isErrorStatus = status.includes("失败") || status.includes("请输入")
+
   return (
     <div className="space-y-6">
       <div>
@@ -42,6 +51,7 @@ export function FeedbackSection() {
       </div>
 
       <div className="space-y-4 rounded-md border border-border p-4">
+        {/* Feedback type selector */}
         <div className="space-y-2">
           <Label htmlFor="feedback-type">反馈类型</Label>
           <select
@@ -56,6 +66,7 @@ export function FeedbackSection() {
           </select>
         </div>
 
+        {/* Message textarea */}
         <div className="space-y-2">
           <Label htmlFor="feedback-message">反馈内容</Label>
           <Textarea
@@ -71,6 +82,7 @@ export function FeedbackSection() {
           </p>
         </div>
 
+        {/* Contact input */}
         <div className="space-y-2">
           <Label htmlFor="feedback-contact">联系方式（选填）</Label>
           <Input
@@ -82,8 +94,9 @@ export function FeedbackSection() {
           />
         </div>
 
+        {/* Submit row */}
         <div className="flex items-center justify-between gap-3">
-          <p className={`text-sm ${status.includes("失败") || status.includes("请输入") ? "text-destructive" : "text-muted-foreground"}`}>
+          <p className={`text-sm ${isErrorStatus ? "text-destructive" : "text-muted-foreground"}`}>
             {status}
           </p>
           <Button type="button" onClick={() => void handleSubmit()} disabled={!canSubmit} className="gap-2">
