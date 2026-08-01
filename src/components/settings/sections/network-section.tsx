@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,18 +13,22 @@ interface Props {
   setDraft: DraftSetter
 }
 
+/**
+ * Network settings section: global outbound HTTP proxy configuration.
+ * Changes apply on save, no restart needed.
+ */
 export function NetworkSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
 
-  // Live URL validation — only flag the user when they've actually
-  // typed something. Empty + enabled is "form not yet finished",
-  // not a hard error.
+  // Live URL validation — only flag errors when user has typed something.
+  // An empty URL with proxy enabled is "form not yet finished", not a hard error.
   const trimmed = draft.proxyUrl.trim()
   const validation = trimmed === "" ? null : validateProxyUrl(trimmed)
   const showError = draft.proxyEnabled && validation && !validation.ok
 
   return (
     <div className="space-y-6">
+      {/* Section header */}
       <div>
         <h2 className="text-xl font-semibold">
           {t("settings.sections.network.title", { defaultValue: "Network" })}
@@ -34,6 +41,7 @@ export function NetworkSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* Enable proxy checkbox */}
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -42,12 +50,11 @@ export function NetworkSection({ draft, setDraft }: Props) {
           className="h-4 w-4"
         />
         <span className="text-sm">
-          {t("settings.sections.network.enable", {
-            defaultValue: "Enable proxy",
-          })}
+          {t("settings.sections.network.enable", { defaultValue: "Enable proxy" })}
         </span>
       </label>
 
+      {/* Proxy URL input */}
       <div className="space-y-2">
         <Label htmlFor="proxy-url">
           {t("settings.sections.network.url", { defaultValue: "Proxy URL" })}
@@ -74,6 +81,7 @@ export function NetworkSection({ draft, setDraft }: Props) {
         )}
       </div>
 
+      {/* Bypass local addresses checkbox */}
       <label className="flex items-start gap-2">
         <input
           type="checkbox"

@@ -1,24 +1,18 @@
 /**
- * Cascade delete for wiki pages.
+ * Cascade delete for wiki pages with full reference cleanup.
  *
- * Whenever a wiki page is removed from disk we ALSO need to drop its
- * vector chunks from LanceDB; otherwise the chunks become "phantom"
- * search hits — `searchByEmbedding` returns the orphaned `page_id`
- * but `search.ts` then can't find a matching .md file and silently
- * discards the result, wasting topK slots.
+ * When a wiki page is removed, this module ensures:
+ * 1. File deleted from disk
+ * 2. Vector embedding chunks dropped from LanceDB (prevents phantom search hits)
+ * 3. Media directory cascade for source-summary pages
+ * 4. Cross-references cleaned: index.md entries, wikilinks, related: frontmatter
  *
- * This helper consolidates that two-step cleanup so every wiki-page
- * delete path (source-delete cascade in sources-view, orphan-page
- * delete in lint-view, cancelled-ingest cleanup in ingest-queue)
- * uses the SAME slug derivation and order of operations. Without
- * this, each call site reinvented the slug regex slightly
- * differently (`getFileName().replace(/\.md$/, "")` vs
- * `getFileStem()`), which would drift over time.
+ * Without consolidated cleanup, orphaned references waste search slots and
+ * create dangling links in the wiki graph.
  *
- * Errors are propagated, NOT swallowed — callers wrap in try/catch
- * to apply their own fault-tolerance policy (e.g. continue with the
- * next file in a batch, or surface to the user via toast).
+ * @license MIT © QMAI
  */
+
 import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileStem, normalizePath } from "@/lib/path-utils"
 import { removePageEmbedding } from "@/lib/embedding"
@@ -37,13 +31,9 @@ import {
 import type { FileNode } from "@/types/wiki"
 
 /**
- * Detect whether a wiki page lives under `wiki/sources/`. We treat
- * those as source-summary pages — each owns its source's extracted
- * images at `wiki/media/<slug>/`. Other wiki paths (concepts,
- * entities, queries, …) don't own image directories of their own,
- * so the media cascade is scoped to source pages only.
- *
- * Tolerates both `/` and `\` separators for Windows.
+ * Detect whether a wiki page is a source-summary page (lives under `wiki/sources/`).
+ * Source pages own their extracted images at `wiki/media/<slug>/`.
+ * Other wiki paths don't own image directories.
  */
 function isSourcePage(pagePath: string): boolean {
   const normalized = normalizePath(pagePath)
@@ -51,20 +41,14 @@ function isSourcePage(pagePath: string): boolean {
 }
 
 /**
- * Delete a wiki page from disk and drop its embedding chunks. If the
- * page is a source-summary (`wiki/sources/<slug>.md`), ALSO removes
- * the corresponding `wiki/media/<slug>/` directory containing the
- * source's extracted images — those are owned by the source and have
- * no other consumer once the source page is gone.
- *
- * `projectPath` is the project root (used to scope the embedding
- * cascade to the right LanceDB instance, and to locate the media
- * directory).
- *
- * `pagePath` may be absolute or relative; only its basename is used
- * for the page-id lookup, so callers don't need to normalize before
- * calling. The disk delete uses the path verbatim — pass an
- * absolute path if your caller has one (most do).
+ * Delete a single wiki page from disk and drop its embedding chunks.
+ * 
+ * For source-summary pages (`wiki/sources/<slug>.md`), also removes
+ * the corresponding `wiki/media/<slug>/` directory containing
+ * extracted images — those are owned by the source.
+ * 
+ * Slug validation: must be non-empty and not start with `.` to prevent
+ * accidental deletion of hidden directories or the media root.
  */
 export async function cascadeDeleteWikiPage(
   projectPath: string,
@@ -76,36 +60,19 @@ export async function cascadeDeleteWikiPage(
     await removePageEmbedding(projectPath, slug)
   }
 
-  // Media cascade: source-summary deletion → drop the source's
-  // image directory. Done AFTER the file delete (and after the
-  // embedding cascade) so a failure in either of those — already
-  // best-effort tolerated by callers — leaves us in a consistent
-  // state. Failures here are logged + swallowed because the source
-  // page is already gone; an orphaned media directory is a leak,
-  // not a correctness problem.
-  //
-  // Defensive on the slug: must be non-empty AND not start with `.`
-  // — a path like `wiki/sources/.md` (pure extension, no name) or
-  // `.git`-style hidden entries should NEVER produce a media path
-  // that resolves to a hidden directory under `wiki/media/`. The
-  // worst case (slug == ".") would target `wiki/media/.` and delete
-  // the entire media root.
+  // Media cascade for source-summary pages
   if (isSourcePage(pagePath) && slug.length > 0 && !slug.startsWith(".")) {
     const pp = normalizePath(projectPath)
     const mediaDir = `${pp}/wiki/media/${slug}`
     try {
-      // delete_file in fs.rs auto-detects directories and uses
-      // remove_dir_all under the hood — see fs.rs L989. So a single
-      // deleteFile call handles "may or may not be present" + "may
-      // or may not be a directory" gracefully.
       await deleteFile(mediaDir)
     } catch {
-      // Most common cause: the directory never existed because no
-      // images were extracted from this source. Not an error.
+      // Directory may not exist if no images were extracted
     }
   }
 }
 
+/** Flatten a file tree to extract only .md file nodes. */
 function flattenMd(nodes: readonly FileNode[]): FileNode[] {
   const out: FileNode[] = []
   function walk(ns: readonly FileNode[]): void {
@@ -122,41 +89,27 @@ function flattenMd(nodes: readonly FileNode[]): FileNode[] {
 }
 
 export interface CascadeDeleteResult {
-  /** Wiki-page paths that were actually removed from disk. */
+  /** Wiki-page paths actually removed from disk. */
   deletedPaths: string[]
-  /** How many surviving wiki files we rewrote to drop stale refs. */
+  /** Count of surviving wiki files rewritten to drop stale refs. */
   rewrittenFiles: number
 }
 
 /**
- * Delete one or more wiki pages and clean up every reference to them
- * in the rest of the wiki: file delete, embedding drop, media-dir
- * cascade for source pages, plus
- *
- *   - `wiki/index.md` listing entries whose primary `[[target]]`
- *     points at a deleted page → entry line dropped
- *   - any other wiki .md body containing `[[deleted]]` /
- *     `[[deleted|alias]]` → wikilink replaced with plain text
- *     (alias preserved when present)
- *   - any wiki .md whose frontmatter `related:` array lists a
- *     deleted slug (or its title-form variant) → that entry
- *     filtered out, array rewritten
- *
- * Compared to the existing source-delete cascade in `sources-view`,
- * this also strips the `related:` frontmatter entries — that path
- * historically only touched body wikilinks + index.md and left
- * `related:` slugs pointing into the void. For a direct user-driven
- * "delete this entity" action we want zero leftover dangling refs.
- *
+ * Delete multiple wiki pages and clean all cross-references.
+ * 
+ * Cleanup scope:
+ * - File delete + embedding drop + media dir cascade for source pages
+ * - `wiki/index.md` entries pointing to deleted pages → entry line dropped
+ * - Any wiki .md body containing `[[deleted]]` wikilinks → replaced with plain text
+ * - Any wiki .md with `related:` frontmatter listing deleted slugs → entry filtered
+ * 
  * Order of operations:
- *   1. Read each target's content first to extract the title (need
- *      it for index-listing match) and snapshot the slug.
- *   2. Cascade-delete each target (file + embeddings + media dir).
- *   3. Sweep all surviving wiki .md files and rewrite them.
- *
- * Best-effort on the sweep — a single un-readable file does not abort
- * the rest of the cleanup. Returns a summary so the caller can show
- * the user what happened.
+ * 1. Read each target's content to extract title (for index matching)
+ * 2. Cascade-delete each target file
+ * 3. Sweep all surviving wiki .md files and rewrite them
+ * 
+ * Best-effort: a single unreadable file doesn't abort the rest.
  */
 export async function cascadeDeleteWikiPagesWithRefs(
   projectPath: string,
@@ -168,8 +121,7 @@ export async function cascadeDeleteWikiPagesWithRefs(
     rewrittenFiles: 0,
   }
 
-  // 1. Read each target's title so the cleanup keyset includes both
-  //    slug-form and title-form. Capture before delete.
+  // 1. Capture titles before deletion (needed for index matching)
   const infos: DeletedPageInfo[] = []
   for (const pagePath of pagePaths) {
     let title = ""
@@ -177,14 +129,13 @@ export async function cascadeDeleteWikiPagesWithRefs(
       const content = await readFile(pagePath)
       title = extractFrontmatterTitle(content)
     } catch {
-      // file may have been deleted between selection + action; the
-      // slug-form key alone will still work.
+      // File may have been deleted between selection and action
     }
     const slug = getFileStem(pagePath)
     if (slug.length > 0) infos.push({ slug, title })
   }
 
-  // 2. Delete the target files themselves.
+  // 2. Delete target files
   for (const pagePath of pagePaths) {
     try {
       await cascadeDeleteWikiPage(pp, pagePath)
@@ -196,14 +147,14 @@ export async function cascadeDeleteWikiPagesWithRefs(
 
   if (infos.length === 0) return result
 
-  // 3. Sweep surviving wiki/*.md.
+  // 3. Sweep surviving wiki files and rewrite references
   const deletedKeys = buildDeletedKeys(infos)
   const wikiTree = await listDirectory(`${pp}/wiki`)
   const allMd = flattenMd(wikiTree)
   const indexAbs = `${pp}/wiki/index.md`
 
   for (const file of allMd) {
-    if (result.deletedPaths.includes(file.path)) continue // already gone
+    if (result.deletedPaths.includes(file.path)) continue // Already deleted
     let content: string
     try {
       content = await readFile(file.path)
@@ -217,10 +168,7 @@ export async function cascadeDeleteWikiPagesWithRefs(
     }
     updated = stripDeletedWikilinks(updated, deletedKeys)
 
-    // `related:` frontmatter — drop entries that point at a deleted
-    // page. parseFrontmatterArray returns the parsed string list;
-    // writeFrontmatterArray rewrites only that field, preserving
-    // every other line.
+    // Clean `related:` frontmatter entries pointing to deleted pages
     const related = parseFrontmatterArray(updated, "related")
     if (related.length > 0) {
       const filtered = related.filter(

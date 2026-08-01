@@ -1,3 +1,10 @@
+/**
+ * Model list fetching for the settings panel.
+ * Supports LLM, embedding, and rerank model discovery across
+ * OpenAI-compatible, Google, Azure, and local CLI providers.
+ * MIT License — independently implemented.
+ */
+
 import { getProviderConfig, withCustomOriginHeader } from "@/lib/llm-providers"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
 import { isDirectRerankEndpoint } from "@/lib/rerank-api"
@@ -8,50 +15,61 @@ export interface LlmModelListResult {
   models: string[]
 }
 
-const MODEL_LIST_COMPAT_HEADERS: Record<string, string> = {
+/** Browser-compatible headers added when the initial request gets a 403. */
+const COMPAT_HEADERS: Record<string, string> = {
   Accept: "application/json",
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QMaiWrite",
 }
 
-function uniqueSortedModels(models: string[]): string[] {
-  return Array.from(new Set(models.map((model) => model.trim()).filter(Boolean))).sort((a, b) =>
+/** Deduplicate, trim, and sort model names alphabetically. */
+function dedupeAndSort(models: string[]): string[] {
+  return Array.from(new Set(models.map((m) => m.trim()).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b),
   )
 }
 
-function parseModelListResponse(raw: unknown): string[] {
+/**
+ * Extract model names from a JSON API response.
+ * Supports `{ data: [...] }`, `{ models: [...] }` shapes,
+ * and items with `id`, `name`, or `model` fields.
+ */
+function parseModelList(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return []
-  const candidates = Array.isArray((raw as { data?: unknown }).data)
+  const items = Array.isArray((raw as { data?: unknown }).data)
     ? (raw as { data: unknown[] }).data
     : Array.isArray((raw as { models?: unknown }).models)
       ? (raw as { models: unknown[] }).models
       : []
 
-  return candidates.map((item) => {
+  return items.map((item) => {
     if (typeof item === "string") return item
     if (item && typeof item === "object") {
-      const id = (item as { id?: unknown; name?: unknown; model?: unknown }).id
-        ?? (item as { id?: unknown; name?: unknown; model?: unknown }).name
-        ?? (item as { id?: unknown; name?: unknown; model?: unknown }).model
+      const record = item as { id?: unknown; name?: unknown; model?: unknown }
+      const id = record.id ?? record.name ?? record.model
       return typeof id === "string" ? id : ""
     }
     return ""
   })
 }
 
-function stripGoogleApiKeyQuery(endpoint: string): string {
-  if (!endpoint.includes("?")) return endpoint
+/** Remove Google API key query parameter from a URL. */
+function stripGoogleApiKey(url: string): string {
+  if (!url.includes("?")) return url
   try {
-    const url = new URL(endpoint)
-    url.searchParams.delete("key")
-    return url.toString()
+    const u = new URL(url)
+    u.searchParams.delete("key")
+    return u.toString()
   } catch {
-    return endpoint.replace(/([?&])key=[^&]*&?/i, (_, prefix: string) => (prefix === "?" ? "?" : "&"))
+    return url.replace(/([?&])key=[^&]*&?/i, (_, prefix: string) => (prefix === "?" ? "?" : "&"))
       .replace(/[?&]$/, "")
       .replace("?&", "?")
   }
 }
 
+/**
+ * Build the `/models` endpoint URL from a raw endpoint string.
+ * Handles Google, OpenAI-compatible, and various path suffixes.
+ */
 function buildEndpointModelsUrl(endpoint: string): string {
   const trimmed = endpoint.trim()
   if (!trimmed) {
@@ -59,7 +77,7 @@ function buildEndpointModelsUrl(endpoint: string): string {
   }
 
   if (trimmed.includes("generativelanguage.googleapis.com") || /:embedcontent(\?|$)/i.test(trimmed)) {
-    const base = stripGoogleApiKeyQuery(trimmed)
+    const base = stripGoogleApiKey(trimmed)
       .replace(/\/+$/, "")
       .replace(/\/models\/[^/?]+:(?:embedContent|batchEmbedContents)(?:\?.*)?$/i, "")
       .replace(/\/models\/[^/?]+(?:\?.*)?$/i, "")
@@ -67,34 +85,23 @@ function buildEndpointModelsUrl(endpoint: string): string {
     return `${base}/models`
   }
 
-  if (/\/embeddings(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/embeddings(?:\?.*)?$/i, "/models")
+  // Replace known request-path suffixes with /models.
+  const suffixes = [/\/embeddings(?:\?.*)?$/i, /\/chat\/completions(?:\?.*)?$/i, /\/responses(?:\?.*)?$/i, /\/messages(?:\?.*)?$/i, /\/rerank(?:\?.*)?$/i]
+  for (const suffix of suffixes) {
+    if (suffix.test(trimmed)) return trimmed.replace(suffix, "/models")
   }
-  if (/\/chat\/completions(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/chat\/completions(?:\?.*)?$/i, "/models")
-  }
-  if (/\/responses(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/responses(?:\?.*)?$/i, "/models")
-  }
-  if (/\/messages(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/messages(?:\?.*)?$/i, "/models")
-  }
-  if (/\/rerank(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/rerank(?:\?.*)?$/i, "/models")
-  }
-  if (/\/models(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed
-  }
+  if (/\/models(?:\?.*)?$/i.test(trimmed)) return trimmed
   return `${trimmed.replace(/\/+$/, "")}/models`
 }
 
-function toModelListResult(models: string[]): LlmModelListResult {
-  return { models: uniqueSortedModels(models) }
+function toResult(models: string[]): LlmModelListResult {
+  return { models: dedupeAndSort(models) }
 }
 
-function buildModelsUrl(config: LlmConfig): { url: string; headers: Record<string, string> } {
+/** Build the models URL and headers for a given LLM config. */
+function buildModelsRequest(config: LlmConfig): { url: string; headers: Record<string, string> } {
   if (config.provider === "google") {
-    const base = stripGoogleApiKeyQuery(config.customEndpoint.trim() || "https://generativelanguage.googleapis.com/v1beta")
+    const base = stripGoogleApiKey(config.customEndpoint.trim() || "https://generativelanguage.googleapis.com/v1beta")
       .replace(/\/+$/, "")
       .replace(/\/models(?:\/[^/?]+(?::(?:embedContent|batchEmbedContents))?)?$/i, "")
     return {
@@ -104,41 +111,37 @@ function buildModelsUrl(config: LlmConfig): { url: string; headers: Record<strin
   }
 
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
-    return {
-      url: "",
-      headers: {},
-    }
+    return { url: "", headers: {} }
   }
 
   const providerConfig = getProviderConfig(config)
   const url = providerConfig.url
   let modelsUrl: string
 
-  if (/\/chat\/completions(?:\?.*)?$/i.test(url)) {
-    modelsUrl = url.replace(/\/chat\/completions(?:\?.*)?$/i, "/models")
-  } else if (/\/responses(?:\?.*)?$/i.test(url)) {
-    modelsUrl = url.replace(/\/responses(?:\?.*)?$/i, "/models")
-  } else if (/\/messages(?:\?.*)?$/i.test(url)) {
-    modelsUrl = url.replace(/\/messages(?:\?.*)?$/i, "/models")
-  } else if (/\/rerank(?:\?.*)?$/i.test(url)) {
-    modelsUrl = url.replace(/\/rerank(?:\?.*)?$/i, "/models")
-  } else {
+  const suffixes = [/\/chat\/completions(?:\?.*)?$/i, /\/responses(?:\?.*)?$/i, /\/messages(?:\?.*)?$/i, /\/rerank(?:\?.*)?$/i]
+  let matched = false
+  for (const suffix of suffixes) {
+    if (suffix.test(url)) {
+      modelsUrl = url.replace(suffix, "/models")
+      matched = true
+      break
+    }
+  }
+  if (!matched) {
     modelsUrl = `${url.replace(/\/+$/, "")}/models`
   }
 
   const headers = config.provider === "custom"
-    ? withCustomOriginHeader(providerConfig.headers, modelsUrl)
+    ? withCustomOriginHeader(providerConfig.headers, modelsUrl!)
     : providerConfig.headers
-  const { "Content-Type": _contentType, ...modelListHeaders } = headers
-  return { url: modelsUrl, headers: modelListHeaders }
+  const { "Content-Type": _ct, ...cleanHeaders } = headers
+  return { url: modelsUrl!, headers: cleanHeaders }
 }
 
-async function fetchModelList(url: string, headers: Record<string, string>, _currentModel: string): Promise<LlmModelListResult> {
+/** Fetch models from a URL, with a 403 compatibility retry. */
+async function fetchModelsFromUrl(url: string, headers: Record<string, string>, _currentModel: string): Promise<LlmModelListResult> {
   const httpFetch = await getHttpFetch()
-  let response = await httpFetch(url, {
-    method: "GET",
-    headers,
-  })
+  let response = await httpFetch(url, { method: "GET", headers })
   let original403Text: string | null = null
 
   if (response.status === 403) {
@@ -146,10 +149,7 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
     try {
       response = await httpFetch(url, {
         method: "GET",
-        headers: {
-          ...headers,
-          ...MODEL_LIST_COMPAT_HEADERS,
-        },
+        headers: { ...headers, ...COMPAT_HEADERS },
       })
       original403Text = null
     } catch {
@@ -162,12 +162,13 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
     throw new Error(`模型列表拉取失败：HTTP ${response.status}${text ? ` ${text.slice(0, 200)}` : ""}`)
   }
 
-  return toModelListResult(parseModelListResponse(await response.json()))
+  return toResult(parseModelList(await response.json()))
 }
 
-async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult> {
-  const explicitModel = config.model.trim()
-  if (explicitModel) return { models: [explicitModel] }
+/** Fetch models for a local CLI provider (claude-code / codex-cli). */
+async function fetchLocalCliModels(config: LlmConfig): Promise<LlmModelListResult> {
+  const explicit = config.model.trim()
+  if (explicit) return { models: [explicit] }
 
   const detect = await detectLocalCliConfig(config.provider)
   const localModel = detect?.model?.trim() ?? ""
@@ -177,19 +178,26 @@ async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult
   return { models: [localModel] }
 }
 
+/**
+ * Fetch the available LLM model list for the given configuration.
+ * Handles provider-specific URL construction and Google model name prefix stripping.
+ */
 export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelListResult> {
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
-    return fetchLocalCliModel(config)
+    return fetchLocalCliModels(config)
   }
 
-  const { url, headers } = buildModelsUrl(config)
-  const result = await fetchModelList(url, headers, config.model)
+  const { url, headers } = buildModelsRequest(config)
+  const result = await fetchModelsFromUrl(url, headers, config.model)
   if (config.provider === "google") {
-    return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
+    return toResult(result.models.map((m) => m.replace(/^models\//, "")))
   }
   return result
 }
 
+/**
+ * Fetch the available embedding model list for the given configuration.
+ */
 export async function fetchEmbeddingModelList(config: EmbeddingConfig): Promise<LlmModelListResult> {
   const url = buildEndpointModelsUrl(config.endpoint)
   const isGoogle = url.includes("generativelanguage.googleapis.com")
@@ -203,13 +211,17 @@ export async function fetchEmbeddingModelList(config: EmbeddingConfig): Promise<
     }
   }
 
-  const result = await fetchModelList(url, headers, config.model)
+  const result = await fetchModelsFromUrl(url, headers, config.model)
   if (isGoogle) {
-    return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
+    return toResult(result.models.map((m) => m.replace(/^models\//, "")))
   }
   return result
 }
 
+/**
+ * Fetch the available rerank model list. Delegates to the main LLM
+ * model list when `useMainLlm` is true, or fetches independently.
+ */
 export async function fetchRerankModelList(
   llmConfig: LlmConfig,
   rerankConfig: RerankConfig,
@@ -219,7 +231,7 @@ export async function fetchRerankModelList(
   }
 
   if (isDirectRerankEndpoint({ provider: rerankConfig.provider, customEndpoint: rerankConfig.customEndpoint })) {
-    return fetchModelList(
+    return fetchModelsFromUrl(
       buildEndpointModelsUrl(rerankConfig.customEndpoint),
       rerankConfig.apiKey.trim() ? { Authorization: `Bearer ${rerankConfig.apiKey.trim()}` } : {},
       rerankConfig.model,

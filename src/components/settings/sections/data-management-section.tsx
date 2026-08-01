@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import {
@@ -17,6 +20,18 @@ import type {
   BackupProgressPayload,
 } from "@/lib/backup/types"
 
+/** Format byte count into a human-readable file size string. */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+/**
+ * Data management section: export and import full application backups.
+ * Supports full-overwrite and global-only import strategies.
+ */
 export function DataManagementSection() {
   const { t } = useTranslation()
   const [isExporting, setIsExporting] = useState(false)
@@ -77,6 +92,7 @@ export function DataManagementSection() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <h2 className="text-xl font-semibold">
           {t("settings.sections.dataManagement.title", { defaultValue: "数据管理" })}
@@ -88,6 +104,7 @@ export function DataManagementSection() {
         </p>
       </div>
 
+      {/* Progress bar */}
       {progress && isBusy && (
         <div className="rounded-lg border p-4 space-y-2">
           <p className="text-sm font-medium">{progress.message}</p>
@@ -105,6 +122,7 @@ export function DataManagementSection() {
         </div>
       )}
 
+      {/* Export card */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
           <Download className="h-5 w-5 text-primary" />
@@ -163,6 +181,7 @@ export function DataManagementSection() {
         )}
       </div>
 
+      {/* Import card */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-primary" />
@@ -176,6 +195,7 @@ export function DataManagementSection() {
           })}
         </p>
 
+        {/* Import strategy radio */}
         <div className="space-y-2">
           <label className="text-sm font-medium">
             {t("settings.sections.dataManagement.importStrategy", { defaultValue: "导入方式" })}
@@ -255,6 +275,7 @@ export function DataManagementSection() {
         )}
       </div>
 
+      {/* Security warning */}
       <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -267,11 +288,4 @@ export function DataManagementSection() {
       </div>
     </div>
   )
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }

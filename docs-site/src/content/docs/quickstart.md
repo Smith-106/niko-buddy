@@ -66,6 +66,6 @@ AI 生成的章节默认为**草稿状态**。草稿支持预览、编辑、重�
 
 ## 下一步
 
-- 深入了解 [记忆系统](/niko-hub/features/memory/) 如何让 AI 记住前文
-- 了解 [审查系统](/niko-hub/features/review/) 如何防止崩坏
-- 了解 [连续性引擎](/niko-hub/features/continuity-engine/) 如何确定性检测结构性断裂
+- 深入了解 [记忆系统](/niko-buddy/features/memory/) 如何让 AI 记住前文
+- 了解 [审查系统](/niko-buddy/features/review/) 如何防止崩坏
+- 了解 [连续性引擎](/niko-buddy/features/continuity-engine/) 如何确定性检测结构性断裂

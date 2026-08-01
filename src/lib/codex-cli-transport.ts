@@ -1,9 +1,13 @@
 /**
- * Codex CLI subprocess transport.
+ * Codex CLI subprocess transport for streaming chat completions.
  *
- * Rust-side counterpart: src-tauri/src/commands/codex_cli.rs. The Rust
- * command spawns `codex exec --json`, sends a single reconstructed prompt
- * over stdin, and emits each JSONL stdout line back as `codex-cli:{streamId}`.
+ * Implements a Tauri-based event-driven communication layer that:
+ * - Spawns `codex exec --json` subprocess via Rust invoke
+ * - Reconstructs multi-turn conversation into single prompt
+ * - Listens for streamed agent messages and error events
+ * - Handles abort, timeout, and retry scenarios gracefully
+ *
+ * @license MIT © QMAI
  */
 
 import { invoke } from "@tauri-apps/api/core"
@@ -12,6 +16,10 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 
+/**
+ * Parse a single Codex CLI JSONL line and extract agent message text.
+ * Returns null if the line is not a valid agent message.
+ */
 export function parseCodexCliLine(rawLine: string): string | null {
   const line = rawLine.trim()
   if (!line) return null
@@ -32,6 +40,10 @@ export function parseCodexCliLine(rawLine: string): string | null {
   return typeof item.text === "string" && item.text.length > 0 ? item.text : null
 }
 
+/**
+ * Extract error message from Codex CLI output.
+ * Prioritizes structured error fields, falls back to raw output.
+ */
 export function extractCodexCliError(rawOutput: string): string {
   let lastError = ""
   for (const line of rawOutput.split(/\r?\n/)) {
@@ -59,6 +71,10 @@ export function extractCodexCliError(rawOutput: string): string {
   return lastError || rawOutput.trim()
 }
 
+/**
+ * Convert content block array or string to plain text.
+ * Omits non-text media blocks with placeholder markers.
+ */
 function contentToText(content: string | ContentBlock[]): string {
   if (typeof content === "string") return content
   return content
@@ -69,12 +85,20 @@ function contentToText(content: string | ContentBlock[]): string {
     .join("\n")
 }
 
+/**
+ * Escape HTML-like tags in prompt content to prevent confusion
+ * with the <ROLE> tags used in prompt reconstruction.
+ */
 function escapePromptContent(text: string): string {
   return text.replace(/<\/?[A-Z_][A-Z0-9_]*>/gi, (tag) =>
     tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"),
   )
 }
 
+/**
+ * Reconstruct multi-turn conversation into a single prompt
+ * using <ROLE> tag wrapping.
+ */
 export function buildPrompt(messages: ChatMessage[]): string {
   return messages
     .map((message) => {
@@ -92,6 +116,16 @@ type SpawnPayload = Record<string, unknown> & {
   timeoutMinutes?: number
 }
 
+/**
+ * Stream chat completions via Codex CLI subprocess.
+ *
+ * Workflow:
+ * 1. Generate unique stream ID and setup event listeners
+ * 2. Invoke Rust backend to spawn codex exec --json
+ * 3. Stream agent messages via onToken callback
+ * 4. Handle completion/error via onDone/onError callbacks
+ * 5. Cleanup listeners on finish/abort
+ */
 export async function streamCodexCli(
   config: LlmConfig,
   messages: ChatMessage[],
@@ -101,10 +135,10 @@ export async function streamCodexCli(
 ): Promise<void> {
   const { onToken, onDone, onError } = callbacks
 
+  // Warn about unsupported overrides in dev mode
   if (import.meta.env?.DEV && overrides) {
     for (const key of ["temperature", "top_p", "top_k", "max_tokens", "stop"] as const) {
       if (overrides[key] !== undefined) {
-        // eslint-disable-next-line no-console
         console.warn(`[codex-cli] ignoring unsupported override "${key}": CLI has no equivalent flag`)
       }
     }
@@ -121,6 +155,7 @@ export async function streamCodexCli(
     resolveCompletion = resolve
   })
 
+  // Buffer unparsed lines for error reporting
   const unparsedLines: string[] = []
   let unparsedSize = 0
   function captureUnparsed(line: string) {
@@ -131,11 +166,13 @@ export async function streamCodexCli(
     unparsedSize += line.length + 1
   }
 
+  // Cleanup helper
   const cleanup = () => {
     unlistenData?.()
     unlistenDone?.()
   }
 
+  // Finish handler with idempotency guard
   const finishWith = (cb: () => void) => {
     if (finished) return
     finished = true
@@ -144,9 +181,9 @@ export async function streamCodexCli(
     resolveCompletion()
   }
 
+  // Replay any agent messages from stdout on completion
   const replayAgentMessagesFromStdout = (stdout: string | undefined) => {
     if (!stdout) return
-
     for (const line of stdout.split(/\r?\n/)) {
       const token = parseCodexCliLine(line)
       if (token !== null) {
@@ -156,6 +193,7 @@ export async function streamCodexCli(
     }
   }
 
+  // Abort handler
   const abortListener = () => {
     aborted = true
     void invoke("codex_cli_kill", { streamId }).catch(() => {})
@@ -168,7 +206,7 @@ export async function streamCodexCli(
   signal?.addEventListener("abort", abortListener)
 
   try {
-    // ── Tauri mode: use Tauri listen + invoke ──
+    // Setup data listener for streamed agent messages
     unlistenData = await listen<string>(`codex-cli:${streamId}`, (event) => {
       const token = parseCodexCliLine(event.payload)
       if (token !== null) {
@@ -183,6 +221,7 @@ export async function streamCodexCli(
       return
     }
 
+    // Setup done listener for completion/error
     unlistenDone = await listen<{ code: number | null; stderr: string; stdout?: string }>(
       `codex-cli:${streamId}:done`,
       (event) => {
@@ -220,6 +259,7 @@ export async function streamCodexCli(
       return
     }
 
+    // Spawn the subprocess
     const payload: SpawnPayload = {
       streamId,
       model: config.model,

@@ -1,3 +1,11 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Wiki project templates — each bundles a schema document, a purpose
+ * scaffold, and any extra directories the template expects.
+ */
+
+/** Describes one wiki-project template available during project creation. */
 export interface WikiTemplate {
   id: string
   name: string
@@ -8,7 +16,11 @@ export interface WikiTemplate {
   extraDirs: string[]
 }
 
-const BASE_SCHEMA_TYPES = `| entity | wiki/entities/ | Named things (people, tools, organizations, datasets) |
+// ---------------------------------------------------------------------------
+// Shared building blocks
+// ---------------------------------------------------------------------------
+
+const SCHEMA_TYPES = `| entity | wiki/entities/ | Named things (people, tools, organizations, datasets) |
 | concept | wiki/concepts/ | Ideas, techniques, phenomena, frameworks |
 | source | wiki/sources/ | Papers, articles, talks, books, blog posts |
 | query | wiki/queries/ | Open questions under active investigation |
@@ -16,13 +28,13 @@ const BASE_SCHEMA_TYPES = `| entity | wiki/entities/ | Named things (people, too
 | synthesis | wiki/synthesis/ | Cross-cutting summaries and conclusions |
 | overview | wiki/ | High-level project summary (one per project) |`
 
-const BASE_NAMING = `- Files: \`kebab-case.md\`
+const NAMING_RULES = `- Files: \`kebab-case.md\`
 - Entities: match official name where possible (e.g., \`openai.md\`, \`gpt-4.md\`)
 - Concepts: descriptive noun phrases (e.g., \`chain-of-thought.md\`)
 - Sources: \`author-year-slug.md\` (e.g., \`wei-2022-cot.md\`)
 - Queries: question as slug (e.g., \`does-scale-improve-reasoning.md\`)`
 
-const BASE_FRONTMATTER = `All pages must include YAML frontmatter:
+const FRONTMATTER_SPEC = `All pages must include YAML frontmatter:
 
 \`\`\`yaml
 ---
@@ -43,28 +55,32 @@ url: ""
 venue: ""
 \`\`\``
 
-const BASE_INDEX_FORMAT = `\`wiki/index.md\` lists all pages grouped by type. Each entry:
+const INDEX_FORMAT = `\`wiki/index.md\` lists all pages grouped by type. Each entry:
 \`\`\`
 - [[page-slug]] — one-line description
 \`\`\``
 
-const BASE_LOG_FORMAT = `\`wiki/log.md\` records activity in reverse chronological order:
+const LOG_FORMAT = `\`wiki/log.md\` records activity in reverse chronological order:
 \`\`\`
 ## YYYY-MM-DD
 
 - Action taken / finding noted
 \`\`\``
 
-const BASE_CROSSREF = `- Use \`[[page-slug]]\` syntax to link between wiki pages
+const CROSSREF_RULES = `- Use \`[[page-slug]]\` syntax to link between wiki pages
 - Every entity and concept should appear in \`wiki/index.md\`
 - Queries link to the sources and concepts they draw on
 - Synthesis pages cite all contributing sources via \`related:\``
 
-const BASE_CONTRADICTION = `When sources contradict each other:
+const CONTRADICTION_RULES = `When sources contradict each other:
 1. Note the contradiction in the relevant concept or entity page
 2. Create or update a query page to track the open question
 3. Link both sources from the query page
 4. Resolve in a synthesis page once sufficient evidence exists`
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
 
 const researchTemplate: WikiTemplate = {
   id: "research",
@@ -78,21 +94,21 @@ const researchTemplate: WikiTemplate = {
 
 | Type | Directory | Purpose |
 |------|-----------|---------|
-${BASE_SCHEMA_TYPES}
+${SCHEMA_TYPES}
 | thesis | wiki/thesis/ | Working hypothesis and its evolution over time |
 | methodology | wiki/methodology/ | Research methods, protocols, and study designs |
 | finding | wiki/findings/ | Individual empirical results or observations |
 
 ## Naming Conventions
 
-${BASE_NAMING}
+${NAMING_RULES}
 - Theses: hypothesis as slug (e.g., \`scaling-improves-reasoning.md\`)
 - Methodologies: method name (e.g., \`systematic-review.md\`, \`ablation-study.md\`)
 - Findings: descriptive slug (e.g., \`larger-models-better-few-shot.md\`)
 
 ## Frontmatter
 
-${BASE_FRONTMATTER}
+${FRONTMATTER_SPEC}
 
 Thesis pages also include:
 \`\`\`yaml
@@ -109,22 +125,22 @@ replicated: true | false | null
 
 ## Index Format
 
-${BASE_INDEX_FORMAT}
+${INDEX_FORMAT}
 
 ## Log Format
 
-${BASE_LOG_FORMAT}
+${LOG_FORMAT}
 
 ## Cross-referencing Rules
 
-${BASE_CROSSREF}
+${CROSSREF_RULES}
 - Findings link back to their source via the \`source:\` frontmatter field
 - Thesis pages reference supporting and refuting findings via \`related:\`
 - Methodology pages are cited by the findings that used them
 
 ## Contradiction Handling
 
-${BASE_CONTRADICTION}
+${CONTRADICTION_RULES}
 
 ## Research-Specific Conventions
 
@@ -198,7 +214,7 @@ const readingTemplate: WikiTemplate = {
 
 | Type | Directory | Purpose |
 |------|-----------|---------|
-${BASE_SCHEMA_TYPES}
+${SCHEMA_TYPES}
 | character | wiki/characters/ | People and figures in the book |
 | theme | wiki/themes/ | Recurring ideas, motifs, and symbolic threads |
 | plot-thread | wiki/plot-threads/ | Storylines or narrative arcs being tracked |
@@ -206,7 +222,7 @@ ${BASE_SCHEMA_TYPES}
 
 ## Naming Conventions
 
-${BASE_NAMING}
+${NAMING_RULES}
 - Characters: character name in kebab-case (e.g., \`elizabeth-bennet.md\`)
 - Themes: thematic noun phrase (e.g., \`social-class-mobility.md\`, \`deception-vs-honesty.md\`)
 - Plot threads: arc description (e.g., \`darcys-redemption-arc.md\`)
@@ -214,7 +230,7 @@ ${BASE_NAMING}
 
 ## Frontmatter
 
-${BASE_FRONTMATTER}
+${FRONTMATTER_SPEC}
 
 Character pages also include:
 \`\`\`yaml
@@ -230,22 +246,22 @@ pages: "1-24"
 
 ## Index Format
 
-${BASE_INDEX_FORMAT}
+${INDEX_FORMAT}
 
 ## Log Format
 
-${BASE_LOG_FORMAT}
+${LOG_FORMAT}
 
 ## Cross-referencing Rules
 
-${BASE_CROSSREF}
+${CROSSREF_RULES}
 - Chapter notes reference characters appearing in that chapter via \`related:\`
 - Theme pages link to the chapters where the theme is most prominent
 - Plot thread pages list chapters that advance the arc
 
 ## Contradiction Handling
 
-${BASE_CONTRADICTION}
+${CONTRADICTION_RULES}
 
 ## Reading-Specific Conventions
 
@@ -315,7 +331,7 @@ const personalTemplate: WikiTemplate = {
 
 | Type | Directory | Purpose |
 |------|-----------|---------|
-${BASE_SCHEMA_TYPES}
+${SCHEMA_TYPES}
 | goal | wiki/goals/ | Specific outcomes you are working toward |
 | habit | wiki/habits/ | Recurring behaviours and their tracking |
 | reflection | wiki/reflections/ | Periodic reviews and lessons learned |
@@ -323,7 +339,7 @@ ${BASE_SCHEMA_TYPES}
 
 ## Naming Conventions
 
-${BASE_NAMING}
+${NAMING_RULES}
 - Goals: outcome as slug (e.g., \`run-a-marathon.md\`, \`learn-spanish.md\`)
 - Habits: behaviour name (e.g., \`daily-meditation.md\`, \`morning-pages.md\`)
 - Reflections: type + date (e.g., \`weekly-2024-03.md\`, \`quarterly-2024-q1.md\`)
@@ -331,7 +347,7 @@ ${BASE_NAMING}
 
 ## Frontmatter
 
-${BASE_FRONTMATTER}
+${FRONTMATTER_SPEC}
 
 Goal pages also include:
 \`\`\`yaml
@@ -354,22 +370,22 @@ period: weekly | monthly | quarterly | annual
 
 ## Index Format
 
-${BASE_INDEX_FORMAT}
+${INDEX_FORMAT}
 
 ## Log Format
 
-${BASE_LOG_FORMAT}
+${LOG_FORMAT}
 
 ## Cross-referencing Rules
 
-${BASE_CROSSREF}
+${CROSSREF_RULES}
 - Reflection pages reference the goals and habits reviewed during that period
 - Goals link to the habits that support them via \`related:\`
 - Journal entries can reference goals and reflections inline with \`[[slug]]\`
 
 ## Contradiction Handling
 
-${BASE_CONTRADICTION}
+${CONTRADICTION_RULES}
 
 ## Personal Growth Conventions
 
@@ -443,7 +459,7 @@ const businessTemplate: WikiTemplate = {
 
 | Type | Directory | Purpose |
 |------|-----------|---------|
-${BASE_SCHEMA_TYPES}
+${SCHEMA_TYPES}
 | meeting | wiki/meetings/ | Meeting notes, agendas, and action items |
 | decision | wiki/decisions/ | Architectural or strategic decisions (ADR-style) |
 | project | wiki/projects/ | Project briefs, status, and retrospectives |
@@ -451,7 +467,7 @@ ${BASE_SCHEMA_TYPES}
 
 ## Naming Conventions
 
-${BASE_NAMING}
+${NAMING_RULES}
 - Meetings: \`YYYY-MM-DD-slug.md\` (e.g., \`2024-03-15-sprint-planning.md\`)
 - Decisions: \`NNN-slug.md\` (e.g., \`001-adopt-typescript.md\`)
 - Projects: descriptive slug (e.g., \`payments-redesign.md\`)
@@ -459,7 +475,7 @@ ${BASE_NAMING}
 
 ## Frontmatter
 
-${BASE_FRONTMATTER}
+${FRONTMATTER_SPEC}
 
 Meeting pages also include:
 \`\`\`yaml
@@ -486,15 +502,15 @@ target_date: YYYY-MM-DD
 
 ## Index Format
 
-${BASE_INDEX_FORMAT}
+${INDEX_FORMAT}
 
 ## Log Format
 
-${BASE_LOG_FORMAT}
+${LOG_FORMAT}
 
 ## Cross-referencing Rules
 
-${BASE_CROSSREF}
+${CROSSREF_RULES}
 - Meeting notes reference attendees via \`attendees:\` frontmatter and \`[[stakeholder-slug]]\` links
 - Decision pages link to the meetings where the decision was discussed
 - Project pages link to their key decisions via \`related:\`
@@ -502,7 +518,7 @@ ${BASE_CROSSREF}
 
 ## Contradiction Handling
 
-${BASE_CONTRADICTION}
+${CONTRADICTION_RULES}
 
 ## Business-Specific Conventions
 
@@ -581,31 +597,31 @@ const generalTemplate: WikiTemplate = {
 
 | Type | Directory | Purpose |
 |------|-----------|---------|
-${BASE_SCHEMA_TYPES}
+${SCHEMA_TYPES}
 
 ## Naming Conventions
 
-${BASE_NAMING}
+${NAMING_RULES}
 
 ## Frontmatter
 
-${BASE_FRONTMATTER}
+${FRONTMATTER_SPEC}
 
 ## Index Format
 
-${BASE_INDEX_FORMAT}
+${INDEX_FORMAT}
 
 ## Log Format
 
-${BASE_LOG_FORMAT}
+${LOG_FORMAT}
 
 ## Cross-referencing Rules
 
-${BASE_CROSSREF}
+${CROSSREF_RULES}
 
 ## Contradiction Handling
 
-${BASE_CONTRADICTION}
+${CONTRADICTION_RULES}
 `,
   purpose: `# Project Purpose
 
@@ -637,6 +653,7 @@ ${BASE_CONTRADICTION}
 `,
 }
 
+/** All available wiki project templates. */
 export const templates: WikiTemplate[] = [
   researchTemplate,
   readingTemplate,
@@ -645,10 +662,12 @@ export const templates: WikiTemplate[] = [
   generalTemplate,
 ]
 
+/**
+ * Retrieve a template by its unique identifier.
+ * @throws if the identifier does not match any registered template.
+ */
 export function getTemplate(id: string): WikiTemplate {
   const found = templates.find((t) => t.id === id)
-  if (!found) {
-    throw new Error(`Unknown template id: "${id}"`)
-  }
+  if (!found) throw new Error(`Unknown template id: "${id}"`)
   return found
 }

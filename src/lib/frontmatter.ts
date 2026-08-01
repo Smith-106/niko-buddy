@@ -1,3 +1,15 @@
+/**
+ * YAML frontmatter parsing and manipulation for Markdown/wiki files.
+ *
+ * Features:
+ * - Strict top-of-file detection with fallback scanning for LLM-corrupted pages
+ * - Automatic repair of wikilink list syntax (`related: [[a]], [[b]]` → valid YAML)
+ * - Frontmatter preservation during body edits
+ * - Robust handling of edge cases (code fence wrappers, nested structures)
+ *
+ * @license MIT © QMAI
+ */
+
 import yaml from "js-yaml"
 
 export type FrontmatterValue = string | string[]
@@ -7,45 +19,38 @@ export interface FrontmatterParseResult {
   body: string
   /**
    * The literal frontmatter block (opening `---`, YAML payload,
-   * closing `---`, plus the newlines that separate it from the
-   * body) as it appears in the input. Empty string when there is
-   * no frontmatter. Callers that edit only the body — e.g. the
-   * WikiEditor — write back `rawBlock + body` so user-managed YAML
-   * survives untouched.
+   * closing `---`, plus newlines separating it from body) as it appears in input.
+   * Empty string when no frontmatter exists.
+   * Callers editing only the body write back `rawBlock + body` to preserve
+   * user-managed YAML untouched.
    */
   rawBlock: string
 }
 
-// Strict, anchored detector. Both fence lines must be on their own
-// line; content between is delegated to js-yaml. Used as the first
-// step before falling back to the locator below.
+// Strict, anchored detector. Both fence lines must be on their own line.
 const FM_BLOCK_STRICT_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
-// Same shape as STRICT but unanchored — used only when STRICT
-// failed. LLM-generated pages often prepend an extra line or two
-// before the real frontmatter (a stray `\`\`\`yaml` wrapper line, a
-// `frontmatter:` key from a misformatted nested-document attempt,
-// etc.). Rather than enumerating every such prefix, we look for
-// the FIRST `---\n…\n---` block whose OPENING fence sits in the
-// top few lines. The closing fence can land anywhere — long
-// frontmatter lists are common — but capping the open-line means
-// a `---` horizontal rule used as a section divider deep in the
-// body can't be mistaken for frontmatter.
-const FM_BLOCK_ANYWHERE_RE = /\n---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
+// Unanchored version used when strict matching fails.
+// Handles LLM-generated pages that prepend stray lines before real frontmatter.
+const FM_BLOCK_ANYWHERE_RE = /
+---\s*\r?
+([\s\S]*?)\r?
+---\s*(?:\r?
+|$)/
 const MAX_PREFIX_LINES_BEFORE_FRONTMATTER = 6
 
+/**
+ * Parse a Markdown file's YAML frontmatter block.
+ * Returns parsed key-value pairs, body content, and raw block for round-trip preservation.
+ * Implements two-pass YAML parsing with wikilink list repair.
+ */
 export function parseFrontmatter(content: string): FrontmatterParseResult {
   const located = locateFrontmatterBlock(content)
   if (!located) return { frontmatter: null, body: content, rawBlock: "" }
 
   const { yamlPayload, rawBlock, body } = located
 
-  // Two-pass YAML parse: try the payload as-is first, then on
-  // failure run a single round of "wikilink-list" repair (LLMs
-  // sometimes emit `related: [[a]], [[b]], [[c]]` which is not
-  // valid YAML — wrap each `[[…]]` in quotes so it parses as a
-  // string list). This is the only fixup we apply; anything
-  // beyond that is reported as no-frontmatter.
+  // Two-pass YAML parse: try raw payload first, then apply wikilink repair
   let parsed: unknown
   try {
     parsed = yaml.load(yamlPayload, { schema: yaml.JSON_SCHEMA })
@@ -65,13 +70,15 @@ export function parseFrontmatter(content: string): FrontmatterParseResult {
 }
 
 /**
- * Find the first `---…---` frontmatter block. Strict (top-of-file)
- * match is preferred; if it fails we scan a small window for an
- * unanchored block, which lets us recover from common LLM-corrupted
- * pages that put a junk line or two before the real frontmatter
- * (e.g. wrapping the file in a code fence, or emitting
- * `frontmatter:\n---\n…\n---\n`). Returns null when neither finds
- * anything plausible.
+ * Locate the first `---…---` frontmatter block in content.
+ * 
+ * Strategy:
+ * 1. Try strict top-of-file match first
+ * 2. If fails, scan small window for unanchored block (handles LLM corruption)
+ * 3. Return null if neither finds plausible frontmatter
+ * 
+ * Key insight: opening fence must be within first few lines to exclude
+ * section-divider HRs deep in body, but frontmatter itself can be arbitrarily long.
  */
 function locateFrontmatterBlock(
   content: string,
@@ -85,17 +92,11 @@ function locateFrontmatterBlock(
     }
   }
 
-  // Scan the entire content (not just a head window) so a long
-  // frontmatter list still resolves. The lazy match picks the
-  // FIRST `---…---` pair, and we then guard against false
-  // positives by checking that the OPENING `---` is within the
-  // first few lines — that excludes section-divider HRs deep in
-  // the body without limiting how long the frontmatter itself
-  // can be.
+  // Fallback: scan entire content but guard against false positives
   const fallback = content.match(FM_BLOCK_ANYWHERE_RE)
   if (!fallback || fallback.index === undefined) return null
 
-  const openIdx = fallback.index + 1 // skip the leading `\n`
+  const openIdx = fallback.index + 1 // Skip leading `\n`
   if (lineNumberAt(content, openIdx) > MAX_PREFIX_LINES_BEFORE_FRONTMATTER) {
     return null
   }
@@ -103,14 +104,7 @@ function locateFrontmatterBlock(
   const rawBlock = content.slice(openIdx, openIdx + fallback[0].length - 1)
   const bodyAfterFm = content.slice(openIdx + rawBlock.length)
 
-  // If the prefix that pushed us into the fallback is a ```yaml /
-  // ```yml (or bare ```) code fence opener, strip the matching
-  // CLOSING fence at the head of the body too. Without this, a
-  // legacy LLM-corrupted page that wrapped its frontmatter in a
-  // code fence renders correctly up top (the parser still
-  // recovered the YAML) but the body opens with an orphan ```
-  // that ReactMarkdown treats as a never-closed code block —
-  // every heading / list / table below appears as raw source.
+  // Handle code fence wrapper cleanup (LLM artifact)
   const prefix = content.slice(0, openIdx)
   const prefixIsYamlFence = /^\s*```(?:yaml|yml)?\s*\r?\n$/i.test(prefix)
   if (prefixIsYamlFence) {
@@ -129,7 +123,7 @@ function locateFrontmatterBlock(
   }
 }
 
-/** 1-based line number that a given character index sits on. */
+/** Calculate 1-based line number for a given character index. */
 function lineNumberAt(s: string, index: number): number {
   let line = 1
   for (let i = 0; i < index && i < s.length; i++) {
@@ -139,19 +133,16 @@ function lineNumberAt(s: string, index: number): number {
 }
 
 /**
- * Repair a YAML payload where the author wrote a list of Obsidian
- * wikilinks without the outer brackets:
- *
- *     related: [[a]], [[b]], [[c]]
- *
- * which YAML rejects. We rewrite each line that matches that shape
- * into a quoted-string flow array so js-yaml can parse it:
- *
- *     related: ["[[a]]", "[[b]]", "[[c]]"]
- *
- * Only touches lines that look exactly like that pattern; anything
- * else is passed through unchanged so a legitimate nested-array
- * value (`tags: [[red, blue], [green]]`) isn't mangled.
+ * Repair YAML payloads with invalid wikilink list syntax.
+ * 
+ * Converts patterns like:
+ *   related: [[a]], [[b]], [[c]]
+ * 
+ * To valid YAML:
+ *   related: ["[[a]]", "[[b]]", "[[c]]"]
+ * 
+ * Only touches lines matching exact pattern to avoid mangling legitimate
+ * nested-array values like `tags: [[red, blue], [green]]`.
  */
 function repairWikilinkLists(payload: string): string {
   return payload
@@ -172,10 +163,15 @@ function repairWikilinkLists(payload: string): string {
 }
 
 /**
- * Coerce js-yaml's output into the shape FrontmatterPanel consumes:
- * a flat `Record<string, string | string[]>`. Nested objects and
- * scalars that aren't strings are stringified so unusual YAML
- * still surfaces in the UI rather than silently disappearing.
+ * Coerce js-yaml output into format consumed by FrontmatterPanel.
+ * 
+ * Transformations:
+ * - Nested objects/stringified
+ * - Non-string scalars stringified
+ * - Arrays mapped to string arrays
+ * - Null/undefined → empty string
+ * 
+ * Ensures all YAML data surfaces in UI rather than silently disappearing.
  */
 function normalize(parsed: unknown): Record<string, FrontmatterValue> | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
@@ -195,7 +191,7 @@ function stringifyScalar(v: unknown): string {
   if (typeof v === "string") return v
   if (typeof v === "number" || typeof v === "boolean") return String(v)
   if (v instanceof Date) return v.toISOString().slice(0, 10)
-  // Object / nested array → JSON so the user still sees something.
+  // Objects/nested arrays → JSON string to preserve visibility
   try {
     return JSON.stringify(v)
   } catch {

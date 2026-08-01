@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Info } from "lucide-react"
@@ -16,6 +19,31 @@ import type { NovelConfig } from "@/stores/wiki-store"
 interface Props {
   draft: SettingsDraft
   setDraft: DraftSetter
+}
+
+/** Standard toggle switch for novel settings rows. */
+function NovelToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+        checked ? "bg-primary" : "bg-input"
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </button>
+  )
 }
 
 export function NovelSection({ draft, setDraft }: Props) {
@@ -238,19 +266,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.autoIngestOnSave")}</Label>
               {settingTooltip("autoIngestOnSaveHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ autoIngestOnSave: !draft.novelConfig.autoIngestOnSave })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.autoIngestOnSave ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.autoIngestOnSave ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.autoIngestOnSave}
+              onChange={() => updateNovelConfig({ autoIngestOnSave: !draft.novelConfig.autoIngestOnSave })}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -258,19 +277,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.reviewBeforeSave")}</Label>
               {settingTooltip("reviewBeforeSaveHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ reviewBeforeSave: !draft.novelConfig.reviewBeforeSave })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.reviewBeforeSave ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.reviewBeforeSave ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.reviewBeforeSave}
+              onChange={() => updateNovelConfig({ reviewBeforeSave: !draft.novelConfig.reviewBeforeSave })}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -278,19 +288,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.deepPreviousChaptersAnalysis")}</Label>
               {settingTooltip("deepPreviousChaptersAnalysisHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ deepPreviousChaptersAnalysis: !draft.novelConfig.deepPreviousChaptersAnalysis })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.deepPreviousChaptersAnalysis ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.deepPreviousChaptersAnalysis ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.deepPreviousChaptersAnalysis}
+              onChange={() => updateNovelConfig({ deepPreviousChaptersAnalysis: !draft.novelConfig.deepPreviousChaptersAnalysis })}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -298,19 +299,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.deepChapterReview")}</Label>
               {settingTooltip("deepChapterReviewHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ deepChapterReview: !draft.novelConfig.deepChapterReview })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.deepChapterReview ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.deepChapterReview ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.deepChapterReview}
+              onChange={() => updateNovelConfig({ deepChapterReview: !draft.novelConfig.deepChapterReview })}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -344,19 +336,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.communitySummaryEnabled")}</Label>
               {settingTooltip("communitySummaryEnabledHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ communitySummaryEnabled: !draft.novelConfig.communitySummaryEnabled })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.communitySummaryEnabled ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.communitySummaryEnabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.communitySummaryEnabled}
+              onChange={() => updateNovelConfig({ communitySummaryEnabled: !draft.novelConfig.communitySummaryEnabled })}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -364,15 +347,10 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.temporalFactsEnabled")}</Label>
               {settingTooltip("temporalFactsEnabledHint")}
             </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ temporalFactsEnabled: !draft.novelConfig.temporalFactsEnabled })}
-              className={"relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors " + (draft.novelConfig.temporalFactsEnabled ? "bg-primary" : "bg-input")}
-            >
-              <span
-                className={"pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform " + (draft.novelConfig.temporalFactsEnabled ? "translate-x-5" : "translate-x-0")}
-              />
-            </button>
+            <NovelToggle
+              checked={draft.novelConfig.temporalFactsEnabled}
+              onChange={() => updateNovelConfig({ temporalFactsEnabled: !draft.novelConfig.temporalFactsEnabled })}
+            />
           </div>
 
           {draft.novelConfig.communitySummaryEnabled && (
@@ -399,19 +377,10 @@ export function NovelSection({ draft, setDraft }: Props) {
                   <Label>{t("novel.settings.communitySummaryAsync")}</Label>
                   {settingTooltip("communitySummaryAsyncHint")}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => updateNovelConfig({ communitySummaryAsync: !draft.novelConfig.communitySummaryAsync })}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    draft.novelConfig.communitySummaryAsync ? "bg-primary" : "bg-input"
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                      draft.novelConfig.communitySummaryAsync ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                <NovelToggle
+                  checked={draft.novelConfig.communitySummaryAsync}
+                  onChange={() => updateNovelConfig({ communitySummaryAsync: !draft.novelConfig.communitySummaryAsync })}
+                />
               </div>
             </>
           )}
@@ -436,12 +405,10 @@ export function NovelSection({ draft, setDraft }: Props) {
                         checked={isFollowingChat}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            // 勾选：清空模型值，跟随 AI 会话模型
                             updateNovelConfig({
                               [item.field]: "",
                             } as Partial<NovelConfig>)
                           } else {
-                        // 取消勾选：使用 AI 会话当前模型作为默认值，若为空则填入占位值让用户手动选择
                         updateNovelConfig({
                           [item.field]: aiChatModel || " ",
                         } as Partial<NovelConfig>)
@@ -538,22 +505,13 @@ export function NovelSection({ draft, setDraft }: Props) {
                 })}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
+            <NovelToggle
+              checked={draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove}
+              onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
                 currentChapterIncludeShouldImprove: !draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove,
               })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -573,22 +531,13 @@ export function NovelSection({ draft, setDraft }: Props) {
                 })}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
+            <NovelToggle
+              checked={draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled}
+              onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
                 previousChapterCarryEnabled: !draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled,
               })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3">
@@ -608,22 +557,13 @@ export function NovelSection({ draft, setDraft }: Props) {
                 })}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
+            <NovelToggle
+              checked={draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly}
+              onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
                 lookbackIncludeMustFixOnly: !draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly,
               })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+            />
           </div>
         </div>
       </div>

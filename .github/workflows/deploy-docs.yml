@@ -40,7 +40,7 @@ jobs:
         run: npm run build
         env:
           # site + base 已在 astro.config.mjs 固定，此处仅为显式
-          ASTRO_BASE: /niko-hub/
+          ASTRO_BASE: /niko-buddy/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

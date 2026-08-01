@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useCallback, useEffect, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -194,6 +197,8 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
     t,
   ])
 
+  const isBusy = testState?.loading || modelListState?.loading
+
   return (
     <div className="space-y-4">
       <div>
@@ -302,9 +307,9 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                 size="sm"
                 variant="outline"
                 onClick={() => void handleTestModel()}
-                disabled={testState?.loading || modelListState?.loading}
+                disabled={isBusy}
               >
-                {testState?.loading || modelListState?.loading
+                {isBusy
                   ? t("settings.sections.shared.testing")
                   : t("settings.sections.shared.testModel")}
               </Button>

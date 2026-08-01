@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,6 +19,54 @@ const PROVIDER_OPTIONS: Array<{ value: SettingsDraft["multimodalProvider"]; labe
   { value: "ollama", label: "Ollama" },
 ]
 
+/** Pill toggle switch used by multimodal settings rows. */
+function PillSwitch({
+  checked,
+  onChange,
+  label,
+  showTextState,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+  showTextState?: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`ml-3 flex shrink-0 items-center gap-2 ${showTextState ? "" : ""}`}
+    >
+      {showTextState && (
+        <span
+          className={`text-xs font-semibold ${
+            checked ? "text-primary" : "text-muted-foreground"
+          }`}
+        >
+          {checked
+            ? t("settings.sections.multimodal.stateOn", "ON")
+            : t("settings.sections.multimodal.stateOff", "OFF")}
+        </span>
+      )}
+      <span
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          checked ? "bg-primary" : "bg-muted"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+            checked ? "translate-x-4.5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+    </button>
+  )
+}
+
 export function MultimodalSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
 
@@ -31,17 +82,10 @@ export function MultimodalSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
-      {/* Master toggle. Off by default — captioning is a non-trivial
-          token spend (one VLM call per image), and silently turning
-          it on for every user the first time they import a PDF
-          would surprise the budget.
-
-          Note: the toggle row deliberately uses a 2-tier border +
-          a textual ON/OFF state next to the pill switch. An earlier
-          version had only the small pill and several users missed
-          it entirely — pills are subtle when surrounded by long
-          help text. The textual ON/OFF and the matching colored
-          ring make the current state unambiguous at a glance. */}
+      {/* Master enable toggle — captioning costs one VLM call per image,
+          so off by default to avoid surprising token spend. The row uses
+          a prominent border + textual ON/OFF indicator alongside the pill
+          switch for clarity. */}
       <div
         className={`flex items-center justify-between rounded-md border-2 p-3 transition-colors ${
           draft.multimodalEnabled
@@ -60,53 +104,18 @@ export function MultimodalSection({ draft, setDraft }: Props) {
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setDraft("multimodalEnabled", !draft.multimodalEnabled)}
-          role="switch"
-          aria-checked={draft.multimodalEnabled}
-          aria-label={t("settings.sections.multimodal.enableLabel", "Enable captioning at ingest")}
-          className="ml-3 flex shrink-0 items-center gap-2"
-        >
-          <span
-            className={`text-xs font-semibold ${
-              draft.multimodalEnabled ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            {draft.multimodalEnabled
-              ? t("settings.sections.multimodal.stateOn", "ON")
-              : t("settings.sections.multimodal.stateOff", "OFF")}
-          </span>
-          <span
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              draft.multimodalEnabled ? "bg-primary" : "bg-muted"
-            }`}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                draft.multimodalEnabled ? "translate-x-4.5" : "translate-x-0.5"
-              }`}
-            />
-          </span>
-        </button>
+        <PillSwitch
+          checked={draft.multimodalEnabled}
+          onChange={() => setDraft("multimodalEnabled", !draft.multimodalEnabled)}
+          label={t("settings.sections.multimodal.enableLabel", "Enable captioning at ingest")}
+          showTextState
+        />
       </div>
 
       {draft.multimodalEnabled && (
         <>
-          {/* "Use main LLM" toggle. Lets users with a single VL-capable
-              model in their main config save the trouble of typing
-              everything twice. The dedicated fields below show only
-              when this is OFF.
-
-              Layout: the text column needs `min-w-0 flex-1` so a
-              long help text wraps inside its column instead of
-              shoving the toggle off to the right (or worse,
-              forcing the row's intrinsic width past the parent).
-              Without this the row visibly broke in English where
-              the multi-clause hint sentence is much longer than
-              the equivalent CJK text. The toggle gets `shrink-0`
-              for the symmetric reason — never lose the toggle to
-              the text column. */}
+          {/* "Use main LLM" shortcut — saves duplicating config when the
+              primary model already supports vision input. */}
           <div className="flex items-center justify-between gap-3 rounded-md border p-3">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">
@@ -221,11 +230,9 @@ export function MultimodalSection({ draft, setDraft }: Props) {
             </div>
           )}
 
-          {/* Concurrency knob — practical impact: a 30-image PDF at
-              concurrency=1 with a 10s/image VLM is 5 minutes of
-              ingest wall time; concurrency=4 makes it ~75s. Going
-              wider than ~8 is rarely a win on a single-GPU server
-              that batches under the hood anyway. */}
+          {/* Concurrency limiter — too many parallel VLM calls on a
+              single-GPU server just causes queuing; 4 is a sensible
+              default, 8+ only for beefy or hosted endpoints. */}
           <div className="space-y-2 rounded-md border p-3">
             <Label>{t("settings.sections.multimodal.concurrency", "Concurrent caption requests")}</Label>
             <Input
@@ -247,7 +254,7 @@ export function MultimodalSection({ draft, setDraft }: Props) {
             </p>
           </div>
 
-          {/* Cost guardrail panel — mostly informational for now. */}
+          {/* Cost guardrails — informational panel. */}
           <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
             <div className="text-sm font-medium text-amber-700 dark:text-amber-400">
               {t("settings.sections.multimodal.costHeading", "Cost guardrails")}

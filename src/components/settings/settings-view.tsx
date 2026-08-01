@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bot,
@@ -52,9 +55,6 @@ type CategoryId =
 
 interface Category {
   id: CategoryId
-  /** i18n key under settings.categories — resolved at render time so
-   *  switching language in Settings → Interface takes effect without
-   *  remounting this component (Bug #53). */
   labelKey: string
   icon: typeof Bot
 }
@@ -90,14 +90,10 @@ function initialDraft(
   uiFontSizeScale: number,
   projectPath?: string,
 ): SettingsDraft {
-  // Show absolute path: if stored path is empty, show default using project path
-  // If stored path is relative (legacy), prepend project path
-  // If stored path is absolute, show as-is
   let displayPath = scheduledImport.path || ""
   if (!displayPath && projectPath) {
     displayPath = `${projectPath}/raw/sources`
   } else if (displayPath && projectPath && !displayPath.startsWith("/") && !displayPath.match(/^[a-zA-Z]:[/\\]/)) {
-    // Legacy relative path - prepend project path for display
     displayPath = `${projectPath}/${displayPath}`
   }
 
@@ -199,6 +195,7 @@ export function SettingsView() {
     ),
   )
 
+  // Sync active category from store (e.g. deep-link navigation)
   useEffect(() => {
     if (!activeSettingsCategory) return
     if (CATEGORIES.some((category) => category.id === activeSettingsCategory)) {
@@ -207,6 +204,7 @@ export function SettingsView() {
     setActiveSettingsCategory(null)
   }, [activeSettingsCategory, setActiveSettingsCategory])
 
+  // Load project-specific configs on project change
   useEffect(() => {
     let cancelled = false
     loadSourceWatchConfig(project?.id).then((config) => {
@@ -249,14 +247,8 @@ export function SettingsView() {
     }
   }, [project?.id, project?.path, setRerankConfig])
 
-  // Resync draft from store if it changes out-of-band (e.g. project switch).
-  // IMPORTANT: keep the current draft.uiLanguage instead of re-reading
-  // `i18n.language`. handleSave calls multiple zustand setters before it
-  // calls `i18n.changeLanguage` at the end, and each setter triggers this
-  // effect mid-save — which used to clobber the user's pending language
-  // pick with the still-stale `i18n.language`. The next save would then
-  // see draft.uiLanguage out of sync with i18n.language and silently
-  // revert the UI to the previous language.
+  // Resync draft when stores change (e.g. project switch). Keep the
+  // current draft.uiLanguage to avoid clobbering pending language picks.
   useEffect(() => {
     setDraftState((prev) =>
       initialDraft(
@@ -350,12 +342,6 @@ export function SettingsView() {
       azureApiVersion: draft.multimodalProvider === "azure" ? draft.multimodalAzureApiVersion.trim() : undefined,
       azureModelFamily: draft.multimodalProvider === "azure" ? draft.multimodalAzureModelFamily : undefined,
       apiMode: draft.multimodalProvider === "custom" ? draft.multimodalApiMode : undefined,
-      // Clamp at save time so a hand-edited persisted store with a
-      // ridiculous concurrency value (e.g. someone setting 1000 in
-      // the JSON) doesn't blow up the captioning pipeline. Caption
-      // calls already share the LLM endpoint with everything else;
-      // going wider than ~16 just queues behind the server's batch
-      // slot.
       concurrency: Math.max(1, Math.min(16, draft.multimodalConcurrency || 4)),
     }
 
@@ -388,10 +374,7 @@ export function SettingsView() {
         await stopProjectFileSync()
       }
     }
-    // Apply the proxy env vars LIVE so the next outbound request
-    // picks them up — no app restart needed. tauri-plugin-http
-    // builds a fresh reqwest client per fetch and reqwest reads
-    // env vars at build time, so changing them here is enough.
+    // Apply proxy env vars live so the next request picks them up
     try {
       if (isTauri()) {
         const { invoke } = await import("@tauri-apps/api/core")
@@ -491,8 +474,6 @@ export function SettingsView() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
-          pattern so the two navigational surfaces feel like one app. */}
       <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/30">
         <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
@@ -505,7 +486,7 @@ export function SettingsView() {
           {CATEGORIES.map((c) => {
             const Icon = c.icon
             const isActive = c.id === active
-            
+
             return (
               <button
                 key={c.id}
@@ -530,7 +511,6 @@ export function SettingsView() {
         </nav>
       </aside>
 
-      {/* Content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto px-8 py-6">
           <div className="mx-auto max-w-2xl">{body}</div>

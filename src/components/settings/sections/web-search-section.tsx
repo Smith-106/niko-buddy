@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -11,6 +14,7 @@ import {
 } from "@/stores/wiki-store"
 import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig } from "@/lib/web-search"
 
+/** Supported search provider definitions. */
 const SEARCH_PROVIDERS = [
   {
     id: "tavily",
@@ -35,6 +39,10 @@ const SEARCH_PROVIDERS = [
   },
 ] as const
 
+/**
+ * Web search provider configuration section for Deep Research.
+ * Supports Tavily, SerpApi, and self-hosted SearXNG instances.
+ */
 export function WebSearchSection() {
   const { t } = useTranslation()
   const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
@@ -43,12 +51,14 @@ export function WebSearchSection() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
 
+  /** Persist updated search config to store and disk. */
   async function persist(next: SearchApiConfig) {
     const { saveSearchApiConfig } = await import("@/lib/project-store")
     setSearchApiConfig(next)
     await saveSearchApiConfig(next)
   }
 
+  /** Update a single provider's override settings. */
   function updateProvider(id: Exclude<SearchProvider, "none">, patch: SearchProviderOverride) {
     const currentConfigs = resolvedConfig.providerConfigs ?? {}
     const merged = { ...(currentConfigs[id] ?? {}), ...patch }
@@ -62,6 +72,7 @@ export function WebSearchSection() {
     setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
   }
 
+  /** Toggle a provider between active and inactive. */
   function toggleActive(id: Exclude<SearchProvider, "none">) {
     const nextProvider = resolvedConfig.provider === id ? "none" : id
     persist(resolveSearchConfig({ ...resolvedConfig, provider: nextProvider })).catch(() => {})
@@ -91,6 +102,7 @@ export function WebSearchSection() {
                 isActive ? "border-primary/60 bg-primary/5" : "border-border"
               }`}
             >
+              {/* Provider header row */}
               <div className="flex items-center gap-3 px-3 py-2.5">
                 <button
                   type="button"
@@ -129,6 +141,7 @@ export function WebSearchSection() {
                   </div>
                 </button>
 
+                {/* Toggle switch */}
                 <button
                   type="button"
                   onClick={() => toggleActive(provider.id)}
@@ -147,6 +160,7 @@ export function WebSearchSection() {
                 </button>
               </div>
 
+              {/* Expanded config panel */}
               {isExpanded && (
                 <div className="space-y-4 border-t bg-background/50 px-4 py-3">
                   {provider.needsApiKey ? (
@@ -196,6 +210,7 @@ export function WebSearchSection() {
   )
 }
 
+/** SearXNG category multi-select picker. */
 function SearXngCategoryPicker({
   value,
   onChange,
@@ -240,6 +255,7 @@ function SearXngCategoryPicker({
   )
 }
 
+/** SerpApi search engine picker with custom URL support. */
 function SerpApiEnginePicker({
   value,
   onChange,

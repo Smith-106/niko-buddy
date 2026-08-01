@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Buddy Contributors
+
+//! Backup / restore subsystem.
+//!
+//! Provides zip-based project export and import with progress reporting,
+//! Zip Slip protection, and tauri-plugin-store integration for app state.
+
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -11,6 +19,8 @@ use zip::write::ZipWriter;
 use zip::CompressionMethod;
 
 use crate::panic_guard::run_guarded;
+
+// ── Public types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectBackupInfo {
@@ -99,12 +109,21 @@ pub struct BackupProgressPayload {
     pub message: String,
 }
 
+// ── Constants ───────────────────────────────────────────────────────────────
+
+/// Subdirectories inside each project that should be included in a backup.
 const PROJECT_SUBDIRS: &[&str] = &[".qmai", ".novel", "book-analysis", "raw"];
+
+/// Top-level project files to include in a backup.
 const PROJECT_FILES: &[&str] = &["soul.md", "schema.md", "purpose.md"];
 
-// 知识目录的可能名称（新版用 QM，旧版用 wiki），导出时统一以 wiki 名称存入 zip
+/// Possible on-disk names for the knowledge directory (new vs. legacy).
 const KNOWLEDGE_DIR_CANDIDATES: &[&str] = &["QM", "wiki"];
+
+/// Canonical name used inside the zip archive for the knowledge directory.
 const KNOWLEDGE_ZIP_NAME: &str = "wiki";
+
+// ── Internal helpers ────────────────────────────────────────────────────────
 
 fn emit_progress(
     app: &tauri::AppHandle,
@@ -117,15 +136,16 @@ fn emit_progress(
     let _ = app.emit(
         "backup-progress",
         BackupProgressPayload {
-            operation: operation.to_string(),
-            stage: stage.to_string(),
+            operation: operation.into(),
+            stage: stage.into(),
             current,
             total,
-            message: message.to_string(),
+            message: message.into(),
         },
     );
 }
 
+/// Replace the entire app-state store with the contents of `app_state_json`.
 fn restore_app_state_via_store(
     app: &tauri::AppHandle,
     app_state_json: &serde_json::Value,
@@ -151,6 +171,9 @@ fn restore_app_state_via_store(
     Ok(())
 }
 
+/// Recursively add every file under `base_dir` to the zip archive under
+/// `zip_prefix`.  Large files are streamed via `std::io::copy` to keep
+/// memory usage bounded.
 fn add_dir_to_zip(
     zip: &mut ZipWriter<fs::File>,
     base_dir: &Path,
@@ -158,20 +181,23 @@ fn add_dir_to_zip(
     file_count: &mut usize,
     warnings: &mut Vec<String>,
 ) -> Result<(), String> {
-    let options =
+    let opts =
         zip::write::SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    for entry in WalkDir::new(base_dir).into_iter() {
-        let entry = match entry {
+
+    for walk_entry in WalkDir::new(base_dir).into_iter() {
+        let entry = match walk_entry {
             Ok(e) => e,
             Err(e) => {
                 warnings.push(format!("备份遍历跳过: {}", e));
                 continue;
             }
         };
+
         let path = entry.path();
         if path == base_dir {
             continue;
         }
+
         let relative = path
             .strip_prefix(base_dir)
             .map_err(|e| format!("路径剥离失败: {e}"))?;
@@ -182,13 +208,12 @@ fn add_dir_to_zip(
         );
 
         if entry.file_type().is_dir() {
-            zip.add_directory(&zip_name, options)
+            zip.add_directory(&zip_name, opts)
                 .map_err(|e| format!("创建 zip 目录失败: {e}"))?;
         } else if entry.file_type().is_file() {
-            // 流式写入：逐块读取文件写入 zip，避免大文件全量读入内存
             let file = fs::File::open(path)
                 .map_err(|e| format!("打开文件失败 {}: {e}", path.display()))?;
-            zip.start_file(&zip_name, options)
+            zip.start_file(&zip_name, opts)
                 .map_err(|e| format!("创建 zip 文件条目失败: {e}"))?;
             let mut reader = std::io::BufReader::new(file);
             std::io::copy(&mut reader, zip).map_err(|e| format!("写入 zip 失败: {e}"))?;
@@ -198,6 +223,7 @@ fn add_dir_to_zip(
     Ok(())
 }
 
+/// Read a single named file from a zip archive, returning `None` if absent.
 fn extract_file_from_zip(
     archive: &mut zip::ZipArchive<fs::File>,
     name: &str,
@@ -214,19 +240,23 @@ fn extract_file_from_zip(
     }
 }
 
+/// Extract all entries under `zip_prefix` into `target_dir`, with
+/// Zip Slip protection via component-level path normalisation.
 fn extract_dir_from_zip(
     archive: &mut zip::ZipArchive<fs::File>,
     zip_prefix: &str,
     target_dir: &Path,
 ) -> Result<usize, String> {
-    let mut count = 0;
+    let mut written = 0usize;
+
+    // Collect matching entry names up front to avoid borrow issues.
     let names: Vec<String> = archive
         .file_names()
         .filter(|n| n.starts_with(zip_prefix))
         .map(|n| n.to_string())
         .collect();
 
-    // Zip Slip 防护：在循环外只调用一次 canonicalize，避免性能开销和 TOCTOU 风险
+    // Single canonicalize call — avoids per-entry TOCTOU overhead.
     let canonical_target = target_dir
         .canonicalize()
         .map_err(|e| format!("无法解析目标目录: {e}"))?;
@@ -238,15 +268,13 @@ fn extract_dir_from_zip(
             continue;
         }
 
-        let dest_path = target_dir.join(relative);
-
-        // 逐组件规范化路径，检测 .. 是否逃逸出 target_dir（不依赖文件存在性）
-        let mut normalized_dest = canonical_target.clone();
+        // Walk each component and reject any traversal that escapes target.
+        let mut safe_dest = canonical_target.clone();
         for component in Path::new(relative).components() {
             match component {
                 std::path::Component::ParentDir => {
-                    normalized_dest.pop();
-                    if !normalized_dest.starts_with(&canonical_target) {
+                    safe_dest.pop();
+                    if !safe_dest.starts_with(&canonical_target) {
                         return Err(format!(
                             "安全拦截：zip 条目 \"{}\" 试图写入目标目录之外的位置",
                             name
@@ -254,112 +282,113 @@ fn extract_dir_from_zip(
                     }
                 }
                 std::path::Component::CurDir => {}
-                other => normalized_dest.push(other),
+                other => safe_dest.push(other),
             }
         }
 
-        if !normalized_dest.starts_with(&canonical_target) {
+        if !safe_dest.starts_with(&canonical_target) {
             return Err(format!(
                 "安全拦截：zip 条目 \"{}\" 试图写入目标目录之外的位置 {}",
                 name,
-                normalized_dest.display()
+                safe_dest.display()
             ));
         }
 
+        // Directory entry — just create and move on.
         if name.ends_with('/') {
-            fs::create_dir_all(&dest_path)
-                .map_err(|e| format!("创建目录失败 {}: {e}", dest_path.display()))?;
+            fs::create_dir_all(&safe_dest)
+                .map_err(|e| format!("创建目录失败 {}: {e}", safe_dest.display()))?;
             continue;
         }
 
-        if let Some(parent) = dest_path.parent() {
+        // File entry — ensure parent dirs then write contents.
+        if let Some(parent) = safe_dest.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("创建父目录失败 {}: {e}", parent.display()))?;
         }
 
-        let mut file = archive
+        let mut zip_file = archive
             .by_name(&name)
             .map_err(|e| format!("打开 zip 内文件 {} 失败: {e}", name))?;
         let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut buf)
+        std::io::Read::read_to_end(&mut zip_file, &mut buf)
             .map_err(|e| format!("读取 zip 内文件 {} 失败: {e}", name))?;
-        fs::write(&dest_path, &buf)
-            .map_err(|e| format!("写入文件失败 {}: {e}", dest_path.display()))?;
-        count += 1;
+        fs::write(&safe_dest, &buf)
+            .map_err(|e| format!("写入文件失败 {}: {e}", safe_dest.display()))?;
+        written += 1;
     }
-    Ok(count)
+    Ok(written)
 }
 
-// ── Core logic (Tauri-agnostic) ──────────────────────────────────
+// ── Core export logic (Tauri-agnostic) ──────────────────────────────────────
 
-/// Core export backup logic.
-/// `app_state_path` is the path to `app-state.json` on disk.
-/// `on_progress` is called with progress payloads during the operation.
+/// Build a zip archive containing the full application backup.
+///
+/// * `params`          – what to export and where to write the zip.
+/// * `app_state_path`  – on-disk location of `app-state.json`.
+/// * `on_progress`     – callback invoked at each major stage.
 pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     params: ExportParams,
     app_state_path: &Path,
     on_progress: F,
 ) -> Result<ExportResult, String> {
     let save_path = Path::new(&params.save_path);
-    let total_projects = params.projects.len();
+    let total_steps = params.projects.len() + 2; // manifest + global + projects
 
     on_progress(&BackupProgressPayload {
-        operation: "export".to_string(),
-        stage: "preparing".to_string(),
+        operation: "export".into(),
+        stage: "preparing".into(),
         current: 0,
-        total: total_projects + 2,
-        message: "正在准备导出...".to_string(),
+        total: total_steps,
+        message: "正在准备导出...".into(),
     });
 
     let file = fs::File::create(save_path).map_err(|e| format!("无法创建备份文件: {e}"))?;
     let mut zip = ZipWriter::new(file);
-
     let mut file_count: usize = 0;
     let mut warnings: Vec<String> = Vec::new();
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated);
 
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-
-    // 1. manifest.json
+    // ── 1. manifest.json ────────────────────────────────────────────────────
     let manifest = BackupManifest {
         backup_version: 1,
         created_at: chrono::Utc::now().to_rfc3339(),
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        app_version: env!("CARGO_PKG_VERSION").into(),
         projects: params.projects.clone(),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| format!("序列化 manifest 失败: {e}"))?;
-    zip.start_file("manifest.json", options)
+    zip.start_file("manifest.json", opts)
         .map_err(|e| format!("写入 manifest 失败: {e}"))?;
     zip.write_all(manifest_json.as_bytes())
         .map_err(|e| format!("写入 manifest 失败: {e}"))?;
 
     on_progress(&BackupProgressPayload {
-        operation: "export".to_string(),
-        stage: "collecting".to_string(),
+        operation: "export".into(),
+        stage: "collecting".into(),
         current: 1,
-        total: total_projects + 2,
-        message: "正在收集全局配置...".to_string(),
+        total: total_steps,
+        message: "正在收集全局配置...".into(),
     });
 
-    // 2. global/app-state.json
-    zip.start_file("global/app-state.json", options)
+    // ── 2. global/app-state.json ────────────────────────────────────────────
+    zip.start_file("global/app-state.json", opts)
         .map_err(|e| format!("创建 app-state zip 条目失败: {e}"))?;
-
     if app_state_path.exists() {
-        let app_state_content = fs::read_to_string(app_state_path)
+        let state_bytes = fs::read(app_state_path)
             .map_err(|e| format!("读取 app-state.json 失败: {e}"))?;
-        zip.write_all(app_state_content.as_bytes())
+        zip.write_all(&state_bytes)
             .map_err(|e| format!("写入 app-state 到 zip 失败: {e}"))?;
         file_count += 1;
     } else {
         zip.write_all(b"{}")
             .map_err(|e| format!("写入空 app-state 失败: {e}"))?;
-        warnings.push("app-state.json 不存在，已写入空对象".to_string());
+        warnings.push("app-state.json 不存在，已写入空对象".into());
     }
 
-    // 3. global/local-storage.json
-    zip.start_file("global/local-storage.json", options)
+    // ── 3. global/local-storage.json ────────────────────────────────────────
+    zip.start_file("global/local-storage.json", opts)
         .map_err(|e| format!("创建 local-storage zip 条目失败: {e}"))?;
     let ls_json = serde_json::to_string_pretty(&params.local_storage_data)
         .map_err(|e| format!("序列化 localStorage 失败: {e}"))?;
@@ -367,24 +396,20 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
         .map_err(|e| format!("写入 local-storage 到 zip 失败: {e}"))?;
     file_count += 1;
 
-    // 4. project-registry.json
+    // ── 4. project-registry.json ────────────────────────────────────────────
     let registry_json = serde_json::json!({
         "projects": params.projects.iter().map(|p| {
-            serde_json::json!({
-                "id": p.id,
-                "path": p.path,
-                "name": p.name,
-            })
+            serde_json::json!({ "id": p.id, "path": p.path, "name": p.name })
         }).collect::<Vec<_>>()
     });
-    zip.start_file("project-registry.json", options)
+    zip.start_file("project-registry.json", opts)
         .map_err(|e| format!("创建 registry zip 条目失败: {e}"))?;
     let registry_str = serde_json::to_string_pretty(&registry_json)
         .map_err(|e| format!("序列化 registry 失败: {e}"))?;
     zip.write_all(registry_str.as_bytes())
         .map_err(|e| format!("写入 registry 到 zip 失败: {e}"))?;
 
-    // 5. 项目数据
+    // ── 5. Per-project data ─────────────────────────────────────────────────
     for (idx, project) in params.projects.iter().enumerate() {
         let project_path = Path::new(&project.path);
         if !project_path.exists() {
@@ -396,44 +421,45 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
         }
 
         on_progress(&BackupProgressPayload {
-            operation: "export".to_string(),
-            stage: "packing".to_string(),
+            operation: "export".into(),
+            stage: "packing".into(),
             current: idx + 2,
-            total: total_projects + 2,
+            total: total_steps,
             message: format!("正在打包项目: {}", project.name),
         });
 
         let zip_prefix = format!("projects/{}", project.id);
 
-        // 导出知识目录（优先 QM，兼容 wiki），统一以 wiki 名称存入 zip
-        for knowledge_dir in KNOWLEDGE_DIR_CANDIDATES {
-            let knowledge_path = project_path.join(knowledge_dir);
-            if knowledge_path.exists() && knowledge_path.is_dir() {
-                let zip_sub_prefix = format!("{}/{}", zip_prefix, KNOWLEDGE_ZIP_NAME);
+        // Knowledge directory (prefer QM, fall back to wiki; stored as wiki).
+        for candidate in KNOWLEDGE_DIR_CANDIDATES {
+            let candidate_path = project_path.join(candidate);
+            if candidate_path.is_dir() {
+                let sub_prefix = format!("{}/{}", zip_prefix, KNOWLEDGE_ZIP_NAME);
                 if let Err(e) = add_dir_to_zip(
                     &mut zip,
-                    &knowledge_path,
-                    &zip_sub_prefix,
+                    &candidate_path,
+                    &sub_prefix,
                     &mut file_count,
                     &mut warnings,
                 ) {
                     warnings.push(format!(
                         "复制项目 {} 的知识目录({})失败: {}",
-                        project.name, knowledge_dir, e
+                        project.name, candidate, e
                     ));
                 }
-                break; // 只导出第一个找到的知识目录
+                break; // only pack the first one found
             }
         }
 
+        // Other project subdirectories.
         for subdir in PROJECT_SUBDIRS {
             let subdir_path = project_path.join(subdir);
-            if subdir_path.exists() && subdir_path.is_dir() {
-                let zip_sub_prefix = format!("{}/{}", zip_prefix, subdir);
+            if subdir_path.is_dir() {
+                let sub_prefix = format!("{}/{}", zip_prefix, subdir);
                 if let Err(e) = add_dir_to_zip(
                     &mut zip,
                     &subdir_path,
-                    &zip_sub_prefix,
+                    &sub_prefix,
                     &mut file_count,
                     &mut warnings,
                 ) {
@@ -445,13 +471,14 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
             }
         }
 
+        // Top-level project files.
         for file_name in PROJECT_FILES {
             let file_path = project_path.join(file_name);
-            if file_path.exists() && file_path.is_file() {
+            if file_path.is_file() {
                 let data = fs::read(&file_path)
                     .map_err(|e| format!("读取文件失败 {}: {e}", file_path.display()))?;
-                let zip_name = format!("{}/{}", zip_prefix, file_name);
-                zip.start_file(&zip_name, options)
+                let entry_name = format!("{}/{}", zip_prefix, file_name);
+                zip.start_file(&entry_name, opts)
                     .map_err(|e| format!("创建 zip 文件条目失败: {e}"))?;
                 zip.write_all(&data)
                     .map_err(|e| format!("写入 zip 失败: {e}"))?;
@@ -461,11 +488,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     }
 
     on_progress(&BackupProgressPayload {
-        operation: "export".to_string(),
-        stage: "writing".to_string(),
-        current: total_projects + 2,
-        total: total_projects + 2,
-        message: "正在写入备份文件...".to_string(),
+        operation: "export".into(),
+        stage: "writing".into(),
+        current: total_steps,
+        total: total_steps,
+        message: "正在写入备份文件...".into(),
     });
 
     zip.finish()
@@ -474,11 +501,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     let total_size = fs::metadata(save_path).map(|m| m.len()).unwrap_or(0);
 
     on_progress(&BackupProgressPayload {
-        operation: "export".to_string(),
-        stage: "done".to_string(),
-        current: total_projects + 2,
-        total: total_projects + 2,
-        message: "导出完成".to_string(),
+        operation: "export".into(),
+        stage: "done".into(),
+        current: total_steps,
+        total: total_steps,
+        message: "导出完成".into(),
     });
 
     Ok(ExportResult {
@@ -490,9 +517,13 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     })
 }
 
-/// Core import backup logic.
-/// `app_state_dir` is the directory where `app-state.json` should be written to.
-/// `on_progress` is called with progress payloads during the operation.
+// ── Core import logic (Tauri-agnostic) ──────────────────────────────────────
+
+/// Restore application state and/or projects from a zip backup archive.
+///
+/// * `params`         – what to restore and from where.
+/// * `app_state_dir`  – directory where `app-state.json` should be written.
+/// * `on_progress`    – callback invoked at each major stage.
 pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     params: ImportParams,
     app_state_dir: &Path,
@@ -506,16 +537,16 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
             local_storage_data: None,
             projects: vec![],
             warnings: vec![],
-            error: Some("备份文件不存在".to_string()),
+            error: Some("备份文件不存在".into()),
         });
     }
 
     on_progress(&BackupProgressPayload {
-        operation: "import".to_string(),
-        stage: "preparing".to_string(),
+        operation: "import".into(),
+        stage: "preparing".into(),
         current: 0,
         total: 1,
-        message: "正在准备导入...".to_string(),
+        message: "正在准备导入...".into(),
     });
 
     let file = fs::File::open(zip_path).map_err(|e| format!("打开备份文件失败: {e}"))?;
@@ -527,8 +558,10 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     let mut local_storage_data: Option<serde_json::Value> = None;
     let mut project_results: Vec<ProjectRestoreResult> = Vec::new();
 
-    let mut manifest_projects: Vec<ProjectBackupInfo> = Vec::new();
-    if let Some(manifest_bytes) = extract_file_from_zip(&mut archive, "manifest.json")? {
+    // ── Read manifest ───────────────────────────────────────────────────────
+    let manifest_projects = if let Some(manifest_bytes) =
+        extract_file_from_zip(&mut archive, "manifest.json")?
+    {
         let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
             .map_err(|e| format!("解析 manifest.json 失败: {e}"))?;
         if manifest.backup_version > 1 {
@@ -537,11 +570,13 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
                 manifest.backup_version
             ));
         }
-        manifest_projects = manifest.projects;
+        manifest.projects
     } else {
-        warnings.push("备份文件缺少 manifest.json".to_string());
-    }
+        warnings.push("备份文件缺少 manifest.json".into());
+        vec![]
+    };
 
+    // ── Global restore ──────────────────────────────────────────────────────
     let need_global = matches!(
         params.strategy,
         ImportStrategy::Full | ImportStrategy::GlobalOnly
@@ -549,43 +584,49 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 
     if need_global {
         on_progress(&BackupProgressPayload {
-            operation: "import".to_string(),
-            stage: "restoring".to_string(),
+            operation: "import".into(),
+            stage: "restoring".into(),
             current: 0,
             total: 1,
-            message: "正在恢复全局配置...".to_string(),
+            message: "正在恢复全局配置...".into(),
         });
 
-        if let Some(app_state_bytes) = extract_file_from_zip(&mut archive, "global/app-state.json")?
+        // app-state.json
+        if let Some(state_bytes) =
+            extract_file_from_zip(&mut archive, "global/app-state.json")?
         {
-            let app_state_json: serde_json::Value = serde_json::from_slice(&app_state_bytes)
+            let state_json: serde_json::Value = serde_json::from_slice(&state_bytes)
                 .map_err(|e| format!("解析 app-state.json 失败: {e}"))?;
 
-            // 直接写入磁盘文件
-            fs::create_dir_all(app_state_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
-            let app_state_path = app_state_dir.join("app-state.json");
-            let app_state_str = serde_json::to_string_pretty(&app_state_json)
+            fs::create_dir_all(app_state_dir)
+                .map_err(|e| format!("创建数据目录失败: {e}"))?;
+            let state_path = app_state_dir.join("app-state.json");
+            let state_str = serde_json::to_string_pretty(&state_json)
                 .map_err(|e| format!("序列化 app-state 失败: {e}"))?;
-            fs::write(&app_state_path, app_state_str.as_bytes())
+            fs::write(&state_path, state_str.as_bytes())
                 .map_err(|e| format!("写入 app-state.json 失败: {e}"))?;
 
-            app_state = Some(app_state_json);
+            app_state = Some(state_json);
         }
 
-        if let Some(ls_bytes) = extract_file_from_zip(&mut archive, "global/local-storage.json")? {
+        // local-storage.json
+        if let Some(ls_bytes) =
+            extract_file_from_zip(&mut archive, "global/local-storage.json")?
+        {
             let ls_json: serde_json::Value = serde_json::from_slice(&ls_bytes)
                 .map_err(|e| format!("解析 local-storage.json 失败: {e}"))?;
             local_storage_data = Some(ls_json);
         }
     }
 
+    // ── Project restore ─────────────────────────────────────────────────────
     let need_projects = matches!(
         params.strategy,
         ImportStrategy::Full | ImportStrategy::Selective
     );
 
     if need_projects {
-        let projects_to_restore: Vec<(String, String, String)> = match &params.strategy {
+        let restore_targets: Vec<(String, String, String)> = match &params.strategy {
             ImportStrategy::Full => manifest_projects
                 .iter()
                 .map(|p| (p.id.clone(), p.path.clone(), p.name.clone()))
@@ -609,13 +650,14 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
             _ => vec![],
         };
 
-        let total = projects_to_restore.len();
+        let total = restore_targets.len();
 
-        for (idx, (project_id, target_path, project_name)) in projects_to_restore.iter().enumerate()
+        for (idx, (project_id, target_path, project_name)) in
+            restore_targets.iter().enumerate()
         {
             on_progress(&BackupProgressPayload {
-                operation: "import".to_string(),
-                stage: "restoring".to_string(),
+                operation: "import".into(),
+                stage: "restoring".into(),
                 current: idx + 1,
                 total: total.max(1),
                 message: format!("正在恢复项目: {}", project_name),
@@ -629,7 +671,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 
             match extract_dir_from_zip(&mut archive, &zip_prefix, target) {
                 Ok(_count) => {
-                    // 导入后自动迁移目录（wiki -> QM，.llm-wiki -> .qmai 等）
+                    // Auto-migrate legacy directory names after extraction.
                     if let Err(e) = crate::commands::project::migrate_project_dirs(target) {
                         warnings.push(format!("项目 {} 目录迁移失败: {}", project_name, e));
                     }
@@ -655,19 +697,17 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     }
 
     on_progress(&BackupProgressPayload {
-        operation: "import".to_string(),
-        stage: "done".to_string(),
+        operation: "import".into(),
+        stage: "done".into(),
         current: 1,
         total: 1,
-        message: "导入完成".to_string(),
+        message: "导入完成".into(),
     });
 
-    // 顶层 success：只有在没有任何项目恢复失败且无错误时才为 true
-    let any_project_failed = project_results.iter().any(|p| !p.success);
-    let overall_success = !any_project_failed;
+    let any_failed = project_results.iter().any(|p| !p.success);
 
     Ok(ImportResult {
-        success: overall_success,
+        success: !any_failed,
         app_state,
         local_storage_data,
         projects: project_results,
@@ -676,7 +716,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     })
 }
 
-// ── Tauri commands ───────────────────────────────────────────────
+// ── Tauri commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn export_backup(
@@ -684,7 +724,7 @@ pub async fn export_backup(
     params: ExportParams,
 ) -> Result<ExportResult, String> {
     run_guarded("export_backup", || {
-        // 先通过 plugin-store 保存，确保磁盘文件是最新内存状态
+        // Flush the plugin-store to disk first so the zip gets the latest state.
         let app_data_dir = app
             .path()
             .app_data_dir()
@@ -740,8 +780,8 @@ pub async fn import_backup(
             );
         })?;
 
-        // 通过 plugin-store API 恢复，确保内存中的缓存状态也被替换，
-        // 避免应用关闭/重启时旧状态覆盖导入的新状态。
+        // Re-hydrate the in-memory plugin-store so the app doesn't revert to
+        // the old state on next shutdown.
         if let Some(ref app_state_json) = result.app_state {
             restore_app_state_via_store(&app, app_state_json)?;
         }
@@ -750,10 +790,11 @@ pub async fn import_backup(
     })
 }
 
+// ── Tests ───────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
@@ -773,7 +814,9 @@ mod tests {
 
         let target = tmp.join("target");
         std::fs::create_dir_all(&target).unwrap();
-        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+
         let result = extract_dir_from_zip(&mut archive, "prefix/", &target);
         assert!(result.is_err(), "应拒绝路径遍历条目");
         let err = result.unwrap_err();
@@ -810,7 +853,9 @@ mod tests {
 
         let target = tmp.join("target");
         std::fs::create_dir_all(&target).unwrap();
-        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+
         let count = extract_dir_from_zip(&mut archive, "prefix/", &target).unwrap();
         assert_eq!(count, 2);
         assert!(target.join("chapter1.md").exists());

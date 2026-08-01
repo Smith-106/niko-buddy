@@ -1,20 +1,15 @@
 /**
- * Clean up user-entered LLM endpoint URLs. Catches the two most common
- * mistakes:
+ * Clean up user-entered LLM endpoint URLs.
  *
- *   1. User pastes the full path (e.g. ".../v1/chat/completions") — our
- *      dispatch would then append ANOTHER "/chat/completions" on top,
- *      producing a 404. Always strip trailing path segments that belong
- *      on the request, not on the base.
+ * Catches two common mistakes:
+ *   1. Pasting the full request path (e.g. `…/v1/chat/completions`) —
+ *      the dispatch layer appends the request path again, producing a 404.
+ *   2. Omitting the version segment (e.g. `https://host.com` with no `/v1`).
+ *      We flag it as a hint but never block saving.
  *
- *   2. User forgets the version segment entirely (e.g. "https://host.com"
- *      with no /v1). We can't auto-add it because providers use different
- *      segments (OpenAI `/v1`, Zhipu `/api/paas/v4`, Groq `/openai/v1`) —
- *      but we CAN flag it so the user sees the hint.
+ * Auto-fixes are deterministic; warnings explain what changed.
  *
- * Auto-fixes apply deterministically on blur; hints explain what happened.
- * Warnings are shown inline but never block saving — some self-hosted
- * gateways really do mount the API at a bare host.
+ * MIT License — independently implemented.
  */
 
 export type EndpointMode = "chat_completions" | "responses" | "anthropic_messages" | "azure"
@@ -28,26 +23,38 @@ export interface NormalizedEndpoint {
   warning?: string
 }
 
-// Path tails that are always wrong as a base URL and can be safely
-// stripped regardless of mode — these belong on the request, not on the
-// configured endpoint.
-const ALWAYS_WRONG_TAILS = /\/+(chat\/completions|responses|embeddings)\/?$/i
-// `/messages` is ambiguous: in anthropic_messages mode our dispatch uses
-// it verbatim when present, so we must preserve it. Only strip when the
-// configured mode is chat_completions.
-const MESSAGES_TAIL = /\/+messages\/?$/i
+/**
+ * Path tails that are always wrong as a base URL — they belong on the
+ * request, not on the configured endpoint.
+ */
+const REQUEST_PATH_TAILS = /\/+(chat\/completions|responses|embeddings)\/?$/i
 
+/**
+ * `/messages` is ambiguous: in anthropic_messages mode the dispatch
+ * uses it verbatim, so we must preserve it. Only strip in
+ * chat_completions mode.
+ */
+const MESSAGES_PATH_TAIL = /\/+messages\/?$/i
+
+import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
+
+/**
+ * Normalize a raw endpoint URL entered by the user.
+ *
+ * @param raw   The user-entered URL (may include trailing paths/slashes).
+ * @param mode  The API mode that determines which tails to strip.
+ * @returns     Cleaned URL with change flag and optional warning.
+ */
 export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEndpoint {
   const trimmed = (raw ?? "").trim()
   if (!trimmed) return { normalized: "", changed: false }
 
-  // Detect missing protocol — we never auto-add https:// because that
-  // would mask the user's typo; just flag it.
-  const missingProtocol = !/^https?:\/\//i.test(trimmed)
-  if (missingProtocol) {
+  // Flag missing protocol — never auto-prepend https://.
+  if (!/^https?:\/\//i.test(trimmed)) {
+    const stripped = trimmed.replace(/\/+$/, "")
     return {
-      normalized: trimmed.replace(/\/+$/, ""),
-      changed: trimmed !== trimmed.replace(/\/+$/, ""),
+      normalized: stripped,
+      changed: stripped !== trimmed,
       warning: "接口地址需要以 http:// 或 https:// 开头。",
     }
   }
@@ -55,29 +62,22 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
   let url = trimmed
   const notes: string[] = []
 
-  // Sanity-check the URL can be parsed at all. `new URL(...)` catches
-  // typos like five-octet IPs ("192.168.1.1.50"), triple-t protocols
-  // ("htttp://"), stray backslashes, and similar paste mistakes that
-  // would otherwise only be diagnosed at request time by the HTTP
-  // client — a much worse user experience. Emit the warning up front
-  // and still return whatever we've got so the input field behaves.
+  // Validate the URL can be parsed at all.
   let parsed: URL | null = null
   try {
     parsed = new URL(trimmed)
   } catch {
+    const stripped = trimmed.replace(/\/+$/, "")
     return {
-      normalized: trimmed.replace(/\/+$/, ""),
-      changed: trimmed !== trimmed.replace(/\/+$/, ""),
+      normalized: stripped,
+      changed: stripped !== trimmed,
       warning: "接口地址格式不正确，请检查域名、端口或路径是否填写错误。",
     }
   }
 
-  // Also catch IPv4-shaped hostnames with too many / too few octets
-  // — these parse fine as generic DNS names but will fail at lookup.
-  // If the hostname looks IP-shaped but isn't a valid IPv4, flag it.
+  // Catch IPv4-shaped hostnames with invalid octet counts/ranges.
   const host = parsed.hostname
-  const looksNumericDotted = /^\d+(?:\.\d+)+$/.test(host)
-  if (looksNumericDotted) {
+  if (/^\d+(?:\.\d+)+$/.test(host)) {
     const octets = host.split(".")
     const validIpv4 =
       octets.length === 4 &&
@@ -92,12 +92,10 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
     }
   }
 
-  // Strip trailing slashes (cheap, always safe)
+  // Strip trailing slashes (always safe).
   url = url.replace(/\/+$/, "")
 
-  // Azure OpenAI uses resource/deployment URLs and an api-version query
-  // parameter configured separately, so keep deployment paths but strip
-  // the final request suffix.
+  // Azure mode: keep deployment paths but strip request suffixes.
   if (mode === "azure" || isAzureOpenAiEndpoint(url)) {
     try {
       const u = new URL(url)
@@ -121,34 +119,28 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
     }
   }
 
-  // Strip request-path tails users paste by accident. Works in both
-  // modes for /chat/completions and /embeddings (wrong shape for either
-  // wire). /messages is only wrong in chat_completions mode — in
-  // anthropic_messages mode the dispatch uses it verbatim.
-  if (ALWAYS_WRONG_TAILS.test(url)) {
-    const match = url.match(ALWAYS_WRONG_TAILS)
-    url = url.replace(ALWAYS_WRONG_TAILS, "")
+  // Strip request-path tails users commonly paste by accident.
+  if (REQUEST_PATH_TAILS.test(url)) {
+    const match = url.match(REQUEST_PATH_TAILS)
+    url = url.replace(REQUEST_PATH_TAILS, "")
     if (match) notes.push(`已移除末尾的 "${match[0].replace(/^\/+/, "").replace(/\/+$/, "")}"；这部分会在请求时自动追加，不需要写在基础地址里。`)
-  } else if (mode === "chat_completions" && MESSAGES_TAIL.test(url)) {
-    const match = url.match(MESSAGES_TAIL)
-    url = url.replace(MESSAGES_TAIL, "")
+  } else if (mode === "chat_completions" && MESSAGES_PATH_TAIL.test(url)) {
+    const match = url.match(MESSAGES_PATH_TAIL)
+    url = url.replace(MESSAGES_PATH_TAIL, "")
     if (match) notes.push(`已移除末尾的 "${match[0].replace(/^\/+/, "").replace(/\/+$/, "")}"；这是 Anthropic 兼容路径，不是 OpenAI 兼容基础地址。`)
   }
 
-  // After stripping, check for the "bare host, no version segment" case.
-  // Only hint for chat_completions — anthropic_messages endpoints sit at
-  // various non-/v1 paths (MiniMax `/anthropic`, Anthropic native `/`)
-  // and we can't reliably flag them.
+  // Flag missing version segment for OpenAI-compatible modes.
   if (mode === "chat_completions" || mode === "responses") {
     try {
       const u = new URL(url)
       const pathname = u.pathname.replace(/\/+$/, "")
-      const hasVersionSegment = /\/(v\d+|paas\/v\d+|openai\/v\d+|api\/v\d+)$/i.test(pathname)
-      if (!hasVersionSegment && !notes.length) {
+      const hasVersion = /\/(v\d+|paas\/v\d+|openai\/v\d+|api\/v\d+)$/i.test(pathname)
+      if (!hasVersion && !notes.length) {
         notes.push("接口地址缺少版本路径，例如 /v1。请根据服务商文档确认正确的接口地址。")
       }
     } catch {
-      // Malformed URL — leave alone, browser will fail loudly at fetch time.
+      // Malformed — leave as-is, fetch will fail at request time.
     }
   }
 
@@ -159,4 +151,3 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
     warning: notes.length ? notes.join(" ") : undefined,
   }
 }
-import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"

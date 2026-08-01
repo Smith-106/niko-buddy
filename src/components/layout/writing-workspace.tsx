@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import { PreviewPanel } from "./preview-panel"
 import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
@@ -102,7 +105,7 @@ export function WritingWorkspace() {
           onMouseDown={startHorizontalResize}
         />
         <div className="h-full min-h-0 shrink-0 overflow-hidden border-l bg-background" style={{ width: chatWidth }}>
-          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载中...</div>}>
             <ChatPanel />
           </Suspense>
         </div>
@@ -122,7 +125,7 @@ export function WritingWorkspace() {
             onMouseDown={startResize}
           />
           <div className="shrink-0 overflow-hidden border-t bg-background" style={{ height: chatHeight }}>
-            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载中...</div>}>
               <ChatPanel />
             </Suspense>
           </div>

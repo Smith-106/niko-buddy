@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import type { AzureModelFamily } from "@/stores/wiki-store"
 
 /**
@@ -33,24 +36,22 @@ export interface LlmPreset {
   /** Suggested base URL. `customEndpoint` for custom, `ollamaUrl` for ollama, ignored for built-ins. */
   baseUrl?: string
   /**
-   * For vendors that serve the same model catalog over both an OpenAI-
-   * compatible and an Anthropic-compatible endpoint at different URLs
-   * (e.g. Alibaba Bailian Coding Plan), list the URL per wire mode.
+   * Per-wire-mode base URLs for vendors that serve the same catalog
+   * on both OpenAI-compatible and Anthropic-compatible endpoints.
    * The settings UI auto-swaps `baseUrl` when the user flips the API
-   * mode toggle — so one preset covers both protocols instead of two.
+   * mode toggle — so one preset covers both protocols.
    */
   baseUrlByMode?: Partial<Record<CustomApiMode, string>>
   /** Suggested default model; user can override. */
   defaultModel?: string
-  /** Azure OpenAI api-version query parameter. Azure deployments vary by resource. */
+  /** Azure OpenAI api-version query parameter. */
   azureApiVersion?: string
-  /** Azure deployment names are arbitrary, so users can declare GPT-5/o-series behavior explicitly. */
+  /** Azure deployment names are arbitrary. */
   azureModelFamily?: AzureModelFamily
   /**
-   * Curated list of model ids the UI shows as clickable chips above the
-   * Model input. The user can still type a custom value — the input stays
-   * free-form. An empty/missing list means "no suggestions, type freely"
-   * (e.g. Ollama Local where the model set is whatever the user pulled).
+   * Curated model ids shown as clickable chips above the Model input.
+   * The user can still type a custom value. An empty/missing list
+   * means "no suggestions, type freely".
    */
   suggestedModels?: string[]
   /** Custom providers only: which wire protocol to speak. */
@@ -73,8 +74,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Official Claude API",
     provider: "anthropic",
     defaultModel: "claude-sonnet-4-5-20250929",
-    // Cross-referenced with hermes-agent/hermes_cli/models.py:233-242.
-    // Both shortened and dated aliases work on api.anthropic.com.
     suggestedModels: [
       "claude-opus-4-7",
       "claude-opus-4-6",
@@ -94,9 +93,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Uses the local `claude` binary — no API key needed",
     provider: "claude-code",
     defaultModel: "claude-sonnet-4-6",
-    // Mirrors anthropic preset; the CLI forwards to the same Anthropic
-    // backend, so model ids are identical. Users with a subscription
-    // can pick Opus/Sonnet/Haiku here without paying an API key bill.
     suggestedModels: [
       "claude-opus-4-7",
       "claude-opus-4-6",
@@ -127,8 +123,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Official OpenAI API",
     provider: "openai",
     defaultModel: "gpt-4o",
-    // Current public GPT models on api.openai.com. Reasoning models and
-    // the 4.1 family are both exposed under the chat/completions route.
     suggestedModels: [
       "gpt-4o",
       "gpt-4o-mini",
@@ -149,7 +143,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Generative Language API",
     provider: "google",
     defaultModel: "gemini-2.5-flash",
-    // 2.5 generation is the current stable; 2.0 kept as fallback.
     suggestedModels: [
       "gemini-2.5-pro",
       "gemini-2.5-flash",
@@ -179,10 +172,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.deepseek.com/v1",
     defaultModel: "deepseek-v4-flash",
     apiMode: "chat_completions",
-    // `deepseek-chat` and `deepseek-reasoner` remain selectable for
-    // existing users, but DeepSeek has announced deprecation on
-    // 2026-07-24. Keep chip values as exact model ids so clicking a
-    // suggestion can be copied directly into the request body.
     suggestedModels: [
       "deepseek-v4-flash",
       "deepseek-v4-pro",
@@ -199,7 +188,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
     apiMode: "chat_completions",
-    // Groq hosts open-weight models; list stays current-practical picks.
     suggestedModels: [
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",
@@ -240,23 +228,14 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     provider: "custom",
     baseUrl: "https://integrate.api.nvidia.com/v1",
     apiMode: "chat_completions",
-    // NVIDIA's build.nvidia.com hosts both their own Nemotron family
-    // and a rotating catalog of popular third-party open-weight models
-    // behind the same OpenAI-compatible endpoint. API key is issued
-    // per-user from build.nvidia.com. Full catalog is huge and
-    // changes often — this is a practical subset; users can type any
-    // other id into the custom input.
     defaultModel: "meta/llama-3.3-70b-instruct",
     suggestedModels: [
-      // NVIDIA's own reasoning / agentic models
       "nvidia/llama-3.3-nemotron-super-49b-v1.5",
       "nvidia/nemotron-3-super-120b-a12b",
       "nvidia/nemotron-3-nano-30b-a3b",
-      // Meta Llama family
       "meta/llama-3.3-70b-instruct",
       "meta/llama-3.1-405b-instruct",
       "meta/llama-3.1-70b-instruct",
-      // Popular third-party agentic / open-weight
       "deepseek-ai/deepseek-v3.2",
       "moonshotai/kimi-k2.6",
       "qwen/qwen3.5-397b-a17b",
@@ -264,7 +243,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "minimaxai/minimax-m2.5",
       "z-ai/glm5",
       "openai/gpt-oss-120b",
-      // Mistral family
       "mistralai/mixtral-8x22b-instruct",
       "mistralai/mistral-large-2-instruct",
     ],
@@ -278,10 +256,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.moonshot.ai/v1",
     defaultModel: "kimi-k2.6",
     apiMode: "chat_completions",
-    // Current Moonshot lineup. The older `moonshot-v1-*` and
-    // `kimi-k2-0905-preview` / `-turbo-preview` ids are being
-    // deprecated on 2026-05-25 and dropped from the picker already —
-    // users who still need them can type the id into the custom input.
     suggestedModels: [
       "kimi-k2.6",
       "kimi-k2.5",
@@ -314,11 +288,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.kimi.com/coding/",
     defaultModel: "kimi-for-coding",
     apiMode: "chat_completions",
-    // Kimi Coding Plan is a separate subscription service from the
-    // Moonshot open platform. It supports both OpenAI-compatible
-    // (chat_completions) and Anthropic-compatible (anthropic_messages)
-    // wires on the same base URL. The Anthropic wire requires Bearer
-    // auth (see requiresBearerAuth in llm-providers.ts).
     suggestedModels: ["kimi-for-coding"],
     suggestedContextSize: 256000,
   },
@@ -330,9 +299,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultModel: "glm-4.6",
     apiMode: "chat_completions",
-    // Current Zhipu BigModel lineup on /api/paas/v4/chat/completions.
-    // Vision-capable models use the same OpenAI-compatible image_url
-    // content blocks as our generic chat-completions wire.
     suggestedModels: [
       "glm-5.1",
       "glm-5-turbo",
@@ -366,10 +332,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.minimax.io/anthropic",
     defaultModel: "MiniMax-M3",
     apiMode: "anthropic_messages",
-    // M3 is the current-gen default; M2.7 stays as a fallback for users
-    // pinned to it. Older M2.5 / M2.1 / M2 are legacy and have been
-    // dropped — users who still need them can type the id into the
-    // custom input.
     suggestedModels: ["MiniMax-M3", "MiniMax-M2.7"],
     suggestedContextSize: 200000,
   },
@@ -389,20 +351,12 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "阿里百炼 Coding Plan",
     hint: "coding.dashscope.aliyuncs.com",
     provider: "custom",
-    // Default wire is OpenAI-compat. Flipping the "API 模式" toggle to
-    // Anthropic-compat auto-swaps the base URL via baseUrlByMode below,
-    // so users don't have to know the two URLs exist.
     baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
     apiMode: "chat_completions",
     baseUrlByMode: {
       chat_completions: "https://coding.dashscope.aliyuncs.com/v1",
       anthropic_messages: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
     },
-    // Bailian's subscription-only "Coding Plan" exposes the same model
-    // catalog on both wires. Key must come from the Bailian console's
-    // Coding Plan tab — a regular DashScope key will 401. The
-    // Anthropic-compat path uses Bearer auth (see requiresBearerAuth
-    // in llm-providers.ts), matching the MiniMax gateway convention.
     defaultModel: "qwen3.6-plus",
     suggestedModels: [
       "qwen3.6-plus",
@@ -428,11 +382,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       chat_completions: "https://token-plan-cn.xiaomimimo.com/v1",
       anthropic_messages: "https://token-plan-cn.xiaomimimo.com/anthropic",
     },
-    // Official OpenAI-compatible endpoint at api.xiaomimimo.com/v1.
-    // Token Plan users can switch API mode to the CN OpenAI/Anthropic
-    // gateways above. MiMo V2.5 Pro / Omni advertise 1M context;
-    // Flash remains the low-cost 256K option. Older v2 ids stay
-    // selectable for existing users and gateway deployments.
     defaultModel: "mimo-v2.5-pro",
     suggestedModels: [
       "mimo-v2.5-pro",
@@ -448,17 +397,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "火山引擎 Ark (Volcengine)",
     hint: "ark.cn-beijing.volces.com/api/coding/v3",
     provider: "custom",
-    // Volcengine Ark's "coding" product line mandates this exact base URL
-    // per their official docs. Their other OpenAI-compat base (api/v3) is
-    // not a valid substitute. This endpoint rejects browser-origin fetch
-    // via CORS (allow-headers omits `authorization`), so LLM calls route
-    // through Tauri's HTTP plugin — see src/lib/llm-client.ts.
     baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
     apiMode: "chat_completions",
-    // Exact model catalog Volcengine's Coding product line accepts on
-    // this endpoint. The older `doubao-*-1-5-*` / `doubao-seed-1-6-*` /
-    // `deepseek-v3-250324` ids that work on the general Ark endpoints
-    // are NOT available here and will 400.
     defaultModel: "Doubao-Seed-2.0-Code",
     suggestedModels: [
       "Doubao-Seed-2.0-Code",
@@ -478,8 +418,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Self-hosted llama.cpp / Ollama",
     provider: "ollama",
     baseUrl: "http://localhost:11434",
-    // Intentionally no suggestedModels: local set depends on what the
-    // user has actually pulled / loaded. Kept as free-text input.
     suggestedContextSize: 32768,
   },
   {
@@ -489,7 +427,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     provider: "custom",
     baseUrl: "https://ollama.com/v1",
     apiMode: "chat_completions",
-    // Ollama Cloud catalog rotates frequently — keep short common picks.
     suggestedModels: [
       "gpt-oss:120b",
       "gpt-oss:20b",
@@ -504,11 +441,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "Custom",
     hint: "Any OpenAI- or Anthropic-compatible endpoint",
     provider: "custom",
-    // Wire protocol is chosen via the "API 模式" toggle in the expanded
-    // panel — no need for separate presets per mode. User supplies the
-    // base URL manually (no baseUrlByMode: nothing we can auto-fill).
     apiMode: "chat_completions",
-    // No suggestedModels: user knows what their gateway exposes.
   },
 ]
 
@@ -517,9 +450,9 @@ export const LLM_PRESETS: LlmPreset[] = RAW_LLM_PRESETS.filter(
 )
 
 /**
- * Best-effort reverse lookup: given the current LlmConfig fields, which
- * preset does it most likely correspond to? Used so the dropdown can
- * show the user what they're effectively on.
+ * Reverse lookup: given the current LlmConfig fields, determine which
+ * preset it most likely corresponds to. Used so the dropdown can show
+ * the user what they're effectively on.
  */
 export function matchPreset(params: {
   provider: Provider
@@ -533,7 +466,7 @@ export function matchPreset(params: {
   for (const preset of LLM_PRESETS) {
     if (preset.provider !== provider) continue
     if (provider === "custom") {
-      if (!preset.baseUrl) continue // skip the generic Custom catch-alls
+      if (!preset.baseUrl) continue
       if (norm(preset.baseUrl) !== norm(customEndpoint)) continue
       if ((preset.apiMode ?? "chat_completions") !== (apiMode ?? "chat_completions"))
         continue

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Studio Contributors
+// Book analysis task lifecycle store — manages ingestion, character extraction and recognition.
+
 import { create } from "zustand"
 import type {
   BookAnalysisTask,
@@ -14,6 +18,7 @@ import { normalizePath } from "@/lib/path-utils"
 
 type BookAnalysisChapterSummary = NonNullable<BookAnalysisTask["chapters"]>[number]
 
+/** Full state surface for the book analysis feature. */
 export interface BookAnalysisState {
   tasks: BookAnalysisTask[]
   currentTaskId: string | null
@@ -21,13 +26,13 @@ export interface BookAnalysisState {
   currentResult: BookAnalysisResult | null
   showResultViewer: boolean
 
-  // 角色识别（feature/character-recognition-and-simple-mode）
+  // Character recognition state (feature/character-recognition-and-simple-mode)
   recognitionStatus: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error"
   recognizedCharacters: RecognizedCharacter[]
   selectedCharacterIds: string[]
   recognitionError?: string
 
-  // 任务管理
+  // Task lifecycle
   startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string
   updateTaskBookData: (taskId: string, bookId: string, chapters: BookAnalysisChapterSummary[], bookPath?: string) => void
   updateTaskProgress: (taskId: string, progress: Partial<BookAnalysisProgress>) => void
@@ -42,39 +47,64 @@ export interface BookAnalysisState {
   errorTask: (taskId: string, error: string) => void
   removeTask: (taskId: string) => void
 
-  // 结果查看
+  // Result viewer
   setSelectedResult: (projectPath: string | null) => void
   setCurrentResult: (result: BookAnalysisResult | null) => void
   setShowResultViewer: (show: boolean) => void
 
-  // 拆书库作品选中（侧栏与主面板共享）
+  // Sidebar book selection
   selectedLibraryBookId: string | null
   setSelectedLibraryBookId: (id: string | null) => void
 
-  // 侧栏刷新触发器（导入/删除作品后递增，侧栏监听此值自动刷新）
+  // Sidebar refresh trigger
   sidebarRefreshCounter: number
   triggerSidebarRefresh: () => void
 
-  // 角色识别完成待处理：记录后台识别完成的 taskId，主面板据此恢复"角色选择"面板
+  // Recognition completion pending signal
   pendingRecognitionTaskId: string | null
   requestReopenChapterSelection: (taskId: string) => void
   consumeReopenRequest: () => string | null
 
-  // 角色识别 actions（feature/character-recognition-and-simple-mode）
+  // Character recognition actions
   setRecognitionStatus: (status: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error") => void
   setRecognizedCharacters: (characters: RecognizedCharacter[]) => void
   setSelectedCharacterIds: (ids: string[]) => void
   setRecognitionError: (error?: string) => void
   clearRecognition: () => void
 
-  // 查询
+  // Query helpers
   getTask: (taskId: string) => BookAnalysisTask | null
   getTaskByProject: (projectPath: string) => BookAnalysisTask | null
   getCurrentTask: () => BookAnalysisTask | null
 }
 
-let taskIdCounter = 0
+/** Counter for unique task identifiers. */
+let analysisSeq = 0
 
+/**
+ * Applies a patch to the task matching `taskId`, updating its
+ * `updatedAt` timestamp. Returns the original state if no match.
+ */
+function patchTask(
+  tasks: BookAnalysisTask[],
+  taskId: string,
+  patch: Partial<BookAnalysisTask>,
+): BookAnalysisTask[] {
+  return tasks.map((t) =>
+    t.id === taskId ? { ...t, ...patch, updatedAt: Date.now() } : t
+  )
+}
+
+/** Clears `currentTaskId` when it equals the given id, otherwise leaves it unchanged. */
+function clearIfCurrent(currentTaskId: string | null, taskId: string): string | null {
+  return currentTaskId === taskId ? null : currentTaskId
+}
+
+/**
+ * Zustand store managing the full book analysis lifecycle: file reading,
+ * chapter extraction, character/skill recognition, style profiling, and
+ * result viewer state. Supports concurrent tasks across multiple projects.
+ */
 export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   tasks: [],
   currentTaskId: null,
@@ -82,28 +112,23 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   currentResult: null,
   showResultViewer: false,
 
-  // 拆书库作品选中
   selectedLibraryBookId: null,
   sidebarRefreshCounter: 0,
 
-  // 角色识别初始 state（feature/character-recognition-and-simple-mode）
   recognitionStatus: "idle",
   recognizedCharacters: [],
   selectedCharacterIds: [],
   recognitionError: undefined,
 
-  // 角色识别完成待处理
   pendingRecognitionTaskId: null,
 
-  startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => {
+  startTask: (projectPath, config, abortController) => {
     const now = Date.now()
-    const taskId = `book-analysis-${++taskIdCounter}-${now}`
+    const taskId = `book-analysis-${++analysisSeq}-${now}`
     const normalizedPath = normalizePath(projectPath)
-
-    // 生成 bookId（基于源文件路径的哈希或时间戳）
     const bookId = `book-${now}`
 
-    const newTask: BookAnalysisTask = {
+    const task: BookAnalysisTask = {
       id: taskId,
       projectPath: normalizedPath,
       bookId,
@@ -118,200 +143,121 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
       status: "running",
       startedAt: now,
       updatedAt: now,
-      abortController,  // 存储 AbortController
+      abortController,
       chapters: [],
       characters: [],
       skills: [],
     }
 
-    set((state) => ({
-      tasks: [newTask, ...state.tasks],
+    set((prev) => ({
+      tasks: [task, ...prev.tasks],
       currentTaskId: taskId,
     }))
-
     return taskId
   },
 
-  updateTaskBookData: (taskId: string, bookId: string, chapters: BookAnalysisChapterSummary[], bookPath?: string) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, bookId, chapters, ...(bookPath ? { bookPath } : {}), updatedAt: Date.now() }
-          : task
-      ),
+  updateTaskBookData: (taskId, bookId, chapters, bookPath) => {
+    const extra = bookPath ? { bookPath } : {}
+    set((prev) => ({
+      tasks: patchTask(prev.tasks, taskId, { bookId, chapters, ...extra }),
     }))
   },
 
-  updateTaskProgress: (taskId: string, progressUpdate: Partial<BookAnalysisProgress>) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              progress: { ...task.progress, ...progressUpdate },
-              updatedAt: Date.now(),
-            }
-          : task
+  updateTaskProgress: (taskId, progressPatch) =>
+    set((prev) => ({
+      tasks: prev.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, progress: { ...t.progress, ...progressPatch }, updatedAt: Date.now() }
+          : t
       ),
-    }))
-  },
+    })),
 
-  updateTaskMetadata: (taskId: string, metadata: BookAnalysisMetadata) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, metadata, updatedAt: Date.now() }
-          : task
-      ),
-    }))
-  },
+  updateTaskMetadata: (taskId, metadata) =>
+    set((prev) => ({ tasks: patchTask(prev.tasks, taskId, { metadata }) })),
 
-  updateTaskCharacters: (taskId: string, characters: ExtractedCharacter[]) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, characters, updatedAt: Date.now() }
-          : task
-      ),
-    }))
-  },
+  updateTaskCharacters: (taskId, characters) =>
+    set((prev) => ({ tasks: patchTask(prev.tasks, taskId, { characters }) })),
 
-  updateTaskSkills: (taskId: string, skills: CharacterSkill[]) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, skills, updatedAt: Date.now() }
-          : task
-      ),
-    }))
-  },
+  updateTaskSkills: (taskId, skills) =>
+    set((prev) => ({ tasks: patchTask(prev.tasks, taskId, { skills }) })),
 
-  updateTaskStyleProfile: (taskId: string, styleProfile: BookStyleProfile) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, styleProfile, updatedAt: Date.now() }
-          : task
-      ),
-    }))
-  },
+  updateTaskStyleProfile: (taskId, styleProfile) =>
+    set((prev) => ({ tasks: patchTask(prev.tasks, taskId, { styleProfile }) })),
 
-  pauseTask: (taskId: string) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, status: "paused", updatedAt: Date.now() }
-          : task
-      ),
-    }))
-  },
+  pauseTask: (taskId) =>
+    set((prev) => ({ tasks: patchTask(prev.tasks, taskId, { status: "paused" }) })),
 
-  resumeTask: (taskId: string) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, status: "running", updatedAt: Date.now() }
-          : task
-      ),
+  resumeTask: (taskId) =>
+    set((prev) => ({
+      tasks: patchTask(prev.tasks, taskId, { status: "running" }),
       currentTaskId: taskId,
-    }))
-  },
+    })),
 
-  cancelTask: (taskId: string) => {
-    set((state) => {
-      const task = state.tasks.find((t) => t.id === taskId)
-      if (task?.abortController) {
-        task.abortController.abort()
-      }
+  cancelTask: (taskId) =>
+    set((prev) => {
+      const task = prev.tasks.find((t) => t.id === taskId)
+      task?.abortController?.abort()
       return {
-        tasks: state.tasks.map((t) =>
+        tasks: prev.tasks.map((t) =>
           t.id === taskId
-            ? {
-                ...t,
-                status: "error" as const,
-                error: "用户取消分析",
-                updatedAt: Date.now(),
-              }
+            ? { ...t, status: "error" as const, error: "用户取消分析", updatedAt: Date.now() }
             : t
         ),
-        currentTaskId: state.currentTaskId === taskId ? null : state.currentTaskId,
+        currentTaskId: clearIfCurrent(prev.currentTaskId, taskId),
       }
-    })
-  },
+    }),
 
-  completeTask: (taskId: string) => {
+  completeTask: (taskId) => {
     const now = Date.now()
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
+    set((prev) => ({
+      tasks: prev.tasks.map((t) =>
+        t.id === taskId
           ? {
-              ...task,
+              ...t,
               status: "completed",
-              progress: { ...task.progress, stage: "completed", percentage: 100 },
+              progress: { ...t.progress, stage: "completed", percentage: 100 },
               completedAt: now,
               updatedAt: now,
             }
-          : task
+          : t
       ),
-      currentTaskId: state.currentTaskId === taskId ? null : state.currentTaskId,
+      currentTaskId: clearIfCurrent(prev.currentTaskId, taskId),
     }))
   },
 
-  errorTask: (taskId: string, error: string) => {
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              status: "error",
-              error,
-              progress: { ...task.progress, stage: "error" },
-              updatedAt: Date.now(),
-            }
-          : task
+  errorTask: (taskId, error) =>
+    set((prev) => ({
+      tasks: prev.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, status: "error", error, progress: { ...t.progress, stage: "error" }, updatedAt: Date.now() }
+          : t
       ),
-      currentTaskId: state.currentTaskId === taskId ? null : state.currentTaskId,
-    }))
-  },
+      currentTaskId: clearIfCurrent(prev.currentTaskId, taskId),
+    })),
 
-  removeTask: (taskId: string) => {
-    set((state) => ({
-      tasks: state.tasks.filter((task) => task.id !== taskId),
-      currentTaskId: state.currentTaskId === taskId ? null : state.currentTaskId,
-    }))
-  },
+  removeTask: (taskId) =>
+    set((prev) => ({
+      tasks: prev.tasks.filter((t) => t.id !== taskId),
+      currentTaskId: clearIfCurrent(prev.currentTaskId, taskId),
+    })),
 
-  setSelectedResult: (projectPath: string | null) => {
-    set({ selectedResultPath: projectPath ? normalizePath(projectPath) : null })
-  },
+  setSelectedResult: (projectPath) =>
+    set({ selectedResultPath: projectPath ? normalizePath(projectPath) : null }),
 
-  setCurrentResult: (result: BookAnalysisResult | null) => {
-    set({ currentResult: result })
-  },
+  setCurrentResult: (result) => set({ currentResult: result }),
+  setShowResultViewer: (visible) => set({ showResultViewer: visible }),
 
-  setShowResultViewer: (show: boolean) => {
-    set({ showResultViewer: show })
-  },
+  setSelectedLibraryBookId: (bookId) => set({ selectedLibraryBookId: bookId }),
+  triggerSidebarRefresh: () =>
+    set((prev) => ({ sidebarRefreshCounter: prev.sidebarRefreshCounter + 1 })),
 
-  setSelectedLibraryBookId: (id: string | null) => {
-    set({ selectedLibraryBookId: id })
-  },
-
-  triggerSidebarRefresh: () => {
-    set((state) => ({ sidebarRefreshCounter: state.sidebarRefreshCounter + 1 }))
-  },
-
-  // 角色识别完成待处理
-  requestReopenChapterSelection: (taskId: string) => {
-    set({ pendingRecognitionTaskId: taskId })
-  },
+  requestReopenChapterSelection: (taskId) => set({ pendingRecognitionTaskId: taskId }),
   consumeReopenRequest: () => {
-    const id = get().pendingRecognitionTaskId
+    const pending = get().pendingRecognitionTaskId
     set({ pendingRecognitionTaskId: null })
-    return id
+    return pending
   },
 
-  // 角色识别 actions 实现（feature/character-recognition-and-simple-mode）
   setRecognitionStatus: (status) => set({ recognitionStatus: status }),
   setRecognizedCharacters: (characters) =>
     set({ recognizedCharacters: characters, recognitionStatus: "done" }),
@@ -325,22 +271,18 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
       recognitionError: undefined,
     }),
 
-  getTask: (taskId: string) => {
-    return get().tasks.find((task) => task.id === taskId) ?? null
-  },
+  getTask: (taskId) => get().tasks.find((t) => t.id === taskId) ?? null,
 
-  getTaskByProject: (projectPath: string) => {
-    const normalizedPath = normalizePath(projectPath)
-    return (
-      get().tasks
-        .filter((task) => task.projectPath === normalizedPath)
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
-    )
+  getTaskByProject: (projectPath) => {
+    const normalised = normalizePath(projectPath)
+    const matches = get().tasks
+      .filter((t) => t.projectPath === normalised)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+    return matches[0] ?? null
   },
 
   getCurrentTask: () => {
     const { currentTaskId, tasks } = get()
-    if (!currentTaskId) return null
-    return tasks.find((task) => task.id === currentTaskId) ?? null
+    return currentTaskId ? tasks.find((t) => t.id === currentTaskId) ?? null : null
   },
 }))

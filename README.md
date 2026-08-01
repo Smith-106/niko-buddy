@@ -2,18 +2,18 @@
   <img src="QM-LOGO.png" width="120" alt="Niko Buddy Logo" />
 </p>
 
-<h1 align="center">niko-hub · Niko Buddy</h1>
+<h1 align="center">niko-buddy · Niko Buddy</h1>
 
 <p align="center">
   面向长篇小说的记忆型 AI 写作桌面系统
 </p>
 
 <p align="center">
-  <a href="https://smith-106.github.io/niko-hub/">
-    <img src="https://img.shields.io/badge/docs-smith--106.github.io%2Fniko--hub-orange?style=flat-square" alt="Docs" />
+  <a href="https://smith-106.github.io/niko-buddy/">
+    <img src="https://img.shields.io/badge/docs-smith--106.github.io%2Fniko--buddy-orange?style=flat-square" alt="Docs" />
   </a>
-  <a href="https://github.com/Smith-106/niko-hub/releases">
-    <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
+  <a href="https://github.com/Smith-106/niko-buddy/releases">
+    <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/version-2.4.3-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
@@ -21,9 +21,9 @@
 </p>
 
 <p align="center">
-  <a href="https://smith-106.github.io/niko-hub/">📖 文档站</a> ·
-  <a href="https://github.com/Smith-106/niko-hub/releases">📦 下载</a> ·
-  <a href="https://github.com/Smith-106/niko-hub/issues">🐛 问题反馈</a>
+  <a href="https://smith-106.github.io/niko-buddy/">📖 文档站</a> ·
+  <a href="https://github.com/Smith-106/niko-buddy/releases">📦 下载</a> ·
+  <a href="https://github.com/Smith-106/niko-buddy/issues">🐛 问题反馈</a>
 </p>
 
 ---
@@ -396,7 +396,7 @@ sequenceDiagram
 
 **方式一：下载安装包（推荐）**
 
-前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### 最快上手（5 分钟）
 
@@ -537,8 +537,8 @@ npm run build:github-release
 
 ## 相关链接
 
-- 📖 [文档站](https://smith-106.github.io/niko-hub/)——产品介绍、功能详解、开发者文档
-- 📦 [Releases 下载](https://github.com/Smith-106/niko-hub/releases)
-- 🐛 [问题反馈](https://github.com/Smith-106/niko-hub/issues)
-- 💬 [功能建议](https://github.com/Smith-106/niko-hub/issues/new)
-- 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-hub/releases) —— 各版本功能变更与修复记录
+- 📖 [文档站](https://smith-106.github.io/niko-buddy/)——产品介绍、功能详解、开发者文档
+- 📦 [Releases 下载](https://github.com/Smith-106/niko-buddy/releases)
+- 🐛 [问题反馈](https://github.com/Smith-106/niko-buddy/issues)
+- 💬 [功能建议](https://github.com/Smith-106/niko-buddy/issues/new)
+- 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-buddy/releases) —— 各版本功能变更与修复记录

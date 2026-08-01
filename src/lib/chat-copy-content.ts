@@ -1,23 +1,34 @@
+/**
+ * Extracts copyable assistant content from chat messages.
+ * When the assistant generated chapter edits, returns the cleaned
+ * chapter body. Otherwise returns the visible text with thinking
+ * blocks and HTML comments stripped.
+ * MIT License — independently implemented.
+ */
+
 import { parseAgentResponse } from "@/lib/novel/agent-parser"
 import { cleanGeneratedChapterContentForSave } from "@/lib/novel/chapter-content-cleanup"
 
+/**
+ * Remove hidden assistant metadata from raw text:
+ * HTML comments, paired/unclosed `<think>` and `<thinking>` tags,
+ * and orphaned closing tags at the start of the content.
+ */
 function stripHiddenAssistantBlocks(content: string): string {
-  let result = content
-    .replace(/<!--.*?-->/gs, "")
+  let result = content.replace(/<!--.*?-->/gs, "")
 
-  // 1. 移除完整的 <think>...</think> 或 <thinking>...</thinking> 块
+  // Remove fully-paired think/thinking blocks (greedy across lines).
   result = result.replace(/<think(?:ing)?>\s*[\s\S]*?<\/think(?:ing)?>\s*/gi, "")
 
-  // 2. 移除未闭合的开头思考块（有 <think> 但没有 </think>）
+  // Remove unclosed opening think blocks (opening tag to end of string).
   result = result.replace(/<think(?:ing)?>\s*[\s\S]*$/gi, "")
 
-  // 3. 移除只有结尾标签的情况：如果内容开头到第一个 </think> 之间没有 <think> 开头标签，
-  //    说明思考内容直接输出在了正文前面，需要一并移除
-  const firstCloseIndex = result.search(/<\/think(?:ing)?>/i)
-  if (firstCloseIndex >= 0) {
-    const beforeClose = result.slice(0, firstCloseIndex)
-    if (!/<think(?:ing)?>/i.test(beforeClose)) {
-      // 前面没有开头标签，把开头到第一个结尾标签都删掉
+  // Handle orphaned closing tags: if content starts with text followed
+  // by a </think> but no matching opening tag, strip that prefix too.
+  const closeIdx = result.search(/<\/think(?:ing)?>/i)
+  if (closeIdx >= 0) {
+    const prefix = result.slice(0, closeIdx)
+    if (!/<think(?:ing)?>/i.test(prefix)) {
       result = result.replace(/^[\s\S]*?<\/think(?:ing)?>\s*/i, "")
     }
   }
@@ -25,20 +36,27 @@ function stripHiddenAssistantBlocks(content: string): string {
   return result.trim()
 }
 
+/** True when the file path targets a wiki chapter markdown file. */
 function isChapterEditPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase()
   return normalized.startsWith("wiki/chapters/") && normalized.endsWith(".md")
 }
 
+/**
+ * Given a raw assistant response, return the content suitable for
+ * copying to the clipboard. If the response contains chapter edits,
+ * returns the cleaned chapter body; otherwise strips hidden blocks
+ * from the plain text portion.
+ */
 export function getCopyableAssistantContent(content: string): string {
   const parsed = parseAgentResponse(content)
-  const chapterEditReplacements = parsed.edits
+  const chapterBodies = parsed.edits
     .filter((edit) => isChapterEditPath(edit.filePath) && edit.replace.trim())
     .map((edit) => cleanGeneratedChapterContentForSave(edit.replace).trim())
     .filter(Boolean)
 
-  if (chapterEditReplacements.length > 0) {
-    return chapterEditReplacements.join("\n\n").trim()
+  if (chapterBodies.length > 0) {
+    return chapterBodies.join("\n\n").trim()
   }
 
   return stripHiddenAssistantBlocks(parsed.textContent || content)

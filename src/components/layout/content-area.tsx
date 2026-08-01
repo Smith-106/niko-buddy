@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { Suspense, lazy } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { WritingWorkspace } from "./writing-workspace"
@@ -51,7 +54,7 @@ const BookAnalysisView = lazy(async () => {
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading...
+      <span>加载中...</span>
     </div>
   )
 }
@@ -61,7 +64,8 @@ export function ContentArea() {
   const novelMode = useWikiStore((s) => s.novelMode)
   const showWritingWorkspace = activeView === "wiki" || activeView === "trash"
 
-  let content = null
+  let content: React.ReactNode = null
+  
   if (showWritingWorkspace) {
     content = <WritingWorkspace />
   } else {

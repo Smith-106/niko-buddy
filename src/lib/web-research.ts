@@ -1,7 +1,14 @@
+/**
+ * Web research utilities: URL extraction, search orchestration,
+ * HTML-to-text conversion, and context assembly for LLM prompts.
+ * MIT License — independently implemented.
+ */
+
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
 
+/** A fetched web document with title, URL, source, and plain-text content. */
 export interface WebResearchDocument {
   title: string
   url: string
@@ -9,6 +16,7 @@ export interface WebResearchDocument {
   content: string
 }
 
+/** Input parameters for a web research collection run. */
 export interface WebResearchInput {
   text: string
   searchApiConfig: SearchApiConfig
@@ -18,6 +26,7 @@ export interface WebResearchInput {
   allowReadUrls?: boolean
 }
 
+/** Result of a web research collection. */
 export interface WebResearchResult {
   query: string
   urls: string[]
@@ -27,6 +36,7 @@ export interface WebResearchResult {
   notes: string[]
 }
 
+/** Input for building the research context markdown. */
 export interface WebResearchContextInput {
   query: string
   searchResults: WebSearchResult[]
@@ -34,6 +44,10 @@ export interface WebResearchContextInput {
   failedUrls: string[]
 }
 
+/**
+ * Extract HTTP/HTTPS URLs from text, stripping trailing punctuation
+ * (Chinese and Western) and deduplicating.
+ */
 export function extractWebUrls(text: string): string[] {
   const matches = text.match(/https?:\/\/[^\s<>"'，。！？；、]+/gi) ?? []
   const seen = new Set<string>()
@@ -47,11 +61,19 @@ export function extractWebUrls(text: string): string[] {
   return urls
 }
 
+/**
+ * Determine whether the user's message requests web research.
+ * True when the message contains URLs or Chinese web-research keywords.
+ */
 export function shouldUseWebResearch(text: string): boolean {
   if (extractWebUrls(text).length > 0) return true
   return /联网|网页|网址|打开|搜索|搜一下|查一下|查找|最新|热门|榜单|趋势|爆款|平台|外部资料|网络资料|资料来源/i.test(text)
 }
 
+/**
+ * Derive a search query from the user's message by stripping URLs
+ * and web-research filler words.
+ */
 export function deriveWebResearchQuery(text: string): string {
   const withoutUrls = text.replace(/https?:\/\/[^\s<>"']+/gi, " ")
   const cleaned = withoutUrls
@@ -61,6 +83,9 @@ export function deriveWebResearchQuery(text: string): string {
   return (cleaned || text.trim()).slice(0, 120)
 }
 
+/**
+ * Run a web research session: search, fetch URLs, and collect documents.
+ */
 export async function collectWebResearch(input: WebResearchInput): Promise<WebResearchResult> {
   const maxSearchResults = clampInt(input.maxSearchResults ?? 5, 1, 10)
   const maxImportedDocuments = clampInt(input.maxImportedDocuments ?? 4, 1, 8)
@@ -80,30 +105,25 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
     }
   }
 
-  const urlsToRead = [
-    ...urls,
-    ...searchResults.map((result) => result.url),
-  ].filter(Boolean)
-  const dedupedUrls = [...new Set(urlsToRead)].slice(0, maxImportedDocuments)
+  const candidateUrls = [...urls, ...searchResults.map((r) => r.url)].filter(Boolean)
+  const deduped = [...new Set(candidateUrls)].slice(0, maxImportedDocuments)
   const importedDocuments = allowReadUrls
-    ? await readWebResearchDocuments(dedupedUrls, searchResults, failedUrls)
+    ? await fetchDocuments(deduped, searchResults, failedUrls)
     : []
 
-  return {
-    query,
-    urls,
-    searchResults,
-    importedDocuments,
-    failedUrls,
-    notes,
-  }
+  return { query, urls, searchResults, importedDocuments, failedUrls, notes }
 }
 
+/**
+ * Build a markdown context block from research results, suitable for
+ * injection into an LLM prompt. Capped at ~5000 characters.
+ */
 export function buildWebResearchContext(input: WebResearchContextInput): { markdown: string; sources: string[] } {
-  const sources = dedupeSources([
-    ...input.searchResults.map((result) => `${result.title} - ${result.url}`),
-    ...input.importedDocuments.map((document) => `${document.title} - ${document.url}`),
+  const sources = dedupeStrings([
+    ...input.searchResults.map((r) => `${r.title} - ${r.url}`),
+    ...input.importedDocuments.map((d) => `${d.title} - ${d.url}`),
   ])
+
   const lines: string[] = [
     "## 联网研究资料",
     "",
@@ -117,40 +137,41 @@ export function buildWebResearchContext(input: WebResearchContextInput): { markd
 
   if (input.searchResults.length > 0) {
     lines.push("", "### 搜索结果")
-    input.searchResults.slice(0, 8).forEach((result, index) => {
+    input.searchResults.slice(0, 8).forEach((r, i) => {
       lines.push(
-        `${index + 1}. ${result.title}`,
-        `   来源：${result.source || hostnameFromUrl(result.url)}`,
-        `   链接：${result.url}`,
-        `   摘要：${clipText(result.snippet, 260)}`,
+        `${i + 1}. ${r.title}`,
+        `   来源：${r.source || hostname(r.url)}`,
+        `   链接：${r.url}`,
+        `   摘要：${clip(r.snippet, 260)}`,
       )
     })
   }
 
   if (input.importedDocuments.length > 0) {
     lines.push("", "### 网页正文摘录")
-    input.importedDocuments.slice(0, 5).forEach((document, index) => {
+    input.importedDocuments.slice(0, 5).forEach((d, i) => {
       lines.push(
-        `#### ${index + 1}. ${document.title}`,
-        `来源：${document.source || hostnameFromUrl(document.url)}`,
-        `链接：${document.url}`,
+        `#### ${i + 1}. ${d.title}`,
+        `来源：${d.source || hostname(d.url)}`,
+        `链接：${d.url}`,
         "",
-        clipText(document.content, 1200),
+        clip(d.content, 1200),
       )
     })
   }
 
   if (input.failedUrls.length > 0) {
     lines.push("", "### 读取失败")
-    input.failedUrls.forEach((url) => lines.push(`- ${url}`))
+    input.failedUrls.forEach((u) => lines.push(`- ${u}`))
   }
 
-  return {
-    markdown: clipText(lines.join("\n"), 5000),
-    sources,
-  }
+  return { markdown: clip(lines.join("\n"), 5000), sources }
 }
 
+/**
+ * Convert HTML to plain text by stripping scripts, styles, tags,
+ * and normalizing whitespace and HTML entities.
+ */
 export function htmlToPlainText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -171,7 +192,8 @@ export function htmlToPlainText(html: string): string {
     .trim()
 }
 
-async function readWebResearchDocuments(
+/** Fetch and parse a list of web URLs into documents. */
+async function fetchDocuments(
   urls: string[],
   searchResults: WebSearchResult[],
   failedUrls: string[],
@@ -193,11 +215,11 @@ async function readWebResearchDocuments(
       const raw = await response.text()
       const content = htmlToPlainText(raw)
       if (!content) throw new Error("empty content")
-      const matchedResult = searchResults.find((result) => result.url === url)
+      const matched = searchResults.find((r) => r.url === url)
       documents.push({
-        title: matchedResult?.title || hostnameFromUrl(url) || url,
+        title: matched?.title || hostname(url) || url,
         url,
-        source: matchedResult?.source || hostnameFromUrl(url),
+        source: matched?.source || hostname(url),
         content,
       })
     } catch {
@@ -207,7 +229,7 @@ async function readWebResearchDocuments(
   return documents
 }
 
-function clipText(text: string, maxLength: number): string {
+function clip(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
   return `${text.slice(0, maxLength).trim()}\n...[已截断]`
 }
@@ -217,7 +239,7 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(value)))
 }
 
-function hostnameFromUrl(url: string): string {
+function hostname(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "")
   } catch {
@@ -225,14 +247,14 @@ function hostnameFromUrl(url: string): string {
   }
 }
 
-function dedupeSources(sources: string[]): string[] {
+function dedupeStrings(items: string[]): string[] {
   const seen = new Set<string>()
-  const output: string[] = []
-  for (const source of sources) {
-    const cleaned = source.trim()
+  const out: string[] = []
+  for (const item of items) {
+    const cleaned = item.trim()
     if (!cleaned || seen.has(cleaned)) continue
     seen.add(cleaned)
-    output.push(cleaned)
+    out.push(cleaned)
   }
-  return output
+  return out
 }

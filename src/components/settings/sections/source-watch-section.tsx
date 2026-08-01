@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useMemo } from "react"
 import { FolderSync, ShieldAlert } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -13,6 +16,7 @@ interface Props {
   projectReady: boolean
 }
 
+/** Convert comma/newline-separated string to list of trimmed values. */
 function updateListValue(value: string): string[] {
   return value
     .split(/[,\n]/)
@@ -20,19 +24,26 @@ function updateListValue(value: string): string[] {
     .filter(Boolean)
 }
 
+/** Join array elements with ", " separator. */
 function joinList(values: readonly string[]): string {
   return values.join(", ")
 }
 
+/**
+ * Source folder auto-watch configuration section.
+ * Controls which external files are allowed to be ingested automatically.
+ */
 export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
   const { t } = useTranslation()
   const config = normalizeSourceWatchConfig(draft.sourceWatchConfig)
   const selected = useMemo(() => new Set(config.includeExtensions), [config.includeExtensions])
 
+  /** Update watch config by merging a patch and normalizing. */
   const updateConfig = (patch: Partial<typeof config>) => {
     setDraft("sourceWatchConfig", normalizeSourceWatchConfig({ ...config, ...patch }))
   }
 
+  /** Toggle inclusion of a single extension. */
   const toggleExtension = (ext: string, checked: boolean) => {
     const next = new Set(config.includeExtensions)
     if (checked) {
@@ -45,6 +56,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Section header */}
       <div>
         <h2 className="text-xl font-semibold">
           {t("settings.sections.sourceWatch.title", { defaultValue: "Source Folder Auto Watch" })}
@@ -57,6 +69,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
         </p>
       </div>
 
+      {/* Enable + auto-ingest toggles */}
       <div className="space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4">
         <label className="flex items-start gap-3">
           <input
@@ -110,6 +123,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
         )}
       </div>
 
+      {/* Allowed file types checkbox grid */}
       <div className="space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div>
           <h3 className="text-sm font-semibold">
@@ -151,6 +165,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
         </div>
       </div>
 
+      {/* Exclusions and limits */}
       <div className="space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div className="flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-muted-foreground" />
@@ -159,6 +174,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
           </h3>
         </div>
 
+        {/* Max file size */}
         <label className="block space-y-1.5">
           <span className="text-xs font-medium">
             {t("settings.sections.sourceWatch.maxSize", { defaultValue: "Maximum auto-ingest file size (MB)" })}
@@ -174,6 +190,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
           />
         </label>
 
+        {/* Exclude directories */}
         <label className="block space-y-1.5">
           <span className="text-xs font-medium">
             {t("settings.sections.sourceWatch.excludeDirs", { defaultValue: "Excluded folders" })}
@@ -195,6 +212,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
           </p>
         </label>
 
+        {/* Exclude extensions */}
         <label className="block space-y-1.5">
           <span className="text-xs font-medium">
             {t("settings.sections.sourceWatch.excludeExtensions", { defaultValue: "Excluded file extensions" })}
@@ -216,6 +234,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
           </p>
         </label>
 
+        {/* Exclude globs */}
         <label className="block space-y-1.5">
           <span className="text-xs font-medium">
             {t("settings.sections.sourceWatch.excludeGlobs", { defaultValue: "Excluded filename patterns" })}

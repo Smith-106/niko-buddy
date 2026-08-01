@@ -1,3 +1,16 @@
+/**
+ * Project file synchronization: real-time file watcher and change handler.
+ *
+ * Manages the lifecycle of filesystem monitoring for a wiki project:
+ * - Starts/stops Tauri file watchers with event listeners
+ * - Schedules debounced refresh after file changes
+ * - Routes created/modified files to source ingest queue
+ * - Cleans up deleted files (raw sources and wiki pages)
+ * - Refreshes file tree and editor content on external changes
+ *
+ * @license MIT © QMAI
+ */
+
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { readFile, listDirectory } from "@/commands/fs"
 import {
@@ -29,6 +42,10 @@ let pendingRefreshPaths = new Set<string>()
 let pendingChangeTasks = new Map<string, FileChangeTask>()
 let activeSourceWatchConfig = normalizeSourceWatchConfig()
 
+/**
+ * Start the file sync system for a project.
+ * Sets up Tauri file watcher, event listeners for queue updates and file changes.
+ */
 export async function startProjectFileSync(
   project: WikiProject,
   sourceWatchConfig?: SourceWatchConfig,
@@ -68,6 +85,7 @@ export async function startProjectFileSync(
   }
 }
 
+/** Stop the file sync system and clean up all resources. */
 export async function stopProjectFileSync(): Promise<void> {
   startSeq++
   unlistenQueue?.()
@@ -84,11 +102,11 @@ export async function stopProjectFileSync(): Promise<void> {
   try {
     await stopProjectFileWatcher()
   } catch {
-    // App startup/project switching should not fail just because a stale
-    // watcher has already been dropped by the backend.
+    // Stale watcher may already be dropped
   }
 }
 
+/** Force a full rescan of the project filesystem and process any changes. */
 export async function rescanProjectFileSync(
   project: WikiProject,
   sourceWatchConfig?: SourceWatchConfig,
@@ -109,6 +127,7 @@ export async function rescanProjectFileSync(
   }
 }
 
+/** Debounce file changes and schedule a batch refresh. */
 function scheduleRefreshAfterFileChanges(tasks: FileChangeTask[]): void {
   for (const task of tasks) {
     pendingRefreshPaths.add(task.path)
@@ -141,6 +160,7 @@ async function processFileChangeBatch(
   await refreshAfterFileChanges(project, paths)
 }
 
+/** Refresh the file tree and editor content after external changes. */
 async function refreshAfterFileChanges(project: WikiProject, relativePaths: string[]): Promise<void> {
   const pp = normalizePath(project.path)
   const store = useWikiStore.getState()
@@ -163,7 +183,7 @@ async function refreshAfterFileChanges(project: WikiProject, relativePaths: stri
     const content = await readFile(selected)
     const currentContent = useWikiStore.getState().fileContent
     if (currentContent && currentContent !== content) {
-      console.warn("[file-sync] 检测到编辑器有未保存内容，跳过文件刷新:", selected)
+      console.warn("[file-sync] unsaved editor content detected, skipping file refresh:", selected)
       return
     }
     useWikiStore.getState().setFileContent(content)
@@ -173,6 +193,7 @@ async function refreshAfterFileChanges(project: WikiProject, relativePaths: stri
   }
 }
 
+/** Queue created/modified raw source files for LLM ingest. */
 async function enqueueRawSourceChanges(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
   const config = normalizeSourceWatchConfig(activeSourceWatchConfig)
   if (!config.enabled || !config.autoIngest) return
@@ -200,6 +221,7 @@ function isIngestableRawSource(relativePath: string): boolean {
   return isIngestableSourcePath(path)
 }
 
+/** Clean up deleted files: cascade source deletions and wiki page reference cleanup. */
 async function cleanupDeletedFiles(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
   const deleted = tasks
     .filter((task) => task.projectId === project.id && task.kind === "deleted")
@@ -251,3 +273,4 @@ function isWikiPageForCascade(relativePath: string): boolean {
   }
   return !lower.startsWith("wiki/media/")
 }
+

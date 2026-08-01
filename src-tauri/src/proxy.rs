@@ -1,25 +1,23 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Studio Contributors
 //! Global outbound HTTP proxy plumbing.
 //!
-//! At app launch we read the user-set proxy config out of the same
-//! `app-state.json` the frontend's tauri-plugin-store writes, and
-//! translate it into HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment
-//! variables. reqwest (used by tauri-plugin-http) reads those env
-//! vars on client construction and routes every outbound request
-//! through the configured proxy.
-//!
-//! Reading the on-disk JSON directly (rather than going through a
-//! Rust binding to plugin-store) keeps this module independent of
-//! plugin lifecycle: we only need a stable file path and serde.
-//! Cost is one duplicated key name (`proxyConfig`) — see
-//! src/lib/project-store.ts for the matching write site.
+//! Reads user-configured proxy settings from the on-disk `app-state.json`
+//! and translates them into HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment
+//! variables that reqwest (via tauri-plugin-http) honours at client
+//! construction time.
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Private-network CIDRs and loopback addresses excluded from proxying
+/// when `bypass_local` is enabled.
 const DEFAULT_BYPASS_LIST: &str =
     "localhost,127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,*.local";
 
+/// Proxy configuration mirroring the frontend's `proxyConfig` object
+/// serialised into `app-state.json`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProxyConfig {
     #[serde(default)]
@@ -30,13 +28,10 @@ pub struct ProxyConfig {
     pub bypass_local: bool,
 }
 
-// Hand-written Default impl so its `bypass_local` matches what
-// serde produces for a missing field — `derive(Default)` would
-// give `false`, which would silently disagree with the
-// "missing-key means bypass on" semantics encoded by the serde
-// `default = "default_true"` attribute. No caller invokes
-// `ProxyConfig::default()` today, but pinning the two paths to
-// the same value avoids a footgun if one ever does.
+/// Hand-written `Default` so `bypass_local` agrees with the serde
+/// `default = "default_true"` attribute. `derive(Default)` would yield
+/// `false`, which silently contradicts the "missing-key means bypass on"
+/// contract documented in the serde attribute.
 impl Default for ProxyConfig {
     fn default() -> Self {
         Self {
@@ -51,129 +46,133 @@ fn default_true() -> bool {
     true
 }
 
-/// Read `proxyConfig` out of the project's `app-state.json`. Returns
-/// None if the file doesn't exist, can't be parsed, or has no proxy
-/// section — caller treats those identically to "no proxy".
+/// Deserialises the `proxyConfig` key from the given JSON store file.
+/// Returns `None` when the file is missing, unreadable, malformed, or
+/// simply lacks a `proxyConfig` section — the caller treats all of
+/// those identically to "no proxy configured".
 pub fn read_proxy_config_from_store(store_path: &Path) -> Option<ProxyConfig> {
-    let content = std::fs::read_to_string(store_path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let proxy = json.get("proxyConfig")?;
-    serde_json::from_value(proxy.clone()).ok()
+    let raw = std::fs::read_to_string(store_path).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let proxy_node = root.get("proxyConfig")?;
+    serde_json::from_value(proxy_node.clone()).ok()
 }
 
-/// Read and apply the stored proxy config. Missing or unreadable
-/// config is treated exactly like a disabled proxy, so inherited
-/// HTTP_PROXY / HTTPS_PROXY / NO_PROXY values from the parent process
-/// cannot silently affect users who never enabled proxy in the app.
+/// Entry point called at app launch: reads the on-disk store and
+/// applies whatever proxy configuration it contains. An unreadable
+/// or absent store is treated as a disabled proxy, preventing
+/// inherited HTTP_PROXY values from the parent shell from leaking
+/// into a user who never enabled the feature.
 pub fn apply_proxy_env_from_store(store_path: &Path) -> String {
     let config = read_proxy_config_from_store(store_path).unwrap_or_default();
     apply_proxy_env(&config)
 }
 
-/// Apply a proxy config by setting the env vars reqwest reads.
-/// Returns a short human-readable summary for logging.
+/// Applies a `ProxyConfig` by setting the environment variables that
+/// reqwest reads at client construction time.
 ///
-/// Validates the URL scheme — only `http://` and `https://` are
-/// accepted in this version. Anything else (SOCKS5, malformed,
-/// missing scheme) is treated as "disabled" so the user doesn't
-/// silently trip over a half-working proxy.
+/// Returns a short human-readable summary suitable for debug logging.
+/// URL validation is strict: only `http://` and `https://` schemes are
+/// accepted — anything else (SOCKS5, malformed, missing scheme) is
+/// treated as disabled to avoid silent half-working proxies.
 ///
-/// Concurrency note: `std::env::set_var` mutates process-wide
-/// state and is racy if any other thread reads env at the same
-/// instant. Two callers exist: (1) the Tauri setup hook, which
-/// runs before any HTTP client thread starts (safe), and (2)
-/// the `set_proxy_env` IPC command, which can race with an
-/// in-flight `reqwest::Client::new()` reading HTTP_PROXY. The
-/// race window is microseconds and the worst case is one fetch
-/// reading the previous value — acceptable for a user-initiated
-/// toggle, and matches what every other "global proxy switch"
-/// in similar apps does. Documented here so a future Rust
-/// edition that hard-fails on this pattern doesn't surprise us.
+/// # Concurrency note
+///
+/// `std::env::set_var` mutates process-wide state and is technically
+/// racy if another thread reads env simultaneously. Two call sites
+/// exist today:
+/// 1. The Tauri setup hook (runs before any HTTP thread starts — safe).
+/// 2. The `set_proxy_env` IPC command (microsecond race window with
+///    an in-flight `reqwest::Client::new()`; worst case is one fetch
+///    reading the previous value — acceptable for a user toggle).
 pub fn apply_proxy_env(config: &ProxyConfig) -> String {
-    // Every "disabled" path MUST clear all three env vars, not just
-    // return — otherwise toggling the proxy off after it was on
-    // leaves the previous values in place and reqwest keeps routing
-    // through the now-removed proxy. The same applies to invalid
-    // URLs and unsupported schemes (treat as disabled).
-    let url = config.url.trim();
-    let invalid_scheme = !url.starts_with("http://") && !url.starts_with("https://");
+    let trimmed_url = config.url.trim();
+    let scheme_invalid =
+        !trimmed_url.starts_with("http://") && !trimmed_url.starts_with("https://");
 
-    if !config.enabled || url.is_empty() || invalid_scheme {
-        clear_proxy_env();
+    // Every "disabled" path MUST clear all proxy env vars — toggling
+    // the proxy off after it was on must stop routing through the
+    // (now-removed) proxy immediately.
+    if !config.enabled || trimmed_url.is_empty() || scheme_invalid {
+        clear_all_proxy_env();
         return if !config.enabled {
             "disabled".to_string()
-        } else if url.is_empty() {
+        } else if trimmed_url.is_empty() {
             "disabled (empty url)".to_string()
         } else {
-            // Mask before logging — an invalid URL might still
-            // contain a password the user mis-typed.
-            format!("disabled (unsupported scheme: {})", redact_url(url))
+            // Redact before logging: a malformed URL might still
+            // contain a password the user mistyped.
+            format!("disabled (unsupported scheme: {})", redact_url(trimmed_url))
         };
     }
 
-    set_proxy_var("HTTP_PROXY", url);
-    set_proxy_var("HTTPS_PROXY", url);
-    set_proxy_var("ALL_PROXY", url);
+    // Apply the proxy URL to all three canonical env var names.
+    set_proxy_env_pair("HTTP_PROXY", trimmed_url);
+    set_proxy_env_pair("HTTPS_PROXY", trimmed_url);
+    set_proxy_env_pair("ALL_PROXY", trimmed_url);
+
     if config.bypass_local {
-        set_proxy_var("NO_PROXY", DEFAULT_BYPASS_LIST);
+        set_proxy_env_pair("NO_PROXY", DEFAULT_BYPASS_LIST);
     } else {
-        // Bypass off — clear NO_PROXY so a previously-set value
-        // doesn't leak through.
-        remove_proxy_var("NO_PROXY");
+        // Bypass disabled — remove NO_PROXY so a previously-set
+        // value doesn't leak through.
+        remove_proxy_env_pair("NO_PROXY");
     }
+
     format!(
         "enabled ({}, bypass_local={})",
-        redact_url(url),
+        redact_url(trimmed_url),
         config.bypass_local
     )
 }
 
-/// Strip embedded basic-auth credentials from a URL before logging.
-/// `http://user:pass@host:port` → `http://***@host:port`. URLs
-/// without credentials pass through untouched. Used so stderr /
-/// Console.app / journalctl output doesn't persist proxy
-/// passwords.
+/// Strips basic-auth credentials embedded in a URL before it is
+/// written to logs. `http://user:pass@host:port` becomes
+/// `http://***@host:port`. URLs without a userinfo component pass
+/// through unchanged. This prevents proxy passwords from persisting
+/// in stderr, Console.app, or journalctl output.
 fn redact_url(url: &str) -> String {
-    // Find `scheme://` then check for `user[:pass]@` between that
-    // and the next `/` (or end). If found, replace with `***@`.
     let scheme_end = match url.find("://") {
-        Some(i) => i + 3,
+        Some(pos) => pos + 3,
         None => return url.to_string(),
     };
     let after_scheme = &url[scheme_end..];
-    // The userinfo segment, if present, is up to the first '@'
-    // that comes BEFORE the first '/'. A '@' after a '/' is part
-    // of the path and must not be matched.
+
+    // The userinfo segment, if present, ends at the first `@` that
+    // appears BEFORE the first `/`. A `@` inside the path is not
+    // part of credentials and must not be matched.
     let path_start = after_scheme.find('/').unwrap_or(after_scheme.len());
     let userinfo_end = match after_scheme[..path_start].find('@') {
-        Some(i) => i,
-        None => return url.to_string(), // no credentials embedded
+        Some(pos) => pos,
+        None => return url.to_string(), // no credentials present
     };
-    let mut out = String::with_capacity(url.len());
-    out.push_str(&url[..scheme_end]);
-    out.push_str("***");
-    out.push_str(&after_scheme[userinfo_end..]);
-    out
+
+    let mut redacted = String::with_capacity(url.len());
+    redacted.push_str(&url[..scheme_end]);
+    redacted.push_str("***");
+    redacted.push_str(&after_scheme[userinfo_end..]);
+    redacted
 }
 
-/// Remove all three proxy env vars. Called whenever the user
-/// disables the proxy or supplies an invalid URL — this is what
-/// makes "turn off proxy" actually take effect for the next fetch
-/// (without it, the previous HTTP_PROXY / HTTPS_PROXY / NO_PROXY
-/// stay set in the process env and reqwest keeps using them).
-fn clear_proxy_env() {
-    remove_proxy_var("HTTP_PROXY");
-    remove_proxy_var("HTTPS_PROXY");
-    remove_proxy_var("ALL_PROXY");
-    remove_proxy_var("NO_PROXY");
+/// Removes all four proxy env vars (HTTP, HTTPS, ALL, NO_PROXY).
+/// Called whenever the user disables the proxy or provides an
+/// invalid URL — this is the code that makes "turn off proxy"
+/// actually take effect for subsequent requests.
+fn clear_all_proxy_env() {
+    remove_proxy_env_pair("HTTP_PROXY");
+    remove_proxy_env_pair("HTTPS_PROXY");
+    remove_proxy_env_pair("ALL_PROXY");
+    remove_proxy_env_pair("NO_PROXY");
 }
 
-fn set_proxy_var(name: &str, value: &str) {
+/// Sets an env var in both upper-case and lower-case forms, since
+/// different HTTP client libraries consult different casings.
+fn set_proxy_env_pair(name: &str, value: &str) {
     std::env::set_var(name, value);
     std::env::set_var(name.to_ascii_lowercase(), value);
 }
 
-fn remove_proxy_var(name: &str) {
+/// Removes an env var in both upper-case and lower-case forms.
+fn remove_proxy_env_pair(name: &str) {
     std::env::remove_var(name);
     std::env::remove_var(name.to_ascii_lowercase());
 }
@@ -182,43 +181,42 @@ fn remove_proxy_var(name: &str) {
 mod tests {
     use super::*;
 
-    /// Cargo runs tests in parallel by default and these tests all
-    /// touch the same process-wide env vars. Without serializing
-    /// them, one test's set_var leaks into another test's
-    /// assertion. A single mutex shared across the test module
-    /// forces them to run one at a time without bringing in a
-    /// `serial_test` dependency.
+    /// Shared mutex to serialise tests that mutate process-wide env vars.
+    /// Cargo runs tests in parallel by default; without this mutex one
+    /// test's `set_var` would contaminate another test's assertions.
     static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Run a closure with the proxy-related env vars cleared (and
-    /// serialized via ENV_MUTEX), then restore whatever was there
-    /// before — keeps tests from contaminating each other or the
-    /// host shell.
-    fn isolated<F: FnOnce()>(f: F) {
-        // Recover from poison — a panic in one test leaves the
-        // mutex poisoned, but we have no shared state inside it
-        // so resuming with the inner () is safe.
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-        let names = [
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "ALL_PROXY",
-            "NO_PROXY",
-            "http_proxy",
-            "https_proxy",
-            "all_proxy",
-            "no_proxy",
-        ];
-        let snap = names.map(|name| std::env::var(name).ok());
-        for name in names {
+    /// All env var names touched by proxy logic (both casings).
+    const PROXY_ENV_NAMES: &[&str] = &[
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ];
+
+    /// Runs `f` in an isolated environment: snapshots the current
+    /// proxy env vars, clears them, executes `f`, then restores
+    /// the originals — preventing test cross-contamination.
+    fn with_isolated_env<F: FnOnce()>(f: F) {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let snapshot: Vec<Option<String>> = PROXY_ENV_NAMES
+            .iter()
+            .map(|name| std::env::var(name).ok())
+            .collect();
+
+        for name in PROXY_ENV_NAMES {
             std::env::remove_var(name);
         }
 
         f();
 
-        for (name, value) in names.into_iter().zip(snap) {
-            match value {
-                Some(v) => std::env::set_var(name, v),
+        for (name, prev) in PROXY_ENV_NAMES.iter().zip(snapshot) {
+            match prev {
+                Some(val) => std::env::set_var(name, val),
                 None => std::env::remove_var(name),
             }
         }
@@ -226,60 +224,47 @@ mod tests {
 
     #[test]
     fn disabled_sets_no_env() {
-        isolated(|| {
-            let s = apply_proxy_env(&ProxyConfig {
+        with_isolated_env(|| {
+            let summary = apply_proxy_env(&ProxyConfig {
                 enabled: false,
                 url: "http://x:1".into(),
                 bypass_local: true,
             });
-            assert!(s.contains("disabled"));
-            assert!(std::env::var("HTTP_PROXY").is_err());
-            assert!(std::env::var("HTTPS_PROXY").is_err());
-            assert!(std::env::var("ALL_PROXY").is_err());
-            assert!(std::env::var("http_proxy").is_err());
-            assert!(std::env::var("https_proxy").is_err());
-            assert!(std::env::var("all_proxy").is_err());
+            assert!(summary.contains("disabled"));
+            for name in &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                          "http_proxy", "https_proxy", "all_proxy"] {
+                assert!(std::env::var(name).is_err(), "{name} should be unset");
+            }
         });
     }
 
     #[test]
     fn enabled_sets_both_proxy_envs() {
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "http://127.0.0.1:7890".into(),
                 bypass_local: true,
             });
-            assert_eq!(
-                std::env::var("HTTP_PROXY").unwrap(),
-                "http://127.0.0.1:7890"
-            );
-            assert_eq!(
-                std::env::var("HTTPS_PROXY").unwrap(),
-                "http://127.0.0.1:7890"
-            );
-            assert_eq!(std::env::var("ALL_PROXY").unwrap(), "http://127.0.0.1:7890");
-            assert_eq!(
-                std::env::var("http_proxy").unwrap(),
-                "http://127.0.0.1:7890"
-            );
-            assert_eq!(
-                std::env::var("https_proxy").unwrap(),
-                "http://127.0.0.1:7890"
-            );
-            assert_eq!(std::env::var("all_proxy").unwrap(), "http://127.0.0.1:7890");
+            for name in &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                          "http_proxy", "https_proxy", "all_proxy"] {
+                assert_eq!(
+                    std::env::var(name).unwrap(),
+                    "http://127.0.0.1:7890",
+                    "{name} mismatch"
+                );
+            }
             let no_proxy = std::env::var("NO_PROXY").unwrap();
-            let lowercase_no_proxy = std::env::var("no_proxy").unwrap();
             assert!(no_proxy.contains("localhost"));
             assert!(no_proxy.contains("127.0.0.0/8"));
             assert!(no_proxy.contains("192.168.0.0/16"));
-            assert_eq!(lowercase_no_proxy, no_proxy);
+            assert_eq!(std::env::var("no_proxy").unwrap(), no_proxy);
         });
     }
 
     #[test]
     fn bypass_local_off_clears_no_proxy() {
-        isolated(|| {
+        with_isolated_env(|| {
             std::env::set_var("NO_PROXY", "stale-value");
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
@@ -287,14 +272,14 @@ mod tests {
                 bypass_local: false,
             });
             // The stale value must be cleared so the user's intent
-            // (everything goes through the proxy) is honored.
+            // (route everything through the proxy) is honoured.
             assert!(std::env::var("NO_PROXY").is_err());
         });
     }
 
     #[test]
     fn rejects_unsupported_schemes() {
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "socks5://x:1".into(),
@@ -306,7 +291,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_url() {
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "   ".into(),
@@ -318,12 +303,7 @@ mod tests {
 
     #[test]
     fn disable_after_enable_clears_previously_set_env_vars() {
-        // Regression: if the user enabled the proxy, then disables
-        // it, the next request must NOT keep going through the
-        // (now-removed) proxy. apply_proxy_env's "disabled" path
-        // must actively unset HTTP_PROXY / HTTPS_PROXY / NO_PROXY,
-        // not just return without writing.
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "http://127.0.0.1:7890".into(),
@@ -339,24 +319,15 @@ mod tests {
                 url: "http://127.0.0.1:7890".into(),
                 bypass_local: true,
             });
-            assert!(std::env::var("HTTP_PROXY").is_err());
-            assert!(std::env::var("HTTPS_PROXY").is_err());
-            assert!(std::env::var("ALL_PROXY").is_err());
-            assert!(std::env::var("NO_PROXY").is_err());
-            assert!(std::env::var("http_proxy").is_err());
-            assert!(std::env::var("https_proxy").is_err());
-            assert!(std::env::var("all_proxy").is_err());
-            assert!(std::env::var("no_proxy").is_err());
+            for name in PROXY_ENV_NAMES {
+                assert!(std::env::var(name).is_err(), "{name} must be unset");
+            }
         });
     }
 
     #[test]
     fn unsupported_scheme_after_enable_clears_env() {
-        // Same regression class for invalid-URL changes — switching
-        // the URL to something we won't apply (socks5://) must clear
-        // any previously-applied http(s) values, not silently keep
-        // them.
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "http://127.0.0.1:7890".into(),
@@ -373,7 +344,7 @@ mod tests {
 
     #[test]
     fn https_proxy_url_is_supported() {
-        isolated(|| {
+        with_isolated_env(|| {
             apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "https://proxy.corp:443".into(),
@@ -413,7 +384,7 @@ mod tests {
 
     #[test]
     fn apply_proxy_env_summary_does_not_leak_password() {
-        isolated(|| {
+        with_isolated_env(|| {
             let summary = apply_proxy_env(&ProxyConfig {
                 enabled: true,
                 url: "http://secretuser:secretpass@proxy.corp:8080".into(),
@@ -428,27 +399,20 @@ mod tests {
 
     #[test]
     fn default_trait_matches_serde_missing_field_semantics() {
-        // Regression: derive(Default) makes bypass_local = false, but
-        // serde with `default = "default_true"` makes a missing field
-        // = true. The two must agree so a ProxyConfig::default() and
-        // a serde-deserialized empty `{}` produce identical values.
-        let default_via_trait = ProxyConfig::default();
-        let default_via_serde: ProxyConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(default_via_trait.enabled, default_via_serde.enabled);
-        assert_eq!(default_via_trait.url, default_via_serde.url);
+        let via_trait = ProxyConfig::default();
+        let via_serde: ProxyConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(via_trait.enabled, via_serde.enabled);
+        assert_eq!(via_trait.url, via_serde.url);
         assert_eq!(
-            default_via_trait.bypass_local, default_via_serde.bypass_local,
+            via_trait.bypass_local, via_serde.bypass_local,
             "Default trait and serde-default must agree on bypass_local",
         );
-        // And both should be the safe default: bypass on, proxy off.
-        assert!(!default_via_trait.enabled);
-        assert!(default_via_trait.bypass_local);
+        assert!(!via_trait.enabled);
+        assert!(via_trait.bypass_local);
     }
 
     #[test]
     fn parses_camelcase_bypassLocal_field() {
-        // Frontend writes `bypassLocal` (camelCase). We must accept
-        // that exact spelling — verify the serde rename works.
         let json = r#"{"enabled": true, "url": "http://x:1", "bypassLocal": false}"#;
         let cfg: ProxyConfig = serde_json::from_str(json).unwrap();
         assert!(cfg.enabled);
@@ -465,29 +429,20 @@ mod tests {
 
     #[test]
     fn missing_store_config_clears_inherited_proxy_env() {
-        isolated(|| {
+        with_isolated_env(|| {
             let dir = tempdir_for_test();
             let path = dir.join("missing.json");
-            std::env::set_var("HTTP_PROXY", "http://inherited:8080");
-            std::env::set_var("HTTPS_PROXY", "http://inherited:8080");
-            std::env::set_var("ALL_PROXY", "http://inherited:8080");
-            std::env::set_var("NO_PROXY", "localhost");
-            std::env::set_var("http_proxy", "http://inherited:8080");
-            std::env::set_var("https_proxy", "http://inherited:8080");
-            std::env::set_var("all_proxy", "http://inherited:8080");
-            std::env::set_var("no_proxy", "localhost");
+            // Simulate inherited proxy values from a parent shell.
+            for name in PROXY_ENV_NAMES {
+                std::env::set_var(name, "http://inherited:8080");
+            }
 
             let summary = apply_proxy_env_from_store(&path);
 
             assert!(summary.contains("disabled"));
-            assert!(std::env::var("HTTP_PROXY").is_err());
-            assert!(std::env::var("HTTPS_PROXY").is_err());
-            assert!(std::env::var("ALL_PROXY").is_err());
-            assert!(std::env::var("NO_PROXY").is_err());
-            assert!(std::env::var("http_proxy").is_err());
-            assert!(std::env::var("https_proxy").is_err());
-            assert!(std::env::var("all_proxy").is_err());
-            assert!(std::env::var("no_proxy").is_err());
+            for name in PROXY_ENV_NAMES {
+                assert!(std::env::var(name).is_err(), "{name} must be cleared");
+            }
         });
     }
 
@@ -513,6 +468,7 @@ mod tests {
         assert!(read_proxy_config_from_store(&path).is_none());
     }
 
+    /// Creates a unique temporary directory for test file I/O.
     fn tempdir_for_test() -> std::path::PathBuf {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

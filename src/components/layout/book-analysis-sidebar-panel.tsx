@@ -1,7 +1,5 @@
-/**
- * 拆书作品侧边栏面板
- * 显示所有已分析的作品列表
- */
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
 
 import { useEffect, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"

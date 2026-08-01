@@ -1,20 +1,17 @@
 /**
- * Persistent serial queue for duplicate-merge operations.
+ * Persistent serial queue for duplicate merge operations.
  *
- * Why a queue (and not just kicking off `executeMerge` from the click
- * handler):
- *   - Merges rewrite cross-references across the entire wiki. Two
- *     concurrent merges race on the same files, last write wins, and
- *     half the rewrites silently disappear.
- *   - LLM calls take seconds; the user wants to queue several merges
- *     and walk away. The queue must survive app close so an
- *     interrupted merge resumes on next launch.
+ * Why a queue instead of direct execution:
+ * - Merges rewrite cross-references across entire wiki; concurrent merges race on same files
+ * - LLM calls take seconds; users want to queue multiple merges and continue working
+ * - Queue survives app restarts so interrupted merges resume on next launch
  *
- * Mirrors `ingest-queue.ts` almost line-for-line: same lifecycle
- * (pause / restore on project switch), same persistence file shape,
- * same retry-up-to-3 policy, same registry-based path resolution so
- * a relocated project still finds its tasks.
+ * Architecture mirrors ingest-queue.ts with identical lifecycle, persistence format,
+ * retry policy (up to 3 attempts), and registry-based path resolution.
+ *
+ * @license MIT © QMAI
  */
+
 import { readFile, writeFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
@@ -24,7 +21,7 @@ import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { executeMerge } from "@/lib/dedup-runner"
 import type { DuplicateGroup } from "@/lib/dedup"
 
-// ── Types ─────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface DedupTask {
   id: string
@@ -37,7 +34,7 @@ export interface DedupTask {
   retryCount: number
 }
 
-// ── State ─────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 
 let queue: DedupTask[] = []
 let processing = false
@@ -45,7 +42,7 @@ let currentProjectId = ""
 let currentProjectPath = ""
 let currentAbortController: AbortController | null = null
 
-// ── Persistence ───────────────────────────────────────────────────────────
+// ── Persistence ───────────────────────────────────────────────────────────────
 
 function queueFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/.qmai/dedup-queue.json`
@@ -56,7 +53,7 @@ async function saveQueue(projectPath: string): Promise<void> {
     const toSave = queue.filter((t) => t.status !== "done")
     await writeFile(queueFilePath(projectPath), JSON.stringify(toSave, null, 2))
   } catch {
-    // non-critical
+    // Non-critical failure
   }
 }
 
@@ -76,25 +73,23 @@ async function loadQueue(
   }
 }
 
-// ── Queue Operations ──────────────────────────────────────────────────────
+// ── Queue Operations ──────────────────────────────────────────────────────────
 
 function generateId(): string {
   return `dedup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 /**
- * Stable key for matching a queued task to a UI card. Order-independent
- * lowercase join — same shape used by dedup-storage's canonical key.
+ * Generate stable sorting key for duplicate group matching.
+ * Order-independent lowercase join using same logic as dedup-storage.
  */
 export function groupKey(slugs: readonly string[]): string {
   return [...slugs].map((s) => s.toLowerCase()).sort().join(",")
 }
 
 /**
- * Add a merge to the queue. The project MUST be the currently-active
- * project. Returns the new task's id. Idempotent on the same group:
- * if there's already a pending/processing/failed task for the same
- * slug-set, the existing id is returned instead of a duplicate.
+ * Add a merge task to the queue. Project must be currently active.
+ * Idempotent: returns existing task id if same slug-set already queued/processing/failed.
  */
 export async function enqueueMerge(
   projectId: string,
@@ -134,9 +129,8 @@ export async function enqueueMerge(
 }
 
 /**
- * Reset a failed task back to pending so it gets another shot. Clears
- * the error and resets retryCount so the user gets the full 3
- * attempts again.
+ * Reset a failed task to pending, clearing error and resetting retry count.
+ * Gives user full 3 attempts again.
  */
 export async function retryTask(taskId: string): Promise<void> {
   const task = queue.find((t) => t.id === taskId)
@@ -151,9 +145,8 @@ export async function retryTask(taskId: string): Promise<void> {
 }
 
 /**
- * Cancel/delete a task. If it's currently running, abort the LLM call
- * first — the merge writes will be left where they were when the
- * abort fired. Backup snapshots already on disk are kept either way.
+ * Cancel/delete a task. If currently running, abort the LLM call first.
+ * Backup snapshots already on disk are preserved regardless.
  */
 export async function cancelTask(taskId: string): Promise<void> {
   const task = queue.find((t) => t.id === taskId)
@@ -192,9 +185,8 @@ export function getQueueSummary(): {
 }
 
 /**
- * Test-only: wipe in-memory state without touching disk. Production
- * code should always use `pauseQueue()` so pending state lands in
- * the right project's file before the slate is cleared.
+ * Test helper: wipe in-memory state without touching disk.
+ * Production code should use pauseQueue() to persist state first.
  */
 export function clearQueueState(): void {
   if (currentAbortController) {
@@ -208,9 +200,8 @@ export function clearQueueState(): void {
 }
 
 /**
- * Project-switch handshake: flush the active project's queue to disk
- * (reverting any in-flight task to pending so it gets re-tried on
- * resume), then clear in-memory state.
+ * Project-switch handshake: flush active project's queue to disk
+ * (reverting any in-flight task to pending), then clear in-memory state.
  */
 export async function pauseQueue(): Promise<void> {
   if (!currentProjectId || !currentProjectPath) return
@@ -237,9 +228,8 @@ export async function pauseQueue(): Promise<void> {
 }
 
 /**
- * Load a project's queue from disk and resume processing. Tasks left
- * in "processing" by an abrupt exit get reverted to "pending" so they
- * pick up on next process tick.
+ * Load a project's queue from disk and resume processing.
+ * Tasks left in "processing" by abrupt exit revert to "pending".
  */
 export async function restoreQueue(
   projectId: string,
@@ -283,7 +273,7 @@ export async function restoreQueue(
   }
 }
 
-// ── Processing ────────────────────────────────────────────────────────────
+// ── Processing ────────────────────────────────────────────────────────────────
 
 const MAX_RETRIES = 3
 
@@ -338,7 +328,7 @@ async function processNext(projectId: string): Promise<void> {
     currentAbortController = null
     queue = queue.filter((t) => t.id !== next.id)
     await saveQueue(pp)
-    // Tell the rest of the app the wiki tree changed.
+    // Notify rest of app that wiki tree changed.
     useWikiStore.getState().bumpDataVersion()
 
     console.log(`[Dedup Queue] Done: ${next.group.slugs.join(",")}`)

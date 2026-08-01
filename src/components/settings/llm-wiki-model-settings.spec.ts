@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { describe, expect, it } from "vitest"
 import { getProviderConfig } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
