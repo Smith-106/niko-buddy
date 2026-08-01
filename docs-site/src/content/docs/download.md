@@ -7,13 +7,20 @@ description: 下载 niko-hub 最新版本安装包
 
 ## 最新版本
 
-**v2.4.2**（2026-07-25 发布）
+**v2.4.4**（2026-08-01 发布）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
+### v2.4.4 更新亮点
+
+- ✅ **完全 MIT 许可证合规** — 移除所有 GPL/LGPL 依赖，可无限制商业使用
+- ✅ **性能提升** — 繁简转换速度提升 ~35%
+- ✅ **性能基准体系** — 6 个 benchmark baseline，21 个性能指标
+- ✅ **零破坏性变更** — 所有公共 API 保持兼容
+
 ## Windows 安装包
 
-下载 [`QMaiWrite_2.4.2_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.4.2_windows_X64.exe)（约 33 MB），双击运行 NSIS 安装程序即可。
+下载 [`QMaiWrite_2.4.4_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.4.4_windows_X64.exe)（约 33 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
@@ -29,7 +36,7 @@ description: 下载 niko-hub 最新版本安装包
 内置 Tauri Updater，启动时自动检测 GitHub Releases 新版本并提示更新。Windows 平台更新前会等待主程序释放文件句柄，避免"无法卸载"错误。
 
 :::note[关于已装 v2.4.1（2026-07-21 版）的用户]
-该版本的更新通道在编译期指向了旧仓库地址，自动更新无法到达新版本。请手动前往 [Releases](https://github.com/Smith-106/niko-buddy/releases) 下载 v2.4.2 覆盖安装——v2.4.2 已将更新通道修正至本仓库，此后即可正常接收自动更新。
+该版本的更新通道在编译期指向了旧仓库地址，自动更新无法到达新版本。请手动前往 [Releases](https://github.com/Smith-106/niko-buddy/releases) 下载 v2.4.4 覆盖安装——v2.4.2+ 已将更新通道修正至本仓库，此后即可正常接收自动更新。
 :::
 
 ## 数据管理
