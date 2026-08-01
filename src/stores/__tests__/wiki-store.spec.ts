@@ -27,7 +27,7 @@ Object.defineProperty(globalThis, "localStorage", {
 })
 
 import { useWikiStore } from "../wiki-store"
-import type { LlmConfig, SourceWatchConfig, RerankConfig } from "../wiki-store"
+import type { SourceWatchConfig } from "../wiki-store"
 import { DEFAULT_RERANK_CONFIG, DEFAULT_NOVEL_CONFIG } from "../wiki-store"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 
@@ -344,13 +344,12 @@ describe("setRerankConfig / setMultimodalConfig / setNovelConfig 合并行为", 
       azureModelFamily: "auto",
       apiMode: "chat_completions",
       concurrency: 2,
-    }
+    } as const
     useWikiStore.getState().setMultimodalConfig(cfg)
     expect(useWikiStore.getState().multimodalConfig.concurrency).toBe(2)
   })
 
   it("setNovelConfig 合并模式", () => {
-    const before = useWikiStore.getState().novelConfig.chapterTargetChars
     useWikiStore.getState().setNovelConfig({ chapterTargetChars: 5000 })
     const after = useWikiStore.getState().novelConfig
     expect(after.chapterTargetChars).toBe(5000)
@@ -367,13 +366,13 @@ describe("setChatDockPosition / setUiFontSizeScale 的 localStorage 持久化", 
 
   it("setChatDockPosition 写入 localStorage", () => {
     useWikiStore.getState().setChatDockPosition("right")
-    expect(localStorageMock.setItem).toHaveBeenCalledWith("qmai-chat-dock-position", "right")
+    expect(_localStorageMock.setItem).toHaveBeenCalledWith("qmai-chat-dock-position", "right")
   })
 
   it("setUiFontSizeScale 写入并约束范围", () => {
     useWikiStore.getState().setUiFontSizeScale(2.0) // 超出上限
     expect(useWikiStore.getState().uiFontSizeScale).toBeCloseTo(1.3)
-    expect(localStorageMock.setItem).toHaveBeenCalledWith("qmai-ui-font-size-scale", String(1.3))
+    expect(_localStorageMock.setItem).toHaveBeenCalledWith("qmai-ui-font-size-scale", String(1.3))
   })
 })
 
@@ -382,7 +381,7 @@ describe("setChatDockPosition / setUiFontSizeScale 的 localStorage 持久化", 
 describe("finishLintRun / finishReviewRun / clearTransientTaskState", () => {
   it("finishLintRun 匹配 runId 时更新状态，不匹配时忽略", () => {
     const runId = "lint-x"
-    const state = { runId, running: true, hasRun: true, error: "error message" }
+    const state = { runId, running: true, hasRun: true, error: "error message", projectPath: "/fake/project" }
     useWikiStore.getState().setLintRun({ ...state, results: [] })
     // RunId mismatch → should not update
     useWikiStore.getState().finishLintRun("wrong-id", { running: false })
@@ -398,6 +397,7 @@ describe("finishLintRun / finishReviewRun / clearTransientTaskState", () => {
       runId,
       running: true,
       results: [],
+      projectPath: "/fake/project",
     })
     useWikiStore.getState().finishReviewRun("wrong", { running: false })
     expect(useWikiStore.getState().reviewRun?.running).toBe(true)
@@ -406,9 +406,9 @@ describe("finishLintRun / finishReviewRun / clearTransientTaskState", () => {
   })
 
   it("clearTransientTaskState 清空最终章节保存、lint、review 状态", () => {
-    useWikiStore.getState().setFinalChapterSave({ filePath: "/a.md", saving: true, phase: "saving" })
-    useWikiStore.getState().setLintRun({ runId: "1", running: false, hasRun: true, results: [] })
-    useWikiStore.getState().setReviewRun({ runId: "2", running: false, results: [] })
+    useWikiStore.getState().setFinalChapterSave({ filePath: "/a.md", saving: true, phase: "saving", projectPath: "/fake/project" })
+    useWikiStore.getState().setLintRun({ runId: "1", running: false, hasRun: true, results: [], projectPath: "/fake/project" })
+    useWikiStore.getState().setReviewRun({ runId: "2", running: false, results: [], projectPath: "/fake/project" })
 
     useWikiStore.getState().clearTransientTaskState()
 

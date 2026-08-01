@@ -55,7 +55,6 @@ export function ModelSelectInput({
     <div className="flex flex-col gap-2">
       <Input
         value={value}
-        onValueChange={(newValue) => onChange(newValue)}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder={inputPlaceholder}
         className="w-full"
