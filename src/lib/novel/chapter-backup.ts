@@ -1,8 +1,15 @@
 import { createDirectory, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
+/**
+ * 格式化备份时间戳为 YYYYMMDD-HHMMSS 格式（UTC）。
+ * MIT licensed implementation.
+ *
+ * @param now - 当前日期对象
+ * @returns 格式化的时间戳字符串
+ */
 function formatBackupTimestamp(now: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0")
+  const pad = (value: number): string => String(value).padStart(2, "0")
   return [
     now.getUTCFullYear(),
     pad(now.getUTCMonth() + 1),
@@ -14,6 +21,18 @@ function formatBackupTimestamp(now: Date): string {
   ].join("")
 }
 
+/**
+ * 创建章节文件备份。
+ * MIT licensed implementation.
+ *
+ * @param input - 备份参数
+ * @param input.projectPath - 项目根路径
+ * @param input.chapterPath - 章节文件路径（仅用于命名参考）
+ * @param input.chapterNumber - 章节编号（可选）
+ * @param input.content - 章节内容
+ * @param input.now - 当前时间（可选，默认使用 new Date()）
+ * @returns 备份文件路径
+ */
 export async function backupChapterFile(input: {
   projectPath: string
   chapterPath: string

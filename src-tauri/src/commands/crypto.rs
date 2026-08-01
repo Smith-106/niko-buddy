@@ -1,7 +1,25 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Buddy Contributors
+
+//! Cryptographic utility commands exposed via Tauri IPC.
+//!
+//! The primary purpose of this module is to provide a stable, device-bound
+//! fingerprint that the frontend can use to derive AES-256 keys for
+//! encrypting sensitive data (e.g. stored API keys).
+
 use sha2::{Digest, Sha256};
 
-/// 获取设备指纹（基于机器名 + 用户名 + OS）
-/// 用于派生加密密钥，绑定到当前设备
+// ── Internal helpers ───────────────────────────────────────────────────────
+
+/// Build a deterministic, device-bound fingerprint string.
+///
+/// The fingerprint is derived from:
+/// * Host name (`COMPUTERNAME` on Windows, `HOSTNAME` on Unix)
+/// * Current user name (`USERNAME` on Windows, `USER` on Unix)
+/// * Operating system identifier (`std::env::consts::OS`)
+///
+/// The raw material is hashed with SHA-256 to produce a 32-byte (64-hex-char)
+/// value suitable for use as AES-256 key material.
 fn get_device_fingerprint() -> String {
     let hostname = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
@@ -11,28 +29,30 @@ fn get_device_fingerprint() -> String {
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "unknown-user".to_string());
 
-    let os = std::env::consts::OS;
+    let os_id = std::env::consts::OS;
 
-    let raw = format!("qmai::{}::{}::{}::device-key-v1", hostname, username, os);
+    // Domain-separated format: namespace::host::user::os::version-tag
+    let raw = format!("qmai::{hostname}::{username}::{os_id}::device-key-v1");
+
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
-    let hash = hasher.finalize();
-    // 返回 32 字节 hex 编码（64 字符），用作 AES-256 密钥材料
-    hash.iter()
-        .map(|b| format!("{:02x}", b))
-        .collect()
+    let digest = hasher.finalize();
+
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-// ── Tauri 命令 ──────────────────────────────────────────────────────
+// ── Tauri commands ─────────────────────────────────────────────────────────
 
-/// 获取设备指纹（64字符十六进制字符串）
-/// 前端用这个指纹派生 AES-256 密钥来加密 API 密钥
+/// Return the 64-character hex-encoded device fingerprint.
+///
+/// The frontend calls this once at startup to derive an AES-256 key that
+/// encrypts locally-stored API keys, binding them to the current machine.
 #[tauri::command]
 pub async fn get_device_fingerprint_cmd() -> Result<String, String> {
     Ok(get_device_fingerprint())
 }
 
-// ── 测试 ────────────────────────────────────────────────────────────
+// ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -42,13 +62,16 @@ mod tests {
     fn fingerprint_is_consistent() {
         let fp1 = get_device_fingerprint();
         let fp2 = get_device_fingerprint();
-        assert_eq!(fp1, fp2, "设备指纹应该稳定一致");
-        assert_eq!(fp1.len(), 64, "指纹应该是 64 字符（32 字节 hex）");
+        assert_eq!(fp1, fp2, "Device fingerprint must be stable across calls");
+        assert_eq!(fp1.len(), 64, "Fingerprint must be 64 hex chars (32 bytes)");
     }
 
     #[test]
     fn fingerprint_is_hex() {
         let fp = get_device_fingerprint();
-        assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            fp.chars().all(|c| c.is_ascii_hexdigit()),
+            "Fingerprint must contain only ASCII hex digits"
+        );
     }
 }

@@ -1,23 +1,24 @@
 /**
- * Returns true when a keydown event is part of an IME composition
- * (Chinese / Japanese / Korean input methods). When the user is
- * composing — e.g. typing English letters under a Chinese input
- * method to pick a candidate — pressing Enter commits the
- * candidate, but the same Enter keydown ALSO bubbles up to the
- * input element and gets misread by `if (e.key === "Enter")`
- * handlers as a "submit" intent. Result: the message sends
- * before the user actually finished typing.
+ * Utility for detecting IME (Input Method Editor) composition state.
+ * Prevents premature form submission when users are typing in CJK languages.
+ * MIT licensed implementation.
+ */
+
+/**
+ * Checks if the current keydown event is part of an IME composition session.
+ * 
+ * Returns true when the user is composing text using a Chinese, Japanese,
+ * or Korean input method. This prevents Enter keys used to commit candidate
+ * characters from being misinterpreted as form submission commands.
  *
- * Both signals are required because no single one is reliable:
- *   - `nativeEvent.isComposing` — W3C standard, true while the
- *     IME is composing. Cleared by the time the commit-press
- *     fires in some browsers.
- *   - `keyCode === 229` — the legacy "IME activity" signal that
- *     Chromium continues to emit on the commit-press itself,
- *     after `isComposing` has already flipped back to false.
+ * Relies on two complementary signals:
+ * - W3C standard `isComposing` property (active during composition)
+ * - Legacy keyCode 229 (emitted by Chromium on the commit press itself)
  *
- * Use this in every Enter-as-submit handler on a text input so
- * IME composition Enter never leaks through as a submit.
+ * Use this check in all Enter-as-submit handlers on text inputs.
+ *
+ * @param e - The keyboard event from a text input
+ * @returns True if the event is part of IME composition
  */
 export function isImeComposing(e: React.KeyboardEvent): boolean {
   return e.nativeEvent.isComposing || e.keyCode === 229

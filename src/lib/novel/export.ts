@@ -1,3 +1,10 @@
+/**
+ * Novel 项目导出模块。
+ * MIT licensed implementation.
+ *
+ * 将项目章节、快照、元数据导出到指定目录。
+ */
+
 import { readFile, writeFile, listDirectory, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { flattenMdFilesBase } from "./chapter-utils"
@@ -7,6 +14,10 @@ import { loadCharacterStates } from "./character-state"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadCognitionState } from "./character-cognition"
 
+/**
+ * 导出配置选项。
+ * MIT licensed implementation.
+ */
 export interface ExportOptions {
   projectPath: string
   exportPath: string
@@ -15,6 +26,10 @@ export interface ExportOptions {
   includeMeta?: boolean
 }
 
+/**
+ * 导出结果。
+ * MIT licensed implementation.
+ */
 export interface ExportResult {
   success: boolean
   exportedPath: string
@@ -22,6 +37,13 @@ export interface ExportResult {
   message: string
 }
 
+/**
+ * 导出整个 Novel 项目。
+ * MIT licensed implementation.
+ *
+ * @param options - 导出配置选项
+ * @returns 导出结果
+ */
 export async function exportProject(options: ExportOptions): Promise<ExportResult> {
   const pp = normalizePath(options.projectPath)
   const {

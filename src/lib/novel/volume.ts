@@ -2,6 +2,10 @@ import { searchWiki } from "@/lib/search"
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
+/**
+ * 卷册元数据结构。
+ * MIT licensed implementation.
+ */
 export interface VolumeMeta {
   volumeNumber: number
   title: string
@@ -10,6 +14,13 @@ export interface VolumeMeta {
   chapterRangeEnd: number | undefined
 }
 
+/**
+ * 从 Frontmatter 对象解析卷册元数据。
+ * MIT licensed implementation.
+ *
+ * @param fm - frontmatter 键值对对象
+ * @returns VolumeMeta 或 null（无效数据）
+ */
 export function parseVolumeMeta(fm: Record<string, unknown>): VolumeMeta | null {
   const rawVolumeNumber = fm.volume_number
   const volumeNumber = typeof rawVolumeNumber === "string" ? Number(rawVolumeNumber) : typeof rawVolumeNumber === "number" ? rawVolumeNumber : null
@@ -26,6 +37,13 @@ export function parseVolumeMeta(fm: Record<string, unknown>): VolumeMeta | null 
   }
 }
 
+/**
+ * 判断页面是否为卷册类型。
+ * MIT licensed implementation.
+ *
+ * @param fm - frontmatter 键值对对象
+ * @returns true 如果是卷册页面
+ */
 export function isVolumePage(fm: Record<string, unknown>): boolean {
   if (fm.type === "volume") return true
   if (fm.outline_type === "volume-outline") return true
@@ -35,6 +53,14 @@ export function isVolumePage(fm: Record<string, unknown>): boolean {
   return false
 }
 
+/**
+ * 获取包含指定章节的卷册列表。
+ * MIT licensed implementation.
+ *
+ * @param projectPath - 项目根路径
+ * @param chapterNumber - 章节编号
+ * @returns 包含该章节的卷册元数据列表
+ */
 export async function getChapterVolumes(
   projectPath: string,
   chapterNumber: number,
@@ -64,6 +90,13 @@ export async function getChapterVolumes(
   return results
 }
 
+/**
+ * 从 Markdown 内容中解析 Frontmatter。
+ * MIT licensed implementation.
+ *
+ * @param content - Markdown 文件内容
+ * @returns frontmatter 键值对或 null
+ */
 function parseFrontmatterFromMarkdown(content: string): Record<string, unknown> | null {
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
   if (!fmMatch) return null

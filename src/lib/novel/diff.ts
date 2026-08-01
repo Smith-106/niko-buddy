@@ -1,7 +1,7 @@
 /**
- * 最长公共子序列 (LCS) 差异计算 — 纯函数，零 IO / 零依赖。
+ * 最长公共子序列（LCS）差异计算 — 纯函数，零 IO/零依赖。
  *
- * 按公共知识自实现（标准 DP），不拷贝任何上游代码（GPL-FENCE 约束）。
+ * 按公共知识自实现标准动态规划算法（MIT licensed），不拷贝任何上游代码（GPL-FENCE 约束）。
  * 供 Monaco DiffEditor 轻量场景或测试断言使用；Monaco 自身也内置 diff，
  * 此函数用于无需加载编辑器的纯逻辑比对。
  */
@@ -15,16 +15,25 @@ export interface DiffChange {
 
 /**
  * 计算 original → replacement 的字符级差异序列。
+ * 使用经典动态规划求解 LCS，然后回溯生成变化序列。
  * 相邻同类型块会被合并，降低 Change 数量。
+ *
+ * @param original - 原始文本
+ * @param replacement - 替换后的文本
+ * @returns 差异变化序列
  */
 export function computeLcsDiff(original: string, replacement: string): DiffChange[] {
   const m = original.length
   const n = replacement.length
 
-  // dp[i][j] = LCS(original[i..], replacement[j..]) 的长度
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0))
-  for (let i = m - 1; i >= 0; i -= 1) {
-    for (let j = n - 1; j >= 0; j -= 1) {
+  // dp[i][j] = original[i..] 与 replacement[j..] 的 LCS 长度
+  const dp: number[][] = Array.from({ length: m + 1 }, () => 
+    new Array(n + 1).fill(0)
+  )
+
+  // 填充 DP 表（从后往前）
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
       if (original[i] === replacement[j]) {
         dp[i][j] = dp[i + 1][j + 1] + 1
       } else {
@@ -37,6 +46,7 @@ export function computeLcsDiff(original: string, replacement: string): DiffChang
   let i = 0
   let j = 0
 
+  // 辅助函数：推送变化并合并相邻同类块
   const push = (type: DiffChangeType, text: string): void => {
     const last = changes[changes.length - 1]
     if (last && last.type === type) {
@@ -46,6 +56,7 @@ export function computeLcsDiff(original: string, replacement: string): DiffChang
     }
   }
 
+  // 回溯生成变化序列
   while (i < m && j < n) {
     if (original[i] === replacement[j]) {
       // 相等段：尽量延伸合并
