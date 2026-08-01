@@ -97,6 +97,13 @@ export default defineConfig(async () => ({
 
   test: {
     environment: "node",
+    // Include bench files alongside test/spec so `npm run bench` works.
+    // Default test:mocks/test:llm commands exclude *.bench.ts via their
+    // own --exclude patterns or don't glob them.
+    include: [
+      "**/*.{test,spec}.?(c|m)[jt]s?(x)",
+      "**/*.bench.ts",
+    ],
     // Loads .env.test.local into process.env for real-LLM tests.
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.

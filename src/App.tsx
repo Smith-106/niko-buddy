@@ -59,6 +59,7 @@ function App() {
   // Auto-open last project on startup
   useEffect(() => {
     async function init() {
+      performance.mark("app-init-start") // bench: startup latency anchor
       try {
         // 先加载和应用主题
         const savedTheme = await loadTheme()
@@ -145,6 +146,7 @@ function App() {
       } catch (err) {
         console.error("应用初始化失败:", err)
       } finally {
+        performance.mark("app-init-end") // bench: startup latency anchor
         setLoading(false)
         void checkForAppUpdate({ mode: "silent" })
         void initAnalytics()

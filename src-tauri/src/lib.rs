@@ -174,6 +174,7 @@ pub fn run() {
             commands::backup::export_backup,
             commands::backup::import_backup,
             set_proxy_env,
+            commands::metrics::get_process_memory,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
