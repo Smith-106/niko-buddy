@@ -1,6 +1,6 @@
 ﻿import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { joinPath } from "@/lib/path-utils"
@@ -993,7 +993,7 @@ async function synthesizeCustomAuraFields(
   return buildFallbackCustomAuraFields(input, researchFiles)
 }
 
-async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, injectedConfig: AuraInjectedConfig = {}): Promise<string> {
+async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, injectedConfig: AuraInjectedConfig = {}, signal?: AbortSignal): Promise<string> {
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
   const llmConfig = resolveDefaultModel(injectedConfig.llmConfig ?? useWikiStore.getState().llmConfig)
   let result = ""
@@ -1002,11 +1002,16 @@ async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, inje
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ]
+  // ISS-20260724-004 (ROOT-C): merge caller signal with timeout signal to prevent
+  // orphaned LLM requests when the caller aborts before the timeout fires.
+  const combinedSignal = signal
+    ? combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+    : AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
   await streamChat(llmConfig, messages, {
     onToken: (token) => { result += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
-  }, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+  }, combinedSignal)
   if (streamError) throw streamError
   return result.trim()
 }

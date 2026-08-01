@@ -1,6 +1,6 @@
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { buildWikiGraph, type GraphNode, type CommunityInfo } from "@/lib/wiki-graph"
-import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { embedPage, searchByEmbedding } from "@/lib/embedding"
@@ -104,6 +104,8 @@ export async function generateSingleCommunitySummary(
   community: CommunityInfo,
   members: GraphNode[],
   llmConfig: LlmConfig,
+  /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */
+  signal?: AbortSignal,
 ): Promise<string> {
   // 收集成员节点内容（前 500 字/节点，最多 10 个节点）
   const topMembers = members
@@ -159,7 +161,11 @@ ${memberContents.join("\n\n")}
     },
   }
 
-  await streamChat(llmConfig, messages, callbacks, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+  // ISS-20260724-004 (ROOT-C): merge caller signal with timeout to prevent orphaned LLM requests
+  const communitySignal = signal
+    ? combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+    : AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
+  await streamChat(llmConfig, messages, callbacks, communitySignal)
   if (streamError) throw streamError
 
   return result.trim() || `社区 ${community.id}：包含 ${community.nodeCount} 个节点（${community.topNodes.join("、")}）。`

@@ -533,6 +533,8 @@ export async function verifyFactCheckLlm(
    * useWikiStore 的直接耦合, 使函数可脱离 UI store 独立测试。
    */
   injectedStore?: { llmConfig?: LlmConfig; novelConfig?: NovelConfig },
+  /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */
+  signal?: AbortSignal,
 ): Promise<FactCheckResult[]> {
   if (results.length === 0) return results
 
@@ -541,7 +543,7 @@ export async function verifyFactCheckLlm(
 
   try {
     const { resolveNovelModel } = await import("./model-resolver")
-    const { streamChat } = await import("@/lib/llm-client")
+    const { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } = await import("@/lib/llm-client")
     const { hasUsableLlm } = await import("@/lib/has-usable-llm")
 
     // ISS-20260709-023: 注入优先, 缺省回退 store（向后兼容）
@@ -609,7 +611,9 @@ ${itemsText}`
           logger.error("FactCheck LLM", "Stream error", { error: error instanceof Error ? error.message : String(error) })
         },
       },
-      AbortSignal.timeout(60000),
+      signal
+        ? combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+        : AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS),
     )
 
     const jsonMatch = response.match(/\[[\s\S]*\]/)
