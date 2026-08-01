@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
@@ -7,11 +10,13 @@ interface Props {
   setDraft: DraftSetter
 }
 
+/** Supported UI language options. */
 const UI_LANGUAGES = [
   { value: "en", label: "English" },
   { value: "zh", label: "中文" },
 ]
 
+/** Font size scale presets with Chinese labels. */
 const FONT_SIZE_PRESETS = [
   { label: "小", value: 0.9 },
   { label: "默认", value: 1 },
@@ -19,12 +24,16 @@ const FONT_SIZE_PRESETS = [
   { label: "特大", value: 1.3 },
 ]
 
+/**
+ * Interface settings section: UI language and font size configuration.
+ */
 export function InterfaceSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const scalePercent = Math.round(draft.uiFontSizeScale * 100)
 
   return (
     <div className="space-y-6">
+      {/* Section header */}
       <div>
         <h2 className="text-xl font-semibold">{t("settings.sections.interface.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -32,23 +41,24 @@ export function InterfaceSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* UI language selector */}
       <div className="space-y-2">
         <Label>{t("settings.sections.interface.uiLanguage")}</Label>
         <div className="flex flex-wrap gap-2">
-          {UI_LANGUAGES.map((l) => {
-            const active = draft.uiLanguage === l.value
+          {UI_LANGUAGES.map((lang) => {
+            const isActive = draft.uiLanguage === lang.value
             return (
               <button
-                key={l.value}
+                key={lang.value}
                 type="button"
-                onClick={() => setDraft("uiLanguage", l.value)}
+                onClick={() => setDraft("uiLanguage", lang.value)}
                 className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                  active
+                  isActive
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border hover:bg-accent"
                 }`}
               >
-                {l.label}
+                {lang.label}
               </button>
             )
           })}
@@ -58,6 +68,7 @@ export function InterfaceSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* Font size slider + presets */}
       <div className="space-y-3 rounded-lg border p-4">
         <div className="flex items-center justify-between">
           <Label>界面字号</Label>
@@ -75,14 +86,14 @@ export function InterfaceSection({ draft, setDraft }: Props) {
         />
         <div className="flex flex-wrap gap-2">
           {FONT_SIZE_PRESETS.map((preset) => {
-            const active = Math.abs(draft.uiFontSizeScale - preset.value) < 0.001
+            const isActive = Math.abs(draft.uiFontSizeScale - preset.value) < 0.001
             return (
               <button
                 key={preset.value}
                 type="button"
                 onClick={() => setDraft("uiFontSizeScale", preset.value)}
                 className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                  active
+                  isActive
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border hover:bg-accent"
                 }`}
