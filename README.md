@@ -15,8 +15,8 @@
   <a href="https://github.com/Smith-106/niko-hub/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.4.2-blue?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/version-2.4.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
@@ -355,7 +355,7 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 **Rust 后端与本地存储：**
 
 - **向量存储**：采用 LanceDB 本地向量数据库，章节摄取后的记忆向量直接落盘于项目目录，无需外部服务。
-- **IPC 通信**：前端通过 Tauri 的 invoke 调用 src-tauri/src/commands/ 中注册的 Rust 命令（如 vector_search_chunks、chapter_ingest），所有文件、向量、PDF 操作均在 Rust 侧执行，前端不直接触碰文件系统。
+- **IPC 通信**：前端通过 Tauri 的 invoke 调用 src-tauri/src/commands/ 中注册的 Rust 命令（如 vector_search_chunks），所有文件、向量、PDF 操作均在 Rust 侧执行，前端不直接触碰文件系统。注意：`chapter_ingest` 实际在 TypeScript 层实现（`src/lib/novel/chapter-ingest.ts`），不属于 Rust IPC 命令。
 - **PDF 解析**：基于 PDFium 提取参考素材文本，供拆书库与大纲生成消费。
 - **进程与代理**：Rust 侧负责后台 LLM 任务调度、默认模型统筹与本地代理转发。
 
@@ -375,8 +375,7 @@ sequenceDiagram
     RS-->>FE: 返回上下文包
     FE->>FE: 调用 LLM 生成草稿
     U->>FE: 确认保存
-    FE->>IP: invoke chapter_ingest
-    IP->>RS: 章节摄取 结构化记忆
+    FE->>FE: 调用 chapter_ingest (TypeScript)
     RS->>DB: 写入记忆 图谱边 向量
 ```
 
@@ -388,17 +387,16 @@ sequenceDiagram
 
 ### 环境要求
 
-- **操作系统**：Windows 10+（当前发布平台）；macOS / Linux 版本规划中
+- **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：v2.4.2 发布产物为 Windows 安装包与便携版，macOS / Linux 暂未提供官方构建。
-- **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
+> 注：v2.4.3 发布产物为 Windows 安装包与便携版（macOS/Linux planned）。
 
 ### 安装方式
 
 **方式一：下载安装包（推荐）**
 
-前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新版本安装包。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### 最快上手（5 分钟）
 
@@ -517,7 +515,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 985+ 用例；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 1009+ 用例；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 

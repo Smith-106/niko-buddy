@@ -9,7 +9,7 @@ description: 下载 niko-hub 最新版本安装包
 
 **v2.4.2**（2026-07-25 发布）
 
-前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新版本安装包。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ## Windows 安装包
 
@@ -21,7 +21,7 @@ description: 下载 niko-hub 最新版本安装包
 
 ## 系统要求
 
-- **操作系统**：Windows 10 及以上（主要支持平台）、macOS、Linux
+- **操作系统**：Windows 10 及以上（主要支持平台）、macOS（planned）、Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
 ## 自动更新
