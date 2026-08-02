@@ -52,14 +52,6 @@ const ZH_FRAGMENTS = [
   "Transformer 架构通过自注意力机制取代了传统的循环结构，大幅提升了序列建模的并行度和效果。",
 ]
 
-const EN_FRAGMENTS = [
-  "The transformer architecture revolutionized natural language processing by enabling efficient parallel computation over sequence data.",
-  "Retrieval-augmented generation combines the strengths of information retrieval and language modeling for more accurate and grounded outputs.",
-  "Vector embeddings map high-dimensional semantic spaces into fixed-size dense vectors, enabling similarity-based search at scale.",
-  "The Rust programming language guarantees memory safety without garbage collection through its ownership and borrowing system.",
-  "Microservice architectures decompose monolithic applications into independently deployable services, each owning its data store.",
-]
-
 // ---------------------------------------------------------------------------
 // Generators
 // ---------------------------------------------------------------------------

@@ -32,11 +32,7 @@ const FM_BLOCK_STRICT_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
 // Unanchored version used when strict matching fails.
 // Handles LLM-generated pages that prepend stray lines before real frontmatter.
-const FM_BLOCK_ANYWHERE_RE = /
----\s*\r?
-([\s\S]*?)\r?
----\s*(?:\r?
-|$)/
+const FM_BLOCK_ANYWHERE_RE = /---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 const MAX_PREFIX_LINES_BEFORE_FRONTMATTER = 6
 
 /**

@@ -1,3 +1,6 @@
+// Copyright (c) 2024 Niko-hub contributors. MIT License.
+// SPDX-License-Identifier: MIT
+
 use std::fs;
 use std::io::Read as IoRead;
 use std::path::Path;

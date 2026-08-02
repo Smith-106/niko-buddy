@@ -102,6 +102,7 @@ export class DataSourceRegistry {
         return { name: source.name, value, error: null }
       } catch (error) {
         logger.warn("DataSource", `${source.name} failed to load`, { error: error instanceof Error ? error.message : String(error) })
+        context.recordGap?.(source.name, "datasource_error")
         
         // 尝试使用降级策略
         try {

@@ -1,3 +1,6 @@
+// Copyright (c) 2024 Niko-hub contributors. MIT License.
+// SPDX-License-Identifier: MIT
+
 //! Claude Code CLI subprocess transport.
 //!
 //! Users with a Claude Code subscription already have OAuth credentials
@@ -989,6 +992,7 @@ pub async fn claude_cli_kill(
 pub async fn do_claude_cli_terminate(state: &ClaudeCliState, stream_id: &str) -> Result<(), String> {
     // BP-001 (from quality-review): named constant, not a magic number.
     // SIGTERM = 15 on every Unix target we ship (Linux, macOS).
+    #[cfg(unix)]
     const SIGTERM: i32 = 15;
     let mut guard = state.children.lock().await;
     if let Some(running) = guard.get_mut(stream_id) {

@@ -95,7 +95,8 @@ export const volumeContextDataSource: DataSource<string> = {
           return parts.join("\n")
         })
         .join("\n\n")
-    } catch {
+    } catch (err) {
+      context.recordGap?.("volumeContext", "datasource_error")
       return ""
     }
   },

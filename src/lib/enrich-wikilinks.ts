@@ -117,7 +117,7 @@ function parseLinkResponse(raw: string): LinkEntry[] {
   
   // Remove markdown code fences if present
   let text = raw.trim()
-  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i)
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "")
   
   const start = text.indexOf("{")
   if (start === -1) return []

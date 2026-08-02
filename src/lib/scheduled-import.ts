@@ -1,3 +1,10 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Scheduled import — periodic file-system scan that copies new or
+ * changed files from a watched directory into the project's source
+ * tree and enqueues them for LLM ingestion.
+ */
 import {
   copyFile,
   fileExists,
@@ -22,6 +29,8 @@ import {
   isIngestableSourcePath,
 } from "@/lib/source-lifecycle"
 
+// ── Types ──────────────────────────────────────────────────────────
+
 interface ImportDb {
   files: Record<string, string>
   lastScan: number | null
@@ -29,22 +38,12 @@ interface ImportDb {
 
 interface ImportDbStore {
   version: 1
-  /**
-   * Kept as a map for backward compatibility with early scheduled-import
-   * builds. The current UI supports one watched directory per project, so
-   * saveImportDb intentionally writes only the active directory key.
-   */
   directories: Record<string, ImportDb>
 }
 
-type ScanOptions = {
-  runId?: number
-}
+type ScanOptions = { runId?: number }
 
-const EMPTY_DB: ImportDb = {
-  files: {},
-  lastScan: null,
-}
+const EMPTY_DB: ImportDb = { files: {}, lastScan: null }
 
 let scanTimer: ReturnType<typeof setInterval> | null = null
 let scanning = false
@@ -52,121 +51,66 @@ let activeRunId = 0
 
 const DB_PATH = ".qmai/scheduled-import-db.json"
 const LEGACY_DB_DIR = ".llm-wiki-imported"
-const SCHEDULED_IMPORT_DIR = "scheduled-import"
-const MAX_SCHEDULED_IMPORT_BYTES = 100 * 1024 * 1024
-const SENSITIVE_CONFIG_EXTENSIONS = new Set(["json", "yaml", "yml", "xml"])
-const RESERVED_WINDOWS_NAMES = new Set([
-  "con",
-  "prn",
-  "aux",
-  "nul",
-  "com1",
-  "com2",
-  "com3",
-  "com4",
-  "com5",
-  "com6",
-  "com7",
-  "com8",
-  "com9",
-  "lpt1",
-  "lpt2",
-  "lpt3",
-  "lpt4",
-  "lpt5",
-  "lpt6",
-  "lpt7",
-  "lpt8",
-  "lpt9",
+const SI_DIR = "scheduled-import"
+const MAX_BYTES = 100 * 1024 * 1024
+const SENSITIVE_EXTS = new Set(["json", "yaml", "yml", "xml"])
+const RESERVED_NAMES = new Set([
+  "con", "prn", "aux", "nul",
+  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ])
 
-function emptyStore(): ImportDbStore {
-  return { version: 1, directories: {} }
+// ── Helpers ────────────────────────────────────────────────────────
+
+function emptyStore(): ImportDbStore { return { version: 1, directories: {} } }
+
+function dbFilePath(pp: string): string { return `${normalizePath(pp)}/${DB_PATH}` }
+
+function dbKey(importPath: string): string {
+  const n = normalizePath(importPath)
+  return /^[A-Za-z]:\//.test(n) || n.startsWith("//") ? n.toLowerCase() : n
 }
 
-function dbFilePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/${DB_PATH}`
+function cloneDb(db: ImportDb): ImportDb { return { files: { ...db.files }, lastScan: db.lastScan } }
+
+function isInside(path: string, parent: string): boolean {
+  const np = normalizePath(path)
+  const pp = normalizePath(parent).replace(/\/+$/, "")
+  return np === pp || np.startsWith(`${pp}/`)
 }
 
-function dbDirectoryKey(importPath: string): string {
-  const normalized = normalizePath(importPath)
-  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")
-    ? normalized.toLowerCase()
-    : normalized
-}
-
-function cloneDb(db: ImportDb): ImportDb {
-  return {
-    files: { ...db.files },
-    lastScan: db.lastScan,
-  }
-}
-
-function isPathInside(path: string, parent: string): boolean {
-  const normalizedPath = normalizePath(path)
-  const normalizedParent = normalizePath(parent).replace(/\/+$/, "")
-  return (
-    normalizedPath === normalizedParent ||
-    normalizedPath.startsWith(`${normalizedParent}/`)
-  )
-}
-
-function projectSubpath(projectPath: string, relPath: string): string {
-  return `${normalizePath(projectPath)}/${relPath}`
-}
+function subpath(pp: string, rel: string): string { return `${normalizePath(pp)}/${rel}` }
 
 function stableSuffix(input: string): string {
   let hash = 2166136261
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
+  for (let i = 0; i < input.length; i++) { hash ^= input.charCodeAt(i); hash = Math.imul(hash, 16777619) }
   return (hash >>> 0).toString(36).slice(0, 6)
 }
 
-function sanitizePathSegment(segment: string): string {
-  let value = segment
-    .replace(/[<>:"|?*\x00-\x1F]/g, "_")
-    .replace(/[. ]+$/g, "")
-    .trim()
-
-  if (!value) {
-    value = "_"
-  }
-
-  const stem = value.split(".")[0]?.toLowerCase() ?? value.toLowerCase()
-  if (RESERVED_WINDOWS_NAMES.has(stem)) {
-    value = `_${value}`
-  }
-
-  return value
+function sanitiseSegment(seg: string): string {
+  let v = seg.replace(/[<>:"|?*\x00-\x1F]/g, "_").replace(/[. ]+$/g, "").trim()
+  if (!v) v = "_"
+  const stem = v.split(".")[0]?.toLowerCase() ?? v.toLowerCase()
+  if (RESERVED_NAMES.has(stem)) v = `_${v}`
+  return v
 }
 
-function appendSuffixToFileName(fileName: string, suffix: string): string {
-  const dot = fileName.lastIndexOf(".")
-  if (dot > 0) {
-    return `${fileName.slice(0, dot)}-${suffix}${fileName.slice(dot)}`
-  }
-  return `${fileName}-${suffix}`
+function appendSuffix(name: string, suffix: string): string {
+  const dot = name.lastIndexOf(".")
+  return dot > 0 ? `${name.slice(0, dot)}-${suffix}${name.slice(dot)}` : `${name}-${suffix}`
 }
 
-function safeRelativePath(path: string): string {
-  const normalized = normalizePath(path)
-  const parts = normalized
-    .split("/")
-    .filter((part) => part && part !== "." && part !== "..")
-  const safeParts = parts.map(sanitizePathSegment)
-
-  if (safeParts.length === 0) {
-    return "_"
+function safeRelPath(path: string): string {
+  const norm = normalizePath(path)
+  const parts = norm.split("/").filter((p) => p && p !== "." && p !== "..")
+  const safe = parts.map(sanitiseSegment)
+  if (safe.length === 0) return "_"
+  const joined = safe.join("/")
+  if (joined !== parts.join("/")) {
+    const last = safe[safe.length - 1]
+    safe[safe.length - 1] = appendSuffix(last, stableSuffix(norm))
   }
-
-  const safePath = safeParts.join("/")
-  if (safePath !== parts.join("/")) {
-    const last = safeParts[safeParts.length - 1]
-    safeParts[safeParts.length - 1] = appendSuffixToFileName(last, stableSuffix(normalized))
-  }
-  return safeParts.join("/")
+  return safe.join("/")
 }
 
 export function isScheduledImportInternalPath(path: string): boolean {
@@ -174,41 +118,25 @@ export function isScheduledImportInternalPath(path: string): boolean {
   return parts.includes(LEGACY_DB_DIR) || parts.includes(".qmai") || parts.includes(".llm-wiki")
 }
 
-export function shouldSkipScheduledImportFile(
-  projectPath: string,
-  filePath: string,
-): boolean {
+export function shouldSkipScheduledImportFile(projectPath: string, filePath: string): boolean {
   const path = normalizePath(filePath)
-  const project = normalizePath(projectPath)
-
-  if (isScheduledImportInternalPath(path)) {
-    return true
-  }
-
-  if (isPathInside(path, projectSubpath(project, "wiki"))) {
-    return true
-  }
-
-  if (isPathInside(path, projectSubpath(project, "raw/sources/.cache"))) {
-    return true
-  }
-
+  const pp = normalizePath(projectPath)
+  if (isScheduledImportInternalPath(path)) return true
+  if (isInside(path, subpath(pp, "wiki"))) return true
+  if (isInside(path, subpath(pp, "raw/sources/.cache"))) return true
   const name = path.split("/").pop() ?? ""
   return name.startsWith(".")
 }
 
-function isSensitiveConfigFile(path: string): boolean {
+function isSensitiveConfig(path: string): boolean {
   const name = normalizePath(path).split("/").pop() ?? ""
   const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : ""
-  return Boolean(ext && SENSITIVE_CONFIG_EXTENSIONS.has(ext))
+  return Boolean(ext && SENSITIVE_EXTS.has(ext))
 }
 
 export function resolveImportPath(projectPath: string, configPath: string): string {
   const path = normalizePath(configPath || "raw/sources")
-  if (isAbsolutePath(path)) {
-    return path
-  }
-  return `${normalizePath(projectPath)}/${path}`
+  return isAbsolutePath(path) ? path : `${normalizePath(projectPath)}/${path}`
 }
 
 export function scheduledImportDestinationForFile(
@@ -216,77 +144,44 @@ export function scheduledImportDestinationForFile(
   importPath: string,
   file: Pick<FileNode, "path" | "name">,
 ): string {
-  const project = normalizePath(projectPath)
-  const source = normalizePath(file.path)
-  const sourcesRoot = projectSubpath(project, "raw/sources")
+  const pp = normalizePath(projectPath)
+  const src = normalizePath(file.path)
+  const sourcesRoot = subpath(pp, "raw/sources")
+  if (isInside(src, sourcesRoot)) return src
 
-  if (isPathInside(source, sourcesRoot)) {
-    return source
-  }
-
-  const importRoot = normalizePath(importPath).replace(/\/+$/, "")
-  const relative =
-    source === importRoot || !source.startsWith(`${importRoot}/`)
-      ? file.name
-      : source.slice(importRoot.length + 1)
-
-  return `${sourcesRoot}/${SCHEDULED_IMPORT_DIR}/${safeRelativePath(relative)}`
+  const root = normalizePath(importPath).replace(/\/+$/, "")
+  const rel = src === root || !src.startsWith(`${root}/`) ? file.name : src.slice(root.length + 1)
+  return `${sourcesRoot}/${SI_DIR}/${safeRelPath(rel)}`
 }
 
 function collectFiles(nodes: FileNode[]): FileNode[] {
-  const files: FileNode[] = []
-  for (const node of nodes) {
-    if (!node.is_dir) {
-      files.push(node)
-    } else if (node.children) {
-      files.push(...collectFiles(node.children))
-    }
+  const out: FileNode[] = []
+  for (const n of nodes) {
+    if (!n.is_dir) out.push(n)
+    else if (n.children) out.push(...collectFiles(n.children))
   }
-  return files
+  return out
 }
 
-async function loadDbStore(projectPath: string): Promise<ImportDbStore> {
-  const path = dbFilePath(projectPath)
+// ── DB persistence ─────────────────────────────────────────────────
+
+async function loadDbStore(pp: string): Promise<ImportDbStore> {
   try {
-    if (!(await fileExists(path))) {
-      return emptyStore()
-    }
-    const content = await readFile(path)
-    const parsed = JSON.parse(content) as Partial<ImportDbStore>
-    if (!parsed.directories || typeof parsed.directories !== "object") {
-      return emptyStore()
-    }
-    return {
-      version: 1,
-      directories: parsed.directories as Record<string, ImportDb>,
-    }
-  } catch (err) {
-    console.warn("Failed to load scheduled import database:", err)
-    return emptyStore()
-  }
+    if (!(await fileExists(dbFilePath(pp)))) return emptyStore()
+    const parsed = JSON.parse(await readFile(dbFilePath(pp))) as Partial<ImportDbStore>
+    if (!parsed.directories || typeof parsed.directories !== "object") return emptyStore()
+    return { version: 1, directories: parsed.directories as Record<string, ImportDb> }
+  } catch { return emptyStore() }
 }
 
-async function loadImportDb(
-  projectPath: string,
-  importPath: string,
-): Promise<ImportDb> {
-  const store = await loadDbStore(projectPath)
-  const db = store.directories[dbDirectoryKey(importPath)]
-  return db ? cloneDb(db) : cloneDb(EMPTY_DB)
+async function loadDb(pp: string, importPath: string): Promise<ImportDb> {
+  const store = await loadDbStore(pp)
+  return cloneDb(store.directories[dbKey(importPath)] ?? EMPTY_DB)
 }
 
-async function saveImportDb(
-  projectPath: string,
-  importPath: string,
-  db: ImportDb,
-): Promise<void> {
-  const store: ImportDbStore = {
-    version: 1,
-    directories: {
-      [dbDirectoryKey(importPath)]: cloneDb(db),
-    },
-  }
-  await writeFileAtomic(dbFilePath(projectPath), JSON.stringify(store, null, 2))
+async function saveDb(pp: string, importPath: string, db: ImportDb): Promise<void> {
+  const store: ImportDbStore = { version: 1, directories: { [dbKey(importPath)]: cloneDb(db) } }
+  await writeFileAtomic(dbFilePath(pp), JSON.stringify(store, null, 2))
 }
 
 function isCurrentProject(projectId: string): boolean {
@@ -297,83 +192,56 @@ function isCurrentRun(projectId: string, runId?: number): boolean {
   return isCurrentProject(projectId) && (runId === undefined || runId === activeRunId)
 }
 
+// ── Public API ─────────────────────────────────────────────────────
+
 export async function scanAndImport(
   project: WikiProject,
   importPath: string,
   options: ScanOptions = {},
 ): Promise<void> {
   if (!importPath || scanning) return
-
   scanning = true
-  const projectPath = normalizePath(project.path)
-  const importRoot = resolveImportPath(projectPath, importPath)
+  const pp = normalizePath(project.path)
+  const importRoot = resolveImportPath(pp, importPath)
 
   try {
-    if (!isCurrentRun(project.id, options.runId)) {
-      return
-    }
+    if (!isCurrentRun(project.id, options.runId)) return
 
     const tree = await listDirectory(importRoot)
-    const db = await loadImportDb(projectPath, importRoot)
+    const db = await loadDb(pp, importRoot)
     const nextDb: ImportDb = { files: {}, lastScan: Date.now() }
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
-    const changedFiles: Array<{ key: string; md5: string; destPath: string }> = []
+    const changed: Array<{ key: string; md5: string; destPath: string }> = []
 
     for (const file of collectFiles(tree)) {
       try {
-        const sourcePath = normalizePath(file.path)
-        if (
-          shouldSkipScheduledImportFile(projectPath, sourcePath) ||
-          isSensitiveConfigFile(sourcePath) ||
-          !isIngestableSourcePath(sourcePath)
-        ) {
-          continue
-        }
+        const srcPath = normalizePath(file.path)
+        if (shouldSkipScheduledImportFile(pp, srcPath) || isSensitiveConfig(srcPath) || !isIngestableSourcePath(srcPath)) continue
+        if (!isCurrentRun(project.id, options.runId)) return
 
-        if (!isCurrentRun(project.id, options.runId)) {
-          return
-        }
+        const size = await getFileSize(srcPath)
+        if (size > MAX_BYTES) { console.warn(`[scheduled-import] skipping ${srcPath}: ${(size / 1024 / 1024).toFixed(1)} MB exceeds 100 MB limit`); continue }
 
-        const size = await getFileSize(sourcePath)
-        if (size > MAX_SCHEDULED_IMPORT_BYTES) {
-          console.warn(
-            `[scheduled-import] skipping ${sourcePath}: ${(size / 1024 / 1024).toFixed(1)} MB exceeds 100 MB limit`,
-          )
-          continue
-        }
+        const key = srcPath
+        const md5 = await getFileMd5(srcPath)
+        if (db.files[key] === md5) { nextDb.files[key] = md5; continue }
 
-        const key = sourcePath
-        const md5 = await getFileMd5(sourcePath)
-
-        if (db.files[key] === md5) {
-          nextDb.files[key] = md5
-          continue
-        }
-
-        const destPath = scheduledImportDestinationForFile(projectPath, importRoot, file)
-        if (normalizePath(destPath) !== sourcePath) {
-          await copyFile(sourcePath, destPath)
-        }
-        changedFiles.push({ key, md5, destPath })
-      } catch (err) {
-        console.warn(`[scheduled-import] skipped ${file.path}:`, err)
-      }
+        const destPath = scheduledImportDestinationForFile(pp, importRoot, file)
+        if (normalizePath(destPath) !== srcPath) await copyFile(srcPath, destPath)
+        changed.push({ key, md5, destPath })
+      } catch (err) { console.warn(`[scheduled-import] skipped ${file.path}:`, err) }
     }
 
-    if (!isCurrentRun(project.id, options.runId)) {
-      return
-    }
+    if (!isCurrentRun(project.id, options.runId)) return
 
-    if (changedFiles.length > 0) {
-      const destPaths = changedFiles.map((file) => file.destPath)
-      await Promise.all(destPaths.map((path) => preprocessFile(path).catch(() => {})))
+    if (changed.length > 0) {
+      const destPaths = changed.map((c) => c.destPath)
+      await Promise.all(destPaths.map((p) => preprocessFile(p).catch(() => {})))
       if (isCurrentRun(project.id, options.runId)) {
         const ids = await enqueueSourceIngest(project, destPaths, llmConfig)
         if (ids.length > 0) {
-          for (const file of changedFiles) {
-            nextDb.files[file.key] = file.md5
-          }
-          const projectTree = await listDirectory(projectPath)
+          for (const c of changed) nextDb.files[c.key] = c.md5
+          const projectTree = await listDirectory(pp)
           useWikiStore.getState().setFileTree(projectTree)
           useWikiStore.getState().bumpDataVersion()
         } else {
@@ -382,21 +250,13 @@ export async function scanAndImport(
       }
     }
 
-    await saveImportDb(projectPath, importRoot, nextDb)
-
-    const currentConfig = await loadScheduledImportConfig(projectPath)
+    await saveDb(pp, importRoot, nextDb)
+    const currentConfig = await loadScheduledImportConfig(pp)
     if (currentConfig) {
-      await saveScheduledImportConfig(projectPath, {
-        ...currentConfig,
-        lastScan: nextDb.lastScan,
-      })
+      await saveScheduledImportConfig(pp, { ...currentConfig, lastScan: nextDb.lastScan })
     }
-
     if (isCurrentProject(project.id) && currentConfig) {
-      useWikiStore.getState().setScheduledImportConfig({
-        ...currentConfig,
-        lastScan: nextDb.lastScan,
-      })
+      useWikiStore.getState().setScheduledImportConfig({ ...currentConfig, lastScan: nextDb.lastScan })
     }
   } catch (err) {
     console.error("Scheduled import scan failed:", err)
@@ -405,30 +265,17 @@ export async function scanAndImport(
   }
 }
 
-export function startScheduledImport(
-  project: WikiProject,
-  config: ScheduledImportConfig,
-): void {
+export function startScheduledImport(project: WikiProject, config: ScheduledImportConfig): void {
   stopScheduledImport()
-
-  if (!config.enabled || !config.path || config.interval <= 0) {
-    return
-  }
+  if (!config.enabled || !config.path || config.interval <= 0) return
 
   const runId = ++activeRunId
-  const intervalMs = Math.max(1, Math.min(1440, config.interval)) * 60 * 1000
-
+  const ms = Math.max(1, Math.min(1440, config.interval)) * 60_000
   void scanAndImport(project, config.path, { runId })
-
-  scanTimer = setInterval(() => {
-    void scanAndImport(project, config.path, { runId })
-  }, intervalMs)
+  scanTimer = setInterval(() => { void scanAndImport(project, config.path, { runId }) }, ms)
 }
 
 export function stopScheduledImport(): void {
   activeRunId += 1
-  if (scanTimer) {
-    clearInterval(scanTimer)
-    scanTimer = null
-  }
+  if (scanTimer) { clearInterval(scanTimer); scanTimer = null }
 }

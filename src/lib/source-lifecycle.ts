@@ -1,3 +1,9 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Source file lifecycle management — import, delete, folder operations,
+ * and the wiki-page cascade cleanup that follows.
+ */
 import {
   copyDirectory,
   copyFile,
@@ -30,25 +36,9 @@ import {
 import { collectAllFilesIncludingDot } from "@/lib/sources-tree-delete"
 
 export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
-  "md",
-  "mdx",
-  "txt",
-  "pdf",
-  "docx",
-  "pptx",
-  "xlsx",
-  "odt",
-  "odp",
-  "ods",
-  "xls",
-  "csv",
-  "json",
-  "html",
-  "htm",
-  "rtf",
-  "xml",
-  "yaml",
-  "yml",
+  "md", "mdx", "txt", "pdf", "docx", "pptx", "xlsx",
+  "odt", "odp", "ods", "xls", "csv", "json",
+  "html", "htm", "rtf", "xml", "yaml", "yml",
 ])
 
 export interface DeleteSourceResult {
@@ -76,23 +66,19 @@ export interface SourceImportResult {
 }
 
 export function isIngestableSourcePath(path: string): boolean {
-  const normalized = normalizePath(path)
-  if (normalized.split("/").includes(".cache")) return false
-  const fileName = normalized.split("/").pop() ?? ""
-  if (!fileName || fileName.startsWith(".")) return false
-  const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : ""
+  const n = normalizePath(path)
+  if (n.split("/").includes(".cache")) return false
+  const name = n.split("/").pop() ?? ""
+  if (!name || name.startsWith(".")) return false
+  const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : ""
   return ext ? INGESTABLE_SOURCE_EXTENSIONS.has(ext) : false
 }
 
 export function folderContextForSourcePath(sourcePath: string, sourcesRoot = "raw/sources"): string {
   const path = normalizePath(sourcePath)
   const root = normalizePath(sourcesRoot)
-  const rawMarker = "/raw/sources/"
-  const rel = path.startsWith(`${root}/`)
-    ? path.slice(root.length + 1)
-    : path.includes(rawMarker)
-      ? path.slice(path.indexOf(rawMarker) + rawMarker.length)
-      : path
+  const marker = "/raw/sources/"
+  const rel = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.includes(marker) ? path.slice(path.indexOf(marker) + marker.length) : path
   const parts = rel.split("/")
   parts.pop()
   return parts.join(" > ")
@@ -107,12 +93,9 @@ export async function enqueueSourceIngest(
   if (!hasUsableLlm(llmConfig)) return []
   const files = sourcePaths
     .filter(isIngestableSourcePath)
-    .map((sourcePath) => ({
-      sourcePath,
-      folderContext: withRootContext(
-        folderContextForSourcePath(sourcePath, options.sourceRoot),
-        options.rootContext,
-      ),
+    .map((sp) => ({
+      sourcePath: sp,
+      folderContext: withContext(folderContextForSourcePath(sp, options.sourceRoot), options.rootContext),
     }))
   if (files.length === 0) return []
   return enqueueBatch(project.id, files)
@@ -125,25 +108,20 @@ export async function importSourceFiles(
   options: SourceImportOptions = {},
 ): Promise<SourceImportResult> {
   const pp = normalizePath(project.path)
-  const importedPaths: string[] = []
+  const imported: string[] = []
 
-  for (const sourcePath of sourcePaths) {
-    const originalName = getFileName(sourcePath) || "unknown"
-    const destPath = await getUniqueDestPath(`${pp}/raw/sources`, originalName)
+  for (const sp of sourcePaths) {
+    const orig = getFileName(sp) || "unknown"
+    const dest = await uniqueDest(`${pp}/raw/sources`, orig)
     try {
-      await copyFile(sourcePath, destPath)
-      importedPaths.push(destPath)
-      preprocessFile(destPath).catch(() => {})
-    } catch (err) {
-      console.error(`Failed to import ${originalName}:`, err)
-    }
+      await copyFile(sp, dest)
+      imported.push(dest)
+      preprocessFile(dest).catch(() => {})
+    } catch (err) { console.error(`Failed to import ${orig}:`, err) }
   }
 
-  const taskIdsByPath = options.autoExtract === false
-    ? {}
-    : await enqueueSourceIngestWithTaskMap(project, importedPaths, llmConfig)
-
-  return { importedPaths, taskIdsByPath }
+  const taskIdsByPath = options.autoExtract === false ? {} : await ingestWithTaskMap(project, imported, llmConfig)
+  return { importedPaths: imported, taskIdsByPath }
 }
 
 export async function importSourceFolder(
@@ -155,20 +133,14 @@ export async function importSourceFolder(
   const pp = normalizePath(project.path)
   const folderName = getFileName(selectedFolder) || "imported"
   const destDir = `${pp}/raw/sources/${folderName}`
-  const copiedFiles = await copyDirectory(selectedFolder, destDir)
+  const copied = await copyDirectory(selectedFolder, destDir)
 
-  for (const filePath of copiedFiles) {
-    preprocessFile(filePath).catch(() => {})
-  }
+  for (const f of copied) preprocessFile(f).catch(() => {})
 
   const taskIdsByPath = options.autoExtract === false
     ? {}
-    : await enqueueSourceIngestWithTaskMap(project, copiedFiles, llmConfig, {
-      sourceRoot: destDir,
-      rootContext: folderName,
-    })
-
-  return { importedPaths: copiedFiles, taskIdsByPath }
+    : await ingestWithTaskMap(project, copied, llmConfig, { sourceRoot: destDir, rootContext: folderName })
+  return { importedPaths: copied, taskIdsByPath }
 }
 
 export async function deleteSourceFile(
@@ -177,10 +149,7 @@ export async function deleteSourceFile(
   options: { fileAlreadyDeleted?: boolean; logReason?: string } = {},
 ): Promise<DeleteSourceResult> {
   const result = await deleteSourceFiles(projectPath, [sourcePath], options)
-  return {
-    deletedWikiPaths: result.deletedWikiPaths,
-    rewrittenSourcePages: result.rewrittenSourcePages,
-  }
+  return { deletedWikiPaths: result.deletedWikiPaths, rewrittenSourcePages: result.rewrittenSourcePages }
 }
 
 export async function deleteSourceFiles(
@@ -189,34 +158,19 @@ export async function deleteSourceFiles(
   options: { fileAlreadyDeleted?: boolean; logReason?: string } = {},
 ): Promise<DeleteSourcesResult> {
   const pp = normalizePath(projectPath)
-  const normalizedSources = sourcePaths.map(normalizePath)
-  const fileNames = normalizedSources
-    .map((source) => source.split("/").pop() ?? "")
-    .filter(Boolean)
+  const normSources = sourcePaths.map(normalizePath)
+  const names = normSources.map((s) => s.split("/").pop() ?? "").filter(Boolean)
+  if (names.length === 0) return { deletedWikiPaths: [], rewrittenSourcePages: 0, skippedPages: 0 }
 
-  if (fileNames.length === 0) {
-    return { deletedWikiPaths: [], rewrittenSourcePages: 0, skippedPages: 0 }
-  }
-
-  const deletingNames = new Set(fileNames.map((name) => name.toLowerCase()))
+  const deletingSet = new Set(names.map((n) => n.toLowerCase()))
 
   if (!options.fileAlreadyDeleted) {
-    for (const source of normalizedSources) {
-      await deleteFile(source)
-    }
+    for (const s of normSources) await deleteFile(s)
   }
 
-  for (const fileName of fileNames) {
-    try {
-      await deleteFile(`${pp}/raw/sources/.cache/${fileName}.txt`)
-    } catch {
-      // cache file may not exist
-    }
-    try {
-      await removeFromIngestCache(pp, fileName)
-    } catch {
-      // non-critical
-    }
+  for (const name of names) {
+    try { await deleteFile(`${pp}/raw/sources/.cache/${name}.txt`) } catch { /* ok */ }
+    try { await removeFromIngestCache(pp, name) } catch { /* ok */ }
   }
 
   const pagesToDelete: string[] = []
@@ -224,41 +178,23 @@ export async function deleteSourceFiles(
   let skippedPages = 0
 
   let allMd: FileNode[] = []
-  try {
-    allMd = flattenMd(await listDirectory(`${pp}/wiki`))
-  } catch (err) {
-    console.warn("[source-lifecycle] 删除期间扫描 wiki 源文件失败：", err)
-  }
+  try { allMd = flattenMd(await listDirectory(`${pp}/wiki`)) } catch (err) { console.warn("[source-lifecycle] 删除期间扫描 wiki 源文件失败：", err) }
 
   for (const file of allMd) {
     let content: string
-    try {
-      content = await readFile(file.path)
-    } catch (err) {
-      console.warn(`[source-lifecycle] 读取 ${file.path} 失败：`, err)
-      continue
-    }
+    try { content = await readFile(file.path) } catch { skippedPages++; continue }
 
     const sources = parseSources(content)
-    if (sources.length === 0) {
-      skippedPages++
-      continue
-    }
+    if (sources.length === 0) { skippedPages++; continue }
 
-    const survivors = sources.filter((source) => !sourceNameMatchesAny(source, deletingNames))
-    if (survivors.length === sources.length) {
-      continue
-    }
+    const survivors = sources.filter((s) => !nameMatchesAny(s, deletingSet))
+    if (survivors.length === sources.length) continue
 
     if (survivors.length === 0) {
       pagesToDelete.push(file.path)
     } else {
-      try {
-        await writeFile(file.path, writeSources(content, survivors))
-        rewrittenSourcePages++
-      } catch (err) {
-        console.warn(`[source-lifecycle] 重写 ${file.path} 的源引用失败：`, err)
-      }
+      try { await writeFile(file.path, writeSources(content, survivors)); rewrittenSourcePages++ }
+      catch (err) { console.warn(`[source-lifecycle] 重写 ${file.path} 的源引用失败：`, err) }
     }
   }
 
@@ -269,16 +205,14 @@ export async function deleteSourceFiles(
     deletedWikiPaths = result.deletedPaths
   }
 
-  await appendSourceDeleteLog(pp, fileNames, {
+  await appendDeleteLog(pp, names, {
     reason: options.logReason ?? (options.fileAlreadyDeleted ? "外部删除" : "删除"),
     deletedWikiCount: deletedWikiPaths.length,
     keptWikiCount: rewrittenSourcePages,
   })
 
   if (skippedPages > 0) {
-    console.debug(
-      `[source-lifecycle] 删除 ${fileNames.length} 个源文件时，跳过 ${skippedPages} 个无可解析来源的 wiki 页面`,
-    )
+    console.debug(`[source-lifecycle] 删除 ${names.length} 个源文件时，跳过 ${skippedPages} 个无可解析来源的 wiki 页面`)
   }
 
   return { deletedWikiPaths, rewrittenSourcePages, skippedPages }
@@ -290,7 +224,7 @@ export async function deleteSourceFolder(
   options: { folderAlreadyDeleted?: boolean } = {},
 ): Promise<DeleteSourceFolderResult> {
   const deletedWikiPaths: string[] = []
-  const files = collectAllFilesIncludingDot(folder).map((file) => file.path)
+  const files = collectAllFilesIncludingDot(folder).map((f) => f.path)
   if (files.length > 0) {
     const result = await deleteSourceFiles(projectPath, files, {
       fileAlreadyDeleted: options.folderAlreadyDeleted,
@@ -298,15 +232,9 @@ export async function deleteSourceFolder(
     })
     deletedWikiPaths.push(...result.deletedWikiPaths)
   }
-
   if (!options.folderAlreadyDeleted) {
-    try {
-      await deleteFile(folder.path)
-    } catch (err) {
-      console.warn(`删除文件夹 ${folder.path} 失败：`, err)
-    }
+    try { await deleteFile(folder.path) } catch (err) { console.warn(`删除文件夹 ${folder.path} 失败：`, err) }
   }
-
   return { deletedWikiPaths }
 }
 
@@ -315,32 +243,22 @@ export async function cleanupDeletedWikiPages(
   relativePaths: string[],
 ): Promise<void> {
   const pp = normalizePath(projectPath)
-  const deletedInfos = relativePaths
-    .map((path) => ({ slug: getFileStem(path), title: "" }))
-    .filter((info) => info.slug.length > 0 && !info.slug.startsWith("."))
+  const infos = relativePaths
+    .map((p) => ({ slug: getFileStem(p), title: "" }))
+    .filter((i) => i.slug.length > 0 && !i.slug.startsWith("."))
+  if (infos.length === 0) return
 
-  if (deletedInfos.length === 0) return
-
-  for (const info of deletedInfos) {
+  for (const info of infos) {
     await removePageEmbedding(pp, info.slug)
-    try {
-      await deleteFile(`${pp}/wiki/media/${info.slug}`)
-    } catch {
-      // only source-summary pages usually own media; absence is normal
-    }
+    try { await deleteFile(`${pp}/wiki/media/${info.slug}`) } catch { /* expected */ }
   }
 
-  const deletedKeys = buildDeletedKeys(deletedInfos)
-  const wikiTree = await listDirectory(`${pp}/wiki`)
-  const allMd = flattenMd(wikiTree)
+  const deletedKeys = buildDeletedKeys(infos)
+  const allMd = flattenMd(await listDirectory(`${pp}/wiki`))
 
   for (const file of allMd) {
     let content: string
-    try {
-      content = await readFile(file.path)
-    } catch {
-      continue
-    }
+    try { content = await readFile(file.path) } catch { continue }
 
     let updated = content
     if (file.path === `${pp}/wiki/index.md` || file.name === "index.md") {
@@ -351,107 +269,82 @@ export async function cleanupDeletedWikiPages(
     const related = parseFrontmatterArray(updated, "related")
     if (related.length > 0) {
       const filtered = related.filter((s) => !deletedKeys.has(normalizeWikiRefKey(s)))
-      if (filtered.length !== related.length) {
-        updated = writeFrontmatterArray(updated, "related", filtered)
-      }
+      if (filtered.length !== related.length) updated = writeFrontmatterArray(updated, "related", filtered)
     }
 
     if (updated !== content) {
-      try {
-        await writeFile(file.path, updated)
-      } catch (err) {
-        console.warn(`[source-lifecycle] 重写 ${file.path} 失败：`, err)
-      }
+      try { await writeFile(file.path, updated) } catch (err) { console.warn(`[source-lifecycle] 重写 ${file.path} 失败：`, err) }
     }
   }
 }
 
-async function getUniqueDestPath(dir: string, fileName: string): Promise<string> {
-  const basePath = `${dir}/${fileName}`
+// ── Internal helpers ───────────────────────────────────────────────
 
-  if (!(await fileExists(basePath))) {
-    return basePath
-  }
+async function uniqueDest(dir: string, fileName: string): Promise<string> {
+  const base = `${dir}/${fileName}`
+  if (!(await fileExists(base))) return base
 
   const ext = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : ""
-  const nameWithoutExt = ext ? fileName.slice(0, -ext.length) : fileName
+  const stem = ext ? fileName.slice(0, -ext.length) : fileName
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "")
-
-  const withDate = `${dir}/${nameWithoutExt}-${date}${ext}`
-  if (!(await fileExists(withDate))) {
-    return withDate
-  }
+  const withDate = `${dir}/${stem}-${date}${ext}`
+  if (!(await fileExists(withDate))) return withDate
 
   for (let i = 2; i <= 99; i++) {
-    const withCounter = `${dir}/${nameWithoutExt}-${date}-${i}${ext}`
-    if (!(await fileExists(withCounter))) {
-      return withCounter
-    }
+    const c = `${dir}/${stem}-${date}-${i}${ext}`
+    if (!(await fileExists(c))) return c
   }
-
-  return `${dir}/${nameWithoutExt}-${date}-${Date.now()}${ext}`
+  return `${dir}/${stem}-${date}-${Date.now()}${ext}`
 }
 
-async function appendSourceDeleteLog(
-  projectPath: string,
-  fileNames: string | string[],
-  detail: { reason: string; deletedWikiCount: number; keptWikiCount: number },
-): Promise<void> {
+async function appendDeleteLog(pp: string, names: string[], detail: { reason: string; deletedWikiCount: number; keptWikiCount: number }): Promise<void> {
   try {
-    const names = Array.isArray(fileNames) ? fileNames : [fileNames]
-    const logPath = `${projectPath}/wiki/log.md`
+    const logPath = `${pp}/wiki/log.md`
     const logContent = await readFile(logPath).catch(() => "# Wiki Log\n")
     const date = new Date().toISOString().slice(0, 10)
     const subject = names.length === 1 ? names[0] : `${names.length} 个源文件`
-    const listed = names.length === 1 ? "" : `\n\n源文件：\n${names.map((name) => `- ${name}`).join("\n")}`
-    const logEntry = `\n## [${date}] ${detail.reason} | ${subject}\n\n已删除 ${names.length} 个源文件和 ${detail.deletedWikiCount} 个知识页面。${detail.keptWikiCount > 0 ? ` ${detail.keptWikiCount} 个共享页面已保留（有其他源文件引用）。` : ""}${listed}\n`
-    await writeFile(logPath, logContent.trimEnd() + logEntry)
-  } catch (err) {
-    console.warn("[source-lifecycle] 追加删除日志失败：", err)
-  }
+    const listed = names.length === 1 ? "" : `\n\n源文件：\n${names.map((n) => `- ${n}`).join("\n")}`
+    const entry = `\n## [${date}] ${detail.reason} | ${subject}\n\n已删除 ${names.length} 个源文件和 ${detail.deletedWikiCount} 个知识页面。${detail.keptWikiCount > 0 ? ` ${detail.keptWikiCount} 个共享页面已保留（有其他源文件引用）。` : ""}${listed}\n`
+    await writeFile(logPath, logContent.trimEnd() + entry)
+  } catch (err) { console.warn("[source-lifecycle] 追加删除日志失败：", err) }
 }
 
 function flattenMd(nodes: readonly FileNode[]): FileNode[] {
   const out: FileNode[] = []
   function walk(items: readonly FileNode[]): void {
     for (const item of items) {
-      if (item.is_dir) {
-        if (item.children) walk(item.children)
-      } else if (item.name.endsWith(".md")) {
-        out.push(item)
-      }
+      if (item.is_dir) { if (item.children) walk(item.children) }
+      else if (item.name.endsWith(".md")) out.push(item)
     }
   }
   walk(nodes)
   return out
 }
 
-function sourceNameMatchesAny(source: string, deletingNames: Set<string>): boolean {
-  const normalizedSource = normalizePath(source).split("/").pop()?.toLowerCase() ?? ""
-  return deletingNames.has(normalizedSource)
+function nameMatchesAny(source: string, deleting: Set<string>): boolean {
+  return deleting.has(normalizePath(source).split("/").pop()?.toLowerCase() ?? "")
 }
 
-function withRootContext(context: string, rootContext?: string): string {
-  if (!rootContext) return context
-  if (!context) return rootContext
-  return `${rootContext} > ${context}`
+function withContext(ctx: string, root?: string): string {
+  if (!root) return ctx
+  if (!ctx) return root
+  return `${root} > ${ctx}`
 }
 
-async function enqueueSourceIngestWithTaskMap(
+async function ingestWithTaskMap(
   project: WikiProject,
   sourcePaths: string[],
   llmConfig: LlmConfig,
   options: { sourceRoot?: string; rootContext?: string } = {},
 ): Promise<Record<string, string[]>> {
   const taskIds = await enqueueSourceIngest(project, sourcePaths, llmConfig, options)
-  const ingestablePaths = sourcePaths.filter(isIngestableSourcePath).map(normalizePath)
-  const taskIdsByPath: Record<string, string[]> = {}
-
-  for (const [index, sourcePath] of ingestablePaths.entries()) {
-    const taskId = taskIds[index]
-    if (!taskId) continue
-    taskIdsByPath[sourcePath] = [...(taskIdsByPath[sourcePath] ?? []), taskId]
+  const ingestable = sourcePaths.filter(isIngestableSourcePath).map(normalizePath)
+  const map: Record<string, string[]> = {}
+  for (const [i, sp] of ingestable.entries()) {
+    const tid = taskIds[i]
+    if (!tid) continue
+    map[sp] = [...(map[sp] ?? []), tid]
   }
-
-  return taskIdsByPath
+  return map
 }
+

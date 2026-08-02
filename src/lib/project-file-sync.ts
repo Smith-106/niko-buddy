@@ -1,16 +1,10 @@
 /**
- * Project file synchronization: real-time file watcher and change handler.
- *
- * Manages the lifecycle of filesystem monitoring for a wiki project:
- * - Starts/stops Tauri file watchers with event listeners
- * - Schedules debounced refresh after file changes
- * - Routes created/modified files to source ingest queue
- * - Cleans up deleted files (raw sources and wiki pages)
- * - Refreshes file tree and editor content on external changes
- *
  * @license MIT © QMAI
+ *
+ * Project file-system synchronisation — watches for external file
+ * changes, processes raw-source ingest, and cascades wiki-page cleanup
+ * on external deletions.
  */
-
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { readFile, listDirectory } from "@/commands/fs"
 import {
@@ -38,21 +32,17 @@ let unlistenQueue: UnlistenFn | null = null
 let unlistenChanged: UnlistenFn | null = null
 let startSeq = 0
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
-let pendingRefreshPaths = new Set<string>()
-let pendingChangeTasks = new Map<string, FileChangeTask>()
-let activeSourceWatchConfig = normalizeSourceWatchConfig()
+let pendingPaths = new Set<string>()
+let pendingTasks = new Map<string, FileChangeTask>()
+let activeWatchConfig = normalizeSourceWatchConfig()
 
-/**
- * Start the file sync system for a project.
- * Sets up Tauri file watcher, event listeners for queue updates and file changes.
- */
 export async function startProjectFileSync(
   project: WikiProject,
   sourceWatchConfig?: SourceWatchConfig,
 ): Promise<void> {
   await stopProjectFileSync()
   const seq = ++startSeq
-  activeSourceWatchConfig = normalizeSourceWatchConfig(sourceWatchConfig)
+  activeWatchConfig = normalizeSourceWatchConfig(sourceWatchConfig)
   useFileSyncStore.getState().setRunning(true)
   useFileSyncStore.getState().setLastError(null)
 
@@ -64,55 +54,39 @@ export async function startProjectFileSync(
   unlistenChanged = await listen<FileSyncPayload>("file-sync://changed", (event) => {
     const current = useWikiStore.getState().project
     if (!current || event.payload.projectId !== current.id) return
-    scheduleRefreshAfterFileChanges(event.payload.tasks)
+    scheduleRefresh(event.payload.tasks)
   })
 
   try {
-    const queue = await startProjectFileWatcher(project.id, normalizePath(project.path), activeSourceWatchConfig)
+    const queue = await startProjectFileWatcher(project.id, normalizePath(project.path), activeWatchConfig)
     if (seq !== startSeq || project.id !== useWikiStore.getState().project?.id) return
     useFileSyncStore.getState().setTasks(queue.tasks)
   } catch (err) {
-    unlistenQueue?.()
-    unlistenChanged?.()
-    unlistenQueue = null
-    unlistenChanged = null
+    unlistenQueue?.(); unlistenChanged?.()
+    unlistenQueue = null; unlistenChanged = null
     useFileSyncStore.getState().setLastError(String(err))
     throw err
   } finally {
-    if (seq === startSeq) {
-      useFileSyncStore.getState().setRunning(false)
-    }
+    if (seq === startSeq) useFileSyncStore.getState().setRunning(false)
   }
 }
 
-/** Stop the file sync system and clean up all resources. */
 export async function stopProjectFileSync(): Promise<void> {
   startSeq++
-  unlistenQueue?.()
-  unlistenChanged?.()
-  unlistenQueue = null
-  unlistenChanged = null
-  if (refreshTimer) {
-    clearTimeout(refreshTimer)
-    refreshTimer = null
-  }
-  pendingRefreshPaths.clear()
-  pendingChangeTasks.clear()
+  unlistenQueue?.(); unlistenChanged?.()
+  unlistenQueue = null; unlistenChanged = null
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
+  pendingPaths.clear(); pendingTasks.clear()
   useFileSyncStore.getState().clear()
-  try {
-    await stopProjectFileWatcher()
-  } catch {
-    // Stale watcher may already be dropped
-  }
+  try { await stopProjectFileWatcher() } catch { /* stale watcher */ }
 }
 
-/** Force a full rescan of the project filesystem and process any changes. */
 export async function rescanProjectFileSync(
   project: WikiProject,
   sourceWatchConfig?: SourceWatchConfig,
 ): Promise<void> {
   const config = normalizeSourceWatchConfig(sourceWatchConfig ?? useWikiStore.getState().sourceWatchConfig)
-  activeSourceWatchConfig = config
+  activeWatchConfig = config
 
   const result = await rescanProjectFiles(project.id, normalizePath(project.path), config)
   if (useWikiStore.getState().project?.id !== project.id) return
@@ -120,70 +94,57 @@ export async function rescanProjectFileSync(
 
   if (useWikiStore.getState().project?.id !== project.id) return
   if (result.changedTasks.length > 0) {
-    const paths = [...new Set(result.changedTasks.map((task) => task.path))]
-    await processFileChangeBatch(project, paths, result.changedTasks)
+    const paths = [...new Set(result.changedTasks.map((t) => t.path))]
+    await processBatch(project, paths, result.changedTasks)
   } else {
-    await refreshAfterFileChanges(project, [])
+    await refreshTree(project, [])
   }
 }
 
-/** Debounce file changes and schedule a batch refresh. */
-function scheduleRefreshAfterFileChanges(tasks: FileChangeTask[]): void {
+function scheduleRefresh(tasks: FileChangeTask[]): void {
   for (const task of tasks) {
-    pendingRefreshPaths.add(task.path)
-    pendingChangeTasks.set(task.path, task)
+    pendingPaths.add(task.path)
+    pendingTasks.set(task.path, task)
   }
   if (refreshTimer) return
   refreshTimer = setTimeout(() => {
     refreshTimer = null
     const project = useWikiStore.getState().project
-    if (!project) {
-      pendingRefreshPaths.clear()
-      pendingChangeTasks.clear()
-      return
-    }
-    const paths = [...pendingRefreshPaths]
-    const tasks = [...pendingChangeTasks.values()]
-    pendingRefreshPaths.clear()
-    pendingChangeTasks.clear()
-    void processFileChangeBatch(project, paths, tasks)
+    if (!project) { pendingPaths.clear(); pendingTasks.clear(); return }
+    const paths = [...pendingPaths]
+    const tasks = [...pendingTasks.values()]
+    pendingPaths.clear(); pendingTasks.clear()
+    void processBatch(project, paths, tasks)
   }, 250)
 }
 
-async function processFileChangeBatch(
-  project: WikiProject,
-  paths: string[],
-  tasks: FileChangeTask[],
-): Promise<void> {
-  await cleanupDeletedFiles(project, tasks)
-  await enqueueRawSourceChanges(project, tasks)
-  await refreshAfterFileChanges(project, paths)
+async function processBatch(project: WikiProject, paths: string[], tasks: FileChangeTask[]): Promise<void> {
+  await cleanupDeleted(project, tasks)
+  await enqueueRawChanges(project, tasks)
+  await refreshTree(project, paths)
 }
 
-/** Refresh the file tree and editor content after external changes. */
-async function refreshAfterFileChanges(project: WikiProject, relativePaths: string[]): Promise<void> {
+async function refreshTree(project: WikiProject, relativePaths: string[]): Promise<void> {
   const pp = normalizePath(project.path)
   const store = useWikiStore.getState()
   try {
     const tree = await listDirectory(pp)
     useWikiStore.getState().setFileTree(tree)
-  } catch (err) {
-    console.warn("[file-sync] failed to refresh file tree:", err)
-  }
+  } catch (err) { console.warn("[file-sync] failed to refresh file tree:", err) }
 
   store.bumpDataVersion()
 
   const selected = store.selectedFile ? normalizePath(store.selectedFile) : null
   if (!selected) return
 
-  const selectedRel = selected.startsWith(`${pp}/`) ? selected.slice(pp.length + 1) : selected
-  if (!relativePaths.includes(selectedRel)) return
+  const rel = selected.startsWith(`${pp}/`) ? selected.slice(pp.length + 1) : selected
+  if (!relativePaths.includes(rel)) return
 
   try {
     const content = await readFile(selected)
-    const currentContent = useWikiStore.getState().fileContent
-    if (currentContent && currentContent !== content) {
-      console.warn("[file-sync] unsaved editor content detected, skipping file refresh:", selected)
+    const current = useWikiStore.getState().fileContent
+    if (current && current !== content) {
+      console.warn("[file-sync] 检测到编辑器有未保存内容，跳过文件刷新:", selected)
       return
     }
     useWikiStore.getState().setFileContent(content)
@@ -193,84 +154,71 @@ async function refreshAfterFileChanges(project: WikiProject, relativePaths: stri
   }
 }
 
-/** Queue created/modified raw source files for LLM ingest. */
-async function enqueueRawSourceChanges(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
-  const config = normalizeSourceWatchConfig(activeSourceWatchConfig)
+async function enqueueRawChanges(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
+  const config = normalizeSourceWatchConfig(activeWatchConfig)
   if (!config.enabled || !config.autoIngest) return
 
   const candidates = tasks
-    .filter((task) => task.projectId === project.id)
-    .filter((task) => task.kind === "created" || task.kind === "modified")
-    .map((task) => task.path)
-    .filter(isIngestableRawSource)
+    .filter((t) => t.projectId === project.id)
+    .filter((t) => t.kind === "created" || t.kind === "modified")
+    .map((t) => t.path)
+    .filter(isIngestableRaw)
 
   const paths = candidates.filter((rel) => isPathAllowedBySourceWatch(rel, config))
-
   if (paths.length === 0) return
 
   try {
     await enqueueSourceIngest(project, paths, resolveDefaultModel(useWikiStore.getState().llmConfig))
-  } catch (err) {
-    console.error("[file-sync] failed to enqueue raw source ingest:", err)
-  }
+  } catch (err) { console.error("[file-sync] failed to enqueue raw source ingest:", err) }
 }
 
-function isIngestableRawSource(relativePath: string): boolean {
+function isIngestableRaw(relativePath: string): boolean {
   const path = normalizePath(relativePath)
   if (!path.startsWith("raw/sources/")) return false
   return isIngestableSourcePath(path)
 }
 
-/** Clean up deleted files: cascade source deletions and wiki page reference cleanup. */
-async function cleanupDeletedFiles(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
+async function cleanupDeleted(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
   const deleted = tasks
-    .filter((task) => task.projectId === project.id && task.kind === "deleted")
-    .map((task) => normalizePath(task.path))
-
+    .filter((t) => t.projectId === project.id && t.kind === "deleted")
+    .map((t) => normalizePath(t.path))
   if (deleted.length === 0) return
 
-  const rawSources = deleted.filter(isRawSourcePathForCascade)
+  const rawSources = deleted.filter(isRawSourceForCascade)
   const wikiPages = deleted.filter(isWikiPageForCascade)
 
-  let deletedWikiSlugs = new Set<string>()
+  let deletedSlugs = new Set<string>()
   if (rawSources.length > 0) {
     try {
       const result = await deleteSourceFiles(project.path, rawSources, {
         fileAlreadyDeleted: true,
         logReason: rawSources.length === 1 ? "external delete" : "external batch delete",
       })
-      deletedWikiSlugs = new Set(result.deletedWikiPaths.map((path) => getFileStem(path)))
-    } catch (err) {
-      console.error("[file-sync] failed to clean deleted raw sources:", err)
-    }
+      deletedSlugs = new Set(result.deletedWikiPaths.map((p) => getFileStem(p)))
+    } catch (err) { console.error("[file-sync] failed to clean deleted raw sources:", err) }
   }
 
-  const wikiPagesToClean = wikiPages.filter((path) => !deletedWikiSlugs.has(getFileStem(path)))
-  if (wikiPagesToClean.length > 0) {
-    try {
-      await cleanupDeletedWikiPages(project.path, wikiPagesToClean)
-    } catch (err) {
-      console.error("[file-sync] failed to clean deleted wiki pages:", err)
-    }
+  const wikiToClean = wikiPages.filter((p) => !deletedSlugs.has(getFileStem(p)))
+  if (wikiToClean.length > 0) {
+    try { await cleanupDeletedWikiPages(project.path, wikiToClean) }
+    catch (err) { console.error("[file-sync] failed to clean deleted wiki pages:", err) }
   }
 }
 
-function isRawSourcePathForCascade(relativePath: string): boolean {
+function isRawSourceForCascade(relativePath: string): boolean {
   const path = normalizePath(relativePath)
   if (!path.startsWith("raw/sources/")) return false
   if (path.includes("/.cache/")) return false
-  const fileName = path.split("/").pop() ?? ""
-  return Boolean(fileName && !fileName.startsWith("."))
+  const name = path.split("/").pop() ?? ""
+  return Boolean(name && !name.startsWith("."))
 }
 
 function isWikiPageForCascade(relativePath: string): boolean {
   const path = normalizePath(relativePath)
-  const lower = path.toLowerCase()
-  if (!lower.startsWith("wiki/") || !lower.endsWith(".md")) return false
-  const name = lower.split("/").pop()
-  if (name === "index.md" || name === "log.md" || name === "overview.md") {
-    return false
-  }
-  return !lower.startsWith("wiki/media/")
+  const lc = path.toLowerCase()
+  if (!lc.startsWith("wiki/") || !lc.endsWith(".md")) return false
+  const name = lc.split("/").pop()
+  if (name === "index.md" || name === "log.md" || name === "overview.md") return false
+  return !lc.startsWith("wiki/media/")
 }
 

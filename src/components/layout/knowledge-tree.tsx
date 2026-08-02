@@ -557,9 +557,7 @@ export function KnowledgeTree({
           frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
         }
       }
-      next = next.replace(/^---
-[\s\S]*?
----/, `---
+      next = next.replace(/^---[\s\S]*?---/, `---
 ${frontmatterBody}
 ---`)
     }
@@ -584,9 +582,7 @@ ${frontmatterBody}
       frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
     }
 
-    return content.replace(/^---
-[\s\S]*?
----/, `---
+    return content.replace(/^---[\s\S]*?---/, `---
 ${frontmatterBody}
 ---`)
   }, [])

@@ -5,7 +5,7 @@ import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
 export const DEEP_CHAPTER_DRAFT_MAX_CHARS = 3500
-export const DEEP_CHAPTER_MAX_OUTPUT_TOKENS = 8000
+export const DEEP_CHAPTER_MAX_OUTPUT_TOKENS = 12000
 
 /** 章节生成字数规格：由设置中的“单章目标字数”推算（issue #8）。 */
 export interface ChapterLengthSpec {

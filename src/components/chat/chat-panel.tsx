@@ -1,3 +1,4 @@
+// Copyright (c) 2024 Niko-hub contributors. MIT License.
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useVirtualizer } from "@tanstack/react-virtual"
@@ -1171,7 +1172,11 @@ export function ChatPanel() {
                 checkpointPersistError ? `checkpoint 落盘失败：${checkpointPersistError}` : "",
                 pausePersistError ? `pause 落盘失败：${pausePersistError}` : "",
               ].filter(Boolean).join("；")
-              const visibleFailure = `${existing ? `${existing}\n\n` : ""}出错：深度生成章节失败：${message}${persistenceDetails ? `\n\n状态写回异常：${persistenceDetails}` : ""}`
+              const visibleFailure = `${existing ? `${existing}
+
+` : ""}出错：深度生成章节失败：${message}${persistenceDetails ? `
+
+状态写回异常：${persistenceDetails}` : ""}`
               finalizeStream(
                 appendHiddenNovelSessionDebug(
                   appendContinueUnfinishedDeepChapterContext(visibleFailure, {

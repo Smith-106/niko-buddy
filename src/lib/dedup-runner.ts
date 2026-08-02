@@ -1,8 +1,9 @@
 /**
- * I/O wrapper that connects the pure dedup algorithm in dedup.ts
- * to the project's filesystem + LLM. The UI layer calls these
- * functions; everything below is about read/write/spawn-llm so
- * the algorithm core stays testable without mocks of all that.
+ * @license MIT © QMAI
+ *
+ * I/O wrapper connecting the pure dedup algorithm (dedup.ts) to the
+ * project filesystem and LLM.  The UI layer calls these functions;
+ * the algorithm core stays testable without filesystem or LLM mocks.
  */
 import { listDirectory, readFile, writeFile, deleteFile } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
@@ -22,9 +23,8 @@ import {
 import { loadNotDuplicates } from "./dedup-storage"
 
 /**
- * Wrap streamChat into the (system, user, signal) → string shape
- * the dedup module expects. Same pattern page-merge uses — keeps
- * the algorithm modules free of any LlmConfig knowledge.
+ * Wrap `streamChat` into the `(system, user, signal) → string` shape
+ * that the dedup algorithm module expects.
  */
 export function buildDedupLlmCall(llmConfig: LlmConfig): DedupLlmCall {
   return async (systemPrompt, userMessage, signal) => {
@@ -38,14 +38,9 @@ export function buildDedupLlmCall(llmConfig: LlmConfig): DedupLlmCall {
           { role: "user", content: userMessage },
         ],
         {
-          onToken: (t) => {
-            result += t
-          },
+          onToken: (t) => { result += t },
           onDone: () => resolve(),
-          onError: (err) => {
-            streamError = err
-            resolve()
-          },
+          onError: (err) => { streamError = err; resolve() },
         },
         signal,
         { temperature: 0.1 },
@@ -59,36 +54,25 @@ export function buildDedupLlmCall(llmConfig: LlmConfig): DedupLlmCall {
   }
 }
 
-/** Walk a FileNode tree, yielding every .md file under a given prefix. */
+/** Walk a FileNode tree, yielding .md files whose path contains a given prefix. */
 function* walkMd(nodes: FileNode[], prefix: string): Generator<FileNode> {
   for (const node of nodes) {
-    if (node.is_dir) {
-      if (node.children) yield* walkMd(node.children, prefix)
-      continue
-    }
-    if (node.name.endsWith(".md") && node.path.includes(`${prefix}/`)) {
-      yield node
-    }
+    if (node.is_dir) { if (node.children) yield* walkMd(node.children, prefix); continue }
+    if (node.name.endsWith(".md") && node.path.includes(`${prefix}/`)) yield node
   }
 }
 
-/** Convert an absolute filesystem path to a wiki-relative one
- *  (`<project>/wiki/entities/foo.md` → `wiki/entities/foo.md`). */
-function toWikiRelative(projectPath: string, absPath: string): string {
-  const pp = normalizePath(projectPath)
-  const norm = normalizePath(absPath)
-  if (norm.startsWith(`${pp}/`)) return norm.slice(pp.length + 1)
-  return norm
+/** Convert absolute path to wiki-relative form. */
+function toRelative(pp: string, abs: string): string {
+  const n = normalizePath(abs)
+  return n.startsWith(`${pp}/`) ? n.slice(pp.length + 1) : n
 }
 
 /**
- * Walk wiki/entities/ and wiki/concepts/, build summaries.
- * Pages that fail to parse (no frontmatter, etc.) are skipped
- * silently — they can't participate in dedup anyway.
+ * Load entity summaries from wiki/entities/ and wiki/concepts/.
+ * Pages that fail to parse are silently skipped.
  */
-export async function loadAllEntitySummaries(
-  projectPath: string,
-): Promise<EntitySummary[]> {
+export async function loadAllEntitySummaries(projectPath: string): Promise<EntitySummary[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
   const out: EntitySummary[] = []
@@ -96,40 +80,32 @@ export async function loadAllEntitySummaries(
     for (const node of walkMd(tree, prefix)) {
       try {
         const content = await readFile(node.path)
-        const rel = toWikiRelative(pp, node.path)
+        const rel = toRelative(pp, node.path)
         const summary = extractEntitySummary(rel, content)
         if (summary) out.push(summary)
-      } catch {
-        // best-effort — skip unreadable pages
-      }
+      } catch { /* best-effort */ }
     }
   }
   return out
 }
 
-/** Read every .md under wiki/ as { path, content }. The path is
- *  the wiki-relative form callers downstream use. */
-export async function loadAllWikiPages(
-  projectPath: string,
-): Promise<{ path: string; content: string }[]> {
+/** Read every .md under wiki/ as `{ path, content }`. */
+export async function loadAllWikiPages(projectPath: string): Promise<{ path: string; content: string }[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
   const out: { path: string; content: string }[] = []
   for (const node of walkMd(tree, "wiki")) {
     try {
       const content = await readFile(node.path)
-      out.push({ path: toWikiRelative(pp, node.path), content })
-    } catch {
-      // ignore
-    }
+      out.push({ path: toRelative(pp, node.path), content })
+    } catch { /* ignore */ }
   }
   return out
 }
 
 /**
- * Stage 1 + 2 from the user's perspective: scan the project for
- * duplicate-candidate groups. Reads notDuplicates whitelist from
- * disk so previously-confirmed false-positives don't reappear.
+ * Run duplicate detection (stages 1 + 2), respecting the
+ * not-duplicates whitelist so confirmed false positives are excluded.
  */
 export async function runDuplicateDetection(
   projectPath: string,
@@ -140,27 +116,17 @@ export async function runDuplicateDetection(
   if (summaries.length < 2) return []
   const notDup = await loadNotDuplicates(projectPath)
   const llm = buildDedupLlmCall(llmConfig)
-  return detectDuplicateGroups(summaries, llm, {
-    signal: options.signal,
-    notDuplicates: notDup,
-  })
+  return detectDuplicateGroups(summaries, llm, { signal: options.signal, notDuplicates: notDup })
 }
 
 /**
- * Stage 3 + persistence: execute one user-confirmed merge.
- *
- * Steps:
- *   1. Load each group page's full content + every other wiki page
- *   2. Run mergeDuplicateGroup (LLM body merge + frontmatter
- *      union + cross-reference rewrites)
- *   3. Snapshot every touched file to .qmai/page-history/
- *      dedup-<timestamp>/
- *   4. Write canonical content
- *   5. Apply cross-reference rewrites
- *   6. Delete merged-away files
- *   7. Apply index.md rewrite (separate pass — index isn't in
- *      otherWikiPages because removing references is a different
- *      operation than slug-rewriting them)
+ * Execute a user-confirmed merge (stage 3 + persistence):
+ * 1. Load group pages and other wiki pages
+ * 2. Run the algorithm merge
+ * 3. Snapshot pre-merge state
+ * 4. Write canonical + rewrites
+ * 5. Delete merged-away pages
+ * 6. Rewrite index.md
  */
 export async function executeMerge(
   projectPath: string,
@@ -171,27 +137,20 @@ export async function executeMerge(
 ): Promise<MergeResult> {
   const pp = normalizePath(projectPath)
 
-  // 1. Resolve each group slug to its actual on-disk path + content
+  // 1. Resolve slugs to paths
   const allPages = await loadAllWikiPages(pp)
   const pathBySlug = new Map<string, string>()
   for (const p of allPages) {
     const base = p.path.split("/").pop() ?? ""
-    if (base.endsWith(".md")) {
-      pathBySlug.set(base.slice(0, -3), p.path)
-    }
+    if (base.endsWith(".md")) pathBySlug.set(base.slice(0, -3), p.path)
   }
+
   const groupPages: { slug: string; path: string; content: string }[] = []
   for (const slug of group.slugs) {
     const relPath = pathBySlug.get(slug)
-    if (!relPath) {
-      throw new Error(
-        `Slug "${slug}" not found on disk — was the page deleted between detection and merge?`,
-      )
-    }
+    if (!relPath) throw new Error(`Slug "${slug}" not found on disk — was the page deleted between detection and merge?`)
     const page = allPages.find((p) => p.path === relPath)
-    if (!page) {
-      throw new Error(`Internal: page lookup miss for ${relPath}`)
-    }
+    if (!page) throw new Error(`Internal: page lookup miss for ${relPath}`)
     groupPages.push({ slug, path: relPath, content: page.content })
   }
 
@@ -200,54 +159,36 @@ export async function executeMerge(
 
   const llm = buildDedupLlmCall(llmConfig)
   const result = await mergeDuplicateGroup(
-    {
-      group: groupPages,
-      canonicalSlug,
-      otherWikiPages: otherPages,
-    },
+    { group: groupPages, canonicalSlug, otherWikiPages: otherPages },
     llm,
     { signal: options.signal },
   )
 
-  // 2. Snapshot backup before any writes. If a write fails partway
-  //    through, the user has the pre-merge state intact in
-  //    .qmai/page-history/.
+  // 2. Snapshot backup
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const backupDir = `${pp}/.qmai/page-history/dedup-${stamp}`
   for (const b of result.backup) {
-    const sanitized = b.path.replace(/[/\\]/g, "_")
-    await writeFile(`${backupDir}/${sanitized}`, b.content)
+    await writeFile(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)
   }
 
   // 3. Write canonical
   await writeFile(`${pp}/${result.canonicalPath}`, result.canonicalContent)
 
   // 4. Apply rewrites
-  for (const r of result.rewrites) {
-    await writeFile(`${pp}/${r.path}`, r.newContent)
-  }
+  for (const r of result.rewrites) await writeFile(`${pp}/${r.path}`, r.newContent)
 
   // 5. Delete merged-away pages
   for (const dead of result.pagesToDelete) {
-    try {
-      await deleteFile(`${pp}/${dead}`)
-    } catch (err) {
-      // Surface as a warning — backup is still safe.
-      console.warn(`[dedup] failed to delete ${dead}: ${err}`)
-    }
+    try { await deleteFile(`${pp}/${dead}`) } catch (err) { console.warn(`[dedup] failed to delete ${dead}: ${err}`) }
   }
 
-  // 6. Rewrite index.md to drop merged-away entries.
+  // 6. Rewrite index.md
   const indexPath = `${pp}/wiki/index.md`
   const indexEntry = allPages.find((p) => p.path === "wiki/index.md")
   if (indexEntry) {
-    const removed = new Set(
-      group.slugs.filter((s) => s !== canonicalSlug),
-    )
+    const removed = new Set(group.slugs.filter((s) => s !== canonicalSlug))
     const rewritten = rewriteIndexMd(indexEntry.content, removed)
-    if (rewritten !== indexEntry.content) {
-      await writeFile(indexPath, rewritten)
-    }
+    if (rewritten !== indexEntry.content) await writeFile(indexPath, rewritten)
   }
 
   return result
