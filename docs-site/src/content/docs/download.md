@@ -7,15 +7,17 @@ description: 下载 niko-hub 最新版本安装包
 
 ## 最新版本
 
-**v2.4.4**（2026-08-01 发布）
+**v2.4.4**（2026-08-02 发布）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### v2.4.4 更新亮点
 
+- ✅ **角色光环模块系统** — 完整的角色光环研究、文档、上下文管理功能
 - ✅ **完全 MIT 许可证合规** — 移除所有 GPL/LGPL 依赖，可无限制商业使用
 - ✅ **性能提升** — 繁简转换速度提升 ~35%
 - ✅ **性能基准体系** — 6 个 benchmark baseline，21 个性能指标
+- ✅ **代码库清理** — 删除临时文件、日志、备份，优化仓库结构
 - ✅ **零破坏性变更** — 所有公共 API 保持兼容
 
 ## Windows 安装包
