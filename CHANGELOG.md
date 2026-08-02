@@ -1,0 +1,122 @@
+# Changelog
+
+本文件记录 Niko Buddy (原 QMAI) 的所有重要变更。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
+项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [2.4.4] - 2026-08-02
+
+### Added
+- 角色光环 (Character Aura) 完整模块系统
+  - `character-aura-builtin.ts` - 内置角色光环数据
+  - `character-aura-context.ts` - 上下文管理
+  - `character-aura-document.ts` - 文档处理
+  - `character-aura-markdown.ts` - Markdown 渲染
+  - `character-aura-research.ts` - 研究功能
+  - `character-aura-store.ts` - 状态存储
+  - `character-aura-types.ts` - 类型定义
+- 聊天面板新增 hooks
+  - `use-chat-llm-resolver.ts` - LLM 解析器
+  - `use-chat-scroll.ts` - 滚动控制
+  - `use-exemplar-state.ts` - 示例状态管理
+- 图谱组件新增 hooks
+  - `use-graph-data.ts` - 图谱数据管理
+  - `use-graph-layout.ts` - 布局算法
+  - `use-graph-node-editing.ts` - 节点编辑
+- 新增情感密度检查脚本 `scripts/check-emotion-density.mjs`
+- 新增临时文件清理脚本 `scripts/cleanup-temp.ps1`
+
+### Changed
+- 优化聊天面板组件性能
+- 更新知识树组件
+- 改进 Claude CLI 传输层
+- 优化 LLM 客户端和提供者配置
+- 更新构建配置 (vite.config.ts, tsconfig.app.json)
+
+### Removed
+- 删除临时 TypeScript 文件 (temp-*.ts)
+- 删除参考文件 (*-reference.ts)
+- 清理日志文件 (*.log, tsc-errors.txt)
+- 删除测试报告 (test-mocks-*.json)
+- 删除备份目录 (src/lib/__backups__/)
+
+### Fixed
+- 修复级联取消模式以正确传播 LLM 调用信号
+- 移除 LGPL opencc-js 依赖，实现原生 MIT 解决方案
+- 修复 wiki-store.spec.ts 类型错误
+
+## [2.4.3] - 2026-07-31
+
+### Added
+- 性能基准测试套件 (6 个文件，21 项指标)
+- IPC 延迟基准测试
+- LanceDB 基准测试
+- LLM 延迟基准测试
+- 内存使用基准测试
+- 搜索性能基准测试
+- 启动时间基准测试
+
+### Changed
+- GitHub 仓库重命名：niko-hub → niko-buddy
+- 完成 Niko Buddy 品牌重命名 (32 个文件)
+- 设置和存储模块品牌更新 (10 个文件)
+- 反馈部分许可证头部和文档注释更新
+
+### Fixed
+- ISS-20260731-001: agent-tools applyFileEdit 添加 isSafeIngestPath 守卫
+- 解决所有 44 个 TypeScript 错误并重建便携安装程序
+- 修复命名冲突问题 (QMAI → Niko Buddy)
+
+### Security
+- PAT-G2 twin mirror 安全补丁
+
+## [2.4.2] - 2026-07-28
+
+### Added
+- RPC2-TASK-006/007/008: Finding 对比入口 + Draft-first 状态机 + 门控回检
+- RPC2-TASK-005: de-ai-preview-dialog 替换为 Monaco diff 面板入口
+- RPC2-TASK-004: 封装 MonacoDiffEditor 组件与单测
+- RPC2-TASK-003: 抽出 generateReviewRewriteEdits 可复用 helper
+- RPC2-TASK-002: 新增 diff.ts LCS 纯函数与单测
+- RPC2-TASK-001: 添加 Monaco 依赖与 worker 配置
+
+### Changed
+- 重构审查流程以支持 Draft-first 模式
+- 优化门控回检机制
+
+## [2.4.1] - 2026-07-25
+
+### Fixed
+- 修复章节摄入流程中的多个 bug
+- 优化上下文数据源性能
+- 改进深度章节生成提示词
+
+## [2.4.0] - 2026-07-20
+
+### Added
+- 深度章节生成功能
+- 角色光环研究模块
+- 社区摘要功能
+- 事实快照系统
+
+### Changed
+- 重构小说主链代码结构
+- 优化上下文装配流程
+- 改进审查门控机制
+
+---
+
+## 版本历史说明
+
+- **v2.4.x**: Niko Buddy 品牌升级系列
+- **v2.3.x**: QMAI 核心功能完善系列
+- **v2.2.x**: 性能优化和稳定性改进系列
+- **v2.1.x**: 小说写作主链功能系列
+- **v2.0.x**: Tauri 2 架构升级系列
+
+[2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
+[2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2
+[2.4.1]: https://github.com/Smith-106/niko-buddy/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.4.0
