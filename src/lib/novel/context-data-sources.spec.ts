@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextLoadContext } from "./context-data-source"
-import { recentChapterContentsDataSource, writingStyleDataSource } from "./context-data-sources"
+import {
+  fallbackPreviousEndingDataSource,
+  fallbackRecentSummariesDataSource,
+  recentChapterContentsDataSource,
+  writingStyleDataSource,
+} from "./context-data-sources"
 
 const mocks = vi.hoisted(() => ({
   buildWritingStyleContext: vi.fn(),
@@ -117,5 +122,76 @@ describe("recentChapterContentsDataSource", () => {
     expect(result[0]).toContain("开头事实")
     expect(result[0]).toContain("结尾事实")
     expect(result[0]).toContain("章节正文中段已按上下文预算省略")
+  })
+
+  it("wiki 无章节页时回退读取 .novel/chapters/{n}/draft.md 作为前情正文片段", async () => {
+    const chapterContext: ContextLoadContext = {
+      ...context,
+      chapterNumber: 3,
+      config: {
+        ...context.config,
+        recentSummaryWindow: 2,
+      },
+    }
+    mocks.searchWiki.mockResolvedValue([])
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("/.novel/chapters/1/draft.md")) return "第一章 draft 开篇\n第一章 draft 结尾钩"
+      if (path.includes("/.novel/chapters/2/draft.md")) return "第二章 draft 开篇\n第二章 draft 结尾钩"
+      throw new Error(`unexpected path ${path}`)
+    })
+
+    const result = await recentChapterContentsDataSource.load(chapterContext)
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toContain("（draft）")
+    expect(result[0]).toContain("第一章 draft 结尾钩")
+    expect(result[1]).toContain("第二章 draft 结尾钩")
+    expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/.novel/chapters/1/draft.md")
+    expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/.novel/chapters/2/draft.md")
+  })
+})
+
+describe("fallbackPreviousEndingDataSource draft fallback", () => {
+  beforeEach(() => {
+    mocks.readFile.mockReset()
+    mocks.searchWiki.mockReset()
+  })
+
+  it("wiki 无上一章时从 draft.md 取章末作为 previousChapterEnding", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    mocks.readFile.mockResolvedValue("前文若干行\n".repeat(5) + "上一章真正的结尾钩子。")
+
+    const ending = await fallbackPreviousEndingDataSource.load({
+      ...context,
+      chapterNumber: 3,
+    })
+
+    expect(ending).toContain("上一章真正的结尾钩子")
+    expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/.novel/chapters/2/draft.md")
+  })
+})
+
+describe("fallbackRecentSummariesDataSource draft fallback", () => {
+  beforeEach(() => {
+    mocks.readFile.mockReset()
+    mocks.searchWiki.mockReset()
+  })
+
+  it("wiki type:chapter 为空时用前章 draft 节选合成 recentSummaries", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("/1/draft.md")) return "第一章事实：陈烬出局。"
+      if (path.endsWith("/2/draft.md")) return "第二章事实：Offer 未揭。"
+      return ""
+    })
+
+    const summaries = await fallbackRecentSummariesDataSource.load({
+      ...context,
+      chapterNumber: 3,
+      config: { ...context.config, recentSummaryWindow: 2 },
+    })
+
+    expect(summaries.length).toBeGreaterThanOrEqual(1)
+    expect(summaries.some((s) => s.includes("draft 节选") && s.includes("陈烬"))).toBe(true)
   })
 })
