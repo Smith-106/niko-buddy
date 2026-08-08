@@ -990,7 +990,20 @@ export function ReviewView({
               <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 {selectedDimensionResult.status}
               </span>
+              <span className={`rounded px-2 py-0.5 text-xs ${
+                dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
+                  ? "border border-violet-600/40 text-violet-700 dark:text-violet-300"
+                  : "border border-emerald-600/40 text-emerald-700 dark:text-emerald-300"
+              }`}>
+                {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
+                  ? t("reviewCenter.trackBDimBadge")
+                  : t("reviewCenter.trackADimBadge")}
+              </span>
+              {(dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull") && (
+                <span className="text-[10px] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
+              )}
             </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
             {selectedDimensionResult.summary && (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{selectedDimensionResult.summary}</p>
             )}

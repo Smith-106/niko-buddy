@@ -16,6 +16,12 @@ const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
   labelKey: `reviewCenter.dimension.${key}`,
 }))
 
+/** Track A = product gate-related dims; Track B = optional literary dims (split acceptance). */
+const TRACK_A_KEYS = new Set(["consistency", "character", "continuity"])
+const TRACK_B_KEYS = new Set(["thrill", "pacing", "pull"])
+const TRACK_A_DIMENSIONS = SIX_DIMENSIONS.filter((d) => TRACK_A_KEYS.has(d.key))
+const TRACK_B_DIMENSIONS = SIX_DIMENSIONS.filter((d) => TRACK_B_KEYS.has(d.key))
+
 export function ReviewCenterSidebarPanel() {
   const { t } = useTranslation()
   const selectedReviewDimension = useWikiStore((s) => s.selectedReviewDimension)
@@ -163,32 +169,71 @@ export function ReviewCenterSidebarPanel() {
         </div>
 
         <div className="mb-3">
-          <div className="px-1 mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             {t("reviewCenter.sixDimensions")}
           </div>
-          <div className="space-y-1">
-            {SIX_DIMENSIONS.map((dim) => (
-              <button
-                key={dim.key}
-                type="button"
-                onClick={() => setSelectedReviewDimension(dim.key)}
-                className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  selectedReviewDimension === dim.key ? "qm-selected" : "text-muted-foreground qm-hover"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <span className="truncate">{t(dim.labelKey)}</span>
+          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+            {t("reviewCenter.splitAcceptanceHint")}
+          </p>
+          <div className="mb-2">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+              <span className="rounded border border-emerald-600/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
+              <span className="text-muted-foreground font-normal">{t("reviewCenter.trackAHint")}</span>
+            </div>
+            <div className="space-y-1">
+              {TRACK_A_DIMENSIONS.map((dim) => (
+                <button
+                  key={dim.key}
+                  type="button"
+                  onClick={() => setSelectedReviewDimension(dim.key)}
+                  className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    selectedReviewDimension === dim.key ? "qm-selected" : "text-muted-foreground qm-hover"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="truncate">{t(dim.labelKey)}</span>
+                    </div>
+                    {dimensionCounts[dim.key] > 0 && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{dimensionCounts[dim.key]}</span>
+                    )}
+                    {(reviewRun?.running && reviewRun.activeDimension === dim.key) && (
+                      <span className="text-xs text-primary">{SIX_REVIEW_DIMENSIONS[dim.key].label}</span>
+                    )}
                   </div>
-                  {dimensionCounts[dim.key] > 0 && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{dimensionCounts[dim.key]}</span>
-                  )}
-                  {(reviewRun?.running && reviewRun.activeDimension === dim.key) && (
-                    <span className="text-xs text-primary">{SIX_REVIEW_DIMENSIONS[dim.key].label}</span>
-                  )}
-                </div>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mb-1">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-violet-700 dark:text-violet-400">
+              <span className="rounded border border-violet-600/40 px-1 py-0.5">{t("reviewCenter.trackBBadge")}</span>
+              <span className="text-muted-foreground font-normal">{t("reviewCenter.trackBHint")}</span>
+            </div>
+            <div className="space-y-1">
+              {TRACK_B_DIMENSIONS.map((dim) => (
+                <button
+                  key={dim.key}
+                  type="button"
+                  onClick={() => setSelectedReviewDimension(dim.key)}
+                  className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    selectedReviewDimension === dim.key ? "qm-selected" : "text-muted-foreground qm-hover"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="truncate">{t(dim.labelKey)}</span>
+                    </div>
+                    {dimensionCounts[dim.key] > 0 && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{dimensionCounts[dim.key]}</span>
+                    )}
+                    {(reviewRun?.running && reviewRun.activeDimension === dim.key) && (
+                      <span className="text-xs text-primary">{SIX_REVIEW_DIMENSIONS[dim.key].label}</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

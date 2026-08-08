@@ -262,6 +262,8 @@ export interface NovelConfig {
   deepPreviousChaptersAnalysis: boolean
   /** Deep generation phase 4-5: AI review + auto-revision (default on). */
   deepChapterReview: boolean
+  /** After Track A gates are green, optionally run Track B literary polish for thril/pull warnings (default off). Does not override Consistency/FIX-1. */
+  literaryPolishAfterGate: boolean
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string
@@ -298,6 +300,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   reviewBeforeSave: false,
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
+  literaryPolishAfterGate: false,
   reviewReasoningEffort: "high",
   writingModel: "",
   reviewModel: "",

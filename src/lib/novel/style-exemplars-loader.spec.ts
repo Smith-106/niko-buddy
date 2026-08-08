@@ -58,9 +58,45 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
     expect(errorMsg).not.toContain("leak")
   })
 
-  it("loadStyleExemplars throws on non-array JSON (corrupt shape)", async () => {
+  it("loadStyleExemplars throws on shape without array nor exemplars field (corrupt shape)", async () => {
     fsMocks.readFile.mockResolvedValue(JSON.stringify({ not: "an array" }))
     await expect(loadStyleExemplars("/Proj")).rejects.toThrow("style exemplars file is corrupt")
+  })
+
+  it("loadStyleExemplars unwraps {$schema, exemplars:[...]} wrapped object (dual-format FIX-2/EC-1)", async () => {
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({
+        $schema: "https://example.test/style-exemplars.schema.json",
+        exemplars: [
+          { id: "EX-001", chapterId: "ch1", text: "风格好的段落", markType: "style", note: "整体文风", markedAt: "2026-07-10T00:00:00Z" },
+          { id: "EX-002", chapterId: "ch1", text: "声线好的对白", markType: "voice", markedAt: "2026-07-10T00:01:00Z" },
+        ],
+      }),
+    )
+    const result = await loadStyleExemplars("/Proj")
+    expect(result).toHaveLength(2)
+    // 字段别名映射：id→exemplarId、markedAt→createdAt
+    expect(result[0]).toEqual({
+      exemplarId: "EX-001",
+      chapterId: "ch1",
+      text: "风格好的段落",
+      markType: "style",
+      note: "整体文风",
+      createdAt: "2026-07-10T00:00:00Z",
+    })
+    expect(result[1].exemplarId).toBe("EX-002")
+    expect(result[1].createdAt).toBe("2026-07-10T00:01:00Z")
+  })
+
+  it("loadStyleExemplars new-format fields win over legacy aliases (id/markedAt)", async () => {
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify([
+        { exemplarId: "new", id: "legacy", chapterId: "ch1", text: "x", markType: "style", createdAt: "2026-07-11T00:00:00Z", markedAt: "2026-07-10T00:00:00Z" },
+      ]),
+    )
+    const result = await loadStyleExemplars("/Proj")
+    expect(result[0].exemplarId).toBe("new")
+    expect(result[0].createdAt).toBe("2026-07-11T00:00:00Z")
   })
 
   it("loadStyleExemplars returns parsed array on valid file", async () => {
@@ -116,6 +152,31 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
     expect(parsed[1].markType).toBe("pacing")
   })
 
+  it("markStyleExemplar appends to wrapped {$schema, exemplars} file without overwriting (F2 data-loss guard)", async () => {
+    // 生产 v1.0 包装格式：mark 读路径必须解包装后追加，不得重建覆盖。
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({
+        $schema: "https://example.test/style-exemplars.schema.json",
+        exemplars: [
+          { id: "EX-001", chapterId: "ch1", text: "种子段落 1", markType: "style", markedAt: "2026-07-10T00:00:00Z" },
+          { id: "EX-002", chapterId: "ch1", text: "种子段落 2", markType: "voice", markedAt: "2026-07-10T00:01:00Z" },
+        ],
+      }),
+    )
+    await markStyleExemplar("/Proj", {
+      chapterId: "ch1",
+      text: "新段落",
+      markType: "pacing",
+    })
+    const written = fsMocks.writeFileAtomic.mock.calls[0][1] as string
+    const parsed = JSON.parse(written) as StyleExemplar[]
+    // 2 条种子 + 1 条新增 = 3，不得被重建覆盖为 1。
+    expect(parsed).toHaveLength(3)
+    expect(parsed[0].exemplarId).toBe("EX-001")
+    expect(parsed[0].createdAt).toBe("2026-07-10T00:00:00Z")
+    expect(parsed[2].markType).toBe("pacing")
+  })
+
   it("markStyleExemplar rejects invalid markType (enum validation, PAT-G2 twin)", async () => {
     fsMocks.readFile.mockRejectedValue(new Error("file not found"))
     await expect(
@@ -138,17 +199,47 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
       { exemplarId: "2", chapterId: "c", text: "style2", markType: "style", createdAt: "2026-07-10T00:01:00Z" },
       { exemplarId: "3", chapterId: "c", text: "voice1", markType: "voice", createdAt: "2026-07-10T00:02:00Z" },
       { exemplarId: "4", chapterId: "c", text: "pacing1", markType: "pacing", createdAt: "2026-07-10T00:03:00Z" },
+      { exemplarId: "5", chapterId: "c", text: "thrill1", markType: "thrill", createdAt: "2026-07-10T00:04:00Z" },
+      { exemplarId: "6", chapterId: "c", text: "pull1", markType: "pull", createdAt: "2026-07-10T00:05:00Z" },
+      { exemplarId: "7", chapterId: "c", text: "cons1", markType: "consistency", createdAt: "2026-07-10T00:06:00Z" },
     ]
     const picked = pickTopKExemplars(exemplars, STYLE_EXEMPLARS_TOP_K)
-    expect(picked).toHaveLength(3)
+    expect(picked).toHaveLength(6)
     // 每个 markType 至少 1 个（多样性）。
     const types = new Set(picked.map((p) => p.markType))
     expect(types.has("style")).toBe(true)
     expect(types.has("voice")).toBe(true)
     expect(types.has("pacing")).toBe(true)
+    expect(types.has("thrill")).toBe(true)
+    expect(types.has("pull")).toBe(true)
+    expect(types.has("consistency")).toBe(true)
     // style 取最新（createdAt desc）。
     const stylePicked = picked.find((p) => p.markType === "style")
     expect(stylePicked?.exemplarId).toBe("2")
+  })
+
+  it("markStyleExemplar accepts thrill and pull markTypes", async () => {
+    fsMocks.readFile.mockRejectedValue(new Error("file not found"))
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    await markStyleExemplar("/Proj", {
+      chapterId: "ch1",
+      text: "thrill payoff beat",
+      markType: "thrill",
+    })
+    let written = fsMocks.writeFileAtomic.mock.calls.at(-1)?.[1] as string
+    expect((JSON.parse(written) as StyleExemplar[]).at(-1)?.markType).toBe("thrill")
+    // second mark: simulate existing file containing first write
+    fsMocks.readFile.mockResolvedValue(written)
+    await markStyleExemplar("/Proj", {
+      chapterId: "ch1",
+      text: "next chapter hook beat",
+      markType: "pull",
+    })
+    written = fsMocks.writeFileAtomic.mock.calls.at(-1)?.[1] as string
+    const types = (JSON.parse(written) as StyleExemplar[]).map((e) => e.markType)
+    expect(types).toContain("thrill")
+    expect(types).toContain("pull")
   })
 
   it("pickTopKExemplars truncates text to STYLE_EXEMPLAR_TEXT_MAX_CHARS (token budget)", () => {

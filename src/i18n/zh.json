@@ -131,7 +131,16 @@
     "startReview": "开始审稿",
     "reviewingAction": "审查中...",
     "noResults": "暂无该维度审查结果",
-    "stats": "阻塞:{{blocking}} 高:{{high}} 中:{{medium}} 低:{{low}}"
+    "stats": "阻塞:{{blocking}} 高:{{high}} 中:{{medium}} 低:{{low}}",
+    "splitAcceptanceHint": "Track A 为产品交付门控相关维；Track B 为可选文学诊断，均分≥9 不是产品硬门。",
+    "trackABadge": "Track A",
+    "trackAHint": "可交付 / 一致性",
+    "trackBBadge": "Track B",
+    "trackBHint": "文学诊断（可选）",
+    "trackADimBadge": "A·门控",
+    "trackBDimBadge": "B·文学",
+    "notProductGate": "非产品硬门",
+    "perDimOnly": "请按维阅读分数；六维均分不作交付判定"
   },
   "nav": {
     "wiki": "章节库",
@@ -1173,7 +1182,9 @@
       "communitySummaryIntervalHint": "每摄取多少章后自动重建一次社区摘要。数值越小，摘要越新鲜，但 LLM 调用越频繁。",
       "communitySummaryAsync": "后台异步执行",
       "communitySummaryAsyncHint": "开启后，社区摘要在后台生成，不阻塞章节摄取。关闭则同步等待生成完成。",
-      "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。"
+      "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。",
+      "literaryPolishAfterGate": "门控通过后文学抛光（Track B）",
+      "literaryPolishAfterGateHint": "开启后，在 Consistency/Anti-AI 门控无阻断问题时，额外对 thril/节奏/追读类提示做至多 1 次可选抛光。不挡产品交付，且禁止提前揭露机制名。默认关闭。"
     },
     "soul": {
       "projectSoul": "项目灵魂",

@@ -624,6 +624,7 @@ function normalizeNovelConfig(
     reviewBeforeSave: config.reviewBeforeSave ?? DEFAULT_NOVEL_CONFIG.reviewBeforeSave,
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
     deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
+    literaryPolishAfterGate: config.literaryPolishAfterGate ?? DEFAULT_NOVEL_CONFIG.literaryPolishAfterGate,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,

@@ -305,7 +305,21 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
           </div>
 
+
+
           <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.literaryPolishAfterGate")}</Label>
+              {settingTooltip("literaryPolishAfterGateHint")}
+            </div>
+            <Switch
+              checked={!!draft.novelConfig.literaryPolishAfterGate}
+              onChange={() => updateNovelConfig({ literaryPolishAfterGate: !draft.novelConfig.literaryPolishAfterGate })}
+            />
+          </div>
+
+
+                    <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <Label>{t("novel.settings.reviewReasoningEffort")}</Label>
               {settingTooltip("reviewReasoningEffortHint")}

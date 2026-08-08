@@ -407,6 +407,33 @@ export function collectRepairIssues(decisionGates: DeepChapterDecisionGates): No
   return warnings
 }
 
+/**
+ * Track B literary polish (optional, post Track A gate-green):
+ * thril/pacing/pull warnings only. Never includes consistency/anti_ai errors.
+ * Used when novelConfig.literaryPolishAfterGate is true and collectBlockingIssues is empty.
+ */
+export function collectLiteraryPolishIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+  const literaryTypes = new Set(["plot", "thrill", "pacing", "pull", "quality"])
+  const out: NovelReviewResult[] = []
+  for (const finding of collectRepairIssues(decisionGates)) {
+    const t = (finding.type || "").toLowerCase()
+    if (finding.severity !== "warning" && finding.severity !== "info") continue
+    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
+      out.push(finding)
+    }
+  }
+  // Also pull from quality gate findings that look literary even if severity is warning already covered
+  const quality = decisionGates.quality
+  for (const finding of quality.findings) {
+    if (finding.severity === "error") continue
+    const t = (finding.type || "").toLowerCase()
+    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
+      if (!out.some((x) => x.message === finding.message)) out.push(finding)
+    }
+  }
+  return out
+}
+
 function checkpointStageAtLeast(
   checkpoint: DeepChapterGenerationResumeCheckpoint | null | undefined,
   target: DeepChapterGenerationResumeStage,
@@ -1831,6 +1858,77 @@ async function runReviewAndRepair(
             `当前自动返修次数：${retryCount}/${MAX_GATE_RETRY}。`,
           ].join("\n"),
     ))
+  }
+
+  // Track B: optional literary polish after Track A gates are green (no blocking errors).
+  // At most one pass; thril/pacing/pull warnings only; never overrides Consistency/FIX-1.
+  if (
+    novelConfig.deepChapterReview
+    && novelConfig.literaryPolishAfterGate
+    && !manualReviewRequired
+    && collectBlockingIssues(decisionGates).length === 0
+  ) {
+    const literaryIssues = collectLiteraryPolishIssues(decisionGates)
+    if (literaryIssues.length > 0) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5.7：Track B 文学抛光",
+        [
+          `门控已绿；对 ${literaryIssues.length} 条 thril/节奏/追读相关提示做至多 1 次可选抛光（不挡交付）。`,
+          "",
+          formatReviewIssueList(literaryIssues),
+        ].join("\n"),
+      ))
+      const trackBConstraint =
+        "\n\n【Track B 约束】只强化爽点密度/节奏/章末追读；禁止提前揭露 Offer、最终存活者等机制名；不得破坏人设与设定一致性。"
+      const polishedContent = await collectModelText(
+        writingConfig,
+        [{
+          role: "user",
+          content: buildDeepChapterRevisionPrompt(
+            outlinePrompt,
+            contextPrompt,
+            taskBrief,
+            currentContent,
+            literaryIssues,
+            input.userRequest,
+            input.chapterNumber,
+            input.goldenThreeChapter,
+          ) + trackBConstraint,
+        }],
+        deps,
+        signal,
+        (partial) => callbacks.onThinking?.(formatStageThinking("阶段5.7：Track B 文学抛光", partial)),
+        { max_tokens: lengthSpec.maxOutputTokens },
+        cachePrefix,
+        notePartial,
+      )
+      assertNotAborted(signal)
+      if (polishedContent.trim()) {
+        const prevSlop = scoreCandidate(currentContent)
+        const nextSlop = scoreCandidate(polishedContent)
+        if (nextSlop <= prevSlop + 0.05) {
+          currentContent = polishedContent
+          revised = true
+        } else {
+          callbacks.onThinking?.(formatStageThinking(
+            "阶段5.7：文学抛光回退",
+            "抛光后机械 slop 上升，已回退门控绿稿。",
+          ))
+        }
+        const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
+        reviewResults = stage57.reviewResults
+        decisionGates = buildDecisionGates(reviewResults, retryCount)
+        await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+          taskBrief,
+          draftContent,
+          reviewResults,
+          dimensionResults: stage57.dimensionResults,
+          currentContent,
+          decisionGates,
+          retryCount,
+        }))
+      }
+    }
   }
 
   return {

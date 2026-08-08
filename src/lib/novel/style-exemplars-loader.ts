@@ -26,8 +26,10 @@ import { normalizePath } from "@/lib/path-utils"
  * - `style`：整体文风好的段落
  * - `voice`：角色声线/对白毛边好的段落
  * - `pacing`：叙事节奏/停顿好的段落
+ * - `thrill`：爽点兑现/压抑-释放好的段落（9 档语义锚）
+ * - `pull`：追读引力/章末钩子/下一章承诺好的段落（9 档语义锚）
  */
-export type StyleExemplarMarkType = "style" | "voice" | "pacing"
+export type StyleExemplarMarkType = "style" | "voice" | "pacing" | "thrill" | "pull" | "consistency"
 
 /** style exemplar 单条记录。 */
 export interface StyleExemplar {
@@ -45,11 +47,11 @@ const STYLE_EXEMPLARS_FILENAME = "style-exemplars.json"
 /** 单 exemplar 文本截断上限（token 预算保护，buildContextPack 注入前）。 */
 export const STYLE_EXEMPLAR_TEXT_MAX_CHARS = 2000
 
-/** 注入 contextPack 的 top-K exemplar 数量（ADR-29 Consequences 负面项约束）。 */
-export const STYLE_EXEMPLARS_TOP_K = 3
+/** 注入 contextPack 的 top-K exemplar 数量（覆盖 5 类 markType 多样性；ADR-29 token 预算仍受单条截断约束）。 */
+export const STYLE_EXEMPLARS_TOP_K = 6
 
 /** 合法 markType 集合（枚举校验）。 */
-const VALID_MARK_TYPES: readonly StyleExemplarMarkType[] = ["style", "voice", "pacing"]
+const VALID_MARK_TYPES: readonly StyleExemplarMarkType[] = ["style", "voice", "pacing", "thrill", "pull", "consistency"]
 
 /**
  * 校验 markType 枚举值。非法值抛错（PAT-G2 镜像：枚举校验，防止
@@ -62,10 +64,48 @@ function assertValidMarkType(markType: string): asserts markType is StyleExempla
 }
 
 /**
+ * 解包装 exemplar 数据（FIX-2/EC-1：双格式兼容）。
+ *
+ * 接受两种合法形状：
+ *   1. 裸数组（QMAI 自写格式）：[{exemplarId, chapterId, text, markType, note?, createdAt}]
+ *   2. 包装对象（v1.0 人工/第三方版式）：{$schema, exemplars: [{id, chapterId, text, markType, note?, markedAt}]}
+ *
+ * 两者都不是 → 返回 null（调用方判 corrupt）。
+ */
+function unwrapExemplars(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) return parsed
+  if (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    Array.isArray((parsed as { exemplars?: unknown[] }).exemplars)
+  ) {
+    return (parsed as { exemplars: unknown[] }).exemplars
+  }
+  return null
+}
+
+/**
+ * 字段别名归一化（FIX-2/EC-1：v1.0 版式 id→exemplarId、markedAt→createdAt）。
+ *
+ * 新格式字段优先；旧格式（id/markedAt）映射补齐；其余字段原样保留。
+ */
+function normalizeExemplar(e: Record<string, unknown>): StyleExemplar {
+  return {
+    exemplarId: String(e.exemplarId ?? e.id ?? ""),
+    chapterId: String(e.chapterId ?? ""),
+    text: String(e.text ?? ""),
+    markType: (VALID_MARK_TYPES.includes(String(e.markType)) ? String(e.markType) : e.markType) as StyleExemplarMarkType,
+    note: typeof e.note === "string" ? e.note : undefined,
+    createdAt: String(e.createdAt ?? e.markedAt ?? ""),
+  }
+}
+
+/**
  * 加载项目级 style exemplars。
  *
  * - 缺失文件 → 返回 `[]`（优雅降级，非阻断 — 项目未标记过 exemplar 是常态）
- * - 损坏 JSON（解析失败）→ 抛脱敏异常（PAT-DC1：不暴露 raw JSON / 文件路径）
+ * - 损坏 JSON（解析失败或形状不合法）→ 抛脱敏异常（PAT-DC1：不暴露 raw JSON / 文件路径）
+ * - 兼容裸数组与 {$schema, exemplars:[...]} 包装两种格式（FIX-2/EC-1）
  *
  * @param projectPath 项目根目录
  * @returns exemplar 列表（空项目返回空数组）
@@ -87,11 +127,12 @@ export async function loadStyleExemplars(projectPath: string): Promise<StyleExem
     // PAT-DC1（CWE-532 脱敏）：抛脱敏异常，不暴露 raw JSON 内容或文件路径。
     throw new Error("style exemplars file is corrupt")
   }
-  if (!Array.isArray(parsed)) {
-    // 非 JSON 数组也视为损坏 — 同样脱敏抛错。
+  const arr = unwrapExemplars(parsed)
+  if (arr === null) {
+    // 既非数组也非带 exemplars 字段的包装对象 — 视为损坏（PAT-DC1 脱敏）。
     throw new Error("style exemplars file is corrupt")
   }
-  return parsed as StyleExemplar[]
+  return arr.map((e) => normalizeExemplar(e as Record<string, unknown>))
 }
 
 /**
@@ -112,13 +153,16 @@ export async function markStyleExemplar(
   const filePath = `${pp}/.novel/${STYLE_EXEMPLARS_FILENAME}`
 
   // read-modify-write：读取现有 exemplars（缺失文件视为空列表），append 新条目。
+  // FIX-2/EC-1：读路径与 load 同解包装（裸数组 + {$schema, exemplars} 包装都认），
+  // 避免把合法包装对象误判为损坏而重建覆盖（F2 数据丢失修复）。
   let existing: StyleExemplar[] = []
   try {
     const raw = await readFile(filePath)
     const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) existing = parsed as StyleExemplar[]
+    const arr = unwrapExemplars(parsed)
+    if (arr !== null) existing = arr.map((e) => normalizeExemplar(e as Record<string, unknown>))
   } catch {
-    // 文件缺失或损坏 — 视为空列表，重建存储（不阻断标记操作）。
+    // 文件缺失或真正损坏（JSON 解析失败） — 视为空列表，重建存储（不阻断标记操作）。
     // 注意：损坏文件不抛错是因为用户标记是显式意图，重建是安全降级
     // （与 loadStyleExemplars 的损坏抛错不同：load 是被动消费，mark 是主动写入）。
     existing = []

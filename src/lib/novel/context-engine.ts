@@ -431,7 +431,7 @@ async function buildContextPackUnlocked(
       buildContextPackFromRawData(rawData, context),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
-        ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)).catch((error) => {
+        ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
             logger.warn("ContextEngine", "style exemplars load failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
             return [] as StyleExemplar[]
           })

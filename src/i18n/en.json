@@ -238,7 +238,16 @@
     "startReview": "Start review",
     "reviewingAction": "Reviewing...",
     "noResults": "No review results for this dimension",
-    "stats": "Blocking:{{blocking}} High:{{high}} Medium:{{medium}} Low:{{low}}"
+    "stats": "Blocking:{{blocking}} High:{{high}} Medium:{{medium}} Low:{{low}}",
+    "splitAcceptanceHint": "Track A = ship/consistency gates; Track B = optional literary diagnosis. Average ≥9 is not a product hard gate.",
+    "trackABadge": "Track A",
+    "trackAHint": "Ship / consistency",
+    "trackBBadge": "Track B",
+    "trackBHint": "Literary (optional)",
+    "trackADimBadge": "A·gate",
+    "trackBDimBadge": "B·lit",
+    "notProductGate": "Not a product hard gate",
+    "perDimOnly": "Read per-dimension scores; six-dim average is not ship criteria"
   },
   "nav": {
     "wiki": "Knowledge Base",
@@ -1294,7 +1303,9 @@
       "communitySummaryIntervalHint": "How many chapters to ingest before auto-rebuilding community summaries. Smaller values mean fresher summaries but more frequent LLM calls.",
       "communitySummaryAsync": "Background Async Execution",
       "communitySummaryAsyncHint": "When enabled, community summaries are generated in the background without blocking chapter ingestion. Disable to wait synchronously.",
-      "communitySummaryFailed": "Community summary generation failed: {{message}}. Will retry on next trigger."
+      "communitySummaryFailed": "Community summary generation failed: {{message}}. Will retry on next trigger.",
+      "literaryPolishAfterGate": "Literary polish after gates (Track B)",
+      "literaryPolishAfterGateHint": "When gates are green, optionally run one thril/pacing/pull polish pass. Does not block shipping; must not early-expose mechanism names. Off by default."
     },
     "soul": {
       "projectSoul": "Project Soul",

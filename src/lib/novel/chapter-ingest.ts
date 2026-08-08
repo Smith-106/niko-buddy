@@ -24,6 +24,7 @@ import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { clearTemporalFactsCache } from "./context-engine"
+import { sliceChapterForReview } from "./chapter-window"
 import {
   loadProjectionStatusLedger,
   recordProjectionStatus,
@@ -544,7 +545,7 @@ ${langReminder}`
 章节编号：第${chapterNumber}章
 
 章节正文：
-${chapterBody.slice(0, 8000)}
+${sliceChapterForReview(chapterBody)}
 
 请输出以下格式的 JSON：
 {
@@ -1821,7 +1822,7 @@ export async function ingestOutline(
   if (!hasUsableLlm(runtimeLlmConfig)) return null
 
   const content = await readFile(outlinePath)
-  const body = content.length > 8000 ? content.slice(0, 8000) : content
+  const body = sliceChapterForReview(content)
 
   // 从文件路径提取大纲名称作为标题
   const normalizedOutlinePath = normalizePath(outlinePath)
