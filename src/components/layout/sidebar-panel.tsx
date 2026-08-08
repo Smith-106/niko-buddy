@@ -41,7 +41,7 @@ import {
   type DismantlingLibrary,
   type DismantlingProject,
 } from "@/lib/novel/dismantling"
-import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
+import { flattenMdFiles, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -779,6 +779,7 @@ export function SidebarPanel() {
         finalForMemoryExtraction: extractMemory,
       })
       await finishChapterImport(projectPath, importedChapters, extractMemory)
+      invalidateChapterCache(projectPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error("[SidebarPanel] chapter file import failed:", error)
@@ -817,6 +818,7 @@ export function SidebarPanel() {
         finalForMemoryExtraction: extractMemory,
       })
       await finishChapterImport(projectPath, importedChapters, extractMemory)
+      invalidateChapterCache(projectPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error("[SidebarPanel] chapter folder import failed:", error)
@@ -942,6 +944,7 @@ export function SidebarPanel() {
       ].join("\n")
 
       await writeFile(filePath, content)
+      invalidateChapterCache(projectPath)
       setPendingPages((prev) => [
         { path: filePath, title, type: "chapter", tags: [] },
         ...prev.filter((page) => page.path !== filePath),

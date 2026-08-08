@@ -35,7 +35,7 @@ import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore, type LlmConfig, type SearchApiConfig } from "@/stores/wiki-store"
 import { pinyin } from "pinyin-pro"
-import { toPinyin as toPinyinUtil, toSimplified as toSimplifiedUtil } from "./character-aura-utils"
+import { toSimplified as toSimplifiedUtil } from "./character-aura-utils"
 
 /**
  * 把中文文本转为无音调小写拼音，用于拼音模糊匹配
@@ -839,15 +839,23 @@ function safeSkillSlug(id: string, name: string): string {
 }
 
 async function readCustomAuraLocalDocuments(input: CustomCharacterAuraSkillInput): Promise<Pick<CustomCharacterAuraGenerationInput, "importedDocuments" | "failedDocuments">> {
+  // ISS-20260724-004 (ROOT-D / PERF-06): independent local document reads in parallel
+  const paths = splitSourceLines(input.localDocumentPaths)
+  const results = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        const content = await readFile(path)
+        return { ok: true as const, path, content }
+      } catch {
+        return { ok: false as const, path }
+      }
+    }),
+  )
   const importedDocuments: LocalDocumentImportResult[] = []
   const failedDocuments: string[] = []
-  for (const path of splitSourceLines(input.localDocumentPaths)) {
-    try {
-      const content = await readFile(path)
-      importedDocuments.push({ path, content })
-    } catch {
-      failedDocuments.push(path)
-    }
+  for (const result of results) {
+    if (result.ok) importedDocuments.push({ path: result.path, content: result.content })
+    else failedDocuments.push(result.path)
   }
   return { importedDocuments, failedDocuments }
 }

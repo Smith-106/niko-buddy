@@ -227,8 +227,9 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
       text: "thrill payoff beat",
       markType: "thrill",
     })
-    let written = fsMocks.writeFileAtomic.mock.calls.at(-1)?.[1] as string
-    expect((JSON.parse(written) as StyleExemplar[]).at(-1)?.markType).toBe("thrill")
+    let written = fsMocks.writeFileAtomic.mock.calls[fsMocks.writeFileAtomic.mock.calls.length - 1]?.[1] as string
+    const first = JSON.parse(written) as StyleExemplar[]
+    expect(first[first.length - 1]?.markType).toBe("thrill")
     // second mark: simulate existing file containing first write
     fsMocks.readFile.mockResolvedValue(written)
     await markStyleExemplar("/Proj", {
@@ -236,7 +237,7 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
       text: "next chapter hook beat",
       markType: "pull",
     })
-    written = fsMocks.writeFileAtomic.mock.calls.at(-1)?.[1] as string
+    written = fsMocks.writeFileAtomic.mock.calls[fsMocks.writeFileAtomic.mock.calls.length - 1]?.[1] as string
     const types = (JSON.parse(written) as StyleExemplar[]).map((e) => e.markType)
     expect(types).toContain("thrill")
     expect(types).toContain("pull")

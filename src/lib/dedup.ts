@@ -52,6 +52,8 @@ export interface EntitySummary {
    *  to ~200 chars to keep the detector prompt small. */
   description?: string
   tags: string[]
+  /** Canonical aliases declared by the page frontmatter. */
+  aliases?: string[]
 }
 
 export interface DuplicateGroup {
@@ -123,6 +125,7 @@ export function extractEntitySummary(
   const title = stringField(frontmatter.title) ?? slugFromPath(pathRelativeToProject)
   const description = stringField(frontmatter.description) ?? firstBodyParagraph(body)
   const tags = arrayField(frontmatter.tags)
+  const aliases = arrayField(frontmatter.aliases)
   return {
     slug: slugFromPath(pathRelativeToProject),
     path: pathRelativeToProject,
@@ -130,6 +133,7 @@ export function extractEntitySummary(
     title,
     description: description ? truncate(description, 200) : undefined,
     tags,
+    aliases,
   }
 }
 
@@ -164,9 +168,79 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1) + "…"
 }
 
-// ──────────────────────────────────────────────────────────────────
-// Stage 2: LLM-driven duplicate detection
-// ──────────────────────────────────────────────────────────────────
+export interface EntityLinkCandidate {
+  type: "character" | "location" | "organization" | "item"
+  canonicalName: string
+  aliases: string[]
+  source: "title" | "alias" | "slug"
+}
+
+export interface EntityLinkIndex {
+  /** Names that resolve uniquely within an entity kind; ambiguous same-kind keys are omitted. */
+  byNormalizedName: Record<string, EntityLinkCandidate[]>
+}
+
+/** Conservative key for deterministic entity linking (case/width/punctuation agnostic). */
+export function normalizeEntityLinkKey(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[\s\-_·・,，。.!！?？:：'"`]/g, "")
+}
+
+export function buildEntityLinkIndex(summaries: EntitySummary[]): EntityLinkIndex {
+  const candidates = new Map<string, EntityLinkCandidate[]>()
+  const add = (name: string, candidate: EntityLinkCandidate) => {
+    const key = normalizeEntityLinkKey(name)
+    if (!key) return
+    const list = candidates.get(key) ?? []
+    if (!list.some((item) => item.canonicalName === candidate.canonicalName && item.type === candidate.type)) {
+      list.push(candidate)
+    }
+    candidates.set(key, list)
+  }
+
+  for (const summary of summaries) {
+    if (!(summary.type === "entity" || summary.type === "character" || summary.type === "location" || summary.type === "organization" || summary.type === "item")) continue
+    const type = summary.type === "entity" ? inferEntityLinkType(summary.tags) : summary.type
+    const candidate: EntityLinkCandidate = {
+      type,
+      canonicalName: summary.title,
+      aliases: summary.aliases ?? [],
+      source: "title",
+    }
+    add(summary.title, candidate)
+    add(summary.slug, { ...candidate, source: "slug" })
+    for (const alias of summary.aliases ?? []) add(alias, { ...candidate, source: "alias" })
+  }
+
+  const byNormalizedName: Record<string, EntityLinkCandidate[]> = {}
+  for (const [key, values] of candidates) {
+    const byType = new Map<EntityLinkCandidate["type"], EntityLinkCandidate[]>()
+    for (const value of values) {
+      const sameType = byType.get(value.type) ?? []
+      if (!sameType.some((item) => item.canonicalName === value.canonicalName)) sameType.push(value)
+      byType.set(value.type, sameType)
+    }
+    const unique = Array.from(byType.values()).flatMap((sameType) => sameType.length === 1 ? sameType : [])
+    if (unique.length > 0) byNormalizedName[key] = unique
+  }
+  return { byNormalizedName }
+}
+
+export function resolveEntityLink(index: EntityLinkIndex, name: string, type: EntityLinkCandidate["type"]): EntityLinkCandidate | null {
+  return index.byNormalizedName[normalizeEntityLinkKey(name)]?.find((candidate) => candidate.type === type) ?? null
+}
+
+function inferEntityLinkType(tags: string[]): EntityLinkCandidate["type"] {
+  if (tags.includes("location")) return "location"
+  if (tags.includes("organization")) return "organization"
+  if (tags.includes("item")) return "item"
+  return "character"
+}
+
+
 
 const DETECTOR_SYSTEM_PROMPT = `You are a wiki maintenance assistant. You will receive a list of entity / concept pages from a wiki. Identify groups of slugs that likely refer to the same underlying topic under different names — for example:
 

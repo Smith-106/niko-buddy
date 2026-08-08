@@ -111,16 +111,20 @@ export async function generateSingleCommunitySummary(
   const topMembers = members
     .sort((a, b) => b.linkCount - a.linkCount)
     .slice(0, 10)
-  const memberContents: string[] = []
-  for (const member of topMembers) {
-    try {
-      const content = await readFile(member.path)
-      const truncated = content.slice(0, 500).replace(/\s+/g, " ").trim()
-      memberContents.push(`【${member.label}】（${member.type}）: ${truncated}`)
-    } catch {
-      // 跳过读取失败的节点
-    }
-  }
+  // ISS-20260724-004 (ROOT-D / PERF-05): independent member reads in parallel
+  const memberContents = (
+    await Promise.all(
+      topMembers.map(async (member) => {
+        try {
+          const content = await readFile(member.path)
+          const truncated = content.slice(0, 500).replace(/\s+/g, " ").trim()
+          return `【${member.label}】（${member.type}）: ${truncated}`
+        } catch {
+          return null
+        }
+      }),
+    )
+  ).filter((line): line is string => Boolean(line))
 
   if (memberContents.length === 0) {
     return `社区 ${community.id}：包含 ${community.nodeCount} 个节点（${community.topNodes.join("、")}），但无法读取节点内容。`

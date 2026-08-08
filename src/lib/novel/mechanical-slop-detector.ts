@@ -32,6 +32,8 @@ const TIER1_BANNED = [
   "这一切", "显然", "事实上", "实际上", "毫无疑问", "无可否认",
   // 解释腔
   "其实", "说白了", "换句话说", "简单来说", "通俗点讲",
+  // Stage 6 ISS-20260802-001: high-signal summary / conclusion boilerplate.
+  "值得一提的是", "不难发现", "综上所述", "总而言之",
   // AI 特征词 (过度使用即 slop, 合理语境由中低 penalty + LLM 复核兜底)
   "似乎", "仿佛", "如同", "宛如", "犹如",
 ] as const
@@ -42,6 +44,8 @@ const TIER2_SUSPICIOUS = [
   "与此同时", "紧接着", "就在这时", "恰在此时", "正当此刻",
   // 空洞形容
   "复杂", "微妙", "深刻", "独特", "特殊", "某种程度",
+  // Stage 6 ISS-20260802-001: business / framework boilerplate.
+  "赋能", "抓手", "底层逻辑", "颗粒度",
   // 转折滥用 (每段都用即 slop)
   "然而", "但是", "不过", "可是",
 ] as const
@@ -73,10 +77,14 @@ const TIER3_FILLER: readonly RegExp[] = [
   /空气中弥漫着/,
   /时间仿佛静止/,
   /不由自主地/,
+  // Stage 6 ISS-20260802-001: density-marked boilerplate terms.
+  /确保/,
+  /至关重要/,
+  /全方位/,
 ]
 
 /** Exported for tests — count of extended TIER3 patterns (non-baseline). */
-export const TIER3_EXTENDED_PATTERN_COUNT = 12
+export const TIER3_EXTENDED_PATTERN_COUNT = 15
 
 // ============================================================================
 // slopScore: 机械算术 (零 LLM)

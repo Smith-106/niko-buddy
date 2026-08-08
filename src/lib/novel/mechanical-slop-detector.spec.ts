@@ -150,6 +150,26 @@ describe("A19 机械层中文 slop 检测器 (借鉴点 #1, 零 LLM 纯正则+�
     expect(text).toContain("机械句式")
   })
 
+  it("ISS-20260802-001: detects the deferred Tier 1/2/3 Chinese lexicons", () => {
+    const report = slopScore("值得一提的是，不难发现，综上所述，总而言之。赋能抓手依赖底层逻辑和颗粒度。确保这件事至关重要，提供全方位支持。")
+    expect(report.tier1Hits.map((hit) => hit.kw)).toEqual(expect.arrayContaining([
+      "值得一提的是", "不难发现", "综上所述", "总而言之",
+    ]))
+    expect(report.tier2Hits.map((hit) => hit.kw)).toEqual(expect.arrayContaining([
+      "赋能", "抓手", "底层逻辑", "颗粒度",
+    ]))
+    expect(report.tier3Hits.map((hit) => hit.kw)).toEqual(expect.arrayContaining([
+      "确保", "至关重要", "全方位",
+    ]))
+  })
+
+  it("ISS-20260802-001: ordinary concrete prose does not match the new lexicons", () => {
+    const report = slopScore("雨停后，阿青把潮湿的绳子挂在门槛上。炉火噼啪作响，屋里的猫没有抬头。")
+    expect(report.tier1Hits).toHaveLength(0)
+    expect(report.tier2Hits).toHaveLength(0)
+    expect(report.tier3Hits).toHaveLength(0)
+  })
+
   it("QF-v1 E6: detects extended TIER3 Chinese AI mannerisms (bounded subset)", () => {
     const content = [
       "他不禁陷入沉思。",

@@ -164,14 +164,21 @@ export async function listBindableNovelCharacters(projectPath: string): Promise<
 
   try {
     const entityTree = await listDirectory(`${pp}/wiki/entities`)
-    for (const file of flattenMarkdownNodes(entityTree)) {
-      try {
-        const content = await readFile(file.path)
-        if (!isCharacterEntityContent(content)) continue
-        addName(extractPrimaryTitle(content, file.name))
-      } catch {
-        // Skip entities that can't be read.
-      }
+    // ISS-20260724-004 (ROOT-D / PERF-02): parallel independent entity reads
+    const entityFiles = flattenMarkdownNodes(entityTree)
+    const entityContents = await Promise.all(
+      entityFiles.map(async (file) => {
+        try {
+          return { file, content: await readFile(file.path) }
+        } catch {
+          return null
+        }
+      }),
+    )
+    for (const item of entityContents) {
+      if (!item) continue
+      if (!isCharacterEntityContent(item.content)) continue
+      addName(extractPrimaryTitle(item.content, item.file.name))
     }
   } catch {
     // Projects may not have entity pages yet.
@@ -179,21 +186,28 @@ export async function listBindableNovelCharacters(projectPath: string): Promise<
 
   try {
     const outlineTree = await listDirectory(`${pp}/wiki/outlines`)
-    for (const file of flattenMarkdownNodes(outlineTree)) {
-      try {
-        const content = await readFile(file.path)
-        const pageTitle = extractPrimaryTitle(content, file.name)
-        if (!isCharacterOutlineFile(file.path, pageTitle, content)) continue
-        const extractedNames = extractCharacterNamesFromOutline(content)
-        if (extractedNames.length === 0) {
-          addName(pageTitle)
-          continue
+    // ISS-20260724-004 (ROOT-D / PERF-02): parallel independent outline reads
+    const outlineFiles = flattenMarkdownNodes(outlineTree)
+    const outlineContents = await Promise.all(
+      outlineFiles.map(async (file) => {
+        try {
+          return { file, content: await readFile(file.path) }
+        } catch {
+          return null
         }
-        for (const characterName of extractedNames) {
-          addName(characterName)
-        }
-      } catch {
-        // Keep the dropdown resilient when a single outline page is broken.
+      }),
+    )
+    for (const item of outlineContents) {
+      if (!item) continue
+      const pageTitle = extractPrimaryTitle(item.content, item.file.name)
+      if (!isCharacterOutlineFile(item.file.path, pageTitle, item.content)) continue
+      const extractedNames = extractCharacterNamesFromOutline(item.content)
+      if (extractedNames.length === 0) {
+        addName(pageTitle)
+        continue
+      }
+      for (const characterName of extractedNames) {
+        addName(characterName)
       }
     }
   } catch {

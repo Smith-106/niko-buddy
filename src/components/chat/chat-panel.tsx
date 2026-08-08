@@ -25,7 +25,7 @@ import {
 } from "@/commands/exemplar"
 import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel/character-cognition"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
-import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
+import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
 import { buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
 import { cleanGeneratedChapterContentWithTitle } from "@/lib/novel/chapter-content-cleanup"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
@@ -519,6 +519,7 @@ export function ChatPanel() {
         chapterPath,
         finalChapterContent,
       })
+      invalidateChapterCache(pp)
       useChatStore.getState().setMessages(
         useChatStore.getState().messages.map((message) =>
           message.id !== latestDraftContext.assistantMessage.id
@@ -929,6 +930,7 @@ export function ChatPanel() {
           })
           await writeFile(chapter.chapterPath, normalizedResult.content)
         }
+        invalidateChapterCache(pp)
 
         await refreshProjectState(pp)
         if (chapterPayloads[0]?.chapterPath) {

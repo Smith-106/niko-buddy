@@ -94,7 +94,9 @@ function normalizeExemplar(e: Record<string, unknown>): StyleExemplar {
     exemplarId: String(e.exemplarId ?? e.id ?? ""),
     chapterId: String(e.chapterId ?? ""),
     text: String(e.text ?? ""),
-    markType: (VALID_MARK_TYPES.includes(String(e.markType)) ? String(e.markType) : e.markType) as StyleExemplarMarkType,
+    markType: (VALID_MARK_TYPES.includes(e.markType as StyleExemplarMarkType)
+      ? (e.markType as StyleExemplarMarkType)
+      : (String(e.markType) as StyleExemplarMarkType)),
     note: typeof e.note === "string" ? e.note : undefined,
     createdAt: String(e.createdAt ?? e.markedAt ?? ""),
   }

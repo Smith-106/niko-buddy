@@ -597,23 +597,31 @@ export async function writeSnapshotToWiki(
 
   await createDirectory(entitiesDir)
 
-  const writtenPaths: string[] = []
+  // ISS-20260724-004 (ROOT-D / PERF-03): precompute edges-by-node + parallel existence/read,
+  // then write serially so projection order stays deterministic.
+  const edgesByNode = new Map<string, typeof edges>()
+  for (const edge of edges) {
+    if (!slugMap.has(edge.source) || !slugMap.has(edge.target)) continue
+    if (!edgesByNode.has(edge.source)) edgesByNode.set(edge.source, [])
+    if (!edgesByNode.has(edge.target)) edgesByNode.set(edge.target, [])
+    edgesByNode.get(edge.source)!.push(edge)
+    edgesByNode.get(edge.target)!.push(edge)
+  }
 
-  for (const node of nodes) {
-    try {
-      const slug = slugMap.get(node.id) ?? sanitizeEntitySlug(nodeIdToSlug(node.id))
-      const filePath = `${entitiesDir}/${slug}.md`
-      const tag = NODE_TYPE_TO_TAG[node.type] ?? "concept"
-      const aliases = node.type === "character"
-        ? getCharacterNamesForMatching(canonicalSnapshot, node.label).filter((name) => name !== node.label)
-        : []
-      const relatedSlugs = relatedMap.has(node.id)
-        ? Array.from(relatedMap.get(node.id)!)
-        : []
+  const prepared = await Promise.all(
+    nodes.map(async (node) => {
+      try {
+        const slug = slugMap.get(node.id) ?? sanitizeEntitySlug(nodeIdToSlug(node.id))
+        const filePath = `${entitiesDir}/${slug}.md`
+        const tag = NODE_TYPE_TO_TAG[node.type] ?? "concept"
+        const aliases = node.type === "character"
+          ? getCharacterNamesForMatching(canonicalSnapshot, node.label).filter((name) => name !== node.label)
+          : []
+        const relatedSlugs = relatedMap.has(node.id)
+          ? Array.from(relatedMap.get(node.id)!)
+          : []
 
-      const relationLines = edges
-        .filter(e => (e.source === node.id || e.target === node.id) && slugMap.has(e.source) && slugMap.has(e.target))
-        .map(e => {
+        const relationLines = (edgesByNode.get(node.id) ?? []).map((e) => {
           const otherSlug = e.source === node.id
             ? (slugMap.get(e.target) ?? sanitizeEntitySlug(nodeIdToSlug(e.target)))
             : (slugMap.get(e.source) ?? sanitizeEntitySlug(nodeIdToSlug(e.source)))
@@ -621,22 +629,34 @@ export async function writeSnapshotToWiki(
           return `- [[${otherSlug}]] — ${label}`
         })
 
-      const newContent = buildEntityPage(
-        node.label, tag, relatedSlugs, sourceFile, today, relationLines, snapshotMeta, aliases,
-      )
+        const newContent = buildEntityPage(
+          node.label, tag, relatedSlugs, sourceFile, today, relationLines, snapshotMeta, aliases,
+        )
 
-      let contentToWrite: string
-      if (await fileExists(filePath)) {
-        const existing = await readFile(filePath)
-        contentToWrite = applyProjectionSnapshotMeta(mergeExistingPage(existing, newContent, today), snapshotMeta)
-      } else {
-        contentToWrite = newContent
+        let contentToWrite: string
+        if (await fileExists(filePath)) {
+          const existing = await readFile(filePath)
+          contentToWrite = applyProjectionSnapshotMeta(mergeExistingPage(existing, newContent, today), snapshotMeta)
+        } else {
+          contentToWrite = newContent
+        }
+
+        return { filePath, contentToWrite, nodeId: node.id }
+      } catch (err) {
+        logger.warn("Graph Adapter", `Failed to prepare entity page for node ${node.id}`, { error: err instanceof Error ? err.message : String(err) })
+        return null
       }
+    }),
+  )
 
-      await writeFileAtomic(filePath, contentToWrite)
-      writtenPaths.push(filePath)
+  const writtenPaths: string[] = []
+  for (const item of prepared) {
+    if (!item) continue
+    try {
+      await writeFileAtomic(item.filePath, item.contentToWrite)
+      writtenPaths.push(item.filePath)
     } catch (err) {
-      logger.warn("Graph Adapter", `Failed to write entity page for node ${node.id}`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Graph Adapter", `Failed to write entity page for node ${item.nodeId}`, { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -789,33 +809,42 @@ export async function writePatchFieldsToWiki(
 
   await createDirectory(entitiesDir)
 
-  const writtenPaths: string[] = []
+  // ISS-20260724-004 (ROOT-D / PERF-04): parallel prepare (exists+read), serial write for order.
+  const candidates = patch.entries.filter(shouldPersistPatchEntry)
+  const prepared = await Promise.all(
+    candidates.map(async (entry) => {
+      try {
+        const slug = sanitizeEntitySlug(nodeIdToSlug(entry.entryId))
+        const filePath = `${entitiesDir}/${slug}.md`
+        const tag = entryTypeToTag(entry.entryType)
+        const sectionMd = buildChapterInfoSection(entry)
+        const aliases = Array.isArray(entry.fields.aliases)
+          ? entry.fields.aliases.map((alias) => String(alias).trim()).filter(Boolean)
+          : []
 
-  for (const entry of patch.entries) {
-    if (!shouldPersistPatchEntry(entry)) {
-      continue
-    }
-    try {
-      const slug = sanitizeEntitySlug(nodeIdToSlug(entry.entryId))
-      const filePath = `${entitiesDir}/${slug}.md`
-      const tag = entryTypeToTag(entry.entryType)
-      const sectionMd = buildChapterInfoSection(entry)
-      const aliases = Array.isArray(entry.fields.aliases)
-        ? entry.fields.aliases.map((alias) => String(alias).trim()).filter(Boolean)
-        : []
-
-      let contentToWrite: string
-      if (await fileExists(filePath)) {
-        const existing = await readFile(filePath)
-        contentToWrite = appendChapterInfo(existing, sectionMd, today)
-      } else {
-        contentToWrite = buildNewEntityPage(entry.title, tag, today, sectionMd, aliases)
+        let contentToWrite: string
+        if (await fileExists(filePath)) {
+          const existing = await readFile(filePath)
+          contentToWrite = appendChapterInfo(existing, sectionMd, today)
+        } else {
+          contentToWrite = buildNewEntityPage(entry.title, tag, today, sectionMd, aliases)
+        }
+        return { filePath, contentToWrite, entryId: entry.entryId }
+      } catch (err) {
+        logger.warn("Graph Adapter", `Failed to prepare patch fields for entry ${entry.entryId}`, { error: err instanceof Error ? err.message : String(err) })
+        return null
       }
+    }),
+  )
 
-      await writeFileAtomic(filePath, contentToWrite)
-      writtenPaths.push(filePath)
+  const writtenPaths: string[] = []
+  for (const item of prepared) {
+    if (!item) continue
+    try {
+      await writeFileAtomic(item.filePath, item.contentToWrite)
+      writtenPaths.push(item.filePath)
     } catch (err) {
-      logger.warn("Graph Adapter", `Failed to write patch fields for entry ${entry.entryId}`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Graph Adapter", `Failed to write patch fields for entry ${item.entryId}`, { error: err instanceof Error ? err.message : String(err) })
     }
   }
 

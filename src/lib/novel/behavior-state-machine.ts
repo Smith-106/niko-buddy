@@ -12,7 +12,7 @@
  */
 
 import { readFileSync } from "fs"
-import { detectCharacterActions, type CharacterActionHit } from "./mechanical-slop-detector"
+import { detectCharacterActions } from "./mechanical-slop-detector"
 
 // ============================================================================
 // 类型定义

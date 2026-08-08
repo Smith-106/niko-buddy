@@ -20,6 +20,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
 import { createChapterPipeline } from "./chapter-pipeline"
+import { buildEntityLinkIndex, resolveEntityLink, extractEntitySummary, type EntitySummary } from "@/lib/dedup"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
@@ -263,7 +264,7 @@ export async function ingestChapter(
 
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
   const extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
-  const snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
+  let snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
 
   if (!snapshot) {
     return { snapshot: null, failReason: "extract_failed" as IngestFailReason }
@@ -271,9 +272,10 @@ export async function ingestChapter(
 
   if (snapshot) {
     try {
+      const linkWarnings = await linkSnapshotEntities(pp, snapshot)
       const entityWarnings = await validateEntityReferences(pp, snapshot)
       const canonWarnings = await validateCanonConflicts(pp, snapshot)
-      snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
+      snapshot.validationWarnings = [...linkWarnings, ...entityWarnings, ...canonWarnings]
       snapshot.entityIsNew = snapshot.entityIsNew || {}
     } catch (err) {
       logger.warn("Chapter Ingest", "Validation failed", { error: err instanceof Error ? err.message : String(err) })
@@ -1650,6 +1652,78 @@ async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSna
   ])
 
   return output
+}
+
+async function loadEntityLinkIndex(projectPath: string) {
+  const entitiesDir = `${projectPath}/wiki/entities`
+  try {
+    const nodes = await listDirectory(entitiesDir)
+    const summaries = await Promise.all(nodes
+      .filter((node) => !node.is_dir && node.name.endsWith(".md"))
+      .map(async (node) => {
+        try {
+          return extractEntitySummary(`wiki/entities/${node.name}`, await readFile(node.path))
+        } catch {
+          return null
+        }
+      }))
+    return buildEntityLinkIndex(summaries.filter((summary): summary is EntitySummary => Boolean(summary)))
+  } catch {
+    return buildEntityLinkIndex([])
+  }
+}
+
+function replaceCanonicalNames(values: string[], type: "character" | "location" | "organization" | "item", index: ReturnType<typeof buildEntityLinkIndex>, warnings: ValidationWarning[]): string[] {
+  return Array.from(new Set(values.map((name) => {
+    const link = resolveEntityLink(index, name, type)
+    if (!link || link.canonicalName === name) return name
+    warnings.push({ type: "canon_conflict", message: `实体链接: ${name} -> ${link.canonicalName} (${type})` })
+    return link.canonicalName
+  })))
+}
+
+async function linkSnapshotEntities(projectPath: string, snapshot: ChapterSnapshot): Promise<ValidationWarning[]> {
+  const index = await loadEntityLinkIndex(projectPath)
+  const warnings: ValidationWarning[] = []
+  const next = { ...snapshot }
+  const aliases = { ...(snapshot.characterAliases ?? {}) }
+  for (const name of snapshot.characters) {
+    const link = resolveEntityLink(index, name, "character")
+    if (link && link.canonicalName !== name) {
+      aliases[link.canonicalName] = Array.from(new Set([...(aliases[link.canonicalName] ?? []), name]))
+    }
+  }
+  next.characterAliases = Object.keys(aliases).length > 0 ? aliases : undefined
+  next.characters = replaceCanonicalNames(snapshot.characters, "character", index, warnings)
+  next.locations = replaceCanonicalNames(snapshot.locations, "location", index, warnings)
+  next.organizations = replaceCanonicalNames(snapshot.organizations, "organization", index, warnings)
+  next.items = replaceCanonicalNames(snapshot.items, "item", index, warnings)
+  if (snapshot.characterDetails) {
+    next.characterDetails = Object.fromEntries(Object.entries(snapshot.characterDetails).map(([name, value]) => {
+      const canonical = resolveEntityLink(index, name, "character")?.canonicalName ?? name
+      return [canonical, value]
+    }))
+  }
+  if (snapshot.locationDetails) {
+    next.locationDetails = Object.fromEntries(Object.entries(snapshot.locationDetails).map(([name, value]) => {
+      const canonical = resolveEntityLink(index, name, "location")?.canonicalName ?? name
+      return [canonical, value]
+    }))
+  }
+  if (snapshot.organizationDetails) {
+    next.organizationDetails = Object.fromEntries(Object.entries(snapshot.organizationDetails).map(([name, value]) => {
+      const canonical = resolveEntityLink(index, name, "organization")?.canonicalName ?? name
+      return [canonical, value]
+    }))
+  }
+  if (snapshot.itemDetails) {
+    next.itemDetails = Object.fromEntries(Object.entries(snapshot.itemDetails).map(([name, value]) => {
+      const canonical = resolveEntityLink(index, name, "item")?.canonicalName ?? name
+      return [canonical, value]
+    }))
+  }
+  Object.assign(snapshot, canonicalizeSnapshotCharacters(next))
+  return warnings
 }
 
 async function validateEntityReferences(

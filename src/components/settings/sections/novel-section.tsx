@@ -312,7 +312,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label>{t("novel.settings.literaryPolishAfterGate")}</Label>
               {settingTooltip("literaryPolishAfterGateHint")}
             </div>
-            <Switch
+            <NovelToggle
               checked={!!draft.novelConfig.literaryPolishAfterGate}
               onChange={() => updateNovelConfig({ literaryPolishAfterGate: !draft.novelConfig.literaryPolishAfterGate })}
             />
