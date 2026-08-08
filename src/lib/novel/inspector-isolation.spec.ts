@@ -166,7 +166,7 @@ describe("EPIC-004 / ADR-33 / TASK-010: Inspector 只读隔离结构断言", () 
         dimension_results: {
           thrill: {
             dimensionKey: "thrill",
-            score: 80,
+            score: 8.0,
             status: "pass",
             summary: "爽感通过",
             thinking: "thrill thinking",

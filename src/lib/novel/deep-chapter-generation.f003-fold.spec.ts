@@ -22,7 +22,7 @@ function makeDimResult(
 ): DimensionReviewResult {
   return {
     dimensionKey: key,
-    score: 80,
+    score: 8.0,
     status: "medium",
     summary: `${SIX_REVIEW_DIMENSIONS[key].label}摘要`,
     thinking: "",

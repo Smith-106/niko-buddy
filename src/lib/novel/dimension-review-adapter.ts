@@ -280,9 +280,9 @@ ${dimension.checks.map((check) => `- ${check}`).join("\n")}
 
 结构化结果格式：
 {
-  "score": 0,
+  "score": 0.0,
   "status": "error|high|medium|low|pass",
-  "summary": "本维度审查摘要",
+  "summary": "本维度审查摘要（须引用档位行为定义；score 为 0-10 一位小数）",
   "issues": [
     {
       "severity": "error|warning|info",
@@ -444,9 +444,10 @@ export async function runSixDimensionReview({
       if (key === "continuity" && hasMechanicalContinuity) {
         const shortCircuitResult: DimensionReviewResult = {
           dimensionKey: "continuity",
-          score: 100,
+          // 0-10 量程（与 buildDimensionReviewPrompt / normalizeScore 对齐；禁止 0-100 遗留）
+          score: 10,
           status: "pass",
-          summary: "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语语矛盾仍需人工复核",
+          summary: "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语义矛盾仍需人工复核",
           thinking: formatDimensionThinking(dimension, "机械短路: 引擎已检休眠/缺席/逾期/死亡活跃 subtype"),
           issues: [],
         }
@@ -619,10 +620,20 @@ function formatDimensionThinking(dimension: SixReviewDimensionDefinition, conten
   return `## ${dimension.label}\n${content.trim()}`
 }
 
+/**
+ * ISS-20260806-001: unify dimension scores on 0-10 (one decimal).
+ * Legacy models / short-circuit paths that still emit 0-100 are folded via /10
+ * when raw > 10.5 (same rule as step0 A/B calibration arm).
+ */
+export function normalizeDimensionScore(value: unknown): number {
+  const raw = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(raw)) return 0
+  const score = raw > 10.5 ? raw / 10 : raw
+  return Math.max(0, Math.min(10, Math.round(score * 10) / 10))
+}
+
 function normalizeScore(value: unknown): number {
-  const score = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(score)) return 0
-  return Math.max(0, Math.min(100, Math.round(score)))
+  return normalizeDimensionScore(value)
 }
 
 function validateStatus(value: unknown, issueCount: number): DimensionReviewStatus {

@@ -19,7 +19,7 @@ vi.mock("./generation-history", () => ({
 function dimensionResult(dimensionKey: SixReviewDimensionKey): DimensionReviewResult {
   return {
     dimensionKey,
-    score: 88,
+    score: 8.8,
     status: "pass",
     summary: `${dimensionKey} done`,
     thinking: `## ${dimensionKey}`,
@@ -50,7 +50,7 @@ describe("startSixDimensionReviewRun", () => {
       expect(current?.activeDimension).toBe("thrill")
       expect(current?.dimensionProgress).toContain("爽感密度")
       expect(current?.dimensionThinking?.thrill).toContain("正在分析")
-      expect(current?.dimensionResults?.thrill?.score).toBe(88)
+      expect(current?.dimensionResults?.thrill?.score).toBe(8.8)
       return {
         thrill: dimensionResult("thrill"),
         pull: dimensionResult("pull"),
@@ -74,7 +74,7 @@ describe("startSixDimensionReviewRun", () => {
         kind: "review",
         sourcePath: "E:/Novel/wiki/chapters/008.md",
         dimensionResults: expect.objectContaining({
-          thrill: expect.objectContaining({ score: 88 }),
+          thrill: expect.objectContaining({ score: 8.8 }),
         }),
       }),
     )

@@ -4,6 +4,7 @@ import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import {
   buildDimensionReviewPrompt,
+  normalizeDimensionScore,
   reviewChapterDimension,
   runSixDimensionReview,
   SIX_REVIEW_DIMENSION_ORDER,
@@ -142,8 +143,23 @@ describe("six-dimension review adapter", () => {
     expect(prompt).toContain("9-10 分：可发表文学质量")
     expect(prompt).toContain("出口条款")
     expect(prompt).toContain("8.5")
+    // ISS-20260806-001: schema 明示 0-10 一位小数，禁止 0-100 占位语义
+    expect(prompt).toContain("score\": 0.0")
     // 零 exemplar 时不得注入风格标杆块（向后兼容）。
     expect(prompt).not.toContain("风格标杆样本")
+  })
+
+  it("normalizeDimensionScore folds 0-100 legacy into 0-10 and clamps", () => {
+    expect(normalizeDimensionScore(7.2)).toBe(7.2)
+    expect(normalizeDimensionScore(72)).toBe(7.2)
+    expect(normalizeDimensionScore(100)).toBe(10)
+    expect(normalizeDimensionScore(10)).toBe(10)
+    // 10.5 is still treated as 0-10 scale (fold only when >10.5) then clamp to 10
+    expect(normalizeDimensionScore(10.5)).toBe(10)
+    expect(normalizeDimensionScore(10.6)).toBe(1.1) // >10.5 → /10
+    expect(normalizeDimensionScore(-3)).toBe(0)
+    expect(normalizeDimensionScore(Number.NaN)).toBe(0)
+    expect(normalizeDimensionScore("8.55")).toBe(8.6)
   })
 
   it("injects style exemplars as 9-10 band few-shot when pack provides them", () => {
@@ -187,6 +203,7 @@ describe("six-dimension review adapter", () => {
       const prompt = messages.map((message) => message.content).join("\n")
       if (prompt.includes("最终 JSON")) {
         callbacks.onToken(JSON.stringify({
+          // 0-100 legacy → normalizeDimensionScore folds to 7.2
           score: 72,
           status: "medium",
           summary: "爽点有铺垫，但兑现偏弱。",
@@ -224,7 +241,7 @@ describe("six-dimension review adapter", () => {
     expect(thinking.join("\n")).toContain("阶段分析：已检查压抑与释放链。")
     expect(result).toMatchObject({
       dimensionKey: "thrill",
-      score: 72,
+      score: 7.2,
       status: "medium",
       summary: "爽点有铺垫，但兑现偏弱。",
     })
@@ -257,7 +274,7 @@ describe("six-dimension review adapter", () => {
         throw new Error("模型暂时不可用")
       }
       callbacks.onToken(JSON.stringify({
-        score: 90,
+        score: 9.0,
         status: "pass",
         summary: `${SIX_REVIEW_DIMENSIONS[dimension].label}通过`,
         issues: [],
@@ -277,5 +294,27 @@ describe("six-dimension review adapter", () => {
     expect(results.pacing?.status).toBe("error")
     expect(results.pacing?.issues[0].message).toContain("节奏张力审查失败")
     expect(results.pull?.summary).toBe("追读引力通过")
+    expect(results.pull?.score).toBe(9)
+  })
+
+  it("continuity mechanical short-circuit emits 10 on 0-10 scale (not 100)", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "info",
+        type: "consistency_mechanical",
+        message: "mechanical precheck",
+        evidence: "",
+        relatedMemory: "",
+        suggestion: "",
+      }],
+    })
+
+    expect(results.continuity?.status).toBe("pass")
+    expect(results.continuity?.score).toBe(10)
+    expect(streamChatMock).not.toHaveBeenCalled()
   })
 })

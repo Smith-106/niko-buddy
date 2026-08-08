@@ -31,7 +31,7 @@ function makeDimensionResult(
 ): DimensionReviewResult {
   return {
     dimensionKey: key,
-    score: 80,
+    score: 8.0,
     status: "pass",
     summary: `${key} summary`,
     thinking: `${key} thinking`,
@@ -85,7 +85,7 @@ describe("EPIC-004 / ADR-33 / TASK-009: queryInspectorState 只读查询", () =>
   it("读 status.json dimension_results 缓存，复用上次 review 结果（零 LLM）", async () => {
     const status = makeStatus({
       dimension_results: {
-        thrill: makeDimensionResult("thrill", { summary: "爽感密度通过", score: 90 }),
+        thrill: makeDimensionResult("thrill", { summary: "爽感密度通过", score: 9.0 }),
         consistency: makeDimensionResult("consistency", { status: "high", summary: "设定有冲突" }),
       },
     })
@@ -104,7 +104,7 @@ describe("EPIC-004 / ADR-33 / TASK-009: queryInspectorState 只读查询", () =>
     expect(snapshot.review.findings).toHaveLength(2)
     expect(snapshot.review.findings[0].dimensionKey).toBe("thrill")
     expect(snapshot.review.findings[1].dimensionKey).toBe("consistency")
-    expect(snapshot.review.findings[0].score).toBe(90)
+    expect(snapshot.review.findings[0].score).toBe(9.0)
     expect(snapshot.review.findings[1].status).toBe("high")
   })
 
@@ -279,8 +279,8 @@ describe("EPIC-004 / ADR-33: getCachedDimensionResults 纯函数访问器 (F-1 �
 
   it("按 SIX_REVIEW_DIMENSION_ORDER 顺序返回非 undefined 维", () => {
     const results = {
-      pull: makeDimensionResult("pull", { score: 70 }),
-      thrill: makeDimensionResult("thrill", { score: 90 }),
+      pull: makeDimensionResult("pull", { score: 7.0 }),
+      thrill: makeDimensionResult("thrill", { score: 9.0 }),
       // consistency 缺失
     }
     const out = getCachedDimensionResults(results)

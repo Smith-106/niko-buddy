@@ -470,7 +470,7 @@ describe("novel-session-status", () => {
     const dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {
       consistency: {
         dimensionKey: "consistency",
-        score: 92,
+        score: 9.2,
         status: "pass",
         summary: "no consistency issues",
         thinking: "",
@@ -478,7 +478,7 @@ describe("novel-session-status", () => {
       },
       thrill: {
         dimensionKey: "thrill",
-        score: 70,
+        score: 7.0,
         status: "medium",
         summary: "could be more thrilling",
         thinking: "",
