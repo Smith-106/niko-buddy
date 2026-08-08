@@ -256,13 +256,129 @@ export function lightIssuesToReviewResults(
   })
 }
 
-/** Run full heuristic path: extract → check → review results. Empty draft → info skip. */
+/**
+ * Pull optional embedded StateDelta JSON from draft:
+ * - fenced block marked state-delta / statedelta
+ * - or any ```json object with locationChanges/activeMentions keys
+ */
+export function extractEmbeddedStateDeltaJson(draft: string): string | null {
+  if (!draft?.trim()) return null
+  const labeled = draft.match(/```(?:json)?\s*state[-_]?delta\s*([\s\S]*?)```/i)
+  if (labeled?.[1]?.trim()) return labeled[1].trim()
+  const fences = [...draft.matchAll(/```json\s*([\s\S]*?)```/gi)]
+  for (const m of fences) {
+    const body = m[1]?.trim()
+    if (!body) continue
+    if (/"(?:locationChanges|activeMentions|inventoryChanges|statusChanges)"/.test(body)) {
+      return body
+    }
+  }
+  return null
+}
+
+/**
+ * Parse model/tool JSON into StateDelta. Returns null if invalid / empty.
+ * Accepts fenced ```json blocks or raw object.
+ */
+export function parseStructuredStateDelta(
+  raw: string,
+  chapter: number,
+): StateDelta | null {
+  if (!raw?.trim()) return null
+  let text = raw.trim()
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence?.[1]) text = fence[1].trim()
+  try {
+    const obj = JSON.parse(text) as unknown
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null
+    const rec = obj as Record<string, unknown>
+    const delta: StateDelta = {
+      chapter: typeof rec.chapter === "number" ? rec.chapter : chapter,
+      rawNotes: typeof rec.rawNotes === "string" ? rec.rawNotes : "structured",
+    }
+    if (Array.isArray(rec.locationChanges)) {
+      delta.locationChanges = rec.locationChanges
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => ({
+          entity: String(x.entity ?? ""),
+          from: x.from != null ? String(x.from) : undefined,
+          to: String(x.to ?? ""),
+        }))
+        .filter((x) => x.entity && x.to)
+    }
+    if (Array.isArray(rec.statusChanges)) {
+      delta.statusChanges = rec.statusChanges
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => ({ entity: String(x.entity ?? ""), status: String(x.status ?? "") }))
+        .filter((x) => x.entity && x.status)
+    }
+    if (Array.isArray(rec.inventoryChanges)) {
+      delta.inventoryChanges = rec.inventoryChanges
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => ({
+          entity: String(x.entity ?? ""),
+          item: String(x.item ?? ""),
+          op: x.op === "gain" ? "gain" as const : "lose" as const,
+        }))
+        .filter((x) => x.entity && x.item)
+    }
+    if (Array.isArray(rec.relationshipChanges)) {
+      delta.relationshipChanges = rec.relationshipChanges
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => ({
+          a: String(x.a ?? ""),
+          b: String(x.b ?? ""),
+          note: String(x.note ?? ""),
+        }))
+        .filter((x) => x.a && x.b)
+    }
+    if (Array.isArray(rec.activeMentions)) {
+      delta.activeMentions = rec.activeMentions.map((x) => String(x)).filter(Boolean)
+    }
+    const hasBody =
+      (delta.locationChanges?.length ?? 0) > 0
+      || (delta.statusChanges?.length ?? 0) > 0
+      || (delta.inventoryChanges?.length ?? 0) > 0
+      || (delta.relationshipChanges?.length ?? 0) > 0
+      || (delta.activeMentions?.length ?? 0) > 0
+    return hasBody ? delta : null
+  } catch {
+    return null
+  }
+}
+
+/** Prefer structured delta when valid; else heuristic. */
+export function resolveStateDeltaForDraft(
+  draft: string,
+  prev: readonly CharacterState[],
+  chapter: number,
+  structuredRaw?: string | null,
+): { delta: StateDelta; source: "structured" | "heuristic" | "empty" } {
+  if (!draft?.trim()) {
+    return { delta: { chapter, rawNotes: "empty" }, source: "empty" }
+  }
+  if (structuredRaw) {
+    const structured = parseStructuredStateDelta(structuredRaw, chapter)
+    if (structured) return { delta: structured, source: "structured" }
+  }
+  return {
+    delta: extractStateDeltaHeuristic(draft, prev, chapter),
+    source: "heuristic",
+  }
+}
+
+/** Run extract → check → review results. Empty draft → info skip. Structured optional. */
 export function runStateDeltaLightCheckOnDraft(
   draft: string,
   prev: readonly CharacterState[],
   chapter: number,
-  options: { blocksTrackA?: boolean } = {},
-): { delta: StateDelta; issues: LightIssue[]; reviewResults: NovelReviewResult[] } {
+  options: { blocksTrackA?: boolean; structuredRaw?: string | null } = {},
+): {
+  delta: StateDelta
+  issues: LightIssue[]
+  reviewResults: NovelReviewResult[]
+  source: "structured" | "heuristic" | "empty"
+} {
   if (!draft?.trim()) {
     const issues: LightIssue[] = [{
       code: "extract_skipped_empty_draft",
@@ -273,13 +389,20 @@ export function runStateDeltaLightCheckOnDraft(
       delta: { chapter, rawNotes: "empty" },
       issues,
       reviewResults: lightIssuesToReviewResults(issues, { ...options, chapter }),
+      source: "empty",
     }
   }
-  const delta = extractStateDeltaHeuristic(draft, prev, chapter)
+  const { delta, source } = resolveStateDeltaForDraft(
+    draft,
+    prev,
+    chapter,
+    options.structuredRaw,
+  )
   const issues = runLightCheck(prev, delta)
   return {
     delta,
     issues,
     reviewResults: lightIssuesToReviewResults(issues, { ...options, chapter }),
+    source,
   }
 }

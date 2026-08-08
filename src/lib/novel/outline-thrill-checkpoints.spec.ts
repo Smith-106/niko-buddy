@@ -68,3 +68,23 @@ describe("summarize + review mapping", () => {
     expect(summarizeThrillSoftGate(r).fix1Blocked).toBe(true)
   })
 })
+
+describe("thril soft-gate acknowledge helpers", () => {
+  it("set/get/clear acknowledge by chapter", async () => {
+    const {
+      isThrillSoftGateAcknowledged,
+      setThrillSoftGateAcknowledged,
+      thrilAckChapterKey,
+      formatThrillSoftGateThinkingWithAck,
+    } = await import("./outline-thrill-checkpoints")
+    expect(thrilAckChapterKey(3)).toBe("3")
+    let map = setThrillSoftGateAcknowledged({}, 3, true)
+    expect(isThrillSoftGateAcknowledged(map, 3)).toBe(true)
+    expect(isThrillSoftGateAcknowledged(map, 2)).toBe(false)
+    map = setThrillSoftGateAcknowledged(map, 3, false)
+    expect(isThrillSoftGateAcknowledged(map, 3)).toBe(false)
+    const r = evaluateOutlineThrillCheckpoints(STRONG_OUTLINE)
+    expect(formatThrillSoftGateThinkingWithAck(r, true)).toContain("已确认")
+    expect(formatThrillSoftGateThinkingWithAck(r, false)).toContain("待确认")
+  })
+})

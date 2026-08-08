@@ -216,3 +216,62 @@ export function runOutlineThrillSoftGate(
     summary: summarizeThrillSoftGate(results),
   }
 }
+
+/** Chapter key for thril soft-gate acknowledge map (0 = unknown chapter). */
+export function thrilAckChapterKey(chapter?: number | null): string {
+  if (chapter == null || !Number.isFinite(chapter)) return "0"
+  return String(Math.trunc(chapter))
+}
+
+/** True when user explicitly acknowledged soft-gate for this chapter (not FIX-1 bypass). */
+export function isThrillSoftGateAcknowledged(
+  ackMap: Record<string, boolean> | null | undefined,
+  chapter?: number | null,
+): boolean {
+  if (!ackMap) return false
+  return ackMap[thrilAckChapterKey(chapter)] === true
+}
+
+/** Immutable set/clear of chapter acknowledge flags. */
+export function setThrillSoftGateAcknowledged(
+  ackMap: Record<string, boolean> | null | undefined,
+  chapter: number | null | undefined,
+  acknowledged: boolean,
+): Record<string, boolean> {
+  const key = thrilAckChapterKey(chapter)
+  const next = { ...(ackMap ?? {}) }
+  if (acknowledged) next[key] = true
+  else delete next[key]
+  return next
+}
+
+/**
+ * Annotate thinking when soft-gate has / needs explicit acknowledge.
+ * FIX-1 fail is never cleared by acknowledge.
+ */
+export function formatThrillSoftGateThinkingWithAck(
+  results: ThrillCheckResult[],
+  acknowledged: boolean,
+): string {
+  const base = formatThrillSoftGateThinking(results)
+  const sum = summarizeThrillSoftGate(results)
+  if (sum.fix1Blocked) {
+    return [
+      base,
+      "",
+      "【FIX-1】检测到延迟揭露冲突提示：即使已点「确认 thril 软门」，也不可视为结构/文学过关；请改大纲后再写。",
+    ].join("\n")
+  }
+  if (acknowledged) {
+    return [
+      base,
+      "",
+      "【已确认】用户已对本分章显式确认 thril 软门（结构提示仍保留在审查列表；非 Track A 硬门）。",
+    ].join("\n")
+  }
+  return [
+    base,
+    "",
+    "【待确认】可在审查中心点击「确认 thril 软门」后再生成；若直接继续生成，仍视为隐式确认（非静默跳过）。",
+  ].join("\n")
+}

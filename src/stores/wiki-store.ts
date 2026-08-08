@@ -504,6 +504,8 @@ interface WikiState {
   selectedSoulSection: "builtIn" | "custom"
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
+  /** Per-chapter thril soft-gate explicit acknowledge ("0" if unknown). Not a FIX-1 bypass. */
+  thrilSoftGateAcknowledgedByChapter: Record<string, boolean>
   selectedDismantlingProjectId: string | null
   graphMode: string
   graphDisplayMode: string
@@ -564,6 +566,8 @@ interface WikiState {
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
+  setThrillSoftGateAcknowledged: (chapter: number | null | undefined, acknowledged: boolean) => void
+  clearThrillSoftGateAcknowledged: (chapter?: number | null) => void
   setSelectedDismantlingProjectId: (id: string | null) => void
   setGraphMode: (mode: string) => void
   setGraphDisplayMode: (mode: string) => void
@@ -638,6 +642,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedSoulSection: "builtIn",
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
+  thrilSoftGateAcknowledgedByChapter: {},
   selectedDismantlingProjectId: null,
 
   // ── Graph view state ───────────────────────────────────────────────────────────
@@ -752,6 +757,20 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
+  setThrillSoftGateAcknowledged: (chapter, acknowledged) => set((prev) => {
+    const key = chapter == null || !Number.isFinite(chapter) ? "0" : String(Math.trunc(chapter))
+    const next = { ...prev.thrilSoftGateAcknowledgedByChapter }
+    if (acknowledged) next[key] = true
+    else delete next[key]
+    return { thrilSoftGateAcknowledgedByChapter: next }
+  }),
+  clearThrillSoftGateAcknowledged: (chapter) => set((prev) => {
+    if (chapter === undefined) return { thrilSoftGateAcknowledgedByChapter: {} }
+    const key = chapter == null || !Number.isFinite(chapter) ? "0" : String(Math.trunc(chapter))
+    const next = { ...prev.thrilSoftGateAcknowledgedByChapter }
+    delete next[key]
+    return { thrilSoftGateAcknowledgedByChapter: next }
+  }),
   setSelectedDismantlingProjectId: (selectedDismantlingProjectId) => set({ selectedDismantlingProjectId }),
   setGraphMode: (graphMode) => set({ graphMode }),
   setGraphDisplayMode: (graphDisplayMode) => set({ graphDisplayMode }),

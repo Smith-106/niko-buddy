@@ -10,7 +10,12 @@ import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel/dimension-review-adapter"
-import { THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER } from "@/lib/novel/outline-thrill-checkpoints"
+import {
+  isThrillSoftGateAcknowledged,
+  thrilAckChapterKey,
+  THRILL_CHECKPOINT_LABELS,
+  THRILL_CHECKPOINT_ORDER,
+} from "@/lib/novel/outline-thrill-checkpoints"
 
 const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
   key,
@@ -32,7 +37,23 @@ export function ReviewCenterSidebarPanel() {
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const selectedReviewFilePath = useWikiStore((s) => s.selectedReviewFilePath)
   const setSelectedReviewFilePath = useWikiStore((s) => s.setSelectedReviewFilePath)
+  const thrilSoftGateAcknowledgedByChapter = useWikiStore((s) => s.thrilSoftGateAcknowledgedByChapter)
+  const setThrillSoftGateAcknowledged = useWikiStore((s) => s.setThrillSoftGateAcknowledged)
   const [chapterOptions, setChapterOptions] = useState<Array<{ path: string; label: string }>>([])
+
+  const selectedChapterNumber = useMemo(() => {
+    const m = selectedReviewFilePath.match(/(?:^|[\\/])(\d+)(?:[\\/]|$)/)
+      ?? selectedReviewFilePath.match(/chapter[-_]?(\d+)/i)
+      ?? selectedReviewFilePath.match(/(?:^|[^\d])(\d{1,3})(?:\.md)?$/i)
+    if (!m?.[1]) return null
+    const n = Number(m[1])
+    return Number.isFinite(n) ? n : null
+  }, [selectedReviewFilePath])
+
+  const thrilAcknowledged = isThrillSoftGateAcknowledged(
+    thrilSoftGateAcknowledgedByChapter,
+    selectedChapterNumber,
+  )
 
   useEffect(() => {
     if (!project?.path) {
@@ -186,6 +207,27 @@ export function ReviewCenterSidebarPanel() {
               </li>
             ))}
           </ul>
+          <div className="mt-2 px-1">
+            <button
+              type="button"
+              onClick={() => setThrillSoftGateAcknowledged(selectedChapterNumber, !thrilAcknowledged)}
+              className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                thrilAcknowledged
+                  ? "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                  : "border-input bg-background text-muted-foreground qm-hover"
+              }`}
+              aria-pressed={thrilAcknowledged}
+            >
+              {thrilAcknowledged
+                ? t("novel.settings.outlineThrillAckDone", {
+                    chapter: thrilAckChapterKey(selectedChapterNumber),
+                  })
+                : t("novel.settings.outlineThrillAckButton")}
+            </button>
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+              {t("novel.settings.outlineThrillAckHint")}
+            </p>
+          </div>
         </div>
 
         <div className="mb-3">

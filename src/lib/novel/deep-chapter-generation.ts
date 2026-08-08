@@ -55,8 +55,15 @@ import { loadContinuityOverrides } from "./continuity-overrides-store"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
-import { runStateDeltaLightCheckOnDraft } from "./state-delta-light-check"
-import { runOutlineThrillSoftGate } from "./outline-thrill-checkpoints"
+import {
+  extractEmbeddedStateDeltaJson,
+  runStateDeltaLightCheckOnDraft,
+} from "./state-delta-light-check"
+import {
+  formatThrillSoftGateThinkingWithAck,
+  isThrillSoftGateAcknowledged,
+  runOutlineThrillSoftGate,
+} from "./outline-thrill-checkpoints"
 import {
   buildTaskBriefRepairPrompt,
   buildFallbackTaskBrief,
@@ -1040,15 +1047,19 @@ function runPreWriteOutlineThrillSoftGate(
       outlinePrompt,
       // chapter-specific outline may already be inside pack-rendered outlinePrompt
     ].filter(Boolean).join("\n\n")
-    const { thinking, reviewResults, summary } = runOutlineThrillSoftGate(
+    const { results, reviewResults, summary } = runOutlineThrillSoftGate(
       outlineText,
       chapterNumber,
     )
+    const ackMap = useWikiStore.getState().thrilSoftGateAcknowledgedByChapter
+    const acknowledged = isThrillSoftGateAcknowledged(ackMap, chapterNumber)
+    const thinking = formatThrillSoftGateThinkingWithAck(results, acknowledged)
     callbacks.onThinking?.(formatStageThinking("阶段1.2：大纲 thril 软门", thinking))
     if (summary.fix1Blocked) {
       logger.warn("DeepChapter", "outline thril soft-gate: FIX-1 conflict cue", {
         chapterNumber,
         failCount: summary.failCount,
+        acknowledged,
       })
     }
     return reviewResults
@@ -1076,22 +1087,30 @@ async function runPostDraftStateDeltaLightCheck(
   try {
     const store = await loadCharacterStates(projectPath)
     const chapter = chapterNumber ?? 0
-    const { issues, reviewResults } = runStateDeltaLightCheckOnDraft(
+    // Structured extract: optional JSON block in draft (```json state-delta ...```) or none → heuristic.
+    const structuredRaw = extractEmbeddedStateDeltaJson(draftContent)
+    const { issues, reviewResults, source } = runStateDeltaLightCheckOnDraft(
       draftContent,
       store.characters ?? [],
       chapter,
-      { blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true },
+      {
+        blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true,
+        structuredRaw,
+      },
     )
-    if (issues.length > 0) {
+    if (issues.length > 0 || source !== "empty") {
       callbacks.onThinking?.(formatStageThinking(
         "阶段3.7：StateDelta 轻检",
-        issues.length === 0
-          ? "无状态告警。"
-          : [
-              `发现 ${issues.length} 条状态提示（${novelConfig.stateDeltaBlocksTrackA ? "可阻断 Track A" : "默认 warn-only"}）：`,
-              ...issues.slice(0, 8).map((i) => `- [${i.severity}] ${i.message}`),
-              issues.length > 8 ? `…另有 ${issues.length - 8} 条` : "",
-            ].filter(Boolean).join("\n"),
+        [
+          `抽取源：${source === "structured" ? "结构化 JSON" : source === "heuristic" ? "启发式" : "跳过"}`,
+          issues.length === 0
+            ? "无状态告警。"
+            : [
+                `发现 ${issues.length} 条状态提示（${novelConfig.stateDeltaBlocksTrackA ? "可阻断 Track A" : "默认 warn-only"}）：`,
+                ...issues.slice(0, 8).map((i) => `- [${i.severity}] ${i.message}`),
+                issues.length > 8 ? `…另有 ${issues.length - 8} 条` : "",
+              ].filter(Boolean).join("\n"),
+        ].join("\n"),
       ))
     }
     return reviewResults

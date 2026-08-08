@@ -89,4 +89,29 @@ describe("runStateDeltaLightCheckOnDraft", () => {
     const { issues } = runStateDeltaLightCheckOnDraft("", [], 2)
     expect(issues[0]!.code).toBe("extract_skipped_empty_draft")
   })
+
+  it("prefers structured JSON over heuristic when valid", () => {
+    const prev = [char({ characterName: "阿宁", status: "已死亡", isAlive: false })]
+    const draft = "阿宁走在街上。```json\n{\"activeMentions\":[\"阿宁\"]}\n```"
+    const { source, issues } = runStateDeltaLightCheckOnDraft(draft, prev, 3, {
+      structuredRaw: JSON.stringify({ activeMentions: ["阿宁"] }),
+    })
+    expect(source).toBe("structured")
+    expect(issues.some((i) => i.code === "dead_character_active")).toBe(true)
+  })
+
+  it("falls back to heuristic when structured invalid", () => {
+    const prev = [char({ characterName: "阿宁", currentLocation: "京城" })]
+    const draft = "阿宁在客栈门口停下。"
+    const { source } = runStateDeltaLightCheckOnDraft(draft, prev, 2, {
+      structuredRaw: "not-json",
+    })
+    expect(source).toBe("heuristic")
+  })
+
+  it("extractEmbeddedStateDeltaJson finds labeled fence", async () => {
+    const { extractEmbeddedStateDeltaJson } = await import("./state-delta-light-check")
+    const draft = '前言\n```state-delta\n{"activeMentions":["李四"]}\n```\n后文'
+    expect(extractEmbeddedStateDeltaJson(draft)).toContain("李四")
+  })
 })
