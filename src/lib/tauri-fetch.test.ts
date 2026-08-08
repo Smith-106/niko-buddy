@@ -15,5 +15,6 @@ test("uses native fetch in a plain browser without Tauri internals", async () =>
   const httpFetch = await getHttpFetch()
 
   await expect(httpFetch("https://example.com")).resolves.toBeInstanceOf(Response)
-  expect(nativeFetch).toHaveBeenCalledWith("https://example.com")
+  // withUrlGuard always forwards (input, init); init is undefined when omitted.
+  expect(nativeFetch).toHaveBeenCalledWith("https://example.com", undefined)
 })

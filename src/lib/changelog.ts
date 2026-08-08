@@ -78,6 +78,40 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "2.4.5",
+  date: "2026-08-08",
+  highlights: {
+    en: [
+      "Quality Foundation v1: temporal facts default-on, entity-name boost on context search, StateDelta light-check (warn-only), outline thril soft-gate with explicit acknowledge.",
+      "StateDelta structured JSON extract with heuristic fallback; mid-chapter Track A prior pack falls back to draft.md.",
+      "Track A/B split presentation remains the product hard-gate policy (not overall average ≥9).",
+      "Version triple-aligned (package / tauri / cargo) at 2.4.5; GitHub release notes-only until desktop assets are attached.",
+    ],
+    zh: [
+      "Quality Foundation v1：temporal 默认开、实体名检索加权、StateDelta 轻检（默认 warn-only）、大纲 thril 软门与显式确认。",
+      "StateDelta 支持结构化 JSON 抽取并回退启发式；中后章 Track A 前情包可回退 draft.md。",
+      "产品硬门仍为 Track A/B 拆轨（非六维均分≥9）。",
+      "package / tauri / cargo 版本对齐 2.4.5；GitHub Release 暂为 notes-only，安装包资产后续补挂。",
+    ],
+  },
+}
+
+const TWO_POINT_FOUR_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "2.4.4",
+  date: "2026-08-01",
+  highlights: {
+    en: [
+      "Maintenance release line for Niko Buddy 2.4.x packaging and docs alignment after the 2.4.3 brand rename.",
+      "Kept product remote truth on Smith-106/niko-buddy (smith) while origin remains read-only upstream contrast.",
+    ],
+    zh: [
+      "Niko Buddy 2.4.x 维护发布线：2.4.3 品牌更名后的打包与文档对齐。",
+      "产品远程真源保持 Smith-106/niko-buddy（smith）；origin 仅作上游对照只读。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_THREE_CHANGELOG: ChangelogEntry = {
   version: "2.4.3",
   date: "2026-07-31",
@@ -753,6 +787,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_FIVE_CHANGELOG.version) return [TWO_POINT_FOUR_FIVE_CHANGELOG]
+  if (version === TWO_POINT_FOUR_FOUR_CHANGELOG.version) return [TWO_POINT_FOUR_FOUR_CHANGELOG]
   if (version === TWO_POINT_FOUR_THREE_CHANGELOG.version) return [TWO_POINT_FOUR_THREE_CHANGELOG]
   if (version === TWO_POINT_FOUR_TWO_CHANGELOG.version) return [TWO_POINT_FOUR_TWO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ONE_CHANGELOG.version) return [TWO_POINT_FOUR_ONE_CHANGELOG]
@@ -789,6 +825,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_FIVE_CHANGELOG,
+    TWO_POINT_FOUR_FOUR_CHANGELOG,
     TWO_POINT_FOUR_THREE_CHANGELOG,
     TWO_POINT_FOUR_TWO_CHANGELOG,
     TWO_POINT_FOUR_ONE_CHANGELOG,

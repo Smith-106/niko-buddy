@@ -51,6 +51,16 @@
 1. 在 `src/lib/novel/` 之外平行复制一套 novel 主链。
 2. 新建第二份会话状态文件替代 `.novel/status.json`。
 3. 用临时 Markdown 清单替代状态契约作为运行真源。
+4. **向 `origin`（Mochocyang/QMAI）推送产品发布** — 产品远程真源是 **`smith` → `Smith-106/niko-buddy`**。日常：`git push smith HEAD:<branch>`；合并 master 走 PR 或 `smith/master`，禁止 force-push master。本地 `master...origin/main` diverge 是预期现象，不要用 `git pull origin` 同步产品线。
+
+## Git 远程（防踩坑）
+
+| remote | URL | 用途 |
+|--------|-----|------|
+| `smith` | `https://github.com/Smith-106/niko-buddy.git` | **唯一产品推送/发布** |
+| `origin` | `https://github.com/Mochocyang/QMAI` | 上游/历史对照，**默认只读** |
+
+助手脚本（在 QMAI 目录）：`../scripts/git-push-smith.ps1`（若存在）或手动 `git push smith`。
 
 ## 当前执行视图
 

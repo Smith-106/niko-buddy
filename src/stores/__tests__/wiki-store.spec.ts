@@ -366,13 +366,16 @@ describe("setChatDockPosition / setUiFontSizeScale 的 localStorage 持久化", 
 
   it("setChatDockPosition 写入 localStorage", () => {
     useWikiStore.getState().setChatDockPosition("right")
-    expect(_localStorageMock.setItem).toHaveBeenCalledWith("qmai-chat-dock-position", "right")
+    // Spies live on globalThis.localStorage; _localStorageMock is only the value map.
+    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("qmai-chat-dock-position", "right")
+    expect(_localStorageMock["qmai-chat-dock-position"]).toBe("right")
   })
 
   it("setUiFontSizeScale 写入并约束范围", () => {
     useWikiStore.getState().setUiFontSizeScale(2.0) // 超出上限
     expect(useWikiStore.getState().uiFontSizeScale).toBeCloseTo(1.3)
-    expect(_localStorageMock.setItem).toHaveBeenCalledWith("qmai-ui-font-size-scale", String(1.3))
+    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("qmai-ui-font-size-scale", String(1.3))
+    expect(_localStorageMock["qmai-ui-font-size-scale"]).toBe(String(1.3))
   })
 })
 

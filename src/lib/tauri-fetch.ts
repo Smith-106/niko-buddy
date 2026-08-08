@@ -43,6 +43,23 @@ const PRIVATE_HOST_PATTERNS = [
   /\.internal$/i,
 ]
 
+/** Test-only: allow http://127.0.0.1|localhost for local mock servers (never enable in product). */
+let allowHttpLoopbackForTests = false
+
+/** Enable/disable SEC-02 loopback HTTP bypass (vitest integration helpers only). */
+export function setAllowHttpLoopbackForTests(enabled: boolean): void {
+  allowHttpLoopbackForTests = enabled === true
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    /^localhost$/i.test(hostname)
+    || /^127\./.test(hostname)
+    || hostname === "::1"
+    || hostname === "[::1]"
+  )
+}
+
 /**
  * Validate an outbound URL before allowing the fetch to proceed.
  * Throws a descriptive Error if the URL is unsafe.
@@ -55,6 +72,17 @@ function assertSafeUrl(raw: string | URL | Request): void {
     throw new Error(`[SEC-02] Invalid URL: ${String(raw).slice(0, 120)}`)
   }
 
+  const hostname = url.hostname
+
+  // Test-only loopback HTTP (local mock LLM servers). Production always HTTPS-only.
+  if (
+    allowHttpLoopbackForTests
+    && url.protocol === "http:"
+    && isLoopbackHostname(hostname)
+  ) {
+    return
+  }
+
   // Only HTTPS is allowed for outbound requests (reject http://, file://, etc.)
   if (url.protocol !== "https:") {
     throw new Error(
@@ -63,7 +91,6 @@ function assertSafeUrl(raw: string | URL | Request): void {
   }
 
   // Reject private / loopback / link-local / metadata addresses
-  const hostname = url.hostname
   for (const pattern of PRIVATE_HOST_PATTERNS) {
     if (pattern.test(hostname)) {
       throw new Error(
