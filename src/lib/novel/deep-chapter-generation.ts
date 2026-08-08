@@ -55,6 +55,8 @@ import { loadContinuityOverrides } from "./continuity-overrides-store"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
+import { runStateDeltaLightCheckOnDraft } from "./state-delta-light-check"
+import { runOutlineThrillSoftGate } from "./outline-thrill-checkpoints"
 import {
   buildTaskBriefRepairPrompt,
   buildFallbackTaskBrief,
@@ -900,6 +902,17 @@ export async function runDeepChapterGeneration(
   const contextPrompt = continuityPreCheckText ? rawContextPrompt + continuityPreCheckText : rawContextPrompt
   assertNotAborted(signal)
 
+  // Quality Foundation v1 / FR-S1: outline thril soft-gate (pre-write).
+  // Non-blocking: surfaces checklist via onThinking; FIX-1 fails are warnings, not Track A errors.
+  // Continuing generation after this stage is the acknowledge path (not silent skip).
+  const thrilSoftGateReviewResults = runPreWriteOutlineThrillSoftGate(
+    outlinePrompt,
+    input.chapterNumber,
+    novelConfig,
+    callbacks,
+  )
+  assertNotAborted(signal)
+
   // 阶段1.5：场景拆解
   await runSceneBreakdownStage(
     input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
@@ -921,6 +934,17 @@ export async function runDeepChapterGeneration(
   )
   assertNotAborted(signal)
 
+  // Quality Foundation v1 / FR-C1: post-draft StateDelta light-check (warn-only by default).
+  // Non-fatal: extract/check failures never block generation; results merge into reviewResults.
+  const stateDeltaReviewResults = await runPostDraftStateDeltaLightCheck(
+    input.projectPath,
+    draftContent,
+    input.chapterNumber,
+    novelConfig,
+    callbacks,
+  )
+  assertNotAborted(signal)
+
   // 阶段4-5：AI 审稿 + 返修循环
   const stage45 = await runReviewAndRepair(
     input, novelConfig, deps, signal, callbacks,
@@ -929,13 +953,18 @@ export async function runDeepChapterGeneration(
   )
   // MAX_GATE_RETRY 转人工：原内联此处 callbacks.onFinalContent + 完整 return。
   // 提取后在编排器层构造 result（能访问 partialReason，partial 语义绝对正确）。
+  const mergedReviewResults = [
+    ...thrilSoftGateReviewResults,
+    ...stateDeltaReviewResults,
+    ...stage45.reviewResults,
+  ]
   if (stage45.manualHandoff) {
     callbacks.onFinalContent?.(stage45.currentContent)
     return {
       finalContent: stage45.currentContent,
       taskBrief,
       draftContent,
-      reviewResults: stage45.reviewResults,
+      reviewResults: mergedReviewResults,
       revised: stage45.revised,
       decisionGates: stage45.decisionGates,
       manualReviewRequired: true,
@@ -984,13 +1013,93 @@ export async function runDeepChapterGeneration(
     finalContent,
     taskBrief,
     draftContent,
-    reviewResults: stage45.reviewResults,
+    reviewResults: mergedReviewResults,
     revised: stage45.revised,
     decisionGates: stage45.decisionGates,
     manualReviewRequired: false,
     retryCount: stage45.retryCount,
     partial: partialReason !== null,
     partialReason,
+  }
+}
+
+/**
+ * Quality Foundation v1: pre-write outline thril soft-gate.
+ * Heuristic checklist on outline text; never hard-blocks generation.
+ * FIX-1 conflict is warning with type outline_thrill_fix1 (not ackable as literary pass).
+ */
+function runPreWriteOutlineThrillSoftGate(
+  outlinePrompt: string,
+  chapterNumber: number | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  callbacks: DeepChapterGenerationCallbacks,
+): NovelReviewResult[] {
+  if (novelConfig.outlineThrillSoftGateEnabled === false) return []
+  try {
+    const outlineText = [
+      outlinePrompt,
+      // chapter-specific outline may already be inside pack-rendered outlinePrompt
+    ].filter(Boolean).join("\n\n")
+    const { thinking, reviewResults, summary } = runOutlineThrillSoftGate(
+      outlineText,
+      chapterNumber,
+    )
+    callbacks.onThinking?.(formatStageThinking("阶段1.2：大纲 thril 软门", thinking))
+    if (summary.fix1Blocked) {
+      logger.warn("DeepChapter", "outline thril soft-gate: FIX-1 conflict cue", {
+        chapterNumber,
+        failCount: summary.failCount,
+      })
+    }
+    return reviewResults
+  } catch (error) {
+    logger.warn("DeepChapter", "outline thril soft-gate failed (non-fatal)", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
+  }
+}
+
+/**
+ * Quality Foundation v1: post-draft StateDelta light-check.
+ * Loads character-states, heuristic extract + pure check, returns NovelReviewResult[].
+ * Failures → empty array (non-fatal). Default warn-only via stateDeltaBlocksTrackA=false.
+ */
+async function runPostDraftStateDeltaLightCheck(
+  projectPath: string,
+  draftContent: string,
+  chapterNumber: number | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  callbacks: DeepChapterGenerationCallbacks,
+): Promise<NovelReviewResult[]> {
+  if (novelConfig.stateDeltaLightCheckEnabled === false) return []
+  try {
+    const store = await loadCharacterStates(projectPath)
+    const chapter = chapterNumber ?? 0
+    const { issues, reviewResults } = runStateDeltaLightCheckOnDraft(
+      draftContent,
+      store.characters ?? [],
+      chapter,
+      { blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true },
+    )
+    if (issues.length > 0) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段3.7：StateDelta 轻检",
+        issues.length === 0
+          ? "无状态告警。"
+          : [
+              `发现 ${issues.length} 条状态提示（${novelConfig.stateDeltaBlocksTrackA ? "可阻断 Track A" : "默认 warn-only"}）：`,
+              ...issues.slice(0, 8).map((i) => `- [${i.severity}] ${i.message}`),
+              issues.length > 8 ? `…另有 ${issues.length - 8} 条` : "",
+            ].filter(Boolean).join("\n"),
+      ))
+    }
+    return reviewResults
+  } catch (error) {
+    logger.warn("DeepChapter", "StateDelta light-check failed (non-fatal)", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
   }
 }
 

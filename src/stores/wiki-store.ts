@@ -286,8 +286,18 @@ export interface NovelConfig {
   conditionalRoutingEnabled: boolean
   /** EPIC-004 / ADR-33: Inspector read-only query panel toggle (default on). */
   inspectorEnabled: boolean
-  /** EPIC-003 / ADR-32 / TASK-007: temporal-facts Track B stub (default off, ISS-014 pending). */
+  /** Quality Foundation v1: temporal-facts routing for mid-chapter consistency (default on). Explicit false is preserved on load. */
   temporalFactsEnabled: boolean
+  /** Quality Foundation v1: additive entity-name boost on context search hits (default on). */
+  entityBoostEnabled: boolean
+  /** Weight added to hit score when title/snippet mentions a known entity (0–1 scale contribution). */
+  entityBoostWeight: number
+  /** Quality Foundation v1: post-draft StateDelta light-check (default on). */
+  stateDeltaLightCheckEnabled: boolean
+  /** When true, light-check errors can block Track A; default false = warn-only. */
+  stateDeltaBlocksTrackA: boolean
+  /** Quality Foundation v1: outline thril soft-gate before draft (default on). */
+  outlineThrillSoftGateEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -314,7 +324,12 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   sceneBreakdownEnabled: false,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,
-  temporalFactsEnabled: false,
+  temporalFactsEnabled: true,
+  entityBoostEnabled: true,
+  entityBoostWeight: 0.4,
+  stateDeltaLightCheckEnabled: true,
+  stateDeltaBlocksTrackA: false,
+  outlineThrillSoftGateEnabled: true,
 }
 
 // ── Revision feedback / multimodal ──────────────────────────────────────────────

@@ -149,4 +149,24 @@ describe("A19 机械层中文 slop 检测器 (借鉴点 #1, 零 LLM 纯正则+�
     expect(text).toContain("显然")
     expect(text).toContain("机械句式")
   })
+
+  it("QF-v1 E6: detects extended TIER3 Chinese AI mannerisms (bounded subset)", () => {
+    const content = [
+      "他不禁陷入沉思。",
+      "她心中暗道不妙。",
+      "嘴角勾起一丝冷笑。",
+      "空气中弥漫着紧张。",
+      "时间仿佛静止。",
+      "他不由自主地后退。",
+    ].join("")
+    const report = slopScore(content)
+    expect(report.tier3Hits.length).toBeGreaterThan(0)
+    expect(report.slopPenalty).toBeGreaterThan(0)
+  })
+
+  it("QF-v1 E6: extended pattern count is bounded (not full corpus dump)", async () => {
+    const { TIER3_EXTENDED_PATTERN_COUNT } = await import("./mechanical-slop-detector")
+    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeGreaterThanOrEqual(10)
+    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeLessThanOrEqual(20)
+  })
 })

@@ -32,6 +32,7 @@ import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
 import { selectRelevantNovelVectorResults } from "./vector-relevance"
+import { reorderByEntityBoost } from "./entity-boost"
 import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
@@ -300,6 +301,8 @@ export interface BuildContextOptions {
   novelMode?: boolean
   revisionFeedbackWindowConfig?: unknown
   embeddingConfig?: EmbeddingConfig
+  /** Optional entity names for Quality Foundation entity-boost retrieval. */
+  entityNames?: string[]
 }
 
 /**
@@ -469,6 +472,17 @@ async function buildContextPackUnlocked(
     const wired = truncateActiveEntitiesByBudget(reranked, currentBuildBudget?.activeEntitiesBudget, context.chapterNumber ?? 0)
     pack.activeEntities = wired.entities
     if (wired.gap) pack.gaps.push(wired.gap)
+    // Quality Foundation v1: soft audit when temporal is on but mid-chapter pack has no facts.
+    const chNum = context.chapterNumber ?? 0
+    if (
+      novelConfig.temporalFactsEnabled
+      && chNum >= 2
+      && (pack.temporalFacts == null || pack.temporalFacts.length === 0)
+    ) {
+      logger.warn("ContextEngine", "temporalFactsEnabled but zero temporal facts for mid-chapter (soft)", {
+        chapterNumber: chNum,
+      })
+    }
     // EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点（fire-and-forget，非阻塞）。
     // contextPack 装配后统计无关内容占比，写入 cognition-state.json routingROIBuckets
     // （现有 key，HARD-1 守恒 — 不写 status.json）。A/B 分组：conditionalRoutingEnabled
@@ -1426,13 +1440,18 @@ export async function searchRelevantContent(
     }
   }
 
-  for (const r of keywordResults.slice(0, limit)) {
-    add(r.title, r.snippet ?? "")
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  const boostEntities = [...(options.entityNames ?? []), ...entityHints]
+  type Hit = { title: string; snippet: string }
+  let hits: Hit[] = [
+    ...keywordResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet ?? "" })),
+    ...indexResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet ?? "" })),
+    ...vectorResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet })),
+  ]
+  if (novelConfig.entityBoostEnabled) {
+    hits = reorderByEntityBoost(hits, boostEntities, novelConfig.entityBoostWeight ?? 0.4)
   }
-  for (const r of indexResults.slice(0, limit)) {
-    add(r.title, r.snippet ?? "")
-  }
-  for (const r of vectorResults.slice(0, limit)) {
+  for (const r of hits) {
     add(r.title, r.snippet)
   }
 
@@ -1530,10 +1549,33 @@ export async function searchRelevantContentUnified(
     purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
   }).catch(() => candidates)
 
+  // Quality Foundation v1: additive entity boost after LLM/heuristic rerank (flag-off = no-op).
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  const boostEntities = [
+    ...(options.entityNames ?? []),
+    ...entityHints,
+  ]
+  const ordered =
+    novelConfig.entityBoostEnabled
+      ? reorderByEntityBoost(
+          reranked.map((r) => ({
+            title: r.title,
+            snippet: r.snippet ?? "",
+            path: (r as { path?: string }).path,
+            id: (r as { id?: string }).id,
+          })),
+          boostEntities,
+          novelConfig.entityBoostWeight ?? 0.4,
+        )
+      : reranked.map((r) => ({
+          title: r.title,
+          snippet: r.snippet ?? "",
+        }))
+
   const merged: string[] = []
   const seen = new Set<string>()
-  for (const result of reranked) {
-    const key = `${result.title}|${result.snippet.slice(0, 50)}`
+  for (const result of ordered) {
+    const key = `${result.title}|${(result.snippet ?? "").slice(0, 50)}`
     if (seen.has(key)) continue
     seen.add(key)
     merged.push(`- ${result.title}: ${result.snippet}`)

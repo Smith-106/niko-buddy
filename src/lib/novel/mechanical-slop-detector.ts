@@ -46,7 +46,11 @@ const TIER2_SUSPICIOUS = [
   "然而", "但是", "不过", "可是",
 ] as const
 
-/** TIER3_FILLER: 机械句式正则 (prose cliché) — de-ai-rules.ts 已列的机械句式转正则 */
+/**
+ * TIER3_FILLER: 机械句式正则 (prose cliché)。
+ * 基线来自 de-ai-rules；Quality Foundation v1 / E6 追加 **有界** 高价值中文 AI 腔子集
+ * （灵感参考 avoid-ai-writing 类检测思路，非整仓 corpus 迁移；仅 10–20 条）。
+ */
 const TIER3_FILLER: readonly RegExp[] = [
   /目光交汇的瞬间/,
   /空气仿佛凝固/,
@@ -56,7 +60,23 @@ const TIER3_FILLER: readonly RegExp[] = [
   /双方陷入僵持/,
   /既[^，。]{1,8}又[^，。]{1,8}/, // 机械排比 既...又...
   /不仅[^，。]{1,8}还[^，。]{1,8}/, // 机械排比 不仅...还...
+  // --- QF-v1 E6 bounded extension (generic Chinese AI mannerisms) ---
+  /不禁(?:陷入了?|感到|觉得)/,
+  /心中暗道/,
+  /嘴角(?:勾起|扬起)一丝/,
+  /深吸一口气/,
+  /眉头[微紧]?[锁皱]/,
+  /一抹[^，。]{0,6}闪过/,
+  /无法言说的/,
+  /说不清道不明/,
+  /像是在[说告]诉/,
+  /空气中弥漫着/,
+  /时间仿佛静止/,
+  /不由自主地/,
 ]
+
+/** Exported for tests — count of extended TIER3 patterns (non-baseline). */
+export const TIER3_EXTENDED_PATTERN_COUNT = 12
 
 // ============================================================================
 // slopScore: 机械算术 (零 LLM)
@@ -270,6 +290,10 @@ const CHARACTER_ACTION_PATTERNS = [
   { action: "波形图", regex: /波形图/g, type: "imagery" as const, suggest: "建议全章 ≤4 次" },
   { action: "安静了", regex: /安静了/g, type: "mood" as const, suggest: "建议全章 ≤5 次" },
   { action: "沉默了", regex: /沉默了|沉默/g, type: "mood" as const, suggest: "建议全章 ≤3 次" },
+  // QF-v1 E6: generic mannerisms (not project-specific)
+  { action: "深吸一口气", regex: /深吸一口气|深吸了口气/g, type: "mannerism" as const, suggest: "通用 AI 腔动作，全章建议 ≤2 次" },
+  { action: "握紧拳头", regex: /握紧拳头|攥紧拳头/g, type: "mannerism" as const, suggest: "建议 ≤2 次，换具体肢体细节" },
+  { action: "咬紧牙关", regex: /咬紧牙关|咬了咬牙/g, type: "mannerism" as const, suggest: "建议 ≤2 次" },
 ] as const
 
 /** 单个角色-动作检测结果 */

@@ -10,6 +10,7 @@ import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel/dimension-review-adapter"
+import { THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER } from "@/lib/novel/outline-thrill-checkpoints"
 
 const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
   key,
@@ -166,6 +167,25 @@ export function ReviewCenterSidebarPanel() {
               <span>角色命中报告</span>
             </div>
           </button>
+        </div>
+
+        <div className="mb-3">
+          <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            {t("novel.settings.outlineThrillChecklistTitle")}
+          </div>
+          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+            {t("novel.settings.outlineThrillChecklistHint")}
+          </p>
+          <ul className="space-y-1 px-1 text-[11px] leading-4 text-muted-foreground">
+            {THRILL_CHECKPOINT_ORDER.map((id) => (
+              <li key={id} className="flex gap-1.5">
+                <span className="shrink-0 text-muted-foreground/80" aria-hidden>
+                  •
+                </span>
+                <span>{THRILL_CHECKPOINT_LABELS[id]}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="mb-3">

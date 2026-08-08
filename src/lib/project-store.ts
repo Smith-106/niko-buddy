@@ -639,8 +639,13 @@ function normalizeNovelConfig(
     sceneBreakdownEnabled: config.sceneBreakdownEnabled ?? DEFAULT_NOVEL_CONFIG.sceneBreakdownEnabled,
     conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,
     inspectorEnabled: config.inspectorEnabled ?? DEFAULT_NOVEL_CONFIG.inspectorEnabled,
-    // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false。
+    // Quality Foundation v1: default true; explicit false in saved config is preserved.
     temporalFactsEnabled: config.temporalFactsEnabled ?? DEFAULT_NOVEL_CONFIG.temporalFactsEnabled,
+    entityBoostEnabled: config.entityBoostEnabled ?? DEFAULT_NOVEL_CONFIG.entityBoostEnabled,
+    entityBoostWeight: Math.max(0, Math.min(1, config.entityBoostWeight ?? DEFAULT_NOVEL_CONFIG.entityBoostWeight)),
+    stateDeltaLightCheckEnabled: config.stateDeltaLightCheckEnabled ?? DEFAULT_NOVEL_CONFIG.stateDeltaLightCheckEnabled,
+    stateDeltaBlocksTrackA: config.stateDeltaBlocksTrackA ?? DEFAULT_NOVEL_CONFIG.stateDeltaBlocksTrackA,
+    outlineThrillSoftGateEnabled: config.outlineThrillSoftGateEnabled ?? DEFAULT_NOVEL_CONFIG.outlineThrillSoftGateEnabled,
   }
 }
 

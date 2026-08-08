@@ -367,6 +367,39 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.entityBoostEnabled")}</Label>
+              {settingTooltip("entityBoostEnabledHint")}
+            </div>
+            <NovelToggle
+              checked={draft.novelConfig.entityBoostEnabled !== false}
+              onChange={() => updateNovelConfig({ entityBoostEnabled: !(draft.novelConfig.entityBoostEnabled !== false) })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.stateDeltaLightCheckEnabled")}</Label>
+              {settingTooltip("stateDeltaLightCheckEnabledHint")}
+            </div>
+            <NovelToggle
+              checked={draft.novelConfig.stateDeltaLightCheckEnabled !== false}
+              onChange={() => updateNovelConfig({ stateDeltaLightCheckEnabled: !(draft.novelConfig.stateDeltaLightCheckEnabled !== false) })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.outlineThrillSoftGateEnabled")}</Label>
+              {settingTooltip("outlineThrillSoftGateEnabledHint")}
+            </div>
+            <NovelToggle
+              checked={draft.novelConfig.outlineThrillSoftGateEnabled !== false}
+              onChange={() => updateNovelConfig({ outlineThrillSoftGateEnabled: !(draft.novelConfig.outlineThrillSoftGateEnabled !== false) })}
+            />
+          </div>
+
           {draft.novelConfig.communitySummaryEnabled && (
             <>
               <div className="space-y-2">
