@@ -1,3 +1,9 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Dashboard issue state persistence, evidence matching, and
+ * rewrite/insert operations for the novel quality dashboard.
+ */
 import { createDirectory, readFile, writeFile } from "@/commands/fs"
 import {
   rebuildChapterBody,
@@ -37,31 +43,25 @@ export interface DashboardRewriteMessage {
   content: string
 }
 
-const DASHBOARD_ISSUE_FILE = ".qmai/dashboard-issues.json"
+const STORE_FILE = ".qmai/dashboard-issues.json"
 
 export function createEmptyDashboardIssueState(): DashboardIssueState {
   return { ignored: {}, rewrites: {} }
 }
 
 export function buildDashboardIssueId(parts: Array<string | number | null | undefined>): string {
-  return parts
-    .map((part) => String(part ?? "").trim())
-    .map((part) => part.replace(/\s+/g, " "))
-    .join("|")
+  return parts.map((p) => String(p ?? "").trim()).map((p) => p.replace(/\s+/g, " ")).join("|")
 }
 
 export function getDashboardIssueStorePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/${DASHBOARD_ISSUE_FILE}`
+  return `${normalizePath(projectPath)}/${STORE_FILE}`
 }
 
 export async function loadDashboardIssueState(projectPath: string): Promise<DashboardIssueState> {
   try {
     const raw = await readFile(getDashboardIssueStorePath(projectPath))
     const parsed = JSON.parse(raw) as Partial<DashboardIssueState>
-    return {
-      ignored: normalizeIgnored(parsed.ignored),
-      rewrites: normalizeRewrites(parsed.rewrites),
-    }
+    return { ignored: normaliseIgnored(parsed.ignored), rewrites: normaliseRewrites(parsed.rewrites) }
   } catch {
     return createEmptyDashboardIssueState()
   }
@@ -72,17 +72,11 @@ export async function saveDashboardIssueState(projectPath: string, state: Dashbo
   await createDirectory(`${pp}/.qmai`).catch(() => {})
   await writeFile(
     getDashboardIssueStorePath(pp),
-    JSON.stringify(
-      {
-        ignored: normalizeIgnored(state.ignored),
-        rewrites: normalizeRewrites(state.rewrites),
-      },
-      null,
-      2,
-    ),
+    JSON.stringify({ ignored: normaliseIgnored(state.ignored), rewrites: normaliseRewrites(state.rewrites) }, null, 2),
   )
 }
 
+/** Strip chapter prefixes, bracket markers, and surrounding quotes from evidence text. */
 export function sanitizeDashboardEvidence(input: string): string {
   let text = String(input || "").trim()
   text = text.replace(/^第\s*\d+\s*章[：:]\s*/u, "")
@@ -92,28 +86,23 @@ export function sanitizeDashboardEvidence(input: string): string {
   return text.trim()
 }
 
+/** Locate evidence text within chapter body and return the selection. */
 export function findChapterSelectionByEvidence(
   markdown: string,
   evidences: Array<string | null | undefined>,
 ): DashboardIssueAnchor | null {
-  const { body: markdownBody } = parseFrontmatter(markdown)
-  const { body } = splitChapterHeading(markdownBody)
+  const { body: mdBody } = parseFrontmatter(markdown)
+  const { body } = splitChapterHeading(mdBody)
+
   for (const evidence of evidences) {
     const candidate = sanitizeDashboardEvidence(evidence || "")
     if (!candidate) continue
-    const snippets = buildEvidenceCandidates(candidate)
-    for (const snippet of snippets) {
+    for (const snippet of buildCandidates(candidate)) {
       const start = body.indexOf(snippet)
       if (start < 0) continue
-      const text = body.slice(start, start + snippet.length)
       return {
         evidence: candidate,
-        selection: {
-          start,
-          end: start + snippet.length,
-          text,
-          bodySnapshot: body,
-        },
+        selection: { start, end: start + snippet.length, text: body.slice(start, start + snippet.length), bodySnapshot: body },
       }
     }
   }
@@ -128,12 +117,7 @@ export function buildDashboardRewriteMessages(
   return [
     {
       role: "system",
-      content: [
-        "你是长篇小说编辑。",
-        "请根据问题说明和修改建议，直接改写给定正文片段。",
-        "不要改变未被要求修改的剧情事实、人物关系、章节时序和关键信息。",
-        "只输出修改后的正文片段，不要解释，不要加标题，不要加引号。",
-      ].join("\n"),
+      content: ["你是长篇小说编辑。", "请根据问题说明和修改建议，直接改写给定正文片段。", "不要改变未被要求修改的剧情事实、人物关系、章节时序和关键信息。", "只输出修改后的正文片段，不要解释，不要加标题，不要加引号。"].join("\n"),
     },
     {
       role: "user",
@@ -184,11 +168,7 @@ export function buildFactCheckInsertMessages(
 }
 
 export function parseFactCheckInsertPlan(raw: string): DashboardFactCheckInsertPlan | null {
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/i, "")
-    .trim()
+  const cleaned = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim()
   if (!cleaned) return null
   try {
     const parsed = JSON.parse(cleaned) as Record<string, unknown>
@@ -206,11 +186,11 @@ export function applyDashboardRewriteToMarkdown(
   anchor: DashboardIssueAnchor,
   replacement: string,
 ): string | null {
-  const { rawBlock, body: markdownBody } = parseFrontmatter(markdown)
-  const { heading, body } = splitChapterHeading(markdownBody)
-  const replaced = replaceChapterBodySelection(body, anchor.selection, replacement)
-  if (!replaced.ok) return null
-  return rawBlock + rebuildChapterBody(heading, replaced.body)
+  const { rawBlock, body: mdBody } = parseFrontmatter(markdown)
+  const { heading, body } = splitChapterHeading(mdBody)
+  const result = replaceChapterBodySelection(body, anchor.selection, replacement)
+  if (!result.ok) return null
+  return rawBlock + rebuildChapterBody(heading, result.body)
 }
 
 export function applyDashboardInsertBeforeToMarkdown(
@@ -218,91 +198,70 @@ export function applyDashboardInsertBeforeToMarkdown(
   anchor: DashboardIssueAnchor,
   insertion: string,
 ): string | null {
-  const normalizedInsertion = insertion.trim()
-  if (!normalizedInsertion) return null
-  return applyDashboardRewriteToMarkdown(
-    markdown,
-    anchor,
-    `${normalizedInsertion}\n${anchor.selection.text}`,
-  )
+  const norm = insertion.trim()
+  if (!norm) return null
+  return applyDashboardRewriteToMarkdown(markdown, anchor, `${norm}\n${anchor.selection.text}`)
 }
 
 export function restoreDashboardRewriteInMarkdown(
   markdown: string,
   backup: DashboardIssueRewriteBackup,
 ): string | null {
-  const { rawBlock, body: markdownBody } = parseFrontmatter(markdown)
-  const { heading, body } = splitChapterHeading(markdownBody)
-  const replacement = backup.replacementText
-  const original = backup.originalText
-  const index = body.indexOf(replacement)
-  if (index >= 0) {
-    const nextBody = `${body.slice(0, index)}${original}${body.slice(index + replacement.length)}`
-    return rawBlock + rebuildChapterBody(heading, nextBody)
+  const { rawBlock, body: mdBody } = parseFrontmatter(markdown)
+  const { heading, body } = splitChapterHeading(mdBody)
+
+  const idx = body.indexOf(backup.replacementText)
+  if (idx >= 0) {
+    const restored = `${body.slice(0, idx)}${backup.originalText}${body.slice(idx + backup.replacementText.length)}`
+    return rawBlock + rebuildChapterBody(heading, restored)
   }
 
   const anchor = findChapterSelectionByEvidence(markdown, [backup.evidence, backup.originalText])
   if (!anchor) return null
-  const restored = replaceChapterBodySelection(body, anchor.selection, original)
-  if (!restored.ok) return null
-  return rawBlock + rebuildChapterBody(heading, restored.body)
+  const result = replaceChapterBodySelection(body, anchor.selection, backup.originalText)
+  if (!result.ok) return null
+  return rawBlock + rebuildChapterBody(heading, result.body)
 }
 
-function buildEvidenceCandidates(evidence: string): string[] {
-  const direct = normalizeEvidenceForMatch(evidence.trim())
-  const parts = direct
-    .split(/[，。！？；：“”‘’,.!?;:\n…]+/u)
-    .map((part) => part.trim())
-    .filter((part) => part.length >= 4)
-    .sort((a, b) => b.length - a.length)
+// ── Internal helpers ───────────────────────────────────────────────
 
-  const prefixes = buildEvidencePrefixes(direct)
+function buildCandidates(evidence: string): string[] {
+  const direct = normaliseForMatch(evidence.trim())
+  const parts = direct.split(/[，。！？；：“”‘’,.!?;:\n…]+/u).map((p) => p.trim()).filter((p) => p.length >= 4).sort((a, b) => b.length - a.length)
+  const prefixes = buildPrefixes(direct)
   return Array.from(new Set([direct, ...parts, ...prefixes].filter(Boolean)))
 }
 
-function normalizeEvidenceForMatch(evidence: string): string {
-  return evidence
-    .replace(/(\.\.\.|…)+$/u, "")
-    .replace(/[“”‘’]/gu, "")
-    .trim()
+function normaliseForMatch(e: string): string {
+  return e.replace(/(\.\.\.|…)+$/u, "").replace(/[“”‘’]/gu, "").trim()
 }
 
-function buildEvidencePrefixes(evidence: string): string[] {
-  const normalized = evidence.trim()
-  if (normalized.length < 8) return normalized ? [normalized] : []
-  const sizes = [Math.min(normalized.length, 24), Math.min(normalized.length, 18), Math.min(normalized.length, 12)]
-  return Array.from(new Set(
-    sizes
-      .filter((size) => size >= 8)
-      .map((size) => normalized.slice(0, size).trim())
-      .filter(Boolean),
-  ))
+function buildPrefixes(evidence: string): string[] {
+  const norm = evidence.trim()
+  if (norm.length < 8) return norm ? [norm] : []
+  const sizes = [Math.min(norm.length, 24), Math.min(norm.length, 18), Math.min(norm.length, 12)]
+  return Array.from(new Set(sizes.filter((s) => s >= 8).map((s) => norm.slice(0, s).trim()).filter(Boolean)))
 }
 
-function normalizeIgnored(input: DashboardIssueState["ignored"] | unknown): Record<string, true> {
+function normaliseIgnored(input: unknown): Record<string, true> {
   if (!input || typeof input !== "object") return {}
-  const result: Record<string, true> = {}
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (value) result[key] = true
-  }
-  return result
+  const out: Record<string, true> = {}
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) if (v) out[k] = true
+  return out
 }
 
-function normalizeRewrites(input: DashboardIssueState["rewrites"] | unknown): Record<string, DashboardIssueRewriteBackup> {
+function normaliseRewrites(input: unknown): Record<string, DashboardIssueRewriteBackup> {
   if (!input || typeof input !== "object") return {}
-  const result: Record<string, DashboardIssueRewriteBackup> = {}
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (!value || typeof value !== "object") continue
-    const row = value as Partial<DashboardIssueRewriteBackup>
-    if (!row.itemId || !row.targetPath || !row.originalText || !row.replacementText) continue
-    result[key] = {
-      itemId: String(row.itemId),
-      targetPath: String(row.targetPath),
-      evidence: String(row.evidence || ""),
-      originalText: String(row.originalText),
-      replacementText: String(row.replacementText),
-      updatedAt: String(row.updatedAt || ""),
+  const out: Record<string, DashboardIssueRewriteBackup> = {}
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue
+    const r = v as Partial<DashboardIssueRewriteBackup>
+    if (!r.itemId || !r.targetPath || !r.originalText || !r.replacementText) continue
+    out[k] = {
+      itemId: String(r.itemId), targetPath: String(r.targetPath),
+      evidence: String(r.evidence || ""), originalText: String(r.originalText),
+      replacementText: String(r.replacementText), updatedAt: String(r.updatedAt || ""),
     }
   }
-  return result
+  return out
 }

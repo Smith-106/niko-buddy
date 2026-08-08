@@ -5,8 +5,10 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { validateSeverity, logger } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
+import type { StyleExemplar } from "./style-exemplars-loader"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
+import { sliceChapterForReview } from "./chapter-window"
 
 export type SixReviewDimensionKey = "thrill" | "consistency" | "pacing" | "character" | "continuity" | "pull"
 export type DimensionReviewStatus = "error" | "high" | "medium" | "low" | "pass"
@@ -267,6 +269,15 @@ ${dimension.checks.map((check) => `- ${check}`).join("\n")}
 阶段分析要求：
 只输出阶段分析，不要输出结构化对象。必须先列已核对依据，再列阶段结论，并明确问题对应的正文证据。
 
+评分量程与档位（校准锚点，必须严格遵守）：
+- 量程：0-10 分。严禁按先验习惯区间（如 6-8）打分，必须对照下列档位行为定义给出分数。
+  - 0-4 分：存在硬伤级问题（连贯性破坏、主线偏离、明显语病或逻辑错误），属于未完成/失败段。
+  - 5-6 分：及格线——无硬伤但平淡，检查项多数未兑现或兑现力度弱。
+  - 7-8 分：良级——无硬伤，检查项基本兑现，有阅读价值但缺乏出彩点。
+  - 9-10 分：可发表文学质量——检查项全部兑现且有出彩点（强画面感/叙事节奏/情绪冲击/主题升华），达到出版级参照水准。
+- 出口条款：若本维度所有检查项均通过、且 issues 中没有任何 error/warning 级问题，score 必须 ≥8.5；若打出 <8.5，summary 必须明确列出未兑现的检查项。
+- 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}
+
 结构化结果格式：
 {
   "score": 0,
@@ -287,7 +298,29 @@ ${dimension.checks.map((check) => `- ${check}`).join("\n")}
 }
 
 章节正文：
-${chapterContent.slice(0, 8000)}`
+${sliceChapterForReview(chapterContent)}`
+}
+
+/**
+ * Step 0 A/B 校准（20260806 swarm 共识）：把 pack.styleExemplars（人类标注的
+ * 正向风格标杆，EPIC-001/ADR-29 已注入 contextPack）渲染为 9-10 档 few-shot
+ * 参照。零 exemplar 时返回空串，prompt 保持向后兼容（不改变既有审查行为）。
+ */
+function buildStyleExemplarBlock(styleExemplars: StyleExemplar[] | undefined): string {
+  if (!styleExemplars || styleExemplars.length === 0) return ""
+  const markTypeLabel: Record<StyleExemplar["markType"], string> = {
+    style: "文风",
+    voice: "声线/对白",
+    pacing: "节奏",
+    thrill: "爽感兑现",
+    pull: "追读钩子",
+    consistency: "设定自洽",
+  }
+  const lines = styleExemplars.map((ex) => {
+    const excerpt = ex.text.length > 200 ? `${ex.text.slice(0, 200)}…` : ex.text
+    return `- [${markTypeLabel[ex.markType]}] ${excerpt}`
+  })
+  return `\n风格标杆样本（人类标注的真实好段落，仅作 9-10 档参照，不得直接改写正文）：\n${lines.join("\n")}`
 }
 
 export async function reviewChapterDimension({

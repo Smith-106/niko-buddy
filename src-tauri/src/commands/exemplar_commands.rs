@@ -41,16 +41,27 @@ pub struct MarkStyleExemplarInput {
 /// `exemplar_id` 用 `uuid::Uuid::new_v4()` 生成（与 TS `crypto.randomUUID`
 /// 等价的 v4 UUID）。`created_at` 用 ISO-8601 UTC 串（与 TS
 /// `new Date().toISOString()` 一致）。
+///
+/// FIX-2/EC-1 双格式兼容：`id`/`marked_at` 为 v1.0 版式别名字段（serde alias），
+/// 读取时自动映射到 `exemplar_id`/`created_at`；写入始终输出新格式字段。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StyleExemplarRecord {
+    #[serde(alias = "id")]
     pub exemplar_id: String,
     pub chapter_id: String,
     pub text: String,
     pub mark_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(alias = "markedAt")]
     pub created_at: String,
+}
+
+/// v1.0 包装对象形状（FIX-2/EC-1）：`{$schema, exemplars: [...]}`。
+#[derive(Debug, Deserialize)]
+struct WrappedExemplars {
+    exemplars: Vec<StyleExemplarRecord>,
 }
 
 /// 校验 markType 枚举值。非法值返回脱敏 `Err`（PAT-G2 镜像）。
@@ -87,12 +98,16 @@ pub fn do_mark_style_exemplar(
     let p = Path::new(&file_path);
 
     // read-modify-write：读取现有 exemplars（缺失/损坏 → 空列表重建）。
+    // FIX-2/EC-1：双格式兼容——裸数组与 {$schema, exemplars:[...]} 包装都解包；
+    // 合法包装对象不得触发重建覆盖（F2 数据丢失修复）。
     let mut existing: Vec<StyleExemplarRecord> = Vec::new();
     if let Ok(raw) = fs::read_to_string(p) {
         if let Ok(parsed) = serde_json::from_str::<Vec<StyleExemplarRecord>>(&raw) {
             existing = parsed;
+        } else if let Ok(wrapped) = serde_json::from_str::<WrappedExemplars>(&raw) {
+            existing = wrapped.exemplars;
         }
-        // 损坏 JSON — 视为空列表重建（不阻断用户标记，与 TS 语义一致）。
+        // 真正损坏 JSON（两种形状都解析失败）— 视为空列表重建（不阻断用户标记，与 TS 语义一致）。
     }
     // 文件缺失 — existing 保持空 Vec。
 
@@ -156,8 +171,16 @@ pub fn do_load_style_exemplars(project_path: &str) -> Result<Vec<StyleExemplarRe
     }
 
     let raw = fs::read_to_string(p).map_err(|e| format!("style exemplars file read error: {}", e))?;
-    let parsed: Vec<StyleExemplarRecord> = serde_json::from_str(&raw)
-        .map_err(|_| "style exemplars file is corrupt".to_string())?;
+    // FIX-2/EC-1：双格式兼容——裸数组优先，{$schema, exemplars:[...]} 包装次之，
+    // 两者都不是才判 corrupt（PAT-DC1 脱敏，不暴露 raw JSON / 路径）。
+    let parsed: Vec<StyleExemplarRecord> =
+        match serde_json::from_str::<Vec<StyleExemplarRecord>>(&raw) {
+            Ok(arr) => arr,
+            Err(_) => match serde_json::from_str::<WrappedExemplars>(&raw) {
+                Ok(wrapped) => wrapped.exemplars,
+                Err(_) => return Err("style exemplars file is corrupt".to_string()),
+            },
+        };
     Ok(parsed)
 }
 
@@ -299,6 +322,57 @@ mod tests {
         // PAT-DC1: no raw JSON / file path leak
         assert!(!err.contains("{not"));
         assert!(!err.contains("/.novel/"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_load_style_exemplars_unwraps_wrapped_object_with_aliases() {
+        let dir = tmp_project_dir("wrapped-load");
+        fs::create_dir_all(dir.join(".novel")).unwrap();
+        fs::write(
+            dir.join(".novel/style-exemplars.json"),
+            r#"{"$schema":"https://example.test/style-exemplars.schema.json","exemplars":[
+                {"id":"EX-001","chapterId":"ch1","text":"种子段落 1","markType":"style","note":"n","markedAt":"2026-07-10T00:00:00Z"},
+                {"id":"EX-002","chapterId":"ch1","text":"种子段落 2","markType":"voice","markedAt":"2026-07-10T00:01:00Z"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let loaded = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.len(), 2);
+        // 字段别名映射：id→exemplar_id、markedAt→created_at
+        assert_eq!(loaded[0].exemplar_id, "EX-001");
+        assert_eq!(loaded[0].created_at, "2026-07-10T00:00:00Z");
+        assert_eq!(loaded[1].exemplar_id, "EX-002");
+        assert_eq!(loaded[1].created_at, "2026-07-10T00:01:00Z");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_mark_style_exemplar_appends_to_wrapped_file_without_overwrite() {
+        let dir = tmp_project_dir("wrapped-append");
+        fs::create_dir_all(dir.join(".novel")).unwrap();
+        fs::write(
+            dir.join(".novel/style-exemplars.json"),
+            r#"{"$schema":"https://example.test/style-exemplars.schema.json","exemplars":[
+                {"id":"EX-001","chapterId":"ch1","text":"种子段落 1","markType":"style","markedAt":"2026-07-10T00:00:00Z"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let mark = MarkStyleExemplarInput {
+            chapter_id: "ch-2".to_string(),
+            text: "新段落".to_string(),
+            mark_type: "pacing".to_string(),
+            note: None,
+        };
+        do_mark_style_exemplar(dir.to_str().unwrap(), &mark).unwrap();
+
+        let loaded = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        // 1 条种子 + 1 条新增 = 2，不得被重建覆盖为 1。
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].exemplar_id, "EX-001");
+        assert_eq!(loaded[1].mark_type, "pacing");
         let _ = fs::remove_dir_all(&dir);
     }
 }

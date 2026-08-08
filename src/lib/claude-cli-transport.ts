@@ -1,14 +1,4 @@
-/**
- * Claude Code CLI subprocess transport.
- *
- * Rust-side counterpart: src-tauri/src/commands/claude_cli.rs. The Rust
- * commands spawn `claude -p --output-format stream-json
- * --input-format stream-json --verbose --model <model>`, pipe the
- * serialized history over stdin, and emit stdout back as
- * `claude-cli:{streamId}` events (one line per event). This module
- * listens for those events, parses each line as a stream-json event,
- * and forwards assistant text to `onToken`.
- */
+// Copyright (c) 2024 Niko-hub contributors. MIT License.
 
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
@@ -28,43 +18,15 @@ export type ClaudeCodeStreamParseResult =
   | { kind: "unknown" }
 
 const CLAUDE_CLI_RETRY_DELAYS_MS = [5_000, 15_000, 30_000]
-// C-101 (GRL-008): these were hardcoded consts; now overridable via app-state
-// store (keys below) so users on slow/portable/cold-start environments can
-// raise them. Defaults preserved at prior values to keep behavior stable.
 const DEFAULT_CLAUDE_CLI_FIRST_MEANINGFUL_OUTPUT_TIMEOUT_MS = 90_000
 const DEFAULT_CLAUDE_CLI_INACTIVITY_TIMEOUT_MS = 30_000
-// F-001 (ANL-010): 3rd watchdog — mid-conversation heartbeat. The two prior
-// watchdogs (firstMeaningful + inactivity) catch stalls at the boundaries
-// (first token, trailing silence). The mid-conversation watchdog catches the
-// S2 Chapter-12 failure mode where the CLI keeps emitting low-rate heartbeats
-// (progress events that reset the inactivity timer) but produces NO assistant
-// text for an extended window — a stuck-in-reasoning state that previously
-// ran unbounded. It only arms AFTER the first meaningful token, so it never
-// fires during cold start. Default 60s; the inactivity timer must also be
-// idle for it to fire (i.e. heartbeats keeping the inactivity timer warm but
-// no real tokens). Override via app-state store.
 const DEFAULT_CLAUDE_CLI_MID_CONVERSATION_HEARTBEAT_MS = 60_000
-// F-001 (ANL-010): SIGTERM grace at the TS transport layer. When the watchdog
-// fires, instead of an immediate hard kill (SIGKILL-equivalent via
-// claude_cli_kill) we first ask Rust to terminate gracefully (SIGTERM on
-// Unix / WM_CLOSE on Windows) and give the child up to graceMs to exit on
-// its own before the kill path escalates. This lets the CLI flush partial
-// output and avoids leaving the OAuth session in a half-written state. The
-// S3 boundary contract forbids a Rust spawn-lifecycle rewrite, so the grace
-// is enforced here at the TS transport layer: Rust exposes
-// `claude_cli_terminate` (graceful) + `claude_cli_kill` (hard); TS calls
-// terminate, waits graceMs, then falls back to kill if still alive.
 const DEFAULT_CLAUDE_CLI_SIGTERM_GRACE_MS = 4_000
 const STORE_KEY_FIRST_MEANINGFUL_TIMEOUT_MS = "claudeCli.firstMeaningfulOutputTimeoutMs"
 const STORE_KEY_INACTIVITY_TIMEOUT_MS = "claudeCli.inactivityTimeoutMs"
 const STORE_KEY_MID_CONVERSATION_HEARTBEAT_MS = "claudeCli.midConversationHeartbeatMs"
 const STORE_KEY_SIGTERM_GRACE_MS = "claudeCli.sigtermGraceMs"
 
-// C-101 (GRL-008): configurable transport timeouts. Kept as a synchronous
-// module-level cache so the stream hot-path never blocks on a store read
-// (specs and fast paths get defaults immediately). `warmClaudeCliTimeouts()`
-// is called at app init / settings change to pull overrides from the
-// app-state store; until it resolves, defaults are used.
 interface ClaudeCliTimeoutConfig {
   firstMeaningfulMs: number
   inactivityMs: number
@@ -83,8 +45,6 @@ function resolveClaudeCliTimeouts(): ClaudeCliTimeoutConfig {
   return cachedTimeouts
 }
 
-/** Pull timeout overrides from the app-state store. Safe to call repeatedly
- *  (e.g. on settings change). No-op if the store is unavailable. */
 export async function warmClaudeCliTimeouts(): Promise<void> {
   try {
     const { getStore } = await import("./web-store")
@@ -108,16 +68,6 @@ export async function warmClaudeCliTimeouts(): Promise<void> {
   }
 }
 
-/**
- * F-001 (ANL-010): backpressure file-spool. When the CLI transport detects a
- * stall, it spools the stall context (stream id, attempt count, error) to a
- * diagnostic file so a post-mortem is possible even if the in-memory
- * diagnostics are lost on fallback. This is the "backpressure" release valve:
- * rather than buffering the stall in memory (which a long-running stall loop
- * would grow unbounded), the context is flushed to disk and the in-memory
- * buffers can be reclaimed. Best-effort — a write failure never blocks the
- * transport's recovery path.
- */
 async function spoolStalledStreamToDisk(
   streamId: string,
   attempt: number,
@@ -126,8 +76,6 @@ async function spoolStalledStreamToDisk(
   try {
     const { getStore } = await import("./web-store")
     const store = await getStore()
-    // Append-only diagnostic log keyed by date so it doesn't grow unbounded
-    // within a single entry. The store handles persistence.
     const key = `claudeCli.stallSpool.${new Date().toISOString().slice(0, 10)}`
     const prior = (await store.get<string[]>(key)) ?? []
     prior.push(
@@ -138,44 +86,26 @@ async function spoolStalledStreamToDisk(
         spooledAt: new Date().toISOString(),
       }),
     )
-    // Cap the per-day spool at 64 entries so a pathological stall loop can't
-    // grow the store entry without bound (the backpressure release).
     if (prior.length > 64) prior.splice(0, prior.length - 64)
     await store.set(key, prior)
   } catch {
-    // Store unavailable (test env, portable without store) — the in-memory
-    // diagnostic path still carries the stall context to the caller.
+    // Store unavailable — best-effort diagnostic
   }
 }
 
-/**
- * F-001 (ANL-010): graceful abort of the CLI child. Sends a terminate signal
- * (SIGTERM / WM_CLOSE) via `claude_cli_terminate`, waits up to `graceMs` for
- * the child to exit on its own, then escalates to a hard `claude_cli_kill`
- * if it's still alive. Both invokes are best-effort (errors swallowed) so a
- * Rust-side failure never blocks the transport's recovery path. The S3
- * boundary forbids rewriting the Rust spawn lifecycle, so the grace period
- * is enforced here at the TS layer, not in the spawn command.
- */
 export async function gracefulAbortStream(streamId: string, graceMs: number): Promise<void> {
-  // Phase 1: graceful terminate. Rust maps this to SIGTERM (Unix) or
-  // WM_CLOSE-then-TerminateProcess (Windows). Best-effort — never throw.
   try {
     await invoke("claude_cli_terminate", { streamId })
   } catch {
-    // Rust command may be absent on older builds; fall through to hard kill.
+    // Rust command may be absent on older builds
   }
-  // Phase 2: wait the grace window for the child to self-exit. The done
-  // listener will fire naturally if it exits in time; we just bound the
-  // wait before escalating. No busy-wait — a single setTimeout.
   if (graceMs > 0) {
     await new Promise<void>((resolve) => setTimeout(resolve, graceMs))
   }
-  // Phase 3: hard kill fallback if still alive. Also best-effort.
   try {
     await invoke("claude_cli_kill", { streamId })
   } catch {
-    // Already exited or command absent — nothing more to do.
+    // Already exited or command absent
   }
 }
 
@@ -242,39 +172,10 @@ function unwrapStructuredToolInput(input: unknown): unknown {
   }
 }
 
-/**
- * Public parse entry point. Given one stream-json line from claude's
- * stdout, returns a structured classification:
- * - `token`: assistant text to stream into the UI
- * - `heartbeat`: non-text progress signals that prove the CLI is still alive
- * - `ignore`: known non-text lifecycle events (`system`, success `result`, etc.)
- * - `diagnostic`: structured CLI-side errors emitted on stdout
- * - `unknown`: non-JSON or unrecognized payloads worth keeping for fallback diagnostics
- *
- * State is carried in a small closure because `assistant` events ship
- * the full in-progress message on every emission (NOT incremental), but
- * `stream_event` passthrough (emitted when --verbose is on) carries
- * real token-level deltas. To avoid double-counting, we prefer deltas
- * when they arrive and skip the fat `assistant` events after seeing one.
- */
 export function createClaudeCodeStreamParser() {
   let sawDelta = false
   let emittedFromAssistant = ""
 
-  // F-001 (ANL-010, PERF-001 fix): stream-event-type dispatch table. Built
-  // ONCE per parser (in createClaudeCodeStreamParser scope), NOT on every
-  // parseLine call — the prior version allocated the Record + 8 closures per
-  // stdout line (~10k+ lines per chapter with --include-partial-messages),
-  // a hot-path regression vs the zero-allocation if-chain it replaced. The
-  // handlers close over sawDelta/emittedFromAssistant (mutable state in this
-  // scope), so they stay stateful without per-call allocation. Replaces the
-  // prior if-chain-on-type parser, which was fragile to new event types (a
-  // new stream_event subtype fell through to `heartbeat` silently). The
-  // table makes routing explicit and covers the stream-event subtypes the
-  // CLI emits that the transport must recognize: rate_limit_event,
-  // assistant.error, stop_reason, plus the stdout-buffer-overflow marker
-  // emitted by the Rust bounded-buffer guard. Unknown types still fall to
-  // `unknown` (kept for fallback diagnostics).
   type ParseCtx = { obj: Record<string, unknown> }
   const dispatch: Record<string, (ctx: ParseCtx) => ClaudeCodeStreamParseResult> = {
     stderr: ({ obj }) => {
@@ -284,7 +185,6 @@ export function createClaudeCodeStreamParser() {
     stream_event: ({ obj }) => {
       const event = obj.event as Record<string, unknown> | undefined
       const eventType = event?.type as string | undefined
-      // content_block_delta carries real token-level deltas.
       if (eventType === "content_block_delta") {
         const delta = event?.delta as Record<string, unknown> | undefined
         if (delta?.type === "text_delta" && typeof delta.text === "string") {
@@ -292,10 +192,6 @@ export function createClaudeCodeStreamParser() {
           return { kind: "token", text: delta.text }
         }
       }
-      // F-001: surface rate-limit events as diagnostics so the transport
-      // can retry with backoff (rate_limit_event). Always lead with the
-      // rate-limit context so the diagnostic is actionable even when the
-      // upstream payload carries only an opaque message.
       if (eventType === "rate_limit_event") {
         const upstream = extractDiagnosticText(event)
         const text = upstream
@@ -306,9 +202,6 @@ export function createClaudeCodeStreamParser() {
       return { kind: "heartbeat" }
     },
     assistant: ({ obj }) => {
-      // F-001: assistant.error events surface as diagnostics. Checked
-      // BEFORE the content-array guard so an error event without a
-      // content array (just a message) still surfaces.
       if (obj.subtype === "error" || obj.is_error === true) {
         const text = extractDiagnosticText(obj) ?? extractDiagnosticText(obj.message) ?? "Claude Code CLI assistant error."
         return { kind: "diagnostic", text }
@@ -349,20 +242,11 @@ export function createClaudeCodeStreamParser() {
       return { kind: "token", text }
     },
     system: ({ obj }) => {
-      // F-001: thinking_tokens is a heartbeat (in-progress reasoning
-      // signal). All other system subtypes (init, etc.) are lifecycle
-      // noise the UI ignores — preserved from the prior if-chain so the
-      // existing behavior contract holds.
       return obj.subtype === "thinking_tokens" ? { kind: "heartbeat" } : { kind: "ignore" }
     },
     result: () => ({ kind: "ignore" }),
     user: () => ({ kind: "ignore" }),
-    // F-001: stop_reason events are heartbeats (stream finalizing normally).
     stop_reason: () => ({ kind: "heartbeat" }),
-    // F-001: stdout-buffer-overflow marker emitted by the Rust bounded-buffer
-    // guard (claude_cli.rs CLAUDE_STDOUT_LIMIT_BYTES). Surface as a
-    // diagnostic so the transport can detect the truncation and trigger
-    // SessionTransportFallback on the next stall.
     "stdout-buffer-overflow": () => ({
       kind: "diagnostic",
       text: "stdout-buffer-overflow: CLI stdout exceeded the bounded buffer cap (pipe-buffer-deadlock symptom).",
@@ -389,8 +273,6 @@ export function createClaudeCodeStreamParser() {
 
     const type = obj.type
 
-    // PERF-001: dispatch table is built once per parser in the
-    // createClaudeCodeStreamParser scope (above), not on every line.
     const handler = dispatch[type as string]
     if (handler) return handler({ obj })
     return { kind: "unknown" }
@@ -412,23 +294,11 @@ function waitForClaudeCliRetry(ms: number, signal?: AbortSignal): Promise<boolea
   })
 }
 
-/**
- * ISS-019: the prior string-matching classifier is now a thin wrapper over
- * `classifyTransportError`. `shouldRetryClaudeCliError` preserves its public export signature
- * (the spec tests import it) and delegates to the typed classifier — string matching now lives in
- * exactly one place. The classifier returns `retryable` which is the same boolean the prior regex
- * produced, so the retry contract is unchanged.
- */
 export function shouldRetryClaudeCliError(message: string): boolean {
   const text = message?.trim() ?? ""
   if (!text) return false
   return classifyTransportError({ message }).retryable
 }
-
-// ISS-019: the prior `shouldRetryClaudeCliWithIsolation(message)` (a second regex matching the
-// strict isolation-retry subset) is REMOVED — its logic now lives in `classifyTransportError` as
-// the `isolation_retry` kind. Call sites branch on `transportError.kind === "isolation_retry"`
-// directly. The function was never exported, so removing it has no external impact.
 
 function appendClaudeCliIsolationRetryNote(message: string): string {
   return [
@@ -445,11 +315,6 @@ type SpawnPayload = Record<string, unknown> & {
   jsonSchema?: Record<string, unknown>
 }
 
-/**
- * Subprocess equivalent of the HTTP path in streamChat. Obeys the same
- * StreamCallbacks contract so chat-panel code doesn't need to know
- * which transport it's talking to.
- */
 export async function streamClaudeCodeCli(
   config: LlmConfig,
   messages: ChatMessage[],
@@ -463,7 +328,6 @@ export async function streamClaudeCodeCli(
     for (const key of ["temperature", "top_p", "top_k", "max_tokens", "stop", "jsonSchema"] as const) {
       if (overrides[key] !== undefined) {
         if (key === "jsonSchema") continue
-        // eslint-disable-next-line no-console
         console.warn(`[claude-code] ignoring unsupported override "${key}": CLI has no equivalent flag`)
       }
     }
@@ -479,10 +343,6 @@ export async function streamClaudeCodeCli(
   const abortListener = () => {
     aborted = true
     if (activeStreamId) {
-      // F-001 (ANL-010): SIGTERM grace on user-initiated abort. The child
-      // may still be producing; a short grace window lets it flush partial
-      // output before the hard kill (gracefulAbortStream terminates, waits
-      // sigtermGraceMs, then kills). Best-effort — never blocks the abort.
       void gracefulAbortStream(activeStreamId, sigtermGraceMs)
     }
     abortActiveAttempt?.()
@@ -493,9 +353,6 @@ export async function streamClaudeCodeCli(
   }
   signal?.addEventListener("abort", abortListener)
 
-  // C-101 (GRL-008): synchronous read of (possibly warmed) configurable
-  // timeouts. `warmClaudeCliTimeouts()` is called at app init to pull
-  // overrides from the store; until then defaults are used.
   const { firstMeaningfulMs, inactivityMs, midConversationHeartbeatMs, sigtermGraceMs } = resolveClaudeCliTimeouts()
 
   try {
@@ -542,12 +399,6 @@ export async function streamClaudeCodeCli(
         let cleanedUp = false
         let startupTimeoutId: ReturnType<typeof setTimeout> | null = null
         let inactivityTimeoutId: ReturnType<typeof setTimeout> | null = null
-        // F-001 (ANL-010): 3rd watchdog — mid-conversation heartbeat. Only
-        // armed after the first meaningful token (so cold start is exempt).
-        // Catches the Chapter-12 failure mode: CLI keeps emitting heartbeats
-        // (which reset the inactivity timer) but produces no assistant text
-        // for an extended window — a stuck-in-reasoning state that ran
-        // unbounded under the prior two-watchdog scheme.
         let midConversationHeartbeatTimeoutId: ReturnType<typeof setTimeout> | null = null
         let sawMeaningfulOutput = false
         let sawProgressOutput = false
@@ -572,12 +423,6 @@ export async function streamClaudeCodeCli(
           }
         }
         const failForInactivity = () => {
-          // F-001 (ANL-010): on a watchdog stall the child is already stuck
-          // (no output for the timeout window), so a SIGTERM grace window
-          // adds recovery latency without flushing useful output. Use the
-          // direct kill here. The gracefulAbortStream path (SIGTERM grace)
-          // is reserved for user-initiated abort, where the child may still
-          // be producing and a short grace lets it flush partial output.
           void invoke("claude_cli_kill", { streamId }).catch(() => {})
           settle({
             kind: "error",
@@ -598,11 +443,6 @@ export async function streamClaudeCodeCli(
           }, inactivityMs)
         }
         const scheduleMidConversationHeartbeat = () => {
-          // F-001 (ANL-010): only arm after first meaningful token, and only
-          // if the watchdog window is positive. The inactivity timer is
-          // shorter (30s default) and resets on any progress; this watchdog
-          // (60s default) catches the case where heartbeats keep resetting
-          // inactivity but no real token ever arrives.
           if (!sawMeaningfulOutput) return
           if (midConversationHeartbeatMs <= 0) return
           clearMidConversationHeartbeat()
@@ -622,14 +462,6 @@ export async function streamClaudeCodeCli(
             sawMeaningfulOutput = true
           }
           noteProgressOutput()
-          // F-001 (ANL-010): rearm the mid-conversation heartbeat on EVERY
-          // real token (not just the first). A token resets the window; only
-          // a sustained window of heartbeats-without-tokens trips it.
-          // scheduleMidConversationHeartbeat no-ops until sawMeaningfulOutput
-          // is true (its internal guard), so cold-start protection holds.
-          // (CORR-001 fix: this was previously inside `if (wasFirst)`, which
-          // armed the watchdog once at the first token and never rearmed —
-          // false-stalling any stream longer than midConversationHeartbeatMs.)
           scheduleMidConversationHeartbeat()
         }
 
@@ -662,13 +494,6 @@ export async function streamClaudeCodeCli(
 
         const setupAttempt = async () => {
           try {
-            // Capture the unlisten fn and only assign it to the outer handle
-            // when still active. If settle() fired during the await listen()
-            // window (startup timeout or abort), cleanup() already ran with
-            // unlistenData undefined — so we must unregister the just-registered
-            // listener ourselves here, otherwise it leaks for the webview
-            // lifetime (the second cleanup() at the settled check below is a
-            // no-op due to the cleanedUp guard).
             const unlistenDataFn = await listen<string>(`claude-cli:${streamId}`, (event) => {
               const parsed = parse(event.payload)
               if (parsed.kind === "token") {
@@ -768,10 +593,6 @@ export async function streamClaudeCodeCli(
         return
       }
 
-      // ISS-019: classify ONCE per attempt, branch on `error.kind` (not message.includes).
-      // `retryable` covers both rate_limit and isolation_retry (the strict subset), preserving
-      // the prior `isStallError = shouldRetryClaudeCliError(msg) || shouldRetryClaudeCliWithIsolation(msg)`
-      // contract: any transient failure (rate-limit, stall, isolation-retry) qualifies for backoff.
       const transportError: TransportError = classifyTransportError(attemptResult)
 
       if (
@@ -792,45 +613,15 @@ export async function streamClaudeCodeCli(
         && isStallError
       ) {
         transportRetryAttempt += 1
-        // F-001 (ANL-010): backpressure file-spool — flush the stall context
-        // to disk so a post-mortem is possible even after the fallback
-        // reroutes the stream. Best-effort; never blocks recovery.
         void spoolStalledStreamToDisk(streamId, transportRetryAttempt, attemptResult.message)
-        // F-001 (ANL-010): SessionTransportFallback (SA-02). On the 2nd
-        // consecutive stall (transportRetryAttempt == 2 after increment,
-        // i.e. one backoff retry already stalled the same way), reroute to
-        // the sanctioned anthropic HTTP path (F-004) INSTEAD of surfacing
-        // the error — but ONLY when the user has their OWN Anthropic API
-        // key (boundary: ANL-009 NO-GO intact, no OAuth-credential reuse).
-        // This breaks the S2 Chapter-12 deterministic failure loop: spawn
-        // → stall → retry → same stall → surface. With a key present, the
-        // 2nd stall reroutes to HTTP and the user gets a response. Without
-        // a key, we fall through to the existing error surface (the user
-        // is on OAuth-only and must fix the CLI environment).
         if (transportRetryAttempt >= 2 && isStallError) {
-          // ISS-002: statically-import the key-presence resolver (synchronous,
-          // apiKey+env) so the no-key path (the common OAuth-only case, incl.
-          // all unit tests) never risks an unresolved dynamic-import promise
-          // under fake timers. Single source of truth for the key check — no
-          // duplicated inline logic.
           if (hasAnthropicApiKey(config)) {
-            // Spool a diagnostic so the UI shows why the stream resumed via
-            // the HTTP path rather than the subprocess transport.
             const fallbackNote = "[SessionTransportFallback] Claude Code CLI stalled twice; rerouting to the Anthropic API (HTTP) using your saved API key. The CLI transport will retry on the next request."
             try {
               onToken(fallbackNote + "\n\n")
             } catch {
               // best-effort diagnostic
             }
-            // CORR-012 (from quality-review): the dynamic import + streamChat
-            // are the last-resort fallback. If they throw (HTTP error,
-            // network failure, unresolved module), surface a single clean
-            // error instead of letting it propagate to the outer catch —
-            // which would call onError AGAIN (streamChat may already have
-            // surfaced its own onError internally), causing a double-onError
-            // and a misleading "CLI not found"-style message. We do NOT
-            // retry the CLI after a fallback failure; HTTP was the escape
-            // hatch and it failed.
             try {
               const { streamChat } = await import("./llm-client")
               const fallbackConfig = { ...config, provider: "anthropic" as const }
@@ -851,7 +642,6 @@ export async function streamClaudeCodeCli(
         return
       }
 
-      // ISS-019: branch on `kind` for the isolation-retry note (was shouldRetryClaudeCliWithIsolation).
       const finalMessage = usedIsolationFallback && transportError.kind === "isolation_retry"
         ? appendClaudeCliIsolationRetryNote(attemptResult.message)
         : attemptResult.message
@@ -872,30 +662,6 @@ export async function streamClaudeCodeCli(
   }
 }
 
-/**
- * Translate `claude` CLI exit-with-stderr into an actionable error
- * message for the user. The bare "exited with code N: <stderr>"
- * we used to throw was correct but unactionable: users had to
- * read JSON-shaped stderr text to figure out what to do.
- *
- * Three diagnostic sources, used in priority order:
- *   1. stderr: the canonical place. The most common content is
- *      `Unauthenticated:` from Claude Code itself, meaning the
- *      user's ~/.claude OAuth token expired / was revoked / they
- *      logged out. We surface that case explicitly because users
- *      otherwise mis-diagnose it as an LLM Wiki bug.
- *   2. stdoutDiagnostic: structured error events emitted on stdout
- *      (`{"type":"error",...}` or `result.is_error === true`).
- *      Claude CLI occasionally reports its real failure here while
- *      leaving stderr empty, so we surface it before falling back
- *      to opaque parser leftovers.
- *   3. unparsedStdout: stdout lines the parser didn't recognize
- *      (non-JSON, unknown event types). Used as a last-resort
- *      diagnostic when stderr and structured stdout errors are empty.
- *   4. Neither: silent exit. We can't help much here other than
- *      telling the user to reproduce in a terminal where they can
- *      see whatever output the CLI does produce.
- */
 export function buildExitError(
   code: number,
   stderr: string,

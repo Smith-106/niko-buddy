@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -554,7 +557,9 @@ export function KnowledgeTree({
           frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
         }
       }
-      next = next.replace(/^---\n[\s\S]*?\n---/, `---\n${frontmatterBody}\n---`)
+      next = next.replace(/^---[\s\S]*?---/, `---
+${frontmatterBody}
+---`)
     }
     if (/^#\s+.+$/m.test(next)) {
       next = next.replace(/^#\s+.+$/m, `# ${newTitle}`)
@@ -577,7 +582,9 @@ export function KnowledgeTree({
       frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
     }
 
-    return content.replace(/^---\n[\s\S]*?\n---/, `---\n${frontmatterBody}\n---`)
+    return content.replace(/^---[\s\S]*?---/, `---
+${frontmatterBody}
+---`)
   }, [])
 
   const startRenamePage = useCallback((page: WikiPageInfo) => {

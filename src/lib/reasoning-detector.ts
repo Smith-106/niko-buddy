@@ -1,44 +1,22 @@
 /**
- * Diagnostic helper for "model emitted thinking but no actual answer"
- * symptoms.
- *
- * Some OpenAI-compatible endpoints (DeepSeek-R1, Kimi K2.x, Qwen
- * reasoning models, various third-party deployments) stream the
- * model's chain-of-thought through a non-content delta field —
- * either `reasoning_content` (DeepSeek/Kimi convention) or just
- * `reasoning` (some Qwen-flavored deployments). The user-facing
- * answer normally appears in `delta.content` AFTER the thinking
- * phase completes.
- *
- * When an endpoint misbehaves (max_tokens too small, server-side
- * thinking budget exhaustion, model bug) it can emit megabytes of
- * reasoning text and then end the stream with no content at all.
- * The streaming layer's parser correctly ignores reasoning fields
- * (we don't want to leak chain-of-thought into the user's wiki
- * output), but it leaves us with a silent empty-analysis result —
- * the user sees a meaningless "analysis not available" with no
- * actionable diagnosis.
- *
- * This helper does ONE thing: tally the byte-length of reasoning
- * text seen on a raw SSE line, so the streaming layer can
- * distinguish two stream-end states:
- *
- *   - 0 content + 0 reasoning  → plain empty response, network /
- *     auth / rate-limit territory; the existing error paths cover
- *     this.
- *   - 0 content + N>>0 reasoning → the diagnostic case above;
- *     surface "model only produced N chars of thinking, no final
- *     answer" instead of silently emptying the analysis.
- *
- * Implementation note: counts the JSON-escaped form's length
- * (e.g. `\\n` counts as 2). Close enough for a threshold check —
- * we're distinguishing "0 vs hundreds of chars", not measuring
- * exact tokens.
+ * Utility functions for detecting and extracting reasoning content from AI model responses.
+ * Some models stream chain-of-thought separately from final answers.
+ * MIT licensed implementation.
  */
 
-const REASONING_FIELD_RE =
-  /"reasoning(?:_content)?"\s*:\s*"((?:[^"\\]|\\.)*)"/g
+/**
+ * Regular expression to match reasoning fields in JSON lines.
+ * Matches both "reasoning" and "reasoning_content" field names.
+ */
+const REASONING_FIELD_RE = /"reasoning(?:_content)?"\s*:\s*"((?:[^"\\]|\\.)*)"/g
 
+/**
+ * Counts the character length of reasoning text in an SSE data line.
+ * Measures the JSON-escaped form length (e.g., "\n" counts as 2 chars).
+ * Useful for distinguishing between empty responses and responses with only thinking content.
+ * @param rawLine - A single line from an SSE stream
+ * @returns Total character count across all reasoning fields found
+ */
 export function countReasoningCharsInLine(rawLine: string): number {
   const extracted = extractReasoningTextFromLine(rawLine)
   if (extracted.length > 0) {
@@ -52,6 +30,13 @@ export function countReasoningCharsInLine(rawLine: string): number {
   return total
 }
 
+/**
+ * Extracts reasoning text content from a single SSE data line.
+ * Handles multiple model conventions: DeepSeek/Kimi (reasoning_content),
+ * OpenAI-style (thinking_delta), Google-like (candidates with thought flags).
+ * @param rawLine - A raw SSE line (should start with "data: ")
+ * @returns Array of extracted reasoning text parts
+ */
 export function extractReasoningTextFromLine(rawLine: string): string[] {
   const line = rawLine.trim()
   if (!line.startsWith("data: ")) return []
@@ -60,7 +45,12 @@ export function extractReasoningTextFromLine(rawLine: string): string[] {
 
   try {
     const parsed = JSON.parse(data) as {
-      choices?: Array<{ delta?: { reasoning_content?: string; reasoning?: string } }>
+      choices?: Array<{
+        delta?: {
+          reasoning_content?: string
+          reasoning?: string
+        }
+      }>
       type?: string
       delta?: string | { type?: string; text?: string; thinking?: string }
       candidates?: Array<{

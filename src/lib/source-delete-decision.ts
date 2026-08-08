@@ -1,34 +1,32 @@
 /**
- * Decide what to do with a wiki page when the user deletes a source
- * document. This is a pure function so the branching is unit-testable
- * in isolation — the previous inline version in sources-view.tsx was
- * entangled with React and silently harboured a data-loss bug (pages
- * whose sole source was NOT the one being deleted got wiped anyway,
- * because findRelatedWikiPages had returned them via a loose
- * substring match).
+ * Determines the appropriate action for wiki pages when a source document is deleted.
+ * Pure function designed to be unit-testable in isolation.
+ * MIT licensed implementation.
  */
 
+/**
+ * Decision outcome for handling a wiki page after source deletion.
+ */
 export type DeleteDecision =
-  /** Keep the page on disk; rewrite its sources to the returned list. */
+  /** Keep the page but update its sources list */
   | { action: "keep"; updatedSources: string[] }
-  /** Delete the page — the deleting source was its sole contributor. */
+  /** Remove the page because the deleting source was its only reference */
   | { action: "delete" }
-  /** Leave the page alone entirely — it ended up in findRelatedWikiPages'
-   *  results by accident (loose frontmatter substring match) but its
-   *  sources list doesn't actually include the deleting source. */
+  /** Bypass the page - it wasn't actually referencing this source (false positive) */
   | { action: "skip"; reason: string }
 
 /**
- * Decide whether a page should be kept, deleted, or skipped in response
- * to the user removing `deletingSource`. Case-insensitive throughout so
- * "Test.md" and "test.md" are treated as the same source.
- *
- *   - If `deletingSource` is NOT in `frontmatterSources` → skip.
- *     Guards against findRelatedWikiPages' loose match taking out
- *     innocent pages.
- *   - If it IS and there are OTHER sources too → keep, return the
- *     filtered list so caller can rewrite the frontmatter.
- *   - If it IS and it's the ONLY source → delete.
+ * Evaluates whether a wiki page should be kept, deleted, or skipped when removing a source file.
+ * Performs case-insensitive comparison to handle filename variations.
+ * 
+ * Decision logic:
+ * 1. If `deletingSource` not found in sources → skip (protects innocent pages)
+ * 2. If found with other sources remaining → keep with filtered list
+ * 3. If found and no other sources → delete
+ * 
+ * @param frontmatterSources - Current source files referenced by the wiki page
+ * @param deletingSource - The source file being removed by the user
+ * @returns Action to take and updated sources if keeping the page
  */
 export function decidePageFate(
   frontmatterSources: readonly string[],
@@ -36,12 +34,12 @@ export function decidePageFate(
 ): DeleteDecision {
   const targetLower = deletingSource.toLowerCase()
 
-  const inList = frontmatterSources.some(
+  const isInList = frontmatterSources.some(
     (s) => s.toLowerCase() === targetLower,
   )
-  if (!inList) {
+  if (!isInList) {
     return {
-      action: "skip",
+      action: "skip" as const,
       reason: `page sources do not include "${deletingSource}"`,
     }
   }
@@ -51,8 +49,8 @@ export function decidePageFate(
   )
 
   if (survivors.length > 0) {
-    return { action: "keep", updatedSources: survivors }
+    return { action: "keep" as const, updatedSources: survivors }
   }
 
-  return { action: "delete" }
+  return { action: "delete" as const }
 }

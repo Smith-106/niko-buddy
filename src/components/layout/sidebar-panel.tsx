@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {

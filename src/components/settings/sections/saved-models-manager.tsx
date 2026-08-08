@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Plus, Edit, Trash2, Check, X, Download, TestTube } from "lucide-react"
@@ -21,29 +24,25 @@ interface ModelFormData {
   description: string
 }
 
+const EMPTY_FORM: ModelFormData = {
+  name: "",
+  model: "",
+  apiKey: "",
+  customEndpoint: "",
+  description: "",
+}
+
 export function SavedModelsManager({ savedModels, onChange }: SavedModelsManagerProps) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [fetchingModels, setFetchingModels] = useState(false)
   const [testingModel, setTestingModel] = useState<string | null>(null)
-  const [formData, setFormData] = useState<ModelFormData>({
-    name: "",
-    model: "",
-    apiKey: "",
-    customEndpoint: "",
-    description: "",
-  })
+  const [formData, setFormData] = useState<ModelFormData>({ ...EMPTY_FORM })
 
   function openAddDialog() {
     setEditingId(null)
-    setFormData({
-      name: "",
-      model: "",
-      apiKey: "",
-      customEndpoint: "",
-      description: "",
-    })
+    setFormData({ ...EMPTY_FORM })
     setDialogOpen(true)
   }
 

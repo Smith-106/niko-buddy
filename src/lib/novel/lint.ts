@@ -1,4 +1,4 @@
-import { DEFAULT_LLM_REQUEST_TIMEOUT_MS, streamChat, type StreamCallbacks } from "@/lib/llm-client"
+import { DEFAULT_LLM_REQUEST_TIMEOUT_MS, combineAbortSignals, streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
@@ -7,6 +7,7 @@ import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { sliceChapterForReview } from "./chapter-window"
 
 export interface NovelLintResult {
   severity: "error" | "warning" | "info"
@@ -46,7 +47,7 @@ ${NOVEL_LINT_DIMENSIONS.map((key, i) => `${i + 1}. ${key}`).join("\n")}
 ${i18n.t("novel.lint.lintOutputFormat", { defaultValue: "请严格按照 JSON 数组格式输出检查结果。每个问题包含以下字段：severity（error/warning/info）、type（问题类型）、message（问题描述）、evidence（正文证据）、relatedMemory（相关记忆引用）、suggestion（修改建议）。如果没有发现问题，输出空数组 []。不要输出任何其他内容。" })}
 
 ${i18n.t("novel.lint.chapterContent", { defaultValue: "章节正文：" })}
-${chapterContent.slice(0, 8000)}`
+${sliceChapterForReview(chapterContent)}`
 }
 
 export async function runNovelLint(
@@ -57,7 +58,7 @@ export async function runNovelLint(
    * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。缺省回退 useWikiStore
    * 保持向后兼容。
    */
-  options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean } = {},
+  options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean; /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */ signal?: AbortSignal } = {},
 ): Promise<NovelLintResult[]> {
   const llmConfig = resolveNovelModel(
     options.llmConfig ?? useWikiStore.getState().llmConfig,
@@ -101,7 +102,11 @@ ${langReminder}`
       },
     }
 
-    await streamChat(llmConfig, messages, callbacks, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+    // ISS-20260724-004 (ROOT-C): merge caller signal with timeout to prevent orphaned LLM requests
+    const lintSignal = options.signal
+      ? combineAbortSignals(options.signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+      : AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
+    await streamChat(llmConfig, messages, callbacks, lintSignal)
 
     const jsonMatch = result.match(/\[[\s\S]*\]/)
     if (!jsonMatch) return []

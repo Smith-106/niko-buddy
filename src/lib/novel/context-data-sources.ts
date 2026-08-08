@@ -6,6 +6,7 @@
 import { readFile } from "@/commands/fs"
 import { searchWiki } from "@/lib/search"
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { normalizePath } from "@/lib/path-utils"
 import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadRevisionFeedbackForContext } from "./revision-feedback"
@@ -28,6 +29,10 @@ import {
 const RECENT_CHAPTER_CONTENT_MAX_CHARS = 6000
 const RECENT_CHAPTER_CONTENT_HEAD_CHARS = 2200
 const RECENT_CHAPTER_CONTENT_TAIL_CHARS = 3200
+/** Tail chars used as previousChapterEnding when only draft.md is available (no snapshot/wiki). */
+const DRAFT_ENDING_TAIL_CHARS = 1200
+/** Head chars used as a fact-style pseudo-summary when snapshots are missing. */
+const DRAFT_SUMMARY_HEAD_CHARS = 400
 
 function selectRecentChapterNumbersForContent(chapterNumber: number | undefined, count: number): number[] {
   if (!chapterNumber || chapterNumber <= 1) return []
@@ -49,6 +54,37 @@ function excerptChapterContent(body: string): string {
   const head = normalized.slice(0, RECENT_CHAPTER_CONTENT_HEAD_CHARS).trimEnd()
   const tail = normalized.slice(-RECENT_CHAPTER_CONTENT_TAIL_CHARS).trimStart()
   return `${head}\n\n[章节正文中段已按上下文预算省略]\n\n${tail}`
+}
+
+/**
+ * Draft-first prior-pack fallback (knowhow tip-20260808-6a2d3059f753c4a8):
+ * mid-chapter Track A review must not ship an empty previousChapterEnding /
+ * recentSummaries / recentChapterContents when snapshots or wiki pages are
+ * missing. Formal body lives at `.novel/chapters/{n}/draft.md`.
+ */
+function novelDraftPath(projectPath: string, chapterNumber: number): string {
+  const pp = normalizePath(projectPath)
+  return `${pp}/.novel/chapters/${chapterNumber}/draft.md`
+}
+
+async function readNovelDraftBody(projectPath: string, chapterNumber: number): Promise<string> {
+  if (!chapterNumber || chapterNumber < 1) return ""
+  try {
+    const raw = await readFile(novelDraftPath(projectPath, chapterNumber))
+    return stripFrontmatterBody(raw)
+  } catch {
+    return ""
+  }
+}
+
+function draftEndingExcerpt(body: string): string {
+  const lines = body.trim().split("\n")
+  return lines.slice(-30).join("\n").slice(-DRAFT_ENDING_TAIL_CHARS)
+}
+
+function draftSummaryLine(chapterNumber: number, body: string): string {
+  const head = body.trim().replace(/\s+/g, " ").slice(0, DRAFT_SUMMARY_HEAD_CHARS)
+  return head ? `第${chapterNumber}章（draft 节选）：${head}` : ""
 }
 
 /**
@@ -95,7 +131,8 @@ export const volumeContextDataSource: DataSource<string> = {
           return parts.join("\n")
         })
         .join("\n\n")
-    } catch {
+    } catch (err) {
+      context.recordGap?.("volumeContext", "datasource_error")
       return ""
     }
   },
@@ -184,15 +221,22 @@ export const recentChapterContentsDataSource: DataSource<string[]> = {
     // The chapters are independent, so the prior serial for-loop (N sequential
     // search+read IPC round-trips) becomes a single Promise.all. Order is
     // preserved via map-then-filter (null entries dropped).
+    // Knowhow tip-20260808-6a2d3059f753c4a8: when wiki chapter pages are
+    // missing (common for draft-only projects), fall back to
+    // `.novel/chapters/{n}/draft.md` so mid-chapter Track A review still gets
+    // prior text (head+tail excerpt).
     const results = await Promise.all(
       chapterNumbers.map(async (chapterNumber) => {
         try {
           const results = await searchWiki(context.projectPath, `chapter_number:${chapterNumber}`)
-          if (results.length === 0) return null
-          const content = await readFile(results[0].path)
-          const body = stripFrontmatterBody(content)
-          if (!body) return null
-          return `## 第${chapterNumber}章正文片段\n${excerptChapterContent(body)}`
+          if (results.length > 0) {
+            const content = await readFile(results[0].path)
+            const body = stripFrontmatterBody(content)
+            if (body) return `## 第${chapterNumber}章正文片段\n${excerptChapterContent(body)}`
+          }
+          const draftBody = await readNovelDraftBody(context.projectPath, chapterNumber)
+          if (!draftBody) return null
+          return `## 第${chapterNumber}章正文片段（draft）\n${excerptChapterContent(draftBody)}`
         } catch {
           return null
         }
@@ -238,13 +282,28 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
     } catch (err) {
       context.recordGap?.("fallbackRecentSummaries", "datasource_error")
     }
+    // Draft-first prior pack: if wiki chapter pages are empty, synthesize
+    // short summaries from previous draft.md bodies so mid-chapter Track A
+    // review is not empty (knowhow tip-20260808-6a2d3059f753c4a8).
+    if (summaries.length === 0 && context.chapterNumber && context.chapterNumber > 1) {
+      const nums = selectRecentChapterNumbersForContent(
+        context.chapterNumber,
+        Math.min(2, context.config.recentSummaryWindow || 2),
+      )
+      const draftSummaries = await Promise.all(
+        nums.map(async (n) => {
+          const body = await readNovelDraftBody(context.projectPath, n)
+          return body ? draftSummaryLine(n, body) : ""
+        }),
+      )
+      for (const s of draftSummaries) {
+        if (s) summaries.push(s)
+      }
+    }
     return summaries
   },
 }
 
-/**
- * 降级：前一章结尾数据源
- */
 export const fallbackPreviousEndingDataSource: DataSource<string> = {
   name: "fallbackPreviousEnding",
   priority: 6,
@@ -257,20 +316,26 @@ export const fallbackPreviousEndingDataSource: DataSource<string> = {
         const bodyStart = content.indexOf("---", 4)
         const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
         const lines = body.split("\n")
-        return lines.slice(-30).join("\n").slice(-1200)
+        return lines.slice(-30).join("\n").slice(-DRAFT_ENDING_TAIL_CHARS)
       }
+      // Draft-first: no wiki chapter page → use previous draft.md ending.
+      const draftBody = await readNovelDraftBody(context.projectPath, context.chapterNumber - 1)
+      if (draftBody) return draftEndingExcerpt(draftBody)
     } catch {
       // DC-8 (odyssey-improve): surface the load failure as a pack.gap (IC-02)
       // instead of silently swallowing. Returns "" (best-effort fallback).
       context.recordGap?.("fallbackPreviousEnding", "datasource_error")
+      try {
+        const draftBody = await readNovelDraftBody(context.projectPath, context.chapterNumber - 1)
+        if (draftBody) return draftEndingExcerpt(draftBody)
+      } catch {
+        /* ignore secondary draft failure */
+      }
     }
     return ""
   },
 }
 
-/**
- * 降级：角色状态数据源
- */
 export const fallbackCharacterStatesDataSource: DataSource<string> = {
   name: "fallbackCharacterStates",
   priority: 7,

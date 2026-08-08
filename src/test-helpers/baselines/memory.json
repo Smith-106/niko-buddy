@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-08-07T09:47:12.947Z",
+  "version": "2.4.3",
+  "iterations": 50,
+  "operations": [
+    {
+      "name": "idle memory read",
+      "p50": 0.03,
+      "p95": 0.52,
+      "p99": 0.96,
+      "avg": 0.08
+    },
+    {
+      "name": "active memory snapshot",
+      "p50": 0,
+      "p95": 0,
+      "p99": 0.02,
+      "avg": 0
+    },
+    {
+      "name": "graph-render memory alloc",
+      "p50": 0.11,
+      "p95": 0.52,
+      "p99": 0.6,
+      "avg": 0.13
+    }
+  ]
+}

@@ -1,80 +1,64 @@
 /**
- * Frontmatter array-field merging during ingest.
+ * @license MIT © QMAI
  *
- * Originally written for the `sources:` field alone — re-ingesting a
- * page from a second source would clobber `sources: [...]` to a
- * single entry, and the source-delete flow would later treat the page
- * as single-sourced and delete it (silent data loss). The fix unions
- * old and new sources before writing.
+ * Frontmatter array-field parsing, writing, and union-merging.
  *
- * Generalized to handle any frontmatter array field (`sources`,
- * `tags`, `related`, …): the same loss-on-clobber pattern applied to
- * `tags` and `related` too — old contributing tags / wikilinks
- * disappeared every time a different source brought new ones. The
- * generic API merges any subset of fields the caller names.
- *
- * Two callers today:
- *   - sources-view.tsx — uses `parseSources` / `writeSources` for
- *     the source-delete flow (operates on the single sources field)
- *   - ingest.ts — uses `mergeArrayFieldsIntoContent` to union
- *     sources + tags + related when writing a content page that
- *     already exists on disk
+ * Handles the `sources`, `tags`, `related` and any other YAML
+ * frontmatter array field.  Two representation forms are accepted
+ * on read (inline `[a, b]` and block `- a\n- b`) and a single
+ * canonical inline form is always written back.
  */
 
-// ─── Generic helpers (the implementation core) ────────────────────
+// ── Generic helpers ────────────────────────────────────────────────
 
 /**
- * Extract a frontmatter array field by name. Handles both:
- *   inline form:    `name: ["a", "b"]` or `name: [a, b]`
- *   block form:     `name:\n  - a\n  - b`
- * Strips quotes (single or double) from items. Returns `[]` for
- * missing field, malformed parse, or content with no frontmatter.
+ * Parse a named array field from YAML frontmatter.
  *
- * The field name is matched as a whole word at line start, so
- * `parseFrontmatterArray(c, "rel")` won't match `related: [...]`.
+ * Supports both inline (`field: ["a","b"]`) and block
+ * (`field:\n  - a\n  - b`) representations.  Returns an empty
+ * array when the field is absent or the content lacks valid
+ * frontmatter.
  */
 export function parseFrontmatterArray(content: string, fieldName: string): string[] {
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
   if (!fmMatch) return []
-  const fm = fmMatch[1]
-  // Anchor to start of line + exact field name + colon. The negative
-  // lookahead-style check is done by requiring `:` immediately after.
-  const escapedName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const blockRe = new RegExp(
-    `^${escapedName}:\\s*\\n((?:[ \\t]+-\\s+.+\\n?)+)`,
-    "m",
-  )
-  const block = fm.match(blockRe)
-  if (block) {
-    const out: string[] = []
-    for (const line of block[1].split("\n")) {
+  const body = fmMatch[1]
+
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+  // Try block form first: field:\n  - item\n  - item
+  const blockRe = new RegExp(`^${escaped}:\\s*\\n((?:[ \\t]+-\\s+.+\\n?)+)`, "m")
+  const blockHit = body.match(blockRe)
+  if (blockHit) {
+    const items: string[] = []
+    for (const line of blockHit[1].split("\n")) {
       const m = line.match(/^\s+-\s+["']?(.+?)["']?\s*$/)
-      if (m && m[1]) out.push(m[1].trim())
+      if (m?.[1]) items.push(m[1].trim())
     }
-    return out
+    return items
   }
 
-  const inlineRe = new RegExp(`^${escapedName}:\\s*\\[([^\\]]*)\\]`, "m")
-  const inline = fm.match(inlineRe)
-  if (!inline) return []
-  const body = inline[1].trim()
-  if (body === "") return []
-  return body
+  // Inline form: field: ["a", "b"] or field: [a, b]
+  const inlineRe = new RegExp(`^${escaped}:\\s*\\[([^\\]]*)\\]`, "m")
+  const inlineHit = body.match(inlineRe)
+  if (!inlineHit) return []
+  const raw = inlineHit[1].trim()
+  if (!raw) return []
+  return raw
     .split(",")
     .map((s) => s.trim().replace(/^["']|["']$/g, ""))
     .filter((s) => s.length > 0)
 }
 
 /**
- * Rewrite (or insert) a frontmatter array field. Preserves all other
- * frontmatter lines and order. Returns content unchanged if the
- * input has no frontmatter at all (don't manufacture frontmatter for
- * unconventional pages — almost certainly malformed emission worth
- * surfacing rather than silently fixing).
+ * Write (or insert) a named array field into YAML frontmatter.
  *
- * Always emits the inline form `name: ["a", "b"]` so downstream
- * parsers see a consistent shape regardless of the original input
- * shape.
+ * Always emits the inline form `field: ["a", "b"]`.  When the field
+ * already exists (inline or block), it is replaced in-place preserving
+ * surrounding field order.  When absent the field is appended at the
+ * end of the frontmatter block.
+ *
+ * Returns content unchanged if no frontmatter delimiter is found.
  */
 export function writeFrontmatterArray(
   content: string,
@@ -84,63 +68,54 @@ export function writeFrontmatterArray(
   const fmMatch = content.match(/^(---\n)([\s\S]*?)(\n---)/)
   if (!fmMatch) return content
 
-  const [, openDelim, fmBody, closeDelim] = fmMatch
-  const escapedName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const serialized = values.map((s) => `"${s}"`).join(", ")
-  const newLine = `${fieldName}: [${serialized}]`
+  const [, open, body, close] = fmMatch
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const serialised = values.map((v) => `"${v}"`).join(", ")
+  const newLine = `${fieldName}: [${serialised}]`
 
-  // Replace inline form in place — preserves field ordering.
-  const inlineRe = new RegExp(`^${escapedName}:\\s*\\[[^\\]]*\\]`, "m")
-  if (inlineRe.test(fmBody)) {
-    const rewritten = fmBody.replace(inlineRe, newLine)
-    return `${openDelim}${rewritten}${closeDelim}${content.slice(fmMatch[0].length)}`
+  // Replace existing inline form
+  const inlineRe = new RegExp(`^${escaped}:\\s*\\[[^\\]]*\\]`, "m")
+  if (inlineRe.test(body)) {
+    return `${open}${body.replace(inlineRe, newLine)}${close}${content.slice(fmMatch[0].length)}`
   }
 
-  // Replace block form in place, normalized to inline form.
-  const blockRe = new RegExp(
-    `^${escapedName}:\\s*\\n((?:[ \\t]+-\\s+.+\\n?)+)`,
-    "m",
-  )
-  if (blockRe.test(fmBody)) {
-    const rewritten = fmBody.replace(blockRe, newLine)
-    return `${openDelim}${rewritten}${closeDelim}${content.slice(fmMatch[0].length)}`
+  // Replace existing block form, normalising to inline
+  const blockRe = new RegExp(`^${escaped}:\\s*\\n((?:[ \\t]+-\\s+.+\\n?)+)`, "m")
+  if (blockRe.test(body)) {
+    return `${open}${body.replace(blockRe, newLine)}${close}${content.slice(fmMatch[0].length)}`
   }
 
-  // Field absent — append at end of frontmatter.
-  const rewritten = `${fmBody}\n${newLine}`
-  return `${openDelim}${rewritten}${closeDelim}${content.slice(fmMatch[0].length)}`
+  // Field absent — append
+  return `${open}${body}\n${newLine}${close}${content.slice(fmMatch[0].length)}`
 }
 
+// ── List merging ───────────────────────────────────────────────────
+
 /**
- * Union-merge two array values. Case-insensitive dedup. First-seen
- * casing wins (matches sources-merge's historical contract — keeps
- * users' original filename casing stable across re-ingests).
+ * Union two string arrays with case-insensitive deduplication.
+ * First-seen casing is preserved.
  */
-function mergeLists(
-  existing: readonly string[],
-  incoming: readonly string[],
-): string[] {
+function unionLists(existing: readonly string[], incoming: readonly string[]): string[] {
   const seen = new Set<string>()
-  const out: string[] = []
+  const merged: string[] = []
   for (const s of [...existing, ...incoming]) {
     const key = s.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(s)
+    merged.push(s)
   }
-  return out
+  return merged
 }
 
+// ── Multi-field merge ──────────────────────────────────────────────
+
 /**
- * Multi-field merge entry point. For each requested field, union the
- * existing-on-disk value with the LLM-emitted new value, and rewrite
- * the new content's frontmatter with the merged values.
+ * Union-merge several frontmatter array fields between an existing
+ * on-disk document and newly generated content.
  *
- * Fast-paths:
- *   - existingContent null/empty → return newContent verbatim
- *   - existing has no frontmatter at all → return newContent verbatim
- *   - no field actually changes → return newContent verbatim (stable
- *     reference, callers can rely on this for cache-key invariance)
+ * For each requested field the old and new values are merged and the
+ * result is written back.  Returns `newContent` unchanged when no
+ * field actually changed (stable reference for cache-key invariance).
  */
 export function mergeArrayFieldsIntoContent(
   newContent: string,
@@ -150,66 +125,43 @@ export function mergeArrayFieldsIntoContent(
   if (!existingContent) return newContent
   if (!/^---\n/.test(existingContent)) return newContent
 
-  let result = newContent
-  let changed = false
+  let output = newContent
+  let mutated = false
+
   for (const field of fields) {
     const oldValues = parseFrontmatterArray(existingContent, field)
-    if (oldValues.length === 0) continue // field absent in existing → nothing to preserve
-    const newValues = parseFrontmatterArray(result, field)
-    const merged = mergeLists(oldValues, newValues)
-    if (
-      merged.length === newValues.length &&
-      merged.every((s, i) => s === newValues[i])
-    ) {
-      continue // no-op for this field
-    }
-    result = writeFrontmatterArray(result, field, merged)
-    changed = true
+    if (oldValues.length === 0) continue
+    const newValues = parseFrontmatterArray(output, field)
+    const merged = unionLists(oldValues, newValues)
+    if (merged.length === newValues.length && merged.every((v, i) => v === newValues[i])) continue
+    output = writeFrontmatterArray(output, field, merged)
+    mutated = true
   }
-  return changed ? result : newContent
+
+  return mutated ? output : newContent
 }
 
-// ─── Backward-compatible single-field exports ─────────────────────
+// ── Single-field convenience wrappers ──────────────────────────────
 
-/**
- * Extract `sources: [...]` from a wiki page's frontmatter.
- * Handles inline and block forms; strips quotes; returns [] when
- * absent. Thin wrapper around the generic parser, kept stable for
- * sources-view.tsx (source-delete flow).
- */
+/** Extract the `sources` array from frontmatter. */
 export function parseSources(content: string): string[] {
   return parseFrontmatterArray(content, "sources")
 }
 
-/**
- * Rewrite the `sources:` field. Thin wrapper around the generic
- * writer, kept stable for sources-view.tsx (writes the post-delete
- * sources list back).
- */
+/** Rewrite the `sources` field in frontmatter. */
 export function writeSources(content: string, sources: string[]): string {
   return writeFrontmatterArray(content, "sources", sources)
 }
 
-/**
- * Merge two source lists into one (case-insensitive dedup, first-
- * seen casing wins). Exported for tests and sources-view consumers
- * that prefer to call the merge directly without going through the
- * content-rewrite path.
- */
+/** Case-insensitive union of two source lists. */
 export function mergeSourcesLists(
   existing: readonly string[],
   incoming: readonly string[],
 ): string[] {
-  return mergeLists(existing, incoming)
+  return unionLists(existing, incoming)
 }
 
-/**
- * Sources-only convenience wrapper — equivalent to
- * `mergeArrayFieldsIntoContent(newContent, existingContent, ["sources"])`.
- * Kept for ingest-flow callers that pre-date the multi-field
- * generalization; new code should prefer the generic version which
- * also unions tags / related.
- */
+/** Convenience wrapper: merge only the `sources` field into content. */
 export function mergeSourcesIntoContent(
   newContent: string,
   existingContent: string | null,

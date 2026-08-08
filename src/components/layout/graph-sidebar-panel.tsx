@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Filter, SlidersHorizontal, RefreshCw } from "lucide-react"

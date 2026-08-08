@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-08-07T09:47:11.116Z",
+  "version": "2.4.3",
+  "iterations": 50,
+  "operations": [
+    {
+      "name": "cold IPC invoke",
+      "p50": 0,
+      "p95": 0.03,
+      "p99": 0.18,
+      "avg": 0.01
+    },
+    {
+      "name": "warm IPC invoke",
+      "p50": 0,
+      "p95": 0,
+      "p99": 0.08,
+      "avg": 0.01
+    },
+    {
+      "name": "batch 10x IPC invoke",
+      "p50": 0.01,
+      "p95": 0.05,
+      "p99": 0.31,
+      "avg": 0.02
+    }
+  ]
+}

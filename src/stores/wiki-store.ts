@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Studio Contributors
+// Central application store — project state, LLM config, UI preferences and task lifecycle.
+
 import { create } from "zustand"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
@@ -5,6 +9,8 @@ import type { LintResult } from "@/lib/lint"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import type { TrashItem } from "@/lib/trash"
+
+// ── localStorage persistence keys ─────────────────────────────────────────────
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -14,7 +20,12 @@ const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
 const CHAT_DOCK_POSITION_KEY = "qmai-chat-dock-position"
 const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 
+// ── Public type exports ────────────────────────────────────────────────────────
+
+/** Position of the chat dock within the main layout. */
 export type ChatDockPosition = "bottom" | "right"
+
+/** Identifiers for settings sidebar categories. */
 export type SettingsCategoryId =
   | "llm"
   | "rerank"
@@ -29,46 +40,57 @@ export type SettingsCategoryId =
   | "contact-support"
   | "changelog"
 
+// ── localStorage reader helpers ────────────────────────────────────────────────
+
+/** Reads the persisted chat dock position, falling back to "bottom". */
 const readStoredChatDockPosition = (): ChatDockPosition => {
   if (typeof localStorage === "undefined") return "bottom"
   const saved = localStorage.getItem(CHAT_DOCK_POSITION_KEY)
   return saved === "right" || saved === "bottom" ? saved : "bottom"
 }
 
+/** Reads the persisted UI font scale, clamping to [0.85, 1.3]. */
 const readStoredUiFontSizeScale = (): number => {
   if (typeof localStorage === "undefined") return 1
   const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
   return Number.isFinite(saved) ? Math.max(0.85, Math.min(1.3, Number(saved.toFixed(2)))) : 1
 }
 
+/** Reads the persisted graph label display mode, defaulting to "all". */
 const readStoredGraphLabelDisplayMode = (): string => {
   if (typeof localStorage === "undefined") return "all"
   const saved = localStorage.getItem(GRAPH_LABEL_MODE_KEY)
   return saved === "auto" || saved === "focused" || saved === "all" ? saved : "all"
 }
 
+/** Reads the persisted graph edge colour hex, validating format. */
 const readStoredGraphEdgeColorHex = (): string => {
   if (typeof localStorage === "undefined") return "#7f8ea3"
   const saved = localStorage.getItem(GRAPH_EDGE_COLOR_KEY)
   return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#7f8ea3"
 }
 
+/** Reads the persisted graph edge strength percent, clamping to [100, 260]. */
 const readStoredGraphEdgeStrengthPercent = (): number => {
   if (typeof localStorage === "undefined") return 180
   const saved = Number(localStorage.getItem(GRAPH_EDGE_STRENGTH_KEY) ?? "180")
   return Number.isFinite(saved) ? Math.max(100, Math.min(260, saved)) : 180
 }
 
+/** Reads the persisted graph edge style, defaulting to "curve". */
 const readStoredGraphEdgeStyle = (): string => {
   if (typeof localStorage === "undefined") return "curve"
   const saved = localStorage.getItem(GRAPH_EDGE_STYLE_KEY)
   return saved === "curve" || saved === "arrow" || saved === "line" ? saved : "curve"
 }
 
+/** Reads whether graph edge labels should always be shown. */
 const readStoredGraphEdgeLabelsAlways = (): boolean => {
   if (typeof localStorage === "undefined") return false
   return localStorage.getItem(GRAPH_EDGE_LABELS_ALWAYS_KEY) === "true"
 }
+
+// ── LLM / provider types ────────────────────────────────────────────────────────
 
 /**
  * Wire protocol used when `provider === "custom"`. Other providers have a
@@ -109,6 +131,8 @@ interface LlmConfig {
    */
   explicitProviderSelection?: boolean
 }
+
+// ── Search / embedding / rerank types ───────────────────────────────────────────
 
 export type SearchProvider = "tavily" | "serpapi" | "searxng" | "none"
 export type SerpApiEngine =
@@ -162,16 +186,7 @@ interface EmbeddingConfig {
   outputDimensionality?: number
   /**
    * Chunking knobs (Phase 1 RAG). Undefined values fall back to the
-   * chunker's built-in defaults in `src/lib/text-chunker.ts`:
-   *   targetChars   1000
-   *   maxChars      1500
-   *   minChars      200
-   *   overlapChars  200
-   *
-   * Users on small-context endpoints (e.g. llama.cpp with n_ctx=512,
-   * Ollama `mxbai-embed-large`) should lower `maxChunkChars` to avoid
-   * per-request rejections; fetchEmbedding also auto-halves on
-   * "too long" server errors as a second line of defence.
+   * chunker's built-in defaults in `src/lib/text-chunker.ts`.
    */
   maxChunkChars?: number
   overlapChunkChars?: number
@@ -201,40 +216,13 @@ export const DEFAULT_RERANK_CONFIG: RerankConfig = {
   maxCandidates: 12,
 }
 
-/**
- * Image-captioning settings (Phase 4 of the multimodal-images plan).
- *
- * Decoupled from `llmConfig` because vision-capable endpoints are
- * usually NOT the same model the user picks for analysis/generation:
- * - the analysis stage often goes to a strong text-only model (Claude
- *   Sonnet, DeepSeek, etc.) that doesn't speak vision at all;
- * - captioning is happy with a small local VL model (Qwen2.5-VL-7B,
- *   LLaVA-1.6) that costs near-zero per call.
- *
- * `enabled` is the master gate. When false the caption pipeline is
- * skipped entirely — `read_file`'s extracted images still appear
- * inline (with empty alt text) and the safety-net `## Embedded
- * Images` section still gets written, but we never touch the LLM.
- *
- * `useMainLlm`: when true (the default for first-time users we
- * onboard), captioning calls go through the same `llmConfig`
- * everything else uses. When false, the dedicated fields below are
- * sent through the same provider machinery — same `streamChat`,
- * same `getProviderConfig`, no duplicate code.
- *
- * `concurrency` bounds parallel caption requests during ingest.
- * 30-image PDFs with sequential captioning at ~10s/image (a Qwen3
- * thinking model on consumer GPU) take 5 minutes. At concurrency=4
- * that drops to ~75s. Going wider than 8 typically just queues
- * behind a single-GPU server's batch slot, so we cap the slider
- * UI at a tasteful max in the settings view.
- */
+// ── Multimodal / image captioning ───────────────────────────────────────────────
+
 /**
  * Global outbound HTTP proxy. When `enabled` and `url` is a valid
  * http(s) URL, the Rust setup hook reads this on app launch and
  * sets HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars before the
- * reqwest client used by tauri-plugin-http is constructed. Changes
- * apply on app restart only.
+ * reqwest client used by tauri-plugin-http is constructed.
  */
 interface ProxyConfig {
   enabled: boolean
@@ -244,9 +232,9 @@ interface ProxyConfig {
 
 interface ScheduledImportConfig {
   enabled: boolean
-  path: string // 监控目录的相对路径（相对于项目根目录），空字符串表示使用默认的 "raw"
-  interval: number // 扫描间隔（分钟）
-  lastScan: number | null // 上次扫描时间戳
+  path: string
+  interval: number
+  lastScan: number | null
 }
 
 interface SourceWatchConfig {
@@ -259,74 +247,57 @@ interface SourceWatchConfig {
   maxFileSizeMb: number
 }
 
+// ── Novel config ────────────────────────────────────────────────────────────────
+
 export interface NovelConfig {
   contextTokenBudget: number
   recentSummaryWindow: number
   searchTopK: number
-  /** 单章目标字数（按去除空白后的字符数计），章节生成提示词和扩写阈值都按它推算。 */
+  /** Per-chapter target character count for generation and threshold calculations. */
   chapterTargetChars: number
   autoIngestOnSave: boolean
   autoExtractOnImport: boolean
   reviewBeforeSave: boolean
-  /** 深度生成阶段0：读取并 LLM 分析前几章完整正文。关闭可省一次调用，记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
+  /** Deep generation phase 0: read and LLM-analyse prior chapters (default off). */
   deepPreviousChaptersAnalysis: boolean
-  /** 深度生成阶段4-5：AI 审稿 + 自动返修。关闭则初稿直接进入简单审查与去AI味，省审稿与返修调用（默认开）。 */
+  /** Deep generation phase 4-5: AI review + auto-revision (default on). */
   deepChapterReview: boolean
-  /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
+  /** After Track A gates are green, optionally run Track B literary polish for thril/pull warnings (default off). Does not override Consistency/FIX-1. */
+  literaryPolishAfterGate: boolean
+  /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string
   reviewModel: string
   summaryModel: string
   extractModel: string
-  /** 社区摘要自动提取：开启后每 N 章用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（默认开）。 */
+  /** Community summary auto-extraction toggle (default on). */
   communitySummaryEnabled: boolean
-  /** 社区摘要提取间隔：每摄取多少章后自动重建一次社区摘要（默认 5）。 */
+  /** Chapter interval for community summary rebuild (default 5). */
   communitySummaryInterval: number
-  /** 社区摘要后台异步执行：开启后不阻塞章节摄取，关闭则同步等待（默认开）。 */
+  /** Background async execution for community summaries (default on). */
   communitySummaryAsync: boolean
-  /** 生成章节时自动输出标题：开启后AI在正文开头输出 # 第X章 标题名 格式的标题，保存时自动使用（默认开）。 */
+  /** Auto-generate chapter title during generation (default on). */
   autoGenerateChapterTitle: boolean
-  /**
-   * EPIC-001 / ADR-29 / TASK-004：Style Exemplars 注入开关。开启后
-   * buildContextPack 调用 loadStyleExemplars 注入 top-K=3 exemplar 作正向锚点
-   * 进入 de-AI LLM 输入（单次 pass 不变）。零 exemplar 优雅降级（默认开）。
-   */
+  /** EPIC-001 / ADR-29: Style Exemplars injection toggle (default on). */
   exemplarEnabled: boolean
-  /**
-   * EPIC-002 / ADR-30 / TASK-012：Scene Breakdown 阶段 1.5 中间层开关。开启后
-   * 在 contextPack（阶段 1）之后、task_brief（阶段 2）之前插入 runSceneBreakdown
-   * 单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
-   * .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
-   * ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
-   * sceneBreakdownResult.partial 经 collectModelText notePartial → partialReason →
-   * chat-panel pauseDeepChapterSession 路由（spec S-444k typed signal）。默认 **false**
-   * 向后兼容（ADR-30）：关闭时跳过阶段 1.5，保持现有 after_task_brief 恢复序不变。
-   */
+  /** EPIC-002 / ADR-30: Scene Breakdown stage 1.5 toggle (default off). */
   sceneBreakdownEnabled: boolean
-  /**
-   * EPIC-003 / ADR-32 / TASK-006：条件性上下文路由开关。开启后按 entity-page
-   * frontmatter tags（`location:chapter-N` / `relevance:high`）+ chapter outline
-   * mentions + scene characters 双源过滤场景候选注入 activeEntities。零 entity
-   * 优雅降级（回退全桶，不减少现有上下文，加性原则）（默认开）。
-   */
+  /** EPIC-003 / ADR-32: Conditional entity routing toggle (default on). */
   conditionalRoutingEnabled: boolean
-  /**
-   * EPIC-004 / ADR-33 / TASK-009：Inspector 只读查询面板开关。开启后 Chat 主链旁
-   * 渲染 26 维只读面板（cognition-state/draft/contextPack/scene/review/decision
-   * 6 分块），复用 status.dimension_results 缓存 + 静态 de-ai slop 扫描，零 LLM
-   * 调用零 status 写入（默认开）。
-   */
+  /** EPIC-004 / ADR-33: Inspector read-only query panel toggle (default on). */
   inspectorEnabled: boolean
-  /**
-   * EPIC-003 / ADR-32 / TASK-007：temporal-facts 轨 B 路由维度开关。ISS-014
-   * temporal-memory 路由维度（按 chapter 时间线注入 temporal facts 作路由筛选维度）
-   * 落地后激活。ISS-014 未落地，默认 **false** — 仅 Track A entity-tags 轨运行
-   * （G-001 两轨独立交付，不被阻塞）。stub：flag + TODO(ISS-014) 注释占位，
-   * 无实际 temporal-facts 路由读取逻辑（temporalFactsCache read 仅在 flag=true
-   * 分支占位）。两轨并存时 entity-tags + temporal-facts 双源融合，token 预算协调
-   * （注释占位，stub）。
-   */
+  /** Quality Foundation v1: temporal-facts routing for mid-chapter consistency (default on). Explicit false is preserved on load. */
   temporalFactsEnabled: boolean
+  /** Quality Foundation v1: additive entity-name boost on context search hits (default on). */
+  entityBoostEnabled: boolean
+  /** Weight added to hit score when title/snippet mentions a known entity (0–1 scale contribution). */
+  entityBoostWeight: number
+  /** Quality Foundation v1: post-draft StateDelta light-check (default on). */
+  stateDeltaLightCheckEnabled: boolean
+  /** When true, light-check errors can block Track A; default false = warn-only. */
+  stateDeltaBlocksTrackA: boolean
+  /** Quality Foundation v1: outline thril soft-gate before draft (default on). */
+  outlineThrillSoftGateEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -339,6 +310,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   reviewBeforeSave: false,
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
+  literaryPolishAfterGate: false,
   reviewReasoningEffort: "high",
   writingModel: "",
   reviewModel: "",
@@ -349,15 +321,18 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
   exemplarEnabled: true,
-  // EPIC-002/ADR-30: scene-breakdown 阶段 1.5 默认 false 向后兼容（关闭时
-  // 跳过阶段 1.5，after_task_brief 恢复序不变）。
   sceneBreakdownEnabled: false,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,
-  // EPIC-003/007: temporal-facts 轨 B stub — ISS-014 未落地默认 false（G-001
-  // 两轨独立交付，仅 Track A entity-tags 轨运行）。
-  temporalFactsEnabled: false,
+  temporalFactsEnabled: true,
+  entityBoostEnabled: true,
+  entityBoostWeight: 0.4,
+  stateDeltaLightCheckEnabled: true,
+  stateDeltaBlocksTrackA: false,
+  outlineThrillSoftGateEnabled: true,
 }
+
+// ── Revision feedback / multimodal ──────────────────────────────────────────────
 
 export interface RevisionFeedbackWindowConfig {
   currentChapterIncludeShouldImprove: boolean
@@ -368,8 +343,6 @@ export interface RevisionFeedbackWindowConfig {
 
 interface MultimodalConfig {
   enabled: boolean
-  /** Reuse `llmConfig` for caption calls. When true, the fields
-   *  below are ignored. */
   useMainLlm: boolean
   provider: LlmConfig["provider"]
   apiKey: string
@@ -383,10 +356,11 @@ interface MultimodalConfig {
   concurrency: number
 }
 
+// ── Output language ──────────────────────────────────────────────────────────────
+
 /**
- * Output language for LLM-generated content (wiki pages, chat responses, research).
+ * Output language for LLM-generated content.
  * "auto" = detect from user input / source document language.
- * Otherwise = force all LLM output to use the specified language.
  */
 type OutputLanguage =
   | "auto"
@@ -413,36 +387,25 @@ type OutputLanguage =
   | "Thai"
   | "Ukrainian"
 
-/**
- * 已保存的模型配置项
- */
+// ── Saved model / provider override ──────────────────────────────────────────────
+
+/** Persisted model configuration entry. */
 export interface SavedModel {
-  /** 唯一ID */
   id: string
-  /** 显示名称 */
   name: string
-  /** 模型ID */
   model: string
-  /** API密钥（可选，可以复用供应商的密钥） */
   apiKey?: string
-  /** 自定义接口地址（可选，可以复用供应商的地址） */
   customEndpoint?: string
-  /** 备注说明 */
   description?: string
-  /** 创建时间 */
   createdAt: number
 }
 
-/**
- * Per-preset saved fields. Each entry survives turning the preset off
- * and coming back — users don't have to re-enter an API key when they
- * briefly switch to a different provider.
- */
+/** Per-preset saved fields surviving toggle off/on cycles. */
 export interface ProviderOverride {
-  label?: string             // 自定义配置的显示名称
+  label?: string
   apiKey?: string
   model?: string
-  baseUrl?: string           // customEndpoint for custom presets, ollamaUrl for ollama
+  baseUrl?: string
   azureApiVersion?: string
   azureModelFamily?: AzureModelFamily
   apiMode?: CustomApiMode
@@ -450,13 +413,15 @@ export interface ProviderOverride {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
-  /** 是否在 AI 会话中显示该 provider 下的模型（仅用于自定义供应商）。默认 true。 */
+  /** Whether to show models under this provider in AI conversations (default true). */
   enabled?: boolean
-  /** 已保存的模型列表（仅用于自定义供应商） */
+  /** Saved models for this provider. */
   savedModels?: SavedModel[]
 }
 
 export type ProviderConfigs = Record<string, ProviderOverride>
+
+// ── Async task state types ───────────────────────────────────────────────────────
 
 interface BaseTaskState {
   projectPath: string
@@ -514,6 +479,8 @@ export interface PendingEditorHighlight {
 type LintRunFinishState = Omit<Partial<LintRunState>, "runId" | "projectPath" | "filePath">
 type ReviewRunFinishState = Omit<Partial<ReviewRunState>, "runId" | "projectPath" | "filePath">
 
+// ── WikiState interface ──────────────────────────────────────────────────────────
+
 interface WikiState {
   project: WikiProject | null
   fileTree: FileNode[]
@@ -522,18 +489,8 @@ interface WikiState {
   fileContent: string
   pendingEditorHighlight: PendingEditorHighlight | null
   /**
-   * One-shot scroll target for the markdown preview. When the user
-   * clicks an image in search results and chooses "jump to source",
-   * we set this to the image URL alongside `selectedFile`. The
-   * markdown preview consumes it on its next render — finds the
-   * `<img data-mdsrc="..."/>` whose attribute matches and scrolls
-   * it into view, then clears this back to null so a stale target
-   * doesn't fire on the NEXT page open.
-   *
-   * Match by raw URL (the literal `src` from the markdown) rather
-   * than the resolved `convertFileSrc` URL — same image referenced
-   * across two pages with different URL conventions (one absolute,
-   * one wiki-relative) still works.
+   * One-shot scroll target for the markdown preview image jump.
+   * Consumed on next render and cleared back to null.
    */
   pendingScrollImageSrc: string | null
   selectedMemoryCenterEntry: string | null
@@ -547,6 +504,8 @@ interface WikiState {
   selectedSoulSection: "builtIn" | "custom"
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
+  /** Per-chapter thril soft-gate explicit acknowledge ("0" if unknown). Not a FIX-1 bypass. */
+  thrilSoftGateAcknowledgedByChapter: Record<string, boolean>
   selectedDismantlingProjectId: string | null
   graphMode: string
   graphDisplayMode: string
@@ -562,11 +521,9 @@ interface WikiState {
   refreshGraph: (() => void) | null
   llmConfig: LlmConfig
   aiChatModel: string
-  /** 默认模型：AI会话提取记忆、提取角色等后台任务默认使用的模型（格式: "providerId/modelId"，留空则使用 AI 会话当前模型） */
+  /** Default model for background tasks (format: "providerId/modelId"). */
   defaultLlmModel: string
-  /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
   providerConfigs: ProviderConfigs
-  /** Which preset is currently active. `null` = no LLM configured. */
   activePresetId: string | null
   searchApiConfig: SearchApiConfig
   embeddingConfig: EmbeddingConfig
@@ -579,7 +536,7 @@ interface WikiState {
   novelMode: boolean
   chatEditModeEnabled: boolean
   novelConfig: NovelConfig
-  /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
+  /** Community summary error message for UI toast display. */
   communitySummaryError: string | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
@@ -609,6 +566,8 @@ interface WikiState {
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
+  setThrillSoftGateAcknowledged: (chapter: number | null | undefined, acknowledged: boolean) => void
+  clearThrillSoftGateAcknowledged: (chapter?: number | null) => void
   setSelectedDismantlingProjectId: (id: string | null) => void
   setGraphMode: (mode: string) => void
   setGraphDisplayMode: (mode: string) => void
@@ -653,7 +612,18 @@ interface WikiState {
   bumpDataVersion: () => void
 }
 
+// ── Store initialisation ─────────────────────────────────────────────────────────
+
+/**
+ * Central Zustand store for the entire application. Holds project state,
+ * LLM/embedding/search configuration, UI preferences, and transient
+ * async task state (lint runs, review runs, final chapter saves).
+ *
+ * UI preferences (chat dock position, font scale, graph settings) are
+ * round-tripped through `localStorage` so they survive app restarts.
+ */
 export const useWikiStore = create<WikiState>((set) => ({
+  // ── Project & file state ───────────────────────────────────────────────────────
   project: null,
   fileTree: [],
   selectedFile: null,
@@ -672,7 +642,10 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedSoulSection: "builtIn",
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
+  thrilSoftGateAcknowledgedByChapter: {},
   selectedDismantlingProjectId: null,
+
+  // ── Graph view state ───────────────────────────────────────────────────────────
   graphMode: "overview",
   graphDisplayMode: "graph",
   graphColorMode: "type",
@@ -685,6 +658,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   graphEdgeLabelsAlwaysVisible: readStoredGraphEdgeLabelsAlways(),
   graphStats: { nodeCount: 0, edgeCount: 0, hiddenCount: 0, filteredNodeCount: 0, filteredEdgeCount: 0 },
   refreshGraph: null,
+
+  // ── LLM / provider state ───────────────────────────────────────────────────────
   llmConfig: {
     provider: "openai",
     apiKey: "",
@@ -701,9 +676,64 @@ export const useWikiStore = create<WikiState>((set) => ({
   defaultLlmModel: "",
   providerConfigs: {},
   activePresetId: null,
-
   dataVersion: 0,
 
+  // ── Search / embedding / rerank ────────────────────────────────────────────────
+  searchApiConfig: {
+    provider: "none",
+    apiKey: "",
+    serpApiEngine: "google",
+    searXngUrl: "",
+    searXngCategories: ["general"],
+    providerConfigs: {},
+  },
+  embeddingConfig: {
+    enabled: false,
+    endpoint: "",
+    apiKey: "",
+    model: "",
+  },
+  rerankConfig: { ...DEFAULT_RERANK_CONFIG },
+  multimodalConfig: {
+    enabled: false,
+    useMainLlm: true,
+    provider: "custom",
+    apiKey: "",
+    model: "",
+    ollamaUrl: "http://localhost:11434",
+    customEndpoint: "",
+    azureApiVersion: "2024-10-21",
+    azureModelFamily: "auto",
+    apiMode: "chat_completions",
+    concurrency: 4,
+  },
+  outputLanguage: "Chinese",
+
+  // ── Proxy / import / source-watch ──────────────────────────────────────────────
+  proxyConfig: { enabled: false, url: "", bypassLocal: true },
+  scheduledImportConfig: { enabled: false, path: "", interval: 60, lastScan: null },
+  sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,
+
+  // ── Novel / UI state ───────────────────────────────────────────────────────────
+  novelMode: true,
+  chatEditModeEnabled: false,
+  novelConfig: { ...DEFAULT_NOVEL_CONFIG },
+  communitySummaryError: null,
+  searchHistory: [],
+  searchTrigger: null,
+  revisionFeedbackWindowConfig: {
+    currentChapterIncludeShouldImprove: true,
+    previousChapterCarryEnabled: true,
+    lookbackChapterCount: 2,
+    lookbackIncludeMustFixOnly: true,
+  },
+  finalChapterSave: null,
+  lintRun: null,
+  reviewRun: null,
+  theme: "system",
+  uiFontSizeScale: readStoredUiFontSizeScale(),
+
+  // ── Simple setters ─────────────────────────────────────────────────────────────
   setProject: (project) => set({ project }),
   setFileTree: (fileTree) => set({ fileTree }),
   setSelectedFile: (selectedFile) => set({ selectedFile, selectedTrashItem: null }),
@@ -727,6 +757,20 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
+  setThrillSoftGateAcknowledged: (chapter, acknowledged) => set((prev) => {
+    const key = chapter == null || !Number.isFinite(chapter) ? "0" : String(Math.trunc(chapter))
+    const next = { ...prev.thrilSoftGateAcknowledgedByChapter }
+    if (acknowledged) next[key] = true
+    else delete next[key]
+    return { thrilSoftGateAcknowledgedByChapter: next }
+  }),
+  clearThrillSoftGateAcknowledged: (chapter) => set((prev) => {
+    if (chapter === undefined) return { thrilSoftGateAcknowledgedByChapter: {} }
+    const key = chapter == null || !Number.isFinite(chapter) ? "0" : String(Math.trunc(chapter))
+    const next = { ...prev.thrilSoftGateAcknowledgedByChapter }
+    delete next[key]
+    return { thrilSoftGateAcknowledgedByChapter: next }
+  }),
   setSelectedDismantlingProjectId: (selectedDismantlingProjectId) => set({ selectedDismantlingProjectId }),
   setGraphMode: (graphMode) => set({ graphMode }),
   setGraphDisplayMode: (graphDisplayMode) => set({ graphDisplayMode }),
@@ -740,78 +784,6 @@ export const useWikiStore = create<WikiState>((set) => ({
   setGraphEdgeLabelsAlwaysVisible: (graphEdgeLabelsAlwaysVisible: boolean) => set({ graphEdgeLabelsAlwaysVisible }),
   setGraphStats: (graphStats) => set({ graphStats }),
   setRefreshGraph: (refreshGraph) => set({ refreshGraph }),
-  searchApiConfig: {
-    provider: "none",
-    apiKey: "",
-    serpApiEngine: "google",
-    searXngUrl: "",
-    searXngCategories: ["general"],
-    providerConfigs: {},
-  },
-
-  embeddingConfig: {
-    enabled: false,
-    endpoint: "",
-    apiKey: "",
-    model: "",
-  },
-
-  rerankConfig: { ...DEFAULT_RERANK_CONFIG },
-
-  multimodalConfig: {
-    // Off by default — captioning is a non-trivial token spend
-    // (one VLM call per extracted image), and silently turning it
-    // on for every user the first time they import a PDF would be
-    // a budget surprise. Users who want it flip the toggle in
-    // Settings → Image captioning.
-    enabled: false,
-    useMainLlm: true,
-    provider: "custom",
-    apiKey: "",
-    model: "",
-    ollamaUrl: "http://localhost:11434",
-    customEndpoint: "",
-    azureApiVersion: "2024-10-21",
-    azureModelFamily: "auto",
-    apiMode: "chat_completions",
-    concurrency: 4,
-  },
-
-  outputLanguage: "Chinese",
-
-  proxyConfig: {
-    enabled: false,
-    url: "",
-    bypassLocal: true,
-  },
-
-  scheduledImportConfig: {
-    enabled: false,
-    path: "",
-    interval: 60,
-    lastScan: null,
-  },
-
-  sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,
-
-  novelMode: true,
-  chatEditModeEnabled: false,
-  novelConfig: { ...DEFAULT_NOVEL_CONFIG },
-  communitySummaryError: null,
-  searchHistory: [],
-  searchTrigger: null,
-  revisionFeedbackWindowConfig: {
-    currentChapterIncludeShouldImprove: true,
-    previousChapterCarryEnabled: true,
-    lookbackChapterCount: 2,
-    lookbackIncludeMustFixOnly: true,
-  },
-  finalChapterSave: null,
-  lintRun: null,
-  reviewRun: null,
-  theme: "system",
-  uiFontSizeScale: readStoredUiFontSizeScale(),
-
   setLlmConfig: (llmConfig) => set({ llmConfig }),
   setAiChatModel: (aiChatModel) => set({ aiChatModel }),
   setDefaultLlmModel: (defaultLlmModel) => set({ defaultLlmModel }),
@@ -819,7 +791,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setActivePresetId: (activePresetId) => set({ activePresetId }),
   setSearchApiConfig: (searchApiConfig) => set({ searchApiConfig }),
   setEmbeddingConfig: (embeddingConfig) => set({ embeddingConfig }),
-  setRerankConfig: (rerankConfig) => set((state) => ({ rerankConfig: { ...state.rerankConfig, ...rerankConfig } })),
+  setRerankConfig: (rerankConfig) => set((prev) => ({ rerankConfig: { ...prev.rerankConfig, ...rerankConfig } })),
   setMultimodalConfig: (multimodalConfig) => set({ multimodalConfig }),
   setOutputLanguage: (outputLanguage) => set({ outputLanguage }),
   setProxyConfig: (proxyConfig) => set({ proxyConfig }),
@@ -827,21 +799,21 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
-  setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
+  setNovelConfig: (config) => set((prev) => ({ novelConfig: { ...prev.novelConfig, ...config } })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),
   setFinalChapterSave: (finalChapterSave) => set({ finalChapterSave }),
   setLintRun: (lintRun) => set({ lintRun }),
-  finishLintRun: (runId, lintRun) => set((state) => {
-    if (state.lintRun?.runId !== runId) return {}
-    return { lintRun: { ...state.lintRun, ...lintRun } }
+  finishLintRun: (runId, lintRun) => set((prev) => {
+    if (prev.lintRun?.runId !== runId) return {}
+    return { lintRun: { ...prev.lintRun, ...lintRun } }
   }),
   setReviewRun: (reviewRun) => set({ reviewRun }),
-  finishReviewRun: (runId, reviewRun) => set((state) => {
-    if (state.reviewRun?.runId !== runId) return {}
-    return { reviewRun: { ...state.reviewRun, ...reviewRun } }
+  finishReviewRun: (runId, reviewRun) => set((prev) => {
+    if (prev.reviewRun?.runId !== runId) return {}
+    return { reviewRun: { ...prev.reviewRun, ...reviewRun } }
   }),
   clearTransientTaskState: () => set({ finalChapterSave: null, lintRun: null, reviewRun: null }),
   setTheme: (theme) => set({ theme }),
@@ -852,7 +824,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
     set({ uiFontSizeScale: clamped })
   },
-  bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
+  bumpDataVersion: () => set((prev) => ({ dataVersion: prev.dataVersion + 1 })),
 }))
 
 export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig }

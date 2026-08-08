@@ -7,8 +7,9 @@ import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
-import { slopScore, classifySlop, slopReportToText } from "./mechanical-slop-detector"
+import { slopScore, classifySlop, slopReportToText, detectCharacterActions, characterActionsToText } from "./mechanical-slop-detector"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { sliceChapterForReview } from "./chapter-window"
 // TASK-008 (GRL-011 Decision 4.3): deterministic-continuity-engine 是纯函数零 IO 零 LLM
 // 引擎, 由审查层薄包装调用产 ContinuityFinding[], 映射 NovelReviewResult type
 // 'consistency_mechanical' (TASK-006 已加入 CONSISTENCY_REVIEW_TYPES set, 经
@@ -238,7 +239,7 @@ ${characterOnly ? "" : `${i18n.t("novel.reviewPrompt.specialChecksTitle")}
 4. 输出要求：在审查 JSON 中，角色相关问题 type 使用 "character_consistency"，relatedMemory 必须引用对应的光环/状态/认知/大纲原文。
 
 ${i18n.t("novel.reviewPrompt.chapterContent")}
-${chapterContent.slice(0, 8000)}
+${sliceChapterForReview(chapterContent)}
 
 ${i18n.t("novel.reviewPrompt.outputFormat")}
 [
@@ -424,12 +425,8 @@ export async function reviewChapter(
   const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
 
-  // A19 机械层零 LLM 前置门控 (借鉴点 #1, PLN-20260716-mechanical-regex-audit):
-  // LLM 审查前先跑机械 slopScore, penalty>=8 (block) 直接返回 anti_ai error 跳过
-  // LLM 审查 (机械层先于语义层, 省 token + 防 LLM 自我纵容 slop)。slop 属 Anti-AI(P1),
-  // 不覆盖 Consistency(P0) — 一致性仍由 LLM 审查维度管, 机械 slop 只管 AI 味。
-  // 5-8 (warn) / <5 (clean) 暂不注入 LLM (最小侵入, detector 已暴露
-  // slopReportToText 供未来 prompt 注入); >=8 阻断已覆盖最高 ROI 省流场景。
+  // A19 机械层零 LLM 前置门控: 先跑 slop + 再跑角色行为模式检测
+  // slop 属 Anti-AI(P1), 行为模式属 Character(P1), 不覆盖 Consistency(P0)。
   const slopReport = slopScore(chapterContent)
   if (classifySlop(slopReport) === "block") {
     return [{
@@ -441,6 +438,20 @@ export async function reviewChapter(
       suggestion: "降低 AI 味: 删总结腔/解释腔, 打破机械句式, 具体化情绪替代概述",
     }]
   }
+
+  // P0: 角色行为模式检测 (角色-动作绑定, 零 LLM)
+  const actionHits = detectCharacterActions(chapterContent)
+  const actionText = characterActionsToText(actionHits)
+  const behaviorReview: NovelReviewResult[] = actionText
+    ? [{
+        severity: "warning" as const,
+        type: "character_behavior",
+        message: `角色行为模式: ${actionHits.filter(h => h.totalCount >= 3).map(h => `"${h.action}"×${h.totalCount}`).join(", ")}`,
+        evidence: actionText,
+        relatedMemory: "",
+        suggestion: "减少重复动作标签, 用差异化微动作替代, 避免角色标签化",
+      }]
+    : []
 
   // TASK-008 (GRL-011 Decision 4.3): 确定性连续性引擎 — 机械层零 LLM 纯函数,
   // 与 slopScore 同层机械预门 (机械先于语义, 三层叠加 runFactCheck→引擎→slop→LLM)。
@@ -458,7 +469,7 @@ export async function reviewChapter(
     ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber)
   if (continuityResults.some(r => r.severity === "error")) {
     // critical 机械 finding 阻断 approve, 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)
-    return continuityResults
+    return [...continuityResults, ...behaviorReview]
   }
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
@@ -555,7 +566,7 @@ ${langReminder}`
     // TASK-008: 把机械连续性 findings (high/warning/data_gap, 非阻断) 前置到 LLM
     // 审查结果之前 — critical 已在上面短路返回, 这里只剩提醒级。合并后经
     // collectBlockingIssues 收集 (只有 severity:'error' 阻断, warning/info 可见)。
-    return [...continuityResults, ...chunkResults.flat()]
+    return [...continuityResults, ...behaviorReview, ...chunkResults.flat()]
   } catch (err) {
     // F-16 (CWE-532): message-only; the full error is still propagated via
     // toError(err) for the caller, so the stderr log only needs the message.

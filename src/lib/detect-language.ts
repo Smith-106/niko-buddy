@@ -1,335 +1,240 @@
 /**
- * Detect the primary language of a text string based on Unicode script ranges.
- * Supports 20+ major languages. Returns an English language name.
+ * @license MIT © QMAI
+ *
+ * Language detection based on Unicode script ranges and Latin-script
+ * diacritic / keyword heuristics.  Covers 20+ major writing systems.
  */
-export function detectLanguage(text: string): string {
-  // Count characters in each script range
-  const counts: Record<string, number> = {}
 
-  for (const ch of text) {
-    const cp = ch.codePointAt(0)
-    if (!cp || cp < 0x80) continue // skip ASCII initially
+/**
+ * Map a single Unicode code-point to its script family.
+ * Returns `null` when the code-point does not fall inside any tracked range.
+ */
+function classifyScript(cp: number): string | null {
+  // CJK Unified Ideographs — shared by Chinese and Japanese Kanji
+  if (
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x20000 && cp <= 0x2a6df) ||
+    (cp >= 0xf900 && cp <= 0xfaff)
+  ) return "Chinese"
 
-    const script = getScript(cp)
-    if (script) {
-      counts[script] = (counts[script] ?? 0) + 1
-    }
-  }
+  // Japanese Hiragana / Katakana
+  if (
+    (cp >= 0x3040 && cp <= 0x309f) ||
+    (cp >= 0x30a0 && cp <= 0x30ff) ||
+    (cp >= 0x31f0 && cp <= 0x31ff) ||
+    (cp >= 0xff65 && cp <= 0xff9f)
+  ) return "Japanese"
 
-  // Special case: Japanese uses BOTH Hiragana/Katakana and Kanji. Pure
-  // Chinese uses ONLY Kanji. If we see any Japanese script characters at
-  // all alongside Kanji, the language is Japanese, regardless of which
-  // count dominates. (Kanji-heavy Japanese text would otherwise be
-  // misclassified as Chinese.)
-  if ((counts.Japanese ?? 0) > 0 && (counts.Chinese ?? 0) > 0) {
-    return "Japanese"
-  }
-
-  // If non-Latin scripts detected, return the dominant one
-  let maxScript = ""
-  let maxCount = 0
-  for (const [script, count] of Object.entries(counts)) {
-    if (count > maxCount) {
-      maxScript = script
-      maxCount = count
-    }
-  }
-
-  if (maxScript === "Arabic" && maxCount >= 2) {
-    return detectArabicScriptLanguage(text)
-  }
-
-  if (maxScript && maxCount >= 2) {
-    return maxScript
-  }
-
-  // For Latin-script languages, use diacritics and common word patterns
-  const latinLang = detectLatinLanguage(text)
-  if (latinLang) return latinLang
-
-  return "English"
-}
-
-function detectArabicScriptLanguage(text: string): "Arabic" | "Persian" {
-  let persianScore = 0
-  let arabicScore = 0
-
-  for (const ch of text) {
-    switch (ch) {
-      case "پ":
-      case "چ":
-      case "ژ":
-      case "گ":
-        persianScore += 3
-        break
-      case "ک":
-      case "ی":
-        persianScore += 1
-        break
-      case "ك":
-      case "ي":
-      case "ة":
-      case "ى":
-      case "إ":
-      case "أ":
-      case "ؤ":
-      case "ئ":
-        arabicScore += 1
-        break
-    }
-  }
-
-  const normalized = ` ${text.replace(/[^\p{L}\p{N}]+/gu, " ")} `
-  const persianWords = [
-    "این",
-    "است",
-    "که",
-    "برای",
-    "های",
-    "را",
-    "در",
-    "به",
-    "از",
-    "می",
-    "یک",
-  ]
-  const arabicWords = [
-    "ال",
-    "في",
-    "من",
-    "على",
-    "هذا",
-    "هذه",
-    "إلى",
-    "التي",
-    "الذي",
-    "كان",
-  ]
-
-  for (const word of persianWords) {
-    if (normalized.includes(` ${word} `)) persianScore += 2
-  }
-  for (const word of arabicWords) {
-    if (normalized.includes(` ${word} `)) arabicScore += 2
-  }
-
-  // Be conservative: Persian has reliable orthographic clues, but short
-  // Arabic-script snippets can be ambiguous. Fall back to Arabic unless the
-  // Persian signal is clearly stronger.
-  return persianScore >= 3 && persianScore > arabicScore ? "Persian" : "Arabic"
-}
-
-function getScript(cp: number): string | null {
-  // CJK Unified Ideographs (Chinese/Japanese Kanji)
-  if ((cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) ||
-      (cp >= 0x20000 && cp <= 0x2A6DF) || (cp >= 0xF900 && cp <= 0xFAFF)) {
-    return "Chinese"
-  }
-  // Japanese Hiragana + Katakana
-  if ((cp >= 0x3040 && cp <= 0x309F) || (cp >= 0x30A0 && cp <= 0x30FF) ||
-      (cp >= 0x31F0 && cp <= 0x31FF) || (cp >= 0xFF65 && cp <= 0xFF9F)) {
-    return "Japanese"
-  }
   // Korean Hangul
-  if ((cp >= 0xAC00 && cp <= 0xD7AF) || (cp >= 0x1100 && cp <= 0x11FF) ||
-      (cp >= 0x3130 && cp <= 0x318F)) {
-    return "Korean"
-  }
-  // Arabic
-  if ((cp >= 0x0600 && cp <= 0x06FF) || (cp >= 0x0750 && cp <= 0x077F) ||
-      (cp >= 0x08A0 && cp <= 0x08FF) || (cp >= 0xFB50 && cp <= 0xFDFF) ||
-      (cp >= 0xFE70 && cp <= 0xFEFF)) {
-    return "Arabic"
-  }
+  if (
+    (cp >= 0xac00 && cp <= 0xd7af) ||
+    (cp >= 0x1100 && cp <= 0x11ff) ||
+    (cp >= 0x3130 && cp <= 0x318f)
+  ) return "Korean"
+
+  // Arabic script
+  if (
+    (cp >= 0x0600 && cp <= 0x06ff) ||
+    (cp >= 0x0750 && cp <= 0x077f) ||
+    (cp >= 0x08a0 && cp <= 0x08ff) ||
+    (cp >= 0xfb50 && cp <= 0xfdff) ||
+    (cp >= 0xfe70 && cp <= 0xfeff)
+  ) return "Arabic"
+
   // Hebrew
-  if ((cp >= 0x0590 && cp <= 0x05FF) || (cp >= 0xFB1D && cp <= 0xFB4F)) {
-    return "Hebrew"
-  }
+  if ((cp >= 0x0590 && cp <= 0x05ff) || (cp >= 0xfb1d && cp <= 0xfb4f)) return "Hebrew"
+
   // Thai
-  if (cp >= 0x0E00 && cp <= 0x0E7F) {
-    return "Thai"
-  }
-  // Devanagari (Hindi, Sanskrit, Marathi, Nepali)
-  if (cp >= 0x0900 && cp <= 0x097F) {
-    return "Hindi"
-  }
+  if (cp >= 0x0e00 && cp <= 0x0e7f) return "Thai"
+
+  // Devanagari — Hindi, Sanskrit, Marathi, Nepali
+  if (cp >= 0x0900 && cp <= 0x097f) return "Hindi"
+
   // Bengali
-  if (cp >= 0x0980 && cp <= 0x09FF) {
-    return "Bengali"
-  }
+  if (cp >= 0x0980 && cp <= 0x09ff) return "Bengali"
+
   // Tamil
-  if (cp >= 0x0B80 && cp <= 0x0BFF) {
-    return "Tamil"
-  }
+  if (cp >= 0x0b80 && cp <= 0x0bff) return "Tamil"
+
   // Telugu
-  if (cp >= 0x0C00 && cp <= 0x0C7F) {
-    return "Telugu"
-  }
+  if (cp >= 0x0c00 && cp <= 0x0c7f) return "Telugu"
+
   // Kannada
-  if (cp >= 0x0C80 && cp <= 0x0CFF) {
-    return "Kannada"
-  }
+  if (cp >= 0x0c80 && cp <= 0x0cff) return "Kannada"
+
   // Malayalam
-  if (cp >= 0x0D00 && cp <= 0x0D7F) {
-    return "Malayalam"
-  }
+  if (cp >= 0x0d00 && cp <= 0x0d7f) return "Malayalam"
+
   // Gujarati
-  if (cp >= 0x0A80 && cp <= 0x0AFF) {
-    return "Gujarati"
-  }
-  // Gurmukhi (Punjabi)
-  if (cp >= 0x0A00 && cp <= 0x0A7F) {
-    return "Punjabi"
-  }
-  // Myanmar (Burmese)
-  if (cp >= 0x1000 && cp <= 0x109F) {
-    return "Burmese"
-  }
-  // Khmer (Cambodian)
-  if (cp >= 0x1780 && cp <= 0x17FF) {
-    return "Khmer"
-  }
+  if (cp >= 0x0a80 && cp <= 0x0aff) return "Gujarati"
+
+  // Gurmukhi — Punjabi
+  if (cp >= 0x0a00 && cp <= 0x0a7f) return "Punjabi"
+
+  // Myanmar — Burmese
+  if (cp >= 0x1000 && cp <= 0x109f) return "Burmese"
+
+  // Khmer — Cambodian
+  if (cp >= 0x1780 && cp <= 0x17ff) return "Khmer"
+
   // Lao
-  if (cp >= 0x0E80 && cp <= 0x0EFF) {
-    return "Lao"
-  }
+  if (cp >= 0x0e80 && cp <= 0x0eff) return "Lao"
+
   // Georgian
-  if ((cp >= 0x10A0 && cp <= 0x10FF) || (cp >= 0x2D00 && cp <= 0x2D2F)) {
-    return "Georgian"
-  }
+  if ((cp >= 0x10a0 && cp <= 0x10ff) || (cp >= 0x2d00 && cp <= 0x2d2f)) return "Georgian"
+
   // Armenian
-  if (cp >= 0x0530 && cp <= 0x058F) {
-    return "Armenian"
-  }
-  // Ethiopic (Amharic)
-  if (cp >= 0x1200 && cp <= 0x137F) {
-    return "Amharic"
-  }
+  if (cp >= 0x0530 && cp <= 0x058f) return "Armenian"
+
+  // Ethiopic — Amharic
+  if (cp >= 0x1200 && cp <= 0x137f) return "Amharic"
+
   // Tibetan
-  if (cp >= 0x0F00 && cp <= 0x0FFF) {
-    return "Tibetan"
-  }
+  if (cp >= 0x0f00 && cp <= 0x0fff) return "Tibetan"
+
   // Sinhala
-  if (cp >= 0x0D80 && cp <= 0x0DFF) {
-    return "Sinhala"
-  }
-  // Cyrillic (Russian, Ukrainian, Bulgarian, etc.)
-  if ((cp >= 0x0400 && cp <= 0x04FF) || (cp >= 0x0500 && cp <= 0x052F)) {
-    return "Russian" // default Cyrillic to Russian; refined below
-  }
+  if (cp >= 0x0d80 && cp <= 0x0dff) return "Sinhala"
+
+  // Cyrillic — default to Russian
+  if ((cp >= 0x0400 && cp <= 0x04ff) || (cp >= 0x0500 && cp <= 0x052f)) return "Russian"
+
   // Greek
-  if ((cp >= 0x0370 && cp <= 0x03FF) || (cp >= 0x1F00 && cp <= 0x1FFF)) {
-    return "Greek"
-  }
+  if ((cp >= 0x0370 && cp <= 0x03ff) || (cp >= 0x1f00 && cp <= 0x1fff)) return "Greek"
 
   return null
 }
 
 /**
- * Detect Latin-script languages via diacritics and common word patterns.
+ * Disambiguate Arabic-script text between Arabic and Persian by scoring
+ * language-specific characters and high-frequency words.
  */
-function detectLatinLanguage(text: string): string | null {
-  const lower = text.toLowerCase()
+function resolveArabicScript(text: string): "Arabic" | "Persian" {
+  let persian = 0
+  let arabic = 0
 
-  // Vietnamese — VN-EXCLUSIVE tone/hook marks only.
-  // Earlier versions included shared Latin diacritics (à á â ã è é ê ì í ò ó ô õ
-  // ù ú ă ý) which made any French / Portuguese / Spanish / Italian / Romanian
-  // text with common diacritics false-positive as Vietnamese. The chars below
-  // are Vietnamese-specific tone/hook/horn composites that don't appear in
-  // other major languages detected here.
-  if (/[ảạắằẳẵặấầẩẫậđẻẽẹếềểễệỉĩịỏọốồổỗộơớờởỡợủũụưứừửữựỷỹỵ]/.test(lower)) {
-    return "Vietnamese"
+  for (const ch of text) {
+    switch (ch) {
+      case "پ": case "چ": case "ژ": case "گ":
+        persian += 3; break
+      case "ک": case "ی":
+        persian += 1; break
+      case "ك": case "ي": case "ة": case "ى":
+      case "إ": case "أ": case "ؤ": case "ئ":
+        arabic += 1; break
+    }
   }
 
-  // Turkish — require Turkish-unique chars (ğ, ı dotless, ş). Earlier versions
-  // also matched ç/ö/ü, which are shared with French/German/Portuguese/Hungarian
-  // and caused false positives on PT text like "coração".
-  if (/[ğış]/.test(lower) && /\b(bir|ve|için|ile|bu|da|de|değil|ama)\b/.test(lower)) {
-    return "Turkish"
-  }
+  const normalised = ` ${text.replace(/[^\p{L}\p{N}]+/gu, " ")} `
+  const persianVocab = ["این", "است", "که", "برای", "های", "را", "در", "به", "از", "می", "یک"]
+  const arabicVocab = ["ال", "في", "من", "على", "هذا", "هذه", "إلى", "التي", "الذي", "كان"]
 
-  // Polish — distinctive characters
-  if (/[ąćęłńóśźż]/.test(lower)) {
-    return "Polish"
-  }
+  for (const w of persianVocab) if (normalised.includes(` ${w} `)) persian += 2
+  for (const w of arabicVocab) if (normalised.includes(` ${w} `)) arabic += 2
 
-  // Czech/Slovak — háčky and čárky
-  if (/[ěšžřďťňů]/.test(lower)) {
-    return "Czech"
-  }
+  return persian >= 3 && persian > arabic ? "Persian" : "Arabic"
+}
 
-  // Romanian — distinctive characters
-  if (/[ăâîșț]/.test(lower) && /\b(și|este|sau|care|pentru)\b/.test(lower)) {
-    return "Romanian"
-  }
+/**
+ * Identify Latin-script languages via diacritics and high-frequency
+ * word patterns.  Returns `null` when no signal is strong enough.
+ */
+function resolveLatinScript(text: string): string | null {
+  const lc = text.toLowerCase()
 
-  // Hungarian — double acute accents
-  if (/[őű]/.test(lower)) {
-    return "Hungarian"
-  }
+  // Vietnamese — exclusive tone / horn marks
+  if (/[ảạắằẳẵặấầẩẫậđẻẽẹếềểễệỉĩịỏọốồổỗộơớờởỡợủũụưứừửữựỷỹỵ]/.test(lc)) return "Vietnamese"
 
-  // German — common patterns
-  if (/[äöüß]/.test(lower) || /\b(und|der|die|das|ist|nicht|ein|eine)\b/.test(lower)) {
-    if (/\b(und|der|die|das|ist)\b/.test(lower)) return "German"
-  }
+  // Turkish — ğ, ı, ş combined with Turkish vocabulary
+  if (/[ğış]/.test(lc) && /\b(bir|ve|için|ile|bu|da|de|değil|ama)\b/.test(lc)) return "Turkish"
 
-  // French — common patterns
-  if (/[àâçéèêëïîôùûüÿœæ]/.test(lower) || /\b(le|la|les|de|des|est|et|un|une|du|au)\b/.test(lower)) {
-    if (/\b(le|la|les|est|une|des)\b/.test(lower)) return "French"
-  }
+  // Polish
+  if (/[ąćęłńóśźż]/.test(lc)) return "Polish"
 
-  // Portuguese — must run BEFORE Spanish: PT has stricter char requirements
-  // ([ãõç]) than ES, and their common-word sets overlap heavily (`que`, `de`,
-  // `um`, etc.). Running ES first steals legitimate PT text.
-  if (/[ãõç]/.test(lower) && /\b(o|a|os|as|de|do|da|é|em|um|uma|não|que)\b/.test(lower)) {
-    return "Portuguese"
-  }
+  // Czech / Slovak
+  if (/[ěšžřďťňů]/.test(lc)) return "Czech"
 
-  // Spanish — common patterns. The stage-2 word set is intentionally narrow
-  // (words NOT shared with Portuguese): del/por/las/ñ-bearing/inverted-punct.
-  if (/[áéíóúñ¿¡]/.test(lower) || /\b(el|la|los|las|de|del|es|en|por|que|un|una)\b/.test(lower)) {
-    if (/\b(el|los|las|del|por)\b/.test(lower) || /[ñ¿¡]/.test(lower)) return "Spanish"
-  }
+  // Romanian
+  if (/[ăâîșț]/.test(lc) && /\b(și|este|sau|care|pentru)\b/.test(lc)) return "Romanian"
 
-  // Italian — common patterns
-  if (/\b(il|lo|la|gli|le|di|del|della|è|e|un|una|che|non|per)\b/.test(lower)) {
-    if (/\b(il|della|gli|che|è)\b/.test(lower)) return "Italian"
-  }
+  // Hungarian — double-acute vowels
+  if (/[őű]/.test(lc)) return "Hungarian"
 
-  // Dutch — common patterns
-  if (/\b(het|de|een|van|en|in|is|dat|op|te|met)\b/.test(lower)) {
-    if (/\b(het|een|van|dat)\b/.test(lower)) return "Dutch"
-  }
+  // German
+  if (/[äöüß]/.test(lc) && /\b(und|der|die|das|ist)\b/.test(lc)) return "German"
 
-  // Swedish — common patterns
-  if (/[åäö]/.test(lower) && /\b(och|att|det|en|ett|är|för|med)\b/.test(lower)) {
-    return "Swedish"
-  }
+  // French
+  if (/[àâçéèêëïîôùûüÿœæ]/.test(lc) && /\b(le|la|les|est|une|des)\b/.test(lc)) return "French"
 
-  // Norwegian — common patterns
-  if (/[åæø]/.test(lower) && /\b(og|er|det|en|et|for|med|på)\b/.test(lower)) {
-    return "Norwegian"
-  }
+  // Portuguese — must precede Spanish (stricter char set)
+  if (/[ãõç]/.test(lc) && /\b(o|a|os|as|de|do|da|é|em|um|uma|não|que)\b/.test(lc)) return "Portuguese"
 
-  // Danish — similar to Norwegian
-  if (/[åæø]/.test(lower) && /\b(og|er|det|en|et|til|med|af)\b/.test(lower)) {
-    return "Danish"
-  }
+  // Spanish — narrow word set to avoid Portuguese overlap
+  if (/[áéíóúñ¿¡]/.test(lc) || (/\b(el|la|los|las|de|del|es|en|por|que|un|una)\b/.test(lc) && (/\b(el|los|las|del|por)\b/.test(lc) || /[ñ¿¡]/.test(lc)))) return "Spanish"
 
-  // Finnish — common patterns
-  if (/[äö]/.test(lower) && /\b(ja|on|ei|se|että|tai|kun|niin)\b/.test(lower)) {
-    return "Finnish"
-  }
+  // Italian
+  if (/\b(il|della|gli|che|è)\b/.test(lc)) return "Italian"
 
-  // Indonesian/Malay — common patterns
-  if (/\b(dan|yang|di|dari|untuk|dengan|ini|itu|adalah|tidak|ada)\b/.test(lower)) {
-    if (/\b(yang|dari|untuk|dengan|adalah)\b/.test(lower)) return "Indonesian"
-  }
+  // Dutch
+  if (/\b(het|een|van|dat)\b/.test(lc)) return "Dutch"
 
-  // Swahili — common patterns
-  if (/\b(na|ya|wa|ni|kwa|katika|hii|hiyo)\b/.test(lower)) {
-    return "Swahili"
-  }
+  // Swedish
+  if (/[åäö]/.test(lc) && /\b(och|att|det|en|ett|är|för|med)\b/.test(lc)) return "Swedish"
+
+  // Norwegian
+  if (/[åæø]/.test(lc) && /\b(og|er|det|en|et|for|med|på)\b/.test(lc)) return "Norwegian"
+
+  // Danish
+  if (/[åæø]/.test(lc) && /\b(og|er|det|en|et|til|med|af)\b/.test(lc)) return "Danish"
+
+  // Finnish
+  if (/[äö]/.test(lc) && /\b(ja|on|ei|se|että|tai|kun|niin)\b/.test(lc)) return "Finnish"
+
+  // Indonesian / Malay
+  if (/\b(yang|dari|untuk|dengan|adalah)\b/.test(lc)) return "Indonesian"
+
+  // Swahili
+  if (/\b(na|ya|wa|ni|kwa|katika|hii|hiyo)\b/.test(lc)) return "Swahili"
 
   return null
+}
+
+/**
+ * Detect the dominant language of a text string.
+ *
+ * The algorithm works in three stages:
+ * 1. Count characters per Unicode script range.
+ * 2. If a non-Latin script dominates, return it (with Japanese/Chinese
+ *    disambiguation and Arabic/Persian sub-resolution).
+ * 3. For Latin-script text, apply diacritic and keyword heuristics.
+ *
+ * Falls back to `"English"` when no stronger signal is found.
+ */
+export function detectLanguage(text: string): string {
+  const tallies: Record<string, number> = {}
+
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)
+    if (!cp || cp < 0x80) continue
+    const script = classifyScript(cp)
+    if (script) tallies[script] = (tallies[script] ?? 0) + 1
+  }
+
+  // Japanese uses Hiragana/Katakana alongside Kanji — pure CJK without
+  // kana is classified as Chinese.
+  if ((tallies.Japanese ?? 0) > 0 && (tallies.Chinese ?? 0) > 0) return "Japanese"
+
+  let topScript = ""
+  let topCount = 0
+  for (const [script, count] of Object.entries(tallies)) {
+    if (count > topCount) { topScript = script; topCount = count }
+  }
+
+  if (topScript === "Arabic" && topCount >= 2) return resolveArabicScript(text)
+  if (topScript && topCount >= 2) return topScript
+
+  const latin = resolveLatinScript(text)
+  if (latin) return latin
+
+  return "English"
 }

@@ -1,7 +1,11 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState, useCallback } from "react"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import type { LlmConfig } from "@/stores/wiki-store"
 
+/** State shape for batch model test results. */
 export interface BatchModelTestState {
   loading: boolean
   success: boolean
@@ -9,6 +13,7 @@ export interface BatchModelTestState {
   failedModels?: string[]
 }
 
+/** Return type of the useBatchModelTest hook. */
 export interface UseBatchModelTestResult {
   modelTestState: BatchModelTestState
   runBatchTest: (modelsToTest: string[], buildConfig: (modelId: string) => LlmConfig) => Promise<void>
@@ -17,6 +22,11 @@ export interface UseBatchModelTestResult {
   removeFailedModel: (modelId: string) => void
 }
 
+/**
+ * Hook for batch-testing multiple LLM models sequentially.
+ * Tracks loading state, per-model progress, and a list of failed models
+ * that can be retried or individually dismissed.
+ */
 export function useBatchModelTest(
   t: (key: string, params?: Record<string, string | number>) => string
 ): UseBatchModelTestResult {

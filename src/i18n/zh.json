@@ -131,7 +131,16 @@
     "startReview": "开始审稿",
     "reviewingAction": "审查中...",
     "noResults": "暂无该维度审查结果",
-    "stats": "阻塞:{{blocking}} 高:{{high}} 中:{{medium}} 低:{{low}}"
+    "stats": "阻塞:{{blocking}} 高:{{high}} 中:{{medium}} 低:{{low}}",
+    "splitAcceptanceHint": "Track A 为产品交付门控相关维；Track B 为可选文学诊断，均分≥9 不是产品硬门。",
+    "trackABadge": "Track A",
+    "trackAHint": "可交付 / 一致性",
+    "trackBBadge": "Track B",
+    "trackBHint": "文学诊断（可选）",
+    "trackADimBadge": "A·门控",
+    "trackBDimBadge": "B·文学",
+    "notProductGate": "非产品硬门",
+    "perDimOnly": "请按维阅读分数；六维均分不作交付判定"
   },
   "nav": {
     "wiki": "章节库",
@@ -1167,11 +1176,26 @@
       "feedbackWindowLookbackIncludeMustFixOnlyHelp": "开启后，回溯的那些历史章节只保留「必须修复」级别的反馈（如设定冲突、逻辑错误等严重问题），忽略改进建议，减少旧反馈对当前写作的干扰。关闭后，回溯章节不仅保留必须修复项，也会贡献改进建议，让 AI 参考更多历史意见。",
       "communitySummaryEnabled": "社区摘要自动提取",
       "communitySummaryEnabledHint": "开启后，每 N 章自动用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（如角色阵营、主要关系网络等）。需要先启用向量模型。",
+      "temporalFactsEnabled": "时序事实路由",
+      "temporalFactsEnabledHint": "默认开启：按章节时间线注入/重排时序事实与活跃实体，降低中后章失忆（可关）。不替代 Track A 一致性门控。",
+      "entityBoostEnabled": "实体检索加权",
+      "entityBoostEnabledHint": "默认开启：上下文检索对命中当前任务/角色实体名的条目加分（mem0 式多信号之一，非整仓图谱）。",
+      "stateDeltaLightCheckEnabled": "正文后状态轻检",
+      "stateDeltaLightCheckEnabledHint": "默认开启：初稿后对照 character-states 做位置/物品/已故角色等启发式检查。默认仅警告，不阻断 Track A。",
+      "outlineThrillSoftGateEnabled": "大纲 thril 软门",
+      "outlineThrillSoftGateEnabledHint": "默认开启：开写前检查 thril 五结构点（危机/释放/能动/章末钩/FIX-1）。不阻断生成；继续生成=确认。FIX-1 冲突不可用 thril 勾选绕过。",
+      "outlineThrillChecklistTitle": "大纲 thril 检查点",
+      "outlineThrillChecklistHint": "Track B 结构预检，非产品硬门。均分≥9 不作交付判定。",
+      "outlineThrillAckButton": "确认 thril 软门（本分章）",
+      "outlineThrillAckDone": "已确认 thril 软门（章 {{chapter}}）· 再点取消",
+      "outlineThrillAckHint": "显式确认会写入会话状态；继续生成仍可作隐式确认。FIX-1 冲突不可用本按钮绕过。",
       "communitySummaryInterval": "社区摘要提取间隔",
       "communitySummaryIntervalHint": "每摄取多少章后自动重建一次社区摘要。数值越小，摘要越新鲜，但 LLM 调用越频繁。",
       "communitySummaryAsync": "后台异步执行",
       "communitySummaryAsyncHint": "开启后，社区摘要在后台生成，不阻塞章节摄取。关闭则同步等待生成完成。",
-      "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。"
+      "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。",
+      "literaryPolishAfterGate": "门控通过后文学抛光（Track B）",
+      "literaryPolishAfterGateHint": "开启后，在 Consistency/Anti-AI 门控无阻断问题时，额外对 thril/节奏/追读类提示做至多 1 次可选抛光。不挡产品交付，且禁止提前揭露机制名。默认关闭。"
     },
     "soul": {
       "projectSoul": "项目灵魂",
@@ -1569,6 +1593,7 @@
       "writingStyle": "## 写作风格",
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
+      "activeEntities": "## 当前章节关联实体",
       "foreshadowing": {
         "repeatedUnresolved": "以下伏笔近期反复出现，但尚未明显推进，需注意是否在本章继续铺设或回收：{{names}}"
       },

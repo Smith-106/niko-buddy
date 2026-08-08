@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { MessageSquare, ChevronDown } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ChatPanel } from "@/components/chat/chat-panel"

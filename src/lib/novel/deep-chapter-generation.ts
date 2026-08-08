@@ -56,6 +56,15 @@ import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
 import {
+  extractEmbeddedStateDeltaJson,
+  runStateDeltaLightCheckOnDraft,
+} from "./state-delta-light-check"
+import {
+  formatThrillSoftGateThinkingWithAck,
+  isThrillSoftGateAcknowledged,
+  runOutlineThrillSoftGate,
+} from "./outline-thrill-checkpoints"
+import {
   buildTaskBriefRepairPrompt,
   buildFallbackTaskBrief,
   buildDraftRecoveryPrompt,
@@ -405,6 +414,33 @@ export function collectRepairIssues(decisionGates: DeepChapterDecisionGates): No
     }
   }
   return warnings
+}
+
+/**
+ * Track B literary polish (optional, post Track A gate-green):
+ * thril/pacing/pull warnings only. Never includes consistency/anti_ai errors.
+ * Used when novelConfig.literaryPolishAfterGate is true and collectBlockingIssues is empty.
+ */
+export function collectLiteraryPolishIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+  const literaryTypes = new Set(["plot", "thrill", "pacing", "pull", "quality"])
+  const out: NovelReviewResult[] = []
+  for (const finding of collectRepairIssues(decisionGates)) {
+    const t = (finding.type || "").toLowerCase()
+    if (finding.severity !== "warning" && finding.severity !== "info") continue
+    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
+      out.push(finding)
+    }
+  }
+  // Also pull from quality gate findings that look literary even if severity is warning already covered
+  const quality = decisionGates.quality
+  for (const finding of quality.findings) {
+    if (finding.severity === "error") continue
+    const t = (finding.type || "").toLowerCase()
+    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
+      if (!out.some((x) => x.message === finding.message)) out.push(finding)
+    }
+  }
+  return out
 }
 
 function checkpointStageAtLeast(
@@ -873,6 +909,17 @@ export async function runDeepChapterGeneration(
   const contextPrompt = continuityPreCheckText ? rawContextPrompt + continuityPreCheckText : rawContextPrompt
   assertNotAborted(signal)
 
+  // Quality Foundation v1 / FR-S1: outline thril soft-gate (pre-write).
+  // Non-blocking: surfaces checklist via onThinking; FIX-1 fails are warnings, not Track A errors.
+  // Continuing generation after this stage is the acknowledge path (not silent skip).
+  const thrilSoftGateReviewResults = runPreWriteOutlineThrillSoftGate(
+    outlinePrompt,
+    input.chapterNumber,
+    novelConfig,
+    callbacks,
+  )
+  assertNotAborted(signal)
+
   // 阶段1.5：场景拆解
   await runSceneBreakdownStage(
     input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
@@ -894,6 +941,17 @@ export async function runDeepChapterGeneration(
   )
   assertNotAborted(signal)
 
+  // Quality Foundation v1 / FR-C1: post-draft StateDelta light-check (warn-only by default).
+  // Non-fatal: extract/check failures never block generation; results merge into reviewResults.
+  const stateDeltaReviewResults = await runPostDraftStateDeltaLightCheck(
+    input.projectPath,
+    draftContent,
+    input.chapterNumber,
+    novelConfig,
+    callbacks,
+  )
+  assertNotAborted(signal)
+
   // 阶段4-5：AI 审稿 + 返修循环
   const stage45 = await runReviewAndRepair(
     input, novelConfig, deps, signal, callbacks,
@@ -902,13 +960,18 @@ export async function runDeepChapterGeneration(
   )
   // MAX_GATE_RETRY 转人工：原内联此处 callbacks.onFinalContent + 完整 return。
   // 提取后在编排器层构造 result（能访问 partialReason，partial 语义绝对正确）。
+  const mergedReviewResults = [
+    ...thrilSoftGateReviewResults,
+    ...stateDeltaReviewResults,
+    ...stage45.reviewResults,
+  ]
   if (stage45.manualHandoff) {
     callbacks.onFinalContent?.(stage45.currentContent)
     return {
       finalContent: stage45.currentContent,
       taskBrief,
       draftContent,
-      reviewResults: stage45.reviewResults,
+      reviewResults: mergedReviewResults,
       revised: stage45.revised,
       decisionGates: stage45.decisionGates,
       manualReviewRequired: true,
@@ -957,13 +1020,105 @@ export async function runDeepChapterGeneration(
     finalContent,
     taskBrief,
     draftContent,
-    reviewResults: stage45.reviewResults,
+    reviewResults: mergedReviewResults,
     revised: stage45.revised,
     decisionGates: stage45.decisionGates,
     manualReviewRequired: false,
     retryCount: stage45.retryCount,
     partial: partialReason !== null,
     partialReason,
+  }
+}
+
+/**
+ * Quality Foundation v1: pre-write outline thril soft-gate.
+ * Heuristic checklist on outline text; never hard-blocks generation.
+ * FIX-1 conflict is warning with type outline_thrill_fix1 (not ackable as literary pass).
+ */
+function runPreWriteOutlineThrillSoftGate(
+  outlinePrompt: string,
+  chapterNumber: number | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  callbacks: DeepChapterGenerationCallbacks,
+): NovelReviewResult[] {
+  if (novelConfig.outlineThrillSoftGateEnabled === false) return []
+  try {
+    const outlineText = [
+      outlinePrompt,
+      // chapter-specific outline may already be inside pack-rendered outlinePrompt
+    ].filter(Boolean).join("\n\n")
+    const { results, reviewResults, summary } = runOutlineThrillSoftGate(
+      outlineText,
+      chapterNumber,
+    )
+    const ackMap = useWikiStore.getState().thrilSoftGateAcknowledgedByChapter
+    const acknowledged = isThrillSoftGateAcknowledged(ackMap, chapterNumber)
+    const thinking = formatThrillSoftGateThinkingWithAck(results, acknowledged)
+    callbacks.onThinking?.(formatStageThinking("阶段1.2：大纲 thril 软门", thinking))
+    if (summary.fix1Blocked) {
+      logger.warn("DeepChapter", "outline thril soft-gate: FIX-1 conflict cue", {
+        chapterNumber,
+        failCount: summary.failCount,
+        acknowledged,
+      })
+    }
+    return reviewResults
+  } catch (error) {
+    logger.warn("DeepChapter", "outline thril soft-gate failed (non-fatal)", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
+  }
+}
+
+/**
+ * Quality Foundation v1: post-draft StateDelta light-check.
+ * Loads character-states, heuristic extract + pure check, returns NovelReviewResult[].
+ * Failures → empty array (non-fatal). Default warn-only via stateDeltaBlocksTrackA=false.
+ */
+async function runPostDraftStateDeltaLightCheck(
+  projectPath: string,
+  draftContent: string,
+  chapterNumber: number | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  callbacks: DeepChapterGenerationCallbacks,
+): Promise<NovelReviewResult[]> {
+  if (novelConfig.stateDeltaLightCheckEnabled === false) return []
+  try {
+    const store = await loadCharacterStates(projectPath)
+    const chapter = chapterNumber ?? 0
+    // Structured extract: optional JSON block in draft (```json state-delta ...```) or none → heuristic.
+    const structuredRaw = extractEmbeddedStateDeltaJson(draftContent)
+    const { issues, reviewResults, source } = runStateDeltaLightCheckOnDraft(
+      draftContent,
+      store.characters ?? [],
+      chapter,
+      {
+        blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true,
+        structuredRaw,
+      },
+    )
+    if (issues.length > 0 || source !== "empty") {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段3.7：StateDelta 轻检",
+        [
+          `抽取源：${source === "structured" ? "结构化 JSON" : source === "heuristic" ? "启发式" : "跳过"}`,
+          issues.length === 0
+            ? "无状态告警。"
+            : [
+                `发现 ${issues.length} 条状态提示（${novelConfig.stateDeltaBlocksTrackA ? "可阻断 Track A" : "默认 warn-only"}）：`,
+                ...issues.slice(0, 8).map((i) => `- [${i.severity}] ${i.message}`),
+                issues.length > 8 ? `…另有 ${issues.length - 8} 条` : "",
+              ].filter(Boolean).join("\n"),
+        ].join("\n"),
+      ))
+    }
+    return reviewResults
+  } catch (error) {
+    logger.warn("DeepChapter", "StateDelta light-check failed (non-fatal)", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
   }
 }
 
@@ -1831,6 +1986,77 @@ async function runReviewAndRepair(
             `当前自动返修次数：${retryCount}/${MAX_GATE_RETRY}。`,
           ].join("\n"),
     ))
+  }
+
+  // Track B: optional literary polish after Track A gates are green (no blocking errors).
+  // At most one pass; thril/pacing/pull warnings only; never overrides Consistency/FIX-1.
+  if (
+    novelConfig.deepChapterReview
+    && novelConfig.literaryPolishAfterGate
+    && !manualReviewRequired
+    && collectBlockingIssues(decisionGates).length === 0
+  ) {
+    const literaryIssues = collectLiteraryPolishIssues(decisionGates)
+    if (literaryIssues.length > 0) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5.7：Track B 文学抛光",
+        [
+          `门控已绿；对 ${literaryIssues.length} 条 thril/节奏/追读相关提示做至多 1 次可选抛光（不挡交付）。`,
+          "",
+          formatReviewIssueList(literaryIssues),
+        ].join("\n"),
+      ))
+      const trackBConstraint =
+        "\n\n【Track B 约束】只强化爽点密度/节奏/章末追读；禁止提前揭露 Offer、最终存活者等机制名；不得破坏人设与设定一致性。"
+      const polishedContent = await collectModelText(
+        writingConfig,
+        [{
+          role: "user",
+          content: buildDeepChapterRevisionPrompt(
+            outlinePrompt,
+            contextPrompt,
+            taskBrief,
+            currentContent,
+            literaryIssues,
+            input.userRequest,
+            input.chapterNumber,
+            input.goldenThreeChapter,
+          ) + trackBConstraint,
+        }],
+        deps,
+        signal,
+        (partial) => callbacks.onThinking?.(formatStageThinking("阶段5.7：Track B 文学抛光", partial)),
+        { max_tokens: lengthSpec.maxOutputTokens },
+        cachePrefix,
+        notePartial,
+      )
+      assertNotAborted(signal)
+      if (polishedContent.trim()) {
+        const prevSlop = scoreCandidate(currentContent)
+        const nextSlop = scoreCandidate(polishedContent)
+        if (nextSlop <= prevSlop + 0.05) {
+          currentContent = polishedContent
+          revised = true
+        } else {
+          callbacks.onThinking?.(formatStageThinking(
+            "阶段5.7：文学抛光回退",
+            "抛光后机械 slop 上升，已回退门控绿稿。",
+          ))
+        }
+        const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
+        reviewResults = stage57.reviewResults
+        decisionGates = buildDecisionGates(reviewResults, retryCount)
+        await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+          taskBrief,
+          draftContent,
+          reviewResults,
+          dimensionResults: stage57.dimensionResults,
+          currentContent,
+          decisionGates,
+          retryCount,
+        }))
+      }
+    }
   }
 
   return {

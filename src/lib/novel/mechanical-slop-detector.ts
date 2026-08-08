@@ -46,7 +46,11 @@ const TIER2_SUSPICIOUS = [
   "然而", "但是", "不过", "可是",
 ] as const
 
-/** TIER3_FILLER: 机械句式正则 (prose cliché) — de-ai-rules.ts 已列的机械句式转正则 */
+/**
+ * TIER3_FILLER: 机械句式正则 (prose cliché)。
+ * 基线来自 de-ai-rules；Quality Foundation v1 / E6 追加 **有界** 高价值中文 AI 腔子集
+ * （灵感参考 avoid-ai-writing 类检测思路，非整仓 corpus 迁移；仅 10–20 条）。
+ */
 const TIER3_FILLER: readonly RegExp[] = [
   /目光交汇的瞬间/,
   /空气仿佛凝固/,
@@ -56,7 +60,23 @@ const TIER3_FILLER: readonly RegExp[] = [
   /双方陷入僵持/,
   /既[^，。]{1,8}又[^，。]{1,8}/, // 机械排比 既...又...
   /不仅[^，。]{1,8}还[^，。]{1,8}/, // 机械排比 不仅...还...
+  // --- QF-v1 E6 bounded extension (generic Chinese AI mannerisms) ---
+  /不禁(?:陷入了?|感到|觉得)/,
+  /心中暗道/,
+  /嘴角(?:勾起|扬起)一丝/,
+  /深吸一口气/,
+  /眉头[微紧]?[锁皱]/,
+  /一抹[^，。]{0,6}闪过/,
+  /无法言说的/,
+  /说不清道不明/,
+  /像是在[说告]诉/,
+  /空气中弥漫着/,
+  /时间仿佛静止/,
+  /不由自主地/,
 ]
+
+/** Exported for tests — count of extended TIER3 patterns (non-baseline). */
+export const TIER3_EXTENDED_PATTERN_COUNT = 12
 
 // ============================================================================
 // slopScore: 机械算术 (零 LLM)
@@ -246,5 +266,114 @@ export function slopReportToText(report: SlopReport): string {
   if (report.transitionOpenerRatio > TRANSITION_OPENER_THRESHOLD) {
     lines.push(`- 段落转折词开头过多 (${(report.transitionOpenerRatio * 100).toFixed(0)}%)`)
   }
+  return lines.join("\n")
+}
+
+// ============================================================================
+// P0: Structural Pattern Detector (角色-动作绑定 + 重复模式统计)
+// ============================================================================
+
+/** 角色名单 (用于角色-动作关联分析) */
+const CHARACTER_NAMES = [
+  "白砚", "王迦", "陈烬", "李昭然", "苏未晞", "陆织锦", "周棠", "白鹭",
+  "01 号", "02 号", "03 号", "04 号", "05 号", "06 号", "07 号", "08 号",
+] as const
+
+/** 角色行为模式定义 */
+const CHARACTER_ACTION_PATTERNS = [
+  { action: "推眼镜", regex: /推了推眼镜|推眼镜|扶了扶镜架|扶镜架/g, type: "mannerism" as const, suggest: "建议 ≤3 次/角色，用其他微动作替代" },
+  { action: "嘴角上扬", regex: /嘴角上扬|嘴角带着一丝微笑|嘴角微微上扬/g, type: "expression" as const, suggest: "建议 ≤2 次/角色，用其他表情替代" },
+  { action: "转动戒指", regex: /戒指[在指间缓缓转]*转动|戒指在指间/g, type: "mannerism" as const, suggest: "白砚标志性动作，全章 ≤3 次" },
+  { action: "抠指甲", regex: /抠指甲/g, type: "mannerism" as const, suggest: "苏未晞标志性动作，全章 ≤3 次" },
+  { action: "低下头", regex: /低下头|低头/g, type: "reaction" as const, suggest: "建议 ≤3 次，用其他反应替代" },
+  { action: "后退", regex: /后退了一步|后退/g, type: "reaction" as const, suggest: "王迦后退仅保留 1 次最有冲击力的" },
+  { action: "波形图", regex: /波形图/g, type: "imagery" as const, suggest: "建议全章 ≤4 次" },
+  { action: "安静了", regex: /安静了/g, type: "mood" as const, suggest: "建议全章 ≤5 次" },
+  { action: "沉默了", regex: /沉默了|沉默/g, type: "mood" as const, suggest: "建议全章 ≤3 次" },
+  // QF-v1 E6: generic mannerisms (not project-specific)
+  { action: "深吸一口气", regex: /深吸一口气|深吸了口气/g, type: "mannerism" as const, suggest: "通用 AI 腔动作，全章建议 ≤2 次" },
+  { action: "握紧拳头", regex: /握紧拳头|攥紧拳头/g, type: "mannerism" as const, suggest: "建议 ≤2 次，换具体肢体细节" },
+  { action: "咬紧牙关", regex: /咬紧牙关|咬了咬牙/g, type: "mannerism" as const, suggest: "建议 ≤2 次" },
+] as const
+
+/** 单个角色-动作检测结果 */
+export interface CharacterActionHit {
+  action: string
+  type: "mannerism" | "expression" | "reaction" | "imagery" | "mood"
+  totalCount: number
+  suggest: string
+  perCharacter: Record<string, number>
+}
+
+/**
+ * 检测角色-动作关联：在文本中找到动作，并判断由哪个角色执行。
+ * 零 LLM，纯正则 + 上下文窗口匹配。
+ */
+export function detectCharacterActions(text: string): CharacterActionHit[] {
+  const results: CharacterActionHit[] = []
+
+  for (const pattern of CHARACTER_ACTION_PATTERNS) {
+    const matches = [...text.matchAll(pattern.regex)]
+    if (matches.length === 0) continue
+
+    const charCounts: Record<string, number> = {}
+
+    for (const match of matches) {
+      const actionPos = match.index
+      const contextStart = Math.max(0, actionPos - 80)
+      const contextEnd = Math.min(text.length, actionPos + 80)
+      const context = text.slice(contextStart, contextEnd)
+
+      let nearestChar = "未知"
+      let nearestDist = Infinity
+      for (const char of CHARACTER_NAMES) {
+        const charIdx = context.indexOf(char)
+        if (charIdx !== -1) {
+          const dist = Math.abs(charIdx - 80)
+          if (dist < nearestDist) {
+            nearestDist = dist
+            nearestChar = char
+          }
+        }
+      }
+
+      charCounts[nearestChar] = (charCounts[nearestChar] || 0) + 1
+    }
+
+    results.push({
+      action: pattern.action,
+      type: pattern.type,
+      totalCount: matches.length,
+      suggest: pattern.suggest,
+      perCharacter: charCounts,
+    })
+  }
+
+  return results
+}
+
+/**
+ * 文本化行为模式报告 (与 slopReportToText 同款 bullet 模式)。
+ * 空结果返回空字符串。
+ */
+export function characterActionsToText(hits: CharacterActionHit[]): string {
+  if (hits.length === 0) return ""
+
+  const lines: string[] = []
+  lines.push("角色行为模式检测:")
+
+  for (const hit of hits) {
+    if (hit.totalCount < 2) continue
+    const warn = hit.totalCount >= 3 ? "⚠️" : "ℹ️"
+    lines.push(`- ${warn} "${hit.action}" 共 ${hit.totalCount} 次 (${hit.suggest})`)
+
+    // 按角色展示
+    const charEntries = Object.entries(hit.perCharacter).sort((a, b) => b[1] - a[1])
+    for (const [char, count] of charEntries) {
+      if (count < 2) continue
+      lines.push(`  - ${char}: ${count} 次`)
+    }
+  }
+
   return lines.join("\n")
 }

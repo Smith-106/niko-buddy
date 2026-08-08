@@ -1,3 +1,20 @@
+/**
+ * Lightweight post-save enrichment: ask LLM to add [[wikilinks]] to wiki pages.
+ *
+ * Design philosophy (v2):
+ * - Old approach: LLM returns complete rewritten page → models tend to expand/modify content
+ * - New approach: LLM only returns JSON list of {term, target} mappings
+ * - Code performs precise string replacement for first occurrence per term
+ *
+ * Benefits:
+ * - Content is byte-identical outside inserted [[ ]] brackets
+ * - Frontmatter remains untouched
+ * - Length increases by exactly 4 × number_of_links
+ * - Prevents catastrophic LLM output from corrupting user content
+ *
+ * @license MIT © QMAI
+ */
+
 import { readFile, writeFile } from "@/commands/fs"
 import { streamChat } from "./llm-client"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
@@ -5,22 +22,10 @@ import { buildLanguageDirective } from "./output-language"
 import { normalizePath } from "@/lib/path-utils"
 
 /**
- * Lightweight post-save enrichment: ask LLM to add [[wikilinks]] to a saved wiki page.
- *
- * DESIGN NOTE (v2): previously we asked the LLM to return the complete page
- * with [[ ]] inserted, but many models (confirmed on MiniMax-M2.7-highspeed)
- * treat this as an invitation to rewrite / expand the page, destroying
- * user content. No prompt-level instruction reliably prevents this for
- * mid-size models.
- *
- * New design: LLM only returns a list of `(term → target)` substitutions as
- * JSON. The code then does the actual string replacement (first occurrence
- * per page). This way:
- *   - content is byte-identical outside the inserted [[ ]] brackets
- *   - frontmatter is untouched
- *   - length grows by exactly 4 × number_of_links
- *   - catastrophic LLM output (rewrites, translations, commentary) can't
- *     corrupt the user's page
+ * Enrich a wiki page with wikilinks by asking LLM to identify linkable terms.
+ * @param projectPath Normalized path to project root
+ * @param filePath Normalized path to the wiki file to enrich
+ * @param llmConfig Language model configuration
  */
 export async function enrichWithWikilinks(
   projectPath: string,
@@ -36,9 +41,7 @@ export async function enrichWithWikilinks(
 
   if (!content || !index) return
 
-  // Ask the LLM to return a JSON list of {term, target} substitutions.
-  // Much easier task than rewriting the whole page, and the model can't
-  // corrupt anything it doesn't put in the list.
+  // Ask LLM to return JSON list of {term, target} substitutions
   let raw = ""
 
   await streamChat(
@@ -65,11 +68,11 @@ export async function enrichWithWikilinks(
           "}",
           "",
           "Rules:",
-          "- Each \"term\" MUST be a literal substring present in the page content (case-sensitive).",
-          "- Each \"target\" MUST be a page listed in the wiki index.",
+          '- Each "term" MUST be a literal substring present in the page content (case-sensitive).',
+          '- Each "target" MUST be a page listed in the wiki index.',
           "- Include at most one entry per target (first mention).",
-          "- Only include clearly-matching terms (e.g. if content mentions 'Transformer' and index has 'transformer', target='transformer' is correct).",
-          "- If no terms should be linked, return `{\"links\": []}`.",
+          '- Only include clearly-matching terms (e.g. if content mentions \'Transformer\' and index has \'transformer\', target=\'transformer\' is correct).',
+          '- If no terms should be linked, return `{"links": []}`.',
           "- Do NOT output preamble, explanations, or markdown fences — ONLY the JSON object.",
           "",
           `## Wiki Index\n${index}`,
@@ -87,12 +90,11 @@ export async function enrichWithWikilinks(
     },
   )
 
-  // Parse the LLM response. Be tolerant of fences / prose wrappers.
+  // Parse the LLM response (tolerate fences/prose wrappers)
   const links = parseLinkResponse(raw)
-  if (links.length === 0) return // nothing to do
+  if (links.length === 0) return // Nothing to do
 
-  // Apply substitutions to the ORIGINAL content. This guarantees the only
-  // change is inserted [[...]] brackets.
+  // Apply substitutions to the ORIGINAL content for minimal diff
   const enriched = applyLinks(content, links)
   if (enriched === content) return
 
@@ -105,28 +107,48 @@ interface LinkEntry {
   target: string
 }
 
+/**
+ * Parse LLM response into list of link entries.
+ * Extracts first balanced {...} block, handles markdown fences.
+ * Returns empty array if parsing fails or no valid links found.
+ */
 function parseLinkResponse(raw: string): LinkEntry[] {
   if (!raw.trim()) return []
-  // Extract the first balanced {...}
+  
+  // Remove markdown code fences if present
   let text = raw.trim()
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "")
+  
   const start = text.indexOf("{")
   if (start === -1) return []
 
+  // Find matching closing brace with nested structure awareness
   let depth = 0
   let inStr = false
   let escape = false
   let end = -1
   for (let i = start; i < text.length; i++) {
     const ch = text[i]
-    if (escape) { escape = false; continue }
-    if (ch === "\\" && inStr) { escape = true; continue }
-    if (ch === '"') { inStr = !inStr; continue }
+    if (escape) { 
+      escape = false
+      continue 
+    }
+    if (ch === "\\" && inStr) { 
+      escape = true
+      continue 
+    }
+    if (ch === '"') { 
+      inStr = !inStr
+      continue 
+    }
     if (inStr) continue
     if (ch === "{") depth++
     else if (ch === "}") {
       depth--
-      if (depth === 0) { end = i; break }
+      if (depth === 0) { 
+        end = i
+        break 
+      }
     }
   }
   if (end === -1) return []
@@ -134,6 +156,7 @@ function parseLinkResponse(raw: string): LinkEntry[] {
   try {
     const parsed = JSON.parse(text.slice(start, end + 1)) as { links?: unknown }
     if (!parsed || !Array.isArray(parsed.links)) return []
+    
     const result: LinkEntry[] = []
     for (const item of parsed.links) {
       if (
@@ -158,25 +181,28 @@ function parseLinkResponse(raw: string): LinkEntry[] {
 
 /**
  * For each {term, target}, replace the FIRST literal occurrence of `term`
- * in content (outside of frontmatter and existing [[...]]) with `[[target|term]]`
- * if the displayed text should differ from target, or `[[target]]` if they
- * already match case-insensitively. Skip terms that don't appear as a
- * literal substring. Skip terms already inside an existing wikilink.
+ * in content (outside frontmatter and existing [[...]]) with `[[target|term]]`
+ * if displayed text differs from target, or `[[target]]` if they match case-insensitively.
+ * 
+ * Skips:
+ * - Terms not found as literal substrings
+ * - Terms already inside existing wikilinks
+ * - Duplicate target assignments (only first term gets linked)
  */
 function applyLinks(content: string, links: LinkEntry[]): string {
-  // Split off YAML frontmatter so we don't touch it
+  // Split off YAML frontmatter so we don't modify it
   const fmEnd = content.startsWith("---\n") ? content.indexOf("\n---\n", 3) : -1
   const frontmatter = fmEnd > 0 ? content.slice(0, fmEnd + 5) : ""
   let body = fmEnd > 0 ? content.slice(fmEnd + 5) : content
 
-  // Track what we've already linked so we don't double-link
+  // Track linked targets to avoid double-linking
   const linkedTargets = new Set<string>()
 
   for (const { term, target } of links) {
     if (linkedTargets.has(target.toLowerCase())) continue
     if (!term || !target) continue
 
-    // Find first literal occurrence NOT already inside a [[...]] block
+    // Find first literal occurrence not already inside [[...]] block
     const idx = findUnlinkedOccurrence(body, term)
     if (idx === -1) continue
 
@@ -184,6 +210,7 @@ function applyLinks(content: string, links: LinkEntry[]): string {
     const replacement = displayEqualsTarget
       ? `[[${term}]]`
       : `[[${target}|${term}]]`
+    
     body = body.slice(0, idx) + replacement + body.slice(idx + term.length)
     linkedTargets.add(target.toLowerCase())
   }
@@ -191,13 +218,17 @@ function applyLinks(content: string, links: LinkEntry[]): string {
   return frontmatter + body
 }
 
-/** Find the first occurrence of `term` in text that isn't already wrapped in [[...]]. */
+/**
+ * Find the first occurrence of `term` in text that isn't already wrapped in [[...]].
+ * Checks preceding context for existing wikilink markers.
+ */
 function findUnlinkedOccurrence(text: string, term: string): number {
   let searchFrom = 0
   while (searchFrom < text.length) {
     const idx = text.indexOf(term, searchFrom)
     if (idx === -1) return -1
-    // Check a small window before for [[ (existing wikilink open)
+    
+    // Check small window before for [[ (existing wikilink open)
     const windowStart = Math.max(0, idx - 2)
     const window = text.slice(windowStart, idx)
     if (window.endsWith("[[")) {

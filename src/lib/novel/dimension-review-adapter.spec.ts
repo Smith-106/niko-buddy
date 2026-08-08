@@ -137,6 +137,45 @@ describe("six-dimension review adapter", () => {
     expect(prompt).toContain("只输出阶段分析")
     expect(prompt).toContain("score")
     expect(prompt).toContain("issues")
+    // Step 0 A/B 校准（20260806 swarm 共识）：量程声明 + 档位行为锚点 + 出口条款。
+    expect(prompt).toContain("0-10")
+    expect(prompt).toContain("9-10 分：可发表文学质量")
+    expect(prompt).toContain("出口条款")
+    expect(prompt).toContain("8.5")
+    // 零 exemplar 时不得注入风格标杆块（向后兼容）。
+    expect(prompt).not.toContain("风格标杆样本")
+  })
+
+  it("injects style exemplars as 9-10 band few-shot when pack provides them", () => {
+    const packWithExemplars: ContextPack = {
+      ...contextPack,
+      styleExemplars: [
+        {
+          exemplarId: "ex-1",
+          chapterId: "1",
+          text: "雨点砸在祠堂瓦片上，他攥着旧钥匙，指节发白。",
+          markType: "style",
+          createdAt: "2026-08-01",
+        },
+        {
+          exemplarId: "ex-2",
+          chapterId: "2",
+          text: "“别进去。”小晴的声音很低，低到像怕惊动祠堂里的东西。",
+          markType: "voice",
+          createdAt: "2026-08-01",
+        },
+      ],
+    }
+    const prompt = buildDimensionReviewPrompt(
+      packWithExemplars,
+      "主角直接说出族谱被换。",
+      SIX_REVIEW_DIMENSIONS.thrill,
+    )
+
+    expect(prompt).toContain("风格标杆样本")
+    expect(prompt).toContain("[文风]")
+    expect(prompt).toContain("[声线/对白]")
+    expect(prompt).toContain("雨点砸在祠堂瓦片上")
   })
 
   it("runs one dimension with two high-reasoning model calls and publishes thinking", async () => {

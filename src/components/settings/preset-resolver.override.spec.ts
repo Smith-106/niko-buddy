@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { describe, expect, it, afterEach } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "./llm-presets"
@@ -28,7 +31,7 @@ function preset(id: string) {
 const ORIGINAL_ENV = { ...process.env }
 
 afterEach(() => {
-  // Restore env between tests so ANTHROPIC_API_KEY leakage can't flake results.
+  // Restore env between tests so ANTHROPIC_API_KEY leakage can't cause flaky results.
   for (const k of Object.keys(process.env)) {
     if (!(k in ORIGINAL_ENV)) delete process.env[k]
   }
@@ -39,10 +42,9 @@ afterEach(() => {
 
 describe("F-004 resolveProviderOverride — API-key anthropic HTTP default routing", () => {
   it("reroutes claude-code (default, no explicit selection) to anthropic when an apiKey is present", () => {
-    // Simulate a carry-over / legacy claude-code config that acquired an
-    // Anthropic API key (e.g. via config migration or a manual edit) but
-    // was NOT explicitly selected in the dropdown. resolveProviderOverride
-    // must reroute it to the anthropic HTTP case.
+    // Carry-over / legacy claude-code config that acquired an Anthropic API
+    // key but was NOT explicitly selected in the dropdown. The override must
+    // reroute it to the anthropic HTTP case.
     const config: LlmConfig = {
       ...fallback,
       provider: "claude-code",
@@ -67,8 +69,8 @@ describe("F-004 resolveProviderOverride — API-key anthropic HTTP default routi
   })
 
   it("preserves explicit claude-code selection — NOT rerouted even with an apiKey present", () => {
-    // The user deliberately picked the subprocess/OAuth CLI path in the
-    // dropdown. Explicit-selection precedence: the override must NOT fire.
+    // The user deliberately picked the subprocess/OAuth CLI path.
+    // Explicit-selection precedence: the override must NOT fire.
     const config: LlmConfig = {
       ...fallback,
       provider: "claude-code",
@@ -101,9 +103,9 @@ describe("F-004 resolveProviderOverride — API-key anthropic HTTP default routi
   })
 
   it("marks claude-code-cli / codex-cli presets as explicit user selections", () => {
-    // resolveConfig is the choke point: every preset it resolves for the CLI
-    // providers must carry explicitProviderSelection: true so the routing
-    // override never silently reroutes a user who picked the CLI preset.
+    // resolveConfig must carry explicitProviderSelection: true for CLI
+    // providers so the routing override never silently reroutes a user
+    // who picked the CLI preset.
     const claude = resolveConfig(preset("claude-code-cli"), { localCliIsolation: true }, fallback)
     expect(claude.provider).toBe("claude-code")
     expect(claude.explicitProviderSelection).toBe(true)

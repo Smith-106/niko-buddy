@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
@@ -9,12 +12,18 @@ interface Props {
   setDraft: DraftSetter
 }
 
+/** Available history message count presets. */
 const HISTORY_OPTIONS = [2, 4, 6, 8, 10, 20]
 
+/**
+ * Output preferences section: AI response language and conversation history length.
+ */
 export function OutputSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
+
   return (
     <div className="space-y-6">
+      {/* Section header */}
       <div>
         <h2 className="text-xl font-semibold">{t("settings.sections.output.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -22,6 +31,7 @@ export function OutputSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* AI output language selector */}
       <div className="space-y-2">
         <Label>{t("settings.sections.output.aiLanguage")}</Label>
         <p className="text-xs text-muted-foreground">
@@ -32,14 +42,15 @@ export function OutputSection({ draft, setDraft }: Props) {
           onChange={(e) => setDraft("outputLanguage", e.target.value as OutputLanguage)}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
-          {LANGUAGE_OPTIONS.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
+          {LANGUAGE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
             </option>
           ))}
         </select>
       </div>
 
+      {/* History message count picker */}
       <div className="space-y-2">
         <Label>{t("settings.sections.output.historyLength")}</Label>
         <p className="text-xs text-muted-foreground">
@@ -47,14 +58,14 @@ export function OutputSection({ draft, setDraft }: Props) {
         </p>
         <div className="flex flex-wrap gap-2">
           {HISTORY_OPTIONS.map((n) => {
-            const active = draft.maxHistoryMessages === n
+            const isActive = draft.maxHistoryMessages === n
             return (
               <button
                 key={n}
                 type="button"
                 onClick={() => setDraft("maxHistoryMessages", n)}
                 className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                  active
+                  isActive
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border hover:bg-accent"
                 }`}

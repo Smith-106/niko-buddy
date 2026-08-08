@@ -1,3 +1,4 @@
+import { sliceChapterForReview } from "./chapter-window"
 import { buildLanguageDirective } from "@/lib/output-language"
 
 export const PROMPTS = {
@@ -101,7 +102,7 @@ export const PROMPTS = {
       contextPack,
       "",
       "请检查以下章节的连贯性：",
-      chapterContent.slice(0, 8000),
+      sliceChapterForReview(chapterContent),
       "",
       "检查维度：",
       "1. 人设一致性",

@@ -1,10 +1,13 @@
 /**
- * API 密钥加密工具（基于设备指纹 + Web Crypto API）
+ * API key encryption utilities using device-bound cryptography.
  *
- * 方案A：设备标识绑定
- * - 密钥派生：设备指纹（机器名 + 用户名 + OS）经过 SHA-256 派生
- * - 加密算法：AES-256-GCM（带认证标签，防篡改）
- * - 存储格式：enc::v1::<base64(nonce + ciphertext + tag)>
+ * Implements AES-256-GCM authenticated encryption with device fingerprint binding:
+ * - Key derivation: SHA-256 of device identifier (machine + user + OS)
+ * - Encryption: AES-256-GCM with random nonce and authentication tag
+ * - Storage format: `enc::v1::<base64(nonce || ciphertext || tag)>`
+ * - Fallback: Random localStorage-based fingerprint for non-Tauri environments
+ *
+ * @license MIT © QMAI
  */
 
 import { invoke } from "@tauri-apps/api/core"
@@ -12,19 +15,20 @@ import { isTauri } from "@/lib/platform"
 
 const ENCRYPTED_PREFIX = "enc::v1::"
 
-// 缓存设备密钥，避免每次都重新派生
+// Cache derived key to avoid repeated expensive operations
 let cachedKey: CryptoKey | null = null
 let cachedFingerprint: string | null = null
 
 /**
- * 获取设备指纹（从 Rust 后端获取）
- *
- * 注意：仅在 Tauri 环境下调用后端命令；
- * 非 Tauri 环境（如纯浏览器/HTTP 模式）降级到 localStorage 随机指纹。
- * 降级指纹不缓存，确保后续 Tauri 就绪后可重新获取。
+ * Retrieve device fingerprint bound to this hardware/user combination.
+ * 
+ * In Tauri environment: invokes Rust command for cryptographically secure fingerprint.
+ * In browser-only environment: falls back to localStorage-stored random UUID.
+ * 
+ * Note: Fallback fingerprint is not cached to allow re-attempt when Tauri becomes available.
  */
 export async function getDeviceFingerprint(): Promise<string> {
-  // Tauri 环境下尝试从后端获取
+  // Attempt Tauri-backed fingerprint in desktop environment
   if (isTauri()) {
     if (cachedFingerprint) return cachedFingerprint
     try {
@@ -33,13 +37,13 @@ export async function getDeviceFingerprint(): Promise<string> {
         cachedFingerprint = fp
         return cachedFingerprint
       }
-      console.warn("[crypto] 设备指纹长度不足，期望≥64字符，实际:", fp?.length)
+      console.warn("[crypto] Device fingerprint too short, expected ≥64 chars, got:", fp?.length)
     } catch (e) {
-      console.warn("[crypto] 获取设备指纹失败，使用降级方案:", e)
+      console.warn("[crypto] Failed to get device fingerprint, using fallback:", e)
     }
   }
 
-  // 降级：使用 localStorage 存储一个随机指纹（不绑定设备，但至少加密存储）
+  // Fallback: generate random fingerprint stored in localStorage
   let fallback = localStorage.getItem("qmai_fallback_fingerprint")
   if (!fallback) {
     const buf = new Uint8Array(32)
@@ -47,25 +51,26 @@ export async function getDeviceFingerprint(): Promise<string> {
     fallback = Array.from(buf, b => b.toString(16).padStart(2, "0")).join("")
     localStorage.setItem("qmai_fallback_fingerprint", fallback)
   }
-  // 注意：降级指纹不缓存到 cachedFingerprint，确保下次 Tauri 就绪后可重试
+  // Do not cache fallback fingerprint to allow retry when Tauri is ready
   return fallback
 }
 
 /**
- * 从设备指纹派生 AES-256 密钥
+ * Derive AES-256 key from device fingerprint using hex conversion.
+ * Includes validation to prevent invalid fingerprint formats.
  */
 async function getDeviceKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey
 
   const fingerprint = await getDeviceFingerprint()
 
-  // 将指纹 hex 字符串转为字节，验证长度防止 NaN
+  // Convert fingerprint hex string to bytes with validation
   const keyMaterial = new Uint8Array(32)
   for (let i = 0; i < 32; i++) {
     const hexByte = fingerprint.slice(i * 2, i * 2 + 2)
     const parsed = parseInt(hexByte, 16)
     if (Number.isNaN(parsed)) {
-      throw new Error(`设备指纹格式无效: 位置 ${i * 2} 处不是有效的十六进制字符`)
+      throw new Error(`Invalid device fingerprint format at position ${i * 2}`)
     }
     keyMaterial[i] = parsed
   }
@@ -83,24 +88,24 @@ async function getDeviceKey(): Promise<CryptoKey> {
 }
 
 /**
- * 判断字符串是否是加密格式
+ * Check if a value is encrypted with our prefix format.
  */
 export function isEncrypted(value: string): boolean {
   return typeof value === "string" && value.startsWith(ENCRYPTED_PREFIX)
 }
 
 /**
- * 使用设备密钥加密字符串
- * @param plaintext 明文
- * @returns 加密后的字符串（带前缀）
+ * Encrypt a plaintext string using device-bound AES-256-GCM.
+ * @param plaintext The text to encrypt
+ * @returns Encrypted string with prefix (or original if empty/already encrypted)
  */
 export async function encryptString(plaintext: string): Promise<string> {
   if (!plaintext) return plaintext
-  if (isEncrypted(plaintext)) return plaintext // 已经是加密的，不重复加密
+  if (isEncrypted(plaintext)) return plaintext // Avoid double encryption
 
   const key = await getDeviceKey()
 
-  // 生成 12 字节随机 nonce（GCM 推荐）
+  // Generate 12-byte random nonce (GCM recommendation)
   const nonce = new Uint8Array(12)
   crypto.getRandomValues(nonce)
 
@@ -111,12 +116,12 @@ export async function encryptString(plaintext: string): Promise<string> {
     encoded,
   )
 
-  // 组合：nonce(12) + ciphertext+tag
+  // Combine: nonce (12 bytes) + ciphertext + auth tag
   const combined = new Uint8Array(nonce.length + ciphertext.byteLength)
   combined.set(nonce, 0)
   combined.set(new Uint8Array(ciphertext), nonce.length)
 
-  // Base64 编码（使用循环避免 spread 操作符在大数据时栈溢出）
+  // Base64 encode using iterative approach to avoid stack overflow on large data
   let binary = ""
   for (let i = 0; i < combined.length; i++) {
     binary += String.fromCharCode(combined[i])
@@ -126,14 +131,14 @@ export async function encryptString(plaintext: string): Promise<string> {
 }
 
 /**
- * 使用设备密钥解密字符串
- * @param ciphertext 加密后的字符串（带前缀）
- * @returns 明文
+ * Decrypt an encrypted string using device-bound AES-256-GCM.
+ * @param ciphertext Encrypted string with prefix
+ * @returns Decrypted plaintext (or original if not encrypted)
  */
 export async function decryptString(ciphertext: string): Promise<string> {
   if (!ciphertext) return ciphertext
   if (!isEncrypted(ciphertext)) {
-    // 未加密的明文，直接返回（向后兼容）
+    // Unencrypted plaintext, return as-is for backward compatibility
     return ciphertext
   }
 
@@ -141,7 +146,7 @@ export async function decryptString(ciphertext: string): Promise<string> {
   const binary = Uint8Array.from(atob(data), c => c.charCodeAt(0))
 
   if (binary.length < 12) {
-    throw new Error("密文数据过短")
+    throw new Error("Ciphertext too short")
   }
 
   const key = await getDeviceKey()
@@ -158,51 +163,50 @@ export async function decryptString(ciphertext: string): Promise<string> {
 }
 
 /**
- * 加密 API 密钥（带错误处理）
- * 加密失败时抛出错误，让上层决定如何处理（而非静默返回明文）
+ * Safely encrypt API key, throwing error on failure instead of returning plaintext.
  */
 export async function safeEncryptApiKey(plaintext: string): Promise<string> {
   try {
     return await encryptString(plaintext)
   } catch (e) {
-    console.error("[crypto] 加密失败，拒绝返回明文:", e)
-    throw new Error(`API 密钥加密失败: ${e instanceof Error ? e.message : String(e)}`)
+    console.error("[crypto] Encryption failed, refusing to return plaintext:", e)
+    throw new Error(`API key encryption failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
 /**
- * 解密 API 密钥（带错误处理，失败则返回原值）
+ * Safely decrypt API key, returning empty string on failure.
  */
 export async function safeDecryptApiKey(ciphertext: string): Promise<string> {
   try {
     return await decryptString(ciphertext)
   } catch (e) {
-    console.warn("[crypto] 解密失败，可能密钥不匹配:", e)
-    // 解密失败，可能是换设备了，返回空让用户重新输入
+    console.warn("[crypto] Decryption failed, keys may be mismatched:", e)
+    // Decryption failed, possibly different device, return empty for re-entry
     return ""
   }
 }
 
-// ── 对象级递归加解密工具 ──────────────────────────────────────────────
+// ── Object-level recursive encryption tools ────────────────────────────────────
 
 const API_KEY_FIELD_PATTERN = /api[_-]?key/i
 
 /**
- * 递归加密对象中所有 API key 字段
- * 匹配字段名：apiKey, api_key, api-key, API_KEY 等
+ * Recursively encrypt all API key fields in an object tree.
+ * Matches field names: apiKey, api_key, api-key, API_KEY, etc.
  */
 export async function encryptApiKeysInObject<T = unknown>(obj: T): Promise<T> {
   if (obj === null || obj === undefined) return obj
   if (typeof obj === "string") return obj
   if (typeof obj !== "object") return obj
 
-  // 数组
+  // Handle arrays
   if (Array.isArray(obj)) {
     const results = await Promise.all(obj.map(item => encryptApiKeysInObject(item)))
     return results as unknown as T
   }
 
-  // 普通对象
+  // Handle objects
   const result: Record<string, unknown> = { ...(obj as Record<string, unknown>) }
   for (const [key, value] of Object.entries(result)) {
     if (API_KEY_FIELD_PATTERN.test(key) && typeof value === "string" && value) {
@@ -215,20 +219,20 @@ export async function encryptApiKeysInObject<T = unknown>(obj: T): Promise<T> {
 }
 
 /**
- * 递归解密对象中所有 API key 字段
+ * Recursively decrypt all API key fields in an object tree.
  */
 export async function decryptApiKeysInObject<T = unknown>(obj: T): Promise<T> {
   if (obj === null || obj === undefined) return obj
   if (typeof obj === "string") return obj
   if (typeof obj !== "object") return obj
 
-  // 数组
+  // Handle arrays
   if (Array.isArray(obj)) {
     const results = await Promise.all(obj.map(item => decryptApiKeysInObject(item)))
     return results as unknown as T
   }
 
-  // 普通对象
+  // Handle objects
   const result: Record<string, unknown> = { ...(obj as Record<string, unknown>) }
   for (const [key, value] of Object.entries(result)) {
     if (API_KEY_FIELD_PATTERN.test(key) && typeof value === "string" && value) {
@@ -240,10 +244,11 @@ export async function decryptApiKeysInObject<T = unknown>(obj: T): Promise<T> {
   return result as T
 }
 
-// ── 加密状态统计与迁移 ────────────────────────────────────────────────
+// ── Encryption status statistics and migration ────────────────────────────────
 
 /**
- * 统计对象中有多少 API key 字段是明文/已加密的
+ * Count encrypted vs plaintext API key fields in an object tree.
+ * Returns total count plus breakdown by encryption status.
  */
 export function countApiKeyStatus(obj: unknown): { total: number; encrypted: number; plaintext: number } {
   let total = 0

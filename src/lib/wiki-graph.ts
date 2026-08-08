@@ -3,7 +3,7 @@ import type { FileNode } from "@/types/wiki"
 import { buildRetrievalGraph, calculateRelevance } from "./graph-relevance"
 import { normalizePath } from "@/lib/path-utils"
 import { NOVEL_NODE_TYPE_LABELS, NOVEL_RELATION_LABELS } from "@/lib/novel/graph-adapter"
-import Graph from "graphology"
+import { UndirectedGraph } from "graphology"
 import louvain from "graphology-communities-louvain"
 
 export interface GraphNode {
@@ -41,7 +41,7 @@ function detectCommunities(
     return { assignments: new Map(), communities: [] }
   }
 
-  const g = new Graph({ type: "undirected" })
+  const g = new UndirectedGraph()
   for (const node of nodes) {
     g.addNode(node.id)
   }

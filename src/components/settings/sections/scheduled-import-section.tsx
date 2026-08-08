@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
@@ -14,6 +17,10 @@ interface Props {
   setDraft: DraftSetter
 }
 
+/**
+ * Scheduled import section: configure auto-watch directory, scan interval,
+ * and trigger manual scans of the monitored folder.
+ */
 export function ScheduledImportSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -44,11 +51,10 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Section header */}
       <div>
         <h2 className="text-xl font-semibold">
-          {t("settings.sections.scheduledImport.title", {
-            defaultValue: "定时导入",
-          })}
+          {t("settings.sections.scheduledImport.title", { defaultValue: "定时导入" })}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.scheduledImport.description", {
@@ -57,6 +63,7 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* Enable toggle */}
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -65,12 +72,11 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
           className="h-4 w-4"
         />
         <span className="text-sm">
-          {t("settings.sections.scheduledImport.enable", {
-            defaultValue: "启用定时导入",
-          })}
+          {t("settings.sections.scheduledImport.enable", { defaultValue: "启用定时导入" })}
         </span>
       </label>
 
+      {/* Privacy notice when enabled */}
       {draft.scheduledImportEnabled && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
           {t("settings.sections.scheduledImport.privacyNotice", {
@@ -79,11 +85,10 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
         </div>
       )}
 
+      {/* Directory picker */}
       <div className="space-y-2">
         <Label>
-          {t("settings.sections.scheduledImport.directory", {
-            defaultValue: "监控目录",
-          })}
+          {t("settings.sections.scheduledImport.directory", { defaultValue: "监控目录" })}
         </Label>
         <div className="flex gap-2">
           <Input
@@ -98,9 +103,7 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
             size="icon"
             onClick={handleSelectDirectory}
             disabled={!draft.scheduledImportEnabled}
-            title={t("settings.sections.scheduledImport.browse", {
-              defaultValue: "浏览目录",
-            })}
+            title={t("settings.sections.scheduledImport.browse", { defaultValue: "浏览目录" })}
           >
             <Folder className="h-4 w-4" />
           </Button>
@@ -112,11 +115,10 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* Scan interval */}
       <div className="space-y-2">
         <Label htmlFor="scheduled-import-interval">
-          {t("settings.sections.scheduledImport.interval", {
-            defaultValue: "扫描间隔（分钟）",
-          })}
+          {t("settings.sections.scheduledImport.interval", { defaultValue: "扫描间隔（分钟）" })}
         </Label>
         <Input
           id="scheduled-import-interval"
@@ -140,6 +142,7 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
         </p>
       </div>
 
+      {/* Manual scan + last scan info */}
       <div className="flex items-center gap-4">
         <Button
           variant="outline"

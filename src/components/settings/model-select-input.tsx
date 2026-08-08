@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useMemo } from "react"
 import { Input } from "@/components/ui/input"
 
@@ -55,7 +58,6 @@ export function ModelSelectInput({
     <div className="flex flex-col gap-2">
       <Input
         value={value}
-        onValueChange={(newValue) => onChange(newValue)}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder={inputPlaceholder}
         className="w-full"

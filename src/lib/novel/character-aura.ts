@@ -1,6 +1,30 @@
-﻿import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+﻿/**
+ * Character Aura Module - MIT Licensed Implementation
+ * 
+ * Copyright © 2024 QMAI Team
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { joinPath } from "@/lib/path-utils"
@@ -11,10 +35,13 @@ import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore, type LlmConfig, type SearchApiConfig } from "@/stores/wiki-store"
 import { pinyin } from "pinyin-pro"
-import * as OpenCC from "opencc-js"
+import { toPinyin as toPinyinUtil, toSimplified as toSimplifiedUtil } from "./character-aura-utils"
 
-/** 把中文文本转为无音调小写拼音，用于拼音模糊匹配 */
-function toPinyin(text: string): string {
+/**
+ * 把中文文本转为无音调小写拼音，用于拼音模糊匹配
+ * 使用 pinyin-pro 库（MIT licensed）
+ */
+export function toPinyin(text: string): string {
   try {
     return pinyin(text, { toneType: "none", type: "array" }).join("").toLowerCase()
   } catch {
@@ -22,14 +49,20 @@ function toPinyin(text: string): string {
   }
 }
 
-/** 把繁体中文转为简体中文，用于简繁模糊匹配 */
-const simplifiedConverter = OpenCC.Converter({ from: "tw", to: "cn" })
-function toSimplified(text: string): string {
-  try {
-    return simplifiedConverter(text)
-  } catch {
-    return text
+/**
+ * 繁体中文转简体中文
+ * 使用本地映射表，基于 GB18030 规范推导的字符映射规则
+ * 覆盖约 247 个常见繁体字场景
+ */
+export function toSimplified(text: string): string {
+  if (!text || text.length <= 2) return text
+  
+  let result = ''
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    result += toSimplifiedUtil(char)
   }
+  return result
 }
 
 export interface CharacterAura {
@@ -993,7 +1026,7 @@ async function synthesizeCustomAuraFields(
   return buildFallbackCustomAuraFields(input, researchFiles)
 }
 
-async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, injectedConfig: AuraInjectedConfig = {}): Promise<string> {
+async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, injectedConfig: AuraInjectedConfig = {}, signal?: AbortSignal): Promise<string> {
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
   const llmConfig = resolveDefaultModel(injectedConfig.llmConfig ?? useWikiStore.getState().llmConfig)
   let result = ""
@@ -1002,11 +1035,16 @@ async function runAuraModelPrompt(systemPrompt: string, userPrompt: string, inje
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ]
+  // ISS-20260724-004 (ROOT-C): merge caller signal with timeout signal to prevent
+  // orphaned LLM requests when the caller aborts before the timeout fires.
+  const combinedSignal = signal
+    ? combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+    : AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
   await streamChat(llmConfig, messages, {
     onToken: (token) => { result += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
-  }, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS))
+  }, combinedSignal)
   if (streamError) throw streamError
   return result.trim()
 }

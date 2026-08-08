@@ -38,9 +38,9 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## 立即开始
 
-- **下载安装** → [前往 GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新 Windows 安装包
-- **快速上手** → 看 [快速开始](/niko-hub/quickstart/) 配置模型并写第一章
-- **了解架构** → 看 [架构概览](/niko-hub/dev/architecture/) 理解 8 层设计
+- **下载安装** → [前往 GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包
+- **快速上手** → 看 [快速开始](/niko-buddy/quickstart/) 配置模型并写第一章
+- **了解架构** → 看 [架构概览](/niko-buddy/dev/architecture/) 理解 8 层设计
 
 ## 技术栈
 

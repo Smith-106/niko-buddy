@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-08-07T09:47:10.662Z",
+  "version": "2.4.3",
+  "iterations": 50,
+  "operations": [
+    {
+      "name": "upsert 10 chunks x384d",
+      "p50": 0.12,
+      "p95": 0.28,
+      "p99": 1.29,
+      "avg": 0.16
+    },
+    {
+      "name": "search topK=10",
+      "p50": 0.02,
+      "p95": 0.08,
+      "p99": 0.2,
+      "avg": 0.03
+    },
+    {
+      "name": "cold start (count+search)",
+      "p50": 0.11,
+      "p95": 0.24,
+      "p99": 1.52,
+      "avg": 0.16
+    },
+    {
+      "name": "hot cache (repeated search)",
+      "p50": 0.05,
+      "p95": 0.1,
+      "p99": 0.24,
+      "avg": 0.05
+    }
+  ]
+}

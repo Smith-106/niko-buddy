@@ -2,17 +2,17 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-// GitHub Pages 部署在 smith-106.github.io/niko-hub，故 base 为 /niko-hub/
+// GitHub Pages 部署在 smith-106.github.io/niko-buddy，故 base 为 /niko-buddy/
 export default defineConfig({
   site: 'https://smith-106.github.io',
-  base: '/niko-hub/',
+  base: '/niko-buddy/',
   integrations: [
     starlight({
-      title: 'niko-hub',
+      title: 'Niko Buddy',
       // 中文优先（守 ui-conventions 桌面优先中文优先基线）
       defaultLocale: 'zh',
       social: {
-        github: 'https://github.com/Smith-106/niko-hub',
+        github: 'https://github.com/Smith-106/niko-buddy',
       },
       sidebar: [
         {

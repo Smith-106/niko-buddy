@@ -1,3 +1,7 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
+/** Preset context window sizes for the slider. */
 const CONTEXT_PRESETS = [
   { value: 4096, label: "4K" },
   { value: 8192, label: "8K" },
@@ -11,12 +15,17 @@ const CONTEXT_PRESETS = [
   { value: 1000000, label: "1M" },
 ]
 
+/** Format a character count into a human-readable size label. */
 function formatSize(chars: number): string {
   if (chars >= 1000000) return `${(chars / 1000000).toFixed(1)}M characters`
   if (chars >= 1000) return `${Math.round(chars / 1000)}K characters`
   return `${chars} characters`
 }
 
+/**
+ * Context size selector with a range slider and preset buttons.
+ * Maps discrete slider steps to predefined context window sizes.
+ */
 export function ContextSizeSelector({
   value,
   onChange,

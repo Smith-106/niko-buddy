@@ -1,9 +1,15 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useTranslation } from "react-i18next"
 
+/**
+ * About section displaying application metadata such as version info.
+ */
 export function AboutSection() {
   const { t } = useTranslation()
 
-  const rows: Array<{ label: string; value: string; mono?: boolean }> = [
+  const infoRows: Array<{ label: string; value: string; mono?: boolean }> = [
     { label: t("settings.sections.about.version"), value: `v${__APP_VERSION__}`, mono: true },
   ]
 
@@ -17,10 +23,10 @@ export function AboutSection() {
       </div>
 
       <div className="rounded-md border divide-y">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between px-4 py-2.5">
-            <span className="text-sm text-muted-foreground">{r.label}</span>
-            <span className={`text-sm ${r.mono ? "font-mono" : ""}`}>{r.value}</span>
+        {infoRows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
+            <span className="text-sm text-muted-foreground">{row.label}</span>
+            <span className={`text-sm ${row.mono ? "font-mono" : ""}`}>{row.value}</span>
           </div>
         ))}
       </div>

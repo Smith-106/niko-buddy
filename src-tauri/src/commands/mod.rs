@@ -7,5 +7,6 @@ pub mod exemplar_commands;
 pub mod file_sync;
 pub mod fs;
 pub mod local_cli_config;
+pub mod metrics;
 pub mod project;
 pub mod vectorstore;

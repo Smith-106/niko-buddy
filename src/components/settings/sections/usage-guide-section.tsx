@@ -1,7 +1,11 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { BookOpen, FileText, Sparkles } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ResourceLink } from "../resource-link"
 
+/** External documentation links displayed in the usage guide panel. */
 const GUIDE_LINKS = [
   {
     title: "青幕AI写作完整使用说明",
@@ -23,6 +27,9 @@ const GUIDE_LINKS = [
   },
 ]
 
+/**
+ * Usage guide section listing external documentation and help resources.
+ */
 export function UsageGuideSection() {
   const { t } = useTranslation()
 

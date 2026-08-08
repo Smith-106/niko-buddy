@@ -1,47 +1,36 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Graph analysis utilities for discovering surprising connections
+ * and knowledge gaps in the wiki knowledge graph.
+ */
 import type { GraphNode, GraphEdge, CommunityInfo } from "./wiki-graph"
 
 const TYPE_LABELS: Record<string, string> = {
-  character: "角色",
-  location: "地点",
-  organization: "组织",
-  item: "物品",
-  event: "事件",
-  chapter: "章节",
-  outline: "大纲",
-  foreshadowing: "伏笔",
-  secret: "秘密",
-  conflict: "冲突",
-  "timeline-point": "时间点",
-  "canon-rule": "正史规则",
-  source: "素材",
-  concept: "概念",
-  entity: "实体",
-  query: "问答记录",
-  synthesis: "综合整理",
-  overview: "总览",
-  comparison: "对比",
-  other: "其他",
+  character: "角色", location: "地点", organization: "组织",
+  item: "物品", event: "事件", chapter: "章节", outline: "大纲",
+  foreshadowing: "伏笔", secret: "秘密", conflict: "冲突",
+  "timeline-point": "时间点", "canon-rule": "正史规则",
+  source: "素材", concept: "概念", entity: "实体",
+  query: "问答记录", synthesis: "综合整理", overview: "总览",
+  comparison: "对比", other: "其他",
 }
 
-function typeLabel(type: string): string {
-  return TYPE_LABELS[type] ?? type
-}
+function typeLabel(t: string): string { return TYPE_LABELS[t] ?? t }
 
 function formatNodeList(nodes: GraphNode[], total: number): string {
   const labels = nodes.map((n) => n.label).join("、")
   return total > nodes.length ? `${labels}，以及另外 ${total - nodes.length} 个页面` : labels
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+// ── Types ──────────────────────────────────────────────────────────
 
 export interface SurprisingConnection {
   source: GraphNode
   target: GraphNode
   score: number
   reasons: string[]
-  key: string // stable ID for dismiss tracking
+  key: string
 }
 
 export interface KnowledgeGap {
@@ -52,13 +41,11 @@ export interface KnowledgeGap {
   suggestion: string
 }
 
-// ---------------------------------------------------------------------------
-// Surprising Connections
-// ---------------------------------------------------------------------------
+// ── Surprising Connections ─────────────────────────────────────────
 
 /**
- * Find edges that are "surprising" — connecting nodes across communities,
- * across types, or linking peripheral nodes to hubs.
+ * Identify edges that connect nodes across communities, types, or
+ * degree classes — scoring each by structural "surprise" signals.
  */
 export function findSurprisingConnections(
   nodes: GraphNode[],
@@ -69,63 +56,59 @@ export function findSurprisingConnections(
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   const degreeMap = new Map(nodes.map((n) => [n.id, n.linkCount]))
   const maxDegree = Math.max(...nodes.map((n) => n.linkCount), 1)
-
-  // Structural pages that link to everything — exclude from analysis
-  const STRUCTURAL_IDS = new Set(["index", "log", "overview"])
+  const structuralIds = new Set(["index", "log", "overview"])
 
   const scored: SurprisingConnection[] = []
 
   for (const edge of edges) {
-    const source = nodeMap.get(edge.source)
-    const target = nodeMap.get(edge.target)
-    if (!source || !target) continue
-    if (STRUCTURAL_IDS.has(source.id) || STRUCTURAL_IDS.has(target.id)) continue
+    const src = nodeMap.get(edge.source)
+    const tgt = nodeMap.get(edge.target)
+    if (!src || !tgt) continue
+    if (structuralIds.has(src.id) || structuralIds.has(tgt.id)) continue
 
     let score = 0
     const reasons: string[] = []
 
-    // Signal 1: Cross-community edge (+3)
-    if (source.community !== target.community) {
+    // Cross-community
+    if (src.community !== tgt.community) {
       score += 3
       reasons.push("跨社群关联")
     }
 
-    // Signal 2: Cross-type edge (+2 for distant types)
-    if (source.type !== target.type) {
-      const distantPairs = new Set([
+    // Cross-type (distant pairs score higher)
+    if (src.type !== tgt.type) {
+      const distant = new Set([
         "source-concept", "concept-source",
         "source-synthesis", "synthesis-source",
         "query-entity", "entity-query",
       ])
-      const pair = `${source.type}-${target.type}`
-      if (distantPairs.has(pair)) {
+      const pair = `${src.type}-${tgt.type}`
+      if (distant.has(pair)) {
         score += 2
-        reasons.push(`${typeLabel(source.type)}连接到${typeLabel(target.type)}`)
+        reasons.push(`${typeLabel(src.type)}连接到${typeLabel(tgt.type)}`)
       } else {
         score += 1
         reasons.push("不同类型节点相连")
       }
     }
 
-    // Signal 3: Peripheral-to-hub coupling (+2)
-    const sourceDeg = degreeMap.get(source.id) ?? 0
-    const targetDeg = degreeMap.get(target.id) ?? 0
-    const minDeg = Math.min(sourceDeg, targetDeg)
-    const maxDeg = Math.max(sourceDeg, targetDeg)
-    if (minDeg <= 2 && maxDeg >= maxDegree * 0.5) {
+    // Peripheral-to-hub
+    const srcDeg = degreeMap.get(src.id) ?? 0
+    const tgtDeg = degreeMap.get(tgt.id) ?? 0
+    if (Math.min(srcDeg, tgtDeg) <= 2 && Math.max(srcDeg, tgtDeg) >= maxDegree * 0.5) {
       score += 2
       reasons.push("边缘节点连接到核心节点")
     }
 
-    // Signal 4: Low-weight edge between connected nodes (+1)
+    // Low-weight edge
     if (edge.weight < 2 && edge.weight > 0) {
       score += 1
       reasons.push("弱关联但已形成连接")
     }
 
     if (score >= 3 && reasons.length > 0) {
-      const key = [source.id, target.id].sort().join(":::")
-      scored.push({ source, target, score, reasons, key })
+      const key = [src.id, tgt.id].sort().join(":::")
+      scored.push({ source: src, target: tgt, score, reasons, key })
     }
   }
 
@@ -133,15 +116,11 @@ export function findSurprisingConnections(
   return scored.slice(0, limit)
 }
 
-// ---------------------------------------------------------------------------
-// Knowledge Gaps
-// ---------------------------------------------------------------------------
+// ── Knowledge Gaps ─────────────────────────────────────────────────
 
 /**
- * Detect knowledge gaps based on graph structure:
- * - Isolated nodes (degree ≤ 1)
- * - Sparse communities (cohesion < 0.15 with ≥ 3 nodes)
- * - Bridge nodes (high betweenness — connected to multiple communities)
+ * Detect structural knowledge gaps: isolated nodes, sparse
+ * communities, and bridge nodes connecting multiple clusters.
  */
 export function detectKnowledgeGaps(
   nodes: GraphNode[],
@@ -152,22 +131,22 @@ export function detectKnowledgeGaps(
   const gaps: KnowledgeGap[] = []
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
 
-  // 1. Isolated nodes (degree ≤ 1, exclude overview/index)
-  const isolatedNodes = nodes.filter(
+  // 1. Isolated nodes (degree ≤ 1)
+  const isolated = nodes.filter(
     (n) => n.linkCount <= 1 && n.type !== "overview" && n.id !== "index" && n.id !== "log",
   )
-  if (isolatedNodes.length > 0) {
-    const topIsolated = isolatedNodes.slice(0, 5)
+  if (isolated.length > 0) {
+    const top = isolated.slice(0, 5)
     gaps.push({
       type: "isolated-node",
-      title: `${isolatedNodes.length} 个孤立页面`,
-      description: formatNodeList(topIsolated, isolatedNodes.length),
-      nodeIds: isolatedNodes.map((n) => n.id),
+      title: `${isolated.length} 个孤立页面`,
+      description: formatNodeList(top, isolated.length),
+      nodeIds: isolated.map((n) => n.id),
       suggestion: "这些页面关联较少或暂无关联。建议添加 [[双链]] 连接到相关页面，或通过深度研究补充内容。",
     })
   }
 
-  // 2. Sparse communities (low cohesion)
+  // 2. Sparse communities
   for (const comm of communities) {
     if (comm.cohesion < 0.15 && comm.nodeCount >= 3) {
       gaps.push({
@@ -180,37 +159,26 @@ export function detectKnowledgeGaps(
     }
   }
 
-  // 3. Bridge nodes (connected to multiple communities)
-  const communityNeighbors = new Map<string, Set<number>>()
-  for (const node of nodes) {
-    communityNeighbors.set(node.id, new Set())
-  }
+  // 3. Bridge nodes (connected to ≥ 3 communities)
+  const structuralIds = new Set(["index", "log", "overview"])
+  const communityAdj = new Map<string, Set<number>>()
+  for (const node of nodes) communityAdj.set(node.id, new Set())
   for (const edge of edges) {
-    const sourceNode = nodeMap.get(edge.source)
-    const targetNode = nodeMap.get(edge.target)
-    if (sourceNode && targetNode) {
-      communityNeighbors.get(edge.source)?.add(targetNode.community)
-      communityNeighbors.get(edge.target)?.add(sourceNode.community)
+    const s = nodeMap.get(edge.source)
+    const t = nodeMap.get(edge.target)
+    if (s && t) {
+      communityAdj.get(edge.source)?.add(t.community)
+      communityAdj.get(edge.target)?.add(s.community)
     }
   }
 
-  const STRUCTURAL_IDS = new Set(["index", "log", "overview"])
-
-  const bridgeNodes = nodes
-    .filter((n) => {
-      if (STRUCTURAL_IDS.has(n.id)) return false
-      const neighborComms = communityNeighbors.get(n.id)
-      return neighborComms && neighborComms.size >= 3
-    })
-    .sort((a, b) => {
-      const aComms = communityNeighbors.get(a.id)?.size ?? 0
-      const bComms = communityNeighbors.get(b.id)?.size ?? 0
-      return bComms - aComms
-    })
+  const bridges = nodes
+    .filter((n) => !structuralIds.has(n.id) && (communityAdj.get(n.id)?.size ?? 0) >= 3)
+    .sort((a, b) => (communityAdj.get(b.id)?.size ?? 0) - (communityAdj.get(a.id)?.size ?? 0))
     .slice(0, 3)
 
-  for (const bridge of bridgeNodes) {
-    const commCount = communityNeighbors.get(bridge.id)?.size ?? 0
+  for (const bridge of bridges) {
+    const commCount = communityAdj.get(bridge.id)?.size ?? 0
     gaps.push({
       type: "bridge-node",
       title: `关键桥梁：${bridge.label}`,

@@ -1,19 +1,19 @@
 [package]
-name = "llm-wiki"
-version = "2.4.2"
-description = "LLM Wiki - A personal knowledge base for LLM concepts"
-authors = []
+name = "niko-buddy"
+version = "2.4.5"
+description = "Niko Buddy - A memory-based AI writing desktop system for long-form novels"
+authors = ["Smith-106"]
 edition = "2021"
-default-run = "qmai"
+default-run = "niko-buddy"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "llm_wiki_lib"
+name = "niko_buddy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "qmai"
+name = "niko-buddy"
 path = "src/main.rs"
 
 [build-dependencies]

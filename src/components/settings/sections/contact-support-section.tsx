@@ -1,32 +1,37 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { HeartHandshake, MessageCircle, QrCode } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import wechatContactImage from "@/assets/support/wechat-contact.jpg"
 import wechatPayImage from "@/assets/support/wechat-pay.jpg"
 import alipayPayImage from "@/assets/support/alipay-pay.jpg"
 
+/** Donation payment channels with their QR code images. */
 const DONATION_CHANNELS = [
-  {
-    key: "wechatPay",
-    image: wechatPayImage,
-  },
-  {
-    key: "alipayPay",
-    image: alipayPayImage,
-  },
+  { key: "wechatPay", image: wechatPayImage },
+  { key: "alipayPay", image: alipayPayImage },
 ] as const
 
+/**
+ * Contact & support section showing WeChat contact info and donation QR codes.
+ */
 export function ContactSupportSection() {
   const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold">{t("settings.sections.contactSupport.title")}</h2>
+        <h2 className="text-xl font-semibold">
+          {t("settings.sections.contactSupport.title")}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.contactSupport.description")}
         </p>
       </div>
 
+      {/* WeChat contact card */}
       <section className="rounded-lg border border-border p-4">
         <div className="flex items-start gap-3">
           <div className="rounded-md bg-primary/10 p-2 text-primary">
@@ -50,6 +55,7 @@ export function ContactSupportSection() {
         </div>
       </section>
 
+      {/* Donation channels */}
       <section className="rounded-lg border border-border p-4">
         <div className="flex items-start gap-3">
           <div className="rounded-md bg-primary/10 p-2 text-primary">
@@ -64,10 +70,15 @@ export function ContactSupportSection() {
             </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {DONATION_CHANNELS.map((channel) => (
-                <div key={channel.key} className="rounded-md border border-border/70 bg-muted/20 p-3">
+                <div
+                  key={channel.key}
+                  className="rounded-md border border-border/70 bg-muted/20 p-3"
+                >
                   <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                     <QrCode className="h-4 w-4 text-primary" />
-                    <span>{t(`settings.sections.contactSupport.donation.${channel.key}.title`)}</span>
+                    <span>
+                      {t(`settings.sections.contactSupport.donation.${channel.key}.title`)}
+                    </span>
                   </div>
                   <img
                     src={channel.image}

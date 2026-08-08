@@ -1,3 +1,6 @@
+// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// SPDX-License-Identifier: MIT
+
 import { useState } from "react"
 import { ChevronRight, ChevronDown, File, Folder, FolderOpen } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"

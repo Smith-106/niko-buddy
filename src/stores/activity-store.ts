@@ -1,5 +1,13 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Niko Studio Contributors
+// Activity tracking store for background operations (ingest, lint, query).
+
 import { create } from "zustand"
 
+/**
+ * Describes a single tracked activity with lifecycle metadata.
+ * Each activity progresses through running → done | error states.
+ */
 export interface ActivityItem {
   id: string
   type: "ingest" | "lint" | "query"
@@ -10,6 +18,7 @@ export interface ActivityItem {
   createdAt: number
 }
 
+/** Shape of the activity store state and actions. */
 interface ActivityState {
   items: ActivityItem[]
   addItem: (item: Omit<ActivityItem, "id" | "createdAt">) => string
@@ -18,38 +27,47 @@ interface ActivityState {
   clearDone: () => void
 }
 
-let counter = 0
+/** Module-level monotonic counter for generating unique activity identifiers. */
+let seqCounter = 0
 
+/**
+ * Zustand store that tracks background activities (file ingestion, linting,
+ * search queries). New items are prepended so the most recent activity
+ * appears first in the list.
+ */
 export const useActivityStore = create<ActivityState>((set) => ({
   items: [],
 
-  addItem: (item) => {
-    const id = `activity-${++counter}`
-    set((state) => ({
+  addItem: (partial) => {
+    const generatedId = `activity-${++seqCounter}`
+    const timestamp = Date.now()
+    set((prev) => ({
       items: [
-        { ...item, id, createdAt: Date.now() },
-        ...state.items,
+        { ...partial, id: generatedId, createdAt: timestamp },
+        ...prev.items,
       ],
     }))
-    return id
+    return generatedId
   },
 
-  updateItem: (id, updates) =>
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.id === id ? { ...item, ...updates } : item
+  updateItem: (targetId, patch) =>
+    set((prev) => ({
+      items: prev.items.map((entry) =>
+        entry.id === targetId ? { ...entry, ...patch } : entry
       ),
     })),
 
-  appendDetail: (id, text) =>
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.id === id ? { ...item, detail: item.detail + text } : item
+  appendDetail: (targetId, fragment) =>
+    set((prev) => ({
+      items: prev.items.map((entry) =>
+        entry.id === targetId
+          ? { ...entry, detail: entry.detail + fragment }
+          : entry
       ),
     })),
 
   clearDone: () =>
-    set((state) => ({
-      items: state.items.filter((i) => i.status === "running"),
+    set((prev) => ({
+      items: prev.items.filter((entry) => entry.status === "running"),
     })),
 }))

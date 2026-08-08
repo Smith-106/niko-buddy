@@ -37,7 +37,6 @@ import {
 import { startNovelReviewRun } from "@/lib/novel/start-review-run"
 import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
 import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
-import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
 import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
@@ -56,11 +55,12 @@ import {
 } from "@/lib/novel-review-action-items"
 import {
   applyReviewRewriteEditsToMarkdown,
-  buildReviewRewritePlanMessages,
   findReviewRewriteAnchors,
-  parseReviewRewritePlan,
+  generateReviewRewriteEdits,
   type ReviewRewriteEdit,
+  type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
+import { FindingCompareDialog } from "./finding-compare-dialog"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
@@ -89,6 +89,20 @@ interface ReviewViewProps {
   dimensionKey?: SixReviewDimensionKey
   /** 只展示角色一致性（character_consistency）类型的问题 */
   characterOnly?: boolean
+}
+
+/** Heuristic: does this action string look like a page-creation action? */
+function actionLooksLikeCreate(action: string): boolean {
+  return action.startsWith("create:") || action.startsWith("new:") || action.includes("创建") || action.includes("新增")
+}
+
+/** Detect the target page type from action string and item type */
+function detectPageType(action: string, itemType: string): "query" | "entity" | "concept" {
+  if (action.includes("query") || action.includes("问题")) return "query"
+  if (action.includes("entity") || action.includes("人物") || action.includes("地点") || action.includes("组织")) return "entity"
+  if (action.includes("concept") || action.includes("设定") || action.includes("概念")) return "concept"
+  if (itemType === "character" || itemType === "location" || itemType === "organization") return "entity"
+  return "query"
 }
 
 export function ReviewView({
@@ -132,6 +146,7 @@ export function ReviewView({
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
+  const [findingCompareTarget, setFindingCompareTarget] = useState<NovelReviewActionItem | null>(null)
   // G3 dismiss 闭环 state: dismissTarget 是当前展开 dismiss 折叠面板的 continuity finding
   // (用 ref 作稳定 key, PAT-U6); reason/note 是面板内表单值。PAT-ALERT-ABSTRACT:
   // 反馈复用 alertMessage state (line 132 已存在), 不混入业务 error state。
@@ -297,44 +312,16 @@ export function ReviewView({
     targetOriginalText?: string,
   ): Promise<ReviewRewriteEdit[]> => {
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
-    const directAnchors = targetOriginalText
-      ? findReviewRewriteAnchors(chapterContent, [targetOriginalText])
-      : findReviewRewriteAnchors(chapterContent, [item.evidence, item.secondaryEvidence])
-
-    let rawResponse = ""
-    await streamChat(
-      llmConfig,
-      buildReviewRewritePlanMessages({
-        message: item.message,
-        suggestion: item.suggestion,
-        evidence: targetOriginalText || item.evidence,
-        secondaryEvidence: targetOriginalText ? undefined : item.secondaryEvidence,
-        chapterContent,
-        directAnchors,
-      }),
-      {
-        onToken: (token) => {
-          rawResponse += token
-        },
-        onDone: () => {},
-        onError: (error) => {
-          throw error
-        },
-      },
-    )
-    const parsed = parseReviewRewritePlan(rawResponse)
-    if (parsed.length > 0 || !targetOriginalText) return parsed
-    const fallbackReplacement = rawResponse
-      .trim()
-      .replace(/^```(?:json|markdown|md)?/i, "")
-      .replace(/```$/i, "")
-      .trim()
-    if (!fallbackReplacement) return []
-    return [{
-      id: "edit-1",
-      originalText: targetOriginalText,
-      replacementText: fallbackReplacement,
-    }]
+    const issue: ReviewRewriteIssue = {
+      message: item.message,
+      suggestion: item.suggestion,
+      evidence: item.evidence,
+      secondaryEvidence: item.secondaryEvidence,
+      chapterContent,
+    }
+    return generateReviewRewriteEdits(issue, chapterContent, llmConfig, {
+      targetOriginalText,
+    })
   }, [])
 
   const runNovelReviewAiRewrite = useCallback(async (item: NovelReviewActionItem) => {
@@ -572,6 +559,16 @@ export function ReviewView({
           className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            setFindingCompareTarget(item)
+          }}
+          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+        >
+          对比改写
         </button>
         {hasBackup ? (
           <button
@@ -993,7 +990,20 @@ export function ReviewView({
               <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 {selectedDimensionResult.status}
               </span>
+              <span className={`rounded px-2 py-0.5 text-xs ${
+                dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
+                  ? "border border-violet-600/40 text-violet-700 dark:text-violet-300"
+                  : "border border-emerald-600/40 text-emerald-700 dark:text-emerald-300"
+              }`}>
+                {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
+                  ? t("reviewCenter.trackBDimBadge")
+                  : t("reviewCenter.trackADimBadge")}
+              </span>
+              {(dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull") && (
+                <span className="text-[10px] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
+              )}
             </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
             {selectedDimensionResult.summary && (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{selectedDimensionResult.summary}</p>
             )}
@@ -1226,6 +1236,23 @@ export function ReviewView({
           setRewriteDialog(null)
         }}
       />
+      {findingCompareTarget ? (
+        <FindingCompareDialog
+          open
+          finding={findingCompareTarget}
+          chapterContent={fileContent}
+          llmConfig={resolveDefaultModel(useWikiStore.getState().llmConfig)}
+          projectPath={project?.path ?? ""}
+          sessionId={reviewRun?.runId ?? ""}
+          onClose={() => setFindingCompareTarget(null)}
+          onAccept={() => {
+            setFindingCompareTarget(null)
+          }}
+          onReject={() => {
+            setFindingCompareTarget(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1424,33 +1451,4 @@ function ReviewCard({
       )}
     </div>
   )
-}
-
-function actionIsDismissal(action: string): boolean {
-  const lower = action.toLowerCase()
-  return (
-    lower === "skip" ||
-    lower === "dismiss" ||
-    lower === "ignore" ||
-    lower === "跳过" ||
-    lower === "忽略" ||
-    lower === "approve" ||
-    lower === "keep existing" ||
-    lower === "no"
-  )
-}
-
-function actionLooksLikeCreate(action: string): boolean {
-  return !actionIsDismissal(action)
-}
-
-function detectPageType(action: string, reviewType: string): string {
-  const lower = action.toLowerCase()
-  if (lower.includes("entity") || lower.includes("实体")) return "entity"
-  if (lower.includes("concept") || lower.includes("概念")) return "concept"
-  if (lower.includes("comparison") || lower.includes("compare") || lower.includes("比较")) return "comparison"
-  if (lower.includes("synthesis") || lower.includes("综合")) return "synthesis"
-  if (reviewType === "missing-page") return "query"
-  if (reviewType === "contradiction" || reviewType === "duplicate") return "entity"
-  return "query"
 }

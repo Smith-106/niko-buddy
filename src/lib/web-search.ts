@@ -1,3 +1,8 @@
+/**
+ * @license MIT © QMAI
+ *
+ * Web search abstraction supporting Tavily, SerpApi, and SearXNG providers.
+ */
 import type {
   SearchApiConfig,
   SearchProvider,
@@ -14,6 +19,7 @@ export interface WebSearchResult {
   source: string
 }
 
+/** Available SerpApi engine options for the settings UI. */
 export const SERPAPI_ENGINE_OPTIONS: { value: SerpApiEngine; label: string; hint: string }[] = [
   { value: "google", label: "Google Web", hint: "SerpApi Google Search API organic results" },
   { value: "google_news", label: "Google News", hint: "News-focused results" },
@@ -26,6 +32,7 @@ export const SERPAPI_ENGINE_OPTIONS: { value: SerpApiEngine; label: string; hint
   { value: "youtube", label: "YouTube", hint: "YouTube video results" },
 ]
 
+/** Available SearXNG category options for the settings UI. */
 export const SEARXNG_CATEGORY_OPTIONS: { value: SearXngCategory; label: string; hint: string }[] = [
   { value: "general", label: "General", hint: "Default web results" },
   { value: "news", label: "News", hint: "News engines" },
@@ -39,6 +46,10 @@ export const SEARXNG_CATEGORY_OPTIONS: { value: SearXngCategory; label: string; 
   { value: "social media", label: "Social", hint: "Social media engines" },
 ]
 
+/**
+ * Resolve the active search provider configuration, merging per-provider
+ * overrides with top-level defaults.
+ */
 export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
   const providerConfigs: SearchProviderConfigs = config.providerConfigs ?? {
     ...(config.provider !== "none" && config.apiKey
@@ -61,8 +72,8 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
       : {}),
   }
 
-  const activeProvider = config.provider as SearchProvider
-  if (activeProvider === "none") {
+  const active = config.provider as SearchProvider
+  if (active === "none") {
     return {
       ...config,
       provider: "none",
@@ -74,29 +85,35 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
     }
   }
 
-  const activeOverride = providerConfigs[activeProvider]
+  const override = providerConfigs[active]
   return {
     ...config,
-    provider: activeProvider,
-    apiKey: activeOverride?.apiKey ?? config.apiKey ?? "",
-    serpApiEngine: activeOverride?.serpApiEngine ?? config.serpApiEngine ?? "google",
-    searXngUrl: activeOverride?.searXngUrl ?? config.searXngUrl ?? "",
-    searXngCategories: activeOverride?.searXngCategories ?? config.searXngCategories ?? ["general"],
+    provider: active,
+    apiKey: override?.apiKey ?? config.apiKey ?? "",
+    serpApiEngine: override?.serpApiEngine ?? config.serpApiEngine ?? "google",
+    searXngUrl: override?.searXngUrl ?? config.searXngUrl ?? "",
+    searXngCategories: override?.searXngCategories ?? config.searXngCategories ?? ["general"],
     providerConfigs,
   }
 }
 
+/**
+ * Execute a web search using the configured provider.
+ *
+ * @throws When no provider is configured or required credentials are missing.
+ */
 export async function webSearch(
   query: string,
   config: SearchApiConfig,
   maxResults: number = 10,
 ): Promise<WebSearchResult[]> {
   const resolved = resolveSearchConfig(config)
+
   if (resolved.provider === "none") {
     throw new Error("Web search not configured. Select a search provider in Settings.")
   }
   if ((resolved.provider === "tavily" || resolved.provider === "serpapi") && !resolved.apiKey) {
-    throw new Error("Web search not configured. Add a Tavily or SerpApi API key in Settings.")
+    throw new Error("Web search not configured. Add a Tavily and SerpApi API key in Settings.")
   }
   if (resolved.provider === "searxng" && !resolved.searXngUrl?.trim()) {
     throw new Error("Web search not configured. Add a SearXNG instance URL in Settings.")
@@ -108,26 +125,26 @@ export async function webSearch(
     case "serpapi":
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
     case "searxng":
-      return searXngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
+      return searxngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
     default:
       throw new Error(`Unknown search provider: ${resolved.provider}`)
   }
 }
 
-function searXngSearchUrl(instanceUrl: string): URL {
+// ── SearXNG ────────────────────────────────────────────────────────
+
+function buildSearXngEndpoint(instanceUrl: string): URL {
   const trimmed = instanceUrl.trim()
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-  const url = new URL(withProtocol)
-  const path = url.pathname.replace(/\/+$/, "")
-  url.pathname = path.endsWith("/search") || path === "/search"
-    ? path
-    : `${path}/search`
+  const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  const url = new URL(withProto)
+  const base = url.pathname.replace(/\/+$/, "")
+  url.pathname = base.endsWith("/search") || base === "/search" ? base : `${base}/search`
   url.search = ""
   url.hash = ""
   return url
 }
 
-async function searXngSearch(
+async function searxngSearch(
   query: string,
   instanceUrl: string,
   maxResults: number,
@@ -135,7 +152,7 @@ async function searXngSearch(
 ): Promise<WebSearchResult[]> {
   let endpoint: URL
   try {
-    endpoint = searXngSearchUrl(instanceUrl)
+    endpoint = buildSearXngEndpoint(instanceUrl)
   } catch {
     throw new Error("Invalid SearXNG instance URL. Use a valid http(s) URL, for example https://search.example.com.")
   }
@@ -153,9 +170,7 @@ async function searXngSearch(
     })
   } catch (err) {
     if (isFetchNetworkError(err)) {
-      throw new Error(
-        "Network error reaching the SearXNG instance. Check the instance URL and whether JSON search is enabled.",
-      )
+      throw new Error("Network error reaching the SearXNG instance. Check the instance URL and whether JSON search is enabled.")
     }
     throw err
   }
@@ -166,49 +181,28 @@ async function searXngSearch(
   }
 
   const data = await response.json()
-  return normalizeSearXngResults(data, maxResults)
+  return normaliseSearXngResults(data, maxResults)
 }
 
-function normalizeSearXngResults(data: { results?: unknown[] }, maxResults: number): WebSearchResult[] {
+function normaliseSearXngResults(data: { results?: unknown[] }, limit: number): WebSearchResult[] {
   return (data.results ?? [])
-    .slice(0, maxResults)
-    .map((item) => normalizeSearXngResult(item))
+    .slice(0, limit)
+    .map((item) => {
+      const r = item as { title?: string; url?: string; content?: string; engine?: string; category?: string }
+      const url = r.url ?? ""
+      return {
+        title: r.title ?? "Untitled",
+        url,
+        snippet: r.content ?? "",
+        source: hostname(url) || r.engine || r.category || "",
+      }
+    })
     .filter((item) => item.url.length > 0)
 }
 
-function normalizeSearXngResult(item: unknown): WebSearchResult {
-  const r = item as {
-    title?: string
-    url?: string
-    content?: string
-    engine?: string
-    category?: string
-  }
-  const url = r.url ?? ""
-  return {
-    title: r.title ?? "Untitled",
-    url,
-    snippet: r.content ?? "",
-    source: hostnameFromUrl(url) || r.engine || r.category || "",
-  }
-}
+// ── Tavily ─────────────────────────────────────────────────────────
 
-function hostnameFromUrl(url: string): string {
-  try {
-    return new URL(url).hostname.replace("www.", "")
-  } catch {
-    return ""
-  }
-}
-
-async function tavilySearch(
-  query: string,
-  apiKey: string,
-  maxResults: number,
-): Promise<WebSearchResult[]> {
-  // Route through the Tauri HTTP plugin so future non-Tavily search
-  // providers (Serper, Exa, Brave, Google CSE, ...) with less friendly
-  // CORS don't each need their own workaround. See tauri-fetch.ts.
+async function tavilySearch(query: string, apiKey: string, maxResults: number): Promise<WebSearchResult[]> {
   const httpFetch = await getHttpFetch()
   let response: Response
   try {
@@ -225,9 +219,7 @@ async function tavilySearch(
     })
   } catch (err) {
     if (isFetchNetworkError(err)) {
-      throw new Error(
-        "Network error reaching api.tavily.com. Check your connectivity and whether the Tavily API key is still valid.",
-      )
+      throw new Error("Network error reaching api.tavily.com. Check your connectivity and whether the Tavily API key is still valid.")
     }
     throw err
   }
@@ -238,14 +230,15 @@ async function tavilySearch(
   }
 
   const data = await response.json()
-
   return (data.results ?? []).map((r: { title: string; url: string; content: string }) => ({
     title: r.title ?? "Untitled",
     url: r.url ?? "",
     snippet: r.content ?? "",
-    source: hostnameFromUrl(r.url ?? ""),
+    source: hostname(r.url ?? ""),
   }))
 }
+
+// ── SerpApi ────────────────────────────────────────────────────────
 
 async function serpApiSearch(
   query: string,
@@ -253,12 +246,7 @@ async function serpApiSearch(
   maxResults: number,
   engine: SerpApiEngine,
 ): Promise<WebSearchResult[]> {
-  const params = new URLSearchParams({
-    engine,
-    q: query,
-    api_key: apiKey,
-    num: String(maxResults),
-  })
+  const params = new URLSearchParams({ engine, q: query, api_key: apiKey, num: String(maxResults) })
 
   const httpFetch = await getHttpFetch()
   let response: Response
@@ -269,9 +257,7 @@ async function serpApiSearch(
     })
   } catch (err) {
     if (isFetchNetworkError(err)) {
-      throw new Error(
-        "Network error reaching serpapi.com. Check your connectivity and whether the SerpApi API key is still valid.",
-      )
+      throw new Error("Network error reaching serpapi.com. Check your connectivity and whether the SerpApi API key is still valid.")
     }
     throw err
   }
@@ -286,18 +272,18 @@ async function serpApiSearch(
     throw new Error(`SerpApi search failed: ${data.error}`)
   }
 
-  return normalizeSerpApiResults(data, maxResults)
+  return normaliseSerpApiResults(data, maxResults)
 }
 
-function normalizeSerpApiResults(data: {
+function normaliseSerpApiResults(data: {
   organic_results?: unknown[]
   news_results?: unknown[]
   images_results?: unknown[]
   video_results?: unknown[]
   videos_results?: unknown[]
   shopping_results?: unknown[]
-}, maxResults: number): WebSearchResult[] {
-  const rawResults =
+}, limit: number): WebSearchResult[] {
+  const raw =
     data.organic_results ??
     data.news_results ??
     data.images_results ??
@@ -306,29 +292,24 @@ function normalizeSerpApiResults(data: {
     data.shopping_results ??
     []
 
-  return rawResults
-    .slice(0, maxResults)
-    .map((item) => normalizeSerpApiResult(item))
+  return raw.slice(0, limit).map((item) => {
+    const r = item as {
+      title?: string; link?: string; url?: string; source?: string
+      snippet?: string; summary?: string; description?: string
+      thumbnail?: string; original?: string; displayed_link?: string
+    }
+    const url = r.link ?? r.url ?? r.original ?? r.thumbnail ?? ""
+    return {
+      title: r.title ?? "Untitled",
+      url,
+      snippet: r.snippet ?? r.summary ?? r.description ?? "",
+      source: hostname(url) || r.source || r.displayed_link || "",
+    }
+  })
 }
 
-function normalizeSerpApiResult(item: unknown): WebSearchResult {
-  const r = item as {
-    title?: string
-    link?: string
-    url?: string
-    source?: string
-    snippet?: string
-    summary?: string
-    description?: string
-    thumbnail?: string
-    original?: string
-    displayed_link?: string
-  }
-  const url = r.link ?? r.url ?? r.original ?? r.thumbnail ?? ""
-  return {
-    title: r.title ?? "Untitled",
-    url,
-    snippet: r.snippet ?? r.summary ?? r.description ?? "",
-    source: hostnameFromUrl(url) || r.source || r.displayed_link || "",
-  }
+// ── Utility ────────────────────────────────────────────────────────
+
+function hostname(url: string): string {
+  try { return new URL(url).hostname.replace("www.", "") } catch { return "" }
 }

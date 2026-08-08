@@ -9,6 +9,7 @@ import {
   shouldUseDeepChapterGeneration,
   runDeepChapterGeneration,
   runFullReviewWithSixDim,
+  collectLiteraryPolishIssues,
   type DeepChapterGenerationDeps,
   type DeepChapterGenerationResumeCheckpoint,
 } from "./deep-chapter-generation"
@@ -1656,5 +1657,25 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     // No raw Error object leaked — only the formatted string arg.
     expect(errorSpy.mock.calls[0].length).toBe(1)
     errorSpy.mockRestore()
+  })
+})
+
+describe("collectLiteraryPolishIssues (Track B)", () => {
+  it("keeps thril/pacing/pull warnings and drops consistency errors", () => {
+    const gates = {
+      consistency: { status: "passed" as const, findings: [{ severity: "error" as const, type: "consistency", message: "设定冲突", evidence: "", relatedMemory: "", suggestion: "" }] },
+      anti_ai: { status: "passed" as const, findings: [] },
+      quality: { status: "passed" as const, findings: [
+        { severity: "warning" as const, type: "plot", message: "爽点偏弱", evidence: "", relatedMemory: "", suggestion: "" },
+        { severity: "warning" as const, type: "pull", message: "章末钩不足", evidence: "", relatedMemory: "", suggestion: "" },
+      ] },
+      overall: "pass" as const,
+    }
+    // build minimal shape expected by collectLiteraryPolishIssues
+    const decisionGates = gates as any
+    const issues = collectLiteraryPolishIssues(decisionGates)
+    expect(issues.some((i) => i.message.includes("爽点"))).toBe(true)
+    expect(issues.some((i) => i.message.includes("章末"))).toBe(true)
+    expect(issues.some((i) => i.type === "consistency")).toBe(false)
   })
 })

@@ -1,3 +1,6 @@
+// Copyright (c) 2024 Niko-hub contributors. MIT License.
+// SPDX-License-Identifier: MIT
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
@@ -40,7 +43,7 @@ pub struct FileSyncState {
 }
 
 impl FileSyncState {
-    pub fn set_watcher(
+    pub(crate) fn set_watcher(
         &self,
         watcher: Option<RecommendedWatcher>,
         project_id: Option<String>,
@@ -53,7 +56,7 @@ impl FileSyncState {
         Ok(())
     }
 
-    pub fn clear_watcher(&self) -> Result<(), String> {
+    pub(crate) fn clear_watcher(&self) -> Result<(), String> {
         let mut inner = self.inner.lock().map_err(|_| "file sync state poisoned")?;
         inner.watcher = None;
         inner.project_id = None;
@@ -1424,8 +1427,10 @@ fn is_app_write_ignored(path: &Path) -> bool {
 
 /// Event emitter callback type used by `do_*` functions.
 /// Receives (event_name, payload_json) pairs.
-pub type EventEmitter = Box<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+#[allow(dead_code)]
+pub(crate) type EventEmitter = Box<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
+#[allow(dead_code)]
 fn emit_via_callback(emit: &EventEmitter, event: &str, project_id: &str, tasks: &[FileChangeTask]) {
     let payload = serde_json::json!({
         "projectId": project_id,
@@ -1434,7 +1439,8 @@ fn emit_via_callback(emit: &EventEmitter, event: &str, project_id: &str, tasks: 
     emit(event, payload);
 }
 
-pub fn do_start_project_file_watcher(
+#[allow(dead_code)]
+pub(crate) fn do_start_project_file_watcher(
     state: &FileSyncState,
     project_id: String,
     project_path: String,
@@ -1561,14 +1567,16 @@ pub fn do_start_project_file_watcher(
     })
 }
 
-pub fn do_stop_project_file_watcher(state: &FileSyncState) -> Result<(), String> {
+#[allow(dead_code)]
+pub(crate) fn do_stop_project_file_watcher(state: &FileSyncState) -> Result<(), String> {
     run_guarded("stop_project_file_watcher", || {
         WATCHER_GENERATION.fetch_add(1, Ordering::SeqCst);
         state.clear_watcher()
     })
 }
 
-pub fn do_rescan_project_files(
+#[allow(dead_code)]
+pub(crate) fn do_rescan_project_files(
     project_id: String,
     project_path: String,
     source_watch_config: Option<SourceWatchConfig>,
@@ -1589,14 +1597,16 @@ pub fn do_rescan_project_files(
     })
 }
 
-pub fn do_get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
+#[allow(dead_code)]
+pub(crate) fn do_get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
     run_guarded("get_file_change_queue", || {
         let root = PathBuf::from(project_path);
         with_queue_lock(&root, || read_queue(&root))
     })
 }
 
-pub fn do_retry_file_change_task(
+#[allow(dead_code)]
+pub(crate) fn do_retry_file_change_task(
     project_id: String,
     project_path: String,
     task_id: String,
@@ -1625,7 +1635,8 @@ pub fn do_retry_file_change_task(
     })
 }
 
-pub fn do_ignore_file_change_task(
+#[allow(dead_code)]
+pub(crate) fn do_ignore_file_change_task(
     project_id: String,
     project_path: String,
     task_id: String,
@@ -1648,6 +1659,7 @@ pub fn do_ignore_file_change_task(
 
 // ── Callback-based internal helpers ────────────────────────────────
 
+#[allow(dead_code)]
 fn process_queue_with_emit(
     emit: &Arc<EventEmitter>,
     root: &Path,
@@ -1661,6 +1673,7 @@ fn process_queue_with_emit(
     )
 }
 
+#[allow(dead_code)]
 fn handle_changed_paths_with_emit(
     emit: &Arc<EventEmitter>,
     root: &Path,
@@ -1722,6 +1735,7 @@ fn handle_changed_paths_with_emit(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn maybe_periodic_rescan_with_emit(
     emit: &Arc<EventEmitter>,
     root: &Path,
@@ -1750,6 +1764,7 @@ fn maybe_periodic_rescan_with_emit(
     }
 }
 
+#[allow(dead_code)]
 fn rescan_watch_roots_with_emit(
     emit: &Arc<EventEmitter>,
     root: &Path,

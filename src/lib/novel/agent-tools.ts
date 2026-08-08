@@ -9,6 +9,7 @@
 
 import { readFile, writeFile, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { isSafeIngestPath } from "@/lib/ingest"
 import type { FileEditAction } from "./agent-parser"
 
 export interface FileEditResult {
@@ -72,6 +73,19 @@ export async function applyFileEdit(
   edit: FileEditAction,
 ): Promise<FileEditResult> {
   const pp = normalizePath(projectPath)
+  
+  // 🔴 ISS-20260731-001: 路径遍历守卫 (PAT-G2 twin mirror fix, 对齐 ingest.ts:253)
+  // LLM 可构造 wiki/chapters/../../../../etc/passwd 绕过字符串包含检查
+  // isSafeIngestPath 拒绝：绝对路径 / .. segments / 控制字符 / 非 wiki/ 前缀
+  if (!isSafeIngestPath(edit.filePath)) {
+    console.warn(`[agent-tools] Blocked unsafe path: ${edit.filePath}`)
+    return {
+      filePath: edit.filePath,
+      success: false,
+      error: "路径不安全：必须位于 wiki/ 下，禁止 '..'、绝对路径和控制字符",
+    }
+  }
+  
   // 安全检查：确保路径在允许范围内
   const fullPath = edit.filePath.startsWith(pp)
     ? edit.filePath
@@ -79,7 +93,7 @@ export async function applyFileEdit(
 
   const normalizedPath = normalizePath(fullPath)
 
-  // 检查路径是否在 wiki/chapters 或 wiki/outlines 下
+  // 检查路径是否在 wiki/chapters 或 wiki/outlines 下（双重防御）
   if (!normalizedPath.includes("/wiki/chapters/") && !normalizedPath.includes("/wiki/outlines/")) {
     return {
       filePath: edit.filePath,

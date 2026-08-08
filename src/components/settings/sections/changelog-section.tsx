@@ -1,3 +1,6 @@
+// MIT License - Copyright (c) 2026 Niko Buddy Contributors
+// SPDX-License-Identifier: MIT
+
 import { useState, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Download, CheckCircle, AlertCircle } from "lucide-react"
@@ -8,6 +11,11 @@ import { formatUpdateErrorMessage } from "@/lib/update-error-message"
 type UpdateStatus = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "ready" | "error"
 const COLLAPSED_CHANGELOG_ITEM_COUNT = 5
 
+/**
+ * Changelog and auto-update section.
+ * Displays version history, checks for updates, and handles
+ * download + install via the Tauri updater plugin.
+ */
 export function ChangelogSection() {
   const { t, i18n } = useTranslation()
   const lang: "en" | "zh" = i18n.language?.startsWith("zh") ? "zh" : "en"
@@ -20,6 +28,7 @@ export function ChangelogSection() {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const updateHandleRef = useRef<unknown>(null)
 
+  /** Check for available updates via Tauri updater. */
   async function handleCheckUpdate() {
     if (!isTauri()) {
       setUpdateStatus("error")
@@ -46,6 +55,7 @@ export function ChangelogSection() {
     }
   }
 
+  /** Download the discovered update with progress tracking. */
   async function handleDownloadUpdate() {
     if (!updateHandleRef.current) return
     setUpdateStatus("downloading")
@@ -72,7 +82,7 @@ export function ChangelogSection() {
           setDownloadProgress(100)
         }
       })
-      // 下载完成，不自动安装，等待用户确认
+      // Download complete — wait for user to confirm install.
       setUpdateStatus("ready")
       setDownloadProgress(100)
     } catch (err) {
@@ -81,6 +91,7 @@ export function ChangelogSection() {
     }
   }
 
+  /** Install the downloaded update (triggers app restart). */
   async function handleInstallNow() {
     if (!updateHandleRef.current) return
     try {
@@ -93,6 +104,7 @@ export function ChangelogSection() {
 
   return (
     <div className="space-y-6">
+      {/* Header with current version */}
       <div>
         <h2 className="text-xl font-semibold">
           {t("settings.sections.changelog.title", { defaultValue: "软件更新日志" })}
@@ -102,7 +114,7 @@ export function ChangelogSection() {
         </p>
       </div>
 
-      {/* 检查更新区域 */}
+      {/* Update check area */}
       <div className="rounded-lg border border-border p-4">
         <div className="flex items-center gap-3">
           <button
@@ -115,31 +127,32 @@ export function ChangelogSection() {
             {updateStatus === "checking" ? "正在检查..." : "检查更新"}
           </button>
 
-          {updateStatus === "up-to-date" ? (
+          {updateStatus === "up-to-date" && (
             <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="h-4 w-4" />
               当前已是最新版本
             </span>
-          ) : null}
+          )}
 
-          {updateStatus === "error" ? (
+          {updateStatus === "error" && (
             <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
               <AlertCircle className="h-4 w-4" />
               {errorMessage || "检查更新失败"}
             </span>
-          ) : null}
+          )}
         </div>
 
-        {updateStatus === "available" ? (
+        {/* Update available banner */}
+        {updateStatus === "available" && (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                   发现新版本：v{latestVersion}
                 </p>
-                {updateNotes ? (
+                {updateNotes && (
                   <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">{updateNotes}</p>
-                ) : null}
+                )}
               </div>
               <button
                 type="button"
@@ -151,9 +164,10 @@ export function ChangelogSection() {
               </button>
             </div>
           </div>
-        ) : null}
+        )}
 
-        {updateStatus === "downloading" ? (
+        {/* Download progress bar */}
+        {updateStatus === "downloading" && (
           <div className="mt-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">正在下载更新...</span>
@@ -166,9 +180,10 @@ export function ChangelogSection() {
               />
             </div>
           </div>
-        ) : null}
+        )}
 
-        {updateStatus === "ready" ? (
+        {/* Ready to install banner */}
+        {updateStatus === "ready" && (
           <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/40">
             <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
               ✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。
@@ -182,10 +197,10 @@ export function ChangelogSection() {
               立即安装
             </button>
           </div>
-        ) : null}
+        )}
       </div>
 
-      {/* 完整版本历史 */}
+      {/* Full version history */}
       <div className="space-y-4">
         <h3 className="text-sm font-medium text-muted-foreground">版本历史</h3>
         {entries.map((entry) => {
@@ -208,9 +223,9 @@ export function ChangelogSection() {
                   v{entry.version}
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
-                {entry.version === __APP_VERSION__ ? (
+                {entry.version === __APP_VERSION__ && (
                   <span className="text-xs text-emerald-600 dark:text-emerald-400">\u2190 当前版本</span>
-                ) : null}
+                )}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">
                 {visibleLines.map((line, i) => (
@@ -220,7 +235,7 @@ export function ChangelogSection() {
                   </li>
                 ))}
               </ul>
-              {hiddenCount > 0 ? (
+              {hiddenCount > 0 && (
                 <button
                   type="button"
                   onClick={() => {
@@ -238,7 +253,7 @@ export function ChangelogSection() {
                 >
                   {isExpanded ? "收起" : `查看更多 ${hiddenCount} 条`}
                 </button>
-              ) : null}
+              )}
             </div>
           )
         })}

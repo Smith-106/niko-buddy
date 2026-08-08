@@ -1,29 +1,29 @@
-﻿<p align="center">
-  <img src="QM-LOGO.png" width="120" alt="青幕AI写作 Logo" />
+<p align="center">
+  <img src="QM-LOGO.png" width="120" alt="Niko Buddy Logo" />
 </p>
 
-<h1 align="center">niko-hub · 青幕AI写作（QMAI）</h1>
+<h1 align="center">niko-buddy · Niko Buddy</h1>
 
 <p align="center">
   面向长篇小说的记忆型 AI 写作桌面系统
 </p>
 
 <p align="center">
-  <a href="https://smith-106.github.io/niko-hub/">
-    <img src="https://img.shields.io/badge/docs-smith--106.github.io%2Fniko--hub-orange?style=flat-square" alt="Docs" />
+  <a href="https://smith-106.github.io/niko-buddy/">
+    <img src="https://img.shields.io/badge/docs-smith--106.github.io%2Fniko--buddy-orange?style=flat-square" alt="Docs" />
   </a>
-  <a href="https://github.com/Smith-106/niko-hub/releases">
-    <img src="https://img.shields.io/github/v/release/Smith-106/niko-hub?style=flat-square" alt="Release" />
+  <a href="https://github.com/Smith-106/niko-buddy/releases">
+    <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.4.2-blue?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/version-2.4.4-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 <p align="center">
-  <a href="https://smith-106.github.io/niko-hub/">📖 文档站</a> ·
-  <a href="https://github.com/Smith-106/niko-hub/releases">📦 下载</a> ·
-  <a href="https://github.com/Smith-106/niko-hub/issues">🐛 问题反馈</a>
+  <a href="https://smith-106.github.io/niko-buddy/">📖 文档站</a> ·
+  <a href="https://github.com/Smith-106/niko-buddy/releases">📦 下载</a> ·
+  <a href="https://github.com/Smith-106/niko-buddy/issues">🐛 问题反馈</a>
 </p>
 
 ---
@@ -31,13 +31,13 @@
 
 ## 软件概述
 
-青幕AI写作不是普通的 AI 聊天写作工具。它是一套**长篇小说记忆型写作系统**，专为 200 万～300 万字量级的连载小说创作设计。
+Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记忆型写作系统**，专为 200 万～300 万字量级的连载小说创作设计。
 
 核心理念：
 
 > 写前自动提取上下文 → 写后自动沉淀章节记忆 → 图谱追踪关系变化 → 审查系统防止崩坏 → 人工确认最终定稿
 
-普通 AI 写作工具的问题在于：写到后期 AI 会遗忘前文、人物性格不一致、时间线混乱、伏笔丢失。青幕AI写作通过结构化记忆系统和混合检索引擎，让 AI 在每次生成时都能"记住"之前的一切。
+普通 AI 写作工具的问题在于：写到后期 AI 会遗忘前文、人物性格不一致、时间线混乱、伏笔丢失。Niko Buddy 通过结构化记忆系统和混合检索引擎，让 AI 在每次生成时都能"记住"之前的一切。
 
 **适用场景：**
 - 网文日更作者：保持长篇连载质量、防止人设崩坏
@@ -53,7 +53,7 @@
 
 ### 📚 记忆系统
 
-记忆系统是青幕AI写作的核心引擎。每章正式保存后，系统会自动执行**章节摄取**，将正文内容结构化为可检索、可追踪、可复用的记忆单元。
+记忆系统是 Niko Buddy 的核心引擎。每章正式保存后，系统会自动执行**章节摄取**，将正文内容结构化为可检索、可追踪、可复用的记忆单元。
 
 **章节摄取提取的内容：**
 - 章节摘要与结尾钩子
@@ -132,7 +132,7 @@
 
 ### 📖 拆书库（作品分析）
 
-拆书库是青幕AI写作的特色功能，让你能够**拆解成熟作品的写作秘密**，并将其复用到自己的创作中。
+拆书库是 Niko Buddy 的特色功能，让你能够**拆解成熟作品的写作秘密**，并将其复用到自己的创作中。
 
 **拆书工作流：**
 1. 导入小说作品（支持整本/多文件/章节范围选择）
@@ -231,7 +231,7 @@
 
 ### ✍️ 小说写作问题解决方案
 
-针对长篇 AI 写作的常见崩坏问题，青幕AI写作提供系统性解决方案：
+针对长篇 AI 写作的常见崩坏问题，Niko Buddy 提供系统性解决方案：
 
 | 问题 | 解决方案 |
 |------|----------|
@@ -355,7 +355,7 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 **Rust 后端与本地存储：**
 
 - **向量存储**：采用 LanceDB 本地向量数据库，章节摄取后的记忆向量直接落盘于项目目录，无需外部服务。
-- **IPC 通信**：前端通过 Tauri 的 invoke 调用 src-tauri/src/commands/ 中注册的 Rust 命令（如 vector_search_chunks、chapter_ingest），所有文件、向量、PDF 操作均在 Rust 侧执行，前端不直接触碰文件系统。
+- **IPC 通信**：前端通过 Tauri 的 invoke 调用 src-tauri/src/commands/ 中注册的 Rust 命令（如 vector_search_chunks），所有文件、向量、PDF 操作均在 Rust 侧执行，前端不直接触碰文件系统。注意：`chapter_ingest` 实际在 TypeScript 层实现（`src/lib/novel/chapter-ingest.ts`），不属于 Rust IPC 命令。
 - **PDF 解析**：基于 PDFium 提取参考素材文本，供拆书库与大纲生成消费。
 - **进程与代理**：Rust 侧负责后台 LLM 任务调度、默认模型统筹与本地代理转发。
 
@@ -375,8 +375,7 @@ sequenceDiagram
     RS-->>FE: 返回上下文包
     FE->>FE: 调用 LLM 生成草稿
     U->>FE: 确认保存
-    FE->>IP: invoke chapter_ingest
-    IP->>RS: 章节摄取 结构化记忆
+    FE->>FE: 调用 chapter_ingest (TypeScript)
     RS->>DB: 写入记忆 图谱边 向量
 ```
 
@@ -388,17 +387,16 @@ sequenceDiagram
 
 ### 环境要求
 
-- **操作系统**：Windows 10+（当前发布平台）；macOS / Linux 版本规划中
+- **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：v2.4.2 发布产物为 Windows 安装包与便携版，macOS / Linux 暂未提供官方构建。
-- **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
+> 注：v2.4.3 发布产物为 Windows 安装包与便携版（macOS/Linux planned）。
 
 ### 安装方式
 
 **方式一：下载安装包（推荐）**
 
-前往 [GitHub Releases](https://github.com/Smith-106/niko-hub/releases) 下载最新版本安装包。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### 最快上手（5 分钟）
 
@@ -517,7 +515,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 985+ 用例；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 1009+ 用例；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 
@@ -539,8 +537,8 @@ npm run build:github-release
 
 ## 相关链接
 
-- 📖 [文档站](https://smith-106.github.io/niko-hub/)——产品介绍、功能详解、开发者文档
-- 📦 [Releases 下载](https://github.com/Smith-106/niko-hub/releases)
-- 🐛 [问题反馈](https://github.com/Smith-106/niko-hub/issues)
-- 💬 [功能建议](https://github.com/Smith-106/niko-hub/issues/new)
-- 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-hub/releases) —— 各版本功能变更与修复记录
+- 📖 [文档站](https://smith-106.github.io/niko-buddy/)——产品介绍、功能详解、开发者文档
+- 📦 [Releases 下载](https://github.com/Smith-106/niko-buddy/releases)
+- 🐛 [问题反馈](https://github.com/Smith-106/niko-buddy/issues)
+- 💬 [功能建议](https://github.com/Smith-106/niko-buddy/issues/new)
+- 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-buddy/releases) —— 各版本功能变更与修复记录

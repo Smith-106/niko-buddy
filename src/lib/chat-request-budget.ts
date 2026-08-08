@@ -1,7 +1,19 @@
+/**
+ * Utilities for managing LLM chat message size against token budgets.
+ * Implements character-based trimming strategies to keep conversation history
+ * within configurable limits while preserving user intent.
+ * MIT licensed implementation.
+ */
+
 import type { ChatMessage, ContentBlock } from "./llm-providers"
 
-const HISTORY_TRUNCATED_MARKER = "[history truncated]\n"
+/** Marker string inserted when history is truncated due to budget constraints */
+const HISTORY_TRUNCATED_MARKER = "[history truncated]\n" as const
 
+/**
+ * Calculates character count for a single content value.
+ * Handles both string and array of content blocks.
+ */
 function contentLength(content: ChatMessage["content"]): number {
   if (typeof content === "string") return content.length
   return content.reduce((sum, block) => {
@@ -10,23 +22,43 @@ function contentLength(content: ChatMessage["content"]): number {
   }, 0)
 }
 
+/**
+ * Calculates total characters in a chat message.
+ */
 function messageLength(message: ChatMessage): number {
   return contentLength(message.content)
 }
 
+/**
+ * Sums all characters across multiple messages.
+ */
 function totalLength(messages: ChatMessage[]): number {
   return messages.reduce((sum, message) => sum + messageLength(message), 0)
 }
 
+/**
+ * Truncates text to fit within maxChars, preserving the tail.
+ * Inserts truncation marker when necessary.
+ */
 function clampTail(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text
   if (maxChars <= HISTORY_TRUNCATED_MARKER.length) {
     return HISTORY_TRUNCATED_MARKER.slice(0, maxChars)
   }
-  return HISTORY_TRUNCATED_MARKER + text.slice(-(maxChars - HISTORY_TRUNCATED_MARKER.length))
+  return (
+    HISTORY_TRUNCATED_MARKER +
+    text.slice(-(maxChars - HISTORY_TRUNCATED_MARKER.length))
+  )
 }
 
-function trimContent(content: ChatMessage["content"], maxChars: number): ChatMessage["content"] {
+/**
+ * Trims content (string or blocks) to fit within character budget.
+ * Preserves most recent content by trimming from the beginning.
+ */
+function trimContent(
+  content: ChatMessage["content"],
+  maxChars: number,
+): ChatMessage["content"] {
   if (typeof content === "string") return clampTail(content, maxChars)
 
   let remaining = maxChars
@@ -54,10 +86,22 @@ function trimContent(content: ChatMessage["content"], maxChars: number): ChatMes
   return reversed.reverse()
 }
 
-function isLeadingSystemMessage(messages: ChatMessage[], index: number): boolean {
-  return messages[index]?.role === "system" && messages.slice(0, index).every((message) => message.role === "system")
+/**
+ * Checks if a message at given index is part of leading system messages.
+ */
+function isLeadingSystemMessage(
+  messages: ChatMessage[],
+  index: number,
+): boolean {
+  return (
+    messages[index]?.role === "system" &&
+    messages.slice(0, index).every((message) => message.role === "system")
+  )
 }
 
+/**
+ * Creates a copy of a message with trimmed content.
+ */
 function trimMessage(message: ChatMessage, maxChars: number): ChatMessage {
   return {
     ...message,
@@ -66,31 +110,53 @@ function trimMessage(message: ChatMessage, maxChars: number): ChatMessage {
 }
 
 /**
- * Trims packed chat messages by character budget before sending them to an LLM.
- * The current user request is preserved because it carries the user's latest intent.
+ * Trims chat messages to fit within character budget before sending to LLM.
+ * Preserves the most recent user message (carrying latest intent) by trimming
+ * older messages first. Uses a multi-pass strategy: drop old messages, then
+ * truncate remaining content as needed.
+ *
+ * @param messages - Array of chat messages in conversation order
+ * @param maxChars - Maximum total character budget allowed
+ * @returns Trimmed message array that fits within budget
  */
-export function trimChatMessagesToBudget(messages: ChatMessage[], maxChars: number): ChatMessage[] {
+export function trimChatMessagesToBudget(
+  messages: ChatMessage[],
+  maxChars: number,
+): ChatMessage[] {
   if (messages.length === 0) return messages
   if (!Number.isFinite(maxChars) || maxChars <= 0) return messages
   if (totalLength(messages) <= maxChars) return messages
 
   let next = [...messages]
 
-  const canDrop = (message: ChatMessage, index: number) =>
-    index !== next.length - 1 && !isLeadingSystemMessage(next, index) && message.role !== "system"
+  const canDrop = (
+    message: ChatMessage,
+    index: number,
+  ): boolean =>
+    index !== next.length - 1 &&
+    !isLeadingSystemMessage(next, index) &&
+    message.role !== "system"
 
+  // Pass 1: Drop oldest non-system, non-essential messages
   while (totalLength(next) > maxChars) {
     const droppableIndices = next
       .map((message, index) => ({ message, index }))
       .filter(({ message, index }) => canDrop(message, index))
 
     if (droppableIndices.length <= 1) break
-    next = next.filter((_message, index) => index !== droppableIndices[0]?.index)
+    next = next.filter(
+      (_message, index) => index !== droppableIndices[0]?.index,
+    )
   }
 
   if (totalLength(next) <= maxChars) return next
 
-  for (let i = 0; i < next.length - 1 && totalLength(next) > maxChars; i += 1) {
+  // Pass 2: Trim content of older messages
+  for (
+    let i = 0;
+    i < next.length - 1 && totalLength(next) > maxChars;
+    i += 1
+  ) {
     if (isLeadingSystemMessage(next, i) || next[i]?.role === "system") continue
     const excess = totalLength(next) - maxChars
     const current = next[i]
@@ -101,7 +167,12 @@ export function trimChatMessagesToBudget(messages: ChatMessage[], maxChars: numb
 
   if (totalLength(next) <= maxChars) return next
 
-  for (let i = 0; i < next.length - 1 && totalLength(next) > maxChars; i += 1) {
+  // Pass 3: Final pass for any remaining excess
+  for (
+    let i = 0;
+    i < next.length - 1 && totalLength(next) > maxChars;
+    i += 1
+  ) {
     const current = next[i]
     if (!current) continue
     const excess = totalLength(next) - maxChars
