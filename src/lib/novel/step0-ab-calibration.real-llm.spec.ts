@@ -214,8 +214,11 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
     // eslint-disable-next-line no-console
     console.log(`overall: old ${overallOld} → new ${overallNew} (delta ${(overallNew - overallOld).toFixed(2)})`)
 
-    const validDims = SIX_REVIEW_DIMENSION_ORDER.filter(
-      (d) => merged[d].old.some((v) => v !== null) && merged[d].new.some((v) => v !== null),
+    // NEW-only diagnosis (STEP0_DIAGNOSIS_NEW_ONLY) leaves old[] empty by design — require new samples only.
+    const validDims = SIX_REVIEW_DIMENSION_ORDER.filter((d) =>
+      diagnosisNewOnly
+        ? merged[d].new.some((v) => v !== null)
+        : merged[d].old.some((v) => v !== null) && merged[d].new.some((v) => v !== null),
     )
     expect(validDims.length).toBeGreaterThanOrEqual(2)
   })
