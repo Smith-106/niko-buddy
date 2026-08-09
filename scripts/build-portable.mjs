@@ -6,9 +6,18 @@ import { fileURLToPath } from "node:url"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"))
 
-const releaseExe = resolve(root, "src-tauri/target/release/qmai.exe")
-const portableDevExe = resolve(root, "src-tauri/target/portable-dev/qmai.exe")
-const sourceExe = existsSync(portableDevExe) ? portableDevExe : releaseExe
+// Prefer current binary name (niko-buddy), fall back to legacy qmai for older trees.
+const releaseExeCandidates = [
+  resolve(root, "src-tauri/target/release/niko-buddy.exe"),
+  resolve(root, "src-tauri/target/release/qmai.exe"),
+]
+const portableDevExeCandidates = [
+  resolve(root, "src-tauri/target/portable-dev/niko-buddy.exe"),
+  resolve(root, "src-tauri/target/portable-dev/qmai.exe"),
+]
+const portableDevExe = portableDevExeCandidates.find((p) => existsSync(p))
+const releaseExe = releaseExeCandidates.find((p) => existsSync(p))
+const sourceExe = portableDevExe ?? releaseExe
 const releasePdfium = resolve(root, "src-tauri/target/release/pdfium/pdfium.dll")
 const portableDevPdfium = resolve(root, "src-tauri/target/portable-dev/pdfium/pdfium.dll")
 const sourcePdfium = existsSync(portableDevPdfium) ? portableDevPdfium : releasePdfium
