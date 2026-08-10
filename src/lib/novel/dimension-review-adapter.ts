@@ -15,6 +15,7 @@ import {
   type LiteraryGoldAnchor,
 } from "./literary-gold-scale"
 import {
+  createAvoidAiMechanicalSlopHook,
   createGoldScaleReadinessHook,
   registerNovelSkillHook,
   runNovelSkillHooks,
@@ -504,12 +505,23 @@ export async function runSixDimensionReview({
     } catch {
       // registry may already have same id — ignore
     }
+    try {
+      // Track B soft: mechanical avoid-ai / slop (zero-LLM). Not product hard gate.
+      registerNovelSkillHook(
+        createAvoidAiMechanicalSlopHook({
+          text: chapterContent,
+          stages: ["pre_six_dim_review"],
+        }),
+      )
+    } catch {
+      // ignore registry race
+    }
     const hookCtx = await runNovelSkillHooks("pre_six_dim_review", {
       projectPath,
       chapterNumber,
     })
     if (hookCtx.bag.promptFragments.length > 0) {
-      // builtin gold readiness hook injects promptHint into fragments
+      // gold readiness + optional avoid-ai soft fragments
       goldReadinessHint = hookCtx.bag.promptFragments.join("\n")
     }
   } catch (err) {

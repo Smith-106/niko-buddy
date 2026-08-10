@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  createAvoidAiMechanicalSlopHook,
   createGoldScaleReadinessHook,
   getNovelSkillHookRegistry,
   listNovelSkillHooksForStage,
@@ -63,5 +64,22 @@ describe("novel-skill-hooks", () => {
     const ctx = await runNovelSkillHooks("pre_six_dim_review", { projectPath: "/p" })
     expect(ctx.bag.promptFragments.join("")).toContain("金标")
   })
+
+  it("avoid-ai mechanical slop hook is Track B and soft-injects on sloppy text", async () => {
+    const sloppy =
+      "然而，总而言之，在这个时代背景下，他不禁陷入沉思。" +
+      "与此同时，值得注意的是，一种微妙的氛围悄然蔓延。" +
+      "综上所述，他感到一种难以言喻的复杂情绪。"
+    registerNovelSkillHook(createAvoidAiMechanicalSlopHook({ text: sloppy }))
+    const ctx = await runNovelSkillHooks("pre_six_dim_review", { projectPath: "/p" })
+    expect(ctx.bag.notes.some((n) => n.includes("avoid-ai slop"))).toBe(true)
+    expect(ctx.bag.notes.some((n) => n.includes("not product hard gate"))).toBe(true)
+  })
+
+  it("avoid-ai hook skips empty text without throwing", async () => {
+    registerNovelSkillHook(createAvoidAiMechanicalSlopHook({ text: "" }))
+    const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
+    expect(ctx.bag.notes.some((n) => n.includes("skipped"))).toBe(true)
+  })
 })
-
+

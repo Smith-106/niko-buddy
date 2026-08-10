@@ -12,6 +12,8 @@
 - Novel skill hooks (`pre_six_dim_review`, `pre_write_prompt`)
 - Temporal facts soft-gap audit + measurement fingerprint + literary-experiment protocol helpers
 - Headless scripts: production context-pack export (character-states + snapshot facts), gold seed/verify, thril smoke
+- Track B avoid-ai mechanical slop skill hook (`createAvoidAiMechanicalSlopHook` → six-dim pre-review soft inject)
+- `assertThrilProgressClaimAllowed` narrative guard for cross-pack thril curves
 
 ### Changed
 - Review center: measurement fingerprint presentation; Track A/B copy remains non-hard-gate for thril
@@ -20,6 +22,8 @@
 ### Notes
 - **Not** a thril/overall≥9 product hard gate
 - Installer assets for tag v2.4.5 are already on GitHub; this tip is **source mid-loop** without a new NSIS rebuild unless tagged later
+- Formal LLM chapter ingest remains optional: heuristic seed snapshots kept until app final+ingest or headless DI harness
+- Gold-pack thril N=5 median 6.7 (Track B observe; not product blocker)
 
 ## [2.4.4] - 2026-08-02
 

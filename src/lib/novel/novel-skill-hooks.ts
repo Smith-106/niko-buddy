@@ -123,4 +123,51 @@ export function createGoldScaleReadinessHook(promptHint: string): NovelSkillHook
     },
   }
 }
-
+
+/**
+ * Track B hang for avoid-ai / mechanical slop (zero-LLM arithmetic).
+ * Uses QMAI `slopScore` — not a full port of reference/avoid-ai-writing patterns.js.
+ * Never a product hard gate; injects soft prompt notes only.
+ */
+export function createAvoidAiMechanicalSlopHook(options: {
+  /** Draft text to score; empty → no-op. */
+  text: string
+  /** When true, also run at pre_write_prompt with empty draft (skipped). Default stages below. */
+  stages?: NovelSkillStage[]
+}): NovelSkillHook {
+  const stages = options.stages ?? (["post_draft_light_check", "pre_six_dim_review"] as NovelSkillStage[])
+  return {
+    id: "builtin.avoid-ai-mechanical-slop",
+    title: "Avoid-AI mechanical slop (Track B soft)",
+    stages,
+    track: "B",
+    enabled: true,
+    run: async (ctx) => {
+      const text = (options.text ?? "").trim()
+      if (!text) {
+        ctx.bag.notes.push("avoid-ai slop: skipped (empty text)")
+        return
+      }
+      const { slopScore, classifySlop, slopReportToText } = await import("./mechanical-slop-detector")
+      const report = slopScore(text)
+      const verdict = classifySlop(report)
+      const reportText = slopReportToText(report)
+      ctx.bag.notes.push(
+        `avoid-ai slop: verdict=${verdict} penalty=${report.slopPenalty.toFixed(1)} (Track B soft; not product hard gate)`,
+      )
+      if (reportText.trim()) {
+        ctx.bag.promptFragments.push(
+          [
+            "【Track B · 机械去AI味软提示（非产品硬门）】",
+            `slopVerdict=${verdict} penalty=${report.slopPenalty.toFixed(1)}`,
+            reportText.trim(),
+            "请优先替换高密度 AI 套话与机械转折，勿为抬 thril 牺牲人设与设定。",
+          ].join("\n"),
+        )
+      } else if (verdict === "clean") {
+        ctx.bag.notes.push("avoid-ai slop: clean (no fragment)")
+      }
+    },
+  }
+}
+
