@@ -125,20 +125,24 @@ export function createGoldScaleReadinessHook(promptHint: string): NovelSkillHook
 }
 
 /**
- * Track B hang for avoid-ai / mechanical slop (zero-LLM arithmetic).
- * Uses QMAI `slopScore` — not a full port of reference/avoid-ai-writing patterns.js.
+ * Track B hang for avoid-ai:
+ * 1) Chinese mechanical slop (`slopScore`)
+ * 2) Full vendored avoid-ai-writing `patterns.cjs` (English-heavy)
  * Never a product hard gate; injects soft prompt notes only.
  */
 export function createAvoidAiMechanicalSlopHook(options: {
   /** Draft text to score; empty → no-op. */
   text: string
-  /** When true, also run at pre_write_prompt with empty draft (skipped). Default stages below. */
+  /** Default: post_draft_light_check + pre_six_dim_review */
   stages?: NovelSkillStage[]
+  /** Run full patterns.js engine (default true). */
+  includeFullPatterns?: boolean
 }): NovelSkillHook {
   const stages = options.stages ?? (["post_draft_light_check", "pre_six_dim_review"] as NovelSkillStage[])
+  const includeFullPatterns = options.includeFullPatterns !== false
   return {
     id: "builtin.avoid-ai-mechanical-slop",
-    title: "Avoid-AI mechanical slop (Track B soft)",
+    title: "Avoid-AI mechanical slop + full patterns (Track B soft)",
     stages,
     track: "B",
     enabled: true,
@@ -166,6 +170,24 @@ export function createAvoidAiMechanicalSlopHook(options: {
         )
       } else if (verdict === "clean") {
         ctx.bag.notes.push("avoid-ai slop: clean (no fragment)")
+      }
+
+      if (includeFullPatterns) {
+        try {
+          const {
+            analyzeAvoidAiPatterns,
+            formatAvoidAiPatternsSummary,
+            formatAvoidAiPatternsPromptFragment,
+          } = await import("./avoid-ai-patterns")
+          const full = analyzeAvoidAiPatterns(text)
+          ctx.bag.notes.push(formatAvoidAiPatternsSummary(full))
+          const frag = formatAvoidAiPatternsPromptFragment(full)
+          if (frag) ctx.bag.promptFragments.push(frag)
+        } catch (error) {
+          ctx.bag.notes.push(
+            `avoid-ai full patterns soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }
     },
   }

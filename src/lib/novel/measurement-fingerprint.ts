@@ -102,7 +102,7 @@ export function canonicalizeContextPackForHash(pack: ContextPack): string {
   const picked: Record<string, unknown> = {}
   for (const key of PACK_HASH_KEYS) {
     if (key in pack) {
-      picked[key] = (pack as Record<string, unknown>)[key]
+      picked[key] = (pack as unknown as Record<string, unknown>)[key]
     }
   }
   return stableStringify(picked)

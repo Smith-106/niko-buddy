@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6] - 2026-08-10
+
+### Added
+- Full vendored avoid-ai-writing detector (`patterns.cjs`) + `analyzeAvoidAiPatterns` (Track B soft)
+- Headless multi-chapter formal LLM extract script (`scripts/formal-llm-chapter-extract.mjs`)
+- Tip-aligned installer rebuild (NSIS + portable) for mid-loop source
+
+### Notes
+- thril still not a product hard gate
+- Formal extract does not rewrite draft.md; seed snapshots backed up under `.novel/snapshots/_backup-seed-*`
+
 ## [2.4.5+midloop] - 2026-08-10
 
 ### Added
