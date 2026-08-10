@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.5+midloop] - 2026-08-10
+
+### Added
+- Literary gold scale (thril/pull, humanGoldFloor 9) + six-dim review inject (Track B only)
+- Novel skill hooks (`pre_six_dim_review`, `pre_write_prompt`)
+- Temporal facts soft-gap audit + measurement fingerprint + literary-experiment protocol helpers
+- Headless scripts: production context-pack export (character-states + snapshot facts), gold seed/verify, thril smoke
+
+### Changed
+- Review center: measurement fingerprint presentation; Track A/B copy remains non-hard-gate for thril
+- Fallback character states prefer `.novel/character-states.json` before wiki entity pages
+
+### Notes
+- **Not** a thril/overall≥9 product hard gate
+- Installer assets for tag v2.4.5 are already on GitHub; this tip is **source mid-loop** without a new NSIS rebuild unless tagged later
+
 ## [2.4.4] - 2026-08-02
 
 ### Added
