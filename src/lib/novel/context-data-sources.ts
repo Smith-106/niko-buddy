@@ -340,6 +340,15 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
   name: "fallbackCharacterStates",
   priority: 7,
   async load(context: ContextLoadContext): Promise<string> {
+    // Prefer structured character-states.json (non-empty after seed/ingest) before wiki search.
+    try {
+      const { loadCharacterStates, characterStatesToContextText } = await import("./character-state")
+      const store = await loadCharacterStates(context.projectPath)
+      const structured = characterStatesToContextText(store)
+      if (structured.trim()) return structured.slice(0, 3000)
+    } catch {
+      // soft — fall through to wiki entity pages
+    }
     try {
       const results = await searchWiki(context.projectPath, "type:entity character")
       if (results.length > 0) {

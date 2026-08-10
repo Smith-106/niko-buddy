@@ -194,6 +194,56 @@ describe("six-dimension review adapter", () => {
     expect(prompt).toContain("雨点砸在祠堂瓦片上")
   })
 
+  it("injects gold-scale block for thril when anchors provided", () => {
+    const prompt = buildDimensionReviewPrompt(
+      contextPack,
+      "主角直接说出族谱被换。",
+      SIX_REVIEW_DIMENSIONS.thrill,
+      {
+        goldAnchors: [{
+          id: "g1",
+          dimension: "thrill",
+          targetScore: 9,
+          text: "他在投票前一秒把平板扣死，声音不高，却让整张桌子安静下来。",
+          status: "human_confirmed",
+        }],
+      },
+    )
+    expect(prompt).toContain("文学金标")
+    expect(prompt).toContain("human_confirmed")
+    expect(prompt).toContain("平板扣死")
+    expect(prompt).toContain("非产品硬门")
+  })
+
+  it("injects NOT_READY gold note for thril when no anchors", () => {
+    const prompt = buildDimensionReviewPrompt(
+      contextPack,
+      "主角直接说出族谱被换。",
+      SIX_REVIEW_DIMENSIONS.thrill,
+      { goldAnchors: [], goldReadinessHint: "金标量程未就绪：thril≈9 未校准" },
+    )
+    expect(prompt).toContain("文学金标量程")
+    expect(prompt).toContain("未就绪")
+  })
+
+  it("does not inject gold block for consistency dimension", () => {
+    const prompt = buildDimensionReviewPrompt(
+      contextPack,
+      "主角直接说出族谱被换。",
+      SIX_REVIEW_DIMENSIONS.consistency,
+      {
+        goldAnchors: [{
+          id: "g1",
+          dimension: "thrill",
+          targetScore: 9,
+          text: "他在投票前一秒把平板扣死，声音不高，却让整张桌子安静下来。",
+          status: "human_confirmed",
+        }],
+      },
+    )
+    expect(prompt).not.toContain("文学金标")
+  })
+
   it("runs one dimension with two high-reasoning model calls and publishes thinking", async () => {
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,

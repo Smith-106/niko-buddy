@@ -93,6 +93,12 @@ export async function startSixDimensionReviewRun({
             },
           })
         },
+        onMeasurementFingerprint: (fp) => {
+          finishReviewRun(runId, {
+            running: true,
+            measurementFingerprint: fp,
+          })
+        },
       },
     })
 

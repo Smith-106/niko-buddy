@@ -9,6 +9,11 @@ import {
   detectRegression,
   type CandidateVersion,
 } from "./candidate-selector"
+import {
+  buildTrackBMultiObjectiveConstraint,
+  createDefaultTrackBMultiObjectivePolicy,
+  shouldAcceptTrackBPolishText,
+} from "./track-b-multi-objective"
 import { reviewChapter, runContinuityMechanicalPreflight, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
@@ -16,6 +21,7 @@ import {
   type SixReviewDimensionKey,
   type DimensionReviewResult,
 } from "./dimension-review-adapter"
+import { runNovelSkillHooks } from "./novel-skill-hooks"
 import type { TaskRouteResult } from "./task-router"
 import { formatStageThinking } from "./chapter-utils"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
@@ -1238,11 +1244,28 @@ async function assembleContext(
     logger.warn("Deep Chapter", "社区摘要生成失败（非阻断）", { error: err instanceof Error ? err.message : String(err) })
   }
 
+  // Track B skill hooks at pre_write_prompt (soft; empty registry = no-op).
+  let skillHookFragments = ""
+  try {
+    const hookCtx = await runNovelSkillHooks("pre_write_prompt", {
+      projectPath: input.projectPath,
+      chapterNumber: input.chapterNumber,
+    })
+    if (hookCtx.bag.promptFragments.length > 0) {
+      skillHookFragments = ["## Track B skill hooks (pre_write_prompt · soft)", ...hookCtx.bag.promptFragments].join("\n")
+    }
+  } catch (err) {
+    logger.warn("Deep Chapter", "pre_write skill hooks soft-failed", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   // 其他上下文可以进行token预算管理，但大纲已被排除
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
     deps.contextPackToPrompt(contextPack, 32000, { excludeOutline: true }),
     communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
+    skillHookFragments,
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 
@@ -2006,8 +2029,9 @@ async function runReviewAndRepair(
           formatReviewIssueList(literaryIssues),
         ].join("\n"),
       ))
-      const trackBConstraint =
-        "\n\n【Track B 约束】只强化爽点密度/节奏/章末追读；禁止提前揭露 Offer、最终存活者等机制名；不得破坏人设与设定一致性。"
+      // Multi-objective guardrails: lift thril/pacing/pull without burning character/pull/FIX-1.
+      const trackBPolicy = createDefaultTrackBMultiObjectivePolicy()
+      const trackBConstraint = buildTrackBMultiObjectiveConstraint(trackBPolicy)
       const polishedContent = await collectModelText(
         writingConfig,
         [{
@@ -2034,13 +2058,24 @@ async function runReviewAndRepair(
       if (polishedContent.trim()) {
         const prevSlop = scoreCandidate(currentContent)
         const nextSlop = scoreCandidate(polishedContent)
-        if (nextSlop <= prevSlop + 0.05) {
+        const guard = shouldAcceptTrackBPolishText({
+          beforeText: currentContent,
+          afterText: polishedContent,
+          beforeSlop: prevSlop,
+          afterSlop: nextSlop,
+          policy: trackBPolicy,
+        })
+        if (guard.accept) {
           currentContent = polishedContent
           revised = true
+          callbacks.onThinking?.(formatStageThinking(
+            "阶段5.7：Track B 多目标通过",
+            guard.reason,
+          ))
         } else {
           callbacks.onThinking?.(formatStageThinking(
             "阶段5.7：文学抛光回退",
-            "抛光后机械 slop 上升，已回退门控绿稿。",
+            `多目标护栏拒绝：${guard.reason}${guard.fix1Violation ? "（FIX-1）" : ""}。已回退门控绿稿。`,
           ))
         }
         const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)

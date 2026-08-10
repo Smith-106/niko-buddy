@@ -8,6 +8,7 @@ import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import type { LintResult } from "@/lib/lint"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import type { MeasurementFingerprint } from "@/lib/novel/measurement-fingerprint"
 import type { TrashItem } from "@/lib/trash"
 
 // ── localStorage persistence keys ─────────────────────────────────────────────
@@ -468,6 +469,8 @@ export interface ReviewRunState extends AsyncTaskState {
   dimensionThinking?: Partial<Record<SixReviewDimensionKey, string>>
   activeDimension?: SixReviewDimensionKey
   dimensionProgress?: string
+  /** M0: pack+text fingerprint for Track B score interpretation (not product gate). */
+  measurementFingerprint?: MeasurementFingerprint | null
 }
 
 export interface PendingEditorHighlight {

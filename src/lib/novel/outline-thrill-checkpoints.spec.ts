@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   evaluateOutlineThrillCheckpoints,
   formatThrillSoftGateThinking,
+  getOutlineThrillSoftGateRuntimeStatus,
   runOutlineThrillSoftGate,
+  setThrillSoftGateAcknowledged,
   summarizeThrillSoftGate,
   thrillResultsToReviewResults,
 } from "./outline-thrill-checkpoints"
@@ -39,6 +41,33 @@ describe("evaluateOutlineThrillCheckpoints", () => {
     const fix1 = r.find((x) => x.id === "fix1_no_conflict")!
     expect(fix1.status).toBe("fail")
     expect(fix1.hardLiteraryConstraint).toBe(true)
+  })
+})
+
+describe("getOutlineThrillSoftGateRuntimeStatus", () => {
+  it("exposes ack + FIX-1 without product hard gate", () => {
+    const ack = setThrillSoftGateAcknowledged({}, 4, true)
+    const st = getOutlineThrillSoftGateRuntimeStatus({
+      outlineText: STRONG_OUTLINE,
+      chapter: 4,
+      ackMap: ack,
+    })
+    expect(st.enabled).toBe(true)
+    expect(st.acknowledged).toBe(true)
+    expect(st.productHardGate).toBe(false)
+    expect(st.mayContinueGeneration).toBe(true)
+    expect(st.fix1Blocked).toBe(false)
+  })
+
+  it("FIX-1 blocked still may continue but flags constraint", () => {
+    const st = getOutlineThrillSoftGateRuntimeStatus({
+      outlineText: SPOILER_OUTLINE,
+      chapter: 3,
+      ackMap: { "3": true },
+    })
+    expect(st.fix1Blocked).toBe(true)
+    expect(st.acknowledged).toBe(true)
+    expect(st.thinking).toMatch(/FIX-1/)
   })
 })
 

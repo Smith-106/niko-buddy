@@ -217,6 +217,70 @@ export function runOutlineThrillSoftGate(
   }
 }
 
+/**
+ * Runtime preflight status for UI / measurement logs.
+ * Soft-gate never hard-blocks generation; FIX-1 fail is non-ackable as literary pass.
+ */
+export interface OutlineThrillSoftGateRuntimeStatus {
+  enabled: boolean
+  chapterKey: string
+  acknowledged: boolean
+  fix1Blocked: boolean
+  allStructuralOk: boolean
+  passCount: number
+  failCount: number
+  unknownCount: number
+  /** True when generation may continue (always true unless caller treats FIX-1 as hard stop). */
+  mayContinueGeneration: true
+  /** Explicit product rule: thril soft-gate is not Track A. */
+  productHardGate: false
+  results: ThrillCheckResult[]
+  thinking: string
+}
+
+export function getOutlineThrillSoftGateRuntimeStatus(options: {
+  outlineText: string
+  chapter?: number | null
+  enabled?: boolean
+  ackMap?: Record<string, boolean> | null
+}): OutlineThrillSoftGateRuntimeStatus {
+  const enabled = options.enabled !== false
+  const chapterKey = thrilAckChapterKey(options.chapter)
+  if (!enabled) {
+    return {
+      enabled: false,
+      chapterKey,
+      acknowledged: false,
+      fix1Blocked: false,
+      allStructuralOk: true,
+      passCount: 0,
+      failCount: 0,
+      unknownCount: 0,
+      mayContinueGeneration: true,
+      productHardGate: false,
+      results: [],
+      thinking: "大纲 thril 软门已关闭（novelConfig.outlineThrillSoftGateEnabled=false）。",
+    }
+  }
+  const results = evaluateOutlineThrillCheckpoints(options.outlineText ?? "")
+  const summary = summarizeThrillSoftGate(results)
+  const acknowledged = isThrillSoftGateAcknowledged(options.ackMap, options.chapter)
+  return {
+    enabled: true,
+    chapterKey,
+    acknowledged,
+    fix1Blocked: summary.fix1Blocked,
+    allStructuralOk: summary.allStructuralOk,
+    passCount: summary.passCount,
+    failCount: summary.failCount,
+    unknownCount: summary.unknownCount,
+    mayContinueGeneration: true,
+    productHardGate: false,
+    results,
+    thinking: formatThrillSoftGateThinkingWithAck(results, acknowledged),
+  }
+}
+
 /** Chapter key for thril soft-gate acknowledge map (0 = unknown chapter). */
 export function thrilAckChapterKey(chapter?: number | null): string {
   if (chapter == null || !Number.isFinite(chapter)) return "0"

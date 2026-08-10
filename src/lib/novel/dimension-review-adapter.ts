@@ -4,8 +4,21 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { validateSeverity, logger } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import { buildMeasurementFingerprint, type MeasurementFingerprint } from "./measurement-fingerprint"
+import { createLiteraryExperimentProtocol } from "./literary-experiment-protocol"
 import { resolveNovelModel } from "./model-resolver"
 import type { StyleExemplar } from "./style-exemplars-loader"
+import {
+  assessGoldScaleReadiness,
+  formatGoldScalePromptBlock,
+  loadGoldScaleMaterials,
+  type LiteraryGoldAnchor,
+} from "./literary-gold-scale"
+import {
+  createGoldScaleReadinessHook,
+  registerNovelSkillHook,
+  runNovelSkillHooks,
+} from "./novel-skill-hooks"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
 import { sliceChapterForReview } from "./chapter-window"
@@ -90,6 +103,8 @@ export interface SixDimensionReviewCallbacks {
   onDimensionProgress?: (dimensionKey: SixReviewDimensionKey, progress: string) => void
   onDimensionThinking?: (dimensionKey: SixReviewDimensionKey, thinking: string) => void
   onDimensionResult?: (dimensionKey: SixReviewDimensionKey, result: DimensionReviewResult) => void
+  /** M0: ContextPack fingerprint for UI / Track B instrument identity. */
+  onMeasurementFingerprint?: (fp: import("./measurement-fingerprint").MeasurementFingerprint) => void
 }
 
 export const SIX_REVIEW_DIMENSION_ORDER: SixReviewDimensionKey[] = [
@@ -254,7 +269,14 @@ export function buildDimensionReviewPrompt(
   pack: ContextPack,
   chapterContent: string,
   dimension: SixReviewDimensionDefinition,
+  options?: {
+    /** Merged gold anchors (file + exemplar import). Track B only. */
+    goldAnchors?: LiteraryGoldAnchor[]
+    /** Precomputed readiness hint; if omitted and anchors provided, computed. */
+    goldReadinessHint?: string
+  },
 ): string {
+  const goldExtra = buildGoldScaleReviewBlock(dimension.key, options?.goldAnchors, options?.goldReadinessHint)
   return `${contextPackToPrompt(pack)}
 
 六维独立审查维度：${dimension.label}
@@ -276,7 +298,7 @@ ${dimension.checks.map((check) => `- ${check}`).join("\n")}
   - 7-8 分：良级——无硬伤，检查项基本兑现，有阅读价值但缺乏出彩点。
   - 9-10 分：可发表文学质量——检查项全部兑现且有出彩点（强画面感/叙事节奏/情绪冲击/主题升华），达到出版级参照水准。
 - 出口条款：若本维度所有检查项均通过、且 issues 中没有任何 error/warning 级问题，score 必须 ≥8.5；若打出 <8.5，summary 必须明确列出未兑现的检查项。
-- 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}
+- 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}${goldExtra}
 
 结构化结果格式：
 {
@@ -323,6 +345,27 @@ function buildStyleExemplarBlock(styleExemplars: StyleExemplar[] | undefined): s
   return `\n风格标杆样本（人类标注的真实好段落，仅作 9-10 档参照，不得直接改写正文）：\n${lines.join("\n")}`
 }
 
+
+/**
+ * Track B gold-scale block for thril/pull dimensions (humanGoldFloor=9).
+ * Not a product hard gate. Empty anchors → honest NOT_READY note.
+ */
+function buildGoldScaleReviewBlock(
+  dimensionKey: SixReviewDimensionKey,
+  goldAnchors: LiteraryGoldAnchor[] | undefined,
+  readinessHint?: string,
+): string {
+  if (dimensionKey !== "thrill" && dimensionKey !== "pull") return ""
+  const dim = dimensionKey === "pull" ? "pull" : "thrill"
+  const anchors = goldAnchors ?? []
+  const block = formatGoldScalePromptBlock(anchors, { dimension: dim, max: 3 })
+  if (block) return `\n${block}`
+  const hint =
+    readinessHint
+    ?? assessGoldScaleReadiness({ anchors }).promptHint
+  return `\n【文学金标量程 · ${dim} · 非产品硬门】\n${hint}`
+}
+
 export async function reviewChapterDimension({
   llmConfig,
   contextPack,
@@ -331,6 +374,8 @@ export async function reviewChapterDimension({
   callbacks = {},
   signal,
   novelConfig,
+  goldAnchors,
+  goldReadinessHint,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
@@ -342,9 +387,15 @@ export async function reviewChapterDimension({
    * ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore 保持向后兼容。
    */
   novelConfig?: NovelConfig
+  /** Track B gold anchors for thril/pull prompt injection. */
+  goldAnchors?: LiteraryGoldAnchor[]
+  goldReadinessHint?: string
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
-  const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension)
+  const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
+    goldAnchors: goldAnchors,
+    goldReadinessHint: goldReadinessHint,
+  })
   const analysis = await runDimensionStage(
     llmConfig,
     dimension,
@@ -418,6 +469,55 @@ export async function runSixDimensionReview({
     chapterNumber,
   )
 
+  // M0: attach measurement fingerprint for UI / logs (Track B instrument identity)
+  try {
+    const protocol = createLiteraryExperimentProtocol({
+      model: llmConfigResolved.model || "unknown",
+      samples: 1,
+      label: `ui-six-dim-ch${chapterNumber ?? "?"}`,
+      notes: ["UI six-dimension run fingerprint; N=1 is display-only not seal"],
+    })
+    const measurementFingerprint = buildMeasurementFingerprint({
+      protocol,
+      pack: contextPack,
+      chapterText: chapterContent,
+      packKind: "app-runtime-six-dimension",
+    })
+    callbacks.onMeasurementFingerprint?.(measurementFingerprint)
+  } catch {
+    // non-fatal
+  }
+
+  // Track B: gold scale materials + skill hooks at pre_six_dim_review (soft).
+  let goldAnchors: LiteraryGoldAnchor[] = []
+  let goldReadinessHint: string | undefined
+  try {
+    const materials = await loadGoldScaleMaterials(projectPath)
+    goldAnchors = materials.merged
+    const readiness = assessGoldScaleReadiness({
+      anchors: materials.anchors,
+      exemplars: materials.exemplars,
+    })
+    goldReadinessHint = readiness.promptHint
+    try {
+      registerNovelSkillHook(createGoldScaleReadinessHook(readiness.promptHint))
+    } catch {
+      // registry may already have same id — ignore
+    }
+    const hookCtx = await runNovelSkillHooks("pre_six_dim_review", {
+      projectPath,
+      chapterNumber,
+    })
+    if (hookCtx.bag.promptFragments.length > 0) {
+      // builtin gold readiness hook injects promptHint into fragments
+      goldReadinessHint = hookCtx.bag.promptFragments.join("\n")
+    }
+  } catch (err) {
+    logger.warn("SixDimReview", "gold scale / skill hooks soft-failed", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
   const keys = dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER
   // PERF-NEW-07: 6 维审查无相互依赖（每维独立 LLM 调用 + 独立 contextPack 只读消费 +
@@ -463,6 +563,8 @@ export async function runSixDimensionReview({
           dimension,
           signal,
           novelConfig: injectedNovelConfig,
+          goldAnchors,
+          goldReadinessHint,
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)

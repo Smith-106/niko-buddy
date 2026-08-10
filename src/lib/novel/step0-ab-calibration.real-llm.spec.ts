@@ -28,10 +28,21 @@ import {
   SIX_REVIEW_DIMENSION_ORDER,
   type SixReviewDimensionKey,
 } from "./dimension-review-adapter"
+import {
+  LITERARY_EXPERIMENT_DEFAULT_MODEL,
+  LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL,
+  createLiteraryExperimentProtocol,
+  type LiteraryExperimentProtocol,
+} from "./literary-experiment-protocol"
+import {
+  buildMeasurementFingerprint,
+  formatMeasurementFingerprintSummary,
+} from "./measurement-fingerprint"
 
 const REAL_KEY = process.env.STEP0_REAL_LLM_KEY ?? ""
 const REAL_BASE = process.env.STEP0_REAL_LLM_BASE ?? ""
-const REAL_MODEL = process.env.STEP0_REAL_LLM_MODEL ?? "composer-2.5"
+// Default locked to literary-experiment protocol model (composer-2.5 often unavailable).
+const REAL_MODEL = process.env.STEP0_REAL_LLM_MODEL ?? LITERARY_EXPERIMENT_DEFAULT_MODEL
 // 里程碑/结案默认 N≥5 中位（FIX-3c 证实 N=3 偏乐观会翻判定）。
 // 开发冒烟可用 STEP0_SAMPLES=3；结案与里程碑验收禁止用 N<5 作最终结论。
 const SAMPLES = (() => {
@@ -172,6 +183,41 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
       }
     }
 
+    const protocol: LiteraryExperimentProtocol = createLiteraryExperimentProtocol({
+      model: REAL_MODEL,
+      samples: SAMPLES,
+      mode: diagnosisNewOnly ? "NEW_only" : "AB_old_new",
+      label: process.env.STEP0_LABEL || undefined,
+      notes: [
+        "product hard gate is Track A only — overall≥9 is not a ship criterion",
+        diagnosisNewOnly
+          ? "NEW-only diagnosis: OLD arm skipped by design"
+          : "AB mode: OLD arm uses fixture.prompts.old snapshots (may be truncated history)",
+      ],
+    })
+    if (SAMPLES < LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[literary-experiment] samples=${SAMPLES} < seal minimum ${LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL} — smoke only`,
+      )
+    }
+
+    const fixturePack = (fixture as { pack?: import("./context-engine").ContextPack; chapterText?: string; packKind?: string }).pack
+    const fixtureText = (fixture as { chapterText?: string }).chapterText ?? ""
+    const measurementFingerprint =
+      fixturePack != null
+        ? buildMeasurementFingerprint({
+            protocol,
+            pack: fixturePack,
+            chapterText: fixtureText,
+            packKind: (fixture as { packKind?: string }).packKind,
+          })
+        : undefined
+    if (measurementFingerprint) {
+      // eslint-disable-next-line no-console
+      console.log(`[measurement-fingerprint] ${formatMeasurementFingerprintSummary(measurementFingerprint)}`)
+    }
+
     mkdirSync(dirname(RESULTS), { recursive: true })
     writeFileSync(
       RESULTS,
@@ -182,6 +228,10 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
           base: REAL_BASE,
           samples: SAMPLES,
           fixture: FIXTURE,
+          protocol,
+          window: protocol.window,
+          diagnosisNewOnly,
+          measurementFingerprint: measurementFingerprint ?? null,
           results,
           verdict: {
             overallOldMedian: overallOld,
@@ -194,6 +244,8 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
                 : overallNew <= 7.5
                   ? "文本差距主导（plan-then-write 全文重写）"
                   : "边界区（需补充采样或人工裁定阈值）",
+            productHardGate: false,
+            overallGe9IsShipCriterion: false,
           },
         },
         null,

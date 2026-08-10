@@ -23,6 +23,7 @@ import {
   renderTemporalCanonBlock,
   type TemporalFact,
 } from "./temporal-memory"
+import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-facts-audit"
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
@@ -472,15 +473,27 @@ async function buildContextPackUnlocked(
     const wired = truncateActiveEntitiesByBudget(reranked, currentBuildBudget?.activeEntitiesBudget, context.chapterNumber ?? 0)
     pack.activeEntities = wired.entities
     if (wired.gap) pack.gaps.push(wired.gap)
-    // Quality Foundation v1: soft audit when temporal is on but mid-chapter pack has no facts.
+    // Quality Foundation v1 + mid-loop: soft audit when temporal is on but mid-chapter pack has no facts.
+    // Surfaces IC-02 gap (not Track A FAIL). See temporal-facts-audit.ts.
     const chNum = context.chapterNumber ?? 0
-    if (
-      novelConfig.temporalFactsEnabled
-      && chNum >= 2
-      && (pack.temporalFacts == null || pack.temporalFacts.length === 0)
-    ) {
-      logger.warn("ContextEngine", "temporalFactsEnabled but zero temporal facts for mid-chapter (soft)", {
+    const temporalAudit = auditTemporalFactsStatus({
+      enabled: novelConfig.temporalFactsEnabled === true,
+      chapterNumber: chNum,
+      facts: pack.temporalFacts ?? null,
+    })
+    if (temporalAudit.level === "empty_soft") {
+      logger.warn("ContextEngine", temporalAudit.message, {
         chapterNumber: chNum,
+        factCount: temporalAudit.factCount,
+      })
+    }
+    if (temporalAudit.shouldRecordGap) {
+      pack.gaps.push({
+        type: "load_failed",
+        ref: temporalEmptySoftGapRef(chNum),
+        reason: "datasource_error",
+        originalLength: 0,
+        retainedLength: 0,
       })
     }
     // EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点（fire-and-forget，非阻塞）。
@@ -1171,13 +1184,44 @@ async function readChapterOutlineDirect(pp: string, chapterNumber: number): Prom
         content: await readFile(file.path).catch(() => ""),
       })),
     )
-    return pickChapterOutlineByNumber(
+    const fromWiki = pickChapterOutlineByNumber(
       candidates.filter((candidate) => candidate.content.trim()),
       chapterNumber,
     )
+    if (fromWiki.trim()) return fromWiki
   } catch {
-    return ""
+    // fall through to project-root FILLED outlines (M1)
   }
+  return readProjectRootFilledOutline(pp, chapterNumber)
+}
+
+/**
+ * M1: projects that keep outlines as `Chapter-N-Outline-FILLED.md` at project root
+ * (e.g. 8人 without wiki/) still feed buildContextPack. Prefer wiki/outlines when present.
+ */
+async function readProjectRootFilledOutline(pp: string, chapterNumber: number): Promise<string> {
+  const names = [
+    `Chapter-${chapterNumber}-Outline-FILLED.md`,
+    `Chapter-${chapterNumber}-Outline.md`,
+    `chapter-${chapterNumber}-outline-filled.md`,
+    `chapter-${chapterNumber}-outline.md`,
+  ]
+  for (const name of names) {
+    try {
+      const content = await readFile(`${pp}/${name}`)
+      if (content.trim()) {
+        return tieredSlice(
+          content,
+          "protected",
+          resolveChapterOutlineProtectedCap(),
+          `chapter-outline:${chapterNumber}:project-root-filled`,
+        )
+      }
+    } catch {
+      // try next name
+    }
+  }
+  return ""
 }
 
 export async function readChapterOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
