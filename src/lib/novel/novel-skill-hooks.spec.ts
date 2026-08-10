@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
   createAvoidAiMechanicalSlopHook,
+  createCedSoftReportHook,
   createGoldScaleReadinessHook,
   getNovelSkillHookRegistry,
   listNovelSkillHooksForStage,
@@ -80,6 +81,27 @@ describe("novel-skill-hooks", () => {
     registerNovelSkillHook(createAvoidAiMechanicalSlopHook({ text: "" }))
     const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
     expect(ctx.bag.notes.some((n) => n.includes("skipped"))).toBe(true)
+  })
+
+  it("ced soft report hook notes density without hard gate", async () => {
+    registerNovelSkillHook(
+      createCedSoftReportHook({
+        findings: [
+          {
+            type: "absent_character",
+            subtype: "consistency_mechanical",
+            severity: "warning",
+            ref: "character:x",
+            message: "absent",
+            chapter: 4,
+          },
+        ],
+        textForWordCount: "她打开了门。雨打在台阶上。没有人说话。",
+      }),
+    )
+    const ctx = await runNovelSkillHooks("pre_six_dim_review", { projectPath: "/p" })
+    expect(ctx.bag.notes.some((n) => n.includes("CED soft"))).toBe(true)
+    expect(ctx.bag.notes.some((n) => n.includes("not product hard gate"))).toBe(true)
   })
 })
 

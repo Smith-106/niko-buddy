@@ -125,6 +125,43 @@ export function createGoldScaleReadinessHook(promptHint: string): NovelSkillHook
 }
 
 /**
+ * Soft CED consistency-density report from precomputed ContinuityFinding[].
+ * Never a product hard gate; does not replace Consistency ADR behavior.
+ */
+export function createCedSoftReportHook(options: {
+  findings: import("./deterministic-continuity-engine").ContinuityFinding[]
+  textForWordCount?: string
+  styleIssueCount?: number
+  stages?: NovelSkillStage[]
+}): NovelSkillHook {
+  const stages = options.stages ?? (["pre_six_dim_review"] as NovelSkillStage[])
+  return {
+    id: "builtin.ced-soft-report",
+    title: "CED soft consistency density (not hard gate)",
+    stages,
+    track: "B",
+    enabled: true,
+    run: async (ctx) => {
+      try {
+        const { computeCedReport, formatCedReportPromptFragment } = await import("./ced-report")
+        const report = computeCedReport({
+          findings: options.findings ?? [],
+          textForWordCount: options.textForWordCount,
+          styleIssueCount: options.styleIssueCount,
+        })
+        ctx.bag.notes.push(report.summaryLine)
+        const frag = formatCedReportPromptFragment(report)
+        if (frag) ctx.bag.promptFragments.push(frag)
+      } catch (error) {
+        ctx.bag.notes.push(
+          `ced soft report failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    },
+  }
+}
+
+/**
  * Track B hang for avoid-ai:
  * 1) Chinese mechanical slop (`slopScore`)
  * 2) Full vendored avoid-ai-writing `patterns.cjs` (English-heavy)

@@ -97,6 +97,39 @@ export function getFactsAt(
 }
 
 /**
+ * Alias for getFactsAt — Graphiti-style "what is true at chapter N" query surface.
+ * VIEW only: does not own storage (ANL-013 C4).
+ */
+export function queryFactsAt(
+  chapterNumber: number,
+  subject: string | undefined,
+  facts: readonly TemporalFact[],
+  aliasMap?: NameAliasMap,
+): TemporalFact[] {
+  return getFactsAt(chapterNumber, subject, facts, aliasMap)
+}
+
+/**
+ * Close a fact's validity window at `atChapter` (invalidate without deleting).
+ * Monotonic: only narrows validUntil. Returns false if id missing.
+ * Prefer resolveNegation when a replacing fact exists; use this for soft revoke.
+ */
+export function invalidateFact(
+  facts: TemporalFact[],
+  id: string,
+  atChapter: number,
+  note?: string,
+): { ok: boolean; note?: string } {
+  const fact = facts.find((f) => f.id === id)
+  if (!fact) return { ok: false }
+  const ch = Number.isFinite(atChapter) ? Math.trunc(atChapter) : fact.validFrom
+  if (ch < (fact.validUntil ?? Infinity)) {
+    fact.validUntil = ch
+  }
+  return { ok: true, note }
+}
+
+/**
  * Record that `newFact` supersedes `oldFactId`: close the old fact's validity
  * window at the new fact's validFrom and link the supersedes chain. Mutates
  * the facts array in place (callers pass the live array). No-op if the old

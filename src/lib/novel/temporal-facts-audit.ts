@@ -75,8 +75,19 @@ export function auditTemporalFactsStatus(options: {
   }
 }
 
+/** One-line audit for logs / status (Wave A). */
+export function formatTemporalAuditLine(status: TemporalFactsAuditStatus): string {
+  return [
+    `temporal-audit: level=${status.level}`,
+    `facts=${status.factCount}`,
+    `ch=${status.chapterNumber}`,
+    status.message,
+    "productHardGate=false",
+  ].join(" | ")
+}
+
 /** Gap payload compatible with ContextGap shape (caller sets type/reason). */
 export function temporalEmptySoftGapRef(chapterNumber: number): string {
   return `temporal-facts:empty-while-enabled:ch${chapterNumber}`
 }
-
+

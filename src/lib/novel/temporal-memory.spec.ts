@@ -4,6 +4,8 @@ import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import {
   factsFromCommittedSnapshots,
   getFactsAt,
+  invalidateFact,
+  queryFactsAt,
   recordSupersession,
   renderTemporalCanonBlock,
   resolveNegation,
@@ -287,5 +289,27 @@ describe("renderTemporalCanonBlock", () => {
     const block = renderTemporalCanonBlock(4, facts)
     expect(block).toContain("剑修")
     expect(block).not.toContain("凡人")
+  })
+})
+
+describe("invalidateFact / queryFactsAt", () => {
+  it("queryFactsAt aliases getFactsAt", () => {
+    const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 1 })]
+    expect(queryFactsAt(2, undefined, facts).map((f) => f.id)).toEqual(
+      getFactsAt(2, undefined, facts).map((f) => f.id),
+    )
+  })
+
+  it("invalidates without deleting and excludes from later query", () => {
+    const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 1 })]
+    const r = invalidateFact(facts, "a", 4, "revoked")
+    expect(r.ok).toBe(true)
+    expect(facts[0]!.validUntil).toBe(4)
+    expect(queryFactsAt(4, undefined, facts)).toEqual([])
+    expect(queryFactsAt(3, undefined, facts).map((f) => f.id)).toEqual(["a"])
+  })
+
+  it("returns ok=false for missing id", () => {
+    expect(invalidateFact([], "missing", 1).ok).toBe(false)
   })
 })

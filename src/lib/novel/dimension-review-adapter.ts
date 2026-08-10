@@ -16,6 +16,7 @@ import {
 } from "./literary-gold-scale"
 import {
   createAvoidAiMechanicalSlopHook,
+  createCedSoftReportHook,
   createGoldScaleReadinessHook,
   registerNovelSkillHook,
   runNovelSkillHooks,
@@ -510,6 +511,19 @@ export async function runSixDimensionReview({
       registerNovelSkillHook(
         createAvoidAiMechanicalSlopHook({
           text: chapterContent,
+          stages: ["pre_six_dim_review"],
+        }),
+      )
+    } catch {
+      // ignore registry race
+    }
+    try {
+      // Wave A CED soft report (empty findings here; full CED logs in continuity preflight).
+      // Density uses chapter text; never product hard gate.
+      registerNovelSkillHook(
+        createCedSoftReportHook({
+          findings: [],
+          textForWordCount: chapterContent,
           stages: ["pre_six_dim_review"],
         }),
       )

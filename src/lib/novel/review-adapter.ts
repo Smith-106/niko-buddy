@@ -354,6 +354,18 @@ export async function runContinuityMechanicalPreflight(
       "continuity-engine",
       `found ${summary.total} findings (critical:${summary.critical}, warning:${summary.warning}, info:${summary.info}, data_gap:${summary.data_gap})`,
     )
+    // Wave A KPI: CED soft density (never product hard gate; log-only here).
+    try {
+      const { computeCedReport } = await import("./ced-report")
+      const ced = computeCedReport({
+        findings,
+        // preflight has no chapter body; density uses floor denom inside report
+        wordCountEstimate: 8000,
+      })
+      logger.warn("ced-soft", ced.summaryLine)
+    } catch {
+      // non-fatal
+    }
     // TASK-010 (Decision 7.2): continuity 观测层 metric — 只记 count+ms+gate 枚举
     // (CWE-532: finding.ref/override 正文不进 metric)。short_circuit_hits 此路径为 0
     // (机械预门未短路 LLM, 短路走 critical 分支); engine_error_count 此路径 0 (异常走 catch)。

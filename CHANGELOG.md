@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+kpi] - 2026-08-10
+
+### Added (Wave A module KPI stack)
+- `ced-report` soft Consistency Error Density report + skill hook (not product hard gate)
+- Temporal `invalidateFact` / `queryFactsAt` + audit one-liner
+- `scripts/smoke-retrieval-p95.mjs` local FS pack-assembly p95 harness
+
+### Notes
+- CED logs in continuity preflight; never thril hard gate
+- p95 smoke is disk proxy latency, not LanceDB embedding SLA
+
 ## [2.4.6] - 2026-08-10
 
 ### Added

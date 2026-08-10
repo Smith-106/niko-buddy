@@ -35,5 +35,13 @@ describe("temporal-facts-audit", () => {
   it("gap ref is stable", () => {
     expect(temporalEmptySoftGapRef(4)).toContain("ch4")
   })
+
+  it("formatTemporalAuditLine is one soft line", async () => {
+    const { formatTemporalAuditLine } = await import("./temporal-facts-audit")
+    const s = auditTemporalFactsStatus({ enabled: true, chapterNumber: 4, facts: [] })
+    const line = formatTemporalAuditLine(s)
+    expect(line).toContain("temporal-audit")
+    expect(line).toContain("productHardGate=false")
+  })
 })
-
+
