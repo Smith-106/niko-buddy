@@ -1006,6 +1006,9 @@ function ClaudeCliStatusPill() {
                   versionSuffix: result?.version ? ` ${result.version}` : "",
                 })}
               </div>
+              <div className="text-muted-foreground text-[11px]">
+                {t("settings.sections.llm.cliStatus.claudeTransportHint")}
+              </div>
               {result?.path && (
                 <div className="truncate font-mono text-[10px] text-muted-foreground">
                   {result.path}

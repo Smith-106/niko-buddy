@@ -2,7 +2,58 @@ export { useNovelLabel, useNovelMode } from "./ui-labels"
 export { parseChapterMeta, isChapterPage, isOutlinePage, type ChapterMeta, type ChapterStatus, type OutlineType } from "./chapter-meta"
 export { parseVolumeMeta, isVolumePage, getChapterVolumes, type VolumeMeta } from "./volume"
 export { createChapterPipeline, type ChapterPipeline, type ChapterPipelineDeps } from "./chapter-pipeline"
-export { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+export {
+  buildContextPack,
+  contextPackToPrompt,
+  type ContextPack,
+  type ContextPackToPromptOptions,
+  type LayeredRecallMode,
+} from "./context-engine"
+export {
+  applyMemoryOp,
+  applyMemoryOps,
+  planAddOpsFromCanonFacts,
+  classifyMemoryAtomKind,
+  MEMORY_ATOM_KINDS,
+  type MemoryOp,
+  type MemoryAtomKind,
+  type MemoryOpKind,
+  type MemoryOpResult,
+} from "./memory-op"
+export {
+  createIdleReviewJob,
+  markWriteReady,
+  markReviewQueued,
+  markReviewRunning,
+  markReviewDone,
+  markReviewFailed,
+  formatReviewJobLine,
+  isWriteUnblockedByReview,
+  type ReviewJobState,
+  type ReviewJobPhase,
+} from "./write-review-split"
+export {
+  buildEvidenceChainFromContinuity,
+  buildEvidenceChainFromCed,
+  buildEvidenceChainMixed,
+  exportEvidenceChainJson,
+  type EvidenceChain,
+} from "./evidence-chain"
+export {
+  exportEvidenceChainForReview,
+  type ExportEvidenceChainInput,
+  type ExportEvidenceChainResult,
+} from "./evidence-chain-export"
+export {
+  measureDeepChapterWallclock,
+  type DeepChapterStageTiming,
+  type DeepChapterWallclockReport,
+} from "./deep-chapter-wallclock"
+export {
+  formatReviewJobStatusLine,
+  getReviewJobUiModel,
+  type ReviewJobUiModel,
+} from "./review-job-ui"
 export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason } from "./chapter-ingest"
 export { reviewChapter, type NovelReviewResult } from "./review-adapter"
 export { runNovelLint, buildNovelLintPrompt, type NovelLintResult } from "./lint"

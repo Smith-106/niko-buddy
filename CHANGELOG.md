@@ -5,6 +5,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+s1-s8] - 2026-08-10
+
+### Added (S1–S8 post-wave stack)
+- L0–L3 memory map docs + creation/dev dual-track discipline (harvest-staging)
+- Layered recall modes + per-section char budget on `contextPackToPrompt`
+- L1 `MemoryAtomKind` classification on `memory-op` / planAddOpsFromCanonFacts
+- Live Wave C hooks: dual-pass + statistical signature at pre_six_dim_review
+- `review-job-ui` presentation model; `evidence-chain-export` review export entry
+- `deep-chapter-wallclock` stage aggregation + `scripts/smoke-embedding-p95.mjs`
+- Claude CLI settings copy: model channel (not Claude Code IDE writing)
+
+### Notes
+- All new diagnostics remain `productHardGate: false`
+- thril/origin/main-rewrite remain rejected
+
 ## [2.4.6+wave-c] - 2026-08-10
 
 ### Added (Wave C KPI stack — Track B soft)

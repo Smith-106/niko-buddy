@@ -8,7 +8,7 @@ describe("memory-op", () => {
     const add = applyMemoryOp(facts, {
       kind: "ADD",
       fact: {
-        subject: "白砚",
+        subject: "白昼",
         predicate: "持有",
         object: "戒指",
         validFrom: 1,
@@ -17,7 +17,7 @@ describe("memory-op", () => {
     })
     expect(add.ok).toBe(true)
     expect(facts).toHaveLength(1)
-    expect(queryFactsAt(2, "白砚", facts)).toHaveLength(1)
+    expect(queryFactsAt(2, "白昼", facts)).toHaveLength(1)
 
     const del = applyMemoryOp(facts, {
       kind: "DELETE",
@@ -25,8 +25,8 @@ describe("memory-op", () => {
       atChapter: 3,
     })
     expect(del.ok).toBe(true)
-    expect(queryFactsAt(3, "白砚", facts)).toHaveLength(0)
-    expect(queryFactsAt(2, "白砚", facts)).toHaveLength(1)
+    expect(queryFactsAt(3, "白昼", facts)).toHaveLength(0)
+    expect(queryFactsAt(2, "白昼", facts)).toHaveLength(1)
   })
 
   it("UPDATE mutates object; NOOP always ok; productHardGate false", () => {
@@ -59,11 +59,24 @@ describe("memory-op", () => {
   })
 
   it("planAddOpsFromCanonFacts + batch apply", () => {
-    const ops = planAddOpsFromCanonFacts(4, ["白砚：持有线索", "无窗会议室"])
+    const ops = planAddOpsFromCanonFacts(4, ["白昼：持有线索", "无窗会议室"])
     expect(ops).toHaveLength(2)
     const facts: TemporalFact[] = []
     const results = applyMemoryOps(facts, ops)
     expect(results.every((r) => r.ok)).toBe(true)
     expect(facts).toHaveLength(2)
+  })
+
+  it("classifies L1 atom kinds on planAddOpsFromCanonFacts (S3)", () => {
+    const ops = planAddOpsFromCanonFacts(5, [
+      "白昼：持有戒指",
+      "禁止：时间旅行",
+      "码头决战爆发",
+    ])
+    expect(ops[0]!.atomKind).toBe("inventory")
+    expect(ops[0]!.fact?.predicate).toBe("inventory")
+    expect(ops[1]!.atomKind).toBe("constraint")
+    expect(ops[2]!.atomKind).toBe("event")
+    expect(ops.every((o) => o.note?.includes("atomKind"))).toBe(true)
   })
 })

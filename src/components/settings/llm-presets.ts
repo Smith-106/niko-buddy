@@ -89,8 +89,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
   },
   {
     id: "claude-code-cli",
-    label: "Claude Code CLI (local)",
-    hint: "Uses the local `claude` binary — no API key needed",
+    label: "Claude model channel (local CLI)",
+    hint: "Model transport via local `claude` binary (not writing inside Claude Code IDE) — no API key needed",
     provider: "claude-code",
     defaultModel: "claude-sonnet-4-6",
     suggestedModels: [

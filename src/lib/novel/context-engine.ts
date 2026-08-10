@@ -1899,6 +1899,21 @@ export function extractChapterGoal(outline: string, chapterNumber?: number): str
   return ""
 }
 
+/** Layered recall mode (Tencent L0–L3 inspired; default = scenario+persona). */
+export type LayeredRecallMode = "default" | "full" | "scenario_persona"
+
+export interface ContextPackToPromptOptions {
+  excludeOutline?: boolean
+  temporalFactsEnabled?: boolean
+  /**
+   * default / scenario_persona: L2+L3 first; L1-heavy blocks only when temporalFactsEnabled or full.
+   * full: include all present sections (still subject to tokenBudget).
+   */
+  layeredRecall?: LayeredRecallMode
+  /** Soft per-section character budget (after join of array items). */
+  sectionCharBudget?: number
+}
+
 interface FieldConfig {
   titleKey: string
   fieldKey: keyof ContextPack
@@ -1906,39 +1921,67 @@ interface FieldConfig {
    * F-06: 条件渲染谓词 — 仅当返回 true 才把该段渲染进 prompt.
    * flag=false 时完全跳过该段, 保 prompt 字节级不变 (R1).
    */
-  renderIf?: (pack: ContextPack, flags: { temporalFactsEnabled: boolean }) => boolean
+  renderIf?: (
+    pack: ContextPack,
+    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode },
+  ) => boolean
   /**
    * 对象数组序列化 — 把 ContextEntity[] 格式化为 string[], 避免 [object Object].
    */
-  serialize?: (content: unknown, pack: ContextPack, flags: { temporalFactsEnabled: boolean }) => string | string[]
+  serialize?: (
+    content: unknown,
+    pack: ContextPack,
+    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode },
+  ) => string | string[]
+  /** Soft layer tag for docs / budget policy (not a hard gate). */
+  layer?: "L0" | "L1" | "L2" | "L3" | "aux"
 }
 
 const FIELD_CONFIGS: FieldConfig[] = [
-  { titleKey: "novel.contextPack.currentChapterGoal", fieldKey: "chapterGoal" },
-  { titleKey: "novel.contextPack.mustDo.title", fieldKey: "mustDo" },
-  { titleKey: "novel.contextPack.mustAvoid.title", fieldKey: "mustAvoid" },
-  { titleKey: "novel.contextPack.nextChapterAdvice.title", fieldKey: "nextChapterAdvice" },
-  { titleKey: "novel.contextPack.soulDoc", fieldKey: "soulDoc" },
-  { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives" },
-  { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline" },
-  { titleKey: "novel.contextPack.recentChapterContents", fieldKey: "recentChapterContents" },
-  { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries" },
-  { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding" },
-  { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates" },
-  { titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras" },
-  { titleKey: "novel.contextPack.cognitionStates", fieldKey: "cognitionStates" },
-  { titleKey: "novel.contextPack.foreshadowingStates", fieldKey: "foreshadowingStates" },
-  { titleKey: "novel.contextPack.timeline", fieldKey: "timeline" },
-  { titleKey: "novel.contextPack.relatedSettings", fieldKey: "relatedSettings" },
-  { titleKey: "novel.contextPack.canonRules", fieldKey: "canonRules" },
-  { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle" },
-  { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
-  { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
-  { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries" },
+  { titleKey: "novel.contextPack.currentChapterGoal", fieldKey: "chapterGoal", layer: "L2" },
+  { titleKey: "novel.contextPack.mustDo.title", fieldKey: "mustDo", layer: "L2" },
+  { titleKey: "novel.contextPack.mustAvoid.title", fieldKey: "mustAvoid", layer: "L2" },
+  { titleKey: "novel.contextPack.nextChapterAdvice.title", fieldKey: "nextChapterAdvice", layer: "L2" },
+  { titleKey: "novel.contextPack.soulDoc", fieldKey: "soulDoc", layer: "L3" },
+  { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives", layer: "L2" },
+  { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline", layer: "L2" },
+  {
+    titleKey: "novel.contextPack.recentChapterContents",
+    fieldKey: "recentChapterContents",
+    layer: "L0",
+    // L0-ish raw chapter bodies: only in full recall to avoid context blow-up
+    renderIf: (_pack, flags) => flags.layeredRecall === "full",
+  },
+  { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries", layer: "L2" },
+  { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding", layer: "L2" },
+  { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates", layer: "L3" },
+  { titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras", layer: "L3" },
+  { titleKey: "novel.contextPack.cognitionStates", fieldKey: "cognitionStates", layer: "L3" },
+  { titleKey: "novel.contextPack.foreshadowingStates", fieldKey: "foreshadowingStates", layer: "L2" },
+  { titleKey: "novel.contextPack.timeline", fieldKey: "timeline", layer: "L2" },
+  { titleKey: "novel.contextPack.relatedSettings", fieldKey: "relatedSettings", layer: "L3" },
+  {
+    titleKey: "novel.contextPack.canonRules",
+    fieldKey: "canonRules",
+    layer: "L1",
+    // L1-heavy: default path keeps when present; full always; scenario_persona skips unless temporal on
+    renderIf: (pack, flags) => {
+      if (flags.layeredRecall === "full") return true
+      if (flags.layeredRecall === "scenario_persona" && !flags.temporalFactsEnabled) return false
+      return Boolean(pack.canonRules && (Array.isArray(pack.canonRules) ? pack.canonRules.length : pack.canonRules))
+    },
+  },
+  { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
+  { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
+  { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
+  { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
   {
     titleKey: "novel.contextPack.activeEntities",
     fieldKey: "activeEntities",
-    renderIf: (pack, flags) => flags.temporalFactsEnabled === true && (pack.activeEntities?.length ?? 0) > 0,
+    layer: "L1",
+    renderIf: (pack, flags) =>
+      (flags.temporalFactsEnabled === true || flags.layeredRecall === "full") &&
+      (pack.activeEntities?.length ?? 0) > 0,
     serialize: (content) => {
       const entities = content as ContextEntity[]
       return entities.map((e) => "- " + e.name + (e.tags && e.tags.length ? " (tags: " + e.tags.join(", ") + ")" : ""))
@@ -1946,7 +1989,36 @@ const FIELD_CONFIGS: FieldConfig[] = [
   },
 ]
 
-export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean; temporalFactsEnabled?: boolean }): string {
+function applySectionCharBudget(
+  content: string | string[] | undefined | null,
+  budget: number | undefined,
+): string | string[] {
+  if (content == null) return ""
+  if (!budget || budget <= 0) return content
+  if (Array.isArray(content)) {
+    const out: string[] = []
+    let used = 0
+    for (const item of content) {
+      if (used >= budget) break
+      const room = budget - used
+      if (item.length <= room) {
+        out.push(item)
+        used += item.length
+      } else {
+        out.push(item.slice(0, room) + "…")
+        break
+      }
+    }
+    return out
+  }
+  return content.length <= budget ? content : content.slice(0, budget) + "…"
+}
+
+export function contextPackToPrompt(
+  pack: ContextPack,
+  tokenBudget?: number,
+  options?: ContextPackToPromptOptions,
+): string {
   const sections: string[] = []
 
   sections.push(i18n.t("novel.contextPack.title"))
@@ -1955,6 +2027,7 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
   sections.push(pack.task)
   sections.push("")
 
+  const layeredRecall: LayeredRecallMode = options?.layeredRecall ?? "default"
   const fieldSections: { title: string; content: string | string[] }[] = []
   for (const config of FIELD_CONFIGS) {
     // 如果设置了 excludeOutline，跳过大纲字段
@@ -1963,11 +2036,15 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
     }
 
     // F-06: 条件渲染守卫 — renderIf 返回 false (如 temporalFactsEnabled=false) 时完全跳过该段, 保 prompt 字节级不变
-    const flags = { temporalFactsEnabled: options?.temporalFactsEnabled === true }
+    const flags = {
+      temporalFactsEnabled: options?.temporalFactsEnabled === true,
+      layeredRecall,
+    }
     if (config.renderIf && !config.renderIf(pack, flags)) continue
 
     const raw = pack[config.fieldKey] as string | string[]
-    const content = config.serialize ? config.serialize(raw, pack, flags) : raw
+    let content = config.serialize ? config.serialize(raw, pack, flags) : raw
+    content = applySectionCharBudget(content, options?.sectionCharBudget)
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
     fieldSections.push({ title: i18n.t(config.titleKey), content })

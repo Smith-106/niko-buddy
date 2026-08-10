@@ -14,15 +14,47 @@ export const MEMORY_OP_SCHEMA = "memory-op/1.0" as const
 
 export type MemoryOpKind = "ADD" | "UPDATE" | "DELETE" | "NOOP"
 
+/**
+ * L1 atom kinds (Tencent L1-inspired classification over TemporalFact VIEW).
+ * Soft taxonomy only — does not create a second store; productHardGate never true.
+ */
+export const MEMORY_ATOM_KINDS = [
+  "constraint",
+  "preference",
+  "event",
+  "setting",
+  "relationship",
+  "inventory",
+  "state",
+  "other",
+] as const
+
+export type MemoryAtomKind = (typeof MEMORY_ATOM_KINDS)[number]
+
 export interface MemoryOp {
   kind: MemoryOpKind
   /** Target fact id (UPDATE/DELETE); optional for ADD (auto-id if missing). */
   factId?: string
   /** Payload for ADD/UPDATE. */
   fact?: Partial<TemporalFact> & Pick<TemporalFact, "subject" | "predicate" | "object" | "validFrom" | "source">
+  /** L1 atom classification (optional; set by planAddOpsFromCanonFacts). */
+  atomKind?: MemoryAtomKind
   note?: string
   /** Chapter clock for DELETE invalidate. */
   atChapter?: number
+}
+
+/** Heuristic classify free-text / colon-split canon lines into L1 atom kinds. */
+export function classifyMemoryAtomKind(text: string, subject?: string, object?: string): MemoryAtomKind {
+  const blob = `${subject ?? ""} ${object ?? ""} ${text}`.toLowerCase()
+  if (/禁止|不得|必须|约束|规则|禁忌|不可|不准|不得违背/.test(blob)) return "constraint"
+  if (/偏好|习惯|喜欢|讨厌|倾向|风格偏好/.test(blob)) return "preference"
+  if (/发生|事件|战斗|抵达|离开|死亡|婚|相遇|决战|爆发/.test(blob)) return "event"
+  if (/设定|世界观|法则|体系|地图|时代|规则设定/.test(blob)) return "setting"
+  if (/关系|盟友|敌对|师徒|情侣|父子|母女|从属/.test(blob)) return "relationship"
+  if (/持有|获得|失去|装备|物品|戒指|武器|道具/.test(blob)) return "inventory"
+  if (/状态|受伤|昏迷|觉醒|等级|境界|情绪/.test(blob)) return "state"
+  return "other"
 }
 
 export interface MemoryOpResult {
@@ -125,13 +157,16 @@ export function planAddOpsFromCanonFacts(
     const m = text.match(/^(.+?)[：:]\s*(.+)$/)
     const subject = m ? m[1]!.trim() : "canon"
     const object = m ? m[2]!.trim() : text
+    const atomKind = classifyMemoryAtomKind(text, subject, object)
     return {
       kind: "ADD" as const,
       factId: `fact-ch${chapterNumber}-mem-${idx}`,
+      atomKind,
+      note: `L1 atomKind=${atomKind}`,
       fact: {
         id: `fact-ch${chapterNumber}-mem-${idx}`,
         subject,
-        predicate: "陈述",
+        predicate: atomKind === "other" ? "陈述" : atomKind,
         object,
         validFrom: chapterNumber,
         source,

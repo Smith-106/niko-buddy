@@ -17,7 +17,9 @@ import {
 import {
   createAvoidAiMechanicalSlopHook,
   createCedSoftReportHook,
+  createDeAiDualPassHook,
   createGoldScaleReadinessHook,
+  createStatisticalAiSignatureHook,
   registerNovelSkillHook,
   runNovelSkillHooks,
 } from "./novel-skill-hooks"
@@ -524,6 +526,28 @@ export async function runSixDimensionReview({
         createCedSoftReportHook({
           findings: [],
           textForWordCount: chapterContent,
+          stages: ["pre_six_dim_review"],
+        }),
+      )
+    } catch {
+      // ignore registry race
+    }
+    try {
+      // Wave C: dual-pass de-AI notes (Track B soft; never product hard gate).
+      registerNovelSkillHook(
+        createDeAiDualPassHook({
+          text: chapterContent,
+          stages: ["pre_six_dim_review"],
+        }),
+      )
+    } catch {
+      // ignore registry race
+    }
+    try {
+      // Wave C: statistical AI signature proxy (experimental; soft only).
+      registerNovelSkillHook(
+        createStatisticalAiSignatureHook({
+          text: chapterContent,
           stages: ["pre_six_dim_review"],
         }),
       )
