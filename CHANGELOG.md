@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+docs-cleanup] - 2026-08-10
+
+### Changed
+- README version badge + install note → **2.4.6** (tip vs installer clarified)
+- docs-site download / build pages → 2.4.6 asset names and highlights
+
+### Removed (repo hygiene)
+- Accidental tracked junk: `tr master`, `remote-changelog.ts`, `验证修复.js`, `去AI味Skill规则.md`, `PHASE_2.4_PROGRESS_REPORT.md`
+
+### Notes
+- Local-only cleanup: `dist/`, `*.tsbuildinfo`, hub one-off `_fix*` scripts (not product git)
+- Installer assets remain **v2.4.6**; residual source tip may advance without new tag until next asset rebuild
+- Product remote remains `smith` only
+
 ## [2.4.6+remaining] - 2026-08-10
 
 ### Added (remaining checklist K/U/D/M/P)
