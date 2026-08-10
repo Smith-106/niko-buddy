@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+wave-c] - 2026-08-10
+
+### Added (Wave C KPI stack — Track B soft)
+- `de-ai-percentile` soft FPR-oriented percentile bands + Chinese FPR proxy self-test
+- `de-ai-dual-pass` score + remediation notes (no manuscript auto-rewrite)
+- `evidence-chain` ConStory-style export from continuity/CED findings (not accept blocker)
+- `statistical-ai-signature` Binoculars-inspired classProb+lexical proxy (experimental)
+- Skill hooks: `createDeAiDualPassHook`, `createStatisticalAiSignatureHook`
+
+### Notes
+- thril/origin/main-rewrite remain rejected product boundaries
+- All Wave C scorers declare `productHardGate: false`
+
 ## [2.4.6+wave-b] - 2026-08-10
 
 ### Added (Wave B KPI stack)

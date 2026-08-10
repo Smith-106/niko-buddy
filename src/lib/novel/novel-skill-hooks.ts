@@ -230,3 +230,79 @@ export function createAvoidAiMechanicalSlopHook(options: {
   }
 }
 
+/**
+ * Wave C: de-AI dual-pass soft hook (score + remediation notes).
+ * Never product hard gate.
+ */
+export function createDeAiDualPassHook(options: {
+  text: string
+  stages?: NovelSkillStage[]
+  baselineScores?: readonly number[]
+}): NovelSkillHook {
+  const stages = options.stages ?? (["post_draft_light_check", "pre_six_dim_review"] as NovelSkillStage[])
+  return {
+    id: "builtin.de-ai-dual-pass",
+    title: "De-AI dual-pass soft (Wave C Track B)",
+    stages,
+    track: "B",
+    enabled: true,
+    run: async (ctx) => {
+      const text = (options.text ?? "").trim()
+      if (!text) {
+        ctx.bag.notes.push("de-ai dual-pass: skipped (empty text)")
+        return
+      }
+      try {
+        const { runDeAiDualPass, formatDualPassSummary } = await import("./de-ai-dual-pass")
+        const report = runDeAiDualPass(text, { baselineScores: options.baselineScores })
+        ctx.bag.notes.push(formatDualPassSummary(report))
+        if (report.pass2.promptFragment.trim()) {
+          ctx.bag.promptFragments.push(report.pass2.promptFragment.trim())
+        }
+      } catch (error) {
+        ctx.bag.notes.push(
+          `de-ai dual-pass soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    },
+  }
+}
+
+/** Wave C: statistical AI signature experimental soft hook. */
+export function createStatisticalAiSignatureHook(options: {
+  text: string
+  stages?: NovelSkillStage[]
+}): NovelSkillHook {
+  const stages = options.stages ?? (["pre_six_dim_review"] as NovelSkillStage[])
+  return {
+    id: "builtin.statistical-ai-signature",
+    title: "Statistical AI signature (Wave C experimental Track B)",
+    stages,
+    track: "B",
+    enabled: true,
+    run: async (ctx) => {
+      const text = (options.text ?? "").trim()
+      if (!text) {
+        ctx.bag.notes.push("statistical-ai-signature: skipped (empty)")
+        return
+      }
+      try {
+        const {
+          scoreStatisticalAiSignature,
+          formatStatisticalAiSignatureFragment,
+        } = await import("./statistical-ai-signature")
+        const sig = scoreStatisticalAiSignature(text)
+        ctx.bag.notes.push(
+          `statistical-ai-signature: score=${sig.score0to1.toFixed(3)} band=${sig.band} experimental (not hard gate)`,
+        )
+        const frag = formatStatisticalAiSignatureFragment(sig)
+        if (frag) ctx.bag.promptFragments.push(frag)
+      } catch (error) {
+        ctx.bag.notes.push(
+          `statistical-ai-signature soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    },
+  }
+}
+
