@@ -139,12 +139,49 @@ for i in range(samples):
 valid = [s for s in scores if isinstance(s, (int, float))]
 med = float(median(valid)) if valid else None
 
+# Lock fingerprint (K5'): refuse thril progress without same packHash/textHash
+import hashlib
+def _h(s: str) -> str:
+    return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]
+_pack_keys = [
+  'task','chapterGoal','outline','recentSummaries','previousChapterEnding','characterStates',
+  'soulDoc','characterAuras','cognitionStates','foreshadowingStates','timeline','relatedSettings',
+  'canonRules','writingStyle','searchResults','graphSearchResults','mustDo','mustAvoid',
+  'nextChapterAdvice','revisionDirectives','styleExemplars','gaps','recentChapterContents',
+]
+_picked = {k: pack.get(k) for k in _pack_keys if k in pack}
+pack_hash = _h(json.dumps(_picked, ensure_ascii=False, sort_keys=True, default=str))
+text_hash = _h(chapter_text)
+fp = {
+  'schemaVersion': 'measurement-fingerprint/smoke-sha256-16',
+  'model': MODEL,
+  'samples': samples,
+  'window': 'full_chapter',
+  'mode': 'NEW_only',
+  'packKind': 'gold-production-disk',
+  'label': 'ch4-gold-pack-thril-n5',
+  'packHash': pack_hash,
+  'chapterTextHash': text_hash,
+  'chapterTextChars': len(chapter_text),
+  'shape': {
+    'outlineChars': len(str(pack.get('outline') or '')),
+    'previousEndingChars': len(str(pack.get('previousChapterEnding') or '')),
+    'recentChapterCount': len(pack.get('recentChapterContents') or []),
+    'styleExemplarCount': len(pack.get('styleExemplars') or []),
+    'gapCount': len(pack.get('gaps') or []),
+    'characterStateChars': len(str(pack.get('characterStates') or '')),
+    'temporalFactsCount': len(tf),
+  },
+  'notes': ['Track B only; thril progress claims require same packHash+chapterTextHash+model'],
+}
+
 report = {
     "generatedAt": __import__("datetime").datetime.now().astimezone().isoformat(),
     "model": MODEL,
     "base": BASE,
     "samples": samples,
-    "label": "ch4-gold-pack-thril-smoke",
+    "label": ("ch4-gold-pack-thril-n5" if samples >= 5 else "ch4-gold-pack-thril-smoke"),
+    "measurementFingerprint": fp,
     "productHardGate": False,
     "pack": {
         "path": str(pack_path),

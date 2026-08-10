@@ -202,4 +202,30 @@ export function formatMeasurementFingerprintSummary(fp: MeasurementFingerprint):
     `ex=${fp.shape.styleExemplarCount}`,
   ].join(" ")
 }
-
+
+/**
+ * K5′ narrative guard: thril "progress curves" / body-causal claims are allowed
+ * only when fingerprints are comparable (same model, N protocol fields, pack, text).
+ * Track B only — never a product hard gate.
+ */
+export function assertThrilProgressClaimAllowed(
+  baseline: MeasurementFingerprint,
+  candidate: MeasurementFingerprint,
+): { allowed: boolean; errors: string[]; reason: string } {
+  const errors = validateMeasurementFingerprintComparability(baseline, candidate)
+  if (errors.length === 0) {
+    return {
+      allowed: true,
+      errors: [],
+      reason: "fingerprints comparable — thril delta may be discussed as text/process under locked pack",
+    }
+  }
+  return {
+    allowed: false,
+    errors,
+    reason:
+      "REFUSE thril progress narrative: fingerprints not comparable (pack/model/window/text). " +
+      "Do not claim body regression or architecture collapse from cross-pack thril deltas.",
+  }
+}
+

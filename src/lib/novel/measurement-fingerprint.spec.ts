@@ -3,6 +3,7 @@ import type { ContextPack } from "./context-engine"
 import { createLiteraryExperimentProtocol } from "./literary-experiment-protocol"
 import {
   buildMeasurementFingerprint,
+  assertThrilProgressClaimAllowed,
   formatMeasurementFingerprintSummary,
   validateMeasurementFingerprintComparability,
 } from "./measurement-fingerprint"
@@ -93,5 +94,42 @@ describe("measurement-fingerprint M0", () => {
     expect(formatMeasurementFingerprintSummary(fp)).toContain("fp=")
     expect(formatMeasurementFingerprintSummary(fp)).toContain("pack=")
   })
+
+  it("assertThrilProgressClaimAllowed refuses cross-pack thril progress curves", () => {
+    const protocol = createLiteraryExperimentProtocol({ model: "claude-sonnet-4-6", samples: 5 })
+    const baseline = buildMeasurementFingerprint({
+      protocol,
+      pack: basePack,
+      chapterText: "same-body",
+      packKind: "thin",
+    })
+    const candidate = buildMeasurementFingerprint({
+      protocol,
+      pack: { ...basePack, outline: basePack.outline + "\nEXTRA" },
+      chapterText: "same-body",
+      packKind: "fat",
+    })
+    const claim = assertThrilProgressClaimAllowed(baseline, candidate)
+    expect(claim.allowed).toBe(false)
+    expect(claim.reason).toMatch(/REFUSE thril progress/)
+    expect(claim.errors.some((e) => e.includes("packHash"))).toBe(true)
+  })
+
+  it("assertThrilProgressClaimAllowed allows locked pack+text thril compare", () => {
+    const protocol = createLiteraryExperimentProtocol({ model: "claude-sonnet-4-6", samples: 5 })
+    const a = buildMeasurementFingerprint({
+      protocol,
+      pack: basePack,
+      chapterText: "same-body",
+    })
+    const b = buildMeasurementFingerprint({
+      protocol,
+      pack: { ...basePack },
+      chapterText: "same-body",
+    })
+    const claim = assertThrilProgressClaimAllowed(a, b)
+    expect(claim.allowed).toBe(true)
+    expect(claim.errors).toEqual([])
+  })
 })
-
+
