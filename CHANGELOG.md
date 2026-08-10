@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+wave-b] - 2026-08-10
+
+### Added (Wave B KPI stack)
+- `memory-op` ADD/UPDATE/DELETE/NOOP over TemporalFact VIEW + ingest plan rehearsal
+- Persisted community summaries loaded into `ContextPack.communitySummaries` (token-capped)
+- Minimal write/review split (`write-review-split`) + `status.review_job` (review never blocks write)
+
+### Notes
+- Memory ops do not create a second fact store (ANL-013 C4)
+- Community pack field is compressible / optional; embedding search path unchanged
+
 ## [2.4.6+kpi] - 2026-08-10
 
 ### Added (Wave A module KPI stack)

@@ -275,6 +275,11 @@ export interface ContextPack {
    * legacy 构造器不填（IC-02 向后兼容，TASK-002 渲染器本就先查 flag）。
    */
   temporalFacts?: TemporalFact[] | null
+  /**
+   * Wave B: GraphRAG-style community narrative summaries (persisted disk load).
+   * Compressible tier — empty when none / disabled. Optional for legacy packs.
+   */
+  communitySummaries?: string
 }
 
 /**
@@ -708,7 +713,27 @@ async function buildContextPackFromRawData(
         return null
       })
     : Promise.resolve(null)
-  const [characterAuras, temporalFacts] = await Promise.all([characterAuraPromise, temporalFactsPromise])
+  const communityPromise = (async () => {
+    try {
+      const novelConfig = useWikiStore.getState().novelConfig
+      // Default true in wiki-store; only skip when explicitly disabled.
+      if (novelConfig?.communitySummaryEnabled === false) return ""
+      const { loadPersistedCommunitySummaries } = await import("./community-summary")
+      const loaded = await loadPersistedCommunitySummaries(context.projectPath, {
+        maxRecords: 6,
+        maxChars: 2000,
+      })
+      return loaded.text
+    } catch {
+      return ""
+    }
+  })()
+
+  const [characterAuras, temporalFacts, communitySummaries] = await Promise.all([
+    characterAuraPromise,
+    temporalFactsPromise,
+    communityPromise,
+  ])
   if (temporalFacts) {
     const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
     if (temporalBlock) {
@@ -734,6 +759,7 @@ async function buildContextPackFromRawData(
     writingStyle: rawData.writingStyle,
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
+    communitySummaries: communitySummaries || undefined,
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
     mustAvoid: buildMustAvoid(canonRules, timeline, characterStates),
     nextChapterAdvice: buildNextChapterAdvice({
@@ -1908,6 +1934,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
+  { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries" },
   {
     titleKey: "novel.contextPack.activeEntities",
     fieldKey: "activeEntities",

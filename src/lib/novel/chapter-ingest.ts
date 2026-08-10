@@ -286,6 +286,25 @@ export async function ingestChapter(
     await saveChapterIngestOutput(pp, snapshot, {
       title: typeof fm.title === "string" ? fm.title : undefined,
     })
+    // Wave B: plan Mem0-style ADD ops from newCanonFacts (pure; log only).
+    // Does not dual-write a fact store — temporal VIEW remains derived from snapshots.
+    try {
+      const { planAddOpsFromCanonFacts, applyMemoryOps } = await import("./memory-op")
+      const ops = planAddOpsFromCanonFacts(
+        snapshot.chapterNumber,
+        snapshot.newCanonFacts ?? [],
+      )
+      if (ops.length > 0) {
+        const planned: import("./temporal-memory").TemporalFact[] = []
+        const results = applyMemoryOps(planned, ops)
+        const ok = results.filter((r) => r.ok).length
+        logger.info("Chapter Ingest", `memory-op planned ADD ${ok}/${ops.length} (view-only rehearsal)`)
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "memory-op plan skipped", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig

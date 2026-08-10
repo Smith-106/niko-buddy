@@ -175,6 +175,66 @@ ${memberContents.join("\n\n")}
   return result.trim() || `社区 ${community.id}：包含 ${community.nodeCount} 个节点（${community.topNodes.join("、")}）。`
 }
 
+/**
+ * Wave B: load persisted community summary JSON from disk (no LLM, no embedding).
+ * Caps total characters for ContextPack compressible tier.
+ */
+export async function loadPersistedCommunitySummaries(
+  projectPath: string,
+  options?: { maxRecords?: number; maxChars?: number },
+): Promise<{ text: string; records: CommunitySummaryRecord[] }> {
+  const pp = normalizePath(projectPath)
+  const maxRecords = Math.max(1, options?.maxRecords ?? 8)
+  const maxChars = Math.max(200, options?.maxChars ?? 2400)
+  const summaryDir = `${pp}/.novel/community-summaries`
+  const records: CommunitySummaryRecord[] = []
+
+  try {
+    const { listDirectory } = await import("@/commands/fs")
+    const nodes = await listDirectory(summaryDir)
+    const files = nodes
+      .filter((n) => n.name.endsWith(".json") && !n.is_dir)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, maxRecords * 2)
+
+    for (const file of files) {
+      if (records.length >= maxRecords) break
+      try {
+        const raw = await readFile(file.path)
+        const parsed = JSON.parse(raw) as CommunitySummaryRecord
+        if (parsed && typeof parsed.summary === "string" && parsed.summary.trim()) {
+          records.push(parsed)
+        }
+      } catch {
+        // skip bad files
+      }
+    }
+  } catch {
+    return { text: "", records: [] }
+  }
+
+  // Prefer larger communities first when over maxRecords already sliced by name order
+  records.sort((a, b) => (b.nodeCount ?? 0) - (a.nodeCount ?? 0))
+  const top = records.slice(0, maxRecords)
+
+  const lines: string[] = []
+  let used = 0
+  for (const r of top) {
+    const head = `【社区${r.communityId}·${r.nodeCount}节点·${(r.topNodes ?? []).slice(0, 3).join("、")}】`
+    const body = r.summary.replace(/\s+/g, " ").trim()
+    const line = `${head} ${body}`
+    if (used + line.length + 1 > maxChars) {
+      const room = maxChars - used - 20
+      if (room > 80) lines.push(line.slice(0, room) + "…")
+      break
+    }
+    lines.push(line)
+    used += line.length + 1
+  }
+
+  return { text: lines.join("\n"), records: top }
+}
+
 /** 检索与查询相关的社区摘要（用于注入上下文） */
 export async function searchCommunitySummaries(
   projectPath: string,

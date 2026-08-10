@@ -8,6 +8,19 @@ import type {
 } from "./deep-chapter-generation"
 import type { NovelReviewResult } from "./review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
+import {
+  markReviewQueued,
+  markWriteReady,
+  type ReviewJobState,
+} from "./write-review-split"
+
+/** Wave B helper: draft ready then queue non-blocking review. */
+function markWriteReadyThenQueueReview(
+  prev: ReviewJobState | undefined,
+  chapterNumber?: number,
+): ReviewJobState {
+  return markReviewQueued(markWriteReady(prev, chapterNumber), chapterNumber)
+}
 
 export type NovelSessionLifecycleStatus = "running" | "completed" | "paused" | "blocked"
 export type NovelDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
@@ -108,6 +121,11 @@ export interface NovelSessionStatus {
    * slot, so they go here rather than polluting the string[] path contract.
    */
   stage_metrics?: StageMetricEntry[]
+  /**
+   * Wave B: write/review split job state (additive). Review never blocks write.
+   * Lives on status.json sole truth-source — not a second session file.
+   */
+  review_job?: import("./write-review-split").ReviewJobState
 }
 
 /**
@@ -536,6 +554,7 @@ export function buildNextStatus(
     evidence_refs?: string[]
     dimension_results?: NovelSessionStatus["dimension_results"]
     stage_metrics?: StageMetricEntry[]
+    review_job?: NovelSessionStatus["review_job"]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -564,6 +583,9 @@ export function buildNextStatus(
   const stageMetrics = "stage_metrics" in overrides
     ? overrides.stage_metrics
     : base.stage_metrics
+  const reviewJob = "review_job" in overrides
+    ? overrides.review_job
+    : base.review_job
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -581,6 +603,7 @@ export function buildNextStatus(
     evidence_refs: evidenceRefs,
     dimension_results: dimensionResults,
     stage_metrics: stageMetrics,
+    review_job: reviewJob,
   }
 }
 
@@ -1011,6 +1034,11 @@ export async function completeDeepChapterSession(
     // yielded undefined and the checkpoint's 6-dim map was dropped on
     // completion — F-003 twin-path omission, now twin-safe via helper).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
+    // Wave B: write ready + review queued (never blocks write/accept).
+    review_job: markWriteReadyThenQueueReview(
+      base.review_job,
+      input.checkpoint?.chapterNumber ?? input.chapterNumber,
+    ),
   })
   await persistCheckpointBase(input.projectPath, input.sessionId, next)
   return next

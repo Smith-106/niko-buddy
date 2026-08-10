@@ -1603,6 +1603,7 @@
       "writingStyle": "## 写作风格",
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
+      "communitySummaries": "## 社区摘要（图谱社区）",
       "activeEntities": "## 当前章节关联实体",
       "foreshadowing": {
         "repeatedUnresolved": "以下伏笔近期反复出现，但尚未明显推进，需注意是否在本章继续铺设或回收：{{names}}"
