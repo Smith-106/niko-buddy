@@ -37,6 +37,7 @@ import {
 import { startNovelReviewRun } from "@/lib/novel/start-review-run"
 import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
 import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import { formatMeasurementFingerprintSummary } from "@/lib/novel/measurement-fingerprint"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
 import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
@@ -1003,6 +1004,15 @@ export function ReviewView({
                 <span className="text-[10px] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
               )}
             </div>
+            {reviewRun?.measurementFingerprint && (
+              <p
+                className="mt-1 font-mono text-[10px] leading-4 text-muted-foreground break-all"
+                title={t("reviewCenter.measurementFingerprintHint")}
+                data-testid="measurement-fingerprint-summary"
+              >
+                {formatMeasurementFingerprintSummary(reviewRun.measurementFingerprint)}
+              </p>
+            )}
             <p className="mt-1 text-[10px] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
             {selectedDimensionResult.summary && (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{selectedDimensionResult.summary}</p>

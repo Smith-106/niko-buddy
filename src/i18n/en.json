@@ -247,7 +247,10 @@
     "trackADimBadge": "A·gate",
     "trackBDimBadge": "B·lit",
     "notProductGate": "Not a product hard gate",
-    "perDimOnly": "Read per-dimension scores; six-dim average is not ship criteria"
+    "perDimOnly": "Read per-dimension scores; six-dim average is not ship criteria",
+    "measurementFingerprintHint": "Measurement fingerprint: model+N+window+packHash+textHash. Different packHash → thril not comparable. Not a product hard gate.",
+    "measurementFingerprintTitle": "Measurement fingerprint",
+    "measurementFingerprintEmpty": "No fingerprint yet — run a six-dimension review (model+packHash+textHash)"
   },
   "nav": {
     "wiki": "Knowledge Base",
@@ -1316,7 +1319,14 @@
       "communitySummaryAsyncHint": "When enabled, community summaries are generated in the background without blocking chapter ingestion. Disable to wait synchronously.",
       "communitySummaryFailed": "Community summary generation failed: {{message}}. Will retry on next trigger.",
       "literaryPolishAfterGate": "Literary polish after gates (Track B)",
-      "literaryPolishAfterGateHint": "When gates are green, optionally run one thril/pacing/pull polish pass. Does not block shipping; must not early-expose mechanism names. Off by default."
+      "literaryPolishAfterGateHint": "When gates are green, optionally run one thril/pacing/pull polish pass. Does not block shipping; must not early-expose mechanism names. Off by default.",
+      "outlineThrillLiveStatusTitle": "Pre-write thril soft-gate (live)",
+      "outlineThrillLiveStatusHint": "Heuristic eval of current chapter outline; on and visible by default. Not a product hard gate; FIX-1 fail cannot be thril-acked away.",
+      "outlineThrillStatusPass": "pass",
+      "outlineThrillStatusFail": "fail",
+      "outlineThrillStatusUnknown": "unknown",
+      "outlineThrillFix1Blocked": "FIX-1 conflict cue — thril ack cannot bypass",
+      "outlineThrillAllOk": "Structural checks soft-pass"
     },
     "soul": {
       "projectSoul": "Project Soul",

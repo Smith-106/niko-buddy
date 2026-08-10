@@ -10,11 +10,14 @@ import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel/dimension-review-adapter"
+import { formatMeasurementFingerprintSummary } from "@/lib/novel/measurement-fingerprint"
 import {
+  getOutlineThrillSoftGateRuntimeStatus,
   isThrillSoftGateAcknowledged,
   thrilAckChapterKey,
   THRILL_CHECKPOINT_LABELS,
   THRILL_CHECKPOINT_ORDER,
+  type ThrillCheckStatus,
 } from "@/lib/novel/outline-thrill-checkpoints"
 
 const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
@@ -39,7 +42,9 @@ export function ReviewCenterSidebarPanel() {
   const setSelectedReviewFilePath = useWikiStore((s) => s.setSelectedReviewFilePath)
   const thrilSoftGateAcknowledgedByChapter = useWikiStore((s) => s.thrilSoftGateAcknowledgedByChapter)
   const setThrillSoftGateAcknowledged = useWikiStore((s) => s.setThrillSoftGateAcknowledged)
+  const outlineThrillSoftGateEnabled = useWikiStore((s) => s.novelConfig.outlineThrillSoftGateEnabled !== false)
   const [chapterOptions, setChapterOptions] = useState<Array<{ path: string; label: string }>>([])
+  const [outlinePreviewText, setOutlinePreviewText] = useState("")
 
   const selectedChapterNumber = useMemo(() => {
     const m = selectedReviewFilePath.match(/(?:^|[\\/])(\d+)(?:[\\/]|$)/)
@@ -54,6 +59,58 @@ export function ReviewCenterSidebarPanel() {
     thrilSoftGateAcknowledgedByChapter,
     selectedChapterNumber,
   )
+
+  // M2: load chapter outline for live thril soft-gate (wiki first, then root FILLED)
+  useEffect(() => {
+    if (!project?.path || selectedChapterNumber == null) {
+      setOutlinePreviewText("")
+      return
+    }
+    let cancelled = false
+    const n = selectedChapterNumber
+    const pp = project.path
+    const candidates = [
+      `${pp}/wiki/outlines/chapter-${n}-outline.md`,
+      `${pp}/wiki/outlines/Chapter-${n}-Outline.md`,
+      `${pp}/Chapter-${n}-Outline-FILLED.md`,
+      `${pp}/Chapter-${n}-Outline.md`,
+    ]
+    void (async () => {
+      for (const path of candidates) {
+        try {
+          const content = await readFile(path)
+          if (!cancelled && content.trim()) {
+            setOutlinePreviewText(content)
+            return
+          }
+        } catch {
+          // try next
+        }
+      }
+      if (!cancelled) setOutlinePreviewText("")
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project?.path, selectedChapterNumber])
+
+  const thrilLiveStatus = useMemo(
+    () =>
+      getOutlineThrillSoftGateRuntimeStatus({
+        outlineText: outlinePreviewText,
+        chapter: selectedChapterNumber,
+        enabled: outlineThrillSoftGateEnabled,
+        ackMap: thrilSoftGateAcknowledgedByChapter,
+      }),
+    [outlinePreviewText, selectedChapterNumber, outlineThrillSoftGateEnabled, thrilSoftGateAcknowledgedByChapter],
+  )
+
+  const statusGlyph = (status: ThrillCheckStatus) => {
+    if (status === "pass") return "✓"
+    if (status === "fail") return "!"
+    return "?"
+  }
+
 
   useEffect(() => {
     if (!project?.path) {
@@ -190,23 +247,67 @@ export function ReviewCenterSidebarPanel() {
           </button>
         </div>
 
-        <div className="mb-3">
+        <div className="mb-3" data-testid="outline-thril-soft-gate-live">
           <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {t("novel.settings.outlineThrillChecklistTitle")}
+            {t("novel.settings.outlineThrillLiveStatusTitle")}
           </div>
           <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
-            {t("novel.settings.outlineThrillChecklistHint")}
+            {t("novel.settings.outlineThrillLiveStatusHint")}
           </p>
-          <ul className="space-y-1 px-1 text-[11px] leading-4 text-muted-foreground">
-            {THRILL_CHECKPOINT_ORDER.map((id) => (
-              <li key={id} className="flex gap-1.5">
-                <span className="shrink-0 text-muted-foreground/80" aria-hidden>
-                  •
+          {!outlineThrillSoftGateEnabled ? (
+            <p className="px-1 text-[11px] text-muted-foreground">{t("novel.settings.outlineThrillSoftGateEnabled")}: off</p>
+          ) : (
+            <>
+              <div className="mb-1 flex flex-wrap gap-1 px-1 text-[10px]">
+                <span className="rounded border border-violet-600/30 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
+                  Track B · soft
                 </span>
-                <span>{THRILL_CHECKPOINT_LABELS[id]}</span>
-              </li>
-            ))}
-          </ul>
+                {thrilLiveStatus.fix1Blocked && (
+                  <span className="rounded border border-destructive/40 px-1.5 py-0.5 text-destructive">
+                    {t("novel.settings.outlineThrillFix1Blocked")}
+                  </span>
+                )}
+                {thrilLiveStatus.allStructuralOk && !thrilLiveStatus.fix1Blocked && (
+                  <span className="rounded border border-emerald-600/30 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">
+                    {t("novel.settings.outlineThrillAllOk")}
+                  </span>
+                )}
+              </div>
+              <ul className="space-y-1 px-1 text-[11px] leading-4 text-muted-foreground">
+                {(thrilLiveStatus.results.length > 0
+                  ? thrilLiveStatus.results
+                  : THRILL_CHECKPOINT_ORDER.map((id) => ({
+                      id,
+                      status: "unknown" as ThrillCheckStatus,
+                      label: THRILL_CHECKPOINT_LABELS[id],
+                    }))
+                ).map((row) => (
+                  <li key={row.id} className="flex gap-1.5" data-status={row.status}>
+                    <span
+                      className={`shrink-0 font-mono ${
+                        row.status === "pass"
+                          ? "text-emerald-600"
+                          : row.status === "fail"
+                            ? "text-destructive"
+                            : "text-muted-foreground/80"
+                      }`}
+                      aria-hidden
+                    >
+                      {statusGlyph(row.status)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-foreground/90">{row.label}</span>
+                      {"evidence" in row && (row as { evidence?: string }).evidence ? (
+                        <span className="mt-0.5 block text-[10px] text-muted-foreground/80">
+                          {(row as { evidence?: string }).evidence}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <div className="mt-2 px-1">
             <button
               type="button"
@@ -228,6 +329,42 @@ export function ReviewCenterSidebarPanel() {
               {t("novel.settings.outlineThrillAckHint")}
             </p>
           </div>
+        </div>
+
+        <div className="mb-3" data-testid="measurement-fingerprint-sidebar">
+          <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            {t("reviewCenter.measurementFingerprintTitle")}
+          </div>
+          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+            {t("reviewCenter.measurementFingerprintHint")}
+          </p>
+          {reviewRun?.measurementFingerprint ? (
+            <div className="mx-1 rounded-md border border-border/60 bg-muted/30 px-2 py-2">
+              <p className="font-mono text-[10px] leading-4 text-muted-foreground break-all">
+                {formatMeasurementFingerprintSummary(reviewRun.measurementFingerprint)}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                <span className="rounded border px-1 py-0.5">
+                  outline {reviewRun.measurementFingerprint.shape?.outlineChars ?? 0}
+                </span>
+                <span className="rounded border px-1 py-0.5">
+                  ex {reviewRun.measurementFingerprint.shape?.styleExemplarCount ?? 0}
+                </span>
+                <span className="rounded border px-1 py-0.5">
+                  recent {reviewRun.measurementFingerprint.shape?.recentChapterCount ?? 0}
+                </span>
+                {reviewRun.measurementFingerprint.packKind ? (
+                  <span className="rounded border px-1 py-0.5 truncate max-w-[140px]" title={reviewRun.measurementFingerprint.packKind}>
+                    {reviewRun.measurementFingerprint.packKind}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              {t("reviewCenter.measurementFingerprintEmpty")}
+            </p>
+          )}
         </div>
 
         <div className="mb-3">

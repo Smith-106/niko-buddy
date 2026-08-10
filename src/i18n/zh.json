@@ -140,7 +140,10 @@
     "trackADimBadge": "A·门控",
     "trackBDimBadge": "B·文学",
     "notProductGate": "非产品硬门",
-    "perDimOnly": "请按维阅读分数；六维均分不作交付判定"
+    "perDimOnly": "请按维阅读分数；六维均分不作交付判定",
+    "measurementFingerprintHint": "测量指纹：model+N+窗+packHash+正文Hash。pack 不同则 thril 不可比。非产品硬门。",
+    "measurementFingerprintTitle": "测量指纹",
+    "measurementFingerprintEmpty": "尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）"
   },
   "nav": {
     "wiki": "章节库",
@@ -1195,7 +1198,14 @@
       "communitySummaryAsyncHint": "开启后，社区摘要在后台生成，不阻塞章节摄取。关闭则同步等待生成完成。",
       "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。",
       "literaryPolishAfterGate": "门控通过后文学抛光（Track B）",
-      "literaryPolishAfterGateHint": "开启后，在 Consistency/Anti-AI 门控无阻断问题时，额外对 thril/节奏/追读类提示做至多 1 次可选抛光。不挡产品交付，且禁止提前揭露机制名。默认关闭。"
+      "literaryPolishAfterGateHint": "开启后，在 Consistency/Anti-AI 门控无阻断问题时，额外对 thril/节奏/追读类提示做至多 1 次可选抛光。不挡产品交付，且禁止提前揭露机制名。默认关闭。",
+      "outlineThrillLiveStatusTitle": "开写前 thril 软门（实时）",
+      "outlineThrillLiveStatusHint": "对当前分章大纲启发式评估；默认开启且可见。非产品硬门；FIX-1 失败不可用确认绕过。",
+      "outlineThrillStatusPass": "通过",
+      "outlineThrillStatusFail": "未过",
+      "outlineThrillStatusUnknown": "未知",
+      "outlineThrillFix1Blocked": "FIX-1 冲突线索 — 不可 thril 确认绕过",
+      "outlineThrillAllOk": "结构点均过（软）"
     },
     "soul": {
       "projectSoul": "项目灵魂",
