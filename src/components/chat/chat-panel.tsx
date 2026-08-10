@@ -1396,7 +1396,10 @@ export function ChatPanel() {
             }
             const novelConfig = useWikiStore.getState().novelConfig
             const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
-            novelContextPreamble = contextPackToPrompt(contextPack, budget)
+            novelContextPreamble = contextPackToPrompt(contextPack, budget, {
+              layeredRecall: "default",
+              sectionCharBudget: 4000,
+            })
             if (goldenDirective) {
               novelContextPreamble = goldenDirective + "\n" + novelContextPreamble
             }
@@ -1988,7 +1991,10 @@ export function ChatPanel() {
             goldenDirective,
              "",
              "## 原始深度章节上下文包",
-             contextPackToPrompt(contextPack, budget),
+             contextPackToPrompt(contextPack, budget, {
+               layeredRecall: "default",
+               sectionCharBudget: 4000,
+             }),
              dismantlingDirective,
            ].filter(Boolean).join("\n")
         } catch (err) {

@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.6+remaining] - 2026-08-10
+
+### Added (remaining checklist K/U/D/M/P)
+- Knowledge promote Wave B/C/rewrite candidates (specs)
+- `review-job-lifecycle` advances status.review_job on six-dim runs
+- Review UI: `ReviewJobStatusStrip` + Evidence export button
+- Main-path `layeredRecall: default` + sectionCharBudget on chat/deep-chapter
+- `deep-chapter-wallclock-bridge` from stage_metrics; StageMetricEntry stage widened
+- M1 ADR: memory-op stays VIEW rehearsal (no dual store)
+
+### Notes
+- Memory floor D1 entity pages for book 8人 live under manuscript tree (not product git)
+- embedding p95 smoke remains honest local proxy
+
 ## [2.4.6+s1-s8] - 2026-08-10
 
 ### Added (S1–S8 post-wave stack)

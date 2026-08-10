@@ -134,13 +134,17 @@ export interface NovelSessionStatus {
  * tokenCost/latencyMs/partial，O-201 成本经验决策可据。
  */
 export interface StageMetricEntry {
-  /** 阶段标记：'scene_breakdown' = ADR-30 阶段 1.5 场景拆解。 */
-  stage: "scene_breakdown"
+  /**
+   * 阶段标记：'scene_breakdown' = ADR-30 阶段 1.5；
+   * P1 起允许其它软指标 stage 名（write_llm / six_dim / pack / ingest 等），
+   * 仅诊断用，非产品硬门。
+   */
+  stage: "scene_breakdown" | (string & {})
   tokenCost?: number
   latencyMs?: number
   partial?: boolean
-  chapterId: string
-  timestamp: string
+  chapterId?: string
+  timestamp?: string
 }
 
 interface DeepChapterSessionInput {

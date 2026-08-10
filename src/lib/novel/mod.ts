@@ -54,6 +54,14 @@ export {
   getReviewJobUiModel,
   type ReviewJobUiModel,
 } from "./review-job-ui"
+export {
+  advanceReviewJobRunning,
+  advanceReviewJobDone,
+  advanceReviewJobFailed,
+} from "./review-job-lifecycle"
+export {
+  recordDeepChapterWallclockFromStageMetrics,
+} from "./deep-chapter-wallclock-bridge"
 export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason } from "./chapter-ingest"
 export { reviewChapter, type NovelReviewResult } from "./review-adapter"
 export { runNovelLint, buildNovelLintPrompt, type NovelLintResult } from "./lint"

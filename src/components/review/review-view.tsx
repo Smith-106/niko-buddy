@@ -38,6 +38,8 @@ import { startNovelReviewRun } from "@/lib/novel/start-review-run"
 import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
 import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import { formatMeasurementFingerprintSummary } from "@/lib/novel/measurement-fingerprint"
+import { exportEvidenceChainForReview } from "@/lib/novel/evidence-chain-export"
+import { ReviewJobStatusStrip } from "@/components/novel/review-job-status-strip"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
 import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
@@ -934,6 +936,11 @@ export function ReviewView({
 
   return (
     <div className="flex h-full flex-col">
+      {novelMode && (
+        <div className="border-b px-4 py-2">
+          <ReviewJobStatusStrip refreshKey={isReviewing ? "running" : "idle"} />
+        </div>
+      )}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h2 className="text-sm font-semibold">
           {title || t(novelMode ? "novel.review.title" : "review.title")}
@@ -944,15 +951,45 @@ export function ReviewView({
           )}
         </h2>
         {novelMode && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNovelReview}
-            disabled={isReviewing || !(selectedReviewFilePath || selectedFile)}
-            className="ml-auto"
-          >
-            {reviewButtonLabel}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="export-evidence-chain"
+              title="Export evidence chain JSON (not accept blocker)"
+              disabled={(allReviewResults?.length ?? 0) === 0}
+              onClick={() => {
+                try {
+                  const findings = (allReviewResults ?? []).map((r, i) => ({
+                    type: (r.type as string) || "quality",
+                    subtype: "consistency_mechanical" as const,
+                    severity: (r.severity as "info" | "warning" | "critical") || "info",
+                    ref: `review:${i}`,
+                    message: r.message,
+                    chapter: 0,
+                  }))
+                  const exported = exportEvidenceChainForReview({
+                    findings: findings as never,
+                    pretty: true,
+                  })
+                  void navigator.clipboard?.writeText(exported.json)
+                } catch {
+                  // soft — audit export only
+                }
+              }}
+            >
+              <Copy className="mr-1 h-3 w-3" />
+              Evidence
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNovelReview}
+              disabled={isReviewing || !(selectedReviewFilePath || selectedFile)}
+            >
+              {reviewButtonLabel}
+            </Button>
+          </div>
         )}
         {resolved.length > 0 && (
           <Button variant="ghost" size="sm" onClick={clearResolved} className="text-xs">

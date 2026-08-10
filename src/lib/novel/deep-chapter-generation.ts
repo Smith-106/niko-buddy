@@ -1263,7 +1263,12 @@ async function assembleContext(
   // 其他上下文可以进行token预算管理，但大纲已被排除
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
-    deps.contextPackToPrompt(contextPack, 32000, { excludeOutline: true }),
+    deps.contextPackToPrompt(contextPack, 32000, {
+      excludeOutline: true,
+      // U4: default layered recall (L2+L3 first; L0 bodies only on full)
+      layeredRecall: "default",
+      sectionCharBudget: 4000,
+    }),
     communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
     skillHookFragments,
     input.dismantlingReferenceDirective,

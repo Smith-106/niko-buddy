@@ -3,6 +3,11 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { runSixDimensionReview, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import {
+  advanceReviewJobDone,
+  advanceReviewJobFailed,
+  advanceReviewJobRunning,
+} from "@/lib/novel/review-job-lifecycle"
 import { logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -58,6 +63,8 @@ export async function startSixDimensionReviewRun({
   })
 
   try {
+    // U2: advance status.review_job (non-blocking; no-op if no QMAI session status)
+    void advanceReviewJobRunning(projectPath, meta?.chapterNumber).catch(() => {})
     const dimensionResults = await runSixDimensionReview({
       projectPath,
       chapterContent: fileContent,
@@ -121,10 +128,15 @@ export async function startSixDimensionReviewRun({
       dimensionResults: nextDimensionResults,
     })
     await onHistorySaved?.()
+    void advanceReviewJobDone(projectPath, "six-dim review finished (non-blocking)").catch(() => {})
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
     logger.error("Six-Dim Review", "六维审查失败", { error: error instanceof Error ? error.message : String(error) })
     finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
+    void advanceReviewJobFailed(
+      projectPath,
+      error instanceof Error ? error.message : String(error),
+    ).catch(() => {})
   } finally {
     const current = getReviewRun()
     if (current?.runId === runId) {
