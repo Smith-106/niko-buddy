@@ -53,7 +53,7 @@ describe("layered recall + section budget (S2)", () => {
   it("activeEntities only with temporal or full", () => {
     const pack = basePack({
       characterStates: "角色状态占位",
-      activeEntities: [{ name: "实体探针XYZ", tags: ["主角"] }],
+      activeEntities: [{ entityId: "ent-probe", name: "实体探针XYZ", type: "character", tags: ["主角"] }],
     })
     const off = contextPackToPrompt(pack, undefined, {
       layeredRecall: "default",

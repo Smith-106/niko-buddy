@@ -1547,7 +1547,30 @@
       "empty": "无",
       "lastUpdated": "最后更新：第{{chapter}}章",
       "loading": "加载中...",
-      "refresh": "刷新"
+      "refresh": "刷新",
+      "loadError": "认知数据加载失败",
+      "retry": "重试"
+    },
+    "persona": {
+      "title": "多视角评审",
+      "advisoryHint": "咨询性 sidecar · 不改门控 · 不写 status.json",
+      "isolationTitle": "ADR-34 隔离",
+      "isolationBody": "仅读取 ready/accepted 草稿；输出写入 .novel/sidecars/personas/；绝不写入 decision_gates。",
+      "pickPersonas": "选择视角",
+      "run": "运行评审",
+      "running": "评审中…",
+      "needLlm": "请先配置可用的 LLM",
+      "noDraft": "未找到当前草稿（需要 deep-chapter 会话草稿）",
+      "pickOne": "请至少选择一个视角",
+      "draftNotReady": "草稿状态为 {{status}}，仅 ready/accepted 可运行（Draft-first）",
+      "draftMissing": "草稿文件不存在",
+      "emptyPersonas": "未选择有效视角",
+      "draftMeta": "草稿 {{id}} · 状态 {{status}}",
+      "results": "评审结果",
+      "statusOk": "完成",
+      "statusError": "失败",
+      "statusSkipped": "跳过",
+      "written": "已写入 {{path}}"
     },
     "timeline": {
       "title": "小说时间线",

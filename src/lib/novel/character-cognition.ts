@@ -232,12 +232,15 @@ export async function loadCognitionState(projectPath: string): Promise<Cognition
   const pp = normalizePath(projectPath)
   const filePath = `${pp}/${COGNITION_DIR}/${COGNITION_FILENAME}`
   const exists = await fileExists(filePath)
+  // ISS-20260712-010: missing/empty → null (no-data); non-empty corrupt JSON → throw so UI can show error vs no-data.
   if (!exists) return null
+  const raw = await readFile(filePath)
+  if (!raw || !raw.trim()) return null
   try {
-    const raw = await readFile(filePath)
     return JSON.parse(raw) as CognitionState
-  } catch {
-    return null
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`Failed to parse cognition-state.json: ${detail}`)
   }
 }
 

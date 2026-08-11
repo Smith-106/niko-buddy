@@ -17,6 +17,7 @@ import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
+import { PersonaCritiquePanel } from "@/components/novel/persona-critique-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
@@ -179,6 +180,7 @@ export function PreviewPanel() {
   const [outlineSnapshotNumber, setOutlineSnapshotNumber] = useState<number | null>(null)
   const [outlineIngested, setOutlineIngested] = useState(false)
   const [showCognition, setShowCognition] = useState(false)
+  const [showPersona, setShowPersona] = useState(false)
   const [deAiProcessing, setDeAiProcessing] = useState(false)
   const [deAiPreviewOpen, setDeAiPreviewOpen] = useState(false)
   const [deAiSourceContent, setDeAiSourceContent] = useState("")
@@ -1166,6 +1168,18 @@ export function PreviewPanel() {
                       {t("novel.cognition.title")}
                     </button>
                   ) : null}
+                  {novelMode && project ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChapterToolbarMoreOpen(false)
+                        setShowPersona(true)
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
+                    >
+                      {t("novel.persona.title")}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1271,6 +1285,16 @@ export function PreviewPanel() {
               {t("novel.cognition.title")}
             </button>
           ) : null}
+          {!chapterToolbarCompact && novelMode && project ? (
+            <button
+              type="button"
+              onClick={() => setShowPersona(true)}
+              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+              title={t("novel.persona.title")}
+            >
+              {t("novel.persona.title")}
+            </button>
+          ) : null}
           <button
             onClick={() => setSelectedFile(null)}
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent"
@@ -1332,6 +1356,14 @@ export function PreviewPanel() {
           <CognitionPanel
             projectPath={project.path}
             onClose={() => setShowCognition(false)}
+          />
+        </div>
+      ) : null}
+      {showPersona && project ? (
+        <div className="absolute inset-0 z-20 bg-background">
+          <PersonaCritiquePanel
+            projectPath={project.path}
+            onClose={() => setShowPersona(false)}
           />
         </div>
       ) : null}

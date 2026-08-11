@@ -98,11 +98,24 @@ export async function loadCharacterStates(
   projectPath: string,
 ): Promise<CharacterStateStore> {
   const pp = normalizePath(projectPath)
+  // ISS-20260712-010: missing/empty → empty store; non-empty corrupt JSON → throw (error vs no-data).
   try {
     const raw = await readFile(`${pp}/.novel/character-states.json`)
-    return JSON.parse(raw)
-  } catch {
-    return createEmptyCharacterStateStore()
+    if (!raw || !raw.trim()) return createEmptyCharacterStateStore()
+    try {
+      return JSON.parse(raw)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`Failed to parse character-states.json: ${detail}`)
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/Failed to parse character-states\.json/.test(message)) throw err
+    // Missing file / not found → empty store (historical soft path for first-run projects).
+    if (/not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)) {
+      return createEmptyCharacterStateStore()
+    }
+    throw err instanceof Error ? err : new Error(message)
   }
 }
 

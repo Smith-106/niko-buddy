@@ -1669,7 +1669,30 @@
       "empty": "None",
       "lastUpdated": "Last updated: Chapter {{chapter}}",
       "loading": "Loading...",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "loadError": "Failed to load cognition data",
+      "retry": "Retry"
+    },
+    "persona": {
+      "title": "Multi-persona Critique",
+      "advisoryHint": "Advisory sidecar · does not change gates · never writes status.json",
+      "isolationTitle": "ADR-34 isolation",
+      "isolationBody": "Reads ready/accepted drafts only; writes .novel/sidecars/personas/; never writes decision_gates.",
+      "pickPersonas": "Personas",
+      "run": "Run critique",
+      "running": "Running…",
+      "needLlm": "Configure a usable LLM first",
+      "noDraft": "No current draft found (needs a deep-chapter session draft)",
+      "pickOne": "Select at least one persona",
+      "draftNotReady": "Draft status is {{status}}; only ready/accepted can run (Draft-first)",
+      "draftMissing": "Draft file missing",
+      "emptyPersonas": "No valid personas selected",
+      "draftMeta": "Draft {{id}} · status {{status}}",
+      "results": "Results",
+      "statusOk": "ok",
+      "statusError": "error",
+      "statusSkipped": "skipped",
+      "written": "Wrote {{path}}"
     },
     "timeline": {
       "title": "Novel Timeline",

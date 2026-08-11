@@ -20,9 +20,12 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
   // saveCharacterStates+bumpDataVersion 后 refetch)。
   const [charStates, setCharStates] = useState<Map<string, CharacterState>>(new Map())
   const [loading, setLoading] = useState(true)
+  // ISS-20260712-010: error vs empty must not share the same UI branch (Fix Don't Hide).
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const [s, chars] = await Promise.all([
         loadCognitionState(projectPath),
@@ -30,9 +33,10 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
       ])
       setState(s)
       setCharStates(new Map(chars.characters.map((c) => [c.characterName, c])))
-    } catch {
+    } catch (err) {
       setState(null)
       setCharStates(new Map())
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -45,6 +49,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
     let cancelled = false
     void (async () => {
       setLoading(true)
+      setError(null)
       try {
         const [s, chars] = await Promise.all([
           loadCognitionState(projectPath),
@@ -54,10 +59,11 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
           setState(s)
           setCharStates(new Map(chars.characters.map((c) => [c.characterName, c])))
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setState(null)
           setCharStates(new Map())
+          setError(err instanceof Error ? err.message : String(err))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -95,6 +101,19 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
           <div className="space-y-2" role="status" aria-label={t("novel.cognition.loading")}>
             <div className="skeleton-bar h-20 w-full rounded-lg" />
             <div className="skeleton-bar h-20 w-full rounded-lg" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-2 pt-8 text-destructive" role="alert">
+            <p className="font-medium">{t("novel.cognition.loadError")}</p>
+            <p className="max-w-full break-words px-2 text-center text-xs text-muted-foreground">{error}</p>
+            <button
+              type="button"
+              onClick={load}
+              className="mt-1 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden="true" />
+              {t("novel.cognition.retry")}
+            </button>
           </div>
         ) : !state || (state.characters.length === 0 && state.readerKnows.length === 0) ? (
           <div className="flex flex-col items-center gap-2 pt-8 text-muted-foreground">
