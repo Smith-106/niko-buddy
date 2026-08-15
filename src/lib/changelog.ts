@@ -103,7 +103,7 @@ const TWO_POINT_FOUR_EIGHT_CHANGELOG: ChangelogEntry = {
 
 const TWO_POINT_FOUR_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.4.7",
-  date: "2026-08-16",
+  date: "2026-08-15",
   highlights: {
     en: [
       "Roadmap 3-session execution pipeline: S1 mechanical layer hardening (normalizeText zero-width stripping + 48 CJK homoglyph restoration + TIER1 14 terms; replacement-dict + format-normalizer; vectorstore hybrid_search with mem0 additive fusion; facts-store graphiti time-window Fact contract; de-ai-rules dual-layer 7-category x 4-severity rules).",

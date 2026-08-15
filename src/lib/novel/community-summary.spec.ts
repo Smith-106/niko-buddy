@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import type { CommunityInfo, GraphNode } from "@/lib/wiki-graph"
-import type { LlmConfig } from "@/stores/wiki-store"
+import { DEFAULT_NOVEL_CONFIG, type LlmConfig } from "@/stores/wiki-store"
 
 const fsMocks = {
   readFile: vi.fn(),
@@ -17,12 +17,16 @@ vi.mock("@/commands/fs", () => ({
 // 可变的 store state：测试内可切换 embedding 开关
 const wikiStoreState = {
   embeddingConfig: { enabled: true, model: "test-model" },
-  novelConfig: { communitySummaryEnabled: true, communitySummaryInterval: 5 },
+  novelConfig: { ...DEFAULT_NOVEL_CONFIG, communitySummaryEnabled: true, communitySummaryInterval: 5 },
 }
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => wikiStoreState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+    useWikiStore: { getState: () => wikiStoreState },
+  }
+})
 
 const streamChatMock = vi.fn()
 vi.mock("@/lib/llm-client", () => ({

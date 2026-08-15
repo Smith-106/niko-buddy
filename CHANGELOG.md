@@ -25,7 +25,7 @@
 - notes-only release：安装包资产保持 **v2.4.6**，v2.4.8 为源码 tip（`smith/master`）
 - 收口文档：`docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md`（18 项改进点落地对照 + 数据负债台账）
 
-## [2.4.7] - 2026-08-16
+## [2.4.7] - 2026-08-15
 
 ### Added (roadmap 3-session 执行管线 — 质量门控 + 连续性约束 + 检索智能)
 - **S1 P1 机械层硬化**：normalizeText 零宽剥离 + 48 CJK 同形字还原 + TIER1 补 14 词（humanizer-zh 吸收）；replacement-dict + format-normalizer（成对引号/省略号/年份月日/感叹号≤5）；vectorstore hybrid_search（mem0 加性融合：语义+BM25+entity，rrf_fuse 降级）；facts-store（graphiti 时间窗 Fact 契约 + 文件真源 + 取代链）；de-ai-rules 双层结构化（7类×4级 + 8 流派基线）
