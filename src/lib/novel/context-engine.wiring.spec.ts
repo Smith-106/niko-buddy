@@ -144,3 +144,24 @@ describe("TASK-008 subplot/resource renderer wiring in context-engine", () => {
     expect(prompt).not.toMatch(/【支线】|【物品】/)
   })
 })
+
+describe("S2a (TASK-101/TASK-102) related-chapters 生产接线", () => {
+  it("TASK-101: 主装配调用 buildRelatedChaptersContext（生产 call site，非定义行 2135）并注入 pack.relatedChapters", () => {
+    const src = readSource("context-engine.ts")
+    // buildRelatedChaptersContext 出现 ≥2 次: 文件尾定义 + 主装配函数体内调用（Promise.all 段）
+    const callSites = src.match(/buildRelatedChaptersContext\(/g) ?? []
+    expect(callSites.length).toBeGreaterThanOrEqual(2)
+    // additive 独立字段注入（与 styleExemplars/activeEntities 同款 merge 注入模式）
+    expect(src).toMatch(/pack\.relatedChapters\s*=\s*relatedChaptersText/)
+  })
+
+  it("TASK-102: findOverdueForeshadowing 调用点命中（buildRelatedChaptersContext 组合进 finding 文本）", () => {
+    const src = readSource("context-engine.ts")
+    expect(src).toMatch(/findOverdueForeshadowing\(/)
+  })
+
+  it("TASK-101 开关: relatedChaptersEnabled 控制注入（关闭 → 空文本不阻断 pack）", () => {
+    const src = readSource("context-engine.ts")
+    expect(src).toMatch(/novelConfig\.relatedChaptersEnabled\s*\?/)
+  })
+})

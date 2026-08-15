@@ -20,6 +20,9 @@ import { runFactCheck, type FactCheckResult, type FactCheckReport } from "@/lib/
 import { analyzeForeshadowingDebt, type ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
 import { loadSnapshot, listSnapshots, type ChapterSnapshot } from "@/lib/novel/chapter-ingest"
 import { loadForeshadowingTracker } from "@/lib/novel/foreshadowing-tracker"
+import { loadNovelSessionStatus, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
+import { getTopEmotionalDebt, loadEmotionLedger, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
+import { DebtBoardView } from "./debt-board-view"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -153,6 +156,10 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   })
   const [factReport, setFactReport] = useState<FactCheckReport | null>(null)
   const [debtReport, setDebtReport] = useState<ForeshadowingDebtReport | null>(null)
+  const [chapterCount, setChapterCount] = useState(1)
+  const [chaseDebts, setChaseDebts] = useState<ChaseDebt[]>([])
+  const [chaseDebtEvents, setChaseDebtEvents] = useState<ChaseDebtEvent[]>([])
+  const [emotionDebts, setEmotionDebts] = useState<EmotionLedgerEntry[]>([])
   const [extrasLoading, setExtrasLoading] = useState(false)
   const [issueState, setIssueState] = useState<DashboardIssueState>(createEmptyDashboardIssueState())
   const [rewriteDialog, setRewriteDialog] = useState<RewriteDialogState | null>(null)
@@ -192,6 +199,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           if (snap) snapshots.push(snap)
         }
         if (cancelled) return
+        setChapterCount(snapshots.length || 1)
 
         const fact = await runFactCheck(snapshots)
         if (!cancelled) setFactReport(fact)
@@ -199,6 +207,16 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         const store = await loadForeshadowingTracker(projectPath)
         const debt = analyzeForeshadowingDebt(store, snapshots.length || 1)
         if (!cancelled) setDebtReport(debt)
+
+        // TASK-302: chase_debt 为 additive-optional 字段，旧 status.json 无此字段时容忍缺失。
+        const status = await loadNovelSessionStatus(projectPath)
+        if (!cancelled) {
+          setChaseDebts(status?.chase_debt?.debts ?? [])
+          setChaseDebtEvents(status?.chase_debt?.debt_events ?? [])
+        }
+
+        const ledger = await loadEmotionLedger(projectPath)
+        if (!cancelled) setEmotionDebts(getTopEmotionalDebt(ledger, 5))
       } catch (err) {
         console.error("[Dashboard] Failed to load extras:", err instanceof Error ? err.message : String(err))
       } finally {
@@ -834,6 +852,14 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             ))}
           </div>
         )}
+
+        <DebtBoardView
+          chaseDebts={chaseDebts}
+          chaseDebtEvents={chaseDebtEvents}
+          currentChapter={chapterCount}
+          debtReport={debtReport}
+          emotionDebts={emotionDebts}
+        />
 
         {extrasLoading && (
           <div className="border-t p-3">

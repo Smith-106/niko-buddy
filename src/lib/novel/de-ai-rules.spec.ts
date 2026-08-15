@@ -17,8 +17,8 @@ describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
     const stats = deAiStructuredStats()
     expect(stats.categoryCount).toBe(7)
     expect(stats.severityCount).toBe(4)
-    expect(stats.ruleCount).toBeGreaterThanOrEqual(20)
-    expect(stats.genreCount).toBe(8)
+    expect(stats.ruleCount).toBe(28) // TASK-202 收敛: 矩阵 24→28 满格 (7 类 × 4 档)
+    expect(stats.genreCount).toBe(14) // TASK-201 收敛: 流派 8→14
     expect(DE_AI_SEVERITIES).toEqual(["critical", "high", "medium", "low"])
   })
 
@@ -48,7 +48,7 @@ describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
     expect(all.length).toBe(DE_AI_STRUCTURED_RULES.length)
   })
 
-  it("genre 基线: 8 流派各有节奏/对白/心理倾向", () => {
+  it("genre 基线: 14 流派各有节奏/对白/心理倾向", () => {
     expect(GENRE_BASELINES).toHaveLength(WEB_NOVEL_GENRES.length)
     expect(getGenreBaseline("玄幻")!.pacing).toBe("fast")
     expect(getGenreBaseline("言情")!.introspection).toBe("keep")

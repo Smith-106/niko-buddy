@@ -50,6 +50,7 @@ import {
   type RelatedChaptersInput,
   type RelatedChaptersOptions,
 } from "./related-chapters"
+import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
 
 const SECTION_PRIORITY: Record<string, number> = {
@@ -291,6 +292,13 @@ export interface ContextPack {
    * Compressible tier — empty when none / disabled. Optional for legacy packs.
    */
   communitySummaries?: string
+  /**
+   * S2a (roadmap R06 / TASK-101 + TASK-102): 四维反查（伏笔/出场/状态/关系）
+   * + 伏笔逾期 finding 组合文本，由主装配注入。relatedChaptersEnabled=false 或
+   * 空结果为 ""（优雅降级，= 现状行为）。additive 独立字段 — 不并入既有字段，
+   * 消费方按需读取（与 styleExemplars 同款 pack 字段消费模式）。
+   */
+  relatedChapters?: string
 }
 
 /**
@@ -447,7 +455,32 @@ async function buildContextPackUnlocked(
     // 两个新字段都是 additive — 失败/空数据优雅降级为 []，不影响现有 pack 字段。
     // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
     const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
-    const [pack, exemplars, activeEntities] = await Promise.all([
+    // S2a (TASK-101/TASK-102 / roadmap R06): 四维反查 + 伏笔逾期 finding 文本。
+    // relatedChaptersEnabled 默认 true；关闭时跳过注入返回 ""（=现状行为）。additive：
+    // 失败 catch 降级空文本，不阻断 pack（与 exemplars/activeEntities 同款）。
+    // 数据来源均为本 build 已持有（pp/context/rawData）：伏笔台账 loadForeshadowingTracker
+    // （其内部失败降级空 store，不 throw）；出场维度由快照构造（loadAllSnapshots 失败
+    // 降级 []，仅跳过该维度）。buildRelatedChaptersContext 同步组合四维反查 + 伏笔逾期
+    // finding，.text 即注入文本（related-chapters.ts 模块调用，不平行实现）。
+    const relatedChaptersPromise =
+      novelConfig.relatedChaptersEnabled
+        ? (async (): Promise<string> => {
+            try {
+              const foreshadowing = await loadForeshadowingTracker(pp)
+              const snapshots = await loadAllSnapshots(pp).catch(() => [] as ChapterSnapshot[])
+              return buildRelatedChaptersContext({
+                currentChapter: context.chapterNumber ?? 0,
+                chapterOutline: typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : "",
+                foreshadowing,
+                snapshots,
+              }).text
+            } catch (error) {
+              logger.warn("ContextEngine", "related-chapters context build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              return ""
+            }
+          })()
+        : Promise.resolve("")
+    const [pack, exemplars, activeEntities, relatedChaptersText] = await Promise.all([
       buildContextPackFromRawData(rawData, context),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
@@ -468,12 +501,18 @@ async function buildContextPackUnlocked(
             return [] as ContextEntity[]
           })
         : Promise.resolve([] as ContextEntity[]),
+      relatedChaptersPromise,
     ])
 
     pack.gaps = collectContextGaps()
     // EPIC-001 / ADR-29: exemplar 注入（top-K=3 按 markType 多样性排名，text 截断）。
     // 零 exemplar 时 [] — de-ai-adapter 单次 pass 不变（contextPack.styleExemplars 消费）。
     pack.styleExemplars = exemplars
+    // S2a (TASK-101/TASK-102 / roadmap R06): 四维反查 + 伏笔逾期 finding 注入
+    // （related-chapters 模块组合，additive 独立字段）。relatedChaptersEnabled=false
+    // 或空结果时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
+    // pack.relatedChapters（与 styleExemplars 同款 pack 字段消费模式）。
+    pack.relatedChapters = relatedChaptersText
     // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
     // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
     // EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): Track B rerank 接线（接上方
@@ -1986,6 +2025,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
+  { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
   {
     titleKey: "novel.contextPack.activeEntities",
     fieldKey: "activeEntities",

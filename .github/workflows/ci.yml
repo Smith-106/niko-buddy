@@ -71,6 +71,19 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Run unit tests (vitest)
+        run: npm run test:mocks
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Run Rust cargo test
+        working-directory: src-tauri
+        run: cargo test
+
       - name: Check frontend build
         run: npx vite build
 

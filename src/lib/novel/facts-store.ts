@@ -75,8 +75,6 @@ export interface FactsFileShape {
   next_id: number
 }
 
-const FACTS_FILE_NAME = "facts.json"
-
 /** 默认空表 (文件不存在时)。 */
 export function emptyFactsFile(): FactsFileShape {
   return { schema_version: "facts/1.0", facts: [], episodes: [], next_id: 1 }

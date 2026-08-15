@@ -639,6 +639,8 @@ function normalizeNovelConfig(
     communitySummaryAsync: config.communitySummaryAsync ?? DEFAULT_NOVEL_CONFIG.communitySummaryAsync,
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
     exemplarEnabled: config.exemplarEnabled ?? DEFAULT_NOVEL_CONFIG.exemplarEnabled,
+    // S2a (roadmap R06 / TASK-101): 四维反查生产接线默认 true；显式 false 保留（照 exemplarEnabled 模式）。
+    relatedChaptersEnabled: config.relatedChaptersEnabled ?? DEFAULT_NOVEL_CONFIG.relatedChaptersEnabled,
     // EPIC-002/ADR-30: scene-breakdown 阶段 1.5 默认 false 向后兼容。
     sceneBreakdownEnabled: config.sceneBreakdownEnabled ?? DEFAULT_NOVEL_CONFIG.sceneBreakdownEnabled,
     conditionalRoutingEnabled: config.conditionalRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.conditionalRoutingEnabled,

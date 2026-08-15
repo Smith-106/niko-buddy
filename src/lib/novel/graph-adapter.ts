@@ -530,6 +530,14 @@ export function supersedeFact(content: string, key: string, newValue: string): s
 
 const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]/g
 
+// PERF-03 (TASK-401): precompile WIKILINK_RE once at module load instead of
+// rebuilding a new RegExp on every mergeExistingPage call. Both constants
+// carry the /g flag, so exec() mutates lastIndex on the shared instance; each
+// loop resets lastIndex = 0 first to preserve the exact semantics of a fresh
+// per-call RegExp (behavior unchanged, compilation count = 1).
+const WIKILINK_RE1 = new RegExp(WIKILINK_RE.source, "g")
+const WIKILINK_RE2 = new RegExp(WIKILINK_RE.source, "g")
+
 function mergeExistingPage(existing: string, incoming: string, today: string): string {
   let merged = mergeArrayFieldsIntoContent(existing, incoming, ["tags", "related", "sources"])
 
@@ -537,14 +545,14 @@ function mergeExistingPage(existing: string, incoming: string, today: string): s
 
   const incomingLinks = new Set<string>()
   let m: RegExpExecArray | null
-  const re1 = new RegExp(WIKILINK_RE.source, "g")
-  while ((m = re1.exec(incoming)) !== null) {
+  WIKILINK_RE1.lastIndex = 0
+  while ((m = WIKILINK_RE1.exec(incoming)) !== null) {
     incomingLinks.add(m[1])
   }
 
   const existingLinks = new Set<string>()
-  const re2 = new RegExp(WIKILINK_RE.source, "g")
-  while ((m = re2.exec(merged)) !== null) {
+  WIKILINK_RE2.lastIndex = 0
+  while ((m = WIKILINK_RE2.exec(merged)) !== null) {
     existingLinks.add(m[1])
   }
 

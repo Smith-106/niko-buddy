@@ -7,20 +7,30 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.4.7**（2026-08-16 发布，notes-only）
+**v2.4.8**（2026-08-15 发布，notes-only）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
-### v2.4.7 更新亮点
+### v2.4.8 更新亮点
+
+- ✅ **四维反查生产接线（R06）** — 相关章节四维反查 + 伏笔逾期 finding 真正进入生成 prompt（灰度开关默认开）
+- ✅ **de-ai 满格** — 流派 8→14 + 结构化规则矩阵 24→28（7 类别 × 4 严重度）+ 替换字典扩充（35/40/40/28）
+- ✅ **债看板 UI（R16）** — 追读债务 / 伏笔逾期 / 情绪债务三分类聚合看板
+- ✅ **章节版本 diff（R17）** — 历史版本与当前内容只读对比（MonacoDiffEditor）
+- ✅ **组合根抽取（R12）** — 启动编排独立模块，App 仅保留渲染入口
+- ✅ **性能四项** — 图谱正则预编译缓存 / 社区摘要信号量限流并行 / 导出并行化 / 六维审查并行确认
+- ✅ **18 项改进点全部落地** — 收口文档 `docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md`
+- ✅ **产品门控不变** — Consistency > Anti-AI > Quality；P2 参考分永不覆盖 P0
+
+> notes-only 发布：安装包资产保持 **v2.4.6**，v2.4.8 为源码 tip（`smith/master`）。需要最新源码请 checkout master；安装包以 Release 资产为准。
+
+### v2.4.7 更新亮点（历史）
 
 - ✅ **Roadmap 3-session 执行管线** — 质量门控 + 连续性约束 + 检索智能
 - ✅ **S1 机械层硬化** — 零宽字符/同形字还原、格式规范化、hybrid_search 多信号融合、facts 时间窗表、de-ai 双层规则
 - ✅ **S2 连续性深化** — 四维反查 + 伏笔逾期、chase_debt 追读债务、Story Threads 6 态状态机、测量指纹契约
 - ✅ **S3 质量** — Gate v2 加权 P2 参考 + reading_power、i18n parity（修复 194 翻译缺口）、伪端点契约测试
 - ✅ **EPIC-005 persona 侧车** — 人物认知错误 UX + 侧边栏 UI
-- ✅ **产品门控不变** — Consistency > Anti-AI > Quality；P2 参考分永不覆盖 P0
-
-> notes-only 发布：安装包资产保持 **v2.4.6**，v2.4.7 为源码 tip（`smith/master`）。需要最新源码请 checkout master；安装包以 Release 资产为准。
 
 ### v2.4.6 更新亮点（历史）
 

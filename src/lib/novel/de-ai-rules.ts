@@ -198,14 +198,18 @@ export const DE_AI_STRUCTURED_RULES: readonly DeAiStructuredRule[] = [
   { category: "对白", severity: "medium", rule: "紧张时重复/结巴是真实化特征, 不删" },
   { category: "对白", severity: "low", rule: "保留角色声线/对白毛边, 不按非虚构规则统一" },
   // ── 心理 ──
+  { category: "心理", severity: "critical", rule: "总结式心理标签 (内心五味杂陈/百感交集/情绪复杂) 必须删除, 用动作、对白或感官细节呈现", example: "❌ 他心里五味杂陈 → ✅ 他攥紧又松开拳头" },
   { category: "心理", severity: "high", rule: "心理描写用感官细节代替 '他觉得'; 不总结已经发生的事" },
   { category: "心理", severity: "medium", rule: "不提醒读者应该有的感受" },
   { category: "心理", severity: "low", rule: "情感描写允许一定修饰, 不强制精简到极致" },
   // ── 场景 ──
+  { category: "场景", severity: "critical", rule: "与情节推进无关的环境铺陈必须删除; 场景只保留有信息量的细节", example: "❌ 窗外云卷云舒 → ✅ 窗外那辆黑车还停着" },
   { category: "场景", severity: "high", rule: "固定场景模板 (环境→人物→对话→内心) 必须打破" },
   { category: "场景", severity: "medium", rule: "场景描写选择性描写, 不面面俱到" },
   { category: "场景", severity: "low", rule: "动作场面: 短句/动词/快节奏" },
   // ── 节奏 ──
+  { category: "节奏", severity: "critical", rule: "段落节奏单一 (连续多段等长/每章收束雷同) 必须变化; 禁止整章注水原地打转" },
+  { category: "节奏", severity: "high", rule: "高潮前铺垫过长 (连续 3 段以上无推进) 必须压缩" },
   { category: "节奏", severity: "medium", rule: "段落长度不对称, 快慢节奏有变化" },
   { category: "节奏", severity: "low", rule: "悬疑铺垫留白不解释; 章节收束用悬念钩子不总结" },
 ] as const
@@ -213,6 +217,8 @@ export const DE_AI_STRUCTURED_RULES: readonly DeAiStructuredRule[] = [
 /** 网文 genre 基线 (prosecreator 14 流派中的 web-novel 常用; genre 感知开关) */
 export const WEB_NOVEL_GENRES = [
   "玄幻", "仙侠", "都市", "历史", "科幻", "悬疑", "言情", "武侠",
+  // TASK-201: 6 新流派 (内部编码约定, 与既有 8 流派同量级; 不改变既有流派判定路径)
+  "女频现言", "无限流", "种田", "职场商战", "异能末世", "轻小说二次元",
 ] as const
 export type WebNovelGenre = (typeof WEB_NOVEL_GENRES)[number]
 
@@ -236,6 +242,13 @@ export const GENRE_BASELINES: readonly GenreBaseline[] = [
   { genre: "悬疑", pacing: "slow", dialogue: "medium", introspection: "keep" },
   { genre: "言情", pacing: "slow", dialogue: "strong", introspection: "keep" },
   { genre: "武侠", pacing: "fast", dialogue: "strong", introspection: "trim" },
+  // TASK-201: 6 新流派基线 (内部编码约定, 保守值, 与既有条目同量级)
+  { genre: "女频现言", pacing: "slow", dialogue: "strong", introspection: "keep" },
+  { genre: "无限流", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "种田", pacing: "slow", dialogue: "weak", introspection: "keep" },
+  { genre: "职场商战", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "异能末世", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "轻小说二次元", pacing: "fast", dialogue: "strong", introspection: "keep" },
 ] as const
 
 /** 按 genre 查基线 (未知 genre 返回 undefined — 调用方用默认) */

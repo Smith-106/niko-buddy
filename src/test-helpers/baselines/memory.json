@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-15T08:00:50.734Z",
+  "timestamp": "2026-08-15T14:23:39.112Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
@@ -7,22 +7,22 @@
       "name": "idle memory read",
       "p50": 0.02,
       "p95": 0.08,
-      "p99": 0.66,
+      "p99": 0.7,
       "avg": 0.04
     },
     {
       "name": "active memory snapshot",
       "p50": 0,
       "p95": 0,
-      "p99": 0.02,
+      "p99": 0.04,
       "avg": 0
     },
     {
       "name": "graph-render memory alloc",
-      "p50": 0.1,
-      "p95": 0.2,
-      "p99": 0.5,
-      "avg": 0.11
+      "p50": 0.11,
+      "p95": 0.22,
+      "p99": 0.44,
+      "avg": 0.12
     }
   ]
 }

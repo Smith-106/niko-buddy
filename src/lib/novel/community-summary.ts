@@ -17,6 +17,48 @@ export interface CommunitySummaryRecord {
   generatedAt: string
 }
 
+/**
+ * TASK-402: 自写信号量（Promise 队列，不引新依赖）。
+ * 限制同时执行的任务数，防止社区摘要并行 LLM 调用打爆配额。
+ * 用法：`await semaphore.acquire()` … `semaphore.release()`（务必在 finally 中释放）。
+ */
+export interface Semaphore {
+  acquire(): Promise<void>
+  release(): void
+}
+
+export function createSemaphore(limit: number): Semaphore {
+  const max = Math.max(1, Math.floor(limit))
+  let active = 0
+  const waiters: Array<() => void> = []
+  return {
+    acquire(): Promise<void> {
+      if (active < max) {
+        active++
+        return Promise.resolve()
+      }
+      // 满员：排队等待，release 时把槽位直接转移给下一个等待者
+      return new Promise<void>((resolve) => {
+        waiters.push(() => {
+          active++
+          resolve()
+        })
+      })
+    },
+    release(): void {
+      const next = waiters.shift()
+      if (next) {
+        next() // 槽位转移：active 在 next 内自增，不减少
+      } else {
+        active--
+      }
+    },
+  }
+}
+
+/** 社区摘要 LLM 并行上限：防配额打爆（TASK-402）。 */
+export const maxConcurrency = 3
+
 /** 判断当前章节是否应该触发社区摘要重建 */
 export function shouldRebuildCommunitySummaries(
   chapterNumber: number,
@@ -55,37 +97,63 @@ export async function generateCommunitySummaries(
   const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
   const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
 
-  // 逐个社区生成摘要
-  for (const community of communities) {
-    const members = nodesByCommunity.get(community.id) ?? []
-    if (members.length === 0) continue
+  // TASK-402: 社区 LLM 并行 + 自写信号量限流（防配额打爆）。
+  // 每个社区独立 try/catch 保留失败不阻断语义；结果按 index 落数组，
+  // 全部生成完毕后依 communities 输入序 writeFile + embedPage（输出顺序确定性）。
+  const semaphore = createSemaphore(maxConcurrency)
+  const results: Array<{ community: CommunityInfo; record: CommunitySummaryRecord } | undefined> = new Array(communities.length)
 
-    try {
-      const summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
-      const record: CommunitySummaryRecord = {
-        communityId: community.id,
-        summary,
-        nodeCount: community.nodeCount,
-        topNodes: community.topNodes,
-        generatedAt: new Date().toISOString(),
-      }
+  await Promise.all(
+    communities.map(async (community, index) => {
+      await semaphore.acquire()
+      try {
+        const members = nodesByCommunity.get(community.id) ?? []
+        if (members.length === 0) return
 
-      // 持久化到 JSON
-      const summaryPath = `${summaryDir}/${community.id}.json`
-      await writeFile(summaryPath, JSON.stringify(record, null, 2))
-
-      // 向量化写入 LanceDB（page_id = community:xxx）
-      if (embCfgResolved.enabled && embCfgResolved.model) {
         try {
-          const pageId = `community:${community.id}`
-          const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
-          await embedPage(pp, pageId, title, summary, embCfgResolved)
+          const summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
+          results[index] = {
+            community,
+            record: {
+              communityId: community.id,
+              summary,
+              nodeCount: community.nodeCount,
+              topNodes: community.topNodes,
+              generatedAt: new Date().toISOString(),
+            },
+          }
         } catch (err) {
-          logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: err instanceof Error ? err.message : String(err) })
+          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
         }
+      } finally {
+        semaphore.release()
       }
+    }),
+  )
+
+  // 依 communities 输入序聚合持久化 + 向量化（顺序确定性）
+  for (const entry of results) {
+    if (!entry) continue
+    const { community, record } = entry
+
+    // 持久化到 JSON
+    const summaryPath = `${summaryDir}/${community.id}.json`
+    try {
+      await writeFile(summaryPath, JSON.stringify(record, null, 2))
     } catch (err) {
-      logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("CommunitySummary", `持久化社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
+      continue
+    }
+
+    // 向量化写入 LanceDB（page_id = community:xxx）
+    if (embCfgResolved.enabled && embCfgResolved.model) {
+      try {
+        const pageId = `community:${community.id}`
+        const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
+        await embedPage(pp, pageId, title, record.summary, embCfgResolved)
+      } catch (err) {
+        logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: err instanceof Error ? err.message : String(err) })
+      }
     }
   }
 }

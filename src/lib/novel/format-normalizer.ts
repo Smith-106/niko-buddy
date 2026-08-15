@@ -43,12 +43,6 @@ const REPEATED_PUNCT_RE = /([！？。]){2,}/g
 /** 半角感叹号/问号 → 全角 */
 const HALF_PUNCT_RE = /[!?]{1,}/g
 
-/** 对话引号: 中文弯引号 → 「」 */
-const CURVED_QUOTE_DIALOG_RE = /[\u201C\u201D]/g
-
-/** 引用引号: 单弯引号 → 『』 */
-const CURVED_QUOTE_REF_RE = /[\u2018\u2019]/g
-
 /** 省略号: .../… 变体 → …… (两个 U+2026) */
 const ELLIPSIS_RE = /…{1,}|\.{3,}/g
 
@@ -297,11 +291,11 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
   // 6. 数字转中文 (年份/月日)
   let yearCount = 0
   let monthDayCount = 0
-  text = text.replace(YEAR_RE, (m, y: string) => {
+  text = text.replace(YEAR_RE, (_m, y: string) => {
     yearCount++
     return `${formatYearToChinese(Number(y))}`
   })
-  text = text.replace(MONTH_DAY_RE, (m, mo: string, d: string) => {
+  text = text.replace(MONTH_DAY_RE, (_m, mo: string, d: string) => {
     monthDayCount++
     return formatMonthDayToChinese(Number(mo), Number(d))
   })
@@ -310,7 +304,6 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
   // 7. 感叹号限额 (每章 ≤5, 超出降级为句号)
   const exclamationMatches = text.match(/！/g)
   if (exclamationMatches && exclamationMatches.length > MAX_EXCLAMATION_PER_CHAPTER) {
-    const excess = exclamationMatches.length - MAX_EXCLAMATION_PER_CHAPTER
     // 保留前 5 个, 其余降级 (从后往前)
     let remaining = MAX_EXCLAMATION_PER_CHAPTER
     text = text.replace(/！/g, () => {

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { readFile } from "@/commands/fs"
 import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import { MonacoDiffEditor } from "./monaco-diff-editor"
 
 interface SnapshotViewerProps {
   projectPath: string
@@ -85,6 +87,96 @@ function EditableListSection({ title, value, onChange }: { title: string; value:
   )
 }
 
+// TASK-303 历史版本对比：单行历史版本条目，含「对比当前版本」与「恢复」操作。
+export interface HistoryEntryRowProps {
+  entry: SnapshotHistoryEntry
+  disabled: boolean
+  restoring: boolean
+  onCompare: () => void
+  onRestore: () => void
+}
+
+export function HistoryEntryRow({ entry, disabled, restoring, onCompare, onRestore }: HistoryEntryRowProps) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5">
+      <span className="truncate text-xs text-muted-foreground">{entry.createdAt}</span>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onCompare}
+          disabled={disabled}
+          title="对比该历史版本与当前快照的内容差异（只读）。"
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          对比当前版本
+        </button>
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={disabled}
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {restoring ? "恢复中" : "恢复"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// TASK-303 版本对比模态：只读 MonacoDiffEditor 展示 历史(original) ↔ 当前(modified) 的 JSON diff。
+export interface SnapshotDiffModalProps {
+  open: boolean
+  original: string
+  modified: string
+  onClose: () => void
+}
+
+export function SnapshotDiffModal({ open, original, modified, onClose }: SnapshotDiffModalProps) {
+  if (!open) return null
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
+      onClick={(e) => {
+        // 阻止冒泡到外层 SnapshotViewer 遮罩的 onClose，避免点对比遮罩连带关闭整个查看器。
+        e.stopPropagation()
+        onClose()
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="对比当前版本"
+        tabIndex={-1}
+        className="flex max-h-[80vh] w-[860px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h3 className="text-lg font-semibold text-foreground">对比当前版本</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭对比"
+            className="rounded p-1 text-muted-foreground hover:bg-accent"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto px-4 py-4">
+          <MonacoDiffEditor
+            original={original}
+            modified={modified}
+            language="json"
+            readOnly
+            height={520}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function SnapshotViewer({ projectPath, chapterNumber, onClose }: SnapshotViewerProps) {
   const { t } = useTranslation()
   const [snapshot, setSnapshot] = useState<ChapterSnapshot | null>(null)
@@ -97,6 +189,8 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const [history, setHistory] = useState<SnapshotHistoryEntry[]>([])
   const [restoring, setRestoring] = useState(false)
   const [saveMessage, setSaveMessage] = useState("")
+  // TASK-303 版本对比状态：open 时渲染 SnapshotDiffModal，original=历史快照 JSON 文本。
+  const [diffState, setDiffState] = useState<{ open: boolean; original: string }>({ open: false, original: "" })
 
   // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
   // role=dialog/aria-modal 让屏幕阅读器识别为模态; Escape 键关闭; 打开时
@@ -106,6 +200,11 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault()
+        // 对比模态打开时先关对比，避免一次 Escape 连带关闭整个查看器。
+        if (diffState.open) {
+          setDiffState((value) => ({ ...value, open: false }))
+          return
+        }
         onClose()
         return
       }
@@ -129,7 +228,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
     // 打开时聚焦模态容器(不抢第一个按钮的焦点,但让 Tab 从模态内开始)
     dialogRef.current?.focus()
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [onClose])
+  }, [onClose, diffState.open])
 
   useEffect(() => {
     let cancelled = false
@@ -212,6 +311,20 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       setSaveMessage(`恢复失败：${message}`)
     } finally {
       setRestoring(false)
+    }
+  }
+
+  // TASK-303: 历史条目无 content 字段，按 entry.path readFile 读取历史 JSON，
+  // 解析后重排为 2 空格缩进，与当前快照文本（JSON.stringify(snapshot, null, 2)）做只读 diff。
+  const compareHistory = async (entry: SnapshotHistoryEntry) => {
+    if (restoring || saving) return
+    setSaveMessage("")
+    try {
+      const raw = await readFile(entry.path)
+      setDiffState({ open: true, original: JSON.stringify(JSON.parse(raw), null, 2) })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSaveMessage(`对比失败：${message}`)
     }
   }
 
@@ -368,17 +481,14 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
                   ) : (
                     <div className="space-y-2">
                       {history.map((entry) => (
-                        <div key={entry.fileName} className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5">
-                          <span className="truncate text-xs text-muted-foreground">{entry.createdAt}</span>
-                          <button
-                            type="button"
-                            onClick={() => void restoreHistory(entry)}
-                            disabled={restoring || saving}
-                            className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {restoring ? "恢复中" : "恢复"}
-                          </button>
-                        </div>
+                        <HistoryEntryRow
+                          key={entry.fileName}
+                          entry={entry}
+                          disabled={restoring || saving}
+                          restoring={restoring}
+                          onCompare={() => void compareHistory(entry)}
+                          onRestore={() => void restoreHistory(entry)}
+                        />
                       ))}
                     </div>
                   )}
@@ -402,6 +512,12 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
           )}
         </div>
       </div>
+      <SnapshotDiffModal
+        open={diffState.open}
+        original={diffState.original}
+        modified={snapshot ? JSON.stringify(snapshot, null, 2) : ""}
+        onClose={() => setDiffState((value) => ({ ...value, open: false }))}
+      />
     </div>
   )
 }

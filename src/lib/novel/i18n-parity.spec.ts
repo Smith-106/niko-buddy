@@ -48,9 +48,6 @@ describe("S3b i18n parity (en/zh 键对称)", () => {
   })
 
   it("结构对称: 嵌套对象层级一致 (en/zh 同为叶子或同为容器)", () => {
-    function isLeaf(v: unknown): boolean {
-      return v === null || typeof v !== "object" || Array.isArray(v)
-    }
     const mismatches: string[] = []
     for (const key of enKeys) {
       if (!zhKeys.has(key)) continue

@@ -129,6 +129,33 @@ describe("S2a 伏笔台账接线 (逾期>5章→finding)", () => {
     const findings = findOverdueForeshadowing(input.foreshadowing, 20, { foreshadowStaleThreshold: 20 })
     expect(findings).toHaveLength(0)
   })
+
+  it("TASK-102 契约: 逾期>5 章才产生 finding (边界 5 章不算, 6 章算 — threshold=5 严格大于)", () => {
+    const store = {
+      items: [
+        {
+          id: "b1",
+          name: "边界伏笔",
+          description: "x",
+          status: "planted" as const,
+          plantedChapter: 5,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+      ],
+      lastUpdated: "",
+    }
+    // planted 于第 5 章, 当前第 10 章 → since=5 → 不逾期 (阈值语义: >5)
+    expect(findOverdueForeshadowing(store, 10)).toHaveLength(0)
+    // 当前第 11 章 → since=6 → 逾期 finding (逾期>5章 → 入管线)
+    const findings = findOverdueForeshadowing(store, 11)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.name).toBe("边界伏笔")
+    expect(findings[0]!.chaptersSincePlanted).toBe(6)
+    expect(findings[0]!.finding).toContain("逾期")
+  })
 })
 
 describe("S2a buildAppearancesFromSnapshots (快照→出场索引)", () => {
@@ -180,7 +207,6 @@ describe("S2a context-engine 融合 (buildRelatedChaptersContext)", () => {
 
   it("snapshots 构造 appearances (融合路径)", async () => {
     const { buildRelatedChaptersContext } = await import("./context-engine")
-    const input = makeInput()
     const snapshots = [
       { chapterNumber: 8, characters: ["白砚"] },
       { chapterNumber: 6, characters: ["白砚"] },

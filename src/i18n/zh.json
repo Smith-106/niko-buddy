@@ -77,6 +77,12 @@
       "chapters": "章",
       "foreshadowingDebt": "伏笔债务",
       "debtScore": "债务评分",
+      "chaseDebt": "追读债务",
+      "chaseDebtAmount": "当前债务",
+      "chaseDebtInterest": "利率",
+      "chaseDebtDue": "截止",
+      "emotionDebt": "情绪债务",
+      "emotionNetValue": "情绪净值",
       "loadingExtras": "正在加载补充数据..."
     },
     "actions": {
@@ -119,6 +125,17 @@
     "debtLevel": {
       "critical": "严重",
       "warning": "警告"
+    },
+    "debtType": {
+      "hook_strength": "钩子强度",
+      "micropayoff": "微型回报",
+      "coolpoint": "爽点"
+    },
+    "debtStatus": {
+      "active": "未到期",
+      "paid": "已偿还",
+      "overdue": "已逾期",
+      "written_off": "已核销"
     }
   },
   "reviewCenter": {
@@ -1776,6 +1793,7 @@
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
       "communitySummaries": "## 社区摘要（图谱社区）",
+      "relatedChapters": "## 相关章节四维反查",
       "activeEntities": "## 当前章节关联实体",
       "foreshadowing": {
         "repeatedUnresolved": "以下伏笔近期反复出现，但尚未明显推进，需注意是否在本章继续铺设或回收：{{names}}"

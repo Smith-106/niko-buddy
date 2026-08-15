@@ -17,6 +17,8 @@ src-tauri/target/
 node_modules/
 
 # === 测试文件 ===
+playwright-report/
+test-results/
 tests/
 src/test-helpers/*
 !src/test-helpers/

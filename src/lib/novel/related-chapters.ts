@@ -267,7 +267,7 @@ export function buildAppearancesFromSnapshots(
 ): CharacterAppearance[] {
   const map = new Map<string, number[]>()
   for (const snap of snapshots) {
-    const chars = snap.characters ?? snap.charactersInvolved ?? []
+    const chars = snap.characters ?? []
     for (const ch of chars) {
       const list = map.get(ch) ?? []
       list.push(snap.chapterNumber)

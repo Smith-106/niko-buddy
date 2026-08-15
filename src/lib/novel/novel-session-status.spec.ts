@@ -900,9 +900,10 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
     }
     fsState.fileMap.set(statusPath, JSON.stringify(withDebt, null, 2))
     const loaded = await loadNovelSessionStatus(normalizedProjectPath)
-    expect(loaded.chase_debt?.debts).toHaveLength(1)
-    expect(loaded.chase_debt!.debts[0]!.debt_type).toBe("hook_strength")
-    expect(loaded.chase_debt!.debt_events[0]!.event_type).toBe("created")
+    expect(loaded).not.toBeNull()
+    expect(loaded!.chase_debt?.debts).toHaveLength(1)
+    expect(loaded!.chase_debt!.debts[0]!.debt_type).toBe("hook_strength")
+    expect(loaded!.chase_debt!.debt_events[0]!.event_type).toBe("created")
   })
 
   it("契约区分: chase_debt (追读力债务) 与伏笔债务互不混用", () => {
@@ -979,7 +980,12 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
         draft_status: "pending",
         updated_at: "2026-01-01T00:00:00.000Z",
       },
-      decision_gates: { consistency: "passed", anti_ai: "passed", quality: "pending" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
       evidence_refs: [],
     }
     const result = updateChaseDebtStatus(legacy, "debt-x", "paid", 3)
@@ -1008,7 +1014,12 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
         draft_status: "pending",
         updated_at: "2026-01-01T00:00:00.000Z",
       },
-      decision_gates: { consistency: "passed", anti_ai: "passed", quality: "pending" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
       evidence_refs: [],
     }
     const next = buildNextStatus(base, {

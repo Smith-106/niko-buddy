@@ -69,20 +69,30 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
 
       const chapters: { num: number; title: string; content: string }[] = []
 
-      for (const file of files) {
-        try {
-          const raw = await readFile(file.path)
-          const parsed = parseFrontmatter(raw)
-          const fm = parsed.frontmatter as Record<string, unknown> | null
-          const status = fm?.chapter_status as string | undefined
-          if (status && status !== "final") continue
-          const num = typeof fm?.chapter_number === "number" ? fm.chapter_number as number : 0
-          const title = (typeof fm?.title === "string" ? fm.title : file.name.replace(/\.md$/, "")) as string
-          const body = parsed.body.trim()
-          chapters.push({ num, title, content: body })
+      // 并行 readFile + parseFrontmatter（Promise.all 保序，按 i 还原）；
+      // 最终 sort by num 后写盘，输出顺序确定性不因并行完成顺序改变。
+      const loaded = await Promise.all(
+        files.map(async (file, i) => {
+          try {
+            const raw = await readFile(file.path)
+            const parsed = parseFrontmatter(raw)
+            const fm = parsed.frontmatter as Record<string, unknown> | null
+            const status = fm?.chapter_status as string | undefined
+            if (status && status !== "final") return { i, data: null }
+            const num = typeof fm?.chapter_number === "number" ? fm.chapter_number as number : 0
+            const title = (typeof fm?.title === "string" ? fm.title : file.name.replace(/\.md$/, "")) as string
+            const body = parsed.body.trim()
+            return { i, data: { num, title, content: body } }
+          } catch {
+            // skip unreadable files
+            return { i, data: null }
+          }
+        }),
+      )
+      for (const entry of loaded) {
+        if (entry.data) {
+          chapters.push(entry.data)
           chapterCount++
-        } catch {
-          // skip unreadable files
         }
       }
 
@@ -99,8 +109,15 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
       await createDirectory(snapshotsDir)
       try {
         const nums = await listSnapshots(pp)
-        for (const num of nums) {
-          const snap = await loadSnapshot(pp, num)
+        // 并行 loadSnapshot（Promise.all 保序）；按 num 依序写盘（padStart 文件名），
+        // 输出顺序确定性不因并行完成顺序改变。
+        const loaded = await Promise.all(
+          nums.map(async (num) => {
+            const snap = await loadSnapshot(pp, num)
+            return { num, snap }
+          }),
+        )
+        for (const { num, snap } of loaded) {
           if (snap) {
             await writeFile(
               `${snapshotsDir}/${String(num).padStart(3, "0")}.snapshot.json`,

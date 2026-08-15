@@ -290,6 +290,8 @@ export interface NovelConfig {
   autoGenerateChapterTitle: boolean
   /** EPIC-001 / ADR-29: Style Exemplars injection toggle (default on). */
   exemplarEnabled: boolean
+  /** S2a (roadmap R06 / TASK-101): related-chapters 四维反查 + 伏笔逾期 finding 注入 toggle (default on). */
+  relatedChaptersEnabled: boolean
   /** EPIC-002 / ADR-30: Scene Breakdown stage 1.5 toggle (default off). */
   sceneBreakdownEnabled: boolean
   /** EPIC-003 / ADR-32: Conditional entity routing toggle (default on). */
@@ -333,6 +335,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
   exemplarEnabled: true,
+  // S2a (roadmap R06 / TASK-101): 四维反查生产接线默认开启；关闭=现状行为（不注入 related 文本）。
+  relatedChaptersEnabled: true,
   sceneBreakdownEnabled: false,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,

@@ -6,7 +6,19 @@
  *   humanizer-zh/references/replacement-dict.md — 纯数据字典 (Markdown 表),
  *   非可执行代码。本模块将其转为 TS 数据, 供 format-normalizer / de-ai 机械层
  *   替换使用。文档声称 148 短语 + 105 词汇 + 19 口语化, 但可获取文件为"摘录"
- *   (30 短语 + 30 词汇 + 19 口语化) — 只迁移可获取部分, 不虚构缺失条目。
+ *   (30 短语 + 30 词汇 + 18 口语化) — 只迁移可获取部分, 不虚构缺失条目
+ *   (口语化声称 19 条实取 18 条, 缺 1 条 → 数据负债, 见下)。
+ *
+ * TASK-203 扩充 (roadmap W2 / R03 字典扩充):
+ *   新增条目为既有表风格同类项自然扩展 (AI 套话类 / 成语书面语类 / 口语词类),
+ *   来源标注为"同表扩展", 不声称来自原文档。扩充后计数 (与
+ *   replacementDictStats 一致):
+ *     - DELETE_ON_SIGHT: 29 → 35
+ *     - PHRASE_REPLACEMENTS: 30 → 40
+ *     - WORD_REPLACEMENTS: 30 → 40
+ *     - COLLOQUIAL_REPLACEMENTS: 18 → 28
+ *   数据负债: 原文档 148 短语 / 105 词汇 之差额及口语化第 19 条不可获取,
+ *   本轮未虚构补齐, 仅按同表风格自然扩展。
  *
  * 使用纪律 (draft-first 安全边界):
  *   - 替换文本必须先进 pending/ready 草稿, 用户 accept 后才回填正式正文
@@ -28,7 +40,7 @@ export interface ReplacementEntry {
 /**
  * AI 套话/结构/元叙述/指纹词 — 直接删除清单
  * (humanizer-zh 第一层 23 条禁止模式中的可删除项; 与 mechanical-slop-detector
- * TIER1 词库互补 — 检测层罚分, 替换层删除/替换)
+ * TIER1 词库互补 — 检测层罚分, 替换层删除/替换; TASK-203 同表扩展 6 条)
  */
 export const DELETE_ON_SIGHT: readonly string[] = [
   "值得注意的是", "需要指出的是", "众所周知", "不难发现",
@@ -39,9 +51,11 @@ export const DELETE_ON_SIGHT: readonly string[] = [
   "本章将讲述", "接下来我们看到", "让我们来看看", "读者可能会注意到",
   "全方位", "多维度", "深层次", "底层逻辑", "顶层设计",
   "赋能", "凸显", "彰显", "淋漓尽致", "不言而喻", "毋庸置疑",
+  "需要强调的是", "不容忽视的是", "不得不提的是",
+  "在此背景下", "从长远来看", "不言自明",
 ] as const
 
-/** 短语级替换 (humanizer-zh 第三层, 30 条摘录) */
+/** 短语级替换 (humanizer-zh 第三层摘录 30 条 + TASK-203 同表扩展 10 条 = 40 条) */
 export const PHRASE_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "值得一提的是", to: ["有意思的是", "说来也巧"] },
   { from: "毫无疑问", to: ["显然", "明摆着"] },
@@ -73,9 +87,19 @@ export const PHRASE_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "情不自禁", to: ["忍不住", "没控制住"] },
   { from: "理所当然", to: ["应该的", "本来就是"] },
   { from: "毫不犹豫", to: ["二话不说", "想都没想"] },
+  { from: "无可厚非", to: ["没啥好挑的", "说得过去"] },
+  { from: "历历在目", to: ["还记得清清楚楚", "就在眼前"] },
+  { from: "如梦初醒", to: ["一下子明白过来", "才反应过来"] },
+  { from: "出乎意料", to: ["没想到", "谁都没料到"] },
+  { from: "全力以赴", to: ["拼了命", "使足劲"] },
+  { from: "精益求精", to: ["越做越好", "做到最好"] },
+  { from: "一举两得", to: ["两头都顾上", "一次办成两件事"] },
+  { from: "有目共睹", to: ["谁都看得见", "大家都清楚"] },
+  { from: "当务之急", to: ["眼下最要紧的", "头一件大事"] },
+  { from: "美中不足", to: ["有点小遗憾", "还不够完美"] },
 ] as const
 
-/** 词汇级替换 (humanizer-zh 第四层, 30 条摘录) */
+/** 词汇级替换 (humanizer-zh 第四层摘录 30 条 + TASK-203 同表扩展 10 条 = 40 条) */
 export const WORD_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "因此", to: ["所以", "于是"] },
   { from: "然而", to: ["但是", "可是", "不过"] },
@@ -107,9 +131,19 @@ export const WORD_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "亦", to: ["也", "同样"] },
   { from: "甚至", to: ["连", "居然"] },
   { from: "极其", to: ["特别", "贼", "老"] },
+  { from: "十分", to: ["特别", "老"] },
+  { from: "连忙", to: ["赶紧", "忙不迭"] },
+  { from: "凝视", to: ["盯着", "直勾勾地看着"] },
+  { from: "气愤", to: ["来气", "火大"] },
+  { from: "沮丧", to: ["泄气", "蔫了"] },
+  { from: "猛然", to: ["猛地", "冷不丁"] },
+  { from: "逐渐", to: ["一点点", "慢慢"] },
+  { from: "终究", to: ["到底", "末了"] },
+  { from: "偶尔", to: ["有时候", "隔三差五"] },
+  { from: "倘若", to: ["要是", "万一"] },
 ] as const
 
-/** 口语化替换 (humanizer-zh 第五层, 19 条 — 完整) */
+/** 口语化替换 (humanizer-zh 第五层摘录 18 条 + TASK-203 同表扩展 10 条 = 28 条; 第 19 条缺额 → 数据负债) */
 export const COLLOQUIAL_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "非常", to: ["特别", "贼/老"] },
   { from: "可能", to: ["估计", "八成"] },
@@ -129,6 +163,16 @@ export const COLLOQUIAL_REPLACEMENTS: readonly ReplacementEntry[] = [
   { from: "不要", to: ["别", "甭"] },
   { from: "知道", to: ["晓得", "清楚"] },
   { from: "明白", to: ["懂", "整明白"] },
+  { from: "经常", to: ["老", "三天两头"] },
+  { from: "大概", to: ["差不多", "估摸"] },
+  { from: "麻烦", to: ["费劲", "费事"] },
+  { from: "高兴", to: ["乐呵", "美滋滋"] },
+  { from: "清楚", to: ["门儿清", "整明白"] },
+  { from: "讨厌", to: ["烦人", "招人烦"] },
+  { from: "喜欢", to: ["稀罕", "待见"] },
+  { from: "匆忙", to: ["急急忙忙", "赶着"] },
+  { from: "难看", to: ["丑", "寒碜"] },
+  { from: "正在", to: ["正", "这会儿正"] },
 ] as const
 
 /** 全部替换条目 (短语+词汇+口语化), 供 format-normalizer 单次遍历 */

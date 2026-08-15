@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { formatNormalize, arabicToChineseDigits, formatYearToChinese, formatMonthDayToChinese, MAX_EXCLAMATION_PER_CHAPTER, REPLACEMENT_WHITELIST } from "./format-normalizer"
-import { replacementDictStats, buildReplacementIndex, ALL_REPLACEMENTS, PHRASE_REPLACEMENTS, WORD_REPLACEMENTS, COLLOQUIAL_REPLACEMENTS } from "./replacement-dict"
+import { replacementDictStats, buildReplacementIndex, ALL_REPLACEMENTS } from "./replacement-dict"
 
 describe("S1b replacement-dict 数据完整性 (humanizer-zh absorb)", () => {
-  it("字典条目数量符合摘录数据 (30 短语 + 30 词汇 + 18 口语化, 去重后)", () => {
+  it("字典条目数量符合摘录数据 (40 短语 + 40 词汇 + 28 口语化, 去重后)", () => {
     const stats = replacementDictStats()
-    expect(stats.phraseCount).toBe(30)
-    expect(stats.wordCount).toBe(30)
-    expect(stats.colloquialCount).toBe(18)
-    expect(stats.totalCount).toBe(78)
+    expect(stats.phraseCount).toBe(40)
+    expect(stats.wordCount).toBe(40)
+    expect(stats.colloquialCount).toBe(28)
+    expect(stats.totalCount).toBe(108)
   })
 
   it("索引按长优先构建 (短语先于短词匹配)", () => {
@@ -133,5 +133,68 @@ describe("S1b 替换优先于惩罚 (与 mechanical-slop 协同)", () => {
     for (const w of ["然而", "仿佛", "因此"]) {
       expect(r.text).not.toContain(w)
     }
+  })
+})
+
+describe("TASK-203 字典扩充 + 白名单豁免/替换优先于惩罚回归", () => {
+  it("扩充计数与文件头摘录一致 (PHRASE 40 / WORD 40 / COLLOQUIAL 28)", () => {
+    const stats = replacementDictStats()
+    expect(stats.phraseCount).toBe(40)
+    expect(stats.wordCount).toBe(40)
+    expect(stats.colloquialCount).toBe(28)
+    expect(stats.totalCount).toBe(108)
+  })
+
+  it("新增删除清单条目: 需要强调的是 → 删除", () => {
+    const r = formatNormalize("需要强调的是，这件事并不难。")
+    expect(r.text).not.toContain("需要强调的是")
+    expect(r.deleteCount).toBeGreaterThan(0)
+  })
+
+  it("新增短语命中替换: 全力以赴 → 拼了命", () => {
+    const r = formatNormalize("他全力以赴地准备着。")
+    expect(r.text).toContain("拼了命")
+    expect(r.text).not.toContain("全力以赴")
+    expect(r.replacementCount).toBeGreaterThan(0)
+  })
+
+  it("新增词汇命中替换: 逐渐 → 一点点", () => {
+    const r = formatNormalize("天色逐渐暗了下来。")
+    expect(r.text).toContain("一点点")
+    expect(r.text).not.toContain("逐渐")
+  })
+
+  it("新增口语化命中替换 (enableColloquial): 高兴 → 乐呵", () => {
+    const r = formatNormalize("她高兴地笑了。", { enableColloquial: true })
+    expect(r.text).toContain("乐呵")
+    expect(r.text).not.toContain("高兴")
+  })
+
+  it("新增口语化默认关闭: 高兴 保留 (保留口癖约束)", () => {
+    const r = formatNormalize("她高兴地笑了。")
+    expect(r.text).toContain("高兴")
+  })
+
+  it("白名单豁免: 然而→但是 替换后结果词可经 REPLACEMENT_WHITELIST 豁免 (替换优先于惩罚)", () => {
+    const r = formatNormalize("然而，事情并非如此。")
+    // 替换优先: 原 TIER2 词 "然而" 已从文本消失, 惩罚层无从计罚
+    expect(r.text).not.toContain("然而")
+    // 结果词 "但是" 同为 TIER2 — 白名单键存在, de-ai 惩罚层应豁免
+    expect(r.text).toContain("但是")
+    expect(REPLACEMENT_WHITELIST["但是"]).toContain("然而")
+  })
+
+  it("self-conflict 词对 (然而/但是): 默认模式停在白名单词 但是", () => {
+    const r = formatNormalize("然而，天快黑了。")
+    expect(r.text).toContain("但是")
+    expect(r.text).not.toContain("然而")
+    expect(REPLACEMENT_WHITELIST["但是"]).toContain("然而")
+  })
+
+  it("self-conflict 词对 (然而/但是): 口语化开启时链式收敛到 可/不过, 原词与中间词均消失", () => {
+    const r = formatNormalize("然而，天快黑了。", { enableColloquial: true })
+    expect(r.text).not.toContain("然而")
+    expect(r.text).not.toContain("但是")
+    expect(r.text).toMatch(/可|不过/)
   })
 })

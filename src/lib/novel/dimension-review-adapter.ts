@@ -1,3 +1,20 @@
+/**
+ * TASK-404 评估结论（2026-08-15）：6 维并行已落地（PERF-NEW-07，收益成立，无需再实施）。
+ *
+ * 证据（行号基于 2026-08-15 工作区实际读码）：
+ * - 并行：runSixDimensionReview 内 `const settled = await Promise.all(keys.map(async (key) => ...))`
+ *   （:590）—— 6 维每维独立 LLM 调用 + 独立 contextPack 只读消费，无相互依赖；串行需
+ *   6 轮 LLM 往返，Promise.all 并行后墙钟从 6×LLM 降到 1×LLM。逐项 try/catch +
+ *   buildFailedDimensionResult 保证单维失败（含 DimParseError 区分）不阻断其他维。
+ * - UI 顺序约束：Promise.all 保序 → settled 数组顺序 = keys（缺省 SIX_REVIEW_DIMENSION_ORDER）；
+ *   后续 `for (const { key, result, error } of settled)`（:636-651）按该顺序回填 results 并
+ *   按序触发 onDimensionResult / onDimensionThinking，UI 收到即规范六维顺序，顺序约束已满足。
+ * - 批量进度：onDimensionProgress 在并行启动时触发一次（:580，“六维审查并行启动”）；各维实时
+ *   进度由 onDimensionThinking 流式覆盖（每维 token 即回调）。Promise.all 语义下“已完成 n/6”
+ *   计数无增量信息（全部完成后才统一回填），不构成功能缺口，故不补计数。
+ * - 同形孪生：与 context-data-sources.ts PERF-NEW-03 / context-engine.ts runVectorSearch 同形
+ *   （PAT-G2：单点并行化须镜像同形 sibling），spec 断言 Object.keys(results) === 六维规范序。
+ */
 import { streamChat, combineAbortSignals, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"

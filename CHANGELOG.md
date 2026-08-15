@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.8] - 2026-08-15
+
+### Added（remaining-gaps 四波收口 — 18 项改进点全部落地）
+
+- **W1 P0 能力收口**：R06 四维反查生产接线——`buildRelatedChaptersContext` 接入 context-engine 主装配（additive `pack.relatedChapters` 字段 + `relatedChaptersEnabled` 灰度开关默认开），并经 FIELD_CONFIGS 渲染进入生成 prompt；伏笔台账逾期 finding（threshold=5）接入调度管线
+- **W2 P1 机械层补全**：de-ai 流派 8→14（女频现言/无限流/种田/职场商战/异能末世/轻小说二次元 + 同构基线）+ 结构化规则矩阵 24→28 满格（7 类别 × 4 严重度，critical/high 硬规则语义不变）；replacement-dict 扩充（DELETE_ON_SIGHT 35 / PHRASE 40 / WORD 40 / COLLOQUIAL 28，+36 条同表扩展）+ 白名单豁免/self-conflict 回归 9 用例
+- **W3 P2 工程/UX 收口**：R12 组合根抽取（App.tsx 启动编排 → `src/lib/composition-root.ts`）；R16 债看板 UI（chase_debt/伏笔逾期/情绪债务三分类聚合 + i18n zh/en）；R17 章节版本 diff（snapshot-viewer 接 MonacoDiffEditor 只读对比）
+- **W4 性能残留**：graph-adapter WIKILINK_RE 模块级预编译（消除每次调用重复编译）；community-summary 自写信号量限流并行（maxConcurrency=3，不引新依赖）；export 章节/快照 Promise.all 并行（写盘保序）；dimension-review 评估确认 6 维并行已落地
+- **E2E 基建**：Playwright e2e（app.spec.ts）+ ci.yml 前端检查（typecheck/unit/e2e 可选）+ vite/playwright 配置
+
+### Changed
+
+- 21 个 TS 未使用/类型错误修复（facts-store/format-normalizer/related-chapters 等 7 文件，零运行时行为变更）
+- 运行时测量基线刷新（ipc/lancedb/llm/memory/search/startup）
+
+### Notes
+
+- notes-only release：安装包资产保持 **v2.4.6**，v2.4.8 为源码 tip（`smith/master`）
+- 收口文档：`docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md`（18 项改进点落地对照 + 数据负债台账）
+
 ## [2.4.7] - 2026-08-16
 
 ### Added (roadmap 3-session 执行管线 — 质量门控 + 连续性约束 + 检索智能)
