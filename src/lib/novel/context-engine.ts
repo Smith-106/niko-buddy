@@ -40,6 +40,17 @@ import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
 // EPIC-003 / TASK-008: ROI 埋点写入 cognition-state.json（现有 key，HARD-1 守恒）。
 import { appendRoutingROISample, type RoutingROISample } from "./character-cognition"
+// S2a (roadmap): 四维反查组合导入 — related-chapters 是独立纯函数模块,
+// context-engine 负责组合进 ContextPack (不平行实现, 与 searchRelevantContentUnified 互补)。
+import {
+  buildRelatedChapters,
+  buildAppearancesFromSnapshots,
+  findOverdueForeshadowing,
+  relatedChaptersToContextText,
+  type RelatedChaptersInput,
+  type RelatedChaptersOptions,
+} from "./related-chapters"
+import type { ForeshadowingStore } from "./foreshadowing-tracker"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -2086,4 +2097,64 @@ export function contextPackToPrompt(
   }
 
   return fullPrompt
+}
+
+// ============================================================================
+// S2a (roadmap R06): 四维反查融合进 context-engine
+//
+// buildRelatedChaptersContext: 组合 related-chapters 四维反查 + 伏笔逾期
+// finding, 生成可注入 ContextPack 的文本 (与 searchRelevantContentUnified 互补:
+// 后者做内容检索, 本函数做跨章结构反查)。
+// ============================================================================
+
+export interface RelatedChaptersContextInput {
+  currentChapter: number
+  chapterOutline: string
+  foreshadowing: ForeshadowingStore
+  /** 角色出场记录 (可由 snapshots 构造) */
+  appearances?: RelatedChaptersInput["appearances"]
+  stateChanges?: RelatedChaptersInput["stateChanges"]
+  relationships?: RelatedChaptersInput["relationships"]
+  snapshots?: readonly ChapterSnapshot[]
+  options?: RelatedChaptersOptions
+}
+
+export interface RelatedChaptersContextResult {
+  /** 四维反查结果 */
+  related: ReturnType<typeof buildRelatedChapters>
+  /** 伏笔逾期 findings */
+  overdueFindings: ReturnType<typeof findOverdueForeshadowing>
+  /** 注入 ContextPack 的文本 (空串 = 无相关内容) */
+  text: string
+}
+
+/**
+ * 构建四维反查上下文 (伏笔/出场/状态/关系 + 逾期 finding)。
+ * appearances 未提供时可用 snapshots 构造; 两者皆无则跳过对应维度。
+ */
+export function buildRelatedChaptersContext(
+  input: RelatedChaptersContextInput,
+): RelatedChaptersContextResult {
+  const related = buildRelatedChapters(
+    {
+      currentChapter: input.currentChapter,
+      chapterOutline: input.chapterOutline,
+      foreshadowing: input.foreshadowing,
+      appearances: input.appearances ?? (input.snapshots ? buildAppearancesFromSnapshots(input.snapshots) : []),
+      stateChanges: input.stateChanges ?? [],
+      relationships: input.relationships ?? [],
+    },
+    input.options,
+  )
+  const overdueFindings = findOverdueForeshadowing(
+    input.foreshadowing,
+    input.currentChapter,
+    input.options,
+  )
+  const relatedText = relatedChaptersToContextText(related)
+  const findingText = overdueFindings.length > 0
+    ? `伏笔逾期提醒:\n${overdueFindings.map((f) => `- ${f.finding}`).join("\n")}`
+    : ""
+  const text = [relatedText, findingText].filter(Boolean).join("\n\n")
+  return { related, overdueFindings, text }
 }

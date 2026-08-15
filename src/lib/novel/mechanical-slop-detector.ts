@@ -34,6 +34,11 @@ const TIER1_BANNED = [
   "其实", "说白了", "换句话说", "简单来说", "通俗点讲",
   // Stage 6 ISS-20260802-001: high-signal summary / conclusion boilerplate.
   "值得一提的是", "不难发现", "综上所述", "总而言之",
+  // S1a absorb (humanizer-zh 23 条禁止模式, 未覆盖部分): AI 套话/指纹词
+  "众所周知", "不可否认", "显而易见", "不言而喻", "毋庸置疑",
+  "值得注意的是", "需要指出的是", "在某种程度上",
+  "多维度", "深层次", "彰显", "淋漓尽致",
+  "令人印象深刻", "引人注目", "至关重要",
   // AI 特征词 (过度使用即 slop, 合理语境由中低 penalty + LLM 复核兜底)
   "似乎", "仿佛", "如同", "宛如", "犹如",
 ] as const
@@ -87,6 +92,79 @@ const TIER3_FILLER: readonly RegExp[] = [
 export const TIER3_EXTENDED_PATTERN_COUNT = 15
 
 // ============================================================================
+// normalizeText: 防绕过预处理 (S1a absorb — avoid-ai-writing normalizeText 思路,
+// 中文适配。零 LLM 纯正则。)
+// ============================================================================
+
+/** 零宽字符正则: ZWSP U+200B / ZWNJ U+200C / ZWJ U+200D / WORD JOINER U+2060 / BOM U+FEFF */
+const ZERO_WIDTH_RE = /[\u200B-\u200D\u2060\uFEFF]/g
+
+/**
+ * CJK 同形字/混淆字符映射 (中文语境常见 AI-humanizer 绕过: 用异体字/生僻字替换
+ * 常见汉字, 使精确字符串检测失效)。子集参考 avoid-ai-writing CYRILLIC_LOOKALIKES
+ * 思路的中文版: 只映射高频叙事常用字的常见异体/相似形。
+ */
+const CJK_HOMOGLYPH_MAP: Readonly<Record<string, string>> = {
+  // 全角 → 半角 (数字/字母/标点混淆)
+  "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
+  "５": "5", "６": "6", "７": "7", "８": "8", "９": "9",
+  // 异体字 → 常用字 (叙事高频)
+  "裡": "里", "裏": "里", "牠": "它", "妳": "你", "妳們": "你们",
+  "的確": "的确", "彷彿": "仿佛", "傢伙": "家伙", "因為": "因为",
+  "已經": "已经", "認識": "认识", "時間": "时间", "媽媽": "妈妈",
+  "父親": "父亲", "母親": "母亲", "聲音": "声音", "樣": "样",
+  "邊": "边", "隻": "只", "雙": "双", "無": "无", "們": "们",
+  "說": "说", "話": "话", "書": "书", "讀": "读", "寫": "写",
+  "車": "车", "門": "门", "問": "问", "開": "开", "關": "关",
+  "點": "点", "頭": "头", "體": "体", "鳥": "鸟", "馬": "马",
+  "魚": "鱼", "鳥瞰": "鸟瞰",
+} as const
+
+/** 同形字符集: 收集映射中所有键, 构正则一次 */
+const CJK_HOMOGLYPH_KEYS = Object.keys(CJK_HOMOGLYPH_MAP).sort((a, b) => b.length - a.length)
+const CJK_HOMOGLYPH_RE = new RegExp(`(${CJK_HOMOGLYPH_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g")
+
+/**
+ * normalizeText 结果: 剥离/还原后的文本 + 被剥离的防绕过字符计数。
+ * 调用方可用 bypassCount 作为额外的 AI 信号 (humanizer 旁路痕迹)。
+ */
+export interface NormalizeTextResult {
+  text: string
+  /** 剥离的零宽字符数 */
+  zeroWidthCount: number
+  /** 还原的同形字字符数 */
+  homoglyphCount: number
+  /** 总防绕过字符数 (zeroWidth + homoglyph) */
+  bypassCount: number
+}
+
+/**
+ * 防绕过预处理: 剥离零宽字符 + 还原 CJK 同形字。
+ * 零宽字符是 AI-humanizer 工具的常见旁路 (把 \u200B 插入词中使精确匹配失效);
+ * 同形字 (异体字/全角) 同样使词库精确匹配失效。检测前先归一, 词库正则才能命中。
+ * S1a absorb: 思路来自 avoid-ai-writing patterns.cjs normalizeText (已 vendored)。
+ */
+export function normalizeText(rawText: string): NormalizeTextResult {
+  if (!rawText) return { text: rawText, zeroWidthCount: 0, homoglyphCount: 0, bypassCount: 0 }
+  let zeroWidthCount = 0
+  let homoglyphCount = 0
+  const strippedZeroWidth = rawText.replace(ZERO_WIDTH_RE, () => {
+    zeroWidthCount++
+    return ""
+  })
+  const normalized = strippedZeroWidth.replace(CJK_HOMOGLYPH_RE, (m) => {
+    homoglyphCount++
+    return CJK_HOMOGLYPH_MAP[m as keyof typeof CJK_HOMOGLYPH_MAP] ?? m
+  })
+  return {
+    text: normalized,
+    zeroWidthCount,
+    homoglyphCount,
+    bypassCount: zeroWidthCount + homoglyphCount,
+  }
+}
+
+// ============================================================================
 // slopScore: 机械算术 (零 LLM)
 // ============================================================================
 
@@ -123,6 +201,12 @@ export interface SlopReport {
   transitionOpenerRatio: number
   /** 综合 slop 惩罚分 0-10 (0=clean, 10=pure slop) */
   slopPenalty: number
+  /** S1a: 防绕过预处理计数 (零宽+同形字) — humanizer 旁路痕迹, 0=无旁路 */
+  bypassCount?: number
+  /** S1a: 被剥离的零宽字符数 */
+  zeroWidthCount?: number
+  /** S1a: 被还原的同形字字符数 */
+  homoglyphCount?: number
 }
 
 /** 统计某词在文本中的出现次数 (indexOf 遍历, 中文无词界) */
@@ -191,11 +275,13 @@ function transitionOpenerRatio(text: string): number {
 
 /**
  * 机械 slop 检测 (零 LLM 纯算术)。
+ * 入口先 normalizeText 防绕过预处理 (零宽/同形字), 再跑词库与密度统计。
  * penalty = tier1命中次数*1.5 + tier2*0.8 + tier3*1.0 + 密度惩罚
  *   (sentenceLengthCV < 0.3 → +2, transitionOpenerRatio > 0.4 → +2),
  * clamp 0-10。
  */
-export function slopScore(text: string): SlopReport {
+export function slopScore(rawText: string): SlopReport {
+  const { text, bypassCount, zeroWidthCount, homoglyphCount } = normalizeText(rawText)
   const tier1Hits = collectTierHits(text, TIER1_BANNED)
   const tier2Hits = collectTierHits(text, TIER2_SUSPICIOUS)
   const tier3Hits = collectTierRegexHits(text, TIER3_FILLER)
@@ -232,6 +318,9 @@ export function slopScore(text: string): SlopReport {
     sentenceLengthCV,
     transitionOpenerRatio: transRatio,
     slopPenalty: penalty,
+    bypassCount,
+    zeroWidthCount,
+    homoglyphCount,
   }
 }
 
@@ -259,6 +348,9 @@ export function slopReportToText(report: SlopReport): string {
 
   const lines: string[] = []
   lines.push(`机械 slop 检测 (penalty ${report.slopPenalty.toFixed(1)}/10)`)
+  if (report.bypassCount && report.bypassCount > 0) {
+    lines.push(`- 防绕过痕迹: ${report.bypassCount} 个零宽/同形字字符已被归一 (humanizer 旁路信号)`)
+  }
   if (report.tier1Hits.length > 0) {
     lines.push(`- 强禁用词: ${report.tier1Hits.map((h) => `${h.kw}×${h.count}`).join("、")}`)
   }
@@ -317,7 +409,8 @@ export interface CharacterActionHit {
  * 检测角色-动作关联：在文本中找到动作，并判断由哪个角色执行。
  * 零 LLM，纯正则 + 上下文窗口匹配。
  */
-export function detectCharacterActions(text: string): CharacterActionHit[] {
+export function detectCharacterActions(rawText: string): CharacterActionHit[] {
+  const { text } = normalizeText(rawText)
   const results: CharacterActionHit[] = []
 
   for (const pattern of CHARACTER_ACTION_PATTERNS) {

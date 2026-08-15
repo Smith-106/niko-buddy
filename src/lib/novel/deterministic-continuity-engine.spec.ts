@@ -844,3 +844,80 @@ describe("summarizeContinuityFindings 3 级分桶 (ADR-30 非 4 级)", () => {
     expect((summary as any).high).toBeUndefined()
   })
 })
+
+describe("S2c Quillica 6 状态机合并 (detectThreadArcFinding)", () => {
+  function storeWithSubplots(subplots: Subplot[]): ReadonlyStore {
+    return {
+      foreshadowing: [],
+      subplots,
+      characters: [],
+      snapshots: [],
+      currentChapter: 20,
+    }
+  }
+
+  it("高潮段后断裂: progress≥5 且长期未推进 → dormant_thread finding (弧断裂)", () => {
+    const subplot: Subplot = {
+      id: "sp-climax",
+      title: "朝堂权谋线",
+      status: "active",
+      startChapter: 1,
+      relatedCharacters: [],
+      summary: "权谋",
+      progress: ["a", "b", "c", "d", "e"],
+      lastSeenChapter: 2, // 距 current 20 章 → gap 18 > threshold
+      notes: "",
+    }
+    const findings = checkContinuity(storeWithSubplots([subplot]))
+    const arcFindings = findings.filter((f) => f.message.includes("高潮段后断裂"))
+    expect(arcFindings.length).toBe(1)
+    expect(arcFindings[0]!.ref).toBe("subplot:sp-climax")
+  })
+
+  it("状态机转移违反: resolved 后仍有非闭环 progress → finding", () => {
+    const subplot: Subplot = {
+      id: "sp-resolved",
+      title: "恋爱线",
+      status: "resolved",
+      startChapter: 1,
+      relatedCharacters: [],
+      summary: "恋爱",
+      progress: ["完结", "又出新情节"],
+      notes: "",
+    }
+    const findings = checkContinuity(storeWithSubplots([subplot]))
+    const violation = findings.filter((f) => f.message.includes("弧状态违反"))
+    expect(violation.length).toBe(1)
+  })
+
+  it("resolved 后闭环 progress 不报 (无重复判定)", () => {
+    const subplot: Subplot = {
+      id: "sp-clean",
+      title: "伏笔回收线",
+      status: "resolved",
+      startChapter: 1,
+      relatedCharacters: [],
+      summary: "回收",
+      progress: ["线索闭环回收"],
+      notes: "",
+    }
+    const findings = checkContinuity(storeWithSubplots([subplot]))
+    expect(findings.filter((f) => f.message.includes("弧状态违反"))).toHaveLength(0)
+  })
+
+  it("正常 Rising 线不产 threadArc finding (合并非双轨)", () => {
+    const subplot: Subplot = {
+      id: "sp-rising",
+      title: "冒险线",
+      status: "active",
+      startChapter: 1,
+      relatedCharacters: [],
+      summary: "冒险",
+      progress: ["出发", "遇险"],
+      lastSeenChapter: 19, // 刚推进 → 非 Falling
+      notes: "",
+    }
+    const findings = checkContinuity(storeWithSubplots([subplot]))
+    expect(findings.filter((f) => f.message.includes("弧"))).toHaveLength(0)
+  })
+})

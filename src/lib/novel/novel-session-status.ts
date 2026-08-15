@@ -126,6 +126,18 @@ export interface NovelSessionStatus {
    * Lives on status.json sole truth-source — not a second session file.
    */
   review_job?: import("./write-review-split").ReviewJobState
+  /**
+   * S2b (roadmap R07): chase_debt 追读债务台账 (additive-optional)。
+   * 契约区分: chase_debt = 追读力债务 (hook/micropayoff/coolpoint);
+   * 伏笔逾期债务走 foreshadowing-debt (related-chapters.findOverdueForeshadowing),
+   * 不混入本字段。旧 status.json 无本字段仍可加载 (additive 兼容)。
+   */
+  chase_debt?: {
+    debts: ChaseDebt[]
+    /** 防重复计息事件日志 */
+    debt_events: ChaseDebtEvent[]
+    updated_at: string
+  }
 }
 
 /**
@@ -145,6 +157,49 @@ export interface StageMetricEntry {
   partial?: boolean
   chapterId?: string
   timestamp?: string
+}
+
+/**
+ * S2b (roadmap): chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)。
+ * 与伏笔债务 (foreshadowing-debt) 语义区分:
+ *   chase_debt = 追读力债务 (hook/micropayoff/coolpoint 欠账, 阅读动力维度)
+ *   foreshadowing-debt = 伏笔逾期 (剧情连续性债务, 由 related-chapters 扫描)
+ * 两者都是 additive-optional 字段, 旧 status.json 无 debt 字段仍可加载。
+ */
+export type ChaseDebtType =
+  | "hook_strength"
+  | "micropayoff"
+  | "coolpoint"
+  | (string & {})
+
+export type ChaseDebtStatus = "active" | "paid" | "overdue" | "written_off"
+
+/** 追读债务 (webnovel ChaseDebtMeta: debt_type/amount/interest_rate/due_chapter/status) */
+export interface ChaseDebt {
+  id: string
+  debt_type: ChaseDebtType
+  /** 初始债务量 */
+  original_amount: number
+  /** 当前债务量 (含利息) */
+  current_amount: number
+  /** 利息率 (每章) */
+  interest_rate: number
+  /** 产生债务的章节 */
+  source_chapter: number
+  /** 截止章节 (到期未还 → overdue) */
+  due_chapter: number
+  status: ChaseDebtStatus
+  /** 关联的 review metric 或 override contract id (可选) */
+  ref?: string
+}
+
+/** 债务事件日志 (webnovel DebtEventMeta: created/interest_accrued/partial/full/overdue) — 防重复计息 */
+export interface ChaseDebtEvent {
+  debt_id: string
+  event_type: "created" | "interest_accrued" | "partial_payment" | "full_payment" | "overdue"
+  amount: number
+  chapter: number
+  note?: string
 }
 
 interface DeepChapterSessionInput {
@@ -559,6 +614,7 @@ export function buildNextStatus(
     dimension_results?: NovelSessionStatus["dimension_results"]
     stage_metrics?: StageMetricEntry[]
     review_job?: NovelSessionStatus["review_job"]
+    chase_debt?: NovelSessionStatus["chase_debt"]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -590,6 +646,9 @@ export function buildNextStatus(
   const reviewJob = "review_job" in overrides
     ? overrides.review_job
     : base.review_job
+  const chaseDebt = "chase_debt" in overrides
+    ? overrides.chase_debt
+    : base.chase_debt
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -608,6 +667,7 @@ export function buildNextStatus(
     dimension_results: dimensionResults,
     stage_metrics: stageMetrics,
     review_job: reviewJob,
+    chase_debt: chaseDebt,
   }
 }
 
@@ -1376,4 +1436,77 @@ export async function rejectFindingRewriteDraft(
   draft.draft_status = "rejected"
   draft.updated_at = new Date().toISOString()
   await writeFileAtomic(path, JSON.stringify(draft, null, 2))
+}
+
+// ============================================================================
+// S2b (roadmap R07): chase_debt 债务台账辅助 (webnovel 契约移植)
+// ============================================================================
+
+/** 计算某债务在给定章节的未偿状态 (interest 累加 + 到期判定)。 */
+export function computeChaseDebtState(
+  debt: ChaseDebt,
+  currentChapter: number,
+  events: readonly ChaseDebtEvent[],
+): { current_amount: number; status: ChaseDebtStatus } {
+  if (debt.status === "paid" || debt.status === "written_off") {
+    return { current_amount: debt.current_amount, status: debt.status }
+  }
+  // 计息: 从 source_chapter 起每章利息率累加 (interest_accrued 事件防重复计息)
+  const accruedEvents = events.filter((e) => e.debt_id === debt.id && e.event_type === "interest_accrued")
+  let amount = debt.original_amount
+  for (const e of accruedEvents) {
+    amount += e.amount
+  }
+  // 部分还款减少
+  for (const e of events) {
+    if (e.debt_id !== debt.id) continue
+    if (e.event_type === "partial_payment" || e.event_type === "full_payment") {
+      amount -= e.amount
+    }
+  }
+  amount = Math.max(0, amount)
+  // 到期判定: currentChapter >= due_chapter 且未偿清 → overdue
+  const status: ChaseDebtStatus =
+    currentChapter >= debt.due_chapter && amount > 0 ? "overdue" : debt.status
+  return { current_amount: amount, status }
+}
+
+/**
+ * 记录计息事件 (防重复计息: 同一 debt 在同一 chapter 只计一次)。
+ * 返回新增事件; 已存在相同 debt_id+chapter 的 interest_accrued 则返回 null。
+ */
+export function accrueChaseDebtInterest(
+  events: readonly ChaseDebtEvent[],
+  debtId: string,
+  chapter: number,
+  interestAmount: number,
+): ChaseDebtEvent | null {
+  const existing = events.some(
+    (e) => e.debt_id === debtId && e.event_type === "interest_accrued" && e.chapter === chapter,
+  )
+  if (existing) return null
+  return { debt_id: debtId, event_type: "interest_accrued", amount: interestAmount, chapter }
+}
+
+/** 更新 status.json 中某债务的状态 (additive: 无 chase_debt 字段则不动)。 */
+export function updateChaseDebtStatus(
+  status: NovelSessionStatus,
+  debtId: string,
+  newStatus: ChaseDebtStatus,
+  chapter: number,
+): NovelSessionStatus {
+  const ledger = status.chase_debt
+  if (!ledger) return status
+  const debts = ledger.debts.map((d) => (d.id === debtId ? { ...d, status: newStatus } : d))
+  return {
+    ...status,
+    chase_debt: {
+      debts,
+      debt_events: [
+        ...ledger.debt_events,
+        { debt_id: debtId, event_type: newStatus === "paid" ? "full_payment" : newStatus === "overdue" ? "overdue" : "created", amount: 0, chapter, note: `status → ${newStatus}` },
+      ],
+      updated_at: new Date().toISOString(),
+    },
+  }
 }

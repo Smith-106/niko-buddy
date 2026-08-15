@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   classifySlop,
+  normalizeText,
   slopReportToText,
   slopScore,
 } from "./mechanical-slop-detector"
@@ -188,5 +189,52 @@ describe("A19 机械层中文 slop 检测器 (借鉴点 #1, 零 LLM 纯正则+�
     const { TIER3_EXTENDED_PATTERN_COUNT } = await import("./mechanical-slop-detector")
     expect(TIER3_EXTENDED_PATTERN_COUNT).toBeGreaterThanOrEqual(10)
     expect(TIER3_EXTENDED_PATTERN_COUNT).toBeLessThanOrEqual(20)
+  })
+})
+
+describe("S1a 防绕过预处理 normalizeText + TIER 词库补全 (roadmap S1 P1 机械层)", () => {
+  it("normalizeText strips zero-width chars (ZWSP/ZWNJ/ZWJ/word-joiner/BOM)", () => {
+    const zwsps = "\u200B\u200C\u200D\u2060\uFEFF"
+    const result = normalizeText(`总而言之${zwsps}事情就这样${zwsps}结束了`)
+    expect(result.zeroWidthCount).toBe(10)
+    expect(result.text).toContain("总而言之")
+    expect(result.text).not.toContain("\u200B")
+  })
+
+  it("slopScore detects TIER1 banned word hidden with ZWSP bypass (zero-width no longer bypasses lexicon)", () => {
+    // humanizer 注入零宽使 "总而言之" 精确匹配失效
+    const bypassText = "总\u200B而言之，这个项目势在必行。"
+    const report = slopScore(bypassText)
+    expect(report.tier1Hits.some((h) => h.kw === "总而言之")).toBe(true)
+    expect(report.bypassCount).toBeGreaterThan(0)
+    expect(report.slopPenalty).toBeGreaterThan(0)
+  })
+
+  it("slopScore normalizes CJK homoglyphs before matching (異體字 bypass)", () => {
+    // 同形字: 彷彿 (異體) vs 仿佛 (词库)
+    const homoglyphText = "他彷彿回到了从前。"
+    const report = slopScore(homoglyphText)
+    expect(report.tier1Hits.some((h) => h.kw === "仿佛")).toBe(true)
+    expect(report.homoglyphCount).toBeGreaterThan(0)
+  })
+
+  it("S1a: humanizer-zh 23 条禁止模式词库补全 (新增 TIER1 词命中)", () => {
+    const content = "众所周知，这个方案令人印象深刻且至关重要。其影响显而易见，不可否认的是，它从多维度彰显了价值，效果淋漓尽致。"
+    const report = slopScore(content)
+    const kws = report.tier1Hits.map((h) => h.kw)
+    for (const w of ["众所周知", "令人印象深刻", "至关重要", "显而易见", "不可否认", "多维度", "彰显", "淋漓尽致"]) {
+      expect(kws).toContain(w)
+    }
+    expect(report.slopPenalty).toBeGreaterThanOrEqual(8)
+    expect(report.slopPenalty).toBeLessThanOrEqual(10)
+  })
+
+  it("normalizeText is idempotent and preserves clean prose", () => {
+    const clean = "雨停后，阿青把潮湿的绳子挂在门槛上。"
+    const once = normalizeText(clean)
+    const twice = normalizeText(once.text)
+    expect(once.text).toBe(clean)
+    expect(twice.text).toBe(once.text)
+    expect(once.bypassCount).toBe(0)
   })
 })

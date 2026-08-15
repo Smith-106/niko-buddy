@@ -133,3 +133,45 @@ describe("measurement-fingerprint M0", () => {
   })
 })
 
+
+describe("S2d 测量契约硬化 (roadmap R09 验收补强)", () => {
+  it("指纹字段 additive: 旧报告无 fingerprint 字段仍可加载 (schema additive)", () => {
+    // 模拟旧版 step0 fixture (无 measurementFingerprint 字段)
+    const legacyReport = {
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      protocol: { window: "last5", model: "claude-sonnet-4-6", samples: 5, mode: "diagnose" },
+    }
+    // additive 语义: fingerprint 是可选补充字段, 旧数据不含它不构成破坏
+    const loaded = legacyReport as { measurementFingerprint?: unknown }
+    expect(loaded.measurementFingerprint).toBeUndefined()
+    // 新数据含 fingerprint 字段 → 结构完整
+    const fp = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "claude-sonnet-4-6", samples: 5 }),
+      pack: basePack,
+      chapterText: "x",
+    })
+    expect(fp.model).toBe("claude-sonnet-4-6")
+    expect(fp.samples).toBe(5)
+    expect(fp.window).toBeTruthy()
+    expect(fp.packHash.length).toBeGreaterThan(8)
+  })
+
+  it("跨 pack 分数叙事不可伪造: packHash 不同即拒绝, 分数差异不可归因文本", () => {
+    const protocol = createLiteraryExperimentProtocol({ model: "claude-sonnet-4-6", samples: 5 })
+    const baseline = buildMeasurementFingerprint({
+      protocol,
+      pack: basePack,
+      chapterText: "正文",
+    })
+    const candidate = buildMeasurementFingerprint({
+      protocol,
+      pack: { ...basePack, recentSummaries: ["extra summary entry"] },
+      chapterText: "正文",
+    })
+    const claim = assertThrilProgressClaimAllowed(baseline, candidate)
+    expect(claim.allowed).toBe(false)
+    expect(claim.reason).toContain("REFUSE")
+    // 任何 pack 字段差异 → 不可归因文本因果
+    expect(claim.errors.some((e) => e.includes("packHash mismatch"))).toBe(true)
+  })
+})

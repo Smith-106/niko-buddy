@@ -265,6 +265,15 @@ export interface NovelConfig {
   deepChapterReview: boolean
   /** After Track A gates are green, optionally run Track B literary polish for thril/pull warnings (default off). Does not override Consistency/FIX-1. */
   literaryPolishAfterGate: boolean
+  /**
+   * Residual campaign product opt-in (default off / fail-open).
+   * When true and chapter is residual (not freeze Ch4/Ch6), deep-chapter receives
+   * residualOverallMedian + structure_thril_pacing fields for structure-first inject/polish.
+   * Does not elevate overall>=9 to Track A productHardGate.
+   */
+  residualCampaignEnabled: boolean
+  /** Allow residual campaign on freeze chapters Ch4/Ch6 (default false). */
+  residualCampaignIncludeFreezeChapters: boolean
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string
@@ -312,6 +321,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
   literaryPolishAfterGate: false,
+  residualCampaignEnabled: false,
+  residualCampaignIncludeFreezeChapters: false,
   reviewReasoningEffort: "high",
   writingModel: "",
   reviewModel: "",

@@ -77,7 +77,20 @@ import {
   shouldRepairTaskBrief,
   shouldUseDeterministicTaskBriefFallback,
   isMetaDraftContent,
+  appendStructurePlanToTaskBrief,
+  taskBriefHasStructurePlan,
 } from "./deep-chapter-task-brief"
+import {
+  createDefaultStructureThrilPacingPlan,
+  type ChapterStructurePlan,
+} from "./chapter-structure-plan"
+import {
+  RESIDUAL_OVERALL_MEDIAN_THRESHOLD,
+  evaluateResidualRewritePolicy,
+  type ResidualRewriteMode,
+  type ResidualRewritePolicyDecision,
+} from "./residual-rewrite-policy"
+import { buildStructureFirstRewriteConstraint } from "./structure-first-rewrite"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -98,6 +111,60 @@ export interface DeepChapterGenerationInput {
    * DEFAULT_NOVEL_CONFIG), so callers always supply a concrete value.
    */
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"]
+  /**
+   * Medium-deepen residual hooks (fail-open). Omitting all residual fields leaves
+   * the normal draft / Track A path unchanged. When residualOverallMedian is set
+   * (campaign residual chapter), structure-first inject + residual policy apply.
+   */
+  residualOverallMedian?: number
+  residualRewriteMode?: ResidualRewriteMode
+  chapterStructurePlan?: ChapterStructurePlan | null
+  residualLengthPreserving?: boolean
+}
+
+/** True when caller opted into residual campaign fields (any residual hook present). */
+export function hasResidualOptIn(input: DeepChapterGenerationInput): boolean {
+  return (
+    input.residualOverallMedian != null
+    || input.residualRewriteMode != null
+    || input.chapterStructurePlan != null
+    || input.residualLengthPreserving != null
+  )
+}
+
+/**
+ * Resolve structure plan for residual inject:
+ * - explicit chapterStructurePlan wins
+ * - residual_high + no plan → createDefaultStructureThrilPacingPlan(chapterNumber)
+ * - no residual opt-in → undefined (fail-open)
+ */
+export function resolveStructurePlanForResidual(
+  input: DeepChapterGenerationInput,
+): ChapterStructurePlan | undefined {
+  if (input.chapterStructurePlan) return input.chapterStructurePlan
+  if (!hasResidualOptIn(input)) return undefined
+  const median = input.residualOverallMedian
+  if (median != null && Number.isFinite(median) && median >= RESIDUAL_OVERALL_MEDIAN_THRESHOLD) {
+    return createDefaultStructureThrilPacingPlan(input.chapterNumber)
+  }
+  return undefined
+}
+
+/**
+ * Residual policy decision when residual fields present; null when fail-open omit.
+ */
+export function evaluateResidualPolicyForInput(
+  input: DeepChapterGenerationInput,
+): ResidualRewritePolicyDecision | null {
+  if (!hasResidualOptIn(input)) return null
+  if (input.residualOverallMedian == null || !Number.isFinite(input.residualOverallMedian)) {
+    return null
+  }
+  return evaluateResidualRewritePolicy({
+    residualOverallMedian: input.residualOverallMedian,
+    mode: input.residualRewriteMode ?? "structure_thril_pacing",
+    lengthPreserving: input.residualLengthPreserving ?? true,
+  })
 }
 
 export interface DeepChapterGenerationCallbacks {
@@ -1481,6 +1548,14 @@ async function generateTaskBrief(
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
     }
   }
+
+  // Medium-deepen E2: optional structure plan inject (fail-open when residual fields omitted).
+  const residualPlan = resolveStructurePlanForResidual(input)
+  if (residualPlan && !taskBriefHasStructurePlan(taskBrief)) {
+    taskBrief = appendStructurePlanToTaskBrief(taskBrief, residualPlan)
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+  }
+
   return taskBrief
 }
 
@@ -2017,26 +2092,49 @@ async function runReviewAndRepair(
   }
 
   // Track B: optional literary polish after Track A gates are green (no blocking errors).
+  // Residual campaign opt-in may enter this path without literaryPolishAfterGate (fail-open default).
   // At most one pass; thril/pacing/pull warnings only; never overrides Consistency/FIX-1.
+  const residualOptIn = hasResidualOptIn(input)
   if (
     novelConfig.deepChapterReview
-    && novelConfig.literaryPolishAfterGate
+    && (novelConfig.literaryPolishAfterGate || residualOptIn)
     && !manualReviewRequired
     && collectBlockingIssues(decisionGates).length === 0
   ) {
     const literaryIssues = collectLiteraryPolishIssues(decisionGates)
-    if (literaryIssues.length > 0) {
+    // Residual campaign may polish with structure constraint even when no thril/pacing warnings.
+    if (literaryIssues.length > 0 || residualOptIn) {
       callbacks.onThinking?.(formatStageThinking(
-        "阶段5.7：Track B 文学抛光",
-        [
-          `门控已绿；对 ${literaryIssues.length} 条 thril/节奏/追读相关提示做至多 1 次可选抛光（不挡交付）。`,
-          "",
-          formatReviewIssueList(literaryIssues),
-        ].join("\n"),
+        residualOptIn && literaryIssues.length === 0
+          ? "阶段5.7：Residual structure 抛光"
+          : "阶段5.7：Track B 文学抛光",
+        residualOptIn && literaryIssues.length === 0
+          ? [
+              "门控已绿；residual campaign opt-in：至多 1 次 structure_thril_pacing 抛光（不挡交付；productHardGate=false）。",
+              `residualOverallMedian=${input.residualOverallMedian ?? "n/a"} mode=${input.residualRewriteMode ?? "structure_thril_pacing"}`,
+            ].join("\n")
+          : [
+              `门控已绿；对 ${literaryIssues.length} 条 thril/节奏/追读相关提示做至多 1 次可选抛光（不挡交付）。`,
+              residualOptIn ? "（同时启用 residual structure-first 约束）" : "",
+              "",
+              formatReviewIssueList(literaryIssues),
+            ].filter(Boolean).join("\n"),
       ))
       // Multi-objective guardrails: lift thril/pacing/pull without burning character/pull/FIX-1.
       const trackBPolicy = createDefaultTrackBMultiObjectivePolicy()
       const trackBConstraint = buildTrackBMultiObjectiveConstraint(trackBPolicy)
+      // Medium-deepen E3: residual policy + structure constraint only when residual fields present.
+      let residualConstraint = ""
+      if (residualOptIn) {
+        const residualDecision = evaluateResidualPolicyForInput(input)
+        const residualPlanForPolish =
+          resolveStructurePlanForResidual(input)
+          ?? (residualDecision ? createDefaultStructureThrilPacingPlan(input.chapterNumber) : undefined)
+        residualConstraint = buildStructureFirstRewriteConstraint(
+          residualPlanForPolish ?? null,
+          residualDecision,
+        )
+      }
       const polishedContent = await collectModelText(
         writingConfig,
         [{
@@ -2050,7 +2148,7 @@ async function runReviewAndRepair(
             input.userRequest,
             input.chapterNumber,
             input.goldenThreeChapter,
-          ) + trackBConstraint,
+          ) + trackBConstraint + residualConstraint,
         }],
         deps,
         signal,

@@ -41,6 +41,10 @@ import type { Subplot } from "./subplot-board"
 import type { CharacterState } from "./character-state"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { analyzeForeshadowingDebt } from "./foreshadowing-debt"
+// S2c (roadmap R08): Quillica Story Threads 6 状态机合并 — 新检测维度。
+// 只 import 纯函数 (deriveThreadArcState/detectArcTransitionViolations),
+// 无 IO 无 LLM, 保持本文件 import 纪律 (fs / invoke / streamChat 零引用)。
+import { deriveThreadArcState, detectArcTransitionViolations } from "./story-thread-arcs"
 
 // ============================================================================
 // 类型导出 (ADR-30 ContinuityFinding discriminated union on type)
@@ -396,6 +400,60 @@ function detectDeadCharacterState(
 }
 
 // ============================================================================
+// S2c (roadmap R08): Quillica Story Threads 6 状态机合并检测器
+// ============================================================================
+
+/**
+ * detectThreadArcFinding (S2c): 基于 Quillica 6 态 (Setup/Rising/Climax/
+ * Falling/Resolved/Unresolved) 派生每个 subplot 的弧位, 只报两类 finding:
+ * ① 弧断裂: Resolved/Unresolved 终态后仍有 progress 条目 (状态机转移违反)
+ * ② 高潮段后断裂: 曾达 Climax (progress≥5) 但 long-gap 回落 → Falling 断裂
+ * 不重复 dormant_thread (休眠仍由 detectDormantThread 报, 守 roadmap 合并非双轨)。
+ * subtype consistency_mechanical (同其它机械检测器), 进 consistency gate。
+ */
+function detectThreadArcFinding(
+  store: ReadonlyStore,
+  config: ContinuityEngineConfig,
+): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+  const climaxProgressCount = 5
+  for (const s of store.subplots) {
+    const derived = detectArcTransitionViolations(
+      s,
+      deriveThreadArcState(s, store.currentChapter, {
+        climaxProgressCount,
+        fallingGapChapters: resolveDormantThreshold(store.currentChapter, config),
+      }),
+    )
+    // ① 状态机转移违反 (Resolved 后仍推进)
+    if (derived.transitionViolation) {
+      findings.push({
+        type: "dormant_thread", // 复用 dormant_thread 类型槽 (不新增 finding type 破坏下游)
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: `subplot:${s.id}`,
+        message: `thread ${s.title} 弧状态违反: ${derived.transitionViolation} (Quillica 6 态)`,
+        chapter: store.currentChapter,
+      })
+      continue
+    }
+    // ② 高潮段后断裂: progress≥5 曾达 Climax 且 Falling 由 long-gap 造成
+    const progressCount = s.progress?.length ?? 0
+    if (derived.arcState === "Falling" && progressCount >= climaxProgressCount) {
+      findings.push({
+        type: "dormant_thread",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: `subplot:${s.id}`,
+        message: `thread ${s.title} 高潮段后断裂 (Quillica: Climax→Falling, ${derived.basis})`,
+        chapter: store.currentChapter,
+      })
+    }
+  }
+  return findings
+}
+
+// ============================================================================
 // subplot lastSeenChapter 反推 (纯函数 — 调用方已加载 snapshots)
 // ============================================================================
 
@@ -687,6 +745,9 @@ export function checkContinuity(
     detectAbsentCharacter,
     detectOverdueThread,
     detectDeadCharacterState,
+    // S2c (roadmap R08): Quillica Story Threads 6 状态机合并 — 新增检测维度。
+    // 只报 Falling 弧断裂 + 状态机转移违反, 不重复 dormant/absent/overdue 判定。
+    detectThreadArcFinding,
   ]
   const rawFindings = detectors.flatMap((d) => d(store, config))
   if (overrideStore && overrideStore.overrides.length > 0) {

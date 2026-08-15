@@ -7,19 +7,27 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.4.6**（2026-08-10 发布）
+**v2.4.7**（2026-08-16 发布，notes-only）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
-### v2.4.6 更新亮点
+### v2.4.7 更新亮点
+
+- ✅ **Roadmap 3-session 执行管线** — 质量门控 + 连续性约束 + 检索智能
+- ✅ **S1 机械层硬化** — 零宽字符/同形字还原、格式规范化、hybrid_search 多信号融合、facts 时间窗表、de-ai 双层规则
+- ✅ **S2 连续性深化** — 四维反查 + 伏笔逾期、chase_debt 追读债务、Story Threads 6 态状态机、测量指纹契约
+- ✅ **S3 质量** — Gate v2 加权 P2 参考 + reading_power、i18n parity（修复 194 翻译缺口）、伪端点契约测试
+- ✅ **EPIC-005 persona 侧车** — 人物认知错误 UX + 侧边栏 UI
+- ✅ **产品门控不变** — Consistency > Anti-AI > Quality；P2 参考分永不覆盖 P0
+
+> notes-only 发布：安装包资产保持 **v2.4.6**，v2.4.7 为源码 tip（`smith/master`）。需要最新源码请 checkout master；安装包以 Release 资产为准。
+
+### v2.4.6 更新亮点（历史）
 
 - ✅ **Tip-aligned 安装包重建** — NSIS + 便携版与 mid-loop 源码对齐
 - ✅ **Avoid-AI 全量 patterns** — Track B 软诊断（非产品硬门）
 - ✅ **文学金标 / skill hooks / 测量指纹** — 创作链路可观测增强
 - ✅ **Headless 脚本** — pack export / gold smoke / formal LLM extract
-- ✅ **产品门控不变** — Consistency > Anti-AI > Quality；thril 不作产品硬门
-
-> 源码 tip（`smith/master`）在 v2.4.6 安装包之后仍可能继续合并 residual（layered recall、review_job UI 等）。需要最新源码请 checkout master；安装包以 Release 资产为准。
 
 ### 历史里程碑
 

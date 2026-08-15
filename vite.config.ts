@@ -104,6 +104,18 @@ export default defineConfig(async () => ({
       "**/*.{test,spec}.?(c|m)[jt]s?(x)",
       "**/*.bench.ts",
     ],
+    // node:test 资产 (node --test 运行, vitest 不收集): residual-rewrite-toolkit
+    // 的 smoke spec 用 node:test API, vitest include 模式会匹配 *.spec.mjs 但
+    // 0 测试注册 → 文件级 "No test suite found" 失败。排除, 保持其 node --test 运行方式。
+    // 注意: 显式 exclude 会覆盖 vitest 默认排除 (node_modules/dist 等), 必须完整继承。
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/cypress/**",
+      "**/.{idea,git,cache,output,temp}/**",
+      "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
+      "scripts/residual-rewrite-toolkit.spec.mjs",
+    ],
     // Loads .env.test.local into process.env for real-LLM tests.
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.

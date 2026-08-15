@@ -18,13 +18,78 @@ import {
   type SixReviewDimensionKey,
 } from "./dimension-review-adapter"
 
-/** Canonical Track B diagnosis model when sub2 composer is unavailable. */
-export const LITERARY_EXPERIMENT_DEFAULT_MODEL = "claude-sonnet-4-6"
+/** Canonical Track B diagnosis model (sub2 relay, grok-4.6). */
+export const LITERARY_EXPERIMENT_DEFAULT_MODEL = "grok-4.6"
 
 /** Milestone / seal default sample count (N=3 is smoke-only). */
 export const LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL = 5
 
 export const LITERARY_EXPERIMENT_WINDOW = "full_chapter" as const
+
+/**
+ * L9 overall median stretch target for manuscript milestones (truepack N≥5).
+ * NOT a Track A product hard gate — see overallGe9IsShipCriterion: false.
+ * Campaign seal language may use this as stretch/diagnostic only.
+ *
+ * Dual-threshold discipline (2026-08-12):
+ * - seal / L9 claim: overall median ≥ {@link L9_OVERALL_STRETCH_MEDIAN} (9.0)
+ * - test / rewrite control: aim overall median ≥ {@link L9_OVERALL_TEST_CONTROL_MEDIAN} (9.5)
+ *   so that noise and rater variance still leave a stable ≥9.0 floor.
+ */
+export const L9_OVERALL_STRETCH_MEDIAN = 9
+
+/**
+ * In-campaign test control line for rewrite KEEP / residual polish loops.
+ * Higher than seal stretch so quality stays above 9 under measurement noise.
+ * Never a Track A product hard gate; never required to claim L9 PASS alone
+ * (L9 PASS still uses seal stretch 9.0 with truepack N≥5).
+ */
+export const L9_OVERALL_TEST_CONTROL_MEDIAN = 9.5
+
+/** Role of L9 overall≥9 in product language (never ship hard gate). */
+export const L9_ROLE = "manuscript_milestone_stretch" as const
+
+/** Role of the 9.5 test control line (campaign/tooling only). */
+export const L9_TEST_CONTROL_ROLE = "campaign_test_control" as const
+
+export type L9OverallGateKind = "seal_stretch" | "test_control"
+
+export type L9OverallMedianDisposition =
+  | "below_seal"
+  | "seal_pass_below_test_control"
+  | "test_control_pass"
+  | "insufficient_samples"
+
+/**
+ * Classify a truepack overall median against dual L9 thresholds.
+ * - seal PASS when median ≥ 9.0 (L9 claim language)
+ * - test-control PASS when median ≥ 9.5 (rewrite KEEP / quality control)
+ */
+export function classifyL9OverallMedian(
+  median: number | null | undefined,
+  samples: number = LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL,
+): L9OverallMedianDisposition {
+  if (samples < LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL) return "insufficient_samples"
+  if (median == null || !Number.isFinite(median)) return "below_seal"
+  if (median >= L9_OVERALL_TEST_CONTROL_MEDIAN) return "test_control_pass"
+  if (median >= L9_OVERALL_STRETCH_MEDIAN) return "seal_pass_below_test_control"
+  return "below_seal"
+}
+
+/** True when median meets the named L9 gate (still not Track A). */
+export function meetsL9OverallGate(
+  median: number | null | undefined,
+  gate: L9OverallGateKind = "seal_stretch",
+  samples: number = LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL,
+): boolean {
+  if (samples < LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL) return false
+  if (median == null || !Number.isFinite(median)) return false
+  const threshold =
+    gate === "test_control"
+      ? L9_OVERALL_TEST_CONTROL_MEDIAN
+      : L9_OVERALL_STRETCH_MEDIAN
+  return median >= threshold
+}
 
 export type LiteraryExperimentMode = "NEW_only" | "AB_old_new"
 
@@ -109,6 +174,12 @@ export function createLiteraryExperimentProtocol(
     )
   }
   notes.push("Track B diagnosis only; Track A Consistency>Anti-AI>Quality unchanged")
+  notes.push(
+    `L9 overall≥${L9_OVERALL_STRETCH_MEDIAN} is ${L9_ROLE} only — not a product hard gate`,
+  )
+  notes.push(
+    `L9 test control overall≥${L9_OVERALL_TEST_CONTROL_MEDIAN} is ${L9_TEST_CONTROL_ROLE} — rewrite KEEP aim; seal claim still uses ${L9_OVERALL_STRETCH_MEDIAN}`,
+  )
   notes.push("Do not compare medians across different models")
   notes.push("Do not compare thril across different packHash (see measurementFingerprint)")
 

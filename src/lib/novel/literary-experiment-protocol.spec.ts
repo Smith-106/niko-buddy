@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest"
 import type { ContextPack } from "./context-engine"
 import {
+  L9_OVERALL_STRETCH_MEDIAN,
+  L9_OVERALL_TEST_CONTROL_MEDIAN,
+  L9_ROLE,
+  L9_TEST_CONTROL_ROLE,
   LITERARY_EXPERIMENT_DEFAULT_MODEL,
   LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL,
   bandForMedian,
   buildProductionStep0Fixture,
+  classifyL9OverallMedian,
   compareLiteraryExperimentSnapshots,
   createLiteraryExperimentProtocol,
+  meetsL9OverallGate,
   snapshotFromStep0Results,
   validateLiteraryExperimentComparability,
 } from "./literary-experiment-protocol"
@@ -50,6 +56,46 @@ describe("createLiteraryExperimentProtocol", () => {
     const p = createLiteraryExperimentProtocol({ samples: 3 })
     expect(p.samples).toBe(3)
     expect(p.notes?.some((n) => n.includes("smoke"))).toBe(true)
+  })
+
+  it("locks L9 overall>=9 as manuscript stretch not Track A hard gate", () => {
+    expect(L9_OVERALL_STRETCH_MEDIAN).toBe(9)
+    expect(L9_ROLE).toBe("manuscript_milestone_stretch")
+    const p = createLiteraryExperimentProtocol()
+    expect(p.overallGe9IsShipCriterion).toBe(false)
+    expect(p.productHardGate).toBe(false)
+    expect(p.notes?.some((n) => n.includes(L9_ROLE))).toBe(true)
+  })
+
+  it("locks dual threshold: test control 9.5 above seal stretch 9.0", () => {
+    expect(L9_OVERALL_TEST_CONTROL_MEDIAN).toBe(9.5)
+    expect(L9_OVERALL_TEST_CONTROL_MEDIAN).toBeGreaterThan(L9_OVERALL_STRETCH_MEDIAN)
+    expect(L9_TEST_CONTROL_ROLE).toBe("campaign_test_control")
+    const p = createLiteraryExperimentProtocol()
+    expect(p.notes?.some((n) => n.includes(String(L9_OVERALL_TEST_CONTROL_MEDIAN)))).toBe(true)
+    expect(p.notes?.some((n) => n.includes(L9_TEST_CONTROL_ROLE))).toBe(true)
+    expect(p.productHardGate).toBe(false)
+    expect(p.overallGe9IsShipCriterion).toBe(false)
+  })
+})
+
+describe("classifyL9OverallMedian / meetsL9OverallGate", () => {
+  it("classifies below seal, seal-only, and test-control bands", () => {
+    expect(classifyL9OverallMedian(8.8, 5)).toBe("below_seal")
+    expect(classifyL9OverallMedian(9.0, 5)).toBe("seal_pass_below_test_control")
+    expect(classifyL9OverallMedian(9.2, 5)).toBe("seal_pass_below_test_control")
+    expect(classifyL9OverallMedian(9.5, 5)).toBe("test_control_pass")
+    expect(classifyL9OverallMedian(9.7, 5)).toBe("test_control_pass")
+    expect(classifyL9OverallMedian(9.5, 3)).toBe("insufficient_samples")
+  })
+
+  it("meets seal stretch at 9.0 but test control only at 9.5", () => {
+    expect(meetsL9OverallGate(9.0, "seal_stretch", 5)).toBe(true)
+    expect(meetsL9OverallGate(9.0, "test_control", 5)).toBe(false)
+    expect(meetsL9OverallGate(9.5, "test_control", 5)).toBe(true)
+    expect(meetsL9OverallGate(9.5, "seal_stretch", 5)).toBe(true)
+    expect(meetsL9OverallGate(8.8, "seal_stretch", 5)).toBe(false)
+    expect(meetsL9OverallGate(9.5, "test_control", 3)).toBe(false)
   })
 })
 

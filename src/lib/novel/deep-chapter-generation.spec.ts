@@ -1,4 +1,24 @@
 import { describe, expect, it, vi } from "vitest"
+
+// C1 真接线 (ISS-20260719-002) 后 runFullReviewWithSixDim 无条件真实执行
+// runContinuityMechanicalPreflight；node 测试环境无 tauri invoke，loader 的
+// readFile 抛 ReferenceError(window is not defined)，loadCharacterStates 对非-ENOENT
+// 错误 rethrow → preflight degraded 产出多余 engine_error 日志，破坏 ARCH-001
+// 非阻断测试“仅 1 次 error 调用”断言。mock readFile 抛 ENOENT（模拟首运行空项目）
+// 让 4 个 loader 走正常降级返空 store，preflight 静默返回空 findings。
+const fsReadFileMock = vi.hoisted(() => vi.fn(async () => {
+  const err: NodeJS.ErrnoException = new Error("ENOENT: no such file or directory")
+  err.code = "ENOENT"
+  throw err
+}))
+vi.mock("@/commands/fs", async () => {
+  const actual = await vi.importActual<typeof import("@/commands/fs")>("@/commands/fs")
+  return {
+    ...actual,
+    readFile: fsReadFileMock,
+  }
+})
+
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore, DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
 import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"

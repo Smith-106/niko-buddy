@@ -34,6 +34,7 @@ vi.mock("@/commands/fs", () => ({
 import {
   acceptDeepChapterDraft,
   blockDeepChapterSession,
+  buildNextStatus,
   completeDeepChapterSession,
   createNovelSessionId,
   loadNovelSessionStatus,
@@ -45,7 +46,12 @@ import {
   resolveInterruptedSessionResumeCheckpoint,
   resolveStatusResumeCheckpoint,
   startDeepChapterSession,
+  computeChaseDebtState,
+  accrueChaseDebtInterest,
+  updateChaseDebtStatus,
   type NovelSessionStatus,
+  type ChaseDebt,
+  type ChaseDebtEvent,
 } from "./novel-session-status"
 import { acceptFindingRewriteDraft, rejectFindingRewriteDraft, writeFindingRewriteDraft } from "./novel-session-status"
 
@@ -829,5 +835,191 @@ describe("finding-rewrite draft helpers (RPC-2 / TASK-007)", () => {
     await rejectFindingRewriteDraft(normalizedProjectPath, sessionId)
     const draft = readJson(draftPath()) as Record<string, unknown>
     expect(draft.draft_status).toBe("rejected")
+  })
+})
+
+describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    // 恢复 readFile 默认实现 (上游 "fails fast" 测试用 mockImplementation 覆盖后未还原)
+    fsState.readFile.mockImplementation(async (path: string) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) {
+        throw new Error(`ENOENT: ${path}`)
+      }
+      return content
+    })
+    fsState.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
+      fsState.fileMap.set(path, content)
+    })
+  })
+
+  it("chase_debt 是 additive-optional 字段: 旧 status.json 无该字段仍可加载", async () => {
+    // 模拟旧版 status.json: 用真实 start 产物去掉 chase_debt 字段 (additive 兼容)
+    fsState.fileMap.delete(statusPath)
+    const started = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-legacy",
+      userRequest: "写第一章",
+      chapterNumber: 1,
+    })
+    expect(started.chase_debt).toBeUndefined() // 新会话默认无债务字段
+    fsState.fileMap.set(statusPath, JSON.stringify(started, null, 2))
+    const loaded = await loadNovelSessionStatus(normalizedProjectPath)
+    expect(loaded).not.toBeNull()
+    expect(loaded!.chase_debt).toBeUndefined() // additive: 无字段不填充
+    expect(loaded!.schema_version).toBe("1")
+  })
+
+  it("chase_debt 字段可写入并在 status.json 中回读", async () => {
+    const debt: ChaseDebt = {
+      id: "debt-1",
+      debt_type: "hook_strength",
+      original_amount: 1.0,
+      current_amount: 1.1,
+      interest_rate: 0.1,
+      source_chapter: 3,
+      due_chapter: 8,
+      status: "active",
+    }
+    fsState.fileMap.delete(statusPath)
+    const started = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-2",
+      userRequest: "写第二章",
+      chapterNumber: 2,
+    })
+    const withDebt: NovelSessionStatus = {
+      ...started,
+      chase_debt: {
+        debts: [debt],
+        debt_events: [{ debt_id: "debt-1", event_type: "created", amount: 1.0, chapter: 3 }],
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    }
+    fsState.fileMap.set(statusPath, JSON.stringify(withDebt, null, 2))
+    const loaded = await loadNovelSessionStatus(normalizedProjectPath)
+    expect(loaded.chase_debt?.debts).toHaveLength(1)
+    expect(loaded.chase_debt!.debts[0]!.debt_type).toBe("hook_strength")
+    expect(loaded.chase_debt!.debt_events[0]!.event_type).toBe("created")
+  })
+
+  it("契约区分: chase_debt (追读力债务) 与伏笔债务互不混用", () => {
+    // chase_debt 只承载 hook/micropayoff/coolpoint 追读力债务;
+    // 伏笔逾期由 foreshadowing-debt (related-chapters.findOverdueForeshadowing) 承载
+    const debt: ChaseDebt = {
+      id: "debt-2",
+      debt_type: "micropayoff",
+      original_amount: 2.0,
+      current_amount: 2.0,
+      interest_rate: 0.05,
+      source_chapter: 5,
+      due_chapter: 12,
+      status: "active",
+    }
+    expect(debt.debt_type).not.toBe("foreshadowing") // 无混用
+    expect(debt.debt_type).toBe("micropayoff")
+  })
+
+  it("computeChaseDebtState: 利息累加 + 到期判定 overdue", () => {
+    const debt: ChaseDebt = {
+      id: "debt-3",
+      debt_type: "coolpoint",
+      original_amount: 1.0,
+      current_amount: 1.0,
+      interest_rate: 0.1,
+      source_chapter: 1,
+      due_chapter: 5,
+      status: "active",
+    }
+    const events: ChaseDebtEvent[] = [
+      { debt_id: "debt-3", event_type: "interest_accrued", amount: 0.1, chapter: 2 },
+      { debt_id: "debt-3", event_type: "interest_accrued", amount: 0.1, chapter: 3 },
+    ]
+    // 第 4 章: 未到期, 有利息
+    const state4 = computeChaseDebtState(debt, 4, events)
+    expect(state4.current_amount).toBeCloseTo(1.2)
+    expect(state4.status).toBe("active")
+    // 第 5 章: 到期且未偿清 → overdue
+    const state5 = computeChaseDebtState(debt, 5, events)
+    expect(state5.status).toBe("overdue")
+  })
+
+  it("accrueChaseDebtInterest 防重复计息 (同 debt 同章只计一次)", () => {
+    const events: ChaseDebtEvent[] = [
+      { debt_id: "d1", event_type: "interest_accrued", amount: 0.1, chapter: 3 },
+    ]
+    const first = accrueChaseDebtInterest(events, "d1", 3, 0.1)
+    expect(first).toBeNull() // 已计过 → 拒绝
+    const second = accrueChaseDebtInterest(events, "d1", 4, 0.1)
+    expect(second).not.toBeNull() // 新章可计
+    expect(second!.chapter).toBe(4)
+  })
+
+  it("updateChaseDebtStatus: 无 chase_debt 字段时安全 no-op", () => {
+    const legacy: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: {
+        task_id: "t",
+        conversation_id: "c",
+        user_request: "r",
+        checkpoint_stage: "started",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      decision_gates: { consistency: "passed", anti_ai: "passed", quality: "pending" },
+      evidence_refs: [],
+    }
+    const result = updateChaseDebtStatus(legacy, "debt-x", "paid", 3)
+    expect(result).toEqual(legacy) // 无字段 → 原样返回
+  })
+
+  it("buildNextStatus 支持 chase_debt 传递", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: {
+        task_id: "t",
+        conversation_id: "c",
+        user_request: "r",
+        checkpoint_stage: "started",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      decision_gates: { consistency: "passed", anti_ai: "passed", quality: "pending" },
+      evidence_refs: [],
+    }
+    const next = buildNextStatus(base, {
+      updated_at: "2026-01-02T00:00:00.000Z",
+      status: "paused",
+      chase_debt: {
+        debts: [],
+        debt_events: [],
+        updated_at: "2026-01-02T00:00:00.000Z",
+      },
+    })
+    expect(next.chase_debt).toEqual({ debts: [], debt_events: [], updated_at: "2026-01-02T00:00:00.000Z" })
   })
 })

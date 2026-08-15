@@ -318,8 +318,18 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.residualCampaignEnabled")}</Label>
+              {settingTooltip("residualCampaignEnabledHint")}
+            </div>
+            <NovelToggle
+              checked={!!draft.novelConfig.residualCampaignEnabled}
+              onChange={() => updateNovelConfig({ residualCampaignEnabled: !draft.novelConfig.residualCampaignEnabled })}
+            />
+          </div>
 
-                    <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <Label>{t("novel.settings.reviewReasoningEffort")}</Label>
               {settingTooltip("reviewReasoningEffortHint")}

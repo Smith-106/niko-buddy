@@ -14,6 +14,12 @@ import type { ContextPack } from "./context-engine"
 import { buildStableContextPrefix, type ChapterLengthSpec } from "./deep-chapter-prompts"
 import { trimForThinking } from "./deep-chapter-generation"
 
+/** Structure-first residual rewrite: optional plan injection into task brief. */
+export {
+  appendStructurePlanToTaskBrief,
+  taskBriefHasStructurePlan,
+} from "./structure-first-rewrite"
+
 const TASK_BRIEF_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u
 const TASK_BRIEF_META_REFUSAL_RE = /只给任务书|不写正文|本轮只|无法开写|无法推进/u
 const DRAFT_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u

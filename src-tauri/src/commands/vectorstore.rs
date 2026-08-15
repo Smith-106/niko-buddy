@@ -1066,3 +1066,225 @@ mod tests_v2 {
         vector_drop_legacy(pp).await.unwrap();
     }
 }
+
+// ============================================================================
+// S1c hybrid_search: mem0 score_and_rank 多信号融合 (roadmap S1 P1 机械层 · R02)
+//
+// 思路 (reference/mem0/mem0/utils/scoring.py, 只读借鉴, 非整仓迁移):
+//   combined = (semantic + bm25 + entity_boost) / max_possible
+//   - semantic 阈值前置门控: 低于 threshold 直接排除 (即使 BM25/entity 能拉高)
+//   - max_possible 按激活信号自适应: 仅语义=1.0 / +BM25=2.0 / +entity=2.5
+// 本命令为纯 Rust 加性融合器: 输入各信号分数, 输出融合排序。语义检索仍由
+// vector_search_chunks 执行, BM25 分数由 TS 侧 (或后续 lexical 层) 提供 —
+// Rust 侧只做融合裁决, 不改现有 vector_search/vector_search_chunks。
+// ============================================================================
+
+/// 单条多信号输入 (来自调用方: TS 侧收集语义+BM25+实体信号)。
+#[derive(Debug, Deserialize)]
+pub struct HybridSearchInput {
+    /// 唯一 id (chunk_id 或 page_id, 由调用方决定语义)
+    pub id: String,
+    /// 语义相似度分数 (0-1, 由 vector_search_chunks score 提供)
+    pub semantic_score: f32,
+    /// BM25 关键词分数 (0-1, 归一化后; 无 BM25 信号时传 0)
+    pub bm25_score: f32,
+    /// 实体 boost (0-1, 命中查询实体时加性提升; 无实体信号时传 0)
+    pub entity_boost: f32,
+}
+
+/// 融合排序结果。
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HybridSearchResult {
+    pub id: String,
+    /// 融合后分数 0-1 (combined / max_possible)
+    pub score: f32,
+    /// 语义信号是否激活 (供审计)
+    pub semantic_used: bool,
+    /// BM25 信号是否激活
+    pub bm25_used: bool,
+    /// 实体信号是否激活
+    pub entity_used: bool,
+}
+
+/// mem0 风格 sigmoid 归一化 BM25 (query 长度自适应 midpoint)。
+/// 参考 mem0 get_bm25_params: 短 query 用低 midpoint, 长 query 用高 midpoint。
+fn bm25_sigmoid(score: f32, midpoint: f32, steepness: f32) -> f32 {
+    let x = score / midpoint;
+    let e = (steepness * (1.0 - x)).exp();
+    1.0 / (1.0 + e)
+}
+
+/// 自适应 max_possible: 按激活信号数计算 (mem0: 语义=1.0/+BM25=2.0/+entity=2.5)。
+fn adaptive_max_possible(semantic_active: bool, bm25_active: bool, entity_active: bool) -> f32 {
+    match (semantic_active, bm25_active, entity_active) {
+        (true, false, false) => 1.0,
+        (true, true, false) => 2.0,
+        (true, false, true) => 2.0,
+        (true, true, true) => 2.5,
+        (false, true, false) => 1.0,
+        (false, true, true) => 1.5,
+        (false, false, true) => 1.0,
+        (false, false, false) => 1.0,
+    }
+}
+
+/// mem0 score_and_rank 中文适配版: 语义+BM25+实体加性融合 + 阈值前置门控。
+///
+/// 参数:
+///   - inputs: 候选集合 (每项含 semantic/bm25/entity 三信号)
+///   - semantic_threshold: 语义前置门控阈值 (低于此直接排除, 默认 0.0 = 不启用)
+///   - bm25_midpoint: BM25 sigmoid 中点 (query 长度自适应, 默认 5.0)
+///   - top_k: 返回条数
+///
+/// 语义阈值前置门控 (mem0): 语义分数低于 threshold 的候选直接排除 —
+/// 即使 BM25/entity 能拉高, 防止关键词噪声污染语义不相关的项。
+pub fn score_and_rank(
+    inputs: &[HybridSearchInput],
+    semantic_threshold: f32,
+    bm25_midpoint: f32,
+    top_k: usize,
+) -> Vec<HybridSearchResult> {
+    let mut results: Vec<HybridSearchResult> = Vec::new();
+
+    for input in inputs {
+        // 阈值前置门控
+        if semantic_threshold > 0.0 && input.semantic_score < semantic_threshold {
+            continue;
+        }
+
+        // 信号激活判定 (mem0: 非零即激活, BM25 额外要求 > 0.05 防噪声)
+        let semantic_active = input.semantic_score > 0.0;
+        let bm25_active = input.bm25_score > 0.05;
+        let entity_active = input.entity_boost > 0.0;
+
+        let max_possible = adaptive_max_possible(semantic_active, bm25_active, entity_active);
+
+        // BM25 sigmoid 归一 (mem0 normalize_bm25)
+        let bm25_norm = if bm25_active {
+            bm25_sigmoid(input.bm25_score, bm25_midpoint, 3.0)
+        } else {
+            0.0
+        };
+
+        // 加性融合
+        let combined = input.semantic_score + bm25_norm + input.entity_boost;
+        let score = (combined / max_possible).clamp(0.0, 1.0);
+
+        results.push(HybridSearchResult {
+            id: input.id.clone(),
+            score,
+            semantic_used: semantic_active,
+            bm25_used: bm25_active,
+            entity_used: entity_active,
+        });
+    }
+
+    // 按融合分数降序
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.truncate(top_k);
+    results
+}
+
+/// RRF (Reciprocal Rank Fusion) 兼容降级: 当 TS 侧只有排序无分数时,
+/// 用倒数排名融合替代加性融合。保留此函数供调用方选择 (RRF 参数兼容旧排序)。
+/// rrf_k 默认 60 (标准 RRF 常量)。
+pub fn rrf_fuse(rankings: &[Vec<String>], top_k: usize, rrf_k: f32) -> Vec<HybridSearchResult> {
+    use std::collections::HashMap;
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    for ranking in rankings {
+        for (rank, id) in ranking.iter().enumerate() {
+            let entry = scores.entry(id.clone()).or_insert(0.0);
+            *entry += 1.0 / (rrf_k + (rank as f32) + 1.0);
+        }
+    }
+    let mut results: Vec<HybridSearchResult> = scores
+        .into_iter()
+        .map(|(id, score)| HybridSearchResult {
+            score: (score / (rankings.len() as f32).max(1.0)).clamp(0.0, 1.0),
+            semantic_used: true,
+            bm25_used: rankings.len() > 1,
+            entity_used: false,
+            id,
+        })
+        .collect();
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.truncate(top_k);
+    results
+}
+
+#[tauri::command]
+pub async fn hybrid_search(
+    inputs: Vec<HybridSearchInput>,
+    semantic_threshold: Option<f32>,
+    bm25_midpoint: Option<f32>,
+    top_k: usize,
+) -> Result<Vec<HybridSearchResult>, String> {
+    run_guarded_async(
+        "hybrid_search",
+        async move {
+            Ok(score_and_rank(
+                &inputs,
+                semantic_threshold.unwrap_or(0.0),
+                bm25_midpoint.unwrap_or(5.0),
+                top_k,
+            ))
+        },
+    )
+    .await
+}
+
+#[cfg(test)]
+mod tests_hybrid_search {
+    use super::*;
+
+    // S1c: hybrid_search score_and_rank 多信号融合 (mem0 思路)
+    #[test]
+    fn score_and_rank_fuses_signals_with_adaptive_max() {
+        let inputs = vec![
+            HybridSearchInput { id: "a".into(), semantic_score: 0.8, bm25_score: 0.0, entity_boost: 0.0 },
+            HybridSearchInput { id: "b".into(), semantic_score: 0.7, bm25_score: 0.6, entity_boost: 0.0 },
+            HybridSearchInput { id: "c".into(), semantic_score: 0.9, bm25_score: 0.5, entity_boost: 0.4 },
+        ];
+        let ranked = score_and_rank(&inputs, 0.0, 5.0, 3);
+        assert_eq!(ranked.len(), 3);
+        // a: 仅语义 0.8/1.0 = 0.8 最高; c: (0.9 + bm25sig + 0.4)/2.5 ≈ 0.55 次之;
+        // b: (0.7 + bm25sig)/2.0 ≈ 0.38 最低 — 多信号融合不掩盖强语义信号
+        assert_eq!(ranked[0].id, "a");
+        assert_eq!(ranked[1].id, "c");
+        assert_eq!(ranked[2].id, "b");
+        assert!(ranked[0].score <= 1.0 && ranked[0].score > 0.5);
+    }
+
+    #[test]
+    fn score_and_rank_semantic_threshold_gates_out_low_semantics() {
+        let inputs = vec![
+            HybridSearchInput { id: "good".into(), semantic_score: 0.9, bm25_score: 0.0, entity_boost: 0.0 },
+            // 语义低但 BM25 高 — 阈值前置门控应排除
+            HybridSearchInput { id: "noise".into(), semantic_score: 0.1, bm25_score: 0.9, entity_boost: 0.8 },
+        ];
+        let ranked = score_and_rank(&inputs, 0.5, 5.0, 2);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].id, "good");
+    }
+
+    #[test]
+    fn score_and_rank_top_k_truncates() {
+        let inputs: Vec<HybridSearchInput> = (0..5)
+            .map(|i| HybridSearchInput { id: format!("id-{i}"), semantic_score: 0.5 + (i as f32) * 0.1, bm25_score: 0.0, entity_boost: 0.0 })
+            .collect();
+        let ranked = score_and_rank(&inputs, 0.0, 5.0, 2);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(ranked[0].id, "id-4");
+    }
+
+    #[test]
+    fn rrf_fuse_merges_rankings() {
+        let r1 = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let r2 = vec!["b".to_string(), "d".to_string(), "e".to_string()];
+        let fused = rrf_fuse(&[r1, r2], 3, 60.0);
+        // b 在两个列表中都在第 2 位: 1/61 + 1/61 = 2/61 ≈ 0.0328 (最高)
+        // a 在第 1 位 + 不在 r2: 1/61 ≈ 0.0164 (次之)
+        assert_eq!(fused[0].id, "b");
+        assert_eq!(fused[1].id, "a");
+    }
+}

@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.7] - 2026-08-16
+
+### Added (roadmap 3-session 执行管线 — 质量门控 + 连续性约束 + 检索智能)
+- **S1 P1 机械层硬化**：normalizeText 零宽剥离 + 48 CJK 同形字还原 + TIER1 补 14 词（humanizer-zh 吸收）；replacement-dict + format-normalizer（成对引号/省略号/年份月日/感叹号≤5）；vectorstore hybrid_search（mem0 加性融合：语义+BM25+entity，rrf_fuse 降级）；facts-store（graphiti 时间窗 Fact 契约 + 文件真源 + 取代链）；de-ai-rules 双层结构化（7类×4级 + 8 流派基线）
+- **S2 P0 连续性深化**：related-chapters 四维反查（伏笔/出场/状态/关系，recentWindow=10，maxResults=5）+ 伏笔逾期 finding 接线；novel-session-status chase_debt 契约（防重复计息，additive-optional 回读兼容）；story-thread-arcs Quillica 6 态状态机合并进 continuity 引擎（非双轨）；measurement-fingerprint 契约确认（跨 pack 叙事拒绝）
+- **S3 P2 质量**：gate-v2-scoring（0.2/0.3/0.5 加权 + reading_power hook*0.4+coolpoint*0.3+micropayoff*0.3，P2 参考永不覆盖 P0）；i18n parity 测试 + 修复 194 个翻译缺口（zh +140 / en +54）；进程内伪端点契约测试（REV-CE-003 critical 短路，零真实 HTTP）
+- EPIC-005 persona 侧车（人物认知错误 UX + 侧边栏 UI）
+
+### Changed
+- README version badge → **2.4.7**
+- docs-site download / build pages → 2.4.7 (notes-only: installer 资产仍指向 2.4.6)
+
+### Removed (repo hygiene)
+- 本地构建产物 / 缓存（dist/、*.tsbuildinfo、临时脚本）
+- 过期 harvest-staging 报告归档到 archives/
+
+### Notes
+- notes-only release：安装包资产保持 v2.4.6，v2.4.7 为源码 tip（与 v2.4.6 先例一致）
+- 产品远程保持 smith only
+
 ## [2.4.6+docs-cleanup] - 2026-08-10
 
 ### Changed

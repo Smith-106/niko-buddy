@@ -47,12 +47,14 @@ const basePack: ContextPack = {
 
 describe("contextPackToPrompt", () => {
   it("将最近章节正文片段写入小说上下文包", () => {
+    // S1-S8 (d75e98d): recentChapterContents 是 L0 原文段，仅 layeredRecall="full"
+    // 时渲染（避免上下文膨胀）；默认 default 模式跳过。测试显式开 full。
     const prompt = contextPackToPrompt({
       ...basePack,
       recentChapterContents: [
         "## 第1章正文片段\n黑背心纹身大汉倒在雨里。",
       ],
-    })
+    }, undefined, { layeredRecall: "full" })
 
     expect(prompt).toContain("最近章节正文片段")
     expect(prompt).toContain("黑背心纹身大汉倒在雨里")

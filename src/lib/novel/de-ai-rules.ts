@@ -131,3 +131,177 @@ export const CHINESE_NOVEL_DE_AI_RULES = `# 中文小说去 AI 味补充规则
 ---
 
 **核心理念**：好的去AI味是让文字为故事服务。删掉一切不推进故事、不塑造人物、不制造氛围的东西。`
+
+// ============================================================================
+// S1e 双层结构化 de-ai (roadmap S1 P1 机械层 · R05 结构化 de-ai 组织)
+//
+// 参考 (reference/ 只读): prosecreator-design 的 Human Authenticity Markers —
+//   14 流派 × 7 类别 × 4 严重度 三维结构 (设计稿, 无规则数据, 结构可借)。
+// 本项目按 7 类别 × 4 严重度组织语义层规则, 并加 web-novel genre 基线开关
+// (14 流派只做 genre 感知开关, 不整搬 14 套规则)。
+//
+// 双层结构:
+//   机械层 (零 LLM): mechanical-slop-detector.ts TIER1/2/3 词库 + 密度统计
+//   语义层 (LLM):   本文件结构化规则 (category × severity × genre) → prompt
+//
+// de-ai-rules.ts 保持向后兼容: CHINESE_NOVEL_DE_AI_RULES 字符串仍为默认
+// 语义层 prompt (deep-chapter-prompts 引用不变); 新增结构化数据供需要
+// genre 感知/严重度过滤的调用方使用。
+// ============================================================================
+
+/** 7 类别 (prosecreator 7 categories 中文适配: 词汇/句式/叙事/对白/心理/场景/节奏) */
+export const DE_AI_CATEGORIES = [
+  "词汇",
+  "句式",
+  "叙事",
+  "对白",
+  "心理",
+  "场景",
+  "节奏",
+] as const
+export type DeAiCategory = (typeof DE_AI_CATEGORIES)[number]
+
+/** 4 严重度 (prosecreator 4 severity: Critical/High/Medium/Low) */
+export const DE_AI_SEVERITIES = ["critical", "high", "medium", "low"] as const
+export type DeAiSeverity = (typeof DE_AI_SEVERITIES)[number]
+
+/** 结构化语义规则条目: 类别 × 严重度 × 规则描述 */
+export interface DeAiStructuredRule {
+  category: DeAiCategory
+  severity: DeAiSeverity
+  /** 规则一句话 (进 prompt 给 LLM) */
+  rule: string
+  /** 正向示例 (可选) */
+  example?: string
+}
+
+/** 完整 7×4 结构化规则矩阵 (语义层; 与机械层 TIER 词库互补不重复) */
+export const DE_AI_STRUCTURED_RULES: readonly DeAiStructuredRule[] = [
+  // ── 词汇 (mechanical 层覆盖禁用词; 语义层管上下文性用法) ──
+  { category: "词汇", severity: "critical", rule: "总结腔/解释腔词汇 (这一切/显然/事实上/毫无疑问/总而言之) 必须删除或改写", example: "❌ 显然他赢了 → ✅ 他赢了" },
+  { category: "词汇", severity: "high", rule: "空洞形容 (复杂/微妙/深刻/独特/某种程度) 改为具体细节", example: "❌ 气氛微妙 → ✅ 没人说话，只有钟摆声" },
+  { category: "词汇", severity: "medium", rule: "装饰性副词 (缓缓/慢慢/轻轻) 非必要即删; 保留口癖约束: 特定语境下是风格非 AI 味" },
+  { category: "词汇", severity: "low", rule: "AI 特征词 (似乎/仿佛/如同) 过度使用才罚, 合理语境保留" },
+  // ── 句式 ──
+  { category: "句式", severity: "critical", rule: "连续 3 句以上相同句式结构必须打破" },
+  { category: "句式", severity: "high", rule: "机械排比 (既...又.../不仅...还... 工整过度) 拆散" },
+  { category: "句式", severity: "medium", rule: "每段起承转合四段式必须变化; 允许单句成段/突然转场/留白" },
+  { category: "句式", severity: "low", rule: "长句拆分: 复合句断为短句, 保留中文短句节奏" },
+  // ── 叙事 ──
+  { category: "叙事", severity: "critical", rule: "过度解释动机 (他这么做是因为...) 删除, 信任读者" },
+  { category: "叙事", severity: "high", rule: "总结情绪 (她感到失望/欣慰/复杂) 用动作和环境代替" },
+  { category: "叙事", severity: "medium", rule: "无意义转场 (时间一分一秒过去) 删除" },
+  { category: "叙事", severity: "low", rule: "概括式冲突 (双方陷入僵持) 改为具体对峙细节" },
+  // ── 对白 ──
+  { category: "对白", severity: "critical", rule: "书面腔对白口语化: 保留呃/嗯/那个, 允许半句话/答非所问" },
+  { category: "对白", severity: "high", rule: "不解释潜台词, 让读者自己体会" },
+  { category: "对白", severity: "medium", rule: "紧张时重复/结巴是真实化特征, 不删" },
+  { category: "对白", severity: "low", rule: "保留角色声线/对白毛边, 不按非虚构规则统一" },
+  // ── 心理 ──
+  { category: "心理", severity: "high", rule: "心理描写用感官细节代替 '他觉得'; 不总结已经发生的事" },
+  { category: "心理", severity: "medium", rule: "不提醒读者应该有的感受" },
+  { category: "心理", severity: "low", rule: "情感描写允许一定修饰, 不强制精简到极致" },
+  // ── 场景 ──
+  { category: "场景", severity: "high", rule: "固定场景模板 (环境→人物→对话→内心) 必须打破" },
+  { category: "场景", severity: "medium", rule: "场景描写选择性描写, 不面面俱到" },
+  { category: "场景", severity: "low", rule: "动作场面: 短句/动词/快节奏" },
+  // ── 节奏 ──
+  { category: "节奏", severity: "medium", rule: "段落长度不对称, 快慢节奏有变化" },
+  { category: "节奏", severity: "low", rule: "悬疑铺垫留白不解释; 章节收束用悬念钩子不总结" },
+] as const
+
+/** 网文 genre 基线 (prosecreator 14 流派中的 web-novel 常用; genre 感知开关) */
+export const WEB_NOVEL_GENRES = [
+  "玄幻", "仙侠", "都市", "历史", "科幻", "悬疑", "言情", "武侠",
+] as const
+export type WebNovelGenre = (typeof WEB_NOVEL_GENRES)[number]
+
+/** genre → 基线倾向 (仅影响低严重度规则, 不改变 critical/high 硬规则) */
+export interface GenreBaseline {
+  genre: WebNovelGenre
+  /** 节奏倾向: 快节奏 (爽文) / 慢节奏 (言情/悬疑铺陈) */
+  pacing: "fast" | "slow"
+  /** 对白口语化强度: 强 (都市/武侠) / 中 (玄幻/仙侠) / 弱 (历史) */
+  dialogue: "strong" | "medium" | "weak"
+  /** 心理描写保留: 言情/历史保留更多内心戏 */
+  introspection: "keep" | "trim"
+}
+
+export const GENRE_BASELINES: readonly GenreBaseline[] = [
+  { genre: "玄幻", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "仙侠", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "都市", pacing: "fast", dialogue: "strong", introspection: "trim" },
+  { genre: "历史", pacing: "slow", dialogue: "weak", introspection: "keep" },
+  { genre: "科幻", pacing: "fast", dialogue: "medium", introspection: "trim" },
+  { genre: "悬疑", pacing: "slow", dialogue: "medium", introspection: "keep" },
+  { genre: "言情", pacing: "slow", dialogue: "strong", introspection: "keep" },
+  { genre: "武侠", pacing: "fast", dialogue: "strong", introspection: "trim" },
+] as const
+
+/** 按 genre 查基线 (未知 genre 返回 undefined — 调用方用默认) */
+export function getGenreBaseline(genre: string): GenreBaseline | undefined {
+  return GENRE_BASELINES.find((b) => b.genre === genre)
+}
+
+/**
+ * 按严重度过滤结构化规则 (供调用方选择注入强度)。
+ * 默认只注入 critical+high+medium (low 为可选微调)。
+ */
+export function filterRulesBySeverity(
+  rules: readonly DeAiStructuredRule[],
+  minSeverity: DeAiSeverity = "medium",
+): DeAiStructuredRule[] {
+  const order: Record<DeAiSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+  const minOrder = order[minSeverity]
+  return rules.filter((r) => order[r.severity] <= minOrder)
+}
+
+/**
+ * 构建结构化语义层 prompt (genre 感知)。
+ * 机械层已由 mechanical-slop-detector 前置; 本 prompt 只含语义层规则。
+ * 与 CHINESE_NOVEL_DE_AI_RULES 字符串等价但结构化 — 调用方二选一。
+ */
+export function buildStructuredDeAiRules(genre?: string, minSeverity: DeAiSeverity = "medium"): string {
+  const rules = filterRulesBySeverity(DE_AI_STRUCTURED_RULES, minSeverity)
+  const baseline = genre ? getGenreBaseline(genre) : undefined
+  const lines: string[] = []
+  lines.push("# 中文小说去 AI 味语义层规则 (结构化)")
+  lines.push("")
+  lines.push(`类别 × 严重度: ${DE_AI_CATEGORIES.length} 类 × ${DE_AI_SEVERITIES.length} 级`)
+  lines.push("")
+  if (baseline) {
+    lines.push(`流派基线: ${baseline.genre} — 节奏: ${baseline.pacing} / 对白口语化: ${baseline.dialogue} / 心理描写: ${baseline.introspection}`)
+    lines.push("")
+  }
+  lines.push("## 规则矩阵 (按类别分组)")
+  for (const category of DE_AI_CATEGORIES) {
+    const catRules = rules.filter((r) => r.category === category)
+    if (catRules.length === 0) continue
+    lines.push(`### ${category}`)
+    for (const r of catRules) {
+      lines.push(`- [${r.severity}] ${r.rule}${r.example ? ` (${r.example})` : ""}`)
+    }
+    lines.push("")
+  }
+  lines.push("## 保留内容 (不可删改)")
+  lines.push("1. 剧情事实、人物关系、时间线、伏笔、章节钩子")
+  lines.push("2. 视角人称、角色声线、对白毛边")
+  lines.push("3. 不增删剧情点, 只改写作方式")
+  lines.push("4. 特定语境下的 '似乎/仿佛/缓缓' 是风格, 不是 AI 味")
+  return lines.join("\n")
+}
+
+/** 结构化规则统计 (供 spec/审计) */
+export function deAiStructuredStats(): {
+  categoryCount: number
+  severityCount: number
+  ruleCount: number
+  genreCount: number
+} {
+  return {
+    categoryCount: DE_AI_CATEGORIES.length,
+    severityCount: DE_AI_SEVERITIES.length,
+    ruleCount: DE_AI_STRUCTURED_RULES.length,
+    genreCount: WEB_NOVEL_GENRES.length,
+  }
+}

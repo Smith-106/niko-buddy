@@ -28,7 +28,13 @@
     "confirm": "Confirm",
     "back": "Back",
     "next": "Next",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "previous": "Previous",
+    "loading": "Loading",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "info": "Info"
   },
   "appLayout": {
     "bookAnalysis": {
@@ -239,15 +245,15 @@
     "reviewingAction": "Reviewing...",
     "noResults": "No review results for this dimension",
     "stats": "Blocking:{{blocking}} High:{{high}} Medium:{{medium}} Low:{{low}}",
-    "splitAcceptanceHint": "Track A = ship/consistency gates; Track B = optional literary diagnosis. Average ≥9 is not a product hard gate.",
+    "splitAcceptanceHint": "Track A = consistency/ship gates; manuscript milestones also require overall median ≥9 (N≥5). Consistency failure still cannot be overridden by literary scores.",
     "trackABadge": "Track A",
     "trackAHint": "Ship / consistency",
     "trackBBadge": "Track B",
     "trackBHint": "Literary (optional)",
     "trackADimBadge": "A·gate",
     "trackBDimBadge": "B·lit",
-    "notProductGate": "Not a product hard gate",
-    "perDimOnly": "Read per-dimension scores; six-dim average is not ship criteria",
+    "notProductGate": "Optional for app-only ship; hard gate for manuscript milestones",
+    "perDimOnly": "Read per-dimension scores; manuscript seal uses overall median ≥9 (N≥5) with Consistency first",
     "measurementFingerprintHint": "Measurement fingerprint: model+N+window+packHash+textHash. Different packHash → thril not comparable. Not a product hard gate.",
     "measurementFingerprintTitle": "Measurement fingerprint",
     "measurementFingerprintEmpty": "No fingerprint yet — run a six-dimension review (model+packHash+textHash)"
@@ -729,7 +735,8 @@
       "missingPage": "Missing page",
       "confirm": "Needs confirmation",
       "suggestion": "Suggestion"
-    }
+    },
+    "rewriteAlertPrefix": "Rewrite suggestion"
   },
   "settings": {
     "title": "Settings",
@@ -940,7 +947,8 @@
           "customEndpointHint": "Leave blank to reuse the current provider's endpoint",
           "description": "Description",
           "descriptionPlaceholder": "e.g. good for coding"
-        }
+        },
+        "pleaseSelectModel": "Please select a model"
       },
       "embedding": {
         "title": "Vector Search / Embedding Model",
@@ -1086,7 +1094,8 @@
       "about": {
         "title": "About",
         "description": "Build information and runtime status.",
-        "version": "Version"
+        "version": "Version",
+        "appDescription": "Local-first writing workspace"
       },
       "sourceWatch": {
         "groups": {
@@ -1098,7 +1107,26 @@
           "images": "Images",
           "media": "Audio / Video",
           "code": "Source Code"
-        }
+        },
+        "title": "Source Watch",
+        "description": "Watch source folders and auto-ingest new files",
+        "enable": "Enable Source Watch",
+        "enableDescription": "Monitor watched folders for changes",
+        "autoIngest": "Auto-ingest",
+        "autoIngestDescription": "Automatically import new or changed files",
+        "noProject": "No project selected",
+        "fileTypes": "File types",
+        "fileTypesDescription": "Comma-separated extensions to watch",
+        "exclusions": "Exclusions",
+        "maxSize": "Max file size (KB)",
+        "excludeDirs": "Excluded directories",
+        "excludeDirsPlaceholder": "e.g. node_modules, .git",
+        "excludeDirsHint": "One directory name per line",
+        "excludeExtensions": "Excluded extensions",
+        "excludeExtensionsPlaceholder": "e.g. .tmp, .log",
+        "excludeExtensionsHint": "One extension per line",
+        "excludeGlobs": "Excluded globs",
+        "excludeGlobsHint": "One glob pattern per line"
       },
       "novel": {
         "title": "Novel",
@@ -1142,6 +1170,22 @@
           "merged": "Merged",
           "skipped": "Marked as Not Duplicates"
         }
+      },
+      "scheduledImport": {
+        "title": "Scheduled Import",
+        "description": "Import files from a folder on a schedule",
+        "enable": "Enable Scheduled Import",
+        "directory": "Source directory",
+        "directoryHelp": "Folder to watch for imports",
+        "privacyNotice": "All processing stays local — no telemetry",
+        "browse": "Browse",
+        "selectDirectory": "Select directory",
+        "interval": "Interval (minutes)",
+        "intervalHelp": "How often to check the folder",
+        "scanNow": "Scan now",
+        "scanning": "Scanning…",
+        "lastScan": "Last scan: {{time}}",
+        "never": "Never"
       }
     }
   },
@@ -1157,7 +1201,9 @@
     "formatWritingTitle": "Automatically normalize paragraph formatting and add first-line indentation.",
     "formatWriting": "Auto Format",
     "snapshotTitle": "View the structured memory extracted from this chapter, including summary, characters, events, foreshadowing, and timeline.",
-    "cognitionTitle": "View what each character knows or does not know at the current plot stage to prevent knowledge leaks."
+    "cognitionTitle": "View what each character knows or does not know at the current plot stage to prevent knowledge leaks.",
+    "selectFile": "Select a file to preview",
+    "notAvailable": "Preview not available"
   },
   "trash": {
     "title": "Trash",
@@ -1321,13 +1367,23 @@
       "communitySummaryFailed": "Community summary generation failed: {{message}}. Will retry on next trigger.",
       "literaryPolishAfterGate": "Literary polish after gates (Track B)",
       "literaryPolishAfterGateHint": "When gates are green, optionally run one thril/pacing/pull polish pass. Does not block shipping; must not early-expose mechanism names. Off by default.",
+      "residualCampaignEnabled": "Residual campaign mode (structure-first)",
+      "residualCampaignEnabledHint": "When on, residual chapters (default 1/2/3/5; freeze 4/6) receive residualOverallMedian + structure_thril_pacing plan injection. Residual polish can run without Track B literary polish. Off by default; normal draft path unchanged. overall≥9 is not a Track A hard gate.",
       "outlineThrillLiveStatusTitle": "Pre-write thril soft-gate (live)",
       "outlineThrillLiveStatusHint": "Heuristic eval of current chapter outline; on and visible by default. Not a product hard gate; FIX-1 fail cannot be thril-acked away.",
       "outlineThrillStatusPass": "pass",
       "outlineThrillStatusFail": "fail",
       "outlineThrillStatusUnknown": "unknown",
       "outlineThrillFix1Blocked": "FIX-1 conflict cue — thril ack cannot bypass",
-      "outlineThrillAllOk": "Structural checks soft-pass"
+      "outlineThrillAllOk": "Structural checks soft-pass",
+      "chatHistoryLength": "Chat history length",
+      "chatHistoryLengthHint": "Number of messages to keep",
+      "chatHistoryLengthHelp": "Controls how much context the chat retains",
+      "chatHistoryLengthCurrent": "Current {{count}} messages (~{{turns}} turns)",
+      "feedbackWindowLookbackChapterCountHelp": "How many previous chapters feed into the review window",
+      "feedbackWindowCurrentChapterIncludeShouldImproveHelp": "Include should-improve items for the current chapter",
+      "feedbackWindowPreviousChapterCarryEnabledHelp": "Carry previous chapter feedback forward",
+      "feedbackWindowLookbackIncludeMustFixOnlyHelp": "Only include must-fix items in lookback"
     },
     "soul": {
       "projectSoul": "Project Soul",
@@ -1359,7 +1415,9 @@
       "clickNewChatToBegin": "Click 'New Chat' to start writing",
       "writeToWiki": "Write to Chapter",
       "ingestPlaceholder": "Discuss chapter content or continue...",
-      "typeAMessage": "Enter writing request..."
+      "typeAMessage": "Enter writing request...",
+      "draftDiscarded": "Draft discarded",
+      "draftArchived": "Draft archived"
     },
     "sources": {
       "title": "Outlines",

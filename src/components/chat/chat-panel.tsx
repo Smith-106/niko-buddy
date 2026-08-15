@@ -994,6 +994,12 @@ export function ChatPanel() {
             activeStepIndex: sessionState.active_step_index,
             updatedAt: sessionState.updated_at,
           }
+          const { resolveResidualCampaignFields } = await import("@/lib/novel/residual-campaign")
+          const residualCampaignFields = resolveResidualCampaignFields({
+            enabled: !!novelConfig.residualCampaignEnabled,
+            chapterNumber: effectiveTaskRoute?.chapterNumber,
+            config: novelConfig,
+          })
           const generationResult = await runDeepChapterGeneration(
             {
               projectPath: pp,
@@ -1004,6 +1010,14 @@ export function ChatPanel() {
               llmConfig: effectiveChatLlmConfig,
               novelConfig,
               resumeCheckpoint: interruptedResumeCheckpoint,
+              ...(residualCampaignFields
+                ? {
+                    residualOverallMedian: residualCampaignFields.residualOverallMedian,
+                    residualRewriteMode: residualCampaignFields.residualRewriteMode,
+                    residualLengthPreserving: residualCampaignFields.residualLengthPreserving,
+                    chapterStructurePlan: residualCampaignFields.chapterStructurePlan,
+                  }
+                : {}),
             },
             {
               onThinking: appendThinkingBlock,
@@ -1813,6 +1827,12 @@ export function ChatPanel() {
           updatedAt: sessionState.updated_at,
         }
 
+        const { resolveResidualCampaignFields } = await import("@/lib/novel/residual-campaign")
+        const residualCampaignFields = resolveResidualCampaignFields({
+          enabled: !!novelConfig.residualCampaignEnabled,
+          chapterNumber: resumeRoute?.chapterNumber,
+          config: novelConfig,
+        })
         const generationResult = await runDeepChapterGeneration(
           {
             projectPath: pp,
@@ -1823,6 +1843,14 @@ export function ChatPanel() {
             llmConfig: effectiveChatLlmConfig,
             novelConfig,
             resumeCheckpoint,
+            ...(residualCampaignFields
+              ? {
+                  residualOverallMedian: residualCampaignFields.residualOverallMedian,
+                  residualRewriteMode: residualCampaignFields.residualRewriteMode,
+                  residualLengthPreserving: residualCampaignFields.residualLengthPreserving,
+                  chapterStructurePlan: residualCampaignFields.chapterStructurePlan,
+                }
+              : {}),
           },
           {
             onThinking: (content) => {

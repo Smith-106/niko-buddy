@@ -6,6 +6,17 @@ import { buildReviewPrompt, reviewChapter } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
+  // C1 真接线 (ISS-20260719-002) 后 reviewChapter 无条件真实执行
+  // runContinuityMechanicalPreflight：node 测试环境无 tauri invoke，loader 的
+  // readFile 会抛 ReferenceError(window is not defined)，loadCharacterStates 对
+  // 非-ENOENT 错误 rethrow → preflight catch → 每次审稿都产 engine_error warning
+  // 污染结果。修复：mock readFile 抛 ENOENT（模拟 E:/Novel 首运行空项目），让
+  // 4 个 loader 走正常降级返空 store，checkContinuity 与短路语义真实可达。
+  fsReadFileMock: vi.fn(async () => {
+    const err: NodeJS.ErrnoException = new Error("ENOENT: no such file or directory")
+    err.code = "ENOENT"
+    throw err
+  }),
   // REV-CE-003 test-gen: checkContinuityMock 用于驱动 review-adapter production path
   // 的 critical 短路分支 (review-adapter.ts:430-432) + toConsistencyReviewResult 非空
   // findings 调用 (review-adapter.ts:351)。production path 调 checkContinuity (ADR-29
@@ -51,6 +62,14 @@ const mocks = vi.hoisted(() => ({
 const streamChatMock = mocks.streamChatMock
 const llmConfig = mocks.llmConfig as LlmConfig
 const contextPack = mocks.contextPack satisfies ContextPack
+
+vi.mock("@/commands/fs", async () => {
+  const actual = await vi.importActual<typeof import("@/commands/fs")>("@/commands/fs")
+  return {
+    ...actual,
+    readFile: mocks.fsReadFileMock,
+  }
+})
 
 vi.mock("@/lib/llm-client", () => ({
   streamChat: mocks.streamChatMock,
@@ -477,5 +496,125 @@ describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
     expect(mechanical?.message).toContain("休眠 subplot")
     const llm = results.find((r) => r.type === "cognition")
     expect(llm).toBeDefined()
+  })
+})
+
+// ============================================================================
+// S3c (roadmap R12): 进程内伪端点契约测试试点 (REV-CE-003 critical 短路)
+//
+// 参考 (reference/ 只读): studio 互鉴 — 契约测试用进程内伪端点注入, 不引入
+// 真实 HTTP 服务。本块定义显式 FakeContinuityEndpoint (进程内注入端点契约),
+// 验证 review-adapter 对 continuity 端点的三个契约:
+//   ① critical finding → 短路 LLM, 返回 error (Consistency P0 先于 LLM)
+//   ② warning finding → 不短路, LLM 合并
+//   ③ 契约字段 (ref/subtype/chapter) 透传 continuityMeta
+// 伪端点 = 进程内对象, 零网络零遥测 (无外部调用铁律)。
+// ============================================================================
+
+describe("S3c 进程内伪端点契约 (REV-CE-003 pilot)", () => {
+  // FakeContinuityEndpoint: 进程内伪端点 — 模拟 reviewChapter 的 continuity
+  // 依赖面 (runContinuityMechanicalPreflight), 返回结构化 findings 数组。
+  // 契约: handle(chapter) → ContinuityFinding[] (与 engine 同构, 非 HTTP)。
+  interface FakeContinuityEndpoint {
+    handle(chapter: number): Array<{
+      type: string
+      subtype: string
+      severity: string
+      ref: string
+      message: string
+      chapter: number
+    }>
+  }
+
+  function makeEndpoint(findings: Array<{
+    type: string
+    subtype: string
+    severity: string
+    ref: string
+    message: string
+    chapter: number
+  }>): FakeContinuityEndpoint {
+    return { handle: () => findings }
+  }
+
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    mocks.continuityFindingsOverride = undefined
+    mocks.checkContinuityMock.mockClear()
+  })
+
+  it("契约① critical finding 短路 LLM 审查 (P0 先于 P1/P2)", async () => {
+    // 伪端点注入: dead_character_state critical → reviewChapter 必须短路
+    const endpoint = makeEndpoint([{
+      type: "dead_character_state",
+      subtype: "consistency_mechanical",
+      severity: "critical",
+      ref: "character:已故长老",
+      message: "已故长老在第8章仍出现活跃状态变更",
+      chapter: 8,
+    }])
+    mocks.continuityFindingsOverride = endpoint.handle(8)
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    // 契约断言: 短路 → streamChat 不被调
+    expect(streamChatMock).not.toHaveBeenCalled()
+    // critical → error, 单条返回
+    expect(results).toHaveLength(1)
+    expect(results[0]!.severity).toBe("error")
+    expect(results[0]!.type).toBe("consistency_mechanical")
+  })
+
+  it("契约② warning finding 不短路, LLM 审查合并", async () => {
+    const endpoint = makeEndpoint([{
+      type: "dormant_thread",
+      subtype: "consistency_mechanical",
+      severity: "warning",
+      ref: "subplot:权谋线",
+      message: "权谋线休眠 6 章未推进",
+      chapter: 8,
+    }])
+    mocks.continuityFindingsOverride = endpoint.handle(8)
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onToken(JSON.stringify([{
+        severity: "warning",
+        type: "cognition",
+        message: "LLM 审查发现认知问题",
+        evidence: "证据",
+        relatedMemory: "",
+        suggestion: "建议",
+      }]))
+      callbacks.onDone()
+    })
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(results).toHaveLength(2)
+    expect(results.some((r) => r.type === "consistency_mechanical" && r.severity === "warning")).toBe(true)
+    expect(results.some((r) => r.type === "cognition")).toBe(true)
+  })
+
+  it("契约③ 字段透传: ref/subtype/chapter 进入 continuityMeta", async () => {
+    const endpoint = makeEndpoint([{
+      type: "overdue_thread",
+      subtype: "consistency_mechanical",
+      severity: "critical",
+      ref: "subplot:复仇线",
+      message: "复仇线逾期 12 章未回收",
+      chapter: 8,
+    }])
+    mocks.continuityFindingsOverride = endpoint.handle(8)
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    expect(results).toHaveLength(1)
+    expect(results[0]!.continuityMeta?.ref).toBe("subplot:复仇线")
+    expect(results[0]!.continuityMeta?.subtype).toBe("consistency_mechanical")
+    expect(results[0]!.continuityMeta?.chapter).toBe(8)
   })
 })

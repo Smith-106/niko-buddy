@@ -78,6 +78,25 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_SIX_CHANGELOG: ChangelogEntry = {
+  version: "2.4.6",
+  date: "2026-08-10",
+  highlights: {
+    en: [
+      "Docs cleanup release: README version badge and install note aligned to 2.4.6 (tip vs installer clarified), docs-site download/build pages updated to 2.4.6 asset names and highlights.",
+      "Repo hygiene: removed accidental tracked junk (tr master, remote-changelog.ts, 验证修复.js, 去AI味Skill规则.md, PHASE_2.4_PROGRESS_REPORT.md); local-only cleanup for dist/, *.tsbuildinfo and hub one-off scripts.",
+      "Installer assets remain v2.4.6; residual source tip may advance without a new tag until the next asset rebuild.",
+      "Product remote remains smith-only (Smith-106/niko-buddy).",
+    ],
+    zh: [
+      "文档清理发布：README 版本徽章与安装说明对齐 2.4.6（tip 与安装包区分），docs-site 下载/构建页更新为 2.4.6 资源名与亮点。",
+      "仓库卫生：移除误提交的杂项（tr master、remote-changelog.ts、验证修复.js、去AI味Skill规则.md、PHASE_2.4_PROGRESS_REPORT.md）；本地清理 dist/、*.tsbuildinfo 与 hub 一次性脚本。",
+      "安装包资产保持 v2.4.6；源码 tip 在下次资产重建前可继续前进而不打新 tag。",
+      "产品远程保持仅 smith（Smith-106/niko-buddy）。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_FIVE_CHANGELOG: ChangelogEntry = {
   version: "2.4.5",
   date: "2026-08-08",
@@ -787,6 +806,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_SIX_CHANGELOG.version) return [TWO_POINT_FOUR_SIX_CHANGELOG]
   if (version === TWO_POINT_FOUR_FIVE_CHANGELOG.version) return [TWO_POINT_FOUR_FIVE_CHANGELOG]
   if (version === TWO_POINT_FOUR_FOUR_CHANGELOG.version) return [TWO_POINT_FOUR_FOUR_CHANGELOG]
   if (version === TWO_POINT_FOUR_THREE_CHANGELOG.version) return [TWO_POINT_FOUR_THREE_CHANGELOG]
@@ -825,6 +845,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_SIX_CHANGELOG,
     TWO_POINT_FOUR_FIVE_CHANGELOG,
     TWO_POINT_FOUR_FOUR_CHANGELOG,
     TWO_POINT_FOUR_THREE_CHANGELOG,

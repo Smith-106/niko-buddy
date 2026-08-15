@@ -625,6 +625,10 @@ function normalizeNovelConfig(
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
     deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
     literaryPolishAfterGate: config.literaryPolishAfterGate ?? DEFAULT_NOVEL_CONFIG.literaryPolishAfterGate,
+    residualCampaignEnabled: config.residualCampaignEnabled ?? DEFAULT_NOVEL_CONFIG.residualCampaignEnabled,
+    residualCampaignIncludeFreezeChapters:
+      config.residualCampaignIncludeFreezeChapters
+      ?? DEFAULT_NOVEL_CONFIG.residualCampaignIncludeFreezeChapters,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,

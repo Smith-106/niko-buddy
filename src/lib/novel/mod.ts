@@ -96,5 +96,7 @@ export { analyzePreviousChapters, type PreviousChapterAnalysis } from "./previou
 export { rebuildAllSnapshots, rebuildVectorIndex, type RebuildProgress, type RebuildProgressCallback } from "./rebuild"
 export { runFactCheck, verifyFactCheckLlm, type FactCheckResult, type FactCheckReport, type FactCheckOptions } from "./fact-snapshot"
 export { scoreReviewResults, CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_DEDUCTION, type DimensionScore, type ReviewScoreReport, type ReviewScoringOptions } from "./review-scoring"
+// S3a (roadmap R10): Gate v2 加权 P2 参考分 + reading_power 特征分 (P2 参考, 不覆盖 P0)
+export { gateV2WeightedScore, extractReadingPowerFeatures, buildP2ReferenceScore, formatP2ReferenceScore, GATE_V2_WEIGHTS, GATE_V2_PASS_THRESHOLD, type GateV2Score, type ReadingPowerFeatures, type P2ReferenceScore } from "./gate-v2-scoring"
 export { readSoulDoc, writeSoulDoc, SOUL_DOC_FILENAME } from "./soul-doc"
 export { analyzeForeshadowingDebt, type ForeshadowingDebtItem, type ForeshadowingDebtReport, type ForeshadowingDebtOptions } from "./foreshadowing-debt"

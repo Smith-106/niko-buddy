@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.4.6-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.4.7-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
@@ -390,7 +390,7 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前正式发布产物为 **v2.4.6** Windows 安装包与便携版（macOS/Linux planned）。
+> 注：当前正式发布产物为 **v2.4.6**（v2.4.7 为源码 tip，安装包资产保持 2.4.6） Windows 安装包与便携版（macOS/Linux planned）。
 > `smith/master` 源码 tip 可能包含安装包之后的 mid-loop / residual 源码增强；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
 ### 安装方式

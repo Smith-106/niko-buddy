@@ -18,7 +18,23 @@
   },
   "app": {
     "title": "青幕AI写作",
-    "subtitle": "面向长篇小说的 AI 写作桌面端系统"
+    "subtitle": "面向长篇小说的 AI 写作桌面端系统",
+    "newProject": "新建项目",
+    "openProject": "打开项目",
+    "recentProjects": "最近项目",
+    "reindex": "重建索引",
+    "project": "项目",
+    "help": "帮助",
+    "collapseChat": "折叠聊天",
+    "expandChat": "展开聊天",
+    "chatWidth": "聊天宽度",
+    "saveApiKey": "保存 API 密钥",
+    "invalidProject": "无效项目",
+    "status": {
+      "connected": "已连接",
+      "connecting": "连接中",
+      "fallback": "回退模式"
+    }
   },
   "appLayout": {
     "bookAnalysis": {
@@ -132,15 +148,15 @@
     "reviewingAction": "审查中...",
     "noResults": "暂无该维度审查结果",
     "stats": "阻塞:{{blocking}} 高:{{high}} 中:{{medium}} 低:{{low}}",
-    "splitAcceptanceHint": "Track A 为产品交付门控相关维；Track B 为可选文学诊断，均分≥9 不是产品硬门。",
+    "splitAcceptanceHint": "Track A = 一致性/门控硬门；书稿里程碑另要求 overall 中位≥9（N≥5）。Consistency 失败仍不可被文学分覆盖。",
     "trackABadge": "Track A",
     "trackAHint": "可交付 / 一致性",
     "trackBBadge": "Track B",
     "trackBHint": "文学诊断（可选）",
     "trackADimBadge": "A·门控",
     "trackBDimBadge": "B·文学",
-    "notProductGate": "非产品硬门",
-    "perDimOnly": "请按维阅读分数；六维均分不作交付判定",
+    "notProductGate": "应用发版可不绑；书稿里程碑为硬门",
+    "perDimOnly": "请按维阅读；书稿结案以 overall 中位≥9（N≥5）为硬门，且 Consistency 优先",
     "measurementFingerprintHint": "测量指纹：model+N+窗+packHash+正文Hash。pack 不同则 thril 不可比。非产品硬门。",
     "measurementFingerprintTitle": "测量指纹",
     "measurementFingerprintEmpty": "尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）"
@@ -156,7 +172,8 @@
     "dismantling": "拆文库",
     "settings": "设置",
     "switchProject": "切换小说",
-    "trash": "回收站"
+    "trash": "回收站",
+    "chat": "聊天"
   },
   "theme": {
     "switch": "切换主题",
@@ -206,7 +223,74 @@
     "aiOutputLanguage": "AI 输出语言",
     "aiOutputLanguageRequired": "*",
     "aiOutputLanguageHint": "所有 AI 生成的内容（章节、大纲、审稿结果）都将使用此语言。您可以在「设置 → 输出」中稍后更改。",
-    "pickLanguage": "选择语言..."
+    "pickLanguage": "选择语言...",
+    "title": "项目标题",
+    "path": "项目路径",
+    "language": "写作语言",
+    "languagePlaceholder": "选择语言",
+    "choose": "选择",
+    "recommended": "推荐",
+    "other": "其他",
+    "templates": {
+      "wiki": {
+        "title": "知识库",
+        "description": "通用知识管理工作区"
+      },
+      "novel": {
+        "title": "小说",
+        "description": "长篇中文小说创作工作区"
+      },
+      "research": {
+        "title": "研究",
+        "description": "资料收集与整理工作区"
+      },
+      "worldbuilding": {
+        "title": "世界观构建",
+        "description": "世界观设定与地理人文工作区"
+      },
+      "screenplay": {
+        "title": "剧本",
+        "description": "影视剧本创作工作区"
+      },
+      "localization": {
+        "title": "本地化",
+        "description": "多语言翻译与本地化工作区"
+      },
+      "product": {
+        "title": "产品",
+        "description": "产品文档与需求工作区"
+      }
+    },
+    "languageOptions": {
+      "english": "英语",
+      "chinese": "简体中文",
+      "traditionalChinese": "繁体中文",
+      "japanese": "日语",
+      "korean": "韩语",
+      "vietnamese": "越南语",
+      "french": "法语",
+      "german": "德语",
+      "spanish": "西班牙语",
+      "portuguese": "葡萄牙语",
+      "italian": "意大利语",
+      "russian": "俄语",
+      "arabic": "阿拉伯语",
+      "persian": "波斯语",
+      "hindi": "印地语",
+      "turkish": "土耳其语",
+      "dutch": "荷兰语",
+      "polish": "波兰语",
+      "swedish": "瑞典语",
+      "indonesian": "印尼语",
+      "thai": "泰语",
+      "ukrainian": "乌克兰语"
+    },
+    "recent": {
+      "title": "最近项目",
+      "open": "打开",
+      "none": "暂无最近项目",
+      "remove": "移除"
+    }
   },
   "templates": {
     "research": {
@@ -237,7 +321,13 @@
     "noSources": "暂无资料",
     "importHint": "导入文档，开始构建你的资料库",
     "status": {
-      "failed": "失败"
+      "failed": "失败",
+      "pending": "待处理",
+      "queued": "排队中",
+      "processing": "处理中",
+      "done": "已完成",
+      "upToDate": "最新",
+      "stale": "已过期"
     },
     "importFiles": "导入文件",
     "importFolder": "文件夹",
@@ -259,7 +349,17 @@
     "confirm": "确认",
     "loadingMore": "加载更多资料...",
     "sourceCount": "{{count}} 个资料",
-    "sourceCount_plural": "{{count}} 个资料"
+    "sourceCount_plural": "{{count}} 个资料",
+    "errors": {
+      "load": "加载失败",
+      "import": "导入失败"
+    },
+    "actions": {
+      "retry": "重试",
+      "reimport": "重新导入",
+      "open": "打开",
+      "reveal": "显示在文件夹中"
+    }
   },
   "chat": {
     "placeholder": "询问你的资料库...",
@@ -287,7 +387,21 @@
     "typeAMessage": "输入消息...",
     "selectModel": "选择模型",
     "searchModel": "搜索模型...",
-    "noModelFound": "未找到匹配的模型"
+    "noModelFound": "未找到匹配的模型",
+    "title": "聊天",
+    "modelAnswering": "正在回答",
+    "send": "发送",
+    "thinking": "思考中",
+    "inputPlaceholder": "输入消息",
+    "openSource": "打开来源",
+    "openPage": "打开页面",
+    "collapse": "折叠",
+    "expand": "展开",
+    "copied": "已复制",
+    "copy": "复制",
+    "retry": "重试",
+    "references": "引用",
+    "saveAsDraft": "保存为草稿"
   },
   "search": {
     "title": "搜索",
@@ -460,7 +574,10 @@
       "missingPage": "缺失页面",
       "confirm": "需要确认",
       "suggestion": "建议"
-    }
+    },
+    "startReview": "开始审查",
+    "reviewing": "审查中",
+    "resultsTitle": "审查结果"
   },
   "settings": {
     "title": "设置",
@@ -893,6 +1010,24 @@
         "version": "版本",
         "appDescription": "一个由 LLM 驱动的个人知识库。源代码："
       }
+    },
+    "llm": "模型",
+    "appearance": "外观",
+    "proxy": "代理",
+    "updates": "更新",
+    "reasoning": {
+      "label": "思考强度",
+      "mode": {
+        "auto": "自动",
+        "off": "关闭",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "max": "最高",
+        "custom": "自定义"
+      },
+      "budgetTokens": "思考预算",
+      "budgetHint": "设定每次请求的思考 token 上限"
     }
   },
   "preview": {
@@ -985,7 +1120,9 @@
     }
   },
   "fileTree": {
-    "noProject": "未打开项目"
+    "noProject": "未打开项目",
+    "openProjectFolder": "打开项目文件夹",
+    "openProjectFolderFailed": "打开失败"
   },
   "graph": {
     "openProject": "打开项目以查看关系图",
@@ -1068,6 +1205,11 @@
       "overview": "概述",
       "comparison": "比较",
       "other": "其他"
+    },
+    "title": "图谱",
+    "layout": {
+      "force": "力导向布局",
+      "reset": "重置布局"
     }
   },
   "time": {
@@ -1087,7 +1229,8 @@
       "reviewCenter": "审查中心",
       "dismantling": "拆文库",
       "settings": "模型与写作设置",
-      "switchProject": "切换小说"
+      "switchProject": "切换小说",
+      "chat": "聊天"
     },
     "sidebar": {
       "knowledge": "章节",
@@ -1200,6 +1343,8 @@
       "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。",
       "literaryPolishAfterGate": "门控通过后文学抛光（Track B）",
       "literaryPolishAfterGateHint": "开启后，在 Consistency/Anti-AI 门控无阻断问题时，额外对 thril/节奏/追读类提示做至多 1 次可选抛光。不挡产品交付，且禁止提前揭露机制名。默认关闭。",
+      "residualCampaignEnabled": "残章战役模式（structure-first）",
+      "residualCampaignEnabledHint": "开启后，对 residual 章（默认 1/2/3/5；冻结 4/6）自动注入 residualOverallMedian 与 structure_thril_pacing 结构计划；可在未开 Track B 文学抛光时仍走 residual 抛光。默认关闭，不影响普通草稿路径。overall≥9 仍非 Track A 硬门。",
       "outlineThrillLiveStatusTitle": "开写前 thril 软门（实时）",
       "outlineThrillLiveStatusHint": "对当前分章大纲启发式评估；默认开启且可见。非产品硬门；FIX-1 失败不可用确认绕过。",
       "outlineThrillStatusPass": "通过",
@@ -1250,7 +1395,10 @@
       "historyTitle": "历史检查记录",
       "historyEntryTitle": "第{{chapter}}章连贯性检查",
       "historyEntryTitleNoChapter": "连贯性检查",
-      "historySummary": "{{warnings}} 个警告，{{infos}} 个提示"
+      "historySummary": "{{warnings}} 个警告，{{infos}} 个提示",
+      "lintInstruction": "检查指令",
+      "lintOutputFormat": "输出格式",
+      "chapterContent": "章节内容"
     },
     "review": {
       "title": "AI 审稿",
@@ -1776,6 +1924,38 @@
         "canonFacts": "设定事实",
         "conflicts": "冲突与矛盾"
       }
+    },
+    "labels": {
+      "knowledgeBase": "知识库",
+      "file": "文件",
+      "review": "审查",
+      "graph": "图谱",
+      "search": "搜索",
+      "lint": "检查",
+      "entity": "实体",
+      "wikiPage": "知识页",
+      "ingest": "导入"
+    }
+  },
+  "wiki": {
+    "title": "知识库",
+    "newPage": "新建页面",
+    "newSubPage": "新建子页面",
+    "rename": "重命名",
+    "delete": "删除",
+    "empty": "暂无页面",
+    "createPrompt": "输入页面名称",
+    "nodeTypes": {
+      "person": "人物",
+      "place": "地点",
+      "organization": "组织",
+      "concept": "概念",
+      "event": "事件",
+      "timeline": "时间线",
+      "object": "物品",
+      "source": "来源",
+      "category": "分类",
+      "note": "笔记"
     }
   }
 }
