@@ -78,6 +78,27 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.4.7",
+  date: "2026-08-16",
+  highlights: {
+    en: [
+      "Roadmap 3-session execution pipeline: S1 mechanical layer hardening (normalizeText zero-width stripping + 48 CJK homoglyph restoration + TIER1 14 terms; replacement-dict + format-normalizer; vectorstore hybrid_search with mem0 additive fusion; facts-store graphiti time-window Fact contract; de-ai-rules dual-layer 7-category x 4-severity rules).",
+      "S2 continuity deepening: related-chapters four-dimensional reverse lookup (foreshadowing/appearance/state/relations) + overdue foreshadowing findings; novel-session-status chase_debt contract; story-thread-arcs Quillica 6-state state machine merged into continuity engine; measurement-fingerprint cross-pack narrative rejection.",
+      "S3 quality: gate-v2-scoring weighted (0.2/0.3/0.5) + reading_power hook, P2 reference never overrides P0; i18n parity test + 194 translation gap fixes (zh +140 / en +54); in-process fake-endpoint contract tests (zero real HTTP).",
+      "EPIC-005 persona sidecar: cognition error UX + sidebar UI.",
+      "Notes-only release: installer assets stay v2.4.6; source tip semantics apply until the next asset rebuild.",
+    ],
+    zh: [
+      "Roadmap 三会话执行管线：S1 机械层硬化（normalizeText 零宽剥离 + 48 CJK 同形字还原 + TIER1 补 14 词；replacement-dict + format-normalizer；vectorstore hybrid_search mem0 加性融合；facts-store graphiti 时间窗 Fact 契约；de-ai-rules 双层 7 类 x 4 级规则）。",
+      "S2 连续性深化：related-chapters 四维反查（伏笔/出场/状态/关系）+ 伏笔逾期 finding；novel-session-status chase_debt 契约；story-thread-arcs Quillica 6 态状态机并入连续性引擎；measurement-fingerprint 跨 pack 叙事拒绝。",
+      "S3 质量：gate-v2-scoring 加权（0.2/0.3/0.5）+ reading_power hook，P2 参考永不覆盖 P0；i18n parity 测试 + 修复 194 翻译缺口（zh +140 / en +54）；进程内伪端点契约测试（零真实 HTTP）。",
+      "EPIC-005 persona 侧车：人物认知错误 UX + 侧边栏 UI。",
+      "Notes-only 发布：安装包资产保持 v2.4.6；下次资产重建前适用源码 tip 语义。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_SIX_CHANGELOG: ChangelogEntry = {
   version: "2.4.6",
   date: "2026-08-10",
@@ -806,6 +827,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_SEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_SEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_SIX_CHANGELOG.version) return [TWO_POINT_FOUR_SIX_CHANGELOG]
   if (version === TWO_POINT_FOUR_FIVE_CHANGELOG.version) return [TWO_POINT_FOUR_FIVE_CHANGELOG]
   if (version === TWO_POINT_FOUR_FOUR_CHANGELOG.version) return [TWO_POINT_FOUR_FOUR_CHANGELOG]
