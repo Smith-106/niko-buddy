@@ -219,6 +219,7 @@ export function restoreDashboardRewriteInMarkdown(
   const anchor = findChapterSelectionByEvidence(markdown, [backup.evidence, backup.originalText])
   if (!anchor) return null
   const result = replaceChapterBodySelection(body, anchor.selection, backup.originalText)
+  /* v8 ignore next */
   if (!result.ok) return null
   return rawBlock + rebuildChapterBody(heading, result.body)
 }

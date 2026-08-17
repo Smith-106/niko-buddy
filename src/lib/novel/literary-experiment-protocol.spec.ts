@@ -77,6 +77,26 @@ describe("createLiteraryExperimentProtocol", () => {
     expect(p.productHardGate).toBe(false)
     expect(p.overallGe9IsShipCriterion).toBe(false)
   })
+
+  it("clamps samples to [1,10], truncates fractional input", () => {
+    expect(createLiteraryExperimentProtocol({ samples: 25 }).samples).toBe(10)
+    expect(createLiteraryExperimentProtocol({ samples: 0 }).samples).toBe(1)
+    expect(createLiteraryExperimentProtocol({ samples: 3.7 }).samples).toBe(3)
+    expect(createLiteraryExperimentProtocol({ samples: Number.NaN }).samples).toBe(
+      LITERARY_EXPERIMENT_MIN_SAMPLES_SEAL,
+    )
+  })
+
+  it("falls back to default model when trimmed model is blank", () => {
+    const p = createLiteraryExperimentProtocol({ model: "   " })
+    expect(p.model).toBe(LITERARY_EXPERIMENT_DEFAULT_MODEL)
+  })
+
+  it("preserves caller notes alongside frozen protocol notes", () => {
+    const p = createLiteraryExperimentProtocol({ notes: ["my-note"] })
+    expect(p.notes?.includes("my-note")).toBe(true)
+    expect(p.notes?.some((n) => n.includes("Do not compare medians across different models"))).toBe(true)
+  })
 })
 
 describe("classifyL9OverallMedian / meetsL9OverallGate", () => {
@@ -97,6 +117,14 @@ describe("classifyL9OverallMedian / meetsL9OverallGate", () => {
     expect(meetsL9OverallGate(8.8, "seal_stretch", 5)).toBe(false)
     expect(meetsL9OverallGate(9.5, "test_control", 3)).toBe(false)
   })
+
+  it("treats null / NaN medians as below seal", () => {
+    expect(classifyL9OverallMedian(null, 5)).toBe("below_seal")
+    expect(classifyL9OverallMedian(undefined, 5)).toBe("below_seal")
+    expect(classifyL9OverallMedian(Number.NaN, 5)).toBe("below_seal")
+    expect(meetsL9OverallGate(null, "seal_stretch", 5)).toBe(false)
+    expect(meetsL9OverallGate(Number.NaN, "test_control", 5)).toBe(false)
+  })
 })
 
 describe("validateLiteraryExperimentComparability", () => {
@@ -112,6 +140,23 @@ describe("validateLiteraryExperimentComparability", () => {
     const b = createLiteraryExperimentProtocol()
     expect(validateLiteraryExperimentComparability(a, b)).toEqual([])
   })
+
+  it("rejects window / mode / samples mismatches and sub-seal sample counts", () => {
+    const base = createLiteraryExperimentProtocol({ samples: 5 })
+    const win = createLiteraryExperimentProtocol({ samples: 5 }) as typeof base
+    ;(win as { window: string }).window = "chapter_window"
+    expect(validateLiteraryExperimentComparability(base, win).some((e) => e.includes("window mismatch"))).toBe(true)
+
+    const mode = createLiteraryExperimentProtocol({ samples: 5, mode: "AB_old_new" })
+    expect(validateLiteraryExperimentComparability(base, mode).some((e) => e.includes("mode mismatch"))).toBe(true)
+
+    const samples = createLiteraryExperimentProtocol({ samples: 6 })
+    expect(validateLiteraryExperimentComparability(base, samples).some((e) => e.includes("samples mismatch"))).toBe(true)
+
+    const subSeal = createLiteraryExperimentProtocol({ samples: 3 })
+    const errs = validateLiteraryExperimentComparability(base, subSeal)
+    expect(errs.some((e) => e.includes("below seal minimum"))).toBe(true)
+  })
 })
 
 describe("bandForMedian", () => {
@@ -120,6 +165,14 @@ describe("bandForMedian", () => {
     expect(bandForMedian(5.3, 5)).toBe("text_gap_dominant")
     expect(bandForMedian(7.8, 5)).toBe("mixed_zone")
     expect(bandForMedian(9, 3)).toBe("insufficient_samples")
+    expect(bandForMedian(8.4, 5)).toBe("reviewer_bias_dominant")
+    expect(bandForMedian(7.5, 5)).toBe("text_gap_dominant")
+  })
+
+  it("treats null / NaN medians as mixed zone (unverdictable)", () => {
+    expect(bandForMedian(null, 5)).toBe("mixed_zone")
+    expect(bandForMedian(undefined, 5)).toBe("mixed_zone")
+    expect(bandForMedian(Number.NaN, 5)).toBe("mixed_zone")
   })
 })
 
@@ -161,6 +214,44 @@ describe("compareLiteraryExperimentSnapshots", () => {
     const r = compareLiteraryExperimentSnapshots(before, after, protocol)
     expect(r.multiObjectiveConflict).toBe(false)
   })
+
+  it("warns on snapshot model mismatch and deviation from protocol model", () => {
+    const before = { model: "grok-4.6", samples: 5, medians: { thrill: 6.0 } }
+    const after = { model: "other-model", samples: 5, medians: { thrill: 6.5 } }
+    const r = compareLiteraryExperimentSnapshots(before, after, protocol)
+    expect(r.warnings.some((w) => w.includes("snapshot model mismatch"))).toBe(true)
+    expect(r.warnings.some((w) => w.includes("differs from protocol.model"))).toBe(true)
+  })
+
+  it("warns when snapshot sample counts differ from protocol", () => {
+    const before = { model: "claude-sonnet-4-6", samples: 3, medians: { thrill: 6.0 } }
+    const after = { model: "claude-sonnet-4-6", samples: 5, medians: { thrill: 6.5 } }
+    const r = compareLiteraryExperimentSnapshots(before, after, protocol)
+    expect(r.warnings.some((w) => w.includes("sample count differs"))).toBe(true)
+  })
+
+  it("yields null deltas when dimension medians are missing", () => {
+    const before = { model: "claude-sonnet-4-6", samples: 5, medians: {} }
+    const after = { model: "claude-sonnet-4-6", samples: 5, medians: {} }
+    const r = compareLiteraryExperimentSnapshots(before, after, protocol)
+    expect(r.thrilDelta).toBeNull()
+    expect(r.pullDelta).toBeNull()
+    expect(r.characterDelta).toBeNull()
+    expect(r.overallDelta).toBeNull()
+    expect(r.multiObjectiveConflict).toBe(false)
+    expect(r.protectedRegressions).toEqual([])
+  })
+
+  it("uses custom protect dimensions and regression threshold", () => {
+    const before = { model: "claude-sonnet-4-6", samples: 5, medians: { thrill: 5.0, pacing: 8.0 } }
+    const after = { model: "claude-sonnet-4-6", samples: 5, medians: { thrill: 6.0, pacing: 7.0 } }
+    const r = compareLiteraryExperimentSnapshots(before, after, protocol, {
+      protectDimensions: ["pacing"],
+      regressionThreshold: 0.8,
+    })
+    expect(r.multiObjectiveConflict).toBe(true)
+    expect(r.protectedRegressions).toEqual(["pacing"])
+  })
 })
 
 describe("buildProductionStep0Fixture + snapshotFromStep0Results", () => {
@@ -196,6 +287,42 @@ describe("buildProductionStep0Fixture + snapshotFromStep0Results", () => {
     expect(snap.medians.pull).toBe(5.9)
     expect(snap.overallMedian).toBe(5.3)
     expect(snap.label).toBe("post-wave3")
+  })
+
+  it("snapshotFromStep0Results computes median from raw new values (even + odd counts)", () => {
+    const snap = snapshotFromStep0Results({
+      results: {
+        thrill: { new: [6.4, 5.2, 8.0, 7.0] },
+        pull: { new: [6.0, 7.0, 8.0] },
+      },
+    })
+    // 5.2,6.4,7.0,8.0 → even → (6.4+7.0)/2
+    expect(snap.medians.thrill).toBe(6.7)
+    // 6,7,8 → odd → 7
+    expect(snap.medians.pull).toBe(7)
+  })
+
+  it("snapshotFromStep0Results filters nulls and defaults model/samples", () => {
+    const snap = snapshotFromStep0Results({
+      results: {
+        thrill: { new: [6.4, null, Number.NaN] },
+        pacing: { new: [] },
+      },
+    })
+    expect(snap.medians.thrill).toBe(6.4)
+    expect(snap.medians.pacing).toBeUndefined()
+    expect(snap.model).toBe("unknown")
+    expect(snap.samples).toBe(0)
+    expect(snap.medians.consistency).toBeUndefined()
+  })
+
+  it("snapshotFromStep0Results tolerates absent results and new-less entries", () => {
+    const noResults = snapshotFromStep0Results({})
+    expect(noResults.medians).toEqual({})
+    expect(noResults.overallMedian).toBeUndefined()
+
+    const emptyEntry = snapshotFromStep0Results({ results: { thrill: {} } })
+    expect(emptyEntry.medians.thrill).toBeUndefined()
   })
 })
 

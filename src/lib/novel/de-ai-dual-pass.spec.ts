@@ -18,4 +18,33 @@ describe("de-ai-dual-pass", () => {
     expect(r.pass1.percentileInBaseline).toBeTypeOf("number")
     expect(r.productHardGate).toBe(false)
   })
+
+  it("mechanical-slop block/warn pushes 机械腔 remediation note and slopReportToText fragment", () => {
+    const r = runDeAiDualPass("显然事实上这一切似乎仿佛。目光交汇的瞬间空气凝固心中五味杂陈。然而但是不过。")
+    expect(r.pass1.slopClass).toBe("block")
+    expect(r.pass2.remediationNotes.some((n) => n.includes("机械腔"))).toBe(true)
+    expect(r.pass2.promptFragment).toContain("机械 slop 检测")
+    expect(formatDualPassSummary(r)).toContain("slop=block")
+  })
+
+  it("English avoid-ai boilerplate pushes avoid-ai remediation note", () => {
+    const r = runDeAiDualPass(
+      "Furthermore, it is important to note that we must delve into the intricate tapestry of this paradigm.",
+    )
+    expect(r.pass2.remediationNotes.some((n) => n.includes("avoid-ai patterns soft"))).toBe(true)
+  })
+
+  it("high percentile vs baseline pushes relative-percentile note", () => {
+    const r = runDeAiDualPass("显然事实上这一切似乎仿佛。目光交汇的瞬间空气凝固心中五味杂陈。", {
+      baselineScores: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    })
+    expect(r.pass1.percentileInBaseline).toBeGreaterThanOrEqual(90)
+    expect(r.pass2.remediationNotes.some((n) => n.includes("相对基线分位"))).toBe(true)
+    expect(formatDualPassSummary(r)).toContain("pct=")
+  })
+
+  it("nullish text is tolerated via ?? '' (defensive branch)", () => {
+    const r = runDeAiDualPass(undefined as unknown as string)
+    expect(r.pass1.combinedScore).toBeGreaterThanOrEqual(0)
+  })
 })

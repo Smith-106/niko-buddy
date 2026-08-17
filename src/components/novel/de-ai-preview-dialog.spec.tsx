@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 
 // mock UI 基础设施，避免 jsdom 下 Radix portal / 事件问题
+const mockDialog = vi.fn((_props: { onOpenChange?: (next: boolean) => void }) => null)
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: unknown }) => children,
+  Dialog: ({ children, onOpenChange }: { children: unknown; onOpenChange?: (next: boolean) => void }) => {
+    mockDialog({ onOpenChange })
+    return children
+  },
   DialogContent: ({ children }: { children: unknown }) => children,
   DialogHeader: ({ children }: { children: unknown }) => children,
   DialogTitle: ({ children }: { children: unknown }) => children,
@@ -24,6 +28,7 @@ import { DeAiPreviewDialog } from "./de-ai-preview-dialog"
 describe("DeAiPreviewDialog (RPC-2 / TASK-005)", () => {
   beforeEach(() => {
     mockDiff.mockClear()
+    mockDialog.mockClear()
   })
 
   it("将 source/candidate 透传给 MonacoDiffEditor（original=source, modified=candidate）", () => {
@@ -41,6 +46,25 @@ describe("DeAiPreviewDialog (RPC-2 / TASK-005)", () => {
     const callProps = mockDiff.mock.calls[0][0] as Record<string, unknown>
     expect(callProps.original).toBe("原始正文")
     expect(callProps.modified).toBe("去AI味稿")
+  })
+
+  it("调用 onOpenChange(false) 时关闭，其他值不关闭", () => {
+    const onClose = vi.fn()
+    renderToStaticMarkup(
+      <DeAiPreviewDialog
+        open
+        sourceContent="a"
+        candidateContent="b"
+        onApply={() => {}}
+        onSaveDraft={() => {}}
+        onClose={onClose}
+      />,
+    )
+    const onOpenChange = mockDialog.mock.calls[0][0].onOpenChange
+    onOpenChange?.(true)
+    expect(onClose).not.toHaveBeenCalled()
+    onOpenChange?.(false)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it("保留 onApply / onSaveDraft / onClose props 契约", () => {

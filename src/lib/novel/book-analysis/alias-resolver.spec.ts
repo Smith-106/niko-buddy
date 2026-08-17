@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildNameAliasMap, applyCanonicalNames, matchesAnyAlias } from "./alias-resolver"
+import { buildNameAliasMap, applyCanonicalNames, matchesAnyAlias, type NameAliasMap } from "./alias-resolver"
 
 describe("alias-resolver", () => {
   it("builds map with canonical + merged aliases", () => {
@@ -44,5 +44,17 @@ describe("alias-resolver", () => {
     expect(matchesAnyAlias("萧炎一拳", m)).toBe(true)
     expect(matchesAnyAlias("萧哥哥笑了", m)).toBe(true)
     expect(matchesAnyAlias("林修", m)).toBe(false)
+  })
+
+  it("ignores alias that normalizes to empty string (isValidAlias !s guard)", () => {
+    const m = buildNameAliasMap("白砚", ["   ", "王迦"])
+    // 纯空白 alias 规范化后为空串, isValidAlias 返回 false, 不入表
+    expect(m.aliases).toEqual(["王迦"])
+  })
+
+  it("applyCanonicalNames skips empty-string aliases in a hand-built map", () => {
+    // applyCanonicalNames 对 aliasMap.aliases 中的空串执行 `if (!alias) continue`
+    const m: NameAliasMap = { canonical: "白砚", aliases: ["", "王迦"] }
+    expect(applyCanonicalNames("白砚与王迦同行", m)).toBe("白砚与白砚同行")
   })
 })

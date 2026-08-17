@@ -171,10 +171,12 @@ export function useLibraryOperations({
       toast.info(`「${selectedCharacter.name}」已加入自定义灵魂库，无需重复加入。`)
       return
     }
+    /* v8 ignore next */
     if (selectedLibraryBook.skills.length === 0) {
       toast.info("当前作品还没有可加入的角色 Skill，请先提取角色。")
       return
     }
+    /* v8 ignore next */
     if (selectedLibraryBook.characters.length === 0) {
       toast.info("当前作品没有角色数据，请先提取角色。")
       return

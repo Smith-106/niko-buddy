@@ -77,4 +77,16 @@ describe("golden three chapter constraints", () => {
 
     expect(result.enabled).toBe(false)
   })
+
+  it("returns disabled request for empty or whitespace text", () => {
+    expect(detectGoldenThreeChapterRequest("").enabled).toBe(false)
+    expect(detectGoldenThreeChapterRequest("   ").enabled).toBe(false)
+  })
+
+  it("chapter 1 with first-three wording keeps first-chapter direction mode", () => {
+    const result = detectGoldenThreeChapterRequest("写首章", 1)
+    expect(result.enabled).toBe(true)
+    expect(result.targetChapter).toBe(1)
+    expect(result.outputMode).toBe("first_chapter_with_directions")
+  })
 })

@@ -36,10 +36,41 @@ describe("ced-report", () => {
     expect(mapFindingTypeToCedDimension("absent_character")).toBe("characterization")
     expect(mapFindingTypeToCedDimension("overdue_thread")).toBe("timeline")
     expect(mapFindingTypeToCedDimension("data_gap")).toBe("factual")
+    expect(mapFindingTypeToCedDimension("unresolved_foreshadowing")).toBe("timeline")
+    expect(mapFindingTypeToCedDimension("dormant_thread")).toBe("timeline")
+    expect(mapFindingTypeToCedDimension("dead_character_state")).toBe("characterization")
+    expect(mapFindingTypeToCedDimension("brand_new_type")).toBe("world")
   })
 
   it("estimates CJK-heavy text without zero", () => {
     expect(estimateWordCount("她打开了门。雨打在台阶上。")).toBeGreaterThan(0)
+  })
+
+  it("estimateWordCount: 空/undefined 文本 → 0; 纯拉丁 → 词数", () => {
+    expect(estimateWordCount("")).toBe(0)
+    expect(estimateWordCount(undefined as unknown as string)).toBe(0)
+    expect(estimateWordCount("  ")).toBe(0)
+    expect(estimateWordCount("alpha beta gamma")).toBe(3)
+  })
+
+  it("computeCedReport: 无 findings 且无 wordCountEstimate → 全默认路径", () => {
+    const report = computeCedReport({})
+    expect(report.totalFindings).toBe(0)
+    expect(report.densityPer10k).toBe(0)
+    expect(report.evidence).toEqual([])
+    const viaText = computeCedReport({ findings: [], textForWordCount: "alpha beta" })
+    expect(viaText.totalFindings).toBe(0)
+  })
+
+  it("computeCedReport: 超 maxEvidence 且同 type 重复 → evidence 封顶 + findingTypes 去重", () => {
+    const findings: ContinuityFinding[] = Array.from({ length: 30 }, (_, i) =>
+      finding({ type: "absent_character", severity: "warning", ref: `ref-${i}`, message: `msg-${i}` }),
+    )
+    const report = computeCedReport({ findings, wordCountEstimate: 1000, maxEvidence: 5 })
+    expect(report.evidence).toHaveLength(5)
+    expect(report.dimensions.characterization.count).toBe(30)
+    expect(report.dimensions.characterization.findingTypes).toEqual(["absent_character"])
+    expect(report.totalFindings).toBe(30)
   })
 
   it("computes density and never sets product hard gate", () => {

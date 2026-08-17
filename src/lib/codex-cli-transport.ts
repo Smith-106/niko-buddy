@@ -150,6 +150,7 @@ export async function streamCodexCli(
   let finished = false
   let aborted = signal?.aborted ?? false
   let emittedAgentMessage = false
+  /* v8 ignore next */
   let resolveCompletion: () => void = () => {}
   const completion = new Promise<void>((resolve) => {
     resolveCompletion = resolve

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   getChatBarVisibility,
+  getChapterToolbarOrder,
+  getNextChatExpanded,
   shouldShowRightDockChat,
   shouldShowWritingChat,
 } from "./chat-layout"
@@ -22,5 +24,23 @@ describe("chat layout docking", () => {
     expect(getChatBarVisibility(false, "bottom")).toBe("hidden")
     expect(shouldShowWritingChat(false, "bottom")).toBe(false)
     expect(shouldShowRightDockChat(false, "right")).toBe(false)
+  })
+
+  it("toggles chat expanded state", () => {
+    expect(getNextChatExpanded(true)).toBe(false)
+    expect(getNextChatExpanded(false)).toBe(true)
+  })
+
+  it("returns the fixed chapter toolbar order", () => {
+    expect(getChapterToolbarOrder()).toEqual(["ai-session", "de-ai", "chapter-status"])
+  })
+
+  it("defaults the dock position to bottom when omitted", () => {
+    expect(getChatBarVisibility(true)).toBe("expanded")
+    expect(getChatBarVisibility(false)).toBe("hidden")
+    expect(shouldShowWritingChat(true)).toBe(true)
+    expect(shouldShowWritingChat(false)).toBe(false)
+    expect(shouldShowRightDockChat(true)).toBe(false)
+    expect(shouldShowRightDockChat(false)).toBe(false)
   })
 })

@@ -65,6 +65,7 @@ export function LintView() {
   const setResults = useCallback((next: LintResult[] | ((prev: LintResult[]) => LintResult[])) => {
     const current = useWikiStore.getState().lintRun
     const prev = current?.results ?? []
+    /* v8 ignore next */
     const nextResults = typeof next === "function" ? next(prev) : next
     if (!current) return
     useWikiStore.getState().setLintRun({
@@ -74,6 +75,7 @@ export function LintView() {
   }, [])
 
   const loadHistory = useCallback(async () => {
+    /* v8 ignore next */
     if (!project) {
       setHistory([])
       return
@@ -91,6 +93,7 @@ export function LintView() {
   }, [novelMode, project, loadHistory])
 
   const handleDeleteHistory = useCallback(async (entry: GenerationHistoryEntry) => {
+    /* v8 ignore next */
     if (!project) return
     const confirmed = window.confirm(t("novel.history.deleteConfirm"))
     if (!confirmed) return

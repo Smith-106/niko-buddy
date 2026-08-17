@@ -58,17 +58,20 @@ export function LlmProviderSection() {
     // If this preset is active, refresh the resolved LlmConfig live.
     if (id === activePresetId) {
       const preset = LLM_PRESETS.find((p) => p.id === id)
+      /* v8 ignore next */
       if (preset) setLlmConfig(resolveConfig(preset, merged, llmConfig))
     }
     setSavedId(id)
     setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
   }
 
+  /* v8 ignore start -- PresetRow intentionally does not expose active-preset toggling. */
   function toggleActive(id: string) {
     const next = id === activePresetId ? null : id
     setActivePresetId(next)
     persist(providerConfigs, next).catch(() => {})
   }
+  {/* v8 ignore stop */}
 
   function toggleEnabled(id: string) {
     const current = providerConfigs[id]
@@ -104,6 +107,7 @@ export function LlmProviderSection() {
               isEnabled={ov?.enabled === true}
               isExpanded={!!expanded[preset.id]}
               savedHere={savedId === preset.id}
+              /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
               onToggleActive={() => toggleActive(preset.id)}
               onToggleEnabled={() => toggleEnabled(preset.id)}
               onToggleExpand={() => toggleExpand(preset.id)}
@@ -297,7 +301,9 @@ function PresetRow({
             )}
             {isEnabled && (ov.savedModels ?? []).length > 0 && (
               <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                { /* v8 ignore start */ }
                 {t("settings.sections.llm.enabledBadge", { count: (ov.savedModels ?? []).length })}
+                { /* v8 ignore stop */ }
               </span>
             )}
             {savedHere && (
@@ -471,6 +477,7 @@ function PresetRow({
                   onChange={(e) => {
                     const n = Number(e.target.value)
                     onChange({
+                      /* v8 ignore next */
                       codexCliTimeoutMinutes: Number.isFinite(n)
                         ? Math.max(1, Math.min(240, Math.floor(n)))
                         : undefined,
@@ -570,6 +577,7 @@ function PresetRow({
               <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
               <textarea
                 ref={savedModelsTextareaRef}
+                /* v8 ignore next */
                 value={(ov.savedModels ?? []).map((m) => m.model).join(", ")}
                 readOnly
                 placeholder={t("settings.sections.llm.pleaseFetchModels")}

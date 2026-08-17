@@ -322,6 +322,106 @@ describe("EPIC-002 / ADR-30 / TASK-011: runSceneBreakdown", () => {
 
     await expect(runSceneBreakdown("蓝图", contextPack)).rejects.toThrow(/scene breakdown failed/)
   })
+
+  it("drops non-object elements (numbers are not scenes) from the array", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      streamTokens("[123]", callbacks)
+    })
+    const result = await runSceneBreakdown("蓝图", contextPack)
+    expect(result.scenes).toEqual([])
+  })
+
+  it("returns [] when the extracted span is unparseable JSON", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      streamTokens("[1,]", callbacks)
+    })
+    const result = await runSceneBreakdown("蓝图", contextPack)
+    expect(result.scenes).toEqual([])
+  })
+
+  it("drops non-object/empty elements and coerces missing or wrong-typed fields", async () => {
+    const stream = JSON.stringify([
+      { location: 3, goal: "目标X", sceneId: 0 },
+      {},
+      null,
+      "string-element",
+      { sceneTitle: "标题Y", goal: "目标Y", characters: ["甲", 42, null] },
+    ])
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      streamTokens(stream, callbacks)
+    })
+    const result = await runSceneBreakdown("蓝图", contextPack)
+    expect(result.scenes).toHaveLength(2)
+    expect(result.scenes[0]).toEqual({
+      sceneId: "scene-1",
+      sceneTitle: "",
+      location: "",
+      characters: [],
+      goal: "目标X",
+      tension: "",
+      beat: "",
+    })
+    expect(result.scenes[1].sceneId).toBe("scene-5")
+    expect(result.scenes[1].characters).toEqual(["甲"])
+  })
+
+  it("uses injected store config when provided", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      streamTokens(sceneArrayJson([makeScene("scene-1", "t")]), callbacks)
+    })
+    const result = await runSceneBreakdown("蓝图", contextPack, undefined, {
+      llmConfig,
+      novelConfig: { reviewReasoningEffort: undefined },
+    })
+    expect(result.scenes).toHaveLength(1)
+    const opts = streamChatMock.mock.calls[0]?.[4] as { reasoning: { mode: string } }
+    expect(opts.reasoning.mode).toBe("high")
+  })
+
+  it("abort mid-stream drops later tokens and throws user-cancelled", async () => {
+    const controller = new AbortController()
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      controller.abort()
+      callbacks.onToken?.("ignored-after-abort")
+      callbacks.onDone?.()
+    })
+    await expect(
+      runSceneBreakdown("蓝图", contextPack, controller.signal),
+    ).rejects.toThrow(/用户已取消生成/)
+  })
+
+  it("returns partial when streamChat THROWS transport-inactivity after partial tokens", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken?.(sceneArrayJson([makeScene("scene-1", "旧屋门口")]))
+      throw new Error("produced no additional stream output within 60 seconds")
+    })
+    const result = await runSceneBreakdown("蓝图", contextPack)
+    expect(result.partial).toBe(true)
+    expect(result.scenes).toHaveLength(1)
+    expect(result.partialReason).toMatch(/produced no additional stream output/)
+  })
+
+  it("surfaces user-cancelled when streamChat rejects with request-cancelled", async () => {
+    streamChatMock.mockImplementation(async () => {
+      throw new Error("request cancelled")
+    })
+    await expect(runSceneBreakdown("蓝图", contextPack)).rejects.toThrow(/用户已取消生成/)
+  })
+
+  it("handles non-Error streamChat rejection with a generic failure", async () => {
+    streamChatMock.mockImplementation(async () => {
+      throw "plain string failure"
+    })
+    await expect(runSceneBreakdown("蓝图", contextPack)).rejects.toThrow(/scene breakdown failed/)
+  })
+
+  it("surfaces user-cancelled when onError reports request-cancelled", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onError?.(new Error("request cancelled"))
+      callbacks.onDone?.()
+    })
+    await expect(runSceneBreakdown("蓝图", contextPack)).rejects.toThrow(/用户已取消生成/)
+  })
 })
 
 describe("EPIC-002 / ADR-31: persistSceneBreakdownDraft (Draft-first pending + factory)", () => {
@@ -434,6 +534,51 @@ describe("EPIC-002 / ADR-08: acceptSceneBreakdown (pending → ready → accept 
     mocks.readFile.mockResolvedValue("{not valid json")
 
     await expect(acceptSceneBreakdown("/P", "3")).rejects.toThrow(/JSON 解析失败/)
+  })
+
+  it("ADR-31: threads formal accept through the factory when a session exists", async () => {
+    mocks.readFile.mockResolvedValue(
+      JSON.stringify({ chapter_id: "3", scenes: [makeScene("scene-1", "t")] }),
+    )
+    mocks.loadStatus.mockResolvedValue({
+      session_id: "sess-1",
+      schema_version: "1",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-10T00:00:00.000Z",
+      updated_at: "2026-07-10T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: { task_id: "t1", conversation_id: "conv-1", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "conv-1", file_path: "/P/.novel/drafts/conv-1.json", draft_status: "pending", updated_at: "2026-07-10T00:00:00.000Z" },
+      decision_gates: {},
+      evidence_refs: [],
+    })
+
+    await acceptSceneBreakdown("/P", "3")
+
+    expect(mocks.persistCheckpoint).toHaveBeenCalledTimes(1)
+    const [projectPath, sessionId, , evidenceEntries] = mocks.persistCheckpoint.mock.calls[0] as [
+      string,
+      string,
+      { session_id: string },
+      string[] | undefined,
+    ]
+    expect(projectPath).toBe("/P")
+    expect(sessionId).toBe("sess-1")
+    const evidence = (evidenceEntries as string[]) ?? []
+    expect(evidence.some((p) => /\.novel\/chapters\/3\/scenes\.json$/.test(p))).toBe(true)
+  })
+
+  it("tolerates pending payload without a scenes array (formal scenes [])", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({ chapter_id: "3" }))
+
+    await acceptSceneBreakdown("/P", "3")
+
+    const formalWrite = mocks.writeFileAtomic.mock.calls.find((c) =>
+      String(c[0]).endsWith(".novel/chapters/3/scenes.json"),
+    )
+    expect(formalWrite).toBeTruthy()
+    expect(JSON.parse(formalWrite![1] as string).scenes).toEqual([])
   })
 })
 

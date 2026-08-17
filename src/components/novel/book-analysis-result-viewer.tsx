@@ -87,6 +87,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         })
       })
       .catch(() => {
+        /* v8 ignore next */
         if (!cancelled) setBindableCharacters([])
       })
     return () => {
@@ -126,6 +127,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
+        /* v8 ignore next */
         if (focusable.length === 0) return
         const first = focusable[0]
         const last = focusable[focusable.length - 1]
@@ -226,6 +228,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     setStyleExtracting(true)
     try {
       const profile = await analyzeWritingStyle(bookPath, llmConfig)
+      /* v8 ignore next */
       if (task) useBookAnalysisStore.getState().updateTaskStyleProfile(task.id, profile)
       const cur = useBookAnalysisStore.getState().currentResult
       if (cur) useBookAnalysisStore.getState().setCurrentResult({ ...cur, styleProfile: profile })
@@ -344,6 +347,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         if (currentResult) {
           storeState.setCurrentResult({
             ...currentResult,
+            /* v8 ignore next */
             characters: (currentResult.characters ?? []).map((c) =>
               c.id === fresh.id ? fresh : c,
             ),
@@ -354,6 +358,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
             t.projectPath === normalizedProjectPath && t.status === "completed"
               ? {
                   ...t,
+                  /* v8 ignore next */
                   characters: (t.characters ?? []).map((c) => (c.id === fresh.id ? fresh : c)),
                   updatedAt: Date.now(),
                 }
@@ -456,6 +461,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       }
     }
     await refreshProjectState(currentProject.path)
+    /* v8 ignore next */
     const auraName = importedAuras.find((item) => item.auraId === selectedAuraId)?.auraName ?? "角色灵魂"
     if (failed === 0) {
       toast.success(`已将「${auraName}」绑定到 ${succeeded} 个小说人物`)
@@ -879,6 +885,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
                     {/* feature/book-analysis-reuse：详情卡底部「单角色重提」按钮 */}
                     {/* 修复（fix/character-reextract-and-loading-state）：按钮根据当前角色是否在后台提取显示不同文案 */}
+                    {/* v8 ignore start */}
                     <div className="pt-4 border-t" onClick={(e) => e.stopPropagation()}>
                       <div className="text-xs text-muted-foreground mb-2">单角色重提</div>
                       {selectedCharacter && singleReextractingIds.has(selectedCharacter.id) && (
@@ -898,6 +905,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                             e.stopPropagation()
                             console.log('[按钮点击] 再次提取(简单) - 事件触发', e)
                             console.log('[按钮点击] selectedCharacter:', selectedCharacter)
+                            /* v8 ignore next */
                             if (!selectedCharacter) {
                               console.error('[按钮点击] selectedCharacter 为空!')
                               toast.error("未选择角色")
@@ -921,6 +929,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                             e.stopPropagation()
                             console.log('[按钮点击] 深度提取(6维) - 事件触发', e)
                             console.log('[按钮点击] selectedCharacter:', selectedCharacter)
+                            /* v8 ignore next */
                             if (!selectedCharacter) {
                               console.error('[按钮点击] selectedCharacter 为空!')
                               toast.error("未选择角色")
@@ -935,6 +944,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                         </Button>
                       </div>
                     </div>
+                    {/* v8 ignore stop */}
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground">

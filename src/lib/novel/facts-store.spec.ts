@@ -109,4 +109,78 @@ describe("S1d facts 表 (graphiti 时间窗 schema, 文件真源)", () => {
     expect(s.facts.map((f) => f.id)).toEqual(["fact-1", "fact-2"])
     expect(s.next_id).toBe(3)
   })
+
+  it("loadFactsFile fills defaults for missing/irregular sections", () => {
+    const loaded = loadFactsFile('{"schema_version":"facts/1.0"}')
+    expect(loaded.facts).toEqual([])
+    expect(loaded.episodes).toEqual([])
+    expect(loaded.next_id).toBe(1)
+    const irregular = loadFactsFile('{"schema_version":"facts/1.0","facts":"nope","episodes":null,"next_id":0}')
+    expect(irregular.facts).toEqual([])
+    expect(irregular.episodes).toEqual([])
+    expect(irregular.next_id).toBe(1)
+  })
+
+  it("getFactsAt applies aliasMap resolution to both the query subject and stored subjects", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "菜月昴", predicate: "状态", object: "是活人", valid_at: 1, source: "test" })
+    // future-valid fact is hidden at chapter 1
+    s = addFact(s, { subject: "菜月昴", predicate: "状态", object: "成神", valid_at: 20, source: "test" })
+    const aliasMap = { 昴: "菜月昴" }
+    expect(getFactsAt(1, "昴", s, aliasMap).map((f) => f.object)).toEqual(["是活人"])
+    expect(getFactsAt(1, "unknown", s, aliasMap)).toEqual([])
+    // no aliasMap -> raw name lookup
+    expect(getFactsAt(1, "昴", s)).toEqual([])
+  })
+
+  it("isFactActive rejects facts whose invalid_at has passed but keeps invalid_at > chapter active", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "A", predicate: "p", object: "o", valid_at: 1, invalid_at: 10, source: "test" })
+    const fact = s.facts[0]!
+    expect(isFactActive(fact, 5)).toBe(true)
+    expect(isFactActive(fact, 10)).toBe(false)
+    expect(isFactActive(fact, 11)).toBe(false)
+    // future-valid fact is inactive before valid_at
+    s = addFact(s, { subject: "B", predicate: "p", object: "o", valid_at: 5, source: "test" })
+    expect(isFactActive(s.facts[1]!, 3)).toBe(false)
+    expect(isFactActive(s.facts[1]!, 5)).toBe(true)
+  })
+
+  it("supersedeFact falls back to a plain add when the old fact id is unknown", () => {
+    const s = seedState()
+    const next = supersedeFact(s, "fact-999", { subject: "白砚", predicate: "持有", object: "新剑", valid_at: 6, source: "test" }, 6)
+    expect(next.facts.find((f) => f.object === "新剑")!.supersedes).toBeUndefined()
+    expect(next.facts).toHaveLength(s.facts.length + 1)
+  })
+
+  it("expireFact keeps the earlier expired_at when already expired", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "A", predicate: "p", object: "o", valid_at: 1, source: "test" })
+    s = expireFact(s, s.facts[0]!.id, 5)
+    s = expireFact(s, s.facts[0]!.id, 9)
+    expect(s.facts[0]!.expired_at).toBe(5)
+  })
+
+  it("projectToTemporalFacts appends the multi-episode suffix when episodes > 1", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "A", predicate: "p", object: "o", valid_at: 1, episodes: [1, 2, 3], source: "test" })
+    const projected = projectToTemporalFacts(s)
+    expect(projected[0]!.source).toBe("facts:1+2ep")
+  })
+
+  it("addFact accepts an explicit episodes override", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "A", predicate: "p", object: "o", valid_at: 1, episodes: [1, 2], source: "test" })
+    expect(s.facts[0]!.episodes).toEqual([1, 2])
+    expect(s.facts[0]!.reference_time).toBe(1)
+  })
+
+  it("recordEpisode keeps an existing snapshot_ref when the new call omits it", () => {
+    let s = emptyFactsFile()
+    s = recordEpisode(s, 3, ["fact-1"], "snap-3")
+    s = recordEpisode(s, 3, ["fact-2"])
+    const ep = s.episodes.find((e) => e.chapter === 3)!
+    expect(ep.fact_ids).toEqual(["fact-1", "fact-2"])
+    expect(ep.snapshot_ref).toBe("snap-3")
+  })
 })

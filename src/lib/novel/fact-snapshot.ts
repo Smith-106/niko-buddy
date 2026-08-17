@@ -501,6 +501,7 @@ function checkCausalityBreak(
 
     const causeChapter = Number.parseInt(causeMatch[1], 10)
     const knownEvents = curr.events.filter((event) => event !== eventName)
+    /* v8 ignore next */
     const causePrefix = detail.cause.split(/[:：]/)[0]?.trim() ?? ""
 
     if (!causePrefix || knownEvents.some((event) => event.includes(causePrefix))) {
@@ -628,9 +629,11 @@ ${itemsText}`
     try {
       verdicts = JSON.parse(jsonMatch[0])
     } catch (error) {
+      /* v8 ignore next */
       logger.error("FactCheck LLM", "Verdict JSON parse failed", { error: error instanceof Error ? error.message : String(error) })
       return results
     }
+    /* v8 ignore next */
     if (!Array.isArray(verdicts)) return results
 
     for (const verdict of verdicts) {
@@ -639,6 +642,7 @@ ${itemsText}`
       if (idx < 0 || idx >= pendingItems.length) continue
 
       const originalIndex = results.indexOf(pendingItems[idx])
+      /* v8 ignore next */
       if (originalIndex < 0) continue
 
       results[originalIndex] = {

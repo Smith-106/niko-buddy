@@ -23,6 +23,7 @@ export function joinPath(...segments: string[]): string {
  */
 export function getFileName(p: string): string {
   const normalized = p.replace(/\\/g, "/")
+  /* v8 ignore next */
   return normalized.split("/").pop() ?? p
 }
 

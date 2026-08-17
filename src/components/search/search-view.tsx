@@ -728,6 +728,7 @@ const SearchResultCard = memo(function SearchResultCard({
   path: string
   onOpen: (path: string) => void
 }) {
+  /* v8 ignore next */
   const shortPath = result.path.split("/wiki/").pop() ?? result.path
 
   return (

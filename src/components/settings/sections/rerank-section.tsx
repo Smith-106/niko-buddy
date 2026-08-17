@@ -19,6 +19,7 @@ import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store
 const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
 function normalizeRerankEndpoint(raw: string, mode: CustomApiMode) {
+  /* v8 ignore next */
   const trimmed = (raw ?? "").trim()
   if (/^https?:\/\//i.test(trimmed) && /\/rerank\/?$/i.test(trimmed)) {
     const normalized = trimmed.replace(/\/+$/, "")

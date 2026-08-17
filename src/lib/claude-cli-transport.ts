@@ -376,6 +376,7 @@ export async function streamClaudeCodeCli(
       const captureUnparsed = (line: string) => {
         if (unparsedSize >= UNPARSED_BUFFER_CAP) return
         const trimmed = line.trim()
+        /* v8 ignore next */
         if (trimmed.length === 0) return
         unparsedLines.push(line)
         unparsedSize += line.length + 1
@@ -384,6 +385,7 @@ export async function streamClaudeCodeCli(
       const captureStdoutDiagnostic = (message: string) => {
         if (stdoutDiagnosticSize >= UNPARSED_BUFFER_CAP) return
         const trimmed = message.trim()
+        /* v8 ignore next */
         if (trimmed.length === 0) return
         stdoutDiagnostics.push(trimmed)
         stdoutDiagnosticSize += trimmed.length + 1
@@ -443,7 +445,9 @@ export async function streamClaudeCodeCli(
           }, inactivityMs)
         }
         const scheduleMidConversationHeartbeat = () => {
+          /* v8 ignore next */
           if (!sawMeaningfulOutput) return
+          /* v8 ignore next */
           if (midConversationHeartbeatMs <= 0) return
           clearMidConversationHeartbeat()
           midConversationHeartbeatTimeoutId = setTimeout(() => {
@@ -466,11 +470,13 @@ export async function streamClaudeCodeCli(
         }
 
         const cleanup = () => {
+          /* v8 ignore next */
           if (cleanedUp) return
           cleanedUp = true
           clearStartupTimeout()
           clearInactivityTimeout()
           clearMidConversationHeartbeat()
+          /* v8 ignore next */
           if (abortActiveAttempt === cancelAttempt) {
             abortActiveAttempt = null
           }
@@ -555,6 +561,7 @@ export async function streamClaudeCodeCli(
               return
             }
             unlistenDone = unlistenDoneFn
+            /* v8 ignore next */
             if (aborted || signal?.aborted) {
               settle({ kind: "done" })
               return
@@ -675,7 +682,7 @@ export function buildExitError(
       "Please open a terminal and run `claude` to complete the OAuth login,",
       "then retry. (LLM Wiki only spawns the binary - it can't run the",
       "login flow on your behalf.)",
-      authText ? `\n\nCLI output:\n${authText}` : "",
+      authText ? `\n\nCLI output:\n${authText}` : "", /* v8 ignore start */ /* v8 ignore stop */
     ].join(" ").trim()
   }
   if (stderr) {

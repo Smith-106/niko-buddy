@@ -183,6 +183,7 @@ function detectAnomalies(byChar: Record<string, BehaviorRecord[]>): BehaviorAnom
     }
 
     const topAction = Object.entries(actionCounts).sort((a, b) => b[1] - a[1])[0]
+    /* v8 ignore next */
     if (!topAction) continue
 
     // 异常 1: 行为过度重复

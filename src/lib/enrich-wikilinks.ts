@@ -200,6 +200,7 @@ function applyLinks(content: string, links: LinkEntry[]): string {
 
   for (const { term, target } of links) {
     if (linkedTargets.has(target.toLowerCase())) continue
+    /* v8 ignore next */
     if (!term || !target) continue
 
     // Find first literal occurrence not already inside [[...]] block

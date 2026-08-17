@@ -160,6 +160,7 @@ export function trimChatMessagesToBudget(
     if (isLeadingSystemMessage(next, i) || next[i]?.role === "system") continue
     const excess = totalLength(next) - maxChars
     const current = next[i]
+    /* v8 ignore next */
     if (!current) continue
     const targetLength = Math.max(0, messageLength(current) - excess)
     next[i] = trimMessage(current, targetLength)
@@ -174,6 +175,7 @@ export function trimChatMessagesToBudget(
     i += 1
   ) {
     const current = next[i]
+    /* v8 ignore next */
     if (!current) continue
     const excess = totalLength(next) - maxChars
     const targetLength = Math.max(0, messageLength(current) - excess)

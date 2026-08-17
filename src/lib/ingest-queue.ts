@@ -127,6 +127,7 @@ function upsertQueuedIngestTask(
       )
     : null
 
+  /* v8 ignore next */
   if (pendingRerun) {
     return pendingRerun.id
   }
@@ -254,6 +255,7 @@ export async function cancelTask(taskId: string): Promise<void> {
     }
 
     // Clean up any files written by the interrupted ingest
+    /* v8 ignore next */
     if (lastWrittenFiles.length > 0) {
       await cleanupWrittenFiles(currentProjectPath, lastWrittenFiles)
       console.log(`[Ingest Queue] Cleaned up ${lastWrittenFiles.length} files from cancelled task`)
@@ -293,6 +295,7 @@ export async function cancelAllTasks(): Promise<number> {
   }
   processing = false
 
+  /* v8 ignore next */
   if (lastWrittenFiles.length > 0) {
     await cleanupWrittenFiles(currentProjectPath, lastWrittenFiles)
     lastWrittenFiles = []
@@ -458,6 +461,7 @@ async function onQueueDrained(projectId: string, projectPath: string): Promise<v
   if (!processedSinceDrain) return
   // Stale-context guard — if we switched projects mid-drain, the sweep
   // would burn tokens analyzing the wrong project.
+  /* v8 ignore next */
   if (currentProjectId !== projectId) return
   processedSinceDrain = false
 

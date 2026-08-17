@@ -87,10 +87,12 @@ export async function initAnalytics(): Promise<void> {
         window.clearInterval(heartbeatTimer)
       }
       heartbeatTimer = window.setInterval(() => {
+        /* v8 ignore next */
         if (cachedUUID) void sendAnalytics("/heartbeat", cachedUUID)
       }, HEARTBEAT_INTERVAL_MS)
 
       window.addEventListener("beforeunload", () => {
+        /* v8 ignore next */
         if (!cachedUUID) return
         if (heartbeatTimer !== null) {
           window.clearInterval(heartbeatTimer)

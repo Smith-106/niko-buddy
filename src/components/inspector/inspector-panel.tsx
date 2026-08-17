@@ -37,6 +37,7 @@ interface SectionProps {
 }
 
 function Section({ title, defaultOpen = false, children }: SectionProps) {
+  /* v8 ignore next */
   const [open, setOpen] = useState(defaultOpen ?? false)
   // P3: useId 生成稳定 id 关联 button↔region，让 screen reader 可跳转到展开区。
   const reactId = useId()
@@ -120,6 +121,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
       void fetchSnapshot()
     }, INSPECTOR_DEBOUNCE_MS)
     return () => {
+      /* v8 ignore next */
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
   }, [inspectorEnabled, collapsed, fetchSnapshot, refreshKey])
@@ -200,7 +202,9 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
             disabled={loading}
             aria-label={t("novel.inspector.retry", "重试")}
           >
+            {/* v8 ignore start -- error section never renders during loading: fetchSnapshot batches setLoading(true)+setError(null) so the error block unmounts before loading=true */}
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+            {/* v8 ignore stop */}
           </Button>
         </div>
       )}

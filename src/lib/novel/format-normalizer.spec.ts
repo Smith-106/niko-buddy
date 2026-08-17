@@ -198,3 +198,98 @@ describe("TASK-203 字典扩充 + 白名单豁免/替换优先于惩罚回归", 
     expect(r.text).toMatch(/可|不过/)
   })
 })
+
+describe("S1b format-normalizer 边界分支补全", () => {
+  it("arabicToChineseDigits: 负数/超界/非整数 → 原样返回; 0 → 零", () => {
+    expect(arabicToChineseDigits(-1)).toBe("-1")
+    expect(arabicToChineseDigits(10000)).toBe("10000")
+    expect(arabicToChineseDigits(3.5)).toBe("3.5")
+    expect(arabicToChineseDigits(0)).toBe("零")
+  })
+
+  it("arabicToChineseDigits: 百位直读与带零补位 (200→二百 / 205→二百零五)", () => {
+    expect(arabicToChineseDigits(200)).toBe("二百")
+    expect(arabicToChineseDigits(205)).toBe("二百五")
+    expect(arabicToChineseDigits(123)).toBe("一百二十三")
+    expect(arabicToChineseDigits(10)).toBe("十")
+  })
+
+  it("formatYearToChinese 越界年份原样返回 (999 / 10000)", () => {
+    expect(formatYearToChinese(999)).toBe("999")
+    expect(formatYearToChinese(10000)).toBe("10000")
+  })
+
+  it("formatMonthDayToChinese 非法月份/日期原样返回", () => {
+    expect(formatMonthDayToChinese(13, 5)).toBe("13月5日")
+    expect(formatMonthDayToChinese(0, 32)).toBe("0月32日")
+    expect(formatMonthDayToChinese(2, 30)).toBe("二月三十日")
+  })
+
+  it("maxReplacements=0 立即停止 (break 分支)", () => {
+    const r = formatNormalize("然而，天快黑了。", { maxReplacements: 0 })
+    expect(r.replacementCount).toBe(0)
+    expect(r.text).toContain("然而")
+  })
+
+  it("自定义替换索引经 options.replacements 生效 (branch 43)", () => {
+    const r = formatNormalize("喵喵叫。", {
+      replacements: [{ from: "喵喵", to: ["汪汪"] }],
+    })
+    expect(r.text).toContain("汪汪")
+    expect(r.replacementCount).toBeGreaterThan(0)
+  })
+
+  it("deleteInstead 条目 (进行) 直接删除；deleteCount 只反映 DELETE_ON_SIGHT 命中", () => {
+    const r = formatNormalize("正在进行处理。")
+    expect(r.text).not.toContain("进行")
+    expect(r.replacementCount).toBeGreaterThan(0)
+    const r2 = formatNormalize("值得注意的是，他走了。")
+    expect(r2.text).not.toContain("值得注意的是")
+    expect(r2.deleteCount).toBeGreaterThan(0)
+  })
+
+  it("to 为空的非 delete 条目被跳过 (entry.to[0] ?? '' → continue)", () => {
+    const r = formatNormalize("xyz 文本", {
+      replacements: [{ from: "xyz", to: [] }],
+    })
+    expect(r.text).toBe("xyz 文本")
+    expect(r.replacementCount).toBe(0)
+  })
+
+  it("deleteInstead 条目未命中文本 → match 返回 null 走 ?? [] 计数分支", () => {
+    // 文本不含任何删除清单套话: out.match(regex) === null → ?? [] → occurrences 0
+    const r = formatNormalize("今天天气很好，我们出发去集市。")
+    expect(r.deleteCount).toBe(0)
+    expect(r.text).toContain("今天天气很好")
+  })
+
+  it("半角感叹号/问号转全角", () => {
+    const r = formatNormalize("Hello! 真的吗?")
+    expect(r.text).toContain("！")
+    expect(r.text).toContain("？")
+    expect(r.text).not.toMatch(/[!?]/)
+  })
+
+  it("引号容错: 单独出现的闭引号按开引号处理, 连续开引号按闭引号容错", () => {
+    // 单独闭引号 → 视为开引号
+    expect(formatNormalize("\u201D你好\u201D").text).toBe("「你好」")
+    // 连续两个开引号 → 第二个按闭引号容错
+    expect(formatNormalize("\u201C\u201C你好\u201D").text).toBe("「」你好「")
+    // 单引号版
+    expect(formatNormalize("\u2019好的\u2019").text).toBe("『好的』")
+    expect(formatNormalize("\u2018\u2018好的\u2019").text).toBe("『』好的『")
+  })
+
+  it("连续问号/句号修复 (？？？→？, 。。。→。)", () => {
+    const r = formatNormalize("真的吗？？？ 好吧。。。")
+    expect(r.text).not.toContain("？？？")
+    expect(r.text).not.toContain("。。。")
+    expect(r.repeatedPunctFixed).toBeGreaterThan(0)
+  })
+
+  it("无改动时不计数 (countDiff 0 路径)", () => {
+    const r = formatNormalize("雨停了。")
+    expect(r.repeatedPunctFixed).toBe(0)
+    expect(r.changed).toBe(false)
+  })
+})

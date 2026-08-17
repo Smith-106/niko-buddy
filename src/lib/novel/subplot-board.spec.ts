@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   createEmptySubplotBoardStore,
+  loadSubplotBoard,
+  saveSubplotBoard,
   subplotBoardToContextText,
   type SubplotBoardStore,
 } from "./subplot-board"
+
+const fsMocks = vi.hoisted(() => ({
+  createDirectory: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn(async () => {}),
+  readFile: vi.fn(async () => {
+    throw new Error("ENOENT")
+  }),
+}))
+
+vi.mock("@/commands/fs", () => ({
+  createDirectory: fsMocks.createDirectory,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+  readFile: fsMocks.readFile,
+}))
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -70,5 +86,48 @@ describe("R4 SubplotBoard projection (S4 / ANL-013)", () => {
     expect(text).not.toContain("旧案")
     // Latest progress entry is injected.
     expect(text).toContain("发现账本")
+  })
+
+  it("subplotBoardToContextText renders 提议 status and empty chars/progress fallbacks", () => {
+    const store: SubplotBoardStore = {
+      items: [
+        { id: "sp-4", title: "新线索", status: "proposed", startChapter: 9, relatedCharacters: [], summary: "刚提议的支线", progress: [], notes: "" },
+      ],
+      lastUpdated: new Date().toISOString(),
+    }
+    const text = subplotBoardToContextText(store)
+    expect(text).toContain("[提议] 新线索：刚提议的支线")
+    expect(text).not.toContain("（关联：")
+    expect(text).not.toContain("；进度：")
+  })
+
+  it("saveSubplotBoard persists via atomic store", async () => {
+    const store = createEmptySubplotBoardStore()
+    await saveSubplotBoard("E:/Novel", store)
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.novel")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.novel/subplot-board.json",
+      expect.stringContaining("\"items\": []"),
+    )
+  })
+
+  it("loadSubplotBoard falls back to empty store when missing or corrupt", async () => {
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    expect((await loadSubplotBoard("E:/Novel")).items).toEqual([])
+    fsMocks.readFile.mockResolvedValueOnce("{corrupt")
+    expect((await loadSubplotBoard("E:/Novel")).items).toEqual([])
+  })
+
+  it("loadSubplotBoard parses persisted store", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({ items: [{ id: "sp-9" }], lastUpdated: "t" }),
+    )
+    const store = await loadSubplotBoard("E:/Novel")
+    expect(store.items).toEqual([{ id: "sp-9" }])
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
   })
 })

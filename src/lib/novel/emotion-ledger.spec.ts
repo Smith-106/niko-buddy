@@ -156,6 +156,18 @@ describe("A19 emotion-ledger pilot (NovelForge-v5 EmotionTracker 移植, 机械�
     expect(next.netValue).toBeCloseTo(calculateEmotionNetValue(next), 5)
   })
 
+  it("applyEmotionDelta tolerates a delta missing axis fields (?? 0 fallbacks)", () => {
+    const original = makeEntry("昴", 0.5, 0.3, 0.2)
+    const next = applyEmotionDelta(original, { reason: "仅理由，无三轴变化" }, 3)
+    // 三轴保持不变：delta 缺失字段按 0 处理
+    expect(next.valence).toBeCloseTo(0.5, 5)
+    expect(next.arousal).toBeCloseTo(0.3, 5)
+    expect(next.dominance).toBeCloseTo(0.2, 5)
+    // deltaMagnitude = 0 + 0 + 0
+    expect(next.history[0]).toEqual({ chapter: 3, delta: 0, reason: "仅理由，无三轴变化" })
+    expect(next.netValue).toBeCloseTo(calculateEmotionNetValue(next), 5)
+  })
+
   it("getTopEmotionalDebt sorts ascending by netValue (most-negative = heaviest debt first)", () => {
     const store: EmotionLedgerStore = {
       entries: [

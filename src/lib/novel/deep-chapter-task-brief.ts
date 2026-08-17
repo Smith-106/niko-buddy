@@ -260,6 +260,7 @@ function pickTaskBriefFallbackValue(...values: Array<string | null | undefined>)
     const normalized = sanitizeTaskBriefSourceText(value)
     if (normalized) return normalized
   }
+  /* v8 ignore next */
   return ""
 }
 

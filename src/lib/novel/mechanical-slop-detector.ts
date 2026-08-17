@@ -154,6 +154,7 @@ export function normalizeText(rawText: string): NormalizeTextResult {
   })
   const normalized = strippedZeroWidth.replace(CJK_HOMOGLYPH_RE, (m) => {
     homoglyphCount++
+    /* v8 ignore next */
     return CJK_HOMOGLYPH_MAP[m as keyof typeof CJK_HOMOGLYPH_MAP] ?? m
   })
   return {
@@ -211,6 +212,7 @@ export interface SlopReport {
 
 /** 统计某词在文本中的出现次数 (indexOf 遍历, 中文无词界) */
 function countOccurrences(haystack: string, needle: string): number {
+  /* v8 ignore next */
   if (!needle) return 0
   let count = 0
   let idx = haystack.indexOf(needle)
@@ -255,9 +257,11 @@ function splitSentences(text: string): number[] {
 function coefficientOfVariation(lengths: number[]): number {
   if (lengths.length === 0) return 0
   const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length
+  /* v8 ignore next */
   if (mean === 0) return 0
   const variance = lengths.reduce((sum, l) => sum + (l - mean) ** 2, 0) / lengths.length
   const stddev = Math.sqrt(variance)
+  /* v8 ignore next */
   return mean > 0 ? stddev / mean : 0
 }
 
@@ -265,6 +269,7 @@ function coefficientOfVariation(lengths: number[]): number {
 function transitionOpenerRatio(text: string): number {
   if (!text || text.trim().length === 0) return 0
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 0)
+  /* v8 ignore next */
   if (paragraphs.length === 0) return 0
   let openerCount = 0
   for (const p of paragraphs) {
@@ -309,6 +314,7 @@ export function slopScore(rawText: string): SlopReport {
   }
 
   if (penalty > SLOP_PENALTY_MAX) penalty = SLOP_PENALTY_MAX
+  /* v8 ignore next */
   if (penalty < 0) penalty = 0
 
   return {

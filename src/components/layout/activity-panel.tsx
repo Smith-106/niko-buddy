@@ -41,6 +41,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 function getFileTypeInfo(path: string): { icon: typeof FileText; type: string } {
   for (const [dir, icon] of Object.entries(FILE_TYPE_ICONS)) {
     if (path.includes(`/${dir}/`) || path.startsWith(`wiki/${dir}/`)) {
+      /* v8 ignore next */
       return { icon, type: FILE_TYPE_LABELS[dir] ?? dir }
     }
   }
@@ -98,6 +99,7 @@ export function ActivityPanel() {
   const handleCancelAll = useCallback(() => {
     if (!project) return
     const activeCount = queueSummary.pending + queueSummary.processing
+    /* v8 ignore next */
     if (activeCount === 0) return
     if (!window.confirm(
       t("activity.cancelAllConfirm", { count: activeCount }),

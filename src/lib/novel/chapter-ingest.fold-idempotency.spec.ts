@@ -95,6 +95,26 @@ describe("ISS-20260709-021 fold idempotency — CORR-103/104 re-ingest does not 
       expect(store.items[0].description).toBe("祠堂族谱缺页，疑被人换走")
     })
 
+    it("captures the LLM resolution detail into notes on resolve (CORR-105)", () => {
+      const store = createEmptyForeshadowingStore()
+      store.items.push({
+        id: "fs-1-1", name: "旧钥匙", description: "", status: "planted", plantedChapter: 1,
+        advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "",
+      })
+      const snapshot: ChapterSnapshot = {
+        chapterId: "ch-1", chapterNumber: 1, summary: "", characters: [], locations: [],
+        organizations: [], items: [], events: [], characterStateChanges: [],
+        relationshipChanges: [], knowledgeChanges: [],
+        foreshadowingChanges: ["回收伏笔:旧钥匙-钥匙掉进了祠堂水井"],
+        newCanonFacts: [], timelineEvents: [], conflicts: [], endingHook: "",
+        graphNodes: [], graphEdges: [],
+      }
+      applyForeshadowingChangesToStore(store, snapshot)
+      expect(store.items[0].status).toBe("resolved")
+      expect(store.items[0].resolvedChapter).toBe(1)
+      expect(store.items[0].notes).toContain("[第1章回收] 钥匙掉进了祠堂水井")
+    })
+
     it("folding two distinct chapters produces two distinct-keyed items (no false dedup)", () => {
       const ch1: ChapterSnapshot = {
         chapterId: "ch-1", chapterNumber: 1, summary: "", characters: [], locations: [],

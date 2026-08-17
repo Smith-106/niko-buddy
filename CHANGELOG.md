@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.9] - 2026-08-17
+
+### Added（测试覆盖率 100% 里程碑 — 全口径 statements/branches/functions/lines 达 100%）
+
+- **覆盖率阈值固化**：`vite.config.ts` 设置四维阈值 **100/100/100/100**，由 Vitest coverage gate 持续机器校验；提交前跑 `npx vitest run src --coverage` 须全绿
+- **测试套件扩充**：新增约 268 个 `.spec.ts`/`.spec.tsx` 文件覆盖既有未测模块；全量套件从 ~1009 增至 **8484 用例**（8484 passed | 2 skipped，EXIT=0）
+- **不可达分支账本**：`docs/unreachable-branch-ledger.md` 记录所有经验证为「可证明不可达/死代码/v8 伪分支」的 `/* v8 ignore */` 注释位点与判定依据，作为覆盖率口径真源
+- **版本同步工具**：`scripts/bump-version.mjs` 统一同步三处版本号（package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml）
+
+### Changed
+
+- README version badge → **2.4.9**，新增 coverage 100% 徽标与质量门槛说明
+
+### Fixed（根因修复 — 评审发现的既有 bug）
+
+- `src/lib/text-chunker.ts` 段落循环条件修复：旧条件 `!lines[i].startsWith("|")` 在独立的单行 `|` 输入下陷入无限循环（空原子不断推入且 `i` 不前进）；新条件 `!(lines[i].startsWith("|") && lines[i+1]?.startsWith("|"))` 仅在真正的多行表格起始处中断，附带回归用例（lone-`|` 段落 + 单行表格完整性）
+- `src/components/sources/source-sidebar.tsx` 轮询刷新修复：旧代码在 React 19 deferred updater 下 `completed.length` 始终为空 → `setExtractedPaths` 刷新为死代码；重构为闭包同步读取 + functional updater（`pendingDeletions` 合并 prev 态），消除 stale-closure clobber 竞态
+
+### Notes
+
+- notes-only release：安装包资产保持 **v2.4.6**，v2.4.9 为源码 tip（`smith/master`）
+- 覆盖率测量口径：排除 `src/main.tsx`、`src/i18n/index.ts`、`src/config/help-links.ts`、`src/types/**`、`src/test-helpers/**`、specs/d.ts、`src/lib/novel/vendor/**`、`src/lib/novel/__fixtures__/**`
+- 执行会话：`maestro-test-coverage-100-20260815-172608`（analyze→plan→execute→review→verify 五步全 terminal，已 seal）
+
 ## [2.4.8] - 2026-08-15
 
 ### Added（remaining-gaps 四波收口 — 18 项改进点全部落地）

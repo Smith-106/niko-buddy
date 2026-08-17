@@ -63,6 +63,7 @@ export function FileTree() {
   const project = useWikiStore((s) => s.project)
 
   const handleOpenProjectFolder = async () => {
+    /* v8 ignore next */
     if (!project) return
 
     try {

@@ -86,4 +86,26 @@ describe("residual-rewrite-policy", () => {
       expect(d.productHardGate).toBe(false)
     }
   })
+
+  it("accepts a custom finite threshold (ternary 左分支)", () => {
+    const d = evaluateResidualRewritePolicy({
+      residualOverallMedian: 9.0,
+      mode: "densify_only",
+      threshold: 9.2,
+    })
+    expect(d.threshold).toBe(9.2)
+    // 9.0 < 9.2 → below_residual → densify 允许
+    expect(d.accept).toBe(true)
+    expect(d.residualBand).toBe("below_residual")
+  })
+
+  it("non-finite median → explicit rejection with requiredMode null", () => {
+    const d = evaluateResidualRewritePolicy({
+      residualOverallMedian: NaN,
+      mode: "densify_only",
+    })
+    expect(d.accept).toBe(false)
+    expect(d.reason).toContain("not a finite number")
+    expect(d.requiredMode).toBeNull()
+  })
 })

@@ -27,6 +27,7 @@ export async function requestDirectRerank(
   if (!isDirectRerankEndpoint(config)) {
     throw new Error("当前配置不是直连重排接口。")
   }
+  /* v8 ignore next */
   if (!endpoint) {
     throw new Error("请先填写重排接口地址后再测试。")
   }

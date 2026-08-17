@@ -21,6 +21,7 @@ import {
   collectChapterImportCandidatesFromFolder,
   extractImportedChapterNumber,
   importChapterFiles,
+  importChapterFolder,
   runImportedChapterMemoryExtraction,
   sortChapterImportCandidates,
 } from "./chapter-import"
@@ -147,5 +148,183 @@ describe("chapter import", () => {
     expect(result.cancelled).toBe(true)
     expect(result.completed).toBe(1)
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ completed: 0, total: 2 }))
+  })
+})
+
+describe("chapter import number parsing edge cases", () => {
+  it("parses Chinese digits, the 万 unit and zero-result numerals", () => {
+    expect(extractImportedChapterNumber("第三章 试炼.txt")).toBe(3)
+    expect(extractImportedChapterNumber("第三万章 洪荒.txt")).toBe(30000)
+    expect(extractImportedChapterNumber("第万章 洪荒.txt")).toBe(10000)
+    // 零 normalizes away -> parseChineseInteger returns 0 -> rejected
+    expect(extractImportedChapterNumber("第零章 起.txt")).toBeNull()
+    // 第0章 rejected by the <=0 guard
+    expect(extractImportedChapterNumber("第0章.txt")).toBeNull()
+  })
+
+  it("falls through to the english/leading-number matchers when the chapter patterns miss", () => {
+    // chapter pattern rejects number 0, english matcher still catches it
+    expect(extractImportedChapterNumber("chapter 0.txt")).toBe(0)
+    // leading digits without 第/chapter
+    expect(extractImportedChapterNumber("001 开局.txt")).toBe(1)
+  })
+
+  it("handles empty/extensionless text", () => {
+    expect(extractImportedChapterNumber("")).toBeNull()
+    expect(extractImportedChapterNumber("番外.txt")).toBeNull()
+  })
+
+  it("normalizes full-width digits before matching (第１２章 → 12)", () => {
+    expect(extractImportedChapterNumber("第１２章 开幕.txt")).toBe(12)
+    expect(extractImportedChapterNumber("chapter ３.txt")).toBe(3)
+    expect(extractImportedChapterNumber("０４ 开局.txt")).toBe(4)
+  })
+
+  it("sorts two null-numbered candidates by localeCompare", () => {
+    const sorted = sortChapterImportCandidates([
+      { path: "E:/book/b.txt", name: "b.txt" },
+      { path: "E:/book/a.txt", name: "a.txt" },
+    ])
+    expect(sorted.map((item) => item.name)).toEqual(["a.txt", "b.txt"])
+  })
+})
+
+describe("chapter import candidate filtering and title derivation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("skips hidden nodes and dirs without children during folder collection", async () => {
+    fsMocks.listDirectory.mockResolvedValueOnce([
+      { name: ".hidden.md", path: "E:/book/.hidden.md", is_dir: false },
+      { name: "chapter-001.md", path: "E:/book/chapter-001.md", is_dir: false },
+      { name: "emptydir", path: "E:/book/emptydir", is_dir: true },
+      { name: "sub", path: "E:/book/sub", is_dir: true, children: [{ name: "chapter-002.md", path: "E:/book/sub/chapter-002.md", is_dir: false }] },
+    ])
+    const candidates = await collectChapterImportCandidatesFromFolder("E:/book")
+    expect(candidates.map((c) => c.path)).toEqual(["E:/book/chapter-001.md", "E:/book/sub/chapter-002.md"])
+  })
+
+  it("filters hidden files and extensionless files out of direct imports", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/.hidden.md", "E:/book/README", "E:/book/正文.txt"], { finalForMemoryExtraction: false })
+    expect(imported).toHaveLength(1)
+    expect(imported[0]!.sourcePath).toBe("E:/book/正文.txt")
+  })
+
+  it("derives a bare 第N章 title when the file name carries no suffix", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/chapter-002.md"], { finalForMemoryExtraction: true })
+    expect(imported[0]!.title).toBe("第2章")
+    expect(imported[0]!.path).toBe("E:/Novel/wiki/chapters/chapter-002.md")
+    expect(String(fsMocks.writeFile.mock.calls[0]![1])).toContain("# 第2章")
+  })
+
+  it("derives the title suffix via stripChapterPrefix when the name has no chapter pattern", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/前言.txt"], { finalForMemoryExtraction: false })
+    expect(imported[0]!.title).toBe("第1章 前言")
+    expect(imported[0]!.path).toBe("E:/Novel/wiki/chapters/chapter-001-前言.md")
+  })
+
+  it("suffixes the target file with -2 when the first path already exists", async () => {
+    fsMocks.fileExists.mockImplementation(async (path: string) => path.includes("chapter-001-前言.md"))
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/前言.txt"], { finalForMemoryExtraction: false })
+    expect(imported[0]!.path).toBe("E:/Novel/wiki/chapters/chapter-001-前言-2.md")
+  })
+
+  it("falls back to a Date.now-suffixed path when every numbered variant exists", async () => {
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/前言.txt"], { finalForMemoryExtraction: false })
+    expect(imported[0]!.path).toMatch(/chapter-001-前言-\d+\.md$/)
+  })
+
+  it("records failures for unreadable chapter files and continues", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("坏文件")) throw new Error("read denied")
+      return `正文 ${path}`
+    })
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/坏文件.txt", "E:/book/好文件.txt"], { finalForMemoryExtraction: false })
+    expect(imported).toHaveLength(1)
+    expect(imported[0]!.sourcePath).toBe("E:/book/好文件.txt")
+  })
+
+  it("records non-Error failures with String(error) formatting", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("坏文件")) throw "string failure"
+      return `正文 ${path}`
+    })
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/坏文件.txt", "E:/book/好文件.txt"], { finalForMemoryExtraction: false })
+    expect(imported).toHaveLength(1)
+    expect(imported[0]!.sourcePath).toBe("E:/book/好文件.txt")
+  })
+
+  it("imports every importable file found in a selected folder via importChapterFolder", async () => {
+    fsMocks.listDirectory.mockResolvedValueOnce([
+      { name: "chapter-002.md", path: "E:/book/chapter-002.md", is_dir: false },
+      { name: "notes.tmp", path: "E:/book/notes.tmp", is_dir: false },
+    ])
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+
+    const imported = await importChapterFolder("E:/Novel", "E:\\book", { finalForMemoryExtraction: false })
+
+    expect(fsMocks.listDirectory).toHaveBeenCalledWith("E:/book")
+    expect(imported.map((item) => item.path)).toEqual(["E:/Novel/wiki/chapters/chapter-002.md"])
+    const written = fsMocks.writeFile.mock.calls.map(([path]) => path)
+    expect(written).toEqual(["E:/Novel/wiki/chapters/chapter-002.md"])
+  })
+
+  it("continues importing when the chapters directory cannot be created", async () => {
+    fsMocks.createDirectory.mockRejectedValueOnce(new Error("mkdir denied"))
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (path: string) => `正文 ${path}`)
+
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/正文.txt"], { finalForMemoryExtraction: false })
+
+    expect(imported).toHaveLength(1)
+    expect(imported[0]!.sourcePath).toBe("E:/book/正文.txt")
+  })
+})
+
+describe("runImportedChapterMemoryExtraction failure paths", () => {
+  it("counts snapshot-less results as failed with failReason message", async () => {
+    const result = await runImportedChapterMemoryExtraction({
+      projectPath: "E:/Novel",
+      chapterPaths: ["E:/Novel/wiki/chapters/chapter-001.md"],
+      ingestChapter: vi.fn(async () => ({ snapshot: null, failReason: "no_llm" })),
+    })
+    expect(result).toMatchObject({ completed: 0, failed: 1, cancelled: false })
+    expect(result.errors[0]).toContain("no_llm")
+  })
+
+  it("counts snapshot-less results with a generic 提取失败 message", async () => {
+    const result = await runImportedChapterMemoryExtraction({
+      projectPath: "E:/Novel",
+      chapterPaths: ["E:/Novel/wiki/chapters/chapter-001.md"],
+      ingestChapter: vi.fn(async () => ({ snapshot: null })),
+    })
+    expect(result.errors[0]).toContain("提取失败")
+  })
+
+  it("records thrown Error and non-Error failures", async () => {
+    const result = await runImportedChapterMemoryExtraction({
+      projectPath: "E:/Novel",
+      chapterPaths: ["E:/Novel/wiki/chapters/a.md", "E:/Novel/wiki/chapters/b.md"],
+      ingestChapter: vi.fn(async (pp: string, path: string) => {
+        if (path.endsWith("a.md")) throw new Error("boom")
+        throw "string failure"
+      }),
+    })
+    expect(result).toMatchObject({ completed: 0, failed: 2 })
+    expect(result.errors[0]).toContain("boom")
+    expect(result.errors[1]).toContain("string failure")
   })
 })

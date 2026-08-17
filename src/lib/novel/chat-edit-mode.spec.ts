@@ -30,6 +30,21 @@ describe("resolveChatEditTarget", () => {
     })
   })
 
+  it("resolves an explicit numeric chapter like 第5章", () => {
+    const result = resolveChatEditTarget({
+      userRequest: "帮我修改第5章内容",
+      selectedChapterNumber: 20,
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      target: {
+        chapterNumbers: [5],
+        mode: "single",
+      },
+    })
+  })
+
   it("resolves chapter 1 when the user explicitly asks to modify chapter 1", () => {
     const result = resolveChatEditTarget({
       userRequest: "帮我修改第一章内容",
@@ -71,6 +86,45 @@ describe("resolveChatEditTarget", () => {
       message: "请先选择要修改的章节。",
     })
   })
+
+  it("returns an error when asking for the previous 10 chapters without a selection", () => {
+    const result = resolveChatEditTarget({
+      userRequest: "帮我修改前10章内容",
+      selectedChapterNumber: null,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      message: "请先选择要修改的章节。",
+    })
+  })
+
+  it("falls back to the selected chapter for edit requests matching no specific pattern", () => {
+    const result = resolveChatEditTarget({
+      userRequest: "帮我优化一下结尾",
+      selectedChapterNumber: 5,
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      target: {
+        chapterNumbers: [5],
+        mode: "single",
+      },
+    })
+  })
+
+  it("returns an error for a non-edit request with no chapter selected", () => {
+    const result = resolveChatEditTarget({
+      userRequest: "你好",
+      selectedChapterNumber: null,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      message: "请先选择要修改的章节。",
+    })
+  })
 })
 
 describe("parseStructuredChapterEdits", () => {
@@ -87,6 +141,20 @@ describe("parseStructuredChapterEdits", () => {
       [11, "第十一章修改后的正文"],
       [12, "第十二章修改后的正文"],
     ])
+  })
+
+  it("skips sections that do not match the 章 header pattern", () => {
+    const result = parseStructuredChapterEdits(
+      "一些没有章节标题的普通文本\n【第11章】\n第十一章正文",
+    )
+
+    expect(Array.from(result.entries())).toEqual([[11, "第十一章正文"]])
+  })
+
+  it("skips sections whose body is empty", () => {
+    const result = parseStructuredChapterEdits("【第11章】\n【第12章】\n第十二章正文")
+
+    expect(Array.from(result.entries())).toEqual([[12, "第十二章正文"]])
   })
 })
 

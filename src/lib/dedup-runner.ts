@@ -141,7 +141,9 @@ export async function executeMerge(
   const allPages = await loadAllWikiPages(pp)
   const pathBySlug = new Map<string, string>()
   for (const p of allPages) {
+    /* v8 ignore next */
     const base = p.path.split("/").pop() ?? ""
+    /* v8 ignore next */
     if (base.endsWith(".md")) pathBySlug.set(base.slice(0, -3), p.path)
   }
 
@@ -150,6 +152,7 @@ export async function executeMerge(
     const relPath = pathBySlug.get(slug)
     if (!relPath) throw new Error(`Slug "${slug}" not found on disk — was the page deleted between detection and merge?`)
     const page = allPages.find((p) => p.path === relPath)
+    /* v8 ignore next */
     if (!page) throw new Error(`Internal: page lookup miss for ${relPath}`)
     groupPages.push({ slug, path: relPath, content: page.content })
   }

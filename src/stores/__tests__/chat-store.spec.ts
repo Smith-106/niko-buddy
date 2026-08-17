@@ -118,6 +118,35 @@ describe("deleteConversation", () => {
     expect(useChatStore.getState().conversations).toHaveLength(1)
     // activeConversationId is still id2
   })
+
+  it("删除活跃会话后切换到剩余第一个会话（非空 remaining 分支）", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv() // id2 active
+    useChatStore.getState().deleteConversation(id2)
+    expect(useChatStore.getState().activeConversationId).toBe(id1)
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it("删除唯一活跃会话后 active 变 null（remaining 为空分支）", () => {
+    const id = createActiveConv()
+    useChatStore.getState().deleteConversation(id)
+    expect(useChatStore.getState().activeConversationId).toBeNull()
+  })
+
+  it("删除会话同时清理其消息与流式状态（多会话场景）", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    useChatStore.setState({ activeConversationId: id1 })
+    useChatStore.getState().addMessage("user", "msg1")
+    useChatStore.setState({ activeConversationId: id2 })
+    useChatStore.getState().addMessage("user", "msg2")
+    useChatStore.getState().startStreaming(id2)
+    useChatStore.getState().deleteConversation(id2)
+    const s = useChatStore.getState()
+    expect(s.messages.filter((m) => m.conversationId === id2)).toHaveLength(0)
+    expect(s.messages.filter((m) => m.conversationId === id1)).toHaveLength(1)
+    expect(s.streamingContents).not.toHaveProperty(id2)
+  })
 })
 
 describe("setActiveConversation", () => {
@@ -141,6 +170,13 @@ describe("renameConversation", () => {
     expect(conv.title).toBe("新标题")
     expect(conv.updatedAt).toBeGreaterThanOrEqual(before)
   })
+
+  it("重命名不存在的会话时其他会话不受影响（map else 分支）", () => {
+    createActiveConv()
+    useChatStore.getState().renameConversation("conv-missing", "不会生效")
+    const conv = useChatStore.getState().conversations[0]!
+    expect(conv.title).toBe("新对话")
+  })
 })
 
 describe("setConversationDeAiMode", () => {
@@ -149,6 +185,15 @@ describe("setConversationDeAiMode", () => {
     useChatStore.getState().setConversationDeAiMode(id, true)
     expect(useChatStore.getState().conversations[0]!.deAiMode).toBe(true)
   })
+
+  it("多会话时仅更新目标会话（map else 分支）", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    useChatStore.getState().setConversationDeAiMode(id1, true)
+    const convs = useChatStore.getState().conversations
+    expect(convs.find((c) => c.id === id1)!.deAiMode).toBe(true)
+    expect(convs.find((c) => c.id === id2)!.deAiMode).toBe(false)
+  })
 })
 
 describe("setConversationInputDraft", () => {
@@ -156,6 +201,15 @@ describe("setConversationInputDraft", () => {
     const id = createActiveConv()
     useChatStore.getState().setConversationInputDraft(id, "草稿内容")
     expect(useChatStore.getState().conversations[0]!.inputDraft).toBe("草稿内容")
+  })
+
+  it("多会话时仅更新目标会话（map else 分支）", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    useChatStore.getState().setConversationInputDraft(id1, "d1")
+    const convs = useChatStore.getState().conversations
+    expect(convs.find((c) => c.id === id1)!.inputDraft).toBe("d1")
+    expect(convs.find((c) => c.id === id2)!.inputDraft).toBe("")
   })
 })
 
@@ -192,6 +246,28 @@ describe("addMessage", () => {
     useChatStore.getState().addMessage("user", "第二条消息")
     const titleAfter2 = useChatStore.getState().conversations[0]!.title
     expect(titleAfter2).toBe(titleAfter1)
+  })
+
+  it("第一条消息是 assistant 时不触发自动标题（else 分支）", () => {
+    createActiveConv()
+    useChatStore.getState().addMessage("assistant", "欢迎语")
+    const conv = useChatStore.getState().conversations[0]!
+    expect(conv.title).toBe("新对话") // 标题未被改写
+    expect(useChatStore.getState().messages[0]!.role).toBe("assistant")
+  })
+
+  it("存在其他会话时 addMessage 不影响其他会话的标题与 updatedAt", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    const conv2Before = useChatStore.getState().conversations.find((c) => c.id === id2)!
+    const conv2UpdatedAt = conv2Before.updatedAt
+    useChatStore.setState({ activeConversationId: id1 })
+    useChatStore.getState().addMessage("user", "给会话1的消息")
+    const conv1 = useChatStore.getState().conversations.find((c) => c.id === id1)!
+    const conv2After = useChatStore.getState().conversations.find((c) => c.id === id2)!
+    expect(conv1.title).toBe("给会话1的消息")
+    expect(conv2After.title).toBe(conv2Before.title)
+    expect(conv2After.updatedAt).toBe(conv2UpdatedAt) // 未被触碰
   })
 })
 
@@ -259,6 +335,22 @@ describe("removeLastAssistantMessage", () => {
     useChatStore.getState().removeLastAssistantMessage()
     expect(useChatStore.getState().messages).toHaveLength(1)
   })
+
+  it("移除最后一条 assistant 且不影响其他会话消息", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    useChatStore.setState({ activeConversationId: id1 })
+    useChatStore.getState().addMessage("user", "u1")
+    useChatStore.getState().addMessage("assistant", "a1")
+    useChatStore.getState().addMessage("user", "u2")
+    useChatStore.setState({ activeConversationId: id2 })
+    useChatStore.getState().addMessage("user", "u-other")
+    useChatStore.setState({ activeConversationId: id1 })
+    useChatStore.getState().removeLastAssistantMessage()
+    const s = useChatStore.getState()
+    expect(s.messages.filter((m) => m.conversationId === id1).map((m) => m.content)).toEqual(["u1", "u2"])
+    expect(s.messages.filter((m) => m.conversationId === id2)).toHaveLength(1) // 其他会话保留
+  })
 })
 
 describe("markLastAssistantDiscarded", () => {
@@ -275,6 +367,30 @@ describe("markLastAssistantDiscarded", () => {
   it("无活跃会话时不操作", () => {
     useChatStore.getState().markLastAssistantDiscarded()
     expect(useChatStore.getState().messages).toHaveLength(0)
+  })
+
+  it("多条消息时仅废弃最后一条 assistant，其余消息原样保留（map else 分支）", () => {
+    createActiveConv()
+    useChatStore.getState().addMessage("user", "问题")
+    useChatStore.getState().addMessage("assistant", "回答A")
+    useChatStore.getState().addMessage("assistant", "回答B")
+    useChatStore.getState().markLastAssistantDiscarded()
+    const msgs = useChatStore.getState().messages
+    expect(msgs).toHaveLength(3)
+    expect(msgs[0]!.discarded).toBeUndefined()
+    expect(msgs[1]!.content).toBe("回答A") // 非目标消息不动
+    expect(msgs[2]!.discarded).toBe(true)
+    expect(msgs[2]!.content).toBe("")
+  })
+
+  it("活跃会话无 assistant 消息时不操作（lastIdx === -1 分支）", () => {
+    createActiveConv()
+    useChatStore.getState().addMessage("user", "只有用户消息")
+    useChatStore.getState().markLastAssistantDiscarded()
+    const msgs = useChatStore.getState().messages
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]!.discarded).toBeUndefined()
+    expect(msgs[0]!.content).toBe("只有用户消息")
   })
 })
 
@@ -318,6 +434,26 @@ describe("streaming 生命周期", () => {
     useChatStore.setState({ activeConversationId: null })
     useChatStore.getState().finalizeStream("内容")
     expect(useChatStore.getState().messages).toHaveLength(0)
+  })
+
+  it("finalizeStream 存在其他会话时仅更新目标会话（map else 分支）", () => {
+    const id1 = createActiveConv()
+    const id2 = createActiveConv()
+    const conv2UpdatedAt = useChatStore.getState().conversations.find((c) => c.id === id2)!.updatedAt
+    useChatStore.getState().startStreaming(id2)
+    useChatStore.getState().finalizeStream("针对会话2的回答", undefined, id2)
+    const conv2 = useChatStore.getState().conversations.find((c) => c.id === id2)!
+    expect(conv2.updatedAt).toBeGreaterThanOrEqual(conv2UpdatedAt)
+    // 会话1 未被触碰
+    const conv1 = useChatStore.getState().conversations.find((c) => c.id === id1)!
+    expect(conv1.updatedAt).toBe(conv1.updatedAt)
+    expect(useChatStore.getState().messages.some((m) => m.conversationId === id2)).toBe(true)
+  })
+
+  it("appendStreamToken 未 startStreaming 时从空串累积（?? 兜底分支）", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().appendStreamToken("abc", convId) // streamingContents[convId] === undefined
+    expect(useChatStore.getState().streamingContents[convId]).toBe("abc")
   })
 
   it("clearStreaming 清理指定会话的流式状态", () => {

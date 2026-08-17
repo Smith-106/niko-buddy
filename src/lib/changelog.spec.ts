@@ -105,4 +105,24 @@ describe("changelog", () => {
     expect(zh).toContain("2200-3200")
     expect(zh).toContain("本地 Claude Code CLI / Codex CLI")
   })
+
+  it.each([
+    "2.4.8", "2.4.7", "2.4.6", "2.4.5", "2.4.4", "2.4.3", "2.4.2", "2.4.1", "2.4.0",
+    "2.3.2", "2.3.1", "2.3.0",
+    "2.2.24", "2.2.23", "2.2.22", "2.2.21", "2.2.20", "2.2.19", "2.2.18", "2.2.17", "2.2.16",
+    "2.2.14", "2.2.13", "2.2.12", "2.2.10",
+    "2.1.0",
+  ])("returns the changelog entry for %s", (version) => {
+    const entries = currentVersionChangelog(version)
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.version).toBe(version)
+  })
+
+  it("returns empty for merged one-point releases and unmatched versions", () => {
+    expect(currentVersionChangelog("1.0.20")).toEqual([]) // merged 1.0.8..1.0.32
+    expect(currentVersionChangelog("1.0.33")).toEqual([]) // patch > 32: not merged
+    expect(currentVersionChangelog("2.0.13")).toEqual([]) // 2.0.x beyond the merged block
+    expect(currentVersionChangelog("0.9.1")).toEqual([]) // no matching entry
+  })
 })

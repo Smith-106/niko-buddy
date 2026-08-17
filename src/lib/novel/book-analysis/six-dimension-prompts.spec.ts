@@ -123,4 +123,19 @@ describe("six-dimension-prompts", () => {
     expect(p).toContain("语料过长已截断")
     expect(p.length).toBeLessThan(big.length)
   })
+
+  it("empty corpus → truncate 空串直接返回; missing aliasMap → name/aliases fallback", () => {
+    const c = { ...makeCharacter(), aliasMap: undefined }
+    const p = buildPublicMaterialPrompt({ character: c, corpus: "", bookTitle: "X" })
+    // aliasList fallback 分支: canonical 缺失时用 [name, ...aliases]
+    expect(p).toContain("许七安")
+    expect(p).toContain("大郎、许银锣")
+    expect(p).not.toContain("语料过长已截断")
+  })
+
+  it("missing aliasMap + empty name → fallback[0] 被过滤, 仅 aliases 保留", () => {
+    const c = { ...makeCharacter(), name: "", aliasMap: undefined }
+    const p = buildPublicMaterialPrompt({ character: c, corpus: "正文", bookTitle: "X" })
+    expect(p).toContain("大郎、许银锣")
+  })
 })

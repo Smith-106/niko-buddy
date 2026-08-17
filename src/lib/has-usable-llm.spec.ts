@@ -79,6 +79,19 @@ describe("hasUsableLlm", () => {
     }))).toBe(true)
   })
 
+  it("treats anthropic/google/minimax like openai (key + model)", () => {
+    expect(hasUsableLlm(makeConfig({ provider: "anthropic", apiKey: "k", model: "m" }))).toBe(true)
+    expect(hasUsableLlm(makeConfig({ provider: "anthropic", apiKey: "", model: "m" }))).toBe(false)
+    expect(hasUsableLlm(makeConfig({ provider: "google", apiKey: "k", model: "m" }))).toBe(true)
+    expect(hasUsableLlm(makeConfig({ provider: "minimax", apiKey: "k", model: "m" }))).toBe(true)
+  })
+
+  it("exercises the exhaustive-switch default via an untyped provider", () => {
+    // The default arm is dead by typing (all union members handled);
+    // reach it at runtime only by bypassing the type system.
+    expect(hasUsableLlm(makeConfig({ provider: "bogus" as never }))).toBe("bogus" as never)
+  })
+
   it("allows local CLI providers to fall back to the machine default model", () => {
     expect(hasUsableLlm(makeConfig({
       provider: "claude-code",

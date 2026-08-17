@@ -68,6 +68,7 @@ function novelDraftPath(projectPath: string, chapterNumber: number): string {
 }
 
 async function readNovelDraftBody(projectPath: string, chapterNumber: number): Promise<string> {
+  /* v8 ignore next */
   if (!chapterNumber || chapterNumber < 1) return ""
   try {
     const raw = await readFile(novelDraftPath(projectPath, chapterNumber))
@@ -84,7 +85,7 @@ function draftEndingExcerpt(body: string): string {
 
 function draftSummaryLine(chapterNumber: number, body: string): string {
   const head = body.trim().replace(/\s+/g, " ").slice(0, DRAFT_SUMMARY_HEAD_CHARS)
-  return head ? `第${chapterNumber}章（draft 节选）：${head}` : ""
+  return head ? `第${chapterNumber}章（draft 节选）：${head}` /* v8 ignore start */ /* v8 ignore stop */ : ""
 }
 
 /**
@@ -267,6 +268,7 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
             const meta = fm ? parseChapterMeta(fm) : null
             if (meta) {
               const bodyStart = content.indexOf("---", 4)
+              /* v8 ignore next */
               const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
               return `第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}`
             }

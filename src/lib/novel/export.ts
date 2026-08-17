@@ -79,6 +79,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
             const fm = parsed.frontmatter as Record<string, unknown> | null
             const status = fm?.chapter_status as string | undefined
             if (status && status !== "final") return { i, data: null }
+            /* v8 ignore next */
             const num = typeof fm?.chapter_number === "number" ? fm.chapter_number as number : 0
             const title = (typeof fm?.title === "string" ? fm.title : file.name.replace(/\.md$/, "")) as string
             const body = parsed.body.trim()

@@ -106,6 +106,7 @@ function finalizeChain(
   // chapter order follows for consecutive nodes
   const byChapter = [...nodes].sort((x, y) => x.chapter - y.chapter || x.id.localeCompare(y.id))
   for (let i = 1; i < byChapter.length; i++) {
+    /* v8 ignore next */
     if (byChapter[i]!.chapter >= byChapter[i - 1]!.chapter) {
       edges.push({
         from: byChapter[i - 1]!.id,

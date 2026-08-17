@@ -169,4 +169,193 @@ describe("CharacterSelectionPanel", () => {
     expect(onSelectAllMain).toHaveBeenCalledTimes(1)
     cleanup()
   })
+
+  it("搜索过滤角色：命中显示、无命中显示空态", async () => {
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+    })
+    await flushAsync()
+    const input = document.body.querySelector(
+      'input[placeholder="搜索角色名"]'
+    ) as HTMLInputElement
+    expect(input).toBeTruthy()
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    )!.set!
+    await act(async () => {
+      setter.call(input, "临安")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await flushAsync()
+    const html = getAllBodyHtml()
+    expect(html).toContain("临安公主")
+    expect(html).not.toContain("许七安")
+    await act(async () => {
+      setter.call(input, "查无此人")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await flushAsync()
+    expect(getAllBodyHtml()).toContain("无匹配角色")
+    cleanup()
+  })
+
+  it("切换排序为按出场次数", async () => {
+    const sorted: RecognizedCharacter[] = [
+      {
+        id: "a",
+        name: "高出场低重要",
+        aliases: [],
+        appearances: 9,
+        chapterIndices: [0],
+        importanceScore: 10,
+        category: "次要",
+        sourceBook: "test",
+      },
+      {
+        id: "b",
+        name: "低出场高重要",
+        aliases: [],
+        appearances: 1,
+        chapterIndices: [0],
+        importanceScore: 90,
+        category: "主角",
+        sourceBook: "test",
+      },
+    ]
+    const { cleanup } = renderPanel({
+      characters: sorted,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+    })
+    await flushAsync()
+    const rows = () =>
+      Array.from(
+        document.body.querySelectorAll("[data-testid^='character-row-']")
+      ).map((el) => el.getAttribute("data-testid"))
+    expect(rows()).toEqual(["character-row-b", "character-row-a"])
+    const select = document.body.querySelector("select") as HTMLSelectElement
+    expect(select).toBeTruthy()
+    await act(async () => {
+      select.value = "appearances"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flushAsync()
+    expect(rows()).toEqual(["character-row-a", "character-row-b"])
+    cleanup()
+  })
+
+  it("点击角色行触发 onToggle", async () => {
+    const onToggle = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle,
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+    })
+    await flushAsync()
+    const row = document.body.querySelector(
+      '[data-testid="character-row-1"]'
+    ) as HTMLElement
+    expect(row).toBeTruthy()
+    await act(async () => {
+      row.click()
+    })
+    expect(onToggle).toHaveBeenCalledWith("1")
+    cleanup()
+  })
+
+  it("点击 checkbox 触发 onToggle 且不冒泡到行", async () => {
+    const onToggle = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle,
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+    })
+    await flushAsync()
+    const cb = document.body.querySelector(
+      '[data-testid="character-row-1"] input[type="checkbox"]'
+    ) as HTMLInputElement
+    expect(cb).toBeTruthy()
+    await act(async () => {
+      cb.click()
+    })
+    expect(onToggle).toHaveBeenCalledWith("1")
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
+  it("无 onClose 时关闭 X 回退到 onCancel", async () => {
+    const onCancel = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel,
+    })
+    await flushAsync()
+    const close = document.body.querySelector(
+      '[data-slot="dialog-close"]'
+    ) as HTMLElement
+    expect(close).toBeTruthy()
+    await act(async () => {
+      close.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(onCancel).toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("提供 onClose 时关闭 X 调用 onClose 而非 onCancel", async () => {
+    const onClose = vi.fn()
+    const onCancel = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel,
+      onClose,
+    })
+    await flushAsync()
+    const close = document.body.querySelector(
+      '[data-slot="dialog-close"]'
+    ) as HTMLElement
+    expect(close).toBeTruthy()
+    await act(async () => {
+      close.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(onClose).toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+    cleanup()
+  })
 })

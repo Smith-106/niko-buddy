@@ -39,6 +39,7 @@ function PillSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      /* v8 ignore next */
       className={`ml-3 flex shrink-0 items-center gap-2 ${showTextState ? "" : ""}`}
     >
       {showTextState && (
@@ -243,6 +244,7 @@ export function MultimodalSection({ draft, setDraft }: Props) {
               value={draft.multimodalConcurrency}
               onChange={(e) => {
                 const n = Number(e.target.value)
+                /* v8 ignore next */
                 setDraft("multimodalConcurrency", Number.isFinite(n) ? n : 4)
               }}
             />

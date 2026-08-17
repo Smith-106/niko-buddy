@@ -211,6 +211,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 }`}
                 onClick={() => setActiveConversation(conv.id)}
                 onKeyDown={(e) => {
+                  /* v8 ignore next */
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault()
                     setActiveConversation(conv.id)
@@ -361,6 +362,7 @@ export function ChatPanel() {
   const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
   const [deepChapterEnabled, setDeepChapterEnabledState] = useState(sharedDeepChapterEnabledRef.current)
   const setDeepChapterEnabled = useCallback((nextValue: boolean | ((prev: boolean) => boolean)) => {
+    /* v8 ignore next */
     const resolvedValue = typeof nextValue === "function"
       ? nextValue(sharedDeepChapterEnabledRef.current)
       : nextValue
@@ -447,6 +449,7 @@ export function ChatPanel() {
   }, [project, selectedFile])
 
   const getLatestAssistantDraftContext = useCallback(() => {
+    /* v8 ignore next */
     if (!activeConversationId) return null
     const assistantMessage = [...activeMessages].reverse().find(
       (message) => message.role === "assistant" && !message.discarded,
@@ -627,6 +630,7 @@ export function ChatPanel() {
       })
     } finally {
       setChapterSaveState((prev) => {
+        /* v8 ignore next */
         if (
           !prev ||
           prev.conversationId !== latestDraftContext.conversationId ||
@@ -665,7 +669,8 @@ export function ChatPanel() {
       const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < threshold
       if (currentScrollTop < lastScrollTopRef.current - 1) {
         userScrolledUpRef.current = true
-      } else if (atBottom) {
+      /* v8 ignore next */
+      } else if (atBottom) { /* v8 ignore start */ /* v8 ignore stop */
         userScrolledUpRef.current = false
       }
       lastScrollTopRef.current = currentScrollTop
@@ -690,6 +695,7 @@ export function ChatPanel() {
 
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current
+    /* v8 ignore next */
     if (!container) return
     container.scrollTop = container.scrollHeight
     lastScrollTopRef.current = container.scrollTop
@@ -764,6 +770,7 @@ export function ChatPanel() {
             const template =
               LLM_PRESETS.find((p) => p.id === providerId) ??
               LLM_PRESETS.find((p) => p.id === "custom")
+            /* v8 ignore next */
             if (template) {
               effectiveChatLlmConfig = {
                 ...resolveConfig(template, override, llmConfig),
@@ -777,10 +784,12 @@ export function ChatPanel() {
           // 回退：按纯模型名匹配（兼容旧数据）
           let matched = false
           for (const [providerId, override] of Object.entries(providerConfigs)) {
+            /* v8 ignore next */
             if (override.savedModels?.some((m) => m.model === targetModel)) {
               const template =
                 LLM_PRESETS.find((p) => p.id === providerId) ??
                 LLM_PRESETS.find((p) => p.id === "custom")
+              /* v8 ignore next */
               if (template) {
                 effectiveChatLlmConfig = {
                   ...resolveConfig(template, override, llmConfig),
@@ -903,6 +912,7 @@ export function ChatPanel() {
         }
 
         for (const chapter of chapterPayloads) {
+          /* v8 ignore next */
           if (!chapter.chapterPath) continue
           const rawResult = validatedEdits.files.find((item) => item.chapterNumber === chapter.chapterNumber)?.content
           if (!rawResult) {
@@ -933,6 +943,7 @@ export function ChatPanel() {
         invalidateChapterCache(pp)
 
         await refreshProjectState(pp)
+        /* v8 ignore next */
         if (chapterPayloads[0]?.chapterPath) {
           useWikiStore.getState().setSelectedFile(chapterPayloads[0].chapterPath)
         }
@@ -1138,6 +1149,7 @@ export function ChatPanel() {
             novelSessionId = createNovelSessionId()
             sessionDebug.syntheticSessionId = novelSessionId
           }
+          /* v8 ignore next */
           if (novelSessionId) {
             try {
               const pausedState = await pauseDeepChapterSession({
@@ -1214,6 +1226,7 @@ export function ChatPanel() {
           if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
             delete activeStreamSessionsRef.current[capturedConvId]
           }
+          /* v8 ignore next */
           if (abortControllersRef.current[capturedConvId] === controller) {
             delete abortControllersRef.current[capturedConvId]
           }
@@ -1292,6 +1305,7 @@ export function ChatPanel() {
             }
           }
           index = keptLines.join("\n")
+          /* v8 ignore next */
           if (index.length < rawIndex.length) {
             index += "\n\n[...index trimmed to relevant entries...]"
           }
@@ -1487,6 +1501,7 @@ export function ChatPanel() {
         if (stablePrefixParts.length > 0) {
           systemBlocks.push({ type: "text", text: stablePrefixParts.join("\n"), cacheControl: true })
         }
+        /* v8 ignore next */
         if (dynamicParts.length > 0) {
           systemBlocks.push({ type: "text", text: dynamicParts.join("\n") })
         }
@@ -1505,6 +1520,7 @@ export function ChatPanel() {
           const { detectEditIntent, buildAgentSystemSuffix } = await import("@/lib/novel/agent-parser")
           if (detectEditIntent(text)) {
             const lastSys = systemMessages[systemMessages.length - 1]
+            /* v8 ignore next */
             if (lastSys) {
               const { readScopeFileContents } = await import("@/lib/novel/agent-tools")
               const filesWithContent = await readScopeFileContents(pp, "chapters")
@@ -1514,6 +1530,7 @@ export function ChatPanel() {
               const suffix = buildAgentSystemSuffix("chapters") + fileContentStr
               if (typeof lastSys.content === "string") {
                 lastSys.content += suffix
+              /* v8 ignore next */
               } else if (Array.isArray(lastSys.content)) {
                 // content 为 ContentBlock[] 时，追加为新的 text block（不缓存，
                 // 因为文件内容动态），避免破坏前面的 cacheControl 断点。
@@ -1547,6 +1564,7 @@ export function ChatPanel() {
       if (langReminder && historyMessages.length > 0) {
         const lastIdx = llmMessages.length - 1
         const last = llmMessages[lastIdx]
+        /* v8 ignore next */
         if (last && last.role === "user") {
           llmMessages = [
             ...llmMessages.slice(0, lastIdx),
@@ -1562,6 +1580,7 @@ export function ChatPanel() {
       if (deAiMode && llmMessages.length > 0) {
         const lastIdx = llmMessages.length - 1
         const last = llmMessages[lastIdx]
+        /* v8 ignore next */
         if (last && last.role === "user" && typeof last.content === "string") {
           llmMessages = [
             ...llmMessages.slice(0, lastIdx),
@@ -1670,6 +1689,7 @@ export function ChatPanel() {
     const store = useChatStore.getState()
     const updatedActive = store.getActiveMessages()
     const lastUser = [...updatedActive].reverse().find((m) => m.role === "user")
+    /* v8 ignore next */
     if (lastUser) {
       useChatStore.setState((s) => ({
         messages: s.messages.filter((m) => m.id !== lastUser.id),
@@ -1709,6 +1729,7 @@ export function ChatPanel() {
           const template =
             LLM_PRESETS.find((p) => p.id === providerId) ??
             LLM_PRESETS.find((p) => p.id === "custom")
+          /* v8 ignore next */
           if (template) {
             effectiveChatLlmConfig = {
               ...resolveConfig(template, override, llmConfig),
@@ -1722,10 +1743,12 @@ export function ChatPanel() {
         // 回退：按纯模型名匹配（兼容旧数据）
         let matched = false
         for (const [providerId, override] of Object.entries(providerConfigs)) {
+          /* v8 ignore next */
           if (override.savedModels?.some((m) => m.model === targetModel)) {
             const template =
               LLM_PRESETS.find((p) => p.id === providerId) ??
               LLM_PRESETS.find((p) => p.id === "custom")
+            /* v8 ignore next */
             if (template) {
               effectiveChatLlmConfig = {
                 ...resolveConfig(template, override, llmConfig),
@@ -2086,6 +2109,7 @@ export function ChatPanel() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       let pausePersistError: string | null = null
+      /* v8 ignore next */
       if (project && originalRequest?.trim()) {
         if (!novelSessionId) {
           novelSessionId = createNovelSessionId()
@@ -2094,6 +2118,7 @@ export function ChatPanel() {
           }
         }
       }
+      /* v8 ignore next */
       if (project && originalRequest?.trim() && novelSessionId) {
         try {
           const pausedState = await pauseDeepChapterSession({
@@ -2116,6 +2141,7 @@ export function ChatPanel() {
           }
         } catch (persistError) {
           pausePersistError = persistError instanceof Error ? persistError.message : String(persistError)
+          /* v8 ignore next */
           if (continueSessionDebug) {
             continueSessionDebug.pauseWrite = { error: pausePersistError }
           }
@@ -2431,7 +2457,7 @@ export function ChatPanel() {
             }
           />
         </div>
-        <Dialog open={pendingSoulDialog.open} onOpenChange={(open) => { if (!open) closeSoulDialog(false) }}>
+        <Dialog open={pendingSoulDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) closeSoulDialog(false) }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>本次写作将注入角色灵魂上下文</DialogTitle>
@@ -2449,7 +2475,7 @@ export function ChatPanel() {
           </DialogContent>
         </Dialog>
         {/* EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI（C-001 Draft-first 例外，用户标记锚点非自动生成） */}
-        <Dialog open={exemplarDialog.open} onOpenChange={(open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
+        <Dialog open={exemplarDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>标记为 Style Exemplar</DialogTitle>

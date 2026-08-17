@@ -45,6 +45,7 @@ type IngestChapterDependency = (
 ) => Promise<{ snapshot: unknown | null; failReason?: string }>
 
 function normalizeFullWidthDigits(value: string): string {
+  /* v8 ignore next */
   return value.replace(/[０-９]/g, (char) => String(char.charCodeAt(0) - 0xff10))
 }
 
@@ -81,6 +82,7 @@ function parseChineseInteger(value: string): number | null {
       continue
     }
     const unit = unitMap[char]
+    /* v8 ignore next */
     if (!unit) return null
     hasValue = true
     if (unit === 10000) {
@@ -94,6 +96,7 @@ function parseChineseInteger(value: string): number | null {
   }
 
   const result = total + section + number
+  /* v8 ignore next */
   return hasValue && result > 0 ? result : null
 }
 
@@ -134,6 +137,7 @@ export function matchChapterImportFilename(text: string): ChapterImportFilenameM
     if (!chapterNumber || chapterNumber <= 0) continue
     return {
       chapterNumber,
+      /* v8 ignore next */
       titleSuffix: cleanImportedChapterTitleSuffix(match[2] ?? ""),
     }
   }
@@ -219,6 +223,7 @@ export function buildImportedChapterMarkdown({
 function isChapterImportablePath(path: string): boolean {
   const fileName = getFileName(path)
   if (!fileName || fileName.startsWith(".")) return false
+  /* v8 ignore next */
   const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() ?? "" : ""
   return CHAPTER_IMPORT_EXTENSION_SET.has(extension)
 }

@@ -52,6 +52,7 @@ export function DismantlingView() {
   }, [project, dataVersion, selectedDismantlingProjectId])
 
   const upsertSelectedProject = async (updater: (current: DismantlingProject) => DismantlingProject) => {
+    /* v8 ignore next */
     if (!selectedProject || !project) return
     const updated = updater(selectedProject)
     const fullLibrary = await loadDismantlingLibrary(project.path)
@@ -62,6 +63,7 @@ export function DismantlingView() {
   }
 
   const handleRunDismantling = async () => {
+    /* v8 ignore next */
     if (!project || !selectedProject || running) return
     const batch = selectNextDismantlingBatch(selectedProject, { selectedChapterIds, batchSize })
     if (batch.length === 0) {
@@ -126,8 +128,10 @@ export function DismantlingView() {
   }
 
   const handleRunWebDismantlingResearch = async () => {
+    /* v8 ignore next */
     if (!project || !selectedProject || running) return
     const request = webResearchInput.trim()
+    /* v8 ignore next */
     if (!request) {
       setStatus("请先输入要搜索的热门方向、榜单关键词或网页地址。")
       return

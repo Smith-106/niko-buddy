@@ -4,6 +4,9 @@ import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import {
   buildDimensionReviewPrompt,
+  DimParseError,
+  dimensionResultsToReviewResults,
+  getCachedDimensionResults,
   normalizeDimensionScore,
   reviewChapterDimension,
   runSixDimensionReview,
@@ -14,6 +17,12 @@ import {
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
   buildContextPackMock: vi.fn(),
+  hasUsableLlmMock: vi.fn(() => true),
+  novelModeValue: true,
+  registerNovelSkillHookMock: vi.fn(),
+  runNovelSkillHooksMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
   llmConfig: {
     provider: "custom" as const,
     apiKey: "test-key",
@@ -77,17 +86,38 @@ vi.mock("@/stores/wiki-store", () => ({
     getState: () => ({
       llmConfig,
       novelConfig: { reviewModel: "" },
-      novelMode: true,
+      novelMode: mocks.novelModeValue,
     }),
   },
 }))
 
 vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: () => true,
+  hasUsableLlm: (...args: unknown[]) => mocks.hasUsableLlmMock(...args),
 }))
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,
+}))
+
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+    logger: { error: mocks.loggerErrorMock, warn: mocks.loggerWarnMock },
+  }
+})
+
+vi.mock("./novel-skill-hooks", () => ({
+  createGoldScaleReadinessHook: (promptHint: string) => ({
+    id: "gold-readiness", track: "B", stages: ["pre_six_dim_review"],
+    run: async () => { void promptHint },
+  }),
+  createAvoidAiMechanicalSlopHook: () => ({ id: "avoid-ai-m", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
+  createCedSoftReportHook: () => ({ id: "ced-soft", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
+  createDeAiDualPassHook: () => ({ id: "deai-dual", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
+  createStatisticalAiSignatureHook: () => ({ id: "ai-sig", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
+  registerNovelSkillHook: (...args: unknown[]) => mocks.registerNovelSkillHookMock(...args),
+  runNovelSkillHooks: (...args: unknown[]) => mocks.runNovelSkillHooksMock(...args),
 }))
 
 vi.mock("./context-engine", () => ({
@@ -110,6 +140,18 @@ describe("six-dimension review adapter", () => {
     streamChatMock.mockReset()
     buildContextPackMock.mockReset()
     buildContextPackMock.mockResolvedValue(contextPack)
+    mocks.hasUsableLlmMock.mockReturnValue(true)
+    mocks.novelModeValue = true
+    mocks.registerNovelSkillHookMock.mockReset()
+    mocks.loggerErrorMock.mockReset()
+    mocks.loggerWarnMock.mockReset()
+    mocks.runNovelSkillHooksMock.mockReset()
+    mocks.runNovelSkillHooksMock.mockResolvedValue({
+      projectPath: "E:/Novel",
+      chapterNumber: 8,
+      stage: "pre_six_dim_review",
+      bag: { promptFragments: [], notes: [] },
+    })
   })
 
   it("defines six independent professional review workflows", () => {
@@ -366,5 +408,469 @@ describe("six-dimension review adapter", () => {
     expect(results.continuity?.status).toBe("pass")
     expect(results.continuity?.score).toBe(10)
     expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("DimParseError exposes raw text and parse message", () => {
+    const err = new DimParseError('{"score": 9,', "Unexpected end of JSON input")
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe("DimParseError")
+    expect(err.raw).toBe('{"score": 9,')
+    expect(err.parseMessage).toBe("Unexpected end of JSON input")
+    expect(err.message).toContain("JSON parse failed")
+  })
+
+  it("getCachedDimensionResults derives the cached view in canonical order", () => {
+    expect(getCachedDimensionResults(undefined)).toEqual([])
+    const mk = (dimensionKey: string) => ({
+      dimensionKey,
+      score: 8,
+      status: "pass",
+      summary: "s",
+      thinking: "t",
+      issues: [],
+    })
+    const ordered = getCachedDimensionResults({ pull: mk("pull"), thrill: mk("thrill") })
+    expect(ordered.map((r) => r.dimensionKey)).toEqual(["thrill", "pull"])
+    expect(getCachedDimensionResults({}).length).toBe(0)
+  })
+
+  it("dimensionResultsToReviewResults maps issue severities against the dimension status floor", () => {
+    const base = (status: string, issueSeverity: string) => ({
+      dimensionKey: "thrill" as const,
+      score: 8,
+      status,
+      summary: "",
+      thinking: "",
+      issues: [{ severity: issueSeverity, type: "thrill", dimensionKey: "thrill", message: "m", evidence: "e", relatedMemory: "", suggestion: "", impact: "", rewriteTarget: "" }],
+    })
+    // error floor: issue warning → error
+    expect(dimensionResultsToReviewResults({ thrill: base("error", "warning") })[0]!.severity).toBe("error")
+    // medium floor: issue info → warning
+    expect(dimensionResultsToReviewResults({ thrill: base("medium", "info") })[0]!.severity).toBe("warning")
+    // low floor: issue error raises above floor
+    expect(dimensionResultsToReviewResults({ thrill: base("low", "error") })[0]!.severity).toBe("error")
+    // pass floor with info issue
+    expect(dimensionResultsToReviewResults({ thrill: base("pass", "info") })[0]!.severity).toBe("info")
+  })
+
+  it("dimensionResultsToReviewResults routes types into the correct gates and prefixes messages", () => {
+    const mk = (key: string, summary: string, message: string) => ({
+      dimensionKey: key,
+      score: 7,
+      status: "medium",
+      summary,
+      thinking: "",
+      issues: [{ severity: "warning", type: key, dimensionKey: key, message, evidence: "e", relatedMemory: "rm", suggestion: "s", impact: "i", rewriteTarget: "rt" }],
+    })
+    const results = dimensionResultsToReviewResults({
+      character: mk("character", "人设有偏", "角色知道了不该知道的"),
+      continuity: mk("continuity", "时间线对不上", "时间跳跃"),
+      pacing: mk("pacing", "节奏拖沓", "水文过多"),
+      consistency: mk("consistency", "设定矛盾", "能力超纲"),
+    })
+    const byType = Object.fromEntries(results.map((r) => [r.type, r]))
+    expect(byType.character_consistency!.message).toBe("[人设有偏] 角色知道了不该知道的")
+    expect(byType.timeline!.message).toContain("时间跳跃")
+    expect(byType.plot!.message).toContain("水文过多")
+    expect(byType.consistency!.evidence).toBe("e")
+    expect(byType.consistency!.relatedMemory).toBe("rm")
+    expect(byType.consistency!.suggestion).toBe("s")
+  })
+
+  it("dimensionResultsToReviewResults emits info summary when a dimension has no issues", () => {
+    const results = dimensionResultsToReviewResults({
+      pull: {
+        dimensionKey: "pull", score: 9, status: "pass", summary: "钩子成立", thinking: "", issues: [],
+      },
+    })
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ severity: "info", type: "plot" })
+    expect(results[0]!.message).toBe("追读引力：钩子成立")
+  })
+
+  it("dimensionResultsToReviewResults falls back to the dimension key when summary is empty", () => {
+    const results = dimensionResultsToReviewResults({
+      thrill: {
+        dimensionKey: "thrill", score: 6, status: "pass", summary: "", thinking: "", issues: [],
+      },
+    })
+    expect(results[0]!.message).toBe("爽感密度：pass")
+  })
+
+  it("dimensionResultsToReviewResults uses the key as message prefix and empty evidence fallback", () => {
+    const results = dimensionResultsToReviewResults({
+      pacing: {
+        dimensionKey: "pacing",
+        score: 5,
+        status: "medium",
+        summary: "",
+        thinking: "",
+        issues: [{ severity: "warning", type: "pacing", dimensionKey: "pacing", message: "", evidence: "", relatedMemory: "", suggestion: "", impact: "", rewriteTarget: "" }],
+      },
+    })
+    // empty issue message → empty string fallback keeps the prefix only
+    expect(results[0]!.message).toBe("[pacing]")
+    expect(results[0]!.evidence).toBe("")
+    expect(results[0]!.relatedMemory).toBe("")
+    expect(results[0]!.suggestion).toBe("")
+  })
+
+  it("truncates long exemplar excerpts to 200 chars in the prompt", () => {
+    const longText = "长".repeat(250)
+    const prompt = buildDimensionReviewPrompt(
+      { ...contextPack, styleExemplars: [{ exemplarId: "e", chapterId: "1", text: longText, markType: "pacing", createdAt: "2026-08-01" }] },
+      "正文",
+      SIX_REVIEW_DIMENSIONS.pacing,
+    )
+    expect(prompt).toContain("长".repeat(200) + "…")
+    expect(prompt).not.toContain("长".repeat(201))
+    expect(prompt).toContain("[节奏]")
+  })
+
+  it("returns {} when no usable LLM is configured", async () => {
+    mocks.hasUsableLlmMock.mockReturnValue(false)
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      chapterNumber: 8,
+    })
+    expect(results).toEqual({})
+    expect(buildContextPackMock).not.toHaveBeenCalled()
+  })
+
+  it("returns {} when novelMode is off", async () => {
+    mocks.novelModeValue = false
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      chapterNumber: 8,
+    })
+    expect(results).toEqual({})
+  })
+
+  it("falls back to '?' chapter label when chapterNumber is missing", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({ score: 8, status: "pass", summary: "s", issues: [] }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["pacing"],
+    })
+    expect(results.pacing?.status).toBe("pass")
+    expect(buildContextPackMock).toHaveBeenCalledWith("E:/Novel", "六维审查第?章", undefined)
+  })
+
+  it("uses 'unknown' model label when model is empty", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: [],
+      llmConfig: { ...llmConfig, model: "" },
+    })
+    // dimensionKeys [] → no LLM calls; fingerprint uses "unknown"
+    expect(Object.keys(results)).toEqual([])
+    expect(mocks.runNovelSkillHooksMock).toHaveBeenCalled()
+  })
+
+  it("joins skill-hook prompt fragments into the gold readiness hint", async () => {
+    mocks.runNovelSkillHooksMock.mockResolvedValue({
+      projectPath: "E:/Novel",
+      chapterNumber: 8,
+      stage: "pre_six_dim_review",
+      bag: { promptFragments: ["金标提示 A", "机械 slop 提示 B"], notes: [] },
+    })
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["pull"],
+    })
+    expect(results.pull).toBeDefined()
+    // readiness hint carries into the pull prompt block
+    expect(streamChatMock).toHaveBeenCalled()
+  })
+
+  it("soft-fails the gold scale + skill hook block with a logged warning", async () => {
+    mocks.runNovelSkillHooksMock.mockRejectedValue(new Error("hooks boom"))
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({ score: 8, status: "pass", summary: "s", issues: [] }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["pacing"],
+    })
+    expect(results.pacing?.status).toBe("pass")
+    expect(mocks.loggerWarnMock).toHaveBeenCalledWith(
+      "SixDimReview",
+      "gold scale / skill hooks soft-failed",
+      expect.objectContaining({ error: "hooks boom" }),
+    )
+  })
+
+  it("soft-fail warning stringifies non-Error values", async () => {
+    mocks.runNovelSkillHooksMock.mockRejectedValue("raw hook failure")
+    await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: [],
+    })
+    expect(mocks.loggerWarnMock).toHaveBeenCalledWith(
+      "SixDimReview",
+      "gold scale / skill hooks soft-failed",
+      expect.objectContaining({ error: "raw hook failure" }),
+    )
+  })
+
+  it("logs stream errors via onError without leaking provider details", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onError(new Error("provider 500"))
+      callbacks.onDone()
+    })
+    await expect(reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })).rejects.toThrow()
+    expect(mocks.loggerErrorMock).toHaveBeenCalledWith(
+      "Dimension Review",
+      "thrill stream error",
+      expect.objectContaining({ error: "provider 500" }),
+    )
+  })
+
+  it("stream onError stringifies non-Error values", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onError("raw stream failure" as unknown as Error)
+      callbacks.onDone()
+    })
+    await expect(reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })).rejects.toThrow()
+    expect(mocks.loggerErrorMock).toHaveBeenCalledWith(
+      "Dimension Review",
+      "thrill stream error",
+      expect.objectContaining({ error: "raw stream failure" }),
+    )
+  })
+
+  it("rejects when the model returns no JSON object", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken("阶段分析而已，没有 JSON")
+      callbacks.onDone()
+    })
+    await expect(reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })).rejects.toThrow("审查没有返回 JSON")
+  })
+
+  it("wraps malformed JSON in DimParseError", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken('{"score": 9, "status": }')
+      callbacks.onDone()
+    })
+    await expect(reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })).rejects.toBeInstanceOf(DimParseError)
+  })
+
+  it("rethrows non-SyntaxError throwables from JSON.parse unchanged (F-003)", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken('{"score": 8, "status": "pass", "summary": "s", "issues": []}')
+      callbacks.onDone()
+    })
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
+      throw new TypeError("boom")
+    })
+    try {
+      await expect(reviewChapterDimension({
+        llmConfig,
+        contextPack,
+        chapterContent: "正文",
+        dimension: SIX_REVIEW_DIMENSIONS.thrill,
+      })).rejects.toThrow(TypeError)
+    } finally {
+      parseSpy.mockRestore()
+    }
+  })
+
+  it("runs a dimension whose issues array is not an array (falls back to [])", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({ score: 7, status: "high", summary: "s", issues: "not-array" }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const result = await reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })
+    expect(result.issues).toEqual([])
+    expect(result.summary).toBe("s")
+  })
+
+  it("normalizes a sparse issue with all optional fields missing", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({
+          score: 6,
+          status: "weird-status",
+          issues: [{
+            severity: "bogus",
+            type: "",
+            message: "",
+          }],
+        }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const result = await reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })
+    expect(result.issues).toHaveLength(1)
+    const issue = result.issues[0]!
+    // validateSeverity default → warning; type falls back to the dimension key
+    expect(issue.severity).toBe("warning")
+    expect(issue.type).toBe("thrill")
+    expect(issue.message).toBe("")
+    expect(issue.evidence).toBe("")
+    expect(issue.relatedMemory).toBe("")
+    expect(issue.suggestion).toBe("")
+    expect(issue.impact).toBe("")
+    expect(issue.rewriteTarget).toBe("")
+    // weird status + issues present → "medium"
+    expect(result.status).toBe("medium")
+  })
+
+  it("rewriteTarget falls back to evidence when absent", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({
+          score: 6,
+          status: "pass",
+          summary: "s",
+          issues: [{ severity: "info", type: "thrill", message: "m", evidence: "证据原文" }],
+        }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const result = await reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })
+    expect(result.issues[0]!.rewriteTarget).toBe("证据原文")
+    // missing summary → ""
+    expect(result.summary).toBe("s")
+  })
+
+  it("unknown status with zero issues resolves to pass", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({ score: 6, status: "unknown", issues: [] }))
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const result = await reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "正文",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+    })
+    expect(result.status).toBe("pass")
+  })
+
+  it("builds failed-dimension results with the DimParseError message in the six-dim run", async () => {
+    streamChatMock.mockImplementation(async (_c: unknown, messages: Array<{ role: string; content: string }>, callbacks: StreamCallbacks) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken('{"score": 9, }')
+      } else {
+        callbacks.onToken("分析")
+      }
+      callbacks.onDone()
+    })
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["pull"],
+    })
+    expect(results.pull?.status).toBe("error")
+    expect(results.pull?.summary).toContain("JSON 无法解析")
+    expect(results.pull?.issues[0]?.message).toContain("JSON 无法解析")
+  })
+
+  it("builds failed-dimension results with the original message for runtime errors", async () => {
+    streamChatMock.mockRejectedValue(new Error("网络超时"))
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["character"],
+    })
+    expect(results.character?.status).toBe("error")
+    expect(results.character?.summary).toContain("网络超时")
+    expect(results.character?.issues[0]?.suggestion).toBe("请检查模型设置后重新审查此维度。")
+  })
+
+  it("builds failed-dimension results with 未知错误 for non-Error failures", async () => {
+    streamChatMock.mockRejectedValue("string failure")
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["character"],
+    })
+    expect(results.character?.summary).toContain("未知错误")
+    expect(results.character?.thinking).toContain("未知错误")
+  })
+
+  it("builds failed-dimension results with the unknown-error fallback when the rejection is null", async () => {
+    streamChatMock.mockRejectedValue(null)
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "正文",
+      dimensionKeys: ["character"],
+    })
+    expect(results.character?.status).toBe("error")
+    expect(results.character?.summary).toContain("unknown error")
   })
 })

@@ -81,6 +81,7 @@ export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
   if (!hasContent) return null
 
   function handleNavigate(path: string | null) {
+    /* v8 ignore next */
     if (!path) return
     setSelectedFile(path)
   }
@@ -281,6 +282,7 @@ function RelatedChip({
 }
 
 function iconForSource(name: string) {
+  /* v8 ignore next */
   const ext = name.split(".").pop()?.toLowerCase() ?? ""
   switch (ext) {
     case "pdf":

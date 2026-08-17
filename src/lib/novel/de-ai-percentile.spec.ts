@@ -28,4 +28,37 @@ describe("de-ai-percentile", () => {
     expect(proxy.productHardGate).toBe(false)
     expect(proxy.tprAtP90).toBeGreaterThanOrEqual(proxy.fprAtP90)
   })
+
+  it("percentileRank returns 50 when the sample contains no finite numbers", () => {
+    expect(percentileRank(5, [NaN, Infinity])).toBe(50)
+  })
+
+  it("valueAtPercentile returns 0 for all-non-finite sample and clamps p", () => {
+    expect(valueAtPercentile([NaN], 50)).toBe(0)
+    expect(valueAtPercentile([1, 2, 3], 200)).toBe(3) // clamp to 100
+    expect(valueAtPercentile([1, 2, 3], -10)).toBe(1) // clamp to 0
+    expect(valueAtPercentile([10], 50)).toBe(10)
+  })
+
+  it("calibrateThresholds honors custom percentile opts and marks n<5 uncalibrated", () => {
+    const sample = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    const bands = calibrateThresholds(sample, { p50: 25, p90: 75, p95: 99 })
+    expect(bands.p50).toBe(valueAtPercentile(sample, 25))
+    expect(bands.p90).toBe(valueAtPercentile(sample, 75))
+    expect(bands.p95).toBe(valueAtPercentile(sample, 99))
+
+    const small = calibrateThresholds([1, 2])
+    expect(small.calibrated).toBe(false)
+    expect(small.note).toContain("uncalibrated")
+  })
+
+  it("selfTestChineseFprProxy handles empty humanish (fpr=0) and empty aish (tpr=0)", () => {
+    const emptyHuman = selfTestChineseFprProxy([], [1, 2, 3])
+    expect(emptyHuman.fprAtP90).toBe(0)
+    expect(emptyHuman.humanN).toBe(0)
+
+    const emptyAi = selfTestChineseFprProxy([1, 2, 3], [])
+    expect(emptyAi.tprAtP90).toBe(0)
+    expect(emptyAi.aiN).toBe(0)
+  })
 })

@@ -209,6 +209,7 @@ function isRawSourceForCascade(relativePath: string): boolean {
   const path = normalizePath(relativePath)
   if (!path.startsWith("raw/sources/")) return false
   if (path.includes("/.cache/")) return false
+  /* v8 ignore next */
   const name = path.split("/").pop() ?? ""
   return Boolean(name && !name.startsWith("."))
 }

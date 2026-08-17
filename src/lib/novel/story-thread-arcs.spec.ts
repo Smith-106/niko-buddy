@@ -75,6 +75,24 @@ describe("S2c Story Threads 6 状态机 (Quillica)", () => {
     expect(d.basis).toContain("13 章未推进")
   })
 
+  it("派生: 高潮段后长期未推进 → Falling（高潮段文案）", () => {
+    const d = deriveThreadArcState(
+      makeSubplot({ progress: ["1", "2", "3", "4", "5"], lastSeenChapter: 2 }),
+      15,
+    )
+    expect(d.arcState).toBe("Falling")
+    expect(d.basis).toContain("高潮段后")
+  })
+
+  it("派生: active 且无 progress 且未过期 → Setup（引入未推进）", () => {
+    const d = deriveThreadArcState(
+      makeSubplot({ progress: undefined as never, lastSeenChapter: 8 }),
+      10,
+    )
+    expect(d.arcState).toBe("Setup")
+    expect(d.basis).toContain("引入未推进")
+  })
+
   it("派生: resolved → Resolved; abandoned → Unresolved (Sequel)", () => {
     expect(deriveThreadArcState(makeSubplot({ status: "resolved" }), 10).arcState).toBe("Resolved")
     expect(deriveThreadArcState(makeSubplot({ abandoned: true }), 10).arcState).toBe("Unresolved")
@@ -102,6 +120,17 @@ describe("S2c Story Threads 6 状态机 (Quillica)", () => {
     expect(derived.transitionViolation).toBeUndefined()
   })
 
+  it("detectArcTransitionViolations: Resolved 且无 progress 字段 → 不报 (?? 0 分支)", () => {
+    const resolved = makeSubplot({ status: "resolved", progress: undefined as never })
+    const derived = detectArcTransitionViolations(resolved, {
+      subplotId: resolved.id,
+      title: resolved.title,
+      arcState: "Resolved",
+      basis: "已解决",
+    })
+    expect(derived.transitionViolation).toBeUndefined()
+  })
+
   it("deriveAllThreadArcStates + countOpenThreadArcs", () => {
     const subplots = [
       makeSubplot({ id: "a", status: "resolved" }),
@@ -119,5 +148,23 @@ describe("S2c Story Threads 6 状态机 (Quillica)", () => {
     const text = threadArcStatesToContextText(derived)
     expect(text).toContain("Story Threads 弧位")
     expect(text).toContain("[Climax] 复仇线")
+  })
+
+  it("threadArcStatesToContextText 空派生返回空串", () => {
+    expect(threadArcStatesToContextText([])).toBe("")
+  })
+
+  it("threadArcStatesToContextText 渲染违反标记", () => {
+    const derived: ThreadArcDerived[] = [
+      {
+        subplotId: "a",
+        title: "复仇线",
+        arcState: "Resolved",
+        basis: "闭环",
+        transitionViolation: "Resolved 后仍有推进",
+      },
+    ]
+    const text = threadArcStatesToContextText(derived)
+    expect(text).toContain("⚠ Resolved 后仍有推进")
   })
 })

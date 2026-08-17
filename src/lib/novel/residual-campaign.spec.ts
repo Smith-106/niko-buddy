@@ -64,6 +64,26 @@ describe("residual-campaign product opt-in", () => {
     expect(r!.residualBand).toBe("at_nine")
   })
 
+  it("resolves null when chapter number is missing or invalid", () => {
+    expect(resolveResidualCampaignFields({ enabled: true, chapterNumber: null })).toBeNull()
+    expect(resolveResidualCampaignFields({ enabled: true, chapterNumber: 0 })).toBeNull()
+    expect(resolveResidualCampaignFields({ enabled: true, chapterNumber: Number.NaN })).toBeNull()
+  })
+
+  it("falls back to the threshold hold for chapters outside the hold table", () => {
+    const r = resolveResidualCampaignFields({ enabled: true, chapterNumber: 7 })
+    expect(r!.residualOverallMedian).toBe(8.6)
+  })
+
+  it("maps below-threshold median to below_residual", () => {
+    const r = resolveResidualCampaignFields({
+      enabled: true,
+      chapterNumber: 1,
+      config: { residualCampaignOverallMedian: 8.0 },
+    })
+    expect(r!.residualBand).toBe("below_residual")
+  })
+
   it("P4 campaign order is Ch5→Ch2→Ch1→Ch3", () => {
     expect([...RESIDUAL_CAMPAIGN_ORDER]).toEqual([5, 2, 1, 3])
     expect(isResidualCampaignChapter(5)).toBe(true)
@@ -171,6 +191,34 @@ describe("evaluateResidualKeep (M2 pacing KEEP + dual-threshold)", () => {
     })
     expect(e.disposition).toBe("keep")
     expect(e.l9Disposition).toBe("test_control_pass")
+  })
+
+  it("isResidualCampaignChapter accepts campaign chapters and rejects others", () => {
+    expect(isResidualCampaignChapter(2)).toBe(true)
+    expect(isResidualCampaignChapter(1)).toBe(true)
+    expect(isResidualCampaignChapter(9)).toBe(false)
+    expect(isResidualCampaignChapter(null)).toBe(false)
+    expect(isResidualCampaignChapter(Number.NaN)).toBe(false)
+  })
+
+  it("rollback_overall for non-finite medians", () => {
+    const e = evaluateResidualKeep({ overallMedian: Number.NaN, holdMedian: 8.8 })
+    expect(e.disposition).toBe("rollback_overall")
+    expect(e.reason).toContain("not finite")
+    const e2 = evaluateResidualKeep({ overallMedian: 8.9, holdMedian: Number.NaN })
+    expect(e2.disposition).toBe("rollback_overall")
+  })
+
+  it("honors an explicit pacingRegressionThreshold", () => {
+    const e = evaluateResidualKeep({
+      overallMedian: 8.9,
+      holdMedian: 8.8,
+      pacingBefore: 8.3,
+      pacingAfter: 8.1,
+      pacingRegressionThreshold: 0.15,
+    })
+    expect(e.disposition).toBe("rollback_pacing")
+    expect(e.pacingDelta).toBeCloseTo(-0.2)
   })
 
   it("small pacing wobble below threshold does not rollback", () => {

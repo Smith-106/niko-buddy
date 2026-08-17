@@ -62,6 +62,98 @@ const sampleEmotionDebts: EmotionLedgerEntry[] = [
 ]
 
 describe("W3 / R16 / TASK-302: DebtBoardView 债务看板", () => {
+  it("settled and unknown chase debt states use muted/fallback labels", () => {
+    const paid: ChaseDebt = {
+      ...sampleChaseDebts[0],
+      id: "paid-debt",
+      status: "paid",
+      debt_type: "coolpoint",
+      current_amount: 0,
+    }
+    const writtenOff: ChaseDebt = {
+      ...sampleChaseDebts[0],
+      id: "written-off-debt",
+      status: "written_off",
+      debt_type: "unknown-type",
+    }
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={[paid, writtenOff]}
+        currentChapter={9}
+        emotionDebts={[]}
+      />,
+    )
+    expect(html).toContain("dashboard.debtType.coolpoint")
+    expect(html).toContain("dashboard.debtStatus.paid")
+    expect(html).toContain("dashboard.debtStatus.written_off")
+    expect(html).toContain("unknown-type")
+    expect(html).toContain("text-muted-foreground")
+  })
+
+  it("unknown computed status uses raw status fallback label", () => {
+    const unknownStatus = {
+      ...sampleChaseDebts[0],
+      id: "unknown-status",
+      status: "mystery",
+    } as unknown as ChaseDebt
+    const html = renderToStaticMarkup(<DebtBoardView chaseDebts={[unknownStatus]} />)
+    expect(html).toContain("mystery")
+  })
+
+  it("emotion debt tone branches cover negative, positive and neutral net values", () => {
+    const negative: EmotionLedgerEntry = {
+      characterName: "负向",
+      valence: -1,
+      arousal: 1,
+      dominance: -1,
+      netValue: -1,
+      lastUpdatedChapter: 1,
+      history: [],
+    }
+    const positive: EmotionLedgerEntry = {
+      characterName: "正向",
+      valence: 1,
+      arousal: 1,
+      dominance: 1,
+      netValue: 1,
+      lastUpdatedChapter: 1,
+      history: [],
+    }
+    const neutral: EmotionLedgerEntry = {
+      characterName: "中性",
+      valence: 0,
+      arousal: 0,
+      dominance: 0,
+      netValue: 0,
+      lastUpdatedChapter: 1,
+      history: [],
+    }
+    const html = renderToStaticMarkup(<DebtBoardView emotionDebts={[negative, positive, neutral]} />)
+    expect(html).toContain("负向")
+    expect(html).toContain("正向")
+    expect(html).toContain("中性")
+    expect(html).toContain("text-destructive")
+    expect(html).toContain("text-foreground")
+    expect(html).toContain("text-muted-foreground")
+  })
+
+  it("chase debt repayment can settle amount to zero before due chapter", () => {
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={[sampleChaseDebts[0]]}
+        chaseDebtEvents={[{
+          debt_id: "debt-1",
+          event_type: "full_payment",
+          amount: 1,
+          chapter: 2,
+        }]}
+        currentChapter={2}
+      />,
+    )
+    expect(html).toContain("dashboard.debtStatus.active")
+    expect(html).not.toContain("dashboard.debtStatus.overdue")
+  })
+
   it("渲染组件根标记与三类分区标题（[UI-observable]）", () => {
     const html = renderToStaticMarkup(
       <DebtBoardView

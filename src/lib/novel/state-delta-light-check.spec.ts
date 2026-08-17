@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { CharacterState } from "./character-state"
 import {
+  extractEmbeddedStateDeltaJson,
   extractStateDeltaHeuristic,
+  findCharacter,
+  isCharacterDead,
   lightIssuesToReviewResults,
+  parseStructuredStateDelta,
+  resolveStateDeltaForDraft,
   runLightCheck,
   runStateDeltaLightCheckOnDraft,
 } from "./state-delta-light-check"
@@ -51,6 +56,13 @@ describe("runLightCheck", () => {
     const issues = runLightCheck(prev, { chapter: 2, activeMentions: ["阿宁"] })
     expect(issues.filter((i) => i.severity === "error")).toHaveLength(0)
   })
+
+  it("dedupes identical issues (same code|entity|message)", () => {
+    const prev = [char({ characterName: "阿宁", status: "已死亡", isAlive: false })]
+    const issues = runLightCheck(prev, { chapter: 3, activeMentions: ["阿宁", "阿宁", "阿宁"] })
+    expect(issues.filter((i) => i.code === "dead_character_active")).toHaveLength(1)
+    expect(issues).toHaveLength(1)
+  })
 })
 
 describe("extractStateDeltaHeuristic", () => {
@@ -81,6 +93,258 @@ describe("lightIssuesToReviewResults", () => {
     )
     const results = lightIssuesToReviewResults(issues, { blocksTrackA: true, chapter: 1 })
     expect(results.some((r) => r.severity === "error")).toBe(true)
+  })
+})
+
+describe("findCharacter / isCharacterDead", () => {
+  it("returns undefined for blank names and resolves exact then fuzzy matches", () => {
+    const prev = [
+      char({ characterName: "阿宁" }),
+      char({ characterName: "白砚·墨" }),
+    ]
+    expect(findCharacter(prev, "   ")).toBeUndefined()
+    expect(findCharacter(prev, "阿宁")?.characterName).toBe("阿宁")
+    // fuzzy: 子串双向匹配
+    expect(findCharacter(prev, "白砚")?.characterName).toBe("白砚·墨")
+    expect(findCharacter(prev, "墨")?.characterName).toBe("白砚·墨")
+  })
+
+  it("isCharacterDead: isAlive false, deathChapter, and death status words", () => {
+    expect(isCharacterDead(char({ characterName: "a", isAlive: false }))).toBe(true)
+    expect(isCharacterDead(char({ characterName: "b", deathChapter: 3 }))).toBe(true)
+    expect(isCharacterDead(char({ characterName: "c", status: "阵亡" }))).toBe(true)
+    expect(isCharacterDead(char({ characterName: "d", isAlive: true, status: "健康" }))).toBe(false)
+  })
+})
+
+describe("runLightCheck edge cases", () => {
+  it("flags unknown entities in location and inventory changes", () => {
+    const issues = runLightCheck([], {
+      chapter: 1,
+      locationChanges: [{ entity: "路人甲", to: "客栈" }],
+      inventoryChanges: [{ entity: "路人乙", item: "剑", op: "gain" }],
+    })
+    expect(issues.some((i) => i.code === "unknown_entity_location" && i.severity === "info")).toBe(true)
+    expect(issues.some((i) => i.code === "unknown_entity_inventory" && i.severity === "info")).toBe(true)
+  })
+
+  it("flags dead character location change with status evidence", () => {
+    const prev = [char({ characterName: "阿宁", isAlive: false, status: "已死亡", deathChapter: 2 })]
+    const issues = runLightCheck(prev, {
+      chapter: 3,
+      locationChanges: [{ entity: "阿宁", to: "墓园" }],
+    })
+    const issue = issues.find((i) => i.code === "dead_character_location")!
+    expect(issue.severity).toBe("error")
+    expect(issue.evidence).toBe("已死亡")
+  })
+
+  it("no from-mismatch when from matches the store location", () => {
+    const prev = [char({ characterName: "李四", currentLocation: "码头" })]
+    const issues = runLightCheck(prev, {
+      chapter: 2,
+      locationChanges: [{ entity: "李四", from: "码头", to: "客栈" }],
+    })
+    expect(issues.some((i) => i.code === "location_from_mismatch")).toBe(false)
+  })
+
+  it("flags revive attempts without death marker and allows death-consistent status", () => {
+    const prev = [char({ characterName: "阿宁", isAlive: false, status: "已死亡" })]
+    const revive = runLightCheck(prev, { chapter: 3, statusChanges: [{ entity: "阿宁", status: "重伤" }] })
+    expect(revive.some((i) => i.code === "dead_character_status_revive")).toBe(true)
+    // 状态含死亡标记时不再告警（DEAD_STATUS_RE 含 死/亡 等）
+    const keepDead = runLightCheck(prev, { chapter: 3, statusChanges: [{ entity: "阿宁", status: "已死亡（灵堂安放）" }] })
+    expect(keepDead.some((i) => i.code === "dead_character_status_revive")).toBe(false)
+    // 存活角色状态变更不报警
+    const live = runLightCheck([char({ characterName: "阿宁" })], { chapter: 3, statusChanges: [{ entity: "阿宁", status: "重伤" }] })
+    expect(live).toHaveLength(0)
+  })
+
+  it("inventory lose is a no-op when the item or a partial match is held", () => {
+    const prev = [char({ characterName: "王五", equipment: ["长剑", "玉佩"] })]
+    const issues = runLightCheck(prev, {
+      chapter: 2,
+      inventoryChanges: [
+        { entity: "王五", item: "玉佩", op: "lose" },
+        { entity: "王五", item: "剑", op: "lose" },
+        { entity: "王五", item: "玉佩", op: "gain" },
+      ],
+    })
+    expect(issues.some((i) => i.code === "inventory_lose_missing")).toBe(false)
+  })
+
+  it("unknown active mention is ignored and duplicate issues are deduped", () => {
+    const prev = [char({ characterName: "阿宁", isAlive: false, status: "死" })]
+    const issues = runLightCheck(prev, {
+      chapter: 2,
+      activeMentions: ["阿宁", "阿宁", "幽灵"],
+      locationChanges: [
+        { entity: "阿宁", to: "墓园" },
+        { entity: "阿宁", to: "墓园" },
+      ],
+    })
+    const deadActive = issues.filter((i) => i.code === "dead_character_active")
+    expect(deadActive).toHaveLength(1)
+    expect(issues.filter((i) => i.code === "dead_character_location")).toHaveLength(1)
+  })
+
+  it("ignores status changes for unknown entities", () => {
+    const issues = runLightCheck([], { chapter: 1, statusChanges: [{ entity: "路人甲", status: "重伤" }] })
+    expect(issues).toHaveLength(0)
+  })
+
+  it("treats a character with no status field as alive (status ?? \"\" fallback)", () => {
+    const prev = [char({ characterName: "阿宁", status: undefined as unknown as string, isAlive: true })]
+    expect(isCharacterDead(prev[0]!)).toBe(false)
+    const issues = runLightCheck(prev, { chapter: 1, locationChanges: [{ entity: "阿宁", to: "客栈" }] })
+    expect(issues.filter((i) => i.code === "dead_character_location")).toHaveLength(0)
+  })
+
+  it("reports empty equipment list as （空） evidence on lose", () => {
+    const prev = [char({ characterName: "王五", equipment: undefined as never })]
+    const issues = runLightCheck(prev, {
+      chapter: 2,
+      inventoryChanges: [{ entity: "王五", item: "玉佩", op: "lose" }],
+    })
+    const issue = issues.find((i) => i.code === "inventory_lose_missing")!
+    expect(issue.evidence).toBe("（空）")
+  })
+
+  it("uses deathChapter as evidence when the dead character has an empty status", () => {
+    const prev = [char({ characterName: "阿宁", status: "", isAlive: false, deathChapter: 3 })]
+    const issues = runLightCheck(prev, { chapter: 4, activeMentions: ["阿宁"] })
+    const issue = issues.find((i) => i.code === "dead_character_active")!
+    expect(issue.evidence).toBe("deathChapter=3")
+  })
+})
+
+describe("extractStateDeltaHeuristic edge cases", () => {
+  it("skips short names, absent names and short/absent equipment", () => {
+    const prev = [
+      char({ characterName: "宁", equipment: [] }),
+      char({ characterName: "未出场", equipment: ["短", "长弓"] }),
+    ]
+    const delta = extractStateDeltaHeuristic("正文不含这些名字", prev, 5)
+    expect(delta.activeMentions ?? []).toHaveLength(0)
+    expect(delta.locationChanges ?? []).toHaveLength(0)
+    expect(delta.inventoryChanges ?? []).toHaveLength(0)
+  })
+
+  it("records inventory loss only when lose wording appears", () => {
+    const prev = [char({ characterName: "王五", equipment: ["长弓"] })]
+    const noLose = extractStateDeltaHeuristic("王五带着长弓出门。", prev, 5)
+    expect(noLose.inventoryChanges ?? []).toHaveLength(0)
+    const lose = extractStateDeltaHeuristic("王五交出了长弓。", prev, 5)
+    expect(lose.inventoryChanges).toEqual([{ entity: "王五", item: "长弓", op: "lose" }])
+  })
+
+  it("does not record a location change when the place matches the store location", () => {
+    const prev = [char({ characterName: "阿宁", currentLocation: "京城" })]
+    const delta = extractStateDeltaHeuristic("阿宁在京城的天桥上。", prev, 5)
+    expect(delta.locationChanges ?? []).toHaveLength(0)
+  })
+
+  it("tolerates a null draft via ?? \"\" fallback", () => {
+    const delta = extractStateDeltaHeuristic(undefined as unknown as string, [], 5)
+    expect(delta.activeMentions).toEqual([])
+    expect(delta.inventoryChanges).toBeUndefined()
+  })
+
+  it("skips characters without equipment and short/absent equipment items", () => {
+    const prev = [
+      char({ characterName: "白砚", equipment: undefined as never }),
+      char({ characterName: "王五", equipment: ["长弓", "短", "未装备之物"] }),
+    ]
+    const delta = extractStateDeltaHeuristic("白砚与王五在城中，王五交出了长弓。", prev, 5)
+    // 白砚无 equipment → ?? [] 空循环; 王五: "短" 长度<2 跳过, "未装备之物" 不在正文跳过
+    expect(delta.inventoryChanges).toEqual([{ entity: "王五", item: "长弓", op: "lose" }])
+  })
+})
+
+describe("lightIssuesToReviewResults severities and metadata", () => {
+  it("keeps info/warning severities and handles missing entities", () => {
+    const issues = [
+      { code: "x1", severity: "info" as const, message: "信息" },
+      { code: "x2", severity: "warn" as const, message: "警告" },
+      { code: "x3", severity: "error" as const, message: "错误", entity: "阿宁", evidence: "e" },
+    ]
+    const results = lightIssuesToReviewResults(issues, { blocksTrackA: true, chapter: 7 })
+    expect(results.map(r => r.severity)).toEqual(["info", "warning", "error"])
+    expect(results[0].relatedMemory).toBe("character-states")
+    expect(results[2].relatedMemory).toBe("character:阿宁")
+    expect(results[2].continuityMeta).toEqual({ subtype: "x3", ref: "state-delta:x3:阿宁", chapter: 7 })
+    expect(results[2].suggestion).toContain("核对")
+
+    const demoted = lightIssuesToReviewResults(issues, {})
+    expect(demoted[2].severity).toBe("warning")
+    expect(demoted[2].suggestion).toContain("warn-only")
+  })
+})
+
+describe("extractEmbeddedStateDeltaJson / parseStructuredStateDelta", () => {
+  it("extracts only deltas from labeled or keyed json fences", () => {
+    expect(extractEmbeddedStateDeltaJson("  ")).toBeNull()
+    const keyed = extractEmbeddedStateDeltaJson('```json\n{"activeMentions":["李四"]}\n```')
+    expect(keyed).toContain("李四")
+    expect(extractEmbeddedStateDeltaJson('```json\n{"foo":1}\n```')).toBeNull()
+  })
+
+  it("parses all structured sections, fences and op values", () => {
+    const raw = JSON.stringify({
+      chapter: 9,
+      rawNotes: "model",
+      locationChanges: [{ entity: "a", from: "x", to: "y" }, { entity: "b" }],
+      statusChanges: [{ entity: "c", status: "重伤" }, { entity: "d" }],
+      inventoryChanges: [{ entity: "e", item: "剑", op: "gain" }, { entity: "f", item: "盾" }],
+      relationshipChanges: [{ a: "g", b: "h", note: "敌对" }, { a: "i" }],
+      activeMentions: ["j", "", null],
+    })
+    const delta = parseStructuredStateDelta(`前后\n\`\`\`json\n${raw}\n\`\`\``, 3)!
+    expect(delta.chapter).toBe(9)
+    expect(delta.rawNotes).toBe("model")
+    expect(delta.locationChanges).toEqual([{ entity: "a", from: "x", to: "y" }])
+    expect(delta.statusChanges).toEqual([{ entity: "c", status: "重伤" }])
+    expect(delta.inventoryChanges).toEqual([{ entity: "e", item: "剑", op: "gain" }, { entity: "f", item: "盾", op: "lose" }])
+    expect(delta.relationshipChanges).toEqual([{ entity: undefined as never, a: "g", b: "h", note: "敌对" }])
+    expect(delta.activeMentions).toEqual(["j", "null"])
+  })
+
+  it("returns null for empty, invalid, array, or empty-body inputs", () => {
+    expect(parseStructuredStateDelta("  ", 1)).toBeNull()
+    expect(parseStructuredStateDelta("not-json", 1)).toBeNull()
+    expect(parseStructuredStateDelta("[1,2]", 1)).toBeNull()
+    expect(parseStructuredStateDelta(JSON.stringify({ chapter: 1, rawNotes: "x" }), 1)).toBeNull()
+  })
+
+  it("skips empty json fence bodies when scanning keyed fences", () => {
+    expect(extractEmbeddedStateDeltaJson("```json\n\n```")).toBeNull()
+    expect(extractEmbeddedStateDeltaJson("```json\n   \n```")).toBeNull()
+  })
+
+  it("normalizes structured items missing entity/status/item/a fields and filters them out", () => {
+    const raw = JSON.stringify({
+      locationChanges: [{ entity: "a", from: "x", to: "y" }, { to: "no-entity" }],
+      statusChanges: [{ entity: "c", status: "重伤" }, { status: "orphan" }],
+      inventoryChanges: [{ entity: "e", item: "剑", op: "gain" }, { item: "无主物" }, { entity: "无物品" }],
+      relationshipChanges: [{ a: "g", b: "h", note: "敌对" }, { b: "only-b" }],
+    })
+    const delta = parseStructuredStateDelta(raw, 3)!
+    expect(delta.locationChanges).toEqual([{ entity: "a", from: "x", to: "y" }])
+    expect(delta.statusChanges).toEqual([{ entity: "c", status: "重伤" }])
+    expect(delta.inventoryChanges).toEqual([{ entity: "e", item: "剑", op: "gain" }])
+    expect(delta.relationshipChanges).toEqual([{ entity: undefined as never, a: "g", b: "h", note: "敌对" }])
+  })
+
+  it("resolveStateDeltaForDraft returns empty source for blank drafts", () => {
+    const { source } = resolveStateDeltaForDraft("  ", [], 2)
+    expect(source).toBe("empty")
+  })
+
+  it("resolveStateDeltaForDraft falls back to heuristic when no structured raw is given", () => {
+    const prev = [char({ characterName: "阿宁", currentLocation: "京城" })]
+    const { source, delta } = resolveStateDeltaForDraft("阿宁在客栈门口停下。", prev, 2)
+    expect(source).toBe("heuristic")
+    expect(delta.rawNotes).toBe("heuristic")
   })
 })
 

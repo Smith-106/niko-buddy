@@ -10,6 +10,11 @@ const statusMocks = vi.hoisted(() => ({
   acceptDeepChapterDraft: vi.fn(async () => {}),
 }))
 
+const ledgerMocks = vi.hoisted(() => ({
+  updateEmotionLedgerFromChapter: vi.fn(async () => {}),
+  loggerWarn: vi.fn(),
+}))
+
 vi.mock("@/commands/fs", () => ({
   deleteFile: fsMocks.deleteFile,
   fileExists: fsMocks.fileExists,
@@ -18,6 +23,15 @@ vi.mock("@/commands/fs", () => ({
 
 vi.mock("./novel-session-status", () => ({
   acceptDeepChapterDraft: statusMocks.acceptDeepChapterDraft,
+}))
+
+vi.mock("./emotion-ledger", () => ({
+  updateEmotionLedgerFromChapter: ledgerMocks.updateEmotionLedgerFromChapter,
+}))
+
+vi.mock("@/lib/utils", () => ({
+  toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
 }))
 
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
@@ -29,6 +43,7 @@ describe("formal-writeback", () => {
     fsMocks.writeFileAtomic.mockResolvedValue(undefined)
     fsMocks.deleteFile.mockResolvedValue(undefined)
     statusMocks.acceptDeepChapterDraft.mockResolvedValue(undefined)
+    ledgerMocks.updateEmotionLedgerFromChapter.mockResolvedValue(undefined)
   })
 
   it("writes the formal chapter before accepting the managed draft", async () => {
@@ -108,5 +123,24 @@ describe("formal-writeback", () => {
     })).rejects.toThrow(
       "Failed to roll back formal chapter write after draft accept failure: rollback failed; original error: accept failed",
     )
+  })
+
+  it("warns but does not fail when emotion ledger write fails after accept", async () => {
+    ledgerMocks.updateEmotionLedgerFromChapter.mockRejectedValueOnce(new Error("ledger disk full"))
+
+    await expect(commitAcceptedDeepChapterDraft({
+      projectPath: "E:/Novel",
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      chapterPath: "E:/Novel/wiki/chapters/chapter-003.md",
+      finalChapterContent: "# Chapter 3\n\ncontent",
+    })).resolves.toBeUndefined()
+
+    expect(ledgerMocks.loggerWarn).toHaveBeenCalledWith(
+      "emotion-ledger",
+      expect.stringContaining("ledger disk full"),
+    )
+    expect(fsMocks.deleteFile).not.toHaveBeenCalled()
   })
 })

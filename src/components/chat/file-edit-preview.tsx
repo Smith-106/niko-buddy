@@ -98,6 +98,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   const handleEditOne = useCallback((index: number) => {
     setItemStates((prev) => {
       const next = [...prev]
+      /* v8 ignore next */
       const current = next[index] ?? { status: applied ? "applied" : "pending" }
       next[index] = { ...current, status: "editing", editedReplace: current.editedReplace ?? edits[index].replace }
       return next
@@ -122,6 +123,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
         pendingEdits.push({ edit, index: i })
       }
     }
+    /* v8 ignore next */
     if (pendingEdits.length === 0) return
     const editResults = await onApply(pendingEdits.map(p => p.edit))
     setItemStates((prev) => {

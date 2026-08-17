@@ -8,9 +8,11 @@ import {
   queryFactsAt,
   recordSupersession,
   renderTemporalCanonBlock,
+  rerankActiveEntitiesByTemporalFacts,
   resolveNegation,
   type TemporalFact,
 } from "./temporal-memory"
+import type { ContextEntity } from "./context-engine"
 
 function makeFact(overrides: Partial<TemporalFact> & { id: string }): TemporalFact {
   return {
@@ -51,6 +53,18 @@ describe("getFactsAt", () => {
       makeFact({ id: "b", subject: "赵雪", validFrom: 1 }),
     ]
     const at5 = getFactsAt(5, "林云", facts)
+    expect(at5.map((f) => f.id)).toEqual(["a"])
+  })
+
+  it("folds alias names through the alias map", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "a", subject: "白砚", validFrom: 1 }),
+      makeFact({ id: "b", subject: "苏未晞", validFrom: 1 }),
+    ]
+    const at5 = getFactsAt(5, "小白", facts, {
+      canonical: "白砚",
+      aliases: ["小白"],
+    })
     expect(at5.map((f) => f.id)).toEqual(["a"])
   })
 
@@ -115,6 +129,24 @@ describe("recordSupersession", () => {
     recordSupersession(facts[2]!, "old", facts)
     // 7 < 3 is false → no widening; validUntil stays at 3.
     expect(facts[0]!.validUntil).toBe(3)
+  })
+
+  it("reuses an existing supersedes array on the new fact", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "old", validFrom: 1 }),
+      makeFact({ id: "new", validFrom: 5, supersedes: ["earlier"] }),
+    ]
+    recordSupersession(facts[1]!, "old", facts)
+    expect(facts[1]!.supersedes).toEqual(["earlier", "old"])
+  })
+
+  it("does not duplicate an old fact id already in the supersedes chain", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "old", validFrom: 1 }),
+      makeFact({ id: "new", validFrom: 5, supersedes: ["old"] }),
+    ]
+    recordSupersession(facts[1]!, "old", facts)
+    expect(facts[1]!.supersedes).toEqual(["old"])
   })
 })
 
@@ -290,6 +322,72 @@ describe("renderTemporalCanonBlock", () => {
     expect(block).toContain("剑修")
     expect(block).not.toContain("凡人")
   })
+
+  it("renders facts without an object as subject-only lines", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "a", validFrom: 1, subject: "主角", predicate: "", object: "" }),
+    ]
+    const block = renderTemporalCanonBlock(2, facts)
+    expect(block).toContain("- [第1章起] 主角")
+    expect(block).not.toContain("：")
+  })
+})
+
+describe("rerankActiveEntitiesByTemporalFacts", () => {
+  function makeEntity(name: string, tags?: string[]): ContextEntity {
+    return { entityId: `id-${name}`, name, type: "character", tags }
+  }
+
+  const facts: TemporalFact[] = [
+    makeFact({ id: "f1", subject: "白砚", validFrom: 1 }),
+    makeFact({ id: "f2", subject: "苏未晞", validFrom: 2 }),
+  ]
+
+  it("returns the original array when temporalFacts is null", () => {
+    const entities = [makeEntity("白砚")]
+    expect(rerankActiveEntitiesByTemporalFacts(entities, null, 5)).toBe(entities)
+  })
+
+  it("returns the original array when activeEntities is empty", () => {
+    expect(rerankActiveEntitiesByTemporalFacts([], facts, 5)).toEqual([])
+  })
+
+  it("boosts fact-matching entities to rank 0 and keeps others stable", () => {
+    const entities = [
+      makeEntity("苏未晞", ["relevance:low"]),
+      makeEntity("路人甲"),
+      makeEntity("白砚", ["relevance:high"]),
+    ]
+    const reranked = rerankActiveEntitiesByTemporalFacts(entities, facts, 3)
+    // 苏未晞 (hit + low) boosted to rank 0 and keeps original index; 白砚 (hit +
+    // already rank 0) stays; 路人甲 (no hit, rank 1) stays last
+    expect(reranked.map((e) => e.name)).toEqual(["苏未晞", "白砚", "路人甲"])
+  })
+
+  it("keeps non-matching rank-2 entities below boosted ones", () => {
+    const entities = [
+      makeEntity("路人乙", ["relevance:low"]),
+      makeEntity("白砚"),
+    ]
+    const reranked = rerankActiveEntitiesByTemporalFacts(entities, facts, 3)
+    expect(reranked.map((e) => e.name)).toEqual(["白砚", "路人乙"])
+  })
+
+  it("treats location:chapter tags as rank 0 without needing a fact hit", () => {
+    const entities = [
+      makeEntity("守山人", ["location:chapter-3"]),
+      makeEntity("白砚", ["relevance:low"]),
+    ]
+    const reranked = rerankActiveEntitiesByTemporalFacts(entities, facts, 3)
+    // 守山人 already rank 0 (location) and no fact hit → stays; 白砚 boosted
+    expect(reranked.map((e) => e.name)).toEqual(["守山人", "白砚"])
+  })
+
+  it("does not boost entities with no matching facts", () => {
+    const entities = [makeEntity("无关者", ["relevance:low"]), makeEntity("白砚")]
+    const reranked = rerankActiveEntitiesByTemporalFacts(entities, facts, 3)
+    expect(reranked.map((e) => e.name)).toEqual(["白砚", "无关者"])
+  })
 })
 
 describe("invalidateFact / queryFactsAt", () => {
@@ -311,5 +409,78 @@ describe("invalidateFact / queryFactsAt", () => {
 
   it("returns ok=false for missing id", () => {
     expect(invalidateFact([], "missing", 1).ok).toBe(false)
+  })
+
+  it("falls back to validFrom when the chapter is not finite", () => {
+    const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 3 })]
+    const r = invalidateFact(facts, "a", Number.NaN)
+    expect(r.ok).toBe(true)
+    expect(facts[0]!.validUntil).toBe(3)
+  })
+
+  it("does not widen an already-closed validUntil", () => {
+    const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 1, validUntil: 2 })]
+    invalidateFact(facts, "a", 4)
+    expect(facts[0]!.validUntil).toBe(2)
+  })
+
+  it("records the note on success", () => {
+    const facts: TemporalFact[] = [makeFact({ id: "a", validFrom: 1 })]
+    const r = invalidateFact(facts, "a", 4, "soft revoke")
+    expect(r).toEqual({ ok: true, note: "soft revoke" })
+  })
+})
+
+describe("parseCanonFact (via factsFromCommittedSnapshots)", () => {
+  function makeSnapshot(chapter: number, canonFacts: string[]): ChapterSnapshot {
+    return {
+      chapterId: `chapter-${chapter}`,
+      chapterNumber: chapter,
+      summary: "",
+      characters: [],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: canonFacts,
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+      sourceType: "chapter",
+      sourceSequence: chapter,
+      revision: 1,
+    }
+  }
+
+  it("parses the verb form 'subject 是 object'", () => {
+    const facts = factsFromCommittedSnapshots([makeSnapshot(2, ["主角 是 剑修"])], undefined)
+    expect(facts[0]).toMatchObject({ subject: "主角", predicate: "是", object: "剑修" })
+  })
+
+  it("falls back to whole-string subject for separator-less facts", () => {
+    const facts = factsFromCommittedSnapshots([makeSnapshot(2, ["场景气氛压抑"])], undefined)
+    expect(facts[0]!.subject).toBe("场景气氛压抑")
+    expect(facts[0]!.predicate).toBe("")
+    expect(facts[0]!.object).toBe("")
+  })
+
+  it("skips blank canon-fact strings", () => {
+    const facts = factsFromCommittedSnapshots([makeSnapshot(2, ["   "])], undefined)
+    expect(facts).toHaveLength(1) // still records one entry with empty subject
+    expect(facts[0]!.subject).toBe("")
+  })
+
+  it("sorts snapshots by chapter number before folding", () => {
+    const facts = factsFromCommittedSnapshots(
+      [makeSnapshot(5, ["主角：巅峰"]), makeSnapshot(1, ["主角：凡人"])],
+      undefined,
+    )
+    expect(facts.map((f) => f.validFrom)).toEqual([1, 5])
   })
 })

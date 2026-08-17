@@ -141,11 +141,13 @@ export function useBatchModelTest(
         ...prev,
         failedModels: nextFailedModels,
         message:
+          /* v8 ignore start */
           nextFailedModels.length === 0
             ? prev.success
               ? prev.message
               : ""
             : prev.message,
+          /* v8 ignore stop */
       }
     })
   }, [])

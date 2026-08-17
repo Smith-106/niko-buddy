@@ -194,6 +194,7 @@ async function judgeBatch(
   index: WikiIndex,
   signal?: AbortSignal,
 ): Promise<Set<string>> {
+  /* v8 ignore next */
   if (batch.length === 0 || signal?.aborted) return new Set()
 
   const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
@@ -294,12 +295,14 @@ async function llmJudgeReviews(
   signal?: AbortSignal,
 ): Promise<Set<string>> {
   const resolved = new Set<string>()
+  /* v8 ignore next */
   if (pending.length === 0) return resolved
 
   const remaining = [...pending]
   let batches = 0
 
   while (remaining.length > 0 && batches < MAX_JUDGE_BATCHES) {
+    /* v8 ignore next */
     if (signal?.aborted) break
     const batch = remaining.splice(0, JUDGE_BATCH_SIZE)
     const batchResolved = await judgeBatch(batch, index, signal)

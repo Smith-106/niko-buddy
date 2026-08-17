@@ -163,6 +163,7 @@ function applyReplacements(
     const replacement = entry.to[0] ?? ""
     if (!replacement) continue
     if (!out.includes(from)) continue
+    /* v8 ignore next */
     const occurrences = (out.match(new RegExp(escapeRegExp(from), "g")) ?? []).length
     const after = out.split(from).join(replacement)
     if (after !== out) {
@@ -234,6 +235,7 @@ function applyDeleteOnSight(text: string): { text: string; count: number } {
   let count = 0
   for (const phrase of DELETE_ON_SIGHT) {
     if (!out.includes(phrase)) continue
+    /* v8 ignore next */
     const occurrences = (out.match(new RegExp(escapeRegExp(phrase), "g")) ?? []).length
     out = out.split(phrase).join("")
     count += occurrences

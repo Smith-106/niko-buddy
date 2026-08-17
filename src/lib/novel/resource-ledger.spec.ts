@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   createEmptyResourceLedgerStore,
+  loadResourceLedger,
   resourceLedgerToContextText,
+  saveResourceLedger,
   type ResourceLedgerStore,
 } from "./resource-ledger"
+
+const fsMocks = vi.hoisted(() => ({
+  createDirectory: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn(async () => {}),
+  readFile: vi.fn(async () => {
+    throw new Error("ENOENT")
+  }),
+}))
+
+vi.mock("@/commands/fs", () => ({
+  createDirectory: fsMocks.createDirectory,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+  readFile: fsMocks.readFile,
+}))
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -74,5 +90,45 @@ describe("R4 ResourceLedger projection (S4 / ANL-013)", () => {
     expect(text).toContain("轩辕剑：持有者 昊天")
     expect(text).toContain("第8章转手")
     expect(text).toContain("无主之物：无主")
+  })
+
+  it("resourceLedgerToContextText falls back to acquired chapter when transfer history is empty", () => {
+    const store: ResourceLedgerStore = {
+      entries: [
+        {
+          item: "赤炎弓",
+          currentHolder: "林动",
+          acquiredChapter: 3,
+          transferHistory: [],
+        },
+      ],
+      lastUpdated: new Date().toISOString(),
+    }
+    const text = resourceLedgerToContextText(store)
+    expect(text).toContain("赤炎弓：持有者 林动")
+    expect(text).toContain("第3章获得")
+  })
+
+  it("saveResourceLedger persists via atomic store", async () => {
+    await saveResourceLedger("E:/Novel", createEmptyResourceLedgerStore())
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.novel")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.novel/resource-ledger.json",
+      expect.stringContaining("\"entries\": []"),
+    )
+  })
+
+  it("loadResourceLedger falls back to empty store and parses persisted data", async () => {
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    expect((await loadResourceLedger("E:/Novel")).entries).toEqual([])
+    fsMocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({ entries: [{ item: "剑" }], lastUpdated: "t" }),
+    )
+    expect((await loadResourceLedger("E:/Novel")).entries).toHaveLength(1)
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
   })
 })

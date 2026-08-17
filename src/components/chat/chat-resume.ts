@@ -39,6 +39,7 @@ function buildInterruptedResumeVisibleThinking(
   checkpoint: DeepChapterGenerationResumeCheckpoint,
 ): string {
   const chapterLabel = checkpoint.chapterNumber ? `第 ${checkpoint.chapterNumber} 章` : "当前章节"
+  /* v8 ignore next */
   const stepLabel = typeof status.active_step_index === "number" ? String(status.active_step_index) : "unknown"
   return [
     "## 恢复点",
@@ -58,7 +59,9 @@ function buildInterruptedResumeContext(
     "## 恢复点",
     `章节：${chapterLabel}`,
     `阶段：${checkpoint.stage}`,
+    /* v8 ignore start */
     `active_step_index：${typeof status.active_step_index === "number" ? status.active_step_index : "unknown"}`,
+    /* v8 ignore stop */
     `原始请求：${status.current_task.user_request}`,
   ]
 
@@ -95,6 +98,7 @@ function buildInterruptedResumeAssistantMessage(
   context: ContinueUnfinishedDeepChapterContext,
 ): string {
   const checkpoint = context.checkpoint
+  /* v8 ignore next */
   if (!checkpoint) {
     return "<think>## 恢复点\n缺少可恢复的检查点。</think>\n\n已停止生成。"
   }

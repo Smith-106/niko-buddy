@@ -87,4 +87,84 @@ describe("loadBookAnalysisResult", () => {
     expect(result?.characters).toEqual([])
     expect(result?.skills).toEqual([])
   })
+
+  it("returns null when metadata read fails with a non-Error (String(err) branch)", async () => {
+    mockedRead.mockRejectedValue("plain failure")
+    const result = await loadBookAnalysisResult("/proj", "book-w")
+    expect(result).toBeNull()
+  })
+
+  it("skips directories and non-json files in the characters dir", async () => {
+    mockedRead.mockImplementation(async (p) => {
+      if (p.endsWith("metadata.json")) {
+        return JSON.stringify({ title: "T", totalChapters: 1, totalWords: 1, sourceType: "file", createdAt: 0, updatedAt: 0 })
+      }
+      return JSON.stringify({ id: "x", name: "x" })
+    })
+    mockedList.mockImplementation(async (dir) => {
+      if (dir.endsWith("characters")) {
+        return [
+          { name: "sub", is_dir: true, path: `${dir}/sub` },
+          { name: "note.txt", is_dir: false, path: `${dir}/note.txt` },
+        ]
+      }
+      if (dir.endsWith("skills")) {
+        return [
+          { name: "subskills", is_dir: true, path: `${dir}/subskills` },
+          { name: "readme.txt", is_dir: false, path: `${dir}/readme.txt` },
+        ]
+      }
+      return []
+    })
+    const result = await loadBookAnalysisResult("/proj", "book-v")
+    expect(result?.characters).toEqual([])
+    expect(result?.skills).toEqual([])
+  })
+
+  it("assembles unmatched skills with baseName fallbacks (no character link)", async () => {
+    mockedRead.mockImplementation(async (p) => {
+      if (p.endsWith("metadata.json")) {
+        return JSON.stringify({ title: "T", totalChapters: 1, totalWords: 1, sourceType: "file", createdAt: 0, updatedAt: 0 })
+      }
+      if (p.endsWith("孤例-skill.md")) return "# 孤例 skill"
+      return JSON.stringify({ id: "c1", name: "主角" })
+    })
+    mockedList.mockImplementation(async (dir) => {
+      if (dir.endsWith("characters")) {
+        return [{ name: "c1.json", is_dir: false, path: `${dir}/c1.json` }]
+      }
+      if (dir.endsWith("skills")) {
+        return [{ name: "孤例-skill.md", is_dir: false, path: `${dir}/孤例-skill.md` }]
+      }
+      return []
+    })
+    const result = await loadBookAnalysisResult("/proj", "book-u")
+    expect(result?.skills).toHaveLength(1)
+    expect(result?.skills[0].id).toBe("skill-孤例")
+    expect(result?.skills[0].characterId).toBe("孤例")
+    expect(result?.skills[0].characterName).toBe("孤例")
+    expect(result?.skills[0].chapterRange).toEqual([])
+  })
+
+  it("matches a character via name substring when baseName differs (includes branch)", async () => {
+    mockedRead.mockImplementation(async (p) => {
+      if (p.endsWith("metadata.json")) {
+        return JSON.stringify({ title: "T", totalChapters: 1, totalWords: 1, sourceType: "file", createdAt: 0, updatedAt: 0 })
+      }
+      if (p.endsWith("主角的师父-skill.md")) return "# 师父 skill"
+      return JSON.stringify({ id: "c1", name: "主角" })
+    })
+    mockedList.mockImplementation(async (dir) => {
+      if (dir.endsWith("characters")) {
+        return [{ name: "c1.json", is_dir: false, path: `${dir}/c1.json` }]
+      }
+      if (dir.endsWith("skills")) {
+        return [{ name: "主角的师父-skill.md", is_dir: false, path: `${dir}/主角的师父-skill.md` }]
+      }
+      return []
+    })
+    const result = await loadBookAnalysisResult("/proj", "book-t")
+    expect(result?.skills[0].characterId).toBe("c1")
+    expect(result?.skills[0].chapterRange).toEqual(["undefined", "undefined"])
+  })
 })

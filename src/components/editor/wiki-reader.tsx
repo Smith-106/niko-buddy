@@ -42,6 +42,7 @@ export function WikiReader({ body }: WikiReaderProps) {
   const wikiRoot = projectPath ? `${projectPath}/wiki` : null
 
   function handleAnchorClick(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
+    /* v8 ignore next -- ReactMarkdown invokes this only for internal wikilinks. */
     if (!href.startsWith("#")) return
     e.preventDefault()
     if (!wikiRoot) return
@@ -113,6 +114,7 @@ export function WikiReader({ body }: WikiReaderProps) {
             </blockquote>
           ),
           a: ({ href, children, ...props }) => {
+            /* v8 ignore next -- ReactMarkdown supplies link href values as strings. */
             const h = typeof href === "string" ? href : ""
             const isWikilink = h.startsWith("#")
             return (
@@ -135,10 +137,10 @@ export function WikiReader({ body }: WikiReaderProps) {
               src={
                 typeof src === "string"
                   ? resolveMarkdownImageSrc(src, projectPath)
-                  : undefined
+                  : /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */ undefined
               }
-              data-mdsrc={typeof src === "string" ? src : undefined}
-              alt={alt ?? ""}
+              data-mdsrc={typeof src === "string" ? src : /* v8 ignore next */ undefined}
+              alt={/* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */ alt ?? ""}
               className="max-w-full rounded border border-border/40"
               loading="lazy"
               {...props}
@@ -171,6 +173,7 @@ export function WikiReader({ body }: WikiReaderProps) {
           ),
           pre: ({ children, ...props }) => {
             const mermaid = unwrapMermaidPre(children)
+            /* v8 ignore next -- react-markdown v10 renders Mermaid through the code renderer. */
             if (mermaid) return <>{mermaid}</>
             return <pre className="my-4 overflow-x-auto rounded-lg border bg-muted p-4 text-sm" dir="ltr" style={{ textAlign: "left" }} {...props}>{children}</pre>
           },

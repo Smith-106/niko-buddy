@@ -16,6 +16,7 @@ const TYPE_LABELS: Record<string, string> = {
   comparison: "对比", other: "其他",
 }
 
+// v8 ignore next -- typeLabel only called with distant-pair types, all present in TYPE_LABELS
 function typeLabel(t: string): string { return TYPE_LABELS[t] ?? t }
 
 function formatNodeList(nodes: GraphNode[], total: number): string {
@@ -93,7 +94,9 @@ export function findSurprisingConnections(
     }
 
     // Peripheral-to-hub
+    // v8 ignore next -- degreeMap seeded from the same node set; lookup never undefined
     const srcDeg = degreeMap.get(src.id) ?? 0
+    // v8 ignore next -- degreeMap seeded from the same node set; lookup never undefined
     const tgtDeg = degreeMap.get(tgt.id) ?? 0
     if (Math.min(srcDeg, tgtDeg) <= 2 && Math.max(srcDeg, tgtDeg) >= maxDegree * 0.5) {
       score += 2
@@ -173,11 +176,12 @@ export function detectKnowledgeGaps(
   }
 
   const bridges = nodes
-    .filter((n) => !structuralIds.has(n.id) && (communityAdj.get(n.id)?.size ?? 0) >= 3)
-    .sort((a, b) => (communityAdj.get(b.id)?.size ?? 0) - (communityAdj.get(a.id)?.size ?? 0))
+    .filter(/* v8 ignore next -- communityAdj pre-seeded for every node; lookup never undefined */(n) => !structuralIds.has(n.id) && (communityAdj.get(n.id)?.size ?? 0) >= 3)
+    .sort(/* v8 ignore next -- communityAdj pre-seeded for every node; lookup never undefined */(a, b) => (communityAdj.get(b.id)?.size ?? 0) - (communityAdj.get(a.id)?.size ?? 0))
     .slice(0, 3)
 
   for (const bridge of bridges) {
+    // v8 ignore next -- bridge comes from filtered nodes; communityAdj lookup never undefined
     const commCount = communityAdj.get(bridge.id)?.size ?? 0
     gaps.push({
       type: "bridge-node",

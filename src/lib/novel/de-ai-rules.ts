@@ -289,6 +289,7 @@ export function buildStructuredDeAiRules(genre?: string, minSeverity: DeAiSeveri
   lines.push("## 规则矩阵 (按类别分组)")
   for (const category of DE_AI_CATEGORIES) {
     const catRules = rules.filter((r) => r.category === category)
+    /* v8 ignore next */
     if (catRules.length === 0) continue
     lines.push(`### ${category}`)
     for (const r of catRules) {

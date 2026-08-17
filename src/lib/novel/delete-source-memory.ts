@@ -14,6 +14,7 @@ export interface DeleteNovelSourceMemoryInput {
 
 export function getOutlineSnapshotNumberFromPath(outlinePath: string): number {
   const normalizedPath = normalizePath(outlinePath)
+  /* v8 ignore next */
   const fileName = normalizedPath.split("/").pop() ?? "outline"
   const outlineName = fileName.replace(/\.\w+$/, "")
   let hash = 0
@@ -34,6 +35,7 @@ export function getChapterSnapshotNumberFromDeletedSource(input: DeleteNovelSour
     if (Number.isFinite(parsed) && parsed > 0) return parsed
   }
 
+  /* v8 ignore next */
   const fileName = normalizePath(input.pagePath).split("/").pop() ?? ""
   const pathNumber = fileName.match(/(\d+)/)?.[1]
   if (!pathNumber) return null

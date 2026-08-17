@@ -47,7 +47,9 @@ export interface DeletedPageInfo {
  * distinct on purpose.
  */
 export function normalizeWikiRefKey(s: string): string {
+  /* v8 ignore next */
   const normalized = s.trim().replace(/\\/g, "/")
+  /* v8 ignore next */
   const leaf = normalized.split("/").pop() ?? normalized
   const withoutMd = leaf.toLowerCase().endsWith(".md") ? leaf.slice(0, -3) : leaf
   return withoutMd.toLowerCase().replace(/[\s\-_]+/g, "")

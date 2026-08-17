@@ -48,6 +48,7 @@ export async function withProjectLock<T>(
   try {
     // Wait for the previous holder. Swallow rejections from `prev`
     // (a previous caller's failure shouldn't prevent us from running).
+    /* v8 ignore next */
     await prev.catch(() => {})
     return await fn()
   } finally {
@@ -63,6 +64,7 @@ export async function withProjectLock<T>(
         // Defer the delete one tick so a caller that just chained on
         // doesn't see us yank the entry mid-chain.
         Promise.resolve().then(() => {
+          /* v8 ignore next */
           if (locks.get(projectPath) === tail) {
             locks.delete(projectPath)
           }

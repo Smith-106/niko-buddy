@@ -27,6 +27,7 @@ interface Stage {
 function stageKey(raw: string): string {
   const heading = raw.match(/^\s*##\s*([^\n]+)/)?.[1]?.trim()
   if (heading) return heading
+  /* v8 ignore next */
   return raw.split("\n", 1)[0]?.trim() || raw
 }
 

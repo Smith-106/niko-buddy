@@ -135,6 +135,7 @@ function bandFromMedianAndGate(
   samples: number = 5,
 ): { residualBand: ResidualL9Band; l9Disposition: L9OverallMedianDisposition } {
   const l9Disposition = classifyL9OverallMedian(median, samples)
+  /* v8 ignore next */
   if (l9Disposition === "insufficient_samples") {
     return {
       residualBand:

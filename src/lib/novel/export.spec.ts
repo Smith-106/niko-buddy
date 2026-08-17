@@ -34,6 +34,9 @@ const fsState = vi.hoisted(() => {
     gateWaiters,
     inFlight: 0,
     peak: 0,
+    // 新测试（非并行断言）用 true 跳过门闩，直接返回文件内容；
+    // 原有两条并行测试不触碰该字段，门闩行为保持不变。
+    bypassGates: false,
     release(path: string): void {
       const key = String(path).replace(/\\/g, "/")
       const waiters = gateWaiters.get(key)
@@ -51,6 +54,7 @@ const fsState = vi.hoisted(() => {
       gateWaiters.clear()
       state.inFlight = 0
       state.peak = 0
+      state.bypassGates = false
     },
   }
   return state
@@ -62,12 +66,14 @@ vi.mock("@/commands/fs", () => ({
     if (fsState.inFlight > fsState.peak) fsState.peak = fsState.inFlight
     const key = String(path).replace(/\\/g, "/")
     try {
-      // 门闩：未 release 前保持 in-flight，用于观测并发峰值与乱序完成。
-      await new Promise<void>((resolve) => {
-        const waiters = fsState.gateWaiters.get(key) ?? []
-        waiters.push(resolve)
-        fsState.gateWaiters.set(key, waiters)
-      })
+      if (!fsState.bypassGates) {
+        // 门闩：未 release 前保持 in-flight，用于观测并发峰值与乱序完成。
+        await new Promise<void>((resolve) => {
+          const waiters = fsState.gateWaiters.get(key) ?? []
+          waiters.push(resolve)
+          fsState.gateWaiters.set(key, waiters)
+        })
+      }
       const content = fsState.files.get(key)
       if (content === undefined) throw new Error(`ENOENT: ${key}`)
       return content
@@ -90,6 +96,7 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 import { exportProject } from "./export"
+import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
 
 afterEach(() => {
   fsState.releaseAll()
@@ -192,5 +199,219 @@ describe("exportProject 并行化（TASK-403）", () => {
     const contentByPath = new Map(fsState.writes.map((w) => [w.path, JSON.parse(w.content)]))
     expect(contentByPath.get(`${OUT}/snapshots/001.snapshot.json`)?.summary).toBe("snap-1")
     expect(contentByPath.get(`${OUT}/snapshots/003.snapshot.json`)?.summary).toBe("snap-3")
+  })
+
+  it("草稿章跳过、读失败章跳过、缺 title 回退文件名", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "draft.md", path: `${PROJECT}/wiki/chapters/draft.md`, is_dir: false },
+      { name: "broken.md", path: `${PROJECT}/wiki/chapters/broken.md`, is_dir: false },
+      { name: "notitle.md", path: `${PROJECT}/wiki/chapters/notitle.md`, is_dir: false },
+      { name: "ok.md", path: `${PROJECT}/wiki/chapters/ok.md`, is_dir: false },
+    ])
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/draft.md`,
+      "---\nchapter_number: 9\ntitle: 草稿\nchapter_status: draft\n---\n草稿正文",
+    )
+    // broken.md 在目录列表中但无文件内容 → readFile ENOENT → 跳过
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/notitle.md`,
+      "---\nchapter_number: 2\nchapter_status: final\n---\n无题正文",
+    )
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/ok.md`,
+      "---\nchapter_number: 1\ntitle: 一号\nchapter_status: final\n---\n一号正文",
+    )
+
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeSnapshots: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(2)
+    const out = fsState.writes[0].content
+    expect(out).toContain("# 一号")
+    expect(out).toContain("# notitle")
+    expect(out).not.toContain("草稿")
+    expect(out).not.toContain("broken")
+  })
+
+  it("listDirectory 抛错时章节段降级为空（仍写出空 complete-novel.md）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    vi.mocked(listDirectory).mockRejectedValueOnce(new Error("boom"))
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeSnapshots: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(0)
+    expect(fsState.writes[0].content).toBe("")
+  })
+
+  it("chapter_number 非数字/缺失 → num 归 0 仍导出（ternary 反分支）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "nosc.md", path: `${PROJECT}/wiki/chapters/nosc.md`, is_dir: false },
+      { name: "strnum.md", path: `${PROJECT}/wiki/chapters/strnum.md`, is_dir: false },
+    ])
+    // 缺 chapter_number（只有 title/status）
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/nosc.md`,
+      "---\ntitle: 无序号\nchapter_status: final\n---\n正文A",
+    )
+    // chapter_number 是字符串（parseFrontmatter 字符串化）
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/strnum.md`,
+      "---\nchapter_number: 三\ntitle: 字符串序号\nchapter_status: final\n---\n正文B",
+    )
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeSnapshots: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(2)
+    const out = fsState.writes[0].content
+    expect(out).toContain("# 无序号")
+    expect(out).toContain("# 字符串序号")
+  })
+
+  it("导出 meta 三件套（character-states / foreshadowing / cognition 存在时写盘，cognition 缺失时跳过）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(
+      `${PROJECT}/.novel/character-states.json`,
+      JSON.stringify({ characters: [{ name: "林动", state: "ok" }] }),
+    )
+    fsState.files.set(
+      `${PROJECT}/.novel/foreshadowing-tracker.json`,
+      JSON.stringify({ items: [{ name: "匕首", status: "planted", plantedChapter: 1 }] }),
+    )
+    fsState.files.set(
+      `${PROJECT}/.novel/cognition-state.json`,
+      JSON.stringify({ characters: [], readerKnows: [], lastUpdatedChapter: 1 }),
+    )
+
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeSnapshots: false,
+    })
+    expect(result.success).toBe(true)
+    const metaWrites = fsState.writes.filter((w) => w.path.startsWith(`${OUT}/meta/`))
+    expect(metaWrites.map((w) => w.path).sort()).toEqual([
+      `${OUT}/meta/character-states.json`,
+      `${OUT}/meta/cognition-state.json`,
+      `${OUT}/meta/foreshadowing-tracker.json`,
+    ])
+    expect(JSON.parse(metaWrites[0].content).characters[0].name).toBe("林动")
+  })
+
+  it("meta 段 loadCharacterStates 抛错时降级跳过", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    // character-states.json 内容为非法 JSON → loadCharacterStates throw
+    fsState.files.set(`${PROJECT}/.novel/character-states.json`, "{bad json")
+    fsState.files.set(
+      `${PROJECT}/.novel/cognition-state.json`,
+      JSON.stringify({ characters: [], readerKnows: [], lastUpdatedChapter: 1 }),
+    )
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeSnapshots: false,
+    })
+    expect(result.success).toBe(true)
+    const metaWrites = fsState.writes.filter((w) => w.path.startsWith(`${OUT}/meta/`))
+    expect(metaWrites.map((w) => w.path)).not.toContain(`${OUT}/meta/character-states.json`)
+    expect(metaWrites.map((w) => w.path)).toContain(`${OUT}/meta/cognition-state.json`)
+  })
+
+  it("cognition-state.json 缺失时 meta 段跳过 cognition 写盘", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(
+      `${PROJECT}/.novel/character-states.json`,
+      JSON.stringify({ characters: [] }),
+    )
+    fsState.files.set(
+      `${PROJECT}/.novel/foreshadowing-tracker.json`,
+      JSON.stringify({ items: [] }),
+    )
+    // 本 spec 的 fileExists mock 恒 true，这里按认知文件不存在放行一次
+    vi.mocked(fileExists).mockResolvedValueOnce(false)
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeSnapshots: false,
+    })
+    expect(result.success).toBe(true)
+    const metaWrites = fsState.writes.filter((w) => w.path.startsWith(`${OUT}/meta/`))
+    expect(metaWrites.map((w) => w.path).sort()).toEqual([
+      `${OUT}/meta/character-states.json`,
+      `${OUT}/meta/foreshadowing-tracker.json`,
+    ])
+  })
+
+  it("loadSnapshot 返回 null 的快照不写盘（其余照写）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.directories.set(`${PROJECT}/.novel/snapshots`, [
+      { name: "001.snapshot.json", path: `${PROJECT}/.novel/snapshots/001.snapshot.json`, is_dir: false },
+      { name: "002.snapshot.json", path: `${PROJECT}/.novel/snapshots/002.snapshot.json`, is_dir: false },
+    ])
+    fsState.files.set(
+      `${PROJECT}/.novel/snapshots/001.snapshot.json`,
+      JSON.stringify({ chapterId: "chapter-1", chapterNumber: 1, summary: "snap-1" }),
+    )
+    // 002 无内容 → loadSnapshot null → 跳过
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(true)
+    expect(fsState.writes.map((w) => w.path)).toEqual([`${OUT}/snapshots/001.snapshot.json`])
+  })
+
+  it("顶层 createDirectory 失败返回 success:false（Error 实例）", async () => {
+    fsState.reset()
+    vi.mocked(createDirectory).mockRejectedValueOnce(new Error("no perms"))
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeSnapshots: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("no perms")
+    expect(result.chapterCount).toBe(0)
+  })
+
+  it("顶层非 Error 失败也用 String(error) 兜底", async () => {
+    fsState.reset()
+    vi.mocked(createDirectory).mockRejectedValueOnce("plain-failure")
+    const result = await exportProject({
+      projectPath: PROJECT,
+      exportPath: OUT,
+      includeChapters: false,
+      includeSnapshots: false,
+      includeMeta: false,
+    })
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("plain-failure")
   })
 })

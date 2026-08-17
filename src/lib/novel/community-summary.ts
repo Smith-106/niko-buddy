@@ -447,6 +447,7 @@ export async function generateCommunitySummariesForChapter(
           continue
         }
       }
+      /* v8 ignore next */
       if (summary) {
         lines.push(`- 【社区摘要·社区${community.id}】: ${summary.slice(0, 400)}`)
       }

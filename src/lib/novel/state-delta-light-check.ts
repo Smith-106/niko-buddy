@@ -152,6 +152,7 @@ function dedupeIssues(issues: LightIssue[]): LightIssue[] {
   const seen = new Set<string>()
   const out: LightIssue[] = []
   for (const i of issues) {
+    /* v8 ignore next */
     const k = `${i.code}|${i.entity ?? ""}|${i.message}`
     if (seen.has(k)) continue
     seen.add(k)

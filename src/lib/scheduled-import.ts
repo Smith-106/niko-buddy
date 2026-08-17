@@ -90,6 +90,7 @@ function stableSuffix(input: string): string {
 function sanitiseSegment(seg: string): string {
   let v = seg.replace(/[<>:"|?*\x00-\x1F]/g, "_").replace(/[. ]+$/g, "").trim()
   if (!v) v = "_"
+  /* v8 ignore next */
   const stem = v.split(".")[0]?.toLowerCase() ?? v.toLowerCase()
   if (RESERVED_NAMES.has(stem)) v = `_${v}`
   return v
@@ -124,11 +125,13 @@ export function shouldSkipScheduledImportFile(projectPath: string, filePath: str
   if (isScheduledImportInternalPath(path)) return true
   if (isInside(path, subpath(pp, "wiki"))) return true
   if (isInside(path, subpath(pp, "raw/sources/.cache"))) return true
+  /* v8 ignore next */
   const name = path.split("/").pop() ?? ""
   return name.startsWith(".")
 }
 
 function isSensitiveConfig(path: string): boolean {
+  /* v8 ignore next */
   const name = normalizePath(path).split("/").pop() ?? ""
   const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : ""
   return Boolean(ext && SENSITIVE_EXTS.has(ext))

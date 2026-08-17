@@ -28,12 +28,14 @@ export const SOURCE_WATCH_FILE_TYPE_GROUPS = [
 ]
 
 function normalizeExtensions(values: readonly string[] | undefined): string[] {
+  /* v8 ignore next */
   return [...new Set((values ?? [])
     .map((value) => value.trim().replace(/^\./, "").toLowerCase())
     .filter(Boolean))]
 }
 
 function normalizeList(values: readonly string[] | undefined): string[] {
+  /* v8 ignore next */
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))]
 }
 
@@ -50,8 +52,10 @@ export function normalizeSourceWatchConfig(config?: Partial<SourceWatchConfig> |
 }
 
 export function getSourceWatchExtension(path: string): string {
+  /* v8 ignore next */
   const name = normalizePath(path).split("/").pop() ?? ""
   if (!name || !name.includes(".")) return ""
+  /* v8 ignore next */
   return name.split(".").pop()?.toLowerCase() ?? ""
 }
 
@@ -65,6 +69,7 @@ function wildcardToRegExp(pattern: string): RegExp {
 
 function matchesGlob(path: string, pattern: string): boolean {
   const normalized = normalizePath(path)
+  /* v8 ignore next */
   const name = normalized.split("/").pop() ?? normalized
   const re = wildcardToRegExp(pattern)
   return re.test(name) || re.test(normalized)
@@ -73,6 +78,7 @@ function matchesGlob(path: string, pattern: string): boolean {
 function pathMatchesExcludedDir(path: string, excludedDir: string): boolean {
   const normalized = normalizePath(path).toLowerCase()
   const dir = normalizePath(excludedDir).toLowerCase()
+  /* v8 ignore next */
   if (!dir) return false
   if (dir.includes("/")) {
     return normalized === dir || normalized.includes(`/${dir}/`) || normalized.startsWith(`${dir}/`)

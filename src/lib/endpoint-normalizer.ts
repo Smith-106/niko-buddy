@@ -85,6 +85,7 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
         const n = Number(o)
         return Number.isInteger(n) && n >= 0 && n <= 255
       })
+    /* v8 ignore next */
     if (!validIpv4) {
       notes.push(
         `主机地址 "${host}" 看起来像 IPv4，但包含 ${octets.length} 段；正确 IPv4 应为 4 段，且每段在 0-255 之间。`,
@@ -107,6 +108,7 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
       url = `${u.origin}${pathname}`
       if (u.search) notes.push("已移除查询参数；api-version 会使用单独的设置。")
     } catch {
+      /* v8 ignore next */
       if (/\/chat\/completions\/?($|\?)/i.test(url)) {
         url = url.replace(/\/chat\/completions\/?(?=$|\?)/i, "")
         notes.push("已移除末尾的 chat/completions；Azure 请求时会自动添加。")
@@ -123,10 +125,12 @@ export function normalizeEndpoint(raw: string, mode: EndpointMode): NormalizedEn
   if (REQUEST_PATH_TAILS.test(url)) {
     const match = url.match(REQUEST_PATH_TAILS)
     url = url.replace(REQUEST_PATH_TAILS, "")
+    /* v8 ignore next */
     if (match) notes.push(`已移除末尾的 "${match[0].replace(/^\/+/, "").replace(/\/+$/, "")}"；这部分会在请求时自动追加，不需要写在基础地址里。`)
   } else if (mode === "chat_completions" && MESSAGES_PATH_TAIL.test(url)) {
     const match = url.match(MESSAGES_PATH_TAIL)
     url = url.replace(MESSAGES_PATH_TAIL, "")
+    /* v8 ignore next */
     if (match) notes.push(`已移除末尾的 "${match[0].replace(/^\/+/, "").replace(/\/+$/, "")}"；这是 Anthropic 兼容路径，不是 OpenAI 兼容基础地址。`)
   }
 

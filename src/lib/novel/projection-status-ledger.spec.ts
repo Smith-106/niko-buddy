@@ -1,11 +1,38 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   PROJECTION_CATEGORIES,
   emptyLedger,
+  loadProjectionStatusLedger,
   recordProjectionStatus,
+  saveProjectionStatusLedger,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
 import { supersedeFact } from "./graph-adapter"
+
+// F-002 持久化读路径 (loadProjectionStatusLedger) 需要 @/commands/fs mock;
+// graph-adapter 的 supersedeFact 测试只用字符串处理, 不受 mock 影响。
+const fsMocks = vi.hoisted(() => ({
+  readFile: vi.fn(async () => {
+    throw new Error("ENOENT")
+  }),
+  writeFileAtomic: vi.fn(async () => {}),
+  createDirectory: vi.fn(async () => {}),
+  fileExists: vi.fn(async () => false),
+}))
+
+vi.mock("@/commands/fs", () => ({
+  readFile: fsMocks.readFile,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+  createDirectory: fsMocks.createDirectory,
+  fileExists: fsMocks.fileExists,
+}))
+
+beforeEach(() => {
+  fsMocks.readFile.mockReset()
+  fsMocks.readFile.mockImplementation(async () => {
+    throw new Error("ENOENT")
+  })
+})
 
 describe("F-002 ProjectionStatusLedger (C-002 mixed_per_projection)", () => {
   it("defines all 3 C-002 categories across the 9 projections", () => {
@@ -74,6 +101,65 @@ describe("F-002 ProjectionStatusLedger (C-002 mixed_per_projection)", () => {
     expect(ledger.chapters["1"].cognition.status).toBe("committed")
     expect(ledger.chapters["2"].character.status).toBe("failed")
     expect(ledger.chapters["3"].foreshadow.status).toBe("committed")
+  })
+})
+
+describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
+  it("merges a partial file's projections with the canonical categories", async () => {
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({
+        version: 1,
+        projections: { vector: "single_snapshot_idempotent", community_summary: "mutates_existing_non_rebuildable" },
+        chapters: {
+          "3": {
+            cognition: { projection: "cognition", category: "fold_rebuildable", status: "committed", updated_at: "2026-07-10T00:00:00Z", last_error: "" },
+          },
+        },
+      }),
+    )
+    const ledger = await loadProjectionStatusLedger("E:/Novel")
+    // 文件里的覆盖值 + 规范化 categories 合并 (旧版本账本也能反映新 projection)
+    expect(ledger.projections.vector).toBe("single_snapshot_idempotent")
+    expect(ledger.projections.community_summary).toBe("mutates_existing_non_rebuildable")
+    expect(ledger.projections.character).toBe("fold_rebuildable")
+    expect(ledger.projections.subplot_board).toBe("single_snapshot_idempotent")
+    expect(ledger.chapters["3"].cognition.status).toBe("committed")
+  })
+
+  it("uses {} when a legacy file has no projections field", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ version: 1, chapters: {} }))
+    const ledger = await loadProjectionStatusLedger("E:/Novel")
+    // parsed.projections undefined → ?? {} 臂 → 只有规范化 categories
+    expect(ledger.projections.vector).toBe("single_snapshot_idempotent")
+    expect(Object.keys(ledger.projections)).toEqual(Object.keys(PROJECTION_CATEGORIES))
+    expect(ledger.chapters).toEqual({})
+  })
+
+  it("returns the empty ledger for non-object or chapters-less payloads", async () => {
+    fsMocks.readFile.mockResolvedValue("null") // !parsed 臂
+    expect(await loadProjectionStatusLedger("E:/Novel")).toEqual(emptyLedger())
+
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ version: 1 })) // 缺 chapters 臂
+    expect(await loadProjectionStatusLedger("E:/Novel")).toEqual(emptyLedger())
+  })
+
+  it("recordProjectionStatus falls back to fold_rebuildable for unknown projections", () => {
+    const ledger = recordProjectionStatus(emptyLedger(), 1, "unknown_projection", "failed", "boom")
+    expect(ledger.chapters["1"].unknown_projection.category).toBe("fold_rebuildable")
+  })
+
+  it("returns the empty ledger when the ledger file is missing or unreadable", async () => {
+    // beforeEach 默认 readFile 抛 ENOENT → catch → emptyLedger
+    expect(await loadProjectionStatusLedger("E:/Novel")).toEqual(emptyLedger())
+  })
+
+  it("saveProjectionStatusLedger writes atomic json under .novel", async () => {
+    await saveProjectionStatusLedger("E:/Novel", emptyLedger())
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.novel")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.novel/projection-status.json",
+      expect.any(String),
+    )
   })
 })
 

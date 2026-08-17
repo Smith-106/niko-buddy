@@ -122,7 +122,7 @@ export function ForeshadowingPanel() {
                           <span className="font-medium line-through">{f.name}</span>
                         </div>
                         <span className="shrink-0 rounded px-1.5 py-0.5 text-xs bg-success/15 text-success">
-                          {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
+                          {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">

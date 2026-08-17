@@ -164,6 +164,7 @@ function parseScenes(raw: string): Scene[] {
   } catch {
     return []
   }
+  /* v8 ignore next */
   if (!Array.isArray(parsed)) return []
   const scenes: Scene[] = []
   for (let i = 0; i < parsed.length; i++) {

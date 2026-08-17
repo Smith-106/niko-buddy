@@ -36,6 +36,18 @@ describe("temporal-facts-audit", () => {
     expect(temporalEmptySoftGapRef(4)).toContain("ch4")
   })
 
+  it("non-finite chapterNumber falls back to 0 (?? 0 分支)", () => {
+    const s = auditTemporalFactsStatus({ enabled: true, chapterNumber: Number.NaN, facts: [] })
+    expect(s.chapterNumber).toBe(0)
+  })
+
+  it("nullish facts fall back to factCount 0", () => {
+    const s = auditTemporalFactsStatus({ enabled: true, chapterNumber: 4, facts: null })
+    expect(s.factCount).toBe(0)
+    const s2 = auditTemporalFactsStatus({ enabled: true, chapterNumber: 4, facts: undefined })
+    expect(s2.factCount).toBe(0)
+  })
+
   it("formatTemporalAuditLine is one soft line", async () => {
     const { formatTemporalAuditLine } = await import("./temporal-facts-audit")
     const s = auditTemporalFactsStatus({ enabled: true, chapterNumber: 4, facts: [] })

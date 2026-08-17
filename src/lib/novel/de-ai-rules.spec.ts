@@ -64,10 +64,27 @@ describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
     expect(prompt).not.toContain("[low]") // 默认 medium 门槛
     const full = buildStructuredDeAiRules(undefined, "low")
     expect(full).toContain("[low]")
+    const critical = buildStructuredDeAiRules(undefined, "critical")
+    expect(critical).not.toContain("[high]")
   })
 
   it("向后兼容: 原 CHINESE_NOVEL_DE_AI_RULES 字符串保留 (deep-chapter-prompts 引用不变)", () => {
     expect(CHINESE_NOVEL_DE_AI_RULES).toContain("中文小说去 AI 味补充规则")
     expect(CHINESE_NOVEL_DE_AI_RULES.length).toBeGreaterThan(500)
+  })
+
+  it("每个严重度门槛下 7 个类别都不为空 — buildStructuredDeAiRules 的 catRules.length===0 continue 分支不可达", () => {
+    // 矩阵满格 (7 类 × 4 档): 任一 minSeverity 过滤后每个类别都保有 ≥1 条规则,
+    // 因此 buildStructuredDeAiRules 内部 `if (catRules.length === 0) continue`
+    // 永不触发 (de-ai-rules.ts:292) — 该分支为不可达死分支。
+    for (const severity of DE_AI_SEVERITIES) {
+      for (const category of DE_AI_CATEGORIES) {
+        const kept = filterRulesBySeverity(DE_AI_STRUCTURED_RULES, severity).filter(
+          (r) => r.category === category,
+        )
+        expect(kept.length).toBeGreaterThan(0)
+        expect(buildStructuredDeAiRules(undefined, severity)).toContain(category)
+      }
+    }
   })
 })

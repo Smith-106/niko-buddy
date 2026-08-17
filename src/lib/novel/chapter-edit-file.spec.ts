@@ -114,4 +114,38 @@ title: "第12章"
       message: "第12章返回内容缺少正文，已停止写回。",
     })
   })
+
+  it("stringifies null-valued frontmatter fields as empty", () => {
+    const result = normalizeChapterEditFile({
+      targetChapterNumber: 12,
+      content: `---
+chapter_number: 12
+title: "第12章"
+note:
+---
+
+# 第12章
+
+正文。`,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      // null value renders as empty (String(value ?? ""))
+      expect(result.content).toContain("note: ")
+    }
+  })
+
+  it("strips 【第N章】 markers with and without the target number and preserves body", () => {
+    const result = normalizeChapterEditFile({
+      targetChapterNumber: 12,
+      content: "【第12章原文】\n\n改后正文。",
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.content).not.toContain("【")
+      expect(result.content).toContain("改后正文。")
+    }
+  })
+
 })

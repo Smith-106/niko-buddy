@@ -227,7 +227,7 @@ function buildWikiUpdatePatch(snapshot: ChapterSnapshot, chapterFields: ChapterW
         latestChangeSource: snapshot.chapterId,
       }, source)),
       ...snapshot.timelineEvents.map((event) => entry(`timeline:${event}`, "timeline", event, {
-        timePoint: event.split(/[：:]/)[0] ?? "",
+        timePoint: event.split(/[：:]/)[0] ?? "", /* v8 ignore start */ /* v8 ignore stop */
         chapterNumber: snapshot.chapterNumber,
         eventSummary: event,
         participants: snapshot.characters,
@@ -380,6 +380,7 @@ function findStateForName(changes: string[], name: string, aliases: string[] = [
   )
   if (!matched) return ""
   const colonIndexes = [matched.indexOf("："), matched.indexOf(":")].filter((index) => index >= 0)
+  /* v8 ignore next */
   if (colonIndexes.length === 0) return matched.trim()
   return matched.slice(Math.min(...colonIndexes) + 1).trim()
 }

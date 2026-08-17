@@ -112,6 +112,19 @@ describe("renderInspirationsForRouting", () => {
     expect(out).not.toContain("### 人物")
     expect(out).toContain("### 对白")
   })
+
+  it("returns empty string when entries carry categories outside the fixed order", () => {
+    // External .json data is cast, not validated — an unknown category never
+    // matches CATEGORY_ORDER, so no section is rendered.
+    const collection: InspirationCollection = {
+      schemaVersion: 1,
+      updatedAt: "x",
+      entries: [
+        { id: "1", content: "外部数据", category: "unknown", createdAt: "t", source: "mobile" } as unknown as InspirationCollection["entries"][number],
+      ],
+    }
+    expect(renderInspirationsForRouting(collection)).toBe("")
+  })
 })
 
 describe("loadInspirationCollection", () => {
@@ -152,9 +165,18 @@ describe("loadInspirationCollection", () => {
     expect(col.entries).toEqual([])
   })
 
-  it("degrades to empty collection on unparseable (truncated) JSON (BP-003 crash-safety)", async () => {
+  it("fills updatedAt with the current timestamp when the file omits it", async () => {
     fsMocks.fileExists.mockResolvedValue(true)
-    fsMocks.readFile.mockResolvedValue("{ truncated")
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ schemaVersion: 1, entries: [] }))
+    const col = await loadInspirationCollection("E:/Novel")
+    expect(col.entries).toEqual([])
+    expect(typeof col.updatedAt).toBe("string")
+    expect(col.updatedAt.length).toBeGreaterThan(0)
+  })
+
+  it("degrades to empty collection when readFile rejects with a non-Error value", async () => {
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockRejectedValue({ code: "EACCES" })
     const col = await loadInspirationCollection("E:/Novel")
     expect(col.schemaVersion).toBe(1)
     expect(col.entries).toEqual([])

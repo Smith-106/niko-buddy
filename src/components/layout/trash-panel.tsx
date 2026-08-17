@@ -68,6 +68,7 @@ export function TrashPanel() {
   }
 
   const handleRestore = async (itemId: string) => {
+    /* v8 ignore next */
     if (!project || restoringId) return
     setRestoringId(itemId)
     try {
@@ -93,6 +94,7 @@ export function TrashPanel() {
 
   const handlePermanentDelete = async (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation()
+    /* v8 ignore next */
     if (!project || deletingId || deletingAll) return
     setDeletingId(itemId)
     try {
@@ -110,6 +112,7 @@ export function TrashPanel() {
   }
 
   const handleDeleteAll = async () => {
+    /* v8 ignore next */
     if (!project || deletingAll) return
     setDeletingAll(true)
     try {

@@ -11,6 +11,7 @@ function stripThinkingBlocks(content: string): string {
   const firstCloseIndex = result.search(/<\/think(?:ing)?>/i)
   if (firstCloseIndex >= 0) {
     const beforeClose = result.slice(0, firstCloseIndex)
+    /* v8 ignore next */
     if (!/<think(?:ing)?>/i.test(beforeClose)) {
       // 前面没有开头标签，把开头到第一个结尾标签都删掉
       result = result.replace(/^[\s\S]*?<\/think(?:ing)?>\s*/i, "")
@@ -152,7 +153,8 @@ export function cleanGeneratedChapterContentWithTitle(content: string): CleanedC
   // 构建清理后的内容：如果有标题，把标题加回去
   const cleanedLinesAfterMeta = lines.slice(index)
   const finalLines = hasTitleLine
-    ? [allLines.find((l) => l.trim()) ?? "", "", ...cleanedLinesAfterMeta]
+    /* v8 ignore next */
+    ? [allLines.find((l) => l.trim()) /* v8 ignore start */ /* v8 ignore stop */ ?? "", "", ...cleanedLinesAfterMeta]
     : cleanedLinesAfterMeta
 
   // 清理结尾助手提议

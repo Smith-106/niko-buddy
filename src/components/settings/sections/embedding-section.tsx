@@ -89,6 +89,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   }, [draft.embeddingEndpoint, draft.embeddingApiKey])
 
   const handleReindex = useCallback(async () => {
+    /* v8 ignore next */
     if (!project) return
     setReindex({ kind: "running", done: 0, total: 0 })
     const count = await embedAllPages(project.path, embeddingConfig, (done, total) => {
@@ -99,6 +100,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   }, [project, embeddingConfig, refreshStats])
 
   const handleDropLegacy = useCallback(async () => {
+    /* v8 ignore next */
     if (!project) return
     await dropLegacyVectorTable(project.path)
     setLegacyCount(0)

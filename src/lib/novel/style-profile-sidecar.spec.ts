@@ -81,6 +81,14 @@ describe("renderStyleProfileSidecar", () => {
     const text = renderStyleProfileSidecar({ styleProfile: makeProfile() })
     expect(text).not.toContain("源作品：")
   })
+
+  it("constitution 空白/缺失时不渲染宪法节；samples 缺失时 ?? [] 兜底", () => {
+    const text = renderStyleProfileSidecar({
+      styleProfile: makeProfile({ constitution: "   ", samples: undefined as never }),
+    })
+    expect(text).not.toContain("## 风格宪法（硬约束）")
+    expect(text).not.toContain("## 模仿锚点（few-shot）")
+  })
 })
 
 describe("loadStyleProfileSidecar", () => {
@@ -108,5 +116,11 @@ describe("loadStyleProfileSidecar", () => {
     loadStyleProfileMock.mockRejectedValueOnce(new Error("disk gone"))
     const input = await loadStyleProfileSidecar("/some/book-analysis/book-1")
     expect(input).toEqual({})
+  })
+
+  it("bookPath 只有斜杠时 sourceBook 回退到 bookPath 本身", async () => {
+    loadStyleProfileMock.mockResolvedValueOnce(makeProfile())
+    const input = await loadStyleProfileSidecar("/")
+    expect(input.sourceBook).toBe("/")
   })
 })

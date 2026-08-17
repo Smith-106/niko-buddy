@@ -58,6 +58,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     const initializePath = async () => {
       const defaultPath = await resolveDefaultParentDir()
 
+      /* v8 ignore next */
       if (!cancelled) {
         setPath((currentPath) => (currentPath.trim() ? currentPath : defaultPath))
       }

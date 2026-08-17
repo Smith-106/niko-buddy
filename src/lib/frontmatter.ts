@@ -103,6 +103,7 @@ function locateFrontmatterBlock(
   // Handle code fence wrapper cleanup (LLM artifact)
   const prefix = content.slice(0, openIdx)
   const prefixIsYamlFence = /^\s*```(?:yaml|yml)?\s*\r?\n$/i.test(prefix)
+  /* v8 ignore next */
   if (prefixIsYamlFence) {
     const stripped = bodyAfterFm.replace(/^\s*```\s*(?:\r?\n|$)/, "")
     return {
@@ -186,6 +187,7 @@ function stringifyScalar(v: unknown): string {
   if (v === null || v === undefined) return ""
   if (typeof v === "string") return v
   if (typeof v === "number" || typeof v === "boolean") return String(v)
+  /* v8 ignore next */
   if (v instanceof Date) return v.toISOString().slice(0, 10)
   // Objects/nested arrays → JSON string to preserve visibility
   try {

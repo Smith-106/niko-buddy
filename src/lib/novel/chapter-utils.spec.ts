@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, resolveTargetChapterNumberForChat } from "./chapter-utils"
+import { detectLastGeneratedChapterNumber, ensureString, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, flattenMdFilesBase, formatStageThinking, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 
 const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
@@ -115,6 +115,11 @@ describe("detectLastGeneratedChapterNumber", () => {
     expect(detectLastGeneratedChapterNumber([
       "主角在第3章的时候已经拿到了钥匙，所以这里不冲突。",
     ])).toBeUndefined()
+  })
+
+  it("skips empty assistant messages and rejects chapter zero", () => {
+    expect(detectLastGeneratedChapterNumber(["", "目标章节：第0章"])).toBeUndefined()
+    expect(detectLastGeneratedChapterNumber(["  ", "# 第0章"])).toBeUndefined()
   })
 })
 
@@ -253,10 +258,164 @@ describe("project-scoped chapter index cache (ISS-20260724-005)", () => {
     expect(fsMocks.listDirectory).toHaveBeenCalledTimes(1)
   })
 
+  it("findChapterFileByNumber falls back to an empty index when the chapter dir is missing", async () => {
+    fsMocks.listDirectory.mockRejectedValue(new Error("ENOENT: wiki/chapters"))
+    await expect(findChapterFileByNumber("E:/Novel", 2)).resolves.toBeNull()
+  })
+
   it("findChapterFileByNumber resolves files whose number comes from frontmatter only", async () => {
     fsMocks.listDirectory.mockResolvedValue([chapterNode("序章.md")])
     fsMocks.readFile.mockResolvedValue(chapterContent(5))
     await expect(findChapterFileByNumber("E:/Novel", 5)).resolves.toBe("E:/Novel/wiki/chapters/序章.md")
     await expect(findChapterFileByNumber("E:/Novel", 1)).resolves.toBeNull()
+  })
+
+  it("discards an in-flight index snapshot when the cache is invalidated mid-load", async () => {
+    let resolveList!: (value: unknown) => void
+    fsMocks.listDirectory.mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve }))
+    const first = getNextChapterNumber("E:/Novel")
+    await Promise.resolve()
+    invalidateChapterCache("E:/Novel")
+    resolveList([chapterNode("chapter-001.md")])
+    await expect(first).resolves.toBe(2)
+
+    // stale snapshot must NOT have been cached: second call reloads
+    fsMocks.listDirectory.mockResolvedValue([chapterNode("chapter-001.md")])
+    await expect(getNextChapterNumber("E:/Novel")).resolves.toBe(2)
+    expect(fsMocks.listDirectory).toHaveBeenCalledTimes(2)
+  })
+
+  it("treats a duplicate numbered chapter idempotently (byName not above max)", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      chapterNode("chapter-005.md"),
+      chapterNode("chapter-005-重.md"),
+    ])
+    await expect(getNextChapterNumber("E:/Novel")).resolves.toBe(6)
+  })
+
+  it("byTitle alone marks chapter one and does not exceed a higher byFrontmatter max", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      chapterNode("开局.md"),
+      chapterNode("chapter-005.md"),
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("开局")) return titleOnlyContent("第1章 起步")
+      return chapterContent(5)
+    })
+    await expect(getNextChapterNumber("E:/Novel")).resolves.toBe(6)
+  })
+
+  it("treats a file without title or frontmatter number as name-only (titleMatch absent)", async () => {
+    fsMocks.listDirectory.mockResolvedValue([chapterNode("chapter-001.md")])
+    fsMocks.readFile.mockResolvedValue("没有 frontmatter 的纯正文。")
+    await expect(getNextChapterNumber("E:/Novel")).resolves.toBe(2)
+  })
+})
+
+describe("ensureString / formatStageThinking", () => {
+  it("ensureString passes strings through and coerces everything else to empty", () => {
+    expect(ensureString("abc")).toBe("abc")
+    expect(ensureString(undefined)).toBe("")
+    expect(ensureString(null)).toBe("")
+    expect(ensureString(42)).toBe("")
+  })
+
+  it("formatStageThinking builds a markdown h2 with trimmed content", () => {
+    expect(formatStageThinking("阶段1", "  内容  \n")).toBe("## 阶段1\n内容")
+  })
+})
+
+describe("extractChapterNumber / flattenMdFiles", () => {
+  it("extractChapterNumber matches 第N章/节/回 and bare digits", () => {
+    expect(extractChapterNumber("第12章 夜")).toBe(12)
+    expect(extractChapterNumber("第3回")).toBe(3)
+    expect(extractChapterNumber("chapter 5")).toBe(5)
+    expect(extractChapterNumber("abc")).toBeNull()
+    expect(extractChapterNumber("")).toBeNull()
+  })
+
+  it("flattenMdFilesBase recurses into dirs, skips dirs without children and non-md files", () => {
+    const nodes = [
+      { name: "a.md", path: "/a/a.md", is_dir: false },
+      { name: "notes.txt", path: "/a/notes.txt", is_dir: false },
+      { name: "sub", path: "/a/sub", is_dir: true, children: [{ name: "b.md", path: "/a/sub/b.md", is_dir: false }] },
+      { name: "empty", path: "/a/empty", is_dir: true },
+    ]
+    expect(flattenMdFilesBase(nodes as never)).toEqual([
+      { name: "a.md", path: "/a/a.md" },
+      { name: "b.md", path: "/a/sub/b.md" },
+    ])
+  })
+
+  it("flattenMdFiles sorts by chapter number with localeCompare fallback and null-number placement", () => {
+    const nodes = [
+      { name: "番外.md", path: "/a/番外.md", is_dir: false },
+      { name: "第2章.md", path: "/a/第2章.md", is_dir: false },
+      { name: "第10章.md", path: "/a/第10章.md", is_dir: false },
+      { name: "第1章.md", path: "/a/第1章.md", is_dir: false },
+      { name: "第2章A.md", path: "/a/第2章A.md", is_dir: false },
+    ]
+    const flat = flattenMdFiles(nodes as never)
+    expect(flat.map((f) => f.name)).toEqual(["第1章.md", "第2章.md", "第2章A.md", "第10章.md", "番外.md"])
+  })
+
+  it("flattenMdFiles places a null-numbered name after a numbered name in a two-element sort", () => {
+    const flat = flattenMdFiles([
+      { name: "第1章.md", path: "/a/第1章.md", is_dir: false },
+      { name: "番外.md", path: "/a/番外.md", is_dir: false },
+    ] as never)
+    expect(flat.map((f) => f.name)).toEqual(["第1章.md", "番外.md"])
+  })
+})
+
+describe("readSelectedChapterNumberForFile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns undefined for missing selection or non-chapters paths", async () => {
+    await expect(readSelectedChapterNumberForFile(undefined)).resolves.toBeUndefined()
+    await expect(readSelectedChapterNumberForFile(null)).resolves.toBeUndefined()
+    await expect(readSelectedChapterNumberForFile("E:/Novel/wiki/outline.md")).resolves.toBeUndefined()
+  })
+
+  it("extracts the number from the file name first", async () => {
+    await expect(readSelectedChapterNumberForFile("E:\\Novel\\wiki\\chapters\\chapter-007.md")).resolves.toBe(7)
+  })
+
+  it("falls back to the frontmatter chapter_number when the name has none", async () => {
+    fsMocks.readFile.mockResolvedValue(chapterContent(5))
+    await expect(readSelectedChapterNumberForFile("E:/Novel/wiki/chapters/序章.md")).resolves.toBe(5)
+    expect(fsMocks.readFile).toHaveBeenCalledWith("E:/Novel/wiki/chapters/序章.md")
+  })
+
+  it("rejects non-positive frontmatter numbers and ignores unreadable files", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent(0))
+    await expect(readSelectedChapterNumberForFile("E:/Novel/wiki/chapters/序章.md")).resolves.toBeUndefined()
+    fsMocks.readFile.mockRejectedValueOnce(new Error("denied"))
+    await expect(readSelectedChapterNumberForFile("E:/Novel/wiki/chapters/序章.md")).resolves.toBeUndefined()
+    // chapters-path file with neither a numbered name nor a chapter_number frontmatter
+    fsMocks.readFile.mockResolvedValueOnce("没有编号的正文。")
+    await expect(readSelectedChapterNumberForFile("E:/Novel/wiki/chapters/序章.md")).resolves.toBeUndefined()
+    expect(fsMocks.readFile).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe("resolveTargetChapterNumberForChat routing edge cases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    invalidateChapterCache()
+  })
+
+  it("does not resolve a next chapter for non-chapter intents", async () => {
+    await expect(resolveTargetChapterNumberForChat({
+      projectPath: "E:/Novel",
+      userRequest: "继续生成下一章",
+      routeIntent: "query",
+    })).resolves.toBeUndefined()
+    await expect(resolveTargetChapterNumberForChat({
+      projectPath: "E:/Novel",
+      userRequest: "继续生成下一章",
+    })).resolves.toBeUndefined()
   })
 })

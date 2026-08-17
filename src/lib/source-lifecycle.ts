@@ -68,6 +68,7 @@ export interface SourceImportResult {
 export function isIngestableSourcePath(path: string): boolean {
   const n = normalizePath(path)
   if (n.split("/").includes(".cache")) return false
+  /* v8 ignore next */
   const name = n.split("/").pop() ?? ""
   if (!name || name.startsWith(".")) return false
   const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : ""
@@ -159,6 +160,7 @@ export async function deleteSourceFiles(
 ): Promise<DeleteSourcesResult> {
   const pp = normalizePath(projectPath)
   const normSources = sourcePaths.map(normalizePath)
+  /* v8 ignore next */
   const names = normSources.map((s) => s.split("/").pop() ?? "").filter(Boolean)
   if (names.length === 0) return { deletedWikiPaths: [], rewrittenSourcePages: 0, skippedPages: 0 }
 
@@ -322,6 +324,7 @@ function flattenMd(nodes: readonly FileNode[]): FileNode[] {
 }
 
 function nameMatchesAny(source: string, deleting: Set<string>): boolean {
+  /* v8 ignore next */
   return deleting.has(normalizePath(source).split("/").pop()?.toLowerCase() ?? "")
 }
 

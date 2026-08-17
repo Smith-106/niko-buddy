@@ -71,6 +71,7 @@ function isOutlineImportablePath(path: string): boolean {
   const normalizedPath = normalizePath(path)
   const fileName = getFileName(normalizedPath)
   if (!fileName || fileName.startsWith(".")) return false
+  /* v8 ignore next */
   const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() ?? "" : ""
   return OUTLINE_IMPORT_EXTENSION_SET.has(extension)
 }

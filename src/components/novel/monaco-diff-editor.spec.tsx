@@ -1,9 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+// @vitest-environment jsdom
+
+import { StrictMode } from "react"
+import { cleanup } from "@testing-library/react"
+import { render } from "@/test-helpers/component-test-utils"
 import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const deps = vi.hoisted(() => ({
+  configureMonaco: vi.fn(),
+}))
 
 // 隔离 Monaco worker / loader：configureMonaco 在 jsdom 下无需真实初始化
 vi.mock("@/lib/novel/monaco-loader", () => ({
-  configureMonaco: vi.fn(),
+  configureMonaco: deps.configureMonaco,
 }))
 
 // mock @monaco-editor/react：DiffEditor 捕获 props，loader 提供 no-op config
@@ -18,7 +27,10 @@ import { MonacoDiffEditor } from "./monaco-diff-editor"
 describe("MonacoDiffEditor (RPC-2 / TASK-004)", () => {
   beforeEach(() => {
     mockDiffEditor.mockClear()
+    deps.configureMonaco.mockClear()
   })
+
+  afterEach(() => cleanup())
 
   it("render 不抛错，且 original/modified 透传给 DiffEditor（默认 markdown 语言）", () => {
     expect(() =>
@@ -42,5 +54,35 @@ describe("MonacoDiffEditor (RPC-2 / TASK-004)", () => {
     const options = callProps.options as Record<string, unknown>
     expect(options.renderSideBySide).toBe(true)
     expect(options.readOnly).toBe(true)
+  })
+
+  it("configures Monaco and forwards modified editor changes", () => {
+    const onModifiedChange = vi.fn()
+    const { rerender } = render(<StrictMode><MonacoDiffEditor original="a" modified="b" onModifiedChange={onModifiedChange} /></StrictMode>)
+
+    expect(deps.configureMonaco).toHaveBeenCalledTimes(1)
+    rerender(<StrictMode><MonacoDiffEditor original="c" modified="d" onModifiedChange={onModifiedChange} /></StrictMode>)
+    expect(deps.configureMonaco).toHaveBeenCalledTimes(1)
+    const onMount = mockDiffEditor.mock.calls[1][0].onMount as (editor: unknown) => void
+    let contentListener!: () => void
+    const modifiedEditor = {
+      onDidChangeModelContent: (listener: () => void) => { contentListener = listener },
+      getValue: () => "changed",
+    }
+    onMount({ getModifiedEditor: () => modifiedEditor })
+    contentListener()
+    expect(onModifiedChange).toHaveBeenCalledWith("changed")
+  })
+
+  it("does not throw when modified change callback is omitted", () => {
+    render(<MonacoDiffEditor original="a" modified="b" />)
+    const onMount = mockDiffEditor.mock.calls[0][0].onMount as (editor: unknown) => void
+    let contentListener!: () => void
+    const modifiedEditor = {
+      onDidChangeModelContent: (listener: () => void) => { contentListener = listener },
+      getValue: () => "changed",
+    }
+    onMount({ getModifiedEditor: () => modifiedEditor })
+    expect(() => contentListener()).not.toThrow()
   })
 })

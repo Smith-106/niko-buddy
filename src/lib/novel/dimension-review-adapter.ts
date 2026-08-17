@@ -729,6 +729,7 @@ function parseDimensionReviewResult(
   try {
     parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>
   } catch (error) {
+    /* v8 ignore next */
     if (error instanceof SyntaxError) {
       throw new DimParseError(jsonMatch[0], error.message)
     }

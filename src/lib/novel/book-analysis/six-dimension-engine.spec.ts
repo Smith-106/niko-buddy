@@ -211,6 +211,121 @@ describe("six-dimension-engine", () => {
     expect(last.dimensions?.every((d: any) => d.status === "done")).toBe(true)
   })
 
+  it("fast mode fills fallbacks when character fields are empty", async () => {
+    const ch = makeCharacter()
+    ch.description = ""
+    ch.personality = ""
+    ch.speechStyle = ""
+    const result = await analyzeSixDimensions({
+      character: ch,
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "fast",
+      bookTitle: "X",
+    })
+    const r = result.character.sixDimensionResearch!
+    expect(r.publicMaterial).toContain("原文未直接给出")
+    expect(r.speechStyle).toContain("原文未直接给出")
+    expect(r.expressionDna).toContain("原文未直接给出")
+    expect(r.externalViews).toContain("原文未直接给出")
+    expect(r.decisionLog).toContain("原文未直接给出")
+  })
+
+  it("reanalyzeSixDimensions delegates to analyzeSixDimensions", async () => {
+    const { reanalyzeSixDimensions } = await import("./six-dimension-engine")
+    const result = await reanalyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "fast",
+      bookTitle: "X",
+    })
+    expect(result.character.sixDimensionMeta?.depth).toBe("fast")
+  })
+
+  it("deep mode falls back when web fetch rejects", async () => {
+    const { fetchCharacterExternalMaterial } = await import(
+      "@/lib/novel/book-analysis/web-search"
+    )
+    ;(fetchCharacterExternalMaterial as any).mockRejectedValueOnce(new Error("network down"))
+    const result = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "deep",
+      bookTitle: "X",
+    })
+    expect(result.llmFallbackUsed).toBe(true)
+    expect(result.character.sixDimensionMeta?.sourceNote).toContain("外部资料获取失败")
+  })
+
+  it("throws aborted when the signal is aborted", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      analyzeSixDimensions({
+        character: makeCharacter(),
+        corpus: "x",
+        llmConfig: makeLlmConfig(),
+        depth: "standard",
+        bookTitle: "X",
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("aborted")
+  })
+
+  it("handles empty LLM responses and LLM rejections", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+    ;(streamChat as any).mockImplementationOnce(async () => {
+      // no onToken → empty response
+    })
+    const emptyResult = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "standard",
+      bookTitle: "X",
+    })
+    expect(emptyResult.character.sixDimensionResearch?.publicMaterial).toContain("提取失败或返回空")
+
+    ;(streamChat as any).mockRejectedValueOnce(new Error("llm boom"))
+    const failResult = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "standard",
+      bookTitle: "X",
+    })
+    expect(failResult.character.sixDimensionResearch?.publicMaterial).toContain("提取失败：llm boom")
+  })
+
+  it("logs LLM errors via the onError callback", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+    ;(streamChat as any).mockImplementationOnce(async (_c: unknown, _m: unknown, callbacks: any) => {
+      callbacks.onError?.(new Error("provider err"))
+    })
+    const result = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "standard",
+      bookTitle: "X",
+    })
+    expect(result.character.sixDimensionResearch?.publicMaterial).toContain("提取失败或返回空")
+
+    ;(streamChat as any).mockImplementationOnce(async (_c: unknown, _m: unknown, callbacks: any) => {
+      callbacks.onError?.("plain string")
+    })
+    const result2 = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "standard",
+      bookTitle: "X",
+    })
+    expect(result2.character.sixDimensionResearch?.publicMaterial).toContain("提取失败或返回空")
+  })
+
   it("fast mode reports dimensions all done in single progress", async () => {
     const progress: any[] = []
     await analyzeSixDimensions({

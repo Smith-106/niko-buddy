@@ -24,6 +24,11 @@ describe("detectFix1Violation", () => {
     expect(detectFix1Violation("最终存活者是他")).toBe(true)
     expect(detectFix1Violation("the Offer is ready")).toBe(true)
   })
+
+  it("tolerates nullish text via ?? ''", () => {
+    expect(detectFix1Violation(undefined as unknown as string)).toBe(false)
+    expect(detectFix1Violation(null as unknown as string)).toBe(false)
+  })
 })
 
 describe("evaluateTrackBCandidate", () => {
@@ -71,6 +76,41 @@ describe("evaluateTrackBCandidate", () => {
     expect(d.accept).toBe(false)
     expect(d.reason).toMatch(/slop/)
   })
+
+  it("ignores non-finite score deltas", () => {
+    const d = evaluateTrackBCandidate(
+      { scores: { thrill: NaN, pull: Infinity } },
+      { scores: { thrill: 7.0, pull: 6.0 } },
+      "安全正文",
+      policy,
+    )
+    expect(d.accept).toBe(true)
+    expect(d.liftDeltas).toEqual({})
+    expect(d.protectRegressions).toEqual([])
+  })
+
+  it("does not flag regression when delta is below threshold", () => {
+    const d = evaluateTrackBCandidate(
+      { scores: { pull: 7.6 } },
+      { scores: { pull: 7.55 } },
+      "安全",
+      policy,
+    )
+    expect(d.accept).toBe(true)
+    expect(d.protectRegressions).toEqual([])
+  })
+
+  it("rejects protect regression even without lift evidence (anyLift false path)", () => {
+    const d = evaluateTrackBCandidate(
+      { scores: { thrill: 5.8, pull: 7.6, character: 6.8 } },
+      { scores: { thrill: 5.2, pull: 5.9, character: 4.8 } },
+      "安全正文",
+      policy,
+    )
+    expect(d.accept).toBe(false)
+    expect(d.protectRegressions).toEqual(expect.arrayContaining(["pull", "character"]))
+    expect(d.reason).toMatch(/protected dimension regression/)
+  })
 })
 
 describe("shouldAcceptTrackBPolishText", () => {
@@ -91,4 +131,4 @@ describe("defaults", () => {
     expect(TRACK_B_DEFAULT_PROTECT).toContain("pull")
   })
 })
-
+

@@ -36,4 +36,46 @@ describe("structure-first-rewrite", () => {
     expect(c).toMatch(/productHardGate=false/)
     expect(c).toMatch(/ChapterStructurePlan/)
   })
+
+  it("appendStructurePlanToTaskBrief tolerates null brief and invalid plans", () => {
+    expect(appendStructurePlanToTaskBrief(undefined, null)).toBe("")
+    const invalid = {
+      schemaVersion: "chapter-structure-plan/9.9",
+      fix1NonSpoiler: false,
+      beats: [],
+    } as never
+    const brief = "必须完成：推进主线"
+    expect(appendStructurePlanToTaskBrief(brief, invalid)).toBe(brief)
+    const plan = createDefaultStructureThrilPacingPlan(1)
+    const block = appendStructurePlanToTaskBrief("", plan)
+    expect(block).toMatch(/ChapterStructurePlan/)
+    expect(appendStructurePlanToTaskBrief(undefined, plan)).toBe(block)
+  })
+
+  it("constraint falls back without decision and without a valid plan", () => {
+    const plan = createDefaultStructureThrilPacingPlan(5)
+    const noDecision = buildStructureFirstRewriteConstraint(plan, null)
+    expect(noDecision).toContain("【Structure-first 改写约束】")
+    expect(noDecision).not.toContain("策略判定")
+    const lowDecision = evaluateResidualRewritePolicy({ residualOverallMedian: 8.5, mode: "densify_only" })
+    expect(lowDecision.requiredMode).toBeNull()
+    const noRequiredMode = buildStructureFirstRewriteConstraint(plan, lowDecision)
+    expect(noRequiredMode).toContain("策略判定")
+    expect(noRequiredMode).not.toContain("要求模式")
+    const noPlan = buildStructureFirstRewriteConstraint(null, lowDecision)
+    expect(noPlan).toContain("无有效 ChapterStructurePlan")
+  })
+
+  it("taskBriefHasStructurePlan tolerates undefined briefs", () => {
+    expect(taskBriefHasStructurePlan(undefined as unknown as string)).toBe(false)
+  })
+
+  it("invalid plan + nullish brief → taskBrief ?? \"\" fallback (line 30)", () => {
+    const invalid = {
+      schemaVersion: "chapter-structure-plan/9.9",
+      fix1NonSpoiler: false,
+      beats: [],
+    } as never
+    expect(appendStructurePlanToTaskBrief(undefined, invalid)).toBe("")
+  })
 })

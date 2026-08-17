@@ -28,6 +28,7 @@ function stripHiddenAssistantBlocks(content: string): string {
   const closeIdx = result.search(/<\/think(?:ing)?>/i)
   if (closeIdx >= 0) {
     const prefix = result.slice(0, closeIdx)
+    /* v8 ignore next */
     if (!/<think(?:ing)?>/i.test(prefix)) {
       result = result.replace(/^[\s\S]*?<\/think(?:ing)?>\s*/i, "")
     }

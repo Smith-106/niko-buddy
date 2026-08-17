@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { buildGeneratedAuraInputFromBookCharacter } from "./aura-adapter"
+import {
+  buildGeneratedAuraInputFromBookCharacter,
+  buildSimpleSkillContent,
+} from "./aura-adapter"
 import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter } from "./types"
 
 describe("buildGeneratedAuraInputFromBookCharacter", () => {
@@ -51,4 +54,117 @@ describe("buildGeneratedAuraInputFromBookCharacter", () => {
     expect(input.researchFiles?.["02-conversations.md"]).toContain("压力越大越慢")
     expect(input.researchFiles?.["06-timeline.md"]).toContain("第 1 章")
   })
+
+  it("prefers a complete personality profile and renders representative quotes", () => {
+    const metadata: BookAnalysisMetadata = {
+      title: "回声录",
+      totalChapters: 5,
+      totalWords: 5000,
+      sourceType: "file",
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const character: ExtractedCharacter = {
+      id: "profiled",
+      name: "沈微",
+      aliases: [],
+      importance: 5,
+      category: "supporting",
+      firstAppearance: 2,
+      lastAppearance: 4,
+      appearanceCount: 2,
+      description: "",
+      personality: "",
+      speechStyle: "",
+      relationships: [{ target: "林烬", relation: "同盟" }],
+      keyEvents: [],
+      corpus: "",
+      personalityProfile: {
+        personality: "谨慎",
+        motivation: "守住证据",
+        speechStyle: "短促陈述",
+        behaviorPatterns: "先观察后行动",
+        quotes: ["门还没锁。", "别回头。"],
+      },
+    }
+    const skill: CharacterSkill = {
+      id: "skill-profiled",
+      characterId: character.id,
+      characterName: character.name,
+      skillContent: "# 沈微",
+      sourceBook: metadata.title,
+      chapterRange: ["2"],
+      createdAt: 1,
+    }
+
+    const input = buildGeneratedAuraInputFromBookCharacter(character, skill, metadata)
+
+    expect(input.notes).toContain("第 2 章 - 第 4 章")
+    expect(input.corpus).toContain("谨慎；守住证据")
+    expect(input.corpus).toContain("「门还没锁。」")
+    expect(input.behaviorRules).toContain("- 林烬：同盟")
+    expect(input.decisionHeuristics).toContain("暂未提取到关键事件")
+    expect(input.researchFiles?.["01-writings.md"]).toContain("暂未保存角色语料")
+    expect(input.researchFiles?.["02-conversations.md"]).toContain("「别回头。」")
+  })
+
+  it("uses public fallbacks when the extracted character has no usable details", () => {
+    const metadata: BookAnalysisMetadata = {
+      title: "空白书",
+      totalChapters: 1,
+      totalWords: 1,
+      sourceType: "file",
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const character: ExtractedCharacter = {
+      id: "empty",
+      name: "无名",
+      aliases: [],
+      importance: 0,
+      category: "minor",
+      firstAppearance: 1,
+      lastAppearance: 1,
+      appearanceCount: 0,
+      description: "",
+      personality: "",
+      speechStyle: "",
+      relationships: [],
+      keyEvents: [],
+    }
+    const skill: CharacterSkill = {
+      id: "skill-empty",
+      characterId: character.id,
+      characterName: character.name,
+      skillContent: "",
+      sourceBook: metadata.title,
+      chapterRange: [],
+      createdAt: 1,
+    }
+
+    const input = buildGeneratedAuraInputFromBookCharacter(character, skill, metadata)
+
+    expect(input.styleDescription).toContain("暂未提取到角色描述")
+    expect(input.expressionDna).toContain("暂未提取到说话风格")
+    expect(input.mentalModel).toContain("暂未提取到性格特征")
+    expect(input.corpus).toContain("暂未保存角色语料")
+  })
+
+  it("builds simple skill content including each representative quote", () => {
+    const content = buildSimpleSkillContent({
+      characterName: "沈微",
+      profile: {
+        personality: "谨慎",
+        motivation: "求生",
+        speechStyle: "短句",
+        behaviorPatterns: "观察",
+        quotes: ["第一句", "第二句"],
+      },
+    })
+
+    expect(content).toContain("# 角色 - 沈微")
+    expect(content).toContain("## 代表性台词")
+    expect(content).toContain("「第一句」\n「第二句」")
+  })
 })
+

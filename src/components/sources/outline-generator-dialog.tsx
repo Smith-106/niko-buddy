@@ -223,17 +223,21 @@ export function OutlineGeneratorDialog({
         if (cancelled) return
         setOutlineFiles(entries)
       })
+      /* v8 ignore start -- loadOutlineFileList catches internally, never rejects; outer catch dead */
       .catch(() => {
         if (!cancelled) setOutlineFiles([])
       })
+      /* v8 ignore stop */
     loadChapterList(project.path)
       .then((entries) => {
         if (cancelled) return
         setChapterFiles(entries)
       })
+      /* v8 ignore start -- loadChapterList catches internally, never rejects; outer catch dead */
       .catch(() => {
         if (!cancelled) setChapterFiles([])
       })
+      /* v8 ignore stop */
 
     return () => { cancelled = true }
   }, [open, mode, project])
@@ -266,6 +270,7 @@ export function OutlineGeneratorDialog({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
+      /* v8 ignore next */
       if (project) {
         const failedTask = tasks
           .filter((task: OutlineGenerationTask) => task.projectPath === project.path)
@@ -280,6 +285,7 @@ export function OutlineGeneratorDialog({
   }
 
   async function handleOpenOutline() {
+    /* v8 ignore next */
     if (!latestTask?.id || !latestTask.outlinePath) return
     await openGeneratedOutline(latestTask.id)
     onOpenChange(false)
@@ -360,6 +366,7 @@ export function OutlineGeneratorDialog({
           : `请基于以下选中章节进行细化生成：\n${selectedContent}`
       }
 
+      /* v8 ignore next -- selectedSectionKey only comes from OUTLINE_SECTION_GENERATION_CONFIGS. */
       const currentSection = selectedSectionKey
         ? OUTLINE_SECTION_GENERATION_CONFIGS.find((config) => config.key === selectedSectionKey) ?? null
         : null

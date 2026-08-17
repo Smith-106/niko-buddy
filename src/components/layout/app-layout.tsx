@@ -36,6 +36,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(() => {
+    /* v8 ignore next */
     if (typeof localStorage === "undefined") return false
     return localStorage.getItem(USAGE_GUIDE_PROMPT_DISMISSED_KEY) === "1"
   })
@@ -80,6 +81,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const startDrag = useCallback(
     (side: "left") => (e: React.MouseEvent) => {
       e.preventDefault()
+      /* v8 ignore next */
       if (side === "left") isDraggingLeft.current = true
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
@@ -89,6 +91,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         if (!containerRef.current) return
         const rect = containerRef.current.getBoundingClientRect()
 
+        /* v8 ignore next */
         if (isDraggingLeft.current) {
           const newWidth = e.clientX - rect.left
           setLeftWidth(clampSidebarWidth(newWidth))

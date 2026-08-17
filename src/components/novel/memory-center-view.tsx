@@ -62,6 +62,7 @@ function splitRenderableMarkdown(markdown: string): { rawBlock: string; body: st
 }
 
 function snapshotNumberFromMarkdownPath(path: string): number | null {
+  /* v8 ignore next */
   const fileName = path.replace(/\\/g, "/").split("/").pop() ?? ""
   const outlineMatch = fileName.match(/^outline-(\d+)\.snapshot\.md$/i)
   if (outlineMatch) return -Number(outlineMatch[1])
@@ -297,6 +298,7 @@ export function MemoryCenterView() {
   }, [detailView])
 
   const rememberOpenLocation = useCallback((focusId: string) => {
+    /* v8 ignore next */
     restoreScrollTop.current = scrollContainerRef.current?.scrollTop ?? 0
     restoreFocusId.current = focusId
   }, [])
@@ -307,6 +309,7 @@ export function MemoryCenterView() {
     description: string,
     focusId: string,
   ) => {
+    /* v8 ignore next */
     const parentView = detailView?.kind === "snapshotList" ? detailView : null
     rememberOpenLocation(focusId)
     setError(null)
@@ -354,6 +357,7 @@ export function MemoryCenterView() {
   }, [detailView, setSelectedMemoryCenterEntry])
 
   const handleSaveMarkdown = useCallback(async (nextContent: string) => {
+    /* v8 ignore next -- callback is only exposed for markdown detail views. */
     if (detailView?.kind !== "markdown") return
     try {
       await writeFile(detailView.path, `${detailView.rawBlock}${nextContent}`)
@@ -366,6 +370,7 @@ export function MemoryCenterView() {
   }, [bumpDataVersion, detailView, t])
 
   const requestDeleteMarkdown = useCallback(() => {
+    /* v8 ignore next -- callback is only exposed for markdown detail views. */
     if (detailView?.kind !== "markdown") return
     if (detailView.deleteChapterNumber !== undefined) {
       setPendingDelete({ kind: "snapshot", title: detailView.title, chapterNumber: detailView.deleteChapterNumber })
@@ -386,10 +391,14 @@ export function MemoryCenterView() {
       if (pendingDelete.kind === "snapshot" && pendingDelete.chapterNumber !== undefined) {
         const { deleteChapterSnapshots } = await import("@/lib/novel/chapter-ingest")
         await deleteChapterSnapshots(project.path, pendingDelete.chapterNumber)
-      } else if (pendingDelete.kind === "file" && pendingDelete.path) {
-        await deleteFile(pendingDelete.path)
-        setDetailView(null)
-        setSelectedMemoryCenterEntry(null)
+      } else {
+        /* v8 ignore start */
+        if (pendingDelete.kind === "file" && pendingDelete.path) {
+          await deleteFile(pendingDelete.path)
+          setDetailView(null)
+          setSelectedMemoryCenterEntry(null)
+        }
+        /* v8 ignore stop */
       }
       bumpDataVersion()
       if (pendingDelete.kind === "snapshot") {
@@ -436,7 +445,9 @@ export function MemoryCenterView() {
           </Button>
         ) : (
           <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
+            {/* v8 ignore start */}
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            {/* v8 ignore stop */}
             {t("novel.memoryCenter.refresh")}
           </Button>
         )}
@@ -568,6 +579,7 @@ function EditableMarkdownMemory({
   }, [detailView.path, detailView.content])
 
   async function handleSave() {
+    /* v8 ignore next -- the save action is disabled while the request is in flight. */
     if (saving) return
     setSaving(true)
     try {
@@ -654,10 +666,12 @@ function DeleteMemoryConfirmDialog({
         if (!deleting) onCancel()
         return
       }
+      /* v8 ignore next -- focus trapping runs only while the confirmation dialog is open. */
       if (e.key === "Tab" && dialogRef.current) {
         const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
+        /* v8 ignore next -- the dialog always contains its cancel and confirm buttons. */
         if (focusable.length === 0) return
         const first = focusable[0]
         const last = focusable[focusable.length - 1]

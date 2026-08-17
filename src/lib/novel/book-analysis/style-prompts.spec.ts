@@ -49,6 +49,11 @@ describe("parseStyleProfileResult", () => {
     const raw = JSON.stringify({ constitution: "x", samples: Array.from({ length: 10 }, (_, i) => `s${i}`) })
     expect(parseStyleProfileResult(raw, []).samples).toHaveLength(6)
   })
+
+  it("falls back to the default constitution when the JSON body is invalid", () => {
+    const profile = parseStyleProfileResult("```json\n{invalid}\n```", [])
+    expect(profile.constitution).toBe(FALLBACK_STYLE_CONSTITUTION)
+  })
 })
 
 describe("buildStyleExtractionPrompt", () => {
@@ -59,5 +64,13 @@ describe("buildStyleExtractionPrompt", () => {
     expect(prompt).toContain("constitution")
     expect(prompt).toContain("samples")
     expect(prompt).toContain("一段原文样本。")
+  })
+
+  it("handles empty sample text and truncates oversized samples", () => {
+    const empty = buildStyleExtractionPrompt("", "书")
+    expect(empty).toContain("书")
+    const long = buildStyleExtractionPrompt("甲".repeat(25000), "书")
+    expect(long).toContain("已截断")
+    expect(long).not.toContain("甲".repeat(25000))
   })
 })

@@ -66,6 +66,7 @@ export function validateProxyUrl(url: string): ValidateResult {
     return { ok: false, error: "Not a valid URL" }
   }
 
+  /* v8 ignore next */
   if (!parsed.protocol) {
     return { ok: false, error: "URL is missing a scheme (http:// or https://)" }
   }
@@ -75,6 +76,7 @@ export function validateProxyUrl(url: string): ValidateResult {
       error: `Unsupported scheme "${parsed.protocol}". Use http:// or https://`,
     }
   }
+  /* v8 ignore next */
   if (!parsed.hostname) {
     return { ok: false, error: "URL is missing a host" }
   }

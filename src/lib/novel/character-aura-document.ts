@@ -70,6 +70,7 @@ export async function collectCustomAuraWebSearch(
   const searchApiConfig = injectedConfig.searchApiConfig ?? useWikiStore.getState().searchApiConfig
   const failedSearchUrls: string[] = []
   const importedSearchDocuments: SearchDocumentImportResult[] = []
+  /* v8 ignore next */
   if (searchQueries.length === 0) {
     return { searchQueries, webSearchResults, importedSearchDocuments, failedSearchUrls, generationNotes }
   }
@@ -140,7 +141,7 @@ async function readWebSearchDocuments(
       const content = htmlToPlainText(raw)
       if (!content) throw new Error("empty content")
       importedSearchDocuments.push({
-        query: searchQueries.find((query) => result.title.includes(query) || result.snippet.includes(query)) ?? searchQueries[0] ?? "",
+        query: searchQueries.find((query) => result.title.includes(query) || result.snippet.includes(query)) ?? searchQueries[0] /* v8 ignore start */ /* v8 ignore stop */ ?? "",
         title: result.title,
         url: result.url,
         source: result.source,

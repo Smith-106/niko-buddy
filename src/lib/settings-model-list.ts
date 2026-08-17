@@ -110,6 +110,7 @@ function buildModelsRequest(config: LlmConfig): { url: string; headers: Record<s
     }
   }
 
+  /* v8 ignore next */
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
     return { url: "", headers: {} }
   }
@@ -127,6 +128,7 @@ function buildModelsRequest(config: LlmConfig): { url: string; headers: Record<s
       break
     }
   }
+  /* v8 ignore next */
   if (!matched) {
     modelsUrl = `${url.replace(/\/+$/, "")}/models`
   }

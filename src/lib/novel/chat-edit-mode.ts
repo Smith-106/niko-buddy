@@ -91,6 +91,7 @@ export function parseStructuredChapterEdits(content: string): Map<number, string
     const match = section.match(/^【第(\d+)章】\n?([\s\S]*)$/)
     if (!match?.[1]) continue
     const chapterNumber = Number.parseInt(match[1], 10)
+    /* v8 ignore next */
     const body = (match[2] ?? "").trim()
     if (!body) continue
     result.set(chapterNumber, body)

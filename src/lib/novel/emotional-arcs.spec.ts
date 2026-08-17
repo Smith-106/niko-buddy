@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   createEmptyEmotionalArcStore,
   emotionalArcsToContextText,
+  loadEmotionalArcs,
+  saveEmotionalArcs,
   type EmotionalArcStore,
 } from "./emotional-arcs"
+
+const fsMocks = vi.hoisted(() => ({
+  createDirectory: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn(async () => {}),
+  readFile: vi.fn(async () => {
+    throw new Error("ENOENT")
+  }),
+}))
+
+vi.mock("@/commands/fs", () => ({
+  createDirectory: fsMocks.createDirectory,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+  readFile: fsMocks.readFile,
+}))
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -66,5 +82,45 @@ describe("R4 EmotionalArcs projection (S4 / ANL-013)", () => {
       lastUpdated: new Date().toISOString(),
     }
     expect(emotionalArcsToContextText(store)).toBe("- X：惊（强度0.20）")
+  })
+
+  it("emotionalArcsToContextText keeps the existing beat when a later record has an older chapter", () => {
+    const store: EmotionalArcStore = {
+      beats: [
+        { character: "昴", chapterNumber: 7, emotion: "决意", intensity: 0.9, trigger: "誓言", notes: "" },
+        { character: "昴", chapterNumber: 3, emotion: "怒", intensity: 0.5, trigger: "背叛", notes: "" },
+      ],
+      lastUpdated: new Date().toISOString(),
+    }
+    const text = emotionalArcsToContextText(store)
+    // 乱序回写的老章节 beat 不覆盖最新 beat
+    expect(text).toContain("昴：决意")
+    expect(text).not.toContain("昴：怒")
+  })
+
+  it("saveEmotionalArcs persists via atomic store", async () => {
+    await saveEmotionalArcs("E:/Novel", createEmptyEmotionalArcStore())
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.novel")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.novel/emotional-arcs.json",
+      expect.stringContaining("\"beats\": []"),
+    )
+  })
+
+  it("loadEmotionalArcs falls back to empty store and parses persisted data", async () => {
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    expect((await loadEmotionalArcs("E:/Novel")).beats).toEqual([])
+    fsMocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({ beats: [{ character: "A", chapterNumber: 1 }], lastUpdated: "t" }),
+    )
+    const store = await loadEmotionalArcs("E:/Novel")
+    expect(store.beats).toHaveLength(1)
+    fsMocks.readFile.mockResolvedValueOnce("{corrupt")
+    expect((await loadEmotionalArcs("E:/Novel")).beats).toEqual([])
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
   })
 })

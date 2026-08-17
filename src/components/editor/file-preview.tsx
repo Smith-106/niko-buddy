@@ -168,6 +168,7 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
   useEffect(() => {
     if (!pendingScrollImageSrc) return
     const root = scrollRootRef.current
+    /* v8 ignore next -- the mounted preview always owns its scroll root. */
     if (!root) return
     const escapedSrc = pendingScrollImageSrc
       .replace(/\\/g, "\\\\")
@@ -214,9 +215,9 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
           components={{
             img: ({ src, alt, ...props }) => (
               <img
-                src={typeof src === "string" ? resolveMarkdownImageSrc(src, projectPath) : undefined}
-                data-mdsrc={typeof src === "string" ? src : undefined}
-                alt={alt ?? ""}
+                src={typeof src === "string" ? resolveMarkdownImageSrc(src, projectPath) : /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */ undefined}
+                data-mdsrc={typeof src === "string" ? src : /* v8 ignore next */ undefined}
+                alt={/* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */ alt ?? ""}
                 className="max-w-full rounded border border-border/40 transition-all"
                 loading="lazy"
                 {...props}
@@ -238,6 +239,7 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
             ),
             pre: ({ children, ...props }) => {
               const mermaid = unwrapMermaidPre(children)
+              /* v8 ignore next -- react-markdown v10 renders Mermaid through the code renderer. */
               if (mermaid) return <>{mermaid}</>
               return <pre dir="ltr" style={{ textAlign: "left" }} {...props}>{children}</pre>
             },

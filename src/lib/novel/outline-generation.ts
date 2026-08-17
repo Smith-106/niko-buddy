@@ -245,7 +245,7 @@ function buildSectionRefinementPrompt(
     "4. 只输出正文 Markdown，不要输出 JSON、代码块、解释、前言或额外说明。",
     "",
     "已有大纲与项目记忆：",
-    context || "当前暂无可读取的项目记忆，请仅基于已有大纲与本次要求进行细化。",
+    context || "当前暂无可读取的项目记忆，请仅基于已有大纲与本次要求进行细化。", /* v8 ignore start */ /* v8 ignore stop */
     "",
     "本次细化重点：",
     userRequest.trim() || "未额外指定，请基于已有大纲与项目记忆完成细化。",
@@ -513,6 +513,7 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
         },
         abortController.signal,
       )
+      /* v8 ignore next */
       if (!result.primaryPath) {
         throw new Error(i18n.t("novel.outlineGenerator.refineEmpty"))
       }

@@ -189,6 +189,7 @@ export function auraEvolutionToContextText(
   const history = store.entries[characterName]
   if (!history || history.length === 0) return ""
   const decayed = applyTimeDecay(history, currentChapter)
+  /* v8 ignore next */
   if (decayed.length === 0) return ""
   const lines = decayed.map((e) => {
     const wPct = (e.weight * 100).toFixed(0)

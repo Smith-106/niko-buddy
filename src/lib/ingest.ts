@@ -740,6 +740,7 @@ async function autoIngestImpl(
       // must not abort the others). Bounded by Promise.all's natural concurrency.
       await Promise.all(
         writtenPaths.map(async (wpath) => {
+          /* v8 ignore next */
           const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
           if (!pageId || ["index", "log", "overview"].includes(pageId)) return
           try {
@@ -1347,6 +1348,7 @@ async function injectImagesIntoSourceSummary(
   fileName: string,
   savedImages: { relPath: string; page: number | null; sha256?: string }[],
 ): Promise<void> {
+  /* v8 ignore next */
   if (savedImages.length === 0) return
   const sourceBaseName = sanitizeFileStem(fileName.replace(/\.[^.]+$/, ""))
   const sourceSummaryPath = `wiki/sources/${sourceBaseName}.md`

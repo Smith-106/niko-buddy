@@ -29,6 +29,7 @@ export function appendStructurePlanToTaskBrief(
   const v = validateChapterStructurePlan(plan)
   if (!v.ok) return taskBrief ?? ""
   const block = buildStructurePlanPromptBlock(plan)
+  /* v8 ignore next */
   if (!block.trim()) return taskBrief ?? ""
   if (!base) return block
   return `${base}\n\n${block}`

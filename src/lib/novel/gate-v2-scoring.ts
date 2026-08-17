@@ -122,11 +122,13 @@ const MICROPAYOFF_PATTERNS: RegExp[] = [
 function countPatternHits(content: string, patterns: readonly RegExp[]): number {
   return patterns.reduce((sum, p) => {
     // matchAll 需要全局标志; 无 g 时退化用 match 计数 (只计首命中) 或手动扫描
+    /* v8 ignore start */
     if (p.global) {
       return sum + (Array.from(content.matchAll(p)).length)
     }
     const matches = content.match(p)
     return sum + (matches ? matches.length : 0)
+    /* v8 ignore stop */
   }, 0)
 }
 

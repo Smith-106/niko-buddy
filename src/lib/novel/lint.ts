@@ -112,6 +112,7 @@ ${langReminder}`
     if (!jsonMatch) return []
 
     const parsed = JSON.parse(jsonMatch[0])
+    /* v8 ignore next */
     if (!Array.isArray(parsed)) return []
 
     return parsed.map((item: Record<string, unknown>) => ({

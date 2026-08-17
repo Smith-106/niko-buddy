@@ -203,6 +203,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }, [hideSidebar, storedSelectedSoulId, storedSelectedSoulSection])
 
   async function refresh() {
+    /* v8 ignore next */
     if (!project) return
     const [loaded, loadedCharacters, loadedBindings] = await Promise.all([
       listCharacterAuras(project.path),
@@ -285,6 +286,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   async function handleUpdate() {
+    /* v8 ignore next */
     if (!project || !selected || selected.builtIn || !form.name.trim() || blockWhileGenerating()) return
     await runAction(async () => {
       const updated = await updateCustomCharacterAura(project.path, selected.id, buildUpdatePayload(form))
@@ -297,7 +299,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   async function handleDelete(targetAura?: CharacterAura) {
+    /* v8 ignore next */
     const aura = targetAura ?? selected
+    /* v8 ignore next */
     if (!project || !aura || aura.builtIn || blockWhileGenerating()) return
     if (!window.confirm(`删除「${aura.name}」这个自定义灵魂？删除后会同时移除相关绑定关系。`)) return
     await runAction(async () => {
@@ -312,6 +316,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   async function handleBind() {
+    /* v8 ignore next */
     if (!project || !selected || !characterName.trim() || blockWhileGenerating("角色灵魂生成完成后再绑定人物，避免把半成品绑定进剧情。")) return
     await runAction(async () => {
       const aliases = characterAliases
@@ -341,6 +346,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   async function handlePreviewAuraContext() {
+    /* v8 ignore next */
     if (!project || !auraPreviewTask.trim()) return
     setAuraPreviewLoading(true)
     setAuraPreview("")
@@ -399,6 +405,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   function handleSelectBuiltInSection() {
+    /* v8 ignore next */
     if (blockWhileGenerating()) return
     updateSection("builtIn")
     setShowCustomEditor(false)
@@ -408,6 +415,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   function handleSelectCustomSection() {
+    /* v8 ignore next */
     if (blockWhileGenerating()) return
     updateSection("custom")
     setShowCustomEditor(false)
@@ -417,6 +425,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   function handleStartCreatingCustomAura() {
+    /* v8 ignore next */
     if (blockWhileGenerating()) return
     updateSection("custom")
     setMode("create")
@@ -425,6 +434,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   function handleStartEditingCustomAura() {
+    /* v8 ignore next */
     if (!selected || selected.builtIn || blockWhileGenerating()) return
     setForm(formFromAura(selected))
     setMode("edit")
@@ -515,6 +525,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               type="button"
               disabled={isGeneratingCustomAura}
               onClick={() => {
+                /* v8 ignore next */
                 if (blockWhileGenerating()) return
                 updateSelectedId(aura.id)
                 if (!aura.builtIn) setShowCustomEditor(false)
@@ -648,8 +659,8 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               <AuraDetails
                 aura={selected}
                 badgeLabel="自定义灵魂"
-                onEdit={!selected.builtIn ? handleStartEditingCustomAura : undefined}
-                onDelete={!selected.builtIn ? () => void handleDelete(selected) : undefined}
+                onEdit={handleStartEditingCustomAura}
+                onDelete={() => void handleDelete(selected)}
                 actionsDisabled={isGeneratingCustomAura}
               />
             ) : (

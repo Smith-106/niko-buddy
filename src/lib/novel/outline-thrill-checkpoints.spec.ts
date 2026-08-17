@@ -42,6 +42,64 @@ describe("evaluateOutlineThrillCheckpoints", () => {
     expect(fix1.status).toBe("fail")
     expect(fix1.hardLiteraryConstraint).toBe(true)
   })
+
+  it("short text with allowUnknown=false hard-fails structural checks", () => {
+    const r = evaluateOutlineThrillCheckpoints("短", { allowUnknown: false })
+    expect(r.find((x) => x.id === "crisis_info_early")!.status).toBe("fail")
+    expect(r.find((x) => x.id === "pressure_release")!.status).toBe("fail")
+    expect(r.find((x) => x.id === "protagonist_agency")!.status).toBe("fail")
+    expect(r.find((x) => x.id === "chapter_end_hook")!.status).toBe("fail")
+    expect(r.find((x) => x.id === "fix1_no_conflict")!.status).toBe("pass")
+  })
+
+  it("null outline text is treated as empty", () => {
+    const r = evaluateOutlineThrillCheckpoints(null as unknown as string)
+    expect(r.find((x) => x.id === "crisis_info_early")!.status).toBe("unknown")
+    expect(r.find((x) => x.id === "fix1_no_conflict")!.status).toBe("pass")
+  })
+
+  it("detects an end hook that only appears within the final 200 chars", () => {
+    // hook words placed outside lateSlice (55% mark) but inside the last 200
+    const text = "危机 压抑 决定 ".repeat(20) + "下章悬念" + "平".repeat(96)
+    const r = evaluateOutlineThrillCheckpoints(text)
+    expect(r.find((x) => x.id === "chapter_end_hook")!.status).toBe("pass")
+    expect(r.find((x) => x.id === "crisis_info_early")!.status).toBe("pass")
+  })
+
+  it("takes the final-200-char hook branch when the late slice has no hook cue", () => {
+    // 200 filler chars, hook at index 200..203, then 196 filler chars:
+    // lateSlice starts at 55% (index 220) so it misses the hook, but the last
+    // 200 chars still contain it → the `||` second operand must be evaluated
+    const text = "字".repeat(200) + "下章悬念" + "字".repeat(196)
+    const r = evaluateOutlineThrillCheckpoints(text)
+    expect(r.find((x) => x.id === "chapter_end_hook")!.status).toBe("pass")
+    expect(r.find((x) => x.id === "pressure_release")!.status).toBe("fail") // longEnough
+  })
+
+  it("renders a result without evidence with an empty evidence suffix", () => {
+    const r: ReturnType<typeof evaluateOutlineThrillCheckpoints> = [
+      { id: "crisis_info_early", status: "pass", label: "无证据检查点" },
+    ]
+    const text = formatThrillSoftGateThinking(r)
+    expect(text).toContain("[✓] 无证据检查点")
+    expect(text).not.toContain("— ")
+  })
+
+  it("maps missing evidence to the raw status string in review results", () => {
+    const r: ReturnType<typeof evaluateOutlineThrillCheckpoints> = [
+      { id: "crisis_info_early", status: "unknown", label: "无证据检查点" },
+    ]
+    const reviews = thrillResultsToReviewResults(r)
+    expect(reviews[0]!.evidence).toBe("unknown")
+  })
+
+  it("runtime status tolerates a missing outlineText via empty-string fallback", () => {
+    const st = getOutlineThrillSoftGateRuntimeStatus({ chapter: 2, ackMap: {} })
+    expect(st.enabled).toBe(true)
+    expect(st.chapterKey).toBe("2")
+    expect(st.failCount).toBe(0)
+    expect(st.results.find((x) => x.id === "fix1_no_conflict")!.status).toBe("pass")
+  })
 })
 
 describe("getOutlineThrillSoftGateRuntimeStatus", () => {
@@ -68,6 +126,34 @@ describe("getOutlineThrillSoftGateRuntimeStatus", () => {
     expect(st.fix1Blocked).toBe(true)
     expect(st.acknowledged).toBe(true)
     expect(st.thinking).toMatch(/FIX-1/)
+  })
+
+  it("disabled runtime status short-circuits with empty results", () => {
+    const st = getOutlineThrillSoftGateRuntimeStatus({
+      outlineText: SPOILER_OUTLINE,
+      chapter: 3,
+      enabled: false,
+      ackMap: { "3": true },
+    })
+    expect(st.enabled).toBe(false)
+    expect(st.results).toEqual([])
+    expect(st.passCount).toBe(0)
+    expect(st.fix1Blocked).toBe(false)
+    expect(st.allStructuralOk).toBe(true)
+    expect(st.mayContinueGeneration).toBe(true)
+    expect(st.thinking).toContain("已关闭")
+  })
+
+  it("empty outline via runtime status yields structural unknowns and ack false", () => {
+    const st = getOutlineThrillSoftGateRuntimeStatus({
+      outlineText: "",
+      chapter: null,
+    })
+    expect(st.enabled).toBe(true)
+    expect(st.chapterKey).toBe("0")
+    expect(st.acknowledged).toBe(false)
+    expect(st.failCount).toBe(0)
+    expect(st.results.find((r) => r.id === "fix1_no_conflict")!.status).toBe("pass")
   })
 })
 
@@ -115,5 +201,31 @@ describe("thril soft-gate acknowledge helpers", () => {
     const r = evaluateOutlineThrillCheckpoints(STRONG_OUTLINE)
     expect(formatThrillSoftGateThinkingWithAck(r, true)).toContain("已确认")
     expect(formatThrillSoftGateThinkingWithAck(r, false)).toContain("待确认")
+  })
+
+  it("thrilAckChapterKey handles null, NaN, Infinity and fractional chapters", async () => {
+    const { thrilAckChapterKey } = await import("./outline-thrill-checkpoints")
+    expect(thrilAckChapterKey(null)).toBe("0")
+    expect(thrilAckChapterKey(undefined)).toBe("0")
+    expect(thrilAckChapterKey(NaN)).toBe("0")
+    expect(thrilAckChapterKey(Infinity)).toBe("0")
+    expect(thrilAckChapterKey(3.7)).toBe("3")
+    expect(thrilAckChapterKey(-2)).toBe("-2")
+  })
+
+  it("setThrillSoftGateAcknowledged tolerates null ackMap and setThrillSoftGateAcknowledged delete path", async () => {
+    const { isThrillSoftGateAcknowledged, setThrillSoftGateAcknowledged } = await import("./outline-thrill-checkpoints")
+    expect(isThrillSoftGateAcknowledged(null, 2)).toBe(false)
+    const fresh = setThrillSoftGateAcknowledged(null, 2, true)
+    expect(fresh).toEqual({ "2": true })
+  })
+
+  it("thrillResultsToReviewResults maps unknown status with default chapter 0", async () => {
+    const { evaluateOutlineThrillCheckpoints, thrillResultsToReviewResults } = await import("./outline-thrill-checkpoints")
+    const r = evaluateOutlineThrillCheckpoints("短")
+    const reviews = thrillResultsToReviewResults(r)
+    expect(reviews.length).toBe(4) // four structural unknowns (fix1 passes)
+    expect(reviews.every((x) => x.continuityMeta!.chapter === 0)).toBe(true)
+    expect(reviews[0]!.evidence).toBe("no crisis/pressure cue in first ~40%")
   })
 })

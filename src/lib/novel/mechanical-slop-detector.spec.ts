@@ -6,6 +6,9 @@ import {
   normalizeText,
   slopReportToText,
   slopScore,
+  detectCharacterActions,
+  characterActionsToText,
+  type CharacterActionHit,
 } from "./mechanical-slop-detector"
 
 const NOVEL_DIR = resolve(__dirname)
@@ -236,5 +239,102 @@ describe("S1a 防绕过预处理 normalizeText + TIER 词库补全 (roadmap S1 P
     expect(once.text).toBe(clean)
     expect(twice.text).toBe(once.text)
     expect(once.bypassCount).toBe(0)
+  })
+})
+
+describe("P0 角色-动作关联检测 detectCharacterActions + characterActionsToText", () => {
+  it("detects actions and attributes them to the nearest named character", () => {
+    // 归因窗口为动作前后 ±80 字符，用长间隔隔开避免窗口内出现多个角色名
+    const gap = "。".repeat(100)
+    const hits = detectCharacterActions(`白砚推了推眼镜${gap}王迦后退了一步${gap}苏未晞抠指甲`)
+    const byAction = new Map(hits.map((h) => [h.action, h]))
+    expect(byAction.get("推眼镜")!.perCharacter["白砚"]).toBeGreaterThanOrEqual(1)
+    expect(byAction.get("后退")!.perCharacter["王迦"]).toBeGreaterThanOrEqual(1)
+    expect(byAction.get("抠指甲")!.perCharacter["苏未晞"]).toBeGreaterThanOrEqual(1)
+  })
+
+  it("counts repeated actions per character and falls back to 未知 when no character nearby", () => {
+    const repeated = detectCharacterActions("白砚推了推眼镜，白砚又推了推眼镜，白砚再推了推眼镜。")
+    const push = repeated.find((h) => h.action === "推眼镜")!
+    expect(push.totalCount).toBe(3)
+    expect(push.perCharacter["白砚"]).toBe(3)
+
+    const orphan = detectCharacterActions("推了推眼镜。")
+    const orphanHit = orphan.find((h) => h.action === "推眼镜")!
+    expect(orphanHit.perCharacter["未知"]).toBe(1)
+  })
+
+  it("keeps the closer character when multiple names share one attribution window", () => {
+    // 窗口内同时出现苏未晞(远)与白砚(近): 白砚更近应胜出, 苏未晞的 dist >= nearestDist
+    // 分支（falsy side of dist < nearestDist）被覆盖。
+    const hits = detectCharacterActions(`苏未晞${("。").repeat(70)}白砚推了推眼镜。`)
+    const push = hits.find((h) => h.action === "推眼镜")!
+    expect(push.perCharacter["白砚"]).toBe(1)
+    expect(push.perCharacter["苏未晞"]).toBeUndefined()
+  })
+
+  it("renders empty text for empty hits and skips single-occurrence hits", () => {
+    expect(characterActionsToText([])).toBe("")
+    const single: CharacterActionHit[] = [
+      { action: "推眼镜", type: "mannerism", totalCount: 1, suggest: "s", perCharacter: { 白砚: 1 } },
+    ]
+    expect(characterActionsToText(single)).toBe("角色行为模式检测:")
+  })
+
+  it("renders warn/notice lines and per-character breakdown sorted by count", () => {
+    const hits: CharacterActionHit[] = [
+      {
+        action: "推眼镜",
+        type: "mannerism",
+        totalCount: 3,
+        suggest: "建议 ≤3 次/角色",
+        perCharacter: { 白砚: 2, 王迦: 1 },
+      },
+      {
+        action: "低下头",
+        type: "reaction",
+        totalCount: 2,
+        suggest: "建议 ≤3 次",
+        perCharacter: { 白砚: 2 },
+      },
+    ]
+    const text = characterActionsToText(hits)
+    expect(text).toContain("⚠️")
+    expect(text).toContain("ℹ️")
+    expect(text).toContain("推眼镜")
+    expect(text).toContain("白砚: 2 次")
+    expect(text).not.toContain("王迦: 1 次") // per-char count < 2 skipped
+  })
+})
+
+describe("slopReportToText 附加分支 (bypass / 单 tier / 密度行)", () => {
+  it("renders bypass 痕迹 line when zero-width chars were stripped", () => {
+    const report = slopScore("显\u200B然，目光交汇的瞬间。")
+    expect(report.bypassCount).toBeGreaterThan(0)
+    const text = slopReportToText(report)
+    expect(text).toContain("防绕过痕迹")
+  })
+
+  it("renders tier2-only hits without tier1/tier3 lines", () => {
+    const report = slopScore("与此同时，这很复杂。他推开门走了出去。夜色很深。")
+    expect(report.tier2Hits.length).toBeGreaterThan(0)
+    const text = slopReportToText(report)
+    expect(text).toContain("可疑词")
+    expect(text).not.toContain("强禁用词")
+    expect(text).not.toContain("机械句式")
+  })
+
+  it("renders transition-opener ratio line when >40% of paragraphs start with 转折词", () => {
+    const report = slopScore("然而他来了。\n但是他又走了。\n然而他又来了。\n但是他又走了。")
+    expect(report.transitionOpenerRatio).toBeGreaterThan(0.4)
+    const text = slopReportToText(report)
+    expect(text).toContain("段落转折词开头过多")
+  })
+
+  it("omits CV line when sentence lengths are varied (CV >= 0.1)", () => {
+    const report = slopScore("显然。事实。这一切都结束了。他推开门走了出去。夜色很深。")
+    expect(report.sentenceLengthCV).toBeGreaterThanOrEqual(0.1)
+    const text = slopReportToText(report)
+    expect(text).not.toContain("句长过于一致")
   })
 })

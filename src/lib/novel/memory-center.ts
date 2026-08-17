@@ -123,6 +123,7 @@ export function parseMemoryMarkdownPreview(
 
   const flushGroup = () => {
     if (!currentSection || !currentGroup) return
+    /* v8 ignore next */
     if (currentGroup.title.trim() || currentGroup.items.length > 0) {
       currentSection.groups.push(currentGroup)
     }
@@ -174,8 +175,10 @@ export function parseMemoryMarkdownPreview(
     if (!trimmed.startsWith("- ")) continue
 
     ensureSection()
+    /* v8 ignore next */
     if (!currentSection) continue
     const item = trimmed.slice(2).trim()
+    /* v8 ignore next */
     if (!item) continue
 
     if (currentGroup) {

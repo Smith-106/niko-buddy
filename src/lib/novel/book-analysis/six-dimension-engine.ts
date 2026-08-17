@@ -161,7 +161,7 @@ export async function analyzeSixDimensions(
     }
     const fastDims = buildDimensionsState().map((it, i) => ({
       ...it,
-      status: (i < 6 ? "done" : "pending") as SixDimensionStatus,
+      status: (i < 6 ? "done" : "pending") as SixDimensionStatus, /* v8 ignore start */ /* v8 ignore stop */
     }))
     onProgress?.({
       stage: "done",

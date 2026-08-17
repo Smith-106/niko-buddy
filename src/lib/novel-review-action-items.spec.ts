@@ -5,6 +5,7 @@ import {
   buildVisibleNovelReviewActionItemsForDimensionResults,
   buildVisibleNovelReviewActionItemsForScoreDimensions,
   buildVisibleNovelReviewActionItems,
+  mapNovelReviewActionSeverity,
 } from "./novel-review-action-items"
 import type { DimensionReviewResult } from "@/lib/novel/dimension-review-adapter"
 
@@ -40,6 +41,98 @@ describe("novel review action items", () => {
     })
 
     expect(visible).toEqual([])
+  })
+
+  it("maps review severities to action severities", () => {
+    expect(mapNovelReviewActionSeverity("error")).toBe("high")
+    expect(mapNovelReviewActionSeverity("warning")).toBe("medium")
+    expect(mapNovelReviewActionSeverity("info")).toBe("low")
+    // Unknown severity falls back to medium.
+    expect(mapNovelReviewActionSeverity("critical" as never)).toBe("medium")
+  })
+
+  it("passes through continuityMeta when the review result carries it", () => {
+    const item = buildNovelReviewActionItem("E:/Book/wiki/chapters/008.md", {
+      ...result,
+      continuityMeta: {
+        subtype: "data_gap",
+        ref: "ch8-char-height",
+        chapter: 8,
+        missingField: "height",
+      },
+    })
+    expect(item.continuityMeta).toEqual({
+      subtype: "data_gap",
+      ref: "ch8-char-height",
+      chapter: 8,
+      missingField: "height",
+    })
+  })
+
+  it("returns an empty list when no target path is available", () => {
+    expect(buildVisibleNovelReviewActionItems(null, [result], {})).toEqual([])
+    expect(buildVisibleNovelReviewActionItems(undefined, [result], {})).toEqual([])
+    expect(buildVisibleNovelReviewActionItemsForScoreDimensions(null, [result], {}, ["plot"])).toEqual([])
+  })
+
+  it("delegates to the plain builder when no score dimensions are selected", () => {
+    const visible = buildVisibleNovelReviewActionItemsForScoreDimensions(
+      "E:/Book/wiki/chapters/008.md",
+      [result],
+      {},
+      [],
+    )
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.message).toBe("第八章没有读取章纲目标")
+  })
+
+  it("returns an empty list for dimension results without the requested dimension", () => {
+    expect(
+      buildVisibleNovelReviewActionItemsForDimensionResults(
+        null,
+        undefined,
+        {},
+        "thrill",
+      ),
+    ).toEqual([])
+    expect(
+      buildVisibleNovelReviewActionItemsForDimensionResults(
+        "E:/Book/wiki/chapters/008.md",
+        {},
+        {},
+        "thrill",
+      ),
+    ).toEqual([])
+  })
+
+  it("falls back to issue.evidence as secondaryEvidence when no rewrite target exists", () => {
+    const dimensionResults: Partial<Record<"thrill", DimensionReviewResult>> = {
+      thrill: {
+        dimensionKey: "thrill",
+        score: 50,
+        status: "low",
+        summary: "弱。",
+        thinking: "## 思考",
+        issues: [{
+          severity: "warning",
+          type: "thrill",
+          dimensionKey: "thrill",
+          message: "张力不足",
+          evidence: "这一段平铺直叙。",
+          relatedMemory: "",
+          suggestion: "增加冲突。",
+          impact: "平淡。",
+        }],
+      },
+    }
+    const visible = buildVisibleNovelReviewActionItemsForDimensionResults(
+      "E:/Book/wiki/chapters/008.md",
+      dimensionResults,
+      {},
+      "thrill",
+    )
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.secondaryEvidence).toBe("这一段平铺直叙。")
   })
 
   it("builds actionable items for a selected six-dimension review bucket", () => {

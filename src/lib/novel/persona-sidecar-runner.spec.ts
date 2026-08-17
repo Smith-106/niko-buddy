@@ -16,6 +16,28 @@ vi.mock("@/commands/fs", () => ({
   readFile: fsMocks.readFile,
 }))
 
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: vi.fn(async (_cfg: unknown, _msgs: unknown, callbacks: { onToken?: (t: string) => void; onDone?: () => void; onError?: (e: unknown) => void }) => {
+    callbacks.onToken?.('{"summary":"默认 streamChat 路径","findings":["f1"]}')
+    callbacks.onDone?.()
+  }),
+  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+    if (signals.length === 0) return undefined
+    if (signals.length === 1) return signals[0]
+    const controller = new AbortController()
+    for (const s of signals) {
+      if (s.aborted) {
+        controller.abort()
+        break
+      }
+      s.addEventListener("abort", () => controller.abort(), { once: true })
+    }
+    return controller.signal
+  },
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+}))
+
 import {
   isDraftEligibleForPersona,
   personaSidecarPath,
@@ -60,6 +82,229 @@ describe("EPIC-005 / ADR-34 persona-sidecar-runner", () => {
     expect(res.ok).toBe(false)
     expect(res.reason).toBe("draft-not-ready")
     expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("isDraftEligibleForPersona returns false for null draft", () => {
+    expect(isDraftEligibleForPersona(null)).toBe(false)
+  })
+
+  it("returns draft-missing when the artifact cannot be loaded", async () => {
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async () => {},
+    })
+    expect(res.reason).toBe("draft-missing")
+    expect(res.results).toEqual([])
+  })
+
+  it("runs all default personas when personaIds is omitted", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    let calls = 0
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        calls += 1
+        cb.onToken('{"summary":"s","findings":["f"]}')
+        cb.onDone()
+      },
+    })
+    expect(calls).toBe(4)
+    expect(res.results.every((r) => r.status === "ok")).toBe(true)
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(4)
+  })
+
+  it("returns empty-personas when every persona id is unknown", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["bogus"] as PersonaId[],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async () => {},
+    })
+    expect(res.reason).toBe("empty-personas")
+  })
+
+  it("skips remaining personas when the signal is aborted", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const controller = new AbortController()
+    controller.abort()
+    const llmCall = vi.fn(async () => {})
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic", "reader"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      signal: controller.signal,
+      llmCall,
+    })
+    expect(res.results.every((r) => r.status === "skipped" && r.error === "aborted")).toBe(true)
+    expect(llmCall).not.toHaveBeenCalled()
+  })
+
+  it("records persona-error for non-Error throws", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async () => {
+        throw "plain string failure"
+      },
+    })
+    expect(res.results[0]?.status).toBe("error")
+    expect(res.results[0]?.error).toBe("persona-error")
+  })
+
+  it("uses the default streamChat when llmCall is not injected", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+    })
+    expect(res.results[0]?.status).toBe("ok")
+    expect(res.results[0]?.summary).toBe("默认 streamChat 路径")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+  })
+
+  it("tolerates an environment without AbortSignal.timeout (defensive fallback)", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    vi.stubGlobal("AbortSignal", undefined)
+    try {
+      const res = await runPersonaCritique({
+        projectPath: "/P",
+        draftId: "conv-1",
+        personaIds: ["critic"],
+        llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+        llmCall: async () => {},
+      })
+      expect(res.results[0]?.status).toBe("ok")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("invokes the onError callback when streamChat reports an error", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const { streamChat } = await import("@/lib/llm-client")
+    ;(streamChat as unknown as { mockImplementationOnce: (fn: (...args: unknown[]) => unknown) => void }).mockImplementationOnce(
+      async (_c: unknown, _m: unknown, cb: { onError?: (e: unknown) => void; onDone?: () => void }) => {
+        cb.onError?.(new Error("provider error"))
+        cb.onDone?.()
+      },
+    )
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+    })
+    expect(res.results[0]?.status).toBe("ok")
+  })
+
+  it("parses fenced JSON output", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onToken('```json\n{"summary":"围栏内","findings":["f1"]}\n```')
+        cb.onDone()
+      },
+    })
+    expect(res.results[0]?.summary).toBe("围栏内")
+    expect(res.results[0]?.findings).toEqual(["f1"])
+  })
+
+  it("handles JSON without a findings array", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onToken('{"summary":"无发现字段"}')
+        cb.onDone()
+      },
+    })
+    expect(res.results[0]?.findings).toEqual([])
+  })
+
+  it("handles no-fence JSON, missing summary, and non-string findings", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onToken('{"findings":[1,"真实要点"]}')
+        cb.onDone()
+      },
+    })
+    expect(res.results[0]?.status).toBe("ok")
+    expect(res.results[0]?.findings).toEqual(["真实要点"])
+    expect(typeof res.results[0]?.summary).toBe("string")
+  })
+
+  it("falls back to raw text summary for non-JSON output and empty output", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onToken("这不是 JSON")
+        cb.onDone()
+      },
+    })
+    expect(res.results[0]?.summary).toBe("这不是 JSON")
+
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res2 = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onDone()
+      },
+    })
+    expect(res2.results[0]?.summary).toBe("(empty)")
+  })
+
+  it("clips long content and labels chapter-less drafts 本章", async () => {
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify(draft({ draft_status: "ready", content: "x".repeat(12001), chapter_number: null as unknown as number })),
+    )
+    const seenMessages: Array<Array<{ role: string; content: string }>> = []
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, messages, cb) => {
+        seenMessages.push(messages)
+        cb.onToken('{"summary":"s","findings":[]}')
+        cb.onDone()
+      },
+    })
+    expect(res.results[0]?.status).toBe("ok")
+    const userPrompt = seenMessages[0]?.[1]?.content ?? ""
+    expect(userPrompt).toContain("本章")
+    expect(userPrompt).toContain("…(截断)")
   })
 
   it("writes sidecar JSON for ready draft without touching status.json", async () => {

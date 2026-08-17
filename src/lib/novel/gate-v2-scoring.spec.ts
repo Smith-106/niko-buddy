@@ -80,14 +80,27 @@ describe("S3a Gate v2 加权 P2 参考 (StoryForge gate.rs 移植)", () => {
     expect(score.referenceScore).toBe(score.readingPower.readingPowerScore)
   })
 
-  it("formatP2ReferenceScore 渲染诊断行", () => {
+  it("detects mystery / emotional / action hook types from the tail", () => {
+    expect(extractReadingPowerFeatures('他低声道：「这个秘密困扰了他很久」').hookType).toBe("mystery")
+    expect(extractReadingPowerFeatures('他低声道：「全场泪目，令人心碎的一幕」').hookType).toBe("emotional")
+    expect(extractReadingPowerFeatures('他低声道：「双方出手，展开激烈追逐」').hookType).toBe("action")
+    expect(extractReadingPowerFeatures('他低声道：「今天天气不错」').hookType).toBe("weak")
+  })
+
+  it("formatP2ReferenceScore renders gateV2=n/a without a gate and skips transition tag", () => {
+    const text = formatP2ReferenceScore(buildP2ReferenceScore({ content: '他问道：「你是谁？」' }))
+    expect(text).toContain("gateV2=n/a")
+    expect(text).not.toContain("transition")
+  })
+
+  it("formatP2ReferenceScore renders gate and transition tag", () => {
     const score = buildP2ReferenceScore({
       gate: { code: 0.9, rule: 0.8, model: 0.7 },
-      content: "他推开门，却发现……就在这时，全场哗然。",
+      content: "清晨的街道很安静。",
     })
     const text = formatP2ReferenceScore(score)
     expect(text).toContain("P2参考=")
-    expect(text).toContain("gateV2=")
-    expect(text).toContain("readingPower=")
+    expect(text).toContain("gateV2=0.77(0.9/0.8/0.7)")
+    expect(text).toContain("transition")
   })
 })

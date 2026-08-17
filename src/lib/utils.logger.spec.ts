@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { logger, setLogTraceId, getLogTraceId } from "./utils"
+import { logger, setLogTraceId, getLogTraceId, cn, pad, toErrorMessage, uniqueNonEmpty, validateSeverity } from "./utils"
 
 /**
  * ISS-20260709-019: structured logger tests.
@@ -70,8 +70,74 @@ describe("ISS-20260709-019 structured logger", () => {
     expect(typeof parsed.ts).toBe("string")
   })
 
+  it("emits an empty context object in JSON mode when none is given", () => {
+    process.env.NOVEL_LOG_JSON = "1"
+    // JSON 模式下所有级别统一走 console.error（机器消费单行）
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    logger.warn("Scope", "no-ctx")
+    expect(errSpy).toHaveBeenCalledTimes(1)
+    const parsed = JSON.parse(errSpy.mock.calls[0][0] as string)
+    expect(parsed.level).toBe("warn")
+    expect(parsed.context).toEqual({})
+    errSpy.mockRestore()
+  })
+
   it("getLogTraceId returns the current trace-id", () => {
     setLogTraceId("run-99")
     expect(getLogTraceId()).toBe("run-99")
+  })
+})
+
+describe("cn", () => {
+  it("merges tailwind class lists, deduplicating conflicts", () => {
+    expect(cn("px-2", "px-4")).toBe("px-4")
+    expect(cn("text-red-500", false && "text-blue-500", null, undefined)).toBe("text-red-500")
+    expect(cn(["a", "b"])).toBe("a b")
+  })
+})
+
+describe("pad", () => {
+  it("zero-pads single digits and keeps double digits", () => {
+    expect(pad(1)).toBe("01")
+    expect(pad(9)).toBe("09")
+    expect(pad(10)).toBe("10")
+    expect(pad(0)).toBe("00")
+  })
+})
+
+describe("toErrorMessage", () => {
+  it("extracts the message from Error instances", () => {
+    expect(toErrorMessage(new Error("boom"))).toBe("boom")
+  })
+
+  it("stringifies non-Error values", () => {
+    expect(toErrorMessage("raw string")).toBe("raw string")
+    expect(toErrorMessage(42)).toBe("42")
+    expect(toErrorMessage(undefined)).toBe("undefined")
+  })
+})
+
+describe("uniqueNonEmpty", () => {
+  it("trims, dedupes, and drops empty values", () => {
+    expect(uniqueNonEmpty([" a ", "b", "a", "", "  ", "b"])).toEqual(["a", "b"])
+  })
+
+  it("returns an empty array for empty input", () => {
+    expect(uniqueNonEmpty([])).toEqual([])
+    expect(uniqueNonEmpty(["", " "])).toEqual([])
+  })
+})
+
+describe("validateSeverity", () => {
+  it("passes through valid severities", () => {
+    expect(validateSeverity("error")).toBe("error")
+    expect(validateSeverity("warning")).toBe("warning")
+    expect(validateSeverity("info")).toBe("info")
+  })
+
+  it("falls back to warning for invalid values", () => {
+    expect(validateSeverity("critical")).toBe("warning")
+    expect(validateSeverity(null)).toBe("warning")
+    expect(validateSeverity(undefined)).toBe("warning")
   })
 })

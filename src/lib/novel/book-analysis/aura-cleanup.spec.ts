@@ -138,4 +138,25 @@ describe("deleteOrphanAurasForBook", () => {
     expect(removed).toBe(1)
     expect(storeState.customAuras.map((item) => item.id)).toEqual(["a1"])
   })
+
+  it("projectPath 或 bookTitle 为空时直接返回 0 / [] (前置 guard)", async () => {
+    storeState.customAuras = [aura({ id: "a1" })]
+    expect(await deleteOrphanAurasForBook("", "长夜书")).toBe(0)
+    expect(await deleteOrphanAurasForBook("E:/p1", "")).toBe(0)
+    expect(await listOrphanAurasForBook("", "长夜书")).toEqual([])
+    expect(await listOrphanAurasForBook("E:/p1", "")).toEqual([])
+    expect(loadCharacterAuraStoreMock).not.toHaveBeenCalled()
+  })
+
+  it("非 Error 的删除失败也计入 warn 且不中断 (error instanceof Error 反分支)", async () => {
+    storeState.customAuras = [aura({ id: "a1" }), aura({ id: "a2" })]
+    deleteCustomCharacterAuraMock.mockImplementation(async (_path: string, id: string) => {
+      if (id === "a1") throw "raw string failure" // 非 Error throwable
+      storeState.customAuras = storeState.customAuras.filter((item) => item.id !== id)
+      return { customAuras: storeState.customAuras, bindings: storeState.bindings }
+    })
+    const removed = await deleteOrphanAurasForBook("E:/p1", "长夜书")
+    expect(removed).toBe(1)
+    expect(storeState.customAuras.map((item) => item.id)).toEqual(["a1"])
+  })
 })

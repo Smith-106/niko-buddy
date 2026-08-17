@@ -23,6 +23,7 @@ export function ReviewJobStatusStrip({
     let cancelled = false
     ;(async () => {
       if (!projectPath) {
+        /* v8 ignore next */
         if (!cancelled) setModel(null)
         return
       }

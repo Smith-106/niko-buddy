@@ -136,6 +136,90 @@ describe("web-search", () => {
     expect(calls).toHaveBeenCalledTimes(2)
   })
 
+  it("searchDuckDuckGo hits the timeout path when fetch never settles", async () => {
+    __setWebSearchTimeoutForTest(5)
+    __setWebSearchFetchForTest(async () => new Promise(() => {}))
+    const r = await searchDuckDuckGo("X", "Y")
+    expect(r).toBeNull()
+  })
+
+  it("searchDuckDuckGo works without the timeout override (default timeout)", async () => {
+    __setWebSearchTimeoutForTest(null)
+    __setWebSearchFetchForTest(async () =>
+      makeResponse(200, {
+        Abstract:
+          "许七安是大奉打更人，出身现代，穿越到古代成为了一名捕快。他以稳健、机敏的性格在朝堂与江湖之间周旋。",
+      })
+    )
+    const r = await searchDuckDuckGo("许七安", "大奉")
+    expect(r?.source).toBe("duckduckgo")
+  })
+
+  it("searchDuckDuckGo falls back to character name and search url when fields missing", async () => {
+    __setWebSearchFetchForTest(async () =>
+      makeResponse(200, {
+        Abstract:
+          "许七安是大奉打更人，出身现代，穿越到古代成为了一名捕快。他以稳健、机敏的性格在朝堂与江湖之间周旋。",
+      })
+    )
+    const r = await searchDuckDuckGo("许七安", "大奉")
+    expect(r?.title).toBe("许七安")
+    expect(r?.url).toContain("duckduckgo.com/?q=")
+  })
+
+  it("searchDuckDuckGo returns null when Abstract is absent", async () => {
+    __setWebSearchFetchForTest(async () => makeResponse(200, { Heading: "X" }))
+    const r = await searchDuckDuckGo("X", "Y")
+    expect(r).toBeNull()
+  })
+
+  it("searchDuckDuckGo uses the real global fetch when no override is installed", async () => {
+    __setWebSearchFetchForTest(null)
+    const stub = vi.fn(async () =>
+      makeResponse(200, {
+        Abstract:
+          "许七安是大奉打更人，出身现代，穿越到古代成为了一名捕快。他以稳健、机敏的性格在朝堂与江湖之间周旋。",
+        Heading: "X",
+        AbstractURL: "https://example.com/x",
+      })
+    )
+    vi.stubGlobal("fetch", stub)
+    try {
+      const r = await searchDuckDuckGo("许七安", "大奉")
+      expect(r?.source).toBe("duckduckgo")
+      expect(stub).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("searchWikipedia skips non-404 bad status and continues to next endpoint", async () => {
+    const calls = vi.fn()
+    __setWebSearchFetchForTest(async (url) => {
+      calls(url)
+      if (calls.mock.calls.length === 1) return makeResponse(403, "forbidden")
+      return makeResponse(200, { extract: "Long enough content about Xu Qi'an here." })
+    })
+    const r = await searchWikipedia("许七安")
+    expect(r).not.toBeNull()
+    expect(r?.source).toMatch(/wikipedia/)
+  })
+
+  it("searchWikipedia returns null when extract is absent on every endpoint", async () => {
+    __setWebSearchFetchForTest(async () => makeResponse(200, { title: "X" }))
+    const r = await searchWikipedia("许七安")
+    expect(r).toBeNull()
+  })
+
+  it("searchWikipedia falls back to character name and endpoint url", async () => {
+    __setWebSearchFetchForTest(async (url) =>
+      makeResponse(200, { extract: "Long enough content about Xu Qi'an here.", title: "X" })
+    )
+    const r = await searchWikipedia("许七安")
+    expect(r?.title).toBe("X")
+    expect(r?.url).toContain("wikipedia.org")
+  })
+
   it("fetchCharacterExternalMaterial falls back from ddg → wiki → null", async () => {
     const calls = vi.fn()
     __setWebSearchFetchForTest(async (url) => {
@@ -209,6 +293,39 @@ describe("withRetry", () => {
     expect(onRetry.mock.calls[0][2]).toBe(100)
     // 第二次重试延迟 = baseMs * 2^1 = 200
     expect(onRetry.mock.calls[1][2]).toBe(200)
+  })
+
+  it("uses the real setTimeout sleep when no sleep override is installed", async () => {
+    __setWebSearchSleepForTest(null)
+    const fn = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error("e1"))
+      .mockResolvedValueOnce("ok")
+    const r = await __internal.withRetry(fn, {
+      maxAttempts: 3,
+      baseMs: 0,
+      maxMs: 0,
+      jitterMs: 0,
+    })
+    expect(r).toBe("ok")
+  })
+
+  it("rethrows immediately when the signal aborts inside fn", async () => {
+    const controller = new AbortController()
+    const fn = vi.fn(async () => {
+      controller.abort()
+      throw new Error("aborted-mid-call")
+    })
+    await expect(
+      __internal.withRetry(fn, {
+        maxAttempts: 5,
+        baseMs: 1,
+        maxMs: 1,
+        jitterMs: 0,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow("aborted-mid-call")
+    expect(fn).toHaveBeenCalledTimes(1)
   })
 
   it("stops immediately when signal is aborted", async () => {

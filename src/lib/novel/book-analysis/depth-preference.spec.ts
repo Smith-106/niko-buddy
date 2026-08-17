@@ -20,6 +20,15 @@ describe("depth-preference", () => {
   })
 
   describe("loadDepthPreference", () => {
+    it("无 window 环境（如 SSR/Node）时静默返回 null", () => {
+      vi.stubGlobal("window", undefined)
+      try {
+        expect(loadDepthPreference()).toBeNull()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     it("无记录时返回 null", () => {
       expect(loadDepthPreference()).toBeNull()
     })
@@ -50,19 +59,33 @@ describe("depth-preference", () => {
     })
 
     it("localStorage 抛错时返回 null，不向上抛", () => {
-      const original = window.localStorage.getItem
-      vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
-        throw new Error("quota exceeded")
-      })
+      const fake = {
+        getItem: vi.fn(() => { throw new Error("quota exceeded") }),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0,
+      }
+      vi.stubGlobal("localStorage", fake)
       try {
         expect(loadDepthPreference()).toBeNull()
       } finally {
-        window.localStorage.getItem = original
+        vi.unstubAllGlobals()
       }
     })
   })
 
   describe("saveDepthPreference", () => {
+    it("无 window 环境时静默忽略写入", () => {
+      vi.stubGlobal("window", undefined)
+      try {
+        expect(() => saveDepthPreference("fast")).not.toThrow()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     it("写入 fast 后可读出 fast", () => {
       saveDepthPreference("fast")
       expect(window.localStorage.getItem("qmai.book-analysis.depth-preference")).toBe("fast")
@@ -80,14 +103,19 @@ describe("depth-preference", () => {
     })
 
     it("localStorage 抛错时静默忽略", () => {
-      const original = window.localStorage.setItem
-      vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
-        throw new Error("quota exceeded")
-      })
+      const fake = {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(() => { throw new Error("quota exceeded") }),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0,
+      }
+      vi.stubGlobal("localStorage", fake)
       try {
         expect(() => saveDepthPreference("standard")).not.toThrow()
       } finally {
-        window.localStorage.setItem = original
+        vi.unstubAllGlobals()
       }
     })
   })

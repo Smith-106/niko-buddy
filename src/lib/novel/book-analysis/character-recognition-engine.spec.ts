@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { heuristicRecognizeCharacters, llmScoreCharacters, filterMidFrequencyCandidates, stableCharacterId, type HeuristicInput, type LlmScoringInput } from "./character-recognition-engine"
 import { vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
+import {
+  heuristicRecognizeCharacters,
+  llmScoreCharacters,
+  filterMidFrequencyCandidates,
+  stableCharacterId,
+  recognizeCharacters,
+  type HeuristicInput,
+  type LlmScoringInput,
+} from "./character-recognition-engine"
 
 const stubLlmConfig: LlmConfig = {
   provider: "openai",
@@ -157,5 +165,198 @@ describe("stableCharacterId", () => {
     expect(xuB).toBeDefined()
     expect(xuA!.id).toBe(xuB!.id)
     expect(xuA!.sourceBook).toBe("长夜书")
+  })
+})
+
+describe("extractCandidateNames 分段分支", () => {
+  it("2 字分段走 else 分支（整段入列）", () => {
+    const result = heuristicRecognizeCharacters({
+      chapters: [{ index: 0, content: "你好。许七安说：出发！" }],
+      minChapters: 1,
+    })
+    const names = result.map((r) => r.name)
+    expect(names).toContain("你好") // 2 字段
+    expect(names).toContain("许七安") // 说话模式 3 字
+  })
+})
+
+describe("classifyByScore 阈值", () => {
+  it("出现 7 章以上 → 主角；4-6 章 → 配角", () => {
+    const chapters = Array.from({ length: 7 }, (_, i) => ({
+      index: i,
+      content: `主角甲登场了。`,
+    })).concat(
+      Array.from({ length: 4 }, (_, i) => ({
+        index: i,
+        content: `配角乙也在场。`,
+      })),
+    )
+    const result = heuristicRecognizeCharacters({ chapters, minChapters: 1 })
+    const jia = result.find((r) => r.name === "主角甲")!
+    const yi = result.find((r) => r.name === "配角乙")!
+    expect(jia.appearances).toBe(7)
+    expect(jia.importanceScore).toBe(70)
+    expect(jia.category).toBe("主角")
+    expect(yi.appearances).toBe(4)
+    expect(yi.importanceScore).toBe(40)
+    expect(yi.category).toBe("配角")
+  })
+})
+
+describe("llmScoreCharacters 更多分支", () => {
+  const mid = (name: string, appearances = 2) => ({
+    id: name, name, aliases: ["原别名"] as string[], appearances,
+    chapterIndices: [0], importanceScore: 30, category: "次要" as const, sourceBook: "",
+  })
+
+  it("中频角色未出现在 LLM 结果中 → 保留原样", async () => {
+    const llmCall = vi.fn().mockResolvedValue(JSON.stringify([{ name: "路人甲", importanceScore: 90, category: "主角" }]))
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安"), mid("路人甲")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+      _llmCall: llmCall,
+    })
+    const xu = result.scored.find((r) => r.name === "许七安")!
+    expect(xu.importanceScore).toBe(30) // 未覆盖
+    expect(xu.category).toBe("次要")
+  })
+
+  it("llmResult.aliases 缺失 → 保留候选原别名", async () => {
+    const llmCall = vi.fn().mockResolvedValue(JSON.stringify([{ name: "许七安", importanceScore: 90, category: "主角" }]))
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+      _llmCall: llmCall,
+    })
+    expect(result.scored[0].aliases).toEqual(["原别名"])
+  })
+
+  it("未注入 _llmCall → 回退 defaultLlmCall（抛错）→ 回退启发式", async () => {
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+    })
+    expect(result.scored[0].importanceScore).toBe(30)
+  })
+
+  it("signal 已中止 → 抛 aborted → 回退启发式", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const llmCall = vi.fn().mockResolvedValue("[]")
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+      _llmCall: llmCall,
+      signal: controller.signal,
+    })
+    expect(result.scored[0].importanceScore).toBe(30)
+  })
+
+  it("未中止 signal → 正常通过", async () => {
+    const controller = new AbortController()
+    const llmCall = vi.fn().mockResolvedValue(JSON.stringify([{ name: "许七安", importanceScore: 90, category: "主角" }]))
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+      _llmCall: llmCall,
+      signal: controller.signal,
+    })
+    expect(result.scored[0].importanceScore).toBe(90)
+  })
+
+  it("JSON 解析失败（非 JSON）→ 回退启发式", async () => {
+    const llmCall = vi.fn().mockResolvedValue("不是 JSON")
+    const result = await llmScoreCharacters({
+      candidates: [mid("许七安")],
+      chapters: [{ index: 0, content: "x" }],
+      llmConfig: stubLlmConfig,
+      _llmCall: llmCall,
+    })
+    expect(result.scored[0].importanceScore).toBe(30)
+  })
+})
+
+describe("filterMidFrequencyCandidates 默认参数", () => {
+  it("options 缺省 → maxAppearances=2 / maxCandidates=30", () => {
+    const candidates = [
+      { id: "1", name: "A", aliases: [], appearances: 2, chapterIndices: [0], importanceScore: 30, category: "次要" as const, sourceBook: "" },
+      { id: "2", name: "B", aliases: [], appearances: 3, chapterIndices: [0], importanceScore: 30, category: "次要" as const, sourceBook: "" },
+    ]
+    const mid = filterMidFrequencyCandidates(candidates)
+    expect(mid.map((c) => c.name)).toEqual(["A"])
+  })
+
+  it("maxCandidates 截断", () => {
+    const candidates = Array.from({ length: 40 }, (_, i) => ({
+      id: String(i), name: `C${i}`, aliases: [] as string[], appearances: 1,
+      chapterIndices: [0], importanceScore: 30, category: "次要" as const, sourceBook: "",
+    }))
+    const mid = filterMidFrequencyCandidates(candidates, { maxAppearances: 1, maxCandidates: 5 })
+    expect(mid).toHaveLength(5)
+  })
+})
+
+describe("recognizeCharacters 统一入口", () => {
+  it("无 llmConfig → 启发式", async () => {
+    const result = await recognizeCharacters({
+      chapters: [{ index: 0, content: "许七安出门。" }],
+      minChapters: 1,
+      sourceBook: "长夜书",
+    })
+    expect(result.source).toBe("heuristic")
+    expect(result.characters.length).toBeGreaterThan(0)
+  })
+
+  it("有 llmConfig → llm 评分路径", async () => {
+    const result = await recognizeCharacters({
+      chapters: [
+        { index: 0, content: "许七安出门。" },
+        { index: 1, content: "许七安回来。" },
+      ],
+      minChapters: 2,
+      sourceBook: "长夜书",
+      llmConfig: stubLlmConfig,
+    })
+    expect(result.source).toBe("llm")
+    expect(result.characters.length).toBeGreaterThan(0)
+  })
+
+  it("llmScoreCharacters 抛 Error（chapters Proxy 在 slice 时抛错）→ 回退启发式 + error 消息", async () => {
+    const throwingChapters = new Proxy([{ index: 0, content: "许七安出门。" }], {
+      get(t, prop) {
+        if (prop === "slice") throw new Error("LLM down")
+        return Reflect.get(t, prop)
+      },
+    })
+    const result = await recognizeCharacters({
+      chapters: throwingChapters,
+      minChapters: 1,
+      sourceBook: "长夜书",
+      llmConfig: stubLlmConfig,
+    })
+    expect(result.source).toBe("heuristic")
+    expect(result.error).toBe("LLM down")
+  })
+
+  it("llmScoreCharacters 抛非 Error → error=LLM评分失败", async () => {
+    const throwingChapters = new Proxy([{ index: 0, content: "许七安出门。" }], {
+      get(t, prop) {
+        if (prop === "slice") throw "boom"
+        return Reflect.get(t, prop)
+      },
+    })
+    const result = await recognizeCharacters({
+      chapters: throwingChapters,
+      minChapters: 1,
+      sourceBook: "长夜书",
+      llmConfig: stubLlmConfig,
+    })
+    expect(result.source).toBe("heuristic")
+    expect(result.error).toBe("LLM评分失败")
   })
 })

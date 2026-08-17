@@ -115,6 +115,90 @@ describe("measurement-fingerprint M0", () => {
     expect(claim.errors.some((e) => e.includes("packHash"))).toBe(true)
   })
 
+  it("handles undefined chapterText and missing shape fields", () => {
+    const fp = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: {
+        ...basePack,
+        outline: undefined as unknown as string,
+        previousChapterEnding: undefined as unknown as string,
+        characterStates: undefined as unknown as string,
+      },
+      chapterText: undefined as unknown as string,
+    })
+    expect(fp.chapterTextChars).toBe(0)
+    expect(fp.shape.outlineChars).toBe(0)
+    expect(fp.shape.previousEndingChars).toBe(0)
+    expect(fp.shape.characterStateChars).toBe(0)
+  })
+
+  it("handles null pack values and array-shaped pack fields", () => {
+    const fp = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: {
+        ...basePack,
+        soulDoc: null as unknown as string,
+        recentChapterContents: ["最近一章正文"],
+        styleExemplars: [{ exemplarId: "e1", chapterId: "1", text: "t", markType: "thrill" }],
+        gaps: [{ source: "outline", reason: "tier_compressible", detail: "x" }],
+      },
+      chapterText: "x",
+    })
+    expect(fp.shape.recentChapterCount).toBe(1)
+    expect(fp.shape.styleExemplarCount).toBe(1)
+    expect(fp.shape.gapCount).toBe(1)
+  })
+
+  it("stableStringify handles numeric and function-typed pack values", () => {
+    const withNumber = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: { ...basePack, outline: 42 as unknown as string },
+      chapterText: "x",
+    })
+    expect(withNumber.packHash).toBeTruthy()
+    const withFunction = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: { ...basePack, outline: (() => "fn") as unknown as string },
+      chapterText: "x",
+    })
+    expect(withFunction.packHash).toBeTruthy()
+  })
+
+  it("validateMeasurementFingerprintComparability reports each mismatch dimension", () => {
+    const base = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: basePack,
+      chapterText: "body",
+    })
+    const diffSamples = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 7 }),
+      pack: basePack,
+      chapterText: "body",
+    })
+    expect(validateMeasurementFingerprintComparability(base, diffSamples).some((e) => e.includes("samples mismatch"))).toBe(true)
+
+    const diffMode = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5, mode: "AB_old_new" }),
+      pack: basePack,
+      chapterText: "body",
+    })
+    expect(validateMeasurementFingerprintComparability(base, diffMode).some((e) => e.includes("mode mismatch"))).toBe(true)
+
+    const diffWindow = buildMeasurementFingerprint({
+      protocol: { model: "m1", samples: 5, window: "last5" as typeof base.window, mode: "NEW_only" },
+      pack: basePack,
+      chapterText: "body",
+    })
+    expect(validateMeasurementFingerprintComparability(base, diffWindow).some((e) => e.includes("window mismatch"))).toBe(true)
+
+    const diffText = buildMeasurementFingerprint({
+      protocol: createLiteraryExperimentProtocol({ model: "m1", samples: 5 }),
+      pack: basePack,
+      chapterText: "different body",
+    })
+    expect(validateMeasurementFingerprintComparability(base, diffText).some((e) => e.includes("chapterTextHash mismatch"))).toBe(true)
+  })
+
   it("assertThrilProgressClaimAllowed allows locked pack+text thril compare", () => {
     const protocol = createLiteraryExperimentProtocol({ model: "claude-sonnet-4-6", samples: 5 })
     const a = buildMeasurementFingerprint({

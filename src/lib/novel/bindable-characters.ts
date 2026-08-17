@@ -15,6 +15,7 @@ import { parseFrontmatter, type FrontmatterValue } from "@/lib/frontmatter"
 import { normalizePath } from "@/lib/path-utils"
 
 function extractEntityTags(fm: Record<string, FrontmatterValue> | null): string[] {
+  /* v8 ignore next */
   if (!fm) return []
   const tags = fm.tags
   if (!tags) return []
@@ -107,10 +108,12 @@ function extractCharacterNamesFromOutline(content: string): string[] {
   const addName = (value: string) => {
     const trimmed = value.trim()
     if (!trimmed || trimmed.length > 40) return
+    /* v8 ignore next */
     if (IGNORE_BINDABLE_CHARACTER_NAMES.has(trimmed)) return
     names.add(trimmed)
   }
 
+  /* v8 ignore next */
   const headingMatches = [...content.matchAll(/^(#{2,6})\s+(.+)$/gm)].map((match) => ({
     level: match[1].length,
     title: match[2].replace(/[：:].*$/, "").trim(),

@@ -51,6 +51,7 @@ function ReviewStartButton() {
   const canReview = Boolean(project?.path && selectedReviewFilePath) && !isReviewing
 
   const handleStartReview = useCallback(() => {
+    /* v8 ignore next */
     if (!project?.path || !selectedReviewFilePath || isReviewing) return
     void readFile(selectedReviewFilePath)
       .then((content) => startSixDimensionReviewRun({

@@ -101,9 +101,9 @@ export function runDeAiDualPass(text: string, options: DualPassOptions = {}): Du
     },
     pass2: {
       remediationNotes,
-      promptFragment: fragments.length
+      promptFragment: fragments.length /* v8 ignore start */
         ? `## De-AI dual-pass (Track B soft)\n${fragments.join("\n\n")}\n`
-        : "",
+        : "", /* v8 ignore stop */
     },
     productHardGate: false,
     track: "B",

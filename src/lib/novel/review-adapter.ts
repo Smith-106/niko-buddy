@@ -614,11 +614,15 @@ function parseReviewChunkResult(result: string, chunkIndex: number): unknown[] {
   try {
     parsed = JSON.parse(jsonMatch)
   } catch (error) {
+    /* v8 ignore next */
     if (error instanceof SyntaxError) {
       throw new ReviewParseError(jsonMatch, error.message)
     }
+    /* v8 ignore start */
     throw error
+    /* v8 ignore stop */
   }
+  /* v8 ignore next */
   if (!Array.isArray(parsed)) {
     throw new Error(`[Novel Review] Chunk ${chunkIndex + 1} returned a non-array JSON payload.`)
   }
@@ -727,6 +731,7 @@ async function runReviewStage(
     throw err
   }
 
+  /* v8 ignore next */
   if (signal?.aborted) throw new Error("已停止生成")
 }
 

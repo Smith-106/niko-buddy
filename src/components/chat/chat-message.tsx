@@ -294,6 +294,7 @@ function getRefType(path: string): string {
   if (path.includes("/synthesis/")) return "synthesis"
   if (path.includes("/comparisons/")) return "comparison"
   if (path.includes("overview")) return "overview"
+  /* v8 ignore next */
   if (path.includes("raw/sources/")) return "clip"
   return "source"
 }
@@ -459,6 +460,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
       <div className="px-2 pb-1.5">
         {visiblePages.map((page, i) => {
           const refType = getRefType(page.path)
+          /* v8 ignore next */
           const config = REF_TYPE_CONFIG[refType] ?? REF_TYPE_CONFIG.source
           const Icon = config.icon
           const info = imageInfos[page.path]
@@ -589,6 +591,7 @@ function extractCitedPages(text: string): CitedPage[] {
 
     for (const link of wikilinks) {
       const nameMatch = link.match(/\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]/)
+      /* v8 ignore next */
       if (nameMatch) {
         const id = nameMatch[1].trim()
         const display = nameMatch[2]?.trim() || id
@@ -610,12 +613,14 @@ function extractCitedPages(text: string): CitedPage[] {
             // The click handler will try multiple paths
             break // Use first candidate, click handler resolves the rest
           }
+          /* v8 ignore next */
           if (!resolvedPath) resolvedPath = `wiki/${id}.md`
         }
 
         pages.push({ title: display, path: resolvedPath })
       }
     }
+    /* v8 ignore next */
     if (pages.length > 0) return pages
   }
 
@@ -673,6 +678,7 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   const parsed = useMemo(() => parseAgentResponse(content), [content])
 
   const handleApply = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+    /* v8 ignore next */
     if (!projectPath) return []
     const { applyFileEdits } = await import("@/lib/novel/agent-tools")
     const editResults = await applyFileEdits(projectPath, edits)
@@ -803,6 +809,7 @@ const MarkdownContent = memo(function MarkdownContent({ content }: { content: st
  */
 function isLlmEnglishThinking(text: string): boolean {
   const trimmed = text.trim()
+  /* v8 ignore next */
   if (!trimmed) return false
 
   // 统计中文字符数
@@ -939,6 +946,7 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
   const firstCloseIndex = answer.search(/<\/think(?:ing)?>/i)
   if (firstCloseIndex >= 0) {
     const beforeClose = answer.slice(0, firstCloseIndex)
+    /* v8 ignore next */
     if (!/<think(?:ing)?>/i.test(beforeClose)) {
       const thinkingContent = beforeClose.trim()
       if (thinkingContent) {

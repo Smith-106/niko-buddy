@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { classifyTransportError, type TransportErrorKind } from "./transport-error"
+import { classifyTransportError, type TransportErrorKind, type TransportErrorInput } from "./transport-error"
 
 /**
  * ISS-019: tests for the discriminated transport error classifier.
@@ -89,6 +89,14 @@ describe("classifyTransportError", () => {
       const err = classifyTransportError({ message: "" })
       expect(err.kind).toBe("fatal")
       expect(err.retryable).toBe(false)
+    })
+
+    it("treats a missing message field as fatal (defensive against undefined payloads)", () => {
+      const err = classifyTransportError({} as TransportErrorInput)
+      expect(err.kind).toBe("fatal")
+      expect(err.retryable).toBe(false)
+      expect(err.message).toBe("")
+      expect(err.raw).toEqual({})
     })
 
     it("returns fatal for whitespace-only message", () => {

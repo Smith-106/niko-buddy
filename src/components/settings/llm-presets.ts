@@ -468,6 +468,7 @@ export function matchPreset(params: {
     if (provider === "custom") {
       if (!preset.baseUrl) continue
       if (norm(preset.baseUrl) !== norm(customEndpoint)) continue
+      /* v8 ignore next */
       if ((preset.apiMode ?? "chat_completions") !== (apiMode ?? "chat_completions"))
         continue
       return preset

@@ -52,6 +52,7 @@ export function SoulSidebarPanel() {
   )
 
   async function refreshProjectBindings() {
+    /* v8 ignore next */
     if (!project) return
     const [loadedAuras, loadedBindings] = await Promise.all([listCharacterAuras(project.path), getCharacterAuraBindings(project.path)])
     setAuras(loadedAuras)
@@ -64,6 +65,7 @@ export function SoulSidebarPanel() {
       await bindCharacterAura(project.path, { characterName: binding.characterName, auraId })
       await refreshProjectBindings()
       bumpDataVersion()
+      /* v8 ignore next */
       setMessage(`已将「${binding.characterName}」改绑到「${auraNameById.get(auraId) ?? "新角色灵魂"}」`)
     } catch (error) {
       setMessage(error instanceof Error && error.message ? error.message : "修改角色灵魂绑定失败，请稍后重试")

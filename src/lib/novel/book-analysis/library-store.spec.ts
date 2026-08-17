@@ -20,6 +20,19 @@ describe("library-store", () => {
     const lib = await loadBookLibrary("E:/Proj")
     expect(lib.entries).toEqual([])
   })
+  it("loadBookLibrary: 版本不匹配/entries 非数组 → 返回空库", async () => {
+    memStore.set("E:/Proj/book-analysis/library.json", JSON.stringify({ version: 99, entries: [] }))
+    expect((await loadBookLibrary("E:/Proj")).entries).toEqual([])
+    memStore.set("E:/Proj/book-analysis/library.json", JSON.stringify({ version: 1, entries: "not-array" }))
+    expect((await loadBookLibrary("E:/Proj")).entries).toEqual([])
+  })
+  it("loadBookLibrary: readFile 抛 Error / 非 Error → 返回空库", async () => {
+    const fs = await import("@/commands/fs")
+    vi.mocked(fs.readFile).mockRejectedValueOnce(new Error("boom"))
+    expect((await loadBookLibrary("E:/Proj")).entries).toEqual([])
+    vi.mocked(fs.readFile).mockRejectedValueOnce("string-failure")
+    expect((await loadBookLibrary("E:/Proj")).entries).toEqual([])
+  })
   it("upsertBookLibraryEntry: 新增", async () => {
     await upsertBookLibraryEntry("E:/Proj", {
       bookId: "book-1", sourcePath: "E:/a.txt", contentHash: "abc",

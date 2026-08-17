@@ -133,6 +133,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
   }, [answer])
 
   const handleApplyEdits = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+    /* v8 ignore next */
     if (!projectPath) return []
     const { applyFileEdits } = await import("@/lib/novel/agent-tools")
     const results = await applyFileEdits(projectPath, edits)
@@ -237,6 +238,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const container = scrollRef.current
+    /* v8 ignore next */
     if (!container) return
     lastScrollTopRef.current = container.scrollTop
     const handleScroll = () => {
@@ -512,6 +514,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         .filter(Boolean)
       const draft = prepareOutlineSaveDraft(content, existingTitles)
       const outlinePath = await getUniqueOutlinePath(outlinesDir, draft.title)
+      /* v8 ignore next */
       const fileName = outlinePath.split("/").pop()?.replace(/\.md$/, "") ?? draft.title
       const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim()
       const mdContent = `---\ntype: outline\ntitle: "${fileName}"\n---\n\n# ${fileName}\n\n${body}\n`

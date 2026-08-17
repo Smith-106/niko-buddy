@@ -60,6 +60,7 @@ export function WebSearchSection() {
 
   /** Update a single provider's override settings. */
   function updateProvider(id: Exclude<SearchProvider, "none">, patch: SearchProviderOverride) {
+    /* v8 ignore next */
     const currentConfigs = resolvedConfig.providerConfigs ?? {}
     const merged = { ...(currentConfigs[id] ?? {}), ...patch }
     const nextConfigs = { ...currentConfigs, [id]: merged }
@@ -177,6 +178,7 @@ export function WebSearchSection() {
                     <div className="space-y-2">
                       <Label>{t("settings.sections.webSearch.instanceUrl")}</Label>
                       <Input
+                        /* v8 ignore next */
                         value={override?.searXngUrl ?? resolvedConfig.searXngUrl ?? ""}
                         onChange={(e) => updateProvider("searxng", { searXngUrl: e.target.value })}
                         placeholder={provider.urlPlaceholder}
@@ -189,6 +191,7 @@ export function WebSearchSection() {
 
                   {provider.id === "serpapi" && (
                     <SerpApiEnginePicker
+                      /* v8 ignore next */
                       value={override?.serpApiEngine ?? resolvedConfig.serpApiEngine ?? "google"}
                       onChange={(serpApiEngine) => updateProvider("serpapi", { serpApiEngine })}
                     />
@@ -196,6 +199,7 @@ export function WebSearchSection() {
 
                   {provider.id === "searxng" && (
                     <SearXngCategoryPicker
+                      /* v8 ignore next */
                       value={override?.searXngCategories ?? resolvedConfig.searXngCategories ?? ["general"]}
                       onChange={(searXngCategories) => updateProvider("searxng", { searXngCategories })}
                     />

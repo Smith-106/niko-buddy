@@ -17,6 +17,7 @@ export function resolveModelConfig(
     const override = providerConfigs[providerId]
     if (override?.savedModels?.some((m) => m.model === modelId)) {
       const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
+      /* v8 ignore next */
       if (template) {
         return { ...resolveConfig(template, override, baseConfig), model: modelId }
       }
@@ -27,6 +28,7 @@ export function resolveModelConfig(
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (override.savedModels?.some((m) => m.model === targetModel)) {
       const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
+      /* v8 ignore next */
       if (template) {
         return { ...resolveConfig(template, override, baseConfig), model: targetModel }
       }

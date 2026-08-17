@@ -24,6 +24,7 @@ Object.defineProperty(globalThis, "localStorage", {
     },
   },
   writable: true,
+  configurable: true,
 })
 
 import { useWikiStore } from "../wiki-store"
@@ -509,5 +510,218 @@ describe("视图与选择设置", () => {
     expect(useWikiStore.getState().selectedMemoryCenterEntry).toBe("entry1")
     useWikiStore.getState().setPendingScrollImageSrc("/img.png")
     expect(useWikiStore.getState().pendingScrollImageSrc).toBe("/img.png")
+  })
+})
+
+// ─── Thrill soft-gate 认知标记 ────────────────────────────────────────────────
+
+describe("setThrillSoftGateAcknowledged / clearThrillSoftGateAcknowledged", () => {
+  beforeEach(() => {
+    useWikiStore.setState({ thrilSoftGateAcknowledgedByChapter: {} })
+  })
+
+  it("ack=true 写入指定章节，ack=false 删除该章节", () => {
+    const { setThrillSoftGateAcknowledged } = useWikiStore.getState()
+    setThrillSoftGateAcknowledged(3, true)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter["3"]).toBe(true)
+    setThrillSoftGateAcknowledged(3, false)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter).not.toHaveProperty("3")
+  })
+
+  it("chapter 为 null / 非有限数 / 小数时分别归一到 \"0\" 与截断", () => {
+    const { setThrillSoftGateAcknowledged } = useWikiStore.getState()
+    setThrillSoftGateAcknowledged(null, true)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter["0"]).toBe(true)
+    setThrillSoftGateAcknowledged(NaN, true)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter["0"]).toBe(true)
+    setThrillSoftGateAcknowledged(5.7, true)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter["5"]).toBe(true)
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter).not.toHaveProperty("5.7")
+  })
+
+  it("clearThrillSoftGateAcknowledged() 不传参时整体清空", () => {
+    const { setThrillSoftGateAcknowledged, clearThrillSoftGateAcknowledged } = useWikiStore.getState()
+    setThrillSoftGateAcknowledged(1, true)
+    setThrillSoftGateAcknowledged(2, true)
+    clearThrillSoftGateAcknowledged()
+    expect(useWikiStore.getState().thrilSoftGateAcknowledgedByChapter).toEqual({})
+  })
+
+  it("clearThrillSoftGateAcknowledged(章节) 只删除对应章节；null 删除 \"0\"", () => {
+    const { setThrillSoftGateAcknowledged, clearThrillSoftGateAcknowledged } = useWikiStore.getState()
+    setThrillSoftGateAcknowledged(1, true)
+    setThrillSoftGateAcknowledged(2, true)
+    setThrillSoftGateAcknowledged(null, true)
+    clearThrillSoftGateAcknowledged(1)
+    let m = useWikiStore.getState().thrilSoftGateAcknowledgedByChapter
+    expect(m).not.toHaveProperty("1")
+    expect(m["2"]).toBe(true)
+    clearThrillSoftGateAcknowledged(null)
+    m = useWikiStore.getState().thrilSoftGateAcknowledgedByChapter
+    expect(m).not.toHaveProperty("0")
+    expect(m["2"]).toBe(true)
+  })
+})
+
+// ─── 缺失的配置 setter ────────────────────────────────────────────────────────
+
+describe("其余配置 setter", () => {
+  it("setGraphLabelDisplayMode", () => {
+    useWikiStore.getState().setGraphLabelDisplayMode("focused")
+    expect(useWikiStore.getState().graphLabelDisplayMode).toBe("focused")
+  })
+
+  it("setSearchPanelOpen", () => {
+    useWikiStore.getState().setSearchPanelOpen(true)
+    expect(useWikiStore.getState().searchPanelOpen).toBe(true)
+    useWikiStore.getState().setSearchPanelOpen(false)
+    expect(useWikiStore.getState().searchPanelOpen).toBe(false)
+  })
+
+  it("setLlmConfig 整体替换", () => {
+    useWikiStore.getState().setLlmConfig({
+      provider: "anthropic",
+      apiKey: "ak",
+      model: "claude",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 99999,
+      reasoning: { mode: "high" },
+    })
+    const c = useWikiStore.getState().llmConfig
+    expect(c.provider).toBe("anthropic")
+    expect(c.maxContextSize).toBe(99999)
+    expect(c.reasoning?.mode).toBe("high")
+  })
+
+  it("setProviderConfigs / setActivePresetId", () => {
+    useWikiStore.getState().setProviderConfigs({
+      openai: { label: "OpenAI", apiKey: "k", model: "gpt" },
+    })
+    expect(useWikiStore.getState().providerConfigs.openai?.label).toBe("OpenAI")
+    useWikiStore.getState().setActivePresetId("preset-1")
+    expect(useWikiStore.getState().activePresetId).toBe("preset-1")
+  })
+
+  it("setRevisionFeedbackWindowConfig 整体替换", () => {
+    useWikiStore.getState().setRevisionFeedbackWindowConfig({
+      currentChapterIncludeShouldImprove: false,
+      previousChapterCarryEnabled: false,
+      lookbackChapterCount: 4,
+      lookbackIncludeMustFixOnly: false,
+    })
+    const c = useWikiStore.getState().revisionFeedbackWindowConfig
+    expect(c.currentChapterIncludeShouldImprove).toBe(false)
+    expect(c.lookbackChapterCount).toBe(4)
+  })
+
+  it("setPendingEditorHighlight / setFileContent / setFileTree", () => {
+    useWikiStore.getState().setPendingEditorHighlight({ path: "/a.md", text: "x", nonce: 1 })
+    expect(useWikiStore.getState().pendingEditorHighlight?.path).toBe("/a.md")
+    useWikiStore.getState().setFileContent("内容")
+    expect(useWikiStore.getState().fileContent).toBe("内容")
+    useWikiStore.getState().setFileTree([{ id: "n1", name: "a.md", path: "/a.md", children: [] } as never])
+    expect(useWikiStore.getState().fileTree).toHaveLength(1)
+  })
+})
+
+// ─── localStorage 未定义（SSR/非浏览器）守卫 ───────────────────────────────────
+
+describe("localStorage 不可用时的降级行为（typeof guard）", () => {
+  it("localStorage undefined 时所有 readStored* 回退默认值，setter 仍生效", async () => {
+    const savedLocalStorage = (globalThis as any).localStorage
+    delete (globalThis as any).localStorage
+    try {
+      vi.resetModules()
+      const mod = await import("../wiki-store")
+      const store = mod.useWikiStore.getState()
+      expect(store.chatDockPosition).toBe("bottom")
+      expect(store.uiFontSizeScale).toBe(1)
+      expect(store.graphLabelDisplayMode).toBe("all")
+      expect(store.graphEdgeColorHex).toBe("#7f8ea3")
+      expect(store.graphEdgeStrengthPercent).toBe(180)
+      expect(store.graphEdgeStyle).toBe("curve")
+      expect(store.graphEdgeLabelsAlwaysVisible).toBe(false)
+      // setter 在无 localStorage 时跳过写入但仍更新 state
+      mod.useWikiStore.getState().setChatDockPosition("right")
+      expect(mod.useWikiStore.getState().chatDockPosition).toBe("right")
+      mod.useWikiStore.getState().setUiFontSizeScale(2.0)
+      expect(mod.useWikiStore.getState().uiFontSizeScale).toBeCloseTo(1.3)
+    } finally {
+      Object.defineProperty(globalThis, "localStorage", {
+        value: savedLocalStorage,
+        writable: true,
+        configurable: true,
+      })
+    }
+  })
+})
+
+// ─── localStorage 预置值读取（readStored* 各分支） ─────────────────────────────
+
+describe("readStored* 预置值解析", () => {
+  beforeEach(() => {
+    Object.keys(_localStorageMock).forEach((k) => delete _localStorageMock[k])
+  })
+
+  it("合法预置值被读取", async () => {
+    _localStorageMock["qmai-chat-dock-position"] = "right"
+    _localStorageMock["qmai-ui-font-size-scale"] = "1.25"
+    _localStorageMock["lk-graph-label-display-mode"] = "auto"
+    _localStorageMock["lk-graph-edge-style"] = "arrow"
+    _localStorageMock["lk-graph-edge-strength"] = "250"
+    _localStorageMock["lk-graph-edge-labels-always"] = "true"
+    _localStorageMock["lk-graph-edge-color"] = "#ff8800"
+    vi.resetModules()
+    const mod = await import("../wiki-store")
+    const s = mod.useWikiStore.getState()
+    expect(s.chatDockPosition).toBe("right")
+    expect(s.uiFontSizeScale).toBeCloseTo(1.25)
+    expect(s.graphLabelDisplayMode).toBe("auto")
+    expect(s.graphEdgeStyle).toBe("arrow")
+    expect(s.graphEdgeStrengthPercent).toBe(250)
+    expect(s.graphEdgeLabelsAlwaysVisible).toBe(true)
+    expect(s.graphEdgeColorHex).toBe("#ff8800")
+  })
+
+  it("非法/越界预置值回退默认或夹取边界", async () => {
+    _localStorageMock["qmai-chat-dock-position"] = "left"
+    _localStorageMock["qmai-ui-font-size-scale"] = "0.5"
+    _localStorageMock["lk-graph-label-display-mode"] = "bogus"
+    _localStorageMock["lk-graph-edge-style"] = "dotted"
+    _localStorageMock["lk-graph-edge-strength"] = "300"
+    _localStorageMock["lk-graph-edge-labels-always"] = "false"
+    _localStorageMock["lk-graph-edge-color"] = "#12"
+    vi.resetModules()
+    const mod = await import("../wiki-store")
+    const s = mod.useWikiStore.getState()
+    expect(s.chatDockPosition).toBe("bottom")
+    expect(s.uiFontSizeScale).toBeCloseTo(0.85) // 低于下限夹取
+    expect(s.graphLabelDisplayMode).toBe("all")
+    expect(s.graphEdgeStyle).toBe("curve")
+    expect(s.graphEdgeStrengthPercent).toBe(260) // 高于上限夹取
+    expect(s.graphEdgeLabelsAlwaysVisible).toBe(false)
+    expect(s.graphEdgeColorHex).toBe("#7f8ea3")
+  })
+
+  it("非数字字体缩放 / 强度回退默认", async () => {
+    _localStorageMock["qmai-ui-font-size-scale"] = "abc"
+    _localStorageMock["lk-graph-edge-strength"] = "nan"
+    vi.resetModules()
+    const mod = await import("../wiki-store")
+    const s = mod.useWikiStore.getState()
+    expect(s.uiFontSizeScale).toBe(1)
+    expect(s.graphEdgeStrengthPercent).toBe(180)
+  })
+
+  it("localStorage 存在但键缺失时 ?? 兜底默认值", async () => {
+    // 不预置任何键：getItem 返回 null → ?? "1" / ?? "180" 生效
+    vi.resetModules()
+    const mod = await import("../wiki-store")
+    const s = mod.useWikiStore.getState()
+    expect(s.chatDockPosition).toBe("bottom")
+    expect(s.uiFontSizeScale).toBe(1)
+    expect(s.graphEdgeStrengthPercent).toBe(180)
+    expect(s.graphLabelDisplayMode).toBe("all")
   })
 })

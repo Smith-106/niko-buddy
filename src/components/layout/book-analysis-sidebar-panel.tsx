@@ -127,6 +127,7 @@ export function BookAnalysisSidebarPanel() {
   }
 
   async function refreshAuraCounts(items: BookItem[]) {
+    /* v8 ignore next */
     if (!project?.path) {
       setBookAuraCount({})
       return

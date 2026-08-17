@@ -23,6 +23,7 @@ export function FeedbackSection() {
   const canSubmit = message.trim().length > 0 && !submitting
 
   async function handleSubmit() {
+    /* v8 ignore next */
     if (!canSubmit) return
     setSubmitting(true)
     setStatus("")

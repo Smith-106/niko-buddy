@@ -101,6 +101,12 @@ describe("A19 借鉴点 #3 P14 画像进化层 (零 LLM 字段 diff + time-decay
     expect(diffAuraFields(prev, curr)).toContain("expressionDna")
   })
 
+  it("diffAuraFields treats value→undefined as change (字段清空)", () => {
+    const prev = mkAura()
+    const curr = mkAura({ expressionDna: undefined })
+    expect(diffAuraFields(prev, curr)).toContain("expressionDna")
+  })
+
   it("diffAuraFields does not touch metadata fields (id/name/corpus 不参与 diff)", () => {
     const prev = mkAura()
     const curr = mkAura({ id: "other", name: "other", corpus: "other" })

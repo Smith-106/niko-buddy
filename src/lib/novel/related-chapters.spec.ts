@@ -94,6 +94,130 @@ describe("S2a related-chapters 四维反查 (ainovel buildRelatedChapters)", () 
     expect(ch8!.reasons).toContain("state_change")
   })
 
+  it("同章重复原因与空 note 不重复推入; 后到的 note 才回填", () => {
+    // 两个伏笔都在第 2 章植入且都命中大纲 → 同一章同一原因 (foreshadow)
+    // 只记录一次; 第 3 章先以空 change 状态变化进入 (无 note),
+    // 再以带描述的关系反查进入 → 回填第一个非空 note。
+    const input = makeInput({
+      chapterOutline: "轩辕剑 玉佩 白砚",
+      foreshadowing: {
+        items: [
+          { id: "f1", name: "轩辕剑封印", description: "x", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+          { id: "f2", name: "玉佩来历", description: "x", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        ],
+        lastUpdated: "",
+      },
+      appearances: [],
+      stateChanges: [{ entity: "白砚", chapter: 3, change: "" }],
+      relationships: [{ pair: "白砚-苏未晞", chapter: 3, description: "结盟" }],
+    })
+    const results = buildRelatedChapters(input)
+    const ch2 = results.find((r) => r.chapter === 2)
+    expect(ch2).toBeDefined()
+    expect(ch2!.reasons.filter((r) => r === "foreshadow")).toHaveLength(1)
+    expect(ch2!.matchedEntities).toContain("轩辕剑封印")
+    expect(ch2!.matchedEntities).toContain("玉佩来历")
+    const ch3 = results.find((r) => r.chapter === 3)
+    expect(ch3).toBeDefined()
+    expect(ch3!.note).toBe("结盟")
+  })
+
+  it("空大纲: extractOutlineKeywords 短路 → 四维全部跳过 (无结果)", () => {
+    const input = makeInput({ chapterOutline: "" })
+    // 所有维度都以大纲文本为匹配源; 空文本 → 无关键词、无 includes 命中
+    const results = buildRelatedChapters(input)
+    expect(results).toHaveLength(0)
+  })
+
+  it("n-gram 关键词提取: >8 字长 token 滑窗 + 标点切分", () => {
+    const input = makeInput({
+      chapterOutline: "轩辕剑的秘密浮出水面，白砚——赴约",
+      foreshadowing: {
+        items: [
+          { id: "fg1", name: "轩辕剑的秘", description: "x", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        ],
+        lastUpdated: "",
+      },
+      appearances: [],
+      stateChanges: [],
+      relationships: [],
+    })
+    const results = buildRelatedChapters(input)
+    // "轩辕剑的秘" 是 "轩辕剑的秘密浮出水面" 的 4-gram 之一 → 命中
+    expect(results.some((r) => r.reasons.includes("foreshadow") && r.chapter === 2)).toBe(true)
+  })
+
+  it("addMatch 守卫: 未来章伏笔 (chapter >= current) 被忽略", () => {
+    const input = makeInput({
+      foreshadowing: {
+        items: [
+          { id: "fg2", name: "未来伏笔", description: "轩辕剑 关键词 命中", status: "planted", plantedChapter: 25, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        ],
+        lastUpdated: "",
+      },
+      appearances: [],
+      stateChanges: [],
+      relationships: [],
+    })
+    const results = buildRelatedChapters(input)
+    expect(results.some((r) => r.matchedEntities.includes("未来伏笔"))).toBe(false)
+  })
+
+  it("advanced 伏笔最近推进章在窗口外时也反查 (伏笔推进 note)", () => {
+    const input = makeInput({
+      foreshadowing: {
+        items: [
+          { id: "fg3", name: "玉佩来历", description: "轩辕剑 相关", status: "advanced", plantedChapter: 5, advancedChapters: [6, 8], relatedCharacters: [], relatedEvents: [], notes: "" },
+        ],
+        lastUpdated: "",
+      },
+      appearances: [],
+      stateChanges: [],
+      relationships: [],
+    })
+    const results = buildRelatedChapters(input)
+    const ch8 = results.find((r) => r.chapter === 8)
+    expect(ch8).toBeDefined()
+    expect(ch8!.reasons).toContain("foreshadow")
+    expect(ch8!.note).toBe("伏笔推进")
+  })
+
+  it("角色出场全部在 recentWindow 内 → 无角色反查", () => {
+    const input = makeInput({
+      appearances: [{ character: "白砚", chapters: [15, 18] }],
+      stateChanges: [],
+      relationships: [],
+      foreshadowing: { items: [], lastUpdated: "" },
+    })
+    const results = buildRelatedChapters(input)
+    expect(results.some((r) => r.reasons.includes("character"))).toBe(false)
+  })
+
+  it("状态变化实体不在大纲中 → 跳过该维", () => {
+    const input = makeInput({
+      stateChanges: [{ entity: "不存在的实体", chapter: 3, change: "x" }],
+    })
+    const results = buildRelatedChapters(input)
+    expect(results.some((r) => r.matchedEntities.includes("不存在的实体"))).toBe(false)
+  })
+
+  it("关系双方都不在大纲中 → 跳过该关系", () => {
+    const input = makeInput({
+      relationships: [{ pair: "甲乙-丙丁", chapter: 3, description: "x" }],
+    })
+    const results = buildRelatedChapters(input)
+    expect(results.some((r) => r.matchedEntities.includes("甲乙-丙丁"))).toBe(false)
+  })
+
+  it("relatedChaptersToContextText 空列表返回空串, 无 note 章省略 note", () => {
+    expect(relatedChaptersToContextText([])).toBe("")
+    const text = relatedChaptersToContextText([
+      { chapter: 4, reasons: ["foreshadow"], matchedEntities: ["轩辕剑"] },
+    ])
+    expect(text).toContain("第4章 (伏笔): 轩辕剑")
+    expect(text).not.toContain("—")
+  })
+
   it("relatedChaptersToContextText 渲染文本", () => {
     const input = makeInput()
     const results = buildRelatedChapters(input)
@@ -170,6 +294,17 @@ describe("S2a buildAppearancesFromSnapshots (快照→出场索引)", () => {
     expect(baiyan.chapters).toEqual([1, 3])
     const suwei = appearances.find((a) => a.character === "苏未晞")!
     expect(suwei.chapters).toEqual([1, 5])
+  })
+
+  it("同一章重复角色去重, 缺失 characters 字段容错为空", () => {
+    const snapshots = [
+      { chapterNumber: 2, characters: ["白砚", "白砚", "苏未晞"] },
+      { chapterNumber: 4 },
+    ] as unknown as Array<{ chapterNumber: number; characters: string[] }>
+    const appearances = buildAppearancesFromSnapshots(snapshots as never)
+    const baiyan = appearances.find((a) => a.character === "白砚")!
+    expect(baiyan.chapters).toEqual([2])
+    expect(appearances.length).toBe(2)
   })
 })
 

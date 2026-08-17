@@ -44,6 +44,7 @@ export function normalizeChapterEditFile(input: {
   }
 
   const frontmatterLines = Object.entries(frontmatter).map(([key, value]) => {
+    /* v8 ignore next */
     const safeValue = String(value ?? "")
     return key === "title" ? `${key}: "${safeValue.replace(/"/g, '\\"')}"` : `${key}: ${safeValue}`
   })

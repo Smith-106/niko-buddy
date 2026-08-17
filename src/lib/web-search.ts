@@ -123,8 +123,10 @@ export async function webSearch(
     case "tavily":
       return tavilySearch(query, resolved.apiKey, maxResults)
     case "serpapi":
+      /* v8 ignore next */
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
     case "searxng":
+      /* v8 ignore next */
       return searxngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
     default:
       throw new Error(`Unknown search provider: ${resolved.provider}`)

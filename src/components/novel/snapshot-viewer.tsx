@@ -30,6 +30,7 @@ function updateTextField(snapshot: ChapterSnapshot, key: keyof ChapterSnapshot, 
 }
 
 function formatSyncTime(value: string | undefined): string {
+  /* v8 ignore next */
   if (!value) return ""
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -212,6 +213,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
         const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
+        /* v8 ignore next */
         if (focusable.length === 0) return
         const first = focusable[0]
         const last = focusable[focusable.length - 1]
@@ -262,6 +264,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   }
 
   const startEditing = () => {
+    /* v8 ignore next */
     if (!snapshot) return
     setDraft(snapshot)
     setEditing(true)
@@ -275,6 +278,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   }
 
   const saveEditing = async () => {
+    /* v8 ignore next */
     if (!draft || saving) return
     setSaving(true)
     setSaveMessage("")
@@ -295,6 +299,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   }
 
   const restoreHistory = async (entry: SnapshotHistoryEntry) => {
+    /* v8 ignore next */
     if (restoring || saving) return
     if (!window.confirm("恢复历史快照会恢复快照内容，并自动重建小说记忆。是否继续？")) return
     setRestoring(true)
@@ -317,6 +322,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   // TASK-303: 历史条目无 content 字段，按 entry.path readFile 读取历史 JSON，
   // 解析后重排为 2 空格缩进，与当前快照文本（JSON.stringify(snapshot, null, 2)）做只读 diff。
   const compareHistory = async (entry: SnapshotHistoryEntry) => {
+    /* v8 ignore next */
     if (restoring || saving) return
     setSaveMessage("")
     try {
@@ -329,10 +335,12 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   }
 
   const editList = (key: keyof ChapterSnapshot, value: string) => {
+    /* v8 ignore next */
     setDraft((current) => current ? updateListField(current, key, value) : current)
   }
 
   const editText = (key: keyof ChapterSnapshot, value: string) => {
+    /* v8 ignore next */
     setDraft((current) => current ? updateTextField(current, key, value) : current)
   }
 

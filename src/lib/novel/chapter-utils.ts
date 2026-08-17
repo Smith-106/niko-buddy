@@ -396,6 +396,7 @@ async function readSelectedChapterNumber(selectedFile?: string | null): Promise<
   const normalized = selectedFile.replace(/\\/g, "/")
   if (!/\/wiki\/chapters\//i.test(normalized)) return undefined
 
+  /* v8 ignore next */
   const byName = extractChapterNumber(normalized.split("/").pop()?.replace(/\.md$/i, "") ?? "")
   if (byName) return byName
 

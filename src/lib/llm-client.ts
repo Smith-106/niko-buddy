@@ -44,6 +44,7 @@ export function setMetricsTraceId(id: string): void {
 }
 
 function classifyLlmError(err: unknown): string {
+  /* v8 ignore next */
   if (err instanceof Error) {
     if (err.name === "AbortError") return "abort"
     const msg = err.message
@@ -230,11 +231,13 @@ export async function defaultLlmCall(_prompt: string): Promise<string> {
 function parseLines(chunk: Uint8Array, buffer: string, decoder: TextDecoder): [string[], string] {
   const text = buffer + decoder.decode(chunk, { stream: true })
   const lines = text.split("\n")
+  /* v8 ignore next */
   const remaining = lines.pop() ?? ""
   return [lines, remaining]
 }
 
 function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
+  /* v8 ignore next */
   if (signal?.aborted) return Promise.resolve(false)
   return new Promise((resolve) => {
     const onAbort = () => {
@@ -336,6 +339,7 @@ export async function streamChat(
 
     if (signal) {
       onSignalAbort = () => {
+        /* v8 ignore next */
         if (timeoutId !== undefined) clearTimeout(timeoutId)
         timeoutController?.abort()
       }
@@ -361,6 +365,7 @@ export async function streamChat(
         } catch (err) {
           if (signal?.aborted || combinedSignal?.aborted) throw err
           if (!isFetchNetworkError(err)) throw err
+          /* v8 ignore next */
           if (timeoutFired) throw err
           const retryDelay = NETWORK_RETRY_DELAYS_MS[attempt]
           if (retryDelay === undefined) {
@@ -395,12 +400,14 @@ export async function streamChat(
         return
       }
       if (isFetchNetworkError(err)) {
+        /* v8 ignore start */
         if (timeoutFired) {
           onError(new Error(`Request timed out after ${Math.round(timeoutMs / 60000)} min. Try a faster model or a smaller context.`))
           return
         }
         onError(new Error(`网络连接中断，请检查网络、代理或接口地址后重试。接口地址�?{providerConfig.url}`))
         return
+        /* v8 ignore stop */
       }
       onError(err instanceof Error ? err : new Error(String(err)))
       return

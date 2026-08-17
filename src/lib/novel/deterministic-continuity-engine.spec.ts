@@ -407,6 +407,28 @@ describe("EPIC-001 5 项检测三态 (ADR-30 subtype consistency_mechanical)", (
       const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
       expect(findings.find((f) => f.type === "dead_character_state")).toBeUndefined()
     })
+
+    it("true-positive: deathChapter 结构化字段回退 (非 isAlive/status 路径)", () => {
+      const store = buildStore({
+        characters: [makeCharacter({ characterName: "逝者", deathChapter: 3, lastUpdatedChapter: 8 })],
+        currentChapter: 10,
+      })
+      const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      const dead = findings.find((f) => f.type === "dead_character_state")
+      expect(dead).toBeDefined()
+      expect(dead?.ref).toBe("character:逝者")
+    })
+
+    it("true-positive: isAlive=false 且 status 为空串 (结构性死亡, 空 status 回退)", () => {
+      const store = buildStore({
+        characters: [makeCharacter({ characterName: "死者", status: "", isAlive: false, lastUpdatedChapter: 8 })],
+        currentChapter: 10,
+      })
+      const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+      const dead = findings.find((f) => f.type === "dead_character_state")
+      expect(dead).toBeDefined()
+      expect(dead?.message).toContain("structural")
+    })
   })
 })
 
@@ -462,6 +484,19 @@ describe("EPIC-001 ADR-32 双层薄包装 (产不同 result type)", () => {
     expect(results[0].type).toBe("consistency_mechanical")
     expect(results[0].severity).toBe("error") // critical → error
     expect(results[1].severity).toBe("warning") // warning → warning
+  })
+
+  it("toConsistencyReviewResult: info 级映射 info 且 data_gap 透传 missingField", () => {
+    const findings: ContinuityFinding[] = [
+      {
+        type: "data_gap", subtype: "data_gap", severity: "info",
+        ref: "subplot:S1", message: "缺字段", chapter: 10, missingField: "lastSeenChapter",
+      },
+    ]
+    const results = toConsistencyReviewResult(findings)
+    expect(results[0].severity).toBe("info")
+    expect(results[0].continuityMeta?.missingField).toBe("lastSeenChapter")
+    expect(results[0].continuityMeta?.subtype).toBe("data_gap")
   })
 
   it("两薄包装产不同 result type 守 MAINT-1 (文本 vs 对象)", () => {
@@ -581,6 +616,18 @@ describe("EPIC-003 ADR-34 override 双轨 + reasonCode 6 值合并集", () => {
       ref: "character:死者", reasonCode: "false_positive", note: "",
       severity: "warning", // override 是 warning, finding 升级为 critical — 不匹配
       dismissedAtChapter: 5,
+    }]
+    expect(isFindingDismissed(finding, overrides)).toBe(false)
+  })
+
+  it("isFindingDismissed: info 级 finding 直接返回 false (dismiss guard 拒绝 info 级)", () => {
+    const finding: ContinuityFinding = {
+      type: "data_gap", subtype: "data_gap", severity: "info",
+      ref: "subplot:S1", message: "缺字段", chapter: 10, missingField: "lastSeenChapter",
+    }
+    const overrides: ContinuityOverride[] = [{
+      ref: "subplot:S1", reasonCode: "intentional_death", note: "",
+      severity: "info", dismissedAtChapter: 10,
     }]
     expect(isFindingDismissed(finding, overrides)).toBe(false)
   })
@@ -919,5 +966,19 @@ describe("S2c Quillica 6 状态机合并 (detectThreadArcFinding)", () => {
     }
     const findings = checkContinuity(storeWithSubplots([subplot]))
     expect(findings.filter((f) => f.message.includes("弧"))).toHaveLength(0)
+  })
+
+  it("progress 缺失 (旧数据) 按 0 处理不抛错 (progressCount ?? 0)", () => {
+    const subplot: Subplot = {
+      id: "sp-legacy",
+      title: "旧数据线",
+      status: "active",
+      startChapter: 1,
+      relatedCharacters: [],
+      summary: "旧数据",
+      progress: undefined as unknown as string[],
+      notes: "",
+    }
+    expect(() => checkContinuity(storeWithSubplots([subplot]))).not.toThrow()
   })
 })

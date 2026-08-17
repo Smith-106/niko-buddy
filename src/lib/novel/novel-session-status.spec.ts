@@ -33,14 +33,17 @@ vi.mock("@/commands/fs", () => ({
 
 import {
   acceptDeepChapterDraft,
+  appendStageMetric,
   blockDeepChapterSession,
   buildNextStatus,
   completeDeepChapterSession,
   createNovelSessionId,
+  loadNovelDraftArtifact,
   loadNovelSessionStatus,
   novelDraftArtifactPath,
   novelSessionStatusPath,
   pauseDeepChapterSession,
+  persistCheckpointBase,
   persistDeepChapterCheckpoint,
   rejectDeepChapterDraft,
   resolveInterruptedSessionResumeCheckpoint,
@@ -52,6 +55,7 @@ import {
   type NovelSessionStatus,
   type ChaseDebt,
   type ChaseDebtEvent,
+  type StageMetricEntry,
 } from "./novel-session-status"
 import { acceptFindingRewriteDraft, rejectFindingRewriteDraft, writeFindingRewriteDraft } from "./novel-session-status"
 
@@ -789,6 +793,715 @@ describe("novel-session-status", () => {
   })
 })
 
+describe("novel-session-status 分支补足", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path: string) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+    fsState.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
+      fsState.fileMap.set(path, content)
+    })
+  })
+
+  it("writeVerifiedJson: 回读不是有效 JSON → 抛错", async () => {
+    fsState.writeFileAtomic.mockImplementationOnce(async (path: string) => {
+      fsState.fileMap.set(path, "{not-json")
+    })
+    await expect(startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })).rejects.toThrow(`小说会话状态文件 写入后回读不是有效 JSON（${statusPath}）`)
+  })
+
+  it("writeVerifiedJson: 回读校验失败 → 抛错", async () => {
+    fsState.writeFileAtomic.mockImplementationOnce(async (path: string, _content: string) => {
+      fsState.fileMap.set(path, JSON.stringify({ session_id: "other-session", current_task: {}, status: "x", draft: {} }))
+    })
+    await expect(startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })).rejects.toThrow(`小说会话状态文件 写入回读校验失败（${statusPath}）`)
+  })
+
+  it("stageToActiveStepIndex 覆盖 after_context / after_task_brief / after_revision / 未知值", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    // after_context → 1
+    const s1 = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_context",
+      },
+    })
+    expect(s1.active_step_index).toBe(1)
+    // after_task_brief → 1
+    const s2 = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_task_brief",
+      },
+    })
+    expect(s2.active_step_index).toBe(1)
+    // after_revision → 4
+    const s3 = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_revision",
+      },
+    })
+    expect(s3.active_step_index).toBe(4)
+    // 未知 stage → default 0
+    const s4 = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_scene_breakdown",
+      },
+    })
+    expect(s4.active_step_index).toBe(0)
+  })
+
+  it("cloneDecisionGates: 无 verdict 时按 status 推导 fail/pass; 保留 updated_at; overall 推导全部分支", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 1,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      evidence_refs: [],
+    }
+    // status failed 无 verdict → verdict 推导 fail; updated_at 保留
+    const failed = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0, updated_at: "2026-01-02T00:00:00.000Z" },
+        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "fail",
+      },
+    })
+    expect(failed.decision_gates.consistency.verdict).toBe("fail")
+    expect(failed.decision_gates.anti_ai.updated_at).toBe("2026-01-02T00:00:00.000Z")
+    expect(failed.decision_gates.overall).toBe("fail")
+
+    // 无 overall 字段: 任一 failed → fail
+    const failDerived = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(failDerived.decision_gates.overall).toBe("fail")
+    // anti_ai failed → fail
+    const antiFail = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(antiFail.decision_gates.overall).toBe("fail")
+    // quality verdict warning → warning
+    const warn = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "warning", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(warn.decision_gates.overall).toBe("warning")
+    // 全 passed 无 overall → pass
+    const pass = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(pass.decision_gates.overall).toBe("pass")
+    // consistency passed + anti_ai pending → pending
+    const pendAnti = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(pendAnti.decision_gates.overall).toBe("pending")
+    // consistency+anti_ai passed + quality pending → pending
+    const pendQ = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: {
+        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+    })
+    expect(pendQ.decision_gates.overall).toBe("pending")
+  })
+
+  it("extractDraftContent 全空 → draft 内容为空串; 无 draft 时保留现有草稿路径 (pause/block 无 checkpoint)", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    // checkpoint 无 content 字段 + 无 finalContent → content ""
+    const paused = await pauseDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: { version: 1, originalRequest: "r", stage: "after_context" },
+      errorMessage: "err",
+    })
+    const draft = readJson(draftPath)
+    expect(draft.content).toBe("")
+    expect(paused.active_step_index).toBe(1)
+
+    // pause 无 checkpoint → 保留 base.draft.file_path
+    const paused2 = await pauseDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      errorMessage: "err2",
+    })
+    expect(paused2.draft.file_path).toBe(draftPath)
+    expect(paused2.active_step_index).toBe(session.active_step_index)
+    expect(paused2.draft.draft_status).toBe(session.draft.draft_status)
+
+    // block 无 checkpoint → 保留现有路径, active_step_index null
+    const blocked = await blockDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      errorMessage: "blocked",
+    })
+    expect(blocked.draft.file_path).toBe(draftPath)
+    expect(blocked.active_step_index).toBeNull()
+  })
+
+  it("resolveStatusResumeCheckpoint 各守卫: null/会话不匹配/completed/无 checkpoint/无 stage/chapterNumber 回退", () => {
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1, originalRequest: "generate chapter 3", stage: "after_draft", draftContent: "draft",
+    }
+    const mkStatus = (over: Partial<NovelSessionStatus>): NovelSessionStatus => ({
+      schema_version: "1",
+      session_id: "novel-1",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "paused",
+      active_step_index: 2,
+      current_task: { task_id: "t", conversation_id: "conv-1", user_request: "r", chapter_number: 9, checkpoint_stage: "started", status: "paused" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      resume_checkpoint: checkpoint,
+      evidence_refs: [],
+      ...over,
+    })
+
+    expect(resolveStatusResumeCheckpoint(null, "conv-1")).toBeUndefined()
+    expect(resolveStatusResumeCheckpoint(mkStatus({}), "conv-other")).toBeUndefined()
+    expect(resolveStatusResumeCheckpoint(mkStatus({ status: "completed" }), "conv-1")).toBeUndefined()
+    expect(resolveStatusResumeCheckpoint(mkStatus({ resume_checkpoint: undefined }), "conv-1")).toBeUndefined()
+    // active_step_index 缺失/超界 → 无 stage
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: null }), "conv-1")).toBeUndefined()
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: 5 }), "conv-1")).toBeUndefined()
+    // checkpoint.stage 匹配 activeStepIndex
+    const cp = resolveStatusResumeCheckpoint(mkStatus({}), "conv-1")
+    expect(cp?.stage).toBe("after_draft")
+    expect(cp?.chapterNumber).toBe(9) // checkpoint 无 chapterNumber → 用 current_task.chapter_number
+    // checkpointStage 提供且匹配 active_step_index → 优先（active 3 ↔ after_review）
+    const cp2 = resolveStatusResumeCheckpoint(
+      mkStatus({ active_step_index: 3, current_task: { task_id: "t", conversation_id: "conv-1", user_request: "r", checkpoint_stage: "after_review", status: "paused" } }),
+      "conv-1",
+    )
+    expect(cp2?.stage).toBe("after_review")
+    // switch: active 1 无 taskBrief → after_context; 有 taskBrief → after_task_brief
+    const cp3 = resolveStatusResumeCheckpoint(
+      mkStatus({ active_step_index: 1, resume_checkpoint: { version: 1, originalRequest: "r", stage: "after_draft" } }),
+      "conv-1",
+    )
+    expect(cp3?.stage).toBe("after_context")
+    const cp4 = resolveStatusResumeCheckpoint(
+      mkStatus({ active_step_index: 1, resume_checkpoint: { version: 1, originalRequest: "r", stage: "after_draft", taskBrief: "brief" } }),
+      "conv-1",
+    )
+    expect(cp4?.stage).toBe("after_task_brief")
+    // active 2/3/4 → after_draft/after_review/after_revision
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: 2 }), "conv-1")?.stage).toBe("after_draft")
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: 3 }), "conv-1")?.stage).toBe("after_review")
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: 4 }), "conv-1")?.stage).toBe("after_revision")
+    // active 0 → default undefined
+    expect(resolveStatusResumeCheckpoint(mkStatus({ active_step_index: 0 }), "conv-1")).toBeUndefined()
+  })
+
+  it("startDeepChapterSession 复用同会话 (相同 conversation + user_request)", async () => {
+    const first = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const second = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "  generate chapter 3  ",
+      chapterNumber: 3,
+    })
+    expect(second.session_id).toBe(first.session_id)
+    expect(second.created_at).toBe(first.created_at)
+  })
+
+  it("startDeepChapterSession 带 resumeCheckpoint → 写 draft 工件 + 克隆 gates + evidence_refs", async () => {
+    const status = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      resumeCheckpoint: {
+        version: 1,
+        originalRequest: "generate chapter 3",
+        chapterNumber: 3,
+        stage: "after_draft",
+        draftContent: "draft body",
+        reviewResults,
+        decisionGates: {
+          consistency: { status: "failed", verdict: "fail", findings: [], repair_suggestions: [], retry_count: 0 },
+          anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+          quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+          overall: "fail",
+        },
+      },
+    })
+    expect(status.draft.file_path).toBe(draftPath)
+    expect(status.evidence_refs).toEqual([draftPath])
+    expect(status.decision_gates.consistency.status).toBe("failed")
+    expect(readJson(draftPath).draft_status).toBe("pending")
+
+    // reviewResults 缺省 → []
+    const status2 = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-2",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      resumeCheckpoint: {
+        version: 1, originalRequest: "r", stage: "after_context", draftContent: "d",
+      },
+    })
+    expect(readJson(novelDraftArtifactPath(projectPath, "conv-2")).review_results).toEqual([])
+    expect(status2.active_step_index).toBe(1)
+  })
+
+  it("persist/complete/pause/block 无既有会话 → createBaseStatus 兜底", async () => {
+    fsState.fileMap.delete(statusPath)
+    const cp: DeepChapterGenerationResumeCheckpoint = {
+      version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_draft", draftContent: "d",
+    }
+    const persisted = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-x",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "sess-x",
+      checkpoint: cp,
+    })
+    expect(persisted.session_id).toBe("sess-x")
+
+    fsState.fileMap.delete(statusPath)
+    const completed = await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-y",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "sess-y",
+      finalContent: "final",
+    })
+    expect(completed.status).toBe("completed")
+    expect(completed.draft.draft_status).toBe("ready")
+
+    fsState.fileMap.delete(statusPath)
+    const paused = await pauseDeepChapterSession({
+      projectPath,
+      conversationId: "conv-z",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "sess-z",
+      errorMessage: "e",
+    })
+    expect(paused.status).toBe("paused")
+
+    fsState.fileMap.delete(statusPath)
+    const blocked = await blockDeepChapterSession({
+      projectPath,
+      conversationId: "conv-w",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "sess-w",
+      errorMessage: "e",
+    })
+    expect(blocked.status).toBe("blocked")
+  })
+
+  it("persist/complete/pause 带 checkpoint 缺 chapterNumber → 回退 input.chapterNumber; 缺 reviewResults → []", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const cp = { version: 1, originalRequest: "r", stage: "after_draft", draftContent: "d" } as DeepChapterGenerationResumeCheckpoint
+    const persisted = await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: cp,
+    })
+    expect(persisted.current_task.chapter_number).toBe(3)
+
+    const completed = await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: cp,
+      finalContent: "final",
+    })
+    expect(completed.current_task.chapter_number).toBe(3)
+
+    const paused = await pauseDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: cp,
+      errorMessage: "e",
+    })
+    expect(paused.current_task.chapter_number).toBe(3)
+  })
+
+  it("loadNovelDraftArtifact 非法 draft 工件 → null; loadNovelSessionStatus 非法 status.json → null", async () => {
+    fsState.fileMap.set(draftPath, JSON.stringify({ draft_id: 123 }))
+    await expect(loadNovelDraftArtifact(projectPath, "conv-1")).resolves.toBeNull()
+
+    fsState.fileMap.set(statusPath, JSON.stringify({ schema_version: "2", session_id: 1 }))
+    await expect(loadNovelSessionStatus(projectPath)).resolves.toBeNull()
+  })
+
+  it("requireManagedDeepChapterDraft: accept 只接受 ready; pending 不合法", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      resumeCheckpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_draft", draftContent: "d",
+      },
+    })
+    // draft_status = pending → accept 抛 "not eligible"
+    await expect(acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    })).rejects.toThrow("Deep chapter draft is not eligible for accept in status pending.")
+  })
+
+  it("accept 无 formalChapterPath; 无既有 status → createBaseStatus; session 不匹配 → createBaseStatus", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+
+    // 无 formalChapterPath
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+    })
+    expect(status.draft.formal_chapter_path).toBeUndefined()
+    expect(status.evidence_refs).toEqual([draftPath])
+
+    // 重置草稿为 ready（accept 后草稿已是 accepted，先恢复才能再走决策）
+    fsState.fileMap.set(draftPath, JSON.stringify({
+      draft_id: "conv-1",
+      conversation_id: "conv-1",
+      user_request: "generate chapter 3",
+      session_id: session.session_id,
+      chapter_number: 3,
+      draft_status: "ready",
+      content: "final chapter body",
+      review_results: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    }))
+
+    // session 不匹配 → createBaseStatus 兜底 (新 session_id)
+    const mismatch = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "totally-different-session",
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    })
+    expect(mismatch.session_id).toBe("totally-different-session")
+    expect(mismatch.draft.draft_status).toBe("accepted")
+  })
+
+  it("accept/reject 时 draft 无 checkpoint → 回退 base.resume_checkpoint / input.resumeCheckpoint", async () => {
+    // 直接构造: 手工写入 draft artifact + status.json, 让 checkpoint 链路走回退分支
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    // complete 无 checkpoint → artifact.checkpoint = undefined
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      finalContent: "final",
+    })
+    const artifact = JSON.parse(fsState.fileMap.get(draftPath)!) as Record<string, unknown>
+    expect(artifact.checkpoint).toBeUndefined()
+    // status.json 带 resume_checkpoint
+    const saved = JSON.parse(fsState.fileMap.get(statusPath)!) as Record<string, unknown>
+    saved.resume_checkpoint = {
+      version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_review", reviewResults,
+    }
+    fsState.fileMap.set(statusPath, JSON.stringify(saved))
+
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      resumeCheckpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_review", reviewResults,
+      },
+    })
+    expect(status.resume_checkpoint?.stage).toBe("after_review")
+    expect(status.draft.draft_status).toBe("accepted")
+  })
+
+  it("appendStageMetric: 无既有状态 → no-op; 有 → 追加; stage_metrics 非数组 → [] 起点; 上限 1024 shift", async () => {
+    // 无既有 status.json
+    fsState.fileMap.delete(statusPath)
+    await expect(appendStageMetric(projectPath, { stage: "scene_breakdown", tokenCost: 10 })).resolves.toBeUndefined()
+    expect(fsState.fileMap.has(statusPath)).toBe(false)
+
+    // 有既有状态 (无 stage_metrics)
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    await appendStageMetric(projectPath, { stage: "scene_breakdown", tokenCost: 10, partial: true })
+    let saved = JSON.parse(fsState.fileMap.get(statusPath)!) as { stage_metrics?: StageMetricEntry[] }
+    expect(saved.stage_metrics).toHaveLength(1)
+    expect(saved.stage_metrics![0]!.stage).toBe("scene_breakdown")
+
+    // stage_metrics 非数组 (旧文件) → [] 起点
+    const cur = JSON.parse(fsState.fileMap.get(statusPath)!) as Record<string, unknown>
+    cur.stage_metrics = "corrupted"
+    fsState.fileMap.set(statusPath, JSON.stringify(cur))
+    await appendStageMetric(projectPath, { stage: "write_llm", latencyMs: 5 })
+    saved = JSON.parse(fsState.fileMap.get(statusPath)!) as { stage_metrics?: StageMetricEntry[] }
+    expect(saved.stage_metrics).toEqual([{ stage: "write_llm", latencyMs: 5 }])
+
+    // 上限 1024: 预填 1024 条再追加 → shift 到 1024
+    const big = JSON.parse(fsState.fileMap.get(statusPath)!) as { stage_metrics?: StageMetricEntry[] }
+    big.stage_metrics = Array.from({ length: 1024 }, (_, i) => ({ stage: "write_llm" as const, latencyMs: i }))
+    fsState.fileMap.set(statusPath, JSON.stringify(big))
+    await appendStageMetric(projectPath, { stage: "pack", chapterId: "c1" })
+    saved = JSON.parse(fsState.fileMap.get(statusPath)!) as { stage_metrics?: StageMetricEntry[] }
+    expect(saved.stage_metrics).toHaveLength(1024)
+    expect(saved.stage_metrics![1023]!.stage).toBe("pack")
+    expect(saved.stage_metrics![0]!.latencyMs).toBe(1)
+    expect(session.session_id).toMatch(/^novel-/)
+  })
+
+  it("persistCheckpointBase: evidenceEntries 合并 + sessionId 不匹配抛错", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const next = buildNextStatus(session, {
+      updated_at: "2026-01-02T00:00:00.000Z",
+      status: "paused",
+      evidence_refs: undefined,
+    })
+    await persistCheckpointBase(projectPath, session.session_id, next, ["extra-evidence"])
+    const saved = JSON.parse(fsState.fileMap.get(statusPath)!) as { evidence_refs: string[] }
+    expect(saved.evidence_refs).toEqual(["extra-evidence"])
+
+    // sessionId 不匹配 → 抛错
+    await expect(persistCheckpointBase(projectPath, "wrong-session", next)).rejects.toThrow(
+      "persistCheckpointBase 真源身份不匹配",
+    )
+  })
+
+  it("computeChaseDebtState: paid/written_off 提前返回; 其他债务事件跳过; 部分/全额还款扣减", () => {
+    const paid: ChaseDebt = {
+      id: "d1", debt_type: "hook_strength", original_amount: 1, current_amount: 1,
+      interest_rate: 0.1, source_chapter: 1, due_chapter: 5, status: "paid",
+    }
+    expect(computeChaseDebtState(paid, 10, [{ debt_id: "d1", event_type: "full_payment", amount: 1, chapter: 9 }])).toEqual({
+      current_amount: 1, status: "paid",
+    })
+    const writtenOff: ChaseDebt = { ...paid, status: "written_off" }
+    expect(computeChaseDebtState(writtenOff, 10, [])).toEqual({ current_amount: 1, status: "written_off" })
+
+    // 其他债务的事件跳过 + 部分还款扣减
+    const active: ChaseDebt = {
+      id: "d2", debt_type: "micropayoff", original_amount: 2, current_amount: 2,
+      interest_rate: 0.1, source_chapter: 1, due_chapter: 10, status: "active",
+    }
+    const events: ChaseDebtEvent[] = [
+      { debt_id: "other", event_type: "interest_accrued", amount: 5, chapter: 2 },
+      { debt_id: "d2", event_type: "interest_accrued", amount: 0.2, chapter: 2 },
+      { debt_id: "d2", event_type: "partial_payment", amount: 0.5, chapter: 3 },
+    ]
+    const state = computeChaseDebtState(active, 3, events)
+    expect(state.current_amount).toBeCloseTo(1.7)
+    expect(state.status).toBe("active")
+
+    // 全额还款 → 归零 (仍 active 因 current_amount=0)
+    const fullEvents: ChaseDebtEvent[] = [{ debt_id: "d2", event_type: "full_payment", amount: 2.2, chapter: 3 }]
+    expect(computeChaseDebtState(active, 3, fullEvents).current_amount).toBe(0)
+  })
+
+  it("updateChaseDebtStatus: 有 ledger → 更新匹配债务 + 追加事件 (paid/overdue/其他)", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      evidence_refs: [],
+      chase_debt: {
+        debts: [
+          { id: "d1", debt_type: "hook_strength", original_amount: 1, current_amount: 1, interest_rate: 0.1, source_chapter: 1, due_chapter: 5, status: "active" },
+          { id: "d2", debt_type: "coolpoint", original_amount: 2, current_amount: 2, interest_rate: 0.1, source_chapter: 1, due_chapter: 5, status: "active" },
+        ],
+        debt_events: [],
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    }
+    const paid = updateChaseDebtStatus(base, "d1", "paid", 6)
+    expect(paid.chase_debt!.debts[0]!.status).toBe("paid")
+    expect(paid.chase_debt!.debts[1]!.status).toBe("active")
+    expect(paid.chase_debt!.debt_events[0]!.event_type).toBe("full_payment")
+
+    const overdue = updateChaseDebtStatus(base, "d2", "overdue", 7)
+    expect(overdue.chase_debt!.debts[1]!.status).toBe("overdue")
+    expect(overdue.chase_debt!.debt_events[0]!.event_type).toBe("overdue")
+
+    const created = updateChaseDebtStatus(base, "d1", "active", 8)
+    expect(created.chase_debt!.debt_events[0]!.event_type).toBe("created")
+  })
+})
+
 
 describe("finding-rewrite draft helpers (RPC-2 / TASK-007)", () => {
   const sessionId = "sess-t07"
@@ -1032,5 +1745,172 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
       },
     })
     expect(next.chase_debt).toEqual({ debts: [], debt_events: [], updated_at: "2026-01-02T00:00:00.000Z" })
+  })
+})
+
+describe("novel-session-status 全口径补齐：decision/fallback 分支", () => {
+  const gates = {
+    consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+    anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+    quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+    overall: "pass",
+  } as const
+
+  const readyDraftWithoutOptional = {
+    draft_id: "conv-1",
+    conversation_id: "conv-1",
+    session_id: "draft-session",
+    user_request: "generate chapter 3",
+    draft_status: "ready",
+    content: "final chapter body",
+    review_results: [],
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  }
+
+  const minimalStatusJson = {
+    schema_version: "1",
+    session_id: "draft-session",
+    status: "running",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    active_step_index: 3,
+    current_task: {
+      conversation_id: "conv-1",
+      user_request: "generate chapter 3",
+      status: "running",
+    },
+    draft: {
+      draft_id: "conv-1",
+      file_path: draftPath,
+      draft_status: "ready",
+    },
+    evidence_refs: [],
+  }
+
+  it("resolveStatusResumeCheckpoint: activeStepIndex 2 → after_draft; 0 → undefined", () => {
+    const checkpoint = { version: 1 as const, originalRequest: "r", chapterNumber: 3, stage: "after_review" as const }
+    const status2 = {
+      session_id: "s",
+      status: "running" as const,
+      created_at: "",
+      updated_at: "",
+      active_step_index: 2,
+      current_task: { conversation_id: "conv-1", user_request: "r", status: "running" as const },
+      draft: { draft_id: "d", file_path: "/p", draft_status: "pending" as const },
+      resume_checkpoint: checkpoint,
+    }
+    expect(resolveStatusResumeCheckpoint(status2, "conv-1")?.stage).toBe("after_draft")
+    const status0 = { ...status2, active_step_index: 0 }
+    expect(resolveStatusResumeCheckpoint(status0, "conv-1")).toBeUndefined()
+  })
+
+  it("accept: 无既有 status → createBaseStatus; draft 无 chapter_number/checkpoint → 全链回退", async () => {
+    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 9,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-009.md`,
+    })
+    expect(status.session_id).toBe("draft-session")
+    expect(status.current_task.chapter_number).toBe(9)
+    expect(status.draft.draft_status).toBe("accepted")
+  })
+
+  it("accept: 复用最小既有 status → base.current_task.chapter_number 缺失 → input 兜底", async () => {
+    fsState.fileMap.set(statusPath, JSON.stringify(minimalStatusJson))
+    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 9,
+      sessionId: "draft-session",
+    })
+    expect(status.session_id).toBe("draft-session")
+    expect(status.current_task.chapter_number).toBe(9)
+  })
+
+  it("reject: 无既有 status → createBaseStatus; draft 无 checkpoint/字段 → 全链回退", async () => {
+    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+    const status = await rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 9,
+    })
+    expect(status.session_id).toBe("draft-session")
+    expect(status.current_task.chapter_number).toBe(9)
+    expect(status.draft.draft_status).toBe("rejected")
+    // checkpoint 全链为空 → base.draft.checkpoint_stage 兜底（此处 createBaseStatus 为 undefined）
+    expect(status.draft.checkpoint_stage).toBeUndefined()
+  })
+
+  it("reject: 复用最小既有 status + input.resumeCheckpoint 提供 reviewResults/decisionGates", async () => {
+    fsState.fileMap.set(statusPath, JSON.stringify(minimalStatusJson))
+    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+    const status = await rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 9,
+      sessionId: "draft-session",
+      resumeCheckpoint: {
+        version: 1,
+        originalRequest: "generate chapter 3",
+        stage: "after_review",
+        reviewResults,
+        decisionGates: gates as never,
+      },
+    })
+    expect(status.session_id).toBe("draft-session")
+    expect(status.current_task.chapter_number).toBe(9)
+    expect(status.resume_checkpoint?.stage).toBe("after_review")
+  })
+
+  it("reject: 既有 status 带 resume_checkpoint → draft 无 checkpoint 时回退 base.resume_checkpoint", async () => {
+    fsState.fileMap.set(statusPath, JSON.stringify({
+      ...minimalStatusJson,
+      resume_checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_review",
+      },
+    }))
+    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+    const status = await rejectDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 9,
+      sessionId: "draft-session",
+    })
+    expect(status.resume_checkpoint?.stage).toBe("after_review")
+    expect(status.draft.draft_status).toBe("rejected")
+  })
+
+  it("block: checkpoint 无 reviewResults/decisionGates → 空数组/base 门控兜底", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const status = await blockDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint: {
+        version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_draft", draftContent: "d",
+      },
+      errorMessage: "boom",
+    })
+    expect(status.status).toBe("blocked")
+    expect(status.current_task.last_error).toBe("boom")
+    expect(status.decision_gates.overall).toBe("pending")
+    const draft = readJson(draftPath) as Record<string, unknown>
+    expect(draft.review_results).toEqual([])
   })
 })

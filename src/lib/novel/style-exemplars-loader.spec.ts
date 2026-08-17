@@ -243,6 +243,71 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
     expect(types).toContain("pull")
   })
 
+  it("normalizeExemplar falls back through legacy aliases and empty strings for absent fields", async () => {
+    // 仅提供旧式最小字段: chapterId / text / createdAt 缺失 → 空串;
+    // id→exemplarId、markedAt→createdAt 副账映射仍生效。
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify([
+        { id: "legacy", text: "x", markType: "style", markedAt: "2026-07-10T00:00:00Z" },
+        // 全部字段缺失 → 均为空串 (双 ?? 链的末端兜底臂)
+        {},
+        // 非法 markType → String 强制转换臂 (不抛错, 交给 pickTopK 过滤)
+        { exemplarId: "bad-type", chapterId: "c", text: "t", markType: 42 },
+      ]),
+    )
+    const result = await loadStyleExemplars("/Proj")
+    expect(result[0]).toEqual({
+      exemplarId: "legacy",
+      chapterId: "",
+      text: "x",
+      markType: "style",
+      note: undefined,
+      createdAt: "2026-07-10T00:00:00Z",
+    })
+    expect(result[1]).toEqual({
+      exemplarId: "",
+      chapterId: "",
+      text: "",
+      markType: "undefined",
+      note: undefined,
+      createdAt: "",
+    })
+    expect(result[2].markType).toBe("42")
+  })
+
+  it("markStyleExemplar rebuilds storage when the existing file has an invalid shape (arr === null)", async () => {
+    // 文件存在且 JSON 合法, 但既非数组也非 {$schema, exemplars} 包装 →
+    // 解包装返回 null → existing 保持 [] (不阻断标记, 重建存储)。
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ not: "an array" }))
+    await markStyleExemplar("/Proj", {
+      chapterId: "ch1",
+      text: "新段落",
+      markType: "style",
+    })
+    const written = fsMocks.writeFileAtomic.mock.calls[0][1] as string
+    const parsed = JSON.parse(written) as StyleExemplar[]
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].text).toBe("新段落")
+  })
+
+  it("pickTopKExemplars skips entries whose markType is outside the enum", () => {
+    const exemplars: StyleExemplar[] = [
+      { exemplarId: "bad", chapterId: "c", text: "noise", markType: "bogus" as StyleExemplarMarkType, createdAt: "2026-07-10T00:01:00Z" },
+      { exemplarId: "good", chapterId: "c", text: "signal", markType: "style", createdAt: "2026-07-10T00:02:00Z" },
+    ]
+    const picked = pickTopKExemplars(exemplars, STYLE_EXEMPLARS_TOP_K)
+    expect(picked.map((p) => p.exemplarId)).toEqual(["good"])
+  })
+
+  it("pickTopKExemplars treats an unparseable createdAt as epoch 0 (sorts last)", () => {
+    const exemplars: StyleExemplar[] = [
+      { exemplarId: "old-ish", chapterId: "c", text: "a", markType: "style", createdAt: "not-a-date" },
+      { exemplarId: "fresh", chapterId: "c", text: "b", markType: "style", createdAt: "2026-07-10T00:03:00Z" },
+    ]
+    const picked = pickTopKExemplars(exemplars, 2)
+    expect(picked.map((p) => p.exemplarId)).toEqual(["fresh", "old-ish"])
+  })
+
   it("pickTopKExemplars truncates text to STYLE_EXEMPLAR_TEXT_MAX_CHARS (token budget)", () => {
     const longText = "x".repeat(STYLE_EXEMPLAR_TEXT_MAX_CHARS + 500)
     const exemplars: StyleExemplar[] = [

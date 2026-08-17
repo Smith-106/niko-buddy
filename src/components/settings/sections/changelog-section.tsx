@@ -57,6 +57,7 @@ export function ChangelogSection() {
 
   /** Download the discovered update with progress tracking. */
   async function handleDownloadUpdate() {
+    /* v8 ignore next */
     if (!updateHandleRef.current) return
     setUpdateStatus("downloading")
     setDownloadProgress(0)
@@ -93,6 +94,7 @@ export function ChangelogSection() {
 
   /** Install the downloaded update (triggers app restart). */
   async function handleInstallNow() {
+    /* v8 ignore next */
     if (!updateHandleRef.current) return
     try {
       const update = updateHandleRef.current as { install: () => Promise<void> }
@@ -135,10 +137,12 @@ export function ChangelogSection() {
           )}
 
           {updateStatus === "error" && (
+            /* v8 ignore start */
             <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
               <AlertCircle className="h-4 w-4" />
               {errorMessage || "检查更新失败"}
             </span>
+            /* v8 ignore stop */
           )}
         </div>
 

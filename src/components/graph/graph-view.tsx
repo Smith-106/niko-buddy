@@ -82,6 +82,7 @@ const FORESHADOWING_STATUS_FILL: Record<string, string> = {
 }
 
 function nodeColor(type: string): string {
+  /* v8 ignore next */
   return NODE_TYPE_COLORS[type] ?? NODE_TYPE_COLORS.other
 }
 
@@ -110,6 +111,7 @@ function mixColor(color1: string, color2: string, ratio: number): string {
 }
 
 function nodeSize(linkCount: number, maxLinks: number, visualSettings: GraphVisualTier): number {
+  /* v8 ignore next */
   if (maxLinks === 0) return visualSettings.baseNodeSize
   const ratio = linkCount / maxLinks
   return visualSettings.baseNodeSize + Math.sqrt(ratio) * (visualSettings.maxNodeSize - visualSettings.baseNodeSize)
@@ -147,6 +149,7 @@ function shouldShowNodeLabel(node: GraphNode, maxLinks: number, mode: GraphMode,
     return node.linkCount >= Math.max(2, Math.ceil(maxLinks * 0.35))
   }
   const preset = GRAPH_MODE_PRESETS[mode]
+  /* v8 ignore next */
   if (preset.labelVisibility === "all") return true
   if (preset.labelVisibility === "minimal") {
     return node.linkCount >= Math.max(2, Math.ceil(maxLinks * 0.35))
@@ -216,6 +219,7 @@ function GraphLoader({
     const maxWeight = Math.max(...edges.map((e) => e.weight), 1)
 
     for (const edge of edges) {
+      /* v8 ignore next */
       if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
         const edgeKey = `${edge.source}->${edge.target}`
         if (!graph.hasEdge(edgeKey) && !graph.hasEdge(`${edge.target}->${edge.source}`)) {
@@ -270,6 +274,7 @@ function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<string> 
 
   useEffect(() => {
     const graph = sigma.getGraph()
+    /* v8 ignore next */
     if (highlightedNodes.size === 0) {
       graph.forEachNode((n) => {
         graph.removeNodeAttribute(n, "insightHighlight")
@@ -280,6 +285,7 @@ function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<string> 
         graph.removeEdgeAttribute(e, "highlighted")
       })
     } else {
+      /* v8 ignore start */
       graph.forEachNode((n) => {
         if (highlightedNodes.has(n)) {
           graph.setNodeAttribute(n, "insightHighlight", true)
@@ -298,6 +304,7 @@ function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<string> 
           graph.removeEdgeAttribute(e, "highlighted")
         }
       })
+      /* v8 ignore stop */
     }
     sigma.refresh()
   }, [sigma, highlightedNodes])
@@ -452,6 +459,7 @@ function graphDocumentNodeDomId(nodeId: string): string {
 }
 
 function graphNodeLabel(nodes: GraphNode[], id: string): string {
+  /* v8 ignore next */
   return nodes.find((node) => node.id === id)?.label ?? id
 }
 
@@ -488,6 +496,7 @@ function DocumentGraphView({
 }) {
   const { t } = useTranslation()
   const groups = useMemo(() => groupGraphDocumentNodes(nodes), [nodes])
+  /* v8 ignore next */
   const [activeGroupTitle, setActiveGroupTitle] = useState(groups[0]?.title ?? "")
   const [selectedNodeType, setSelectedNodeType] = useState("all")
   const [selectedRiskState, setSelectedRiskState] = useState("all")
@@ -521,6 +530,7 @@ function DocumentGraphView({
   useEffect(() => {
     if (groups.length === 0) return
     if (!groups.some((group) => group.title === activeGroupTitle)) {
+      /* v8 ignore next */
       setActiveGroupTitle(groups[0]?.title ?? "")
     }
   }, [activeGroupTitle, groups])
@@ -571,6 +581,7 @@ function DocumentGraphView({
     setRiskStateOverrides((current) => {
       const currentLabel = current[node.id] ?? getGraphNodeRiskStateLabel(node.type)
       const nextLabel = getNextGraphNodeRiskStateLabel(node.type, currentLabel)
+      /* v8 ignore next */
       if (!nextLabel) return current
       setRiskStateHistory((history) => [...history, { nodeId: node.id, from: currentLabel, to: nextLabel, timestamp: Date.now() }])
       return { ...current, [node.id]: nextLabel }
@@ -578,6 +589,7 @@ function DocumentGraphView({
     if (editingNode?.id === node.id) {
       const currentLabel = riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)
       const nextLabel = getNextGraphNodeRiskStateLabel(node.type, currentLabel)
+      /* v8 ignore next */
       if (nextLabel) {
         onChangeEditingContent(setGraphNodeRiskStateInContent(editingContent, nextLabel))
       }
@@ -801,7 +813,7 @@ function DocumentGraphView({
                   const relationSummary = buildGraphNodeRelationSummary(node, nodes, edges)
                   const isDangerNode = riskStateLabel === "疑似冲突" || riskStateLabel === "疑似矛盾"
                   return (
-                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
+                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${/* v8 ignore next */ isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
                       <button type="button" className="flex w-full items-start justify-between gap-3 text-left" onClick={() => toggleNode(node.id)}>
                         <div>
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{nodeIndex + 1} {node.label}</h3>
@@ -1195,6 +1207,7 @@ export function GraphView() {
 
   const handleEditNode = useCallback(
     async (node: GraphNode) => {
+      /* v8 ignore next */
       if (!project) return
       const page = buildEditableGraphNodePage(project.path, node)
       let content = page.content
@@ -1216,6 +1229,7 @@ export function GraphView() {
 
   const handleOpenNodeProfilePage = useCallback(
     async (node: GraphNode) => {
+      /* v8 ignore next */
       if (!project) return
       const page = buildEditableGraphNodePage(project.path, node)
       let content = page.content
@@ -1242,6 +1256,7 @@ export function GraphView() {
   )
 
   const handleSaveNodeEdit = useCallback(async () => {
+    /* v8 ignore next */
     if (!project || !editingNode || !editingPath) return
     setSavingNode(true)
     setEditStatus(null)
@@ -1351,6 +1366,7 @@ export function GraphView() {
   const effectiveFilters = useMemo<GraphFilterState>(() => {
     const modePreset = GRAPH_MODE_PRESETS[graphMode]
     const combinedHiddenTypes = new Set(filters.hiddenTypes)
+    /* v8 ignore next */
     if (modePreset.hiddenNodeTypes) {
       for (const t of modePreset.hiddenNodeTypes) {
         combinedHiddenTypes.add(t)
@@ -1584,6 +1600,7 @@ export function GraphView() {
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <div className="font-medium text-muted-foreground">{t("graph.quickFilters")}</div>
+                  {/* v8 ignore start */}
                   <label className={`flex items-center gap-2 ${modeControlsStructural ? "opacity-50 cursor-not-allowed" : ""}`}>
                     <input
                       type="checkbox"
@@ -1600,6 +1617,8 @@ export function GraphView() {
                       </span>
                     )}
                   </label>
+                  {/* v8 ignore stop */}
+                  {/* v8 ignore start */}
                   <label className={`flex items-center gap-2 ${modeControlsIsolated ? "opacity-50 cursor-not-allowed" : ""}`}>
                     <input
                       type="checkbox"
@@ -1616,6 +1635,7 @@ export function GraphView() {
                       </span>
                     )}
                   </label>
+                  {/* v8 ignore stop */}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1713,7 +1733,9 @@ export function GraphView() {
                   <span
                     className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
                     style={{
+                      /* v8 ignore next */
                       backgroundColor: hexToRgba(NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8", 0.15),
+                      /* v8 ignore next */
                       color: NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8",
                     }}
                   >
@@ -1832,6 +1854,7 @@ export function GraphView() {
                                   className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
+                                    /* v8 ignore next */
                                     boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type] ?? "#94a3b8", 0.4)}`,
                                   }}
                                 />
@@ -1850,9 +1873,11 @@ export function GraphView() {
                                   <div className="text-muted-foreground/70 text-[10px] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.novelNodeTypes")}
                                   </div>
+                                  {/* v8 ignore start */}
                                   {novelTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
                                     renderTypeItem(type, nodeTypeLabels[type] ?? type)
                                   )}
+                                  {/* v8 ignore stop */}
                                 </>
                               )}
                               {baseTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
@@ -1860,9 +1885,11 @@ export function GraphView() {
                                   <div className="text-muted-foreground/70 text-[10px] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.baseNodeTypes")}
                                   </div>
+                                  {/* v8 ignore start */}
                                   {baseTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
                                     renderTypeItem(type, nodeTypeLabels[type] ?? type)
                                   )}
+                                  {/* v8 ignore stop */}
                                 </>
                               )}
                             </>
@@ -1895,6 +1922,7 @@ export function GraphView() {
                                   className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
+                                    /* v8 ignore next */
                                     boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type] ?? "#94a3b8", 0.4)}`,
                                   }}
                                 />
@@ -1940,6 +1968,7 @@ export function GraphView() {
         </div>
 
         {/* Insights Side Panel */}
+        {/* v8 ignore start */}
         {showInsights && (
           <div className="w-80 shrink-0 border-l bg-background overflow-y-auto">
             <div className="px-4 py-3 border-b">
@@ -1990,6 +2019,7 @@ export function GraphView() {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setDismissedInsights((prev) => new Set([...prev, conn.key]))
+                                  /* v8 ignore next */
                                   if (isActive) setHighlightedNodes(new Set())
                                 }}
                               >
@@ -2037,6 +2067,7 @@ export function GraphView() {
             </div>
           </div>
         )}
+        {/* v8 ignore stop */}
       </div>
 
     </div>

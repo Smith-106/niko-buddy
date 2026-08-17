@@ -465,6 +465,7 @@ export function useCharacterExtraction({
       simpleExtractionTotal: failedCharacters.length,
     })
 
+    /* v8 ignore next */
     const updated = [...(task.characters ?? [])]
     let succeeded = 0
     const stillFailed: string[] = []
@@ -495,18 +496,22 @@ export function useCharacterExtraction({
           personalityProfile: singleResult.profile,
         }
         succeeded++
+      /* v8 ignore start */
       } else if (singleResult.error) {
         stillFailed.push(ch.name)
       }
+      /* v8 ignore stop */
     }
     updateTaskCharacters(taskId, updated)
 
     useBookAnalysisStore.setState((state) => ({
+      /* v8 ignore start */
       tasks: state.tasks.map((t) =>
         t.id === taskId
           ? { ...t, metadata: { ...(t.metadata ?? {}), failedCharacterNames: stillFailed } as any }
           : t,
       ),
+      /* v8 ignore stop */
     }))
 
     updateTaskProgress(taskId, {

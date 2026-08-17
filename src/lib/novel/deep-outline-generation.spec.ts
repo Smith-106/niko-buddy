@@ -122,4 +122,111 @@ describe("runDeepOutlineGeneration", () => {
     expect(thinking).toContain("## 阶段3：大纲草稿\n草稿第一段草稿第二段")
     expect(thinking).toContain("## 阶段4：大纲自检\n结论：通过")
   })
+
+  it("throws the stream error surfaced by onError", async () => {
+    const deps: DeepOutlineGenerationDeps = {
+      streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        callbacks.onError(new Error("upstream exploded"))
+        callbacks.onDone()
+      }),
+    }
+    await expect(
+      runDeepOutlineGeneration(
+        { llmConfig, userRequest: "x", context: "ctx" },
+        {},
+        deps,
+      ),
+    ).rejects.toThrow("upstream exploded")
+  })
+
+  it("flushes onUpdate mid-stream once 256 chars accumulate (F-4 throttle)", async () => {
+    const bigToken = "字".repeat(300)
+    const deps: DeepOutlineGenerationDeps = {
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messages.map((message) => String(message.content)).join("\n")
+        callbacks.onToken(prompt.includes("草稿") ? bigToken : "short")
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    await runDeepOutlineGeneration(
+      { llmConfig, userRequest: "x", context: "ctx" },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    // 300-char token crosses the 256 threshold → intermediate flush emitted
+    expect(thinking.some((t) => t.includes("阶段3：大纲草稿") && t.length > 300)).toBe(true)
+  })
+
+  it("formats recent history: filters non-user/assistant roles, slices last 6, truncates to 1200 chars", async () => {
+    const capturedPrompts: string[] = []
+    const deps: DeepOutlineGenerationDeps = {
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        capturedPrompts.push(messages.map((message) => String(message.content)).join("\n"))
+        callbacks.onToken("ok")
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    const longContent = "L".repeat(2000)
+    const historyMessages: ChatMessage[] = [
+      { role: "system", content: "系统提示不应出现" },
+      { role: "user", content: "第零问" },
+      { role: "assistant", content: "第零答" },
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答" },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: longContent },
+      { role: "user", content: "第三问" },
+      { role: "assistant", content: "第三答" },
+    ]
+    await runDeepOutlineGeneration(
+      { llmConfig, userRequest: "x", context: "ctx", historyMessages },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    expect(thinking.join("\n")).toContain("已纳入本轮大纲对话历史")
+    const allPrompts = capturedPrompts.join("\n")
+    expect(allPrompts).not.toContain("系统提示不应出现")
+    expect(allPrompts).not.toContain("第零问") // sliced to last 6 → oldest dropped
+    expect(allPrompts).toContain("第三问")
+    expect(allPrompts).toContain("AI：".concat("L".repeat(1200)))
+    expect(allPrompts).not.toContain("L".repeat(1201)) // truncated to 1200
+    expect(allPrompts).toContain("用户：第二问")
+  })
+
+  it("reports missing user request in stage-1 thinking", async () => {
+    const deps = createDeps()
+    const thinking: string[] = []
+    await runDeepOutlineGeneration(
+      { llmConfig, userRequest: "" as unknown as string, context: "ctx" },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    expect(thinking.join("\n")).toContain("未提供用户要求")
+  })
+
+  it("triggers the final flush when only trailing tokens remain below the throttle", async () => {
+    // token batch shorter than 256 in the last stage: intermediate flush
+    // skipped, final flush must still deliver the full self-check content
+    const deps: DeepOutlineGenerationDeps = {
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messages.map((message) => String(message.content)).join("\n")
+        if (prompt.includes("自检")) {
+          callbacks.onToken("短")
+          callbacks.onToken("结论")
+        } else {
+          callbacks.onToken("长".repeat(400))
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    await runDeepOutlineGeneration(
+      { llmConfig, userRequest: "x", context: "ctx" },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    expect(thinking).toContain("## 阶段4：大纲自检\n短结论")
+  })
 })

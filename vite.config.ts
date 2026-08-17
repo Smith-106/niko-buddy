@@ -121,5 +121,34 @@ export default defineConfig(async () => ({
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.
     setupFiles: ["./src/test-helpers/load-test-env.ts"],
+    // 覆盖率基线（2026-08-16 战役启动）：全口径 s/l/b/f，目标 100%（白名单排除）
+    // 测量命令：npm run test:coverage
+    // 白名单（7 项，analyze 冻结）：
+    //   src/main.tsx 入口 / src/i18n/index.ts 初始化副作用 / src/config/help-links.ts 纯 URL 数据 /
+    //   src/types/*.ts 纯 interface / src/test-helpers/** 测试工具 / src/vite-env.d.ts 类型声明
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.{spec,test}.ts",
+        "src/**/*.{spec,test}.tsx",
+        "src/**/*.d.ts",
+        "src/main.tsx",
+        "src/i18n/index.ts",
+        "src/config/help-links.ts",
+        "src/types/**",
+        "src/test-helpers/**",
+        "src/lib/novel/vendor/**",
+        "src/lib/novel/__fixtures__/**",
+      ],
+      reporter: ["text", "json-summary"],
+      reportsDirectory: "coverage",
+      thresholds: {
+        statements: 100,
+        branches: 100,
+        functions: 100,
+        lines: 100,
+      },
+    },
   },
 }))

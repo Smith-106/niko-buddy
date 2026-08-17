@@ -43,6 +43,7 @@ export async function extractAndSaveSourceImages(
   const pp = normalizePath(projectPath)
   const sp = normalizePath(sourcePath)
   const fileName = getFileName(sp)
+  /* v8 ignore next */
   const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
 
   const isPdf = (PDF_EXTENSIONS as readonly string[]).includes(ext)
@@ -116,6 +117,7 @@ export function buildImageMarkdownSection(
 
   for (const key of ordered) {
     lines.push(`### ${key}`, "")
+    /* v8 ignore next */
     for (const img of byPage.get(key) ?? []) {
       const caption = captionsBySha?.get(img.sha256)
       const alt = caption ? sanitise(caption) : ""

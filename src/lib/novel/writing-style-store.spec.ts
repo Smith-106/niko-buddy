@@ -103,6 +103,46 @@ describe("writing-style-store", () => {
     expect(ctx).toContain("朴素")
   })
 
+  it("coerces a non-array styles field from a persisted file to []", async () => {
+    // Array.isArray(parsed.styles) 为 false → 回退 [] 臂
+    mem.set(`${PROJECT}/.qmai/writing-style.json`, JSON.stringify({ version: 1, enabledStyleId: null, styles: "not-an-array" }))
+    const store = await loadWritingStyleStore(PROJECT)
+    expect(store.styles).toEqual([])
+    expect(store.enabledStyleId).toBeNull()
+  })
+
+  it("returns null when the enabled style id is no longer present in the store", async () => {
+    // enabledStyleId 已设置但对应 preset 被删 → find 回退 ?? null 臂
+    mem.set(PROJECT + "/.qmai/writing-style.json", JSON.stringify({ version: 1, enabledStyleId: "ghost", styles: [] }))
+    expect(await getEnabledWritingStyle(PROJECT)).toBeNull()
+  })
+
+  it("skips blank samples and stops at the samples char limit", async () => {
+    const preset = await upsertWritingStylePreset(PROJECT, {
+      name: "x",
+      sourceBook: "凡人",
+      profile: makeProfile({ samples: ["   ", "片段一", "片段二"], constitution: "朴素" }),
+    })
+    await setEnabledWritingStyle(PROJECT, preset.id)
+
+    // 空白样本 continue; 累计超限 break → 只保留 non-blank 首个片段
+    const ctx = await buildWritingStyleContext(PROJECT, { samplesCharLimit: 4 })
+    expect(ctx).toContain("片段一")
+    expect(ctx).not.toContain("片段二")
+  })
+
+  it("omits the samples section when every sample is blank", async () => {
+    const preset = await upsertWritingStylePreset(PROJECT, {
+      name: "x",
+      sourceBook: "凡人",
+      profile: makeProfile({ samples: ["  ", "\n "] }),
+    })
+    await setEnabledWritingStyle(PROJECT, preset.id)
+
+    const ctx = await buildWritingStyleContext(PROJECT, { includeSamples: true })
+    expect(ctx).not.toContain("文风参考片段")
+  })
+
   it("clips an over-long constitution to the configured limit", async () => {
     const preset = await upsertWritingStylePreset(PROJECT, {
       name: "x",

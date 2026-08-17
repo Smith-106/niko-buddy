@@ -58,3 +58,47 @@ soul文档软件更新分析.md
 
 # === 杂项 ===
 /1.txt
+
+# Coverage measurement artifacts (test-coverage-100 initiative)
+_measure/
+coverage/
+coverage-final.json
+coverage-summary.json
+coverage-tmp-*/
+coverage-baseline/
+.covtmp*/
+.tmp-w3nb-*/
+
+# Temporary work dirs & scratch
+.tmp-*/
+.tmp-*/
+.tmp/
+scratch/
+
+# Coverage initiative scratch (root-level)
+/.cov-*.mjs
+/.coverage-baseline*
+/coverage-gap-progress.md
+/coverage-r2-logs/
+/cov-detail.*
+/cov-show.py
+/.coverage-tools/
+/.covtools/
+/coverage-tools/
+/vitest.config.*.ts
+/scripts/tmp-*
+/scripts/z2-*
+/scripts/z3-*
+/scripts/r5nm-*
+/scripts/w3l-*
+/scripts/w4g6-*
+/scripts/cov-w4f6.sh
+/scripts/gap-w4f6.sh
+/scripts/coverage-gap-*
+/scripts/run-r5nm-coverage.mjs
+/scripts-r4nt/
+/scripts-r5lb-*.cjs
+/scripts-r5lm/
+/scripts-tmp-*/
+/tmp-*.txt
+/nul

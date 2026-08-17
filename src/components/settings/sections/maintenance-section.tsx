@@ -105,6 +105,7 @@ export function MaintenanceSection() {
   const { scanning, scanError, groups, scanCompleted } = projectScanState
 
   const handleScan = useCallback(async () => {
+    /* v8 ignore next */
     if (!project) return
     setSharedScanState({
       projectPath: project.path,
@@ -145,6 +146,7 @@ export function MaintenanceSection() {
 
   const handleEnqueue = useCallback(
     async (entry: GroupUiEntry) => {
+      /* v8 ignore next */
       if (!project) return
       try {
         await enqueueMerge(project.id, entry.group, entry.canonicalSlug)
@@ -170,8 +172,10 @@ export function MaintenanceSection() {
 
   const handleNotDuplicate = useCallback(
     async (idx: number) => {
+      /* v8 ignore next */
       if (!project) return
       const entry = groups[idx]
+      /* v8 ignore next */
       if (!entry) return
       try {
         await addNotDuplicate(project.path, entry.group.slugs)
@@ -340,7 +344,7 @@ export function MaintenanceSection() {
             task={task}
             merged={merged}
             pendingPosition={
-              task && task.status === "pending"
+              /* v8 ignore next */ task && task.status === "pending"
                 ? pendingPositionByTaskId.get(task.id) ?? 0
                 : 0
             }

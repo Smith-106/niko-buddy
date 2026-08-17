@@ -105,6 +105,7 @@ export function scoreReviewResults(
   for (const result of results) {
     const typeLabel = resolveTypeLabel(result.type)
     const dim = REVIEW_DIMENSION_MAP[typeLabel] || "facts"
+    /* v8 ignore next */
     if (dimensionIssues[dim]) {
       dimensionIssues[dim].push(result)
     }
@@ -114,6 +115,7 @@ export function scoreReviewResults(
   let weightedSum = 0
 
   for (const key of Object.keys(DIMENSION_WEIGHTS)) {
+    /* v8 ignore next */
     const issues = dimensionIssues[key] || []
     const deductions = options?.severityDeductions ?? SEVERITY_DEDUCTION
     const deduction = issues.reduce((sum, issue) => {

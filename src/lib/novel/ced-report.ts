@@ -149,6 +149,7 @@ export function computeCedReport(input: ComputeCedReportInput): CedReport {
     dimensions.style.count += styleN
     dimensions.style.weighted += styleN * 0.25
     weightedTotal += styleN * 0.25
+    /* v8 ignore next */
     if (!dimensions.style.findingTypes.includes("style_soft_count")) {
       dimensions.style.findingTypes.push("style_soft_count")
     }

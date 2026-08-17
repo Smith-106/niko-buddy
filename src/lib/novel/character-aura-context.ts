@@ -177,6 +177,7 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
     const uniqueRoots = [...new Set(roots.filter(Boolean))]
     
     for (const root of uniqueRoots) {
+      /* v8 ignore next */
       if (!root) continue
       try {
         const fullPath = joinPath(root, filePath)

@@ -121,4 +121,77 @@ describe("BookAnalysisLibraryLayout", () => {
     expect(html).toContain("重新提取角色")
     expect(html).toContain("重新提取文风")
   })
+
+  it("selectedBookId 不匹配时回退到 books[0]", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisLibraryLayout
+        state={state}
+        selectedBookId="missing-book"
+        selectedCharacterId="char-hanli"
+        extractingStyle={false}
+        extractingCharacters={false}
+        addingToSoul={false}
+        onSelectBook={vi.fn()}
+        onSelectCharacter={vi.fn()}
+        onImportNovel={vi.fn()}
+        onExtractStyle={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextractCharacters={vi.fn()}
+        onDeleteBook={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain("凡人修仙传")
+    expect(html).toContain("重新提取角色")
+  })
+
+  it("无书时显示空态；导入按钮不显示重新提取", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisLibraryLayout
+        state={{ ...state, books: [] }}
+        selectedBookId={null}
+        selectedCharacterId={null}
+        extractingStyle={false}
+        extractingCharacters={false}
+        addingToSoul={false}
+        onSelectBook={vi.fn()}
+        onSelectCharacter={vi.fn()}
+        onImportNovel={vi.fn()}
+        onExtractStyle={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextractCharacters={vi.fn()}
+        onDeleteBook={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain("还没有拆书作品")
+    expect(html).toContain("导入 TXT 小说后，可以提取角色 Skill 和作品文风。")
+    expect(html).not.toContain("重新提取角色")
+  })
+
+  it("extracting 标志：角色/文风按钮显示提取中", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisLibraryLayout
+        state={state}
+        selectedBookId="book-1"
+        selectedCharacterId="char-hanli"
+        extractingStyle
+        extractingCharacters
+        addingToSoul={false}
+        onSelectBook={vi.fn()}
+        onSelectCharacter={vi.fn()}
+        onImportNovel={vi.fn()}
+        onExtractStyle={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextractCharacters={vi.fn()}
+        onDeleteBook={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain("提取中...")
+    expect(html).not.toContain("重新提取角色")
+  })
 })

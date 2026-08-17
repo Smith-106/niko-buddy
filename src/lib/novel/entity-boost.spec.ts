@@ -54,4 +54,30 @@ describe("reorderByEntityBoost", () => {
     const items = [{ title: "a" }, { title: "b" }]
     expect(reorderByEntityBoost(items, [], 0.4)).toEqual(items)
   })
+
+  it("no-op for empty hit lists and empty item lists", () => {
+    expect(applyEntityBoost([], ["阿宁"], 0.4)).toEqual([])
+    expect(reorderByEntityBoost([], ["阿宁"], 0.4)).toEqual([])
+  })
+
+  it("treats non-finite weight as zero (sorts by original score only)", () => {
+    const ranked = applyEntityBoost([{ id: "a", score: 1, text: "阿宁" }], ["阿宁"], Number.NaN)
+    expect(ranked[0]).toEqual({ id: "a", score: 1 })
+  })
+
+  it("reorderByEntityBoost respects explicit numeric scores", () => {
+    const items = [
+      { title: "a", score: 100 },
+      { title: "阿宁在屋顶", score: 1 },
+    ]
+    // weight must exceed the score gap for the boosted item to overtake
+    const reordered = reorderByEntityBoost(items, ["阿宁"], 100)
+    expect(reordered[0]!.title).toBe("阿宁在屋顶")
+  })
+
+  it("reorderByEntityBoost no-ops when weight is not positive", () => {
+    const items = [{ title: "阿宁在屋顶" }, { title: "b" }]
+    expect(reorderByEntityBoost(items, ["阿宁"], 0)).toBe(items)
+    expect(reorderByEntityBoost(items, ["阿宁"], -1)).toBe(items)
+  })
 })

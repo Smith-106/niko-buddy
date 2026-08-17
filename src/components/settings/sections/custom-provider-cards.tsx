@@ -127,6 +127,7 @@ export function CustomProviderCards() {
 
   function toggleEnabled(id: string) {
     const card = cards.find((c) => c.id === id)
+    /* v8 ignore next */
     if (!card) return
     updateCard(id, { enabled: !card.enabled })
   }

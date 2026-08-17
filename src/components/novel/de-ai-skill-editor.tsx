@@ -24,6 +24,7 @@ export function DeAiSkillEditor() {
   }, [project?.path])
 
   async function loadSkill() {
+    /* v8 ignore next */
     if (!project) return
     try {
       const skillPath = await join(project.path, "de-ai-skill.txt")

@@ -286,4 +286,348 @@ describe("chat deep chapter resume", () => {
     expect(rebuilt?.resumeContext).toContain("当前正文草稿")
     expect(rebuilt?.resumeContext).toContain("review 后正文")
   })
+
+  it("handles missing / invalid timestamps with fallbacks", () => {
+    const status: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "novel-x",
+      source: "deep_chapter_generation",
+      created_at: "not-a-date",
+      updated_at: "",
+      status: "running",
+      active_step_index: 3,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-ts",
+        user_request: "生成第 9 章",
+        chapter_number: 9,
+        checkpoint_stage: "after_review",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "after_review",
+        updated_at: "",
+      },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      evidence_refs: [],
+      resume_checkpoint: {
+        version: 1,
+        originalRequest: "生成第 9 章",
+        chapterNumber: 9,
+        stage: "after_review",
+        reviewResults: [],
+      },
+    }
+    const now = 1_700_000_000_000
+    const hydrated = hydrateChatHistoryWithInterruptedDeepChapter(
+      { conversations: [], messages: [] },
+      status,
+      now,
+    )
+    expect(hydrated.conversations[0]?.createdAt).toBe(now)
+    expect(hydrated.conversations[0]?.updatedAt).toBe(now)
+  })
+
+  it("returns null payload for null status / missing checkpoint / conversation mismatch", () => {
+    const status: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:01.000Z",
+      status: "running",
+      active_step_index: 2,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-m",
+        user_request: "生成正文",
+        chapter_number: 1,
+        checkpoint_stage: "after_draft",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-07-01T00:00:01.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+    }
+    expect(buildInterruptedResumeContextPayload(null, "conv-m")).toBeNull()
+    // 无 resume_checkpoint → checkpoint 解析失败
+    expect(buildInterruptedResumeContextPayload(status, "conv-m")).toBeNull()
+    // conversation 不匹配 → 解析失败
+    expect(buildInterruptedResumeContextPayload(status, "other-conv")).toBeNull()
+  })
+
+  it("hydrate returns early for null / completed status or checkpoint-less sessions", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:01.000Z",
+      status: "running",
+      active_step_index: 2,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-early",
+        user_request: "生成正文",
+        chapter_number: 1,
+        checkpoint_stage: "after_draft",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-07-01T00:00:01.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+    }
+    const input = { conversations: [], messages: [] }
+    // status 为 null → 直接返回
+    expect(hydrateChatHistoryWithInterruptedDeepChapter(input, null).focusConversationId).toBeNull()
+    // status 为 completed（非 running/paused）→ 直接返回
+    const completed = { ...base, status: "completed" as const }
+    expect(hydrateChatHistoryWithInterruptedDeepChapter(input, completed).focusConversationId).toBeNull()
+    // running 但无 resume_checkpoint → checkpoint 解析失败提前返回
+    expect(hydrateChatHistoryWithInterruptedDeepChapter(input, base).focusConversationId).toBeNull()
+  })
+
+  it("uses fallback labels when chapter number is missing and omits empty sections", () => {
+    const status: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:01.000Z",
+      status: "paused",
+      active_step_index: 2,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-lbl",
+        user_request: "生成正文",
+        chapter_number: 0,
+        checkpoint_stage: "started",
+        status: "paused",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "started",
+        updated_at: "2026-07-01T00:00:01.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+      resume_checkpoint: {
+        version: 1,
+        originalRequest: "生成正文",
+        chapterNumber: 0,
+        stage: "after_draft",
+        reviewResults: [],
+      },
+    }
+    const payload = buildInterruptedResumeContextPayload(status, "conv-lbl")
+    expect(payload?.resumeContext).toContain("当前章节")
+    expect(payload?.resumeContext).not.toContain("已完成任务书")
+    expect(payload?.resumeContext).not.toContain("当前正文草稿")
+    // hydrate 生成的可见思考也使用 fallback 标签
+    const hydrated = hydrateChatHistoryWithInterruptedDeepChapter(
+      { conversations: [], messages: [] },
+      status,
+    )
+    const visible = hydrated.messages[hydrated.messages.length - 1]?.content ?? ""
+    expect(visible).toContain("当前章节")
+    expect(visible).toContain("已停止生成。")
+  })
+
+  it("fills fallback title when the original request is whitespace-only", () => {
+    const status: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:01.000Z",
+      status: "running",
+      active_step_index: 2,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-title",
+        user_request: "   ",
+        chapter_number: 1,
+        checkpoint_stage: "after_draft",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-07-01T00:00:01.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+      resume_checkpoint: {
+        version: 1,
+        originalRequest: "   ",
+        chapterNumber: 1,
+        stage: "after_draft",
+        taskBrief: "任务书",
+        draftContent: "草稿",
+        reviewResults: [],
+      },
+    }
+    const hydrated = hydrateChatHistoryWithInterruptedDeepChapter(
+      { conversations: [], messages: [] },
+      status,
+    )
+    expect(hydrated.conversations[0]?.title).toBe("继续未完成")
+  })
+
+  it("keeps the existing conversation title when non-empty (whitespace title gets fallback)", () => {
+    const status: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:01.000Z",
+      status: "running",
+      active_step_index: 2,
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-t2",
+        user_request: "生成第 2 章正文",
+        chapter_number: 2,
+        checkpoint_stage: "after_draft",
+        status: "running",
+      },
+      draft: {
+        draft_id: "d",
+        file_path: "p",
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: "2026-07-01T00:00:01.000Z",
+      },
+      decision_gates: {
+        consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+      resume_checkpoint: {
+        version: 1,
+        originalRequest: "生成第 2 章正文",
+        chapterNumber: 2,
+        stage: "after_draft",
+        reviewResults: [],
+      },
+    }
+    // 已有会话且标题为空字符串 → 使用 fallback
+    const blankTitle = hydrateChatHistoryWithInterruptedDeepChapter(
+      {
+        conversations: [{ id: "conv-t2", title: "   ", createdAt: 1, updatedAt: 1, deAiMode: false }],
+        messages: [],
+      },
+      status,
+    )
+    expect(blankTitle.conversations[0]?.title).toBe("生成第 2 章正文")
+    // 已有会话且标题非空 → 保留原标题
+    const keepTitle = hydrateChatHistoryWithInterruptedDeepChapter(
+      {
+        conversations: [{ id: "conv-t2", title: "原标题", createdAt: 1, updatedAt: 1, deAiMode: false }],
+        messages: [],
+      },
+      status,
+    )
+    expect(keepTitle.conversations[0]?.title).toBe("原标题")
+  })
+
+  it("truncates overly long resume context keeping head and tail", () => {
+    const longContent = "x".repeat(61_000)
+    const prompt = buildContinueUnfinishedDeepChapterPrompt({
+      failedAssistantContent: longContent,
+    })
+    expect(prompt).toContain("【中间过长内容已省略")
+    expect(prompt).toContain("未找到上一条用户原始请求")
+    // head 与 tail 都保留
+    const tail = "y".repeat(20)
+    const prompt2 = buildContinueUnfinishedDeepChapterPrompt({
+      failedAssistantContent: "h".repeat(55_000) + "m" + tail,
+    })
+    expect(prompt2).toContain(tail)
+  })
+
+  it("uses the generic fallback original request when none is provided", () => {
+    const prompt = buildContinueUnfinishedDeepChapterPrompt({
+      failedAssistantContent: "<think>阶段</think>",
+    })
+    expect(prompt).toContain("未找到上一条用户原始请求，请根据已有思考过程继续完成本章。")
+  })
+
+  it("extract returns null for plain content / malformed payload / missing resumeContext", () => {
+    expect(extractContinueUnfinishedDeepChapterContext("没有注释的普通内容")).toBeNull()
+    // JSON 解析失败 → catch 分支
+    expect(extractContinueUnfinishedDeepChapterContext(
+      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent("{bad json") + " -->",
+    )).toBeNull()
+    // JSON.parse 结果为 null
+    expect(extractContinueUnfinishedDeepChapterContext(
+      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent("null") + " -->",
+    )).toBeNull()
+    // 缺少 resumeContext 字段
+    expect(extractContinueUnfinishedDeepChapterContext(
+      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent(JSON.stringify({ originalRequest: "o" })) + " -->",
+    )).toBeNull()
+  })
+
+  it("extract tolerates non-string optional fields (undefined fallbacks)", () => {
+    const payload = {
+      originalRequest: 123,
+      resumeContext: "阶段1",
+      rootResumeContext: 456,
+      checkpoint: "not-an-object",
+    }
+    const parsed = extractContinueUnfinishedDeepChapterContext(
+      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent(JSON.stringify(payload)) + " -->",
+    )
+    expect(parsed?.originalRequest).toBeUndefined()
+    expect(parsed?.resumeContext).toBe("阶段1")
+    expect(parsed?.rootResumeContext).toBeUndefined()
+    expect(parsed?.checkpoint).toBeUndefined()
+  })
 })

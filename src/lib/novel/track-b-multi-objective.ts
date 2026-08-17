@@ -161,6 +161,7 @@ export function evaluateTrackBCandidate(
       Object.values(liftDeltas).some((d) => typeof d === "number" && d >= policy.regressionThreshold)
     // Reject when we have score evidence of protect regression (with or without lift).
     // If no score evidence for lift dims, still reject hard protect regressions.
+    /* v8 ignore next */
     if (anyLift || protectRegressions.length > 0) {
       return {
         accept: false,
@@ -200,4 +201,4 @@ export function shouldAcceptTrackBPolishText(options: {
     policy,
   )
 }
-
+

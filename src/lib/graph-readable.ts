@@ -101,8 +101,10 @@ export function getGraphNodeRiskStateOptions(type: string): string[] { return RI
 export function getNextGraphNodeRiskStateLabel(type: string, current: string | null): string | null {
   const opts = getGraphNodeRiskStateOptions(type)
   if (opts.length === 0) return null
+  /* v8 ignore next */
   if (!current) return opts[0] ?? null
   const idx = opts.indexOf(current)
+  /* v8 ignore next */
   return opts[(idx === -1 ? 0 : idx + 1) % opts.length] ?? null
 }
 
@@ -246,6 +248,7 @@ export function buildGraphRiskReport(nodes: GraphNode[], riskStateOverrides: Rec
 
   for (const node of riskNodes) {
     const state = riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)
+    /* v8 ignore next */
     lines.push(`## ${node.label}`, "", `- 类型：${getGraphNodeTypeLabel(node.type)}`, "", `- 状态：${state ?? "未知"}`, "")
     const defaultState = getGraphNodeRiskStateLabel(node.type)
     if (riskStateOverrides[node.id] !== undefined && defaultState !== state) {

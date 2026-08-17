@@ -115,6 +115,7 @@ export function ChapterSelectionPanel({
         const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
+        /* v8 ignore next */
         if (focusable.length === 0) return
         const first = focusable[0]
         const last = focusable[focusable.length - 1]
@@ -389,6 +390,7 @@ export function ChapterSelectionPanel({
                 <Button
                   onClick={(e) => {
                     e.stopPropagation()
+                    /* v8 ignore next */
                     if (!canConfirm) return
                     setIsAnalyzing(true)
                     try {

@@ -122,6 +122,7 @@ const EXT_MAP: Record<string, FileCategory> = {
 }
 
 export function getFileCategory(filePath: string): FileCategory {
+  // v8 ignore next -- split() always returns non-empty array; pop() never undefined
   const ext = filePath.split(".").pop()?.toLowerCase() ?? ""
   return EXT_MAP[ext] ?? "unknown"
 }
@@ -135,6 +136,7 @@ export function isBinary(category: FileCategory): boolean {
 }
 
 export function getCodeLanguage(filePath: string): string {
+  // v8 ignore next -- split() always returns non-empty array; pop() never undefined
   const ext = filePath.split(".").pop()?.toLowerCase() ?? ""
   const langMap: Record<string, string> = {
     js: "javascript",

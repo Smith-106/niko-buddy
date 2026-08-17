@@ -41,4 +41,31 @@ describe("chapter-window (expand-measure-window)", () => {
     expect(out.includes("CHAPTER_END_HOOK")).toBe(true)
     expect(out.length).toBeLessThanOrEqual(8000)
   })
+
+  it("ignores invalid env values and falls back to the default", () => {
+    expect(resolveReviewChapterMaxChars(undefined, { REVIEW_CHAPTER_MAX_CHARS: "abc" })).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+    expect(resolveReviewChapterMaxChars(undefined, { REVIEW_CHAPTER_MAX_CHARS: "0" })).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+    expect(resolveReviewChapterMaxChars(undefined, { REVIEW_CHAPTER_MAX_CHARS: "" })).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+  })
+
+  it("clamps env value to the [2000, 200000] production floor/cap", () => {
+    expect(resolveReviewChapterMaxChars(undefined, { REVIEW_CHAPTER_MAX_CHARS: "10" })).toBe(2_000)
+    expect(resolveReviewChapterMaxChars(undefined, { REVIEW_CHAPTER_MAX_CHARS: "99999999" })).toBe(200_000)
+  })
+
+  it("explicit overrides bypass the floor but still cap at 200000 and floor fractional values", () => {
+    expect(resolveReviewChapterMaxChars(10, {})).toBe(10)
+    expect(resolveReviewChapterMaxChars(500_000, {})).toBe(200_000)
+    expect(resolveReviewChapterMaxChars(12.9, {})).toBe(12)
+    expect(resolveReviewChapterMaxChars(0, {})).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+    expect(resolveReviewChapterMaxChars(Number.NaN, {})).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+  })
+
+  it("falls back to pure head truncation when the budget cannot fit the omission mark", () => {
+    const body = "A".repeat(100)
+    const out = sliceChapterForReview(body, 20)
+    expect(out.length).toBe(20)
+    expect(out).toBe("A".repeat(20))
+    expect(out).not.toContain("中间正文已省略")
+  })
 })
