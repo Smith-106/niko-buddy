@@ -3,7 +3,6 @@
 import { act, useState } from "react"
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { ReactNode } from "react"
 import {
   fireEvent,
   render,
@@ -13,6 +12,7 @@ import {
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { WikiEditor } from "./wiki-editor"
 import type { ChapterSelectionAction } from "@/lib/chapter-selection"
+import type { PendingEditorHighlight } from "@/stores/wiki-store"
 
 const mocks = vi.hoisted(() => {
   const markdownUpdated = vi.fn()
@@ -49,7 +49,7 @@ vi.mock("@milkdown/kit/plugin/listener", () => ({
 vi.mock("@milkdown/plugin-math", () => ({ math: vi.fn() }))
 vi.mock("@milkdown/theme-nord", () => ({ nord: vi.fn() }))
 
-vi.mock("@milkdown/react", async (importOriginal) => {
+vi.mock("@milkdown/react", async () => {
   const React = await import("react")
   return {
     MilkdownProvider: ({ children }: { children?: React.ReactNode }) =>
@@ -111,7 +111,7 @@ function ControlledEditor({
   content: string
   onSave?: (md: string) => void
   onSelectionAction?: (action: ChapterSelectionAction, selection: { start: number; end: number; text: string; bodySnapshot: string }) => void
-  highlightRequest?: { text: string } | null
+  highlightRequest?: PendingEditorHighlight | null
   onHighlightHandled?: () => void
   normalize?: boolean
 }) {
@@ -197,7 +197,7 @@ describe("WikiEditor", () => {
     )
 
     // 首次 emit 被吞，后续 emit 触发 onSave(rawBlock + markdown)
-    const handler = mocks.markdownUpdated.mock.calls.at(-1)?.[0]
+    const handler = mocks.markdownUpdated.mock.calls[mocks.markdownUpdated.mock.calls.length - 1]?.[0]
     expect(handler).toBeTypeOf("function")
     await act(async () => {
       handler(null, "首次")
@@ -428,7 +428,7 @@ describe("WikiEditor", () => {
     const { container } = render(
       <ControlledEditor
         content={"# 第1章\n\n第二段正文"}
-        highlightRequest={{ text: "正文" }}
+        highlightRequest={{ path: "/p/wiki/第1章.md", text: "正文", nonce: 1 }}
         onHighlightHandled={onHighlightHandled}
       />,
     )
@@ -530,7 +530,7 @@ describe("WikiEditor", () => {
     const { container } = render(
       <ControlledEditor
         content={"# 第1章\n\n第一段第二段"}
-        highlightRequest={{ text: "第二段" }}
+        highlightRequest={{ path: "/p/wiki/ch1.md", text: "第二段", nonce: 1 }}
         onHighlightHandled={onHighlightHandled}
       />,
     )
@@ -550,7 +550,7 @@ describe("WikiEditor", () => {
     render(
       <ControlledEditor
         content={"# 第1章\n\n正文"}
-        highlightRequest={{ text: "不存在" }}
+        highlightRequest={{ path: "/p/wiki/ch1.md", text: "不存在", nonce: 1 }}
         onHighlightHandled={onHighlightHandled}
       />,
     )
@@ -563,7 +563,7 @@ describe("WikiEditor", () => {
     render(
       <ControlledEditor
         content={"# 第1章\n\n正文"}
-        highlightRequest={{ text: "   " }}
+        highlightRequest={{ path: "/p/wiki/ch1.md", text: "   ", nonce: 1 }}
         onHighlightHandled={onHighlightHandled}
       />,
     )
