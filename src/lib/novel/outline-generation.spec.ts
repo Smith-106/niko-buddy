@@ -711,7 +711,7 @@ describe("openGeneratedOutline", () => {
       setActiveView: vi.fn(),
       setSelectedFile: vi.fn(),
       setFileContent: vi.fn(),
-    } as Parameters<typeof openGeneratedOutline>[1]
+    } as NonNullable<Parameters<typeof openGeneratedOutline>[1]>
 
     await openGeneratedOutline("t1", navActions)
 

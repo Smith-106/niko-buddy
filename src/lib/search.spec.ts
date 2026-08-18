@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   searchWiki,
   tokenizeQuery,
-  type SearchWikiOptions,
 } from "./search"
 import type { FileNode } from "@/types/wiki"
 
@@ -37,7 +36,6 @@ vi.mock("@/lib/rerank", () => ({
 }))
 
 const mdFile = (path: string, name: string): FileNode => ({
-  id: path,
   path,
   name,
   is_dir: false,
@@ -45,7 +43,6 @@ const mdFile = (path: string, name: string): FileNode => ({
 })
 
 const dirNode = (path: string, name: string, children: FileNode[]): FileNode => ({
-  id: path,
   path,
   name,
   is_dir: true,

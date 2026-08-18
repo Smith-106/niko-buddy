@@ -38,7 +38,7 @@ describe("structure-first-rewrite", () => {
   })
 
   it("appendStructurePlanToTaskBrief tolerates null brief and invalid plans", () => {
-    expect(appendStructurePlanToTaskBrief(undefined, null)).toBe("")
+    expect(appendStructurePlanToTaskBrief(undefined as unknown as string, null)).toBe("")
     const invalid = {
       schemaVersion: "chapter-structure-plan/9.9",
       fix1NonSpoiler: false,
@@ -49,7 +49,7 @@ describe("structure-first-rewrite", () => {
     const plan = createDefaultStructureThrilPacingPlan(1)
     const block = appendStructurePlanToTaskBrief("", plan)
     expect(block).toMatch(/ChapterStructurePlan/)
-    expect(appendStructurePlanToTaskBrief(undefined, plan)).toBe(block)
+    expect(appendStructurePlanToTaskBrief(undefined as unknown as string, plan)).toBe(block)
   })
 
   it("constraint falls back without decision and without a valid plan", () => {
@@ -76,6 +76,6 @@ describe("structure-first-rewrite", () => {
       fix1NonSpoiler: false,
       beats: [],
     } as never
-    expect(appendStructurePlanToTaskBrief(undefined, invalid)).toBe("")
+    expect(appendStructurePlanToTaskBrief(undefined as unknown as string, invalid)).toBe("")
   })
 })

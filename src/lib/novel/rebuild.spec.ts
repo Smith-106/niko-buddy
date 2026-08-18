@@ -64,7 +64,7 @@ describe("rebuild rebuildAllSnapshots", () => {
   })
 
   it("returns early when novel mode disabled", async () => {
-    mocks.useWikiStore.getState.mockReturnValue({ novelMode: false })
+    mocks.useWikiStore.getState.mockReturnValue({ novelMode: false, embeddingConfig: { enabled: true, model: "m" } })
     const result = await rebuildAllSnapshots("C:/novel")
     expect(result).toEqual({ success: 0, failed: 0, errors: ["小说模式未开启"] })
   })
@@ -183,6 +183,7 @@ describe("rebuild rebuildVectorIndex", () => {
 
   it("returns early when embedding disabled or no model", async () => {
     mocks.useWikiStore.getState.mockReturnValue({
+      novelMode: true,
       embeddingConfig: { enabled: false, model: "m" },
     })
     expect(await rebuildVectorIndex("C:/novel")).toEqual({
@@ -190,6 +191,7 @@ describe("rebuild rebuildVectorIndex", () => {
       errors: ["向量嵌入未启用或未配置模型"],
     })
     mocks.useWikiStore.getState.mockReturnValue({
+      novelMode: true,
       embeddingConfig: { enabled: true, model: "" },
     })
     expect(await rebuildVectorIndex("C:/novel")).toEqual({

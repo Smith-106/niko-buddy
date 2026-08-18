@@ -51,7 +51,7 @@ const llmConfig: LlmConfig = {
   reasoning: { mode: "off" },
 }
 
-function mdFile(name: string, path: string, content = ""): FileNode {
+function mdFile(name: string, path: string, _content = ""): FileNode {
   return { name, path, is_dir: false }
 }
 
@@ -538,11 +538,11 @@ describe("cleanupDeletedWikiPages", () => {
     // index listing cleaned + wikilinks stripped everywhere
     const indexWrite = fsState.writeFile.mock.calls.find((c) => String(c[0]).endsWith("index.md"))
     expect(indexWrite).toBeTruthy()
-    expect(indexWrite[1]).not.toContain("[[gone-page]]")
+    expect(indexWrite?.[1]).not.toContain("[[gone-page]]")
     // related frontmatter filtered on foo.md
     const fooWrite = fsState.writeFile.mock.calls.find((c) => String(c[0]).endsWith("foo.md"))
     expect(fooWrite).toBeTruthy()
-    expect(fooWrite[1]).not.toContain("related: [gone-page")
+    expect(fooWrite?.[1]).not.toContain("related: [gone-page")
   })
 
   it("tolerates a failing media delete and unreadable files", async () => {

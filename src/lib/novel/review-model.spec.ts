@@ -9,6 +9,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 import { resolveReviewModel } from "./review-model"
+import { DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
 
 describe("review-model resolveReviewModel", () => {
   beforeEach(() => {
@@ -16,12 +17,12 @@ describe("review-model resolveReviewModel", () => {
   })
 
   it("returns trimmed reviewModel from explicit config", () => {
-    expect(resolveReviewModel({ reviewModel: "  deepseek-r1  " })).toBe("deepseek-r1")
+    expect(resolveReviewModel({ ...DEFAULT_NOVEL_CONFIG, reviewModel: "  deepseek-r1  " })).toBe("deepseek-r1")
   })
 
   it("returns empty string when explicit config has blank reviewModel", () => {
-    expect(resolveReviewModel({ reviewModel: "   " })).toBe("")
-    expect(resolveReviewModel({ reviewModel: "" })).toBe("")
+    expect(resolveReviewModel({ ...DEFAULT_NOVEL_CONFIG, reviewModel: "   " })).toBe("")
+    expect(resolveReviewModel({ ...DEFAULT_NOVEL_CONFIG, reviewModel: "" })).toBe("")
   })
 
   it("falls back to wiki store novelConfig when config omitted", () => {

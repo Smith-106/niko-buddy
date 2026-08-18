@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Conversation, DisplayMessage } from "@/stores/chat-store"
+import type { ReviewItem } from "@/stores/review-store"
 import { __resetProjectLocksForTesting } from "@/lib/project-mutex"
 
 const fsState = vi.hoisted(() => {
