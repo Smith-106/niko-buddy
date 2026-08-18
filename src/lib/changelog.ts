@@ -97,6 +97,23 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FIVE_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "2.5.0",
+  date: "2026-08-18",
+  highlights: {
+    en: [
+      "Writing preferences (user memory): new Writing Preferences block in Settings > Novel — human-readable labels only (internally mapped to dim:/deai_boost:/avoid_words prefixes, zero internal notation exposed); review scoring dimension weights / severity deductions calibrated per preference; de-AI rules weighted per preference with user avoid-words injected into the generation prompt; preferences persist to .novel/user-memory.json (atomic write).",
+      "Scope note: v2.5.0 is the manual-entry edition of writing preferences; automatic extraction (learning preferences from writing history) is planned for v2.6.",
+      "Feedback note: visible preference-application feedback (e.g. \"N preferences applied\" on the generation completion page) will be delivered in v2.5.1.",
+    ],
+    zh: [
+      "写作偏好（用户记忆系统）：设置页「小说设置」新增「写作偏好」区块——人类可读标签录入（内部映射 dim:/deai_boost:/avoid_words 前缀，零内部记号暴露）；审查打分维度权重/严重度扣分按偏好校准；去 AI 味规则按偏好加权，用户避用词注入生成 prompt；偏好持久化于项目 .novel/user-memory.json（原子写）。",
+      "能力边界说明：v2.5.0 为写作偏好手动录入版；自动提炼（从写作历史学习偏好）计划在 v2.6 提供。",
+      "反馈说明：偏好生效的可见反馈（如生成完成页「已应用 N 条写作偏好」）将在 v2.5.1 补齐。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_ELEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.4.11",
   date: "2026-08-18",
@@ -888,6 +905,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FIVE_ZERO_CHANGELOG.version) return [TWO_POINT_FIVE_ZERO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ELEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) return [TWO_POINT_FOUR_TEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_EIGHT_CHANGELOG.version) return [TWO_POINT_FOUR_EIGHT_CHANGELOG]
@@ -931,6 +949,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FIVE_ZERO_CHANGELOG,
     TWO_POINT_FOUR_ELEVEN_CHANGELOG,
     TWO_POINT_FOUR_TEN_CHANGELOG,
     TWO_POINT_FOUR_SIX_CHANGELOG,
