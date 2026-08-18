@@ -5,6 +5,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.10] - 2026-08-18
+
+### Summary（UI↔后端契合联合审计 9 项修复）
+
+基于双模型（deepseek-v4-pro + GLM-5.2）联合审计的 8 项 findings + 2 项规划阶段新风险，经 analyze→plan→execute→review 四阶段闭环交付的 9 项修复（26 文件，+469/−1313）。安全加固 + UI 弹性 + 死代码清理。
+
+### Fixed（安全 — apiKey 明文持久化）
+
+- **持久化边界加密接线（HIGH）**：project-store 6 对 `save*/load*`（llm/providers/search/embedding/multimodal/rerank）+ rerank 文件双写接入 AES-GCM 加密；运行时内存保持**明文**，仅持久化边界加密；加密失败**显式抛出**（无静默明文回退，`safeEncryptApiKey` 契约）；解密失败返回空串（跨设备用户重输）
+- **一次性明文迁移**：新增 `migratePlaintextApiKeys()`，启动时检查**未解密的原始存储值**（非解密后内存值——后者永远看起来像明文会导致每次启动误重写），幂等短路；在 `initializeApp` 末尾调用；加写不删、可重入
+- **备份指纹泄露（R-FINGERPRINT）**：备份导出排除 `qmai_fallback_fingerprint`，导入保护该键不被覆盖/写入
+
+### Fixed（UI 弹性与 UX）
+
+- **根 ErrorBoundary**：`main.tsx` 用 `<ErrorBoundary>` 包裹 `<App/>`，兜住 chrome 层（WelcomeScreen/sidebar/ActivityPanel）在 ContentArea 边界之外的崩溃
+- **拆书任务持久化（R-INTERRUPTED-TASK）**：新建 `task-persistence.ts`（`loadTaskSummaries` + 500ms 防抖 `attachTaskPersistence`）；`book-analysis-store` 新增 `hydrateTasks` action；启动恢复时 running/paused → `error: "应用重启，任务已中断"`
+- **CreateProjectDialog 初始化失败反馈**：异步初始化 reject → `alert("项目创建后初始化失败：…")`，不再静默
+- **备份取消通道**：真实中断而非仅警告——Rust `AtomicBool` + `cancel_backup` 命令 + TS `cancelBackup()` + UI 取消按钮；逐文件/逐项目检查点；取消时先 `drop(zip)` 释放 Windows 文件句柄再 `remove_file`（否则句柄占用导致删除失败留残缺 zip）
+
+### Removed（死代码清理 — 8 个孤儿 IPC + 关联 Rust 死代码）
+
+- 删除未声明模块 `book_analysis.rs`（136 行）；删除 `workflow-extraction-engine.ts(+spec)`
+- 移除 8 个无前端调用的孤儿命令：`vector_upsert/search/delete/count`、`hybrid_search`、`extract_pdf_images_cmd`、`extract_office_images_cmd`、`get_file_change_queue`，及关联 Rust 死助手函数/结构体/测试
+- **保留**（F-DEAD-005）：`vector_legacy_row_count`/`vector_drop_legacy`、所有 `*_chunks`/`extract_and_save_*` 变体、`get_process_memory`（bench 用）；47 个活跃 IPC 契约语义不变
+
+### Notes
+
+- notes-only release：安装包资产保持 **v2.4.6**，v2.4.10 为源码 tip（`smith/master`）
+- Track A（机械门控）PASS；Track L9（书稿里程碑）N/A（纯应用发版，不附书稿宣称）；Track B 分维诊断未触及
+- 门控：`tsc --noEmit` 0 错误；`cargo test` 123 passed；聚焦 vitest 全绿；联合复核（deepseek + GLM）3 项 CHANGES-REQUESTED 全部修订
+- 联合复核裁决记录：plaintext-on-disk 严重度采信 GLM 的 HIGH（已落盘事实）；ErrorBoundary 覆盖度采信 deepseek 的 MEDIUM（chrome 层缺口）；取消通道采信 deepseek 的真实中断方案
+
 ## [2.4.9] - 2026-08-17
 
 ### Added（测试覆盖率 100% 里程碑 — 全口径 statements/branches/functions/lines 达 100%）
