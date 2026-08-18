@@ -7,7 +7,7 @@ import { act } from "react"
 import Module from "node:module"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { fireEvent, render, screen, setupDomGlobals, waitFor, within } from "@/test-helpers/component-test-utils"
+import { fireEvent, render, screen, setupDomGlobals, waitFor } from "@/test-helpers/component-test-utils"
 import { OutlineChatPanel } from "./outline-chat-panel"
 
 // 源码 outline-chat-panel.tsx:131 在 render 期用 Node 的 require() 读取 agent-parser
@@ -73,57 +73,68 @@ const mocks = vi.hoisted(() => {
     outlineState,
     getWikiState: () => ({ searchApiConfig: { provider: "none" as const, apiKey: "" } }),
     // outline-chat-store actions（setState 会直接写 outlineState，模拟 zustand）
-    createConversation: vi.fn(() => "conv-created"),
-    setActiveConversation: vi.fn(),
-    addMessage: vi.fn(),
-    replaceLastAssistant: vi.fn(),
-    removeLastMessage: vi.fn(),
-    deleteConversation: vi.fn(),
-    setStreamingContent: vi.fn((c: string) => { outlineState.streamingContent = c }),
-    setIsStreaming: vi.fn((v: boolean) => { outlineState.isStreaming = v }),
-    loadFromDisk: vi.fn(async () => {}),
+    createConversation: vi.fn<() => string>(() => "conv-created"),
+    setActiveConversation: vi.fn<(id: string | null) => void>(),
+    addMessage: vi.fn<(convId: string, message: ConvMsg) => void>(),
+    replaceLastAssistant: vi.fn<(message: ConvMsg) => void>(),
+    removeLastMessage: vi.fn<() => void>(),
+    deleteConversation: vi.fn<(id: string) => void>(),
+    setStreamingContent: vi.fn<(c: string) => void>((c: string) => { outlineState.streamingContent = c }),
+    setIsStreaming: vi.fn<(v: boolean) => void>((v: boolean) => { outlineState.isStreaming = v }),
+    loadFromDisk: vi.fn<() => Promise<void>>(async () => {}),
     // llm / 生成管线
-    streamChat: vi.fn(async (_config: unknown, _messages: unknown, callbacks: { onToken?: (t: string) => void; onReasoningToken?: (t: string) => void; onDone?: () => void; onError?: (e: Error) => void }) => {
+    streamChat: vi.fn<(
+      _config: unknown,
+      _messages: unknown,
+      callbacks: { onToken?: (t: string) => void; onReasoningToken?: (t: string) => void; onDone?: () => void; onError?: (e: Error) => void },
+      _signal?: AbortSignal,
+      _overrides?: unknown,
+    ) => Promise<void>>(async (_config, _messages, callbacks) => {
       callbacks.onReasoningToken?.("推理片段")
       callbacks.onReasoningToken?.("第二段")
       callbacks.onReasoningToken?.("")
       callbacks.onToken?.("正文片段")
       callbacks.onDone?.()
     }),
-    hasUsableLlm: vi.fn(() => true),
-    resolveNovelModel: vi.fn(() => ({ provider: "openai", apiKey: "k", model: "m" })),
-    runDeepOutlineGeneration: vi.fn(async (_input: unknown, callbacks?: { onThinking?: (c: string) => void; onFinalContent?: (c: string) => void }) => {
+    hasUsableLlm: vi.fn<() => boolean>(() => true),
+    resolveNovelModel: vi.fn<() => { provider: string; apiKey: string; model: string }>(() => ({ provider: "openai", apiKey: "k", model: "m" })),
+    runDeepOutlineGeneration: vi.fn<(
+      _input: unknown,
+      callbacks?: { onThinking?: (c: string) => void; onFinalContent?: (c: string) => void },
+      _deps?: unknown,
+      signal?: AbortSignal,
+    ) => Promise<{ finalContent: string; taskBrief: string; draftContent: string; selfCheck: string }>>(async (_input, callbacks) => {
       callbacks?.onThinking?.("思考阶段")
       callbacks?.onFinalContent?.("最终大纲输出")
       return { finalContent: "最终大纲输出", taskBrief: "t", draftContent: "最终大纲输出", selfCheck: "s" }
     }),
-    createDeepThinkingStreamRenderer: vi.fn(() => ({
-      updateThinking: vi.fn((c: string) => c),
-      appendFinal: vi.fn((c: string) => c),
-      getContent: vi.fn(() => ""),
+    createDeepThinkingStreamRenderer: vi.fn<() => { updateThinking: (c: string) => string; appendFinal: (c: string) => string; getContent: () => string }>(() => ({
+      updateThinking: vi.fn<(c: string) => string>((c: string) => c),
+      appendFinal: vi.fn<(c: string) => string>((c: string) => c),
+      getContent: vi.fn<() => string>(() => ""),
     })),
-    resolveUserVisibleReasoning: vi.fn((r?: unknown) => r ?? { mode: "auto" as const }),
+    resolveUserVisibleReasoning: vi.fn<(r?: unknown) => { mode: string }>((r?: unknown) => (r ?? { mode: "auto" as const }) as { mode: string }),
     // web research
-    shouldUseWebResearch: vi.fn(() => false),
-    collectWebResearch: vi.fn(async () => ({ items: [], sources: [] })),
-    buildWebResearchContext: vi.fn(() => ({ markdown: "", sources: [] })),
+    shouldUseWebResearch: vi.fn<(text: string) => boolean>(() => false),
+    collectWebResearch: vi.fn<() => Promise<{ items: unknown[]; sources: string[] }>>(async () => ({ items: [], sources: [] })),
+    buildWebResearchContext: vi.fn<() => { markdown: string; sources: string[] }>(() => ({ markdown: "", sources: [] })),
     // agent parser / tools（动态 import 走 mock）
-    detectEditIntent: vi.fn(() => false),
-    buildAgentSystemSuffix: vi.fn(() => "\n\n[agent-suffix]"),
-    parseAgentResponse: vi.fn((content: string) => ({ textContent: content, edits: [], hasEdits: false })),
-    readScopeFileContents: vi.fn(async () => []),
-    applyFileEdits: vi.fn(async () => [{ path: "E:/Novel/wiki/outlines/x.md", ok: true }]),
+    detectEditIntent: vi.fn<(text: string) => boolean>(() => false),
+    buildAgentSystemSuffix: vi.fn<(scope: "chapters" | "outlines") => string>(() => "\n\n[agent-suffix]"),
+    parseAgentResponse: vi.fn<(content: string) => { textContent: string; edits: unknown[]; hasEdits: boolean }>((content: string) => ({ textContent: content, edits: [], hasEdits: false })),
+    readScopeFileContents: vi.fn<(path: string) => Promise<Array<{ name: string; content: string }>>>(async () => []),
+    applyFileEdits: vi.fn<(projectPath: string, edits: unknown[]) => Promise<Array<{ path: string; ok: boolean }>>>(async () => [{ path: "E:/Novel/wiki/outlines/x.md", ok: true }]),
     // outline 保存
-    prepareOutlineSaveDraft: vi.fn((content: string) => ({ title: "测试大纲", content: `# 测试大纲\n\n${content}` })),
-    refreshProjectState: vi.fn(async () => {}),
-    normalizePath: vi.fn((p: string) => p.replace(/\\/g, "/")),
+    prepareOutlineSaveDraft: vi.fn<(content: string) => { title: string; content: string }>((content: string) => ({ title: "测试大纲", content: `# 测试大纲\n\n${content}` })),
+    refreshProjectState: vi.fn<(projectPath: string) => Promise<void>>(async () => {}),
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p.replace(/\\/g, "/")),
     // fs
-    readFile: vi.fn(async () => "file-content"),
-    writeFile: vi.fn(async () => {}),
-    listDirectory: vi.fn(async () => []),
-    createDirectory: vi.fn(async () => {}),
-    fileExists: vi.fn(async () => false),
-    clipboardWrite: vi.fn(async () => {}),
+    readFile: vi.fn<(path: string) => Promise<string>>(async () => "file-content"),
+    writeFile: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
+    listDirectory: vi.fn<(path: string) => Promise<Array<{ name: string; is_dir: boolean; path?: string }>>>(async () => []),
+    createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
+    clipboardWrite: vi.fn<(text: string) => Promise<void>>(async () => {}),
   }
 })
 
@@ -515,7 +526,7 @@ describe("OutlineChatPanel — 消息渲染（数据态）", () => {
 
 // ── 文件编辑预览 ──────────────────────────────────────────────────────────────
 describe("OutlineChatPanel — 文件编辑预览", () => {
-  function renderWithEdits(overrides?: { project: ProjectLike | null; isStreaming?: boolean }): ReturnType<typeof render> {
+  function renderWithEdits(overrides?: { project?: ProjectLike | null; isStreaming?: boolean }): ReturnType<typeof render> {
     mocks.outlineState.conversations = [
       makeConv({
         messages: [{ id: "a1", role: "assistant", content: "有编辑指令的回答", sources: [] }],
