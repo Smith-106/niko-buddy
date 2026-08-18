@@ -16,7 +16,7 @@ function makeConfig(
   overrides: Partial<{ provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"; customEndpoint: string; apiKey: string; model: string }> = {},
 ) {
   return {
-    provider: "custom",
+    provider: "custom" as const,
     customEndpoint: "https://example.com/v1/rerank",
     apiKey: "sk-test",
     model: "bge-reranker",

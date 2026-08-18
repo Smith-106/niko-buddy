@@ -54,7 +54,7 @@ const mocks = vi.hoisted(() => {
   const map = new Map<string, unknown>()
   return {
     store: {
-      get: vi.fn(async (k: string) => (map.has(k) ? map.get(k) : undefined)),
+      get: vi.fn<<T = unknown>(k: string) => Promise<T | undefined>>(async <T>(k: string) => (map.has(k) ? (map.get(k) as T) : undefined)),
       set: vi.fn(async (k: string, v: unknown) => {
         map.set(k, v)
       }),
@@ -286,12 +286,12 @@ describe("language / output language", () => {
   })
 
   it("round-trips output language globally and per project", async () => {
-    await saveOutputLanguage("zh-CN")
-    await expect(loadOutputLanguage()).resolves.toBe("zh-CN")
-    await saveOutputLanguage("en", "p1")
-    await saveOutputLanguage("ja", "p2")
-    await expect(loadOutputLanguage("p1")).resolves.toBe("en")
-    await expect(loadOutputLanguage("p2")).resolves.toBe("ja")
+    await saveOutputLanguage("Chinese")
+    await expect(loadOutputLanguage()).resolves.toBe("Chinese")
+    await saveOutputLanguage("English", "p1")
+    await saveOutputLanguage("Japanese", "p2")
+    await expect(loadOutputLanguage("p1")).resolves.toBe("English")
+    await expect(loadOutputLanguage("p2")).resolves.toBe("Japanese")
     await expect(loadOutputLanguage("missing")).resolves.toBeNull()
     await expect(loadOutputLanguage().then(() => null)).resolves.toBeNull()
   })
@@ -332,7 +332,7 @@ describe("source watch config", () => {
 
   it("stores under the default key when no project id is given", async () => {
     await saveSourceWatchConfig({ enabled: true } as never)
-    const stored = await mocks.store.get<Record<string, unknown>>("sourceWatchConfig")
+    const stored = (await mocks.store.get("sourceWatchConfig")) as Record<string, unknown> | undefined
     expect(stored?.default).toMatchObject({ enabled: true })
   })
 
@@ -473,7 +473,7 @@ describe("revision feedback window config", () => {
 
   it("saves per project without a file when only the project id is given", async () => {
     await saveRevisionFeedbackWindowConfig({ lookbackChapterCount: 5 } as never, "p1")
-    const stored = await mocks.store.get<Record<string, unknown>>("projectRevisionFeedbackWindowConfigs")
+    const stored = (await mocks.store.get("projectRevisionFeedbackWindowConfigs")) as Record<string, unknown> | undefined
     expect(stored?.["p1"]).toMatchObject({ lookbackChapterCount: 5 })
     expect(mocks.writeFile).not.toHaveBeenCalled()
   })
@@ -589,7 +589,7 @@ describe("rerank config", () => {
     const config = { enabled: true, model: "reranker", maxCandidates: 8 }
     // projectId without projectPath — merged into the per-project map
     await saveRerankConfig(config as never, "p1")
-    const stored = await mocks.store.get<Record<string, unknown>>("projectRerankConfigs")
+    const stored = (await mocks.store.get("projectRerankConfigs")) as Record<string, unknown> | undefined
     expect(stored?.["p1"]).toMatchObject({ model: "reranker" })
 
     // projectId + projectPath — also writes the per-project file; a failing
@@ -599,7 +599,7 @@ describe("rerank config", () => {
 
     // merging into an existing map entry
     await saveRerankConfig({ enabled: false } as never, "p2")
-    const again = await mocks.store.get<Record<string, unknown>>("projectRerankConfigs")
+    const again = (await mocks.store.get("projectRerankConfigs")) as Record<string, unknown> | undefined
     expect(Object.keys(again ?? {})).toEqual(["p1", "p2"])
   })
 
@@ -668,9 +668,9 @@ describe("empty-store fallbacks", () => {
     // Both save paths start from an empty store so the `?? {}` fallback runs
     // (no-projectId call first, then the per-project call).
     await saveProjectFileSyncEnabled(true)
-    expect(await mocks.store.get<Record<string, unknown>>("projectFileSyncEnabled")).toEqual({ default: true })
+    expect(await mocks.store.get("projectFileSyncEnabled")).toEqual({ default: true })
     await saveProjectFileSyncEnabled(false, "p1")
-    expect(await mocks.store.get<Record<string, unknown>>("projectFileSyncEnabled")).toEqual({ default: true, p1: false })
+    expect(await mocks.store.get("projectFileSyncEnabled")).toEqual({ default: true, p1: false })
   })
 
   it("removeFromRecentProjects tolerates an empty recents list", async () => {
