@@ -8,7 +8,7 @@ import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 
 const dialogMocks = vi.hoisted(() => ({
-  openDialog: vi.fn(async () => null),
+  openDialog: vi.fn<(options?: unknown) => Promise<string | string[] | null>>(async () => null),
 }))
 
 vi.mock("@/components/ui/dialog", () => ({

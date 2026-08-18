@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => {
     t: vi.fn((key: string, opts?: { status?: string }) => (opts?.status ? `${key}::${opts.status}` : key)),
     hasUsableLlm: vi.fn(() => true),
     runPersonaCritique: vi.fn(async (): Promise<CritiqueResultLike> => ({ ok: true, results: [] })),
-    loadNovelSessionStatus: vi.fn(async () => null),
+    loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<NovelSessionStatus | null>>(async () => null),
   }
 })
 

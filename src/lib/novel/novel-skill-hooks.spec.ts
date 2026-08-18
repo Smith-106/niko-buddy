@@ -218,7 +218,7 @@ describe("novel-skill-hooks", () => {
 
   it("ced soft report hook skips empty prompt fragment", async () => {
     moduleMocks.formatCedReportPromptFragment.mockReturnValue("")
-    registerNovelSkillHook(createCedSoftReportHook({ textForWordCount: "x" }))
+    registerNovelSkillHook(createCedSoftReportHook({ findings: [], textForWordCount: "x" }))
     const ctx = await runNovelSkillHooks("pre_six_dim_review", { projectPath: "/p" })
     expect(ctx.bag.promptFragments).toEqual([])
     expect(ctx.bag.notes).toContain("CED soft density 1.2/1k")
@@ -258,7 +258,7 @@ describe("novel-skill-hooks", () => {
   })
 
   it("avoid-ai hook skips empty text without throwing", async () => {
-    registerNovelSkillHook(createAvoidAiMechanicalSlopHook({}))
+    registerNovelSkillHook(createAvoidAiMechanicalSlopHook({ text: "" }))
     const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
     expect(ctx.bag.notes.some((n) => n.includes("skipped"))).toBe(true)
     expect(moduleMocks.slopScore).not.toHaveBeenCalled()
@@ -319,7 +319,7 @@ describe("novel-skill-hooks", () => {
   })
 
   it("de-ai dual-pass hook skips empty text", async () => {
-    registerNovelSkillHook(createDeAiDualPassHook({}))
+    registerNovelSkillHook(createDeAiDualPassHook({ text: "" }))
     const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
     expect(ctx.bag.notes.some((n) => n.includes("de-ai dual-pass: skipped"))).toBe(true)
     expect(moduleMocks.runDeAiDualPass).not.toHaveBeenCalled()
@@ -359,7 +359,7 @@ describe("novel-skill-hooks", () => {
   })
 
   it("statistical-ai-signature hook skips empty text", async () => {
-    registerNovelSkillHook(createStatisticalAiSignatureHook({}))
+    registerNovelSkillHook(createStatisticalAiSignatureHook({ text: "" }))
     const ctx = await runNovelSkillHooks("pre_six_dim_review", { projectPath: "/p" })
     expect(ctx.bag.notes.some((n) => n.includes("statistical-ai-signature: skipped"))).toBe(true)
     expect(moduleMocks.scoreStatisticalAiSignature).not.toHaveBeenCalled()

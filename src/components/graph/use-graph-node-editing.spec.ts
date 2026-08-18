@@ -235,7 +235,7 @@ describe("useGraphNodeEditing", () => {
 
   it("handleSaveNodeEdit：保存成功（无 embedding）返回 savedRealProfile", async () => {
     const { result } = renderEditingHook()
-    let value: { success: boolean; msg: string } | undefined
+    let value: { success: boolean; msg?: string } | undefined
     await act(async () => {
       value = await result.current.handleSaveNodeEdit({
         editingPath: "/p/wiki/entities/林烬.md",
@@ -264,7 +264,7 @@ describe("useGraphNodeEditing", () => {
 
   it("handleSaveNodeEdit：embedding 启用且有模型 → 重索引并返回带 embedding 文案", async () => {
     const { result } = renderEditingHook()
-    let value: { success: boolean; msg: string } | undefined
+    let value: { success: boolean; msg?: string } | undefined
     await act(async () => {
       value = await result.current.handleSaveNodeEdit({
         editingPath: "/p/wiki/entities/林烬.md",
@@ -312,7 +312,7 @@ describe("useGraphNodeEditing", () => {
   it("handleSaveNodeEdit：写入失败（Error）返回失败 message", async () => {
     mocks.writeFileAtomic.mockRejectedValue(new Error("disk-full"))
     const { result } = renderEditingHook()
-    let value: { success: boolean; msg: string } | undefined
+    let value: { success: boolean; msg?: string } | undefined
     await act(async () => {
       value = await result.current.handleSaveNodeEdit({
         editingPath: "/p/x.md",
@@ -326,7 +326,7 @@ describe("useGraphNodeEditing", () => {
   it("handleSaveNodeEdit：写入失败（非 Error）回退 t(saveNodeFailed)", async () => {
     mocks.writeFileAtomic.mockRejectedValue("raw-fail")
     const { result } = renderEditingHook()
-    let value: { success: boolean; msg: string } | undefined
+    let value: { success: boolean; msg?: string } | undefined
     await act(async () => {
       value = await result.current.handleSaveNodeEdit({
         editingPath: "/p/x.md",

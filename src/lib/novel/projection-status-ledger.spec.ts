@@ -12,7 +12,7 @@ import { supersedeFact } from "./graph-adapter"
 // F-002 持久化读路径 (loadProjectionStatusLedger) 需要 @/commands/fs mock;
 // graph-adapter 的 supersedeFact 测试只用字符串处理, 不受 mock 影响。
 const fsMocks = vi.hoisted(() => ({
-  readFile: vi.fn(async () => {
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => {
     throw new Error("ENOENT")
   }),
   writeFileAtomic: vi.fn(async () => {}),

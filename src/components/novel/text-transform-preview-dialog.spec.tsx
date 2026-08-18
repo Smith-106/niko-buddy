@@ -2,7 +2,7 @@
 
 import { fireEvent } from "@/test-helpers/component-test-utils"
 import { act } from "react"
-import type { ComponentProps } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
 
@@ -15,11 +15,11 @@ vi.mock("@/components/ui/dialog", () => ({
     dialogState.onOpenChange = onOpenChange
     return children
   },
-  DialogContent: ({ children }: { children: unknown }) => children,
-  DialogDescription: ({ children }: { children: unknown }) => <p>{children}</p>,
-  DialogFooter: ({ children }: { children: unknown }) => <footer>{children}</footer>,
-  DialogHeader: ({ children }: { children: unknown }) => <header>{children}</header>,
-  DialogTitle: ({ children }: { children: unknown }) => <h2>{children}</h2>,
+  DialogContent: ({ children }: { children: ReactNode }) => children,
+  DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
+  DialogFooter: ({ children }: { children: ReactNode }) => <footer>{children}</footer>,
+  DialogHeader: ({ children }: { children: ReactNode }) => <header>{children}</header>,
+  DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }))
 
 vi.mock("@/components/ui/button", () => ({

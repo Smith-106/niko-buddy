@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import type { TimelineEntry } from "@/lib/novel/timeline"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
@@ -24,7 +25,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 const timeline = vi.hoisted(() => ({
-  getTimelineEvents: vi.fn(async () => []),
+  getTimelineEvents: vi.fn<(projectPath: string) => Promise<TimelineEntry[]>>(async () => []),
 }))
 
 vi.mock("@/lib/novel/timeline", () => ({

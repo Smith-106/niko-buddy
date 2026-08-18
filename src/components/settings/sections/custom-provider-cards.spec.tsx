@@ -70,8 +70,8 @@ const mocks = vi.hoisted(() => {
         message: "",
         failedModels: undefined as string[] | undefined,
       },
-      runBatchTest: vi.fn(async () => {}),
-      retryFailed: vi.fn(async () => {}),
+      runBatchTest: vi.fn<(models: string[], buildConfig: (m: string) => unknown) => Promise<void>>(async () => {}),
+      retryFailed: vi.fn<(buildConfig: (m: string) => unknown) => Promise<void>>(async () => {}),
       removeFailedModel: vi.fn(),
     },
     recordModelOptions: vi.fn(),
@@ -202,8 +202,6 @@ beforeEach(() => {
   mocks.batch.runBatchTest.mockClear()
   mocks.batch.retryFailed.mockClear()
   mocks.batch.removeFailedModel.mockClear()
-  mocks.saveProviderConfigs?.mockClear()
-  mocks.saveActivePresetId?.mockClear()
   mocks.store.set.mockClear()
   mocks.store.get.mockClear()
   mocks.store.save.mockClear()
