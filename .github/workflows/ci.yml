@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   check:
@@ -67,9 +67,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install frontend dependencies
         run: npm install
+
+      - name: Typecheck (tsc)
+        run: npx tsc --noEmit -p tsconfig.app.json
 
       - name: Run unit tests (vitest)
         run: npm run test:mocks
