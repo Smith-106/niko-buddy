@@ -11,7 +11,7 @@ import {
   CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { exportBackup } from "@/lib/backup/export"
+import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
 import type {
   ExportResult,
@@ -148,6 +148,11 @@ export function DataManagementSection() {
             </>
           )}
         </Button>
+        {isExporting && (
+          <Button variant="outline" onClick={() => void cancelBackup()}>
+            {t("settings.sections.dataManagement.cancelExport", { defaultValue: "取消导出" })}
+          </Button>
+        )}
         {exportResult && (
           <div className="text-sm space-y-1">
             {exportResult.success ? (

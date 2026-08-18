@@ -401,6 +401,20 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 
+  it("创建对话框 onCreated hydrate 失败时弹窗提示（与打开路径一致）", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    mocks.hydrateProjectOnOpen.mockRejectedValueOnce(new Error("hydrate-boom"))
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
+    await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" })
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("项目创建后初始化失败"))
+    alertSpy.mockRestore()
+    cleanup()
+  })
+
   it("切换项目：停止定时导入、保存配置、重置状态并清空项目", async () => {
     mocks.state.project = DEFAULT_PROJECT
     mocks.getStateSnapshot.project = DEFAULT_PROJECT

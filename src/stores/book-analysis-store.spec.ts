@@ -311,6 +311,30 @@ describe("book analysis store 任务生命周期", () => {
     useBookAnalysisStore.getState().setRecognitionStatus("done")
     expect(useBookAnalysisStore.getState().recognitionStatus).toBe("done")
   })
+
+  it("hydrateTasks 用持久化摘要替换任务列表（供重启恢复调用）", () => {
+    const restored = [
+      {
+        id: "restored-1",
+        projectPath: "C:/p",
+        bookId: "b1",
+        bookPath: "C:/p/book.txt",
+        config: baseConfig,
+        metadata: {},
+        progress: { stage: "done", percent: 100 },
+        status: "error",
+        error: "应用重启，任务已中断",
+        startedAt: 1,
+        updatedAt: 2,
+      },
+    ] as never
+    useBookAnalysisStore.getState().hydrateTasks(restored)
+    const tasks = useBookAnalysisStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].id).toBe("restored-1")
+    expect(tasks[0].status).toBe("error")
+    expect(tasks[0].error).toBe("应用重启，任务已中断")
+  })
 })
 
 describe("book analysis store 角色识别 actions (feature/character-recognition-and-simple-mode)", () => {

@@ -65,10 +65,6 @@ export function rescanProjectFiles(
   })
 }
 
-export function getFileChangeQueue(projectPath: string): Promise<FileChangeQueue> {
-  return invoke<FileChangeQueue>("get_file_change_queue", { projectPath })
-}
-
 export function retryFileChangeTask(
   projectId: string,
   projectPath: string,

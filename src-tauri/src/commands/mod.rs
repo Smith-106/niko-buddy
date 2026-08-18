@@ -2,6 +2,7 @@ pub mod backup;
 pub mod claude_cli;
 mod cli_resolver;
 pub mod codex_cli;
+pub mod crypto;
 pub mod extract_images;
 pub mod exemplar_commands;
 pub mod file_sync;

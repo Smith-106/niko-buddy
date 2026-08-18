@@ -46,6 +46,7 @@ import {
   saveSourceWatchConfig,
   saveTheme,
   saveUiFontSizeScale,
+  migratePlaintextApiKeys,
 } from "./project-store"
 import type { WikiProject } from "@/types/wiki"
 
@@ -74,6 +75,19 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/web-store", () => ({
   getStore: async () => mocks.store,
 }))
+
+// Provide a deterministic localStorage polyfill + platform mock so the real AES-GCM
+// crypto module (imported via project-store) works in the node test environment.
+// crypto.ts falls back to a localStorage-backed device fingerprint when isTauri() is false.
+const lsMap = new Map<string, string>()
+vi.stubGlobal("localStorage", {
+  getItem: (k: string) => (lsMap.has(k) ? lsMap.get(k)! : null),
+  setItem: (k: string, v: string) => { lsMap.set(k, v) },
+  removeItem: (k: string) => { lsMap.delete(k) },
+  key: (i: number) => Array.from(lsMap.keys())[i] ?? null,
+  get length() { return lsMap.size },
+})
+vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
 
 vi.mock("@/commands/fs", () => ({
   readFile: mocks.readFile,
@@ -185,6 +199,51 @@ describe("llm / provider config round-trips", () => {
     await saveProxyConfig(proxy as never)
     expect(mocks.store.save).toHaveBeenCalled()
     await expect(loadProxyConfig()).resolves.toEqual(proxy)
+  })
+})
+
+describe("apiKey encryption at the persistence boundary", () => {
+  beforeEach(() => {
+    mocks.clearStore()
+    vi.clearAllMocks()
+  })
+
+  it("stores an encrypted apiKey in the raw store, not plaintext", async () => {
+    const config = { provider: "custom", apiKey: "secret-key-123" }
+    await saveLlmConfig(config as never)
+    const raw = (await mocks.store.get("llmConfig")) as { apiKey: string }
+    expect(String(raw.apiKey)).toMatch(/^enc::v1::/)
+    expect(String(raw.apiKey)).not.toContain("secret-key-123")
+  })
+
+  it("empty apiKey stays empty (no spurious wrapping)", async () => {
+    const config = { provider: "custom", apiKey: "" }
+    await saveLlmConfig(config as never)
+    const raw = (await mocks.store.get("llmConfig")) as { apiKey: string }
+    expect(raw.apiKey).toBe("")
+  })
+
+  it("migratePlaintextApiKeys re-saves plaintext store values as encrypted", async () => {
+    // Seed the store with a plaintext apiKey directly (simulating a pre-encryption install).
+    await mocks.store.set("llmConfig", { provider: "custom", apiKey: "plaintext-key" })
+    await migratePlaintextApiKeys()
+    const raw = (await mocks.store.get("llmConfig")) as { apiKey: string }
+    expect(String(raw.apiKey)).toMatch(/^enc::v1::/)
+    // The decrypted round-trip still yields the original plaintext.
+    const loaded = (await loadLlmConfig()) as { apiKey: string }
+    expect(loaded.apiKey).toBe("plaintext-key")
+  })
+
+  it("migratePlaintextApiKeys is idempotent (already-encrypted values untouched)", async () => {
+    const config = { provider: "custom", apiKey: "already-enc" }
+    await saveLlmConfig(config as never)
+    await migratePlaintextApiKeys()
+    const raw = (await mocks.store.get("llmConfig")) as { apiKey: string }
+    // Still encrypted (AES-GCM uses a fresh nonce each call, so ciphertext bytes differ; assert prefix).
+    expect(String(raw.apiKey)).toMatch(/^enc::v1::/)
+    // The decrypted round-trip still yields the original plaintext.
+    const loaded = (await loadLlmConfig()) as { apiKey: string }
+    expect(loaded.apiKey).toBe("already-enc")
   })
 })
 

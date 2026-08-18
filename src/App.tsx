@@ -92,6 +92,14 @@ function App() {
     }
   }
 
+  async function handleProjectCreated(proj: WikiProject) {
+    try {
+      await hydrateProjectOnOpen(proj)
+    } catch (err) {
+      window.alert(`项目创建后初始化失败：${err}`)
+    }
+  }
+
   async function handleSwitchProject() {
     // Stop scheduled import before switching projects
     import("@/lib/scheduled-import").then(({ stopScheduledImport }) => {
@@ -132,7 +140,7 @@ function App() {
         <CreateProjectDialog
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
-          onCreated={(proj) => void hydrateProjectOnOpen(proj)}
+          onCreated={handleProjectCreated}
         />
       </>
     )
@@ -144,7 +152,7 @@ function App() {
       <CreateProjectDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
-        onCreated={(proj) => void hydrateProjectOnOpen(proj)}
+        onCreated={handleProjectCreated}
       />
     </>
   )

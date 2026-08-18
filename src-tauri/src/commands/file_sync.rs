@@ -380,13 +380,6 @@ pub fn rescan_project_files(
     })
 }
 
-#[tauri::command]
-pub fn get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
-    run_guarded("get_file_change_queue", || {
-        let root = PathBuf::from(project_path);
-        with_queue_lock(&root, || read_queue(&root))
-    })
-}
 
 #[tauri::command]
 pub fn retry_file_change_task(
@@ -1597,13 +1590,6 @@ pub(crate) fn do_rescan_project_files(
     })
 }
 
-#[allow(dead_code)]
-pub(crate) fn do_get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
-    run_guarded("get_file_change_queue", || {
-        let root = PathBuf::from(project_path);
-        with_queue_lock(&root, || read_queue(&root))
-    })
-}
 
 #[allow(dead_code)]
 pub(crate) fn do_retry_file_change_task(

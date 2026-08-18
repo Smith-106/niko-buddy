@@ -77,6 +77,20 @@ describe("exportBackup", () => {
     ])
   })
 
+  it("excludes qmai_fallback_fingerprint from the collected localStorage", async () => {
+    localStorage.setItem("qmai:theme", "dark")
+    localStorage.setItem("qmai_fallback_fingerprint", "device-key-material")
+    localStorage.setItem("qmai:other", "z")
+    mocks.loadRegistry.mockResolvedValue({})
+    mocks.invoke.mockResolvedValue({ success: true, warnings: [], fileCount: 0, totalSize: 0 })
+
+    await exportBackup()
+
+    const params = mocks.invoke.mock.calls[0][1].params
+    expect(params.localStorageData).not.toHaveProperty("qmai_fallback_fingerprint")
+    expect(params.localStorageData).toEqual({ "qmai:theme": "dark", "qmai:other": "z" })
+  })
+
   it("forwards the invoke result and tears down the progress listener", async () => {
     const unlisten = vi.fn()
     mocks.listen.mockResolvedValue(unlisten)

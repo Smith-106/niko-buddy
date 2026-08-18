@@ -5,6 +5,7 @@ import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizePath } from "@/lib/path-utils"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { encryptApiKeysInObject, decryptApiKeysInObject, countApiKeyStatus } from "@/lib/crypto"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -45,12 +46,13 @@ const ACTIVE_PRESET_KEY = "activePresetId"
 
 export async function saveLlmConfig(config: LlmConfig): Promise<void> {
   const store = await getStore()
-  await store.set(LLM_CONFIG_KEY, config)
+  await store.set(LLM_CONFIG_KEY, await encryptApiKeysInObject(config))
 }
 
 export async function loadLlmConfig(): Promise<LlmConfig | null> {
   const store = await getStore()
-  return (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
+  const raw = (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
+  return raw === null ? null : await decryptApiKeysInObject(raw)
 }
 
 export async function saveAiChatModel(model: string): Promise<void> {
@@ -75,12 +77,13 @@ export async function loadDefaultLlmModel(): Promise<string | null> {
 
 export async function saveProviderConfigs(configs: ProviderConfigs): Promise<void> {
   const store = await getStore()
-  await store.set(PROVIDER_CONFIGS_KEY, configs)
+  await store.set(PROVIDER_CONFIGS_KEY, await encryptApiKeysInObject(configs))
 }
 
 export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
   const store = await getStore()
-  return (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  const raw = (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  return raw === null ? null : await decryptApiKeysInObject(raw)
 }
 
 export async function saveActivePresetId(id: string | null): Promise<void> {
@@ -97,36 +100,39 @@ const SEARCH_API_KEY = "searchApiConfig"
 
 export async function saveSearchApiConfig(config: SearchApiConfig): Promise<void> {
   const store = await getStore()
-  await store.set(SEARCH_API_KEY, config)
+  await store.set(SEARCH_API_KEY, await encryptApiKeysInObject(config))
 }
 
 export async function loadSearchApiConfig(): Promise<SearchApiConfig | null> {
   const store = await getStore()
-  return (await store.get<SearchApiConfig>(SEARCH_API_KEY)) ?? null
+  const raw = (await store.get<SearchApiConfig>(SEARCH_API_KEY)) ?? null
+  return raw === null ? null : await decryptApiKeysInObject(raw)
 }
 
 const EMBEDDING_KEY = "embeddingConfig"
 
 export async function saveEmbeddingConfig(config: EmbeddingConfig): Promise<void> {
   const store = await getStore()
-  await store.set(EMBEDDING_KEY, config)
+  await store.set(EMBEDDING_KEY, await encryptApiKeysInObject(config))
 }
 
 export async function loadEmbeddingConfig(): Promise<EmbeddingConfig | null> {
   const store = await getStore()
-  return (await store.get<EmbeddingConfig>(EMBEDDING_KEY)) ?? null
+  const raw = (await store.get<EmbeddingConfig>(EMBEDDING_KEY)) ?? null
+  return raw === null ? null : await decryptApiKeysInObject(raw)
 }
 
 const MULTIMODAL_KEY = "multimodalConfig"
 
 export async function saveMultimodalConfig(config: MultimodalConfig): Promise<void> {
   const store = await getStore()
-  await store.set(MULTIMODAL_KEY, config)
+  await store.set(MULTIMODAL_KEY, await encryptApiKeysInObject(config))
 }
 
 export async function loadMultimodalConfig(): Promise<MultimodalConfig | null> {
   const store = await getStore()
-  return (await store.get<MultimodalConfig>(MULTIMODAL_KEY)) ?? null
+  const raw = (await store.get<MultimodalConfig>(MULTIMODAL_KEY)) ?? null
+  return raw === null ? null : await decryptApiKeysInObject(raw)
 }
 
 // IMPORTANT: Keep this key in sync with the Rust setup hook
@@ -527,14 +533,15 @@ function rerankConfigFilePath(projectPath: string): string {
 
 export async function saveRerankConfig(config: RerankConfig, projectId?: string, projectPath?: string): Promise<void> {
   const store = await getStore()
+  const encrypted = await encryptApiKeysInObject(config)
   if (projectId) {
     const existing = (await store.get<Record<string, RerankConfig>>(PROJECT_RERANK_CONFIG_KEY)) ?? {}
-    await store.set(PROJECT_RERANK_CONFIG_KEY, { ...existing, [projectId]: config })
+    await store.set(PROJECT_RERANK_CONFIG_KEY, { ...existing, [projectId]: encrypted })
   }
-  await store.set(RERANK_CONFIG_KEY, config)
+  await store.set(RERANK_CONFIG_KEY, encrypted)
   if (projectPath) {
     try {
-      await writeFile(rerankConfigFilePath(projectPath), JSON.stringify(config, null, 2))
+      await writeFile(rerankConfigFilePath(projectPath), JSON.stringify(encrypted, null, 2))
     } catch {
       // non-critical
     }
@@ -548,7 +555,7 @@ export async function loadRerankConfig(projectId?: string, projectPath?: string)
       if (await fileExists(filePath)) {
         const raw = await readFile(filePath)
         const config = JSON.parse(raw)
-        return normalizeRerankConfig(config)
+        return normalizeRerankConfig(await decryptApiKeysInObject(config))
       }
     } catch {
       // fall through to global store
@@ -560,20 +567,55 @@ export async function loadRerankConfig(projectId?: string, projectPath?: string)
   if (projectId) {
     const projectConfigs = await store.get<Record<string, RerankConfig>>(PROJECT_RERANK_CONFIG_KEY)
     if (projectConfigs && projectConfigs[projectId]) {
-      config = normalizeRerankConfig(projectConfigs[projectId])
+      config = normalizeRerankConfig(await decryptApiKeysInObject(projectConfigs[projectId]))
     }
   }
   if (!config) {
-    config = normalizeRerankConfig(await store.get<RerankConfig>(RERANK_CONFIG_KEY))
+    config = normalizeRerankConfig(await decryptApiKeysInObject(await store.get<RerankConfig>(RERANK_CONFIG_KEY)))
   }
   if (config && projectPath) {
     try {
-      await writeFile(rerankConfigFilePath(projectPath), JSON.stringify(config, null, 2))
+      const encrypted = await encryptApiKeysInObject(config)
+      await writeFile(rerankConfigFilePath(projectPath), JSON.stringify(encrypted, null, 2))
     } catch {
       // non-critical migration
     }
   }
   return config
+}
+
+/**
+ * One-time plaintext-to-encrypted apiKey migration.
+ * Loads every persisted config holding apiKeys, re-saves any that still carry plaintext
+ * (the save* functions now encrypt at the persistence boundary), and flushes the store.
+ * Idempotent: the guard inspects the RAW (undecrypted) store values, so already-encrypted
+ * configs (every apiKey prefixed `enc::v1::`) short-circuit and are never re-written.
+ */
+export async function migratePlaintextApiKeys(): Promise<void> {
+  // Inspect raw persisted values BEFORE any decryption so the guard is meaningful:
+  // load* decrypts back to plaintext in memory, which would always look like it needs migration.
+  const store = await getStore()
+  const rawConfigs = await Promise.all([
+    store.get(LLM_CONFIG_KEY),
+    store.get(PROVIDER_CONFIGS_KEY),
+    store.get(SEARCH_API_KEY),
+    store.get(EMBEDDING_KEY),
+    store.get(MULTIMODAL_KEY),
+  ])
+  const needsMigration = rawConfigs.some((c) => c && countApiKeyStatus(c).plaintext > 0)
+  if (!needsMigration) return
+
+  const llm = await loadLlmConfig()
+  const providers = await loadProviderConfigs()
+  const search = await loadSearchApiConfig()
+  const embedding = await loadEmbeddingConfig()
+  const multimodal = await loadMultimodalConfig()
+
+  if (llm) await saveLlmConfig(llm)
+  if (providers) await saveProviderConfigs(providers)
+  if (search) await saveSearchApiConfig(search)
+  if (embedding) await saveEmbeddingConfig(embedding)
+  if (multimodal) await saveMultimodalConfig(multimodal)
 }
 
 const THEME_KEY = "theme"

@@ -4,8 +4,10 @@ import { useReviewStore } from "@/stores/review-store"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId, migratePlaintextApiKeys } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
+import { loadTaskSummaries, attachTaskPersistence } from "@/lib/novel/book-analysis/task-persistence"
+import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
 import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
@@ -23,6 +25,10 @@ import type { WikiProject } from "@/types/wiki"
  * 抽取自 App.tsx 的 init useEffect：加载全部持久化配置并把结果写入各 store，
  * 最后静默检查应用更新并初始化分析。App.tsx 仅负责调用与 loading 状态切换。
  */
+
+/** Holds the unsubscribe handle for the current project's task persistence subscription. */
+let detachTaskPersistence: (() => void) | null = null
+
 export async function initializeApp(): Promise<void> {
   performance.mark("app-init-start") // bench: startup latency anchor
   try {
@@ -108,6 +114,8 @@ export async function initializeApp(): Promise<void> {
         console.error("打开上次项目失败:", err)
       }
     }
+    // One-time plaintext→encrypted apiKey migration (re-saves any plaintext values encrypted).
+    await migratePlaintextApiKeys()
   } catch (err) {
     console.error("应用初始化失败:", err)
   } finally {
@@ -231,5 +239,21 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
     }
   } catch (err) {
     console.error("加载聊天历史失败:", err)
+  }
+  try {
+    const persistedTasks = await loadTaskSummaries(proj.path)
+    if (persistedTasks.length > 0) {
+      // Restart recovery: running/paused tasks could not survive the process restart.
+      const restored = persistedTasks.map((t) =>
+        t.status === "running" || t.status === "paused"
+          ? { ...t, status: "error" as const, error: "应用重启，任务已中断" }
+          : t,
+      )
+      useBookAnalysisStore.getState().hydrateTasks(restored)
+    }
+    detachTaskPersistence?.()
+    detachTaskPersistence = attachTaskPersistence(proj.path)
+  } catch (err) {
+    console.error("加载拆书任务失败:", err)
   }
 }

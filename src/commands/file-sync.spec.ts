@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  getFileChangeQueue,
   ignoreFileChangeTask,
   rescanProjectFiles,
   retryFileChangeTask,
@@ -79,11 +78,6 @@ describe("file-sync command wrappers", () => {
       projectPath: "/p",
       sourceWatchConfig: { mockNormalized: true },
     })
-  })
-
-  it("getFileChangeQueue 透传 projectPath", async () => {
-    await expect(getFileChangeQueue("/p")).resolves.toBe(QUEUE)
-    expect(mocks.invoke).toHaveBeenCalledWith("get_file_change_queue", { projectPath: "/p" })
   })
 
   it("retryFileChangeTask 透传 projectId/projectPath/taskId", async () => {

@@ -103,6 +103,17 @@ describe("importBackup", () => {
     expect(localStorage.getItem("other-key")).toBe("keep")
   })
 
+  it("protects the local qmai_fallback_fingerprint during restore", async () => {
+    localStorage.setItem("qmai_fallback_fingerprint", "local-device-key")
+    localStorage.setItem("qmai:theme", "old")
+    mocks.invoke.mockResolvedValue(
+      okResult({ localStorageData: { "qmai_fallback_fingerprint": "imported-key", "qmai:theme": "new" } }),
+    )
+    await importBackup("replace")
+    expect(localStorage.getItem("qmai_fallback_fingerprint")).toBe("local-device-key")
+    expect(localStorage.getItem("qmai:theme")).toBe("new")
+  })
+
   it("registers restored projects and refreshes the currently open project", async () => {
     mocks.getProject.mockReturnValue({ id: "p1", name: "P", path: "/P" })
     mocks.loadRegistry.mockResolvedValue({ p1: { id: "p1", path: "/old", name: "Old", lastOpened: 0 } })

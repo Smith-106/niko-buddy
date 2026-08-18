@@ -76,6 +76,7 @@ export interface BookAnalysisState {
   getTask: (taskId: string) => BookAnalysisTask | null
   getTaskByProject: (projectPath: string) => BookAnalysisTask | null
   getCurrentTask: () => BookAnalysisTask | null
+  hydrateTasks: (tasks: BookAnalysisTask[]) => void
 }
 
 /** Counter for unique task identifiers. */
@@ -284,5 +285,11 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   getCurrentTask: () => {
     const { currentTaskId, tasks } = get()
     return currentTaskId ? tasks.find((t) => t.id === currentTaskId) ?? null : null
+  },
+
+  hydrateTasks: (tasks) => {
+    // Replace any persisted task summaries (typically restored on startup).
+    // Running/paused tasks are already remapped to an interrupted "error" status by the caller.
+    set({ tasks })
   },
 }))

@@ -9,6 +9,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -17,6 +18,10 @@ use tauri_plugin_store::StoreExt;
 use walkdir::WalkDir;
 use zip::write::ZipWriter;
 use zip::CompressionMethod;
+
+/// Cancellation flag for the in-progress export backup.
+/// Set by the `cancel_backup` IPC command; checked per file/project during export.
+static BACKUP_CANCEL: AtomicBool = AtomicBool::new(false);
 
 use crate::panic_guard::run_guarded;
 
@@ -180,6 +185,7 @@ fn add_dir_to_zip(
     zip_prefix: &str,
     file_count: &mut usize,
     warnings: &mut Vec<String>,
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
     let opts =
         zip::write::SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -211,6 +217,9 @@ fn add_dir_to_zip(
             zip.add_directory(&zip_name, opts)
                 .map_err(|e| format!("创建 zip 目录失败: {e}"))?;
         } else if entry.file_type().is_file() {
+            if cancel.load(Ordering::SeqCst) {
+                return Err("备份已取消".into());
+            }
             let file = fs::File::open(path)
                 .map_err(|e| format!("打开文件失败 {}: {e}", path.display()))?;
             zip.start_file(&zip_name, opts)
@@ -411,6 +420,13 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
 
     // ── 5. Per-project data ─────────────────────────────────────────────────
     for (idx, project) in params.projects.iter().enumerate() {
+        if BACKUP_CANCEL.load(Ordering::SeqCst) {
+            // Release the zip/file handle before deletion so Windows allows remove_file
+            // (otherwise the open handle blocks deletion and leaves a partial zip on disk).
+            drop(zip);
+            let _ = fs::remove_file(save_path);
+            return Err("备份已取消".into());
+        }
         let project_path = Path::new(&project.path);
         if !project_path.exists() {
             warnings.push(format!(
@@ -441,6 +457,7 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
                     &sub_prefix,
                     &mut file_count,
                     &mut warnings,
+                    &BACKUP_CANCEL,
                 ) {
                     warnings.push(format!(
                         "复制项目 {} 的知识目录({})失败: {}",
@@ -462,6 +479,7 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
                     &sub_prefix,
                     &mut file_count,
                     &mut warnings,
+                    &BACKUP_CANCEL,
                 ) {
                     warnings.push(format!(
                         "复制项目 {} 的 {} 目录失败: {}",
@@ -499,6 +517,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
         .map_err(|e| format!("完成 zip 写入失败: {e}"))?;
 
     let total_size = fs::metadata(save_path).map(|m| m.len()).unwrap_or(0);
+
+    if BACKUP_CANCEL.load(Ordering::SeqCst) {
+        let _ = fs::remove_file(save_path);
+        return Err("备份已取消".into());
+    }
 
     on_progress(&BackupProgressPayload {
         operation: "export".into(),
@@ -718,11 +741,20 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 
 // ── Tauri commands ──────────────────────────────────────────────────────────
 
+// ── Tauri commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn cancel_backup() {
+    BACKUP_CANCEL.store(true, Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub async fn export_backup(
     app: tauri::AppHandle,
     params: ExportParams,
 ) -> Result<ExportResult, String> {
+    // Reset cancellation flag at the start of each export.
+    BACKUP_CANCEL.store(false, Ordering::SeqCst);
     run_guarded("export_backup", || {
         // Flush the plugin-store to disk first so the zip gets the latest state.
         let app_data_dir = app

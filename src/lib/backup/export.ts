@@ -11,11 +11,15 @@ import type {
 
 const LS_PREFIXES = ["qmai", "lk-"]
 
+/** Keys to exclude from backup collection (sensitive material that must not travel with the backup). */
+const EXCLUDE_KEYS = new Set(["qmai_fallback_fingerprint"])
+
 function collectLocalStorage(): Record<string, string> {
   const data: Record<string, string> = {}
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
     if (!key) continue
+    if (EXCLUDE_KEYS.has(key)) continue
     if (LS_PREFIXES.some((prefix) => key.startsWith(prefix))) {
       const value = localStorage.getItem(key)
       if (value !== null) {
@@ -79,4 +83,9 @@ export async function exportBackup(
   } finally {
     unlisten?.()
   }
+}
+
+/** Request cancellation of the in-progress export backup. */
+export async function cancelBackup(): Promise<void> {
+  await invoke<void>("cancel_backup")
 }
