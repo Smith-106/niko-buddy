@@ -192,7 +192,13 @@ function makeTask(overrides: Partial<ImportTaskShape> = {}): ImportTaskShape {
 }
 
 function renderTree(
-  props: { filterType?: "chapter" | "outline"; refreshKey?: number; pendingPages?: unknown[]; onRequestCreate?: Mock; onRemovePendingPage?: Mock } = {},
+  props: {
+    filterType?: "chapter" | "outline"
+    refreshKey?: number
+    pendingPages?: Array<{ path: string; title: string; type: "chapter" | "outline"; tags: string[] }>
+    onRequestCreate?: (request: unknown) => void
+    onRemovePendingPage?: (pagePath: string) => void
+  } = {},
 ) {
   return render(<KnowledgeTree filterType="chapter" {...props} />)
 }
@@ -223,8 +229,8 @@ beforeEach(() => {
   mocks.wikiState.dataVersion = 0
   mocks.importState.tasks = []
   mocks.confirm.mockReturnValue(true)
-  vi.spyOn(window, "confirm").mockImplementation((...args: unknown[]) => mocks.confirm(...args) as never)
-  vi.spyOn(window, "alert").mockImplementation((...args: unknown[]) => mocks.alert(...args) as never)
+  vi.spyOn(window, "confirm").mockImplementation((message?: string) => mocks.confirm(message) as never)
+  vi.spyOn(window, "alert").mockImplementation((message?: string) => mocks.alert(message) as never)
   // base-ui ScrollArea viewport 的 useTimeout 会调用 getAnimations（jsdom 未实现）
   ;(Element.prototype as unknown as { getAnimations?: () => unknown[] }).getAnimations = () => []
   mocks.readFile.mockImplementation(async (p: string) => {
@@ -1107,7 +1113,7 @@ describe("KnowledgeTree", () => {
   })
 
   it("pendingPages：覆盖标题 + 空树时无空态 + 异类型过滤", async () => {
-    const pending = [
+    const pending: Array<{ path: string; title: string; type: "chapter" | "outline"; tags: string[] }> = [
       { path: `${CHAPTERS}/第二章-进展.md`, title: "第二章-进展(待定)", type: "chapter", tags: [] },
       { path: `${OUTLINES}/全书大纲.md`, title: "大纲(临时)", type: "outline", tags: [] },
     ]

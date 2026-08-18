@@ -16,7 +16,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 const deps = vi.hoisted(() => ({
-  loadNovelSessionStatus: vi.fn(async () => null),
+  loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<NovelSessionStatus | null>>(async () => null),
   getReviewJobUiModel: vi.fn(),
   formatReviewJobStatusLine: vi.fn(() => "write-review-split line"),
   uiModel: {
@@ -40,11 +40,12 @@ vi.mock("@/lib/novel/review-job-ui", () => ({
 }))
 
 import { ReviewJobStatusStrip } from "./review-job-status-strip"
+import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
 
 beforeEach(() => {
   vi.clearAllMocks()
   wiki.state.project = { id: "p1", name: "Novel", path: "E:/Novel" }
-  deps.loadNovelSessionStatus.mockResolvedValue({ review_job: { phase: "running", chapterNumber: 7 } })
+  deps.loadNovelSessionStatus.mockResolvedValue({ review_job: { phase: "running", chapterNumber: 7 } } as NovelSessionStatus)
   deps.getReviewJobUiModel.mockReturnValue(deps.uiModel)
   deps.formatReviewJobStatusLine.mockReturnValue("status-line-text")
 })
@@ -60,7 +61,7 @@ describe("ReviewJobStatusStrip", () => {
   })
 
   it("renders nothing when there is no review job (model null)", async () => {
-    deps.loadNovelSessionStatus.mockResolvedValue({})
+    deps.loadNovelSessionStatus.mockResolvedValue({} as NovelSessionStatus)
     deps.getReviewJobUiModel.mockReturnValue(null)
     render(<ReviewJobStatusStrip />)
     await waitFor(() => expect(deps.loadNovelSessionStatus).toHaveBeenCalledWith("E:/Novel"))
@@ -116,7 +117,7 @@ describe("ReviewJobStatusStrip", () => {
   })
 
   it("unmounts while loading → cancelled skips setModel (成功路径假分支)", async () => {
-    let resolveLoad!: (v: unknown) => void
+    let resolveLoad!: (v: NovelSessionStatus | null) => void
     deps.loadNovelSessionStatus.mockReturnValueOnce(new Promise((res) => { resolveLoad = res }))
     const { unmount } = render(<ReviewJobStatusStrip />)
     await waitFor(() => expect(deps.loadNovelSessionStatus).toHaveBeenCalled())

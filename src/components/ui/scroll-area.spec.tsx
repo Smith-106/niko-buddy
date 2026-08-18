@@ -6,22 +6,23 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { render, screen } from "@/test-helpers/component-test-utils"
 import { ScrollArea, ScrollBar } from "./scroll-area"
 
 vi.mock("@base-ui/react/scroll-area", () => ({
   ScrollArea: {
-    Root: ({ children, ...props }: Record<string, unknown>) => (
+    Root: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-root" {...props}>
         {children}
       </div>
     ),
-    Viewport: ({ children, ...props }: Record<string, unknown>) => (
+    Viewport: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-viewport" {...props}>
         {children}
       </div>
     ),
-    Scrollbar: ({ children, ...props }: Record<string, unknown>) => (
+    Scrollbar: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-scrollbar" {...props}>
         {children}
       </div>

@@ -6,21 +6,22 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { render, screen } from "@/test-helpers/component-test-utils"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "./resizable"
 
 vi.mock("react-resizable-panels", () => ({
-  Group: ({ children, ...props }: Record<string, unknown>) => (
+  Group: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
     <div data-testid="base-group" {...props}>
       {children}
     </div>
   ),
-  Panel: ({ children, ...props }: Record<string, unknown>) => (
+  Panel: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
     <div data-testid="base-panel" {...props}>
       {children}
     </div>
   ),
-  Separator: ({ children, ...props }: Record<string, unknown>) => (
+  Separator: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
     <div data-testid="base-separator" {...props}>
       {children}
     </div>

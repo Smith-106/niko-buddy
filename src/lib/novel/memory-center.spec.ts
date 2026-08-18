@@ -14,13 +14,13 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (...args: unknown[]) => mocks.normalizePath(...args),
+  normalizePath: (p: string) => mocks.normalizePath(p),
 }))
 
 vi.mock("./chapter-ingest", () => ({
-  listSnapshots: (...args: unknown[]) => mocks.listSnapshots(...args),
-  loadSnapshot: (...args: unknown[]) => mocks.loadSnapshot(...args),
-  snapshotMarkdownPath: (...args: unknown[]) => mocks.snapshotMarkdownPath(...args),
+  listSnapshots: (...args: Parameters<typeof mocks.listSnapshots>) => mocks.listSnapshots(...args),
+  loadSnapshot: (...args: Parameters<typeof mocks.loadSnapshot>) => mocks.loadSnapshot(...args),
+  snapshotMarkdownPath: (...args: Parameters<typeof mocks.snapshotMarkdownPath>) => mocks.snapshotMarkdownPath(...args),
 }))
 
 vi.mock("./dismantling", () => ({
@@ -32,7 +32,6 @@ import {
   buildMemoryCenterStats,
   loadMemoryCenterData,
   parseMemoryMarkdownPreview,
-  type MemoryCenterSection,
 } from "./memory-center"
 import type { ChapterSnapshot } from "./chapter-ingest"
 

@@ -170,7 +170,7 @@ describe("buildPrompt", () => {
         role: "user",
         content: [
           { type: "text", text: "look at this" },
-          { type: "image", mediaType: "image/png", data: "base64" },
+          { type: "image", mediaType: "image/png", dataBase64: "base64" },
         ],
       },
     ])
@@ -218,7 +218,7 @@ describe("streamCodexCli", () => {
     )
     await Promise.resolve()
     await Promise.resolve()
-    const { dataEventName, doneEventName } = findEvents(listeners)
+    findEvents(listeners)
 
     const spawnCall = vi.mocked(invoke).mock.calls.find(([c]) => c === "codex_cli_spawn")
     expect(spawnCall).toBeDefined()
@@ -376,7 +376,7 @@ describe("streamCodexCli", () => {
     const { dataEventName, doneEventName } = findEvents(listeners)
 
     listeners.get(dataEventName)!({ payload: '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}' })
-    listeners.get(doneEventName)!({ payload: { code: 0 } })
+    listeners.get(doneEventName)!({ payload: { code: 0, stderr: "" } })
 
     await expect(resolveWithin(streamPromise, 200)).resolves.toBeUndefined()
     expect(cb.onDone).toHaveBeenCalledTimes(1)

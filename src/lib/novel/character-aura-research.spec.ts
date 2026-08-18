@@ -37,8 +37,8 @@ import {
   buildAuraResearchStage,
   buildAuraResearchStageFallback,
   synthesizeCustomAuraFields,
-  type CustomCharacterAuraGenerationInput,
 } from "./character-aura-research"
+import type { CustomCharacterAuraGenerationInput } from "./character-aura-types"
 
 const USABLE_LLM = { provider: "custom", model: "m", customEndpoint: "http://x", apiKey: "" } as LlmConfig
 const NO_LLM = { provider: "openai", model: "", apiKey: "" } as LlmConfig
@@ -553,7 +553,7 @@ describe("buildAuraResearchStageFallback", () => {
   })
 
   it("renders the default placeholder for unknown stages", () => {
-    const unknown = { fileName: "99-other.md", label: "99 其它", sections: [], goal: "" } as typeof stage01
+    const unknown = { fileName: "99-other.md", label: "99 其它", sections: [], goal: "" } as unknown as typeof stage01
     const out = buildAuraResearchStageFallback(unknown, genInput(), {})
     expect(out).toContain("# 林动 - 其它")
     expect(out).toContain("当前阶段没有可用的默认模板")

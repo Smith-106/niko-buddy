@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
   const wikiState: { project: { path: string } | null } = { project: null }
   return {
     wikiState,
-    listDirectory: vi.fn(async () => []),
+    listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(async () => []),
     normalizePath: vi.fn((p: string) => p.replace(/\\/g, "/")),
     useWikiStore: (selector: (s: typeof wikiState) => unknown) => selector(wikiState),
   }

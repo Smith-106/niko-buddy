@@ -138,8 +138,8 @@ describe("canonicalizeSnapshotCharacters", () => {
       characters: ["林少", "林烬", "沈微"],
       characterAliases: { 林烬: ["林少"] },
       characterDetails: {
-        林少: { currentState: "受伤" },
-        沈微: { currentState: "健康" },
+        林少: { identity: "", faction: "", goals: "", arcChange: "受伤" },
+        沈微: { identity: "", faction: "", goals: "", arcChange: "健康" },
       },
       graphNodes: ["character:林少", "location:旧城"],
     })
@@ -147,8 +147,8 @@ describe("canonicalizeSnapshotCharacters", () => {
     expect(result.characters).toEqual(["林烬", "沈微"])
     expect(result.graphNodes).toEqual(["character:林烬", "location:旧城"])
     expect(result.characterDetails).toEqual({
-      林烬: { currentState: "受伤" },
-      沈微: { currentState: "健康" },
+      林烬: { identity: "", faction: "", goals: "", arcChange: "受伤" },
+      沈微: { identity: "", faction: "", goals: "", arcChange: "健康" },
     })
   })
 
@@ -424,7 +424,7 @@ describe("writeSnapshotToWiki", () => {
       "E:/Novel/wiki/entities/沈微.md",
       "E:/Novel/wiki/entities/旧城.md",
     ])
-    const [path, content] = fsMocks.writeFileAtomic.mock.calls[0]
+    const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
     expect(content).toContain('title: "林烬"')
     expect(content).toContain("aliases: [\"林少\"]")
     expect(content).toContain("知道") // KNOWS → 中文 label
