@@ -14,6 +14,16 @@ import {
   within,
 } from "@/test-helpers/component-test-utils"
 import { DismantlingSidebarPanel, SidebarPanel } from "./sidebar-panel"
+import type { FileNode } from "@/types/wiki"
+import type { DismantlingChapter, DismantlingLibrary, DismantlingProject } from "@/lib/novel/dismantling"
+import type {
+  ChapterImportCandidate,
+  ImportedChapter,
+  ImportedChapterMemoryProgress,
+  ImportedChapterMemoryResult,
+} from "@/lib/novel/chapter-import"
+import type { OutlineImportCandidate } from "@/lib/novel/outline-import"
+import type { MemoryCenterData } from "@/lib/novel/memory-center"
 
 interface ProjectLike {
   id: string
@@ -21,20 +31,10 @@ interface ProjectLike {
   path: string
 }
 
-interface DismantlingProjectLike {
-  id: string
-  title: string
-  createdAt: number
-  updatedAt: number
-  chapters: Array<{ id: string; chapterNumber: number; title: string; content: string; status: string }>
-  analyses: unknown[]
-  structureMemory: string[]
-  useInChat: boolean
-}
+interface DismantlingProjectLike extends DismantlingProject {}
 
-interface DismantlingLibraryLike {
-  version: number
-  projects: DismantlingProjectLike[]
+interface DismantlingLibraryLike extends DismantlingLibrary {
+  version: 1
   selectedProjectId: string | null
 }
 
@@ -116,41 +116,56 @@ const mocks = vi.hoisted(() => {
     importProgressActions,
     t: vi.fn((key: string) => key),
     // fs
-    createDirectory: vi.fn(async () => {}),
-    fileExists: vi.fn(async () => false),
-    listDirectory: vi.fn(async () => []),
-    preprocessFile: vi.fn(async () => ""),
-    readFile: vi.fn(async () => ""),
-    writeFile: vi.fn(async () => {}),
+    createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
+    listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(async () => []),
+    preprocessFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+    readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
     // libs
-    countChapterBodyWords: vi.fn(() => 0),
-    buildChapterTotalWordCountLabel: vi.fn((n: number) => `total:${n}`),
-    getFileName: vi.fn((p: string) => p.split("/").pop() ?? p),
-    getFileStem: vi.fn((p: string) => (p.split("/").pop() ?? p).replace(/\.\w+$/, "")),
-    normalizePath: vi.fn((p: string) => p),
-    flattenMdFiles: vi.fn((nodes: unknown[]) => nodes),
-    getNextChapterNumber: vi.fn(async () => 1),
-    invalidateChapterCache: vi.fn(),
-    loadDismantlingLibrary: vi.fn(async () => makeLibrary([])),
-    normalizeDismantlingLibrary: vi.fn((input: unknown) => input),
-    saveDismantlingLibrary: vi.fn(async () => {}),
-    splitDismantlingTextIntoChapters: vi.fn(() => []),
-    sortChapterImportCandidates: vi.fn((c: unknown[]) => [...c]),
-    makeChapterFileName: vi.fn((title: string, n?: number | null) => `chapter-${n ?? "?"}-${title}.md`),
-    makeDefaultChapterTitle: vi.fn((n: number) => `第${n}章`),
-    makeSafeFileSlug: vi.fn((title: string) => title),
-    collectChapterImportCandidatesFromFolder: vi.fn(async () => []),
-    collectOutlineImportCandidatesFromFolder: vi.fn(async () => []),
-    importChapterFiles: vi.fn(async () => []),
-    importOutlineCandidates: vi.fn(async () => []),
-    importOutlineFiles: vi.fn(async () => []),
-    runImportedChapterMemoryExtraction: vi.fn(async () => ({ cancelled: false, completed: 0, failed: 0 })),
-    runOutlineIngestTask: vi.fn(async () => {}),
-    createOutlineIngestTask: vi.fn((_p: string, path: string) => `outline-task:${path}`),
-    ingestChapter: vi.fn(),
-    loadMemoryCenterData: vi.fn(async () => null),
-    openExternalUrl: vi.fn(async () => {}),
-    dialogOpen: vi.fn(async () => null),
+    countChapterBodyWords: vi.fn<(markdown: string) => number>(() => 0),
+    buildChapterTotalWordCountLabel: vi.fn<(n: number) => string>((n: number) => `total:${n}`),
+    getFileName: vi.fn<(p: string) => string>((p: string) => p.split("/").pop() ?? p),
+    getFileStem: vi.fn<(p: string) => string>((p: string) => (p.split("/").pop() ?? p).replace(/\.\w+$/, "")),
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p),
+    flattenMdFiles: vi.fn<
+      (nodes: Array<{ name: string; path: string; is_dir: boolean; children?: unknown[] }>) => Array<{ name: string; path: string }>
+    >((nodes) => nodes.map(({ name, path }) => ({ name, path }))),
+    getNextChapterNumber: vi.fn<(projectPath: string) => Promise<number>>(async () => 1),
+    invalidateChapterCache: vi.fn<(projectPath?: string) => void>(() => {}),
+    loadDismantlingLibrary: vi.fn<(projectPath: string) => Promise<DismantlingLibraryLike>>(async () => makeLibrary([])),
+    normalizeDismantlingLibrary: vi.fn<(input: Partial<DismantlingLibrary> | null | undefined) => DismantlingLibraryLike>((input) => input as DismantlingLibraryLike),
+    saveDismantlingLibrary: vi.fn<(projectPath: string, library: DismantlingLibrary) => Promise<void>>(async () => {}),
+    splitDismantlingTextIntoChapters: vi.fn<(text: string) => DismantlingChapter[]>(() => []),
+    sortChapterImportCandidates: vi.fn<(candidates: readonly ChapterImportCandidate[]) => ChapterImportCandidate[]>((c) => [...c]),
+    makeChapterFileName: vi.fn<(title: string, n?: number | null) => string>((title: string, n?: number | null) => `chapter-${n ?? "?"}-${title}.md`),
+    makeDefaultChapterTitle: vi.fn<(n: number) => string>((n: number) => `第${n}章`),
+    makeSafeFileSlug: vi.fn<(title: string) => string>((title: string) => title),
+    collectChapterImportCandidatesFromFolder: vi.fn<(selectedFolder: string) => Promise<ChapterImportCandidate[]>>(async () => []),
+    collectOutlineImportCandidatesFromFolder: vi.fn<(selectedFolder: string) => Promise<OutlineImportCandidate[]>>(async () => []),
+    importChapterFiles: vi.fn<
+      (projectPath: string, sourcePaths: readonly string[], options: { finalForMemoryExtraction: boolean }) => Promise<ImportedChapter[]>
+    >(async () => []),
+    importOutlineCandidates: vi.fn<(projectPath: string, candidates: readonly OutlineImportCandidate[]) => Promise<string[]>>(async () => []),
+    importOutlineFiles: vi.fn<(projectPath: string, sourcePaths: string[]) => Promise<string[]>>(async () => []),
+    runImportedChapterMemoryExtraction: vi.fn<
+      (args: {
+        projectPath: string
+        chapterPaths: readonly string[]
+        signal?: AbortSignal
+        reviewModel?: string
+        ingestChapter: (projectPath: string, chapterPath: string, reviewModel?: string) => Promise<{ snapshot: unknown | null; failReason?: string }>
+        onProgress?: (progress: ImportedChapterMemoryProgress) => void
+      }) => Promise<ImportedChapterMemoryResult>
+    >(async () => ({ cancelled: false, completed: 0, failed: 0, errors: [] })),
+    runOutlineIngestTask: vi.fn<(taskId: string) => Promise<void>>(async () => {}),
+    createOutlineIngestTask: vi.fn<(projectPath: string, outlinePath: string) => string>((_p: string, path: string) => `outline-task:${path}`),
+    ingestChapter: vi.fn<
+      (projectPath: string, chapterPath: string, reviewModel?: string) => Promise<{ snapshot: unknown | null; failReason?: string }>
+    >(async () => ({ snapshot: null })),
+    loadMemoryCenterData: vi.fn<(projectPath: string) => Promise<MemoryCenterData | null>>(async () => null),
+    openExternalUrl: vi.fn<(url: string) => Promise<void>>(async () => {}),
+    dialogOpen: vi.fn<(options?: unknown) => Promise<unknown>>(async () => null),
     CHAPTER_IMPORT_EXTENSIONS: ["txt", "md", "mdx", "doc", "docx"],
     OUTLINE_IMPORT_EXTENSIONS: ["md", "mdx"],
   }
@@ -437,7 +452,7 @@ describe("DismantlingSidebarPanel", () => {
     mocks.saveDismantlingLibrary.mockResolvedValue(undefined)
     mocks.loadDismantlingLibrary.mockResolvedValue(makeLibrary([]))
     mocks.flattenMdFiles.mockImplementation(
-      (nodes: unknown[]) => (nodes as Array<{ name: string; is_dir: boolean }>).filter((n) => !n.is_dir && n.name.endsWith(".md")),
+      (nodes) => nodes.filter((n) => !n.is_dir && n.name.endsWith(".md")).map((n) => ({ name: n.name, path: n.path })),
     )
   })
 
@@ -942,7 +957,7 @@ describe("SidebarPanel 视图路由", () => {
     mocks.readFile.mockResolvedValue("")
     mocks.loadMemoryCenterData.mockResolvedValue(null)
     mocks.flattenMdFiles.mockImplementation(
-      (nodes: unknown[]) => (nodes as Array<{ name: string; is_dir: boolean }>).filter((n) => !n.is_dir && n.name.endsWith(".md")),
+      (nodes) => nodes.filter((n) => !n.is_dir && n.name.endsWith(".md")).map((n) => ({ name: n.name, path: n.path })),
     )
   })
 
@@ -991,7 +1006,7 @@ describe("SidebarPanel 视图路由", () => {
   })
 
   it("lint+novelMode：加载中显示 spinner，成功后渲染条目计数", async () => {
-    let resolveData!: (value: unknown) => void
+    let resolveData!: (value: MemoryCenterData | null) => void
     mocks.loadMemoryCenterData.mockReturnValue(
       new Promise((resolve) => {
         resolveData = resolve
@@ -1002,14 +1017,14 @@ describe("SidebarPanel 视图路由", () => {
 
     act(() => {
       resolveData({
-        stats: { snapshotCount: 2 },
-        snapshots: [{ chapterNumber: 1 }],
+        stats: { snapshotCount: 2, syncedSnapshotCount: 0, characterCount: 0, activeForeshadowingCount: 0, memoryFileCount: 0 },
+        snapshots: [{ chapterNumber: 1, summary: "", endingHook: "", memorySynced: false, snapshotPath: "", characterStateChanges: [], knowledgeChanges: [], foreshadowingChanges: [], timelineEvents: [], hasMoreCharacterStateChanges: false, hasMoreKnowledgeChanges: false, hasMoreForeshadowingChanges: false, hasMoreTimelineEvents: false }],
         files: [
           {
             key: "character-states",
             title: "character-states",
             path: "/x",
-            sections: [{ title: "s", groups: [{ title: "g1" }, { title: "g2" }], items: ["a", "b", "c"] }],
+            sections: [{ title: "s", groups: [{ title: "g1", items: [] }, { title: "g2", items: [] }], items: ["a", "b", "c"] }],
           },
           {
             key: "character-cognition",
@@ -1060,7 +1075,7 @@ describe("SidebarPanel 视图路由", () => {
     const { setState } = renderSidebar({ activeView: "lint", novelMode: true, project: DEFAULT_PROJECT })
     await waitFor(() => expect(screen.getByText("memory boom")).toBeInTheDocument())
 
-    mocks.loadMemoryCenterData.mockResolvedValue({ stats: { snapshotCount: 0 }, snapshots: [], files: [], dismantlingProjects: [] })
+    mocks.loadMemoryCenterData.mockResolvedValue({ stats: { snapshotCount: 0, syncedSnapshotCount: 0, characterCount: 0, activeForeshadowingCount: 0, memoryFileCount: 0 }, snapshots: [], files: [], dismantlingProjects: [] })
     fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
     await waitFor(() => expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2))
     await flushAsync()
@@ -1099,7 +1114,7 @@ describe("SidebarPanel 视图路由", () => {
   })
 
   it("记忆加载：卸载后 resolve/reject 均跳过状态更新", async () => {
-    let resolveData!: (value: unknown) => void
+    let resolveData!: (value: MemoryCenterData | null) => void
     mocks.loadMemoryCenterData.mockReturnValue(
       new Promise((resolve) => {
         resolveData = resolve
@@ -1108,7 +1123,7 @@ describe("SidebarPanel 视图路由", () => {
     const first = renderSidebar({ activeView: "lint", novelMode: true, project: DEFAULT_PROJECT })
     first.unmount()
     act(() => {
-      resolveData({ stats: { snapshotCount: 1 }, snapshots: [], files: [], dismantlingProjects: [] })
+      resolveData({ stats: { snapshotCount: 1, syncedSnapshotCount: 0, characterCount: 0, activeForeshadowingCount: 0, memoryFileCount: 0 }, snapshots: [], files: [], dismantlingProjects: [] })
     })
     await flushAsync()
 
@@ -1197,11 +1212,11 @@ describe("SidebarPanel 知识模式（章节）", () => {
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.dialogOpen.mockResolvedValue(null)
     mocks.importChapterFiles.mockResolvedValue([])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 0, failed: 0 })
+    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 0, failed: 0, errors: [] })
     mocks.getNextChapterNumber.mockResolvedValue(1)
     mocks.importProgressActions.startTask.mockReturnValue("task-1")
     mocks.flattenMdFiles.mockImplementation(
-      (nodes: unknown[]) => (nodes as Array<{ name: string; is_dir: boolean }>).filter((n) => !n.is_dir && n.name.endsWith(".md")),
+      (nodes) => nodes.filter((n) => !n.is_dir && n.name.endsWith(".md")).map((n) => ({ name: n.name, path: n.path })),
     )
   })
 
@@ -1242,7 +1257,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("字数统计：卸载后完成回调不更新状态", async () => {
-    let resolveList!: (value: unknown[]) => void
+    let resolveList!: (value: FileNode[]) => void
     mocks.listDirectory.mockReturnValue(
       new Promise((resolve) => {
         resolveList = resolve
@@ -1282,13 +1297,13 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("章节导入文件：提取记忆完整链路", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md", "/tmp/ch2.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     mocks.runImportedChapterMemoryExtraction.mockImplementation(
-      async ({ onProgress }: { onProgress?: (p: { completed: number; total: number; currentPath?: string }) => void }) => {
-        onProgress?.({ completed: 0, total: 1 })
+      async ({ onProgress }) => {
+        onProgress?.({ completed: 0, total: 1, currentPath: null })
         onProgress?.({ completed: 1, total: 1, currentPath: "/p/mybook/wiki/chapters/other.md" })
         onProgress?.({ completed: 1, total: 1, currentPath: CH1 })
-        return { cancelled: false, completed: 1, failed: 0 }
+        return { cancelled: false, completed: 1, failed: 0, errors: [] }
       },
     )
     renderSidebar()
@@ -1337,7 +1352,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("章节导入文件：只导入不提取记忆", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
@@ -1414,7 +1429,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   it("章节导入文件夹：提取记忆完整链路", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
@@ -1456,8 +1471,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("记忆提取：失败计数与取消结果文案", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 1, failed: 1 })
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
+    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 1, failed: 1, errors: [] })
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
@@ -1474,8 +1489,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("记忆提取：取消结果时以 cancelled 收尾", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: true, completed: 0, failed: 0 })
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
+    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: true, completed: 0, failed: 0, errors: [] })
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
@@ -1492,11 +1507,11 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("记忆提取进行中点击停止：markCancelling + abort", async () => {
     let capturedSignal: AbortSignal | undefined
-    let resolveExtraction!: (value: { cancelled: boolean; completed: number; failed: number }) => void
+    let resolveExtraction!: (value: ImportedChapterMemoryResult) => void
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     mocks.runImportedChapterMemoryExtraction.mockImplementation(
-      ({ signal }: { signal: AbortSignal }) =>
+      ({ signal }) =>
         new Promise((resolve) => {
           capturedSignal = signal
           resolveExtraction = resolve
@@ -1514,7 +1529,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     expect(capturedSignal?.aborted).toBe(true)
 
     act(() => {
-      resolveExtraction({ cancelled: true, completed: 0, failed: 0 })
+      resolveExtraction({ cancelled: true, completed: 0, failed: 0, errors: [] })
     })
     await waitFor(() =>
       expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
@@ -1532,7 +1547,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("导入中再次触发被 chapterImporting 守卫拦截", async () => {
-    let resolveImport!: (value: Array<{ path: string; title: string }>) => void
+    let resolveImport!: (value: ImportedChapter[]) => void
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockReturnValue(
       new Promise((resolve) => {
@@ -1551,14 +1566,14 @@ describe("SidebarPanel 知识模式（章节）", () => {
     expect(mocks.dialogOpen).toHaveBeenCalledTimes(1)
 
     act(() => {
-      resolveImport([{ path: CH1, title: "第一章" }])
+      resolveImport([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     })
     await flushAsync()
   })
 
   it("章节导入文件：对话框返回单个字符串时归一为数组", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/single.md")
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: "第一章" }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
@@ -1664,7 +1679,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("章节记忆提取：章节标题缺失时初始标题回退为空", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ path: CH1, title: undefined as unknown as string }])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: undefined as unknown as string, chapterNumber: 1 }])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
@@ -1831,8 +1846,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   it("大纲导入文件夹：提取记忆完成链路", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([
-      { path: "/tmp/ofolder/o1.md", name: "o1.md" },
-      { path: "/tmp/ofolder/o2.md", name: "o2.md" },
+      { path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] },
+      { path: "/tmp/ofolder/o2.md", name: "o2.md", targetFolders: [] },
     ])
     mocks.importOutlineCandidates.mockResolvedValue([
       "/p/mybook/wiki/outlines/o1.md",
@@ -1850,8 +1865,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     expect(mocks.importOutlineCandidates).toHaveBeenCalledWith(
       "/p/mybook",
       [
-        { path: "/tmp/ofolder/o1.md", name: "o1.md" },
-        { path: "/tmp/ofolder/o2.md", name: "o2.md" },
+        { path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] },
+        { path: "/tmp/ofolder/o2.md", name: "o2.md", targetFolders: [] },
       ],
     )
     await waitFor(() => expect(mocks.importProgressActions.startTask).toHaveBeenCalled())
@@ -1871,11 +1886,11 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   })
 
   it("大纲导入文件夹：提取中途取消", async () => {
-    let resolveIngest!: (value: unknown) => void
+    let resolveIngest!: (value: void) => void
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([
-      { path: "/tmp/ofolder/o1.md", name: "o1.md" },
-      { path: "/tmp/ofolder/o2.md", name: "o2.md" },
+      { path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] },
+      { path: "/tmp/ofolder/o2.md", name: "o2.md", targetFolders: [] },
     ])
     mocks.importOutlineCandidates.mockResolvedValue([
       "/p/mybook/wiki/outlines/o1.md",
@@ -1919,7 +1934,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入文件夹：取消导入不执行导入", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
     fireEvent.click(screen.getByText("sources.importFolder"))
@@ -2002,7 +2017,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入文件夹：缺失首个路径时当前标题回退为空", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue([undefined as unknown as string])
     mocks.getFileName
       .mockImplementationOnce((path: string) => path.split("/").pop() ?? path)
@@ -2063,7 +2078,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入文件夹：只导入不提取记忆", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue(["/p/mybook/wiki/outlines/o1.md"])
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
@@ -2079,7 +2094,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   it("大纲导入文件夹：导入结果为空时 alert 并返回", async () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue([])
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
@@ -2095,7 +2110,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockRejectedValue("folder-outline-boom-str")
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
@@ -2110,7 +2125,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
-    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md" }])
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockRejectedValue(new Error("outline-folder-err"))
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
@@ -2148,7 +2163,7 @@ describe("SidebarPanel 创建流程", () => {
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.getNextChapterNumber.mockResolvedValue(1)
     mocks.flattenMdFiles.mockImplementation(
-      (nodes: unknown[]) => (nodes as Array<{ name: string; is_dir: boolean }>).filter((n) => !n.is_dir && n.name.endsWith(".md")),
+      (nodes) => nodes.filter((n) => !n.is_dir && n.name.endsWith(".md")).map((n) => ({ name: n.name, path: n.path })),
     )
   })
 
