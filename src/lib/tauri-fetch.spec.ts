@@ -39,7 +39,7 @@ afterEach(() => {
 
 describe("getHttpFetch (node runtime)", () => {
   it("wraps platform fetch and passes safe HTTPS requests through with init", async () => {
-    const fetchStub = vi.fn(async () => new Response("ok"))
+    const fetchStub = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response("ok"))
     vi.stubGlobal("fetch", fetchStub)
 
     const httpFetch = await getHttpFetch()
@@ -50,7 +50,7 @@ describe("getHttpFetch (node runtime)", () => {
   })
 
   it("accepts URL and Request inputs in addition to plain strings", async () => {
-    const fetchStub = vi.fn(async () => new Response("ok"))
+    const fetchStub = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response("ok"))
     vi.stubGlobal("fetch", fetchStub)
 
     const httpFetch = await getHttpFetch()

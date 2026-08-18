@@ -79,7 +79,6 @@ function installWikiStore(): void {
 }
 
 const fileNode = (path: string, name: string): FileNode => ({
-  id: path,
   path,
   name,
   is_dir: false,
@@ -87,7 +86,6 @@ const fileNode = (path: string, name: string): FileNode => ({
 })
 
 const dirNode = (path: string, name: string, children: FileNode[]): FileNode => ({
-  id: path,
   path,
   name,
   is_dir: true,

@@ -139,8 +139,8 @@ describe("measurement-fingerprint M0", () => {
         ...basePack,
         soulDoc: null as unknown as string,
         recentChapterContents: ["最近一章正文"],
-        styleExemplars: [{ exemplarId: "e1", chapterId: "1", text: "t", markType: "thrill" }],
-        gaps: [{ source: "outline", reason: "tier_compressible", detail: "x" }],
+        styleExemplars: [{ exemplarId: "e1", chapterId: "1", text: "t", markType: "thrill", createdAt: "2026-01-01T00:00:00Z" }],
+        gaps: [{ type: "compressed", ref: "outline", reason: "tier_compressible", originalLength: 100, retainedLength: 50 }],
       },
       chapterText: "x",
     })

@@ -11,9 +11,9 @@ vi.mock("./model-resolver", () => ({
 }))
 
 import { testNovelModel } from "./novel-model-test"
-import type { NovelConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 
-const llmConfig = { apiKey: "k", model: "m", baseUrl: "http://x" } as never
+const llmConfig = { provider: "custom", apiKey: "k", model: "m", customEndpoint: "http://x" } as LlmConfig
 
 function novelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
   return {

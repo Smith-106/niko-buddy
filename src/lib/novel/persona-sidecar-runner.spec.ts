@@ -123,7 +123,7 @@ describe("EPIC-005 / ADR-34 persona-sidecar-runner", () => {
     const res = await runPersonaCritique({
       projectPath: "/P",
       draftId: "conv-1",
-      personaIds: ["bogus"] as PersonaId[],
+      personaIds: ["bogus"] as unknown as PersonaId[],
       llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
       llmCall: async () => {},
     })
@@ -195,8 +195,8 @@ describe("EPIC-005 / ADR-34 persona-sidecar-runner", () => {
   it("invokes the onError callback when streamChat reports an error", async () => {
     fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
     const { streamChat } = await import("@/lib/llm-client")
-    ;(streamChat as unknown as { mockImplementationOnce: (fn: (...args: unknown[]) => unknown) => void }).mockImplementationOnce(
-      async (_c: unknown, _m: unknown, cb: { onError?: (e: unknown) => void; onDone?: () => void }) => {
+    vi.mocked(streamChat).mockImplementationOnce(
+      async (_c: unknown, _m: unknown, cb) => {
         cb.onError?.(new Error("provider error"))
         cb.onDone?.()
       },

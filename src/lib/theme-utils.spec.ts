@@ -53,7 +53,6 @@ describe("isSystemDark / getSystemTheme", () => {
     const stop = watchSystemTheme(() => {})
     expect(typeof stop).toBe("function")
     stop() // execute the no-op cleanup closure
-    // @ts-expect-error restore
     globalThis.window = win
   })
 })
@@ -90,7 +89,6 @@ describe("applyTheme", () => {
     // @ts-expect-error deleting the global to simulate a non-DOM environment
     delete globalThis.document
     expect(() => applyTheme("dark")).not.toThrow()
-    // @ts-expect-error restore
     globalThis.document = doc
   })
 })

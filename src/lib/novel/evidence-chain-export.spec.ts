@@ -36,7 +36,15 @@ describe("evidence-chain-export (S5)", () => {
   it("auto mode: ced only → ced chain", () => {
     const ced = computeCedReport({
       findings: [
-        { type: "data_gap", subtype: "data_gap", severity: "info", message: "缺 lastSeenChapter", ref: "ch:2", chapter: 2 },
+        {
+          type: "data_gap",
+          subtype: "data_gap",
+          severity: "info",
+          message: "缺 lastSeenChapter",
+          ref: "ch:2",
+          chapter: 2,
+          missingField: "lastSeenChapter",
+        },
       ],
       textForWordCount: "正文",
     })
@@ -68,7 +76,7 @@ describe("evidence-chain-export (S5)", () => {
   })
 
   it("pretty:false serializes compact JSON", () => {
-    const r = exportEvidenceChainForReview({ ced: computeCedReport({}), pretty: false })
+    const r = exportEvidenceChainForReview({ ced: computeCedReport({ findings: [] }), pretty: false })
     expect(r.json).not.toContain("\n  ")
   })
 })

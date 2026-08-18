@@ -63,7 +63,7 @@ describe("ensureProjectId", () => {
     mocks.isTauri.mockReturnValue(true)
     mocks.readFile.mockRejectedValue(new Error("missing"))
     mocks.writeFile.mockRejectedValue(new Error("readonly"))
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("abc-1")
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("abc-1" as ReturnType<typeof crypto.randomUUID>)
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     await expect(ensureProjectId("/P")).resolves.toBe("abc-1")
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("failed to write identity file"), expect.any(Error))
@@ -73,7 +73,7 @@ describe("ensureProjectId", () => {
   it("creates a new identity when the file contains a non-string id", async () => {
     mocks.isTauri.mockReturnValue(true)
     mocks.readFile.mockResolvedValue(JSON.stringify({ id: 42, createdAt: 1 }))
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("uuid-2")
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("uuid-2" as ReturnType<typeof crypto.randomUUID>)
     await expect(ensureProjectId("/P")).resolves.toBe("uuid-2")
   })
 })
