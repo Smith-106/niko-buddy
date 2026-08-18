@@ -126,7 +126,7 @@ describe("findSurprisingConnections", () => {
 
   it("respects the limit", () => {
     const edgesList = [edge("hero", "villain", 2), edge("source", "synthesis", 2)]
-    expect(findSurprisingConnections(nodes, edgesList, 1)).toHaveLength(1)
+    expect(findSurprisingConnections(nodes, edgesList, [], 1)).toHaveLength(1)
   })
 
   it("uses custom type labels for distant pairs", () => {

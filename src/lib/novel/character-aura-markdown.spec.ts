@@ -9,7 +9,7 @@ vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: { getState: () => ({ llmConfig: {}, searchApiConfig: {} }) },
 }))
 
-import type { CharacterAura, CustomCharacterAuraGenerationInput } from "./character-aura-types"
+import type { CharacterAura, CharacterAuraResearchFileName, CustomCharacterAuraGenerationInput } from "./character-aura-types"
 import {
   buildStoredCorpus,
   customResearchMarkdown,
@@ -440,7 +440,7 @@ describe("character-aura-markdown residual branches", () => {
   })
 
   it("customResearchMarkdown falls back to the first workflow stage for an unknown fileName", () => {
-    const out = customResearchMarkdown(aura(), fullInput(), "99-invalid.md" as CharacterAuraResearchFileName)
+    const out = customResearchMarkdown(aura(), fullInput(), "99-invalid.md" as unknown as CharacterAuraResearchFileName) // 故意构造非法 fileName 测回退分支
     // stageForResearchFile 未命中时回退 AURA_WORKFLOW_STAGES[0]，而 content 表无该键 → undefined
     expect(out).toBeUndefined()
   })

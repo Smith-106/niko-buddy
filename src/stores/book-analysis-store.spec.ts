@@ -112,7 +112,7 @@ describe("book analysis store 任务生命周期", () => {
     const metadata = { title: "长夜书", totalChapters: 10, totalWords: 32000, sourceType: "file" as const, createdAt: 1, updatedAt: 2 }
     const chars: ExtractedCharacter[] = [{ id: "c1", name: "许七安", aliases: [], importance: 90, category: "protagonist", firstAppearance: 0, lastAppearance: 9, appearanceCount: 10, description: "d", personality: "p", speechStyle: "s", relationships: [], keyEvents: [] }]
     const skills: CharacterSkill[] = [{ id: "sk1", characterId: "c1", characterName: "许七安", skillContent: "推理", sourceBook: "长夜书", chapterRange: ["1"], createdAt: 1 }]
-    const styleProfile: BookStyleProfile = { schemaVersion: 1, generatedAt: 1, sampledChapterIds: [], narrativeDensity: "高", descriptionWeight: "中", emotionRendering: "低", sentenceStyle: "短句", rhetoricDensity: "低", transitionStyle: "快", narrativeVoice: "第三人称", dialogueStyle: "简洁", thematicHabits: "成长" }
+    const styleProfile: BookStyleProfile = { schemaVersion: 1, generatedAt: 1, sampledChapterIds: [], narrativeDensity: "高", descriptionWeight: "中", emotionRendering: "低", sentenceStyle: "短句", rhetoricDensity: "低", transitionStyle: "快", narrativeVoice: "第三人称", dialogueStyle: "简洁", thematicHabits: "成长", constitution: "", samples: [] }
 
     useBookAnalysisStore.getState().updateTaskMetadata(id, metadata)
     useBookAnalysisStore.getState().updateTaskCharacters(id, chars)

@@ -218,7 +218,7 @@ describe("streamCodexCli", () => {
     )
     await Promise.resolve()
     await Promise.resolve()
-    findEvents(listeners)
+    const { doneEventName } = findEvents(listeners)
 
     const spawnCall = vi.mocked(invoke).mock.calls.find(([c]) => c === "codex_cli_spawn")
     expect(spawnCall).toBeDefined()

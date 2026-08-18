@@ -62,8 +62,8 @@ const mocks = vi.hoisted(() => {
     openFileLocation: vi.fn(),
     moveFileToTrash: vi.fn(),
     deleteNovelSourceMemory: vi.fn(),
-    confirm: vi.fn(() => true),
-    alert: vi.fn(),
+    confirm: vi.fn<(message?: string) => boolean>(() => true),
+    alert: vi.fn<(message?: string) => void>(() => {}),
   }
 })
 

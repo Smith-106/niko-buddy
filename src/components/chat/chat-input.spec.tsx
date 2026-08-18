@@ -3,7 +3,7 @@
  * ChatInput — 受控/非受控 draft、发送/停止、键盘 Enter/IME、可调高度（键盘 + 指针）全口径覆盖。
  * chat-store 用 vi.hoisted 可写 state mock；chat-input-resize 保持真实实现（自身已 100%）。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
   act,
@@ -49,7 +49,7 @@ function renderChatInput(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
       {...props}
     />,
   )
-  return { ...utils, onSend: onSend as ReturnType<typeof vi.fn>, onStop: onStop as ReturnType<typeof vi.fn> }
+  return { ...utils, onSend: onSend as Mock<(text: string) => void>, onStop: onStop as Mock<() => void> }
 }
 
 function separator(): HTMLElement {

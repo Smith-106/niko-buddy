@@ -982,12 +982,6 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     delete document.body.dataset.panelResizing
   })
 
-  async function _renderEditingDoc(editableNode: GraphNode) {
-    mocks.fileExists.mockResolvedValue(true)
-    mocks.readFile.mockResolvedValue(`# ${editableNode.label}\n\n正文`)
-    const utils = await renderDocumentView()
-    return utils
-  }
 
   /** 文档模式：切到「重要角色」分组并展开林烬 */
   async function openLinJinNode() {

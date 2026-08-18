@@ -8,6 +8,7 @@ import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, setupDomGlobals, waitFor } from "@/test-helpers/component-test-utils"
 import { PersonaCritiquePanel } from "./persona-critique-panel"
 import type { PersonaCritiqueResult } from "@/lib/novel/persona-sidecar-runner"
+import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
 
 interface CritiqueResultLike {
   ok: boolean
@@ -161,7 +162,8 @@ describe("PersonaCritiquePanel", () => {
     mocks.loadNovelSessionStatus.mockResolvedValue({
       draft: { draft_id: "draft-9", draft_status: "ready" },
       current_task: { conversation_id: "conv-9" },
-    })
+
+    } as unknown as NovelSessionStatus)
     renderPanel()
     clickRun()
     await waitFor(() => expect(mocks.runPersonaCritique).toHaveBeenCalledTimes(1))
@@ -182,7 +184,8 @@ describe("PersonaCritiquePanel", () => {
     mocks.loadNovelSessionStatus.mockResolvedValue({
       draft: { draft_id: null, draft_status: "ready" },
       current_task: { conversation_id: "conv-7" },
-    })
+
+    } as unknown as NovelSessionStatus)
     renderPanel()
     clickRun()
     await waitFor(() =>
@@ -194,7 +197,8 @@ describe("PersonaCritiquePanel", () => {
     mocks.loadNovelSessionStatus.mockResolvedValue({
       draft: { draft_id: null, draft_status: "pending" },
       current_task: { conversation_id: null },
-    })
+
+    } as unknown as NovelSessionStatus)
     renderPanel()
     clickRun()
     await waitFor(() => expect(screen.getByText("novel.persona.noDraft")).toBeTruthy())
@@ -289,7 +293,8 @@ describe("PersonaCritiquePanel", () => {
     mocks.loadNovelSessionStatus.mockResolvedValue({
       draft: { draft_id: "draft-1", draft_status: "ready" },
       current_task: { conversation_id: "conv-1" },
-    })
+
+    } as unknown as NovelSessionStatus)
     mocks.runPersonaCritique.mockResolvedValue({ ok: false, reason: "empty-personas", results: [] })
     renderPanel()
     clickRun()

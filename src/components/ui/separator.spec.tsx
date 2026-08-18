@@ -10,7 +10,7 @@ import { render, screen } from "@/test-helpers/component-test-utils"
 import { Separator } from "./separator"
 
 vi.mock("@base-ui/react/separator", () => ({
-  Separator: ({ children, ...props }: Record<string, unknown>) => (
+  Separator: ({ children, ...props }: { children?: React.ReactNode; [key: string]: unknown }) => (
     <div data-testid="base-separator" {...props}>
       {children}
     </div>

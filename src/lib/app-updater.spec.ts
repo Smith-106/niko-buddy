@@ -285,7 +285,7 @@ describe("checkForAppUpdate — full-coverage extensions", () => {
     vi.mocked(isTauri).mockReturnValue(true)
     vi.mocked(check).mockResolvedValue({ version: "2.2.29", body: "" } as never)
     vi.mocked(confirm).mockResolvedValue(false)
-    vi.mocked(message).mockResolvedValue(undefined)
+    vi.mocked(message).mockResolvedValue("Ok")
 
     await checkForAppUpdate()
 

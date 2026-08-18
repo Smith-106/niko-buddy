@@ -28,7 +28,7 @@ import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 
 beforeEach(() => {
   for (const mock of Object.values(fsMocks)) mock.mockReset()
-  vi.mocked(findBookLibraryEntry).mockResolvedValue(null)
+  vi.mocked(findBookLibraryEntry).mockResolvedValue(undefined)
   vi.mocked(upsertBookLibraryEntry).mockResolvedValue(undefined)
 })
 

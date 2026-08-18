@@ -655,7 +655,7 @@ describe("deleteChapterSnapshots (rebuild path)", () => {
       if (p.endsWith(".wiki-patch.json")) return JSON.stringify({ sharedWiki: true, entries: [] })
       throw new Error("ENOENT")
     })
-    moduleMocks.embedPage.mockImplementation(async (pp: string, pageId: string) => {
+    moduleMocks.embedPage.mockImplementation(async (_pp: string, pageId: string) => {
       if (pageId === "002") throw new Error("embed boom")
       return undefined
     })

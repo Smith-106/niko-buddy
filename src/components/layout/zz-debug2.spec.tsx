@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { expect, it, vi, beforeEach, afterEach } from "vitest"
+import { it, vi, beforeEach, afterEach } from "vitest"
 import { cleanup as rtlCleanup } from "@testing-library/react"
-import { render, screen, fireEvent, act, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { render, screen, fireEvent, act, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import type { FileNode, WikiProject } from "@/types/wiki"
 
 const mocks = vi.hoisted(() => ({

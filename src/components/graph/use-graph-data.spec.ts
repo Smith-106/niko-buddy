@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { setupDomGlobals } from "@/test-helpers/component-test-utils"
+
 import { useGraphData } from "./use-graph-data"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
 
 interface WikiStateLike {
   project: { id: string; name: string; path: string } | null
   dataVersion: number
-  setRefreshGraph: (fn: (() => void) | null) => void
+  setRefreshGraph: ReturnType<typeof vi.fn>
 }
 
 const mocks = vi.hoisted(() => {

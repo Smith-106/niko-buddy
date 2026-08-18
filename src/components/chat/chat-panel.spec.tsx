@@ -1448,20 +1448,20 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
       { id: "conv-1", title: "一", createdAt: 1, updatedAt: Date.now(), deAiMode: false },
     ]
     mocks.chatState.activeConversationId = "conv-1"
-    let capturedSignal: AbortSignal | null = null
+    const capturedSignal: { current: AbortSignal | null } = { current: null }
     mocks.streamChat.mockImplementation((_c: any, _m: any, _h: any, signal?: AbortSignal) => {
-      capturedSignal = signal ?? null
+      capturedSignal.current = signal ?? null
       return new Promise<void>(() => {}) // 挂起
     })
     // deleteFile 失败被吞 —— 拒绝必须注册在删除点击之前，删除处理是同步触发的
     mocks.deleteFile.mockRejectedValueOnce(new Error("io"))
     renderPanel()
     await sendText("hello")
-    expect(capturedSignal).not.toBeNull()
+    expect(capturedSignal.current).not.toBeNull()
     const tab = screen.getByRole("tab")
     fireEvent.click(within(tab).getByLabelText("删除该会话"))
     fireEvent.click(within(tab).getByLabelText("确认删除该会话"))
-    expect(capturedSignal?.aborted).toBe(true)
+    expect(capturedSignal.current?.aborted).toBe(true)
     expect(mocks.deleteFile).toHaveBeenCalledWith("/p/mybook/.qmai/chats/conv-1.json")
     await flushAsync()
   })

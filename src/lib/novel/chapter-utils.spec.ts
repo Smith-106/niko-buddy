@@ -411,7 +411,7 @@ describe("resolveTargetChapterNumberForChat routing edge cases", () => {
     await expect(resolveTargetChapterNumberForChat({
       projectPath: "E:/Novel",
       userRequest: "继续生成下一章",
-      routeIntent: "query",
+      routeIntent: "review_chapter",
     })).resolves.toBeUndefined()
     await expect(resolveTargetChapterNumberForChat({
       projectPath: "E:/Novel",

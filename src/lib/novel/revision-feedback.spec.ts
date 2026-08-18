@@ -122,7 +122,7 @@ describe("revision-feedback", () => {
 
     it("ignores non-semantic results and empty details", () => {
       const feedback = pickRevisionFeedbackFromLintResults([
-        lint({ type: "style", detail: "[contradiction] x" }),
+        lint({ type: "orphan", detail: "[contradiction] x" }),
         lint({ type: "semantic", detail: "   " }),
       ])
       expect(feedback.mustFix).toEqual([])

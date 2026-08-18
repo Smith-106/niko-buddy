@@ -338,7 +338,7 @@ describe("embedPage", () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1)
     const upsert = invokeMock.mock.calls.find((c) => c[0] === "vector_upsert_chunks")
     expect(upsert).toBeTruthy()
-    const [, args] = upsert
+    const [, args] = upsert!
     expect(args.projectPath).toBe("/P")
     expect(args.pageId).toBe("alpha")
     expect(args.chunks.length).toBeGreaterThan(1)

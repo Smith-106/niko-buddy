@@ -318,7 +318,7 @@ describe("runImportedChapterMemoryExtraction failure paths", () => {
     const result = await runImportedChapterMemoryExtraction({
       projectPath: "E:/Novel",
       chapterPaths: ["E:/Novel/wiki/chapters/a.md", "E:/Novel/wiki/chapters/b.md"],
-      ingestChapter: vi.fn(async (pp: string, path: string) => {
+      ingestChapter: vi.fn(async (_pp: string, path: string) => {
         if (path.endsWith("a.md")) throw new Error("boom")
         throw "string failure"
       }),

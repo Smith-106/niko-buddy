@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 const tMock = vi.fn((key: string) => `trans:${key}`)
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (...args: unknown[]) => tMock(...args) }),
+  useTranslation: () => ({ t: (key: string) => tMock(key) }),
 }))
 
 const storeState = { novelMode: true }

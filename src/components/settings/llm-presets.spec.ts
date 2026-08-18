@@ -11,7 +11,7 @@ describe("LLM_PRESETS", () => {
     expect(LLM_PRESETS[0]?.id).toBe("custom")
     expect(LLM_PRESETS.filter((p) => p.id === "custom")).toHaveLength(1)
     // 列表尾部不应再有 custom —— filter 的 index === 0 分支只保第一项
-    expect(LLM_PRESETS.at(-1)?.id).not.toBe("custom")
+    expect(LLM_PRESETS[LLM_PRESETS.length - 1]?.id).not.toBe("custom")
   })
 
   it("contains every curated vendor preset", () => {

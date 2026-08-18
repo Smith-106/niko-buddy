@@ -96,7 +96,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 let currentDraft: SettingsDraft
 
 const setDraft = vi.fn((key: keyof SettingsDraft, value: unknown) => {
-  ;(currentDraft as Record<string, unknown>)[key] = value
+  ;(currentDraft as unknown as Record<string, unknown>)[key] = value
 })
 
 function buildDraft(): SettingsDraft {

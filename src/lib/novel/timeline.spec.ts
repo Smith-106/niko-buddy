@@ -12,7 +12,7 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (...args: unknown[]) => mocks.normalizePath(...args),
+  normalizePath: (p: string) => mocks.normalizePath(p),
 }))
 
 import { getTimelineEvents, loadTimeline, mergeSnapshotTimeline } from "./timeline"

@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const streamChatMock = vi.fn()
 const combineAbortSignalsMock = vi.fn((...signals: AbortSignal[]) => signals[0])
 vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => streamChatMock(...args),
-  combineAbortSignals: (...args: unknown[]) => combineAbortSignalsMock(...args),
+  streamChat: (...args: Parameters<typeof streamChatMock>) => streamChatMock(...args),
+  combineAbortSignals: (...args: Parameters<typeof combineAbortSignalsMock>) => combineAbortSignalsMock(...args),
   DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
 }))
 

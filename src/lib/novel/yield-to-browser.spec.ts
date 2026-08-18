@@ -25,7 +25,7 @@ describe("yield-to-browser yieldToBrowserFrame", () => {
     ;(globalThis as Record<string, unknown>).window = {
       requestAnimationFrame: raf,
       setTimeout: winSetTimeout,
-    } as Window & typeof globalThis
+    } as unknown as Window & typeof globalThis
     await yieldToBrowserFrame()
     expect(raf).toHaveBeenCalledTimes(1)
     expect(winSetTimeout).toHaveBeenCalledTimes(1)

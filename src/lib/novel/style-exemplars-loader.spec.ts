@@ -21,6 +21,7 @@ import {
   STYLE_EXEMPLARS_TOP_K,
   STYLE_EXEMPLAR_TEXT_MAX_CHARS,
   type StyleExemplar,
+  type StyleExemplarMarkType,
 } from "./style-exemplars-loader"
 
 describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
@@ -292,7 +293,7 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
 
   it("pickTopKExemplars skips entries whose markType is outside the enum", () => {
     const exemplars: StyleExemplar[] = [
-      { exemplarId: "bad", chapterId: "c", text: "noise", markType: "bogus" as StyleExemplarMarkType, createdAt: "2026-07-10T00:01:00Z" },
+      { exemplarId: "bad", chapterId: "c", text: "noise", markType: "bogus" as unknown as StyleExemplarMarkType, createdAt: "2026-07-10T00:01:00Z" }, // 故意构造非法 markType 测跳过分支
       { exemplarId: "good", chapterId: "c", text: "signal", markType: "style", createdAt: "2026-07-10T00:02:00Z" },
     ]
     const picked = pickTopKExemplars(exemplars, STYLE_EXEMPLARS_TOP_K)

@@ -9,6 +9,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     type: "character",
     path: "",
     linkCount: 3,
+    community: 0,
     ...overrides,
   }
 }

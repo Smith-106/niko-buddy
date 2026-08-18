@@ -892,7 +892,7 @@ describe("BookAnalysisResultViewer", () => {
     mocks.wikiState.project = PROJECT
     mocks.bookState.tasks = [makeTask({ styleProfile: makeStyleProfile() })]
     mocks.upsertWritingStylePreset.mockRejectedValueOnce(new Error("preset-fail"))
-    const r2 = renderViewer()
+    renderViewer()
     await userEvent.click(screen.getByRole("button", { name: "启用此文风" }))
     await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("操作失败：preset-fail"))
   })
@@ -917,7 +917,7 @@ describe("BookAnalysisResultViewer", () => {
     // analyzeWritingStyle 失败
     mocks.wikiState.llmConfig = mocks.llmConfig
     mocks.analyzeWritingStyle.mockRejectedValueOnce(new Error("style-fail"))
-    const r3 = renderViewer()
+    renderViewer()
     await userEvent.click(screen.getByRole("button", { name: "提取文风" }))
     await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("提取文风失败：style-fail"))
   })

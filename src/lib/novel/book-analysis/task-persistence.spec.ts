@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   subscribe: vi.fn<(cb: (s: { tasks: unknown[] }) => void) => () => void>(() => () => {}),
-  getState: vi.fn(() => ({ tasks: [] })),
+  getState: vi.fn<() => { tasks: BookAnalysisTask[] }>(() => ({ tasks: [] })),
 }))
 
 vi.mock("@/commands/fs", () => ({

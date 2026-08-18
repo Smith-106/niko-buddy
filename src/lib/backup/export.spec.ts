@@ -98,7 +98,7 @@ describe("exportBackup", () => {
     mocks.invoke.mockImplementation(async () => {
       const handler = mocks.listen.mock.calls[0]?.[1]
       handler?.({ payload: { phase: "pack" } })
-      return { success: true, warnings: [], fileCount: 0, totalSize: 0 } satisfies ExportResult
+      return { success: true, warnings: [], fileCount: 0, totalSize: 0, error: null } satisfies ExportResult
     })
     const result = await exportBackup(onProgress)
     expect(result.success).toBe(true)

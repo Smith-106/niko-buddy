@@ -223,7 +223,7 @@ describe("recursive object encryption", () => {
     }
     const out = await crypto.encryptApiKeysInObject(obj) as Record<string, unknown>
     expect(out.apiKey).not.toBe("k1")
-    expect(out.nested.apiKey).not.toBe("k5")
+    expect((out.nested as Record<string, unknown>).apiKey).not.toBe("k5")
     expect((out.list as Array<{ apiKey: string }>)[0]!.apiKey).not.toBe("k6")
     expect(out.empty).toBe("")
     expect(out.notAKey).toBe("sk-visible")

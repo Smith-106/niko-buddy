@@ -11,7 +11,7 @@ import type { WritingStylePreset } from "@/lib/novel/writing-style-store"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 
 const profile = {
-  schemaVersion: 1,
+  schemaVersion: 1 as const,
   generatedAt: 1,
   sampledChapterIds: ["c1"],
   narrativeDensity: "高",

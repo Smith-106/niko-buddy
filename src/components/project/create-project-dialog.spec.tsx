@@ -47,8 +47,8 @@ const mocks = vi.hoisted(() => {
     getExecutableDir: vi.fn(async () => "C:\\Program Files\\QMaiWrite"),
     getTemplate: vi.fn(() => template),
     saveOutputLanguage: vi.fn(async () => {}),
-    pickDirectory: vi.fn(async () => null),
-    buildDefaultNovelDir: vi.fn((p: string) => (p.startsWith("C:") ? "C:\\QM-BOOK" : "D:\\QM-BOOK")),
+    pickDirectory: vi.fn<(dir?: string) => Promise<string | null>>(async () => null),
+    buildDefaultNovelDir: vi.fn<(p: string) => string>((p: string) => (p.startsWith("C:") ? "C:\\QM-BOOK" : "D:\\QM-BOOK")),
     onCreated: vi.fn(),
     onOpenChange: vi.fn(),
   }

@@ -134,7 +134,7 @@ describe("BookAnalysisCharacterPanel", () => {
 
   it("点击角色按钮 → onSelectCharacter；未生成 skill 的角色显示未生成且按钮禁用", () => {
     const onSelectCharacter = vi.fn()
-    const bookWithTwo = {
+    const bookWithTwo: BookAnalysisLibraryBook = {
       ...book,
       characters: [
         ...book.characters,

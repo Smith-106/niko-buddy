@@ -440,7 +440,7 @@ describe("DashboardView — items 装配 / 分组 / 排序 / 卡片", () => {
   it("factcheck 未知 detail (不在 label keys) → formatDashItemDetail 回退原文 detail", async () => {
     mocks.runFactCheck.mockResolvedValue(
       makeFactReport({
-        results: [makeFactResult({ severity: "high", type: "custom_unknown_type", message: "未知类型项" })],
+        results: [makeFactResult({ severity: "high", type: "custom_unknown_type" as unknown as FactCheckResult["type"], message: "未知类型项" })],
       }),
     )
     render(<DashboardView />)
@@ -1121,7 +1121,7 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
 
   it("factcheck chapters 仅 1 章 → targetChapterNumber 缺失 → 无候选不选中（else-if 假分支）", async () => {
     mocks.runFactCheck.mockResolvedValue(
-      makeFactReport({ results: [makeFactResult({ message: "单章项", chapters: [3] })] }),
+      makeFactReport({ results: [makeFactResult({ message: "单章项", chapters: [3] as unknown as [number, number] })] }),
     )
     mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/c.md", title: "第3章" }])
     render(<DashboardView />)

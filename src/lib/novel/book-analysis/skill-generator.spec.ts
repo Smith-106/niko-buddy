@@ -13,7 +13,7 @@ const fsMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/commands/fs", () => ({
-  writeFile: (...args: unknown[]) => fsMocks.writeFile(...args),
+  writeFile: (...args: Parameters<typeof fsMocks.writeFile>) => fsMocks.writeFile(...args),
 }))
 
 const streamChatMock = vi.fn()

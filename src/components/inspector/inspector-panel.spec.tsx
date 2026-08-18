@@ -14,7 +14,8 @@ import {
   setupDomGlobals,
   waitFor,
 } from "@/test-helpers/component-test-utils"
-import { InspectorPanel, type InspectorSnapshot } from "./inspector-panel"
+import { InspectorPanel } from "./inspector-panel"
+import type { InspectorSnapshot } from "@/lib/novel/inspector-query"
 
 const queryMocks = vi.hoisted(() => ({
   queryInspectorState: vi.fn(async (): Promise<InspectorSnapshot | null> => null),
@@ -36,7 +37,7 @@ vi.mock("@/stores/wiki-store", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback: string, opts?: Record<string, unknown>) =>
+    t: (_key: string, fallback: string, opts?: Record<string, unknown>) =>
       fallback.replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(opts?.[k] ?? "")),
   }),
 }))
@@ -424,9 +425,9 @@ describe("InspectorPanel — StatusBadge tone 全枚举", () => {
     const snap = fullSnapshot()
     snap.draft.draftStatus = "pending"
     snap.review.findings = [
-      { dimensionKey: "a", dimensionLabel: "高", score: 30, status: "high", summary: "", messages: [], evidences: [] },
-      { dimensionKey: "b", dimensionLabel: "中", score: 50, status: "medium", summary: "", messages: [], evidences: [] },
-      { dimensionKey: "c", dimensionLabel: "未知", score: 0, status: "unknown", summary: "", messages: [], evidences: [] },
+      { dimensionKey: "thrill", dimensionLabel: "高", score: 30, status: "high", summary: "", messages: [], evidences: [] },
+      { dimensionKey: "pacing", dimensionLabel: "中", score: 50, status: "medium", summary: "", messages: [], evidences: [] },
+      { dimensionKey: "character", dimensionLabel: "未知", score: 0, status: "unknown", summary: "", messages: [], evidences: [] },
     ]
     snap.decision = {
       consistency: { status: "error", verdict: "fail" },

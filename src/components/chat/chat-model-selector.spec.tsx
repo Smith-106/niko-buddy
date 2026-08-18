@@ -49,10 +49,10 @@ vi.mock("@/components/ui/button", async () => {
   const React = await import("react")
   return {
     Button: React.forwardRef<HTMLButtonElement, {
-      children?: unknown
+      children?: React.ReactNode
       onClick?: () => void
       disabled?: boolean
-      type?: string
+      type?: "reset" | "submit" | "button"
     }>(({ children, onClick, disabled, type }, ref) => (
       <button ref={ref} type={type ?? "button"} onClick={onClick} disabled={disabled}>
         {children}

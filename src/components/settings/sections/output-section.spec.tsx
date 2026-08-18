@@ -17,7 +17,7 @@ import { OUTPUT_LANGUAGE_OPTIONS } from "@/lib/output-language-options"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 
 const mocks = vi.hoisted(() => ({
-  t: vi.fn((key: string) => key),
+  t: vi.fn<(key: string, opts?: Record<string, unknown>) => string>((key: string) => key),
 }))
 
 vi.mock("react-i18next", () => ({

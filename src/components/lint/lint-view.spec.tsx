@@ -474,7 +474,7 @@ describe("LintView — running the lint", () => {
     await waitFor(() => {
       expect(mocks.saveGenerationHistoryEntry).toHaveBeenCalled()
     })
-    const initial = mocks.state.setLintRun.mock.calls[0][0]
+    const initial = mocks.state.setLintRun.mock.calls[0][0]!
     expect(initial.filePath).toBeUndefined()
     const saved = mocks.saveGenerationHistoryEntry.mock.calls[0][1]
     expect(saved.sourcePath).toBeUndefined()

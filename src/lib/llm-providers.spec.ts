@@ -230,7 +230,7 @@ describe("line parsers: openai / responses / anthropic / google", () => {
   const openai = getProviderConfig({ ...customConfig(), provider: "openai", apiKey: "sk-openai" })
   const responses = getProviderConfig(customConfig({ apiMode: "responses" }))
   const anthropic = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
-  const google = getProviderConfig({ ...customConfig(), provider: "google", apiKey: "sk-google" })
+  getProviderConfig({ ...customConfig(), provider: "google", apiKey: "sk-google" })
 
   it("openai: delta content, no-content, non-data, [DONE], malformed", () => {
     expect(openai.parseStream(`data: {"choices":[{"delta":{"content":"hi"}}]}`)).toBe("hi")

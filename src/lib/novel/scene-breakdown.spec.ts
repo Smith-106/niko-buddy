@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
+import type { NovelConfig } from "@/stores/wiki-store"
 
 /**
  * EPIC-002 / ADR-30 / TASK-011: scene-breakdown spec.
@@ -371,7 +372,7 @@ describe("EPIC-002 / ADR-30 / TASK-011: runSceneBreakdown", () => {
     })
     const result = await runSceneBreakdown("蓝图", contextPack, undefined, {
       llmConfig,
-      novelConfig: { reviewReasoningEffort: undefined },
+      novelConfig: { reviewReasoningEffort: undefined } as unknown as NovelConfig, // 部分 fixture：仅测 reviewReasoningEffort 读取路径
     })
     expect(result.scenes).toHaveLength(1)
     const opts = streamChatMock.mock.calls[0]?.[4] as { reasoning: { mode: string } }

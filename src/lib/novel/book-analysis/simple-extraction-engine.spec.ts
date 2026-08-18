@@ -8,7 +8,7 @@ const defaultLlmCallMock = vi.hoisted(() =>
 )
 
 vi.mock("@/lib/llm-client", () => ({
-  defaultLlmCall: (...args: unknown[]) => defaultLlmCallMock(...args),
+  defaultLlmCall: (...args: Parameters<typeof defaultLlmCallMock>) => defaultLlmCallMock(...args),
 }))
 
 const stubLlmConfig: LlmConfig = {

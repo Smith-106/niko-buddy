@@ -94,7 +94,7 @@ describe("evaluateOutlineThrillCheckpoints", () => {
   })
 
   it("runtime status tolerates a missing outlineText via empty-string fallback", () => {
-    const st = getOutlineThrillSoftGateRuntimeStatus({ chapter: 2, ackMap: {} })
+    const st = getOutlineThrillSoftGateRuntimeStatus({ outlineText: "", chapter: 2, ackMap: {} })
     expect(st.enabled).toBe(true)
     expect(st.chapterKey).toBe("2")
     expect(st.failCount).toBe(0)

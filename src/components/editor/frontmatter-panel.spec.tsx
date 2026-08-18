@@ -10,7 +10,6 @@ import {
   render,
   screen,
   fireEvent,
-  waitFor,
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { FrontmatterPanel } from "./frontmatter-panel"
@@ -201,7 +200,7 @@ describe("FrontmatterPanel", () => {
   })
 
   it("extras 数组/普通值渲染（Array.isArray 两分支）+ 数字值", () => {
-    renderPanel({ title: "T", num: 123, arr: ["x"] })
+    renderPanel({ title: "T", num: "123", arr: ["x"] })
     expect(screen.getByText("x")).toBeInTheDocument()
     expect(screen.getByText("123")).toBeInTheDocument()
   })

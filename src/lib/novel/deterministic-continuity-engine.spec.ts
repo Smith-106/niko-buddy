@@ -627,7 +627,7 @@ describe("EPIC-003 ADR-34 override 双轨 + reasonCode 6 值合并集", () => {
     }
     const overrides: ContinuityOverride[] = [{
       ref: "subplot:S1", reasonCode: "intentional_death", note: "",
-      severity: "info", dismissedAtChapter: 10,
+      severity: "warning", dismissedAtChapter: 10,
     }]
     expect(isFindingDismissed(finding, overrides)).toBe(false)
   })

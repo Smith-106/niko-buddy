@@ -54,7 +54,7 @@ describe("ced-report", () => {
   })
 
   it("computeCedReport: 无 findings 且无 wordCountEstimate → 全默认路径", () => {
-    const report = computeCedReport({})
+    const report = computeCedReport({ findings: [] })
     expect(report.totalFindings).toBe(0)
     expect(report.densityPer10k).toBe(0)
     expect(report.evidence).toEqual([])

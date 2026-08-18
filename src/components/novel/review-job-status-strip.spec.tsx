@@ -122,7 +122,7 @@ describe("ReviewJobStatusStrip", () => {
     const { unmount } = render(<ReviewJobStatusStrip />)
     await waitFor(() => expect(deps.loadNovelSessionStatus).toHaveBeenCalled())
     unmount()
-    resolveLoad({ review_job: { phase: "running" } })
+    resolveLoad({ review_job: { phase: "running", schemaVersion: "write-review-split/1.0", blocksWrite: false, productHardGate: false } } as NovelSessionStatus)
     await new Promise((r) => setTimeout(r, 0))
     expect(deps.getReviewJobUiModel).not.toHaveBeenCalled()
   })

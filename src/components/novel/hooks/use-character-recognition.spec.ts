@@ -96,7 +96,7 @@ const recognized: RecognizedCharacter[] = [
   { id: "r3", name: "路人甲", aliases: [], appearances: 1, chapterIndices: [1], importanceScore: 30, category: "次要", sourceBook: "长夜书" },
 ]
 
-const defaultLlm = { provider: "openai", apiKey: "key-1", model: "gpt-4o" }
+const defaultLlm = { provider: "openai" as const, apiKey: "key-1", model: "gpt-4o", ollamaUrl: "", customEndpoint: "", maxContextSize: 120000 }
 
 type RecParams = UseCharacterRecognitionParams
 type RecSpecProps = Omit<RecParams, "llmConfig"> & { llmConfig: RecParams["llmConfig"] | null }

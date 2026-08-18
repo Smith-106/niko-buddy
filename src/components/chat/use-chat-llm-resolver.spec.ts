@@ -37,7 +37,9 @@ vi.mock("@/components/settings/llm-presets", () => ({
 const BASE_CONFIG: LlmConfig = {
   provider: "custom",
   model: "deepseek-v3",
-  baseUrl: "https://api.deepseek.com",
+  customEndpoint: "https://api.deepseek.com",
+  ollamaUrl: "",
+  maxContextSize: 120000,
   apiKey: "key",
   apiMode: "chat_completions",
 }

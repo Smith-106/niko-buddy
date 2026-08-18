@@ -687,7 +687,7 @@ describe("ingestChapter — options DI", () => {
     const options = {
       llmConfig: { provider: "custom", model: "injected", customEndpoint: "http://injected", apiKey: "" } as LlmConfig,
       novelConfig: { ...storeState.novelConfig, communitySummaryAsync: false } as NovelConfig,
-      embeddingConfig: { enabled: true, model: "injected-emb" },
+      embeddingConfig: { enabled: true, model: "injected-emb", endpoint: "", apiKey: "" },
       novelMode: true,
     }
     storeState.novelMode = false // must be overridden by options.novelMode

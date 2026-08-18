@@ -79,9 +79,9 @@ describe("fs command wrappers", () => {
     mocks.upsertProjectInfo.mockResolvedValue(undefined)
   })
 
-  it.each(simpleCases)("$name forwards 参数并透传 invoke 返回值", async ({ fn, fnArgs, invokeArgs, resolved }) => {
+  it.each(simpleCases)("$name forwards 参数并透传 invoke 返回值", async ({ run, invokeArgs, resolved }) => {
     mocks.invoke.mockResolvedValue(resolved)
-    await expect(fn(...fnArgs)).resolves.toBe(resolved)
+    await expect(run()).resolves.toBe(resolved)
     expect(mocks.invoke).toHaveBeenCalledWith(...(invokeArgs as [unknown, ...unknown[]]))
   })
 
