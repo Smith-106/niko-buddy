@@ -6,6 +6,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, waitFor } from "@testing-library/react"
+import type { ReactNode } from "react"
+import type { CharacterAura, CharacterAuraBinding, CharacterAuraStore } from "@/lib/novel/character-aura-types"
 import {
   render,
   screen,
@@ -48,10 +50,14 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     t: vi.fn((key: string) => key),
-    listCharacterAuras: vi.fn(async () => []),
-    getCharacterAuraBindings: vi.fn(async () => []),
-    bindCharacterAura: vi.fn(async () => {}),
-    unbindCharacterAura: vi.fn(async () => {}),
+    listCharacterAuras: vi.fn<(projectPath: string) => Promise<CharacterAura[]>>(async () => []),
+    getCharacterAuraBindings: vi.fn<(projectPath: string) => Promise<CharacterAuraBinding[]>>(async () => []),
+    bindCharacterAura: vi.fn<
+      (projectPath: string, binding: CharacterAuraBinding, hasCharacterProfile: (projectPath: string, characterName: string) => Promise<boolean>) => Promise<CharacterAuraStore | undefined>
+    >(async () => ({ customAuras: [], bindings: [] })),
+    unbindCharacterAura: vi.fn<
+      (projectPath: string, characterName: string, auraId?: string) => Promise<CharacterAuraStore | undefined>
+    >(async () => ({ customAuras: [], bindings: [] })),
   }
 })
 
@@ -86,7 +92,7 @@ vi.mock("@/components/ui/button", () => ({
     children,
     onClick,
   }: {
-    children: unknown
+    children: ReactNode
     onClick?: () => void
   }) => (
     <button type="button" onClick={onClick}>
@@ -98,9 +104,18 @@ vi.mock("@/components/ui/button", () => ({
 const PROJECT = { id: "p1", name: "MyBook", path: "/p/mybook" }
 
 const LOADED_AURAS = [
-  { id: "builtin-a1", builtIn: true, name: "秦始皇", category: "历史帝王" },
-  { id: "builtin-a2", builtIn: true, name: "李白" },
-  { id: "custom-c1", builtIn: false, name: "自定义魂" },
+  {
+    id: "builtin-a1", builtIn: true, name: "秦始皇", category: "历史帝王",
+    sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+  },
+  {
+    id: "builtin-a2", builtIn: true, name: "李白",
+    sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+  },
+  {
+    id: "custom-c1", builtIn: false, name: "自定义魂",
+    sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+  },
 ]
 
 const BINDINGS = [{ characterName: "林冲", auraId: "builtin-a1" }]
