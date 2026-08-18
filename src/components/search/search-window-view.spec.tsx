@@ -77,7 +77,7 @@ beforeEach(() => {
   mocks.state.invoke.mockClear()
   mocks.state.transformCallback.mockClear()
   mocks.state.unregisterCallback.mockClear()
-  window.__TAURI_INTERNALS__ = {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "search" },
       currentWebview: { label: "search" },
@@ -85,7 +85,7 @@ beforeEach(() => {
     invoke: mocks.state.invoke,
     transformCallback: mocks.state.transformCallback,
     unregisterCallback: mocks.state.unregisterCallback,
-  } as unknown as typeof window.__TAURI_INTERNALS__
+  } as unknown as Record<string, unknown>
 })
 
 afterEach(() => {

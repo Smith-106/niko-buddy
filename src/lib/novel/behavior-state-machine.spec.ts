@@ -39,8 +39,7 @@ describe("behavior-state-machine", () => {
   })
 
   it("assigns score 10 and skips traces for characters with fewer than 3 records", () => {
-    fsMocks.readFileSync.mockImplementation((p: string) => {
-      const num = Number(p.replace(/[^0-9]/g, ""))
+    fsMocks.readFileSync.mockImplementation((_p: string) => {
       return chapterText("白鹭", "低下头", 1)
     })
     const report = analyzeBehaviorStateMachine([
@@ -90,8 +89,7 @@ describe("behavior-state-machine", () => {
   })
 
   it("flags no_evolution when same actions across 4+ chapters", () => {
-    fsMocks.readFileSync.mockImplementation((p: string) => {
-      const num = Number(p.replace(/[^0-9]/g, ""))
+    fsMocks.readFileSync.mockImplementation((_p: string) => {
       return chapterText("苏未晞", "抠指甲", 3)
     })
     const report = analyzeBehaviorStateMachine([

@@ -23,6 +23,7 @@
  * 零 LLM: 纯正则+算术, 与 mechanical-slop-detector 同一机械层。
  */
 
+import panguSpacing from "pangu"
 import {
   ALL_REPLACEMENTS,
   DELETE_ON_SIGHT,
@@ -107,6 +108,8 @@ export interface FormatNormalizeOptions {
   enableDeleteOnSight?: boolean
   /** 最大替换次数 (防无限/过度改写, 默认 200) */
   maxReplacements?: number
+  /** 启用 pangu 中英文自动空格 (默认 false — 保向后兼容, 可选的排版增强) */
+  enablePangu?: boolean
   /** 自定义替换索引 (默认 ALL_REPLACEMENTS) */
   replacements?: readonly ReplacementEntry[]
 }
@@ -122,6 +125,8 @@ export interface FormatNormalizeResult {
   exclamationReduced: number
   /** 修复的连续标点数 */
   repeatedPunctFixed: number
+  /** pangu 中英空格插入数 */
+  panguSpaced: number
   /** 归一化的数字 (年/月日) 数 */
   numberNormalized: number
   /** 是否发生了任何改动 (供 draft-first 判断是否需草稿) */
@@ -250,7 +255,7 @@ function applyDeleteOnSight(text: string): { text: string; count: number } {
  */
 export function formatNormalize(rawText: string, options: FormatNormalizeOptions = {}): FormatNormalizeResult {
   if (!rawText) {
-    return { text: rawText, replacementCount: 0, deleteCount: 0, exclamationReduced: 0, repeatedPunctFixed: 0, numberNormalized: 0, changed: false }
+    return { text: rawText, replacementCount: 0, deleteCount: 0, exclamationReduced: 0, repeatedPunctFixed: 0, panguSpaced: 0, numberNormalized: 0, changed: false }
   }
 
   let text = rawText
@@ -258,6 +263,7 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
   let exclamationReduced = 0
   let repeatedPunctFixed = 0
   let numberNormalized = 0
+  let panguSpaced = 0
 
   // 1. 删除 AI 套话
   if (options.enableDeleteOnSight !== false) {
@@ -318,14 +324,25 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
     })
   }
 
+  // 8. pangu 中英文自动空格 (可选, 默认关闭保向后兼容)
+  if (options.enablePangu) {
+    const before = text
+    text = panguSpacing(text)
+    if (text.length > before.length) {
+      panguSpaced = (text.match(/ /g) ?? []).length - (before.match(/ /g) ?? []).length
+      if (panguSpaced < 0) panguSpaced = 0
+    }
+  }
+
   const replacementCount = rep.count
-  const changed = replacementCount > 0 || deleteCount > 0 || exclamationReduced > 0 || repeatedPunctFixed > 0 || numberNormalized > 0 || text !== rawText
+  const changed = replacementCount > 0 || deleteCount > 0 || exclamationReduced > 0 || repeatedPunctFixed > 0 || numberNormalized > 0 || panguSpaced > 0 || text !== rawText
   return {
     text,
     replacementCount,
     deleteCount,
     exclamationReduced,
     repeatedPunctFixed,
+    panguSpaced,
     numberNormalized,
     changed,
   }

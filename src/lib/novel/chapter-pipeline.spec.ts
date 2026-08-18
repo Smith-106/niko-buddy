@@ -12,7 +12,7 @@ import type { IngestResult } from "./chapter-ingest"
 describe("createChapterPipeline", () => {
   it("resolves the review model and passes it to ingestChapter", async () => {
     resolveReviewModel.mockReturnValue("gpt-4.1-mini")
-    const ingestChapter = vi.fn(async (_pp: string, _cp: string, reviewModel: string): Promise<IngestResult> => {
+    const ingestChapter = vi.fn(async (_pp: string, _cp: string, _reviewModel: string): Promise<IngestResult> => {
       return { snapshot: { chapterNumber: 1 } as IngestResult["snapshot"], failReason: undefined }
     })
     const pipeline = createChapterPipeline({ ingestChapter })
@@ -25,7 +25,7 @@ describe("createChapterPipeline", () => {
 
   it("propagates empty review model when resolver returns empty string", async () => {
     resolveReviewModel.mockReturnValue("")
-    const ingestChapter = vi.fn(async (_pp: string, _cp: string, reviewModel: string): Promise<IngestResult> => {
+    const ingestChapter = vi.fn(async (_pp: string, _cp: string, _reviewModel: string): Promise<IngestResult> => {
       return { snapshot: null }
     })
     const pipeline = createChapterPipeline({ ingestChapter })

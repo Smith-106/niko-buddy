@@ -245,7 +245,7 @@ describe("loadBookAnalysisLibraryState 分支覆盖", () => {
   })
 
   it("characters 目录列目录失败 → characters []", async () => {
-    const bookPath = seedBasicBook("book-1", "长夜书")
+    seedBasicBook("book-1", "长夜书")
     const real = vi.mocked(listDirectory).getMockImplementation()!
     vi.mocked(listDirectory).mockImplementation(async (path: string) => {
       if (path.replace(/\\/g, "/").includes("/characters")) throw new Error("boom")
@@ -261,7 +261,7 @@ describe("loadBookAnalysisLibraryState 分支覆盖", () => {
   })
 
   it("skills 目录列目录失败 → skills []", async () => {
-    const bookPath = seedBasicBook("book-1", "长夜书")
+    seedBasicBook("book-1", "长夜书")
     const real = vi.mocked(listDirectory).getMockImplementation()!
     vi.mocked(listDirectory).mockImplementation(async (path: string) => {
       if (path.replace(/\\/g, "/").includes("/skills")) throw new Error("boom")

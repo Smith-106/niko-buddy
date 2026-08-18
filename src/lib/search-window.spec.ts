@@ -154,7 +154,7 @@ describe("openSearchWindow", () => {
     // The tauri://created handler fires and emits the context into the new window.
     expect(tauri.state.createdCb).not.toBeNull()
     await tauri.state.createdCb!()
-    expect(instance.emit).toHaveBeenCalledWith(SEARCH_CONTEXT_EVENT, ctx)
+    expect((instance as unknown as { emit: (...args: unknown[]) => void }).emit).toHaveBeenCalledWith(SEARCH_CONTEXT_EVENT, ctx)
   })
 
   it("logs an error payload when the window fails to be created", async () => {

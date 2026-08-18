@@ -30,8 +30,8 @@ import {
   collectCustomAuraWebSearch,
   readCustomAuraLocalDocuments,
   readCustomAuraUrls,
-  type CustomCharacterAuraSkillInput,
 } from "./character-aura-document"
+import type { CustomCharacterAuraSkillInput } from "./character-aura-types"
 import type { WebSearchResult } from "@/lib/web-search"
 
 function skillInput(overrides: Partial<CustomCharacterAuraSkillInput> = {}): CustomCharacterAuraSkillInput {
@@ -190,7 +190,7 @@ describe("collectCustomAuraWebSearch", () => {
 
   it("uses an injected search config instead of the store config", async () => {
     webSearchMock.mockResolvedValue([])
-    const searchApiConfig = { provider: "brave", apiKey: "injected" } as SearchApiConfig
+    const searchApiConfig = { provider: "brave", apiKey: "injected" } as unknown as SearchApiConfig
 
     await collectCustomAuraWebSearch(skillInput(), { searchApiConfig })
 

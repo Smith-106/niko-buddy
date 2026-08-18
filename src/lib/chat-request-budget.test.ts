@@ -80,8 +80,8 @@ describe("trimChatMessagesToBudget — full-coverage extensions", () => {
         role: "user",
         content: [
           { type: "text", text: text(500) },
-          { type: "image", dataBase64: text(40, "i") },
-          { type: "image", dataBase64: text(100_000, "I") },
+          { type: "image", mediaType: "image/png", dataBase64: text(40, "i") },
+          { type: "image", mediaType: "image/png", dataBase64: text(100_000, "I") },
           { type: "text", text: text(30) },
         ],
       },

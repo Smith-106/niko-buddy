@@ -269,7 +269,7 @@ describe("retry / cancel / pause / clear", () => {
     expect(getQueue()).toHaveLength(0)
     expect(getQueueSummary().total).toBe(0)
     expect(mocks.executeMerge.mock.calls[0][4].signal.aborted).toBe(true)
-    const saved = JSON.parse(mocks.writeFile.mock.calls.at(-1)![1] as string)
+    const saved = JSON.parse(mocks.writeFile.mock.calls[mocks.writeFile.mock.calls.length - 1][1] as string)
     expect(saved[0].status).toBe("pending")
     gate.reject(new Error("aborted"))
     await flush()
@@ -358,7 +358,7 @@ describe("restoreQueue", () => {
     )
     await restoreQueue("pid", "/proj")
     expect(getQueue().map((t) => t.id)).toEqual(["t1"])
-    const saved = JSON.parse(mocks.writeFile.mock.calls.at(-1)![1] as string)
+    const saved = JSON.parse(mocks.writeFile.mock.calls[mocks.writeFile.mock.calls.length - 1][1] as string)
     expect(saved).toEqual([])
   })
 

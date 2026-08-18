@@ -49,7 +49,7 @@ describe("avoid-ai-patterns full port", () => {
       label: "possible-ai",
       issues: [{ type: "tapestry", text: "delve into the tapestry of the paradigm" }],
       languageBias: "english-heavy" as const,
-      productHardGate: false,
+      productHardGate: false as const,
     }
     const summary = formatAvoidAiPatternsSummary(synthetic)
     expect(summary).not.toContain("class=")

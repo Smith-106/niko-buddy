@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
-  subscribe: vi.fn(() => () => {}),
+  subscribe: vi.fn<(cb: (s: { tasks: unknown[] }) => void) => () => void>(() => () => {}),
   getState: vi.fn(() => ({ tasks: [] })),
 }))
 

@@ -35,9 +35,8 @@ import {
   syncStoredCustomAuraFiles,
   unbindCharacterAura,
   updateCustomCharacterAura,
-  type CharacterAura,
-  type CharacterAuraStore,
 } from "./character-aura-store"
+import type { CharacterAura, CharacterAuraStore } from "./character-aura-types"
 
 const STORE_PATH = "/P/.qmai/character-aura.json"
 
