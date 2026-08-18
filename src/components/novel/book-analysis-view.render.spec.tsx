@@ -4,16 +4,51 @@
  * 目标：src/components/novel/book-analysis-view.tsx 四维全口径补满。
  * 策略：vi.mock store / hooks / 子组件 / 外部依赖，断言对照源码实现。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { BookAnalysisView } from "./book-analysis-view"
+import type {
+  BookAnalysisConfig,
+  BookAnalysisMetadata,
+  BookAnalysisProgress,
+  BookAnalysisResult,
+  RecognizedCharacter,
+} from "@/lib/novel/book-analysis/types"
+import type { SplitChaptersResult } from "@/lib/novel/book-analysis/analysis-engine"
+import type { ChapterSelectionData, UseCharacterExtractionParams } from "./hooks/use-character-extraction"
 
 const CH1 = { id: "ch-1", title: "第一章", order: 1, wordCount: 1000, path: "/p/book-analysis/book-1/chapters/ch-1.md" }
 const CH2 = { id: "ch-2", title: "第二章", order: 2, wordCount: 1200, path: "/p/book-analysis/book-1/chapters/ch-2.md" }
 
 const mocks = vi.hoisted(() => {
-  const baState: Record<string, unknown> = {
+  const baState: {
+    tasks: unknown[]
+    selectedLibraryBookId: string | null
+    sidebarRefreshCounter: number
+    pendingRecognitionTaskId: string | null
+    recognitionStatus: string
+    recognizedCharacters: unknown[]
+    selectedCharacterIds: string[]
+    recognitionError: unknown
+    showResultViewer: boolean
+    currentResult: unknown
+    startTask: Mock<(projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string>
+    cancelTask: Mock<(taskId: string) => void>
+    setShowResultViewer: Mock<(show: boolean) => void>
+    setRecognitionStatus: Mock<(status: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error") => void>
+    setRecognizedCharacters: Mock<(characters: RecognizedCharacter[]) => void>
+    setSelectedCharacterIds: Mock<(ids: string[]) => void>
+    setRecognitionError: Mock<(error?: string) => void>
+    clearRecognition: Mock<() => void>
+    consumeReopenRequest: Mock<() => string | null>
+    setCurrentResult: Mock<(result: BookAnalysisResult | null) => void>
+    updateTaskProgress: Mock<(taskId: string, progress: Partial<BookAnalysisProgress>) => void>
+    updateTaskMetadata: Mock<(taskId: string, metadata: BookAnalysisMetadata) => void>
+    updateTaskBookData: Mock<(taskId: string, bookId: string, chapters: unknown[], bookPath?: string) => void>
+    triggerSidebarRefresh: Mock<() => void>
+    errorTask: Mock<(taskId: string, error: string) => void>
+  } = {
     tasks: [],
     selectedLibraryBookId: null,
     sidebarRefreshCounter: 0,
@@ -24,25 +59,25 @@ const mocks = vi.hoisted(() => {
     recognitionError: undefined,
     showResultViewer: false,
     currentResult: null,
-    startTask: vi.fn(() => "task-1"),
-    cancelTask: vi.fn(),
-    setShowResultViewer: vi.fn((v: unknown) => {
+    startTask: vi.fn<(projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string>(() => "task-1"),
+    cancelTask: vi.fn<(taskId: string) => void>(),
+    setShowResultViewer: vi.fn<(show: boolean) => void>((v: unknown) => {
       baState.showResultViewer = v as boolean
     }),
-    setRecognitionStatus: vi.fn(),
-    setRecognizedCharacters: vi.fn(),
-    setSelectedCharacterIds: vi.fn(),
-    setRecognitionError: vi.fn(),
-    clearRecognition: vi.fn(),
-    consumeReopenRequest: vi.fn(),
-    setCurrentResult: vi.fn((r: unknown) => {
+    setRecognitionStatus: vi.fn<(status: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error") => void>(),
+    setRecognizedCharacters: vi.fn<(characters: RecognizedCharacter[]) => void>(),
+    setSelectedCharacterIds: vi.fn<(ids: string[]) => void>(),
+    setRecognitionError: vi.fn<(error?: string) => void>(),
+    clearRecognition: vi.fn<() => void>(),
+    consumeReopenRequest: vi.fn<() => string | null>(),
+    setCurrentResult: vi.fn<(result: BookAnalysisResult | null) => void>((r: unknown) => {
       baState.currentResult = r
     }),
-    updateTaskProgress: vi.fn(),
-    updateTaskMetadata: vi.fn(),
-    updateTaskBookData: vi.fn(),
-    triggerSidebarRefresh: vi.fn(),
-    errorTask: vi.fn(),
+    updateTaskProgress: vi.fn<(taskId: string, progress: Partial<BookAnalysisProgress>) => void>(),
+    updateTaskMetadata: vi.fn<(taskId: string, metadata: BookAnalysisMetadata) => void>(),
+    updateTaskBookData: vi.fn<(taskId: string, bookId: string, chapters: unknown[], bookPath?: string) => void>(),
+    triggerSidebarRefresh: vi.fn<() => void>(),
+    errorTask: vi.fn<(taskId: string, error: string) => void>(),
   }
   const wikiState: Record<string, unknown> = {
     project: null,
@@ -59,7 +94,7 @@ const mocks = vi.hoisted(() => {
   }
   const libraryBooks: unknown[] = []
   const reloadLibraryState = vi.fn(async () => {})
-  const splitNovelIntoChapters = vi.fn(async () => ({ success: false }))
+  const splitNovelIntoChapters = vi.fn<(sourcePath: string, projectPath: string, llmConfig: unknown, onProgress?: (progress: unknown) => void, signal?: AbortSignal) => Promise<SplitChaptersResult>>(async () => ({ success: false, bookId: "", bookPath: "", metadata: { title: "", totalChapters: 0, totalWords: 0, sourceType: "file", createdAt: 0, updatedAt: 0 }, chapters: [] }))
   const toastSuccess = vi.fn()
   const toastError = vi.fn()
   const toastInfo = vi.fn()
@@ -98,7 +133,8 @@ const mocks = vi.hoisted(() => {
     handleSelectAllMain,
     handleClearSelection,
   }))
-  const useCharacterExtraction = vi.fn(() => ({
+  const useCharacterExtraction = vi.fn<(params: UseCharacterExtractionParams) => { extracting: boolean; handleDeepExtract: () => Promise<void>; handleSimpleExtract: () => Promise<void>; handleResumeFailedExtraction: (taskId: string) => Promise<void> }>(() => ({
+    extracting: false,
     handleDeepExtract,
     handleSimpleExtract,
     handleResumeFailedExtraction,
@@ -256,7 +292,17 @@ vi.mock("./chapter-selection-panel", () => ({
 }))
 
 const PROJECT = { id: "p1", name: "P", path: "/p/x" }
-const METADATA = { title: "Book A", totalChapters: 2, totalWords: 2200, sourceType: "file", createdAt: 1, updatedAt: 2 }
+const METADATA: BookAnalysisMetadata = { title: "Book A", totalChapters: 2, totalWords: 2200, sourceType: "file", createdAt: 1, updatedAt: 2 }
+const SPLIT_FAILURE: SplitChaptersResult = { success: false, bookId: "", bookPath: "", metadata: { title: "", totalChapters: 0, totalWords: 0, sourceType: "file", createdAt: 0, updatedAt: 0 }, chapters: [] }
+const EMPTY_CHAPTER_SELECTION: ChapterSelectionData = {
+  taskId: "",
+  bookPath: "",
+  chapters: [],
+  metadata: METADATA,
+  abortController: new AbortController(),
+  selectedChapterIds: [],
+  depth: "deep",
+}
 
 function makeTask(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -342,7 +388,7 @@ describe("BookAnalysisView 渲染覆盖", () => {
     mocks.wikiState.project = null
     mocks.wikiState.aiChatModel = null
     mocks.libraryBooks.length = 0
-    mocks.splitNovelIntoChapters.mockResolvedValue({ success: false })
+    mocks.splitNovelIntoChapters.mockResolvedValue(SPLIT_FAILURE)
   })
 
   afterEach(() => {
@@ -558,11 +604,11 @@ describe("BookAnalysisView 渲染覆盖", () => {
     expect(screen.getByTestId("panel-has-extracted")).toHaveTextContent("true")
 
     await clickAndFlush("panel-load")
-    const mapped = mocks.baState.setRecognizedCharacters.mock.calls[0]?.[0] as Array<Record<string, unknown>>
+    const mapped = mocks.baState.setRecognizedCharacters.mock.calls[0]?.[0]
     expect(mapped).toHaveLength(3)
-    expect(mapped[0]).toMatchObject({ id: "ex-p", category: "主角", aliases: [], chapterIndices: [0], importanceScore: 9 })
-    expect(mapped[1]).toMatchObject({ id: "ex-s", category: "配角" })
-    expect(mapped[2]).toMatchObject({ id: "ex-m", category: "次要" })
+    expect(mapped?.[0]).toMatchObject({ id: "ex-p", category: "主角", aliases: [], chapterIndices: [0], importanceScore: 9 })
+    expect(mapped?.[1]).toMatchObject({ id: "ex-s", category: "配角" })
+    expect(mapped?.[2]).toMatchObject({ id: "ex-m", category: "次要" })
     expect(mocks.baState.setSelectedCharacterIds).toHaveBeenCalledWith(["ex-p", "ex-s"])
     expect(mocks.toastInfo).toHaveBeenCalledWith("已加载 3 个已提取的角色，可直接选择进行提取")
   })
@@ -777,9 +823,10 @@ describe("BookAnalysisView 渲染覆盖", () => {
     mocks.wikiState.project = PROJECT
     mocks.baState.tasks = [makeTask()]
     mockAnalysisSuccess()
-    mocks.useCharacterExtraction.mockImplementation((params: { setChapterSelectionData: (fn: (prev: Record<string, unknown> | null) => Record<string, unknown> | null) => void }) => ({
+    mocks.useCharacterExtraction.mockImplementation((params: UseCharacterExtractionParams) => ({
+      extracting: false,
       handleDeepExtract: async () => {
-        params.setChapterSelectionData((prev) => ({ ...(prev ?? {}), extractionPhase: "deep" }))
+        params.setChapterSelectionData((prev) => ({ ...(prev ?? EMPTY_CHAPTER_SELECTION), extractionPhase: "deep" }))
       },
       handleSimpleExtract: mocks.handleSimpleExtract,
       handleResumeFailedExtraction: mocks.handleResumeFailedExtraction,
@@ -874,9 +921,9 @@ describe("BookAnalysisView 渲染覆盖", () => {
     mocks.baState.tasks = [makeTask()]
     mocks.libraryBooks.push(makeBook({ id: "", recognizedCharacters: [RC_A] }))
     mockAnalysisSuccess()
-    const originalSplit = String.prototype.split
-    const splitSpy = vi.spyOn(String.prototype, "split").mockImplementation(function (this: string, separator?: string | RegExp, limit?: number) {
-      if (this === "/p/book-analysis/book-1" && separator instanceof RegExp && String(separator) === "/[/\\\\]/") return [] as unknown as string[]
+    const originalSplit = String.prototype.split as (separator: string | RegExp, limit?: number) => string[]
+    const splitSpy = vi.spyOn(String.prototype, "split").mockImplementation(function (this: string, separator?: string | RegExp | { [Symbol.split](string: string, limit?: number): string[] }, limit?: number) {
+      if (this === "/p/book-analysis/book-1" && separator instanceof RegExp && String(separator) === "/[/\\\\]/") return [] as string[]
       return originalSplit.call(this, separator as string, limit)
     })
     render(<BookAnalysisView />)

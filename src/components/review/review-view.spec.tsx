@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor, within, userEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -8,6 +9,12 @@ import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"
 import type { GenerationHistoryEntry } from "@/lib/novel/generation-history"
 import type { CognitionState } from "@/lib/novel/character-cognition"
+import type { DashboardIssueState, DashboardIssueRewriteBackup } from "@/lib/dashboard-issue-actions"
+import type { ReviewRewriteEdit, ReviewRewriteApplyResult } from "@/lib/review-rewrite-plan"
+interface FileEntry {
+  name: string
+  isDirectory: boolean
+}
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -30,55 +37,57 @@ function deferred<T>(): Deferred<T> {
 const mocks = vi.hoisted(() => {
   const state: Record<string, unknown> = {}
   return {
+
     state,
     reviewItems: [] as ReviewItem[],
     t: vi.fn((key: string) => key),
     i18nExists: vi.fn(() => true),
-    resolveItem: vi.fn(),
-    dismissItem: vi.fn(),
-    clearResolved: vi.fn(),
+    resolveItem: vi.fn<(id: string) => void>(),
+    dismissItem: vi.fn<(id: string) => void>(),
+    clearResolved: vi.fn<() => void>(),
     // @/commands/fs mirror
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-    writeFileAtomic: vi.fn(),
-    listDirectory: vi.fn(),
-    deleteFile: vi.fn(),
-    copyFile: vi.fn(),
-    copyDirectory: vi.fn(),
-    preprocessFile: vi.fn(),
-    findRelatedWikiPages: vi.fn(),
-    createDirectory: vi.fn(),
-    fileExists: vi.fn(),
-    getFileModifiedTime: vi.fn(),
-    getFileSize: vi.fn(),
-    getFileMd5: vi.fn(),
-    readFileAsBase64: vi.fn(),
-    createProject: vi.fn(),
-    openProject: vi.fn(),
-    openProjectFolder: vi.fn(),
-    openFileLocation: vi.fn(),
+    readFile: vi.fn<(path: string) => Promise<string>>(),
+    writeFile: vi.fn<(path: string, content: string) => Promise<void>>(),
+    writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(),
+    listDirectory: vi.fn<(path: string) => Promise<FileEntry[]>>(),
+    deleteFile: vi.fn<(path: string) => Promise<void>>(),
+    copyFile: vi.fn<(src: string, dest: string) => Promise<void>>(),
+    copyDirectory: vi.fn<(src: string, dest: string) => Promise<void>>(),
+    preprocessFile: vi.fn<(path: string, content: string) => Promise<string>>(),
+    findRelatedWikiPages: vi.fn<(path: string) => Promise<string[]>>(),
+    createDirectory: vi.fn<(path: string) => Promise<void>>(),
+    fileExists: vi.fn<(path: string) => Promise<boolean>>(),
+    getFileModifiedTime: vi.fn<(path: string) => Promise<number | null>>(),
+    getFileSize: vi.fn<(path: string) => Promise<number | null>>(),
+    getFileMd5: vi.fn<(path: string) => Promise<string | null>>(),
+    readFileAsBase64: vi.fn<(path: string) => Promise<string>>(),
+    createProject: vi.fn<(path: string) => Promise<void>>(),
+    openProject: vi.fn<(path: string) => Promise<void>>(),
+    openProjectFolder: vi.fn<(path: string) => Promise<void>>(),
+    openFileLocation: vi.fn<(path: string) => Promise<void>>(),
     // lib deps
-    resolveDefaultModel: vi.fn(() => null),
-    hasUsableLlm: vi.fn(() => true),
-    loadCognitionState: vi.fn(),
-    listGenerationHistory: vi.fn(),
-    deleteGenerationHistoryEntry: vi.fn(),
-    startNovelReviewRun: vi.fn(),
-    startSixDimensionReviewRun: vi.fn(),
-    dismissFinding: vi.fn(),
-    exportEvidenceChainForReview: vi.fn(),
-    formatMeasurementFingerprintSummary: vi.fn((_fp: unknown) => "fp-summary"),
-    buildVisibleNovelReviewActionItems: vi.fn(() => []),
-    buildVisibleNovelReviewActionItemsForScoreDimensions: vi.fn(() => []),
-    buildVisibleNovelReviewActionItemsForDimensionResults: vi.fn(() => []),
-    findReviewRewriteAnchors: vi.fn(() => []),
-    generateReviewRewriteEdits: vi.fn(),
-    applyReviewRewriteEditsToMarkdown: vi.fn(),
-    loadDashboardIssueState: vi.fn(),
-    saveDashboardIssueState: vi.fn(),
-    restoreDashboardRewriteInMarkdown: vi.fn(),
+    resolveDefaultModel: vi.fn<() => string | null>(() => null),
+    hasUsableLlm: vi.fn<() => boolean>(() => true),
+    loadCognitionState: vi.fn<() => Promise<CognitionState | null>>(),
+    listGenerationHistory: vi.fn<() => Promise<GenerationHistoryEntry[]>>(),
+    deleteGenerationHistoryEntry: vi.fn<(id: string) => Promise<void>>(),
+    startNovelReviewRun: vi.fn<() => Promise<void>>(),
+    startSixDimensionReviewRun: vi.fn<() => Promise<void>>(),
+    dismissFinding: vi.fn<(finding: unknown) => Promise<void>>(),
+    exportEvidenceChainForReview: vi.fn<(review: unknown) => { json: string }>(() => ({ json: "{}" })),
+    formatMeasurementFingerprintSummary: vi.fn<(_fp: unknown) => string>((_fp: unknown) => "fp-summary"),
+    buildVisibleNovelReviewActionItems: vi.fn<(targetPath: string | null | undefined, results: NovelReviewResult[], ignored: Record<string, true>) => NovelReviewActionItem[]>(() => []),
+    buildVisibleNovelReviewActionItemsForScoreDimensions: vi.fn<() => NovelReviewActionItem[]>(() => []),
+    buildVisibleNovelReviewActionItemsForDimensionResults: vi.fn<() => NovelReviewActionItem[]>(() => []),
+    findReviewRewriteAnchors: vi.fn<() => unknown[]>(() => []),
+    generateReviewRewriteEdits: vi.fn<(...args: unknown[]) => Promise<ReviewRewriteEdit[]>>(),
+    applyReviewRewriteEditsToMarkdown: vi.fn<(markdown: string, edits: ReviewRewriteEdit[]) => ReviewRewriteApplyResult>(),
+    loadDashboardIssueState: vi.fn<() => Promise<DashboardIssueState>>(),
+    saveDashboardIssueState: vi.fn<(state: DashboardIssueState) => Promise<void>>(),
+    restoreDashboardRewriteInMarkdown: vi.fn<(markdown: string, backup: DashboardIssueRewriteBackup) => string | null>(),
   }
 })
+
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
@@ -176,7 +185,7 @@ vi.mock("@/components/ui/button", () => ({
 }))
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ open, onOpenChange, children }: { open: boolean; onOpenChange?: (v: boolean) => void; children: unknown }) =>
+  Dialog: ({ open, onOpenChange, children }: { open: boolean; onOpenChange?: (v: boolean) => void; children: ReactNode }) =>
     open ? (
       <div data-testid="dialog">
         {children}
@@ -185,11 +194,11 @@ vi.mock("@/components/ui/dialog", () => ({
         </button>
       </div>
     ) : null,
-  DialogContent: ({ children }: { children: unknown }) => <div data-testid="dialog-content">{children}</div>,
-  DialogDescription: ({ children }: { children: unknown }) => <div data-testid="dialog-description">{children}</div>,
-  DialogFooter: ({ children }: { children: unknown }) => <div data-testid="dialog-footer">{children}</div>,
-  DialogHeader: ({ children }: { children: unknown }) => <div data-testid="dialog-header">{children}</div>,
-  DialogTitle: ({ children }: { children: unknown }) => <div data-testid="dialog-title">{children}</div>,
+  DialogContent: ({ children }: { children: ReactNode }) => <div data-testid="dialog-content">{children}</div>,
+  DialogDescription: ({ children }: { children: ReactNode }) => <div data-testid="dialog-description">{children}</div>,
+  DialogFooter: ({ children }: { children: ReactNode }) => <div data-testid="dialog-footer">{children}</div>,
+  DialogHeader: ({ children }: { children: ReactNode }) => <div data-testid="dialog-header">{children}</div>,
+  DialogTitle: ({ children }: { children: ReactNode }) => <div data-testid="dialog-title">{children}</div>,
 }))
 
 vi.mock("./finding-compare-dialog", () => ({
@@ -229,16 +238,19 @@ function makeReviewItem(over: Partial<ReviewItem> = {}): ReviewItem {
   }
 }
 
-function makeResult(over: Partial<NovelReviewResult> = {}): NovelReviewResult {
-  return {
+function makeResult(
+  over: Omit<Partial<NovelReviewResult>, "severity" | "type"> & { severity?: string; type?: string } = {},
+): NovelReviewResult {
+  const base: NovelReviewResult = {
     severity: "error",
     type: "character_consistency",
     message: "结果消息",
     evidence: "结果证据",
     relatedMemory: "",
     suggestion: "结果建议",
-    ...over,
   }
+  // severity/type 放宽为 string：组件对空串走 `|| "quality"/"info"` 回退分支。
+  return { ...base, ...over } as NovelReviewResult
 }
 
 function makeActionItem(over: Partial<NovelReviewActionItem> = {}): NovelReviewActionItem {
@@ -333,7 +345,7 @@ beforeEach(() => {
   mocks.dismissFinding.mockResolvedValue(undefined)
   mocks.exportEvidenceChainForReview.mockReturnValue({ json: "{}" })
   mocks.generateReviewRewriteEdits.mockResolvedValue([])
-  mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({ ok: true, markdown: "# new", applied: [], failed: [] })
+  mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({ ok: true, markdown: "# new", applied: [] })
   mocks.loadDashboardIssueState.mockResolvedValue({ ignored: {}, rewrites: {} })
   mocks.saveDashboardIssueState.mockResolvedValue(undefined)
   mocks.restoreDashboardRewriteInMarkdown.mockReturnValue("restored-md")
@@ -947,8 +959,8 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     await waitFor(() => expect(screen.getByText("review.rewrite.errorNoEdits")).toBeInTheDocument())
     cleanup()
     mocks.generateReviewRewriteEdits.mockResolvedValue([
-      { originalText: "原文1", replacementText: "替换1", note: "备注1" },
-      { originalText: "原文2", replacementText: "替换2", note: "" },
+      { id: "edit-1", originalText: "原文1", replacementText: "替换1", note: "备注1" },
+      { id: "edit-2", originalText: "原文2", replacementText: "替换2", note: "" },
     ])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
@@ -1004,7 +1016,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
     mocks.generateReviewRewriteEdits.mockResolvedValue([
-      { originalText: "原文1", replacementText: "替换1", note: "" },
+      { id: "edit-3", originalText: "原文1", replacementText: "替换1", note: "" },
     ])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
@@ -1035,7 +1047,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     await waitFor(() => expect(screen.getByText(/\[url\]|single fail/)).toBeInTheDocument())
     // apply (替换后) → handleApplyRewrite 成功路径
     mocks.generateReviewRewriteEdits.mockResolvedValue([
-      { originalText: "原文1", replacementText: "替换1", note: "" },
+      { id: "edit-4", originalText: "原文1", replacementText: "替换1", note: "" },
     ])
     fireEvent.click(screen.getByText("review.rewrite.regenerateAll"))
     await waitFor(() => expect(screen.getByText("原文1")).toBeInTheDocument())
@@ -1057,7 +1069,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
     // 生成一个空白 replacement 的 edit → 无活动 edits
-    mocks.generateReviewRewriteEdits.mockResolvedValue([{ originalText: "原文1", replacementText: "   ", note: "" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValue([{ id: "edit-5", originalText: "原文1", replacementText: "   ", note: "" }])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("原文1")).toBeInTheDocument())
@@ -1068,8 +1080,8 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     expect(applyBtn).toBeDisabled()
     cleanup()
     // applyResult !ok
-    mocks.generateReviewRewriteEdits.mockResolvedValue([{ originalText: "原文1", replacementText: "替换1", note: "" }])
-    mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({ ok: false, markdown: "", applied: [], failed: ["x", "y"] })
+    mocks.generateReviewRewriteEdits.mockResolvedValue([{ id: "edit-6", originalText: "原文1", replacementText: "替换1", note: "" }])
+    mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({ ok: false, markdown: "", applied: [], failed: [{ id: "f1", originalText: "x", replacementText: "y" }, { id: "f2", originalText: "a", replacementText: "b" }] })
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("原文1")).toBeInTheDocument())
@@ -1086,7 +1098,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
       error: null,
     })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
-    mocks.generateReviewRewriteEdits.mockResolvedValue([{ originalText: "原文1", replacementText: "替换1", note: "" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValue([{ id: "edit-7", originalText: "原文1", replacementText: "替换1", note: "" }])
     mocks.state.selectedFile = "E:/Novel/chapter-8.md"
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
@@ -1478,7 +1490,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
     mocks.loadDashboardIssueState.mockRejectedValueOnce(new Error("state read failed"))
     renderView({ characterOnly: true })
     await waitFor(() => expect(mocks.buildVisibleNovelReviewActionItems).toHaveBeenCalled())
-    const [, results] = mocks.buildVisibleNovelReviewActionItems.mock.calls.at(-1) as [string, NovelReviewResult[], Record<string, boolean>]
+    const [, results] = mocks.buildVisibleNovelReviewActionItems.mock.calls[mocks.buildVisibleNovelReviewActionItems.mock.calls.length - 1]
     expect(results).toEqual([character])
     expect(screen.getByText("行动项消息")).toBeInTheDocument()
   })
@@ -1507,9 +1519,9 @@ describe("ReviewView — W4 边界与异步分支", () => {
     fireEvent.click(within(actionItemCard("首个行动项")).getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("review.rewrite.waiting")).toBeInTheDocument())
     fireEvent.click(within(actionItemCard("第二个行动项")).getByText("dashboard.actions.aiRewrite"))
-    await act(async () => first.resolve([{ originalText: "旧一", replacementText: "新一", note: "" }]))
+    await act(async () => first.resolve([{ id: "edit-8", originalText: "旧一", replacementText: "新一", note: "" }]))
     expect(screen.queryByText("旧一")).not.toBeInTheDocument()
-    await act(async () => second.resolve([{ originalText: "旧二", replacementText: "新二", note: "" }]))
+    await act(async () => second.resolve([{ id: "edit-9", originalText: "旧二", replacementText: "新二", note: "" }]))
     await waitFor(() => expect(screen.getByText("旧二")).toBeInTheDocument())
   })
 
@@ -1526,14 +1538,13 @@ describe("ReviewView — W4 边界与异步分支", () => {
     setRun({ runId: "rw-applied", filePath: "E:/Novel/chapter-8.md", results: [makeResult()], running: false, error: null })
     mocks.state.selectedFile = "E:/Novel/chapter-8.md"
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
-    mocks.generateReviewRewriteEdits.mockResolvedValue([{ originalText: "旧文", replacementText: "新文", note: "说明" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValue([{ id: "edit-10", originalText: "旧文", replacementText: "新文", note: "说明" }])
     mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({
       ok: true,
       markdown: "# 已改写",
-      failed: [],
       applied: [{
         edit: { id: "a1:edit-1", originalText: "旧文", replacementText: "新文", note: "说明" },
-        backup: { originalText: "旧文", replacementText: "新文", evidence: "证据", updatedAt: "now" },
+        backup: { itemId: "a1:edit-1", targetPath: "E:/Novel/chapter-8.md", originalText: "旧文", replacementText: "新文", evidence: "证据", updatedAt: "now" },
       }],
     })
     renderView()
@@ -1552,7 +1563,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
   it("单条重生成读取失败回退原章节, 空结果显示 errorSingleNoResult", async () => {
     setRun({ runId: "rw-one", filePath: "E:/Novel/chapter-8.md", results: [makeResult()], running: false, error: null })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
-    mocks.generateReviewRewriteEdits.mockResolvedValueOnce([{ originalText: "旧文", replacementText: "新文", note: "" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValueOnce([{ id: "edit-11", originalText: "旧文", replacementText: "新文", note: "" }])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("旧文")).toBeInTheDocument())
@@ -1571,7 +1582,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
   it("单条重生成空错误消息使用默认错误文案", async () => {
     setRun({ runId: "rw-one-error", filePath: "E:/Novel/chapter-8.md", results: [makeResult()], running: false, error: null })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
-    mocks.generateReviewRewriteEdits.mockResolvedValueOnce([{ originalText: "旧文", replacementText: "新文", note: "" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValueOnce([{ id: "edit-12", originalText: "旧文", replacementText: "新文", note: "" }])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("旧文")).toBeInTheDocument())
@@ -1687,7 +1698,7 @@ describe("ReviewView — 对话框生命周期与守卫", () => {
       error: null,
     })
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
-    mocks.generateReviewRewriteEdits.mockResolvedValue([{ originalText: "原文1", replacementText: "替换1", note: "" }])
+    mocks.generateReviewRewriteEdits.mockResolvedValue([{ id: "edit-13", originalText: "原文1", replacementText: "替换1", note: "" }])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByText("原文1")).toBeInTheDocument())
@@ -1784,14 +1795,14 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   it("单条重生成成功: updater 替换匹配行并保留其他行", async () => {
     setNovelRun()
     mocks.generateReviewRewriteEdits.mockResolvedValueOnce([
-      { originalText: "旧1", replacementText: "新1", note: "" },
-      { originalText: "旧2", replacementText: "新2", note: "" },
+      { id: "edit-14", originalText: "旧1", replacementText: "新1", note: "" },
+      { id: "edit-15", originalText: "旧2", replacementText: "新2", note: "" },
     ])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByDisplayValue("新1")).toBeInTheDocument())
     mocks.generateReviewRewriteEdits.mockResolvedValueOnce([
-      { originalText: "旧1", replacementText: "再生成1", note: "" },
+      { id: "edit-16", originalText: "旧1", replacementText: "再生成1", note: "" },
     ])
     fireEvent.click(screen.getAllByText("review.rewrite.regenerate")[0])
     await waitFor(() => expect(screen.getByDisplayValue("再生成1")).toBeInTheDocument())
@@ -1802,7 +1813,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   it("单条重生成以非 Error 拒绝后 apply 被 rewriteError 守卫拦截", async () => {
     setNovelRun()
     mocks.generateReviewRewriteEdits.mockResolvedValueOnce([
-      { originalText: "旧1", replacementText: "新1", note: "" },
+      { id: "edit-17", originalText: "旧1", replacementText: "新1", note: "" },
     ])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
@@ -1819,8 +1830,8 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   it("多编辑行: 单条 ignore 命中一行 (else 保留其他行), 再 restore 解禁为 pending", async () => {
     setNovelRun()
     mocks.generateReviewRewriteEdits.mockResolvedValueOnce([
-      { originalText: "旧1", replacementText: "新1", note: "" },
-      { originalText: "旧2", replacementText: "新2", note: "" },
+      { id: "edit-18", originalText: "旧1", replacementText: "新1", note: "" },
+      { id: "edit-19", originalText: "旧2", replacementText: "新2", note: "" },
     ])
     renderView()
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
@@ -1956,7 +1967,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   })
 
   it("issue state 加载在卸载后拒绝 → cancelled 守卫跳过写回", async () => {
-    const d = deferred<unknown>()
+    const d = deferred<DashboardIssueState>()
     mocks.loadDashboardIssueState.mockReturnValueOnce(d.promise)
     const view = renderView()
     view.unmount()

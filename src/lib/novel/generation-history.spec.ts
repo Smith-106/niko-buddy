@@ -1,21 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { FileNode } from "@/types/wiki"
+import type { TrashItemKind } from "@/lib/trash"
 
 const fsMocks = vi.hoisted(() => ({
-  createDirectory: vi.fn(async () => {}),
-  listDirectory: vi.fn(),
-  readFile: vi.fn(),
-  writeFile: vi.fn(async () => {}),
+  createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+  listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(),
+  readFile: vi.fn<(path: string) => Promise<string>>(),
+  writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
 }))
 vi.mock("@/commands/fs", () => ({
-  createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
-  listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
-  readFile: (...args: unknown[]) => fsMocks.readFile(...args),
-  writeFile: (...args: unknown[]) => fsMocks.writeFile(...args),
+  createDirectory: (path: string) => fsMocks.createDirectory(path),
+  listDirectory: (path: string) => fsMocks.listDirectory(path),
+  readFile: (path: string) => fsMocks.readFile(path),
+  writeFile: (path: string, contents: string) => fsMocks.writeFile(path, contents),
 }))
 
-const moveFileToTrashMock = vi.hoisted(() => vi.fn(async () => {}))
+const moveFileToTrashMock = vi.hoisted(() =>
+  vi.fn<(projectPath: string, filePath: string, kind: TrashItemKind) => Promise<void>>(async () => {}),
+)
 vi.mock("@/lib/trash", () => ({
-  moveFileToTrash: (...args: unknown[]) => moveFileToTrashMock(...args),
+  moveFileToTrash: (projectPath: string, filePath: string, kind: TrashItemKind) =>
+    moveFileToTrashMock(projectPath, filePath, kind),
 }))
 
 describe("generation-history", () => {

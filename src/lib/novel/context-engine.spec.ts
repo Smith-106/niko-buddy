@@ -1565,7 +1565,7 @@ describe("buildRelatedChaptersContext", () => {
   const base: RelatedChaptersContextInput = {
     currentChapter: 5,
     chapterOutline: "第5章细纲",
-    foreshadowing: { items: [], lastUpdated: 0 },
+    foreshadowing: { items: [], lastUpdated: "" },
   }
 
   it("appearances 显式提供 + overdue findings 非空 → 组合文本", () => {
@@ -1726,7 +1726,6 @@ describe("buildContextPack 集成", () => {
   })
 
   it("conditionalRoutingEnabled=true → selectActiveEntities 注入 + ROI variant enabled", async () => {
-    const _ents: ContextEntity[] = [{ entityId: "/e.md", name: "林晚秋", type: "character", tags: [] }]
     // 通过 mock 函数被 build 调用的路径：selectActiveEntities 是 context-engine 内部真实函数，
     // 依赖 mocked listDirectory/readFile/parseFrontmatter —— 直接在 build 内触发。
     hoisted.listDirectory.mockResolvedValue([

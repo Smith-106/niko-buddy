@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
+import type { ChapterSnapshot } from "./chapter-ingest"
 import { buildReviewPrompt, ReviewParseError, reviewChapter } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
@@ -30,12 +31,14 @@ const mocks = vi.hoisted(() => ({
   continuityThrow: undefined as unknown,
   // preflight snapshots-load path (review-adapter.ts:311-312): listSnapshots/loadSnapshot
   // 来自 ./chapter-ingest — 默认返空 (ENOENT 语义), 测试注入 [1,2] 让 map/filter 执行。
-  listSnapshotsMock: vi.fn(async () => []),
-  loadSnapshotMock: vi.fn(async () => null),
+  listSnapshotsMock: vi.fn<(projectPath: string) => Promise<number[]>>(async () => []),
+  loadSnapshotMock: vi.fn<(projectPath: string, chapterNumber: number) => Promise<ChapterSnapshot | null>>(async () => null),
   // override store 降级 (review-adapter.ts:329-333): loadContinuityOverrides 抛错 → catch。
   overrideLoadError: undefined as unknown,
   // character-aura 重匹配 (review-adapter.ts:507-513): 返回新光环替换 contextPack / 抛错降级。
-  buildCharacterAuraContextMock: vi.fn(async () => null),
+  buildCharacterAuraContextMock: vi.fn<
+    (projectPath: string, task: string, options?: { matchingText?: string }) => Promise<string | null>
+  >(async () => null),
   // hasUsableLlm 可控 (review-adapter.ts:435): 默认可用, 测试置 false 驱动早退。
   llmUsable: true,
   // override store 非空 payload (review-adapter.ts:327 假分支 + :342 真分支)。
@@ -163,8 +166,8 @@ vi.mock("./deterministic-continuity-engine", async () => {
 // (node 测试环境 ENOENT → 空)。此处替换为可控 mock: 默认返空 (行为等价),
 // snapshots-load 测试注入 [1,2] 驱动 review-adapter.ts:311-312 的 map/filter。
 vi.mock("./chapter-ingest", () => ({
-  listSnapshots: (...args: unknown[]) => mocks.listSnapshotsMock(...args),
-  loadSnapshot: (...args: unknown[]) => mocks.loadSnapshotMock(...args),
+  listSnapshots: (projectPath: string) => mocks.listSnapshotsMock(projectPath),
+  loadSnapshot: (projectPath: string, chapterNumber: number) => mocks.loadSnapshotMock(projectPath, chapterNumber),
 }))
 
 // G3 override 读端降级 (AC-006.5): 默认返空 store (等价真实 loader 的 ENOENT 降级),
@@ -179,7 +182,8 @@ vi.mock("./continuity-overrides-store", () => ({
 // 审稿前角色光环重匹配 (review-adapter.ts:502-514): 默认返 null (沿用阶段1光环),
 // 测试注入替换光环 (508-509) 或抛错 (511-513 catch)。
 vi.mock("./character-aura", () => ({
-  buildCharacterAuraContext: (...args: unknown[]) => mocks.buildCharacterAuraContextMock(...args),
+  buildCharacterAuraContext: (projectPath: string, task: string, options?: { matchingText?: string }) =>
+    mocks.buildCharacterAuraContextMock(projectPath, task, options),
 }))
 
 // A19 机械层 (slop + 行为模式): 默认透传真实实现, 仅注入 flag 时覆写以驱动
@@ -957,7 +961,7 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
     expect(results).toBeDefined()
     // matchingText 必须包含初稿正文 (补齐新登场角色的光环匹配)
     const callArgs = mocks.buildCharacterAuraContextMock.mock.calls[0]
-    const matchingText = String((callArgs[2] as { matchingText: string }).matchingText)
+    const matchingText = String(callArgs[2]?.matchingText ?? "")
     expect(matchingText).toContain("初稿正文：主角在祠堂沉默。")
     expect(streamChatMock).toHaveBeenCalledTimes(1)
   })
@@ -1025,7 +1029,7 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
       _messages: Array<{ role: string; content: string }>,
       callbacks: StreamCallbacks,
     ) => {
-      callbacks.onReasoningToken("分阶段分析：先核对记忆库，再逐维度判定")
+      callbacks.onReasoningToken?.("分阶段分析：先核对记忆库，再逐维度判定")
       callbacks.onToken("[]")
       callbacks.onDone()
     })

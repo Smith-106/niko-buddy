@@ -16,16 +16,16 @@ import {
 } from "./dismantling"
 
 const fsMocks = vi.hoisted(() => ({
-  fileExists: vi.fn(),
-  readFile: vi.fn(),
-  writeFile: vi.fn(async () => {}),
-  createDirectory: vi.fn(async () => {}),
+  fileExists: vi.fn<(path: string) => Promise<boolean>>(),
+  readFile: vi.fn<(path: string) => Promise<string>>(),
+  writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+  createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
 }))
 vi.mock("@/commands/fs", () => ({
-  fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
-  readFile: (...args: unknown[]) => fsMocks.readFile(...args),
-  writeFile: (...args: unknown[]) => fsMocks.writeFile(...args),
-  createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
+  fileExists: (path: string) => fsMocks.fileExists(path),
+  readFile: (path: string) => fsMocks.readFile(path),
+  writeFile: (path: string, contents: string) => fsMocks.writeFile(path, contents),
+  createDirectory: (path: string) => fsMocks.createDirectory(path),
 }))
 
 describe("dismantling library", () => {
@@ -243,10 +243,17 @@ describe("dismantling normalization fallbacks", () => {
       projects: [
         {
           id: "p1",
-          createdAt: "not-a-date",
+          title: "",
+          createdAt: NaN,
           updatedAt: 0,
-          chapters: [{}, { id: "keep", chapterNumber: 5, title: "已有", content: "正文", status: "failed", error: "x" }],
-          analyses: [{}, { id: "an1", chapterIds: ["a"], title: "已有分析", createdAt: 7, markdown: "m", structureMemory: ["mem"] }],
+          chapters: [
+            { id: "", chapterNumber: 0, title: "", content: "", status: "pending" },
+            { id: "keep", chapterNumber: 5, title: "已有", content: "正文", status: "failed", error: "x" },
+          ],
+          analyses: [
+            { id: "", chapterIds: [], title: "", createdAt: 0, markdown: "", structureMemory: [] },
+            { id: "an1", chapterIds: ["a"], title: "已有分析", createdAt: 7, markdown: "m", structureMemory: ["mem"] },
+          ],
           structureMemory: ["有用", "", null as never],
           useInChat: true,
         },
@@ -277,11 +284,15 @@ describe("dismantling normalization fallbacks", () => {
     expect(empty.selectedProjectId).toBeNull()
 
     // 标题归一化为空的项目被保留（key 为空时不参与去重）
-    const blankTitle = normalizeDismantlingLibrary({ projects: [{ id: "x", title: "   " }] })
+    const blankTitle = normalizeDismantlingLibrary({
+      projects: [{ id: "x", title: "   ", createdAt: 0, updatedAt: 0, chapters: [], analyses: [], structureMemory: [] }],
+    })
     expect(blankTitle.projects.map(p => p.id)).toEqual(["x"])
 
     // 无 id 的项目回退为 dismantling-<timestamp>
-    const noId = normalizeDismantlingLibrary({ projects: [{ title: "无ID作品" }] })
+    const noId = normalizeDismantlingLibrary({
+      projects: [{ id: "", title: "无ID作品", createdAt: 0, updatedAt: 0, chapters: [], analyses: [], structureMemory: [] }],
+    })
     expect(noId.projects[0].id).toMatch(/^dismantling-\d+$/)
   })
 })

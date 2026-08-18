@@ -6,22 +6,24 @@
 import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useExemplarState } from "./use-exemplar-state"
+import type { StyleExemplarRecord } from "@/commands/exemplar"
+import type { CognitionState } from "@/lib/novel/character-cognition"
 
 const mocks = vi.hoisted(() => {
   const selected: { text: string | null } = { text: null }
   return {
     selected,
     markStyleExemplarViaRust: vi.fn(async () => {}),
-    loadStyleExemplarsViaRust: vi.fn(async () => []),
+    loadStyleExemplarsViaRust: vi.fn<(path: string) => Promise<StyleExemplarRecord[]>>(async () => []),
     appendExemplarABSample: vi.fn(async () => {}),
-    exemplarABStats: vi.fn(() => ({ enabledAvg: null, disabledAvg: null })),
+    exemplarABStats: vi.fn<(state: CognitionState | null) => { enabledAvg: number | null; disabledAvg: number | null }>(() => ({ enabledAvg: null, disabledAvg: null })),
     loadCognitionState: vi.fn(async () => ({})),
     normalizePath: vi.fn((p: string) => p.replace(/\\/g, "/")),
     getFileName: vi.fn((p: string) => {
       const n = p.replace(/\\/g, "/")
       return n.split("/").pop() ?? p
     }),
-    getSelection: vi.fn(() => null),
+    getSelection: vi.fn<() => Selection | null>(() => null),
   }
 })
 
@@ -85,7 +87,10 @@ describe("useExemplarState", () => {
 
   it("选中文本后打开弹窗并加载 exemplar 计数（selectedFile 提供 chapterId）", async () => {
     mocks.getSelection.mockReturnValue({ toString: () => " 选中的文字 " } as unknown as Selection)
-    mocks.loadStyleExemplarsViaRust.mockResolvedValue([{ exemplarId: "e1" }, { exemplarId: "e2" }])
+    mocks.loadStyleExemplarsViaRust.mockResolvedValue([
+      { exemplarId: "e1", chapterId: "ch1", text: "t1", markType: "style", createdAt: "2026-01-01T00:00:00.000Z" },
+      { exemplarId: "e2", chapterId: "ch2", text: "t2", markType: "voice", createdAt: "2026-01-01T00:00:00.000Z" },
+    ])
     const { result } = renderHook(() =>
       useExemplarState({ project: PROJECT, selectedFile: "src\\chapters\\ch1.md" }),
     )
@@ -129,7 +134,9 @@ describe("useExemplarState", () => {
   })
 
   it("submitExemplarMark 成功：note 有值时提交、计数刷新、弹窗关闭", async () => {
-    mocks.loadStyleExemplarsViaRust.mockResolvedValue([{ exemplarId: "e1" }])
+    mocks.loadStyleExemplarsViaRust.mockResolvedValue([
+      { exemplarId: "e1", chapterId: "ch1", text: "t1", markType: "style", createdAt: "2026-01-01T00:00:00.000Z" },
+    ])
     const { result } = renderHook(() =>
       useExemplarState({ project: PROJECT, selectedFile: null }),
     )

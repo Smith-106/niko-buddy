@@ -27,7 +27,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 const tracker = vi.hoisted(() => ({
-  loadForeshadowingTracker: vi.fn(async () => ({ items: [], lastUpdated: "" })),
+  loadForeshadowingTracker: vi.fn<(path: string) => Promise<ForeshadowingStore>>(async () => ({ items: [], lastUpdated: "" })),
 }))
 
 vi.mock("@/lib/novel/foreshadowing-tracker", () => ({

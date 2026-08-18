@@ -13,11 +13,15 @@ import {
   SIX_REVIEW_DIMENSION_ORDER,
   SIX_REVIEW_DIMENSIONS,
 } from "./dimension-review-adapter"
+import type { DimensionReviewResult, DimensionReviewStatus, SixReviewDimensionKey } from "./dimension-review-adapter"
+
+type UsableLlmConfig = Pick<LlmConfig, "provider" | "apiKey" | "model"> &
+  Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
   buildContextPackMock: vi.fn(),
-  hasUsableLlmMock: vi.fn(() => true),
+  hasUsableLlmMock: vi.fn<(cfg: UsableLlmConfig) => boolean>(() => true),
   novelModeValue: true,
   registerNovelSkillHookMock: vi.fn(),
   runNovelSkillHooksMock: vi.fn(),
@@ -92,7 +96,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: (...args: unknown[]) => mocks.hasUsableLlmMock(...args),
+  hasUsableLlm: (cfg: UsableLlmConfig) => mocks.hasUsableLlmMock(cfg),
 }))
 
 vi.mock("./model-resolver", () => ({
@@ -421,7 +425,7 @@ describe("six-dimension review adapter", () => {
 
   it("getCachedDimensionResults derives the cached view in canonical order", () => {
     expect(getCachedDimensionResults(undefined)).toEqual([])
-    const mk = (dimensionKey: string) => ({
+    const mk = (dimensionKey: SixReviewDimensionKey): DimensionReviewResult => ({
       dimensionKey,
       score: 8,
       status: "pass",
@@ -435,8 +439,8 @@ describe("six-dimension review adapter", () => {
   })
 
   it("dimensionResultsToReviewResults maps issue severities against the dimension status floor", () => {
-    const base = (status: string, issueSeverity: string) => ({
-      dimensionKey: "thrill" as const,
+    const base = (status: DimensionReviewStatus, issueSeverity: "error" | "warning" | "info"): DimensionReviewResult => ({
+      dimensionKey: "thrill",
       score: 8,
       status,
       summary: "",
@@ -454,7 +458,7 @@ describe("six-dimension review adapter", () => {
   })
 
   it("dimensionResultsToReviewResults routes types into the correct gates and prefixes messages", () => {
-    const mk = (key: string, summary: string, message: string) => ({
+    const mk = (key: SixReviewDimensionKey, summary: string, message: string): DimensionReviewResult => ({
       dimensionKey: key,
       score: 7,
       status: "medium",

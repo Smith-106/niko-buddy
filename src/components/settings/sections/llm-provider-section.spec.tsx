@@ -16,6 +16,7 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { LlmProviderSection, ReasoningControls } from "./llm-provider-section"
+import type { LlmPreset } from "../llm-presets"
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ const mocks = vi.hoisted(() => {
       if (params && typeof params.message === "string") return params.message
       return key
     }),
-    LLM_PRESETS: [] as any[],
+    LLM_PRESETS: [] as LlmPreset[],
     resolveConfig: vi.fn(() => ({
       provider: "openai",
       apiKey: "",
@@ -78,7 +79,7 @@ const mocks = vi.hoisted(() => {
     })),
     normalizeEndpoint: vi.fn((raw: string) => ({ normalized: raw, changed: false })),
     isTauri: vi.fn(() => false),
-    invoke: vi.fn(async () => ({ installed: true, version: "2.1.0", path: "/usr/bin/claude", error: null })),
+    invoke: vi.fn<() => Promise<{ installed: boolean; version: string | null; path: string | null; error: string | null }>>(async () => ({ installed: true, version: "2.1.0", path: "/usr/bin/claude", error: null })),
     testLlmConnection: vi.fn(async () => ({ ok: true, message: "conn-ok" })),
     testLlmFunction: vi.fn(async () => ({ ok: false, message: "func-fail" })),
     fetchLlmModelList: vi.fn(async () => ({ models: ["m-alpha", "m-beta"] })),
@@ -98,6 +99,7 @@ const mocks = vi.hoisted(() => {
       }),
     },
     recordModelOptions: vi.fn(),
+    setLlmConfig: vi.fn(),
   }
 })
 
@@ -199,7 +201,7 @@ vi.mock("@/lib/web-store", () => ({
 
 // ── default preset set (provider-branch coverage) ────────────────────────────
 
-const DEFAULT_PRESETS = [
+const DEFAULT_PRESETS: LlmPreset[] = [
   {
     id: "my-custom",
     label: "MyCustom",
@@ -997,7 +999,7 @@ describe("LlmProviderSection — model list fetch & selection", () => {
   })
 
   it("batch test success message renders (emerald state)", () => {
-    mocks.batch.state = { loading: false, success: true, message: "all-good" }
+    mocks.batch.state = { loading: false, success: true, message: "all-good", failedModels: undefined }
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)

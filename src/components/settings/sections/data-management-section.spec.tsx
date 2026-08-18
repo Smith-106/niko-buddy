@@ -17,7 +17,7 @@ import type { BackupProgressPayload } from "@/lib/backup/types"
 
 const mocks = vi.hoisted(() => {
   return {
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
     exportBackup: vi.fn(),
     importBackup: vi.fn(),
   }
@@ -383,7 +383,7 @@ describe("DataManagementSection", () => {
     let progressCb: ((p: BackupProgressPayload) => void) | undefined
     let resolveImport: ((r: unknown) => void) | undefined
     mocks.importBackup.mockImplementation(
-      (strategy: string, _projects: unknown, cb: (p: BackupProgressPayload) => void) =>
+      (_strategy: string, _projects: unknown, cb: (p: BackupProgressPayload) => void) =>
         new Promise((resolve) => {
           progressCb = cb
           resolveImport = resolve

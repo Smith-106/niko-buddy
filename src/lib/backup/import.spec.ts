@@ -2,15 +2,23 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({
-  invoke: vi.fn(),
-  dialogOpen: vi.fn(),
-  listen: vi.fn(),
-  loadRegistry: vi.fn(),
-  upsertProjectInfo: vi.fn(),
-  refreshProjectState: vi.fn(),
-  getProject: vi.fn(),
-}))
+const mocks = vi.hoisted(() => {
+  type InvokeFn = typeof import("@tauri-apps/api/core").invoke
+  type DialogOpenFn = typeof import("@tauri-apps/plugin-dialog").open
+  type ListenFn = typeof import("@tauri-apps/api/event").listen
+  type LoadRegistryFn = typeof import("@/lib/project-identity").loadRegistry
+  type UpsertProjectInfoFn = typeof import("@/lib/project-identity").upsertProjectInfo
+  type RefreshProjectStateFn = typeof import("@/lib/project-refresh").refreshProjectState
+  return {
+    invoke: vi.fn<InvokeFn>(),
+    dialogOpen: vi.fn<DialogOpenFn>(),
+    listen: vi.fn<ListenFn>(),
+    loadRegistry: vi.fn<LoadRegistryFn>(),
+    upsertProjectInfo: vi.fn<UpsertProjectInfoFn>(),
+    refreshProjectState: vi.fn<RefreshProjectStateFn>(),
+    getProject: vi.fn(),
+  }
+})
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
@@ -47,6 +55,7 @@ function okResult(overrides: Partial<ImportResult> = {}): ImportResult {
     localStorageData: null,
     projects: [],
     warnings: [],
+    error: null,
     ...overrides,
   }
 }
@@ -63,7 +72,7 @@ beforeEach(() => {
 describe("importBackup", () => {
   it("returns a cancelled result when no file is picked", async () => {
     mocks.dialogOpen.mockResolvedValue(null)
-    const result = await importBackup("replace")
+    const result = await importBackup("full")
     expect(result.success).toBe(false)
     expect(result.error).toBe("用户取消了导入")
     expect(mocks.invoke).not.toHaveBeenCalled()
@@ -71,7 +80,7 @@ describe("importBackup", () => {
 
   it("returns a cancelled result when a non-string path is returned", async () => {
     mocks.dialogOpen.mockResolvedValue(["a.zip"] as never)
-    const result = await importBackup("replace")
+    const result = await importBackup("full")
     expect(result.success).toBe(false)
     expect(result.error).toBe("用户取消了导入")
   })
@@ -79,15 +88,15 @@ describe("importBackup", () => {
   it("passes params to the rust command and returns its result", async () => {
     const result = okResult({ warnings: ["w1"] })
     mocks.invoke.mockResolvedValue(result)
-    await expect(importBackup("merge")).resolves.toBe(result)
+    await expect(importBackup("selective")).resolves.toBe(result)
     expect(mocks.invoke).toHaveBeenCalledWith("import_backup", {
-      params: { zipPath: "/tmp/backup.zip", strategy: "merge", projects: undefined },
+      params: { zipPath: "/tmp/backup.zip", strategy: "selective", projects: undefined },
     })
   })
 
   it("forwards the failed result without touching storage", async () => {
     mocks.invoke.mockResolvedValue(okResult({ success: false, error: "boom" }))
-    const result = await importBackup("replace")
+    const result = await importBackup("full")
     expect(result.success).toBe(false)
   })
 
@@ -97,7 +106,7 @@ describe("importBackup", () => {
     mocks.invoke.mockResolvedValue(
       okResult({ localStorageData: { "qmai:theme": "new", "lk-new": "v" } }),
     )
-    await importBackup("replace")
+    await importBackup("full")
     expect(localStorage.getItem("qmai:theme")).toBe("new")
     expect(localStorage.getItem("lk-new")).toBe("v")
     expect(localStorage.getItem("other-key")).toBe("keep")
@@ -109,7 +118,7 @@ describe("importBackup", () => {
     mocks.invoke.mockResolvedValue(
       okResult({ localStorageData: { "qmai_fallback_fingerprint": "imported-key", "qmai:theme": "new" } }),
     )
-    await importBackup("replace")
+    await importBackup("full")
     expect(localStorage.getItem("qmai_fallback_fingerprint")).toBe("local-device-key")
     expect(localStorage.getItem("qmai:theme")).toBe("new")
   })
@@ -120,12 +129,12 @@ describe("importBackup", () => {
     mocks.invoke.mockResolvedValue(
       okResult({
         projects: [
-          { id: "p1", name: "P", path: "/P", success: true },
-          { id: "p2", name: "Q", path: "/Q", success: false },
+          { id: "p1", name: "P", path: "/P", success: true, error: null },
+          { id: "p2", name: "Q", path: "/Q", success: false, error: null },
         ],
       }),
     )
-    await importBackup("replace")
+    await importBackup("full")
     expect(mocks.upsertProjectInfo).toHaveBeenCalledTimes(1)
     expect(mocks.upsertProjectInfo).toHaveBeenCalledWith("p1", "/P", "Old") // existing name kept
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/P")
@@ -134,24 +143,24 @@ describe("importBackup", () => {
   it("does not refresh when no restored project matches the open one", async () => {
     mocks.getProject.mockReturnValue({ id: "p9", name: "Z", path: "/Z" })
     mocks.invoke.mockResolvedValue(
-      okResult({ projects: [{ id: "p1", name: "P", path: "/P", success: true }] }),
+      okResult({ projects: [{ id: "p1", name: "P", path: "/P", success: true, error: null }] }),
     )
-    await importBackup("replace")
+    await importBackup("full")
     expect(mocks.upsertProjectInfo).toHaveBeenCalledWith("p1", "/P", "P")
     expect(mocks.refreshProjectState).not.toHaveBeenCalled()
   })
 
   it("skips project registration when no projects restored", async () => {
-    await importBackup("replace")
+    await importBackup("full")
     expect(mocks.upsertProjectInfo).not.toHaveBeenCalled()
     expect(mocks.refreshProjectState).not.toHaveBeenCalled()
   })
 
   it("does nothing when no project is currently open", async () => {
     mocks.invoke.mockResolvedValue(
-      okResult({ projects: [{ id: "p1", name: "P", path: "/P", success: true }] }),
+      okResult({ projects: [{ id: "p1", name: "P", path: "/P", success: true, error: null }] }),
     )
-    await importBackup("replace")
+    await importBackup("full")
     expect(mocks.upsertProjectInfo).toHaveBeenCalled()
     expect(mocks.refreshProjectState).not.toHaveBeenCalled()
   })
@@ -162,10 +171,10 @@ describe("importBackup", () => {
     const onProgress = vi.fn()
     mocks.invoke.mockImplementation(async () => {
       const handler = mocks.listen.mock.calls[0]?.[1]
-      handler?.({ payload: { done: 1, total: 2 } })
+      handler?.({ event: "backup-progress", id: 1, payload: { done: 1, total: 2 } })
       return okResult()
     })
-    await importBackup("replace", undefined, onProgress)
+    await importBackup("full", undefined, onProgress)
     expect(mocks.listen).toHaveBeenCalledWith("backup-progress", expect.any(Function))
     expect(onProgress).toHaveBeenCalledWith({ done: 1, total: 2 })
     expect(unlisten).toHaveBeenCalled()

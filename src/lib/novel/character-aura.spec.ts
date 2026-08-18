@@ -6,14 +6,14 @@ import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
 // ---------------------------------------------------------------------------
 
 const fsMocks = vi.hoisted(() => ({
-  readFile: vi.fn(async () => {
+  readFile: vi.fn<(_p: string) => Promise<string>>(async (_p) => {
     throw new Error("ENOENT")
   }),
-  writeFileAtomic: vi.fn(async (_p: string, _c: string) => {}),
-  createDirectory: vi.fn(async (_p: string) => {}),
-  listDirectory: vi.fn(async () => []),
-  getExecutableDir: vi.fn(),
-  getResourceDir: vi.fn(),
+  writeFileAtomic: vi.fn<(_p: string, _c: string) => Promise<void>>(async (_p, _c) => {}),
+  createDirectory: vi.fn<(_p: string) => Promise<void>>(async (_p) => {}),
+  listDirectory: vi.fn<() => Promise<Array<{ name: string; path: string; is_dir: boolean }>>>(async () => []),
+  getExecutableDir: vi.fn<() => Promise<string>>(),
+  getResourceDir: vi.fn<() => Promise<string>>(),
 }))
 vi.mock("@/commands/fs", () => ({
   readFile: fsMocks.readFile,
@@ -24,7 +24,7 @@ vi.mock("@/commands/fs", () => ({
   getResourceDir: fsMocks.getResourceDir,
 }))
 
-const streamChatMock = vi.hoisted(() => vi.fn())
+const streamChatMock = vi.hoisted(() => vi.fn<typeof import("@/lib/llm-client").streamChat>())
 vi.mock("@/lib/llm-client", () => ({
   streamChat: streamChatMock,
   combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
@@ -48,22 +48,22 @@ vi.mock("@/lib/novel/model-resolver", () => ({
   resolveDefaultModel: (cfg: unknown) => cfg,
 }))
 
-const loggerWarnMock = vi.hoisted(() => vi.fn())
+const loggerWarnMock = vi.hoisted(() => vi.fn<(message?: unknown, ...optionalParams: unknown[]) => void>())
 vi.mock("@/lib/utils", () => ({
   logger: { warn: loggerWarnMock },
 }))
 
-const searchWikiMock = vi.hoisted(() => vi.fn())
+const searchWikiMock = vi.hoisted(() => vi.fn<typeof import("@/lib/search").searchWiki>())
 vi.mock("@/lib/search", () => ({
   searchWiki: searchWikiMock,
 }))
 
-const getHttpFetchMock = vi.hoisted(() => vi.fn())
+const getHttpFetchMock = vi.hoisted(() => vi.fn<typeof import("@/lib/tauri-fetch").getHttpFetch>())
 vi.mock("@/lib/tauri-fetch", () => ({
   getHttpFetch: getHttpFetchMock,
 }))
 
-const webSearchMock = vi.hoisted(() => vi.fn())
+const webSearchMock = vi.hoisted(() => vi.fn<typeof import("@/lib/web-search").webSearch>())
 vi.mock("@/lib/web-search", () => ({
   webSearch: webSearchMock,
 }))
@@ -86,12 +86,12 @@ vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: { getState: () => storeState },
 }))
 
-const pinyinMock = vi.hoisted(() => vi.fn())
+const pinyinMock = vi.hoisted(() => vi.fn<(text: string) => string[]>())
 vi.mock("pinyin-pro", () => ({
   pinyin: pinyinMock,
 }))
 
-const listBindableMock = vi.hoisted(() => vi.fn())
+const listBindableMock = vi.hoisted(() => vi.fn<typeof import("./bindable-characters").listBindableNovelCharacters>())
 vi.mock("./bindable-characters", () => ({
   listBindableNovelCharacters: listBindableMock,
 }))
@@ -100,7 +100,6 @@ import {
   BUILT_IN_CHARACTER_AURAS,
   CHARACTER_AURA_BINDING_BLOCK_MESSAGE,
   CHARACTER_AURA_INVALID_AURA_MESSAGE,
-  CHARACTER_AURA_RESEARCH_FILES,
   bindCharacterAura,
   buildCharacterAuraContext,
   createCustomCharacterAura,
@@ -729,7 +728,7 @@ describe("buildCharacterAuraContext (monolithic)", () => {
       ],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],
     }
-    seedRead(store, async (path) => {
+    seedRead(store, (path) => {
       if (path.endsWith("/SKILL.md")) return "---\nname: x\n---\n# 灵魂\n- 要点\n内容：价值"
       if (path.includes("/references/research/")) return "# 研究\n- 线索\n内容：详情"
       return undefined
@@ -811,7 +810,7 @@ describe("buildCharacterAuraContext (monolithic)", () => {
       ],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],
     }
-    seedRead(store, async (path) => {
+    seedRead(store, (path) => {
       if (path.endsWith("/SKILL.md")) return "---\nname: x\n---"
       if (path.includes("/references/research/01-writings.md")) return "# 研究\nab: cd"
       if (path.includes("/references/research/02-conversations.md")) return "纯文本内容"
@@ -906,7 +905,7 @@ describe("createCustomCharacterAuraSkill", () => {
   }
 
   it("runs the full workflow with local docs, urls, web search and LLM", async () => {
-    seedRead(emptyStore(), async (path) => {
+    seedRead(emptyStore(), (path) => {
       if (path === "/d/ok.md") return "本地文档正文"
       return undefined
     })
@@ -1092,7 +1091,7 @@ describe("createCustomCharacterAuraSkill", () => {
   })
 
   it("surfaces imported local documents in the fallback research file", async () => {
-    seedRead(emptyStore(), async (path) => {
+    seedRead(emptyStore(), (path) => {
       if (path === "/d/ok.md") return "本地文档正文内容"
       return undefined
     })
@@ -1167,7 +1166,7 @@ describe("createCustomCharacterAuraSkill", () => {
       webSearchEnabled: true,
       skillFolder: "/P/.qmai/character-auras/custom-1-perspective",
     }
-    seedRead({ customAuras: [aura], bindings: [] }, async (path) => {
+    seedRead({ customAuras: [aura], bindings: [] }, (path) => {
       if (path.endsWith("/references/research/01-writings.md")) return "# 已有内容"
       if (path.endsWith("/references/research/02-conversations.md")) return "   "
       return undefined

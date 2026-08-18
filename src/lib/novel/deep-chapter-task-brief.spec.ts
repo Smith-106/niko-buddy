@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ContextPack } from "./context-engine"
+import type { ChapterLengthSpec } from "./deep-chapter-prompts"
 import {
   buildDraftRecoveryPrompt,
   buildFallbackTaskBrief,
@@ -33,7 +34,12 @@ const thinPack: ContextPack = {
   mustNotDo: "",
 } as unknown as ContextPack
 
-const lengthSpec = { targetChars: 5000, minChars: 4000 }
+const lengthSpec: ChapterLengthSpec = {
+  targetChars: 5000,
+  minChars: 4000,
+  draftMaxChars: 5500,
+  maxOutputTokens: 12000,
+}
 
 describe("sanitize / fallback via buildFallbackTaskBrief", () => {
   it("builds a structured fallback brief preferring non-empty context fields", () => {

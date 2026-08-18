@@ -23,7 +23,7 @@
  * 零 LLM: 纯正则+算术, 与 mechanical-slop-detector 同一机械层。
  */
 
-import panguSpacing from "pangu"
+import { pangu } from "pangu"
 import {
   ALL_REPLACEMENTS,
   DELETE_ON_SIGHT,
@@ -327,7 +327,7 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
   // 8. pangu 中英文自动空格 (可选, 默认关闭保向后兼容)
   if (options.enablePangu) {
     const before = text
-    text = panguSpacing(text)
+    text = pangu.spacingText(text)
     if (text.length > before.length) {
       panguSpaced = (text.match(/ /g) ?? []).length - (before.match(/ /g) ?? []).length
       if (panguSpaced < 0) panguSpaced = 0

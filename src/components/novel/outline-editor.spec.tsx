@@ -14,6 +14,11 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { OutlineCreatorDialog } from "./outline-editor"
+import type { ReactNode } from "react"
+import type { LlmConfig } from "@/stores/wiki-store"
+import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
+import type { StreamCallbacks } from "@/lib/llm-client"
+import type { FileNode } from "@/types/wiki"
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -32,11 +37,11 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     t: vi.fn((key: string) => key),
-    streamChat: vi.fn(async () => {}),
-    writeFile: vi.fn(async () => {}),
-    listDirectory: vi.fn(async () => []),
-    createDirectory: vi.fn(async () => {}),
-    outlineGeneration: vi.fn(() => "generated-outline-prompt"),
+    streamChat: vi.fn<(config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks, signal?: AbortSignal, requestOverrides?: RequestOverrides) => Promise<void>>(async () => {}),
+    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(async () => []),
+    createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    outlineGeneration: vi.fn<(genre: string, scale: string, premise: string, context?: string) => string>(() => "generated-outline-prompt"),
     normalizePath: vi.fn((p: string) => p),
   }
 })
@@ -72,12 +77,12 @@ vi.mock("@/lib/path-utils", () => ({
 
 // Pass-through dialog so the form is always reachable in jsdom.
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: unknown }) => children,
-  DialogContent: ({ children }: { children: unknown }) => children,
-  DialogHeader: ({ children }: { children: unknown }) => children,
-  DialogTitle: ({ children }: { children: unknown }) => children,
-  DialogDescription: ({ children }: { children: unknown }) => children,
-  DialogFooter: ({ children }: { children: unknown }) => children,
+  Dialog: ({ children }: { children: ReactNode }) => children,
+  DialogContent: ({ children }: { children: ReactNode }) => children,
+  DialogHeader: ({ children }: { children: ReactNode }) => children,
+  DialogTitle: ({ children }: { children: ReactNode }) => children,
+  DialogDescription: ({ children }: { children: ReactNode }) => children,
+  DialogFooter: ({ children }: { children: ReactNode }) => children,
 }))
 
 vi.mock("@/components/ui/button", () => ({
@@ -88,7 +93,7 @@ vi.mock("@/components/ui/button", () => ({
     children,
     onClick,
   }: {
-    children: unknown
+    children: ReactNode
     onClick?: () => void
   }) => (
     <button type="button" onClick={onClick}>
@@ -133,7 +138,7 @@ beforeEach(() => {
   mocks.writeFile.mockClear()
   mocks.writeFile.mockResolvedValue(undefined)
   mocks.listDirectory.mockClear()
-  mocks.listDirectory.mockResolvedValue([{ name: "wiki", path: "/p/mybook/wiki", type: "dir", children: [] }])
+  mocks.listDirectory.mockResolvedValue([{ name: "wiki", path: "/p/mybook/wiki", is_dir: true, children: [] }])
   mocks.createDirectory.mockClear()
   mocks.createDirectory.mockResolvedValue(undefined)
   mocks.outlineGeneration.mockClear()

@@ -4,9 +4,20 @@
  * 所有 store 与外部模块 vi.mock（vi.hoisted 可写 state 模式，参照 src/App.spec.tsx）。
  */
 import { renderHook, act } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AnalysisDepth } from "@/lib/novel/book-analysis/types"
-import type { RecognizedCharacter, ExtractedCharacter } from "@/lib/novel/book-analysis/types"
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
+import type {
+  AnalysisDepth,
+  BookAnalysisConfig,
+  BookAnalysisMetadata,
+  BookAnalysisProgress,
+  BookAnalysisTask,
+  BookStyleProfile,
+  CharacterSkill,
+  ExtractedCharacter,
+  RecognizedCharacter,
+} from "@/lib/novel/book-analysis/types"
+import type { CharacterExtractionInput } from "@/lib/novel/book-analysis/character-extraction-engine"
+import type { SingleProfileInput } from "@/lib/novel/book-analysis/simple-extraction-engine"
 import { useCharacterExtraction, type ChapterSelectionData } from "./use-character-extraction"
 
 interface TaskLike {
@@ -16,34 +27,52 @@ interface TaskLike {
 }
 
 const mocks = vi.hoisted(() => {
+  type UpdateTaskProgressFn = (taskId: string, progress: Partial<BookAnalysisProgress>) => void
+  type UpdateTaskCharactersFn = (taskId: string, characters: ExtractedCharacter[]) => void
+  type UpdateTaskSkillsFn = (taskId: string, skills: CharacterSkill[]) => void
+  type UpdateTaskBookDataFn = (
+    taskId: string,
+    bookId: string,
+    chapters: NonNullable<BookAnalysisTask["chapters"]>,
+    bookPath?: string,
+  ) => void
+  type UpdateTaskMetadataFn = (taskId: string, metadata: BookAnalysisMetadata) => void
+  type UpdateTaskStyleProfileFn = (taskId: string, styleProfile: BookStyleProfile) => void
+  type CompleteTaskFn = (taskId: string) => void
+  type ErrorTaskFn = (taskId: string, error: string) => void
+  type StartTaskFn = (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string
+  type TriggerSidebarRefreshFn = () => void
+  type RequestReopenChapterSelectionFn = (taskId: string) => void
+  type SetStateFn = (updater: unknown) => void
+
   const bookAnalysis: {
     tasks: TaskLike[]
-    updateTaskProgress: ReturnType<typeof vi.fn>
-    updateTaskCharacters: ReturnType<typeof vi.fn>
-    updateTaskSkills: ReturnType<typeof vi.fn>
-    updateTaskBookData: ReturnType<typeof vi.fn>
-    updateTaskMetadata: ReturnType<typeof vi.fn>
-    updateTaskStyleProfile: ReturnType<typeof vi.fn>
-    completeTask: ReturnType<typeof vi.fn>
-    errorTask: ReturnType<typeof vi.fn>
-    startTask: ReturnType<typeof vi.fn>
-    triggerSidebarRefresh: ReturnType<typeof vi.fn>
-    requestReopenChapterSelection: ReturnType<typeof vi.fn>
-    setState: ReturnType<typeof vi.fn>
+    updateTaskProgress: Mock<UpdateTaskProgressFn>
+    updateTaskCharacters: Mock<UpdateTaskCharactersFn>
+    updateTaskSkills: Mock<UpdateTaskSkillsFn>
+    updateTaskBookData: Mock<UpdateTaskBookDataFn>
+    updateTaskMetadata: Mock<UpdateTaskMetadataFn>
+    updateTaskStyleProfile: Mock<UpdateTaskStyleProfileFn>
+    completeTask: Mock<CompleteTaskFn>
+    errorTask: Mock<ErrorTaskFn>
+    startTask: Mock<StartTaskFn>
+    triggerSidebarRefresh: Mock<TriggerSidebarRefreshFn>
+    requestReopenChapterSelection: Mock<RequestReopenChapterSelectionFn>
+    setState: Mock<SetStateFn>
   } = {
     tasks: [],
-    updateTaskProgress: vi.fn(),
-    updateTaskCharacters: vi.fn(),
-    updateTaskSkills: vi.fn(),
-    updateTaskBookData: vi.fn(),
-    updateTaskMetadata: vi.fn(),
-    updateTaskStyleProfile: vi.fn(),
-    completeTask: vi.fn(),
-    errorTask: vi.fn(),
-    startTask: vi.fn(() => "task-1"),
-    triggerSidebarRefresh: vi.fn(),
-    requestReopenChapterSelection: vi.fn(),
-    setState: vi.fn((updater: unknown) => {
+    updateTaskProgress: vi.fn<UpdateTaskProgressFn>(),
+    updateTaskCharacters: vi.fn<UpdateTaskCharactersFn>(),
+    updateTaskSkills: vi.fn<UpdateTaskSkillsFn>(),
+    updateTaskBookData: vi.fn<UpdateTaskBookDataFn>(),
+    updateTaskMetadata: vi.fn<UpdateTaskMetadataFn>(),
+    updateTaskStyleProfile: vi.fn<UpdateTaskStyleProfileFn>(),
+    completeTask: vi.fn<CompleteTaskFn>(),
+    errorTask: vi.fn<ErrorTaskFn>(),
+    startTask: vi.fn<StartTaskFn>(() => "task-1"),
+    triggerSidebarRefresh: vi.fn<TriggerSidebarRefreshFn>(),
+    requestReopenChapterSelection: vi.fn<RequestReopenChapterSelectionFn>(),
+    setState: vi.fn<SetStateFn>((updater: unknown) => {
       const next =
         typeof updater === "function" ? (updater as (s: typeof bookAnalysis) => unknown)(bookAnalysis) : updater
       Object.assign(bookAnalysis, next as Partial<typeof bookAnalysis>)
@@ -58,27 +87,35 @@ const mocks = vi.hoisted(() => {
     llmConfig: { provider: "openai", apiKey: "key-1", model: "gpt-4o" },
     providerConfigs: {},
   }
+  type ResolveModelConfigFn = typeof import("@/lib/novel/model-resolver").resolveModelConfig
+  type ReadFileFn = typeof import("@/commands/fs").readFile
+  type JoinPathFn = typeof import("@/lib/path-utils").joinPath
+  type ExtractCharactersFromChaptersFn = typeof import("@/lib/novel/book-analysis/character-extraction-engine").extractCharactersFromChapters
+  type PersistCharacterToDiskFn = typeof import("@/lib/novel/book-analysis/character-disk-store").persistCharacterToDisk
+  type GenerateSkillsForCharactersFn = typeof import("@/lib/novel/book-analysis/skill-generator").generateSkillsForCharacters
+  type StreamChatFn = typeof import("@/lib/llm-client").streamChat
+  type ExtractSingleProfileFn = typeof import("@/lib/novel/book-analysis/simple-extraction-engine").extractSingleProfile
   return {
     bookAnalysis,
     wiki,
-    resolveModelConfig: vi.fn(
-      (targetModel: string, base: { provider: string; apiKey: string; model: string }, _provider: unknown) => ({
+    resolveModelConfig: vi.fn<ResolveModelConfigFn>(
+      (targetModel, base) => ({
         ...base,
         model: targetModel,
       }),
     ),
-    readFile: vi.fn(async () => "---\ntitle: 第一章\n---\n正文内容正文内容"),
-    joinPath: vi.fn((...parts: string[]) => parts.join("/")),
+    readFile: vi.fn<ReadFileFn>(async () => "---\ntitle: 第一章\n---\n正文内容正文内容"),
+    joinPath: vi.fn<JoinPathFn>((...parts) => parts.join("/")),
     toast: {
       success: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
     },
-    extractCharactersFromChapters: vi.fn(),
-    persistCharacterToDisk: vi.fn(),
-    generateSkillsForCharacters: vi.fn(),
-    streamChat: vi.fn(),
-    extractSingleProfile: vi.fn(),
+    extractCharactersFromChapters: vi.fn<ExtractCharactersFromChaptersFn>(),
+    persistCharacterToDisk: vi.fn<PersistCharacterToDiskFn>(),
+    generateSkillsForCharacters: vi.fn<GenerateSkillsForCharactersFn>(),
+    streamChat: vi.fn<StreamChatFn>(),
+    extractSingleProfile: vi.fn<ExtractSingleProfileFn>(),
   }
 })
 
@@ -188,6 +225,21 @@ function errorProfile(name: string, errorKind?: string) {
   return { name, profile, error: "boom", errorKind }
 }
 
+/**
+ * 类型上满足 Error、运行时不是 Error 实例。
+ * 用于覆盖 hook 内 `err instanceof Error ? err.message : String(err)` 的 String(err) 兜底分支。
+ */
+class RawStringError {
+  name = "Error"
+  message: string
+  constructor(message: string) {
+    this.message = message
+  }
+  toString(): string {
+    return this.message
+  }
+}
+
 function renderExtractionHook(overrides: Partial<Parameters<typeof useCharacterExtraction>[0]> = {}) {
   const props = {
     chapterSelectionData: makeChapterSelectionData(),
@@ -239,21 +291,21 @@ describe("useCharacterExtraction", () => {
 
   it("deep: 成功路径（aiChatModel 存在 → resolveModelConfig；含 onProgress、持久化、技能生成）", async () => {
     mocks.wiki.aiChatModel = "openai/gpt-5"
-    const progressCb = {
+    const progressCb: Parameters<NonNullable<CharacterExtractionInput["onProgress"]>>[0] = {
       stage: "analyzing", stageLabel: "分析中", completed: 1, total: 2, percentage: 50,
-      currentItem: "x", currentCharacter: "林烬", currentDimension: "personality",
-      dimensions: [{ key: "personality" }],
+      currentItem: "x", currentCharacter: "林烬", currentDimension: "speechStyle",
+      dimensions: [{ key: "speechStyle", label: "说话风格", status: "done" }],
     }
-    mocks.extractCharactersFromChapters.mockImplementation(async ({ onProgress }: { onProgress: (p: unknown) => void }) => {
-      onProgress(progressCb)
+    mocks.extractCharactersFromChapters.mockImplementation(async (input) => {
+      input.onProgress?.(progressCb)
       return { success: true, characters: deepCharacters }
     })
     mocks.persistCharacterToDisk.mockImplementation(async (_path: string, c: { name: string }) => {
       if (c.name === "苏遥") throw new Error("disk-fail")
     })
     const skillProgress = { stage: "generating_skills", stageLabel: "技能", completed: 1, total: 1, percentage: 100, currentItem: "s" }
-    mocks.generateSkillsForCharacters.mockImplementation(async (_c: unknown, _m: unknown, _b: unknown, _l: unknown, onProgress: (p: unknown) => void) => {
-      onProgress(skillProgress)
+    mocks.generateSkillsForCharacters.mockImplementation(async (_characters, _bookMetadata, _bookPath, _llmConfig, onProgress) => {
+      onProgress?.(skillProgress)
       return [{ id: "skill-1", characterId: "r1", characterName: "林烬", skillContent: "# 林烬", sourceBook: "长夜书", chapterRange: ["1"], createdAt: 3 }]
     })
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -348,7 +400,7 @@ describe("useCharacterExtraction", () => {
       handlers.onToken("样本文本")
       handlers.onDone()
     })
-    mocks.generateSkillsForCharacters.mockImplementation(async (_c: unknown, _m: unknown, _b: unknown, _l: unknown, onProgress?: (p: unknown) => void) => {
+    mocks.generateSkillsForCharacters.mockImplementation(async (_characters, _bookMetadata, _bookPath, _llmConfig, onProgress) => {
       onProgress?.({ stage: "generating_skills", stageLabel: "技能", completed: 1, total: 1, percentage: 100, currentItem: "s" })
       return [
         { id: "skill-1", characterId: "r1", characterName: "林烬", skillContent: "# 林烬", sourceBook: "长夜书", chapterRange: ["1"], createdAt: 3 },
@@ -359,12 +411,12 @@ describe("useCharacterExtraction", () => {
       { id: "task-1" },
     ]
     // 真实 extractSingleProfile 会调用 _llmCall 走 streamChat 闭包（onToken/onDone）
-    mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }: { _llmCall?: (p: string) => Promise<string> }) => {
+    mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }) => {
       await _llmCall?.("prompt")
       return successProfile("林烬")
     })
     // 简单提取持久化失败 → console.warn 分支
-    mocks.persistCharacterToDisk.mockImplementation(async (_path: string, c: { name: string }) => {
+    mocks.persistCharacterToDisk.mockImplementation(async (_path, c) => {
       if (c.name === "苏遥") throw new Error("disk-fail")
     })
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -411,7 +463,7 @@ describe("useCharacterExtraction", () => {
     mocks.generateSkillsForCharacters.mockResolvedValue([])
     mocks.bookAnalysis.tasks = [{ id: "task-1", metadata: {} }]
     // 5 个角色：1 成功 + 4 失败（1 个 network）→ 覆盖 errorSummary 的 "..." 分支
-    const fiveRecognized = [
+    const fiveRecognized: RecognizedCharacter[] = [
       ...recognized,
       { id: "r4", name: "乙", aliases: [], appearances: 1, chapterIndices: [0], importanceScore: 20, category: "次要", sourceBook: "长夜书" },
       { id: "r5", name: "丙", aliases: [], appearances: 1, chapterIndices: [0], importanceScore: 20, category: "次要", sourceBook: "长夜书" },
@@ -427,12 +479,12 @@ describe("useCharacterExtraction", () => {
 
     // 最终 stageLabel 含网络中断 + 失败汇总 + resumeHint
     const finalLabel = mocks.bookAnalysis.updateTaskProgress.mock.calls
-      .map((c: [string, Record<string, unknown>]) => c[1])
-      .find((p: Record<string, unknown>) => p.simpleExtractionStatus === "partial")
+      .map((c) => c[1])
+      .find((p) => p.simpleExtractionStatus === "partial")
     expect(finalLabel).toBeDefined()
-    expect(finalLabel.stageLabel).toContain("网络中断")
-    expect(finalLabel.stageLabel).toContain("失败 4 个")
-    expect(finalLabel.stageLabel).toContain("...")
+    expect(finalLabel?.stageLabel).toContain("网络中断")
+    expect(finalLabel?.stageLabel).toContain("失败 4 个")
+    expect(finalLabel?.stageLabel).toContain("...")
     // 元数据回写失败名单
     const setStateCall = mocks.bookAnalysis.setState.mock.calls.find(
       (c: [unknown]) => typeof c[0] === "function",
@@ -444,9 +496,9 @@ describe("useCharacterExtraction", () => {
 
   it("simple: streamChat onError 分支（_llmCall 收到非 Error → String(err)）", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.streamChat.mockImplementation(async (_cfg: unknown, _msgs: unknown, handlers: { onError: (e: unknown) => void }) => {
-      handlers.onError(new Error("net-down"))
-      handlers.onError("raw-string")
+    mocks.streamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("net-down"))
+      callbacks.onError(new RawStringError("raw-string"))
     })
     mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }: { _llmCall?: (p: string) => Promise<string> }) => {
       await _llmCall?.("prompt")
@@ -476,11 +528,9 @@ describe("useCharacterExtraction", () => {
 
   it("simple: 提取循环中途 abort → 用户取消静默退出", async () => {
     const data = makeChapterSelectionData()
-    // jsdom 的 AbortSignal 无实例 abort() → 代理到 controller（仅测试环境修补）
-    ;(data.abortController.signal as unknown as { abort?: () => void }).abort = () => data.abortController.abort()
-    mocks.extractSingleProfile.mockImplementation(async ({ signal, _llmCall }: { signal: AbortSignal; _llmCall?: (p: string) => Promise<string> }) => {
+    mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }: SingleProfileInput) => {
       // 第一次调用即中止 → 下一轮循环命中 abort 检查抛『用户取消』
-      ;(signal as AbortSignal).abort()
+      data.abortController.abort()
       await _llmCall?.("prompt")
       return successProfile("林烬")
     })
@@ -498,7 +548,7 @@ describe("useCharacterExtraction", () => {
       handlers.onToken("x")
       handlers.onDone()
     })
-    const two = [
+    const two: RecognizedCharacter[] = [
       { id: "r1", name: "甲", aliases: [], appearances: 1, chapterIndices: [0], importanceScore: 50, category: "主角", sourceBook: "长夜书" },
       { id: "r2", name: "乙", aliases: [], appearances: 1, chapterIndices: [0], importanceScore: 50, category: "配角", sourceBook: "长夜书" },
     ]
@@ -518,13 +568,13 @@ describe("useCharacterExtraction", () => {
     })
 
     const partialProgress = mocks.bookAnalysis.updateTaskProgress.mock.calls
-      .map((c: [string, Record<string, unknown>]) => c[1])
-      .find((p: Record<string, unknown>) => p.simpleExtractionStatus === "partial")
-    expect(partialProgress.stageLabel).toContain("提取出错")
-    expect(partialProgress.stageLabel).toContain("成功 0/2")
-    expect(partialProgress.stageLabel).toContain("失败 2 个：甲、乙")
-    expect(partialProgress.stageLabel).toContain("点击任务卡")
-    expect(partialProgress.stageLabel).not.toContain("...")
+      .map((c) => c[1])
+      .find((p) => p.simpleExtractionStatus === "partial")
+    expect(partialProgress?.stageLabel).toContain("提取出错")
+    expect(partialProgress?.stageLabel).toContain("成功 0/2")
+    expect(partialProgress?.stageLabel).toContain("失败 2 个：甲、乙")
+    expect(partialProgress?.stageLabel).toContain("点击任务卡")
+    expect(partialProgress?.stageLabel).not.toContain("...")
     // errorKindLabel=提取出错 → result.error 带标签
     expect(mocks.bookAnalysis.updateTaskCharacters).toHaveBeenCalledWith(
       "task-1",
@@ -539,7 +589,7 @@ describe("useCharacterExtraction", () => {
     })
     mocks.generateSkillsForCharacters.mockResolvedValue([])
     mocks.bookAnalysis.tasks = [{ id: "task-1", metadata: {} }]
-    const solo = [
+    const solo: RecognizedCharacter[] = [
       { id: "r9", name: "孤影", aliases: [], appearances: 1, chapterIndices: [], importanceScore: 10, category: "次要", sourceBook: "长夜书" },
     ]
     const { result } = renderExtractionHook({ recognizedCharacters: solo, selectedCharacterIds: ["r9"] })
@@ -694,10 +744,10 @@ describe("useCharacterExtraction", () => {
     expect(updated.find((c) => c.id === "r2")?.personality).toBe("旧")
     expect(updated.find((c) => c.id === "r3")?.personality).toBe("克制")
     const partialProgress = mocks.bookAnalysis.updateTaskProgress.mock.calls
-      .map((c: [string, Record<string, unknown>]) => c[1])
-      .find((p: Record<string, unknown>) => p.simpleExtractionStatus === "partial")
-    expect(partialProgress.stageLabel).toContain("成功 2")
-    expect(partialProgress.stageLabel).toContain("仍失败 1")
+      .map((c) => c[1])
+      .find((p) => p.simpleExtractionStatus === "partial")
+    expect(partialProgress?.stageLabel).toContain("成功 2")
+    expect(partialProgress?.stageLabel).toContain("仍失败 1")
     // stillFailed 回写 metadata
     expect(mocks.bookAnalysis.setState).toHaveBeenCalled()
     // 技能重生成
@@ -707,8 +757,8 @@ describe("useCharacterExtraction", () => {
 
   it("resume: streamChat onError 分支（resume LLM 网络失败日志）", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.streamChat.mockImplementation(async (_cfg: unknown, _msgs: unknown, handlers: { onError: (e: unknown) => void }) => {
-      handlers.onError(new Error("resume-net-down"))
+    mocks.streamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("resume-net-down"))
     })
     mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }: { _llmCall?: (p: string) => Promise<string> }) => {
       await _llmCall?.("prompt")
@@ -745,7 +795,8 @@ describe("useCharacterExtraction", () => {
         id: "task-1",
         metadata: { failedCharacterNames: ["林烬"], sourceBook: "/books/b1" },
         characters: [
-          { id: "r1", name: "林烬", aliases: undefined, importance: 9, category: "protagonist", firstAppearance: 1, lastAppearance: 2, appearanceCount: 3, description: "", personality: "旧", speechStyle: "旧", relationships: [], keyEvents: [] },
+          // aliases: undefined 运行时触发 hook 的 `?? []` 兜底（非空断言仅用于表达“故意为 undefined”）
+          { id: "r1", name: "林烬", aliases: undefined!, importance: 9, category: "protagonist", firstAppearance: 1, lastAppearance: 2, appearanceCount: 3, description: "", personality: "旧", speechStyle: "旧", relationships: [], keyEvents: [] },
         ],
       },
     ]
@@ -761,8 +812,8 @@ describe("useCharacterExtraction", () => {
 
   it("resume: streamChat onError 收到非 Error → String(err) 兜底", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.streamChat.mockImplementation(async (_cfg: unknown, _msgs: unknown, handlers: { onError: (e: unknown) => void }) => {
-      handlers.onError("raw-string")
+    mocks.streamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onError(new RawStringError("raw-string"))
     })
     mocks.extractSingleProfile.mockImplementation(async ({ _llmCall }: { _llmCall?: (p: string) => Promise<string> }) => {
       await _llmCall?.("prompt")
@@ -833,9 +884,9 @@ describe("useCharacterExtraction", () => {
     })
 
     const partialProgress = mocks.bookAnalysis.updateTaskProgress.mock.calls
-      .map((c: [string, Record<string, unknown>]) => c[1])
-      .find((p: Record<string, unknown>) => p.simpleExtractionStatus === "partial")
-    expect(partialProgress.stageLabel).toContain("...")
+      .map((c) => c[1])
+      .find((p) => p.simpleExtractionStatus === "partial")
+    expect(partialProgress?.stageLabel).toContain("...")
     expect(mocks.generateSkillsForCharacters).not.toHaveBeenCalled()
   })
 
@@ -858,9 +909,9 @@ describe("useCharacterExtraction", () => {
     })
 
     const doneProgress = mocks.bookAnalysis.updateTaskProgress.mock.calls
-      .map((c: [string, Record<string, unknown>]) => c[1])
-      .find((p: Record<string, unknown>) => p.simpleExtractionStatus === "done")
-    expect(doneProgress.stageLabel).toContain("全部完成")
+      .map((c) => c[1])
+      .find((p) => p.simpleExtractionStatus === "done")
+    expect(doneProgress?.stageLabel).toContain("全部完成")
     expect(mocks.generateSkillsForCharacters).toHaveBeenCalledTimes(1)
     expect(mocks.bookAnalysis.updateTaskSkills).toHaveBeenCalledTimes(1)
   })

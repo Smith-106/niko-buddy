@@ -32,9 +32,9 @@ const mocks = vi.hoisted(() => {
   }
   return {
     state,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
     scanAndImport: vi.fn(async () => {}),
-    pickDirectory: vi.fn(async () => null),
+    pickDirectory: vi.fn<() => Promise<string | null>>(async () => null),
   }
 })
 

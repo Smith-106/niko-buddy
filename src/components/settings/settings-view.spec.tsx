@@ -8,9 +8,54 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { SettingsView } from "./settings-view"
+import type {
+  EmbeddingConfig,
+  LlmConfig,
+  MultimodalConfig,
+  NovelConfig,
+  ProxyConfig,
+  RerankConfig,
+  ScheduledImportConfig,
+  SourceWatchConfig,
+} from "@/stores/wiki-store"
+import type { WikiProject } from "@/types/wiki"
+import type { RevisionFeedbackWindowConfig } from "@/lib/project-store"
+
+/**
+ * 本地镜像 WikiState 的字段子集：mock store 只暴露测试用到的字段。
+ * setter 用 vi.fn 的返回类型以保留 mock 断言方法（toHaveBeenCalledWith 等）。
+ * 用 type alias（非 interface）以保留到 Record<string, unknown> 的隐式索引签名兼容。
+ */
+type SettingsWikiState = {
+  project: WikiProject | null
+  activeSettingsCategory: string | null
+  llmConfig: Partial<LlmConfig>
+  embeddingConfig: EmbeddingConfig
+  rerankConfig: RerankConfig
+  multimodalConfig: MultimodalConfig
+  outputLanguage: string
+  proxyConfig: ProxyConfig
+  scheduledImportConfig: ScheduledImportConfig
+  sourceWatchConfig: SourceWatchConfig
+  revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
+  novelConfig: Partial<NovelConfig>
+  uiFontSizeScale: number
+  setActiveSettingsCategory: ReturnType<typeof vi.fn>
+  setLlmConfig: ReturnType<typeof vi.fn>
+  setEmbeddingConfig: ReturnType<typeof vi.fn>
+  setRerankConfig: ReturnType<typeof vi.fn>
+  setMultimodalConfig: ReturnType<typeof vi.fn>
+  setOutputLanguage: ReturnType<typeof vi.fn>
+  setProxyConfig: ReturnType<typeof vi.fn>
+  setScheduledImportConfig: ReturnType<typeof vi.fn>
+  setSourceWatchConfig: ReturnType<typeof vi.fn>
+  setRevisionFeedbackWindowConfig: ReturnType<typeof vi.fn>
+  setNovelConfig: ReturnType<typeof vi.fn>
+  setUiFontSizeScale: ReturnType<typeof vi.fn>
+}
 
 const mocks = vi.hoisted(() => {
-  const wikiState: Record<string, unknown> = {
+  const wikiState: SettingsWikiState = {
     project: null,
     activeSettingsCategory: null,
     llmConfig: {
@@ -62,32 +107,9 @@ const mocks = vi.hoisted(() => {
     outputLanguage: "zh-CN",
     proxyConfig: { enabled: false, url: "", bypassLocal: true },
     scheduledImportConfig: { enabled: false, path: "", interval: 60, lastScan: 0 },
-    sourceWatchConfig: {
-      enabled: false,
-      autoIngest: false,
-      includeExtensions: [],
-      excludeExtensions: [],
-      excludeDirs: [],
-      excludeGlobs: [],
-      maxFileSizeMb: 10,
-    },
-    revisionFeedbackWindowConfig: {
-      currentChapterIncludeShouldImprove: true,
-      previousChapterCarryEnabled: false,
-      lookbackChapterCount: 1,
-      lookbackIncludeMustFixOnly: true,
-    },
-    novelConfig: {
-      contextTokenBudget: 50000,
-      recentSummaryWindow: 8,
-      searchTopK: 5,
-      chapterTargetChars: 3000,
-      autoIngestOnSave: false,
-      autoExtractOnImport: true,
-      reviewBeforeSave: true,
-      deepPreviousChaptersAnalysis: false,
-      deepChapterReview: true,
-    },
+    sourceWatchConfig: { enabled: false, autoIngest: false, includeExtensions: [], excludeExtensions: [], excludeDirs: [], excludeGlobs: [], maxFileSizeMb: 10 },
+    revisionFeedbackWindowConfig: { currentChapterIncludeShouldImprove: true, previousChapterCarryEnabled: false, lookbackChapterCount: 1, lookbackIncludeMustFixOnly: true },
+    novelConfig: { contextTokenBudget: 50000, recentSummaryWindow: 8, searchTopK: 5, chapterTargetChars: 3000, autoIngestOnSave: false, autoExtractOnImport: true, reviewBeforeSave: true, deepPreviousChaptersAnalysis: false, deepChapterReview: true },
     uiFontSizeScale: 1,
     setActiveSettingsCategory: vi.fn(),
     setLlmConfig: vi.fn(),
@@ -102,36 +124,38 @@ const mocks = vi.hoisted(() => {
     setNovelConfig: vi.fn(),
     setUiFontSizeScale: vi.fn(),
   }
-  const chatState: Record<string, unknown> = {
+
+  const chatState: { maxHistoryMessages: number; setMaxHistoryMessages: ReturnType<typeof vi.fn> } = {
     maxHistoryMessages: 50,
     setMaxHistoryMessages: vi.fn(),
   }
+
   const t = vi.fn((key: string) => key)
-  const changeLanguage = vi.fn(async () => {})
-  const loadSourceWatchConfig = vi.fn(async () => null)
-  const loadNovelConfig = vi.fn(async () => null)
-  const loadRerankConfig = vi.fn(async () => null)
-  const saveLlmConfig = vi.fn(async () => {})
-  const saveEmbeddingConfig = vi.fn(async () => {})
-  const saveRerankConfig = vi.fn(async () => {})
-  const saveMultimodalConfig = vi.fn(async () => {})
-  const saveProxyConfig = vi.fn(async () => {})
-  const saveScheduledImportConfig = vi.fn(async () => {})
-  const saveSourceWatchConfig = vi.fn(async () => {})
-  const saveRevisionFeedbackWindowConfig = vi.fn(async () => {})
-  const saveNovelConfig = vi.fn(async () => {})
-  const saveOutputLanguage = vi.fn(async () => {})
-  const saveMaxHistoryMessages = vi.fn(async () => {})
-  const saveUiFontSizeScale = vi.fn(async () => {})
-  const saveLanguage = vi.fn(async () => {})
-  const isTauri = vi.fn(() => false)
-  const invoke = vi.fn(async () => {})
-  const startProjectFileSync = vi.fn(async () => {})
-  const stopProjectFileSync = vi.fn(async () => {})
-  const startScheduledImport = vi.fn(() => {})
-  const stopScheduledImport = vi.fn(() => {})
-  const normalizeSourceWatchConfig = vi.fn((config?: Record<string, unknown> | null) =>
-    config ? { ...config } : { enabled: false },
+  const changeLanguage = vi.fn<() => Promise<void>>(async () => {})
+  const loadSourceWatchConfig = vi.fn<(projectId?: string, projectPath?: string) => Promise<SourceWatchConfig>>(async () => ({ enabled: false, autoIngest: false, includeExtensions: [], excludeExtensions: [], excludeDirs: [], excludeGlobs: [], maxFileSizeMb: 10 }))
+  const loadNovelConfig = vi.fn<(projectId?: string, projectPath?: string) => Promise<NovelConfig | null>>(async () => null)
+  const loadRerankConfig = vi.fn<(projectId?: string, projectPath?: string) => Promise<RerankConfig | null>>(async () => null)
+  const saveLlmConfig = vi.fn<(config: unknown, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveEmbeddingConfig = vi.fn<(config: unknown, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveRerankConfig = vi.fn<(config: RerankConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveMultimodalConfig = vi.fn<(config: unknown, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveProxyConfig = vi.fn<(config: unknown, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveScheduledImportConfig = vi.fn<(projectPath: string, config: ScheduledImportConfig) => Promise<void>>(async () => {})
+  const saveSourceWatchConfig = vi.fn<(config: SourceWatchConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveRevisionFeedbackWindowConfig = vi.fn<(config: RevisionFeedbackWindowConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveNovelConfig = vi.fn<(config: NovelConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveOutputLanguage = vi.fn<(lang: string, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveMaxHistoryMessages = vi.fn<(value: number, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveUiFontSizeScale = vi.fn<(value: number, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveLanguage = vi.fn<(lang: string) => Promise<void>>(async () => {})
+  const isTauri = vi.fn<() => boolean>(() => false)
+  const invoke = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+  const startProjectFileSync = vi.fn<(projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const stopProjectFileSync = vi.fn<(projectId?: string) => Promise<void>>(async () => {})
+  const startScheduledImport = vi.fn<() => void>(() => {})
+  const stopScheduledImport = vi.fn<() => void>(() => {})
+  const normalizeSourceWatchConfig = vi.fn<(config?: Partial<SourceWatchConfig> | null) => SourceWatchConfig>((config?: Partial<SourceWatchConfig> | null) =>
+    config ? { enabled: false, autoIngest: false, includeExtensions: [], excludeExtensions: [], excludeDirs: [], excludeGlobs: [], maxFileSizeMb: 10, ...config } : { enabled: false, autoIngest: false, includeExtensions: [], excludeExtensions: [], excludeDirs: [], excludeGlobs: [], maxFileSizeMb: 10 },
   )
   return {
     wikiState,
@@ -163,6 +187,7 @@ const mocks = vi.hoisted(() => {
     normalizeSourceWatchConfig,
   }
 })
+
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
@@ -474,7 +499,7 @@ describe("SettingsView 渲染覆盖", () => {
   })
 
   it("loadSourceWatchConfig 成功：写入 store 与 draft", async () => {
-    mocks.loadSourceWatchConfig.mockResolvedValue({ enabled: true, autoIngest: true })
+    mocks.loadSourceWatchConfig.mockResolvedValue({ ...mocks.wikiState.sourceWatchConfig, enabled: true, autoIngest: true })
     render(<SettingsView />)
     await flushAsync()
     expect(mocks.wikiState.setSourceWatchConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, autoIngest: true }))
@@ -491,7 +516,7 @@ describe("SettingsView 渲染覆盖", () => {
   })
 
   it("loadNovelConfig：config 写入 store 与 draft；null 跳过；reject 吞掉", async () => {
-    mocks.loadNovelConfig.mockResolvedValue({ ...(mocks.wikiState.novelConfig as object), contextTokenBudget: 777 })
+    mocks.loadNovelConfig.mockResolvedValue({ ...mocks.wikiState.novelConfig, contextTokenBudget: 777 } as NovelConfig)
     render(<SettingsView />)
     await flushAsync()
     expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith(expect.objectContaining({ contextTokenBudget: 777 }))
@@ -510,7 +535,7 @@ describe("SettingsView 渲染覆盖", () => {
   })
 
   it("loadRerankConfig：config 写入 store 与 draft；null 跳过；reject 吞掉", async () => {
-    mocks.loadRerankConfig.mockResolvedValue({ ...(mocks.wikiState.rerankConfig as object), maxCandidates: 30 })
+    mocks.loadRerankConfig.mockResolvedValue({ ...mocks.wikiState.rerankConfig, maxCandidates: 30 })
     render(<SettingsView />)
     await flushAsync()
     expect(mocks.wikiState.setRerankConfig).toHaveBeenCalledWith(expect.objectContaining({ maxCandidates: 30 }))
@@ -528,18 +553,18 @@ describe("SettingsView 渲染覆盖", () => {
   })
 
   it("卸载后 load 配置 resolve/reject 均不再写 store（cancelled 分支）", async () => {
-    let resolveSw: (c: unknown) => void = () => {}
-    let resolveNv: (c: unknown) => void = () => {}
-    let resolveRr: (c: unknown) => void = () => {}
+    let resolveSw: (c: SourceWatchConfig) => void = () => {}
+    let resolveNv: (c: NovelConfig | null) => void = () => {}
+    let resolveRr: (c: RerankConfig | null) => void = () => {}
     let rejectSw: (e: unknown) => void = () => {}
     mocks.loadSourceWatchConfig.mockReturnValue(new Promise((r) => { resolveSw = r }))
     mocks.loadNovelConfig.mockReturnValue(new Promise((r) => { resolveNv = r }))
     mocks.loadRerankConfig.mockReturnValue(new Promise((r) => { resolveRr = r }))
     const { unmount } = render(<SettingsView />)
     unmount()
-    resolveSw({ enabled: true })
-    resolveNv({ contextTokenBudget: 1 })
-    resolveRr({ maxCandidates: 1 })
+    resolveSw({ ...mocks.wikiState.sourceWatchConfig, enabled: true })
+    resolveNv({ ...mocks.wikiState.novelConfig, contextTokenBudget: 1 } as NovelConfig)
+    resolveRr({ ...mocks.wikiState.rerankConfig, maxCandidates: 1 })
     await flushAsync()
     expect(mocks.wikiState.setSourceWatchConfig).not.toHaveBeenCalled()
     expect(mocks.wikiState.setNovelConfig).not.toHaveBeenCalled()
@@ -557,13 +582,13 @@ describe("SettingsView 渲染覆盖", () => {
   it("initialDraft 缺省值：azure 版本/家族与 maxContextSize 的 ?? 兜底", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.llmConfig = {
-      ...(mocks.wikiState.llmConfig as object),
+      ...mocks.wikiState.llmConfig,
       azureApiVersion: undefined,
       azureModelFamily: undefined,
       maxContextSize: undefined,
     }
     mocks.wikiState.multimodalConfig = {
-      ...(mocks.wikiState.multimodalConfig as object),
+      ...mocks.wikiState.multimodalConfig,
       azureApiVersion: undefined,
       azureModelFamily: undefined,
     }
@@ -863,7 +888,8 @@ describe("SettingsView 渲染覆盖", () => {
     await clickAndFlush("source-watch-on")
     clickSave()
     await waitFor(() => expect(mocks.startProjectFileSync).toHaveBeenCalled())
-    const newSourceWatch = mocks.saveSourceWatchConfig.mock.calls[0]?.[0] as Record<string, unknown>
+    const newSourceWatch = mocks.saveSourceWatchConfig.mock.calls[0]?.[0] as SourceWatchConfig
+
     expect(mocks.startProjectFileSync).toHaveBeenCalledWith(PROJECT, newSourceWatch)
     expect(mocks.stopProjectFileSync).not.toHaveBeenCalled()
 

@@ -4,7 +4,7 @@
 //
 // 100% coverage spec for src/components/settings/sections/rerank-section.tsx
 
-import { useCallback, useState } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, waitFor } from "@testing-library/react"
 import {
@@ -16,6 +16,8 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { RerankSection } from "./rerank-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+import type { LlmModelListResult } from "@/lib/settings-model-list"
+import type { LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -31,7 +33,7 @@ const mocks = vi.hoisted(() => {
       // 与真实 i18n 一致：testFailed/modelListFailed 的 { message } 插值直接透出
       opts && typeof opts.message === "string" ? opts.message : key,
     ),
-    fetchRerankModelList: vi.fn(async () => ({ models: [] })),
+    fetchRerankModelList: vi.fn<(llmConfig: LlmConfig, rerankConfig: RerankConfig) => Promise<LlmModelListResult>>(async () => ({ models: [] })),
     testSettingsRerankModel: vi.fn(async () => ({ model: "m", content: "c", usedMainLlm: false })),
     recordModelSelectProps: vi.fn(),
   }
@@ -74,7 +76,7 @@ vi.mock("@/components/settings/model-select-input", () => ({
 }))
 
 vi.mock("@/components/settings/resource-link", () => ({
-  ResourceLink: ({ children }: { children: unknown }) => <span>{children}</span>,
+  ResourceLink: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }))
 
 vi.mock("@/components/ui/button", () => ({
@@ -83,7 +85,7 @@ vi.mock("@/components/ui/button", () => ({
     onClick,
     disabled,
   }: {
-    children: unknown
+    children: ReactNode
     onClick?: () => void
     disabled?: boolean
   }) => (
@@ -110,7 +112,7 @@ function makeDraft(overrides: Partial<SettingsDraft["rerankConfig"]> = {}) {
   }
   const draft = { rerankConfig } as unknown as SettingsDraft
   const setDraft: DraftSetter = (key, value) => {
-    ;(draft as Record<string, unknown>)[key] = value
+    draft[key] = value
   }
   return { draft, setDraft }
 }

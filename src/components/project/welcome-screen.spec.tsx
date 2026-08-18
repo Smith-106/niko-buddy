@@ -5,6 +5,7 @@
 // 100% coverage spec for src/components/project/welcome-screen.tsx.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { ReactNode } from "react"
 import { cleanup } from "@testing-library/react"
 import {
   fireEvent,
@@ -13,13 +14,14 @@ import {
   waitFor,
 } from "@/test-helpers/component-test-utils"
 import { WelcomeScreen } from "./welcome-screen"
+import type { WikiProject } from "@/types/wiki"
 
 const mocks = vi.hoisted(() => {
   const state: { novelMode: boolean } = { novelMode: false }
   return {
     state,
     t: vi.fn((key: string) => key),
-    getRecentProjects: vi.fn(async () => []),
+    getRecentProjects: vi.fn<() => Promise<WikiProject[]>>(async () => []),
     removeFromRecentProjects: vi.fn(async () => {}),
     importBackup: vi.fn(),
   }
@@ -51,7 +53,7 @@ vi.mock("@/components/ui/button", () => ({
     children,
     onClick,
   }: {
-    children: unknown
+    children: ReactNode
     onClick?: () => void
   }) => (
     <button type="button" onClick={onClick}>

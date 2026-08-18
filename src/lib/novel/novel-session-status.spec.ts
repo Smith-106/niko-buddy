@@ -9,17 +9,17 @@ const fsState = vi.hoisted(() => {
   return {
     fileMap,
     createdDirs,
-    createDirectory: vi.fn(async (path: string) => {
+    createDirectory: vi.fn<typeof import("@/commands/fs").createDirectory>(async (path) => {
       createdDirs.add(path)
     }),
-    readFile: vi.fn(async (path: string) => {
+    readFile: vi.fn<typeof import("@/commands/fs").readFile>(async (path) => {
       const content = fileMap.get(path)
       if (content === undefined) {
         throw new Error(`ENOENT: ${path}`)
       }
       return content
     }),
-    writeFileAtomic: vi.fn(async (path: string, content: string) => {
+    writeFileAtomic: vi.fn<typeof import("@/commands/fs").writeFileAtomic>(async (path, content) => {
       fileMap.set(path, content)
     }),
   }
@@ -912,9 +912,9 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0, updated_at: "2026-01-02T00:00:00.000Z" },
-        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "failed", verdict: "fail", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0, updated_at: "2026-01-02T00:00:00.000Z" },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
         overall: "fail",
       },
     })
@@ -922,14 +922,15 @@ describe("novel-session-status 分支补足", () => {
     expect(failed.decision_gates.anti_ai.updated_at).toBe("2026-01-02T00:00:00.000Z")
     expect(failed.decision_gates.overall).toBe("fail")
 
-    // 无 overall 字段: 任一 failed → fail
+    // 任一 failed → overall fail
     const failDerived = buildNextStatus(base, {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "failed", verdict: "fail", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "fail",
       },
     })
     expect(failDerived.decision_gates.overall).toBe("fail")
@@ -938,9 +939,10 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
-        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "failed", verdict: "fail", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "fail",
       },
     })
     expect(antiFail.decision_gates.overall).toBe("fail")
@@ -949,20 +951,22 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
         quality: { status: "passed", verdict: "warning", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "warning",
       },
     })
     expect(warn.decision_gates.overall).toBe("warning")
-    // 全 passed 无 overall → pass
+    // 全 passed → pass
     const pass = buildNextStatus(base, {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
       },
     })
     expect(pass.decision_gates.overall).toBe("pass")
@@ -971,9 +975,10 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
-        quality: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
       },
     })
     expect(pendAnti.decision_gates.overall).toBe("pending")
@@ -982,9 +987,10 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       status: "running",
       decision_gates: {
-        consistency: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
-        quality: { status: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
       },
     })
     expect(pendQ.decision_gates.overall).toBe("pending")
@@ -1790,15 +1796,30 @@ describe("novel-session-status 全口径补齐：decision/fallback 分支", () =
 
   it("resolveStatusResumeCheckpoint: activeStepIndex 2 → after_draft; 0 → undefined", () => {
     const checkpoint = { version: 1 as const, originalRequest: "r", chapterNumber: 3, stage: "after_review" as const }
-    const status2 = {
+    const status2: NovelSessionStatus = {
+      schema_version: "1",
       session_id: "s",
-      status: "running" as const,
+      source: "deep_chapter_generation",
+      status: "running",
       created_at: "",
       updated_at: "",
       active_step_index: 2,
-      current_task: { conversation_id: "conv-1", user_request: "r", status: "running" as const },
-      draft: { draft_id: "d", file_path: "/p", draft_status: "pending" as const },
+      current_task: {
+        task_id: "t",
+        conversation_id: "conv-1",
+        user_request: "r",
+        checkpoint_stage: "started",
+        status: "running",
+      },
+      draft: { draft_id: "d", file_path: "/p", draft_status: "pending", updated_at: "" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 1 },
+        overall: "pass",
+      },
       resume_checkpoint: checkpoint,
+      evidence_refs: [],
     }
     expect(resolveStatusResumeCheckpoint(status2, "conv-1")?.stage).toBe("after_draft")
     const status0 = { ...status2, active_step_index: 0 }

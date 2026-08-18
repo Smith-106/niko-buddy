@@ -8,13 +8,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
-  act,
   fireEvent,
   render,
   screen,
   setupDomGlobals,
   waitFor,
 } from "@/test-helpers/component-test-utils"
+import type { ReactNode } from "react"
 import type { SavedModel } from "@/stores/wiki-store"
 import { SavedModelsManager } from "./saved-models-manager"
 
@@ -53,7 +53,7 @@ vi.mock("@/components/ui/label", () => ({
 }))
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ open, onOpenChange, children }: { open: boolean; onOpenChange?: (v: boolean) => void; children: unknown }) =>
+  Dialog: ({ open, onOpenChange, children }: { open: boolean; onOpenChange?: (v: boolean) => void; children: ReactNode }) =>
     open ? (
       <div data-testid="dialog">
         {children}
@@ -62,11 +62,11 @@ vi.mock("@/components/ui/dialog", () => ({
         </button>
       </div>
     ) : null,
-  DialogContent: ({ children }: { children: unknown }) => <div data-testid="dialog-content">{children}</div>,
-  DialogDescription: ({ children }: { children: unknown }) => <div data-testid="dialog-description">{children}</div>,
-  DialogFooter: ({ children }: { children: unknown }) => <div data-testid="dialog-footer">{children}</div>,
-  DialogHeader: ({ children }: { children: unknown }) => <div data-testid="dialog-header">{children}</div>,
-  DialogTitle: ({ children }: { children: unknown }) => <div data-testid="dialog-title">{children}</div>,
+  DialogContent: ({ children }: { children: ReactNode }) => <div data-testid="dialog-content">{children}</div>,
+  DialogDescription: ({ children }: { children: ReactNode }) => <div data-testid="dialog-description">{children}</div>,
+  DialogFooter: ({ children }: { children: ReactNode }) => <div data-testid="dialog-footer">{children}</div>,
+  DialogHeader: ({ children }: { children: ReactNode }) => <div data-testid="dialog-header">{children}</div>,
+  DialogTitle: ({ children }: { children: ReactNode }) => <div data-testid="dialog-title">{children}</div>,
 }))
 
 function makeModel(over: Partial<SavedModel> = {}): SavedModel {

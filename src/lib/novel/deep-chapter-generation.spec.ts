@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // 错误 rethrow → preflight degraded 产出多余 engine_error 日志，破坏 ARCH-001
 // 非阻断测试“仅 1 次 error 调用”断言。mock readFile 抛 ENOENT（模拟首运行空项目）
 // 让 4 个 loader 走正常降级返空 store，preflight 静默返回空 findings。
-const fsReadFileMock = vi.hoisted(() => vi.fn(async () => {
+const fsReadFileMock = vi.hoisted(() => vi.fn<(path: string) => Promise<string>>(async () => {
   const err: NodeJS.ErrnoException = new Error("ENOENT: no such file or directory")
   err.code = "ENOENT"
   throw err
@@ -94,6 +94,7 @@ import {
   type DeepChapterGenerationDeps,
   type DeepChapterGenerationResumeCheckpoint,
   type DeepChapterGenerationInput,
+  type DeepChapterDecisionGates,
   applyCachePrefix,
 } from "./deep-chapter-generation"
 import { createDefaultStructureThrilPacingPlan } from "./chapter-structure-plan"
@@ -1758,18 +1759,34 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
 
 describe("collectLiteraryPolishIssues (Track B)", () => {
   it("keeps thril/pacing/pull warnings and drops consistency errors", () => {
-    const gates = {
-      consistency: { status: "passed" as const, findings: [{ severity: "error" as const, type: "consistency", message: "设定冲突", evidence: "", relatedMemory: "", suggestion: "" }] },
-      anti_ai: { status: "passed" as const, findings: [] },
-      quality: { status: "passed" as const, findings: [
-        { severity: "warning" as const, type: "plot", message: "爽点偏弱", evidence: "", relatedMemory: "", suggestion: "" },
-        { severity: "warning" as const, type: "pull", message: "章末钩不足", evidence: "", relatedMemory: "", suggestion: "" },
-      ] },
-      overall: "pass" as const,
+    const gates: DeepChapterDecisionGates = {
+      consistency: {
+        status: "passed",
+        verdict: "pass",
+        findings: [{ severity: "error", type: "consistency", message: "设定冲突", evidence: "", relatedMemory: "", suggestion: "" }],
+        repair_suggestions: [],
+        retry_count: 0,
+      },
+      anti_ai: {
+        status: "passed",
+        verdict: "pass",
+        findings: [],
+        repair_suggestions: [],
+        retry_count: 0,
+      },
+      quality: {
+        status: "passed",
+        verdict: "pass",
+        findings: [
+          { severity: "warning", type: "plot", message: "爽点偏弱", evidence: "", relatedMemory: "", suggestion: "" },
+          { severity: "warning", type: "pull", message: "章末钩不足", evidence: "", relatedMemory: "", suggestion: "" },
+        ],
+        repair_suggestions: [],
+        retry_count: 0,
+      },
+      overall: "pass",
     }
-    // build minimal shape expected by collectLiteraryPolishIssues
-    const decisionGates = gates as any
-    const issues = collectLiteraryPolishIssues(decisionGates)
+    const issues = collectLiteraryPolishIssues(gates)
     expect(issues.some((i) => i.message.includes("爽点"))).toBe(true)
     expect(issues.some((i) => i.message.includes("章末"))).toBe(true)
     expect(issues.some((i) => i.type === "consistency")).toBe(false)
@@ -1784,7 +1801,9 @@ describe("collectLiteraryPolishIssues (Track B)", () => {
 const defaultFsReadFileImpl = fsReadFileMock.getMockImplementation()
 
 afterEach(() => {
-  fsReadFileMock.mockImplementation(defaultFsReadFileImpl)
+  if (defaultFsReadFileImpl) {
+    fsReadFileMock.mockImplementation(defaultFsReadFileImpl)
+  }
 })
 
 /** 让 @/commands/fs.readFile 对指定 store 文件返回内容，其余路径仍 ENOENT。 */
@@ -2434,7 +2453,7 @@ describe("coverage-100: collectModelText streaming paths", () => {
     vi.mocked(deps.streamChat).mockImplementation(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
       callIndex += 1
       if (callIndex === 1) {
-        callbacks.onReasoningToken("推理内容".repeat(80))
+        callbacks.onReasoningToken?.("推理内容".repeat(80))
         callbacks.onDone()
         return
       }
@@ -2464,7 +2483,7 @@ describe("coverage-100: collectModelText streaming paths", () => {
       callbacks.onToken("前段内容")
       controller.abort()
       callbacks.onToken("abort 后 token")
-      callbacks.onReasoningToken("abort 后推理")
+      callbacks.onReasoningToken?.("abort 后推理")
       callbacks.onToken("再次 token")
       callbacks.onDone()
     })
@@ -2714,7 +2733,7 @@ describe("coverage-100: runFullReviewWithSixDim guards", () => {
 describe("coverage-100-f5: runFullReviewWithSixDim error-path guards", () => {
   function sixDimDeps(overrides: {
     reviewChapter?: DeepChapterGenerationDeps["reviewChapter"]
-    runSixDim?: () => Promise<unknown>
+    runSixDim?: DeepChapterGenerationDeps["runSixDimensionReview"]
   }): DeepChapterGenerationDeps {
     return {
       buildContextPack: vi.fn(async () => contextPack),
@@ -3392,7 +3411,7 @@ describe("coverage-100-f5: collectModelText remaining guards", () => {
       callIndex += 1
       if (callIndex === 1) {
         callbacks.onToken("已有正文内容")
-        callbacks.onReasoningToken("推理内容".repeat(80))
+        callbacks.onReasoningToken?.("推理内容".repeat(80))
         callbacks.onDone()
         return
       }
@@ -3598,7 +3617,7 @@ describe("coverage-100-f5: collectLiteraryPolishIssues reachable branch sides", 
 
 describe("coverage-100: applyCachePrefix branch sides", () => {
   it("returns messages unchanged when cachePrefix is absent", () => {
-    const msgs = [{ role: "user", content: "hi" }]
+    const msgs: ChatMessage[] = [{ role: "user", content: "hi" }]
     expect(applyCachePrefix(msgs)).toBe(msgs)
   })
   it("splits a user message that starts with the cache prefix", () => {

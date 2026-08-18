@@ -14,18 +14,32 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { ChangelogSection } from "./changelog-section"
+import type { ChangelogEntry } from "@/lib/changelog"
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
+
+/**
+ * 结构子集：镜像真实 @tauri-apps/plugin-updater 的 Update 类中
+ * changelog-section 实际消费的成员（version/body/download/install）。
+ * 真实 Update 还要求 currentVersion/rawJson/downloadAndInstall/close 等，
+ * 测试数据无需构造这些成员。
+ */
+interface MockUpdate {
+  version: string
+  body?: string
+  download?: (onEvent?: (e: { event: string; data: Record<string, unknown> }) => void) => Promise<void>
+  install?: () => Promise<void>
+}
 
 const mocks = vi.hoisted(() => {
   const langState = { language: "zh" }
   return {
     langState,
     t: vi.fn((key: string) => key),
-    allChangelog: vi.fn(() => []),
+    allChangelog: vi.fn<() => ChangelogEntry[]>(() => []),
     isTauri: vi.fn(() => false),
     formatUpdateErrorMessage: vi.fn((_err: unknown) => "formatted-update-error"),
-    checkUpdate: vi.fn(async () => null),
+    checkUpdate: vi.fn<() => Promise<MockUpdate | null>>(async () => null),
   }
 })
 
@@ -195,7 +209,7 @@ describe("ChangelogSection", () => {
     mocks.checkUpdate.mockResolvedValue({
       version: "3.2.0",
       body: "b",
-      download: vi.fn(async (cb: (e: { event: string; data: Record<string, unknown> }) => void) => {
+      download: vi.fn(async (cb?: (e: { event: string; data: Record<string, unknown> }) => void) => {
         progressCb = cb
         await new Promise<void>((resolve) => {
           resolveDownload = resolve
@@ -237,7 +251,7 @@ describe("ChangelogSection", () => {
     mocks.checkUpdate.mockResolvedValue({
       version: "3.3.0",
       body: "b",
-      download: vi.fn(async (cb: (e: { event: string; data: Record<string, unknown> }) => void) => {
+      download: vi.fn(async (cb?: (e: { event: string; data: Record<string, unknown> }) => void) => {
         progressCb = cb
         await new Promise<void>((resolve) => {
           resolveDownload = resolve

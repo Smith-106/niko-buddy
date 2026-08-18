@@ -293,3 +293,30 @@ describe("S1b format-normalizer 边界分支补全", () => {
     expect(r.changed).toBe(false)
   })
 })
+
+describe("pangu 中英文自动空格 (可选排版增强)", () => {
+  it("enablePangu 默认关闭: 中英混排不加空格", () => {
+    const r = formatNormalize("中文English混合")
+    expect(r.panguSpaced).toBe(0)
+    expect(r.text).toBe("中文English混合")
+  })
+
+  it("enablePangu=true: 中英边界插入空格", () => {
+    const r = formatNormalize("当你But有用", { enablePangu: true })
+    expect(r.panguSpaced).toBeGreaterThan(0)
+    expect(r.text).toContain(" ")
+  })
+
+  it("enablePangu=true: 纯中文不插入空格", () => {
+    const r = formatNormalize("雨停了他走了", { enablePangu: true })
+    expect(r.panguSpaced).toBe(0)
+    expect(r.text).toBe("雨停了他走了")
+  })
+
+  it("enablePangu 与其他规范化叠加 (格式规范化后追加空格)", () => {
+    const r = formatNormalize("中文English混合！！！", { enablePangu: true })
+    expect(r.text).toContain(" ")
+    expect(r.repeatedPunctFixed).toBeGreaterThan(0)
+    expect(r.changed).toBe(true)
+  })
+})

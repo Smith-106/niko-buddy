@@ -5,6 +5,7 @@
 // 100% coverage spec for src/components/ui/dialog.tsx (base-ui wrapper).
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { ReactNode } from "react"
 import { cleanup } from "@testing-library/react"
 import {
   render,
@@ -28,42 +29,42 @@ import {
 // own composition/branching is exercised deterministically in jsdom.
 vi.mock("@base-ui/react/dialog", () => ({
   Dialog: {
-    Root: ({ children, ...props }: Record<string, unknown>) => (
+    Root: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <div data-testid="base-root" {...props}>
         {children}
       </div>
     ),
-    Trigger: ({ children, ...props }: Record<string, unknown>) => (
+    Trigger: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <button type="button" data-testid="base-trigger" {...props}>
         {children}
       </button>
     ),
-    Portal: ({ children, ...props }: Record<string, unknown>) => (
+    Portal: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <div data-testid="base-portal" {...props}>
         {children}
       </div>
     ),
-    Close: ({ children, ...props }: Record<string, unknown>) => (
+    Close: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <span data-testid="base-close" {...props}>
         {children}
       </span>
     ),
-    Backdrop: ({ children, ...props }: Record<string, unknown>) => (
+    Backdrop: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <div data-testid="base-backdrop" {...props}>
         {children}
       </div>
     ),
-    Popup: ({ children, ...props }: Record<string, unknown>) => (
+    Popup: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <div data-testid="base-popup" {...props}>
         {children}
       </div>
     ),
-    Title: ({ children, ...props }: Record<string, unknown>) => (
+    Title: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <h2 data-testid="base-title" {...props}>
         {children}
       </h2>
     ),
-    Description: ({ children, ...props }: Record<string, unknown>) => (
+    Description: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <p data-testid="base-description" {...props}>
         {children}
       </p>
@@ -74,7 +75,7 @@ vi.mock("@base-ui/react/dialog", () => ({
 // The real ui Button would nest a <button> inside the mocked base-ui
 // Close (a hydration hazard in jsdom). Mock it to a plain button.
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: Record<string, unknown>) => (
+  Button: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
     <button type="button" {...props}>
       {children}
     </button>

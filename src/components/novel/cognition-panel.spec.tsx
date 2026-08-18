@@ -6,6 +6,8 @@ import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import type { CognitionState } from "@/lib/novel/character-cognition"
+import type { CharacterStateStore } from "@/lib/novel/character-state"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
@@ -24,8 +26,8 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 const cognition = vi.hoisted(() => ({
-  loadCognitionState: vi.fn(async () => null),
-  loadCharacterStates: vi.fn(async () => ({ characters: [], lastUpdated: "" })),
+  loadCognitionState: vi.fn<(path: string) => Promise<CognitionState | null>>(async () => null),
+  loadCharacterStates: vi.fn<(path: string) => Promise<CharacterStateStore>>(async () => ({ characters: [], lastUpdated: "" })),
 }))
 
 vi.mock("@/lib/novel/character-cognition", () => ({
@@ -84,7 +86,7 @@ afterEach(() => cleanup())
 
 describe("CognitionPanel", () => {
   it("shows the loading skeleton while fetching", async () => {
-    let resolveState!: (v: unknown) => void
+    let resolveState!: (v: CognitionState | null) => void
     cognition.loadCognitionState.mockImplementationOnce(() => new Promise((res) => { resolveState = res }))
     cognition.loadCharacterStates.mockImplementationOnce(() => new Promise((res) => { res(fullCharStates) }))
     render(<CognitionPanel projectPath="E:/Novel" onClose={vi.fn()} />)
@@ -256,7 +258,7 @@ describe("CognitionPanel", () => {
   })
 
   it("ignores a stale fetch when dataVersion changes quickly", async () => {
-    let resolveFirst!: (v: unknown) => void
+    let resolveFirst!: (v: CognitionState | null) => void
     cognition.loadCognitionState.mockImplementationOnce(() => new Promise((res) => { resolveFirst = res }))
     const { rerender } = render(<CognitionPanel projectPath="E:/Novel" onClose={vi.fn()} />)
     wiki.state.dataVersion = 1

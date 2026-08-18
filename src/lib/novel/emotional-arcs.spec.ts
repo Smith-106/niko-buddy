@@ -12,7 +12,7 @@ import {
 const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(async () => {}),
   writeFileAtomic: vi.fn(async () => {}),
-  readFile: vi.fn(async () => {
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => {
     throw new Error("ENOENT")
   }),
 }))

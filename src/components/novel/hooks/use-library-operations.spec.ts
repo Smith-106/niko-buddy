@@ -4,44 +4,62 @@
  */
 import { renderHook, act } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { Dispatch, SetStateAction } from "react"
 import type { BookAnalysisLibraryBook, BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
+import type { BookStyleProfile } from "@/lib/novel/book-analysis/types"
+import type { ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
+import type { AnalyzeWritingStyleOptions } from "@/lib/novel/book-analysis/style-extraction-engine"
+import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChapterSelectionData } from "./use-character-extraction"
 import { useLibraryOperations } from "./use-library-operations"
 
 const mocks = vi.hoisted(() => {
-  const bookAnalysis: {
-    startTask: ReturnType<typeof vi.fn>
-    updateTaskBookData: ReturnType<typeof vi.fn>
-    updateTaskProgress: ReturnType<typeof vi.fn>
-    updateTaskStyleProfile: ReturnType<typeof vi.fn>
-    updateTaskMetadata: ReturnType<typeof vi.fn>
-    completeTask: ReturnType<typeof vi.fn>
-    errorTask: ReturnType<typeof vi.fn>
-    triggerSidebarRefresh: ReturnType<typeof vi.fn>
-  } = {
-    startTask: vi.fn(() => "task-1"),
-    updateTaskBookData: vi.fn(),
-    updateTaskProgress: vi.fn(),
-    updateTaskStyleProfile: vi.fn(),
-    updateTaskMetadata: vi.fn(),
-    completeTask: vi.fn(),
-    errorTask: vi.fn(),
-    triggerSidebarRefresh: vi.fn(),
+  type LoadBookAnalysisLibraryStateFn = typeof import("@/lib/novel/book-analysis/library-state").loadBookAnalysisLibraryState
+  type AnalyzeWritingStyleFn = typeof import("@/lib/novel/book-analysis/style-extraction-engine").analyzeWritingStyle
+  type ImportBookAnalysisSkillsAsAurasFn = typeof import("@/lib/novel/book-analysis/aura-adapter").importBookAnalysisSkillsAsAuras
+  type DeleteOrphanAurasForBookFn = typeof import("@/lib/novel/book-analysis/aura-cleanup").deleteOrphanAurasForBook
+  type BindCharacterAuraFn = typeof import("@/lib/novel/character-aura").bindCharacterAura
+  type ListBindableNovelCharactersFn = typeof import("@/lib/novel/character-aura").listBindableNovelCharacters
+  type SetEnabledWritingStyleFn = typeof import("@/lib/novel/writing-style-store").setEnabledWritingStyle
+  type UpsertWritingStylePresetFn = typeof import("@/lib/novel/writing-style-store").upsertWritingStylePreset
+  type RefreshProjectStateFn = typeof import("@/lib/project-refresh").refreshProjectState
+  type ReadFileFn = typeof import("@/commands/fs").readFile
+  type ListDirectoryFn = typeof import("@/commands/fs").listDirectory
+  type DeleteFileFn = typeof import("@/commands/fs").deleteFile
+  type BookAnalysisStoreState = ReturnType<typeof import("@/stores/book-analysis-store").useBookAnalysisStore.getState>
+  const bookAnalysis = {
+    startTask: vi.fn<BookAnalysisStoreState["startTask"]>(),
+    updateTaskBookData: vi.fn<BookAnalysisStoreState["updateTaskBookData"]>(),
+    updateTaskProgress: vi.fn<BookAnalysisStoreState["updateTaskProgress"]>(),
+    updateTaskMetadata: vi.fn<BookAnalysisStoreState["updateTaskMetadata"]>(),
+    updateTaskStyleProfile: vi.fn<BookAnalysisStoreState["updateTaskStyleProfile"]>(),
+    completeTask: vi.fn<BookAnalysisStoreState["completeTask"]>(),
+    errorTask: vi.fn<BookAnalysisStoreState["errorTask"]>(),
+    triggerSidebarRefresh: vi.fn<BookAnalysisStoreState["triggerSidebarRefresh"]>(),
+  }
+  const llmConfig: import("@/stores/wiki-store").LlmConfig = {
+    provider: "openai",
+    apiKey: "key-1",
+    model: "gpt-4o",
+    ollamaUrl: "",
+    customEndpoint: "",
+    maxContextSize: 8000,
   }
   return {
     bookAnalysis,
-    loadBookAnalysisLibraryState: vi.fn(async () => ({ books: [], enabledStyle: null, bindings: [] })),
-    analyzeWritingStyle: vi.fn(),
-    importBookAnalysisSkillsAsAuras: vi.fn(),
-    deleteOrphanAurasForBook: vi.fn(async () => 0),
-    bindCharacterAura: vi.fn(async () => {}),
-    listBindableNovelCharacters: vi.fn(async () => []),
-    setEnabledWritingStyle: vi.fn(async () => {}),
-    upsertWritingStylePreset: vi.fn(async (p: unknown) => ({ id: "preset-1", ...(p as object) })),
-    refreshProjectState: vi.fn(async () => {}),
-    readFile: vi.fn(),
-    listDirectory: vi.fn(),
-    deleteFile: vi.fn(async () => {}),
+    llmConfig,
+    loadBookAnalysisLibraryState: vi.fn<LoadBookAnalysisLibraryStateFn>(),
+    analyzeWritingStyle: vi.fn<AnalyzeWritingStyleFn>(),
+    importBookAnalysisSkillsAsAuras: vi.fn<ImportBookAnalysisSkillsAsAurasFn>(),
+    deleteOrphanAurasForBook: vi.fn<DeleteOrphanAurasForBookFn>(),
+    bindCharacterAura: vi.fn<BindCharacterAuraFn>(),
+    listBindableNovelCharacters: vi.fn<ListBindableNovelCharactersFn>(),
+    setEnabledWritingStyle: vi.fn<SetEnabledWritingStyleFn>(),
+    upsertWritingStylePreset: vi.fn<UpsertWritingStylePresetFn>(),
+    refreshProjectState: vi.fn<RefreshProjectStateFn>(),
+    readFile: vi.fn<ReadFileFn>(),
+    listDirectory: vi.fn<ListDirectoryFn>(),
+    deleteFile: vi.fn<DeleteFileFn>(),
     joinPath: vi.fn((...parts: string[]) => parts.join("/")),
     toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
   }
@@ -101,7 +119,7 @@ vi.mock("@/lib/toast", () => ({
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 
-const styleProfile = {
+const styleProfile: BookStyleProfile = {
   schemaVersion: 1,
   generatedAt: 1,
   sampledChapterIds: ["c1"],
@@ -134,22 +152,31 @@ const libraryBook: BookAnalysisLibraryBook = {
     { id: "skill-1", characterId: "char-1", characterName: "林烬", skillContent: "# 林烬", sourceBook: "长夜书", chapterRange: ["1"], createdAt: 3 },
   ],
   styleProfile,
-  styleStatus: "extracted",
+  styleStatus: "available",
   boundAurasCount: 0,
   addedAuraCharacterIds: [],
 }
 
-const llmConfig = { provider: "openai", apiKey: "key-1", model: "gpt-4o" }
+const llmConfig: LlmConfig = {
+  provider: "openai",
+  apiKey: "key-1",
+  model: "gpt-4o",
+  ollamaUrl: "",
+  customEndpoint: "",
+  maxContextSize: 8000,
+}
 
-function makeParams(overrides: Partial<Parameters<typeof useLibraryOperations>[0]> = {}) {
+type MakeParamsOverrides = Partial<Pick<Parameters<typeof useLibraryOperations>[0], "currentProjectPath" | "selectedLibraryBook" | "libraryState" | "llmConfig">>
+
+function makeParams(overrides: MakeParamsOverrides = {}) {
   const props = {
     currentProjectPath: "/proj",
     selectedLibraryBook: libraryBook,
     libraryState: { books: [libraryBook], enabledStyle: null, bindings: [] } as BookAnalysisLibraryState,
-    setLibraryState: vi.fn(),
-    setSelectedBookId: vi.fn(),
-    setSelectedCharacterId: vi.fn(),
-    setChapterSelectionData: vi.fn(),
+    setLibraryState: vi.fn<Dispatch<SetStateAction<BookAnalysisLibraryState>>>(),
+    setSelectedBookId: vi.fn<Dispatch<SetStateAction<string | null>>>(),
+    setSelectedCharacterId: vi.fn<Dispatch<SetStateAction<string | null>>>(),
+    setChapterSelectionData: vi.fn<Dispatch<SetStateAction<ChapterSelectionData | null>>>(),
     llmConfig,
     startTask: vi.fn(() => "task-1"),
     ...overrides,
@@ -162,7 +189,7 @@ describe("useLibraryOperations", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.loadBookAnalysisLibraryState.mockResolvedValue({ books: [libraryBook], enabledStyle: null, bindings: [] })
-    mocks.analyzeWritingStyle.mockImplementation(async (_p: unknown, _c: unknown, opts: { signal?: AbortSignal; onProgress?: (msg: string) => void }) => {
+    mocks.analyzeWritingStyle.mockImplementation(async (_p: string, _c: LlmConfig, opts: AnalyzeWritingStyleOptions = {}) => {
       opts.onProgress?.("正在分析作品文风…")
       return styleProfile
     })
@@ -172,9 +199,14 @@ describe("useLibraryOperations", () => {
     mocks.readFile.mockResolvedValue("---\ntitle: 第一章\norder: 1\nwordCount: 100\n---\n正文内容正文内容")
     mocks.deleteOrphanAurasForBook.mockResolvedValue(0)
     mocks.deleteFile.mockResolvedValue(undefined)
-    mocks.setEnabledWritingStyle.mockResolvedValue(undefined)
-    mocks.upsertWritingStylePreset.mockImplementation(async (p: unknown) => ({ id: "preset-1", ...(p as object) }))
-    mocks.bindCharacterAura.mockResolvedValue(undefined)
+    mocks.setEnabledWritingStyle.mockResolvedValue({ version: 1, enabledStyleId: null, styles: [] })
+    mocks.upsertWritingStylePreset.mockImplementation(async (_projectPath: string, input: { name: string; sourceBook: string; profile: BookStyleProfile }) => ({
+      id: "preset-1",
+      ...input,
+      createdAt: 1,
+      updatedAt: 2,
+    }))
+    mocks.bindCharacterAura.mockResolvedValue({ customAuras: [], bindings: [] })
     mocks.refreshProjectState.mockResolvedValue(undefined)
     mocks.bookAnalysis.startTask.mockReturnValue("task-1")
   })
@@ -234,7 +266,7 @@ describe("useLibraryOperations", () => {
   })
 
   it("style: 成功路径（进度映射 + 画像保存 + 完成 + 刷新）", async () => {
-    const { result, props } = makeParams()
+    const { result } = makeParams()
     await act(async () => {
       await result.current.handleLibraryExtractStyle()
     })
@@ -252,7 +284,7 @@ describe("useLibraryOperations", () => {
   })
 
   it("style: 进度消息不匹配任何 key 时跳过进度更新", async () => {
-    mocks.analyzeWritingStyle.mockImplementation(async (_p: unknown, _c: unknown, opts: { onProgress?: (msg: string) => void }) => {
+    mocks.analyzeWritingStyle.mockImplementation(async (_p: string, _c: LlmConfig, opts: AnalyzeWritingStyleOptions = {}) => {
       opts.onProgress?.("某条未知消息")
       return styleProfile
     })
@@ -391,13 +423,20 @@ describe("useLibraryOperations", () => {
     expect(mocks.toast.info).toHaveBeenCalledWith("「林烬」已加入自定义灵魂库，无需重复加入。")
 
     mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([
-      { id: "aura-1", characterName: "林烬", auraId: "aura-1" },
+      { skillId: "skill-1", characterId: "char-1", characterName: "林烬", auraId: "aura-1", auraName: "林烬" },
     ])
     await act(async () => { await result.current.handleLibraryAddSkillsToSoul("skill-1") })
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/proj")
     expect(mocks.toast.success).toHaveBeenCalledWith("已将「林烬」加入自定义灵魂库。")
     // imported[0] 无 characterName → ?? selectedCharacter.name 兜底
-    mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([{ id: "aura-2", auraId: "aura-2" }])
+    const auraWithoutName: { skillId: string; characterId: string; characterName: string | undefined; auraId: string; auraName: string } = {
+      skillId: "skill-2",
+      characterId: "char-1",
+      characterName: undefined,
+      auraId: "aura-2",
+      auraName: "",
+    }
+    mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([auraWithoutName as ImportedBookAnalysisAura])
     await act(async () => { await result.current.handleLibraryAddSkillsToSoul("skill-1") })
     expect(mocks.toast.success).toHaveBeenCalledWith("已将「林烬」加入自定义灵魂库。")
     // 两次都触发 reloadLibraryState
@@ -545,7 +584,7 @@ describe("useLibraryOperations", () => {
   it("reextract: 无项目/无书时直接返回；无 llmConfig → toast.error", async () => {
     const { result } = makeParams({ currentProjectPath: null })
     await act(async () => { await result.current.handleLibraryReextractCharacters() })
-    const { result: r2 } = makeParams({ llmConfig: null })
+    const { result: r2 } = makeParams({ llmConfig: undefined })
     await act(async () => { await r2.current.handleLibraryReextractCharacters() })
     expect(mocks.toast.error).toHaveBeenCalledWith("未配置可用模型，请先在设置中配置 LLM。")
     expect(mocks.listDirectory).not.toHaveBeenCalled()

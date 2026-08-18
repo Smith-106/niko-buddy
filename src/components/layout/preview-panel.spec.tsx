@@ -8,6 +8,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { cleanup as rtlCleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { ChapterBodySelection } from "@/lib/chapter-selection"
 
 const CHAPTER_PATH = "/proj/wiki/chapters/第1章.md"
 const OUTLINE_PATH = "/proj/wiki/outlines/大纲.md"
@@ -53,7 +55,7 @@ const mocks = vi.hoisted(() => {
     startTask: vi.fn(() => "task-1"),
     finishTask: vi.fn(),
   }
-  const compactToolbar = { value: true }
+  const compactToolbar: { value: boolean } = { value: true }
   const chapterMetaFinalGate = { value: true }
   const saveText = { value: "用户改动的内容" }
   const selectionText = { value: "选中文本" }
@@ -66,7 +68,7 @@ const mocks = vi.hoisted(() => {
     chapterMetaFinalGate,
     saveText,
     selectionText,
-    t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
+    t: vi.fn<(key: string, opts?: { defaultValue?: string }) => string | number>((key, opts) => opts?.defaultValue ?? key),
     readFile: vi.fn(),
     writeFile: vi.fn(),
     writeFileAtomic: vi.fn(),
@@ -95,11 +97,11 @@ const mocks = vi.hoisted(() => {
     loadSmartDeAiSkill: vi.fn(async () => null),
     startOutlineIngestTask: vi.fn(),
     streamChat: vi.fn(),
-    reviewChapter: vi.fn(async () => []),
-    ingestChapter: vi.fn(async () => ({ snapshot: null, failReason: "extract_failed" })),
+    reviewChapter: vi.fn<() => Promise<NovelReviewResult[]>>(async () => []),
+    ingestChapter: vi.fn<() => Promise<{ snapshot: { chapterNumber: number } | null; failReason: string | null }>>(async () => ({ snapshot: null, failReason: "extract_failed" })),
     buildPolishSelectionMessages: vi.fn(() => []),
     rebuildChapterBody: vi.fn((h: string, b: string) => (h ? `# ${h}\n\n${b}` : b)),
-    replaceChapterBodySelection: vi.fn(() => ({ ok: true as const, body: "new-body" })),
+    replaceChapterBodySelection: vi.fn<(currentBody: string, selection: ChapterBodySelection, replacement: string) => { ok: true; body: string } | { ok: false; reason: "changed" | "empty" }>(() => ({ ok: true as const, body: "new-body" })),
     replaceWholeChapterBody: vi.fn((_c: string, r: string) => r),
     splitChapterHeading: vi.fn((b: string) => ({ heading: "第一章", body: b })),
     shouldUseCompactChapterToolbar: vi.fn(() => compactToolbar.value),

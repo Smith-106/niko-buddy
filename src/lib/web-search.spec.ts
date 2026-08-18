@@ -149,7 +149,7 @@ describe("webSearch", () => {
   })
 
   it("runs a Tavily search and maps results", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () =>
       jsonResponse({
         results: [
           { title: "T1", url: "https://tavily.com/a", content: "content a" },
@@ -230,7 +230,7 @@ describe("webSearch", () => {
   })
 
   it("runs a SerpApi search with engine params", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () =>
       jsonResponse({
         organic_results: [{ title: "S1", link: "https://serp.com/1", snippet: "snip" }],
       }),
@@ -357,14 +357,14 @@ describe("webSearch", () => {
   })
 
   it("uses the general category when searxng categories is empty", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => jsonResponse({ results: [] }))
     mockedGetHttpFetch.mockResolvedValue(fetchMock as unknown as typeof fetch)
     await webSearch("q", baseConfig({ provider: "searxng", searXngUrl: "https://s.example.com", searXngCategories: [] }), 10)
     expect(String(fetchMock.mock.calls[0][0])).toContain("categories=general")
   })
 
   it("runs a SearXNG search with category params", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () =>
       jsonResponse({
         results: [
           { title: "X1", url: "https://x.com/1", content: "c", engine: "google", category: "general" },
@@ -396,14 +396,14 @@ describe("webSearch", () => {
   })
 
   it("appends /search to a bare searxng instance url", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => jsonResponse({ results: [] }))
     mockedGetHttpFetch.mockResolvedValue(fetchMock as unknown as typeof fetch)
     await webSearch("q", baseConfig({ provider: "searxng", searXngUrl: "search.example.com" }), 10)
     expect(String(fetchMock.mock.calls[0][0])).toContain("https://search.example.com/search")
   })
 
   it("keeps an existing /search path", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => jsonResponse({ results: [] }))
     mockedGetHttpFetch.mockResolvedValue(fetchMock as unknown as typeof fetch)
     await webSearch("q", baseConfig({ provider: "searxng", searXngUrl: "https://search.example.com/search" }), 10)
     expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/search\?/)
