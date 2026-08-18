@@ -13,6 +13,7 @@ import { saveNovelConfig } from "@/lib/project-store"
 
 import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
+import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
 
@@ -624,6 +625,7 @@ export function NovelSection({ draft, setDraft }: Props) {
           </div>
         </div>
       </div>
+      <WritingPreferenceSection />
       </div>
     </TooltipProvider>
   )
