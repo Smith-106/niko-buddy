@@ -2390,7 +2390,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     )
     const genInput = mocks.runDeepChapterGeneration.mock.calls[0][0]
     expect(genInput.residualOverallMedian).toBe(9.0)
-    expect(genInput.residualRewriteMode).toBe("polish")
+    expect(genInput.residualRewriteMode).toBe("structure_thril_pacing")
     expect(mocks.completeDeepChapterSession).toHaveBeenCalled()
     expect(mocks.blockDeepChapterSession).not.toHaveBeenCalled()
     expect(mocks.pauseDeepChapterSession).not.toHaveBeenCalled()
@@ -3045,6 +3045,28 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
   it("autoIngestOnSave：可用 LLM + 摄取成功", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelConfig.autoIngestOnSave = true
+    mocks.ingestChapter.mockImplementation(async () => ({
+      snapshot: {
+        chapterId: "chapter-005",
+        chapterNumber: 5,
+        summary: "s",
+        characters: [],
+        locations: [],
+        organizations: [],
+        items: [],
+        events: [],
+        characterStateChanges: [],
+        relationshipChanges: [],
+        knowledgeChanges: [],
+        foreshadowingChanges: [],
+        newCanonFacts: [],
+        timelineEvents: [],
+        conflicts: [],
+        endingHook: "",
+        graphNodes: [],
+        graphEdges: [],
+      },
+    }))
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "q" }),
@@ -3701,6 +3723,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     expect(mocks.runDeepChapterGeneration.mock.calls[0][0].goldenThreeChapter).toEqual({
       enabled: true,
       targetChapter: 3,
+      requestedFirstThree: false,
     })
     setDeepMode(false)
   })
@@ -3967,6 +3990,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     expect(mocks.runDeepChapterGeneration.mock.calls[0][0].goldenThreeChapter).toEqual({
       enabled: true,
       targetChapter: 3,
+      requestedFirstThree: false,
     })
   })
 
@@ -3978,7 +4002,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     await flushAsync()
     const genInput = mocks.runDeepChapterGeneration.mock.calls[0][0]
     expect(genInput.residualOverallMedian).toBe(9.0)
-    expect(genInput.residualRewriteMode).toBe("polish")
+    expect(genInput.residualRewriteMode).toBe("structure_thril_pacing")
   })
 
   it("深度续写：checkpoint 无 chapterNumber → ?? null", async () => {

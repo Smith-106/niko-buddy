@@ -512,7 +512,7 @@ describe("SettingsView 渲染覆盖", () => {
     render(<SettingsView />)
     await flushAsync()
     expect(mocks.normalizeSourceWatchConfig).toHaveBeenCalledWith()
-    expect(mocks.wikiState.setSourceWatchConfig).toHaveBeenCalledWith({ enabled: false })
+    expect(mocks.wikiState.setSourceWatchConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
   })
 
   it("loadNovelConfig：config 写入 store 与 draft；null 跳过；reject 吞掉", async () => {

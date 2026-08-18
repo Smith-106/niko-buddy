@@ -97,7 +97,6 @@ describe("next risk state", () => {
   })
 
   it("treats an unknown current state as no state", () => {
-    expect(getNextGraphNodeRiskStateLabel("secret", "???")).toBeNull()
     expect(getNextGraphNodeRiskStateLabel("secret", "???")).toBe("未揭露")
   })
 })

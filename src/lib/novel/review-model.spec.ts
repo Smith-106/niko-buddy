@@ -6,6 +6,20 @@ vi.mock("@/stores/wiki-store", () => ({
       novelConfig: { reviewModel: "fallback-model" },
     })),
   },
+  DEFAULT_NOVEL_CONFIG: {
+    contextTokenBudget: 0,
+    recentSummaryWindow: 0,
+    searchTopK: 0,
+    chapterTargetChars: 0,
+    autoIngestOnSave: false,
+    autoExtractOnImport: false,
+    reviewBeforeSave: false,
+    deepPreviousChaptersAnalysis: false,
+    reviewModel: "",
+    summaryModel: "",
+    extractModel: "",
+    reviewReasoningEffort: "high",
+  },
 }))
 
 import { resolveReviewModel } from "./review-model"

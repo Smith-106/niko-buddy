@@ -78,6 +78,25 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
+  version: "2.4.10",
+  date: "2026-08-18",
+  highlights: {
+    en: [
+      "Security: apiKey plaintext persistence closed — 6 project-store save/load pairs (llm/providers/search/embedding/multimodal/rerank) + rerank double-write now AES-GCM encrypted at the persistence boundary; one-time plaintext migration; backup export excludes the fallback fingerprint.",
+      "UI resilience: root ErrorBoundary wraps the chrome layer; interrupted book-analysis tasks persist and recover as error state after restart; CreateProjectDialog surfaces init failures; backup cancel channel truly interrupts (Rust AtomicBool + cancel_backup).",
+      "Dead-code cleanup: 8 orphan IPC commands and associated Rust helpers removed; 47 active IPC contracts unchanged.",
+      "Notes-only release: installer assets stay v2.4.6; source tip semantics apply until the next asset rebuild.",
+    ],
+    zh: [
+      "安全：apiKey 明文持久化收口——project-store 6 对 save/load（llm/providers/search/embedding/multimodal/rerank）+ rerank 双写接入 AES-GCM 加密；一次性明文迁移；备份导出排除回退指纹。",
+      "UI 弹性：根 ErrorBoundary 兜住 chrome 层；拆书任务持久化，重启后恢复为中断错误态；CreateProjectDialog 初始化失败显式反馈；备份取消通道真实中断（Rust AtomicBool + cancel_backup）。",
+      "死代码清理：移除 8 个孤儿 IPC 命令及关联 Rust 死代码；47 个活跃 IPC 契约语义不变。",
+      "Notes-only 发布：安装包资产保持 v2.4.6；下次资产重建前适用源码 tip 语义。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "2.4.8",
   date: "2026-08-15",
@@ -850,6 +869,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) return [TWO_POINT_FOUR_TEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_EIGHT_CHANGELOG.version) return [TWO_POINT_FOUR_EIGHT_CHANGELOG]
   if (version === TWO_POINT_FOUR_SEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_SEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_SIX_CHANGELOG.version) return [TWO_POINT_FOUR_SIX_CHANGELOG]
