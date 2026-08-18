@@ -20,11 +20,14 @@ const mocks = vi.hoisted(() => {
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
     exportBackup: vi.fn(),
     importBackup: vi.fn(),
+    exportNovelDocx: vi.fn(),
+    project: { path: "E:/Novel" },
   }
 })
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
+  initReactI18next: { init: vi.fn() },
 }))
 
 vi.mock("@/lib/backup/export", () => ({
@@ -33,6 +36,15 @@ vi.mock("@/lib/backup/export", () => ({
 
 vi.mock("@/lib/backup/import", () => ({
   importBackup: mocks.importBackup,
+}))
+
+vi.mock("@/lib/novel/export", () => ({
+  exportNovelDocx: mocks.exportNovelDocx,
+}))
+
+vi.mock("@/stores/wiki-store", () => ({
+  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+    selector({ project: mocks.project }),
 }))
 
 function exportResult(overrides: Partial<Parameters<typeof mocks.exportBackup>[0]> & object = {}) {
@@ -423,5 +435,55 @@ describe("DataManagementSection", () => {
     })
     // isBusy=false → 进度条隐藏（尽管 stage=done 保留了 progress 状态）
     expect(screen.queryByText("import done")).not.toBeInTheDocument()
+  })
+
+  it("docx export success: shows success block with chapter count", async () => {
+    mocks.exportNovelDocx.mockResolvedValueOnce({
+      success: true,
+      exportedPath: "E:/Novel/complete-novel.docx",
+      chapterCount: 12,
+      message: "exported 12 chapters",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.docxExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.docxExportSuccess")).toBeInTheDocument()
+    })
+    expect(screen.getByText("settings.sections.dataManagement.docxExportCount")).toBeInTheDocument()
+    expect(mocks.exportNovelDocx).toHaveBeenCalledWith({
+      projectPath: "E:/Novel",
+      exportPath: "E:/Novel/complete-novel.docx",
+    })
+  })
+
+  it("docx export failure: shows message and no success block", async () => {
+    mocks.exportNovelDocx.mockResolvedValueOnce({
+      success: false,
+      exportedPath: "",
+      chapterCount: 0,
+      message: "pack failed",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.docxExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("pack failed")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.docxExportSuccess")).not.toBeInTheDocument()
+  })
+
+  it("docx export throws: String(err) shown", async () => {
+    mocks.exportNovelDocx.mockRejectedValueOnce(new Error("invoke boom"))
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.docxExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("Error: invoke boom")).toBeInTheDocument()
+    })
+  })
+
+  it("docx export button disabled without a project", () => {
+    mocks.project.path = ""
+    render(<DataManagementSection />)
+    expect(screen.getByText("settings.sections.dataManagement.docxExportButton")).toBeDisabled()
+    mocks.project.path = "E:/Novel"
   })
 })

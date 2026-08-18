@@ -9,10 +9,13 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
+import { exportNovelDocx, type DocxExportResult } from "@/lib/novel/export"
+import { useWikiStore } from "@/stores/wiki-store"
 import type {
   ExportResult,
   ImportResult,
@@ -34,12 +37,15 @@ function formatSize(bytes: number): string {
  */
 export function DataManagementSection() {
   const { t } = useTranslation()
+  const currentProject = useWikiStore((s) => s.project)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importStrategy, setImportStrategy] = useState<ImportStrategy>("full")
   const [progress, setProgress] = useState<BackupProgressPayload | null>(null)
+  const [isExportingDocx, setIsExportingDocx] = useState(false)
+  const [docxResult, setDocxResult] = useState<DocxExportResult | null>(null)
 
   const handleProgress = useCallback((payload: BackupProgressPayload) => {
     setProgress(payload)
@@ -85,6 +91,28 @@ export function DataManagementSection() {
     } finally {
       setIsImporting(false)
       setProgress((p) => (p && p.stage === "done" ? p : null))
+    }
+  }
+
+  async function handleExportDocx() {
+    if (!currentProject?.path) return
+    setIsExportingDocx(true)
+    setDocxResult(null)
+    try {
+      const result = await exportNovelDocx({
+        projectPath: currentProject.path,
+        exportPath: `${currentProject.path}/complete-novel.docx`,
+      })
+      setDocxResult(result)
+    } catch (err) {
+      setDocxResult({
+        success: false,
+        exportedPath: "",
+        chapterCount: 0,
+        message: String(err),
+      })
+    } finally {
+      setIsExportingDocx(false)
     }
   }
 
@@ -180,6 +208,57 @@ export function DataManagementSection() {
                 {exportResult.warnings.map((w, i) => (
                   <p key={i}>⚠ {w}</p>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Novel DOCX export card */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">
+            {t("settings.sections.dataManagement.docxExportTitle", { defaultValue: "导出小说 Word 文档" })}
+          </h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {t("settings.sections.dataManagement.docxExportDescription", {
+            defaultValue: "将当前项目的 final 状态章节导出为单个 .docx 文件（Word 可打开），用于投稿或离线阅读。",
+          })}
+        </p>
+        <Button onClick={() => void handleExportDocx()} disabled={isBusy || !currentProject?.path}>
+          {isExportingDocx ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t("settings.sections.dataManagement.docxExporting", { defaultValue: "导出中..." })}
+            </>
+          ) : (
+            <>
+              <FileText className="mr-2 h-4 w-4" />
+              {t("settings.sections.dataManagement.docxExportButton", { defaultValue: "导出 Word 文档" })}
+            </>
+          )}
+        </Button>
+        {docxResult && (
+          <div className="text-sm space-y-1">
+            {docxResult.success ? (
+              <div className="flex items-start gap-2 text-green-600">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p>{t("settings.sections.dataManagement.docxExportSuccess", { defaultValue: "导出成功" })}</p>
+                  <p className="text-muted-foreground">
+                    {t("settings.sections.dataManagement.docxExportCount", {
+                      defaultValue: "共 {{count}} 个章节",
+                      count: docxResult.chapterCount,
+                    })}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-red-600">
+                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <p>{docxResult.message}</p>
               </div>
             )}
           </div>

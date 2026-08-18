@@ -5,6 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.4.11] - 2026-08-18
+
+### Summary（Phase 1 速赢：统一导出 DOCX + pangu 排版 + wake-lock）
+
+基于双模型（GLM-5.2 产品视角 + deepseek-v4-pro 技术视角）联合制定的功能路线图 Phase 1 三项速赢落地：投稿链闭环（DOCX 导出）、排版质量（pangu 中英空格）、长任务防休眠（wake-lock）。全部守 A 既有纪律：零新重依赖（复用已有 docx-rs）、Draft-first、机械层纯函数。
+
+### Added（统一导出 DOCX）
+
+- **导出小说 Word 文档**：Rust 新命令 `export_novel_docx`（复用已有 `docx-rs` 依赖，非新增重库）；final 状态章节按章节号排序，标题映射 Heading1（Word 导航窗格/TOC 可用），正文按空行分段；TS 端 `exportNovelDocx` 复用 `exportProject` 的章节加载逻辑；设置页「数据管理」新增导出卡片（无项目时禁用）
+
+### Added（pangu 中英空格排版）
+
+- **format-normalizer 可选 pangu 步骤**：`formatNormalize` 新增 `enablePangu` 选项（默认 false 保向后兼容）+ `panguSpaced` 计数字段；在所有规范化（删除套话→替换→标点→数字→感叹号限额）之后追加中英自动空格；零 LLM 机械层纯函数，输出仍走 pending/ready 草稿
+
+### Added（wake-lock 写正文防休眠）
+
+- **Rust 电源管理命令**：`acquire_wake_lock` / `release_wake_lock`（`SetThreadExecutionState`，`Win32_System_Power` feature；非 Windows 目标 no-op 返回 false）；TS 封装 `src/lib/writing-wake-lock.ts`（`acquireWakeLock` / `releaseWakeLock` / `withWakeLock` try-finally 安全封装，任务抛错也释放）
+
+### Notes
+
+- notes-only release：安装包资产保持 **v2.4.6**，v2.4.11 为源码 tip（`smith/master`）
+- Track A（机械门控）PASS；Track L9（书稿里程碑）N/A（纯应用发版）；Track B 分维诊断未触及
+- 门控：`tsc --noEmit` 0 错误；`cargo test` 129 passed；vitest 8497 passed / 0 failed
+- 路线图背景：A 覆盖 B 约 42-47%，Phase 1 为速赢补短（v2.4.11 notes-only），Phase 2 高价值纵深（v2.5.0 installer rebuild）待后续
+
 ## [2.4.10] - 2026-08-18
 
 ### Summary（UI↔后端契合联合审计 9 项修复）

@@ -18,6 +18,11 @@
  */
 
 import { describe, expect, it, vi, afterEach } from "vitest"
+import { invoke } from "@tauri-apps/api/core"
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}))
 
 const fsState = vi.hoisted(() => {
   const files = new Map<string, string>()
@@ -95,7 +100,7 @@ vi.mock("@/commands/fs", () => ({
   getFileSize: vi.fn(async (): Promise<number> => 0),
 }))
 
-import { exportProject } from "./export"
+import { exportProject, exportNovelDocx } from "./export"
 import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
 
 afterEach(() => {
@@ -413,5 +418,94 @@ describe("exportProject 并行化（TASK-403）", () => {
     })
     expect(result.success).toBe(false)
     expect(result.message).toBe("plain-failure")
+  })
+})
+
+describe("exportNovelDocx（Phase 1 统一导出）", () => {
+  it("final 章节按 num 排序传给 Rust 命令，返回结果透传", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, [
+      "---",
+      "chapter_number: 1",
+      "title: 第一章 开端",
+      "chapter_status: final",
+      "---",
+      "雨停了。",
+      "",
+      "他推开门。",
+    ].join("\n"))
+    fsState.files.set(`${PROJECT}/wiki/chapters/002.md`, [
+      "---",
+      "chapter_number: 2",
+      "title: 第二章 远行",
+      "chapter_status: final",
+      "---",
+      "风很大。",
+    ].join("\n"))
+    fsState.files.set(`${PROJECT}/wiki/chapters/003.md`, [
+      "---",
+      "chapter_number: 3",
+      "title: 第三章 草稿",
+      "chapter_status: draft",
+      "---",
+      "未完成。",
+    ].join("\n"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+      { name: "002.md", path: `${PROJECT}/wiki/chapters/002.md`, is_dir: false },
+      { name: "003.md", path: `${PROJECT}/wiki/chapters/003.md`, is_dir: false },
+    ])
+
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.docx`,
+      chapterCount: 2,
+      message: "exported 2 chapters",
+    })
+
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(2)
+    // draft 章被过滤，final 章按 num 排序（1 在 2 前）
+    expect(invokeMock).toHaveBeenCalledWith("export_novel_docx", {
+      chapters: [
+        { title: "第一章 开端", body: "雨停了。\n\n他推开门。" },
+        { title: "第二章 远行", body: "风很大。" },
+      ],
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+  })
+
+  it("invoke 抛错时返回 success:false 并透传消息", async () => {
+    fsState.reset()
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("pack failed"))
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("pack failed")
+  })
+
+  it("无章节目录时降级为空列表仍调用命令", async () => {
+    fsState.reset()
+    vi.mocked(invoke).mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.docx`,
+      chapterCount: 0,
+      message: "exported 0 chapters",
+    })
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(0)
   })
 })

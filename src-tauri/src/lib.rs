@@ -169,6 +169,9 @@ pub fn run() {
             commands::backup::cancel_backup,
             set_proxy_env,
             commands::crypto::get_device_fingerprint_cmd,
+            commands::power::acquire_wake_lock,
+            commands::power::release_wake_lock,
+            commands::docx_export::export_novel_docx,
             commands::metrics::get_process_memory,
         ])
         .on_window_event(|window, event| {
