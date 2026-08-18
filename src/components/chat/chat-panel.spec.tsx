@@ -20,11 +20,47 @@ import {
   render,
   screen,
   setupDomGlobals,
-  userEvent,
-  waitFor,
   within,
 } from "@/test-helpers/component-test-utils"
 import { ChatPanel } from "./chat-panel"
+
+// ── 真实签名类型（仅类型导入，运行时被擦除；vi.mock 不受影响）──────────────
+import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
+import type { LlmConfig, NovelConfig, ProviderOverride, ReasoningConfig } from "@/stores/wiki-store"
+import type { Conversation, DisplayMessage } from "@/stores/chat-store"
+import type { SearchResult, SearchWikiOptions } from "@/lib/search"
+import type { RetrievalGraph, RetrievalNode } from "@/lib/graph-relevance"
+import type { TaskRouteResult } from "@/lib/novel/task-router"
+import type { MarkStyleExemplarInput, StyleExemplarRecord } from "@/commands/exemplar"
+import type { CognitionState, ExemplarABSample } from "@/lib/novel/character-cognition"
+import type { CleanedChapterContent } from "@/lib/novel/chapter-content-cleanup"
+import type { GoldenThreeChapterRequest } from "@/lib/novel/golden-three-chapters"
+import type { ChatEditTarget, ParsedChapterEditFile } from "@/lib/novel/chat-edit-mode"
+import type { ChapterSaveStrategy } from "@/lib/novel/chapter-save-strategy"
+import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
+import type { ContinueUnfinishedDeepChapterContext } from "./chat-resume"
+import type { QueryPageReference } from "./chat-shared"
+import type {
+  DeepChapterGenerationCallbacks,
+  DeepChapterGenerationDeps,
+  DeepChapterGenerationInput,
+  DeepChapterGenerationResumeCheckpoint,
+  DeepChapterGenerationResult,
+  DeepChapterDecisionGates,
+} from "@/lib/novel/deep-chapter-generation"
+import type { ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields } from "@/lib/novel/residual-campaign"
+import type { BuildContextOptions, ContextPack, ContextPackToPromptOptions } from "@/lib/novel/context-engine"
+import type { IngestChapterOptions, IngestResult } from "@/lib/novel/chapter-ingest"
+import type { ChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
+import type { ResolveTargetChapterNumberForChatInput } from "@/lib/novel/chapter-utils"
+import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
+import type { StreamSessionGuard } from "./stream-session"
+import type { ContextBudget } from "@/lib/context-budget"
+import type { LlmPreset } from "@/components/settings/llm-presets"
+import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { ModelResolverStoreSnapshot, NovelTaskType } from "@/lib/novel/model-resolver"
+import type { ChapterStatus } from "@/lib/novel/chapter-meta"
+import type { CommitAcceptedDeepChapterDraftInput } from "@/lib/novel/formal-writeback"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,6 +71,82 @@ interface ProjectLike {
 }
 
 const mocks = vi.hoisted(() => {
+  // ── 共享默认值（真实类型）───────────────────────────────────────────────────
+  const emptyDecisionGates: DeepChapterDecisionGates = {
+    consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+    anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+    quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+    overall: "pass",
+  }
+
+  const sessionStatusBase: NovelSessionStatus = {
+    schema_version: "1",
+    session_id: "session-1",
+    source: "deep_chapter_generation",
+    created_at: "t",
+    updated_at: "t",
+    status: "paused",
+    active_step_index: 1,
+    current_task: {
+      task_id: "tsk-conv-1",
+      conversation_id: "conv-1",
+      user_request: "需求",
+      checkpoint_stage: "started",
+      status: "paused",
+    },
+    draft: {
+      draft_id: "draft-1",
+      file_path: "/p/mybook/.novel/drafts/draft-1.md",
+      draft_status: "pending",
+      updated_at: "t",
+    },
+    decision_gates: emptyDecisionGates,
+    evidence_refs: [],
+  }
+
+  const emptyDeepResult: DeepChapterGenerationResult = {
+    finalContent: "FINAL",
+    taskBrief: "",
+    draftContent: "",
+    reviewResults: [],
+    revised: false,
+    decisionGates: emptyDecisionGates,
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+  }
+
+  const emptyResidualFields: ResidualCampaignResolvedFields = {
+    residualOverallMedian: 9.0,
+    residualRewriteMode: "structure_thril_pacing",
+    residualLengthPreserving: true,
+    chapterStructurePlan: {
+      schemaVersion: "chapter-structure-plan/1.0",
+      beats: [],
+      thrilCheckpointCoverage: [],
+      fix1NonSpoiler: true,
+      source: "campaign",
+    },
+    chapterNumber: 3,
+    residualBand: "residual_high",
+    frozen: false,
+    keepGate: "seal_stretch",
+    l9Disposition: "seal_pass_below_test_control",
+    sealMedian: 9,
+    testControlMedian: 9.5,
+    productHardGate: false,
+  }
+
+  const emptyContextBudget: ContextBudget = {
+    maxCtx: 204800,
+    responseReserve: 30720,
+    indexBudget: 5000,
+    pageBudget: 2000,
+    maxPageSize: 800,
+    activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 },
+  }
+
   // ── chat store（可写、可调用）───────────────────────────────────────────────
   const chatState: Record<string, any> = {
     conversations: [],
@@ -198,17 +310,23 @@ const mocks = vi.hoisted(() => {
 
   // ── 流式会话守卫（可翻转 isActive）─────────────────────────────────────────
   const streamGuard = {
-    start: vi.fn(() => 1),
-    isActive: vi.fn(() => true),
-    runIfActive: vi.fn((_c: string, s: number, cb: () => void) => {
-      if (streamGuard.isActive(_c, s)) cb()
-    }),
-    finish: vi.fn((_c: string, s: number, cb: () => void) => {
-      if (streamGuard.isActive(_c, s)) cb()
-    }),
-    stop: vi.fn((_c: string, s: number, cb: () => void) => {
-      if (streamGuard.isActive(_c, s)) cb()
-    }),
+    start: vi.fn<(conversationId: string) => number>(() => 1),
+    isActive: vi.fn<(conversationId: string, sessionId: number) => boolean>(() => true),
+    runIfActive: vi.fn<(conversationId: string, sessionId: number, callback: () => void) => void>(
+      (_c: string, s: number, cb: () => void) => {
+        if (streamGuard.isActive(_c, s)) cb()
+      },
+    ),
+    finish: vi.fn<(conversationId: string, sessionId: number, callback: () => void) => void>(
+      (_c: string, s: number, cb: () => void) => {
+        if (streamGuard.isActive(_c, s)) cb()
+      },
+    ),
+    stop: vi.fn<(conversationId: string, sessionId: number, callback: () => void) => void>(
+      (_c: string, s: number, cb: () => void) => {
+        if (streamGuard.isActive(_c, s)) cb()
+      },
+    ),
   }
 
   // ── 深度思考渲染器（可配置返回值）───────────────────────────────────────────
@@ -251,133 +369,279 @@ const mocks = vi.hoisted(() => {
     useVirtualizer,
     t,
 
-    // lib mocks（默认实现，可在测试内覆写）
-    streamChat: vi.fn(async (_config: any, _messages: any, handlers: any) => {
+    // lib mocks（默认实现，可在测试内覆写；泛型签名与真实 export 对齐）
+    streamChat: vi.fn<
+      (
+        config: LlmConfig,
+        messages: ChatMessage[],
+        callbacks: StreamCallbacks,
+        signal?: AbortSignal,
+        requestOverrides?: RequestOverrides,
+      ) => Promise<void>
+    >(async (_config: any, _messages: any, handlers: any) => {
       handlers?.onDone?.()
     }),
-    chatMessagesToLLM: vi.fn((messages: any[]) => messages.map((m) => ({ role: m.role, content: m.content }))),
-    executeIngestWrites: vi.fn(async () => {}),
-    routeTask: vi.fn(() => ({ intent: "chat", chapterNumber: undefined, extractedParams: {} })),
-    buildTaskDirective: vi.fn(() => ""),
-    readFile: vi.fn(async () => ""),
-    writeFile: vi.fn(async () => {}),
-    createDirectory: vi.fn(async () => {}),
-    deleteFile: vi.fn(async () => {}),
-    markStyleExemplarViaRust: vi.fn(async () => {}),
-    loadStyleExemplarsViaRust: vi.fn(async () => []),
-    appendExemplarABSample: vi.fn(async () => {}),
-    exemplarABStats: vi.fn(() => ({ enabledAvg: null, disabledAvg: null })),
-    loadCognitionState: vi.fn(async () => ({})),
-    searchWiki: vi.fn(async () => []),
-    tokenizeQuery: vi.fn((q: string) => q.toLowerCase().split(/\s+/).filter(Boolean)),
-    detectLastGeneratedChapterNumber: vi.fn(() => undefined),
-    findChapterFileByNumber: vi.fn(async () => null),
-    getNextChapterNumber: vi.fn(async () => 7),
-    invalidateChapterCache: vi.fn(() => {}),
-    readSelectedChapterNumberForFile: vi.fn(async () => null),
-    resolveTargetChapterNumberForChat: vi.fn(async () => 5),
-    buildQmQuaiSystemPrompt: vi.fn(() => ""),
-    injectDeAiDirective: vi.fn((content: string) => `DEAI:${content}`),
-    cleanGeneratedChapterContentWithTitle: vi.fn((content: string) => ({
-      content,
-      title: "测试章",
+    chatMessagesToLLM: vi.fn<(messages: DisplayMessage[]) => ChatMessage[]>((messages: any[]) =>
+      messages.map((m) => ({ role: m.role, content: m.content })),
+    ),
+    executeIngestWrites: vi.fn<
+      (projectPath: string, llmConfig: LlmConfig, userGuidance?: string, signal?: AbortSignal) => Promise<string[]>
+    >(async () => []),
+    routeTask: vi.fn<(userInput: string) => TaskRouteResult>(() => ({
+      intent: "general_chat",
+      confidence: 1,
+      chapterNumber: undefined,
+      extractedParams: {},
     })),
-    normalizePath: vi.fn((p: string) => p),
-    getFileName: vi.fn((p: string) => String(p).split("/").pop() ?? ""),
-    getRelativePath: vi.fn((p: string) => p),
-    refreshProjectState: vi.fn(async () => {}),
-    getOutputLanguage: vi.fn(() => "中文"),
-    buildLanguageReminder: vi.fn(() => "请使用中文回复"),
-    isGreeting: vi.fn(() => false),
-    computeContextBudget: vi.fn(() => ({ indexBudget: 5000, pageBudget: 2000, maxPageSize: 800 })),
-    getConversationTabTitle: vi.fn((title: string) => title),
-    sortConversationsByUpdatedAt: vi.fn((conversations: any[]) => conversations),
-    resolveUserVisibleReasoning: vi.fn((r: any) => r),
-    createDeepThinkingStreamRenderer: vi.fn(() => deepStreamRenderer),
-    hasUsableLlm: vi.fn(() => true),
-    resolveNovelModel: vi.fn((llmConfig: any) => llmConfig),
-    resolveReviewModel: vi.fn(() => ({})),
-    resolveConfig: vi.fn((template: any, override: any, base: any) => ({
+    buildTaskDirective: vi.fn<(route: TaskRouteResult) => string>(() => ""),
+    readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    deleteFile: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    markStyleExemplarViaRust: vi.fn<(projectPath: string, mark: MarkStyleExemplarInput) => Promise<void>>(
+      async () => {},
+    ),
+    loadStyleExemplarsViaRust: vi.fn<(projectPath: string) => Promise<StyleExemplarRecord[]>>(async () => []),
+    appendExemplarABSample: vi.fn<(projectPath: string, sample: ExemplarABSample) => Promise<void>>(
+      async () => {},
+    ),
+    exemplarABStats: vi.fn<
+      (state: CognitionState | null) => { enabledAvg: number | null; disabledAvg: number | null }
+    >(() => ({ enabledAvg: null, disabledAvg: null })),
+    loadCognitionState: vi.fn<(projectPath: string) => Promise<CognitionState | null>>(async () => null),
+    searchWiki: vi.fn<
+      (projectPath: string, query: string, options?: SearchWikiOptions) => Promise<SearchResult[]>
+    >(async () => []),
+    tokenizeQuery: vi.fn<(query: string) => string[]>((q: string) => q.toLowerCase().split(/\s+/).filter(Boolean)),
+    detectLastGeneratedChapterNumber: vi.fn<(assistantContents: string[]) => number | undefined>(() => undefined),
+    findChapterFileByNumber: vi.fn<(projectPath: string, chapterNumber: number) => Promise<string | null>>(
+      async () => null,
+    ),
+    getNextChapterNumber: vi.fn<(projectPath: string) => Promise<number>>(async () => 7),
+    invalidateChapterCache: vi.fn<(projectPath?: string) => void>(() => {}),
+    readSelectedChapterNumberForFile: vi.fn<(selectedFile?: string | null) => Promise<number | undefined>>(
+      async () => undefined,
+    ),
+    resolveTargetChapterNumberForChat: vi.fn<
+      (input: ResolveTargetChapterNumberForChatInput) => Promise<number | undefined>
+    >(async () => 5),
+    buildQmQuaiSystemPrompt: vi.fn<(customSkill?: string) => string>(() => ""),
+    injectDeAiDirective: vi.fn<(content: string, enabled: boolean) => string>(
+      (content: string) => `DEAI:${content}`,
+    ),
+    cleanGeneratedChapterContentWithTitle: vi.fn<(content: string) => CleanedChapterContent>(
+      (content: string) => ({
+        content,
+        title: "测试章",
+      }),
+    ),
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p),
+    getFileName: vi.fn<(p: string) => string>((p: string) => String(p).split("/").pop() ?? ""),
+    getRelativePath: vi.fn<(fullPath: string, basePath: string) => string>((p: string) => p),
+    refreshProjectState: vi.fn<(projectPath: string | undefined | null) => Promise<void>>(async () => {}),
+    getOutputLanguage: vi.fn<(fallbackText?: string) => string>(() => "中文"),
+    buildLanguageReminder: vi.fn<(fallbackText?: string) => string>(() => "请使用中文回复"),
+    isGreeting: vi.fn<(text: string) => boolean>(() => false),
+    computeContextBudget: vi.fn<(maxContextSize: number | undefined, chapterNumber?: number) => ContextBudget>(
+      () => ({ ...emptyContextBudget }),
+    ),
+    getConversationTabTitle: vi.fn<(title: string, maxLength?: number) => string>((title: string) => title),
+    sortConversationsByUpdatedAt: vi.fn<(conversations: Conversation[]) => Conversation[]>(
+      (conversations: any[]) => conversations,
+    ),
+    resolveUserVisibleReasoning: vi.fn<(reasoning?: ReasoningConfig) => ReasoningConfig>((r: any) => r),
+    createDeepThinkingStreamRenderer: vi.fn<() => DeepThinkingStreamRenderer>(() => deepStreamRenderer),
+    hasUsableLlm: vi.fn<
+      (
+        cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">
+          & Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>,
+      ) => boolean
+    >(() => true),
+    resolveNovelModel: vi.fn<
+      (
+        llmConfig: LlmConfig,
+        novelConfig: NovelConfig,
+        taskType: NovelTaskType,
+        storeSnapshot?: ModelResolverStoreSnapshot,
+      ) => LlmConfig
+    >((llmConfig: any) => llmConfig),
+    resolveReviewModel: vi.fn<(novelConfig?: NovelConfig) => string>(() => ""),
+    resolveConfig: vi.fn<
+      (preset: LlmPreset, override: ProviderOverride | undefined, fallback: LlmConfig) => LlmConfig
+    >((template: any, override: any, base: any) => ({
       ...base,
       ...template,
       ...override,
     })),
-    saveAiChatModel: vi.fn(async () => {}),
-    buildGoldenThreeChapterDirective: vi.fn(() => ""),
-    detectGoldenThreeChapterRequest: vi.fn(() => ({ enabled: false })),
-    createStreamSessionGuard: vi.fn(() => streamGuard),
-    getCopyableAssistantContent: vi.fn((content: string) => content),
-    isChatEditRequest: vi.fn(() => false),
-    resolveChatEditTarget: vi.fn(() => ({ ok: false as const, message: "无法解析目标章节" })),
-    validateStructuredChapterEditResult: vi.fn(() => ({ ok: false as const, message: "解析失败" })),
-    backupChapterFile: vi.fn(async () => {}),
-    updateChapterStatus: vi.fn((content: string) => content),
-    decideChapterSaveStrategy: vi.fn(() => ({ action: "next", targetChapterNumber: 7 })),
-    detectGeneratedTargetChapterNumber: vi.fn(() => null),
-    normalizeChapterEditFile: vi.fn(() => ({ ok: true as const, content: "NORMALIZED" })),
-    commitAcceptedDeepChapterDraft: vi.fn(async () => {}),
-    rejectDeepChapterDraft: vi.fn(async () => {}),
-    blockDeepChapterSession: vi.fn(async () => ({
-      status: "blocked",
-      active_step_index: 2,
-      draft: { draft_status: "pending" },
-      updated_at: "t",
-    })),
-    completeDeepChapterSession: vi.fn(async () => ({
+    saveAiChatModel: vi.fn<(model: string) => Promise<void>>(async () => {}),
+    buildGoldenThreeChapterDirective: vi.fn<(result: GoldenThreeChapterRequest | undefined) => string>(
+      () => "",
+    ),
+    detectGoldenThreeChapterRequest: vi.fn<
+      (text: string, chapterNumber?: number) => GoldenThreeChapterRequest
+    >(() => ({ enabled: false, requestedFirstThree: false })),
+    createStreamSessionGuard: vi.fn<() => StreamSessionGuard>(() => streamGuard),
+    getCopyableAssistantContent: vi.fn<(content: string) => string>((content: string) => content),
+    isChatEditRequest: vi.fn<(userRequest: string) => boolean>(() => false),
+    resolveChatEditTarget: vi.fn<
+      (input: { userRequest: string; selectedChapterNumber: number | null })
+        => { ok: true; target: ChatEditTarget } | { ok: false; message: string }
+    >(() => ({ ok: false as const, message: "无法解析目标章节" })),
+    validateStructuredChapterEditResult: vi.fn<
+      (input: { content: string; targetChapterNumbers: number[] })
+        => { ok: true; files: ParsedChapterEditFile[] } | { ok: false; message: string }
+    >(() => ({ ok: false as const, message: "解析失败" })),
+    backupChapterFile: vi.fn<
+      (input: {
+        projectPath: string
+        chapterPath: string
+        chapterNumber: number | null
+        content: string
+        now?: Date
+      }) => Promise<string>
+    >(async () => ""),
+    updateChapterStatus: vi.fn<(content: string, status: ChapterStatus) => string>(
+      (content: string) => content,
+    ),
+    decideChapterSaveStrategy: vi.fn<
+      (input: {
+        selectedChapterNumber: number | null
+        selectedChapterHasBody: boolean
+        generatedTargetChapterNumber: number | null
+        generatedTargetExists: boolean
+      }) => ChapterSaveStrategy
+    >(() => ({ action: "direct_next_chapter" })),
+    detectGeneratedTargetChapterNumber: vi.fn<(content: string) => number | null>(() => null),
+    normalizeChapterEditFile: vi.fn<
+      (input: { content: string; targetChapterNumber: number; originalContent?: string })
+        => { ok: true; content: string } | { ok: false; message: string }
+    >(() => ({ ok: true as const, content: "NORMALIZED" })),
+    commitAcceptedDeepChapterDraft: vi.fn<(input: CommitAcceptedDeepChapterDraftInput) => Promise<void>>(
+      async () => {},
+    ),
+    rejectDeepChapterDraft: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+        sessionId?: string
+        formalChapterPath?: string
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({ ...sessionStatusBase })),
+    blockDeepChapterSession: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+        sessionId: string
+        checkpoint?: DeepChapterGenerationResumeCheckpoint
+        errorMessage: string
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({ ...sessionStatusBase, status: "blocked", active_step_index: 2 })),
+    completeDeepChapterSession: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+        sessionId: string
+        checkpoint?: DeepChapterGenerationResumeCheckpoint
+        finalContent: string
+        reviewResults?: NovelReviewResult[]
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({
+      ...sessionStatusBase,
       status: "completed",
       active_step_index: 3,
-      draft: { draft_status: "ready" },
-      updated_at: "t",
+      draft: { ...sessionStatusBase.draft, draft_status: "ready" },
     })),
-    createNovelSessionId: vi.fn(() => "synthetic-session"),
-    loadNovelSessionStatus: vi.fn(async () => {
+    createNovelSessionId: vi.fn<(now?: Date) => string>(() => "synthetic-session"),
+    loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<NovelSessionStatus | null>>(async () => {
       throw new Error("no status")
     }),
-    novelSessionStatusPath: vi.fn(() => "/status.json"),
-    pauseDeepChapterSession: vi.fn(async () => ({
+    novelSessionStatusPath: vi.fn<(projectPath: string) => string>(() => "/status.json"),
+    pauseDeepChapterSession: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+        sessionId: string
+        checkpoint?: DeepChapterGenerationResumeCheckpoint
+        errorMessage: string
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({
+      ...sessionStatusBase,
       status: "paused",
       active_step_index: 1,
-      draft: { draft_status: "pending" },
-      updated_at: "t",
-      current_task: { last_error: null },
+      current_task: { ...sessionStatusBase.current_task, last_error: undefined },
     })),
-    persistDeepChapterCheckpoint: vi.fn(async () => ({
-      status: "active",
-      active_step_index: 1,
-      draft: { draft_status: "pending" },
-      updated_at: "t",
-    })),
-    resolveInterruptedSessionResumeCheckpoint: vi.fn(() => undefined),
-    startDeepChapterSession: vi.fn(async () => ({
-      session_id: "session-1",
-      status: "active",
-      active_step_index: 1,
-      updated_at: "t",
-    })),
-    appendContinueUnfinishedDeepChapterContext: vi.fn((content: string) => content),
-    buildInterruptedResumeContextPayload: vi.fn(() => undefined),
-    buildContinueUnfinishedDeepChapterPrompt: vi.fn(() => "RESUME_PROMPT"),
-    extractContinueUnfinishedDeepChapterContext: vi.fn(() => undefined),
-    stripContinueUnfinishedDeepChapterContext: vi.fn((content: string) => content),
-    runDeepChapterGeneration: vi.fn(async () => ({
-      finalContent: "FINAL",
-      reviewResults: [],
-      manualReviewRequired: false,
-      retryCount: 0,
-      partial: false,
-      partialReason: null,
-    })),
-    resolveResidualCampaignFields: vi.fn((input: any) =>
-      input.enabled
-        ? {
-            residualOverallMedian: 9.0,
-            residualRewriteMode: "polish",
-            residualLengthPreserving: true,
-            chapterStructurePlan: "plan",
-          }
-        : null,
+    persistDeepChapterCheckpoint: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+        sessionId: string
+        checkpoint: DeepChapterGenerationResumeCheckpoint
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({ ...sessionStatusBase, status: "running", active_step_index: 1 })),
+    resolveInterruptedSessionResumeCheckpoint: vi.fn<
+      (status: NovelSessionStatus | null, input: { conversationId: string; userRequest: string })
+        => DeepChapterGenerationResumeCheckpoint | undefined
+    >(() => undefined),
+    startDeepChapterSession: vi.fn<
+      (input: {
+        projectPath: string
+        conversationId: string
+        userRequest: string
+        chapterNumber?: number
+        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
+      }) => Promise<NovelSessionStatus>
+    >(async () => ({ ...sessionStatusBase, status: "running", active_step_index: 1 })),
+    appendContinueUnfinishedDeepChapterContext: vi.fn<
+      (content: string, context: ContinueUnfinishedDeepChapterContext) => string
+    >((content: string) => content),
+    buildInterruptedResumeContextPayload: vi.fn<
+      (status: NovelSessionStatus | null, conversationId: string) => ContinueUnfinishedDeepChapterContext | null
+    >(() => null),
+    buildContinueUnfinishedDeepChapterPrompt: vi.fn<
+      (input: {
+        originalRequest?: string
+        failedAssistantContent: string
+        persistedOriginalRequest?: string
+        resumeContext?: string
+        rootResumeContext?: string
+      }) => string
+    >(() => "RESUME_PROMPT"),
+    extractContinueUnfinishedDeepChapterContext: vi.fn<
+      (content: string) => ContinueUnfinishedDeepChapterContext | null
+    >(() => null),
+    stripContinueUnfinishedDeepChapterContext: vi.fn<(content: string) => string>(
+      (content: string) => content,
     ),
-    buildContextPack: vi.fn(async () => ({
+    runDeepChapterGeneration: vi.fn<
+      (
+        input: DeepChapterGenerationInput,
+        callbacks?: DeepChapterGenerationCallbacks,
+        deps?: DeepChapterGenerationDeps,
+        signal?: AbortSignal,
+      ) => Promise<DeepChapterGenerationResult>
+    >(async () => ({ ...emptyDeepResult })),
+    resolveResidualCampaignFields: vi.fn<
+      (args: { enabled: boolean; chapterNumber?: number | null; config?: ResidualCampaignNovelConfigSlice | null })
+        => ResidualCampaignResolvedFields | null
+    >((input: any) => (input.enabled ? { ...emptyResidualFields } : null)),
+    buildContextPack: vi.fn<
+      (projectPath: string, task: string, chapterNumber?: number, options?: BuildContextOptions) => Promise<ContextPack>
+    >(async () => ({
       task: "",
       chapterGoal: "",
       outline: "",
@@ -399,18 +663,116 @@ const mocks = vi.hoisted(() => {
       nextChapterAdvice: "",
       revisionDirectives: "",
     })),
-    contextPackToPrompt: vi.fn(() => "CONTEXT_PROMPT"),
-    buildRetrievalGraph: vi.fn(async () => ({})),
-    getRelatedNodes: vi.fn(() => []),
-    detectEditIntent: vi.fn(() => false),
-    buildAgentSystemSuffix: vi.fn(() => "AGENT_SUFFIX"),
-    readScopeFileContents: vi.fn(async () => []),
-    ingestChapter: vi.fn(async () => ({ snapshot: {} })),
-    resolveChapterLengthSpec: vi.fn(() => ({ targetChars: 3000 })),
-    setLastQueryPages: vi.fn(),
-    getLastQueryPages: vi.fn(() => []),
+    contextPackToPrompt: vi.fn<
+      (pack: ContextPack, tokenBudget?: number, options?: ContextPackToPromptOptions) => string
+    >(() => "CONTEXT_PROMPT"),
+    buildRetrievalGraph: vi.fn<(projectPath: string, dataVersion?: number) => Promise<RetrievalGraph>>(
+      async () => ({ nodes: new Map(), dataVersion: 0 }),
+    ),
+    getRelatedNodes: vi.fn<
+      (nodeId: string, graph: RetrievalGraph, limit?: number)
+        => ReadonlyArray<{ node: RetrievalNode; relevance: number }>
+    >(() => []),
+    detectEditIntent: vi.fn<(text: string) => boolean>(() => false),
+    buildAgentSystemSuffix: vi.fn<(scope: "chapters" | "outlines") => string>(() => "AGENT_SUFFIX"),
+    readScopeFileContents: vi.fn<
+      (projectPath: string, scope: "chapters" | "outlines", maxFiles?: number)
+        => Promise<{ name: string; path: string; content: string }[]>
+    >(async () => []),
+    ingestChapter: vi.fn<
+      (
+        projectPath: string,
+        chapterPath: string,
+        _reviewModel?: string,
+        signal?: AbortSignal,
+        options?: IngestChapterOptions,
+      ) => Promise<IngestResult>
+    >(async () => ({ snapshot: null })),
+    resolveChapterLengthSpec: vi.fn<(targetChars?: number) => ChapterLengthSpec>(() => ({
+      targetChars: 3000,
+      minChars: 1500,
+      draftMaxChars: 6000,
+      maxOutputTokens: 4000,
+    })),
+    setLastQueryPages: vi.fn<(pages: QueryPageReference[]) => void>(() => {}),
+    getLastQueryPages: vi.fn<() => QueryPageReference[]>(() => []),
   }
 })
+
+// ── 测试侧构造器（真实类型）───────────────────────────────────────────────────
+const EMPTY_DECISION_GATES: DeepChapterDecisionGates = {
+  consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+  anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+  quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+  overall: "pass",
+}
+
+function deepGenResult(over: Partial<DeepChapterGenerationResult> = {}): DeepChapterGenerationResult {
+  return {
+    finalContent: "F",
+    taskBrief: "",
+    draftContent: "",
+    reviewResults: [],
+    revised: false,
+    decisionGates: EMPTY_DECISION_GATES,
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+    ...over,
+  }
+}
+
+function reviewResult(over: Partial<NovelReviewResult> = {}): NovelReviewResult {
+  return {
+    severity: "error",
+    type: "consistency",
+    message: "review finding",
+    evidence: "",
+    relatedMemory: "",
+    suggestion: "",
+    ...over,
+  }
+}
+
+const SESSION_STATUS_BASE: NovelSessionStatus = {
+  schema_version: "1",
+  session_id: "session-1",
+  source: "deep_chapter_generation",
+  created_at: "t",
+  updated_at: "t",
+  status: "paused",
+  active_step_index: 1,
+  current_task: {
+    task_id: "tsk-conv-1",
+    conversation_id: "conv-1",
+    user_request: "需求",
+    checkpoint_stage: "started",
+    status: "paused",
+  },
+  draft: {
+    draft_id: "draft-1",
+    file_path: "/p/mybook/.novel/drafts/draft-1.md",
+    draft_status: "pending",
+    updated_at: "t",
+  },
+  decision_gates: EMPTY_DECISION_GATES,
+  evidence_refs: [],
+}
+
+type SessionStatusOverrides = Partial<Omit<NovelSessionStatus, "current_task" | "draft">> & {
+  current_task?: Partial<NovelSessionStatus["current_task"]>
+  draft?: Partial<NovelSessionStatus["draft"]>
+}
+
+function sessionStatus(over: SessionStatusOverrides = {}): NovelSessionStatus {
+  return {
+    ...SESSION_STATUS_BASE,
+    ...over,
+    current_task: { ...SESSION_STATUS_BASE.current_task, ...(over.current_task ?? {}) },
+    draft: { ...SESSION_STATUS_BASE.draft, ...(over.draft ?? {}) },
+  }
+}
 
 // ── UI 原语 mock ───────────────────────────────────────────────────────────────
 vi.mock("@/components/ui/button", () => ({
@@ -508,7 +870,7 @@ vi.mock("./chat-message", () => ({
 }))
 
 vi.mock("./chat-input", () => ({
-  ChatInput: ({ onSend, onStop, isStreaming, placeholder, footerControls }: any) => {
+  ChatInput: ({ onSend, onStop, placeholder, footerControls }: any) => {
     const InputHarness = () => {
       const [value, setValue] = useState("")
       return (
@@ -803,13 +1165,18 @@ function resetMockDefaults(): void {
   mocks.streamChat.mockImplementation(async (_config: any, _messages: any, handlers: any) => {
     handlers?.onDone?.()
   })
-  mocks.routeTask.mockImplementation(() => ({ intent: "chat", chapterNumber: undefined, extractedParams: {} }))
+  mocks.routeTask.mockImplementation(() => ({
+    intent: "general_chat",
+    confidence: 1,
+    chapterNumber: undefined,
+    extractedParams: {},
+  }))
   mocks.streamGuard.isActive.mockReturnValue(true)
   mocks.streamGuard.start.mockReturnValue(1)
   mocks.readFile.mockImplementation(async () => "")
   mocks.searchWiki.mockImplementation(async () => [])
   mocks.isGreeting.mockReturnValue(false)
-  mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: false })
+  mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: false, requestedFirstThree: false })
   mocks.buildGoldenThreeChapterDirective.mockReturnValue("")
   mocks.buildTaskDirective.mockReturnValue("")
   mocks.buildQmQuaiSystemPrompt.mockReturnValue("")
@@ -818,9 +1185,9 @@ function resetMockDefaults(): void {
   mocks.validateStructuredChapterEditResult.mockReturnValue({ ok: false as const, message: "解析失败" })
   mocks.normalizeChapterEditFile.mockReturnValue({ ok: true as const, content: "NORMALIZED" })
   mocks.findChapterFileByNumber.mockImplementation(async () => null)
-  mocks.decideChapterSaveStrategy.mockReturnValue({ action: "next", targetChapterNumber: 7 })
+  mocks.decideChapterSaveStrategy.mockReturnValue({ action: "direct_next_chapter" })
   mocks.detectGeneratedTargetChapterNumber.mockReturnValue(null)
-  mocks.readSelectedChapterNumberForFile.mockImplementation(async () => null)
+  mocks.readSelectedChapterNumberForFile.mockImplementation(async () => undefined)
   mocks.getNextChapterNumber.mockImplementation(async () => 7)
   mocks.detectLastGeneratedChapterNumber.mockReturnValue(undefined)
   mocks.resolveTargetChapterNumberForChat.mockImplementation(async () => 5)
@@ -828,33 +1195,12 @@ function resetMockDefaults(): void {
     throw new Error("no status")
   })
   mocks.resolveInterruptedSessionResumeCheckpoint.mockReturnValue(undefined)
-  mocks.startDeepChapterSession.mockImplementation(async () => ({
-    session_id: "session-1",
-    status: "active",
-    active_step_index: 1,
-    updated_at: "t",
-  }))
-  mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-    finalContent: "FINAL",
-    reviewResults: [],
-    manualReviewRequired: false,
-    retryCount: 0,
-    partial: false,
-    partialReason: null,
-  }))
-  mocks.pauseDeepChapterSession.mockImplementation(async () => ({
-    status: "paused",
-    active_step_index: 1,
-    draft: { draft_status: "pending" },
-    updated_at: "t",
-    current_task: { last_error: null },
-  }))
-  mocks.persistDeepChapterCheckpoint.mockImplementation(async () => ({
-    status: "active",
-    active_step_index: 1,
-    draft: { draft_status: "pending" },
-    updated_at: "t",
-  }))
+  mocks.startDeepChapterSession.mockImplementation(async () => sessionStatus({ status: "running" }))
+  mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "FINAL" }))
+  mocks.pauseDeepChapterSession.mockImplementation(async () =>
+    sessionStatus({ current_task: { last_error: undefined } }),
+  )
+  mocks.persistDeepChapterCheckpoint.mockImplementation(async () => sessionStatus({ status: "running" }))
   mocks.buildContextPack.mockImplementation(async () => ({
     task: "",
     chapterGoal: "",
@@ -881,26 +1227,31 @@ function resetMockDefaults(): void {
   mocks.detectEditIntent.mockReturnValue(false)
   mocks.readScopeFileContents.mockImplementation(async () => [])
   mocks.buildAgentSystemSuffix.mockReturnValue("AGENT_SUFFIX")
-  mocks.buildRetrievalGraph.mockImplementation(async () => ({}))
+  mocks.buildRetrievalGraph.mockImplementation(async () => ({ nodes: new Map(), dataVersion: 0 }))
   mocks.getRelatedNodes.mockReturnValue([])
   mocks.deepStreamRenderer.updateThinking.mockImplementation((c: string) => c)
   mocks.deepStreamRenderer.appendFinal.mockImplementation((c: string) => c)
   mocks.deepStreamRenderer.getContent.mockReturnValue("")
-  mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue(undefined)
-  mocks.buildInterruptedResumeContextPayload.mockReturnValue(undefined)
+  mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue(null)
+  mocks.buildInterruptedResumeContextPayload.mockReturnValue(null)
   mocks.buildContinueUnfinishedDeepChapterPrompt.mockReturnValue("RESUME_PROMPT")
   mocks.appendContinueUnfinishedDeepChapterContext.mockImplementation((content: string) => content)
   mocks.cleanGeneratedChapterContentWithTitle.mockImplementation((content: string) => ({
     content,
     title: "测试章",
   }))
-  mocks.ingestChapter.mockImplementation(async () => ({ snapshot: {} }))
+  mocks.ingestChapter.mockImplementation(async () => ({ snapshot: null }))
   mocks.exemplarABStats.mockReturnValue({ enabledAvg: null, disabledAvg: null })
   mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [])
   mocks.markStyleExemplarViaRust.mockImplementation(async () => {})
   mocks.refreshProjectState.mockImplementation(async () => {})
-  mocks.executeIngestWrites.mockImplementation(async () => {})
-  mocks.resolveChapterLengthSpec.mockReturnValue({ targetChars: 3000 })
+  mocks.executeIngestWrites.mockImplementation(async () => [])
+  mocks.resolveChapterLengthSpec.mockReturnValue({
+    targetChars: 3000,
+    minChars: 1500,
+    draftMaxChars: 6000,
+    maxOutputTokens: 4000,
+  })
   mocks.createNovelSessionId.mockReturnValue("synthetic-session")
   mocks.hasUsableLlm.mockReturnValue(true)
 }
@@ -1098,9 +1449,9 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
     ]
     mocks.chatState.activeConversationId = "conv-1"
     let capturedSignal: AbortSignal | null = null
-    mocks.streamChat.mockImplementation((_c: any, _m: any, _h: any, signal: AbortSignal) => {
-      capturedSignal = signal
-      return new Promise(() => {}) // 挂起
+    mocks.streamChat.mockImplementation((_c: any, _m: any, _h: any, signal?: AbortSignal) => {
+      capturedSignal = signal ?? null
+      return new Promise<void>(() => {}) // 挂起
     })
     // deleteFile 失败被吞 —— 拒绝必须注册在删除点击之前，删除处理是同步触发的
     mocks.deleteFile.mockRejectedValueOnce(new Error("io"))
@@ -1285,7 +1636,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     mocks.wikiState.project = PROJECT
     rerenderPanel()
     // 阶段2：写入成功但刷新失败 → 被吞（不 console.error）
-    mocks.executeIngestWrites.mockResolvedValueOnce(undefined)
+    mocks.executeIngestWrites.mockResolvedValueOnce([])
     mocks.refreshProjectState.mockRejectedValueOnce(new Error("refresh-boom"))
     await act(async () => {
       fireEvent.click(screen.getByText("chat.writeToWiki"))
@@ -1414,13 +1765,14 @@ describe("ChatPanel — handleSend 主链路", () => {
     mocks.wikiState.novelMode = true
     mocks.routeTask.mockReturnValue({
       intent: "write_chapter",
+      confidence: 1,
       chapterNumber: undefined,
       extractedParams: {},
     })
     mocks.buildQmQuaiSystemPrompt.mockReturnValue("QM_QUAI_SKILL")
     mocks.detectEditIntent.mockReturnValue(true)
     mocks.readScopeFileContents.mockImplementation(async () => [
-      { name: "chapter-003.md", content: "正文..." },
+      { name: "chapter-003.md", path: "/p/mybook/wiki/chapters/chapter-003.md", content: "正文..." },
     ])
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("index.md")) {
@@ -1431,20 +1783,20 @@ describe("ChatPanel — handleSend 主链路", () => {
       if (path.includes("wiki/pages/b.md")) return "B" + "y".repeat(20)
       return ""
     })
-    mocks.computeContextBudget.mockReturnValue({ indexBudget: 30, pageBudget: 2000, maxPageSize: 800 })
+    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 30, pageBudget: 2000, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.tokenizeQuery.mockReturnValue(["chapter"])
     mocks.searchWiki.mockImplementation(async () => [
-      { title: "A", path: "/p/mybook/wiki/pages/a.md", titleMatch: true },
-      { title: "B", path: "/p/mybook/wiki/pages/b.md", titleMatch: false },
+      { title: "A", path: "/p/mybook/wiki/pages/a.md", snippet: "", score: 0, titleMatch: true, images: [] },
+      { title: "B", path: "/p/mybook/wiki/pages/b.md", snippet: "", score: 0, titleMatch: false, images: [] },
     ])
-    mocks.buildRetrievalGraph.mockImplementation(async () => ({ graph: true }))
-    mocks.getRelatedNodes.mockImplementation((nodeId: string) => {
+    mocks.buildRetrievalGraph.mockImplementation(async () => ({ nodes: new Map(), dataVersion: 0 }))
+    mocks.getRelatedNodes.mockImplementation((nodeId: string, _graph: RetrievalGraph, _limit?: number) => {
       if (nodeId === "a") {
         return [
-          { node: { id: "c", title: "C", path: "/p/mybook/wiki/pages/c.md" }, relevance: 1.5 },
-          { node: { id: "b", title: "B", path: "/p/mybook/wiki/pages/b.md" }, relevance: 3.0 },
-          { node: { id: "d", title: "D", path: "/p/mybook/wiki/pages/d.md" }, relevance: 3.0 },
-          { node: { id: "d", title: "D", path: "/p/mybook/wiki/pages/d.md" }, relevance: 2.5 },
+          { node: { id: "c", title: "C", path: "/p/mybook/wiki/pages/c.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 1.5 },
+          { node: { id: "b", title: "B", path: "/p/mybook/wiki/pages/b.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 3.0 },
+          { node: { id: "d", title: "D", path: "/p/mybook/wiki/pages/d.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 3.0 },
+          { node: { id: "d", title: "D", path: "/p/mybook/wiki/pages/d.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 2.5 },
         ]
       }
       return []
@@ -1485,7 +1837,7 @@ describe("ChatPanel — handleSend 主链路", () => {
 
   it("检索链路：预算/截断/读文件失败/overview 回退 + 索引不裁剪", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.computeContextBudget.mockReturnValue({ indexBudget: 5000, pageBudget: 25, maxPageSize: 10 })
+    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 25, maxPageSize: 10, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("index.md")) return "短索引"
       if (path.includes("wiki/pages/")) return "L".repeat(40)
@@ -1493,11 +1845,11 @@ describe("ChatPanel — handleSend 主链路", () => {
       return ""
     })
     mocks.searchWiki.mockImplementation(async () => [
-      { title: "A", path: "/p/mybook/wiki/pages/a.md", titleMatch: true },
-      { title: "B", path: "/p/mybook/wiki/pages/b.md", titleMatch: false },
+      { title: "A", path: "/p/mybook/wiki/pages/a.md", snippet: "", score: 0, titleMatch: true, images: [] },
+      { title: "B", path: "/p/mybook/wiki/pages/b.md", snippet: "", score: 0, titleMatch: false, images: [] },
     ])
     mocks.getRelatedNodes.mockReturnValue([
-      { node: { id: "c", title: "C", path: "/p/mybook/wiki/pages/c.md" }, relevance: 2.5 },
+      { node: { id: "c", title: "C", path: "/p/mybook/wiki/pages/c.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 2.5 },
     ])
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("index.md")) return "短索引"
@@ -1538,11 +1890,12 @@ describe("ChatPanel — handleSend 主链路", () => {
     mocks.wikiState.novelConfig.contextTokenBudget = 4000
     mocks.routeTask.mockReturnValue({
       intent: "write_chapter",
+      confidence: 1,
       chapterNumber: 3,
       extractedParams: { chapterNumber: "3" },
     })
     mocks.buildTaskDirective.mockReturnValue("TASK_DIRECTIVE")
-    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, chapterNumber: 3 })
+    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, targetChapter: 3, requestedFirstThree: false })
     mocks.buildGoldenThreeChapterDirective.mockReturnValue("GOLDEN_DIRECTIVE")
     mocks.contextPackToPrompt.mockReturnValue("CONTEXT_PROMPT")
     setConversation("conv-1")
@@ -1567,6 +1920,7 @@ describe("ChatPanel — handleSend 主链路", () => {
     mocks.wikiState.novelMode = true
     mocks.routeTask.mockReturnValue({
       intent: "write_chapter",
+      confidence: 1,
       chapterNumber: 3,
       extractedParams: {},
     })
@@ -1582,7 +1936,7 @@ describe("ChatPanel — handleSend 主链路", () => {
   it("soul dialog：characterAuras 非空弹出；取消 → finalize 取消文案", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.buildContextPack.mockImplementation(async () => ({
       task: "",
       chapterGoal: "",
@@ -1622,7 +1976,7 @@ describe("ChatPanel — handleSend 主链路", () => {
   it("soul dialog：确认继续 → 正常继续生成", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.buildContextPack.mockImplementation(async () => ({
       task: "",
       chapterGoal: "",
@@ -1662,7 +2016,7 @@ describe("ChatPanel — handleSend 主链路", () => {
   it("soul dialog：dialog-close（onOpenChange false）→ 取消生成并关闭", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.buildContextPack.mockImplementation(async () => ({
       task: "",
       chapterGoal: "",
@@ -1836,7 +2190,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
-      target: { mode: "multi" as const, chapterNumbers: [3, 4] },
+      target: { mode: "batch" as const, chapterNumbers: [3, 4] },
     })
     mocks.findChapterFileByNumber.mockImplementation(async (pp: string, n: number) =>
       n === 3 ? `${pp}/wiki/chapters/chapter-003.md` : null,
@@ -1879,7 +2233,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
-      target: { mode: "multi" as const, chapterNumbers: [3, 4] },
+      target: { mode: "batch" as const, chapterNumbers: [3, 4] },
     })
     mocks.findChapterFileByNumber.mockImplementation(async (pp: string) => `${pp}/wiki/chapters/chapter-00${3}${4}.md`.slice(0, 0) || `${pp}/wiki/chapters/chapter-00X.md`)
     mocks.findChapterFileByNumber.mockImplementation(async (pp: string, n: number) =>
@@ -1910,7 +2264,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
-      target: { mode: "multi" as const, chapterNumbers: [3, 4] },
+      target: { mode: "batch" as const, chapterNumbers: [3, 4] },
     })
     mocks.findChapterFileByNumber.mockImplementation(async (pp: string, n: number) =>
       `${pp}/wiki/chapters/chapter-00${n}.md`,
@@ -1930,7 +2284,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
-      target: { mode: "multi" as const, chapterNumbers: [3, 4] },
+      target: { mode: "batch" as const, chapterNumbers: [3, 4] },
     })
     mocks.findChapterFileByNumber.mockImplementation(async (pp: string, n: number) =>
       `${pp}/wiki/chapters/chapter-00${n}.md`,
@@ -2014,6 +2368,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     mocks.wikiState.novelMode = true
     mocks.routeTask.mockReturnValue({
       intent: "write_chapter",
+      confidence: 1,
       chapterNumber: 3,
       extractedParams: { chapterNumber: "3" },
     })
@@ -2047,14 +2402,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
 
   it("深度生成 manualReviewRequired → block + pending marker", async () => {
     setupDeepBase()
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "F",
-      reviewResults: [{ has_error: true }],
-      manualReviewRequired: true,
-      retryCount: 3,
-      partial: false,
-      partialReason: null,
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "F", reviewResults: [reviewResult()], manualReviewRequired: true, retryCount: 3 }))
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
@@ -2066,14 +2414,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
 
   it("深度生成 partial → pause + pending marker", async () => {
     setupDeepBase()
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "部分正文",
-      reviewResults: [],
-      manualReviewRequired: false,
-      retryCount: 0,
-      partial: true,
-      partialReason: "transport inactivity timeout",
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "部分正文", partial: true, partialReason: "transport inactivity timeout" }))
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
@@ -2090,14 +2431,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     mocks.persistDeepChapterCheckpoint.mockRejectedValueOnce(new Error("disk-full"))
     mocks.runDeepChapterGeneration.mockImplementation(async (_input: any, callbacks: any) => {
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 3 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setConversation("conv-1")
     renderPanel()
@@ -2170,19 +2504,18 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
 
   it("session 状态中的 resume checkpoint 生效（autoResumedFromStatus true）", async () => {
     setupDeepBase()
-    mocks.loadNovelSessionStatus.mockImplementation(async () => ({ status: "paused", current_task: {} }))
-    mocks.resolveInterruptedSessionResumeCheckpoint.mockReturnValue({ chapterNumber: 2, stage: "after_draft" })
+    mocks.loadNovelSessionStatus.mockImplementation(async () => sessionStatus({ current_task: {} }))
+    mocks.resolveInterruptedSessionResumeCheckpoint.mockReturnValue({ version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" })
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
     expect(mocks.startDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeCheckpoint: { chapterNumber: 2, stage: "after_draft" } }),
+      expect.objectContaining({ resumeCheckpoint: expect.objectContaining({ chapterNumber: 2, stage: "after_draft" }) }),
     )
-    expect(mocks.runDeepChapterGeneration.mock.calls[0][0].resumeCheckpoint).toEqual({
-      chapterNumber: 2,
-      stage: "after_draft",
-    })
+    expect(mocks.runDeepChapterGeneration.mock.calls[0][0].resumeCheckpoint).toEqual(
+      expect.objectContaining({ chapterNumber: 2, stage: "after_draft" }),
+    )
     setDeepMode(false)
   })
 
@@ -2194,14 +2527,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
       callbacks.onFinalContent("正文")
       mocks.streamGuard.isActive.mockReturnValue(true)
       callbacks.onFinalContent("正文2")
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setConversation("conv-1")
     renderPanel()
@@ -2214,12 +2540,10 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
 
   it("appendHiddenNovelSessionDebug 的 JSON 序列化失败 → 降级为原始内容", async () => {
     setupDeepBase()
-    mocks.startDeepChapterSession.mockImplementation(async () => ({
-      session_id: 1n as any, // BigInt 使 JSON.stringify 抛错
-      status: "active",
-      active_step_index: 1,
-      updated_at: "t",
-    }))
+    mocks.startDeepChapterSession.mockImplementation(async () =>
+      // BigInt 使 JSON.stringify 抛错
+      sessionStatus({ session_id: 1n as any, status: "running", active_step_index: 1, updated_at: "t" }),
+    )
     mocks.runDeepChapterGeneration.mockRejectedValueOnce(new Error("boom"))
     setConversation("conv-1")
     renderPanel()
@@ -2261,7 +2585,7 @@ describe("ChatPanel — 停止 / 重新生成 / 继续下一章", () => {
   it("深度模式流停止 → novelManagedStop 早退，不 finalize", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.runDeepChapterGeneration.mockImplementation(() => new Promise(() => {})) // 挂起
     setConversation("conv-1")
     renderPanel()
@@ -2324,7 +2648,7 @@ describe("ChatPanel — 停止 / 重新生成 / 继续下一章", () => {
 
   it("继续下一章：新建会话 + 按目标字数发送生成提示", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.resolveChapterLengthSpec.mockReturnValue({ targetChars: 2000 })
+    mocks.resolveChapterLengthSpec.mockReturnValue({ targetChars: 2000, minChars: 1000, draftMaxChars: 4000, maxOutputTokens: 3000 })
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "q" }),
@@ -2356,10 +2680,10 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
   it("深度续写成功：persistedResume checkpoint + complete + ready marker", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "原始章节需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "已有上下文",
       rootResumeContext: "根上下文",
     })
@@ -2374,7 +2698,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     expect(mocks.chatState.addMessage).toHaveBeenCalledWith("user", "继续未完成")
     expect(mocks.chatState.startStreaming).toHaveBeenCalledWith("conv-1")
     expect(mocks.startDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeCheckpoint: { chapterNumber: 2, stage: "after_draft" } }),
+      expect.objectContaining({ resumeCheckpoint: expect.objectContaining({ chapterNumber: 2, stage: "after_draft" }) }),
     )
     expect(mocks.completeDeepChapterSession).toHaveBeenCalled()
     expect(decodeURIComponent(lastFinalize()[0])).toContain('"draftStatus":"ready"')
@@ -2382,21 +2706,14 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
 
   it("深度续写 manualReviewRequired → block", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "ctx",
       rootResumeContext: "ctx",
     })
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "F",
-      reviewResults: [{ has_error: true }],
-      manualReviewRequired: true,
-      retryCount: 3,
-      partial: false,
-      partialReason: null,
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "F", reviewResults: [reviewResult()], manualReviewRequired: true, retryCount: 3 }))
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "需求" }),
@@ -2411,21 +2728,14 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
 
   it("深度续写 partial → pause", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "ctx",
       rootResumeContext: "ctx",
     })
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "F",
-      reviewResults: [],
-      manualReviewRequired: false,
-      retryCount: 0,
-      partial: true,
-      partialReason: "timeout",
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "F", partial: true, partialReason: "timeout" }))
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "需求" }),
@@ -2440,23 +2750,16 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
 
   it("深度续写 guard 失效 → finish 前返回，不 finalize", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "ctx",
       rootResumeContext: "ctx",
     })
     mocks.runDeepChapterGeneration.mockImplementation(async () => {
       mocks.streamGuard.isActive.mockReturnValue(false)
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setConversation("conv-1")
     setMessages([
@@ -2471,12 +2774,11 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
 
   it("statusResume payload 优先提供 originalRequest/checkpoint", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.loadNovelSessionStatus.mockImplementation(async () => ({
-      status: "paused",
-      current_task: { conversation_id: "conv-1", user_request: "状态里的需求" },
-    }))
+    mocks.loadNovelSessionStatus.mockImplementation(async () =>
+      sessionStatus({ current_task: { conversation_id: "conv-1", user_request: "状态里的需求" } }),
+    )
     mocks.buildInterruptedResumeContextPayload.mockReturnValue({
-      checkpoint: { chapterNumber: 9, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "状态需求", chapterNumber: 9, stage: "after_draft" },
       originalRequest: "状态需求",
       resumeContext: "状态上下文",
       rootResumeContext: "根",
@@ -2490,14 +2792,14 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     fireEvent.click(screen.getByTestId("continue-unfinished"))
     await flushAsync()
     expect(mocks.startDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ userRequest: "状态需求", resumeCheckpoint: { chapterNumber: 9, stage: "after_draft" } }),
+      expect.objectContaining({ userRequest: "状态需求", resumeCheckpoint: expect.objectContaining({ chapterNumber: 9, stage: "after_draft" }) }),
     )
   })
 
   it("无 checkpoint：重建上下文包 + 普通 streamChat + finish finalize", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.buildContextPack.mockImplementation(async () => ({
       task: "任务",
       chapterGoal: "",
@@ -2613,10 +2915,10 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
   it("深度续写 catch：pause 落盘失败 → pausePersistError + console.warn", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
     mocks.wikiState.project = PROJECT
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "ctx",
       rootResumeContext: "ctx",
     })
@@ -2639,21 +2941,17 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
 
   it("深度续写 catch：pause 成功 → sessionDebug.pauseWrite 写入 debug 注释", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.routeTask.mockReturnValue({ intent: "write_chapter", chapterNumber: 3, extractedParams: {} })
+    mocks.routeTask.mockReturnValue({ intent: "write_chapter", confidence: 1, chapterNumber: 3, extractedParams: {} })
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue({
       originalRequest: "需求",
-      checkpoint: { chapterNumber: 2, stage: "after_draft" },
+      checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
       resumeContext: "ctx",
       rootResumeContext: "ctx",
     })
     mocks.runDeepChapterGeneration.mockRejectedValueOnce(new Error("resume-boom"))
-    mocks.pauseDeepChapterSession.mockResolvedValueOnce({
-      status: "paused",
-      active_step_index: 1,
-      draft: { draft_status: "pending" },
-      updated_at: "t",
-      current_task: { last_error: "resume-boom" },
-    })
+    mocks.pauseDeepChapterSession.mockResolvedValueOnce(
+      sessionStatus({ draft: { draft_status: "pending" }, current_task: { last_error: "resume-boom" } }),
+    )
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "需求" }),
@@ -2719,7 +3017,7 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/p/mybook")
     expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 标题X")
-    expect(mocks.autoIngestOnSave).toBeUndefined() // 默认关闭
+    expect(mocks.wikiState.novelConfig.autoIngestOnSave).toBe(false) // 默认关闭
   })
 
   it("保存成功（direct_explicit_target_new 策略）：targetChapterNumber 直接使用", async () => {
@@ -2907,7 +3205,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
   it("打开对话框：选中文本 → 显示文本 + 计数；空选 → 提示", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [{ id: 1 }])
+    mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [{ exemplarId: "e1", chapterId: "ch-1", text: "x", markType: "style", createdAt: "t" }])
     setConversation("conv-1")
     renderPanel()
     // 空选择
@@ -2949,7 +3247,10 @@ describe("ChatPanel — exemplar 标记 UI", () => {
   it("提交标记成功：markType/note 透传 + 计数刷新 + 关闭 + 反馈", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [{ id: 1 }, { id: 2 }])
+    mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [
+      { exemplarId: "e1", chapterId: "ch-1", text: "x", markType: "style", createdAt: "t" },
+      { exemplarId: "e2", chapterId: "ch-2", text: "y", markType: "voice", createdAt: "t" },
+    ])
     window.getSelection = (() => ({ toString: () => "选段文本" })) as any
     setConversation("conv-1")
     renderPanel()
@@ -3243,13 +3544,13 @@ describe("ChatPanel — 补覆盖：handleSend 分支", () => {
   it("图扩展：≥2 个新节点 → sort 比较器执行", async () => {
     mocks.wikiState.project = PROJECT
     mocks.searchWiki.mockImplementation(async () => [
-      { title: "A", path: "/p/mybook/wiki/pages/a.md", titleMatch: true },
+      { title: "A", path: "/p/mybook/wiki/pages/a.md", snippet: "", score: 0, titleMatch: true, images: [] },
     ])
-    mocks.getRelatedNodes.mockImplementation((nodeId: string) => {
+    mocks.getRelatedNodes.mockImplementation((nodeId: string, _graph: RetrievalGraph, _limit?: number) => {
       if (nodeId === "a") {
         return [
-          { node: { id: "e", title: "E", path: "/p/mybook/wiki/pages/e.md" }, relevance: 2.5 },
-          { node: { id: "f", title: "F", path: "/p/mybook/wiki/pages/f.md" }, relevance: 3.0 },
+          { node: { id: "e", title: "E", path: "/p/mybook/wiki/pages/e.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 2.5 },
+          { node: { id: "f", title: "F", path: "/p/mybook/wiki/pages/f.md", type: "source", sources: [], outLinks: new Set(), inLinks: new Set(), relationEdges: [] }, relevance: 3.0 },
         ]
       }
       return []
@@ -3262,15 +3563,15 @@ describe("ChatPanel — 补覆盖：handleSend 分支", () => {
 
   it("页面预算用尽 → tryAddPage 早退", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.computeContextBudget.mockReturnValue({ indexBudget: 5000, pageBudget: 80, maxPageSize: 800 })
+    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 80, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.includes("wiki/pages/a.md")) return "a".repeat(80)
       if (path.includes("wiki/pages/b.md")) return "b"
       return ""
     })
     mocks.searchWiki.mockImplementation(async () => [
-      { title: "A", path: "/p/mybook/wiki/pages/a.md", titleMatch: true },
-      { title: "B", path: "/p/mybook/wiki/pages/b.md", titleMatch: false },
+      { title: "A", path: "/p/mybook/wiki/pages/a.md", snippet: "", score: 0, titleMatch: true, images: [] },
+      { title: "B", path: "/p/mybook/wiki/pages/b.md", snippet: "", score: 0, titleMatch: false, images: [] },
     ])
     setConversation("conv-1")
     renderPanel()
@@ -3285,6 +3586,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     mocks.wikiState.novelMode = true
     mocks.routeTask.mockReturnValue({
       intent: "write_chapter",
+      confidence: 1,
       chapterNumber: 3,
       extractedParams: { chapterNumber: "3" },
     })
@@ -3297,14 +3599,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
       callbacks.onThinking("阶段思考")
       callbacks.onFinalContent("正文")
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 3 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setConversation("conv-1")
     renderPanel()
@@ -3321,14 +3616,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     mocks.persistDeepChapterCheckpoint.mockRejectedValueOnce("disk-full-string")
     mocks.runDeepChapterGeneration.mockImplementation(async (_input: any, callbacks: any) => {
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 3 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setConversation("conv-1")
     renderPanel()
@@ -3405,28 +3693,21 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
 
   it("goldenThree 启用 → 透传给生成器", async () => {
     setupDeepBase()
-    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, chapterNumber: 3 })
+    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, targetChapter: 3, requestedFirstThree: false })
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
     expect(mocks.runDeepChapterGeneration.mock.calls[0][0].goldenThreeChapter).toEqual({
       enabled: true,
-      chapterNumber: 3,
+      targetChapter: 3,
     })
     setDeepMode(false)
   })
 
   it("partial + partialReason null → 默认超时文案", async () => {
     setupDeepBase()
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "部分",
-      reviewResults: [],
-      manualReviewRequired: false,
-      retryCount: 0,
-      partial: true,
-      partialReason: null,
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "部分", partial: true }))
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
@@ -3454,12 +3735,9 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
 
   it("marker JSON 序列化失败（BigInt sessionId）→ 降级无 marker", async () => {
     setupDeepBase()
-    mocks.startDeepChapterSession.mockImplementation(async () => ({
-      session_id: 1n as any,
-      status: "active",
-      active_step_index: 1,
-      updated_at: "t",
-    }))
+    mocks.startDeepChapterSession.mockImplementation(async () =>
+      sessionStatus({ session_id: 1n as any, status: "running", active_step_index: 1, updated_at: "t" }),
+    )
     setConversation("conv-1")
     renderPanel()
     setDeepMode(true)
@@ -3597,7 +3875,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue(
       checkpoint ?? {
         originalRequest: "原始章节需求",
-        checkpoint: { chapterNumber: 2, stage: "after_draft" },
+        checkpoint: { version: 1, originalRequest: "需求", chapterNumber: 2, stage: "after_draft" },
         resumeContext: "ctx",
         rootResumeContext: "ctx",
       },
@@ -3619,14 +3897,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
       mocks.streamGuard.isActive.mockReturnValue(true)
       callbacks.onFinalContent("正文A")
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 2 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setupDeepContinue()
     renderPanel()
@@ -3643,14 +3914,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     mocks.persistDeepChapterCheckpoint.mockRejectedValueOnce(new Error("disk-full"))
     mocks.runDeepChapterGeneration.mockImplementation(async (_input: any, callbacks: any) => {
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 2 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setupDeepContinue()
     renderPanel()
@@ -3665,14 +3929,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     mocks.persistDeepChapterCheckpoint.mockRejectedValueOnce("disk-string")
     mocks.runDeepChapterGeneration.mockImplementation(async (_input: any, callbacks: any) => {
       await callbacks.onCheckpoint({ stage: "after_draft", chapterNumber: 2 })
-      return {
-        finalContent: "F",
-        reviewResults: [],
-        manualReviewRequired: false,
-        retryCount: 0,
-        partial: false,
-        partialReason: null,
-      }
+      return deepGenResult({ finalContent: "F" })
     })
     setupDeepContinue()
     renderPanel()
@@ -3682,14 +3939,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
   })
 
   it("深度续写：partial + partialReason null → 默认文案", async () => {
-    mocks.runDeepChapterGeneration.mockImplementation(async () => ({
-      finalContent: "F",
-      reviewResults: [],
-      manualReviewRequired: false,
-      retryCount: 0,
-      partial: true,
-      partialReason: null,
-    }))
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "F", partial: true }))
     setupDeepContinue()
     renderPanel()
     fireEvent.click(screen.getByTestId("continue-unfinished"))
@@ -3709,14 +3959,14 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
   })
 
   it("深度续写：goldenResume 启用 → 透传", async () => {
-    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, chapterNumber: 3 })
+    mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: true, targetChapter: 3, requestedFirstThree: false })
     setupDeepContinue()
     renderPanel()
     fireEvent.click(screen.getByTestId("continue-unfinished"))
     await flushAsync()
     expect(mocks.runDeepChapterGeneration.mock.calls[0][0].goldenThreeChapter).toEqual({
       enabled: true,
-      chapterNumber: 3,
+      targetChapter: 3,
     })
   })
 
@@ -3927,7 +4177,7 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
 
   it("保存进行中另一会话保存完成 → finally prev 不匹配 → 跳过回填", async () => {
     mocks.wikiState.project = PROJECT
-    let resolveCommit1: (v: unknown) => void = () => {}
+    let resolveCommit1: (v: void | PromiseLike<void>) => void = () => {}
     mocks.commitAcceptedDeepChapterDraft.mockImplementationOnce(
       () => new Promise((res) => { resolveCommit1 = res }),
     )
@@ -3953,7 +4203,7 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
     })
     // 放行 commit → conv-1 进入 refresh 挂起窗口
     await act(async () => {
-      resolveCommit1({})
+      resolveCommit1(undefined)
       await new Promise((r) => setTimeout(r, 0))
     })
     // refresh 窗口内：conv-2 完整完成一次保存（状态入队覆盖 prev）
