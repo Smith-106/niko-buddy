@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FOUR_ELEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.4.11",
+  date: "2026-08-18",
+  highlights: {
+    en: [
+      "Unified DOCX export: new export_novel_docx Rust command (reuses existing docx-rs, no new heavy dependency); final-status chapters sorted by chapter number, titles mapped to Heading1 (Word navigation pane/TOC), body split by blank lines; TS exportNovelDocx reuses exportProject chapter loading; new export card in Settings > Data Management (disabled without a project).",
+      "Optional pangu spacing in format-normalizer: formatNormalize gains enablePangu option (default false, backward compatible) + panguSpaced counter; automatic Chinese-English spacing appended after all normalization steps; zero-LLM pure function, output still flows through pending/ready drafts.",
+      "Wake-lock for long writing sessions: Rust power commands acquire_wake_lock / release_wake_lock (SetThreadExecutionState, Win32_System_Power feature; no-op false on non-Windows); TS wrapper src/lib/writing-wake-lock.ts (acquireWakeLock / releaseWakeLock / withWakeLock try-finally safe wrapper that releases even on error).",
+      "Notes-only release: installer assets stay v2.4.6; source tip semantics apply until the next asset rebuild.",
+    ],
+    zh: [
+      "统一导出 DOCX：Rust 新命令 export_novel_docx（复用已有 docx-rs，非新增重库）；final 状态章节按章节号排序，标题映射 Heading1（Word 导航窗格/TOC 可用），正文按空行分段；TS 端 exportNovelDocx 复用 exportProject 的章节加载逻辑；设置页「数据管理」新增导出卡片（无项目时禁用）。",
+      "format-normalizer 可选 pangu 步骤：formatNormalize 新增 enablePangu 选项（默认 false 保向后兼容）+ panguSpaced 计数字段；在所有规范化（删除套话→替换→标点→数字→感叹号限额）之后追加中英自动空格；零 LLM 机械层纯函数，输出仍走 pending/ready 草稿。",
+      "wake-lock 写正文防休眠：Rust 电源管理命令 acquire_wake_lock / release_wake_lock（SetThreadExecutionState，Win32_System_Power feature；非 Windows 目标 no-op 返回 false）；TS 封装 src/lib/writing-wake-lock.ts（acquireWakeLock / releaseWakeLock / withWakeLock try-finally 安全封装，任务抛错也释放）。",
+      "Notes-only 发布：安装包资产保持 v2.4.6；v2.4.11 为源码 tip（smith/master）。",
+    ],
+  },
+}
+
 const TWO_POINT_FOUR_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "2.4.8",
   date: "2026-08-15",
@@ -869,6 +888,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FOUR_ELEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) return [TWO_POINT_FOUR_TEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_EIGHT_CHANGELOG.version) return [TWO_POINT_FOUR_EIGHT_CHANGELOG]
   if (version === TWO_POINT_FOUR_SEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_SEVEN_CHANGELOG]
@@ -911,6 +931,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FOUR_ELEVEN_CHANGELOG,
+    TWO_POINT_FOUR_TEN_CHANGELOG,
     TWO_POINT_FOUR_SIX_CHANGELOG,
     TWO_POINT_FOUR_FIVE_CHANGELOG,
     TWO_POINT_FOUR_FOUR_CHANGELOG,
