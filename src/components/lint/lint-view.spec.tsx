@@ -4,7 +4,7 @@
 //
 // 100% coverage spec for src/components/lint/lint-view.tsx.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
   fireEvent,
@@ -70,13 +70,14 @@ const mocks = vi.hoisted(() => {
       hasRun: boolean
       results: LintResult[]
       error?: string
+      filePath?: string
     } | null
     setSelectedFile: ReturnType<typeof vi.fn>
     setFileContent: ReturnType<typeof vi.fn>
     setActiveView: ReturnType<typeof vi.fn>
     setFileTree: ReturnType<typeof vi.fn>
     bumpDataVersion: ReturnType<typeof vi.fn>
-    setLintRun: (lr: typeof state.lintRun) => void
+    setLintRun: Mock<(lr: typeof state.lintRun) => void>
     finishLintRun: (runId: string, patch: Record<string, unknown>) => void
   } = {
     novelMode: false,
@@ -85,12 +86,12 @@ const mocks = vi.hoisted(() => {
     selectedFile: "/p/mybook/wiki/ch1.md",
     fileContent: "---\ntitle: ch1\n---\nbody",
     lintRun: null,
-    setSelectedFile: vi.fn(),
-    setFileContent: vi.fn(),
-    setActiveView: vi.fn(),
-    setFileTree: vi.fn(),
-    bumpDataVersion: vi.fn(),
-    setLintRun: vi.fn((lr) => {
+    setSelectedFile: vi.fn<() => void>(),
+    setFileContent: vi.fn<() => void>(),
+    setActiveView: vi.fn<() => void>(),
+    setFileTree: vi.fn<() => void>(),
+    bumpDataVersion: vi.fn<() => void>(),
+    setLintRun: vi.fn<(lr: typeof state.lintRun) => void>((lr) => {
       state.lintRun = lr
     }),
     finishLintRun: (runId, patch) => {
@@ -99,29 +100,29 @@ const mocks = vi.hoisted(() => {
       }
     },
   }
-  const reviewState = { addItem: vi.fn() }
+  const reviewState = { addItem: vi.fn<(item: Record<string, unknown>) => void>() }
   return {
     state,
     project,
     reviewState,
-    t: vi.fn((key: string, opts?: { chapter?: number }) =>
+    t: vi.fn<(key: string, opts?: Record<string, unknown>) => string>((key: string, opts?: Record<string, unknown>) =>
       opts && typeof opts.chapter === "number" ? `${key}#${opts.chapter}` : key,
     ),
-    runStructuralLint: vi.fn(async () => [ORPHAN]),
-    runSemanticLint: vi.fn(async () => [SEMANTIC]),
-    hasUsableLlm: vi.fn(() => false),
-    readFile: vi.fn(async () => "content"),
-    writeFile: vi.fn(async () => {}),
-    listDirectory: vi.fn(async () => [{ name: "wiki", path: "/p/mybook/wiki", is_dir: true }]),
-    normalizePath: vi.fn((p: string) => p),
-    parseFrontmatter: vi.fn(() => ({ frontmatter: null, body: "body", rawBlock: "" })),
-    parseChapterMeta: vi.fn(() => null),
-    persistRevisionFeedbackForChapter: vi.fn(async () => {}),
-    pickRevisionFeedbackFromLintResults: vi.fn(() => ({})),
-    deleteGenerationHistoryEntry: vi.fn(async () => {}),
-    listGenerationHistory: vi.fn(async () => []),
-    saveGenerationHistoryEntry: vi.fn(async () => {}),
-    cascadeDeleteWikiPagesWithRefs: vi.fn(async () => {}),
+    runStructuralLint: vi.fn<() => Promise<LintResult[]>>(async () => [ORPHAN]),
+    runSemanticLint: vi.fn<() => Promise<LintResult[]>>(async () => [SEMANTIC]),
+    hasUsableLlm: vi.fn<() => boolean>(() => false),
+    readFile: vi.fn<() => Promise<string>>(async () => "content"),
+    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    listDirectory: vi.fn<() => Promise<Array<{ name: string; path: string; is_dir: boolean }>>>(async () => [{ name: "wiki", path: "/p/mybook/wiki", is_dir: true }]),
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p),
+    parseFrontmatter: vi.fn<(content: string) => { frontmatter: Record<string, unknown> | null; body: string; rawBlock: string }>(() => ({ frontmatter: null, body: "body", rawBlock: "" })),
+    parseChapterMeta: vi.fn<(frontmatter: Record<string, unknown>) => { chapterNumber: number } | null>(() => null),
+    persistRevisionFeedbackForChapter: vi.fn<() => Promise<void>>(async () => {}),
+    pickRevisionFeedbackFromLintResults: vi.fn<() => Record<string, unknown>>(() => ({})),
+    deleteGenerationHistoryEntry: vi.fn<() => Promise<void>>(async () => {}),
+    listGenerationHistory: vi.fn<() => Promise<unknown[]>>(async () => []),
+    saveGenerationHistoryEntry: vi.fn<(projectPath: string, input: Record<string, unknown>) => Promise<Record<string, unknown>>>(async () => ({})),
+    cascadeDeleteWikiPagesWithRefs: vi.fn<() => Promise<void>>(async () => {}),
   }
 })
 
@@ -197,7 +198,7 @@ vi.mock("@/components/ui/button", () => ({
     children,
     onClick,
   }: {
-    children: unknown
+    children?: React.ReactNode
     onClick?: () => void
   }) => (
     <button type="button" onClick={onClick}>
@@ -752,7 +753,7 @@ describe("LintView — fixes", () => {
 
   it("unknown result type → semantic config fallback + default review flow", async () => {
     const weird: LintResult = {
-      type: "weird",
+      type: "weird" as unknown as LintResult["type"], // 故意构造非法类型测 fallback
       severity: "warning",
       page: "odd.md",
       detail: "Odd result",

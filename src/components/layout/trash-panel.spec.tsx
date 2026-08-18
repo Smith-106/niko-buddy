@@ -1,15 +1,11 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { ReactNode } from "react"
-import { cleanup } from "@testing-library/react"
+import { act, cleanup } from "@testing-library/react"
 import {
-  act,
   fireEvent,
   render,
   screen,
-  waitFor,
-  within,
 } from "@/test-helpers/component-test-utils"
 import { TrashPanel } from "./trash-panel"
 import type { TrashItem, RestoreTrashResult } from "@/lib/trash"
@@ -51,29 +47,29 @@ const mocks = vi.hoisted(() => {
   const state: WikiStateLike = {
     project: null,
     selectedTrashItem: null,
-    setFileTree: vi.fn(),
-    setSelectedFile: vi.fn(),
-    setSelectedTrashItem: vi.fn(),
-    setFileContent: vi.fn(),
-    setActiveView: vi.fn(),
-    bumpDataVersion: vi.fn(),
+    setFileTree: vi.fn<() => void>(),
+    setSelectedFile: vi.fn<() => void>(),
+    setSelectedTrashItem: vi.fn<() => void>(),
+    setFileContent: vi.fn<() => void>(),
+    setActiveView: vi.fn<() => void>(),
+    bumpDataVersion: vi.fn<() => void>(),
   }
   return {
     state,
-    t: vi.fn((key: string) => key),
-    normalizePath: vi.fn((p: string) => p),
-    listDirectory: vi.fn(async () => []),
-    listTrashItems: vi.fn(async () => []),
-    cleanupExpiredTrashItems: vi.fn(async () => {}),
-    readTrashItemContent: vi.fn(async () => "content"),
-    restoreTrashItem: vi.fn(async (): Promise<RestoreTrashResult> => ({
+    t: vi.fn<(key: string) => string>((key: string) => key),
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p),
+    listDirectory: vi.fn<() => Promise<unknown[]>>(async () => []),
+    listTrashItems: vi.fn<() => Promise<TrashItem[]>>(async () => []),
+    cleanupExpiredTrashItems: vi.fn<(projectPath: string) => Promise<void>>(async () => {}),
+    readTrashItemContent: vi.fn<(item: TrashItem) => Promise<string>>(async () => "content"),
+    restoreTrashItem: vi.fn<(item: TrashItem) => Promise<RestoreTrashResult>>(async (): Promise<RestoreTrashResult> => ({
       item: makeItem(),
       restoredPath: "/p/page.md",
       renamed: false,
     })),
-    permanentlyDeleteTrashItem: vi.fn(async () => {}),
-    permanentlyDeleteAllTrashItems: vi.fn(async () => {}),
-    getTrashDaysRemaining: vi.fn(() => 29),
+    permanentlyDeleteTrashItem: vi.fn<(item: TrashItem) => Promise<void>>(async () => {}),
+    permanentlyDeleteAllTrashItems: vi.fn<(projectPath: string) => Promise<void>>(async () => {}),
+    getTrashDaysRemaining: vi.fn<(item: TrashItem, now?: number) => number>(() => 29),
   }
 })
 
