@@ -13,6 +13,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
@@ -39,7 +40,7 @@ vi.mock("react-markdown", async () => {
     ...actual,
     default: (props: any) => {
       if (String(props.children).includes("__direct_image__")) {
-        const renderImage = props.components?.img as ((imageProps: any) => unknown) | undefined
+        const renderImage = props.components?.img as ((imageProps: any) => ReactNode) | undefined
         return (
           <div data-testid="direct-image">
             {renderImage?.({ src: undefined, alt: undefined })}
@@ -47,7 +48,7 @@ vi.mock("react-markdown", async () => {
         )
       }
       if (String(props.children).includes("__direct_wikilink__")) {
-        const renderLink = props.components?.a as ((linkProps: any) => unknown) | undefined
+        const renderLink = props.components?.a as ((linkProps: any) => ReactNode) | undefined
         return (
           <div data-testid="direct-wikilink">
             {renderLink?.({ href: "wikilink:主角", children: "主角" })}
@@ -74,31 +75,31 @@ const mocks = vi.hoisted(() => {
   return {
     wikiState,
     useWikiStore,
-    readFile: vi.fn(async () => {
+    readFile: vi.fn<(path: string) => Promise<string>>(async () => {
       throw new Error("not found")
     }),
-    normalizePath: vi.fn((p: string) => p),
-    getFileName: vi.fn((p: string) => String(p).split("/").pop() ?? ""),
-    resolveMarkdownImageSrc: vi.fn((url: string, projectPath?: string | null) =>
+    normalizePath: vi.fn<(p: string) => string>((p: string) => p),
+    getFileName: vi.fn<(p: string) => string>((p: string) => String(p).split("/").pop() ?? ""),
+    resolveMarkdownImageSrc: vi.fn<(url: string, projectPath?: string | null) => string>((url: string, projectPath?: string | null) =>
       projectPath ? `${projectPath}/${url}` : url,
     ),
-    findRawSourceForImage: vi.fn(async () => null as string | null),
-    imageUrlToAbsolute: vi.fn((url: string) => `abs:${url}`),
-    detectLanguage: vi.fn(() => "zh"),
-    getHtmlLang: vi.fn(() => "zh-Hans"),
-    getTextDirection: vi.fn(() => "ltr" as const),
-    convertLatexToUnicode: vi.fn((s: string) => s),
-    refreshProjectState: vi.fn(async () => {}),
-    applyFileEdits: vi.fn(async (_projectPath: string, edits: any[]) =>
-      edits.map((e: any) => ({ filePath: e.filePath, success: true })),
+    findRawSourceForImage: vi.fn<(url: string) => Promise<string | null>>(async () => null),
+    imageUrlToAbsolute: vi.fn<(url: string) => string>((url: string) => `abs:${url}`),
+    detectLanguage: vi.fn<() => string>(() => "zh"),
+    getHtmlLang: vi.fn<() => string>(() => "zh-Hans"),
+    getTextDirection: vi.fn<() => "ltr">(() => "ltr" as const),
+    convertLatexToUnicode: vi.fn<(s: string) => string>((s: string) => s),
+    refreshProjectState: vi.fn<() => Promise<void>>(async () => {}),
+    applyFileEdits: vi.fn<(_projectPath: string, edits: Array<{ filePath: string }>) => Promise<Array<{ filePath: string; success: boolean }>>>(async (_projectPath: string, edits: Array<{ filePath: string }>) =>
+      edits.map((e) => ({ filePath: e.filePath, success: true })),
     ),
-    getLastQueryPages: vi.fn(() => [] as { title: string; path: string }[]),
-    canContinueUnfinishedDeepChapter: vi.fn((content: string) =>
+    getLastQueryPages: vi.fn<() => Array<{ title: string; path: string }>>(() => []),
+    canContinueUnfinishedDeepChapter: vi.fn<(content: string) => boolean>((content: string) =>
       /深度生成章节失败|继续未完成失败|已停止生成|deep chapter generation failed|continue unfinished failed|stopped generating/i.test(content) &&
       /<think(?:ing)?>/i.test(content),
     ),
-    getCopyableAssistantContent: vi.fn((content: string) => content),
-    unwrapMermaidPre: vi.fn(() => null),
+    getCopyableAssistantContent: vi.fn<(content: string) => string>((content: string) => content),
+    unwrapMermaidPre: vi.fn<(children: ReactNode) => ReactNode | null>(() => null),
   }
 })
 
@@ -1178,7 +1179,8 @@ describe("MarkdownContent 渲染", () => {
 
     mocks.wikiState.project = null
     const view = render(<ChatMessage message={createAssistantMessage("__direct_wikilink__")} />)
-    const unresolved = screen.getAllByTitle("Open wiki page: 主角").at(-1) as HTMLElement
+    const unresolvedItems = screen.getAllByTitle("Open wiki page: 主角")
+    const unresolved = unresolvedItems[unresolvedItems.length - 1]
     fireEvent.click(unresolved)
     expect(mocks.wikiState.setSelectedFile).not.toHaveBeenCalled()
     view.unmount()
