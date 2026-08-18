@@ -22,8 +22,8 @@ import type { ExtractedCharacter } from "./types"
 
 const { readFileMock, writeFileMock, streamChatMock, analyzeSixDimensionsMock, extractSingleProfileMock } = vi.hoisted(
   () => ({
-    readFileMock: vi.fn(async () => ""),
-    writeFileMock: vi.fn(async () => undefined),
+    readFileMock: vi.fn<(path: string) => Promise<string>>(async () => ""),
+    writeFileMock: vi.fn<(path: string, content: string) => Promise<void>>(async () => undefined),
     streamChatMock: vi.fn(),
     analyzeSixDimensionsMock: vi.fn(),
     extractSingleProfileMock: vi.fn(),

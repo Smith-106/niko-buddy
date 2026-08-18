@@ -7,9 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "react"
 import { cleanup } from "@testing-library/react"
-import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { render, screen, fireEvent, waitFor, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { CharacterAuraView } from "./character-aura-view"
 import type { CharacterAura, CharacterAuraGenerationProgress } from "@/lib/novel/character-aura"
+import type { CharacterAuraBinding, CharacterAuraInput } from "@/lib/novel/character-aura-types"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
@@ -62,14 +63,26 @@ const auraLib = vi.hoisted(() => {
     customAuras,
     listCharacterAuras: vi.fn(async () => [...builtInAuras, ...customAuras]),
     listBindableNovelCharacters: vi.fn(async () => ["林烬", "沈微"]),
-    getCharacterAuraBindings: vi.fn(async () => [{ characterName: "林烬", auraId: "c1", aliases: ["烬哥"] }]),
+    getCharacterAuraBindings: vi.fn<(projectPath: string) => Promise<CharacterAuraBinding[]>>(async () => [{ characterName: "林烬", auraId: "c1", aliases: ["烬哥"] }]),
     createCustomCharacterAuraSkill: vi.fn(
       async (_path: string, _input: unknown, options?: { onProgress?: (p: CharacterAuraGenerationProgress) => void }) => {
         options?.onProgress?.({ step: 1, total: 6, stage: "整理资料", detail: "开始整理", researchFileName: "01-writings.md" })
         return { id: "c2" }
       },
     ),
-    updateCustomCharacterAura: vi.fn(async () => ({ id: "c1" })),
+    updateCustomCharacterAura: vi.fn<
+      (projectPath: string, auraId: string, patch: Partial<CharacterAuraInput>) => Promise<CharacterAura>
+    >(async () => ({
+      id: "c1",
+      builtIn: false,
+      name: "",
+      sourceNote: "",
+      corpus: "",
+      styleDescription: "",
+      behaviorRules: "",
+      boundaries: "",
+      notes: "",
+    })),
     deleteCustomCharacterAura: vi.fn(async () => ({})),
     bindCharacterAura: vi.fn(async () => ({})),
     unbindCharacterAura: vi.fn(async () => ({})),

@@ -205,9 +205,11 @@ describe("applyReviewRewriteEditsToMarkdown", () => {
       { id: "bad", originalText: "不存在的句子。", replacementText: "x" },
     ])
     expect(result.ok).toBe(false)
-    expect(result.applied).toHaveLength(1)
-    expect(result.failed).toHaveLength(1)
-    expect(result.failed[0].id).toBe("bad")
+    if (!result.ok) {
+      expect(result.applied).toHaveLength(1)
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].id).toBe("bad")
+    }
   })
 
   it("fails edits whose text occurs more than once", () => {
@@ -216,7 +218,9 @@ describe("applyReviewRewriteEditsToMarkdown", () => {
       { id: "d", originalText: "重复句。", replacementText: "新句。" },
     ])
     expect(result.ok).toBe(false)
-    expect(result.failed[0].id).toBe("d")
+    if (!result.ok) {
+      expect(result.failed[0].id).toBe("d")
+    }
     expect(result.markdown).toBe(dup)
   })
 
@@ -237,7 +241,9 @@ describe("applyReviewRewriteEditsToMarkdown", () => {
       { id: "ws2", originalText: "句子甲原文。", replacementText: "改后。" },
     ])
     expect(result.ok).toBe(false)
-    expect(result.failed[0].id).toBe("ws2")
+    if (!result.ok) {
+      expect(result.failed[0].id).toBe("ws2")
+    }
   })
 
   it("fails edits with a blank original text", () => {
@@ -245,7 +251,9 @@ describe("applyReviewRewriteEditsToMarkdown", () => {
       { id: "blank", originalText: "   ", replacementText: "x" },
     ])
     expect(result.ok).toBe(false)
-    expect(result.failed[0].id).toBe("blank")
+    if (!result.ok) {
+      expect(result.failed[0].id).toBe("blank")
+    }
   })
 
   it("handles a document without frontmatter or heading", () => {

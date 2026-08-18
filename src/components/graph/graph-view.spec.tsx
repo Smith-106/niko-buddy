@@ -469,7 +469,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
   it("通过 store 注册的刷新函数触发重新加载，卸载时置空", async () => {
     const { unmount } = await renderLoadedGraph()
     const refresh = mocks.state.setRefreshGraph as unknown as ReturnType<typeof vi.fn>
-    const thunk = refresh.mock.calls.at(-1)?.[0] as () => () => Promise<void>
+    const thunk = refresh.mock.calls[refresh.mock.calls.length - 1]?.[0] as () => () => Promise<void>
     expect(typeof thunk).toBe("function")
     await act(async () => {
       const loadFn = thunk()
@@ -681,7 +681,6 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   it("右键节点打开上下文菜单；空 nodeId 关闭菜单", async () => {
     await renderLoadedGraph()
-    const preventDefault = vi.fn()
     const preventSigmaDefault = vi.fn()
     const mouseEvent = new MouseEvent("contextmenu", { clientX: 100, clientY: 120 })
     fireSigmaEvent("rightClickNode", {
@@ -750,7 +749,7 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     fireEvent.change(maxLinksInput, { target: { value: "2" } })
     await waitFor(() => {
       const calls = (mocks.state.setGraphStats as unknown as ReturnType<typeof vi.fn>).mock.calls
-      const last = calls.at(-1)?.[0] as { filteredNodeCount: number }
+      const last = calls[calls.length - 1]?.[0] as { filteredNodeCount: number }
       expect(last.filteredNodeCount).toBe(2)
     })
     // 清空 → undefined
@@ -983,7 +982,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     delete document.body.dataset.panelResizing
   })
 
-  async function renderEditingDoc(editableNode: GraphNode) {
+  async function _renderEditingDoc(editableNode: GraphNode) {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockResolvedValue(`# ${editableNode.label}\n\n正文`)
     const utils = await renderDocumentView()
@@ -1003,7 +1002,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
   }
 
   function currentTextarea(): HTMLTextAreaElement {
-    return screen.getAllByRole("textbox").at(-1) as HTMLTextAreaElement
+    return (() => { const t = screen.getAllByRole("textbox"); return t[t.length - 1] })() as HTMLTextAreaElement
   }
 
   it("编辑节点（文件已存在），保存成功（无 embedding）", async () => {
@@ -1566,7 +1565,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
   }
 
   function currentTextarea(): HTMLTextAreaElement {
-    return screen.getAllByRole("textbox").at(-1) as HTMLTextAreaElement
+    return (() => { const t = screen.getAllByRole("textbox"); return t[t.length - 1] })() as HTMLTextAreaElement
   }
 
   it("auto 标签模式：minimal/focused 预设、关系兜底、缺失源点边、NaN 社区", async () => {

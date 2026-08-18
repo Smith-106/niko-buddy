@@ -6,37 +6,38 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { render, screen } from "@/test-helpers/component-test-utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./tooltip"
 
 vi.mock("@base-ui/react/tooltip", () => ({
   Tooltip: {
-    Provider: ({ children, ...props }: Record<string, unknown>) => (
+    Provider: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-provider" {...props}>
         {children}
       </div>
     ),
-    Root: ({ children, ...props }: Record<string, unknown>) => (
+    Root: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-root" {...props}>
         {children}
       </div>
     ),
-    Trigger: ({ children, ...props }: Record<string, unknown>) => (
+    Trigger: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <button type="button" data-testid="base-trigger" {...props}>
         {children}
       </button>
     ),
-    Portal: ({ children, ...props }: Record<string, unknown>) => (
+    Portal: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-portal" {...props}>
         {children}
       </div>
     ),
-    Positioner: ({ children, ...props }: Record<string, unknown>) => (
+    Positioner: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-positioner" {...props}>
         {children}
       </div>
     ),
-    Popup: ({ children, ...props }: Record<string, unknown>) => (
+    Popup: ({ children, ...props }: Record<string, unknown> & { children?: ReactNode }) => (
       <div data-testid="base-popup" {...props}>
         {children}
       </div>
