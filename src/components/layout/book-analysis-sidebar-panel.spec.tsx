@@ -12,12 +12,12 @@ import type { BookAnalysisTask } from "@/lib/novel/book-analysis/types"
 
 const bookAnalysis = vi.hoisted(() => {
   const state = {
-    setSelectedLibraryBookId: vi.fn(),
+    setSelectedLibraryBookId: vi.fn<(bookId: string) => void>(),
     sidebarRefreshCounter: 0,
-    triggerSidebarRefresh: vi.fn(),
+    triggerSidebarRefresh: vi.fn<() => void>(),
     tasks: [] as BookAnalysisTask[],
-    cancelTask: vi.fn(),
-    requestReopenChapterSelection: vi.fn(),
+    cancelTask: vi.fn<(taskId: string) => void>(),
+    requestReopenChapterSelection: vi.fn<(taskId: string) => void>(),
   }
   return { state }
 })
@@ -31,8 +31,8 @@ const wiki = vi.hoisted(() => {
 })
 
 const fsMock = vi.hoisted(() => ({
-  listDirectory: vi.fn(async () => []),
-  readFile: vi.fn(async () => ""),
+  listDirectory: vi.fn<(dir: string) => Promise<Array<{ name: string; is_dir: boolean; path: string }>>>(async () => []),
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
   deleteFile: vi.fn(async () => {}),
 }))
 
@@ -82,7 +82,6 @@ vi.mock("@/stores/book-analysis-store", () => ({
 }))
 
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
-import { listDirectory, readFile, deleteFile } from "@/commands/fs"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -523,7 +522,7 @@ describe("BookAnalysisSidebarPanel", () => {
         completed: 42,
         total: 100,
         percentage: 42,
-        recognitionStatus: "pending",
+        recognitionStatus: "llm_recognizing",
         currentItem: "正在提取角色：林烬",
       },
       status: "running",
@@ -563,6 +562,7 @@ describe("BookAnalysisSidebarPanel", () => {
           completed: 0,
           total: 10,
           recognitionStatus: "llm_recognizing",
+          percentage: 0,
         },
         status: "running",
         startedAt: 0,
@@ -577,7 +577,7 @@ describe("BookAnalysisSidebarPanel", () => {
         bookId: "book-1",
         config: { sourceType: "file", sourcePath: "/books/a.txt", selectedChapters: [] },
         progress: {
-          stage: "done",
+          stage: "completed",
           stageLabel: "完成",
           completed: 10,
           total: 10,
