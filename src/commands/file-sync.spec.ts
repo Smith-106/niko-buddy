@@ -24,7 +24,15 @@ vi.mock("@/lib/source-watch-config", () => ({
 }))
 
 const QUEUE = { version: 1, tasks: [] }
-const CONFIG: SourceWatchConfig = { extensions: ["md"], ignorePaths: [] }
+const CONFIG: SourceWatchConfig = {
+  enabled: true,
+  autoIngest: false,
+  includeExtensions: ["md"],
+  excludeExtensions: [],
+  excludeDirs: [],
+  excludeGlobs: [],
+  maxFileSizeMb: 5,
+}
 
 describe("file-sync command wrappers", () => {
   beforeEach(() => {

@@ -196,7 +196,7 @@ describe("runDuplicateDetection", () => {
     mocks.readFile.mockResolvedValue("---\ntype: entity\n---\nbody")
     mocks.extractEntitySummary.mockImplementation((rel: string) => ({ slug: rel, summary: "s" }))
     mocks.loadNotDuplicates.mockResolvedValue([["a", "b"]])
-    const group: DuplicateGroup = { slugs: ["a", "b"], reason: "same", confidence: 0.9 }
+    const group: DuplicateGroup = { slugs: ["a", "b"], reason: "same", confidence: "high" }
     mocks.detectDuplicateGroups.mockResolvedValue([group])
     const signal = new AbortController().signal
 
@@ -214,7 +214,6 @@ describe("runDuplicateDetection", () => {
 
 describe("executeMerge", () => {
   const mergeResult: MergeResult = {
-    canonicalSlug: "canon",
     canonicalPath: "wiki/entities/canon.md",
     canonicalContent: "# Canon merged",
     rewrites: [{ path: "wiki/entities/B.md", newContent: "[[canon]]" }],
@@ -248,7 +247,7 @@ describe("executeMerge", () => {
       if (p.endsWith("B.md")) return "B content"
       return "# Index"
     })
-    const group: DuplicateGroup = { slugs: ["A", "B"], reason: "dup", confidence: 1 }
+    const group: DuplicateGroup = { slugs: ["A", "B"], reason: "dup", confidence: "high" }
 
     const result = await executeMerge("/P", group, "A", fakeLlmConfig)
 
@@ -285,7 +284,7 @@ describe("executeMerge", () => {
     ]))
     mocks.readFile.mockResolvedValue("content")
 
-    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: 1 }, "A", fakeLlmConfig)
+    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: "high" }, "A", fakeLlmConfig)
 
     expect(mocks.mergeDuplicateGroup).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -302,7 +301,7 @@ describe("executeMerge", () => {
   it("throws when a group slug cannot be resolved on disk", async () => {
     mocks.listDirectory.mockResolvedValue(pagesFixture())
     mocks.readFile.mockResolvedValue("content")
-    const group: DuplicateGroup = { slugs: ["A", "Ghost"], reason: "dup", confidence: 1 }
+    const group: DuplicateGroup = { slugs: ["A", "Ghost"], reason: "dup", confidence: "high" }
     await expect(executeMerge("/P", group, "A", fakeLlmConfig)).rejects.toThrow(
       'Slug "Ghost" not found on disk',
     )
@@ -314,7 +313,7 @@ describe("executeMerge", () => {
     mocks.deleteFile.mockRejectedValue(new Error("permission"))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 
-    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: 1 }, "A", fakeLlmConfig)
+    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: "high" }, "A", fakeLlmConfig)
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("failed to delete"))
     warn.mockRestore()
@@ -332,7 +331,7 @@ describe("executeMerge", () => {
       ]),
     )
     mocks.readFile.mockResolvedValue("content")
-    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: 1 }, "A", fakeLlmConfig)
+    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: "high" }, "A", fakeLlmConfig)
     expect(mocks.rewriteIndexMd).not.toHaveBeenCalled()
   })
 
@@ -340,7 +339,7 @@ describe("executeMerge", () => {
     mocks.listDirectory.mockResolvedValue(pagesFixture())
     mocks.readFile.mockImplementation(async (p: string) => (p.endsWith("index.md") ? "plain" : "content"))
     mocks.rewriteIndexMd.mockReturnValue("plain")
-    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: 1 }, "A", fakeLlmConfig)
+    await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: "high" }, "A", fakeLlmConfig)
     expect(mocks.writeFile).not.toHaveBeenCalledWith("/P/wiki/index.md", "plain")
   })
 })

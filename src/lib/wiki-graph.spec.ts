@@ -57,8 +57,7 @@ vi.mock("@/stores/wiki-store", () => ({
 }))
 
 import { listDirectory, readFile } from "@/commands/fs"
-import { buildRetrievalGraph, calculateRelevance } from "@/lib/graph-relevance"
-import { buildWikiGraph, type GraphEdge, type GraphNode } from "./wiki-graph"
+import { buildWikiGraph, type GraphEdge } from "./wiki-graph"
 
 const mockedListDirectory = vi.mocked(listDirectory)
 const mockedReadFile = vi.mocked(readFile)

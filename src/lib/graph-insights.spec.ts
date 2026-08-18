@@ -42,17 +42,17 @@ describe("findSurprisingConnections", () => {
   })
 
   it("skips edges whose endpoints are missing from the node map", () => {
-    const result = findSurprisingConnections([n.hero], [edge("hero", "ghost", 1)], 5)
+    const result = findSurprisingConnections([n.hero], [edge("hero", "ghost", 1)], [], 5)
     expect(result).toEqual([])
   })
 
   it("skips structural node edges", () => {
-    const result = findSurprisingConnections([n.hero, n.index], [edge("index", "hero", 3)], 5)
+    const result = findSurprisingConnections([n.hero, n.index], [edge("index", "hero", 3)], [], 5)
     expect(result).toEqual([])
   })
 
   it("scores cross-community links", () => {
-    const result = findSurprisingConnections(nodes, [edge("hero", "villain", 2)], 5)
+    const result = findSurprisingConnections(nodes, [edge("hero", "villain", 2)], [], 5)
     expect(result.length).toBe(1)
     expect(result[0].score).toBeGreaterThanOrEqual(3)
     expect(result[0].reasons).toContain("跨社群关联")
@@ -61,24 +61,24 @@ describe("findSurprisingConnections", () => {
   it("scores distant cross-type pairs higher", () => {
     const srcA = node("srcA", "素材A", "source", 2, 1)
     const synthB = node("synthB", "综合", "synthesis", 1, 2)
-    const result = findSurprisingConnections([srcA, synthB], [edge("srcA", "synthB", 0.5)], 5)
+    const result = findSurprisingConnections([srcA, synthB], [edge("srcA", "synthB", 0.5)], [], 5)
     expect(result.length).toBe(1)
     expect(result[0].reasons.some((r) => r.includes("连接到"))).toBe(true)
     expect(result[0].score).toBeGreaterThanOrEqual(3)
   })
 
   it("scores generic cross-type links", () => {
-    const result = findSurprisingConnections(nodes, [edge("hero", "sword", 2)], 5)
+    const result = findSurprisingConnections(nodes, [edge("hero", "sword", 2)], [], 5)
     expect(result[0].reasons).toContain("不同类型节点相连")
   })
 
   it("scores peripheral-to-hub edges", () => {
-    const result = findSurprisingConnections(nodes, [edge("tower", "hero", 2)], 5)
+    const result = findSurprisingConnections(nodes, [edge("tower", "hero", 2)], [], 5)
     expect(result[0].reasons).toContain("边缘节点连接到核心节点")
   })
 
   it("scores low-weight edges", () => {
-    const result = findSurprisingConnections(nodes, [edge("hero", "villain", 0.5)], 5)
+    const result = findSurprisingConnections(nodes, [edge("hero", "villain", 0.5)], [], 5)
     expect(result[0].reasons).toContain("弱关联但已形成连接")
   })
 
@@ -88,6 +88,7 @@ describe("findSurprisingConnections", () => {
     const result = findSurprisingConnections(
       [a, b],
       [edge("a", "b", 1)],
+      [],
       5,
     )
     // same community, cross-type (+1), no peripheral signal, weight 1 → score 1 < 3
@@ -98,6 +99,7 @@ describe("findSurprisingConnections", () => {
     const result = findSurprisingConnections(
       nodes,
       [edge("hero", "villain", 2), edge("source", "synthesis", 2)],
+      [],
       5,
     )
     expect(result[0].key).toBeDefined()
@@ -113,6 +115,7 @@ describe("findSurprisingConnections", () => {
         edge("tower", "hero", 0.5),
         edge("sword", "secret", 0.5),
       ],
+      [],
       5,
     )
     expect(result.length).toBeGreaterThan(1)
@@ -129,12 +132,12 @@ describe("findSurprisingConnections", () => {
   it("uses custom type labels for distant pairs", () => {
     const q = node("q", "问答记录", "query", 2, 1)
     const e = node("e", "实体", "entity", 1, 2)
-    const result = findSurprisingConnections([q, e], [edge("q", "e", 0.5)], 5)
+    const result = findSurprisingConnections([q, e], [edge("q", "e", 0.5)], [], 5)
     expect(result[0].reasons.some((r) => r.includes("问答记录连接到实体"))).toBe(true)
   })
 
   it("scores generic cross-type links for non-distant pairs", () => {
-    const result = findSurprisingConnections(nodes, [edge("hero", "sword", 2)], 5)
+    const result = findSurprisingConnections(nodes, [edge("hero", "sword", 2)], [], 5)
     expect(result[0].reasons).toContain("不同类型节点相连")
   })
 })

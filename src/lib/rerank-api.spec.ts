@@ -12,7 +12,9 @@ vi.mock("@/lib/tauri-fetch", () => ({
 
 import { isDirectRerankEndpoint, requestDirectRerank } from "./rerank-api"
 
-function makeConfig(overrides: Partial<{ provider: string; customEndpoint: string; apiKey: string; model: string }> = {}) {
+function makeConfig(
+  overrides: Partial<{ provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"; customEndpoint: string; apiKey: string; model: string }> = {},
+) {
   return {
     provider: "custom",
     customEndpoint: "https://example.com/v1/rerank",

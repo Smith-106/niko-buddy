@@ -9,11 +9,15 @@ function makeTask(overrides: Partial<FileChangeTask> = {}): FileChangeTask {
     id: "t1",
     projectId: "p1",
     path: "/a.md",
-    kind: "update",
+    kind: "modified",
     status: "pending",
     hashBefore: null,
     hashAfter: null,
     size: 10,
+    createdAt: 0,
+    updatedAt: 0,
+    retryCount: 0,
+    needsRerun: false,
     ...overrides,
   }
 }
