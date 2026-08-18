@@ -4,6 +4,8 @@ import {
   applyUserWeightsToRules,
   buildUserAwareDeAiPrompt,
   mapPreferenceToDeAiCategory,
+  getAvoidWords,
+  hasUserDeAiWeights,
 } from "./rules-weight"
 import { createDefaultStore, createPreference } from "./types"
 import type { UserMemoryStore, DeAiWeights } from "./types"
@@ -243,6 +245,85 @@ describe("user-memory/rules-weight", () => {
       const store = createDefaultStore()
       const prompt = buildUserAwareDeAiPrompt(store, "unknown_genre")
       expect(prompt).not.toContain("流派基线")
+    })
+
+    it("includes user avoid words section when present", () => {
+      const store = makeStoreWithPrefs([
+        { key: "avoid_words", value: "仿佛、不禁", category: "vocabulary" },
+      ])
+      const prompt = buildUserAwareDeAiPrompt(store)
+      expect(prompt).toContain("用户避用词")
+      expect(prompt).toContain("仿佛、不禁")
+    })
+
+    it("omits avoid words section when none present", () => {
+      const store = createDefaultStore()
+      const prompt = buildUserAwareDeAiPrompt(store)
+      expect(prompt).not.toContain("用户避用词")
+    })
+  })
+
+  describe("getAvoidWords", () => {
+    it("returns empty for no vocabulary prefs", () => {
+      const store = createDefaultStore()
+      expect(getAvoidWords(store)).toEqual([])
+    })
+
+    it("aggregates avoid_words prefs, splitting on separators", () => {
+      const store = makeStoreWithPrefs([
+        { key: "avoid_words", value: "仿佛、不禁、顿时", category: "vocabulary" },
+        { key: "avoid_words:2", value: "微微一笑，嘴角上扬", category: "vocabulary" },
+      ])
+      expect(getAvoidWords(store)).toEqual(["仿佛", "不禁", "顿时", "微微一笑", "嘴角上扬"])
+    })
+
+    it("dedupes and filters empty tokens", () => {
+      const store = makeStoreWithPrefs([
+        { key: "avoid_words", value: "仿佛, 仿佛, ,，", category: "vocabulary" },
+      ])
+      expect(getAvoidWords(store)).toEqual(["仿佛"])
+    })
+
+    it("ignores non-vocabulary prefs", () => {
+      const store = makeStoreWithPrefs([
+        { key: "dim:plot", value: "0.3", category: "review" },
+        { key: "avoid_words", value: "仿佛", category: "vocabulary" },
+      ])
+      expect(getAvoidWords(store)).toEqual(["仿佛"])
+    })
+  })
+
+  describe("hasUserDeAiWeights", () => {
+    it("false for empty store", () => {
+      expect(hasUserDeAiWeights(createDefaultStore())).toBe(false)
+    })
+
+    it("true for category boost", () => {
+      const store = makeStoreWithPrefs([
+        { key: "deai_boost:词汇", value: "2.0", category: "vocabulary" },
+      ])
+      expect(hasUserDeAiWeights(store)).toBe(true)
+    })
+
+    it("true for severity threshold", () => {
+      const store = makeStoreWithPrefs([
+        { key: "deai_threshold", value: "high", category: "vocabulary" },
+      ])
+      expect(hasUserDeAiWeights(store)).toBe(true)
+    })
+
+    it("true for genre override", () => {
+      const store = makeStoreWithPrefs([
+        { key: "genre_pacing:玄幻", value: "slow", category: "vocabulary" },
+      ])
+      expect(hasUserDeAiWeights(store)).toBe(true)
+    })
+
+    it("true for avoid words only", () => {
+      const store = makeStoreWithPrefs([
+        { key: "avoid_words", value: "仿佛", category: "vocabulary" },
+      ])
+      expect(hasUserDeAiWeights(store)).toBe(true)
     })
   })
 

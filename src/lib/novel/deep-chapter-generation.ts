@@ -35,6 +35,8 @@ import {
   buildDeepChapterRevisionPrompt,
   buildStableContextPrefix,
 } from "./deep-chapter-prompts"
+import { loadUserMemoryForProject } from "@/lib/user-memory/session"
+import type { UserMemoryStore } from "@/lib/user-memory/types"
 import {
   runSceneBreakdown,
   persistSceneBreakdownDraft,
@@ -971,7 +973,7 @@ export async function runDeepChapterGeneration(
   const ctx1 = await assembleContext(
     deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
   )
-  const { contextPack, customDeAiSkill, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
+  const { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
   assertNotAborted(signal)
 
   // TASK-007: 确定性连续性引擎生成层预检 (grill GRL-011 Decision 1.3 bullet 模式)。
@@ -1068,6 +1070,7 @@ export async function runDeepChapterGeneration(
     deps,
     signal,
     customDeAiSkill || undefined,
+    userMemoryStore ?? undefined,
     lengthSpec,
     cachePrefix,
     notePartial,
@@ -1243,6 +1246,7 @@ async function runPreviousChaptersAnalysis(
 interface AssembledContext {
   contextPack: ContextPack
   customDeAiSkill: string | null
+  userMemoryStore: UserMemoryStore | null
   outlinePrompt: string
   communitySummaryInjection: string
   contextPrompt: string
@@ -1268,6 +1272,9 @@ async function assembleContext(
 
   // 阶段1后：加载智能skill（传递contextPack用于场景检测）
   const customDeAiSkill = await loadSmartDeAiSkill(input.projectPath, input.userRequest, contextPack)
+
+  // 阶段1后：加载用户记忆 store（Wave 1 接线；无文件时返回默认空 store）
+  const userMemoryStore = await loadUserMemoryForProject(input.projectPath)
 
   // 独立提取大纲，不通过contextPackToPrompt
   const outlinePrompt = contextPack.outline
@@ -1352,7 +1359,7 @@ async function assembleContext(
   }
   assertNotAborted(signal)
 
-  return { contextPack, customDeAiSkill, outlinePrompt, communitySummaryInjection, contextPrompt, cachePrefix }
+  return { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, communitySummaryInjection, contextPrompt, cachePrefix }
 }
 
 // 阶段1.5：Scene Breakdown（ADR-30 / EPIC-002 / TASK-012）。
@@ -2221,6 +2228,7 @@ async function finalPolishChapter(
   deps: DeepChapterGenerationDeps,
   signal?: AbortSignal,
   customDeAiSkill?: string,
+  userMemoryStore?: UserMemoryStore,
   lengthSpec: ChapterLengthSpec = resolveChapterLengthSpec(),
   cachePrefix?: string,
   onPartial?: (reason: string) => void,
@@ -2240,6 +2248,7 @@ async function finalPolishChapter(
         input.chapterNumber,
         input.goldenThreeChapter,
         customDeAiSkill,
+        userMemoryStore,
       ),
     }],
     deps,

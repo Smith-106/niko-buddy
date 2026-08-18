@@ -1,6 +1,8 @@
 import type { NovelReviewResult } from "./review-adapter"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
 import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
+import { buildUserAwareDeAiPrompt, hasUserDeAiWeights } from "@/lib/user-memory/rules-weight"
+import type { UserMemoryStore } from "@/lib/user-memory/types"
 
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
@@ -215,8 +217,13 @@ export function buildDeepChapterFinalPolishPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   customDeAiSkill?: string,
+  userMemoryStore?: UserMemoryStore,
 ): string {
-  const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
+  const deAiRules = customDeAiSkill && customDeAiSkill.trim()
+    ? customDeAiSkill.trim()
+    : (userMemoryStore && hasUserDeAiWeights(userMemoryStore)
+        ? buildUserAwareDeAiPrompt(userMemoryStore)
+        : CHINESE_NOVEL_DE_AI_RULES)
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "[FINAL_POLISH_STAGE_MARKER]",

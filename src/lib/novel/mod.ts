@@ -100,3 +100,19 @@ export { scoreReviewResults, CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_D
 export { gateV2WeightedScore, extractReadingPowerFeatures, buildP2ReferenceScore, formatP2ReferenceScore, GATE_V2_WEIGHTS, GATE_V2_PASS_THRESHOLD, type GateV2Score, type ReadingPowerFeatures, type P2ReferenceScore } from "./gate-v2-scoring"
 export { readSoulDoc, writeSoulDoc, SOUL_DOC_FILENAME } from "./soul-doc"
 export { analyzeForeshadowingDebt, type ForeshadowingDebtItem, type ForeshadowingDebtReport, type ForeshadowingDebtOptions } from "./foreshadowing-debt"
+// Wave 1 (v2.5.0): 用户记忆系统 canonical 出口（耦合治理：主链只依赖本导出面）
+export {
+  buildReviewScoringOptions,
+  buildUserAwareDeAiPrompt,
+  hasUserDeAiWeights,
+  getAvoidWords,
+  getUserMemoryStore,
+  loadUserMemoryForProject,
+  saveUserMemoryForProject,
+  listPreferences,
+  addPreferenceForProject,
+  updatePreferenceForProject,
+  deletePreferenceForProject,
+  type UserMemoryStore,
+  type UserPreference,
+} from "../user-memory"

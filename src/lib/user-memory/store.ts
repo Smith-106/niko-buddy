@@ -5,7 +5,7 @@
  * 纯 CRUD + 文件 IO，不包含业务逻辑。
  */
 
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import type { UserPreference, UserMemoryStore, PreferenceCategory } from "./types"
 import { createDefaultStore } from "./types"
 
@@ -36,10 +36,10 @@ export async function loadUserMemory(filePath: string): Promise<UserMemoryStore>
   }
 }
 
-/** 保存 UserMemoryStore 到文件 */
+/** 保存 UserMemoryStore 到文件（原子写，防断电半写） */
 export async function saveUserMemory(filePath: string, store: UserMemoryStore): Promise<void> {
   store.updatedAt = new Date().toISOString()
-  await writeFile(filePath, JSON.stringify(store, null, 2))
+  await writeFileAtomic(filePath, JSON.stringify(store, null, 2))
 }
 
 // ── CRUD ──

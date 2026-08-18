@@ -1325,6 +1325,7 @@ describe("ReviewView — 维度模式 (dimensionKey / resultScoreDimensionKeys)"
       expect.any(Array),
       expect.any(Object),
       ["consistency"],
+      undefined,
     )
     expect(screen.queryByText("novel.review.resultsTitle")).not.toBeInTheDocument()
   })

@@ -13,6 +13,7 @@ import {
   resolveChapterLengthSpec,
 } from "./deep-chapter-prompts"
 import type { NovelReviewResult } from "./review-adapter"
+import { createDefaultStore, createPreference } from "@/lib/user-memory/types"
 
 describe("resolveChapterLengthSpec", () => {
   it("keeps the built-in defaults when no target is configured", () => {
@@ -92,6 +93,43 @@ describe("prompt builders fallback branches (w3nb 补齐)", () => {
 
     const fallback = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, "")
     expect(fallback).toContain("中文小说去 AI 味补充规则")
+  })
+
+  it("final polish prompt uses user-aware de-AI rules when store has weights", () => {
+    const store = createDefaultStore()
+    store.preferences.push(
+      createPreference({ key: "deai_boost:词汇", value: "2.0", category: "vocabulary" }),
+    )
+    const prompt = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, store)
+    expect(prompt).toContain("用户个性化")
+    expect(prompt).not.toContain("中文小说去 AI 味补充规则")
+  })
+
+  it("final polish prompt includes user avoid words section", () => {
+    const store = createDefaultStore()
+    store.preferences.push(
+      createPreference({ key: "avoid_words", value: "仿佛、不禁", category: "vocabulary" }),
+    )
+    const prompt = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, store)
+    expect(prompt).toContain("用户避用词")
+    expect(prompt).toContain("仿佛、不禁")
+  })
+
+  it("final polish prompt falls back to built-in rules when store has no weights", () => {
+    const store = createDefaultStore()
+    const prompt = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, store)
+    expect(prompt).toContain("中文小说去 AI 味补充规则")
+    expect(prompt).not.toContain("用户个性化")
+  })
+
+  it("final polish prompt prefers custom skill over user store", () => {
+    const store = createDefaultStore()
+    store.preferences.push(
+      createPreference({ key: "deai_boost:词汇", value: "2.0", category: "vocabulary" }),
+    )
+    const prompt = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, "自定义规则", store)
+    expect(prompt).toContain("自定义规则")
+    expect(prompt).not.toContain("用户个性化")
   })
 
   it("revision prompt renders review issues incl. evidence/relatedMemory/suggestion", () => {

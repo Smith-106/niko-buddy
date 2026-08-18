@@ -8,6 +8,8 @@ import {
   mapNovelReviewActionSeverity,
 } from "./novel-review-action-items"
 import type { DimensionReviewResult } from "@/lib/novel/dimension-review-adapter"
+import { createDefaultStore, createPreference } from "@/lib/user-memory/types"
+import type { UserMemoryStore } from "@/lib/user-memory/types"
 
 describe("novel review action items", () => {
   const result: NovelReviewResult = {
@@ -81,6 +83,36 @@ describe("novel review action items", () => {
       [result],
       {},
       [],
+    )
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.message).toBe("第八章没有读取章纲目标")
+  })
+
+  it("passes user calibration options when store has dimension overrides", () => {
+    const store: UserMemoryStore = createDefaultStore()
+    store.preferences.push(
+      createPreference({ key: "dim:plot", value: "0.9", category: "review" }),
+    )
+    const visible = buildVisibleNovelReviewActionItemsForScoreDimensions(
+      "E:/Book/wiki/chapters/008.md",
+      [result],
+      {},
+      ["plot"],
+      store,
+    )
+    // 用户把 plot 权重提到 0.9：warning 级 plot issue 仍应进入 scoped 列表
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.message).toBe("第八章没有读取章纲目标")
+  })
+
+  it("ignores store when it has no user overrides (backward-compat gate)", () => {
+    const store: UserMemoryStore = createDefaultStore()
+    const visible = buildVisibleNovelReviewActionItemsForScoreDimensions(
+      "E:/Book/wiki/chapters/008.md",
+      [result],
+      {},
+      ["plot"],
+      store,
     )
     expect(visible).toHaveLength(1)
     expect(visible[0]?.message).toBe("第八章没有读取章纲目标")

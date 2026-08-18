@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog"
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { getUserMemoryStore } from "@/lib/user-memory/session"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { writeFile, readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
@@ -177,10 +178,11 @@ export function ReviewView({
         novelReviewResults,
         issueState.ignored,
         resultScoreDimensionKeys ?? [],
+        project?.path ? getUserMemoryStore(project.path) ?? undefined : undefined,
       )
       : buildVisibleNovelReviewActionItems(reviewRun?.filePath, novelReviewResults, issueState.ignored),
       /* v8 ignore stop */
-    [dimensionKey, dimensionScoped, issueState.ignored, novelReviewResults, resultScoreDimensionKeys, reviewRun?.dimensionResults, reviewRun?.filePath],
+    [dimensionKey, dimensionScoped, issueState.ignored, novelReviewResults, resultScoreDimensionKeys, reviewRun?.dimensionResults, reviewRun?.filePath, project?.path],
   )
 
   useEffect(() => {

@@ -126,6 +126,40 @@ export function applyUserWeightsToRules(
 }
 
 /**
+ * 判断用户是否做了任何 de-ai 个性化（类别增强/阈值/流派覆盖/避用词）。
+ * 用于接线门控：无个性化时调用方回退旧行为（逐字节不变）。
+ */
+export function hasUserDeAiWeights(store: UserMemoryStore): boolean {
+  const weights = buildDeAiWeightsFromPreferences(store)
+  return (
+    Object.keys(weights.categoryBoosts).length > 0
+    || weights.severityThreshold !== "medium"
+    || Object.keys(weights.genreOverrides).length > 0
+    || getAvoidWords(store).length > 0
+  )
+}
+
+/**
+ * 聚合用户避用词列表（category === "vocabulary" 且 key 以 avoid_words 开头）。
+ * value 按 [,，、\s]+ 切分、去重、滤空。
+ */
+export function getAvoidWords(store: UserMemoryStore): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const pref of getPreferences(store, "vocabulary")) {
+    if (!pref.key.startsWith("avoid_words")) continue
+    for (const word of pref.value.split(/[,，、\s]+/)) {
+      const trimmed = word.trim()
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed)
+        result.push(trimmed)
+      }
+    }
+  }
+  return result
+}
+
+/**
  * 构建用户感知的 de-ai 语义层 prompt。
  *
  * 等价于 `buildStructuredDeAiRules()` 但叠加用户偏好权重。
@@ -136,6 +170,7 @@ export function buildUserAwareDeAiPrompt(
 ): string {
   const weights = buildDeAiWeightsFromPreferences(store)
   const weightedRules = applyUserWeightsToRules(DE_AI_STRUCTURED_RULES, weights)
+  const avoidWords = getAvoidWords(store)
 
   // 流派基线：优先用户覆盖，其次默认基线
   let baseline = genre ? getGenreBaseline(genre) : undefined
@@ -151,6 +186,7 @@ export function buildUserAwareDeAiPrompt(
   const hasUserWeights = Object.keys(weights.categoryBoosts).length > 0
     || weights.severityThreshold !== "medium"
     || Object.keys(weights.genreOverrides).length > 0
+    || avoidWords.length > 0
 
   if (!hasUserWeights) {
     return buildStructuredDeAiRules(genre, weights.severityThreshold)
@@ -176,6 +212,11 @@ export function buildUserAwareDeAiPrompt(
     for (const r of catRules) {
       lines.push(`- [${r.severity}] ${r.rule}${r.example ? ` (${r.example})` : ""}`)
     }
+    lines.push("")
+  }
+  if (avoidWords.length > 0) {
+    lines.push("## 用户避用词 (生成时禁止使用)")
+    lines.push(`- ${avoidWords.join("、")}`)
     lines.push("")
   }
   lines.push("## 保留内容 (不可删改)")

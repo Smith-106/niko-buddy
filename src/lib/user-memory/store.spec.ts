@@ -16,9 +16,10 @@ import type { UserMemoryStore } from "./types"
 vi.mock("@/commands/fs", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
 }))
 
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFile, writeFileAtomic } from "@/commands/fs"
 
 function makeStore(prefs = 0): UserMemoryStore {
   const store = createDefaultStore()
@@ -263,16 +264,17 @@ describe("user-memory/store — file IO", () => {
   })
 
   describe("saveUserMemory", () => {
-    it("saves store with updated timestamp", async () => {
+    it("saves store with updated timestamp via atomic write", async () => {
       const store = makeStore(1)
 
       await saveUserMemory("/test/user-memory.json", store)
-      expect(vi.mocked(writeFile)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(writeFileAtomic)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(writeFile)).not.toHaveBeenCalled()
       // updatedAt should be a valid ISO timestamp
       expect(store.updatedAt).toBeTruthy()
       expect(new Date(store.updatedAt).getTime()).toBeGreaterThan(0)
 
-      const savedJson = vi.mocked(writeFile).mock.calls[0]![1]
+      const savedJson = vi.mocked(writeFileAtomic).mock.calls[0]![1]
       const parsed = JSON.parse(savedJson as string)
       expect(parsed.version).toBe("user-memory/1.0")
       expect(parsed.preferences).toHaveLength(1)

@@ -2,6 +2,8 @@ import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import { buildDashboardIssueId } from "@/lib/dashboard-issue-actions"
 import { scoreReviewResults } from "@/lib/novel/review-scoring"
+import { buildReviewScoringOptions } from "@/lib/user-memory/injector"
+import type { UserMemoryStore } from "@/lib/user-memory/types"
 
 export type NovelReviewActionSeverity = "blocking" | "high" | "medium" | "low"
 
@@ -72,6 +74,7 @@ export function buildVisibleNovelReviewActionItemsForScoreDimensions(
   results: NovelReviewResult[],
   ignored: Record<string, true>,
   scoreDimensionKeys: string[],
+  userMemoryStore?: UserMemoryStore,
 ): NovelReviewActionItem[] {
   if (scoreDimensionKeys.length === 0) {
     return buildVisibleNovelReviewActionItems(targetPath, results, ignored)
@@ -79,7 +82,10 @@ export function buildVisibleNovelReviewActionItemsForScoreDimensions(
 
   const allowed = new Set(scoreDimensionKeys)
   const scopedResults: NovelReviewResult[] = []
-  for (const dimension of scoreReviewResults(results).dimensions) {
+  // 用户校准门控：仅当存在用户维度/严重度覆盖时才传 options（无偏好时逐字节回退旧行为）
+  const opts = userMemoryStore ? buildReviewScoringOptions(userMemoryStore) : undefined
+  const scoringOptions = opts && (opts.dimensionWeights || opts.severityDeductions) ? opts : undefined
+  for (const dimension of scoreReviewResults(results, scoringOptions).dimensions) {
     if (allowed.has(dimension.key)) {
       scopedResults.push(...dimension.issues)
     }
