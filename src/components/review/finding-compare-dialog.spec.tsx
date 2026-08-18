@@ -7,7 +7,6 @@ import {
   render,
   screen,
   waitFor,
-  setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { FindingCompareDialog, type FindingCompareDialogProps } from "./finding-compare-dialog"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"

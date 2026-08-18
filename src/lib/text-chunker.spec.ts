@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { chunkMarkdown, stripFrontmatter, type Chunk } from "./text-chunker"
+import { chunkMarkdown, stripFrontmatter } from "./text-chunker"
 
 // ── stripFrontmatter ─────────────────────────────────────────────────────────
 

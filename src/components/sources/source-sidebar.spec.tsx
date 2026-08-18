@@ -298,7 +298,7 @@ describe("SourceSidebar — 树交互", () => {
   })
 
   it("大量节点时先渲染 160 行，IntersectionObserver 触发加载更多", async () => {
-    mocks.listDirectory.mockImplementation((dir: string) => Promise.resolve(makeManyFiles(165)))
+    mocks.listDirectory.mockImplementation((_dir: string) => Promise.resolve(makeManyFiles(165)))
     render(<SourceSidebar />)
     expect(await screen.findByText("f0.md")).toBeTruthy()
     expect(screen.getByText("sources.loadingMore")).toBeTruthy()

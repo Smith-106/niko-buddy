@@ -164,12 +164,12 @@ describe("ISS-20260719-002 extractUsage token data channel", () => {
     const cfg = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
     const start = cfg.extractUsage!(
       `data: {"type":"message_start","message":{"usage":{"input_tokens":1200,"cache_read_input_tokens":800}}}`,
-    )
+    ) as { input: number; output: number }
     expect(start).toEqual({ input: 2000, output: 0 })
 
     const delta = cfg.extractUsage!(
       `data: {"type":"message_delta","usage":{"output_tokens":450}}`,
-    )
+    ) as { input: number; output: number }
     expect(delta).toEqual({ input: 0, output: 450 })
   })
 
@@ -565,22 +565,22 @@ describe("google body builder", () => {
     expect(off.generationConfig).toEqual({ thinkingConfig: { thinkingBudget: 0 } })
 
     const strStop = googleBody({}, { stop: "END" })
-    expect(strStop.generationConfig.stopSequences).toEqual(["END"])
+    expect((strStop.generationConfig as { stopSequences?: string[] } | undefined)?.stopSequences).toEqual(["END"])
 
     const low = googleBody({}, { reasoning: { mode: "low" } })
-    expect(low.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 1024 })
+    expect((low.generationConfig as { thinkingConfig?: { thinkingBudget: number } } | undefined)?.thinkingConfig).toEqual({ thinkingBudget: 1024 })
 
     const medium = googleBody({}, { reasoning: { mode: "medium" } })
-    expect(medium.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 4096 })
+    expect((medium.generationConfig as { thinkingConfig?: { thinkingBudget: number } } | undefined)?.thinkingConfig).toEqual({ thinkingBudget: 4096 })
 
     const high = googleBody({}, { reasoning: { mode: "high" } })
-    expect(high.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 8192 })
+    expect((high.generationConfig as { thinkingConfig?: { thinkingBudget: number } } | undefined)?.thinkingConfig).toEqual({ thinkingBudget: 8192 })
 
     const custom = googleBody({}, { reasoning: { mode: "custom", budgetTokens: 3000 } })
-    expect(custom.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 3000 })
+    expect((custom.generationConfig as { thinkingConfig?: { thinkingBudget: number } } | undefined)?.thinkingConfig).toEqual({ thinkingBudget: 3000 })
 
-    const auto = googleBody({}, { reasoning: { mode: "auto" } })
-    expect(auto.generationConfig).toBeUndefined()
+    const notes = googleBody({}, { reasoning: { mode: "auto" } }).generationConfig
+    expect(notes).toBeUndefined()
   })
 
   it("no overrides → no generationConfig; block system content flattens", () => {

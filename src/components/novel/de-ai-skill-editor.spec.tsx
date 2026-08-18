@@ -123,7 +123,7 @@ describe("DeAiSkillEditor", () => {
   })
 
   it("disables save while saving and when content is empty", async () => {
-    let resolveWrite!: (v: unknown) => void
+    let resolveWrite!: (v: void) => void
     fsMock.writeFile.mockImplementationOnce(() => new Promise((res) => { resolveWrite = res }))
     render(<DeAiSkillEditor />)
     await screen.findByRole("textbox")

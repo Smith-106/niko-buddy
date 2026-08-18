@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { StyleExemplar } from "./style-exemplars-loader"
 import {
   DEFAULT_GOLD_TARGET_SCORE,

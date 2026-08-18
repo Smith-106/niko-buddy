@@ -31,7 +31,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
   }
 }
 
-function mdFile(name: string, content: string, root = "/P/wiki"): FileNode {
+function mdFile(name: string, _content: string, root = "/P/wiki"): FileNode {
   return { name, path: `${root}/${name}`, is_dir: false }
 }
 

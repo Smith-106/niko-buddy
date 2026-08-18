@@ -9,6 +9,7 @@ import {
   screen,
 } from "@/test-helpers/component-test-utils"
 import { FilePreview } from "./file-preview"
+import type { FrontmatterParseResult } from "@/lib/frontmatter"
 
 interface ProjectLike {
   id: string
@@ -37,7 +38,7 @@ const mocks = vi.hoisted(() => {
     detectLanguage: vi.fn(() => "zh"),
     getHtmlLang: vi.fn(() => "zh"),
     getTextDirection: vi.fn(() => "ltr"),
-    parseFrontmatter: vi.fn((content: string) => ({ frontmatter: null, body: content, rawBlock: "" })),
+    parseFrontmatter: vi.fn<(content: string) => FrontmatterParseResult>((content) => ({ frontmatter: null, body: content, rawBlock: "" })),
     isTauri: vi.fn(() => false),
     convertFileSrc: vi.fn((p: string) => `asset://${p}`),
   }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { FileNode } from "@/types/wiki"
+
 
 const listDirectory = vi.fn()
 

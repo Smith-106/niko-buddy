@@ -654,7 +654,7 @@ describe("SearchView 图片网格与 lightbox", () => {
       }),
     ])
     const onClose = vi.fn()
-    const { rerender } = render(<SearchView onClose={onClose} />)
+    render(<SearchView onClose={onClose} />)
     typeAndSearch("总资产")
     await waitFor(() => expect(bodyContains("search.pageCount:1")).toBe(true))
     fireEvent.click(screen.getByTitle("2023年总资产合计"))

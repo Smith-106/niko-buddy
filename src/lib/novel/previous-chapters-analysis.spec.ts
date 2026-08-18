@@ -45,7 +45,7 @@ describe("analyzePreviousChapters", () => {
     searchWikiMock.mockReset()
     streamChatMock.mockReset()
     loggerErrorMock.mockReset()
-    searchWikiMock.mockImplementation(async (projectPath: string, query: string) => {
+    searchWikiMock.mockImplementation(async (_projectPath: string, query: string) => {
       const n = Number(query.match(/chapter_number:(\d+)/)?.[1])
       return [{ path: `/p/wiki/ch${n}.md` }]
     })

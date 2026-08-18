@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within, userEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { act, fireEvent, render, screen, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DashboardView } from "./dashboard-view"
@@ -602,9 +602,9 @@ describe("DashboardView — 伏笔债务区块", () => {
         warningCount: 1,
         debtScore: 55,
         items: [
-          { name: "伏笔A", debtLevel: "critical", status: "planted", plantedChapter: 2, chaptersSincePlanted: 6, lastAdvancedChapter: 0, chaptersSinceAdvanced: 0, description: "描述A" },
-          { name: "伏笔B", debtLevel: "warning", status: "advanced", plantedChapter: 1, chaptersSincePlanted: 0, lastAdvancedChapter: 5, chaptersSinceAdvanced: 4, description: "描述B" },
-          { name: "伏笔C", debtLevel: "normal", status: "planted", plantedChapter: 1, chaptersSincePlanted: 0, lastAdvancedChapter: 0, chaptersSinceAdvanced: 0, description: "描述C" },
+          { name: "伏笔A", id: "fb-a", debtLevel: "critical", status: "planted", plantedChapter: 2, chaptersSincePlanted: 6, lastAdvancedChapter: 0, chaptersSinceAdvanced: 0, description: "描述A" },
+          { name: "伏笔B", id: "fb-b", debtLevel: "warning", status: "advanced", plantedChapter: 1, chaptersSincePlanted: 0, lastAdvancedChapter: 5, chaptersSinceAdvanced: 4, description: "描述B" },
+          { name: "伏笔C", id: "fb-c", debtLevel: "normal", status: "planted", plantedChapter: 1, chaptersSincePlanted: 0, lastAdvancedChapter: 0, chaptersSinceAdvanced: 0, description: "描述C" },
         ],
       }),
     )

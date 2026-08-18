@@ -81,7 +81,7 @@ function renderSelector(props: { value: string; onChange?: (m: string) => void; 
   return render(
     <ChatModelSelector
       value={props.value}
-      onChange={props.onChange ?? vi.fn()}
+      onChange={props.onChange ?? vi.fn<(m: string) => void>()}
       disabled={props.disabled}
     />,
   )

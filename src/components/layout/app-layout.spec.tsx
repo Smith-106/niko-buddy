@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
     t,
     // ---- wiki store ----
     wikiState: {
-      project: { id: "p1", name: "Novel", path: "/proj" },
+      project: { id: "p1", name: "Novel", path: "/proj" } as { id: string; name: string; path: string } | null,
       activeView: "wiki" as string,
       setActiveView: vi.fn(),
       setActiveSettingsCategory: vi.fn(),

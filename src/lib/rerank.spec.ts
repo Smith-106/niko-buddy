@@ -308,7 +308,7 @@ describe("rerankCandidates — streamed chat path", () => {
   })
 
   it("passes purpose into the prompt and slices candidates to maxCandidates", async () => {
-    mocks.streamChat.mockImplementation(async (_cfg, msgs, callbacks) => {
+    mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {
       callbacks.onToken('{"order":[]}')
       callbacks.onDone()
     })

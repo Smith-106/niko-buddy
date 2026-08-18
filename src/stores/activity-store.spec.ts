@@ -77,7 +77,7 @@ describe("activity store", () => {
   })
 
   it("appendDetail 未命中时列表不变", () => {
-    const id = useActivityStore.getState().addItem({
+    useActivityStore.getState().addItem({
       type: "ingest", title: "导入", status: "running", detail: "step1", filesWritten: [],
     })
     useActivityStore.getState().appendDetail("missing-id", "x")

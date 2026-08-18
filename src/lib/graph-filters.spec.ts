@@ -4,7 +4,6 @@ import {
   applyGraphFilters,
   hasActiveGraphFilters,
   isStructuralGraphNode,
-  type GraphFilterState,
 } from "./graph-filters"
 import type { GraphEdge, GraphNode } from "./wiki-graph"
 

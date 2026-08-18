@@ -212,7 +212,7 @@ describe("web-search", () => {
   })
 
   it("searchWikipedia falls back to character name and endpoint url", async () => {
-    __setWebSearchFetchForTest(async (url) =>
+    __setWebSearchFetchForTest(async (_url) =>
       makeResponse(200, { extract: "Long enough content about Xu Qi'an here.", title: "X" })
     )
     const r = await searchWikipedia("许七安")

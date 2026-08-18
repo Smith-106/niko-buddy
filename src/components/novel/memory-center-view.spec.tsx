@@ -4,6 +4,7 @@ import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { MemoryCenterView } from "./memory-center-view"
 import type { MemoryCenterData, MemoryCenterSnapshotCard } from "@/lib/novel/memory-center"
+import type { FrontmatterParseResult } from "@/lib/frontmatter"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
@@ -42,7 +43,7 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 const frontmatter = vi.hoisted(() => ({
-  parseFrontmatter: vi.fn(() => ({ frontmatter: { title: "记忆" }, body: "正文内容\n", rawBlock: "---\ntitle: 记忆\n---\n" })),
+  parseFrontmatter: vi.fn<() => FrontmatterParseResult>(() => ({ frontmatter: { title: "记忆" }, body: "正文内容\n", rawBlock: "---\ntitle: 记忆\n---\n" })),
 }))
 
 vi.mock("@/lib/frontmatter", () => ({
@@ -646,7 +647,7 @@ describe("MemoryCenterView", () => {
   })
 
   it("renders markdown without a frontmatter block", async () => {
-    frontmatter.parseFrontmatter.mockReturnValueOnce({ frontmatter: {}, body: "", rawBlock: "" })
+    frontmatter.parseFrontmatter.mockReturnValueOnce({ frontmatter: null, body: "", rawBlock: "" })
     fsMock.readFile.mockResolvedValueOnce("无前言的正文")
     wiki.state.selectedMemoryCenterEntry = "character-states"
     render(<MemoryCenterView />)

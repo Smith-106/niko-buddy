@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { cleanup as rtlCleanup } from "@testing-library/react"
-import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { render, screen, fireEvent, waitFor, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import type { FileNode } from "@/types/wiki"
 
 const mocks = vi.hoisted(() => {

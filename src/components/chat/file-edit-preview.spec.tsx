@@ -2,7 +2,7 @@
 /**
  * FileEditPreview — AI 建议修改预览：单条应用/忽略/编辑、全部应用、已处理视图全分支覆盖。
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { FileEditAction } from "@/lib/novel/agent-parser"
 import { FileEditPreview } from "./file-edit-preview"

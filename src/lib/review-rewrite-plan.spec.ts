@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { streamChat } from "@/lib/llm-client"
 import {
   applyReviewRewriteEditsToMarkdown,
   buildReviewRewritePlanMessages,
@@ -12,8 +13,6 @@ import type { LlmConfig } from "@/stores/wiki-store"
 vi.mock("@/lib/llm-client", () => ({
   streamChat: vi.fn(),
 }))
-
-import { streamChat } from "@/lib/llm-client"
 
 const fakeLlmConfig = {} as LlmConfig
 

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { PageSearchResult } from "@/lib/embedding"
 import type { EmbeddingConfig } from "@/stores/wiki-store"
 
 const mocks = vi.hoisted(() => ({

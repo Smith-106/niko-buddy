@@ -41,7 +41,7 @@ vi.mock("./de-ai-rules", () => ({
   CHINESE_NOVEL_DE_AI_RULES: "## 章节\n### 禁用词汇\n- 总之\n- 综上所述\n## 后续章节\n- 无关内容",
 }))
 
-import { queryInspectorState, type InspectorSnapshot } from "./inspector-query"
+import { queryInspectorState } from "./inspector-query"
 
 const pp = "E:/Novel"
 

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { useChatAutoScroll } from "./use-chat-scroll"
 
 type Params = {

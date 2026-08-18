@@ -39,7 +39,7 @@ vi.mock("@/stores/chat-store", () => ({
 }))
 
 function renderChatInput(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
-  const onSend = props.onSend ?? vi.fn()
+  const onSend = props.onSend ?? vi.fn<(text: string) => void>()
   const onStop = props.onStop ?? vi.fn()
   const utils = render(
     <ChatInput

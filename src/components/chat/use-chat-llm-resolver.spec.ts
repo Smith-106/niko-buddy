@@ -16,7 +16,7 @@ interface PresetLike {
 }
 
 const mocks = vi.hoisted(() => ({
-  resolveConfig: vi.fn((template: PresetLike, override: any, fallback: LlmConfig) => ({
+  resolveConfig: vi.fn((template: PresetLike, _override: any, fallback: LlmConfig) => ({
     ...fallback,
     provider: template.id,
     baseUrl: `merged-${template.id}`,
@@ -35,14 +35,14 @@ vi.mock("@/components/settings/llm-presets", () => ({
 }))
 
 const BASE_CONFIG: LlmConfig = {
-  provider: "deepseek",
+  provider: "custom",
   model: "deepseek-v3",
   baseUrl: "https://api.deepseek.com",
   apiKey: "key",
-  apiMode: "chat",
+  apiMode: "chat_completions",
 }
 
-function overrideFor(providerId: string, models: string[]): ProviderOverride {
+function overrideFor(_providerId: string, models: string[]): ProviderOverride {
   return { savedModels: models.map((model) => ({ model })) } as ProviderOverride
 }
 

@@ -41,33 +41,35 @@ vi.mock("@/lib/project-identity", () => ({
 }))
 
 /** 简单 invoke 包装用例：(函数, 调用参数, invoke 期望参数, mock 返回值)。 */
-const simpleCases: Array<{
+type SimpleCase = {
   name: string
-  fn: (...args: unknown[]) => Promise<unknown>
-  fnArgs: unknown[]
+  run: () => Promise<unknown>
   invokeArgs: unknown[]
   resolved: unknown
-}> = [
-  { name: "readFile", fn: readFile, fnArgs: ["/p/a.md"], invokeArgs: ["read_file", { path: "/p/a.md" }], resolved: "text" },
-  { name: "writeFile", fn: writeFile, fnArgs: ["/p/a.md", "x"], invokeArgs: ["write_file", { path: "/p/a.md", contents: "x" }], resolved: undefined },
-  { name: "writeFileAtomic", fn: writeFileAtomic, fnArgs: ["/p/a.md", "x"], invokeArgs: ["write_file_atomic", { path: "/p/a.md", contents: "x" }], resolved: undefined },
-  { name: "listDirectory", fn: listDirectory, fnArgs: ["/p"], invokeArgs: ["list_directory", { path: "/p" }], resolved: [{ id: "1" }] },
-  { name: "copyFile", fn: copyFile, fnArgs: ["/a", "/b"], invokeArgs: ["copy_file", { source: "/a", destination: "/b" }], resolved: undefined },
-  { name: "copyDirectory", fn: copyDirectory, fnArgs: ["/a", "/b"], invokeArgs: ["copy_directory", { source: "/a", destination: "/b" }], resolved: ["/b/x"] },
-  { name: "preprocessFile", fn: preprocessFile, fnArgs: ["/p"], invokeArgs: ["preprocess_file", { path: "/p" }], resolved: "pre" },
-  { name: "deleteFile", fn: deleteFile, fnArgs: ["/p"], invokeArgs: ["delete_file", { path: "/p" }], resolved: undefined },
-  { name: "findRelatedWikiPages", fn: findRelatedWikiPages, fnArgs: ["/p", "s"], invokeArgs: ["find_related_wiki_pages", { projectPath: "/p", sourceName: "s" }], resolved: ["a"] },
-  { name: "createDirectory", fn: createDirectory, fnArgs: ["/p"], invokeArgs: ["create_directory", { path: "/p" }], resolved: undefined },
-  { name: "fileExists", fn: fileExists, fnArgs: ["/p"], invokeArgs: ["file_exists", { path: "/p" }], resolved: true },
-  { name: "getFileModifiedTime", fn: getFileModifiedTime, fnArgs: ["/p"], invokeArgs: ["get_file_modified_time", { path: "/p" }], resolved: 123 },
-  { name: "getFileSize", fn: getFileSize, fnArgs: ["/p"], invokeArgs: ["get_file_size", { path: "/p" }], resolved: 42 },
-  { name: "getFileMd5", fn: getFileMd5, fnArgs: ["/p"], invokeArgs: ["get_file_md5", { path: "/p" }], resolved: "abc" },
-  { name: "readFileAsBase64", fn: readFileAsBase64, fnArgs: ["/p"], invokeArgs: ["read_file_as_base64", { path: "/p" }], resolved: { base64: "b", mimeType: "text/plain" } },
-  { name: "openProjectFolder", fn: openProjectFolder, fnArgs: ["/p"], invokeArgs: ["open_project_folder", { path: "/p" }], resolved: undefined },
-  { name: "openFileLocation", fn: openFileLocation, fnArgs: ["/p"], invokeArgs: ["open_file_location", { path: "/p" }], resolved: undefined },
-  { name: "getExecutableDir", fn: getExecutableDir, fnArgs: [], invokeArgs: ["get_executable_dir"], resolved: "/bin" },
-  { name: "getResourceDir", fn: getResourceDir, fnArgs: [], invokeArgs: ["get_resource_dir"], resolved: "/res" },
+}
+
+const simpleCases: SimpleCase[] = [
+  { name: "readFile", run: () => readFile("/p/a.md"), invokeArgs: ["read_file", { path: "/p/a.md" }], resolved: "text" },
+  { name: "writeFile", run: () => writeFile("/p/a.md", "x"), invokeArgs: ["write_file", { path: "/p/a.md", contents: "x" }], resolved: undefined },
+  { name: "writeFileAtomic", run: () => writeFileAtomic("/p/a.md", "x"), invokeArgs: ["write_file_atomic", { path: "/p/a.md", contents: "x" }], resolved: undefined },
+  { name: "listDirectory", run: () => listDirectory("/p"), invokeArgs: ["list_directory", { path: "/p" }], resolved: [{ id: "1" }] },
+  { name: "copyFile", run: () => copyFile("/a", "/b"), invokeArgs: ["copy_file", { source: "/a", destination: "/b" }], resolved: undefined },
+  { name: "copyDirectory", run: () => copyDirectory("/a", "/b"), invokeArgs: ["copy_directory", { source: "/a", destination: "/b" }], resolved: ["/b/x"] },
+  { name: "preprocessFile", run: () => preprocessFile("/p"), invokeArgs: ["preprocess_file", { path: "/p" }], resolved: "pre" },
+  { name: "deleteFile", run: () => deleteFile("/p"), invokeArgs: ["delete_file", { path: "/p" }], resolved: undefined },
+  { name: "findRelatedWikiPages", run: () => findRelatedWikiPages("/p", "s"), invokeArgs: ["find_related_wiki_pages", { projectPath: "/p", sourceName: "s" }], resolved: ["a"] },
+  { name: "createDirectory", run: () => createDirectory("/p"), invokeArgs: ["create_directory", { path: "/p" }], resolved: undefined },
+  { name: "fileExists", run: () => fileExists("/p"), invokeArgs: ["file_exists", { path: "/p" }], resolved: true },
+  { name: "getFileModifiedTime", run: () => getFileModifiedTime("/p"), invokeArgs: ["get_file_modified_time", { path: "/p" }], resolved: 123 },
+  { name: "getFileSize", run: () => getFileSize("/p"), invokeArgs: ["get_file_size", { path: "/p" }], resolved: 42 },
+  { name: "getFileMd5", run: () => getFileMd5("/p"), invokeArgs: ["get_file_md5", { path: "/p" }], resolved: "abc" },
+  { name: "readFileAsBase64", run: () => readFileAsBase64("/p"), invokeArgs: ["read_file_as_base64", { path: "/p" }], resolved: { base64: "b", mimeType: "text/plain" } },
+  { name: "openProjectFolder", run: () => openProjectFolder("/p"), invokeArgs: ["open_project_folder", { path: "/p" }], resolved: undefined },
+  { name: "openFileLocation", run: () => openFileLocation("/p"), invokeArgs: ["open_file_location", { path: "/p" }], resolved: undefined },
+  { name: "getExecutableDir", run: () => getExecutableDir(), invokeArgs: ["get_executable_dir"], resolved: "/bin" },
+  { name: "getResourceDir", run: () => getResourceDir(), invokeArgs: ["get_resource_dir"], resolved: "/res" },
 ]
+
 
 describe("fs command wrappers", () => {
   beforeEach(() => {

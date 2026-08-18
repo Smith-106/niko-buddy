@@ -37,15 +37,15 @@ vi.mock("@/lib/path-utils", () => ({
 }))
 
 const TREE: FileNode[] = [
-  { name: "dir-a", is_dir: true, children: [
-    { name: "nested", is_dir: true, children: [
-      { name: "c.md", is_dir: false },
+  { name: "dir-a", path: "dir-a", is_dir: true, children: [
+    { name: "nested", path: "dir-a/nested", is_dir: true, children: [
+      { name: "c.md", path: "dir-a/nested/c.md", is_dir: false },
     ] },
-    { name: "b.md", is_dir: false },
+    { name: "b.md", path: "dir-a/b.md", is_dir: false },
   ] },
-  { name: "empty-dir", is_dir: true, children: [] },
-  { name: "no-children-dir", is_dir: true },
-  { name: "d.md", is_dir: false },
+  { name: "empty-dir", path: "empty-dir", is_dir: true, children: [] },
+  { name: "no-children-dir", path: "no-children-dir", is_dir: true },
+  { name: "d.md", path: "d.md", is_dir: false },
 ]
 
 describe("chat-shared", () => {
@@ -86,7 +86,7 @@ describe("chat-shared", () => {
 
   it("project 变化时重新加载", async () => {
     mocks.wikiState.project = { path: "A" }
-    mocks.listDirectory.mockResolvedValue([{ name: "a.md", is_dir: false }])
+    mocks.listDirectory.mockResolvedValue([{ name: "a.md", path: "a.md", is_dir: false }])
     const { result, rerender } = renderHook(() => useSourceFiles())
     await waitFor(() => expect(mocks.listDirectory).toHaveBeenCalledTimes(1))
     await new Promise((r) => setTimeout(r, 10))
@@ -94,7 +94,7 @@ describe("chat-shared", () => {
     expect(result.current).toEqual(["a.md"])
 
     mocks.wikiState.project = { path: "B" }
-    mocks.listDirectory.mockResolvedValue([{ name: "b.md", is_dir: false }])
+    mocks.listDirectory.mockResolvedValue([{ name: "b.md", path: "b.md", is_dir: false }])
     rerender()
     await waitFor(() => expect(mocks.listDirectory).toHaveBeenCalledTimes(2))
     await new Promise((r) => setTimeout(r, 10))

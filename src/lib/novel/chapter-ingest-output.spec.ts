@@ -3,7 +3,6 @@ import {
   applyWikiUpdatePatch,
   buildChapterIngestOutput,
   type SharedWikiState,
-  type WikiUpdateEntry,
   type WikiUpdatePatch,
 } from "./chapter-ingest-output"
 import type { ChapterSnapshot } from "./chapter-ingest"

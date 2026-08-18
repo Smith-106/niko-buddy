@@ -431,14 +431,14 @@ describe("chat deep chapter resume", () => {
         conversation_id: "conv-lbl",
         user_request: "生成正文",
         chapter_number: 0,
-        checkpoint_stage: "started",
+        checkpoint_stage: "after_context",
         status: "paused",
       },
       draft: {
         draft_id: "d",
         file_path: "p",
         draft_status: "pending",
-        checkpoint_stage: "started",
+        checkpoint_stage: "after_context",
         updated_at: "2026-07-01T00:00:01.000Z",
       },
       decision_gates: {
