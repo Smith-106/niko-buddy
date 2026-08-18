@@ -2,11 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
-  act,
   fireEvent,
   render,
   screen,
-  waitFor,
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { WikiReader } from "./wiki-reader"
@@ -16,6 +14,7 @@ const mocks = vi.hoisted(() => {
     project: { id: string; name: string; path: string } | null
     fileTree: unknown[]
     setSelectedFile: (path: string | null) => void
+    selectedFile: string | null
   } = {
     project: null,
     fileTree: [],

@@ -6,6 +6,7 @@ import {
   createEmptyChapterStructurePlan,
   validateChapterStructurePlan,
 } from "./chapter-structure-plan"
+import type { ChapterStructurePlan, StructureBeat } from "./chapter-structure-plan"
 
 describe("chapter-structure-plan", () => {
   it("validate rejects empty beats", () => {
@@ -109,11 +110,12 @@ describe("chapter-structure-plan", () => {
       beats: [
         { purpose: "end_hook" }, // missing id + label → label message uses ? id
         { id: "b2", label: "压", purpose: "end_hook", thrilCheckpointId: "bogus_checkpoint" },
-      ],
+        // 故意构造非法 beat 喂给 validator：形状不满足 StructureBeat 是测试意图
+      ] as unknown as StructureBeat[],
       thrilCheckpointCoverage: [],
       fix1NonSpoiler: true,
       source: "manual",
-    } as Parameters<typeof validateChapterStructurePlan>[0])
+    } as ChapterStructurePlan)
     expect(v.ok).toBe(false)
     expect(v.errors.some((e) => e.includes("each beat requires non-empty id"))).toBe(true)
     expect(v.errors.some((e) => e.includes("requires label"))).toBe(true)
@@ -124,10 +126,10 @@ describe("chapter-structure-plan", () => {
     const v = validateChapterStructurePlan({
       schemaVersion: "chapter-structure-plan/1.0",
       beats: [{ id: "b1", label: "章末钩", purpose: "end_hook" }],
-      thrilCheckpointCoverage: undefined as unknown as Parameters<typeof validateChapterStructurePlan>[0]["thrilCheckpointCoverage"],
+      thrilCheckpointCoverage: undefined as unknown as ChapterStructurePlan["thrilCheckpointCoverage"],
       fix1NonSpoiler: true,
       source: "manual",
-    } as Parameters<typeof validateChapterStructurePlan>[0])
+    } as ChapterStructurePlan)
     expect(v.ok).toBe(true)
     expect(v.warnings.some((w) => w.includes("omits fix1_no_conflict"))).toBe(true)
     expect(v.warnings.some((w) => w.includes("omits chapter_end_hook"))).toBe(true)
@@ -138,11 +140,11 @@ describe("chapter-structure-plan", () => {
       schemaVersion: "chapter-structure-plan/1.0",
       beats: [{ id: "b1", label: "章末钩", purpose: "end_hook" }],
       lengthBudgetChars: 5000,
-      thrilCheckpointCoverage: undefined as unknown as Parameters<typeof validateChapterStructurePlan>[0]["thrilCheckpointCoverage"],
+      thrilCheckpointCoverage: undefined as unknown as ChapterStructurePlan["thrilCheckpointCoverage"],
       fix1NonSpoiler: true,
       source: "manual",
       notes: ["", "   ", "实际注释"],
-    } as Parameters<typeof validateChapterStructurePlan>[0]
+    } as ChapterStructurePlan
     const block = buildStructurePlanPromptBlock(plan)
     expect(block).toContain("（未指定）")
     expect(block).toContain("长度预算：约 5000 字")
@@ -158,7 +160,7 @@ describe("chapter-structure-plan", () => {
       thrilCheckpointCoverage: ["fix1_no_conflict", "chapter_end_hook"],
       fix1NonSpoiler: true,
       source: "manual",
-    } as Parameters<typeof validateChapterStructurePlan>[0]
+    } as ChapterStructurePlan
     const block = buildStructurePlanPromptBlock(plan)
     expect(block).toContain("章末钩")
     expect(block).toContain("- thril 覆盖：fix1_no_conflict, chapter_end_hook")

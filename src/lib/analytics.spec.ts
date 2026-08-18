@@ -10,8 +10,6 @@ vi.mock("@/lib/web-store", () => ({ getStore: mocks.getStore }))
 vi.mock("@/lib/platform", () => ({ isTauri: () => mocks.isTauri() }))
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: mocks.tauriFetch }))
 
-import { initAnalytics } from "./analytics"
-
 const fetchSpy = vi.fn()
 
 beforeEach(() => {
@@ -64,7 +62,7 @@ describe("initAnalytics", () => {
     mocks.getStore.mockResolvedValue(store)
     mocks.isTauri.mockReturnValue(false)
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }))
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("fresh-uuid")
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("fresh-uuid" as ReturnType<typeof crypto.randomUUID>)
 
     await reimport().then((m) => m.initAnalytics())
 
@@ -75,7 +73,7 @@ describe("initAnalytics", () => {
     mocks.getStore.mockRejectedValue(new Error("store broken"))
     mocks.isTauri.mockReturnValue(false)
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }))
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("fallback-uuid")
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("fallback-uuid" as ReturnType<typeof crypto.randomUUID>)
 
     await reimport().then((m) => m.initAnalytics())
 
@@ -127,7 +125,7 @@ describe("initAnalytics", () => {
     const listeners = new Map<string, () => void>()
     const beaconSpy = vi.fn()
     const win = {
-      setInterval: vi.fn(() => 123 as unknown as number),
+      setInterval: vi.fn<(callback: () => void, interval: number) => number>(() => 123),
       clearInterval: vi.fn(),
       addEventListener: vi.fn((event: string, cb: () => void) => {
         listeners.set(event, cb)

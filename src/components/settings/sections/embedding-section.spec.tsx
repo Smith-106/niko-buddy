@@ -48,8 +48,10 @@ const mocks = vi.hoisted(() => {
     t: vi.fn((key: string) => key),
     getEmbeddingCount: vi.fn(async () => 0),
     legacyVectorRowCount: vi.fn(async () => 0),
-    getLastEmbeddingError: vi.fn(() => null),
-    embedAllPages: vi.fn(async () => 0),
+    getLastEmbeddingError: vi.fn<() => string | null>(() => null),
+    embedAllPages: vi.fn<
+      (projectPath: string, cfg: unknown, progress: (done: number, total: number) => void) => Promise<number>
+    >(async () => 0),
     dropLegacyVectorTable: vi.fn(async () => {}),
     testSettingsEmbeddingModel: vi.fn(async () => ({ model: "bge-m3", dimensions: 1024 })),
     fetchEmbeddingModelList: vi.fn(async () => ({ models: ["bge-m3"] })),
@@ -369,11 +371,11 @@ describe("EmbeddingSection", () => {
 
   it("reindex 全流程：进度回调 → done 文案 → 再次刷新统计", async () => {
     mocks.state.project = DEFAULT_PROJECT
-    let progressCb: ((done: number, total: number) => void) | null = null
+    const progressHolder: { cb: ((done: number, total: number) => void) | null } = { cb: null }
     let release: () => void = () => {}
     mocks.embedAllPages.mockImplementation(
       async (_p: string, _cfg: unknown, progress: (done: number, total: number) => void) => {
-        progressCb = progress
+        progressHolder.cb = progress
         await new Promise<void>((resolve) => {
           release = resolve
         })
@@ -392,8 +394,8 @@ describe("EmbeddingSection", () => {
     })
 
     // running 状态：进度文案 + 按钮禁用
-    progressCb?.(3, 10)
-    progressCb?.(5, 10)
+    progressHolder.cb?.(3, 10)
+    progressHolder.cb?.(5, 10)
     expect(screen.getByText("settings.sections.embedding.reindexing")).toBeTruthy()
     expect((screen.getByText("settings.sections.embedding.reindexing") as HTMLButtonElement).disabled).toBe(true)
 
@@ -546,7 +548,7 @@ describe("EmbeddingSection", () => {
 
   it("测试进行中按钮禁用并显示 testing 文案", async () => {
     const draft = makeDraft({ embeddingModel: "bge-m3" })
-    let releaseTest: (value: unknown) => void = () => {}
+    let releaseTest: (value: { model: string; dimensions: number } | PromiseLike<{ model: string; dimensions: number }>) => void = () => {}
     mocks.testSettingsEmbeddingModel.mockImplementation(
       () =>
         new Promise((resolve) => {

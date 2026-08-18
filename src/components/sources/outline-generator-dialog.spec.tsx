@@ -338,8 +338,8 @@ describe("OutlineGeneratorDialog", () => {
 
     it("shows generating then taskGenerating states with deferred mocks", async () => {
       mocks.wikiState.project = PROJECT
-      let resolvePrompt!: (v: string) => void
-      let resolveRun!: () => void
+      let resolvePrompt!: (v: string | PromiseLike<string>) => void
+      let resolveRun!: (v: void | PromiseLike<void>) => void
       mocks.buildOutlineGenerationPrompt.mockReturnValueOnce(new Promise((r) => { resolvePrompt = r }))
       mocks.runOutlineGenerationTask.mockReturnValueOnce(new Promise((r) => { resolveRun = r }))
 
@@ -485,8 +485,8 @@ describe("OutlineGeneratorDialog", () => {
 
       // generating：prompt 挂起期间再次触发 handler
       mocks.wikiState.project = PROJECT
-      let resolvePrompt!: (v: string) => void
-      let resolveRun!: () => void
+      let resolvePrompt!: (v: string | PromiseLike<string>) => void
+      let resolveRun!: (v: void | PromiseLike<void>) => void
       mocks.buildOutlineGenerationPrompt.mockReturnValueOnce(new Promise((r) => { resolvePrompt = r }))
       mocks.runOutlineGenerationTask.mockReturnValueOnce(new Promise((r) => { resolveRun = r }))
       renderDialog("outline")
@@ -662,7 +662,7 @@ describe("OutlineGeneratorDialog", () => {
 
     it("guards the ingest handler while ingesting", async () => {
       mocks.wikiState.project = PROJECT
-      let resolveIngest!: () => void
+      let resolveIngest!: (v: void | PromiseLike<void>) => void
       mocks.runOutlineIngestTask.mockReturnValueOnce(new Promise((r) => { resolveIngest = r }))
       renderDialog("outline")
       await userEvent.type(
@@ -1055,7 +1055,7 @@ describe("OutlineGeneratorDialog", () => {
 
     it("shows section-generating labels while a section refine is running", async () => {
       mocks.wikiState.project = PROJECT
-      let resolveRun!: () => void
+      let resolveRun!: (v: void | PromiseLike<void>) => void
       mocks.runOutlineRefinementTask.mockReturnValueOnce(new Promise((r) => { resolveRun = r }))
       const { rerender } = renderDialog("refine")
 
@@ -1076,7 +1076,7 @@ describe("OutlineGeneratorDialog", () => {
 
     it("shows the generic refining label when no section/displayTitle is set", async () => {
       mocks.wikiState.project = PROJECT
-      let resolveRun!: () => void
+      let resolveRun!: (v: void | PromiseLike<void>) => void
       mocks.runOutlineRefinementTask.mockReturnValueOnce(new Promise((r) => { resolveRun = r }))
       const { rerender } = renderDialog("refine")
 

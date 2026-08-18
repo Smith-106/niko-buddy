@@ -77,7 +77,7 @@ function callbacks() {
 function makeStore(prior: string[] | null) {
   const store = {
     get: vi.fn(async () => prior),
-    set: vi.fn(async () => undefined),
+    set: vi.fn<(key: string, value: unknown) => Promise<void>>(async () => undefined),
   }
   mocks.getStore.mockResolvedValue(store as never)
   return store
@@ -85,7 +85,7 @@ function makeStore(prior: string[] | null) {
 
 const DEFAULT_STORE = () => ({
   get: vi.fn(async () => undefined),
-  set: vi.fn(async () => undefined),
+  set: vi.fn<(key: string, value: unknown) => Promise<void>>(async () => undefined),
 })
 
 afterEach(async () => {
@@ -185,10 +185,10 @@ describe("stream stall spooling", () => {
     await expect(streamPromise).resolves.toBeUndefined()
 
     expect(store.set).toHaveBeenCalledTimes(1)
-    const [key, entries] = store.set.mock.calls[0] as [string, Array<Record<string, unknown>>]
+    const [key, entries] = store.set.mock.calls[0] as [string, string[]]
     expect(key).toContain("claudeCli.stallSpool.")
     expect(entries).toHaveLength(1)
-    expect(JSON.parse(entries[0] as string)).toMatchObject({ attempt: 1, streamId: expect.any(String) })
+    expect(JSON.parse(entries[0])).toMatchObject({ attempt: 1, streamId: expect.any(String) })
   })
 
   it("caps the spooled buffer at 64 entries", async () => {
@@ -262,7 +262,7 @@ describe("final error messages", () => {
   it("appends the isolation-retry note when the final failure is still isolation_retry", async () => {
     vi.useFakeTimers()
     const store = makeStore(null)
-    const listeners = installListeners()
+    installListeners()
     let spawnCount = 0
     mocks.invoke.mockImplementation(async (command) => {
       if (command === "claude_cli_spawn") {
