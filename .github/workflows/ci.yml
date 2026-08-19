@@ -73,7 +73,7 @@ jobs:
         run: npm install
 
       - name: Typecheck (tsc)
-        run: npx tsc --noEmit -p tsconfig.app.json
+        run: npm run typecheck
 
       - name: Run unit tests (vitest)
         run: npm run test:mocks
