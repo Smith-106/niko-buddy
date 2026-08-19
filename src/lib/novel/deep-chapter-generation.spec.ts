@@ -2214,6 +2214,69 @@ describe("coverage-100: task brief / draft edge paths", () => {
     expect(result.taskBrief).toContain("【ChapterStructurePlan")
   })
 
+  it("Wave 3: planningPlan 注入【本章确定性范围】块（marker 守卫防重复）", async () => {
+    const deps = createDeps()
+    const plan = {
+      chapterNumber: 3,
+      generatedAt: "2026-08-18T00:00:00.000Z",
+      foreshadowing: {
+        status: "ok" as const,
+        report: {
+          debtScore: 12,
+          items: [
+            {
+              id: "f1",
+              name: "青铜古戒",
+              description: "",
+              status: "planted" as const,
+              plantedChapter: 2,
+              chaptersSincePlanted: 1,
+              debtLevel: "critical" as const,
+            },
+          ],
+        },
+        overdueFindings: [],
+      },
+      characters: {
+        status: "ok" as const,
+        items: [
+          {
+            name: "林动",
+            lastSeenChapter: 2,
+            inCurrentOutline: true,
+            chaptersSinceSeen: 1,
+          },
+        ],
+      },
+      threads: {
+        status: "ok" as const,
+        items: [],
+        openCount: 0,
+      },
+      summary: { debtScore: 12, criticalForeshadowing: 1, openThreads: 0, charactersDue: 0 },
+    }
+    const result = await runDeepChapterGeneration(
+      residualBaseInput({ planningPlan: plan }),
+      {},
+      deps,
+    )
+    expect(result.taskBrief).toContain("【本章确定性范围】")
+    expect(result.taskBrief).toContain("青铜古戒")
+    // 注入点守卫：resume 检查点已含预填块时不二次注入（append-only 语义）
+    const again = await runDeepChapterGeneration(
+      residualBaseInput({ planningPlan: plan }),
+      {},
+      deps,
+    )
+    expect(again.taskBrief.split("【本章确定性范围】").length - 1).toBe(1)
+  })
+
+  it("Wave 3: planningPlan 缺省 → task-brief 零行为变化（fail-open）", async () => {
+    const deps = createDeps()
+    const result = await runDeepChapterGeneration(residualBaseInput(), {}, deps)
+    expect(result.taskBrief).not.toContain("【本章确定性范围】")
+  })
+
   it("expands a short recovery rewrite after meta-draft correction", async () => {
     const prompts: string[] = []
     const expandedDraft = chapterText("扩写后正文", 3000)

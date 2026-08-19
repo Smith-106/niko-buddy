@@ -136,3 +136,17 @@ export {
   type ResolvedReference,
   type ReferenceSearchHit,
 } from "../reference"
+// Wave 3 (v2.5.0): 计划模式 canonical 出口（耦合治理：主链/UI 只依赖本导出面）
+export {
+  buildChapterPlanView,
+  buildChapterPlan,
+  buildPlanningPrefillBlock,
+  appendPlanningBlockToTaskBrief,
+  taskBriefHasPlanningBlock,
+  PLANNING_BLOCK_MARKER,
+  PLANNING_BLOCK_CAP,
+  type ChapterPlanView,
+  type ChapterPlanOptions,
+  type CharacterPlanItem,
+  type PlanDimensionStatus,
+} from "../novel/planning"

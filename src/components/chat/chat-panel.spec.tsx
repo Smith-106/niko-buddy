@@ -635,6 +635,14 @@ const mocks = vi.hoisted(() => {
         signal?: AbortSignal,
       ) => Promise<DeepChapterGenerationResult>
     >(async () => ({ ...emptyDeepResult })),
+    buildChapterPlan: vi.fn(async () => ({
+      chapterNumber: 3,
+      generatedAt: "2026-08-18T00:00:00.000Z",
+      foreshadowing: { status: "ok", report: { debtScore: 0, items: [] }, overdueFindings: [] },
+      characters: { status: "ok", items: [] },
+      threads: { status: "ok", items: [], openCount: 0 },
+      summary: { debtScore: 0, criticalForeshadowing: 0, openThreads: 0, charactersDue: 0 },
+    })),
     resolveResidualCampaignFields: vi.fn<
       (args: { enabled: boolean; chapterNumber?: number | null; config?: ResidualCampaignNovelConfigSlice | null })
         => ResidualCampaignResolvedFields | null
@@ -1071,6 +1079,7 @@ vi.mock("@/lib/novel/novel-session-status", () => ({
 
 // 动态 import 模块
 vi.mock("@/lib/novel/deep-chapter-generation", () => ({ runDeepChapterGeneration: mocks.runDeepChapterGeneration }))
+vi.mock("@/lib/novel/planning", () => ({ buildChapterPlan: mocks.buildChapterPlan }))
 vi.mock("@/lib/novel/residual-campaign", () => ({ resolveResidualCampaignFields: mocks.resolveResidualCampaignFields }))
 vi.mock("@/lib/novel/context-engine", () => ({
   buildContextPack: mocks.buildContextPack,
@@ -2552,6 +2561,58 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     const [content] = lastFinalize()
     expect(content).not.toContain("qmai-novel-session-debug")
     expect(content).toContain("出错：深度生成章节失败")
+    setDeepMode(false)
+  })
+
+  it("Wave 3 计划模式：打开面板 → 装载计划 → 开写 one-shot 透传 → 消费后清除", async () => {
+    setupDeepBase()
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    // 未发送过深度请求 → 全书视图（chapter 0）
+    fireEvent.click(screen.getByLabelText("打开计划面板"))
+    await flushAsync()
+    rerenderPanel()
+    expect(mocks.buildChapterPlan).toHaveBeenCalledWith("/p/mybook", 0)
+    // 注：chat-panel.spec 的 t mock 返回 key（非 defaultValue）
+    expect(screen.getByText("novel.planning.title")).toBeTruthy()
+    // 关闭面板
+    fireEvent.click(screen.getByLabelText("novel.planning.close"))
+    rerenderPanel()
+    expect(screen.queryByText("novel.planning.title")).toBeNull()
+    // 发送深度请求 → 目标章跟随（ref = 3）
+    await sendText("深度写第3章")
+    fireEvent.click(screen.getByLabelText("打开计划面板"))
+    await flushAsync()
+    rerenderPanel()
+    expect(mocks.buildChapterPlan).toHaveBeenLastCalledWith("/p/mybook", 3)
+    // 开写 → 面板关闭，plan 进入 one-shot 状态
+    fireEvent.click(screen.getByText("novel.planning.startWriting"))
+    rerenderPanel()
+    expect(screen.queryByText("novel.planning.title")).toBeNull()
+    // 发送 → planningPlan 附加到生成 input（calls[0] 是面板打开前的首次发送）
+    await sendText("深度写第3章")
+    const genInput = mocks.runDeepChapterGeneration.mock.calls[1][0]
+    expect(genInput.planningPlan).toBeDefined()
+    expect(genInput.planningPlan.chapterNumber).toBe(3)
+    // 消费后清除：第二次发送不再携带
+    await sendText("深度写第3章")
+    const genInput2 = mocks.runDeepChapterGeneration.mock.calls[2][0]
+    expect(genInput2.planningPlan).toBeUndefined()
+    setDeepMode(false)
+  })
+
+  it("Wave 3 计划模式：装载失败 → 面板显示错误且不触发生成", async () => {
+    setupDeepBase()
+    mocks.buildChapterPlan.mockRejectedValueOnce(new Error("plan-io"))
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    fireEvent.click(screen.getByLabelText("打开计划面板"))
+    await flushAsync()
+    rerenderPanel()
+    expect(screen.getByText("plan-io")).toBeTruthy()
+    expect(mocks.runDeepChapterGeneration).not.toHaveBeenCalled()
     setDeepMode(false)
   })
 })

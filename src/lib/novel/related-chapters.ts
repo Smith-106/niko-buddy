@@ -112,8 +112,9 @@ export interface RelatedChaptersInput {
  * 从大纲提取关键词: 中文无空格, 用 2-4 字滑动窗口提取候选 token。
  * (ainovel 是 Go + 已有结构化 outline; 本项目 outline 是自由文本,
  * 用 n-gram 窗口近似关键词提取 — 纯机械零 LLM。)
+ * Wave 3 (v2.5.0): additive 导出供 planning 层复用（PAT-G2 不平行实现）。
  */
-function extractOutlineKeywords(outline: string): string[] {
+export function extractOutlineKeywords(outline: string): string[] {
   if (!outline) return []
   const cleaned = outline.replace(/[，。！？、；：""''（）【】\n\s]/g, " ")
   const tokens = cleaned.split(/\s+/).filter((t) => t.length >= 2)

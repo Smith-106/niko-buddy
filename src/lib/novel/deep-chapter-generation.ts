@@ -81,6 +81,8 @@ import {
   isMetaDraftContent,
   appendStructurePlanToTaskBrief,
   taskBriefHasStructurePlan,
+  appendPlanningBlockToTaskBrief,
+  taskBriefHasPlanningBlock,
 } from "./deep-chapter-task-brief"
 import {
   createDefaultStructureThrilPacingPlan,
@@ -100,6 +102,13 @@ export interface DeepChapterGenerationInput {
   chapterNumber?: number
   goldenThreeChapter?: GoldenThreeChapterRequest
   dismantlingReferenceDirective?: string
+  /**
+   * Wave 3 (v2.5.0): 计划模式预填快照（可选，additive）。
+   * 缺省 undefined → 生成链零行为变化（task-brief 与现状字节级一致）。
+   * 存在时在 repair/fallback 循环之后、structure-plan 注入点同位置追加
+   * 【本章确定性范围】块（marker 守卫防重复，append-only 不重写既有字段）。
+   */
+  planningPlan?: import("./planning").ChapterPlanView
   llmConfig: LlmConfig
   resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
   /**
@@ -1560,6 +1569,13 @@ async function generateTaskBrief(
   const residualPlan = resolveStructurePlanForResidual(input)
   if (residualPlan && !taskBriefHasStructurePlan(taskBrief)) {
     taskBrief = appendStructurePlanToTaskBrief(taskBrief, residualPlan)
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
+  }
+
+  // Wave 3 (v2.5.0): 计划模式预填注入（fail-open：planningPlan 缺省 → 零行为变化）。
+  // marker 守卫防重复（resume 检查点已含预填块时不二次注入）。
+  if (input.planningPlan && !taskBriefHasPlanningBlock(taskBrief)) {
+    taskBrief = appendPlanningBlockToTaskBrief(taskBrief, input.planningPlan)
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
   }
 

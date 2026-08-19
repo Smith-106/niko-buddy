@@ -20,6 +20,13 @@ export {
   taskBriefHasStructurePlan,
 } from "./structure-first-rewrite"
 
+// Wave 3 (v2.5.0): 计划模式预填接线（planning/prefill.ts 的 re-export 面；
+// 聚合逻辑在 planning/ 模块，本文件保持任务书清洗/修复/fallback 集群 SRP）。
+export {
+  appendPlanningBlockToTaskBrief,
+  taskBriefHasPlanningBlock,
+} from "./planning/prefill"
+
 const TASK_BRIEF_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u
 const TASK_BRIEF_META_REFUSAL_RE = /只给任务书|不写正文|本轮只|无法开写|无法推进/u
 const DRAFT_META_REQUEST_RE = /请(?:先)?补充|给我.{0,12}(?:五句|五句话)|待补全后再推进|等你补完/u

@@ -2,7 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown } from "lucide-react"
+import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -10,6 +10,7 @@ import { ChatMessage, StreamingMessage } from "./chat-message"
 import { ChatDockControls } from "./chat-dock-controls"
 import { setLastQueryPages, useSourceFiles } from "./chat-shared"
 import { ChatInput } from "./chat-input"
+import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -369,6 +370,30 @@ export function ChatPanel() {
     sharedDeepChapterEnabledRef.current = resolvedValue
     setDeepChapterEnabledState(resolvedValue)
   }, [])
+  // Wave 3 (v2.5.0): 计划模式状态（面板开合 + 数据 + one-shot 附加）
+  const [planningOpen, setPlanningOpen] = useState(false)
+  const [planningPlan, setPlanningPlan] = useState<import("@/lib/novel/planning").ChapterPlanView | null>(null)
+  const [planningLoading, setPlanningLoading] = useState(false)
+  const [planningError, setPlanningError] = useState<string | null>(null)
+  const planningChapterRef = useRef<number | undefined>(undefined)
+  const loadPlanning = useCallback(async (chapterNumber?: number) => {
+    if (!project) return
+    setPlanningLoading(true)
+    setPlanningError(null)
+    try {
+      const { buildChapterPlan } = await import("@/lib/novel/planning")
+      const plan = await buildChapterPlan(normalizePath(project.path), chapterNumber ?? 0)
+      setPlanningPlan(plan)
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPlanningLoading(false)
+    }
+  }, [project])
+  const openPlanning = useCallback(() => {
+    setPlanningOpen(true)
+    void loadPlanning(planningChapterRef.current)
+  }, [loadPlanning])
   const closeSoulDialog = useCallback((confirmed: boolean) => {
     const resolver = soulDialogResolverRef.current
     soulDialogResolverRef.current = null
@@ -754,6 +779,10 @@ export function ChatPanel() {
           },
         }
         : taskRoute
+      // Wave 3 (v2.5.0): 计划面板目标章跟随最近一次深度章节请求（未发送过 → 0 = 全书视图）
+      if (effectiveTaskRoute?.chapterNumber !== undefined) {
+        planningChapterRef.current = effectiveTaskRoute.chapterNumber
+      }
       // AI 会话选中的 model 名（如 "deepseek-v3"）需要找到它所属的 provider
       // 重新计算 baseUrl/apiKey/apiMode，否则会沿用 activePresetId 的配置
       // 导致跨 provider 调用失败
@@ -1021,6 +1050,8 @@ export function ChatPanel() {
               llmConfig: effectiveChatLlmConfig,
               novelConfig,
               resumeCheckpoint: interruptedResumeCheckpoint,
+              // Wave 3 (v2.5.0): 计划模式 one-shot 附加（send 后清除；缺省 → 零行为变化）
+              ...(planningPlan ? { planningPlan } : {}),
               ...(residualCampaignFields
                 ? {
                     residualOverallMedian: residualCampaignFields.residualOverallMedian,
@@ -1066,6 +1097,8 @@ export function ChatPanel() {
             undefined,
             controller.signal,
           )
+          // Wave 3 (v2.5.0): one-shot 语义 — 计划快照消费后立即清除（不跨次发送残留）
+          setPlanningPlan(null)
           if (generationResult.manualReviewRequired) {
             const blockedState = await blockDeepChapterSession({
               projectPath: pp,
@@ -1654,7 +1687,7 @@ export function ChatPanel() {
         { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
       )
     },
-    [aiChatModel, llmConfig, providerConfigs, chatEditModeEnabled, addMessage, startStreaming, setStreamingContent, appendStreamToken, finalizeStream, createConversation, maxHistoryMessages, requestSoulDialog, project, novelMode, selectedFile],
+    [aiChatModel, llmConfig, providerConfigs, chatEditModeEnabled, addMessage, startStreaming, setStreamingContent, appendStreamToken, finalizeStream, createConversation, maxHistoryMessages, requestSoulDialog, project, novelMode, selectedFile, planningPlan],
   )
 
   const handleStop = useCallback(() => {
@@ -1673,7 +1706,7 @@ export function ChatPanel() {
         delete activeStreamSessionsRef.current[convId]
       })
     }
-  }, [finalizeStream])
+  }, [finalizeStream, planningPlan])
 
   const handleRegenerate = useCallback(async () => {
     // 直接从 store 获取最新状态，避免闭包旧值
@@ -2367,6 +2400,22 @@ export function ChatPanel() {
         )}
 
         <div className="shrink-0 border-t bg-background">
+          {/* Wave 3 (v2.5.0): 计划面板（生成前一次性动作；关闭=取消不触发生成） */}
+          {planningOpen && (
+            <div className="px-3 pt-2">
+              <PlanningPanel
+                plan={planningPlan}
+                loading={planningLoading}
+                error={planningError}
+                onRefresh={() => void loadPlanning(planningChapterRef.current)}
+                onStartWriting={() => {
+                  // plan 已在 state（面板数据即 planningPlan）；仅关闭面板进入 one-shot 待发状态
+                  setPlanningOpen(false)
+                }}
+                onClose={() => setPlanningOpen(false)}
+              />
+            </div>
+          )}
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}
@@ -2407,6 +2456,19 @@ export function ChatPanel() {
                           aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
                         >
                           <Brain className="h-4 w-4" />
+                        </Button>
+                        {/* Wave 3 (v2.5.0): 计划模式入口（生成前一次性动作，与直接生成并列） */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-pressed={planningOpen}
+                          className={getDeepChapterToggleButtonClass(planningOpen)}
+                          onClick={() => (planningOpen ? setPlanningOpen(false) : openPlanning())}
+                          title={planningOpen ? "关闭计划面板" : "打开计划面板"}
+                          aria-label={planningOpen ? "关闭计划面板" : "打开计划面板"}
+                        >
+                          <ClipboardList className="h-4 w-4" />
                         </Button>
                         <Tooltip>
                           <TooltipTrigger
