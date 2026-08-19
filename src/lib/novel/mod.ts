@@ -92,6 +92,8 @@ export { exportProject, type ExportOptions, type ExportResult } from "./export"
 export { routeTask, buildTaskDirective, type NovelTaskIntent, type TaskRouteResult } from "./task-router"
 export { createDefaultNovelProjectMeta, saveNovelProjectMeta, loadNovelProjectMeta, updateNovelProjectStats, type NovelProjectMeta } from "./project-meta"
 export { buildDeAiSystemPrompt, buildDeAiRewriteMessages, injectDeAiDirective, loadCustomDeAiSkill } from "./de-ai-adapter"
+// Wave 4 (v2.5.0): 批量去AI味 canonical 出口
+export * from "./de-ai-batch"
 export { analyzePreviousChapters, type PreviousChapterAnalysis } from "./previous-chapters-analysis"
 export { rebuildAllSnapshots, rebuildVectorIndex, type RebuildProgress, type RebuildProgressCallback } from "./rebuild"
 export { runFactCheck, verifyFactCheckLlm, type FactCheckResult, type FactCheckReport, type FactCheckOptions } from "./fact-snapshot"

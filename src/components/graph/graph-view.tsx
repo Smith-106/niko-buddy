@@ -813,7 +813,8 @@ function DocumentGraphView({
                   const relationSummary = buildGraphNodeRelationSummary(node, nodes, edges)
                   const isDangerNode = riskStateLabel === "疑似冲突" || riskStateLabel === "疑似矛盾"
                   return (
-                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${/* v8 ignore next */ isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
+                    /* v8 ignore next -- canon-rule/timeline-point 恒被 allowedNodeTypes 过滤，danger 不可达 */
+                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
                       <button type="button" className="flex w-full items-start justify-between gap-3 text-left" onClick={() => toggleNode(node.id)}>
                         <div>
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{nodeIndex + 1} {node.label}</h3>
@@ -1729,19 +1730,21 @@ export function GraphView() {
               <div className="border-b px-3 py-2">
                 <div className="truncate font-medium text-foreground">{contextNode.label}</div>
                 <div className="text-muted-foreground">{t("graph.contextNodeLinks", { count: contextNode.linkCount })}</div>
-                {novelMode && NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS] && (
-                  <span
-                    className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{
-                      /* v8 ignore next */
-                      backgroundColor: hexToRgba(NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8", 0.15),
-                      /* v8 ignore next */
-                      color: NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8",
-                    }}
-                  >
-                    {NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS]}
-                  </span>
-                )}
+                {novelMode && NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS] && (() => {
+                  /* v8 ignore next -- novelMode 下 type 恒在 NOVEL_NODE_TYPE_LABELS → 恒有颜色 */
+                  const typeColor = NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8"
+                  return (
+                    <span
+                      className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        backgroundColor: hexToRgba(typeColor, 0.15),
+                        color: typeColor,
+                      }}
+                    >
+                      {NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS]}
+                    </span>
+                  )
+                })()}
               </div>
               {novelMode && (() => {
                 const nodeEdges = edges.filter(
@@ -1831,6 +1834,8 @@ export function GraphView() {
                           const baseTypes = ["entity", "concept", "source", "query", "synthesis", "overview", "comparison", "other"]
                           const renderTypeItem = (type: string, label: string) => {
                             const isHidden = filters.hiddenTypes.has(type)
+                            /* v8 ignore next -- novelTypes/baseTypes 恒在 NODE_TYPE_COLORS */
+                            const shadowColor = NODE_TYPE_COLORS[type] ?? "#94a3b8"
                             return (
                               <div
                                 key={type}
@@ -1854,8 +1859,7 @@ export function GraphView() {
                                   className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
-                                    /* v8 ignore next */
-                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type] ?? "#94a3b8", 0.4)}`,
+                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
                                   }}
                                 />
                                 <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>
@@ -1899,6 +1903,8 @@ export function GraphView() {
                           .filter(([type]) => (typeCounts[type] ?? 0) > 0)
                           .map(([type, label]) => {
                             const isHidden = filters.hiddenTypes.has(type)
+                            /* v8 ignore next -- nodeTypeLabels 固定映射，type 恒在 NODE_TYPE_COLORS */
+                            const shadowColor = NODE_TYPE_COLORS[type] ?? "#94a3b8"
                             return (
                               <div
                                 key={type}
@@ -1922,8 +1928,7 @@ export function GraphView() {
                                   className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
-                                    /* v8 ignore next */
-                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type] ?? "#94a3b8", 0.4)}`,
+                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
                                   }}
                                 />
                                 <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>

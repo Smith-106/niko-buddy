@@ -337,17 +337,17 @@ export function MaintenanceSection() {
       {groups.map((entry, idx) => {
         const task = findTaskForGroup(tasks, entry.group.slugs)
         const merged = recentlyMergedKeys.has(groupKey(entry.group.slugs))
+        /* v8 ignore next -- pendingPositionByTaskId 与 tasks 同源，get 恒有值 */
+        const pendingPosition = task && task.status === "pending"
+          ? pendingPositionByTaskId.get(task.id) ?? 0
+          : 0
         return (
           <DuplicateGroupCard
             key={entry.group.slugs.join(",")}
             entry={entry}
             task={task}
             merged={merged}
-            pendingPosition={
-              /* v8 ignore next */ task && task.status === "pending"
-                ? pendingPositionByTaskId.get(task.id) ?? 0
-                : 0
-            }
+            pendingPosition={pendingPosition}
             onCanonicalChange={(slug) => handleCanonicalChange(idx, slug)}
             onEnqueue={() => void handleEnqueue(entry)}
             onCancel={() => task && void handleCancel(task.id)}

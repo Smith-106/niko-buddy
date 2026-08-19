@@ -272,6 +272,40 @@ describe("dismantling normalization fallbacks", () => {
     expect(project.structureMemory).toEqual(["有用"])
   })
 
+  it("fills fallbacks when a project is entirely empty", () => {
+    const lib = normalizeDismantlingLibrary({
+      projects: [
+        {
+          chapters: [{} as never],
+          analyses: [{} as never],
+        } as never,
+        { title: "空项目" } as never,
+      ],
+    })
+    const project = lib.projects[0]
+    expect(project.chapters).toHaveLength(1)
+    expect(project.chapters[0]).toMatchObject({
+      id: "chapter-1",
+      chapterNumber: 1,
+      title: "第1章",
+      content: "",
+      status: "pending",
+    })
+    expect(project.analyses[0]).toMatchObject({
+      id: expect.stringMatching(/^analysis-/),
+      title: "拆文结果",
+      chapterIds: [],
+      markdown: "",
+      structureMemory: [],
+    })
+    expect(project.structureMemory).toEqual([])
+    expect(project.useInChat).toBe(false)
+    // 完全空项目：chapters/analyses/structureMemory 缺省 → 空数组 fallback
+    expect(lib.projects[1].chapters).toEqual([])
+    expect(lib.projects[1].analyses).toEqual([])
+    expect(lib.projects[1].structureMemory).toEqual([])
+  })
+
   it("resolves selectedProjectId against the surviving projects", () => {
     const lib = normalizeDismantlingLibrary({
       selectedProjectId: "ghost",

@@ -132,20 +132,24 @@ export function WikiReader({ body }: WikiReaderProps) {
               </a>
             )
           },
-          img: ({ src, alt, ...props }) => (
-            <img
-              src={
-                typeof src === "string"
-                  ? resolveMarkdownImageSrc(src, projectPath)
-                  : /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */ undefined
-              }
-              data-mdsrc={typeof src === "string" ? src : /* v8 ignore next */ undefined}
-              alt={/* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */ alt ?? ""}
-              className="max-w-full rounded border border-border/40"
-              loading="lazy"
-              {...props}
-            />
-          ),
+          img: ({ src, alt, ...props }) => {
+            /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */
+            const resolvedSrc = typeof src === "string" ? resolveMarkdownImageSrc(src, projectPath) : undefined
+            /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */
+            const rawSrc = typeof src === "string" ? src : undefined
+            /* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */
+            const altText = alt ?? ""
+            return (
+              <img
+                src={resolvedSrc}
+                data-mdsrc={rawSrc}
+                alt={altText}
+                className="max-w-full rounded border border-border/40"
+                loading="lazy"
+                {...props}
+              />
+            )
+          },
           table: ({ children, ...props }) => (
             <div className="my-4 overflow-x-auto rounded-lg border border-border">
               <table className="w-full border-collapse text-sm" {...props}>

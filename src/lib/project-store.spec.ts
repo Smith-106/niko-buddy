@@ -245,6 +245,47 @@ describe("apiKey encryption at the persistence boundary", () => {
     const loaded = (await loadLlmConfig()) as { apiKey: string }
     expect(loaded.apiKey).toBe("already-enc")
   })
+
+  it("migratePlaintextApiKeys re-saves every config family carrying plaintext keys", async () => {
+    await mocks.store.set("llmConfig", { provider: "custom", apiKey: "plaintext-key" })
+    await mocks.store.set("providerConfigs", { anthropic: { apiKey: "pk-1" } })
+    await mocks.store.set("searchApiConfig", { provider: "serpapi", apiKey: "sk-search" })
+    await mocks.store.set("embeddingConfig", {
+      enabled: true,
+      endpoint: "http://127.0.0.1:1234/v1/embeddings",
+      apiKey: "sk-emb",
+      model: "m",
+    })
+    await mocks.store.set("multimodalConfig", {
+      enabled: true,
+      useMainLlm: false,
+      provider: "custom",
+      apiKey: "sk-mm",
+      model: "m",
+      ollamaUrl: "",
+      customEndpoint: "",
+    })
+    await migratePlaintextApiKeys()
+    const rawLlm = (await mocks.store.get("llmConfig")) as { apiKey: string }
+    const rawProviders = (await mocks.store.get("providerConfigs")) as Record<string, { apiKey: string }>
+    const rawSearch = (await mocks.store.get("searchApiConfig")) as { apiKey: string }
+    const rawEmb = (await mocks.store.get("embeddingConfig")) as { apiKey: string }
+    const rawMm = (await mocks.store.get("multimodalConfig")) as { apiKey: string }
+    expect(String(rawLlm.apiKey)).toMatch(/^enc::v1::/)
+    expect(String(rawProviders.anthropic.apiKey)).toMatch(/^enc::v1::/)
+    expect(String(rawSearch.apiKey)).toMatch(/^enc::v1::/)
+    expect(String(rawEmb.apiKey)).toMatch(/^enc::v1::/)
+    expect(String(rawMm.apiKey)).toMatch(/^enc::v1::/)
+  })
+
+  it("migratePlaintextApiKeys skips absent config families", async () => {
+    // 仅 searchApiConfig 含明文 → needsMigration 为真，但 llmConfig 等缺失 → 对应 if 守卫走 false 分支
+    await mocks.store.set("searchApiConfig", { provider: "serpapi", apiKey: "sk-search" })
+    await migratePlaintextApiKeys()
+    const rawSearch = (await mocks.store.get("searchApiConfig")) as { apiKey: string }
+    expect(String(rawSearch.apiKey)).toMatch(/^enc::v1::/)
+    expect(mocks.store.set).not.toHaveBeenCalledWith("llmConfig", expect.anything())
+  })
 })
 
 describe("scheduled import config", () => {

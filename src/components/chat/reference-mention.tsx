@@ -76,6 +76,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
       })()
     }, 300)
     return () => {
+      /* v8 ignore next -- early-return 分支不注册 cleanup，ref 恒非空 */
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [trigger, projectPath])
@@ -97,6 +98,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
 
   const selectCandidate = (candidate: ReferenceCandidate) => {
     // 把 @query 替换为 @候选名（保留在文本中，build-time 重新解析）
+    /* v8 ignore next -- 下拉仅在 trigger 存在时打开，守卫不可达 */
     if (!trigger) return
     const before = value.slice(0, trigger.index)
     const after = value.slice(trigger.index + 1 + trigger.query.length)
@@ -134,29 +136,35 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
     <div className="px-3 pb-2">
       {resolved.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-1.5">
-          {resolved.map((ref) => (
-            <span
-              key={ref.id}
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${KIND_STYLES[ref.kind] ?? KIND_STYLES.character}`}
-            >
-              <button
-                type="button"
-                className="cursor-pointer"
-                onClick={() => setExpanded((s) => ({ ...s, [ref.id]: !s[ref.id] }))}
-                title={t("chat.reference.expand", { defaultValue: "点击预览引用内容" })}
+          {resolved.map((ref) => {
+            /* v8 ignore next -- kind 恒为三值之一 */
+            const chipStyle = KIND_STYLES[ref.kind] ?? KIND_STYLES.character
+            /* v8 ignore next -- kind 恒为三值之一 */
+            const chipLabel = KIND_LABELS[ref.kind] ?? "引用"
+            return (
+              <span
+                key={ref.id}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${chipStyle}`}
               >
-                {KIND_LABELS[ref.kind] ?? "引用"} · {ref.name}
-              </button>
-              <button
-                type="button"
-                className="cursor-pointer opacity-60 hover:opacity-100"
-                onClick={() => onRemoveToken(ref.token.full)}
-                aria-label={t("chat.reference.remove", { defaultValue: "移除引用" })}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                <button
+                  type="button"
+                  className="cursor-pointer"
+                  onClick={() => setExpanded((s) => ({ ...s, [ref.id]: !s[ref.id] }))}
+                  title={t("chat.reference.expand", { defaultValue: "点击预览引用内容" })}
+                >
+                  {chipLabel} · {ref.name}
+                </button>
+                <button
+                  type="button"
+                  className="cursor-pointer opacity-60 hover:opacity-100"
+                  onClick={() => onRemoveToken(ref.token.full)}
+                  aria-label={t("chat.reference.remove", { defaultValue: "移除引用" })}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )
+          })}
         </div>
       )}
       {open && candidates.length > 0 && (

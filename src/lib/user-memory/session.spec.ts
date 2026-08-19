@@ -9,8 +9,9 @@ import {
   updatePreferenceForProject,
   deletePreferenceForProject,
   ensureUserMemoryFile,
+  createTestStore,
 } from "./session"
-import { createDefaultStore } from "./types"
+import { createDefaultStore, createPreference } from "./types"
 import type { UserMemoryStore } from "./types"
 
 // Mock fs module（store.ts 依赖）
@@ -36,6 +37,12 @@ beforeEach(() => {
 })
 
 describe("session 单例", () => {
+  it("createTestStore 返回默认 store（不落盘）", () => {
+    const store = createTestStore()
+    expect(store.preferences).toEqual([])
+    expect(store.version).toBe("user-memory/1.0")
+  })
+
   it("getUserMemoryStore 未加载时返回 null", () => {
     expect(getUserMemoryStore(P)).toBeNull()
   })
@@ -153,7 +160,25 @@ describe("command 闭环薄封装", () => {
     const store = createDefaultStore()
     mockFileStore(store)
     const s = await ensureUserMemoryFile(P)
-    expect(s).toStrictEqual(store)
+    expect(s.version).toBe("user-memory/1.0")
+    expect(s.preferences).toEqual([])
     expect(writeFileAtomic).toHaveBeenCalledTimes(1)
+  })
+
+  it("ensureUserMemoryFile 非空 store 不重复落盘", async () => {
+    const store = createDefaultStore()
+    store.preferences.push(createPreference({ key: "k", value: "v", category: "custom" }))
+    mockFileStore(store)
+    const s = await ensureUserMemoryFile(P)
+    expect(s.preferences).toHaveLength(1)
+    expect(writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("saveUserMemoryForProject 写失败后写链可恢复（catch 链）", async () => {
+    vi.mocked(writeFileAtomic).mockRejectedValueOnce(new Error("disk full"))
+    await expect(saveUserMemoryForProject(P, createDefaultStore())).rejects.toThrow("disk full")
+    // 第二次保存成功 → writeChain 已恢复
+    await saveUserMemoryForProject(P, createDefaultStore())
+    expect(writeFileAtomic).toHaveBeenCalledTimes(2)
   })
 })

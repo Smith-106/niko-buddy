@@ -268,7 +268,7 @@ describe("MemoryCenterView", () => {
     render(<MemoryCenterView />)
     await screen.findByTestId("wiki-reader")
     fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "不要保存" } })
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "不要保存" } })
     fireEvent.click(screen.getByText("novel.memoryCenter.cancel"))
     expect(fsMock.writeFile).not.toHaveBeenCalled()
     expect(screen.getByTestId("wiki-reader")).toBeInTheDocument()

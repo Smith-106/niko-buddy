@@ -28,6 +28,8 @@ export interface DualPassReport {
     avoidAi: AvoidAiAnalyzeResult
     combinedScore: number
     percentileInBaseline?: number
+    /** Wave 4 (v2.5.0): 用户避用词命中清单（additive；未传 avoidWords 时缺省）。 */
+    avoidWordsHits?: Array<{ word: string; count: number }>
   }
   pass2: {
     remediationNotes: string[]
@@ -42,6 +44,25 @@ export interface DualPassOptions {
   baselineScores?: readonly number[]
   /** Optional precomputed bands (unused for gating). */
   bands?: CalibratedBands
+  /** Wave 4 (v2.5.0): 用户避用词（廉价子串扫描；未传 → 字节级不变）。 */
+  avoidWords?: readonly string[]
+}
+
+/** 廉价子串扫描：命中词 + 次数（小词表，批量可控）。 */
+function scanAvoidWords(text: string, avoidWords: readonly string[]): Array<{ word: string; count: number }> {
+  const hits: Array<{ word: string; count: number }> = []
+  for (const word of avoidWords) {
+    const trimmed = word.trim()
+    if (!trimmed) continue
+    let count = 0
+    let index = text.indexOf(trimmed)
+    while (index !== -1) {
+      count += 1
+      index = text.indexOf(trimmed, index + trimmed.length)
+    }
+    if (count > 0) hits.push({ word: trimmed, count })
+  }
+  return hits
 }
 
 function combinedScore(slop: SlopReport, avoid: AvoidAiAnalyzeResult): number {
@@ -63,6 +84,8 @@ export function runDeAiDualPass(text: string, options: DualPassOptions = {}): Du
     options.baselineScores && options.baselineScores.length
       ? percentileRank(combined, options.baselineScores)
       : undefined
+  const avoidWordsHits = options.avoidWords?.length ? scanAvoidWords(text ?? "", options.avoidWords) : undefined
+  const avoidWordsHitsReport = avoidWordsHits && avoidWordsHits.length > 0 ? avoidWordsHits : undefined
 
   const remediationNotes: string[] = []
   if (slopClass === "block" || slopClass === "warn") {
@@ -73,6 +96,11 @@ export function runDeAiDualPass(text: string, options: DualPassOptions = {}): Du
   if (avoidAi.score >= 15 || avoidAi.issues.length > 0) {
     remediationNotes.push(
       `avoid-ai patterns soft: score=${avoidAi.score} label=${avoidAi.label} issues=${avoidAi.issues.length}（英语偏置，仅参考）。`,
+    )
+  }
+  if (avoidWordsHits && avoidWordsHits.length > 0) {
+    remediationNotes.push(
+      `用户避用词命中：${avoidWordsHits.map((hit) => `${hit.word}×${hit.count}`).join("、")}。`,
     )
   }
   if (percentileInBaseline != null && percentileInBaseline >= 90) {
@@ -87,6 +115,9 @@ export function runDeAiDualPass(text: string, options: DualPassOptions = {}): Du
   const fragments = [
     slopClass !== "clean" ? slopReportToText(slop) : "",
     formatAvoidAiPatternsPromptFragment(avoidAi),
+    avoidWordsHits && avoidWordsHits.length > 0
+      ? `用户避用词（改写时禁止使用）：${avoidWordsHits.map((hit) => hit.word).join("、")}`
+      : "",
     remediationNotes.map((n) => `- ${n}`).join("\n"),
   ].filter(Boolean)
 
@@ -98,6 +129,7 @@ export function runDeAiDualPass(text: string, options: DualPassOptions = {}): Du
       avoidAi,
       combinedScore: combined,
       percentileInBaseline,
+      avoidWordsHits: avoidWordsHitsReport,
     },
     pass2: {
       remediationNotes,

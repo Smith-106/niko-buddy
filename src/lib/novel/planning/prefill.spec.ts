@@ -93,6 +93,105 @@ describe("buildPlanningPrefillBlock", () => {
     expect(block.length).toBeLessThanOrEqual(1200 + 8)
     expect(block).toContain("已截断")
   })
+
+  it("warning 级伏笔渲染 [warning] 行", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      currentChapter: 20,
+      foreshadowing: {
+        lastUpdated: "",
+        items: [
+          {
+            id: "f1",
+            name: "神秘黑衣人",
+            description: "",
+            status: "advanced",
+            plantedChapter: 1,
+            advancedChapters: [1],
+            relatedCharacters: [],
+            relatedEvents: [],
+            notes: "",
+          },
+        ],
+      },
+    })
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("  - [warning] 神秘黑衣人")
+  })
+
+  it("逾期未出场角色渲染 due 行", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      currentChapter: 20,
+      chapterOutline: "林动在青山镇修炼",
+      characterStates: {
+        lastUpdated: "",
+        characters: [
+          {
+            characterName: "应欢欢",
+            currentLocation: "",
+            status: "",
+            equipment: [],
+            abilities: [],
+            relationships: {},
+            lastUpdatedChapter: 1,
+            lastSeenChapter: 1,
+            lastUpdatedAt: "",
+          },
+        ],
+      },
+      appearances: [],
+    })
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("逾期未出场：应欢欢")
+  })
+
+  it("report 为 null 且状态 ok → 伏笔块静默跳过（防御分支）", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    plan.foreshadowing.report = null
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).not.toContain("伏笔债务")
+    expect(block).toContain("角色出场")
+  })
+
+  it("大纲命中角色：无 lastSeen → ?；空状态 → 无状态后缀；isAlive false → 已退场", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      chapterOutline: "林动在青山镇修炼",
+      characterStates: {
+        lastUpdated: "",
+        characters: [
+          {
+            characterName: "林动",
+            currentLocation: "",
+            status: "",
+            equipment: [],
+            abilities: [],
+            relationships: {},
+            lastUpdatedChapter: 0,
+            isAlive: false,
+            lastUpdatedAt: "",
+          },
+        ],
+      },
+      appearances: [],
+    })
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("上次出场第?章")
+    expect(block).toContain("已退场")
+    expect(block).not.toContain("，状态：")
+  })
+
+  it("支线 transitionViolation → 行尾标注", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    plan.threads.items[0] = {
+      ...plan.threads.items[0],
+      arcState: "Rising",
+      transitionViolation: "Resolved 后仍有新增进度条目",
+    }
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("Resolved 后仍有新增进度条目")
+  })
 })
 
 describe("appendPlanningBlockToTaskBrief", () => {

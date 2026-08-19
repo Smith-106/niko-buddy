@@ -907,9 +907,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
   if (version === TWO_POINT_FIVE_ZERO_CHANGELOG.version) return [TWO_POINT_FIVE_ZERO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ELEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_ELEVEN_CHANGELOG]
-  if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) return [TWO_POINT_FOUR_TEN_CHANGELOG]
-  if (version === TWO_POINT_FOUR_EIGHT_CHANGELOG.version) return [TWO_POINT_FOUR_EIGHT_CHANGELOG]
-  if (version === TWO_POINT_FOUR_SEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_SEVEN_CHANGELOG]
+  if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) {
+    return [TWO_POINT_FOUR_TEN_CHANGELOG]
+  }
+  if (version === TWO_POINT_FOUR_EIGHT_CHANGELOG.version) {
+    return [TWO_POINT_FOUR_EIGHT_CHANGELOG]
+  }
+  if (version === TWO_POINT_FOUR_SEVEN_CHANGELOG.version) {
+    return [TWO_POINT_FOUR_SEVEN_CHANGELOG]
+  }
   if (version === TWO_POINT_FOUR_SIX_CHANGELOG.version) return [TWO_POINT_FOUR_SIX_CHANGELOG]
   if (version === TWO_POINT_FOUR_FIVE_CHANGELOG.version) return [TWO_POINT_FOUR_FIVE_CHANGELOG]
   if (version === TWO_POINT_FOUR_FOUR_CHANGELOG.version) return [TWO_POINT_FOUR_FOUR_CHANGELOG]

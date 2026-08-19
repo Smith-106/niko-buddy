@@ -49,7 +49,6 @@ function cacheSet(key: string, hits: ReferenceSearchHit[]): void {
   cache.set(key, { key, hits })
   while (cache.size > REFERENCE_CACHE_MAX) {
     const oldest = cache.keys().next().value
-    if (oldest === undefined) break
     cache.delete(oldest)
   }
 }

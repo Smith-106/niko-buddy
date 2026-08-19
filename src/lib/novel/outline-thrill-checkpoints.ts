@@ -239,7 +239,7 @@ export interface OutlineThrillSoftGateRuntimeStatus {
 }
 
 export function getOutlineThrillSoftGateRuntimeStatus(options: {
-  outlineText: string
+  outlineText?: string
   chapter?: number | null
   enabled?: boolean
   ackMap?: Record<string, boolean> | null

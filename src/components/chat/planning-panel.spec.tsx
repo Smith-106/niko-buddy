@@ -146,4 +146,41 @@ describe("PlanningPanel", () => {
     render(<PlanningPanel {...makeProps({ plan })} />)
     expect(screen.getAllByText("无未回收伏笔").length).toBeGreaterThan(0)
   })
+
+  it("plan 为 null 且无 loading/error → 不渲染数据区", () => {
+    render(<PlanningPanel {...makeProps({ plan: null })} />)
+    expect(screen.queryByText("伏笔债务")).toBeNull()
+    expect(screen.queryByText("支线推进")).toBeNull()
+  })
+
+  it("foreshadowing/threads degraded → 数据源不可用标记", () => {
+    const plan = makePlan()
+    plan.foreshadowing.status = "degraded"
+    plan.threads.status = "degraded"
+    render(<PlanningPanel {...makeProps({ plan })} />)
+    expect(screen.getAllByText("数据源不可用").length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("未知 debtLevel/arcState → 样式回退；已退场/逾期/违规标注", () => {
+    const plan = makePlan()
+    plan.foreshadowing.report!.items[0] = {
+      ...plan.foreshadowing.report!.items[0],
+      debtLevel: "unknown" as never,
+    }
+    plan.characters.items = [
+      { name: "林动", lastSeenChapter: 7, inCurrentOutline: true, chaptersSinceSeen: 1, isAlive: false },
+      { name: "应欢欢", lastSeenChapter: 1, inCurrentOutline: false, chaptersSinceSeen: 12 },
+    ]
+    plan.threads.items[0] = {
+      ...plan.threads.items[0],
+      arcState: "Unknown" as never,
+      transitionViolation: "Resolved 后仍有新增进度条目",
+    }
+    render(<PlanningPanel {...makeProps({ plan })} />)
+    expect(screen.getByText("unknown")).toBeTruthy()
+    expect(screen.getByText("已退场")).toBeTruthy()
+    expect(screen.getByText(/已 .*章未出场/)).toBeTruthy()
+    expect(screen.getByText("Unknown")).toBeTruthy()
+    expect(screen.getByText("Resolved 后仍有新增进度条目")).toBeTruthy()
+  })
 })

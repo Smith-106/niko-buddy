@@ -461,6 +461,8 @@ describe("LlmProviderSection — section shell & row header", () => {
     mocks.store.set.mockRejectedValueOnce(new Error("save-boom-2"))
     fireEvent.click(within(card).getByTitle("settings.sections.llm.toggleOn"))
     expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(true)
+    // 等待 persist 异步链（动态 import + saveProviderConfigs reject → catch）完成
+    await new Promise((r) => setTimeout(r, 400))
   })
 
   it("enabled preset without savedModels evaluates the enabledBadge guard with empty list", () => {

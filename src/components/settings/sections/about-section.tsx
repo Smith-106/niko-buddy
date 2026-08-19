@@ -23,12 +23,16 @@ export function AboutSection() {
       </div>
 
       <div className="rounded-md border divide-y">
-        {infoRows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-            <span className="text-sm text-muted-foreground">{row.label}</span>
-            <span className={`text-sm ${/* v8 ignore next */ row.mono ? "font-mono" : ""}`}>{row.value}</span>
-          </div>
-        ))}
+        {infoRows.map((row) => {
+          /* v8 ignore next -- infoRows 恒 mono: true */
+          const monoClass = row.mono ? "font-mono" : ""
+          return (
+            <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-sm text-muted-foreground">{row.label}</span>
+              <span className={`text-sm ${monoClass}`}>{row.value}</span>
+            </div>
+          )
+        })}
       </div>
 
     </div>

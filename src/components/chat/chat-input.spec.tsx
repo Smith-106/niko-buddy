@@ -11,6 +11,7 @@ import {
   render,
   screen,
   setupDomGlobals,
+  waitFor,
 } from "@/test-helpers/component-test-utils"
 import { ChatInput } from "./chat-input"
 
@@ -36,6 +37,26 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/stores/chat-store", () => ({
   useChatStore: (selector: (s: ChatStateLike) => unknown) => selector(mocks.chatState),
+}))
+
+vi.mock("@/stores/wiki-store", () => ({
+  useWikiStore: (selector: (s: { project: { id: string; path: string } | null }) => unknown) =>
+    selector({ project: { id: "p1", path: "/p" } }),
+}))
+
+vi.mock("@/lib/reference", () => ({
+  parseReferences: vi.fn(() => [{ index: 1, query: "林墨", full: "@林墨", kind: "character" }]),
+  resolveReferences: vi.fn(() => [
+    {
+      id: "c1",
+      name: "林墨",
+      kind: "character",
+      token: { index: 1, query: "林墨", full: "@林墨", kind: "character" },
+    },
+  ]),
+  loadAllReferenceCandidates: vi.fn(async () => [
+    { id: "c1", name: "林墨", kind: "character", aliases: [], description: "" },
+  ]),
 }))
 
 function renderChatInput(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
@@ -311,5 +332,25 @@ describe("ChatInput", () => {
     } finally {
       Element.prototype.getBoundingClientRect = original
     }
+  })
+
+  it("mentionEnabled：渲染 ReferenceMention，移除 token 回写 value", () => {
+    const onChange = vi.fn()
+    renderChatInput({ mentionEnabled: true, value: "让@林墨 出场", onChange })
+    // ReferenceMention 渲染（解析 @林墨 → 引用 chip）
+    expect(screen.getAllByText(/林墨/).length).toBeGreaterThanOrEqual(1)
+    // 点击 chip 的移除按钮 → onRemoveToken → value.replace(full, "") → onChange
+    const removeBtn = screen.getByRole("button", { name: "移除引用" })
+    fireEvent.click(removeBtn)
+    expect(onChange).toHaveBeenCalledWith("让 出场")
+  })
+
+  it("mentionEnabled：@ 候选导航键被引用组件消费（不发送）", async () => {
+    const { onSend } = renderChatInput({ mentionEnabled: true, value: "让@林" })
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
+    // 等 300ms debounce + 候选装载 → 下拉打开（候选项渲染）
+    await waitFor(() => expect(screen.getAllByText(/林墨/).length).toBeGreaterThanOrEqual(1))
+    fireEvent.keyDown(textarea, { key: "ArrowDown" })
+    expect(onSend).not.toHaveBeenCalled()
   })
 })

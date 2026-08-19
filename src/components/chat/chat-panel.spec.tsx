@@ -2615,6 +2615,32 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     expect(mocks.runDeepChapterGeneration).not.toHaveBeenCalled()
     setDeepMode(false)
   })
+
+  it("Wave 3 计划模式：无 project → loadPlanning 直接返回（不装载）", async () => {
+    mocks.wikiState.project = null
+    mocks.wikiState.novelMode = true
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    fireEvent.click(screen.getByLabelText("打开计划面板"))
+    await flushAsync()
+    rerenderPanel()
+    expect(mocks.buildChapterPlan).not.toHaveBeenCalled()
+    setDeepMode(false)
+  })
+
+  it("Wave 3 计划模式：装载失败（非 Error）→ String(error) 显示", async () => {
+    setupDeepBase()
+    mocks.buildChapterPlan.mockRejectedValueOnce("plan-io-string")
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    fireEvent.click(screen.getByLabelText("打开计划面板"))
+    await flushAsync()
+    rerenderPanel()
+    expect(screen.getByText("plan-io-string")).toBeTruthy()
+    setDeepMode(false)
+  })
 })
 
 describe("ChatPanel — 停止 / 重新生成 / 继续下一章", () => {

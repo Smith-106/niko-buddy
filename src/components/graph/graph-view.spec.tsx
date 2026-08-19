@@ -2,7 +2,7 @@
 import React from "react"
 import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, configure } from "@testing-library/react"
 import {
   render,
   screen,
@@ -13,6 +13,9 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { GraphView } from "./graph-view"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
+
+// 覆盖率负载下 sigma 渲染较慢：放宽 waitFor 默认超时，避免时序偶发
+configure({ asyncUtilTimeout: 5000 })
 
 interface WikiStateLike {
   project: { id: string; name: string; path: string } | null
@@ -559,8 +562,10 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     const { unmount } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
     const graph = sigma.getGraph() as { getNodeAttribute: (n: string, k: string) => unknown }
-    expect(graph.getNodeAttribute("fo:planted", "color")).toBe("#f59e0b")
-    expect(graph.getNodeAttribute("fo:unknown", "color")).toBe("#fb923c")
+    await waitFor(() => {
+      expect(graph.getNodeAttribute("fo:planted", "color")).toBe("#f59e0b")
+      expect(graph.getNodeAttribute("fo:unknown", "color")).toBe("#fb923c")
+    })
     unmount()
   })
 
@@ -1478,10 +1483,12 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
     setState({ project: PROJECT, graphMode: "character" })
     render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    expect(mocks.fa2.assign).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ settings: expect.objectContaining({ barnesHutOptimize: true }) }),
-    )
+    await waitFor(() => {
+      expect(mocks.fa2.assign).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ settings: expect.objectContaining({ barnesHutOptimize: true }) }),
+      )
+    })
   })
 })
 

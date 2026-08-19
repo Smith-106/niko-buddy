@@ -39,8 +39,7 @@ function PillSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      /* v8 ignore next */
-      className={`ml-3 flex shrink-0 items-center gap-2 ${showTextState ? "" : ""}`}
+      className="ml-3 flex shrink-0 items-center gap-2"
     >
       {showTextState && (
         <span

@@ -98,7 +98,8 @@ export function estimateWordCount(text: string): number {
 }
 
 export interface ComputeCedReportInput {
-  findings: readonly ContinuityFinding[]
+  /** Continuity findings; absent → empty report. */
+  findings?: readonly ContinuityFinding[]
   /** Chapter or pack text for density denominator. */
   textForWordCount?: string
   /** Override word count if text unavailable. */

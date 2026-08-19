@@ -46,5 +46,30 @@ describe("de-ai-dual-pass", () => {
   it("nullish text is tolerated via ?? '' (defensive branch)", () => {
     const r = runDeAiDualPass(undefined as unknown as string)
     expect(r.pass1.combinedScore).toBeGreaterThanOrEqual(0)
+    // avoidWords 存在时 scanAvoidWords 内的 text ?? "" 同样容错
+    const withWords = runDeAiDualPass(undefined as unknown as string, { avoidWords: ["不禁"] })
+    expect(withWords.pass1.avoidWordsHits).toBeUndefined()
+  })
+
+  it("Wave 4: 不传 avoidWords 时报告与旧版字节一致（additive-only）", () => {
+    const baseline = runDeAiDualPass("他不禁深吸一口气。")
+    const withEmpty = runDeAiDualPass("他不禁深吸一口气。", { avoidWords: [] })
+    const withBlank = runDeAiDualPass("他不禁深吸一口气。", { avoidWords: ["  ", ""] })
+    expect(withEmpty).toEqual(baseline)
+    expect(withBlank).toEqual(baseline)
+    expect(baseline.pass1.avoidWordsHits).toBeUndefined()
+  })
+
+  it("Wave 4: avoidWords 命中 → avoidWordsHits + remediation note + promptFragment 禁用词提示", () => {
+    const r = runDeAiDualPass("他不禁深吸一口气，不禁感到恍惚。", { avoidWords: ["不禁", "仿佛"] })
+    expect(r.pass1.avoidWordsHits).toEqual([{ word: "不禁", count: 2 }])
+    expect(r.pass2.remediationNotes.some((n) => n.includes("用户避用词命中：不禁×2"))).toBe(true)
+    expect(r.pass2.promptFragment).toContain("用户避用词（改写时禁止使用）：不禁")
+  })
+
+  it("Wave 4: avoidWords 无命中 → 无 avoidWordsHits 且无禁用词提示", () => {
+    const r = runDeAiDualPass("白昼。他推开门。", { avoidWords: ["不禁"] })
+    expect(r.pass1.avoidWordsHits).toBeUndefined()
+    expect(r.pass2.promptFragment).not.toContain("用户避用词")
   })
 })

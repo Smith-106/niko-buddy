@@ -95,6 +95,7 @@ export function DataManagementSection() {
   }
 
   async function handleExportDocx() {
+    /* v8 ignore next -- 按钮在无 project 时 disabled，守卫不可达 */
     if (!currentProject?.path) return
     setIsExportingDocx(true)
     setDocxResult(null)

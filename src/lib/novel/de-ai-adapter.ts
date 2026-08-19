@@ -29,19 +29,30 @@ export function buildDeAiSystemPrompt(customSkill?: string): string {
   return buildQmQuaiSystemPrompt(customSkill)
 }
 
-export function buildQmQuaiRewriteMessages(content: string, customSkill?: string): ChatMessage[] {
+export function buildQmQuaiRewriteMessages(
+  content: string,
+  customSkill?: string,
+  extra?: { userPrompt?: string; dualPassFragment?: string },
+): ChatMessage[] {
   if (!content.trim()) throw new Error("去AI味内容为空，无法处理")
+  const systemContent = extra?.userPrompt?.trim()
+    ? `${buildQmQuaiSystemPrompt(customSkill)}\n\n${extra.userPrompt.trim()}`
+    : buildQmQuaiSystemPrompt(customSkill)
+  const userContent = extra?.dualPassFragment?.trim()
+    ? `请严格按照 QM-QUAI skill 规则处理下面正文。\n\n${extra.dualPassFragment.trim()}\n\n输出仅返回改写后的正文，不要解释。\n\n正文如下：\n\n${content}`
+    : `请严格按照 QM-QUAI skill 规则处理下面正文。\n\n输出仅返回改写后的正文，不要解释。\n\n正文如下：\n\n${content}`
   return [
-    { role: "system", content: buildQmQuaiSystemPrompt(customSkill) },
-    {
-      role: "user",
-      content: "请严格按照 QM-QUAI skill 规则处理下面正文。\n\n输出仅返回改写后的正文，不要解释。\n\n正文如下：\n\n" + content,
-    },
+    { role: "system", content: systemContent },
+    { role: "user", content: userContent },
   ]
 }
 
-export function buildDeAiRewriteMessages(content: string, customSkill?: string): ChatMessage[] {
-  return buildQmQuaiRewriteMessages(content, customSkill)
+export function buildDeAiRewriteMessages(
+  content: string,
+  customSkill?: string,
+  extra?: { userPrompt?: string; dualPassFragment?: string },
+): ChatMessage[] {
+  return buildQmQuaiRewriteMessages(content, customSkill, extra)
 }
 
 const DIRECTIVE_PREFIX = [

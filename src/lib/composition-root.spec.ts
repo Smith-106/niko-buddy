@@ -42,10 +42,14 @@ const mocks = vi.hoisted(() => {
   const reviewState = {
     setItems: vi.fn(),
   }
+  const bookAnalysisState = {
+    hydrateTasks: vi.fn(),
+  }
   return {
     wikiState,
     chatState,
     reviewState,
+    bookAnalysisState,
     changeLanguage: vi.fn(),
     isTauri: vi.fn(),
     listDirectory: vi.fn(),
@@ -86,6 +90,8 @@ const mocks = vi.hoisted(() => {
     startScheduledImport: vi.fn(),
     startProjectFileSync: vi.fn(),
     stopProjectFileSync: vi.fn(),
+    loadTaskSummaries: vi.fn(),
+    attachTaskPersistence: vi.fn(),
   }
 })
 
@@ -145,6 +151,13 @@ vi.mock("@/lib/project-file-sync", () => ({
   startProjectFileSync: mocks.startProjectFileSync,
   stopProjectFileSync: mocks.stopProjectFileSync,
 }))
+vi.mock("@/lib/novel/book-analysis/task-persistence", () => ({
+  loadTaskSummaries: mocks.loadTaskSummaries,
+  attachTaskPersistence: mocks.attachTaskPersistence,
+}))
+vi.mock("@/stores/book-analysis-store", () => ({
+  useBookAnalysisStore: { getState: () => mocks.bookAnalysisState },
+}))
 
 import { hydrateProjectOnOpen, initializeApp } from "./composition-root"
 
@@ -178,6 +191,8 @@ beforeEach(() => {
   mocks.wikiState.llmConfig = null
   mocks.wikiState.scheduledImportConfig = null
   mocks.isTauri.mockReturnValue(false)
+  mocks.loadTaskSummaries.mockResolvedValue([])
+  mocks.attachTaskPersistence.mockReturnValue(() => {})
 })
 
 afterEach(() => {
@@ -783,5 +798,50 @@ describe("hydrateProjectOnOpen", () => {
     mocks.resetProjectState.mockRejectedValue(new Error("reset exploded"))
 
     await expect(hydrateProjectOnOpen(proj)).rejects.toThrow("reset exploded")
+  })
+
+  it("restart recovery: running/paused tasks are marked error and rehydrated", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.loadScheduledImportConfig.mockResolvedValue(null)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.loadTaskSummaries.mockResolvedValue([
+      { id: "t1", status: "running" },
+      { id: "t2", status: "paused" },
+      { id: "t3", status: "done" },
+    ] as never)
+
+    await hydrateProjectOnOpen(proj)
+
+    expect(mocks.bookAnalysisState.hydrateTasks).toHaveBeenCalledWith([
+      { id: "t1", status: "error", error: "应用重启，任务已中断" },
+      { id: "t2", status: "error", error: "应用重启，任务已中断" },
+      { id: "t3", status: "done" },
+    ])
+    expect(mocks.attachTaskPersistence).toHaveBeenCalledWith(proj.path)
+  })
+
+  it("logs task summary load failures without aborting", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.loadScheduledImportConfig.mockResolvedValue(null)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.loadTaskSummaries.mockRejectedValue(new Error("tasks broken"))
+
+    await expect(hydrateProjectOnOpen(proj)).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledWith("加载拆书任务失败:", expect.any(Error))
   })
 })

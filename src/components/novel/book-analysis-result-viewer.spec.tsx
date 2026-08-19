@@ -598,6 +598,27 @@ describe("BookAnalysisResultViewer", () => {
     expect(screen.getByRole("button", { name: "再次提取(简单)" })).toBeEnabled()
   })
 
+  it("single reextract tolerates missing characters in currentResult/task (?? [] 兜底)", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.bookState.tasks = [makeTask()]
+    mocks.bookState.currentResult = { ...makeTask(), characters: undefined }
+    let resolveExtract!: (v: unknown) => void
+    mocks.extractSingleCharacter.mockImplementationOnce(
+      () => new Promise((r) => { resolveExtract = r }),
+    )
+    const { container } = renderViewer()
+    const cards = characterCards(container)
+    fireEvent.click(cards[0]!)
+    await userEvent.click(screen.getByRole("button", { name: "再次提取(简单)" }))
+    // 提取进行中：currentResult 与 task 的 characters 均缺失 → ?? [] 兜底
+    mocks.bookState.tasks[0].characters = undefined
+    mocks.bookState.currentResult = { ...mocks.bookState.currentResult, characters: undefined }
+    await act(async () => {
+      resolveExtract({ character: { ...CHAR_LINJING, description: "新描述-林烬" } })
+    })
+    await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith("「林烬」简单提取完成"))
+  })
+
   it("shows the pending state while a single reextract is running", async () => {
     mocks.wikiState.project = PROJECT
     mocks.bookState.tasks = [makeTask()]

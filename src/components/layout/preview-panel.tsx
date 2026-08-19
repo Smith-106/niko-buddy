@@ -21,8 +21,18 @@ import { PersonaCritiquePanel } from "@/components/novel/persona-critique-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
+import { DeAiBatchDialog } from "@/components/novel/de-ai-batch-dialog"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
+import {
+  acceptAllDeAiBatchDrafts,
+  acceptDeAiBatchDraft,
+  loadDeAiBatchState,
+  rejectDeAiBatchDraft,
+  runDeAiBatch,
+  type DeAiBatchProgress,
+  type DeAiBatchSummary,
+} from "@/lib/novel/de-ai-batch"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
@@ -192,6 +202,13 @@ export function PreviewPanel() {
   const [showPersona, setShowPersona] = useState(false)
   const [deAiProcessing, setDeAiProcessing] = useState(false)
   const [deAiPreviewOpen, setDeAiPreviewOpen] = useState(false)
+  // Wave 4 (v2.5.0): 批量去AI味状态（进度 + 结果 + 中止引用）
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<DeAiBatchProgress | null>(null)
+  const [batchSummary, setBatchSummary] = useState<DeAiBatchSummary | null>(null)
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false)
+  const [batchChapters, setBatchChapters] = useState<Array<{ chapterNumber: number; status: string; lastError?: string }>>([])
+  const batchAbortRef = useRef<AbortController | null>(null)
   const [deAiSourceContent, setDeAiSourceContent] = useState("")
   const [deAiCandidateContent, setDeAiCandidateContent] = useState("")
   const [selectionTransformOpen, setSelectionTransformOpen] = useState(false)
@@ -808,6 +825,86 @@ export function PreviewPanel() {
     }
   }, [fileContent])
 
+  // Wave 4 (v2.5.0): 批量去AI味 — 一键全书 + 进度 + 结果回填（lib API 纯薄壳）
+  const refreshBatchChapters = useCallback(async () => {
+    if (!project) return
+    const state = await loadDeAiBatchState(project.path)
+    if (!state) return
+    setBatchChapters(
+      Object.entries(state.perChapter).map(([key, chapter]) => ({
+        chapterNumber: Number(key),
+        status: chapter.status,
+        lastError: chapter.lastError,
+      })),
+    )
+  }, [project])
+
+  const handleDeAiBatchStart = useCallback(async () => {
+    if (!project) return
+    const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
+    if (!hasUsableLlm(llmConfig)) {
+      setSaveStatus("未配置可用的 AI 模型，无法批量去AI味")
+      return
+    }
+    const controller = new AbortController()
+    batchAbortRef.current = controller
+    setBatchRunning(true)
+    setBatchProgress(null)
+    setBatchSummary(null)
+    setBatchDialogOpen(true)
+    setSaveStatus("批量去AI味处理中...")
+    try {
+      const summary = await runDeAiBatch(project.path, {
+        llmConfig,
+        onProgress: (progress) => setBatchProgress(progress),
+        signal: controller.signal,
+      })
+      setBatchSummary(summary)
+      await refreshBatchChapters()
+      setSaveStatus(
+        summary.phase === "paused"
+          ? `批量去AI味已中止（完成 ${summary.processed} 章）`
+          : `批量去AI味完成：${summary.processed} 章成功，${summary.failed.length} 章失败，${summary.skipped} 章跳过`,
+      )
+    } catch (error) {
+      setSaveStatus(`批量去AI味失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBatchRunning(false)
+      batchAbortRef.current = null
+    }
+  }, [project, refreshBatchChapters])
+
+  const handleDeAiBatchCancel = useCallback(() => {
+    batchAbortRef.current?.abort()
+  }, [])
+
+  const handleDeAiBatchAcceptAll = useCallback(async () => {
+    if (!project) return
+    const result = await acceptAllDeAiBatchDrafts(project.path)
+    setSaveStatus(`批量回填完成：${result.accepted} 章已写回，${result.skipped} 章跳过`)
+    await refreshBatchChapters()
+    bumpDataVersion()
+  }, [project, refreshBatchChapters, bumpDataVersion])
+
+  const handleDeAiBatchAcceptChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    const ok = await acceptDeAiBatchDraft(project.path, chapterNumber)
+    setSaveStatus(ok ? `第 ${chapterNumber} 章已回填` : `第 ${chapterNumber} 章回填失败`)
+    await refreshBatchChapters()
+    bumpDataVersion()
+  }, [project, refreshBatchChapters, bumpDataVersion])
+
+  const handleDeAiBatchRejectChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    const ok = await rejectDeAiBatchDraft(project.path, chapterNumber)
+    setSaveStatus(ok ? `第 ${chapterNumber} 章已拒绝` : `第 ${chapterNumber} 章拒绝失败`)
+    await refreshBatchChapters()
+  }, [project, refreshBatchChapters])
+
+  const handleDeAiBatchClose = useCallback(() => {
+    setBatchDialogOpen(false)
+  }, [])
+
   const handleDeAiApply = useCallback(() => {
     setDeAiPreviewOpen(false)
     handleSave(replaceWholeChapterBody(fileContent, deAiCandidateContent))
@@ -1100,6 +1197,19 @@ export function PreviewPanel() {
                       {deAiProcessing ? "处理中" : "去AI味"}
                     </button>
                   ) : null}
+                  {project ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChapterToolbarMoreOpen(false)
+                        void handleDeAiBatchStart()
+                      }}
+                      disabled={batchRunning || deAiProcessing}
+                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {batchRunning ? "批量处理中..." : "批量去AI味"}
+                    </button>
+                  ) : null}
                   {canIngestOutline ? (
                     <button
                       type="button"
@@ -1224,6 +1334,18 @@ export function PreviewPanel() {
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deAiProcessing ? "处理中" : "去AI味"}
+              </button>
+            </div>
+          ) : null}
+          {!chapterToolbarCompact && project ? (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => void handleDeAiBatchStart()}
+                disabled={batchRunning || deAiProcessing}
+                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {batchRunning ? "批量处理中..." : "批量去AI味"}
               </button>
             </div>
           ) : null}
@@ -1393,6 +1515,18 @@ export function PreviewPanel() {
         onApply={handleDeAiApply}
         onSaveDraft={() => void handleDeAiSaveDraft()}
         onClose={handleDeAiClose}
+      />
+      <DeAiBatchDialog
+        open={batchDialogOpen}
+        running={batchRunning}
+        progress={batchProgress}
+        summary={batchSummary}
+        chapters={batchChapters}
+        onCancel={handleDeAiBatchCancel}
+        onAcceptAll={() => void handleDeAiBatchAcceptAll()}
+        onAcceptChapter={(n) => void handleDeAiBatchAcceptChapter(n)}
+        onRejectChapter={(n) => void handleDeAiBatchRejectChapter(n)}
+        onClose={handleDeAiBatchClose}
       />
       <TextTransformPreviewDialog
         open={selectionTransformOpen}

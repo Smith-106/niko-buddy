@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
   return {
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
     exportBackup: vi.fn(),
+    cancelBackup: vi.fn(),
     importBackup: vi.fn(),
     exportNovelDocx: vi.fn(),
     project: { path: "E:/Novel" },
@@ -32,6 +33,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/lib/backup/export", () => ({
   exportBackup: mocks.exportBackup,
+  cancelBackup: mocks.cancelBackup,
 }))
 
 vi.mock("@/lib/backup/import", () => ({
@@ -236,6 +238,29 @@ describe("DataManagementSection", () => {
     expect(screen.queryByText("done now")).not.toBeInTheDocument()
     // 再次导出时 progress 不应因 done 残留而立即清空（同一 finally 逻辑）
     expect(progressCb).toBeDefined()
+  })
+
+  it("export 挂起时显示取消按钮，点击调用 cancelBackup", async () => {
+    let resolveExport: ((r: ReturnType<typeof exportResult>) => void) | undefined
+    mocks.exportBackup.mockImplementation(
+      () =>
+        new Promise<ReturnType<typeof exportResult>>((resolve) => {
+          resolveExport = resolve
+        }),
+    )
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.exportButton"))
+    await flushAsync()
+    const cancelBtn = screen.getByText("settings.sections.dataManagement.cancelExport")
+    expect(cancelBtn).toBeInTheDocument()
+    fireEvent.click(cancelBtn)
+    expect(mocks.cancelBackup).toHaveBeenCalled()
+    await act(async () => {
+      resolveExport?.(exportResult())
+    })
+    await waitFor(() => {
+      expect(screen.queryByText("settings.sections.dataManagement.cancelExport")).toBeNull()
+    })
   })
 
   it("progress bar renders 0% width when total is 0", async () => {

@@ -174,32 +174,35 @@ export function WebSearchSection() {
                         placeholder={provider.keyPlaceholder}
                       />
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label>{t("settings.sections.webSearch.instanceUrl")}</Label>
-                      <Input
-                        /* v8 ignore next */
-                        value={override?.searXngUrl ?? resolvedConfig.searXngUrl ?? ""}
-                        onChange={(e) => updateProvider("searxng", { searXngUrl: e.target.value })}
-                        placeholder={provider.urlPlaceholder}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t("settings.sections.webSearch.searxngJsonHint")}
-                      </p>
-                    </div>
-                  )}
+                  ) : (() => {
+                    /* v8 ignore next -- resolvedConfig 恒有兜底值，末段不可达 */
+                    const searXngUrl = override?.searXngUrl ?? resolvedConfig.searXngUrl ?? ""
+                    return (
+                      <div className="space-y-2">
+                        <Label>{t("settings.sections.webSearch.instanceUrl")}</Label>
+                        <Input
+                          value={searXngUrl}
+                          onChange={(e) => updateProvider("searxng", { searXngUrl: e.target.value })}
+                          placeholder={provider.urlPlaceholder}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {t("settings.sections.webSearch.searxngJsonHint")}
+                        </p>
+                      </div>
+                    )
+                  })()}
 
                   {provider.id === "serpapi" && (
+                    /* v8 ignore next -- resolvedConfig 恒有兜底值，末段不可达 */
                     <SerpApiEnginePicker
-                      /* v8 ignore next */
                       value={override?.serpApiEngine ?? resolvedConfig.serpApiEngine ?? "google"}
                       onChange={(serpApiEngine) => updateProvider("serpapi", { serpApiEngine })}
                     />
                   )}
 
                   {provider.id === "searxng" && (
+                    /* v8 ignore next -- resolvedConfig 恒有兜底值，末段不可达 */
                     <SearXngCategoryPicker
-                      /* v8 ignore next */
                       value={override?.searXngCategories ?? resolvedConfig.searXngCategories ?? ["general"]}
                       onChange={(searXngCategories) => updateProvider("searxng", { searXngCategories })}
                     />

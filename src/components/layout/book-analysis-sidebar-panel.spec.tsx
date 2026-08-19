@@ -641,4 +641,31 @@ describe("BookAnalysisSidebarPanel", () => {
     cleanup()
     await flushAsync(20)
   })
+
+  it("running 任务缺 percentage → 0% 兜底", async () => {
+    bookAnalysis.state.tasks = [{
+      id: "task-no-pct",
+      projectPath: "/proj",
+      bookId: "book-1",
+      config: { sourceType: "file", sourcePath: "/books/a.txt", selectedChapters: [] },
+      progress: {
+        stage: "extracting_characters",
+        stageLabel: "",
+        completed: 0,
+        total: 10,
+        recognitionStatus: "llm_recognizing",
+      },
+      status: "running",
+      startedAt: 0,
+      updatedAt: 0,
+      chapters: [],
+      characters: [],
+      skills: [],
+    }]
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+    expect(document.body.textContent).toContain("0%")
+    cleanup()
+    await flushAsync(20)
+  })
 })

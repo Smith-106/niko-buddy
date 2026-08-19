@@ -996,6 +996,139 @@ describe("novel-session-status 分支补足", () => {
     expect(pendQ.decision_gates.overall).toBe("pending")
   })
 
+  it("cloneDecisionGates: 无 overall 时推导 fail/warning/pending 全部分支", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 1,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      evidence_refs: [],
+    }
+    const gates = (overrides: Record<string, unknown>) => ({
+      consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+      anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+      quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+      ...overrides,
+    })
+    // quality failed → fail（无 overall 输入）
+    const qFail = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({ quality: { status: "failed", verdict: "fail", findings: [], repair_suggestions: [], retry_count: 0 } }),
+    })
+    expect(qFail.decision_gates.overall).toBe("fail")
+    // quality verdict warning → warning
+    const qWarn = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({ quality: { status: "passed", verdict: "warning", findings: [], repair_suggestions: [], retry_count: 0 } }),
+    })
+    expect(qWarn.decision_gates.overall).toBe("warning")
+    // consistency pending → pending
+    const cPend = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({ consistency: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 } }),
+    })
+    expect(cPend.decision_gates.overall).toBe("pending")
+    // anti_ai pending → pending
+    const aPend = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({ anti_ai: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 } }),
+    })
+    expect(aPend.decision_gates.overall).toBe("pending")
+    // quality pending → pending
+    const qPend = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({ quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 } }),
+    })
+    expect(qPend.decision_gates.overall).toBe("pending")
+    // 全 passed 且无 overall → pass
+    const allPass = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates(),
+    })
+    expect(allPass.decision_gates.overall).toBe("pass")
+    // 无 verdict 时按 status 推导：failed → fail / passed → pass / 缺省 → pending
+    const noVerdict = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      decision_gates: gates({
+        consistency: { status: "failed", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { findings: [], repair_suggestions: [], retry_count: 0 },
+      }),
+    })
+    expect(noVerdict.decision_gates.consistency.verdict).toBe("fail")
+    expect(noVerdict.decision_gates.anti_ai.verdict).toBe("pass")
+    expect(noVerdict.decision_gates.quality.verdict).toBe("pending")
+  })
+
+  it("Wave 4: de_ai_batch additive 字段经 buildNextStatus 线穿（ADR-31）", () => {
+    const base = {
+      schema_version: "1" as const,
+      session_id: "s",
+      source: "deep_chapter_generation" as const,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "completed" as const,
+      active_step_index: null,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pass",
+      },
+      evidence_refs: [],
+    }
+    const batch = {
+      schemaVersion: "de-ai-batch/1.0" as const,
+      batchId: "de-ai-1",
+      phase: "running" as const,
+      concurrency: 3,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      queue: [1, 2],
+      perChapter: { 1: { status: "ready" as const, attempts: 1 } },
+    }
+    // 传入 → 线穿
+    const withBatch = buildNextStatus(base, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "completed",
+      de_ai_batch: batch,
+    })
+    expect(withBatch.de_ai_batch).toEqual(batch)
+    // 省略 → 继承 base
+    const inherited = buildNextStatus({ ...base, de_ai_batch: batch }, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "completed",
+    })
+    expect(inherited.de_ai_batch).toEqual(batch)
+    // 显式 undefined → 清除
+    const cleared = buildNextStatus({ ...base, de_ai_batch: batch }, {
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "completed",
+      de_ai_batch: undefined,
+    })
+    expect(cleared.de_ai_batch).toBeUndefined()
+  })
+
   it("extractDraftContent 全空 → draft 内容为空串; 无 draft 时保留现有草稿路径 (pause/block 无 checkpoint)", async () => {
     const session = await startDeepChapterSession({
       projectPath,

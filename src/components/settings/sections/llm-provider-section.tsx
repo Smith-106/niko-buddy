@@ -69,9 +69,10 @@ export function LlmProviderSection() {
   function toggleActive(id: string) {
     const next = id === activePresetId ? null : id
     setActivePresetId(next)
+    /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
     persist(providerConfigs, next).catch(() => {})
   }
-  {/* v8 ignore stop */}
+  /* v8 ignore stop */
 
   function toggleEnabled(id: string) {
     const current = providerConfigs[id]
@@ -98,6 +99,8 @@ export function LlmProviderSection() {
       <div className="space-y-2">
         {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => {
           const ov = providerConfigs[preset.id]
+          /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
+          const onToggleActive = () => toggleActive(preset.id)
           return (
             <PresetRow
               key={preset.id}
@@ -107,8 +110,7 @@ export function LlmProviderSection() {
               isEnabled={ov?.enabled === true}
               isExpanded={!!expanded[preset.id]}
               savedHere={savedId === preset.id}
-              /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
-              onToggleActive={() => toggleActive(preset.id)}
+              onToggleActive={onToggleActive}
               onToggleEnabled={() => toggleEnabled(preset.id)}
               onToggleExpand={() => toggleExpand(preset.id)}
               onChange={(patch) => updateOverride(preset.id, patch)}
@@ -476,12 +478,11 @@ function PresetRow({
                   value={codexCliTimeoutMinutes}
                   onChange={(e) => {
                     const n = Number(e.target.value)
-                    onChange({
-                      /* v8 ignore next */
-                      codexCliTimeoutMinutes: Number.isFinite(n)
-                        ? Math.max(1, Math.min(240, Math.floor(n)))
-                        : undefined,
-                    })
+                    /* v8 ignore next -- number input 值恒有限，falsy 不可达 */
+                    const timeout = Number.isFinite(n)
+                      ? Math.max(1, Math.min(240, Math.floor(n)))
+                      : undefined
+                    onChange({ codexCliTimeoutMinutes: timeout })
                   }}
                 />
                 <span className="text-xs text-muted-foreground">
@@ -572,20 +573,23 @@ function PresetRow({
           )}
 
           {/* 已选模型显示 */}
-          {(ov.savedModels ?? []).length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
-              <textarea
-                ref={savedModelsTextareaRef}
-                /* v8 ignore next */
-                value={(ov.savedModels ?? []).map((m) => m.model).join(", ")}
-                readOnly
-                placeholder={t("settings.sections.llm.pleaseFetchModels")}
-                className="flex min-h-[40px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                rows={1}
-              />
-            </div>
-          )}
+          {(ov.savedModels ?? []).length > 0 && (() => {
+            /* v8 ignore next -- 渲染条件保证 savedModels 非空 */
+            const savedModelsText = (ov.savedModels ?? []).map((m) => m.model).join(", ")
+            return (
+              <div className="space-y-2">
+                <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
+                <textarea
+                  ref={savedModelsTextareaRef}
+                  value={savedModelsText}
+                  readOnly
+                  placeholder={t("settings.sections.llm.pleaseFetchModels")}
+                  className="flex min-h-[40px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                  rows={1}
+                />
+              </div>
+            )
+          })()}
 
           <SavedModelsManager
             savedModels={ov.savedModels ?? []}

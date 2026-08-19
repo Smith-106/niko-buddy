@@ -25,6 +25,14 @@ describe("reference/resolve", () => {
       expect(chineseNumberToInt("abc")).toBeNull()
       expect(chineseNumberToInt("")).toBeNull()
     })
+
+    it("parses standalone 百 with zero number (number || 1)", () => {
+      expect(chineseNumberToInt("百")).toBe(100)
+    })
+
+    it("returns null for zero-only input", () => {
+      expect(chineseNumberToInt("零")).toBeNull()
+    })
   })
 
   describe("parseReferences", () => {
@@ -39,6 +47,13 @@ describe("reference/resolve", () => {
       expect(parseReferences("@第十二章")[0]?.kind).toBe("chapter")
       expect(parseReferences("@ch5")[0]?.kind).toBe("chapter")
       expect(parseReferences("@chapter7")[0]?.kind).toBe("chapter")
+      expect(parseReferences("@9")[0]?.kind).toBe("chapter")
+    })
+
+    it("chapter token with unparseable number falls back to plain token", () => {
+      const tokens = parseReferences("@第零章")
+      expect(tokens).toHaveLength(1)
+      expect(tokens[0].kind).toBeUndefined()
     })
 
     it("terminates on punctuation and whitespace", () => {
@@ -91,6 +106,14 @@ describe("reference/resolve", () => {
     it("no match scores 0", () => {
       expect(scoreCandidate("林墨", "北境")).toBe(0)
     })
+
+    it("empty query scores 0", () => {
+      expect(scoreCandidate("林墨", "   ")).toBe(0)
+    })
+
+    it("simplified-only match scores 40 (pinyin differs)", () => {
+      expect(scoreCandidate("乾龙套", "干龙套")).toBe(40)
+    })
   })
 
   describe("resolveReferences", () => {
@@ -119,6 +142,12 @@ describe("reference/resolve", () => {
     it("resolves chapter tokens without candidate matching", () => {
       const refs = resolveReferences(parseReferences("@第3章"), [])
       expect(refs[0]).toMatchObject({ kind: "chapter", id: "3", name: "第3章", score: 100 })
+    })
+
+    it("chapter token with unparseable number → dropped (no candidates)", () => {
+      // 手工构造畸形 chapter token（parseReferences 不会产出，防御路径）
+      const refs = resolveReferences([{ raw: "第零章", full: "@第零章", kind: "chapter" }], [])
+      expect(refs).toHaveLength(0)
     })
 
     it("drops tokens with zero candidates", () => {

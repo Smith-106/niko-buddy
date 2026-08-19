@@ -95,6 +95,34 @@ const mocks = vi.hoisted(() => {
     resolveReviewModel: vi.fn(() => "review-model"),
     buildDeAiRewriteMessages: vi.fn(() => []),
     loadSmartDeAiSkill: vi.fn(async () => null),
+    runDeAiBatch: vi.fn(async () => ({
+      schemaVersion: "de-ai-batch/1.0",
+      batchId: "de-ai-1",
+      phase: "completed",
+      total: 2,
+      processed: 2,
+      failed: [],
+      skipped: 0,
+      durationMs: 1000,
+      startedAt: "2026-08-19T00:00:00.000Z",
+      finishedAt: "2026-08-19T00:00:01.000Z",
+    })),
+    acceptAllDeAiBatchDrafts: vi.fn(async () => ({ accepted: 1, skipped: 0 })),
+    acceptDeAiBatchDraft: vi.fn(async () => true),
+    rejectDeAiBatchDraft: vi.fn(async () => true),
+    loadDeAiBatchState: vi.fn(async () => ({
+      schemaVersion: "de-ai-batch/1.0",
+      batchId: "de-ai-1",
+      phase: "completed",
+      concurrency: 3,
+      startedAt: "2026-08-19T00:00:00.000Z",
+      updatedAt: "2026-08-19T00:00:00.000Z",
+      queue: [1, 2],
+      perChapter: {
+        1: { status: "ready", attempts: 1 },
+        2: { status: "failed", attempts: 2, lastError: "boom" },
+      },
+    })),
     startOutlineIngestTask: vi.fn(),
     streamChat: vi.fn(),
     reviewChapter: vi.fn<() => Promise<NovelReviewResult[]>>(async () => []),
@@ -173,6 +201,13 @@ vi.mock("@/lib/novel/review-model", () => ({ resolveReviewModel: mocks.resolveRe
 vi.mock("@/lib/novel/de-ai-adapter", () => ({
   buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
   loadSmartDeAiSkill: mocks.loadSmartDeAiSkill,
+}))
+vi.mock("@/lib/novel/de-ai-batch", () => ({
+  runDeAiBatch: mocks.runDeAiBatch,
+  acceptAllDeAiBatchDrafts: mocks.acceptAllDeAiBatchDrafts,
+  acceptDeAiBatchDraft: mocks.acceptDeAiBatchDraft,
+  rejectDeAiBatchDraft: mocks.rejectDeAiBatchDraft,
+  loadDeAiBatchState: mocks.loadDeAiBatchState,
 }))
 vi.mock("@/lib/novel/outline-generation", () => ({ startOutlineIngestTask: mocks.startOutlineIngestTask }))
 vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
@@ -253,6 +288,18 @@ vi.mock("@/components/novel/de-ai-preview-dialog", () => ({
       <button data-testid="de-ai-apply" onClick={props.onApply}>apply</button>
       <button data-testid="de-ai-save-draft" onClick={props.onSaveDraft}>draft</button>
       <button data-testid="de-ai-close" onClick={props.onClose}>close</button>
+    </div>
+  ),
+}))
+
+vi.mock("@/components/novel/de-ai-batch-dialog", () => ({
+  DeAiBatchDialog: (props: Record<string, any>) => (
+    <div data-testid="de-ai-batch-dialog" data-open={String(props.open)} data-running={String(props.running)}>
+      <button data-testid="de-ai-batch-cancel" onClick={props.onCancel}>cancel</button>
+      <button data-testid="de-ai-batch-accept-all" onClick={props.onAcceptAll}>accept-all</button>
+      <button data-testid="de-ai-batch-accept-1" onClick={() => props.onAcceptChapter(1)}>accept-1</button>
+      <button data-testid="de-ai-batch-reject-1" onClick={() => props.onRejectChapter(1)}>reject-1</button>
+      <button data-testid="de-ai-batch-close" onClick={props.onClose}>close</button>
     </div>
   ),
 }))
@@ -1115,6 +1162,112 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     fireEvent.click(screen.getByText("去AI味"))
     await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
     expect(mocks.loadSmartDeAiSkill).toHaveBeenCalledWith(null, "去AI味润色", undefined)
+    cleanup()
+  })
+
+  // ── Wave 4 (v2.5.0): 批量去AI味 ──────────────────────────────────────────
+  it("批量去AI味：点击 → runDeAiBatch + 对话框打开 + 完成后刷新章节列表", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(mocks.runDeAiBatch).toHaveBeenCalled())
+    expect(mocks.runDeAiBatch.mock.calls[0][0]).toBe("/proj")
+    expect(mocks.runDeAiBatch.mock.calls[0][1].llmConfig).toBeTruthy()
+    expect(typeof mocks.runDeAiBatch.mock.calls[0][1].onProgress).toBe("function")
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("true"))
+    await waitFor(() => expect(mocks.loadDeAiBatchState).toHaveBeenCalled())
+    expect(mocks.state.bumpDataVersion).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("批量去AI味：无可用 LLM → 不调用 runDeAiBatch", async () => {
+    chapterSetup()
+    mocks.hasUsableLlm.mockReturnValue(false)
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await flushAsync(20)
+    expect(mocks.runDeAiBatch).not.toHaveBeenCalled()
+    expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("false")
+    cleanup()
+  })
+
+  it("批量去AI味：中止 → abort 控制器", async () => {
+    chapterSetup()
+    mocks.runDeAiBatch.mockImplementation(async (_p: string, options: any) => {
+      options.signal?.addEventListener("abort", () => {})
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            schemaVersion: "de-ai-batch/1.0",
+            batchId: "de-ai-1",
+            phase: "paused",
+            total: 2,
+            processed: 1,
+            failed: [],
+            skipped: 0,
+            durationMs: 500,
+            startedAt: "2026-08-19T00:00:00.000Z",
+            finishedAt: "2026-08-19T00:00:00.500Z",
+          })
+        }, 50)
+      })
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("true"))
+    fireEvent.click(screen.getByTestId("de-ai-batch-cancel"))
+    await waitFor(() => expect(mocks.runDeAiBatch.mock.calls[0][1].signal?.aborted).toBe(true))
+    cleanup()
+  })
+
+  it("批量去AI味：运行失败 → saveStatus 显示错误", async () => {
+    chapterSetup()
+    mocks.runDeAiBatch.mockRejectedValue(new Error("batch-boom"))
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByText(/批量去AI味失败/)).toBeTruthy())
+    cleanup()
+  })
+
+  it("批量回填全部 → acceptAllDeAiBatchDrafts + bumpDataVersion", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-accept-all")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("de-ai-batch-accept-all"))
+    await waitFor(() => expect(mocks.acceptAllDeAiBatchDrafts).toHaveBeenCalledWith("/proj"))
+    expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("单章回填 → acceptDeAiBatchDraft(1)", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-accept-1")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("de-ai-batch-accept-1"))
+    await waitFor(() => expect(mocks.acceptDeAiBatchDraft).toHaveBeenCalledWith("/proj", 1))
+    expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("单章拒绝 → rejectDeAiBatchDraft(1)", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-reject-1")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("de-ai-batch-reject-1"))
+    await waitFor(() => expect(mocks.rejectDeAiBatchDraft).toHaveBeenCalledWith("/proj", 1))
+    cleanup()
+  })
+
+  it("批量对话框关闭（handleDeAiBatchClose）", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("批量去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-close")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("de-ai-batch-close"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("false"))
     cleanup()
   })
 })

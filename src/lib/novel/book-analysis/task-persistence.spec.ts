@@ -91,4 +91,71 @@ describe("attachTaskPersistence", () => {
     // Volatile fields are not persisted.
     expect(Object.prototype.hasOwnProperty.call(written[0], "characters")).toBe(false)
   })
+
+  it("same tasks reference → 不写盘（early return）", async () => {
+    let listener: ((s: { tasks: unknown[] }) => void) = () => {}
+    mocks.subscribe.mockImplementation((cb: (s: { tasks: unknown[] }) => void) => {
+      listener = cb
+      return () => {}
+    })
+    const same = { tasks: [task] }
+    mocks.getState.mockReturnValue(same)
+    attachTaskPersistence("C:/p")
+    mocks.writeFile.mockResolvedValue(undefined)
+
+    // 相同引用（如无关字段更新）→ 不触发写盘
+    listener(same)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("500ms 内多次变更 → 防抖只写一次（timer 清理分支）", async () => {
+    let listener: ((s: { tasks: unknown[] }) => void) = () => {}
+    mocks.subscribe.mockImplementation((cb: (s: { tasks: unknown[] }) => void) => {
+      listener = cb
+      return () => {}
+    })
+    mocks.getState.mockReturnValue({ tasks: [task] })
+    attachTaskPersistence("C:/p")
+    mocks.writeFile.mockResolvedValue(undefined)
+
+    listener({ tasks: [{ ...task, status: "running" }] })
+    await vi.advanceTimersByTimeAsync(200)
+    listener({ tasks: [{ ...task, status: "error", error: "中断" }] })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+    const written = JSON.parse(mocks.writeFile.mock.calls[0][1] as string) as { status: string }[]
+    expect(written[0].status).toBe("error")
+  })
+
+  it("detach 时清掉挂起 timer（cleanup 分支）", async () => {
+    let listener: ((s: { tasks: unknown[] }) => void) = () => {}
+    mocks.subscribe.mockImplementation((cb: (s: { tasks: unknown[] }) => void) => {
+      listener = cb
+      return () => {}
+    })
+    mocks.getState.mockReturnValue({ tasks: [task] })
+    const detach = attachTaskPersistence("C:/p")
+    mocks.writeFile.mockResolvedValue(undefined)
+
+    listener({ tasks: [{ ...task, status: "error" }] })
+    detach()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("写盘失败 → best-effort 静默（catch 分支）", async () => {
+    let listener: ((s: { tasks: unknown[] }) => void) = () => {}
+    mocks.subscribe.mockImplementation((cb: (s: { tasks: unknown[] }) => void) => {
+      listener = cb
+      return () => {}
+    })
+    mocks.getState.mockReturnValue({ tasks: [task] })
+    attachTaskPersistence("C:/p")
+    mocks.writeFile.mockRejectedValue(new Error("disk full"))
+
+    listener({ tasks: [{ ...task, status: "error" }] })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+  })
 })

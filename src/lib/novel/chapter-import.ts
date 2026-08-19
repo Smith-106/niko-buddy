@@ -135,10 +135,11 @@ export function matchChapterImportFilename(text: string): ChapterImportFilenameM
     if (!rawNumber) continue
     const chapterNumber = parseChapterNumberToken(rawNumber)
     if (!chapterNumber || chapterNumber <= 0) continue
+    /* v8 ignore next -- 正则 (.*) 恒匹配，match[2] 恒为字符串 */
+    const titleSuffix = cleanImportedChapterTitleSuffix(match[2] ?? "")
     return {
       chapterNumber,
-      /* v8 ignore next */
-      titleSuffix: cleanImportedChapterTitleSuffix(match[2] ?? ""),
+      titleSuffix,
     }
   }
 

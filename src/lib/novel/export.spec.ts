@@ -508,4 +508,91 @@ describe("exportNovelDocx（Phase 1 统一导出）", () => {
     expect(result.success).toBe(true)
     expect(result.chapterCount).toBe(0)
   })
+
+  it("listDirectory 抛错时章节段降级为空列表仍调用命令", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    vi.mocked(listDirectory).mockRejectedValueOnce(new Error("boom"))
+    vi.mocked(invoke).mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.docx`,
+      chapterCount: 0,
+      message: "exported 0 chapters",
+    })
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(0)
+  })
+
+  it("章节文件不可读时跳过该章", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    // broken.md 在目录列表中但无文件内容 → readFile ENOENT → 跳过
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+      { name: "broken.md", path: `${PROJECT}/wiki/chapters/broken.md`, is_dir: false },
+    ])
+    vi.mocked(invoke).mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.docx`,
+      chapterCount: 1,
+      message: "exported 1 chapters",
+    })
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(1)
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("export_novel_docx", {
+      chapters: [{ title: "第一章", body: "正文一" }],
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+  })
+
+  it("章节缺少 title 字段时回退到文件名", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, [
+      "---",
+      "chapter_number: 1",
+      "chapter_status: final",
+      "---",
+      "正文。",
+    ].join("\n"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    vi.mocked(invoke).mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.docx`,
+      chapterCount: 1,
+      message: "exported 1 chapters",
+    })
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(true)
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("export_novel_docx", {
+      chapters: [{ title: "001", body: "正文。" }],
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+  })
+
+  it("invoke 抛非 Error 值时消息字符串化", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    vi.mocked(invoke).mockRejectedValueOnce("raw failure")
+    const result = await exportNovelDocx({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.docx`,
+    })
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("raw failure")
+  })
 })

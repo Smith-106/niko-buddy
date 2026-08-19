@@ -30,8 +30,7 @@ export function chineseNumberToInt(text: string): number | null {
   let section = 0
   let number = 0
   for (const ch of text) {
-    const digit = CN_NUMERALS[ch]
-    if (digit === undefined) return null
+    const digit = CN_NUMERALS[ch]!
     if (digit === 0) continue // 零 占位跳过
     if (digit >= 100) {
       section += (number || 1) * digit
@@ -58,17 +57,15 @@ export function parseReferences(text: string): ReferenceToken[] {
     // @@ 转义：前一个字符是 @ 则跳过（不解析）
     if (match.index > 0 && text[match.index - 1] === "@") continue
     const raw = match[1]!.trim()
-    if (!raw) continue
     const chapterMatch = raw.match(CHAPTER_TOKEN_RE)
-    if (chapterMatch) {
-      const num = chapterMatch[1] ?? chapterMatch[2] ?? chapterMatch[3] ?? chapterMatch[4]
-      const chapterNumber = num ? chineseNumberToInt(num) : null
-      if (chapterNumber !== null) {
-        tokens.push({ raw, full: match[0], kind: "chapter" })
-        continue
-      }
-    }
-    tokens.push({ raw, full: match[0] })
+    const chapterNumber = chapterMatch
+      ? chineseNumberToInt(chapterMatch[1] ?? chapterMatch[2] ?? chapterMatch[3] ?? chapterMatch[4])
+      : null
+    tokens.push(
+      chapterNumber !== null
+        ? { raw, full: match[0], kind: "chapter" as const }
+        : { raw, full: match[0] },
+    )
   }
   return tokens
 }

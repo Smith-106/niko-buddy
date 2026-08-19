@@ -128,9 +128,11 @@ describe("ReferenceMention", () => {
     await waitDebounce()
     await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
     expect(ref.current).not.toBeNull()
-    // 通过 ref 暴露的 handleKeyDown 模拟键盘导航
-    expect(ref.current!.handleKeyDown({ key: "ArrowDown", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
-    expect(ref.current!.handleKeyDown({ key: "Enter", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
+    // 通过 ref 暴露的 handleKeyDown 模拟键盘导航（act 包裹让 setState updater 执行）
+    await act(async () => {
+      expect(ref.current!.handleKeyDown({ key: "ArrowDown", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
+      expect(ref.current!.handleKeyDown({ key: "Enter", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
+    })
     expect(onRemoveToken).toHaveBeenCalled()
   })
 
@@ -143,5 +145,98 @@ describe("ReferenceMention", () => {
     await waitFor(() => {
       expect(screen.queryByText("林墨")).not.toBeInTheDocument()
     })
+  })
+
+  it("无项目路径 → 不装载候选、不弹下拉（fail-open）", async () => {
+    mocks.wikiState.project = null
+    renderMention("让@林")
+    await waitDebounce()
+    expect(mocks.loadAllReferenceCandidates).not.toHaveBeenCalled()
+    expect(screen.queryByText("林墨")).not.toBeInTheDocument()
+    mocks.wikiState.project = { id: "p1", path: "/p1" }
+  })
+
+  it("普通 token（无 kind）→ 角色样式兜底", () => {
+    renderMention("让@林墨，出场")
+    expect(screen.getByText("角色 · 林墨")).toBeInTheDocument()
+  })
+
+  it("查询无候选命中 → 下拉关闭", async () => {
+    renderMention("让@zzz")
+    await waitDebounce()
+    expect(screen.queryByText("林墨")).not.toBeInTheDocument()
+  })
+
+  it("ArrowUp 循环上移；Shift+Enter 不消费", async () => {
+    const ref = { current: null as import("./reference-mention").ReferenceMentionHandle | null }
+    render(<ReferenceMention ref={ref} value="让@林" onRemoveToken={vi.fn()} />)
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
+    expect(ref.current!.handleKeyDown({ key: "ArrowUp", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
+    await act(async () => {
+      expect(ref.current!.handleKeyDown({ key: "Enter", shiftKey: true, preventDefault: () => {} } as React.KeyboardEvent)).toBe(false)
+    })
+  })
+
+  it("mouseEnter 切换 activeIndex；点击 chip 展开按钮不崩溃", async () => {
+    const ref = { current: null as import("./reference-mention").ReferenceMentionHandle | null }
+    const onRemoveToken = vi.fn()
+    mocks.loadAllReferenceCandidates.mockResolvedValueOnce([
+      { id: "character:林墨", kind: "character", name: "林墨", score: 0 },
+      { id: "character:林墨二号", kind: "character", name: "林墨二号", score: 0 },
+    ])
+    render(<ReferenceMention ref={ref} value="让@林" onRemoveToken={onRemoveToken} />)
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨二号")).toBeInTheDocument())
+    fireEvent.mouseEnter(screen.getByText("林墨二号"))
+    await act(async () => {
+      expect(ref.current!.handleKeyDown({ key: "Enter", preventDefault: () => {} } as React.KeyboardEvent)).toBe(true)
+    })
+    expect(onRemoveToken).toHaveBeenCalledWith("让@林墨二号")
+    // chip 展开按钮（无可见副作用，仅状态切换）
+    renderMention("让@林墨，出场")
+    fireEvent.click(screen.getByText("角色 · 林墨"))
+  })
+
+  it("精确匹配与别名匹配参与打分（scoreForQuery 全分支）", async () => {
+    mocks.loadAllReferenceCandidates.mockResolvedValueOnce([
+      { id: "character:林墨", kind: "character", name: "林墨", score: 0, aliases: ["墨哥"] },
+    ])
+    renderMention("让@墨哥")
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
+    cleanup()
+    mocks.loadAllReferenceCandidates.mockResolvedValueOnce([
+      { id: "character:林墨", kind: "character", name: "林墨", score: 0 },
+    ])
+    renderMention("让@林墨")
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
+  })
+
+  it("空查询（仅 @）→ 全部 0 分，下拉不弹", async () => {
+    renderMention("让@")
+    await waitDebounce()
+    expect(screen.queryByText("林墨")).not.toBeInTheDocument()
+  })
+
+  it("候选装载失败 → 下拉不弹（fail-open）", async () => {
+    mocks.loadAllReferenceCandidates.mockRejectedValueOnce(new Error("boom"))
+    renderMention("让@林")
+    await waitDebounce()
+    expect(screen.queryByText("林墨")).not.toBeInTheDocument()
+  })
+
+  it("防抖期间 value 变化 → 清理旧定时器（debounceRef 分支）", async () => {
+    const { rerender } = renderMention("让@林")
+    rerender(<ReferenceMention value="让@林墨" onRemoveToken={vi.fn()} />)
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
+  })
+
+  it("下拉关闭时 handleKeyDown 不消费（open 守卫）", () => {
+    const ref = { current: null as import("./reference-mention").ReferenceMentionHandle | null }
+    render(<ReferenceMention ref={ref} value="继续写正文" onRemoveToken={vi.fn()} />)
+    expect(ref.current!.handleKeyDown({ key: "ArrowDown", preventDefault: () => {} } as React.KeyboardEvent)).toBe(false)
   })
 })

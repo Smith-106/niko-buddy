@@ -50,6 +50,7 @@ vi.mock("@/lib/user-memory/session", () => ({
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  mocks.wikiState.project = { id: "p1", path: "/p1" }
   mocks.listPreferences.mockResolvedValue([])
 })
 
@@ -125,5 +126,35 @@ describe("WritingPreferenceSection", () => {
     await waitFor(() => expect(screen.getByText("添加")).toBeInTheDocument())
     fireEvent.click(screen.getByText("添加"))
     expect(mocks.addPreferenceForProject).not.toHaveBeenCalled()
+  })
+
+  it("无项目：添加直接返回（projectPath 守卫）", async () => {
+    mocks.wikiState.project = null
+    render(<WritingPreferenceSection />)
+    await waitFor(() => expect(screen.getByText("添加")).toBeInTheDocument())
+    // 按钮在 value 非空时才可点，先输入再点击
+    fireEvent.change(screen.getByLabelText("取值"), { target: { value: "0.3" } })
+    fireEvent.click(screen.getByText("添加"))
+    expect(mocks.addPreferenceForProject).not.toHaveBeenCalled()
+  })
+
+  it("无项目：删除直接返回（projectPath 守卫）", async () => {
+    mocks.listPreferences.mockResolvedValue([
+      { id: "p1", key: "deai_boost:词汇", value: "2.0", category: "vocabulary", label: "词汇增强系数", createdAt: "", updatedAt: "" },
+    ])
+    const { rerender } = render(<WritingPreferenceSection />)
+    await waitFor(() => expect(screen.getAllByText("词汇增强系数").length).toBeGreaterThan(0))
+    mocks.wikiState.project = null
+    rerender(<WritingPreferenceSection />)
+    fireEvent.click(screen.getByRole("button", { name: "删除" }))
+    expect(mocks.deletePreferenceForProject).not.toHaveBeenCalled()
+  })
+
+  it("pref 无 label → 显示内部 key（label ?? key 兜底）", async () => {
+    mocks.listPreferences.mockResolvedValue([
+      { id: "p2", key: "deai_boost:句式", value: "1.5", category: "vocabulary", createdAt: "", updatedAt: "" },
+    ])
+    render(<WritingPreferenceSection />)
+    await waitFor(() => expect(screen.getByText("deai_boost:句式")).toBeInTheDocument())
   })
 })

@@ -213,16 +213,24 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={{
-            img: ({ src, alt, ...props }) => (
-              <img
-                src={typeof src === "string" ? resolveMarkdownImageSrc(src, projectPath) : /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */ undefined}
-                data-mdsrc={typeof src === "string" ? src : /* v8 ignore next */ undefined}
-                alt={/* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */ alt ?? ""}
-                className="max-w-full rounded border border-border/40 transition-all"
-                loading="lazy"
-                {...props}
-              />
-            ),
+            img: ({ src, alt, ...props }) => {
+              /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */
+              const resolvedSrc = typeof src === "string" ? resolveMarkdownImageSrc(src, projectPath) : undefined
+              /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */
+              const rawSrc = typeof src === "string" ? src : undefined
+              /* v8 ignore next -- ReactMarkdown normalizes missing alt to an empty string. */
+              const altText = alt ?? ""
+              return (
+                <img
+                  src={resolvedSrc}
+                  data-mdsrc={rawSrc}
+                  alt={altText}
+                  className="max-w-full rounded border border-border/40 transition-all"
+                  loading="lazy"
+                  {...props}
+                />
+              )
+            },
             table: ({ children, ...props }) => (
               <div className="my-2 overflow-x-auto rounded border border-border">
                 <table className="w-full border-collapse text-xs" {...props}>{children}</table>

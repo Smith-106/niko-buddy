@@ -135,4 +135,11 @@ describe("buildChapterPlan (IO 编排)", () => {
     expect(view.characters.status).toBe("ok")
     expect(view.characters.items[0].chaptersSinceSeen).toBeUndefined()
   })
+
+  it("快照目录不可读 → 出场数据降级为空（loadAllSnapshotsForPlan catch）", async () => {
+    fsMocks.listDirectory.mockRejectedValue(new Error("no snapshots dir"))
+    const view = await buildChapterPlan("/proj", 8)
+    expect(view.characters.status).toBe("ok")
+    expect(view.characters.items[0].chaptersSinceSeen).toBeUndefined()
+  })
 })

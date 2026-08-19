@@ -188,4 +188,57 @@ describe("buildChapterPlanView", () => {
     expect(view.foreshadowing.report!.items).toHaveLength(1)
     expect(view.characters.items).toHaveLength(1)
   })
+
+  it("同 debtLevel 伏笔按 chaptersSincePlanted 降序（rankDiff === 0 分支）", () => {
+    const store = makeForeshadowingStore()
+    // 两个 normal 级伏笔：植入章 1 与 3 → 距第8章 7 与 5 → 7 在前
+    store.items = [
+      { ...store.items[0], id: "n1", name: "普通伏笔A", status: "planted", plantedChapter: 3 },
+      { ...store.items[0], id: "n2", name: "普通伏笔B", status: "planted", plantedChapter: 1 },
+    ]
+    const view = buildChapterPlanView(makeInput({ foreshadowing: store }))
+    expect(view.foreshadowing.report!.items.map((i) => i.name)).toEqual(["普通伏笔B", "普通伏笔A"])
+  })
+
+  it("大纲命中排序：a 命中 b 未命中 → a 在前（三元 truthy 分支）", () => {
+    const store = makeCharacterStore()
+    // 未命中角色放最前 → 排序时 comparator(a=命中, b=未命中) 必然出现
+    store.characters.unshift({
+      characterName: "绫清竹",
+      currentLocation: "大炎王朝",
+      status: "健康",
+      equipment: [],
+      abilities: [],
+      relationships: {},
+      lastUpdatedChapter: 2,
+      lastUpdatedAt: "2026-08-01T00:00:00.000Z",
+    })
+    const view = buildChapterPlanView(
+      makeInput({ chapterOutline: "林动与应欢欢重逢，宗门大比决战开启", characterStates: store }),
+    )
+    const names = view.characters.items.map((c) => c.name)
+    expect(names.indexOf("林动")).toBeLessThan(names.indexOf("绫清竹"))
+    expect(names.indexOf("应欢欢")).toBeLessThan(names.indexOf("绫清竹"))
+  })
+
+  it("无出场记录角色 lastSeenChapter undefined → 排序按 MAX 兜底", () => {
+    const store = makeCharacterStore()
+    store.characters.push({
+      characterName: "新角色",
+      currentLocation: "未知",
+      status: "健康",
+      equipment: [],
+      abilities: [],
+      relationships: {},
+      lastUpdatedChapter: 0,
+      lastUpdatedAt: "2026-08-01T00:00:00.000Z",
+    })
+    const view = buildChapterPlanView(
+      makeInput({ chapterOutline: undefined, characterStates: store, appearances: [] }),
+    )
+    const item = view.characters.items.find((c) => c.name === "新角色")!
+    expect(item.lastSeenChapter).toBeUndefined()
+    // 无出场者排最后
+    expect(view.characters.items[view.characters.items.length - 1].name).toBe("新角色")
+  })
 })

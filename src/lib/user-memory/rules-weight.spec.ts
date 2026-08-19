@@ -139,6 +139,13 @@ describe("user-memory/rules-weight", () => {
       const weights = buildDeAiWeightsFromPreferences(store)
       expect(weights.severityThreshold).toBe("high")
     })
+
+    it("falls back to medium when store severityThreshold is undefined", () => {
+      const store = createDefaultStore()
+      store.deAiWeights.severityThreshold = undefined
+      const weights = buildDeAiWeightsFromPreferences(store)
+      expect(weights.severityThreshold).toBe("medium")
+    })
   })
 
   describe("applyUserWeightsToRules", () => {

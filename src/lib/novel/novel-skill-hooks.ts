@@ -129,7 +129,7 @@ export function createGoldScaleReadinessHook(promptHint: string): NovelSkillHook
  * Never a product hard gate; does not replace Consistency ADR behavior.
  */
 export function createCedSoftReportHook(options: {
-  findings: import("./deterministic-continuity-engine").ContinuityFinding[]
+  findings?: import("./deterministic-continuity-engine").ContinuityFinding[]
   textForWordCount?: string
   styleIssueCount?: number
   stages?: NovelSkillStage[]
@@ -168,8 +168,8 @@ export function createCedSoftReportHook(options: {
  * Never a product hard gate; injects soft prompt notes only.
  */
 export function createAvoidAiMechanicalSlopHook(options: {
-  /** Draft text to score; empty → no-op. */
-  text: string
+  /** Draft text to score; empty/absent → no-op. */
+  text?: string
   /** Default: post_draft_light_check + pre_six_dim_review */
   stages?: NovelSkillStage[]
   /** Run full patterns.js engine (default true). */
@@ -235,7 +235,7 @@ export function createAvoidAiMechanicalSlopHook(options: {
  * Never product hard gate.
  */
 export function createDeAiDualPassHook(options: {
-  text: string
+  text?: string
   stages?: NovelSkillStage[]
   baselineScores?: readonly number[]
 }): NovelSkillHook {
@@ -270,7 +270,7 @@ export function createDeAiDualPassHook(options: {
 
 /** Wave C: statistical AI signature experimental soft hook. */
 export function createStatisticalAiSignatureHook(options: {
-  text: string
+  text?: string
   stages?: NovelSkillStage[]
 }): NovelSkillHook {
   const stages = options.stages ?? (["pre_six_dim_review"] as NovelSkillStage[])

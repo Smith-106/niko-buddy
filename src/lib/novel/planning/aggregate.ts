@@ -59,9 +59,9 @@ export function buildChapterPlanView(
   const sortedDebt = [...report.items]
     .sort((a, b) => {
       const rank = { critical: 0, warning: 1, normal: 2 } as const
-      const rankDiff = (rank[a.debtLevel] ?? 2) - (rank[b.debtLevel] ?? 2)
+      const rankDiff = rank[a.debtLevel] - rank[b.debtLevel]
       if (rankDiff !== 0) return rankDiff
-      return (b.chaptersSincePlanted ?? 0) - (a.chaptersSincePlanted ?? 0)
+      return b.chaptersSincePlanted - a.chaptersSincePlanted
     })
     .slice(0, foreshadowingTopN)
 
@@ -99,7 +99,7 @@ export function buildChapterPlanView(
   const openCount = countOpenThreadArcs(threadItems)
   const sortedThreads = [...threadItems].sort((a, b) => {
     const rank = { Falling: 0, Climax: 1, Rising: 2, Setup: 3, Resolved: 4, Unresolved: 5 } as const
-    return (rank[a.arcState] ?? 6) - (rank[b.arcState] ?? 6)
+    return rank[a.arcState] - rank[b.arcState]
   })
 
   const charactersDue = characterItems.filter(
@@ -134,13 +134,9 @@ export function buildChapterPlanView(
 
 /** 装载全部快照（计划层自建 6 行 fold；失败降级 []） */
 async function loadAllSnapshotsForPlan(projectPath: string): Promise<Array<{ character: string; chapters: number[] }>> {
-  try {
-    const numbers = await listSnapshots(projectPath)
-    const snaps = await Promise.all(numbers.map((n) => loadSnapshot(projectPath, n).catch(() => null)))
-    return buildAppearancesFromSnapshots(snaps.filter((s): s is NonNullable<typeof s> => s !== null))
-  } catch {
-    return []
-  }
+  const numbers = await listSnapshots(projectPath)
+  const snaps = await Promise.all(numbers.map((n) => loadSnapshot(projectPath, n)))
+  return buildAppearancesFromSnapshots(snaps.filter((s): s is NonNullable<typeof s> => s !== null))
 }
 
 /**
@@ -153,27 +149,25 @@ export async function buildChapterPlan(
   options: ChapterPlanOptions = {},
 ): Promise<ChapterPlanView> {
   const [foreshadowing, characterStates, subplots, appearances] = await Promise.all([
-    loadForeshadowingTracker(projectPath).catch(() => null),
+    loadForeshadowingTracker(projectPath),
     loadCharacterStates(projectPath).catch(() => null),
-    loadSubplotBoard(projectPath).catch(() => null),
+    loadSubplotBoard(projectPath),
     loadAllSnapshotsForPlan(projectPath),
   ])
 
   const view = buildChapterPlanView(
     {
       currentChapter: chapterNumber,
-      foreshadowing: foreshadowing ?? { items: [], lastUpdated: "" },
+      foreshadowing,
       characterStates: characterStates ?? { characters: [], lastUpdated: "" },
       appearances,
-      subplots: subplots?.items ?? [],
+      subplots: subplots.items,
     },
     options,
   )
 
   // 逐维降级标记（IC-02 展示层等价物：可见而非静默）
-  if (foreshadowing === null) view.foreshadowing.status = "degraded"
   if (characterStates === null) view.characters.status = "degraded"
-  if (subplots === null) view.threads.status = "degraded"
 
   return view
 }

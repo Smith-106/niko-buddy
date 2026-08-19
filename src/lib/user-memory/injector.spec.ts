@@ -97,6 +97,16 @@ describe("user-memory/injector", () => {
       const cal = calibrateReviewFromPreferences(store)
       expect(cal.dimensionWeights.plot).toBeUndefined()
     })
+
+    it("ignores review prefs without dim:/sev: prefix", () => {
+      const store = makeStoreWithReviewPrefs([
+        { key: "other:key", value: "0.5" },
+        { key: "dim:plot", value: "0.25" },
+      ])
+      const cal = calibrateReviewFromPreferences(store)
+      expect(cal.dimensionWeights.plot).toBe(0.25)
+      expect(cal.severityDeductions).toEqual({})
+    })
   })
 
   describe("buildReviewScoringOptions", () => {

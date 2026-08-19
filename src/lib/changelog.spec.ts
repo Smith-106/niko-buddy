@@ -58,6 +58,14 @@ describe("changelog", () => {
     expect(zh).not.toContain("鑱旂郴鏂瑰紡")
   })
 
+  it("returns the 2.4.10 / 2.4.8 / 2.4.7 changelog entries", () => {
+    for (const v of ["2.5.0", "2.4.11", "2.4.10", "2.4.8", "2.4.7"]) {
+      const entries = currentVersionChangelog(v)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.version).toBe(v)
+    }
+  })
+
   it("returns the 2.2.7 changelog entry for the hidden dismantling library and resume recovery", () => {
     const release = currentVersionChangelog("2.2.7")[0]
     const en = release.highlights.en.join("\n")

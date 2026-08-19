@@ -138,6 +138,12 @@ export interface NovelSessionStatus {
     debt_events: ChaseDebtEvent[]
     updated_at: string
   }
+  /**
+   * Wave 4 (v2.5.0): 批量去AI味批次状态 (additive-optional)。
+   * 状态/指针落 status.json 唯一真源；草稿内容落 .novel/de-ai-batch-drafts/ 工件。
+   * 旧 status.json 无本字段仍可加载 (additive 兼容)。
+   */
+  de_ai_batch?: import("./de-ai-batch/types").DeAiBatchState
 }
 
 /**
@@ -615,6 +621,7 @@ export function buildNextStatus(
     stage_metrics?: StageMetricEntry[]
     review_job?: NovelSessionStatus["review_job"]
     chase_debt?: NovelSessionStatus["chase_debt"]
+    de_ai_batch?: NovelSessionStatus["de_ai_batch"]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -649,6 +656,9 @@ export function buildNextStatus(
   const chaseDebt = "chase_debt" in overrides
     ? overrides.chase_debt
     : base.chase_debt
+  const deAiBatch = "de_ai_batch" in overrides
+    ? overrides.de_ai_batch
+    : base.de_ai_batch
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -668,6 +678,7 @@ export function buildNextStatus(
     stage_metrics: stageMetrics,
     review_job: reviewJob,
     chase_debt: chaseDebt,
+    de_ai_batch: deAiBatch,
   }
 }
 

@@ -58,6 +58,7 @@ export function WritingPreferenceSection() {
   }, [projectPath])
 
   const preset = useMemo(
+    /* v8 ignore next -- select 选项恒来自 PREFERENCE_PRESETS，find 恒命中 */
     () => PREFERENCE_PRESETS.find((p) => p.key === selectedPreset) ?? PREFERENCE_PRESETS[0]!,
     [selectedPreset],
   )

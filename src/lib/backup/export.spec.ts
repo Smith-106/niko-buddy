@@ -25,7 +25,7 @@ vi.mock("@/lib/project-identity", () => ({
   loadRegistry: mocks.loadRegistry,
 }))
 
-import { exportBackup } from "./export"
+import { exportBackup, cancelBackup } from "./export"
 import type { ExportResult } from "./types"
 
 beforeEach(() => {
@@ -104,6 +104,11 @@ describe("exportBackup", () => {
     expect(result.success).toBe(true)
     expect(onProgress).toHaveBeenCalledWith({ phase: "pack" })
     expect(unlisten).toHaveBeenCalled()
+  })
+
+  it("cancelBackup forwards to the cancel_backup command", async () => {
+    await cancelBackup()
+    expect(mocks.invoke).toHaveBeenCalledWith("cancel_backup")
   })
 
   it("skips null localStorage keys and null values", async () => {

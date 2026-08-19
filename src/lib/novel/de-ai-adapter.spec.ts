@@ -102,6 +102,36 @@ describe("buildQmQuaiRewriteMessages / buildDeAiRewriteMessages", () => {
     const de = buildDeAiRewriteMessages("正文内容")
     expect(de[0].content).toBe(buildQmQuaiSystemPrompt())
   })
+
+  it("Wave 4: 不传 extra 时输出与旧版字节一致（additive-only）", () => {
+    const baseline = buildQmQuaiRewriteMessages("正文内容", "custom")
+    const withEmptyExtra = buildQmQuaiRewriteMessages("正文内容", "custom", {})
+    const withBlankExtra = buildQmQuaiRewriteMessages("正文内容", "custom", {
+      userPrompt: "   ",
+      dualPassFragment: "  ",
+    })
+    expect(withEmptyExtra).toEqual(baseline)
+    expect(withBlankExtra).toEqual(baseline)
+  })
+
+  it("Wave 4: userPrompt 追加到 system、dualPassFragment 追加到 user 内容", () => {
+    const messages = buildQmQuaiRewriteMessages("正文内容", "custom", {
+      userPrompt: "个性化规则",
+      dualPassFragment: "## De-AI dual-pass\n- 机械腔 warn",
+    })
+    expect(messages).toHaveLength(2)
+    expect(messages[0].content).toContain("custom")
+    expect(messages[0].content).toContain("个性化规则")
+    expect(messages[1].content).toContain("## De-AI dual-pass")
+    expect(messages[1].content).toContain("正文内容")
+    // 消息条数不变（仅内容追加，不增减消息）
+    expect(messages).toHaveLength(2)
+  })
+
+  it("Wave 4: buildDeAiRewriteMessages 透传 extra", () => {
+    const messages = buildDeAiRewriteMessages("正文内容", undefined, { userPrompt: "规则" })
+    expect(messages[0].content).toContain("规则")
+  })
 })
 
 describe("injectDeAiDirective", () => {

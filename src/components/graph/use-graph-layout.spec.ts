@@ -125,30 +125,37 @@ describe("useGraphLayout", () => {
   })
 
   it("拖拽中再次触发拖拽标记（dragging && isResizing）→ 两个 if 均走 false 分支", async () => {
-    const { result, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
-      initialProps: { show: false },
-    })
-    await flush(10)
-    // 开始拖拽 → isResizing=true
-    await act(async () => {
-      document.body.setAttribute("data-panel-resizing", "true")
-    })
-    await flush(10)
-    // 结束拖拽：排入 50ms remount timer（isResizing 仍为 true）
-    await act(async () => {
-      document.body.setAttribute("data-panel-resizing", "false")
-    })
-    await flush(5)
-    // timer 未完成时再次开始拖拽 → dragging=true && isResizing=true（两个 if 的 false 侧）
-    await act(async () => {
-      document.body.setAttribute("data-panel-resizing", "true")
-    })
-    await flush(5)
-    expect(result.current.isResizing).toBe(true)
-    await flush(80)
-    expect(result.current.sigmaKey).toBe(1)
-    expect(result.current.isResizing).toBe(false)
-    unmount()
+    vi.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
+        initialProps: { show: false },
+      })
+      await act(async () => {})
+      // 开始拖拽 → isResizing=true
+      await act(async () => {
+        document.body.setAttribute("data-panel-resizing", "true")
+      })
+      // 结束拖拽：排入 50ms remount timer（isResizing 仍为 true）
+      await act(async () => {
+        document.body.setAttribute("data-panel-resizing", "false")
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(5)
+      })
+      // timer 未完成时再次开始拖拽 → dragging=true && isResizing=true（两个 if 的 false 侧）
+      await act(async () => {
+        document.body.setAttribute("data-panel-resizing", "true")
+      })
+      expect(result.current.isResizing).toBe(true)
+      await act(async () => {
+        vi.advanceTimersByTime(80)
+      })
+      expect(result.current.sigmaKey).toBe(1)
+      expect(result.current.isResizing).toBe(false)
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("非拖拽标记变更（dragging=false 且 isResizing=false）→ 无副作用", async () => {

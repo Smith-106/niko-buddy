@@ -329,7 +329,9 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
     const before = text
     text = pangu.spacingText(text)
     if (text.length > before.length) {
+      /* v8 ignore next -- pangu 只插入空格，text 必有空格，?? [] 为防御性死分支 */
       panguSpaced = (text.match(/ /g) ?? []).length - (before.match(/ /g) ?? []).length
+      /* v8 ignore next -- pangu 只增不减，panguSpaced 恒 >= 0 */
       if (panguSpaced < 0) panguSpaced = 0
     }
   }

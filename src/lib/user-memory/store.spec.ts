@@ -234,6 +234,21 @@ describe("user-memory/store — file IO", () => {
       expect(loaded.preferences).toEqual([])
     })
 
+    it("returns default store when preferences is not an array", async () => {
+      vi.mocked(readFile).mockResolvedValue(JSON.stringify({ version: "user-memory/1.0", preferences: "oops" }))
+
+      const loaded = await loadUserMemory("/test/user-memory.json")
+      expect(loaded.preferences).toEqual([])
+      expect(loaded.version).toBe("user-memory/1.0")
+    })
+
+    it("defaults version when missing", async () => {
+      vi.mocked(readFile).mockResolvedValue(JSON.stringify({ preferences: [] }))
+
+      const loaded = await loadUserMemory("/test/user-memory.json")
+      expect(loaded.version).toBe("user-memory/1.0")
+    })
+
     it("fills missing fields for backward compatibility", async () => {
       vi.mocked(readFile).mockResolvedValue(JSON.stringify({
         version: "user-memory/1.0",
