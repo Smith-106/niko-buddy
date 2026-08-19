@@ -2232,6 +2232,10 @@ describe("coverage-100: task brief / draft edge paths", () => {
         status: "ok" as const,
         report: {
           debtScore: 12,
+          totalUnresolved: 1,
+          criticalCount: 1,
+          warningCount: 0,
+          thresholds: { plantedStale: 5, advancedStale: 10, densityLimit: 5 },
           items: [
             {
               id: "f1",

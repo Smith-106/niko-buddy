@@ -7,22 +7,20 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.4.8**（2026-08-15 发布，notes-only）
+**v2.5.0**（2026-08-18 发布，源码 tip 与安装包资产对齐）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
-### v2.4.8 更新亮点
+### v2.5.0 更新亮点
 
-- ✅ **四维反查生产接线（R06）** — 相关章节四维反查 + 伏笔逾期 finding 真正进入生成 prompt（灰度开关默认开）
-- ✅ **de-ai 满格** — 流派 8→14 + 结构化规则矩阵 24→28（7 类别 × 4 严重度）+ 替换字典扩充（35/40/40/28）
-- ✅ **债看板 UI（R16）** — 追读债务 / 伏笔逾期 / 情绪债务三分类聚合看板
-- ✅ **章节版本 diff（R17）** — 历史版本与当前内容只读对比（MonacoDiffEditor）
-- ✅ **组合根抽取（R12）** — 启动编排独立模块，App 仅保留渲染入口
-- ✅ **性能四项** — 图谱正则预编译缓存 / 社区摘要信号量限流并行 / 导出并行化 / 六维审查并行确认
-- ✅ **18 项改进点全部落地** — 收口文档 `docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md`
-- ✅ **产品门控不变** — Consistency > Anti-AI > Quality；P2 参考分永不覆盖 P0
+- ✅ **用户记忆（Wave 1）** — 跨会话用户偏好/事实记忆，写作偏好自动沉淀
+- ✅ **@引用（Wave 2）** — 正文/大纲/记忆三域 @引用，上下文精准注入
+- ✅ **计划模式（Wave 3）** — 章节计划驱动生成，长文写作确定性提升
+- ✅ **批量去 AI 味（Wave 4）** — 多章节批量 de-ai 处理，风格一致性增强
+- ✅ **上下文用量圆环（Wave 5）** — 实时上下文用量可视化，防超限
+- ✅ **版本对齐** — 版本号三处统一 2.5.0，安装包资产重建（NSIS + 便携版）
 
-> notes-only 发布：安装包资产保持 **v2.4.6**，v2.4.8 为源码 tip（`smith/master`）。需要最新源码请 checkout master；安装包以 Release 资产为准。
+> 源码 tip 与安装包资产同步（`smith/master`）；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
 ### v2.4.7 更新亮点（历史）
 
@@ -49,7 +47,7 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`QMaiWrite_2.4.6_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.4.6_windows_X64.exe)（约 33 MB），双击运行 NSIS 安装程序即可。
+下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 

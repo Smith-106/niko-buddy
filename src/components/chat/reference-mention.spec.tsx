@@ -14,6 +14,7 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { ReferenceMention } from "./reference-mention"
+import type { ReferenceCandidate } from "@/lib/reference"
 
 const mocks = vi.hoisted(() => {
   const wikiState: { project: { id: string; path: string } | null } = {
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => {
   return {
     wikiState,
     t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
-    loadAllReferenceCandidates: vi.fn(async () => [
+    loadAllReferenceCandidates: vi.fn<() => Promise<ReferenceCandidate[]>>(async () => [
       { id: "character:林墨", kind: "character", name: "林墨", score: 0 },
       { id: "setting:北境", kind: "setting", name: "北境", score: 0 },
     ]),

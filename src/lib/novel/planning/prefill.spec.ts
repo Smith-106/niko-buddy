@@ -6,9 +6,6 @@ import {
   PLANNING_BLOCK_MARKER,
 } from "./prefill"
 import { buildChapterPlanView, type ChapterPlanInput } from "./aggregate"
-import type { ForeshadowingStore } from "../foreshadowing-tracker"
-import type { CharacterStateStore } from "../character-state"
-import type { Subplot } from "../subplot-board"
 
 function makePlanInput(): ChapterPlanInput {
   return {

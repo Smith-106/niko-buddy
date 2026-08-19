@@ -5,7 +5,7 @@ import {
   PREFERENCE_CATEGORIES,
   USER_MEMORY_SCHEMA_VERSION,
 } from "./types"
-import type { UserMemoryStore, UserPreference, DeAiWeights, ReviewCalibration } from "./types"
+import type { UserMemoryStore, DeAiWeights, ReviewCalibration } from "./types"
 
 describe("user-memory/types", () => {
   it("createDefaultStore returns a valid empty store", () => {

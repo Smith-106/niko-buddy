@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
+import type { DeepChapterDecisionGates, DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 import type { NovelReviewResult } from "./review-adapter"
 
@@ -1064,12 +1064,12 @@ describe("novel-session-status 分支补足", () => {
       },
       evidence_refs: [],
     }
-    const gates = (overrides: Record<string, unknown>) => ({
+    const gates = (overrides: Record<string, unknown> = {}): DeepChapterDecisionGates => ({
       consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
       anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
       quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
       ...overrides,
-    })
+    } as unknown as DeepChapterDecisionGates)
     // quality failed → fail（无 overall 输入）
     const qFail = buildNextStatus(base, {
       updated_at: "2026-01-01T00:00:00.000Z",
@@ -1128,7 +1128,7 @@ describe("novel-session-status 分支补足", () => {
   })
 
   it("Wave 4: de_ai_batch additive 字段经 buildNextStatus 线穿（ADR-31）", () => {
-    const base = {
+    const base: NovelSessionStatus = {
       schema_version: "1" as const,
       session_id: "s",
       source: "deep_chapter_generation" as const,

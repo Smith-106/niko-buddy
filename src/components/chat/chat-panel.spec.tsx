@@ -2636,7 +2636,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     await sendText("深度写第3章")
     const genInput = mocks.runDeepChapterGeneration.mock.calls[1][0]
     expect(genInput.planningPlan).toBeDefined()
-    expect(genInput.planningPlan.chapterNumber).toBe(3)
+    expect(genInput.planningPlan!.chapterNumber).toBe(3)
     // 消费后清除：第二次发送不再携带
     await sendText("深度写第3章")
     const genInput2 = mocks.runDeepChapterGeneration.mock.calls[2][0]

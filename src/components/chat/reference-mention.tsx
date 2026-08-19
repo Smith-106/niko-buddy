@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle }
 import { useTranslation } from "react-i18next"
 import { X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { parseReferences, resolveReferences, loadAllReferenceCandidates } from "@/lib/reference"
+import { parseReferences, loadAllReferenceCandidates } from "@/lib/reference"
 import type { ReferenceCandidate, ResolvedReference } from "@/lib/reference"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -42,7 +42,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
   const [candidates, setCandidates] = useState<ReferenceCandidate[]>([])
   const [activeIndex, setActiveIndex] = useState(0)
   const [open, setOpen] = useState(false)
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [, setExpanded] = useState<Record<string, boolean>>({})
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const projectPath = project?.path ? normalizePath(project.path) : ""

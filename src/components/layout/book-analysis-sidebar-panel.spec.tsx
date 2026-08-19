@@ -653,6 +653,7 @@ describe("BookAnalysisSidebarPanel", () => {
         stageLabel: "",
         completed: 0,
         total: 10,
+        percentage: 0,
         recognitionStatus: "llm_recognizing",
       },
       status: "running",

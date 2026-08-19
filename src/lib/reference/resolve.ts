@@ -4,7 +4,7 @@
  * typing-time 路径（parse + score + resolve）为同步纯函数，保证输入框零延迟。
  */
 
-import type { ReferenceCandidate, ReferenceKind, ReferenceToken, ResolvedReference } from "./types"
+import type { ReferenceCandidate, ReferenceToken, ResolvedReference } from "./types"
 // 复用 character-aura-utils 的匹配基建（不平行实现）
 import { normalizeCharacterText, toPinyin, toSimplified } from "@/lib/novel/character-aura-utils"
 

@@ -209,7 +209,7 @@ export interface DeepChapterGenerationResult {
    * additive pack.contextUsage）。缺省 undefined（空包降级/非 build 路径）
    * → 完成页不渲染 ring。
    */
-  contextUsage?: import("./context-engine").ContextUsage
+  contextUsage?: import("../context-usage").ContextUsage
 }
 
 export type DeepChapterDecisionGateKey = "consistency" | "anti_ai" | "quality"

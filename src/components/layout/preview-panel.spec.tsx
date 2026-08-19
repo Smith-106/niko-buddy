@@ -12,6 +12,7 @@ configure({ asyncUtilTimeout: 5000 })
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { ChapterBodySelection } from "@/lib/chapter-selection"
+import type { DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel/de-ai-batch"
 
 const CHAPTER_PATH = "/proj/wiki/chapters/第1章.md"
 const OUTLINE_PATH = "/proj/wiki/outlines/大纲.md"
@@ -97,7 +98,7 @@ const mocks = vi.hoisted(() => {
     resolveReviewModel: vi.fn(() => "review-model"),
     buildDeAiRewriteMessages: vi.fn(() => []),
     loadSmartDeAiSkill: vi.fn(async () => null),
-    runDeAiBatch: vi.fn(async () => ({
+    runDeAiBatch: vi.fn<(projectPath: string, options: DeAiBatchOptions) => Promise<DeAiBatchSummary>>(async () => ({
       schemaVersion: "de-ai-batch/1.0",
       batchId: "de-ai-1",
       phase: "completed",
@@ -1195,9 +1196,9 @@ describe("PreviewPanel 一键排版与去AI味", () => {
 
   it("批量去AI味：中止 → abort 控制器", async () => {
     chapterSetup()
-    mocks.runDeAiBatch.mockImplementation(async (_p: string, options: any) => {
+    mocks.runDeAiBatch.mockImplementation(async (_p: string, options: DeAiBatchOptions) => {
       options.signal?.addEventListener("abort", () => {})
-      return new Promise((resolve) => {
+      return new Promise<DeAiBatchSummary>((resolve) => {
         setTimeout(() => {
           resolve({
             schemaVersion: "de-ai-batch/1.0",

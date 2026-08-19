@@ -13,7 +13,7 @@ import {
   DE_AI_STRUCTURED_RULES,
   filterRulesBySeverity,
 } from "../novel/de-ai-rules"
-import type { DeAiStructuredRule, DeAiSeverity } from "../novel/de-ai-rules"
+import type { DeAiSeverity } from "../novel/de-ai-rules"
 
 function makeStoreWithPrefs(prefs: Array<{ key: string; value: string; category?: string }>): UserMemoryStore {
   const store = createDefaultStore()
@@ -142,7 +142,7 @@ describe("user-memory/rules-weight", () => {
 
     it("falls back to medium when store severityThreshold is undefined", () => {
       const store = createDefaultStore()
-      store.deAiWeights.severityThreshold = undefined
+      ;(store.deAiWeights as { severityThreshold?: DeAiSeverity }).severityThreshold = undefined
       const weights = buildDeAiWeightsFromPreferences(store)
       expect(weights.severityThreshold).toBe("medium")
     })

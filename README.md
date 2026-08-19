@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.4.9-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.5.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -391,8 +391,8 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前正式发布产物为 **v2.4.6**（v2.4.8 为源码 tip，安装包资产保持 2.4.6） Windows 安装包与便携版（macOS/Linux planned）。
-> `smith/master` 源码 tip 可能包含安装包之后的 mid-loop / residual 源码增强；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
+> 注：当前正式发布产物为 **v2.5.0**（NSIS 安装包 + 便携版与源码 tip 对齐；macOS/Linux planned）。
+> `smith/master` 源码 tip 与安装包资产同步；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
 ### 安装方式
 
@@ -517,7 +517,12 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 **8484+ 用例**；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 **8497+ 用例**（实测以 `npx vitest run` 输出为准）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
+  - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
+  - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
+  - `src/lib/novel/step0-ab-calibration.real-llm.spec.ts` — 需 `STEP0_REAL_LLM_KEY` + `STEP0_REAL_LLM_BASE`（可选 `STEP0_REAL_LLM_MODEL`）；注意 `.env.test.local` 若含 STEP0 凭证则默认跑批中实际运行
+  - 设置对应 env 即可激活该块（烧真实 LLM token / 真实 fs 写盘，CI 默认不触发）
 - **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）已达 **100%**，由 `vite.config.ts` 阈值门控（100/100/100/100）持续保障；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。

@@ -49,7 +49,7 @@ function cacheSet(key: string, hits: ReferenceSearchHit[]): void {
   cache.set(key, { key, hits })
   while (cache.size > REFERENCE_CACHE_MAX) {
     const oldest = cache.keys().next().value
-    cache.delete(oldest)
+    if (oldest !== undefined) cache.delete(oldest)
   }
 }
 
@@ -85,16 +85,18 @@ async function searchOneReference(
     includeCanon: false,
   })
 
-  const hits: ReferenceSearchHit[] = results.map((r) => ({
-    refId: ref.id,
-    kind: ref.kind,
-    name: ref.name,
-    type: r.type,
-    path: r.path,
-    title: r.title,
-    snippet: r.snippet,
-    relevance: r.relevance,
-  }))
+  const hits: ReferenceSearchHit[] = results
+    .filter((r) => r.type !== "canon")
+    .map((r) => ({
+      refId: ref.id,
+      kind: ref.kind,
+      name: ref.name,
+      type: r.type as ReferenceSearchHit["type"],
+      path: r.path,
+      title: r.title,
+      snippet: r.snippet,
+      relevance: r.relevance,
+    }))
   cacheSet(key, hits)
   return hits
 }

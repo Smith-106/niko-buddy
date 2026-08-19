@@ -2086,6 +2086,7 @@ export function ChatPanel() {
              mustAvoid: "",
              nextChapterAdvice: "",
              revisionDirectives: "",
+             contextUsage: undefined,
            }))
            const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
            const dismantlingDirective = await loadEnabledDismantlingDirective(pp).catch(() => "")

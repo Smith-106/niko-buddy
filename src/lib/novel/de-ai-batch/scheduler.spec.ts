@@ -395,7 +395,8 @@ describe("de-ai-batch scheduler — runDeAiBatch", () => {
     const savedState = statusMocks.buildNextStatus.mock.calls[0][1].de_ai_batch as DeAiBatchState
     expect(savedState.concurrency).toBe(5)
     await runDeAiBatch("/p", { llmConfig, concurrency: 0 })
-    const lastCall = statusMocks.buildNextStatus.mock.calls.at(-1)!
+    const calls = statusMocks.buildNextStatus.mock.calls
+    const lastCall = calls[calls.length - 1]!
     const savedState2 = lastCall[1].de_ai_batch as DeAiBatchState
     expect(savedState2.concurrency).toBe(1)
   })

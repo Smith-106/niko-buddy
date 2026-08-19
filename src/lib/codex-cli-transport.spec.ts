@@ -376,7 +376,7 @@ describe("streamCodexCli", () => {
     const { dataEventName, doneEventName } = findEvents(listeners)
 
     listeners.get(dataEventName)!({ payload: '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}' })
-    listeners.get(doneEventName)!({ payload: { code: 0 } })
+    listeners.get(doneEventName)!({ payload: { code: 0, stderr: "" } })
 
     await expect(resolveWithin(streamPromise, 200)).resolves.toBeUndefined()
     expect(cb.onDone).toHaveBeenCalledTimes(1)

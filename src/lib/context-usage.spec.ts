@@ -11,16 +11,17 @@ import type { UserMemoryStore } from "./user-memory/types"
 
 function makeStore(prefLengths: number[]): UserMemoryStore {
   return {
-    version: 1,
+    version: "user-memory/1.0",
     preferences: prefLengths.map((len, index) => ({
       id: `upref-${index}`,
       key: `key-${index}`,
       value: "x".repeat(len),
-      category: "general",
+      category: "custom",
       createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
     })),
-    deAiWeights: { categoryBoosts: {}, severityThreshold: "medium" },
-    reviewCalibration: { severityThreshold: "medium", categoryBoosts: {} },
+    deAiWeights: { categoryBoosts: {}, severityThreshold: "medium", genreOverrides: {} },
+    reviewCalibration: { dimensionWeights: {}, severityDeductions: {} },
     updatedAt: "2026-01-01T00:00:00.000Z",
   }
 }

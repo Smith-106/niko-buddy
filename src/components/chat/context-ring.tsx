@@ -33,7 +33,7 @@ export interface ContextRingProps {
  * 每段占 fraction × circumference，段间留 GAP_FRACTION 空隙。
  */
 export function computeRingGeometry(usage: ContextUsage): Array<{
-  key: string
+  key: import("@/lib/context-usage").RingSegment["key"]
   label: string
   chars: number
   dasharray: string

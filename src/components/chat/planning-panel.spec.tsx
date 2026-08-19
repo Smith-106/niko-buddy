@@ -29,7 +29,6 @@ function makePlan(overrides: Partial<ChapterPlanView> = {}): ChapterPlanView {
     foreshadowing: {
       status: "ok",
       report: {
-        debtScore: 12,
         items: [
           {
             id: "f1",
@@ -41,6 +40,11 @@ function makePlan(overrides: Partial<ChapterPlanView> = {}): ChapterPlanView {
             debtLevel: "critical",
           },
         ],
+        totalUnresolved: 1,
+        criticalCount: 1,
+        warningCount: 0,
+        debtScore: 12,
+        thresholds: { plantedStale: 5, advancedStale: 10, densityLimit: 5 },
       },
       overdueFindings: [],
     },
@@ -139,7 +143,7 @@ describe("PlanningPanel", () => {
 
   it("空数据（ok 状态）渲染空态文案", () => {
     const plan = makePlan({
-      foreshadowing: { status: "ok", report: { debtScore: 0, items: [] }, overdueFindings: [] },
+      foreshadowing: { status: "ok", report: { items: [], totalUnresolved: 0, criticalCount: 0, warningCount: 0, debtScore: 0, thresholds: { plantedStale: 5, advancedStale: 10, densityLimit: 5 } }, overdueFindings: [] },
       characters: { status: "ok", items: [] },
       threads: { status: "ok", items: [], openCount: 0 },
     })

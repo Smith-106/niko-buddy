@@ -694,6 +694,8 @@ function normalizeNovelConfig(
     stateDeltaLightCheckEnabled: config.stateDeltaLightCheckEnabled ?? DEFAULT_NOVEL_CONFIG.stateDeltaLightCheckEnabled,
     stateDeltaBlocksTrackA: config.stateDeltaBlocksTrackA ?? DEFAULT_NOVEL_CONFIG.stateDeltaBlocksTrackA,
     outlineThrillSoftGateEnabled: config.outlineThrillSoftGateEnabled ?? DEFAULT_NOVEL_CONFIG.outlineThrillSoftGateEnabled,
+    // Wave 2 (v2.5.0): @引用开关默认 true；显式 false 保留。
+    referenceEnabled: config.referenceEnabled ?? DEFAULT_NOVEL_CONFIG.referenceEnabled,
   }
 }
 
