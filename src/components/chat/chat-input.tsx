@@ -3,6 +3,7 @@ import { Send, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import { useChatStore } from "@/stores/chat-store"
+import { ReferenceMention, type ReferenceMentionHandle } from "./reference-mention"
 import {
   clampResizableInputHeight,
   DEFAULT_RESIZABLE_INPUT_HEIGHT,
@@ -19,6 +20,8 @@ interface ChatInputProps {
   inlineSendButton?: boolean
   value?: string
   onChange?: (value: string) => void
+  /** Wave 2 (v2.5.0): 启用 @ 引用交互（候选下拉 + 彩色标签条）。默认关闭。 */
+  mentionEnabled?: boolean
 }
 
 function resolveResizePanelHeight(root: HTMLDivElement | null): number {
@@ -32,7 +35,7 @@ function resolveResizePanelHeight(root: HTMLDivElement | null): number {
   return panelHeight
 }
 
-export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange, mentionEnabled = false }: ChatInputProps) {
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const setConversationInputDraft = useChatStore((state) => state.setConversationInputDraft)
   const conversation = useChatStore((state) =>
@@ -44,6 +47,7 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
   const [fallbackDraft, setFallbackDraft] = useState("")
   const storeValue = conversation?.inputDraft ?? ""
   const value = isControlled ? controlledValue : activeConversationId ? storeValue : fallbackDraft
+  const mentionRef = useRef<ReferenceMentionHandle>(null)
 
   const [inputHeight, setInputHeight] = useState(DEFAULT_RESIZABLE_INPUT_HEIGHT)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -166,6 +170,8 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Wave 2: @ 引用交互优先消费键盘事件（候选导航/确认/关闭）
+      if (mentionEnabled && mentionRef.current?.handleKeyDown(e)) return
       // Don't submit on the Enter that commits an IME candidate —
       // the user is mid-composition (Chinese / Japanese / Korean
       // input method picking an English word or phrase) and would
@@ -176,7 +182,7 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
         handleSend()
       }
     },
-    [handleSend],
+    [handleSend, mentionEnabled],
   )
 
   return (
@@ -246,6 +252,13 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
         <div className="px-3 pb-2">
           {footerControls}
         </div>
+      ) : null}
+      {mentionEnabled ? (
+        <ReferenceMention
+          ref={mentionRef}
+          value={value}
+          onRemoveToken={(full) => setValue(value.replace(full, ""))}
+        />
       ) : null}
     </div>
   )

@@ -5,6 +5,7 @@ import {
   deletePreference,
   getPreferences,
   findPreferenceByKey,
+  getUserPreferenceText,
   loadUserMemory,
   saveUserMemory,
   getDefaultUserMemoryPath,
@@ -278,6 +279,37 @@ describe("user-memory/store — file IO", () => {
       const parsed = JSON.parse(savedJson as string)
       expect(parsed.version).toBe("user-memory/1.0")
       expect(parsed.preferences).toHaveLength(1)
+    })
+  })
+
+  describe("getUserPreferenceText", () => {
+    it("renders preferences as human-readable text with label", () => {
+      const store = createDefaultStore()
+      store.preferences.push(
+        createPreference({ key: "avoid_words", value: "仿佛、不禁", category: "vocabulary", label: "避用词" }),
+      )
+      expect(getUserPreferenceText(store, "vocabulary")).toBe("避用词: 仿佛、不禁")
+    })
+
+    it("falls back to key when label missing", () => {
+      const store = createDefaultStore()
+      store.preferences.push(
+        createPreference({ key: "dim:plot", value: "0.3", category: "review" }),
+      )
+      expect(getUserPreferenceText(store, "review")).toBe("dim:plot: 0.3")
+    })
+
+    it("joins multiple preferences with semicolons", () => {
+      const store = createDefaultStore()
+      store.preferences.push(
+        createPreference({ key: "a", value: "1", category: "custom" }),
+        createPreference({ key: "b", value: "2", category: "custom" }),
+      )
+      expect(getUserPreferenceText(store)).toBe("a: 1；b: 2")
+    })
+
+    it("returns empty string when no preferences", () => {
+      expect(getUserPreferenceText(createDefaultStore(), "vocabulary")).toBe("")
     })
   })
 

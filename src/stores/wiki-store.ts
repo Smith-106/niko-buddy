@@ -292,6 +292,8 @@ export interface NovelConfig {
   exemplarEnabled: boolean
   /** S2a (roadmap R06 / TASK-101): related-chapters 四维反查 + 伏笔逾期 finding 注入 toggle (default on). */
   relatedChaptersEnabled: boolean
+  /** Wave 2 (v2.5.0): @引用系统注入 toggle (default on)。关闭=现状行为（不注入引用段）。 */
+  referenceEnabled: boolean
   /** EPIC-002 / ADR-30: Scene Breakdown stage 1.5 toggle (default off). */
   sceneBreakdownEnabled: boolean
   /** EPIC-003 / ADR-32: Conditional entity routing toggle (default on). */
@@ -337,6 +339,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   exemplarEnabled: true,
   // S2a (roadmap R06 / TASK-101): 四维反查生产接线默认开启；关闭=现状行为（不注入 related 文本）。
   relatedChaptersEnabled: true,
+  // Wave 2 (v2.5.0): @引用注入默认开启；关闭=现状行为（不注入引用段）。
+  referenceEnabled: true,
   sceneBreakdownEnabled: false,
   conditionalRoutingEnabled: true,
   inspectorEnabled: true,

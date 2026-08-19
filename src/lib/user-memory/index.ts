@@ -25,6 +25,7 @@ export {
   deletePreference,
   getPreferences,
   findPreferenceByKey,
+  getUserPreferenceText,
   getDefaultUserMemoryPath,
 } from "./store"
 export {

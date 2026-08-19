@@ -2371,6 +2371,7 @@ export function ChatPanel() {
             onSend={handleSend}
             onStop={handleStop}
             isStreaming={isStreaming}
+            mentionEnabled={novelMode}
             footerControls={
               <TooltipProvider delay={200}>
                 <div className="flex items-center justify-between gap-2 flex-nowrap overflow-x-auto">

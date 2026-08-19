@@ -105,6 +105,22 @@ export function findPreferenceByKey(
   return store.preferences.find((p) => p.key === key)
 }
 
+/**
+ * 偏好原文通道（PR6 冻结项，Wave 2 @引用段消费）：
+ * 把某分类下的偏好渲染为人类可读文本（label 优先，回退 key），
+ * 供引用注入段直接拼入 prompt；无偏好返回空字符串。
+ */
+export function getUserPreferenceText(
+  store: UserMemoryStore,
+  category?: PreferenceCategory,
+): string {
+  const prefs = getPreferences(store, category)
+  if (prefs.length === 0) return ""
+  return prefs
+    .map((p) => `${p.label ?? p.key}: ${p.value}`)
+    .join("；")
+}
+
 /** 构建默认 user-memory.json 路径 */
 export function getDefaultUserMemoryPath(projectPath: string): string {
   return `${projectPath}/.novel/user-memory.json`

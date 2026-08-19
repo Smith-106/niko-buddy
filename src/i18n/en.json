@@ -1826,6 +1826,7 @@
       "graphSearchResults": "## Graph Related Nodes",
       "communitySummaries": "## Community Summaries (GraphRAG-style)",
       "relatedChapters": "## Related Chapters Lookup",
+      "references": "## Reference Lookup",
       "activeEntities": "## Active Entities (Current Chapter)",
       "foreshadowing": {
         "repeatedUnresolved": "These foreshadowing threads have reappeared recently without clear progression. Decide whether to continue planting, advancing, or resolving them in this chapter: {{names}}"

@@ -116,3 +116,23 @@ export {
   type UserMemoryStore,
   type UserPreference,
 } from "../user-memory"
+// Wave 2 (v2.5.0): @引用系统 canonical 出口（耦合治理：主链/UI 只依赖本导出面）
+export {
+  parseReferences,
+  resolveReferences,
+  scoreCandidate,
+  chineseNumberToInt,
+  searchReferences,
+  buildReferenceContext,
+  formatReferenceSection,
+  clearReferenceCache,
+  REFERENCE_SECTION_CAP,
+  REFERENCE_SNIPPET_CAP,
+  REFERENCE_TOP_K,
+  REFERENCE_CONCURRENCY_LIMIT,
+  type ReferenceKind,
+  type ReferenceToken,
+  type ReferenceCandidate,
+  type ResolvedReference,
+  type ReferenceSearchHit,
+} from "../reference"

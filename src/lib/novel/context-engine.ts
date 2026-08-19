@@ -26,6 +26,7 @@ import {
 import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-facts-audit"
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
+import { buildReferenceContext } from "@/lib/reference/search"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { rerankCandidates } from "@/lib/rerank"
@@ -68,6 +69,7 @@ const SECTION_PRIORITY: Record<string, number> = {
   "角色认知状态": 12,
   "相关地点/组织/物品": 13,
   "相关记忆检索": 14,
+  "引用检索": 14.5,
   "修改反馈": 15,
   "下一章推进建议": 16,
   "写作风格": 17,
@@ -299,6 +301,12 @@ export interface ContextPack {
    * 消费方按需读取（与 styleExemplars 同款 pack 字段消费模式）。
    */
   relatedChapters?: string
+  /**
+   * Wave 2 (v2.5.0): @引用系统注入段（角色/章节/设定引用 + 用户记忆偏好原文
+   * + 定向检索 snippet）。referenceEnabled=false 或零引用时为 ""（优雅降级）。
+   * additive 独立字段 — 消费方按需读取（与 relatedChapters 同款模式）。
+   */
+  references?: string
 }
 
 /**
@@ -480,7 +488,24 @@ async function buildContextPackUnlocked(
             }
           })()
         : Promise.resolve("")
-    const [pack, exemplars, activeEntities, relatedChaptersText] = await Promise.all([
+    // Wave 2 (v2.5.0): @引用注入。referenceEnabled 默认 true；关闭时跳过注入
+    // 返回 ""（=现状行为）。additive：失败 catch 降级空文本，不阻断 pack
+    // （与 relatedChapters 同款）。数据来源：task 文本解析 @ 引用 → 候选装载
+    // → novelMixedSearch 三路融合检索 → 引用段（含用户记忆偏好原文，PR6 通道）。
+    const referencesPromise =
+      novelConfig.referenceEnabled
+        ? (async (): Promise<string> => {
+            try {
+              return await buildReferenceContext(pp, task, {
+                chapterNumber: context.chapterNumber,
+              })
+            } catch (error) {
+              logger.warn("ContextEngine", "reference context build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              return ""
+            }
+          })()
+        : Promise.resolve("")
+    const [pack, exemplars, activeEntities, relatedChaptersText, referencesText] = await Promise.all([
       buildContextPackFromRawData(rawData, context),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
@@ -502,6 +527,7 @@ async function buildContextPackUnlocked(
           })
         : Promise.resolve([] as ContextEntity[]),
       relatedChaptersPromise,
+      referencesPromise,
     ])
 
     pack.gaps = collectContextGaps()
@@ -513,6 +539,10 @@ async function buildContextPackUnlocked(
     // 或空结果时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
     // pack.relatedChapters（与 styleExemplars 同款 pack 字段消费模式）。
     pack.relatedChapters = relatedChaptersText
+    // Wave 2 (v2.5.0): @引用段注入（additive 独立字段）。referenceEnabled=false
+    // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
+    // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
+    pack.references = referencesText
     // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
     // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
     // EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): Track B rerank 接线（接上方
@@ -2033,6 +2063,8 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
   { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
+  // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）
+  { titleKey: "novel.contextPack.references", fieldKey: "references", layer: "aux" },
   {
     titleKey: "novel.contextPack.activeEntities",
     fieldKey: "activeEntities",
