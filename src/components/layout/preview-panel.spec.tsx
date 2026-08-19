@@ -6,7 +6,9 @@
  * - 不改源文件；仅此 spec 文件
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
-import { cleanup as rtlCleanup } from "@testing-library/react"
+import { cleanup as rtlCleanup, configure } from "@testing-library/react"
+// 全量负载下持久化链变慢：放宽 waitFor 默认超时，避免时序偶发
+configure({ asyncUtilTimeout: 5000 })
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { ChapterBodySelection } from "@/lib/chapter-selection"

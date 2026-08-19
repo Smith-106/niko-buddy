@@ -1607,6 +1607,8 @@ describe("buildContextPack 集成", () => {
     expect(pack.chapterGoal).toBe("")
     expect(pack.relatedChapters).toBeUndefined()
     expect(pack.temporalFacts).toBeUndefined()
+    // Wave 5: emptyPack 不装配 contextUsage（additive 降级）
+    expect(pack.contextUsage).toBeUndefined()
   })
 
   it("novelMode 缺省回退 store（默认 true）→ 全量装配", async () => {
@@ -1637,6 +1639,13 @@ describe("buildContextPack 集成", () => {
     expect(pack.relatedChapters).toBe("")
     expect(pack.communitySummaries).toBeUndefined()
     expect(pack.temporalFacts).toEqual([]) // chapter 3 > 0 → loadTemporalFactsCached 空折叠
+    // Wave 5: 全量装配冻结 contextUsage（预算线来自 currentBuildBudget；
+    // user-memory 读取失败 → memoryChars 0 不阻断）
+    expect(pack.contextUsage).toBeDefined()
+    expect(pack.contextUsage!.maxCtx).toBeGreaterThan(0)
+    expect(pack.contextUsage!.bodyChars).toBeGreaterThan(0)
+    expect(pack.contextUsage!.retrievalChars).toBeGreaterThan(0)
+    expect(typeof pack.contextUsage!.memoryChars).toBe("number")
   })
 
   it("chapterNumber undefined → 从 task 提取 + 记录到 load context", async () => {

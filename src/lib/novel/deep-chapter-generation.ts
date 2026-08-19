@@ -204,6 +204,12 @@ export interface DeepChapterGenerationResult {
    */
   partial: boolean
   partialReason: string | null
+  /**
+   * Wave 5 (v2.5.0): 本次生成上下文用量快照（来自 buildContextPack 的
+   * additive pack.contextUsage）。缺省 undefined（空包降级/非 build 路径）
+   * → 完成页不渲染 ring。
+   */
+  contextUsage?: import("./context-engine").ContextUsage
 }
 
 export type DeepChapterDecisionGateKey = "consistency" | "anti_ai" | "quality"
@@ -1062,6 +1068,7 @@ export async function runDeepChapterGeneration(
       retryCount: stage45.retryCount,
       partial: partialReason !== null,
       partialReason,
+      contextUsage: contextPack.contextUsage,
     }
   }
   assertNotAborted(signal)
@@ -1112,6 +1119,7 @@ export async function runDeepChapterGeneration(
     retryCount: stage45.retryCount,
     partial: partialReason !== null,
     partialReason,
+    contextUsage: contextPack.contextUsage,
   }
 }
 

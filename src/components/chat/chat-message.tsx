@@ -15,6 +15,8 @@ import { normalizePath, getFileName } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
+// Wave 5 (v2.5.0): 上下文用量圆环 — 完成页透明度卡片（受控纯组件）。
+import { ContextRing } from "@/components/chat/context-ring"
 import type { DisplayMessage } from "@/stores/chat-store"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
@@ -65,6 +67,8 @@ function isTerminalAssistantError(content: string): boolean {
 
 const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*qmai-deep-chapter-draft:([\s\S]*?)\s*-->/i
 
+const MANAGED_CONTEXT_USAGE_RE = /<!--\s*qmai-context-usage:([\s\S]*?)\s*-->/i
+
 type ManagedDeepChapterDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
 
 function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDraftStatus | null {
@@ -81,6 +85,45 @@ function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDr
       && ["pending", "ready", "accepted", "rejected", "superseded"].includes(parsed.draftStatus)
     ) {
       return parsed.draftStatus as ManagedDeepChapterDraftStatus
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Wave 5 (v2.5.0): 解析 qmai-context-usage 标记 → 上下文用量快照。
+ * 缺省/损坏标记返回 null（不渲染 ring，优雅降级）。
+ */
+function getContextUsageFromMessage(content: string): import("@/lib/context-usage").ContextUsage | null {
+  const match = content.match(MANAGED_CONTEXT_USAGE_RE)
+  if (!match?.[1]) return null
+  try {
+    const parsed = JSON.parse(decodeURIComponent(match[1])) as {
+      memoryChars?: unknown
+      retrievalChars?: unknown
+      graphChars?: unknown
+      bodyChars?: unknown
+      otherChars?: unknown
+      maxCtx?: unknown
+    }
+    if (
+      typeof parsed?.memoryChars === "number"
+      && typeof parsed?.retrievalChars === "number"
+      && typeof parsed?.graphChars === "number"
+      && typeof parsed?.bodyChars === "number"
+      && typeof parsed?.otherChars === "number"
+      && typeof parsed?.maxCtx === "number"
+    ) {
+      return {
+        memoryChars: parsed.memoryChars,
+        retrievalChars: parsed.retrievalChars,
+        graphChars: parsed.graphChars,
+        bodyChars: parsed.bodyChars,
+        otherChars: parsed.otherChars,
+        maxCtx: parsed.maxCtx,
+      }
     }
     return null
   } catch {
@@ -113,6 +156,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
   const isAssistant = message.role === "assistant"
   const [hovered, setHovered] = useState(false)
   const managedDraftStatus = getManagedDeepChapterDraftStatus(message.content)
+  const contextUsage = getContextUsageFromMessage(message.content)
   const canOperateOnDraft = Boolean(novelMode && isLastAssistant && canOperateOnDeepChapterDraft(message))
   const canAcceptDraft = canOperateOnDraft && managedDraftStatus === "ready"
   const canRejectDraft = canOperateOnDraft && (managedDraftStatus === "ready" || managedDraftStatus === "pending")
@@ -166,6 +210,9 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
           )}
         </div>
         {isAssistant && !message.discarded && <CitedReferencesPanel content={message.content} savedReferences={message.references} />}
+        {isAssistant && !message.discarded && contextUsage && (
+          <ContextRing usage={contextUsage} />
+        )}
         {isAssistant && !message.discarded && (
           <div className="flex flex-col @sm:flex-row items-start @sm:items-center gap-1.5 @sm:flex-wrap">
             {canResumeUnfinished && (

@@ -62,32 +62,50 @@ describe("useGraphLayout", () => {
   })
 
   it("showInsights 变化 → isResizing 置真，100ms 后 sigmaKey+1 并回落", async () => {
-    const { result, rerender, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
-      initialProps: { show: false },
-    })
-    await flush(10)
-    rerender({ show: true })
-    await flush(10)
-    expect(result.current.isResizing).toBe(true)
-    await flush(150)
-    expect(result.current.sigmaKey).toBe(1)
-    expect(result.current.isResizing).toBe(false)
-    unmount()
+    // 只劫持 setTimeout：jsdom MutationObserver 内部依赖 setImmediate/微任务，
+    // 全量 fake 会延迟 observer 回调投递（负载下偶发 flake）。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const { result, rerender, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
+        initialProps: { show: false },
+      })
+      await act(async () => {})
+      rerender({ show: true })
+      await act(async () => {})
+      expect(result.current.isResizing).toBe(true)
+      await act(async () => {
+        vi.advanceTimersByTime(150)
+      })
+      expect(result.current.sigmaKey).toBe(1)
+      expect(result.current.isResizing).toBe(false)
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("selectedFile 变化同样触发 remount 计时", async () => {
-    const { result, rerender, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
-      initialProps: { show: false },
-    })
-    await flush(10)
-    mocks.state.selectedFile = "/p/wiki/甲.md"
-    rerender({ show: false })
-    await flush(10)
-    expect(result.current.isResizing).toBe(true)
-    await flush(150)
-    expect(result.current.sigmaKey).toBe(1)
-    expect(result.current.isResizing).toBe(false)
-    unmount()
+    // 只劫持 setTimeout：jsdom MutationObserver 内部依赖 setImmediate/微任务，
+    // 全量 fake 会延迟 observer 回调投递（负载下偶发 flake）。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const { result, rerender, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
+        initialProps: { show: false },
+      })
+      await act(async () => {})
+      mocks.state.selectedFile = "/p/wiki/甲.md"
+      rerender({ show: false })
+      await act(async () => {})
+      expect(result.current.isResizing).toBe(true)
+      await act(async () => {
+        vi.advanceTimersByTime(150)
+      })
+      expect(result.current.sigmaKey).toBe(1)
+      expect(result.current.isResizing).toBe(false)
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("拖拽开始：body 标记 true → dragging && !isResizing 置 isResizing=true", async () => {
@@ -105,27 +123,39 @@ describe("useGraphLayout", () => {
   })
 
   it("拖拽结束：body 移除标记 → 50ms 后 sigmaKey+1 并回落", async () => {
-    const { result, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
-      initialProps: { show: false },
-    })
-    await flush(10)
-    await act(async () => {
-      document.body.setAttribute("data-panel-resizing", "true")
-    })
-    await flush(10)
-    await act(async () => {
-      document.body.removeAttribute("data-panel-resizing")
-    })
-    await flush(10)
-    expect(result.current.isResizing).toBe(true)
-    await flush(80)
-    expect(result.current.sigmaKey).toBe(1)
-    expect(result.current.isResizing).toBe(false)
-    unmount()
+    // 只劫持 setTimeout：jsdom MutationObserver 内部依赖 setImmediate/微任务，
+    // 全量 fake 会延迟 observer 回调投递（负载下偶发 flake）。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const { result, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
+        initialProps: { show: false },
+      })
+      await act(async () => {})
+      await act(async () => {
+        document.body.setAttribute("data-panel-resizing", "true")
+      })
+      await act(async () => {
+        document.body.removeAttribute("data-panel-resizing")
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(10)
+      })
+      expect(result.current.isResizing).toBe(true)
+      await act(async () => {
+        vi.advanceTimersByTime(80)
+      })
+      expect(result.current.sigmaKey).toBe(1)
+      expect(result.current.isResizing).toBe(false)
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("拖拽中再次触发拖拽标记（dragging && isResizing）→ 两个 if 均走 false 分支", async () => {
-    vi.useFakeTimers()
+    // 只劫持 setTimeout：jsdom MutationObserver 内部依赖 setImmediate/微任务，
+    // 全量 fake 会延迟 observer 回调投递（负载下偶发 flake）。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     try {
       const { result, unmount } = renderHook(({ show }: { show: boolean }) => useGraphLayout(show), {
         initialProps: { show: false },

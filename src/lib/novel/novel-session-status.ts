@@ -63,6 +63,11 @@ export interface NovelDraftArtifact {
   rejected_at?: string
   formal_chapter_path?: string
   superseded_by?: string
+  /**
+   * Wave 5 (v2.5.0): 本次生成上下文用量快照（记忆/检索/图谱/正文/其他）。
+   * additive — 旧草稿/非 build 路径无此字段，读取方缺省降级不渲染。
+   */
+  context_usage?: import("@/lib/context-usage").ContextUsage
 }
 
 export interface NovelSessionStatus {
@@ -226,6 +231,8 @@ interface CompleteDeepChapterSessionInput extends DeepChapterSessionInput {
   checkpoint?: DeepChapterGenerationResumeCheckpoint
   finalContent: string
   reviewResults?: NovelReviewResult[]
+  /** Wave 5 (v2.5.0): 上下文用量快照透传（additive，缺省不落盘）。 */
+  contextUsage?: import("@/lib/context-usage").ContextUsage
 }
 
 interface PauseDeepChapterSessionInput extends DeepChapterSessionInput {
@@ -245,6 +252,8 @@ interface WriteDraftArtifactOptions {
   rejectedAt?: string
   formalChapterPath?: string
   decisionGates?: DeepChapterDecisionGates
+  /** Wave 5 (v2.5.0): 上下文用量快照（additive，缺省不落盘）。 */
+  contextUsage?: import("@/lib/context-usage").ContextUsage
 }
 
 type DraftDecisionMode = "accept" | "reject"
@@ -835,6 +844,7 @@ async function writeDraftArtifact(
     rejected_at: options.rejectedAt,
     formal_chapter_path: options.formalChapterPath,
     superseded_by: undefined,
+    context_usage: options.contextUsage,
   }
   await ensureNovelSessionDirs(input.projectPath)
   await writeVerifiedJson(
@@ -1081,6 +1091,7 @@ export async function completeDeepChapterSession(
     {
       finalContent: input.finalContent,
       decisionGates: input.checkpoint?.decisionGates ?? base.decision_gates,
+      contextUsage: input.contextUsage,
     },
   )
   const next = buildNextStatus(base, {

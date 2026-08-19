@@ -845,6 +845,80 @@ describe("ChatMessage 深度章节草稿操作", () => {
   })
 })
 
+describe("ChatMessage 上下文用量圆环（Wave 5）", () => {
+  const USAGE = {
+    memoryChars: 100,
+    retrievalChars: 5000,
+    graphChars: 2000,
+    bodyChars: 50000,
+    otherChars: 25000,
+    maxCtx: 100000,
+  }
+  const USAGE_MARKER = `正文内容\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify(USAGE))} -->`
+
+  beforeEach(() => {
+    resetMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("含 qmai-context-usage 标记 → 渲染 ContextRing 圆环", () => {
+    render(
+      <ChatMessage
+        message={createAssistantMessage(USAGE_MARKER)}
+        isLastAssistant
+        novelMode
+      />,
+    )
+    expect(screen.getByTestId("context-ring")).toBeTruthy()
+    const svg = screen.getByTestId("context-ring-svg")
+    expect(svg.querySelectorAll("circle[data-segment]")).toHaveLength(5)
+    expect(screen.getByText("记忆")).toBeTruthy()
+    expect(screen.getByText("检索")).toBeTruthy()
+    expect(screen.getByText("图谱")).toBeTruthy()
+    expect(screen.getByText("正文")).toBeTruthy()
+    expect(screen.getByText("其他")).toBeTruthy()
+  })
+
+  it("无标记 → 不渲染圆环；损坏标记 JSON → 不渲染（优雅降级）", () => {
+    render(<ChatMessage message={createAssistantMessage("普通回复")} isLastAssistant novelMode />)
+    expect(screen.queryByTestId("context-ring")).not.toBeInTheDocument()
+    cleanup()
+    render(
+      <ChatMessage
+        message={createAssistantMessage(`正文\n<!-- qmai-context-usage:not-json -->`)}
+        isLastAssistant
+        novelMode
+      />,
+    )
+    expect(screen.queryByTestId("context-ring")).not.toBeInTheDocument()
+  })
+
+  it("标记字段类型非法（非 number）→ 不渲染圆环", () => {
+    render(
+      <ChatMessage
+        message={createAssistantMessage(`正文\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify({ ...USAGE, memoryChars: "bad" }))} -->`)}
+        isLastAssistant
+        novelMode
+      />,
+    )
+    expect(screen.queryByTestId("context-ring")).not.toBeInTheDocument()
+  })
+
+  it("user 消息含标记 → 不渲染圆环（仅 assistant 展示）", () => {
+    render(
+      <ChatMessage
+        message={{ ...createAssistantMessage(USAGE_MARKER), role: "user" }}
+        isLastAssistant
+        novelMode
+      />,
+    )
+    expect(screen.queryByTestId("context-ring")).not.toBeInTheDocument()
+  })
+})
+
 describe("ChatMessage 引用面板", () => {
   const REFS = [
     { title: "实体A", path: "wiki/entities/a.md" },

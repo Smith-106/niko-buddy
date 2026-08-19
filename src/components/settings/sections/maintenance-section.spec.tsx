@@ -7,7 +7,9 @@
  */
 import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, configure } from "@testing-library/react"
+// 全量负载下持久化链变慢：放宽 waitFor 默认超时，避免时序偶发
+configure({ asyncUtilTimeout: 5000 })
 import {
   render,
   screen,

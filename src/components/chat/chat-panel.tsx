@@ -130,6 +130,20 @@ function replaceManagedDeepChapterDraftMarker(content: string, marker: {
   const withoutExisting = content.replace(/<!--\s*qmai-deep-chapter-draft:[\s\S]*?\s*-->/gi, "").trimEnd()
   return appendManagedDeepChapterDraftMarker(withoutExisting, marker)
 }
+
+// Wave 5 (v2.5.0): 上下文用量标记（与 draft 标记同款编码模式）。缺省 undefined
+// → 原样返回（空包降级/非 build 路径不渲染 ring）。
+function appendContextUsageMarker(
+  content: string,
+  usage: import("@/lib/context-usage").ContextUsage | undefined,
+): string {
+  if (!usage) return content
+  try {
+    return `${content}\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify(usage))} -->`
+  } catch {
+    return content
+  }
+}
 // ChatPanel can be mounted from multiple layout entry points. Share stream runtime
 // state across instances so stop/finalize always targets the active generation session.
 const sharedAbortControllersRef = { current: {} as Record<string, AbortController> }
@@ -1148,6 +1162,8 @@ export function ChatPanel() {
               checkpoint: latestCheckpoint,
               finalContent: generationResult.finalContent,
               reviewResults: generationResult.reviewResults,
+              // Wave 5 (v2.5.0): 上下文用量快照落盘（additive，缺省不落盘）。
+              contextUsage: generationResult.contextUsage,
             })
             sessionDebug.finalWrite = {
               status: completedState.status,
@@ -1158,15 +1174,18 @@ export function ChatPanel() {
           }
           streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
             finalizeStream(
-              appendManagedDeepChapterDraftMarker(accumulated, {
-                conversationId: capturedConvId,
-                sessionId: novelSessionId,
-                draftStatus: generationResult.manualReviewRequired
-                  ? "pending"
-                  : generationResult.partial
+              appendContextUsageMarker(
+                appendManagedDeepChapterDraftMarker(accumulated, {
+                  conversationId: capturedConvId,
+                  sessionId: novelSessionId,
+                  draftStatus: generationResult.manualReviewRequired
                     ? "pending"
-                    : "ready",
-              }),
+                    : generationResult.partial
+                      ? "pending"
+                      : "ready",
+                }),
+                generationResult.contextUsage,
+              ),
               [],
               capturedConvId,
             )
@@ -1994,6 +2013,8 @@ export function ChatPanel() {
             checkpoint: latestCheckpoint,
             finalContent: generationResult.finalContent,
             reviewResults: generationResult.reviewResults,
+            // Wave 5 (v2.5.0): 上下文用量快照落盘（additive，缺省不落盘）。
+            contextUsage: generationResult.contextUsage,
           })
           sessionDebug.finalWrite = {
             status: completedState.status,
@@ -2032,6 +2053,9 @@ export function ChatPanel() {
         "如果上方恢复上下文里没有正文草稿，就从正文生成阶段继续；如果已经有正文草稿，就继续审查、返修、简单审查、去AI味或补全正文。",
         "不要把“继续未完成”当作原始章节需求；原始章节需求必须以恢复上下文中的原始用户请求为准。",
       ].join("\n")
+      // Wave 5 (v2.5.0): continue-unfinished 路径无 generationResult，用量快照
+      // 从本路径自建的 contextPack 承接（additive，构建失败时 undefined 不渲染）。
+      let continueContextUsage: import("@/lib/context-usage").ContextUsage | undefined
 
       if (project && originalRequest?.trim()) {
         try {
@@ -2065,6 +2089,7 @@ export function ChatPanel() {
            }))
            const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
            const dismantlingDirective = await loadEnabledDismantlingDirective(pp).catch(() => "")
+           continueContextUsage = contextPack.contextUsage
            continuationSystemPrompt = [
              continuationSystemPrompt,
              "",
@@ -2125,13 +2150,16 @@ export function ChatPanel() {
 
       streamSessionGuardRef.current.finish(convId, sessionId, () => {
         finalizeStream(
-          appendManagedDeepChapterDraftMarker(
-            accumulated || "继续未完成失败：模型没有返回内容。",
-            {
-              conversationId: convId,
-              sessionId: novelSessionId,
-              draftStatus: "ready",
-            },
+          appendContextUsageMarker(
+            appendManagedDeepChapterDraftMarker(
+              accumulated || "继续未完成失败：模型没有返回内容。",
+              {
+                conversationId: convId,
+                sessionId: novelSessionId,
+                draftStatus: "ready",
+              },
+            ),
+            continueContextUsage,
           ),
           [],
           convId,

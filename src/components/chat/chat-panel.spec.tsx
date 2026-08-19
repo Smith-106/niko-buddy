@@ -727,6 +727,15 @@ function deepGenResult(over: Partial<DeepChapterGenerationResult> = {}): DeepCha
     retryCount: 0,
     partial: false,
     partialReason: null,
+    // Wave 5 (v2.5.0): 上下文用量快照（additive，缺省 undefined）
+    contextUsage: {
+      memoryChars: 80,
+      retrievalChars: 5120,
+      graphChars: 2048,
+      bodyChars: 51200,
+      otherChars: 25600,
+      maxCtx: 100000,
+    },
     ...over,
   }
 }
@@ -2406,6 +2415,39 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     const [content] = lastFinalize()
     expect(content).toContain("<!-- qmai-deep-chapter-draft:")
     expect(decodeURIComponent(content)).toContain('"draftStatus":"ready"')
+    // Wave 5: 上下文用量标记随 draft 标记同追 + completeDeepChapterSession 透传
+    expect(content).toContain("<!-- qmai-context-usage:")
+    expect(decodeURIComponent(content)).toContain('"memoryChars":80')
+    expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(
+      expect.objectContaining({ contextUsage: expect.objectContaining({ maxCtx: 100000 }) }),
+    )
+    setDeepMode(false)
+  })
+
+  it("深度生成无 contextUsage（空包降级）→ 不追加用量标记、不透传字段", async () => {
+    setupDeepBase()
+    mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ contextUsage: undefined }))
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    await sendText("深度写")
+    expect(lastFinalize()[0]).not.toContain("qmai-context-usage")
+    expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(
+      expect.objectContaining({ contextUsage: undefined }),
+    )
+    setDeepMode(false)
+  })
+
+  it("contextUsage 标记 JSON 序列化失败（BigInt 字段）→ 降级无用量标记", async () => {
+    setupDeepBase()
+    mocks.runDeepChapterGeneration.mockImplementation(async () =>
+      deepGenResult({ contextUsage: { memoryChars: 1n as any, retrievalChars: 0, graphChars: 0, bodyChars: 0, otherChars: 0, maxCtx: 100 } }),
+    )
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    await sendText("深度写")
+    expect(lastFinalize()[0]).not.toContain("qmai-context-usage")
     setDeepMode(false)
   })
 

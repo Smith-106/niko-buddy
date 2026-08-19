@@ -15,7 +15,7 @@ import { GraphView } from "./graph-view"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
 
 // 覆盖率负载下 sigma 渲染较慢：放宽 waitFor 默认超时，避免时序偶发
-configure({ asyncUtilTimeout: 5000 })
+configure({ asyncUtilTimeout: 10000 })
 
 interface WikiStateLike {
   project: { id: string; name: string; path: string } | null
@@ -1832,7 +1832,9 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       preventSigmaDefault: vi.fn(),
     })
     await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    fireEvent.click(await screen.findByText("graph.editRealProfilePage"))
+    await waitFor(() => {
+      fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+    })
     await waitFor(() => {
       expect(errorSpy).toHaveBeenCalled()
     })

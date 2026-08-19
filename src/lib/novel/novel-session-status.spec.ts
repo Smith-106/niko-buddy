@@ -312,6 +312,15 @@ describe("novel-session-status", () => {
       checkpoint,
       finalContent: "final chapter body",
       reviewResults,
+      // Wave 5 (v2.5.0): 上下文用量快照 additive 落盘
+      contextUsage: {
+        memoryChars: 100,
+        retrievalChars: 5000,
+        graphChars: 2000,
+        bodyChars: 50000,
+        otherChars: 25000,
+        maxCtx: 100000,
+      },
     })
 
     expect(status.status).toBe("completed")
@@ -323,10 +332,50 @@ describe("novel-session-status", () => {
     expect(draft.draft_status).toBe("ready")
     expect(draft.content).toBe("final chapter body")
     expect(draft.review_results).toEqual(reviewResults)
+    // context_usage additive round-trip
+    expect(draft.context_usage).toEqual({
+      memoryChars: 100,
+      retrievalChars: 5000,
+      graphChars: 2000,
+      bodyChars: 50000,
+      otherChars: 25000,
+      maxCtx: 100000,
+    })
 
     const savedStatus = readJson(statusPath)
     expect(savedStatus.status).toBe("completed")
     expect((savedStatus.current_task as Record<string, unknown>).status).toBe("completed")
+  })
+
+  it("缺省 contextUsage → 草稿不落 context_usage 字段（additive 降级）", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+    }
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+    const draft = readJson(draftPath)
+    expect(draft.context_usage).toBeUndefined()
   })
 
   it("accepts ready drafts and records the formal chapter path", async () => {

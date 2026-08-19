@@ -36,6 +36,10 @@ import { getAllDataSources } from "./context-data-sources"
 import { selectRelevantNovelVectorResults } from "./vector-relevance"
 import { reorderByEntityBoost } from "./entity-boost"
 import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
+// Wave 5 (v2.5.0): 上下文用量快照装配 — 预算线 + 记忆实测（user-memory 模块是
+// cached leaf，无环依赖；失败降级 null → memoryChars 0，不阻断 build）。
+import { buildContextUsage, type ContextUsage } from "@/lib/context-usage"
+import { loadUserMemoryForProject } from "@/lib/user-memory/session"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
@@ -307,6 +311,13 @@ export interface ContextPack {
    * additive 独立字段 — 消费方按需读取（与 relatedChapters 同款模式）。
    */
   references?: string
+  /**
+   * Wave 5 (v2.5.0): 上下文用量快照 — 记忆/检索/图谱/正文/其他 字符分配。
+   * 预算线直读 computeContextBudget 输出（不重算），记忆段实测 user-memory
+   * store preference 字符数。additive：仅 buildContextPack 主装配注入，
+   * legacy constructors / emptyPack / build 失败降级时 undefined（不渲染 ring）。
+   */
+  contextUsage?: ContextUsage
 }
 
 /**
@@ -600,6 +611,13 @@ async function buildContextPackUnlocked(
       // non-fatal — ROI 采集失败不阻塞主链装配
       logger.warn("ContextEngine", "routing ROI sample append failed (non-fatal)", { error: error instanceof Error ? error.message : String(error) })
     })
+    // Wave 5 (v2.5.0): 上下文用量快照 — 预算线直读 currentBuildBudget（本 build
+    // 已算，不重算），记忆段实测 user-memory preference 字符数。additive：加载
+    // 失败/无 store 时 memoryChars=0，仍冻结预算线（ring 照常渲染其余四段）。
+    const userMemoryStore = await loadUserMemoryForProject(pp).catch(() => null)
+    if (currentBuildBudget) {
+      pack.contextUsage = buildContextUsage(currentBuildBudget, userMemoryStore)
+    }
     return pack
   } finally {
     // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.

@@ -154,6 +154,15 @@ const contextPack: ContextPack = {
   mustAvoid: "不要提前揭露旧屋主人身份。",
   nextChapterAdvice: "结尾引出屋内第二个人影。",
   revisionDirectives: "",
+  // Wave 5 (v2.5.0): 上下文用量快照（装配自 buildContextPack 的 additive 字段）
+  contextUsage: {
+    memoryChars: 80,
+    retrievalChars: 5120,
+    graphChars: 2048,
+    bodyChars: 51200,
+    otherChars: 25600,
+    maxCtx: 100000,
+  },
 }
 
 function chapterText(prefix: string, count = 3000): string {
@@ -353,7 +362,7 @@ describe("runDeepChapterGeneration", () => {
       { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
-    )).resolves.toMatchObject({ finalContent: expect.any(String), partial: false, partialReason: null })
+    )).resolves.toMatchObject({ finalContent: expect.any(String), partial: false, partialReason: null, contextUsage: expect.objectContaining({ memoryChars: 80, maxCtx: 100000 }) })
 
     expect(thinking.join("\n")).toContain("近期剧情")
   })
