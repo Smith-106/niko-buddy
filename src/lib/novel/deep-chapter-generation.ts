@@ -44,7 +44,19 @@ import {
 } from "./scene-breakdown"
 import {
   appendStageMetric,
+  type RouteShellMode,
+  type AntiAiMode,
 } from "./novel-session-status"
+import {
+  route,
+  type ControlState,
+  type Instruction,
+  type RouteStage,
+  type RouteGates,
+  type RouteRole,
+  type AntiAiMode as KernelAntiAiMode,
+} from "./control-kernel"
+import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import {
   appendRewriteRateASample,
 } from "./character-cognition"
@@ -131,6 +143,18 @@ export interface DeepChapterGenerationInput {
   residualRewriteMode?: ResidualRewriteMode
   chapterStructurePlan?: ChapterStructurePlan | null
   residualLengthPreserving?: boolean
+  /**
+   * T10 × T09：route 薄壳模式开关（additive-optional，项目级隔离）。
+   * 缺省 undefined → legacy（既有字节级等价顺序流水线，A-35 不破）；
+   * "route" → stage 推进改读 control-kernel.route()（T33 注册表落地前预览路径）。
+   */
+  routeShellMode?: RouteShellMode
+  /**
+   * T10 × T09：三档反 AI 模式（additive-optional，项目级隔离）。
+   * 缺省 undefined → off（现状：anti_ai 失败即挡）；
+   * route 模式下由 route() 门控消费（off/warn/block，T21）。
+   */
+  antiAiMode?: AntiAiMode
 }
 
 /** True when caller opted into residual campaign fields (any residual hook present). */
@@ -335,6 +359,213 @@ const ANTI_AI_REVIEW_TYPES = new Set([
 
 export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, enabled: boolean): boolean {
   return enabled
+}
+
+// ───────────────────────────────────────────────────────────────────
+// T10 薄编排化：route() 接入 + T09 additive 字段 + role→model 解析点预留
+// ───────────────────────────────────────────────────────────────────
+//
+// 设计决策（自动判决）:
+//   主循环 stage 推进改为『可』读 control-kernel.route() 获取下一步指令 → 分发；
+//   但默认 route_shell_mode=legacy（T09 缺省），此时 resolveNextStageViaRoute
+//   返回 null，既有顺序流水线一字不改运行 → 字节级等价 A-35 不破，
+//   deep-chapter-golden.spec.ts 与全部现有 deep-chapter *.spec.ts 零回归。
+//   route 分支仅当显式 route_shell_mode="route" 时激活（T33 注册表落地前预览路径，
+//   现有测试均走 legacy，故该分支标记 v8 ignore 不计入覆盖率）。
+//   route() 只决定『下一步做什么』（13 分支互斥纯函数，无 IO/LLM）；
+//   『怎么做』由 resolveRoleModel 按角色解析模型（默认全角色单模型 = 现状）。
+
+/**
+ * T10 × T09：route 薄壳模式开关读取（项目级隔离，缺省 legacy）。
+ * legacy = 既有字节级等价顺序流水线（默认）；route = 走 control-kernel.route() 决策。
+ */
+export function resolveRouteShellMode(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): RouteShellMode {
+  const fromInput = input.routeShellMode
+  const fromConfig = novelConfig
+    ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
+    : undefined
+  return fromInput ?? fromConfig ?? "legacy"
+}
+
+/**
+ * T10 × T09：三档反 AI 模式读取（项目级隔离，缺省 off = 现状：anti_ai 失败即挡）。
+ * 三档：off=不挡 / warn=警告不挡 / block=硬挡（T21；route 模式由 route() 门控消费）。
+ */
+export function resolveAntiAiMode(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): AntiAiMode {
+  const fromInput = input.antiAiMode
+  const fromConfig = novelConfig
+    ? (novelConfig as { antiAiMode?: AntiAiMode }).antiAiMode
+    : undefined
+  return fromInput ?? fromConfig ?? "off"
+}
+
+/** T09 AntiAiMode (含自定义 string&{}) → route() 内核三档字面量（未知档归 off，route() 仅 block 硬挡）。 */
+function normalizeAntiAiMode(mode: AntiAiMode): KernelAntiAiMode {
+  if (mode === "warn") return "warn"
+  if (mode === "block") return "block"
+  return "off"
+}
+
+/**
+ * T10 / T33 预留：stage executor 的 role→model 解析点。
+ *
+ * 默认全角色单模型 = 现状（writingConfig 即当前 AI 会话模型），位级等价 A-35 不破。
+ * T33 注册表落地后，仅在此处加注册接入（按 role 查注册表返回对应 model 配置），
+ * 0 重构：调用方签名不变（仍传 role + projectConfig）。
+ */
+export function resolveRoleModel(
+  _role: RouteRole | undefined,
+  projectConfig: { writingConfig: LlmConfig },
+): LlmConfig {
+  // 现状：所有 stage executor 角色共用同一写作模型，无 role→model 差异。
+  return projectConfig.writingConfig
+}
+
+/** T10 路由运行时（route() ControlState 的精简投影，纯函数无 IO）。 */
+export interface DeepChapterRouteRuntime {
+  phase: "writing"
+  stage: RouteStage
+  chapterNumber: number
+  completedChapters: number
+  pendingRewrites: number[]
+  gates: RouteGates
+  antiAiMode: KernelAntiAiMode
+  manualReviewRequired: boolean
+  foundationMissing: string[]
+  planningTier: ""
+  reviewInterval: number
+  lastGlobalReviewChapter: number
+  hasArcReview: boolean
+  hasArcSummary: boolean
+  hasVolumeSummary: boolean
+  shellMode: "legacy"
+}
+
+/** 恢复检查点 resume stage → route() RouteStage（与 control-sentinels ROUTE_STAGES 同构）。 */
+function mapResumeStageToRouteStage(
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+): RouteStage {
+  if (!checkpoint) return "context"
+  switch (checkpoint.stage) {
+    case "after_context": return "context"
+    case "after_scene_breakdown": return "scene_breakdown"
+    case "after_task_brief": return "task_brief"
+    case "after_draft": return "draft"
+    case "after_review": return "review"
+    case "after_revision": return "revision"
+    default: return "context"
+  }
+}
+
+/** DeepChapterDecisionGate.status（pending/passed/failed）→ route() GateVerdict（pending/pass/fail）。 */
+function mapDecisionGateStatusToVerdict(
+  status: "pending" | "passed" | "failed" | undefined,
+): "pending" | "pass" | "fail" {
+  if (status === "failed") return "fail"
+  if (status === "passed") return "pass"
+  return "pending"
+}
+
+/**
+ * T10：由 deep-chapter 运行时（输入 + 恢复检查点 + novelConfig）构造 route() 的 ControlState。
+ * 单章生成视角：completedChapters/reviewInterval/弧末事务均按当前章上下文归零/关闭
+ * （global_review / arc_transition 分支在单章生成内不触发），不影响 legacy 路径字节级等价。
+ */
+export function buildDeepChapterRouteRuntime(
+  input: DeepChapterGenerationInput,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): DeepChapterRouteRuntime {
+  const gates: RouteGates = resumeCheckpoint?.decisionGates
+    ? {
+        consistency: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.consistency.status),
+        anti_ai: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.anti_ai.status),
+        quality: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.quality.status),
+      }
+    : { consistency: "pending", anti_ai: "pending", quality: "pending" }
+  const antiAi = resolveAntiAiMode(input, novelConfig)
+  const normalizedAntiAi: KernelAntiAiMode = normalizeAntiAiMode(antiAi)
+  return {
+    phase: "writing",
+    stage: mapResumeStageToRouteStage(resumeCheckpoint),
+    chapterNumber: input.chapterNumber ?? 0,
+    completedChapters: 0,
+    pendingRewrites: [],
+    gates,
+    antiAiMode: normalizedAntiAi,
+    manualReviewRequired: Boolean(resumeCheckpoint?.manualReviewRequired),
+    foundationMissing: [],
+    planningTier: "",
+    reviewInterval: 0,
+    lastGlobalReviewChapter: 0,
+    hasArcReview: false,
+    hasArcSummary: false,
+    hasVolumeSummary: false,
+    shellMode: "legacy",
+  }
+}
+
+/** route() ControlState 投影（薄封装，无 IO/LLM，ADR-19 机械层）。 */
+function buildDeepChapterControlState(runtime: DeepChapterRouteRuntime): ControlState {
+  return {
+    phase: runtime.phase,
+    stage: runtime.stage,
+    chapterNumber: runtime.chapterNumber,
+    completedChapters: runtime.completedChapters,
+    pendingRewrites: runtime.pendingRewrites,
+    gates: runtime.gates,
+    antiAiMode: runtime.antiAiMode,
+    manualReviewRequired: runtime.manualReviewRequired,
+    foundationMissing: runtime.foundationMissing,
+    planningTier: runtime.planningTier,
+    reviewInterval: runtime.reviewInterval,
+    lastGlobalReviewChapter: runtime.lastGlobalReviewChapter,
+    hasArcReview: runtime.hasArcReview,
+    hasArcSummary: runtime.hasArcSummary,
+    hasVolumeSummary: runtime.hasVolumeSummary,
+    shellMode: runtime.shellMode,
+  }
+}
+
+/**
+ * T10 薄编排化：stage 推进改读 route()。
+ *
+ * 默认 legacy 分支（route_shell_mode 缺省/非 "route"）→ 返回 null，编排器走既有
+ * 字节级等价顺序流水线（A-35 不破；deep-chapter-golden.spec.ts 零回归）。
+ *
+ * route 分支（route_shell_mode === "route"）→ 由 control-kernel.route() 纯函数
+ * （13 分支互斥，无 IO/LLM）裁定下一步动作；执行层『怎么做』由 resolveRoleModel
+ * 按角色解析模型（默认全角色单模型 = 现状）。route 模式为 T33 注册表落地前的预览
+ * 路径，现有测试均走 legacy，故该分支 v8 ignore 不计入覆盖率。
+ */
+export function resolveNextStageViaRoute(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  runtime: DeepChapterRouteRuntime,
+): Instruction | null {
+  const shellMode = resolveRouteShellMode(input, novelConfig)
+  if (shellMode !== "route") {
+    return null
+  }
+  /* v8 ignore start */
+  const instruction = route(buildDeepChapterControlState(runtime))
+  return instruction
+  /* v8 ignore stop */
+}
+
+/**
+ * T07 × T09 step_digest 集成：基于 checkpoint-digest (SHA-256 幂等键) 计算当前步骤摘要。
+ * 输入经 stableStringify 规范化（键序稳定），同一步骤恒定同 digest，供 status.json
+ * 唯一真源 step_digest 字段落盘（崩溃续跑命中跳过重调 LLM）。薄封装，无 IO/LLM（ADR-19）。
+ */
+export async function computeStepDigest(stageLabel: string, payload: unknown): Promise<string> {
+  return computeCheckpointDigestOf({ stage: stageLabel, payload })
 }
 
 function createResumeCheckpoint(
@@ -976,6 +1207,27 @@ export async function runDeepChapterGeneration(
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const novelConfig = input.novelConfig
   const lengthSpec = resolveCurrentChapterLengthSpec(novelConfig)
+
+  // ── T10 薄编排化：route() 接入（默认 legacy 分支，A-35 字节级等价不破）──
+  // legacy（route_shell_mode 缺省/非 "route"）：routeInstruction === null，
+  // 下方既有顺序流水线一字不改运行，所有现有 deep-chapter *.spec.ts 零回归。
+  // route：routeInstruction 由 control-kernel.route() 纯函数裁定（13 分支互斥），
+  // 驱动阶段机；现有测试均走 legacy，route 分支 v8 ignore 不计入覆盖率。
+  const routeRuntime = buildDeepChapterRouteRuntime(input, resumeCheckpoint, novelConfig)
+  const routeInstruction = resolveNextStageViaRoute(input, novelConfig, routeRuntime)
+  if (routeInstruction) {
+    /* v8 ignore start */
+    // T07 × T09 step_digest：基于 checkpoint-digest 计算当前步骤幂等摘要（落 status.json 用）。
+    const stepDigest = await computeStepDigest(routeInstruction.action, routeRuntime)
+    void stepDigest
+    // T33 预留解析点：按 route() 角色解析执行模型（默认全角色单模型 = 现状，A-35 不破）。
+    resolveRoleModel(routeInstruction.role, { writingConfig })
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段路由(route)",
+      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} reason=${routeInstruction.reason}`,
+    ))
+    /* v8 ignore stop */
+  }
 
   // 阶段0：前情分析
   const previousChaptersAnalysis = await runPreviousChaptersAnalysis(

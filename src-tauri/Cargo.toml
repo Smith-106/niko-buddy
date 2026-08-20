@@ -36,6 +36,10 @@ docx-rs = "0.4.20"
 cfb = "0.7.3"
 encoding_rs = "0.8.35"
 lancedb = "0.27.2"
+# petgraph (T12, blueprint §10 line 441): read-side in-memory graph
+# traversal over temporally/cognitively filtered edge sets (BFS depth=3 /
+# connected components / topo sort). Storage semantics unchanged.
+petgraph = "0.8"
 # tokio provided by tauri runtime for async commands
 arrow-array = "57"
 arrow-schema = "57"
@@ -68,6 +72,10 @@ windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_Window
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+# proptest (T11): property-based tests for canon temporal invariants /
+# migration-chain idempotency / ingest_digest dedup. dev-dep only —
+# never enters the release binary (consistent with blueprint §9.4).
+proptest = "1"
 
 [profile.release]
 codegen-units = 1

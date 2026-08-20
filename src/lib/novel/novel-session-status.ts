@@ -1,6 +1,7 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { pad, toErrorMessage } from "@/lib/utils"
+import { z } from "zod"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -149,7 +150,41 @@ export interface NovelSessionStatus {
    * 旧 status.json 无本字段仍可加载 (additive 兼容)。
    */
   de_ai_batch?: import("./de-ai-batch/types").DeAiBatchState
+  /**
+   * T09 (additive-optional, 三开关项目级隔离): 以下 4 字段承载项目级开关与
+   * 步骤摘要, 落 status.json 唯一真源（HARD-1）, 不另建第二份会话状态文件,
+   * 永不经 @tauri-apps/plugin-store 路由（store 禁用注记, 见 STATUS_FILE 常量）。
+   *
+   * 项目级隔离: 每个项目各自 .novel/status.json 持有独立开关值（按 projectId /
+   * projectPath 天然隔离, 无跨项目共享全局态）。同一进程内多项目并行时, 开关值
+   * 只从各自 status.json 读取, 互不串扰。
+   *
+   * 三开关（route_shell_mode / canon_migration / anti_ai_mode）缺省 undefined
+   * （未显式设置 → 走各调用点默认回退; 如 route 默认 legacy / canon 默认
+   * legacy 一键回退 / anti_ai 默认 off）, 不污染旧 status.json（additive 兼容）。
+   *
+   * 增强注记（P1-7 投影审计扩展, 2026-08-19, 32 仓库报告, 仅评估不承诺实现）:
+   * status.json 唯一真源可加 projection_log 审计派生视图同步状态（事实源→派生
+   * 只读视图五路投影+投影审计模式对照）; 本任务仅标记扩展点, 不实现。
+   */
+  /** 当前步骤摘要（短哈希/文本）, additive-optional, 缺省 undefined。 */
+  step_digest?: string
+  /** route() 薄壳模式开关: legacy(默认) / route / 自定义。项目级隔离。 */
+  route_shell_mode?: RouteShellMode
+  /** canon 迁移开关: legacy(默认, 一键回退) / dual / shadow / 自定义。项目级隔离。 */
+  canon_migration?: CanonMigrationMode
+  /** anti_ai 三档开关: off(默认) / warn / block / 自定义。项目级隔离。 */
+  anti_ai_mode?: AntiAiMode
 }
+
+/**
+ * T09 项目级开关类型（additive）。各开关落 status.json 唯一真源, 按 projectId
+ * 项目级隔离（每项目各自持有, 无跨项目共享全局态）。字面量为蓝图当前约定档位,
+ * `(string & {})` 保留自定义扩展位（不承诺实现, 仅类型护栏）。
+ */
+export type RouteShellMode = "legacy" | "route" | (string & {})
+export type CanonMigrationMode = "legacy" | "dual" | "shadow" | (string & {})
+export type AntiAiMode = "off" | "warn" | "block" | (string & {})
 
 /**
  * EPIC-002 / ADR-30 / TASK-013: 阶段指标溯源条目（status.json additive
@@ -258,6 +293,13 @@ interface WriteDraftArtifactOptions {
 
 type DraftDecisionMode = "accept" | "reject"
 
+/**
+ * STORE 禁用注记（T09 / ADR-16）: status.json 是运行时唯一真源, 永远经
+ * `writeFileAtomic` (Rust fs 后端) 直接原子写入 .novel/status.json; 绝不经过
+ * `@tauri-apps/plugin-store` 路由（plugin-store 仅用于非真源类 UI 偏好, 不在
+ * 会话状态真源链路上）。任何读写本项目状态都必须走 novelSessionStatusPath +
+ * load/save 函数, 不得改接 plugin-store。
+ */
 const NOVEL_DIR = ".novel"
 const DRAFTS_DIR = "drafts"
 const STATUS_FILE = "status.json"
@@ -631,6 +673,10 @@ export function buildNextStatus(
     review_job?: NovelSessionStatus["review_job"]
     chase_debt?: NovelSessionStatus["chase_debt"]
     de_ai_batch?: NovelSessionStatus["de_ai_batch"]
+    step_digest?: NovelSessionStatus["step_digest"]
+    route_shell_mode?: NovelSessionStatus["route_shell_mode"]
+    canon_migration?: NovelSessionStatus["canon_migration"]
+    anti_ai_mode?: NovelSessionStatus["anti_ai_mode"]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -668,6 +714,18 @@ export function buildNextStatus(
   const deAiBatch = "de_ai_batch" in overrides
     ? overrides.de_ai_batch
     : base.de_ai_batch
+  const stepDigest = "step_digest" in overrides
+    ? overrides.step_digest
+    : base.step_digest
+  const routeShellMode = "route_shell_mode" in overrides
+    ? overrides.route_shell_mode
+    : base.route_shell_mode
+  const canonMigration = "canon_migration" in overrides
+    ? overrides.canon_migration
+    : base.canon_migration
+  const antiAiMode = "anti_ai_mode" in overrides
+    ? overrides.anti_ai_mode
+    : base.anti_ai_mode
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -688,6 +746,10 @@ export function buildNextStatus(
     review_job: reviewJob,
     chase_debt: chaseDebt,
     de_ai_batch: deAiBatch,
+    step_digest: stepDigest,
+    route_shell_mode: routeShellMode,
+    canon_migration: canonMigration,
+    anti_ai_mode: antiAiMode,
   }
 }
 
@@ -924,6 +986,90 @@ export async function requireManagedDeepChapterDraft(
   return draft
 }
 
+/**
+ * T09: zod passthrough 加载边界护栏的 schema。
+ *
+ * 与现有 CORR-008 / PAT-G2 手动校验等价的核心字段 + 4 个 additive 项目级开关;
+ * `.passthrough()` 保留未知键（未来 additive 字段 / 派生键不丢）。TS 类型唯一源
+ * 仍是文件顶部 `NovelSessionStatus` interface; 本 schema 仅作运行时校验护栏,
+ * 不另立类型真源。
+ */
+const SESSION_STATUS_ENUM = ["running", "completed", "paused", "blocked"] as const
+const DRAFT_STATUS_ENUM = ["pending", "ready", "accepted", "rejected", "superseded"] as const
+
+const novelSessionStatusLoadSchema = z
+  .object({
+    schema_version: z.literal("1"),
+    session_id: z.string(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    status: z.enum(SESSION_STATUS_ENUM),
+    active_step_index: z.number().nullable(),
+    current_task: z
+      .object({
+        conversation_id: z.string(),
+        user_request: z.string(),
+        status: z.enum(SESSION_STATUS_ENUM),
+      })
+      .passthrough(),
+    draft: z
+      .object({
+        draft_id: z.string(),
+        file_path: z.string(),
+        draft_status: z.enum(DRAFT_STATUS_ENUM),
+      })
+      .passthrough(),
+    // 4 additive 项目级开关（与 NovelSessionStatus interface 字段一一对应;
+    // 缺省 optional → 回填为 undefined, 不污染旧 status.json）。
+    step_digest: z.string().optional(),
+    route_shell_mode: z
+      .union([z.literal("legacy"), z.literal("route"), z.string()])
+      .optional(),
+    canon_migration: z
+      .union([z.literal("legacy"), z.literal("dual"), z.literal("shadow"), z.string()])
+      .optional(),
+    anti_ai_mode: z
+      .union([z.literal("off"), z.literal("warn"), z.literal("block"), z.string()])
+      .optional(),
+  })
+  .passthrough()
+
+/**
+ * T09: zod passthrough 加载边界护栏（validateAndBackfill）。
+ *
+ * 职责: 对 loadNovelSessionStatus 解析出的 JSON 对象做「校验 + 默认值回填 +
+ * 保留未知键」三件事, 作为 status.json 唯一真源的加载边界（HARD-1 守恒）:
+ *  - 校验: 核心字段（schema_version/session_id/枚举等）, 与现有 CORR-008 / PAT-G2
+ *    手动校验等价 —— 不放松, 也不收窄到手动校验之外。
+ *  - 默认值回填: 4 个 additive 项目级开关（step_digest / route_shell_mode /
+ *    canon_migration / anti_ai_mode）缺省回填为 undefined（未设置 → 走各调用点
+ *    默认回退, 不污染旧 status.json）。
+ *  - 保留未知键: `.passthrough()` 保留未来 additive 字段与派生键, 不丢字段。
+ *
+ * TS 类型唯一源: 返回的仍是 `NovelSessionStatus`（由文件顶部 interface 定义）;
+ * zod schema 仅作运行时校验护栏, 不另立类型真源。
+ *
+ * 写路径不动（ADR-16）: 本函数只读校验, 不参与任何 status.json 写入。
+ *
+ * @returns 校验通过返回回填后的 NovelSessionStatus; 失败返回 null（与手动校验
+ *          一致降级为「文件不可信 → null」）。
+ */
+export function validateAndBackfillNovelSessionStatus(raw: unknown): NovelSessionStatus | null {
+  const parsed = novelSessionStatusLoadSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const data = parsed.data as Record<string, unknown>
+  return {
+    ...data,
+    step_digest: data.step_digest as string | undefined,
+    route_shell_mode: data.route_shell_mode as RouteShellMode | undefined,
+    canon_migration: data.canon_migration as CanonMigrationMode | undefined,
+    anti_ai_mode: data.anti_ai_mode as AntiAiMode | undefined,
+    decision_gates: cloneDecisionGates(
+      data.decision_gates as Partial<DeepChapterDecisionGates> | undefined,
+    ),
+  } as NovelSessionStatus
+}
+
 export async function loadNovelSessionStatus(projectPath: string): Promise<NovelSessionStatus | null> {
   try {
     const raw = await readFile(novelSessionStatusPath(projectPath))
@@ -954,10 +1100,10 @@ export async function loadNovelSessionStatus(projectPath: string): Promise<Novel
     ) {
       return null
     }
-    return {
-      ...(parsed as NovelSessionStatus),
-      decision_gates: cloneDecisionGates(parsed.decision_gates),
-    }
+    // T09: zod passthrough 加载边界护栏（校验+默认值回填+保留未知键）。
+    // 上方 CORR-008 / PAT-G2 手动枚举/必填校验已通过; 此处再经 zod 护栏回填
+    // 4 个 additive 项目级开关默认值（undefined）并保留未知键（.passthrough）。
+    return validateAndBackfillNovelSessionStatus(parsed)
   } catch {
     return null
   }
