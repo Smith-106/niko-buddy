@@ -14,7 +14,7 @@
  *       sits below the scaled value, so the budget is unchanged by the floor.
  */
 import { describe, expect, it } from "vitest"
-import { computeContextBudget } from "./context-budget"
+import { computeContextBudget, selectContextStrategy } from "./context-budget"
 
 describe("TASK-007 PERF-011 adaptive scaling on the read path", () => {
   it("(a) chapter 500 returns smaller indexBudget + pageBudget than chapter 5", () => {
@@ -107,5 +107,66 @@ describe("TASK-004 active entities budget (compressible-with-floor)", () => {
     const withField = computeContextBudget(204_800, 5)
     expect(withField.indexBudget).toBe(Math.floor(204_800 * 0.05))
     expect(withField.pageBudget).toBe(Math.floor(204_800 * 0.5))
+  })
+})
+
+describe("F-008 ContextStrategy 三态策略枚举", () => {
+  it("≤50 返回 full（默认 threshold）", () => {
+    expect(selectContextStrategy(1)).toBe("full")
+    expect(selectContextStrategy(25)).toBe("full")
+    expect(selectContextStrategy(50)).toBe("full")
+  })
+
+  it("50-200 返回 sliding", () => {
+    expect(selectContextStrategy(51)).toBe("sliding")
+    expect(selectContextStrategy(100)).toBe("sliding")
+    expect(selectContextStrategy(200)).toBe("sliding")
+  })
+
+  it(">200 返回 summary", () => {
+    expect(selectContextStrategy(201)).toBe("summary")
+    expect(selectContextStrategy(500)).toBe("summary")
+    expect(selectContextStrategy(1000)).toBe("summary")
+  })
+
+  it("undefined/≤0 返回 full", () => {
+    expect(selectContextStrategy(undefined)).toBe("full")
+    expect(selectContextStrategy(0)).toBe("full")
+    expect(selectContextStrategy(-1)).toBe("full")
+  })
+
+  it("自定义阈值覆盖", () => {
+    expect(selectContextStrategy(30, { fullThreshold: 20, summaryThreshold: 100 })).toBe("sliding")
+    expect(selectContextStrategy(30, { fullThreshold: 40 })).toBe("full")
+    expect(selectContextStrategy(150, { summaryThreshold: 100 })).toBe("summary")
+  })
+
+  it("边界 50 与 200（默认阈值）", () => {
+    // 边界 50: ≤50 为 full
+    expect(selectContextStrategy(50)).toBe("full")
+    expect(selectContextStrategy(51)).toBe("sliding")
+    // 边界 200: ≤200 为 sliding
+    expect(selectContextStrategy(200)).toBe("sliding")
+    expect(selectContextStrategy(201)).toBe("summary")
+  })
+
+  it("computeContextBudget 返回 strategy 字段", () => {
+    const full = computeContextBudget(204_800, 5)
+    expect(full.strategy).toBe("full")
+    const sliding = computeContextBudget(204_800, 100)
+    expect(sliding.strategy).toBe("sliding")
+    const summary = computeContextBudget(204_800, 500)
+    expect(summary.strategy).toBe("summary")
+  })
+
+  it("strategy 不替换现有 budget 曲线（adaptiveScale 预算不变）", () => {
+    // 保证 strategy 是 additive 上层选择器，不改变 budget 计算
+    const ch5 = computeContextBudget(204_800, 5)
+    const ch500 = computeContextBudget(204_800, 500)
+    expect(ch500.indexBudget).toBeLessThan(ch5.indexBudget)
+    expect(ch500.pageBudget).toBeLessThan(ch5.pageBudget)
+    // strategy 反映不同态
+    expect(ch5.strategy).toBe("full")
+    expect(ch500.strategy).toBe("summary")
   })
 })

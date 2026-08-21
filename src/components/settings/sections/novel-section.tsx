@@ -625,6 +625,77 @@ export function NovelSection({ draft, setDraft }: Props) {
           </div>
         </div>
       </div>
+
+      {/* F-011: Voice Preservation 第一层 — spelling convention 全局拼写约定 */}
+      <div className="space-y-2">
+        <Label>
+          {t("settings.sections.novel.spellingConvention.title", {
+            defaultValue: "拼写约定（Voice Preservation）",
+          })}
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.novel.spellingConvention.description", {
+            defaultValue: "全局拼写约定，作为 Voice Preservation 三层映射的第一层。",
+          })}
+        </p>
+        <div className="grid gap-4 rounded-lg border p-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>
+                {t("settings.sections.novel.spellingConvention.dialoguePunctuationStyle", {
+                  defaultValue: "对话标点风格",
+                })}
+              </Label>
+              {settingTooltip("spellingConventionDialoguePunctuationStyleHint")}
+            </div>
+            <Input
+              value={draft.novelConfig.dialoguePunctuationStyle}
+              onChange={(e) => updateNovelConfig({ dialoguePunctuationStyle: e.target.value })}
+              placeholder={t("settings.sections.novel.spellingConvention.dialoguePunctuationPlaceholder", {
+                defaultValue: "例如：使用中文引号「」、对话后不加破折号",
+              })}
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>
+                {t("settings.sections.novel.spellingConvention.paragraphIndent", {
+                  defaultValue: "段落缩进",
+                })}
+              </Label>
+              {settingTooltip("spellingConventionParagraphIndentHint")}
+            </div>
+            <Input
+              value={draft.novelConfig.paragraphIndent}
+              onChange={(e) => updateNovelConfig({ paragraphIndent: e.target.value })}
+              placeholder={t("settings.sections.novel.spellingConvention.paragraphIndentPlaceholder", {
+                defaultValue: "例如：每段首行缩进两字符",
+              })}
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>
+                {t("settings.sections.novel.spellingConvention.quoteConvention", {
+                  defaultValue: "引号规范",
+                })}
+              </Label>
+              {settingTooltip("spellingConventionQuoteConventionHint")}
+            </div>
+            <Input
+              value={draft.novelConfig.quoteConvention}
+              onChange={(e) => updateNovelConfig({ quoteConvention: e.target.value })}
+              placeholder={t("settings.sections.novel.spellingConvention.quoteConventionPlaceholder", {
+                defaultValue: "例如：对话用双引号，引用用单引号",
+              })}
+              className="w-full"
+            />
+          </div>
+        </div>
+      </div>
+
       <WritingPreferenceSection />
       </div>
     </TooltipProvider>

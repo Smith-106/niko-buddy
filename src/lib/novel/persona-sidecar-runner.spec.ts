@@ -40,6 +40,7 @@ vi.mock("@/lib/llm-client", () => ({
 
 import {
   isDraftEligibleForPersona,
+  personaSidecarDir,
   personaSidecarPath,
   runPersonaCritique,
   type PersonaId,
@@ -361,11 +362,22 @@ describe("EPIC-005 / ADR-34 persona-sidecar-runner", () => {
 })
 
 describe("ADR-34 firewall: main chain does not import persona-sidecar-runner", () => {
+  // All main-chain modules that MUST NOT import the sidecar runner.
+  // ADR-34: dependency graph is one-way (sidecar reads main chain, main chain never reads sidecar).
   const roots = [
     "deep-chapter-generation.ts",
     "review-adapter.ts",
     "dimension-review-adapter.ts",
     "de-ai-adapter.ts",
+    "context-engine.ts",
+    "chapter-ingest.ts",
+    "task-router.ts",
+    "start-review-run.ts",
+    "start-six-dimension-review-run.ts",
+    "lint.ts",
+    "fact-snapshot.ts",
+    "rebuild.ts",
+    "export.ts",
   ]
 
   for (const file of roots) {
@@ -375,4 +387,59 @@ describe("ADR-34 firewall: main chain does not import persona-sidecar-runner", (
       expect(src).not.toMatch(/persona-sidecar-runner/)
     })
   }
+
+  it("mod.ts does not export persona-sidecar-runner", () => {
+    const abs = resolve(__dirname, "mod.ts")
+    const src = readFileSync(abs, "utf8")
+    expect(src).not.toMatch(/persona-sidecar-runner/)
+    expect(src).not.toMatch(/persona-critique/)
+  })
+
+  it("sidecar write path never contains status.json or decision_gates", () => {
+    const dir = personaSidecarDir("/test")
+    const path = personaSidecarPath("/test", "critic")
+    expect(dir).toContain(".novel/sidecars/personas")
+    expect(path).toContain(".novel/sidecars/personas")
+    expect(dir).not.toMatch(/status\.json|decision_gate/)
+    expect(path).not.toMatch(/status\.json|decision_gate/)
+  })
+
+  it("isDraftEligibleForPersona covers all known statuses", () => {
+    // Eligible: ready, accepted
+    expect(isDraftEligibleForPersona(draft({ draft_status: "ready", content: "x" }))).toBe(true)
+    expect(isDraftEligibleForPersona(draft({ draft_status: "accepted", content: "x" }))).toBe(true)
+    // Not eligible: pending, rejected, and any unknown status
+    expect(isDraftEligibleForPersona(draft({ draft_status: "pending", content: "x" }))).toBe(false)
+    expect(isDraftEligibleForPersona(draft({ draft_status: "rejected", content: "x" }))).toBe(false)
+    expect(isDraftEligibleForPersona(draft({ draft_status: "unknown" as unknown as "ready", content: "x" }))).toBe(false)
+    expect(isDraftEligibleForPersona(null)).toBe(false)
+  })
+
+  it("runPersonaCritique payload has authority=advisory never writes decision_gates", async () => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.createDirectory.mockClear()
+
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(draft({ draft_status: "ready", content: "正文" })))
+    const res = await runPersonaCritique({
+      projectPath: "/P",
+      draftId: "conv-1",
+      personaIds: ["critic"],
+      llmConfig: { provider: "openai", model: "m", apiKey: "k", baseUrl: "http://x" } as never,
+      llmCall: async (_c, _m, cb) => {
+        cb.onToken('{"summary":"ok","findings":["f1"]}')
+        cb.onDone()
+      },
+    })
+    expect(res.ok).toBe(true)
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const call = fsMocks.writeFileAtomic.mock.calls[0] as [string, string]
+    const payload = JSON.parse(call[1])
+    expect(payload.authority).toBe("advisory")
+    expect(payload).not.toHaveProperty("decision_gates")
+    expect(payload).not.toHaveProperty("override")
+    expect(payload).not.toHaveProperty("reasonCode")
+    expect(call[0]).not.toContain("status.json")
+    expect(call[0]).not.toContain("decision_gates")
+  })
 })

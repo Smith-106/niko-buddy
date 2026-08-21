@@ -3783,3 +3783,78 @@ describe("coverage-100-f7: runFullReviewWithSixDim cascade-cancel on reviewChapt
     expect(runSixDim.mock.calls[0][0]).toHaveProperty("signal")
   })
 })
+
+describe("F-003 retryCountCircuitBreaker 三分支 (双轨并存)", () => {
+  it("retryCount < MAX_GATE_RETRY (3) 时 retryCountCircuitBreakerTripped 为 false (不触发)", async () => {
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "character_consistency",
+      message: "主角知道了不该知道的信息。",
+      evidence: "证据",
+      relatedMemory: "",
+      suggestion: "修正。",
+    }
+    // 1 次 blocking 后修复 → 不会触发 retryCount >= 3
+    const deps = createDeps([[blockingIssue], []])
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.retryCount).toBeLessThan(3)
+    expect(result.manualReviewRequired).toBe(false)
+    expect(result.decisionGates.overall).not.toBe("manual_review")
+  })
+
+  it("retryCount >= MAX_GATE_RETRY (3) 时 retryCountCircuitBreaker 触发 SUSPEND (manualReviewRequired)", async () => {
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "character_consistency",
+      message: "主角知道了不该知道的信息。",
+      evidence: "证据",
+      relatedMemory: "",
+      suggestion: "修正。",
+    }
+    const deps = createDeps([
+      [blockingIssue],
+      [blockingIssue],
+      [blockingIssue],
+      [blockingIssue],
+    ])
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.manualReviewRequired).toBe(true)
+    expect(result.retryCount).toBe(3)
+    expect(result.decisionGates.overall).toBe("manual_review")
+  })
+
+  it("emotion CB + retryCountCB 双轨同时触发时仍走 manualHandoff (双轨并存不改 manualHandoff)", async () => {
+    // retryCount=3 时 retryCountCB 触发, 同时 emotion CB 在 retryCount>0 时也可能触发。
+    // 任一路径生效都走 manualHandoff。
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "character_consistency",
+      message: "主角知道了不该知道的信息。",
+      evidence: "证据",
+      relatedMemory: "",
+      suggestion: "修正。",
+    }
+    const deps = createDeps([
+      [blockingIssue],
+      [blockingIssue],
+      [blockingIssue],
+      [blockingIssue],
+    ])
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.manualReviewRequired).toBe(true)
+    expect(result.retryCount).toBe(3)
+    expect(result.decisionGates.overall).toBe("manual_review")
+  })
+})

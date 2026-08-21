@@ -31,6 +31,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use arrow_array::{
     Array, BooleanArray, Int32Array, RecordBatch, StringArray,
@@ -39,7 +41,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
 use lancedb::connect;
 use lancedb::query::{ExecutableQuery, QueryBase};
-use lancedb::table::NewColumnTransform;
+use lancedb::table::{CompactionOptions, NewColumnTransform, OptimizeAction};
 use lancedb::Table;
 
 use crate::types::canon_types::{
@@ -439,10 +441,45 @@ impl CanonState {
 const META_KEY_SCHEMA: &str = "schema_version";
 const META_KEY_LANCE_PRE: &str = "lance_pre_migrate";
 
+/// 默认 compaction 触发阈值：N 批 ingest 操作后触发。
+const DEFAULT_COMPACTION_THRESHOLD: u64 = 100;
+/// 默认保留的 manifest 版本数（prune 时保留最新 K 个）。
+const DEFAULT_RETAIN_VERSIONS: u64 = 5;
+
+/// 磁盘占用指标（各表 + 合计）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiskUsage {
+    pub entities_bytes: u64,
+    pub edges_bytes: u64,
+    pub episodes_bytes: u64,
+    pub meta_bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// Compaction 执行报告。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CompactionReport {
+    pub fragments_removed: usize,
+    pub fragments_added: usize,
+    pub files_removed: usize,
+    pub files_added: usize,
+    pub bytes_removed: u64,
+    pub old_versions_removed: u64,
+    pub tables_compacted: Vec<String>,
+}
+
 /// LanceDB 支持的 canon 存储。每项目一库（`<project>/.qmai/lancedb`）。
 pub struct CanonStore {
     db: lancedb::Connection,
     manifest: SchemaManifest,
+    /// ingest 操作计数器（upsert_entity / upsert_edge / ingest_episode 累加）。
+    ingest_count: AtomicU64,
+    /// 自动 compaction 阈值（N 批 ingest 后触发）。
+    compaction_threshold: AtomicU64,
+    /// prune 时保留的 manifest 版本数。
+    retain_versions: u64,
+    /// 项目路径（磁盘指标用）。
+    project_path: String,
 }
 
 impl CanonStore {
@@ -475,7 +512,14 @@ impl CanonStore {
             m
         };
 
-        Ok(Self { db, manifest })
+        Ok(Self {
+            db,
+            manifest,
+            ingest_count: AtomicU64::new(0),
+            compaction_threshold: AtomicU64::new(DEFAULT_COMPACTION_THRESHOLD),
+            retain_versions: DEFAULT_RETAIN_VERSIONS,
+            project_path: project_path.to_string(),
+        })
     }
 
     // ── manifest 持久化 ──
@@ -609,6 +653,7 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("entities add: {x}"))?;
+        self.ingest_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -629,6 +674,7 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("edges add: {x}"))?;
+        self.ingest_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -755,6 +801,7 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("episodes add: {x}"))?;
+        self.ingest_count.fetch_add(1, Ordering::Relaxed);
         Ok(true)
     }
 
@@ -870,6 +917,188 @@ impl CanonStore {
         Self::save_lance_pre_migrate(&self.db, &HashMap::new()).await?;
         Ok(())
     }
+
+    // ── compaction + 版本保留 + 磁盘指标 ──
+
+    /// 设置 compaction 阈值（N 批 ingest 后触发）。
+    pub fn set_compaction_threshold(&self, n: u64) {
+        self.compaction_threshold.store(n, Ordering::Relaxed);
+    }
+
+    /// 设置保留版本数（prune 保留最新 K 个）。
+    pub fn set_retain_versions(&mut self, n: u64) {
+        self.retain_versions = n;
+    }
+
+    /// 检查阈值并触发 compaction（N 批 ingest 触发）。
+    /// 返回 None 表示未达阈值，Some(report) 表示已执行。
+    pub async fn compact_if_needed(&self) -> Result<Option<CompactionReport>, String> {
+        let count = self.ingest_count.load(Ordering::Relaxed);
+        let threshold = self.compaction_threshold.load(Ordering::Relaxed);
+        if count < threshold {
+            return Ok(None);
+        }
+        self.compact_tables().await.map(Some)
+    }
+
+    /// 强制 compaction（章节里程碑 / 空闲窗口触发）。
+    /// 对三表（entities/edges/episodes）执行文件 compaction + 旧版本 prune。
+    pub async fn compact_tables(&self) -> Result<CompactionReport, String> {
+        let mut fragments_removed = 0usize;
+        let mut fragments_added = 0usize;
+        let mut files_removed = 0usize;
+        let mut files_added = 0usize;
+        let mut bytes_removed = 0u64;
+        let mut old_versions_removed = 0u64;
+        let mut tables_compacted = Vec::new();
+
+        let tnames = [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES];
+        for tname in tnames {
+            let table = self
+                .db
+                .open_table(tname)
+                .execute()
+                .await
+                .map_err(|e| format!("open {tname}: {e}"))?;
+
+            // Step 1: 文件 compaction（合并小文件）
+            let cstats = table
+                .optimize(OptimizeAction::Compact {
+                    options: CompactionOptions::default(),
+                    remap_options: None,
+                })
+                .await
+                .map_err(|e| format!("compact {tname}: {e}"))?;
+
+            // Step 2: 旧版本 prune（保留 K 个 manifest 版本）
+            let (pruned_bytes, pruned_versions) = self.prune_table_versions(&table).await?;
+
+            if let Some(ref c) = cstats.compaction {
+                fragments_removed += c.fragments_removed;
+                fragments_added += c.fragments_added;
+                files_removed += c.files_removed;
+                files_added += c.files_added;
+            }
+            bytes_removed += pruned_bytes;
+            old_versions_removed += pruned_versions;
+            tables_compacted.push(tname.to_string());
+        }
+
+        // 重置计数器
+        self.ingest_count.store(0, Ordering::Relaxed);
+
+        Ok(CompactionReport {
+            fragments_removed,
+            fragments_added,
+            files_removed,
+            files_added,
+            bytes_removed,
+            old_versions_removed,
+            tables_compacted,
+        })
+    }
+
+    /// 保留 K 个 manifest 版本，prune 更旧的版本。
+    /// 返回 (pruned_bytes, pruned_versions)。
+    async fn prune_table_versions(&self, table: &Table) -> Result<(u64, u64), String> {
+        let versions = table
+            .list_versions()
+            .await
+            .map_err(|e| format!("list versions: {e}"))?;
+
+        if versions.len() <= self.retain_versions as usize {
+            return Ok((0, 0));
+        }
+
+        // 按版本降序排列，取第 K 个版本的时间戳
+        let mut sorted: Vec<_> = versions.iter().collect();
+        sorted.sort_by(|a, b| b.version.cmp(&a.version));
+        let oldest_to_keep = &sorted[self.retain_versions as usize - 1];
+
+        let now = chrono::Utc::now();
+        let age = now - oldest_to_keep.timestamp;
+        // 加 1 秒缓冲避免边界效应
+        let age = age + chrono::Duration::seconds(1);
+
+        let stats = table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(age),
+                delete_unverified: Some(false),
+                error_if_tagged_old_versions: Some(false),
+            })
+            .await
+            .map_err(|e| format!("prune: {e}"))?;
+
+        if let Some(ref p) = stats.prune {
+            Ok((p.bytes_removed, p.old_versions))
+        } else {
+            Ok((0, 0))
+        }
+    }
+
+    /// 磁盘占用指标（bytes）。遍历 LanceDB 目录按表子目录区分。
+    pub fn disk_usage(&self) -> Result<DiskUsage, String> {
+        let db_root = db_path(&self.project_path);
+        let root = Path::new(&db_root);
+        if !root.exists() {
+            return Ok(DiskUsage {
+                entities_bytes: 0,
+                edges_bytes: 0,
+                episodes_bytes: 0,
+                meta_bytes: 0,
+                total_bytes: 0,
+            });
+        }
+
+        let mut entities_bytes = 0u64;
+        let mut edges_bytes = 0u64;
+        let mut episodes_bytes = 0u64;
+        let mut meta_bytes = 0u64;
+
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let size = dir_size(&path);
+                if name.contains(CANON_TABLE_ENTITIES) {
+                    entities_bytes += size;
+                } else if name.contains(CANON_TABLE_EDGES) {
+                    edges_bytes += size;
+                } else if name.contains(CANON_TABLE_EPISODES) {
+                    episodes_bytes += size;
+                } else if name.contains(CANON_TABLE_META) {
+                    meta_bytes += size;
+                }
+            }
+        }
+
+        let total_bytes = entities_bytes + edges_bytes + episodes_bytes + meta_bytes;
+        Ok(DiskUsage {
+            entities_bytes,
+            edges_bytes,
+            episodes_bytes,
+            meta_bytes,
+            total_bytes,
+        })
+    }
+}
+
+/// 递归计算目录或文件大小（bytes）。
+fn dir_size(path: &Path) -> u64 {
+    if path.is_file() {
+        return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    }
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            total += dir_size(&entry.path());
+        }
+    }
+    total
 }
 
 async fn ensure_table(
@@ -1309,6 +1538,165 @@ mod tests {
         for t in [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES, CANON_TABLE_META] {
             assert!(names.contains(&t.to_string()), "table {t} created");
         }
+    }
+
+    // ── LanceDB 集成：compaction + 版本保留 + 磁盘指标 ──
+
+    #[tokio::test]
+    async fn canon_lancedb_compact_if_needed_threshold_not_reached() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // 阈值=100，刚打开的库计数=0 → compact_if_needed 返回 None
+        let result = store.compact_if_needed().await.unwrap();
+        assert!(result.is_none(), "below threshold → no compaction");
+    }
+
+    #[tokio::test]
+    async fn canon_lancedb_compact_tables_does_not_crash() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 写入一些数据使 compaction 有内容可操作
+        for i in 0..5 {
+            let e = CanonEdge::new(
+                &format!("compact-e{i}"),
+                "src",
+                "tgt",
+                "rel",
+                EdgeKind::WorldFact,
+            );
+            store.upsert_edge(e).await.unwrap();
+        }
+        for i in 0..3 {
+            let ep = CanonEpisode::new(&format!("compact-ep{i}"), 1, "pov", &format!("d{i}"));
+            store.ingest_episode(ep).await.unwrap();
+        }
+
+        // 强制 compaction
+        let report = store.compact_tables().await.unwrap();
+        // 报告应包含所有三表（使用常量表名）
+        assert_eq!(report.tables_compacted.len(), 3);
+        assert!(report.tables_compacted.contains(&CANON_TABLE_ENTITIES.to_string()));
+        assert!(report.tables_compacted.contains(&CANON_TABLE_EDGES.to_string()));
+        assert!(report.tables_compacted.contains(&CANON_TABLE_EPISODES.to_string()));
+
+        // compaction 后查询正确性：仍可查到写的数据
+        let all = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 5, "compaction 后 edges 查询正确");
+        let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+        for i in 0..5 {
+            assert!(ids.contains(&format!("compact-e{i}").as_str()));
+        }
+    }
+
+    #[tokio::test]
+    async fn canon_lancedb_compact_supersede_edge_query_correct() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 写入边 + supersede
+        store
+            .upsert_edge({
+                let mut e = CanonEdge::new("old-c1", "alice", "bob", "knows", EdgeKind::WorldFact);
+                e.valid_at = Some(1);
+                e.known_by = vec!["pov".into()];
+                e
+            })
+            .await
+            .unwrap();
+
+        store
+            .supersede_edges(SupersedeRequest {
+                old_edge_ids: vec!["old-c1".into()],
+                cap_chapter: 5,
+                new_edges: vec![
+                    CanonEdge::new("new-c1", "alice", "bob", "knows", EdgeKind::WorldFact),
+                ],
+            })
+            .await
+            .unwrap();
+
+        // 强制 compaction
+        let report = store.compact_tables().await.unwrap();
+        assert_eq!(report.tables_compacted.len(), 3);
+
+        // 查询：老边封顶，新边可见
+        let r = store
+            .query_edges(&CanonEdgeFilter {
+                valid_at_chapter: Some(10),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(r.len(), 1, "compaction 后 supersede 查询正确");
+        assert_eq!(r[0].id, "new-c1");
+    }
+
+    #[tokio::test]
+    async fn canon_lancedb_disk_usage_returns_zero_for_empty() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        let usage = store.disk_usage().unwrap();
+        // 新库刚建，目录应存在且非零（meta 表有数据）
+        assert!(usage.total_bytes > 0, "open 后库目录应有数据");
+        assert!(usage.meta_bytes > 0, "meta 表应有 manifest 行");
+    }
+
+    #[tokio::test]
+    async fn canon_lancedb_ingest_counter_increments() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 阈值设为 3，写入 3 条后触发
+        store.set_compaction_threshold(3);
+
+        // 写入 2 条 → 未达阈值
+        store
+            .upsert_edge(CanonEdge::new("ce1", "s", "t", "r", EdgeKind::WorldFact))
+            .await
+            .unwrap();
+        store
+            .upsert_edge(CanonEdge::new("ce2", "s", "t", "r", EdgeKind::WorldFact))
+            .await
+            .unwrap();
+        assert!(store.compact_if_needed().await.unwrap().is_none());
+
+        // 第 3 条 → 达阈值，触发 compaction
+        store
+            .upsert_edge(CanonEdge::new("ce3", "s", "t", "r", EdgeKind::WorldFact))
+            .await
+            .unwrap();
+        let result = store.compact_if_needed().await.unwrap();
+        assert!(result.is_some(), "达阈值应触发 compaction");
+        let report = result.unwrap();
+        assert_eq!(report.tables_compacted.len(), 3);
+
+        // 重置后计数器归零，再次 compact_if_needed 返回 None
+        assert!(store.compact_if_needed().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn canon_lancedb_set_retain_versions_affects_prune() {
+        let p = tmp_project();
+        let mut store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 默认保留 5 个版本
+        assert_eq!(store.retain_versions, 5);
+
+        // 改为保留 10 个
+        store.set_retain_versions(10);
+        assert_eq!(store.retain_versions, 10);
+
+        // compaction 仍可正常执行
+        let report = store.compact_tables().await.unwrap();
+        assert_eq!(report.tables_compacted.len(), 3);
+
+        // 改回 3
+        store.set_retain_versions(3);
+        assert_eq!(store.retain_versions, 3);
     }
 }
 

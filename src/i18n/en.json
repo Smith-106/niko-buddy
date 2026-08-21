@@ -273,7 +273,15 @@
     "perDimOnly": "Read per-dimension scores; manuscript seal uses overall median ≥9 (N≥5) with Consistency first",
     "measurementFingerprintHint": "Measurement fingerprint: model+N+window+packHash+textHash. Different packHash → thril not comparable. Not a product hard gate.",
     "measurementFingerprintTitle": "Measurement fingerprint",
-    "measurementFingerprintEmpty": "No fingerprint yet — run a six-dimension review (model+packHash+textHash)"
+    "measurementFingerprintEmpty": "No fingerprint yet — run a six-dimension review (model+packHash+textHash)",
+    "storyboard": {
+      "title": "Storyboard",
+      "toggle": "Storyboard",
+      "corkboard": "Corkboard",
+      "plotgrid": "Plot Grid",
+      "timeline": "Timeline",
+      "close": "Close storyboard"
+    }
   },
   "nav": {
     "wiki": "Knowledge Base",
@@ -1775,6 +1783,25 @@
       "noEvents": "No timeline events yet. Timeline will appear here after saving canon chapters with memory extraction.",
       "noEventsHint": "Timeline events are recorded automatically when chapters are generated",
       "chapter": "Chapter {{num}}"
+    },
+    "corkboard": {
+      "title": "Scene Corkboard",
+      "loading": "Loading cards...",
+      "noData": "No chapter snapshots yet. The corkboard will appear here after saving canon chapters with memory extraction.",
+      "noDataHint": "Each card is one chapter's scene summary",
+      "chapter": "Chapter {{num}}",
+      "words": "{{count}} words",
+      "noSummary": "No summary"
+    },
+    "plotgrid": {
+      "title": "Plot Grid",
+      "loading": "Loading grid...",
+      "noData": "No plotlines yet. Plant foreshadowing in Foreshadowing Management and the grid will appear here.",
+      "noDataHint": "Rows are plotlines (derived from the foreshadowing pool), columns are chapters",
+      "plotline": "Plotline",
+      "chapterShort": "Ch.{{num}}",
+      "noChapters": "No chapter columns yet",
+      "noChaptersHint": "Chapter columns appear after canon chapter snapshots are saved"
     },
     "foreshadowing": {
       "title": "Foreshadowing Management",

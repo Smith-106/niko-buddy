@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from "react"
+import { Dialog, DialogContent, DialogTitle } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
@@ -101,37 +102,21 @@ export function ChapterSelectionPanel({
     setSelectAll(true)
   }, [chapters])
 
-  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
-  // role=dialog/aria-modal + Escape 关闭 + focus trap(Tab 循环限于模态内)。
-  const dialogRef = useRef<HTMLDivElement>(null)
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap(Tab 循环)、
+  // scroll lock(打开时锁定 body 滚动)、背景 aria-hidden(inert)。
+  // 焦点恢复：本组件由父级条件挂载（无 DialogTrigger），Radix 的 trigger 恢复
+  // 路径不可用，这里在渲染期记录打开前的焦点元素，卸载时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  if (previouslyFocusedRef.current === null) {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+  }
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-        return
-      }
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        /* v8 ignore next */
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
+    return () => {
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      previouslyFocusedRef.current?.focus()
     }
-    document.addEventListener("keydown", handleKeyDown)
-    dialogRef.current?.focus()
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [onCancel])
+  }, [])
 
   const handleToggleChapter = (chapterId: string) => {
     setSelectedChapters(prev => {
@@ -187,27 +172,48 @@ export function ChapterSelectionPanel({
   const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
 
   return (
+    <Dialog.Root
+      open
+      modal={!showCharacterPicker}
+      onOpenChange={(open) => {
+        if (!open) onCancel()
+      }}
+    >
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="章节选择"
-        tabIndex={-1}
-        className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none"
+      {/* 角色选择弹窗打开时外层切非模态（modal=false）：释放焦点陷阱与 scroll lock，
+          避免与内层弹窗（Base UI Dialog）抢焦点；Escape/遮罩交互仍由各自层处理。 */}
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        onOpenAutoFocus={(event) => {
+          // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
+          event.preventDefault()
+          event.currentTarget.focus()
+        }}
+        onInteractOutside={(event) => {
+          // 原实现不响应点击遮罩关闭；同时避免嵌套角色弹窗的交互误关本面板
+          event.preventDefault()
+        }}
+        onEscapeKeyDown={(event) => {
+          // 角色选择弹窗打开时，Escape 只作用于顶层弹窗
+          if (showCharacterPicker) event.preventDefault()
+        }}
       >
+      <div className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none">
         {/* 标题栏 */}
         <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
           <div>
-            <h2 className="text-xl font-semibold">
-              {isExtracting
-                ? extractionPhase === "deep"
-                  ? "深度 6 维提取中"
-                  : "简单提取中"
-                : extractionProgress?.isCompleted
-                  ? "提取完成"
-                  : "选择分析章节"}
-            </h2>
+            <DialogTitle asChild>
+              <h2 className="text-xl font-semibold">
+                {isExtracting
+                  ? extractionPhase === "deep"
+                    ? "深度 6 维提取中"
+                    : "简单提取中"
+                  : extractionProgress?.isCompleted
+                    ? "提取完成"
+                    : "选择分析章节"}
+              </h2>
+            </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {isExtracting
                 ? "正在提取角色特征，请耐心等待"
@@ -480,6 +486,7 @@ export function ChapterSelectionPanel({
           </Button>
         </div>
       </div>
+      </DialogContent>
 
       {/* 角色选择弹窗 */}
       {showCharacterPicker && (
@@ -496,5 +503,6 @@ export function ChapterSelectionPanel({
         />
       )}
     </div>
+    </Dialog.Root>
   )
 }

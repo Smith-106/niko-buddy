@@ -1,3 +1,4 @@
+mod canon_export;
 mod commands;
 mod panic_guard;
 mod proxy;
@@ -168,6 +169,11 @@ pub fn run() {
             commands::backup::import_backup,
             commands::backup::cancel_backup,
             set_proxy_env,
+            // T34c：项目级备份/恢复/导出（status.json + drafts + canon LanceDB 快照）
+            canon_export::canon_export_project,
+            canon_export::canon_restore_project,
+            canon_export::canon_verify_export,
+            canon_export::canon_auto_backup,
             commands::crypto::get_device_fingerprint_cmd,
             commands::power::acquire_wake_lock,
             commands::power::release_wake_lock,

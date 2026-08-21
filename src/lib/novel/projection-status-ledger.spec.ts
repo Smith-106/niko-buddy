@@ -1,10 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   PROJECTION_CATEGORIES,
+  appendProjectionAuditEntry,
   emptyLedger,
   loadProjectionStatusLedger,
+  recordProjectionAudit,
   recordProjectionStatus,
   saveProjectionStatusLedger,
+  type ProjectionAuditEntry,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
 import { supersedeFact } from "./graph-adapter"
@@ -15,9 +18,10 @@ const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn<(path: string) => Promise<string>>(async () => {
     throw new Error("ENOENT")
   }),
-  writeFileAtomic: vi.fn(async () => {}),
-  createDirectory: vi.fn(async () => {}),
-  fileExists: vi.fn(async () => false),
+  // Typed params so mock.calls tuples + implementations typecheck strictly.
+  writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
+  createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
+  fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
 }))
 
 vi.mock("@/commands/fs", () => ({
@@ -160,6 +164,97 @@ describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
       "E:/Novel/.novel/projection-status.json",
       expect.any(String),
     )
+  })
+})
+
+describe("F-005 append-only auditTrail (projection-status.json additive)", () => {
+  // Global beforeEach only resets readFile — write mocks must be cleared here
+  // so call-index assertions see only THIS test's writes.
+  beforeEach(() => {
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.createDirectory.mockClear()
+  })
+
+  const audit = (overrides: Partial<ProjectionAuditEntry> = {}): ProjectionAuditEntry => ({
+    projection: "cognition",
+    chapter: 7,
+    status: "committed",
+    durationMs: 12,
+    timestamp: "2026-08-21T00:00:00.000Z",
+    ...overrides,
+  })
+
+  it("空初始态：emptyLedger seeds auditTrail: [] and a legacy trail-less file loads as []", async () => {
+    expect(emptyLedger().auditTrail).toEqual([])
+    // Legacy pre-F-005 file without an auditTrail field.
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ version: 1, chapters: {} }))
+    const ledger = await loadProjectionStatusLedger("E:/Novel")
+    expect(ledger.auditTrail).toEqual([])
+  })
+
+  it("单条追加：appends one entry into a legacy file WITHOUT dropping projections/chapters", async () => {
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({
+        version: 1,
+        projections: { cognition: "fold_rebuildable" },
+        chapters: { "7": { cognition: { projection: "cognition", category: "fold_rebuildable", status: "committed", updated_at: "t", last_error: "" } } },
+      }),
+    )
+    await appendProjectionAuditEntry("E:/Novel", audit())
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.novel")
+    const [path, payload] = fsMocks.writeFileAtomic.mock.calls[0]
+    expect(String(path)).toBe("E:/Novel/.novel/projection-status.json")
+    const doc = JSON.parse(payload as string)
+    // Strictly additive — every pre-existing top-level field survives.
+    expect(doc.version).toBe(1)
+    expect(doc.projections.cognition).toBe("fold_rebuildable")
+    expect(doc.chapters["7"].cognition.status).toBe("committed")
+    expect(doc.auditTrail).toHaveLength(1)
+    expect(doc.auditTrail[0]).toMatchObject({ projection: "cognition", chapter: 7, status: "committed", durationMs: 12 })
+  })
+
+  it("多条累积：sequential appends accumulate across reads/writes in order", async () => {
+    // Simulate real persistence: each write becomes the next read's document.
+    let doc: Record<string, unknown> = {}
+    fsMocks.readFile.mockImplementation(async () => JSON.stringify(doc))
+    fsMocks.writeFileAtomic.mockImplementation(async (_path: string, payload: string) => {
+      doc = JSON.parse(payload)
+    })
+    await appendProjectionAuditEntry("E:/Novel", audit())
+    await appendProjectionAuditEntry("E:/Novel", audit({ projection: "vector", chapter: 8 }))
+    await appendProjectionAuditEntry("E:/Novel", audit({ projection: "graph_entity_pages", chapter: 8 }))
+    const trail = (doc.auditTrail as ProjectionAuditEntry[])
+    expect(trail).toHaveLength(3)
+    expect(trail.map((e) => e.projection)).toEqual(["cognition", "vector", "graph_entity_pages"])
+  })
+
+  it("失败条目含 error：a failed event persists its error message verbatim", async () => {
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
+    await appendProjectionAuditEntry(
+      "E:/Novel",
+      audit({ status: "failed", durationMs: 3400, error: "write failed: EACCES" }),
+    )
+    const payload = fsMocks.writeFileAtomic.mock.calls[0][1] as string
+    const entry = JSON.parse(payload).auditTrail[0]
+    expect(entry.status).toBe("failed")
+    expect(entry.error).toBe("write failed: EACCES")
+  })
+
+  it("tolerates a corrupt ledger file (starts a fresh document, still appends)", async () => {
+    fsMocks.readFile.mockResolvedValue("{{{not-json")
+    await appendProjectionAuditEntry("E:/Novel", audit())
+    const doc = JSON.parse(fsMocks.writeFileAtomic.mock.calls[0][1] as string)
+    expect(doc.auditTrail).toHaveLength(1)
+  })
+
+  it("recordProjectionAudit accumulates in-memory so the end-of-loop save cannot clobber durable flushes", () => {
+    let ledger: ProjectionStatusLedger = emptyLedger()
+    ledger = recordProjectionAudit(ledger, audit())
+    ledger = recordProjectionAudit(ledger, audit({ projection: "vector", status: "failed", error: "boom" }))
+    expect(ledger.auditTrail).toHaveLength(2)
+    expect(ledger.auditTrail?.[1].error).toBe("boom")
+    // Pure — the source array is not mutated.
+    expect(emptyLedger().auditTrail).toEqual([])
   })
 })
 

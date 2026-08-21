@@ -333,7 +333,53 @@ describe("EPIC-001 / ADR-29 / TASK-004: style-exemplars-loader", () => {
     expect(picked[0].exemplarId).toBe("9")
   })
 
-  it("exemplarEnabled flag default true — verified via DEFAULT_NOVEL_CONFIG (TASK-004 convergence)", async () => {
+  describe("F-011 Voice Preservation 第三层 — voice exemplar 支持", () => {
+  it("voice 是合法 markType 枚举值", () => {
+    // voice 已在 StyleExemplarMarkType 和 VALID_MARK_TYPES 中
+    const validVoice: StyleExemplarMarkType = "voice"
+    expect(validVoice).toBe("voice")
+  })
+
+  it("voice 类 exemplar 维持 Draft-first 例外（直写正式层，不经过 pending→accept）", async () => {
+    // Draft-first 例外 C-001：exemplar 是用户标记，直写正式层
+    fsMocks.readFile.mockRejectedValue(new Error("file not found"))
+    await markStyleExemplar("/Proj", {
+      chapterId: "ch1",
+      text: "角色声线好的段落",
+      markType: "voice",
+      note: "对白毛边自然",
+    })
+    // 直接写入 .novel/style-exemplars.json，不经 pending→accept
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("/Proj/.novel")
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/Proj/.novel/style-exemplars.json",
+      expect.any(String),
+    )
+    const written = fsMocks.writeFileAtomic.mock.calls[0][1] as string
+    const parsed = JSON.parse(written) as StyleExemplar[]
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].markType).toBe("voice")
+    expect(parsed[0].note).toBe("对白毛边自然")
+    // Draft-first 例外：exemplarId 和 createdAt 已写入正式层（无 pending 状态）
+    expect(parsed[0].exemplarId).toBeTruthy()
+    expect(parsed[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it("voice exemplar 在 pickTopK 中与其他 markType 共同参与多样性排名", () => {
+    const exemplars: StyleExemplar[] = [
+      { exemplarId: "v1", chapterId: "c", text: "voice段落", markType: "voice", createdAt: "2026-07-10T00:00:00Z" },
+      { exemplarId: "s1", chapterId: "c", text: "style段落", markType: "style", createdAt: "2026-07-10T00:01:00Z" },
+      { exemplarId: "p1", chapterId: "c", text: "pacing段落", markType: "pacing", createdAt: "2026-07-10T00:02:00Z" },
+    ]
+    const picked = pickTopKExemplars(exemplars, 3)
+    const types = picked.map((p) => p.markType)
+    expect(types).toContain("voice")
+    expect(types).toContain("style")
+    expect(types).toContain("pacing")
+  })
+})
+
+it("exemplarEnabled flag default true — verified via DEFAULT_NOVEL_CONFIG (TASK-004 convergence)", async () => {
     // 加载 wiki-store 的 DEFAULT_NOVEL_CONFIG 验证 exemplarEnabled 默认 true。
     // dynamic import 避免触发 zustand 全量 mock。
     const store = await import("@/stores/wiki-store")

@@ -336,8 +336,11 @@ const ONUPDATE_FLUSH_CHARS = 256
 // coverage but risks false positives on legitimate prose; deferred.
 const MAX_GATE_RETRY = 3
 // A19 emotion-ledger pilot: 情绪债务熔断阈值。任一角色 netValue 低于此值即触发
-// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 选自 NovelForge-v5
-// EmotionTracker 经验值: 三轴负偏 + history 负累积达此深度时角色状态已不可逆。
+// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 为 QMAI 设计阈值
+// (NovelForge-v5 EmotionTracker 的 net_debt 为 0-100+ 量纲, 无可直接对照的
+// Circuit Breaker 阈值; -0.6 基于 QMAI 的 -1.0~1.0 netValue 量纲经验设定:
+// 三轴负偏 + history 负累积达此深度时角色状态已不可逆, 对应 NovelForge-v5
+// CAUTIOUS 状态类比)。
 const EMOTION_CB_THRESHOLD = -0.6
 const MAX_TASK_BRIEF_REPAIR_ATTEMPTS = 2
 const USER_ABORT_MESSAGE = "已停止生成"
@@ -2214,7 +2217,10 @@ async function runReviewAndRepair(
       }
     }
 
-    if (retryCount >= MAX_GATE_RETRY) {
+    // F-003 retryCountCircuitBreaker: 显式计数判定 (retryCount >= MAX_GATE_RETRY=3)
+    // 强制 SUSPEND, 与 emotion-ledger Circuit Breaker 双轨并存。不改 manualHandoff 路径。
+    const retryCountCircuitBreakerTripped = retryCount >= MAX_GATE_RETRY
+    if (retryCountCircuitBreakerTripped) {
       manualReviewRequired = true
       decisionGates = buildDecisionGates(reviewResults, retryCount, true)
       callbacks.onThinking?.(formatStageThinking(

@@ -27,11 +27,18 @@ import { clearGraphCache } from "@/lib/graph-relevance"
 import { clearTemporalFactsCache } from "./context-engine"
 import { sliceChapterForReview } from "./chapter-window"
 import {
+  appendProjectionAuditEntry,
   loadProjectionStatusLedger,
+  recordProjectionAudit,
   recordProjectionStatus,
   saveProjectionStatusLedger,
+  type ProjectionAuditEntry,
+  type ProjectionAuditStatus,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
+import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
+import { shadowWriteCanon } from "./canon-dual-write"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -228,6 +235,89 @@ export interface IngestChapterOptions {
    * 缺省回退 useWikiStore.getState().setCommunitySummaryError（向后兼容）。
    */
   onCommunitySummaryError?: (message: string) => void
+  /**
+   * T16 / F-14 (F-14) canon 影子双写 DI 注入。
+   * 缺省 undefined → 不触发双写，向后兼容。
+   */
+  canonDualWriteDeps?: CanonDualWriteDeps
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// T16 / F-14: canon 影子双写钩子
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * T16 / F-14: 双写守卫 — 仅 final/accepted 章放行。
+ * reject 先于双写断言：pending/draft/outline/revised/archived 均拦截，
+ * 非字符串 / 缺失 / 大小写不匹配（如 "FINAL"）也拦截。
+ */
+export function isCanonDualWriteEligible(fm: Record<string, unknown>): boolean {
+  const status = fm.chapter_status
+  return status === "final" || status === "accepted"
+}
+
+/**
+ * T16 / F-14: 从 snapshot.newCanonFacts 派生 episode 双写操作集。
+ * 每条事实的 digest = SHA-256({ chapter, fact })——幂等键。
+ */
+export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
+  const facts = snapshot.newCanonFacts ?? []
+  if (facts.length === 0) return []
+
+  return Promise.all(
+    facts.map(async (fact, i) => {
+      const content = { chapter: snapshot.chapterNumber, fact }
+      const digest = await computeCheckpointDigestOf(content)
+      return {
+        digest,
+        content,
+        legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
+        canonPayload: {
+          kind: "episode" as const,
+          episode: {
+            id: `ch${snapshot.chapterNumber}-fact${i}`,
+            chapter_number: snapshot.chapterNumber,
+            entity_id: snapshot.chapterId,
+            summary: fact,
+            digest,
+          },
+        },
+      }
+    }),
+  )
+}
+
+/**
+ * T16 / F-14: 单点双写钩子——在 validateCanonConflicts 调用点后调用。
+ * - deps 未注入 → 空操作（向后兼容）
+ * - 章未 accept/final → reject，不写 canon
+ * - 无新正史事实 → 无操作
+ * - final + 事实 → 调 shadowWriteCanon
+ * - 双写异常 → 非致命告警，不阻断
+ */
+export async function runCanonDualWriteHook(
+  deps: CanonDualWriteDeps | undefined,
+  projectPath: string,
+  fm: Record<string, unknown>,
+  snapshot: ChapterSnapshot,
+  now: number,
+): Promise<void> {
+  if (!deps) return
+  if (!isCanonDualWriteEligible(fm)) return
+
+  const ops = await buildCanonDualWriteOps(snapshot)
+  if (ops.length === 0) return
+
+  try {
+    const report = await shadowWriteCanon(deps, projectPath, ops, now)
+    if (report.queued > 0) {
+      logger.warn("Chapter Ingest", `Canon dual-write: ${report.queued}/${ops.length} ops queued (non-fatal)`)
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "Canon dual-write hook failed (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 export async function ingestChapter(
@@ -308,6 +398,15 @@ export async function ingestChapter(
         error: err instanceof Error ? err.message : String(err),
       })
     }
+    // T16 / F-14: canon 影子双写钩子（仅 final/accepted 章触发，deps 缺省空操作）。
+    // reject 先于双写断言：draft 章提前 return（not_final）不触达此处。
+    await runCanonDualWriteHook(
+      options.canonDualWriteDeps,
+      pp,
+      fm as Record<string, unknown>,
+      snapshot,
+      Date.now(),
+    )
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
@@ -347,17 +446,51 @@ export async function ingestChapter(
   // so the return value can carry memorySyncedAt (runProjection returns void).
   let memorySyncedAt: string | undefined
 
+  // F-005 (v2.6 Tier2): single audit choke-point for projection events.
+  // Keeps the in-memory ledger's auditTrail in sync (so the end-of-loop
+  // saveProjectionStatusLedger cannot clobber per-event durable flushes back
+  // off disk) AND durably appends each event to projection-status.json so a
+  // hard crash mid-ingest still leaves the emitted events on disk. Strictly
+  // additive — never throws into the projection loop.
+  const recordProjectionAuditEvent = async (
+    projection: string,
+    status: ProjectionAuditStatus,
+    durationMs: number,
+    error?: string,
+  ): Promise<void> => {
+    const entry: ProjectionAuditEntry = {
+      projection,
+      chapter: chapterNo,
+      status,
+      durationMs,
+      ...(error !== undefined ? { error } : {}),
+      timestamp: new Date().toISOString(),
+    }
+    projectionLedger = recordProjectionAudit(projectionLedger, entry)
+    try {
+      await appendProjectionAuditEntry(pp, entry)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "Projection audit append failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   const runProjection = async (
     projection: string,
     fn: () => Promise<void>,
   ): Promise<void> => {
+    // F-005: time the full projection body for the audit entry.
+    const startedAt = Date.now()
     try {
       await fn()
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
+      await recordProjectionAuditEvent(projection, "committed", Date.now() - startedAt)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.warn("Chapter Ingest", `Projection "${projection}" failed`, { error: message })
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
+      await recordProjectionAuditEvent(projection, "failed", Date.now() - startedAt, message)
     }
   }
 
@@ -512,16 +645,26 @@ export async function ingestChapter(
   // 社区摘要定期重建
   if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
     const rebuildCommunitySummaries = async () => {
+      // F-005: the scheduled community-summary rebuild is audited with the
+      // dedicated "rebuild" status on success; failures are audited as
+      // "failed" + error alongside the existing non-fatal warn/UI path.
+      // recordProjectionAuditEvent cannot reject (internal non-fatal catch),
+      // and audit calls stay OUTSIDE the summary try/catch so an audit hiccup
+      // could never be misreported as a summary failure.
+      const rebuildStartedAt = Date.now()
       try {
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
+        await recordProjectionAuditEvent("community_summary", "failed", Date.now() - rebuildStartedAt, message)
         // 弹窗提示（通过 store 触发 UI 通知）
         // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
         const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
         onErr(message)
+        return
       }
+      await recordProjectionAuditEvent("community_summary", "rebuild", Date.now() - rebuildStartedAt)
     }
 
     if (novelConfig.communitySummaryAsync) {

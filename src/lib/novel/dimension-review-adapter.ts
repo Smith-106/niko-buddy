@@ -43,6 +43,7 @@ import {
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
 import { sliceChapterForReview } from "./chapter-window"
+import type { EvidenceVerificationResult } from "./evidence-chain"
 
 export type SixReviewDimensionKey = "thrill" | "consistency" | "pacing" | "character" | "continuity" | "pull"
 export type DimensionReviewStatus = "error" | "high" | "medium" | "low" | "pass"
@@ -203,8 +204,121 @@ export function getCachedDimensionResults(
   return out
 }
 
+/**
+ * F-001 (v2.6 Tier1 must): verify that issue.evidence appears verbatim
+ * (after whitespace normalization) in the chapter body. Pure function — no
+ * side effects, no I/O.
+ *
+ * Normalization: trim + collapse all whitespace runs to single space.
+ * Match strategy: substring includes on normalized strings.
+ *
+ * On failure: the issue severity is downgraded to "warning", and evidence is
+ * replaced with the nearest matching fragment from findNearestEvidenceFragment.
+ */
+export function verifyEvidenceCitations(
+  evidence: string,
+  chapterBody: string,
+): EvidenceVerificationResult {
+  // Empty evidence edge case — nothing to verify
+  if (!evidence.trim()) {
+    return {
+      passed: false,
+      originalEvidence: evidence,
+      resolvedEvidence: "",
+      matchType: "fallback",
+    }
+  }
+
+  // Strip all whitespace for comparison so extra spaces, tabs, or newlines in
+  // the LLM output do not prevent a verbatim match on the actual content.
+  const normalize = (s: string): string => s.replace(/\s+/g, "")
+  const normalizedEvidence = normalize(evidence)
+  const normalizedBody = normalize(chapterBody)
+
+  // Verbatim substring match after stripping whitespace
+  if (normalizedBody.includes(normalizedEvidence)) {
+    return {
+      passed: true,
+      originalEvidence: evidence,
+      resolvedEvidence: evidence,
+      matchType: "verbatim",
+    }
+  }
+
+  // Fallback: find nearest fragment via sliding-window Levenshtein
+  const nearest = findNearestEvidenceFragment(chapterBody, evidence)
+  return {
+    passed: false,
+    originalEvidence: evidence,
+    resolvedEvidence: nearest || evidence,
+    matchType: "fallback",
+  }
+}
+
+/**
+ * F-001: sliding-window Levenshtein-distance search for the fragment in
+ * chapterBody that most closely matches the evidence string. Windows of
+ * length evidenceLen ±20% are evaluated. Returns the closest fragment, or
+ * empty string if no reasonable match is found.
+ */
+export function findNearestEvidenceFragment(
+  chapterBody: string,
+  evidence: string,
+): string {
+  // Strip all whitespace for comparison (same normalize as verifyEvidenceCitations)
+  const normalize = (s: string): string => s.replace(/\s+/g, "")
+  const normalizedEvidence = normalize(evidence)
+  const normalizedBody = normalize(chapterBody)
+
+  const evidenceLen = normalizedEvidence.length
+  if (evidenceLen === 0) return ""
+  const bodyLen = normalizedBody.length
+  if (bodyLen === 0) return ""
+
+  // Sliding window: try windows of length [80%, 120%] of evidence length
+  const minLen = Math.max(1, Math.floor(evidenceLen * 0.8))
+  const maxLen = Math.min(bodyLen, Math.ceil(evidenceLen * 1.2))
+
+  let bestDistance = Infinity
+  let bestFragment = ""
+
+  for (let winLen = minLen; winLen <= maxLen; winLen++) {
+    for (let start = 0; start <= bodyLen - winLen; start++) {
+      const fragment = normalizedBody.slice(start, start + winLen)
+      const dist = levenshteinDistance(normalizedEvidence, fragment)
+      if (dist < bestDistance) {
+        bestDistance = dist
+        bestFragment = fragment
+      }
+    }
+  }
+
+  return bestFragment
+}
+
+/** F-001: standard Levenshtein edit distance (iterative DP). */
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost,
+      )
+    }
+  }
+  return dp[m][n]
+}
+
 export function dimensionResultsToReviewResults(
   dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>,
+  chapterBody?: string,
 ): NovelReviewResult[] {
   const out: NovelReviewResult[] = []
   for (const key of SIX_REVIEW_DIMENSION_ORDER) {
@@ -213,14 +327,26 @@ export function dimensionResultsToReviewResults(
     const reviewType = DIM_TO_GATE_TYPE[key]
     if (result.issues.length > 0) {
       for (const issue of result.issues) {
+        // F-001 (v2.6 Tier1 must): mechanical evidence citation verification.
+        // Check each issue's evidence against the chapter body; on failure
+        // downgrade severity to "warning" and backfill the nearest fragment.
+        let severity: NovelReviewResult["severity"] = severityForIssue(result.status, issue.severity)
+        let evidence = issue.evidence || ""
+        if (chapterBody && evidence) {
+          const verification = verifyEvidenceCitations(evidence, chapterBody)
+          if (!verification.passed) {
+            severity = severity === "error" ? "error" : "warning"
+            evidence = verification.resolvedEvidence
+          }
+        }
         out.push({
-          severity: severityForIssue(result.status, issue.severity),
+          severity,
           // Override the issue's `type` with the gate-bucketed type so the
           // fold routes correctly. Keep the dimension key in the message
           // prefix for traceability.
           type: reviewType,
           message: `[${result.summary || key}] ${issue.message || ""}`.trim(),
-          evidence: issue.evidence || "",
+          evidence,
           relatedMemory: issue.relatedMemory || "",
           suggestion: issue.suggestion || "",
         })

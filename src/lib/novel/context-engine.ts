@@ -77,6 +77,7 @@ const SECTION_PRIORITY: Record<string, number> = {
   "修改反馈": 15,
   "下一章推进建议": 16,
   "写作风格": 17,
+  "语音风格指南": 17.5,
 }
 
 /**
@@ -318,6 +319,13 @@ export interface ContextPack {
    * legacy constructors / emptyPack / build 失败降级时 undefined（不渲染 ring）。
    */
   contextUsage?: ContextUsage
+  /**
+   * F-011: Voice Preservation 第二层 — voiceStyleGuide 段落。
+   * 从 book-analysis BookStyleProfile.voiceStyleGuide 读取，
+   * 复用文风蒸馏结果（对话标点风格/段落缩进/引号规范），
+   * 渲染为写作指导注入 prompt。
+   */
+  voiceStyleGuide?: string
 }
 
 /**
@@ -855,6 +863,7 @@ async function buildContextPackFromRawData(
     relatedSettings: rawData.relatedSettings,
     canonRules,
     writingStyle: rawData.writingStyle,
+    voiceStyleGuide: rawData.voiceStyleGuide || undefined,
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
     communitySummaries: communitySummaries || undefined,
@@ -1176,6 +1185,7 @@ function emptyPack(task: string): ContextPack {
     relatedSettings: "",
     canonRules: "",
     writingStyle: "",
+    voiceStyleGuide: undefined,
     searchResults: "",
     graphSearchResults: "",
     mustDo: "",
@@ -1186,6 +1196,7 @@ function emptyPack(task: string): ContextPack {
     // EPIC-001/003: emptyPack 不注入（非小说模式 / legacy fallback）。
     styleExemplars: [],
     activeEntities: [],
+    voiceStyleGuide: undefined,
   }
 }
 
@@ -2077,6 +2088,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
     },
   },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
+  { titleKey: "novel.contextPack.voiceStyleGuide", fieldKey: "voiceStyleGuide", layer: "L3" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },

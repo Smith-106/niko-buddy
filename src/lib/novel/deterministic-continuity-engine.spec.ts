@@ -33,9 +33,12 @@ import {
   resolveDormantThreshold,
   resolveUnresolvedForeshadowingThreshold,
   DEFAULT_CONTINUITY_CONFIG,
+  classifyTimelineDriftSeverity,
+  detectTimelineDrift,
   type ContinuityFinding,
   type ContinuityInput,
   type ReadonlyStore,
+  type TimelineDriftEvent,
   type ContinuityOverride,
   type ContinuityOverrideStore,
   type ContinuityOverrideReasonCode,
@@ -980,5 +983,102 @@ describe("S2c Quillica 6 状态机合并 (detectThreadArcFinding)", () => {
       notes: "",
     }
     expect(() => checkContinuity(storeWithSubplots([subplot]))).not.toThrow()
+  })
+})
+
+// ============================================================================
+// F-002 第 6 检测项: detectTimelineDrift (timeline_drift)
+// ============================================================================
+
+describe("F-002 detectTimelineDrift 第 6 检测项 (timeline_drift, additive)", () => {
+  function ev(ref: string, chapter: number, referencedChapter: number): TimelineDriftEvent {
+    return { ref, chapter, referencedChapter }
+  }
+
+  it("六分支1 事件时序正常: 同 ref 回引章单调递增 + 章号在阈值内不产 timeline_drift", () => {
+    const events: TimelineDriftEvent[] = [
+      ev("character:主角", 8, 8),
+      ev("character:主角", 9, 9),
+      ev("character:主角", 10, 10),
+    ]
+    // current=10, gap=|10-10|=0 / |10-9|=1 / |10-8|=2 均 <= maxGap(3); 单调无逆序
+    const findings = detectTimelineDrift(events, 10, DEFAULT_CONTINUITY_CONFIG)
+    expect(findings.filter((f) => f.type === "timeline_drift")).toHaveLength(0)
+  })
+
+  it("六分支 事件时序逆序: 同角色后录制事件回引早于已发生 → timeline_drift", () => {
+    const events: TimelineDriftEvent[] = [
+      ev("character:主角", 5, 5),
+      ev("character:主角", 6, 4), // 回引 4 < 已发生 5 → 逆序, 幅度 1 → info
+    ]
+    // current=6, 跳跃 |6-5|=1, |6-4|=2 均 <= 3 → 无跳跃漂移, 只剩时序逆序
+    const findings = detectTimelineDrift(events, 6, DEFAULT_CONTINUITY_CONFIG)
+    const drift = findings.filter((f) => f.type === "timeline_drift")
+    expect(drift).toHaveLength(1)
+    expect(drift[0]!.ref).toBe("character:主角")
+    expect(drift[0]!.subtype).toBe("consistency_mechanical")
+    expect(drift[0]!.severity).toBe("info")
+    expect(drift[0]!.message).toContain("时序矛盾")
+  })
+
+  it("六分支 章号跳跃: 当前章与事件回引章差 > 阈值 → 严重级(>5) critical", () => {
+    const events: TimelineDriftEvent[] = [ev("character:配角", 2, 2)]
+    // current=10, gap=|10-2|=8 > 5 → critical
+    const findings = detectTimelineDrift(events, 10, DEFAULT_CONTINUITY_CONFIG)
+    const drift = findings.filter((f) => f.type === "timeline_drift")
+    expect(drift).toHaveLength(1)
+    expect(drift[0]!.severity).toBe("critical")
+    expect(drift[0]!.message).toContain("章号跳跃")
+  })
+
+  it("六分支 多事件漂移: 多事件多条 timeline_drift finding", () => {
+    const events: TimelineDriftEvent[] = [
+      ev("character:A", 1, 1),
+      ev("character:B", 2, 2),
+      ev("character:C", 3, 3),
+    ]
+    // current=10, 三条均为 gap 增大 (9,8,7) 均 >5 → 3 条 critical; 各 ref 独立单调
+    const findings = detectTimelineDrift(events, 10, DEFAULT_CONTINUITY_CONFIG)
+    const drift = findings.filter((f) => f.type === "timeline_drift")
+    expect(drift).toHaveLength(3)
+    expect(new Set(drift.map((f) => f.ref)).size).toBe(3)
+    expect(drift.every((f) => f.severity === "critical")).toBe(true)
+  })
+
+  it("六分支 空列表: 无事件不产 timeline_drift", () => {
+    expect(detectTimelineDrift([], 10, DEFAULT_CONTINUITY_CONFIG)).toEqual([])
+  })
+
+  it("六分支 阈值边界: gap 等于阈值不产漂移; classify 3 档分级边界", () => {
+    // gap == maxGap(3) → 不产 (严格大于才触发)
+    const atThreshold = detectTimelineDrift([ev("character:X", 7, 7)], 10, DEFAULT_CONTINUITY_CONFIG)
+    expect(atThreshold.filter((f) => f.type === "timeline_drift")).toHaveLength(0)
+    // classifyTimelineDriftSeverity 边界: magnitude>5 critical, >3 warning, else info
+    expect(classifyTimelineDriftSeverity(6)).toBe("critical")
+    expect(classifyTimelineDriftSeverity(5)).toBe("warning")
+    expect(classifyTimelineDriftSeverity(4)).toBe("warning")
+    expect(classifyTimelineDriftSeverity(3)).toBe("info")
+    expect(classifyTimelineDriftSeverity(1)).toBe("info")
+  })
+
+  it("集成: checkContinuity store 含 timelineEvents 时合并 timeline_drift findings", () => {
+    const store = buildStore({
+      currentChapter: 10,
+      timelineEvents: [ev("character:某", 2, 2)], // gap=8, while current=10
+    })
+    const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+    const drift = findings.filter((f) => f.type === "timeline_drift")
+    expect(drift.length).toBeGreaterThanOrEqual(1)
+    expect(drift[0]!.severity).toBe("critical")
+  })
+
+  it("checkContinuity 无 timelineEvents 字段 (旧调用点) 零行为变化不产 timeline_drift", () => {
+    const store = buildStore({ currentChapter: 10 })
+    const findings = checkContinuity(store, DEFAULT_CONTINUITY_CONFIG)
+    expect(findings.filter((f) => f.type === "timeline_drift")).toHaveLength(0)
+  })
+
+  it("DEFAULT_TIMELINE gap 配置落地: config 缺省 timelineDriftMaxChapterGap = 3", () => {
+    expect(DEFAULT_CONTINUITY_CONFIG.timelineDriftMaxChapterGap).toBe(3)
   })
 })
