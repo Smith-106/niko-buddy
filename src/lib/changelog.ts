@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_FIVE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.5.1",
+  date: "2026-08-21",
+  highlights: {
+    en: [
+      "CI hygiene: typecheck口径统一为 npm run typecheck (T00 step 6, A-31); committed the test helper component-test-utils.tsx that was wrongly gitignored, restoring green typecheck on CI (291x TS2307 + chained matcher errors eliminated).",
+      "Docs site deployment chain fix: deploy-docs workflow trigger branch moved from release-b51ab03 back to master — the GitHub Pages site had been stuck at v2.4.4 while the source already said v2.5.0.",
+      "CHANGELOG backfill: the missing [2.5.0] entry (Wave 1-5 narrative) is now recorded in CHANGELOG.md, previously only present in the in-app changelog; version bumped to 2.5.1 across package.json/tauri.conf.json/Cargo.toml.",
+      "Notes-only release: installer assets stay v2.5.0; source tip semantics apply until the next asset rebuild.",
+    ],
+    zh: [
+      "CI 工程卫生：typecheck 口径统一为 npm run typecheck（T00 步骤⑥，A-31）；提交被 .gitignore 误拦的测试助手 component-test-utils.tsx，恢复 CI typecheck 绿灯（消除 291×TS2307 及连锁 matcher 类型错误）。",
+      "文档站部署链修复：deploy-docs 触发分支从 release-b51ab03 改回 master——此前 GitHub Pages 线上停留在 v2.4.4 而源码已是 v2.5.0。",
+      "CHANGELOG 补齐：缺失的 [2.5.0] 条目（Wave 1-5 发布叙事）补记入 CHANGELOG.md（此前仅存在于应用内 changelog）；版本号三处统一升至 2.5.1。",
+      "Notes-only 发布：安装包资产保持 v2.5.0；下次资产重建前适用源码 tip 语义。",
+    ],
+  },
+}
+
 const TWO_POINT_FIVE_ZERO_CHANGELOG: ChangelogEntry = {
   version: "2.5.0",
   date: "2026-08-18",
@@ -913,6 +932,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_FIVE_ONE_CHANGELOG.version) return [TWO_POINT_FIVE_ONE_CHANGELOG]
   if (version === TWO_POINT_FIVE_ZERO_CHANGELOG.version) return [TWO_POINT_FIVE_ZERO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ELEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) {
@@ -963,6 +983,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_FIVE_ONE_CHANGELOG,
     TWO_POINT_FIVE_ZERO_CHANGELOG,
     TWO_POINT_FOUR_ELEVEN_CHANGELOG,
     TWO_POINT_FOUR_TEN_CHANGELOG,
