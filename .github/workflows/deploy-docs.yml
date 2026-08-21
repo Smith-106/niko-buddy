@@ -2,7 +2,7 @@ name: Deploy docs site to GitHub Pages
 
 on:
   push:
-    branches: [release-b51ab03]
+    branches: [master]
     paths:
       - 'docs-site/**'
   workflow_dispatch:

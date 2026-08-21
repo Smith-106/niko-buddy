@@ -1,6 +1,6 @@
 [package]
 name = "niko-buddy"
-version = "2.5.0"
+version = "2.5.1"
 description = "Niko Buddy - A memory-based AI writing desktop system for long-form novels"
 authors = ["Smith-106"]
 edition = "2021"
