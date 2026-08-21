@@ -42,8 +42,8 @@ npm run build:github-release
 
 GitHub Release 产物包含：
 
-- `QMaiWrite_2.5.1_windows_X64.exe` — NSIS 安装包
-- `QMaiWrite_2.5.1_windows_X64.exe.sig` — 更新签名
+- `QMaiWrite_2.5.0_windows_X64.exe` — NSIS 安装包（v2.5.1 notes-only 沿用）
+- `QMaiWrite_2.5.0_windows_X64.exe.sig` — 更新签名
 - `QMaiWrite-portable.exe` — 便携版
 - `latest.json` — Tauri Updater 更新清单
 
