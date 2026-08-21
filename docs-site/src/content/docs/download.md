@@ -53,11 +53,11 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB，v2.5.1 为 notes-only 源码版本，安装包沿用 v2.5.0 资产），双击运行 NSIS 安装程序即可。
+下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB，v2.5.1 为 notes-only 源码版本，安装包沿用 v2.5.0 资产），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`QMaiWrite-portable.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite-portable.exe)（约 148 MB），解压后直接运行，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`QMaiWrite-portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite-portable.exe)（约 148 MB），解压后直接运行，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 
