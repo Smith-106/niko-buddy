@@ -7,8 +7,9 @@ use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::table::{CompactionOptions, OptimizeAction};
 use lancedb::Table;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::panic_guard::run_guarded_async;
 
@@ -18,18 +19,20 @@ use crate::panic_guard::run_guarded_async;
 // optimize. vectorstore keeps no long-lived cross-call state, so the host
 // write path (upsert / delete) bumps a cumulative change counter and hands
 // it to maybe_compact_chunks; below the threshold this is a no-op.
+//
+// WIRED: upsert_chunks and delete_page now call maybe_trigger_after_write
+// (see do_vector_upsert_chunks / do_vector_delete_page), which routes the
+// cumulative counter into maybe_compact_chunks. Compaction is best-effort
+// background maintenance and never fails the host write.
 // ──────────────────────────────────────────────────────────────────────
 
 /// Chunk-table compaction trigger threshold (cumulative change count).
-#[allow(dead_code)] // exposed for host write-path wiring (future)
 const CHUNK_COMPACTION_THRESHOLD: u64 = 100;
 /// Manifest versions retained during prune (keep newest K).
-#[allow(dead_code)] // exposed for host write-path wiring (future)
 const CHUNK_RETAIN_VERSIONS: u64 = 5;
 
 /// v2 chunk-table compaction report.
 #[derive(Debug, Clone, Default, serde::Serialize)]
-#[allow(dead_code)] // used by future host write-path wiring
 pub struct ChunkCompactionReport {
     pub fragments_removed: usize,
     pub fragments_added: usize,
@@ -41,7 +44,6 @@ pub struct ChunkCompactionReport {
 
 /// Threshold-trigger compact: only compacts once cumulative changes reach
 /// the threshold; below it returns Ok(None) (no-op). Missing table → Ok(None).
-#[allow(dead_code)] // used by future host write-path wiring
 pub async fn maybe_compact_chunks(
     project_path: &str,
     total_changes: u64,
@@ -54,7 +56,6 @@ pub async fn maybe_compact_chunks(
 
 /// Force file compaction + old-version prune on wiki_chunks_v2.
 /// Missing table returns an empty report (Ok), matching lenient semantics.
-#[allow(dead_code)] // used by future host write-path wiring
 pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport, String> {
     let db = connect(&db_path(project_path))
         .execute()
@@ -104,7 +105,6 @@ pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport,
 
 /// Prune old manifest versions, keeping the newest K. Returns
 /// (pruned_bytes, pruned_versions). Mirrors canon_store prune_table_versions.
-#[allow(dead_code)] // used by compact_chunks (future wiring)
 async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String> {
     let versions = table
         .list_versions()
@@ -138,6 +138,61 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
         Ok((p.bytes_removed, p.old_versions))
     } else {
         Ok((0, 0))
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Write-path compaction trigger
+//
+// The cumulative mutation counter is keyed by project_path, so writes to one
+// project can never trigger another project's compaction. A small Mutex<HashMap>
+// guards only the counter read/write (no lock is held across the compaction
+// await). The counter merely decides *when* to compact (a throttle) — it never
+// affects correctness.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Cumulative chunk-row mutations per project, applied through the write path
+/// (upsert adds + deletes). Used only to throttle compaction frequency.
+static CHUNK_WRITE_MUTATIONS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Best-effort compaction trigger invoked after a successful chunk-row
+/// mutation (upsert / delete). `delta` is the number of rows that changed.
+///
+/// Fault-tolerance semantics (why this NEVER fails the host write):
+///   - Best-effort maintenance: the mutation has already committed; a
+///     compaction hiccup must not roll back or error the caller.
+///   - Throttle: rows accumulate per project; only once a project's total
+///     >= CHUNK_COMPACTION_THRESHOLD is compact_chunks dispatched, and that
+///     project's counter resets to 0 so we compact at most once per
+///     THRESHOLD writes to the same project rather than continuously.
+///   - Missing table: compact_chunks returns an empty report (Ok) → no-op.
+///   - Errors are swallowed (logged on debug builds) and never propagated.
+async fn maybe_trigger_after_write(project_path: &str, delta: u64) {
+    let (total, reached) = {
+        let mut counters = CHUNK_WRITE_MUTATIONS.lock().unwrap();
+        let entry = counters.entry(project_path.to_string()).or_insert(0);
+        *entry = entry.saturating_add(delta);
+        let reached = *entry >= CHUNK_COMPACTION_THRESHOLD;
+        let total = *entry;
+        if reached {
+            // Threshold reached → reset so we don't compact on every write.
+            *entry = 0;
+        }
+        (total, reached)
+    };
+    if !reached {
+        return;
+    }
+
+    // Threshold-trigger compact (routes through maybe_compact_chunks, which
+    // re-checks the threshold and compacts above it).
+    if let Err(e) = maybe_compact_chunks(project_path, total).await {
+        // Best-effort background maintenance: log and continue.
+        #[cfg(debug_assertions)]
+        eprintln!("[vectorstore] chunk compaction failed (non-fatal): {e}");
+        #[cfg(not(debug_assertions))]
+        let _ = e;
     }
 }
 
@@ -496,6 +551,11 @@ pub async fn do_vector_upsert_chunks(
             .map_err(|e| format!("Create table error: {e}"))?;
     }
 
+    // Compaction trigger (best-effort): a successful upsert changes chunk rows,
+    // so bump the cumulative counter. Compaction must NOT block or fail the
+    // upsert — maybe_trigger_after_write swallows all failures (see its doc).
+    maybe_trigger_after_write(&project_path, chunks.len() as u64).await;
+
     Ok(())
 }
 
@@ -637,10 +697,20 @@ pub async fn do_vector_delete_page(project_path: String, page_id: String) -> Res
         .await
         .map_err(|e| format!("Open table error: {e}"))?;
 
+    // Count the chunk rows about to be removed (a page-delete is a chunk-row
+    // change feeding the write-path compaction counter). Best-effort read: a
+    // failure here only under-counts the delta — it never blocks the delete.
+    let rows_removed = table.count_rows(None).await.unwrap_or(0);
+
     table
         .delete(&format!("page_id = '{}'", page_id))
         .await
         .map_err(|e| format!("Delete error: {e}"))?;
+
+    // Compaction trigger (best-effort): the page's chunk rows are gone, so
+    // fire the cumulative counter. Failures are swallowed (see
+    // maybe_trigger_after_write) and must not fail the delete.
+    maybe_trigger_after_write(&project_path, rows_removed as u64).await;
 
     Ok(())
 }
@@ -1113,6 +1183,55 @@ mod tests_v2 {
             .unwrap();
         assert!(res.is_some());
         assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn write_path_triggered_compaction_keeps_data_intact() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Pre-seed data so compaction has rows to optimize/prune.
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
+
+        // Arm the per-project cumulative counter to sit just below threshold,
+        // then issue a real write that crosses it — proving the write path
+        // (upsert) fires compaction without breaking existing data. We drive
+        // the internal counter directly because the production threshold is
+        // intentionally high (100) for throttling and this test shouldn't
+        // need 100 synthetic writes. Reading the counter back as 0 asserts
+        // compaction dispatched and reset it. Keying by this project's temp
+        // path keeps the test deterministic even though tests run in parallel.
+        CHUNK_WRITE_MUTATIONS
+            .lock()
+            .unwrap()
+            .insert(pp.clone(), CHUNK_COMPACTION_THRESHOLD - 2);
+
+        let result = vector_upsert_chunks(
+            pp.clone(),
+            "page-a".into(),
+            make_chunks("page-a", 2, 16),
+        )
+        .await;
+        assert!(result.is_ok(), "write must not fail even if compaction runs");
+
+        // Compaction dispatched ⇒ the project's counter reset to 0.
+        let remaining = CHUNK_WRITE_MUTATIONS.lock().unwrap().get(&pp).copied().unwrap_or(0);
+        assert_eq!(remaining, 0, "crossing the threshold resets the project's cumulative counter");
+
+        // Data integrity survives compaction: count + search still work and
+        // return exactly the 2 re-upserted chunks (page-a was fully replaced).
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 2);
+        let results = vector_search_chunks(pp.clone(), fake_embedding(1, 16), 10)
+            .await
+            .unwrap();
+        assert!(!results.is_empty(), "post-compaction search should return rows");
+        for r in &results {
+            assert_eq!(r.page_id, "page-a");
+            assert!(r.chunk_id.starts_with("page-a#"));
+        }
     }
 }
 
