@@ -21,12 +21,15 @@ use crate::panic_guard::run_guarded_async;
 // ──────────────────────────────────────────────────────────────────────
 
 /// Chunk-table compaction trigger threshold (cumulative change count).
+#[allow(dead_code)] // exposed for host write-path wiring (future)
 const CHUNK_COMPACTION_THRESHOLD: u64 = 100;
 /// Manifest versions retained during prune (keep newest K).
+#[allow(dead_code)] // exposed for host write-path wiring (future)
 const CHUNK_RETAIN_VERSIONS: u64 = 5;
 
 /// v2 chunk-table compaction report.
 #[derive(Debug, Clone, Default, serde::Serialize)]
+#[allow(dead_code)] // used by future host write-path wiring
 pub struct ChunkCompactionReport {
     pub fragments_removed: usize,
     pub fragments_added: usize,
@@ -38,6 +41,7 @@ pub struct ChunkCompactionReport {
 
 /// Threshold-trigger compact: only compacts once cumulative changes reach
 /// the threshold; below it returns Ok(None) (no-op). Missing table → Ok(None).
+#[allow(dead_code)] // used by future host write-path wiring
 pub async fn maybe_compact_chunks(
     project_path: &str,
     total_changes: u64,
@@ -50,6 +54,7 @@ pub async fn maybe_compact_chunks(
 
 /// Force file compaction + old-version prune on wiki_chunks_v2.
 /// Missing table returns an empty report (Ok), matching lenient semantics.
+#[allow(dead_code)] // used by future host write-path wiring
 pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport, String> {
     let db = connect(&db_path(project_path))
         .execute()
@@ -99,6 +104,7 @@ pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport,
 
 /// Prune old manifest versions, keeping the newest K. Returns
 /// (pruned_bytes, pruned_versions). Mirrors canon_store prune_table_versions.
+#[allow(dead_code)] // used by compact_chunks (future wiring)
 async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String> {
     let versions = table
         .list_versions()
@@ -148,9 +154,10 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
 //   connection can: 1) derive the expected chunk set (page_id → indexes)
 //   from the source-of-truth doc inventory, 2) read the actual set via a
 //   v2 table scan (page_id + chunk_index), 3) feed both into
-//   reconcile_chunks, and 4) execute the returned plan by calling
-//   do_vector_upsert_chunks (for to_upsert, grouped by page_id) and
-//   do_vector_delete_page (for the page_ids in to_delete_pages). The plan
+//   reconcile_chunks, and 4) execute the returned plan by re-provisioning
+//   each page_id in to_reupsert_pages (and to_upsert) via
+//   do_vector_upsert_chunks with its full expected set, and deleting each
+//   page_id in to_delete_pages via do_vector_delete_page. The plan
 //   grouping is designed so each action maps 1:1 onto the existing
 //   page-scoped mutators. Wiring requires that new module (or the existing
 //   search/upsert host) to own the connection lifetime, hence it is left
@@ -159,6 +166,7 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
 
 /// Identity of one expected chunk.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ExpectedChunk {
     pub page_id: String,
     pub chunk_index: u32,
@@ -166,6 +174,7 @@ pub struct ExpectedChunk {
 
 /// Identity of one chunk currently present in the table.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ActualChunk {
     pub page_id: String,
     pub chunk_index: u32,
@@ -173,6 +182,7 @@ pub struct ActualChunk {
 
 /// Reconciliation plan (pure output; nothing is executed here).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ReconcilePlan {
     /// Chunk refs expected in the table but missing → these pages should be
     /// upserted (grouped by page_id before execution).
@@ -180,6 +190,10 @@ pub struct ReconcilePlan {
     /// Pages present in the table but with no matching expected chunk set →
     /// the whole page should be deleted.
     pub to_delete_pages: Vec<String>,
+    /// Pages in the expected inventory whose actual content differs from the
+    /// expected set (missing chunks, extra stale chunks, or page absent) →
+    /// the caller must re-provision the page's full expected set.
+    pub to_reupsert_pages: Vec<String>,
     /// Pages that match between expected and actual → no action.
     pub unchanged_pages: Vec<String>,
 }
@@ -198,6 +212,7 @@ pub struct ReconcilePlan {
 ///     of truth).
 ///   - A page whose expected chunk set matches the actual chunk set exactly
 ///     lands in `unchanged_pages`.
+#[allow(dead_code)] // used by future startup-reconcile wiring
 pub fn reconcile_chunks(
     expected: &[ExpectedChunk],
     actual: &[ActualChunk],
@@ -247,10 +262,10 @@ pub fn reconcile_chunks(
             plan.unchanged_pages.push(page_id.to_string());
             continue;
         }
-        // Under-provisioned (expected ⊋ actual) → re-upsert the page. We emit
-        // the individual missing chunk refs so the caller can decide the
-        // granularity; existing do_vector_upsert_chunks is page-scoped and
-        // will re-add the whole expected set (idempotent by page delete+add).
+        // Mismatch (missing and/or extra chunks) → re-provision the page's full
+        // expected set. We also emit the individually-missing chunk refs so
+        // the caller can add just what's missing when useful.
+        plan.to_reupsert_pages.push(page_id.to_string());
         let mut missing: Vec<u32> = expected_idx.difference(&actual_idx).cloned().collect();
         missing.sort_unstable();
         for idx in missing {
@@ -1015,8 +1030,9 @@ mod tests_v2 {
     #[test]
     fn reconcile_many_deletes_few_upserts() {
         // Expected only page-a chunk 0; actual has page-a 0..2 plus a stale
-        // page-b 0..3. Plan: page-a under-provisioned (missing 1,2) -> upsert;
-        // page-b stale -> delete. Many deletes, few adds.
+        // page-b 0..3. Plan: page-a has extra stale chunks 1,2 -> re-provision
+        // its full expected set; page-b stale -> delete. Many deletes, few
+        // adds.
         let expected = vec![ExpectedChunk {
             page_id: "page-a".into(),
             chunk_index: 0,
@@ -1032,13 +1048,11 @@ mod tests_v2 {
         ];
         let plan = reconcile_chunks(&expected, &actual);
 
-        // page-b is entirely stale -> delete; page-a is short -> upsert chunk1,2.
+        // page-b is entirely stale -> delete; page-a has extra chunks so it is
+        // re-provisioned (no individually-missing chunks to add).
         assert_eq!(plan.to_delete_pages, vec!["page-b"]);
-        assert!(plan.unchanged_pages.is_empty());
-        let mut got: Vec<(String, u32)> =
-            plan.to_upsert.iter().map(|c| (c.page_id.clone(), c.chunk_index)).collect();
-        got.sort();
-        assert_eq!(got, vec![("page-a".to_string(), 1), ("page-a".to_string(), 2)]);
+        assert_eq!(plan.to_reupsert_pages, vec!["page-a"]);
+        assert!(plan.to_upsert.is_empty());
     }
 
     #[test]
