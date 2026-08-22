@@ -27,6 +27,7 @@ import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { chunkMarkdown, type Chunk } from "@/lib/text-chunker"
+import { ChunkFingerprintIndex, chunkFingerprint } from "@/lib/chunk-fingerprint"
 
 // ── Error surfacing ──────────────────────────────────────────────────────
 
@@ -493,9 +494,23 @@ export async function embedPage(
   })
   if (chunks.length === 0) return
 
+  // Cross-page chunk dedup (A12): before upserting, skip any chunk whose
+  // content fingerprint already exists in the project's fingerprint index
+  // (owned by another page). This prevents the same content, ingested into
+  // multiple pages, from creating duplicate vectors that pollute retrieval.
+  const fingerprintIndex = await ChunkFingerprintIndex.load(projectPath)
+  fingerprintIndex.removeByPage(pageId)
+
   const rows: ChunkUpsertInput[] = []
   let failedChunks = 0
+  let dedupedChunks = 0
   for (const chunk of chunks) {
+    const fp = chunkFingerprint(chunk.text)
+    if (fingerprintIndex.has(fp)) {
+      // Already owned by a different (live) page — skip re-embedding it.
+      dedupedChunks++
+      continue
+    }
     const embedText = enrichChunkForEmbedding(title, chunk)
     const vec = await fetchEmbedding(embedText, cfg)
     if (vec) {
@@ -505,14 +520,16 @@ export async function embedPage(
         headingPath: chunk.headingPath,
         embedding: vec,
       })
+      fingerprintIndex.add(fp, pageId)
     } else {
       failedChunks++
     }
   }
+  await fingerprintIndex.save(projectPath)
 
   if (rows.length === 0) {
     console.log(
-      `[Embedding] Indexed nothing for "${pageId}" — all ${chunks.length} chunks failed. See getLastEmbeddingError().`,
+      `[Embedding] Indexed nothing for "${pageId}" — ${chunks.length - dedupedChunks} chunks failed, ${dedupedChunks} deduped. See getLastEmbeddingError().`,
     )
     return
   }
@@ -520,7 +537,7 @@ export async function embedPage(
   await vectorUpsertChunks(projectPath, pageId, rows)
   const elapsed = Math.round(performance.now() - t0)
   console.log(
-    `[Embedding] Indexed "${pageId}": ${rows.length}/${chunks.length} chunks (${failedChunks} skipped) in ${elapsed}ms`,
+    `[Embedding] Indexed "${pageId}": ${rows.length}/${chunks.length} chunks (${failedChunks} failed, ${dedupedChunks} deduped) in ${elapsed}ms`,
   )
 }
 
@@ -668,6 +685,15 @@ export async function removePageEmbedding(
 ): Promise<void> {
   try {
     await vectorDeletePage(projectPath, pageId)
+  } catch {
+    // non-critical
+  }
+  // Drop the page's fingerprints (A12) so its freed chunks can re-embed
+  // elsewhere; vector deletion frees the slot regardless.
+  try {
+    const index = await ChunkFingerprintIndex.load(projectPath)
+    index.removeByPage(pageId)
+    await index.save(projectPath)
   } catch {
     // non-critical
   }
