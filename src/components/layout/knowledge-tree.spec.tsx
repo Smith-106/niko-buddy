@@ -324,7 +324,8 @@ describe("KnowledgeTree", () => {
     await screen.findByText("全书大纲")
     expect(screen.getByText("sidebar.files")).toBeInTheDocument()
     expect(screen.getByText("分卷A")).toBeInTheDocument()
-    expect(screen.getByText("分卷A-甲")).toBeInTheDocument()
+    // 分卷A-甲 含连字符：真实标题仅异步 loadPages 完成后存在（回退标题会替换为空格）
+    expect(await screen.findByText("分卷A-甲")).toBeInTheDocument()
     expect(screen.getByText("空文件夹")).toBeInTheDocument()
     expect(screen.getByText("分卷大纲二")).toBeInTheDocument()
     expect(screen.getByText("分卷大纲 2 3")).toBeInTheDocument()

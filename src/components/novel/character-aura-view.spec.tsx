@@ -217,8 +217,8 @@ describe("CharacterAuraView", () => {
     // 内置灵魂详情（h2）
     expect(screen.getByText("内置灵魂", { selector: "h2" })).toBeInTheDocument()
     // 人物下拉框
-    expect(screen.getByRole("option", { name: "林烬" })).toBeInTheDocument()
-    expect(screen.getByRole("option", { name: "沈微" })).toBeInTheDocument()
+    expect(await screen.findByRole("option", { name: "林烬" })).toBeInTheDocument()
+    expect(await screen.findByRole("option", { name: "沈微" })).toBeInTheDocument()
     // 绑定区（b1 无绑定）
     expect(screen.getByText("当前灵魂还没有绑定任何小说人物。")).toBeInTheDocument()
   })
