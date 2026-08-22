@@ -324,6 +324,10 @@ function runAbMode(args) {
     `       judgeSource=${evidence.meta?.judgeSource ?? "unknown"} ⇒ ` +
     `非真实 LLM 判官臂，统计机械可算但门槛① 必须标 PENDING（硬门纪律：绝不粉饰为 PASS）`
   )
+  console.log(
+    `       判官池 registry 路由（DEBT-20260828-t31b-01）: judgePool=${JSON.stringify(evidence.meta?.judgePool ?? [])} ` +
+    `（DEFAULT_JUDGE_POOL，T36 真实补验轮 flash+ox 双异模型对；真实 LLM 臂接入时经 resolveJudgePool 路由）`
+  )
 
   // 门槛② 一致性非劣（Track A）
   const baselineTrackA = evidence.arms?.baseline?.trackA

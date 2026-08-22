@@ -24,6 +24,9 @@ import {
   resolveTierModel,
   resolveTierRole,
   resolveFallbackChain,
+  resolveJudgePool,
+  resolveJudgePair,
+  DEFAULT_JUDGE_POOL,
   isRetryableError,
   isContentError,
   classifyError,
@@ -477,6 +480,100 @@ describe("Fallback 链解析", () => {
     const r1 = resolveFallbackChain(1, noFallback)
     expect(r1.currentModel).toBe("")
     expect(r1.exhausted).toBe(true)
+  })
+})
+
+// ============================================================================
+// 判官池路由（judgePool: [flash, ox] 语义，DEBT-20260828-t31b-01）
+// ============================================================================
+
+describe("判官池路由 (resolveJudgePool)", () => {
+  const FLASH = "cpa-responses/deepseek-v4-flash"
+  const OX = "cpa-responses/ox-alpha-free"
+
+  it("DEFAULT_JUDGE_POOL 为 flash+ox 双异模型（T36 真实补验轮判官池）", () => {
+    expect(DEFAULT_JUDGE_POOL).toEqual([FLASH, OX])
+    // 异模型不变量：池内模型两两不同（判官池 ≥2 异模型来源）
+    expect(new Set(DEFAULT_JUDGE_POOL).size).toBe(DEFAULT_JUDGE_POOL.length)
+    expect(DEFAULT_JUDGE_POOL.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("显式 judgePool 配置优先：返回保序列表", () => {
+    const pool = resolveJudgePool({ judgePool: [FLASH, OX] })
+    expect(pool).toEqual([FLASH, OX])
+  })
+
+  it("显式 judgePool 保序去重 + 过滤空串", () => {
+    const pool = resolveJudgePool({ judgePool: [FLASH, "", OX, FLASH] })
+    expect(pool).toEqual([FLASH, OX])
+  })
+
+  it("无 judgePool 且无 fallbackChains → 单判官回退（现状向后兼容）", () => {
+    const pool = resolveJudgePool({ reviewModel: "gpt-4-review" })
+    expect(pool).toEqual(["gpt-4-review"])
+  })
+
+  it("无 judgePool 时由 fallbackChains.judge 派生（DEFAULT_PREMIUM_CONFIG 结构对齐）", () => {
+    const pool = resolveJudgePool(
+      { reviewModel: FLASH },
+      {
+        fallbackChains: {
+          judge: {
+            primary: OX,
+            fallbacks: ["gpt-5"],
+            exhaustedAction: "checkpoint",
+            contentFailAction: "manual_review",
+          },
+        },
+      },
+    )
+    // [roleJudge(FLASH), primary(OX), fallback(gpt-5)] 保序去重
+    expect(pool).toEqual([FLASH, OX, "gpt-5"])
+  })
+
+  it("fallbackChains.judge.primary 与 roleJudge 相同 → 去重为单判官", () => {
+    const pool = resolveJudgePool(
+      { reviewModel: FLASH },
+      {
+        fallbackChains: {
+          judge: { primary: FLASH, fallbacks: [], exhaustedAction: "checkpoint", contentFailAction: "manual_review" },
+        },
+      },
+    )
+    expect(pool).toEqual([FLASH])
+  })
+
+  it("roleJudge 为空且无任何配置 → 空池", () => {
+    expect(resolveJudgePool({})).toEqual([])
+  })
+})
+
+describe("双判官投影 (resolveJudgePair)", () => {
+  const FLASH = "cpa-responses/deepseek-v4-flash"
+  const OX = "cpa-responses/ox-alpha-free"
+
+  it("池长度 ≥2 → 双异模型判官（judgeA ≠ judgeB）", () => {
+    const { judgeA, judgeB } = resolveJudgePair([FLASH, OX])
+    expect(judgeA).toBe(FLASH)
+    expect(judgeB).toBe(OX)
+    expect(judgeA).not.toBe(judgeB)
+  })
+
+  it("池长度 1 → 双判官同模型（现状回退）", () => {
+    const { judgeA, judgeB } = resolveJudgePair(["gpt-4-review"])
+    expect(judgeA).toBe("gpt-4-review")
+    expect(judgeB).toBe("gpt-4-review")
+  })
+
+  it("池空 → 双空", () => {
+    expect(resolveJudgePair([])).toEqual({ judgeA: "", judgeB: "" })
+  })
+
+  it("注册表默认池投影即 T36 双异模型判官臂（J1=flash, J2=ox）", () => {
+    const { judgeA, judgeB } = resolveJudgePair(DEFAULT_JUDGE_POOL)
+    expect(judgeA).toBe(FLASH)
+    expect(judgeB).toBe(OX)
+    expect(judgeA).not.toBe(judgeB)
   })
 })
 

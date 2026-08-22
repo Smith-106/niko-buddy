@@ -65,6 +65,11 @@ import {
   OFFLINE_REPLAY_AB_SEED,
   type PairedMedianDiffStats,
 } from "./offline-replay-config"
+import {
+  DEFAULT_JUDGE_POOL,
+  resolveJudgePool,
+  resolveJudgePair,
+} from "@/lib/llm/model-resolver"
 
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -105,6 +110,14 @@ interface AbEvidencePayload {
     judgeSource: "fixture-mock"
     modelPort: "mock"
     note: string
+    /**
+     * 判官池 registry 路由（DEBT-20260828-t31b-01）:
+     * 真实 LLM 判官臂的默认池 = DEFAULT_JUDGE_POOL（flash+ox 双异模型，
+     * T36 真实补验轮定稿），经 resolveJudgePool 从 registry 解析，不再硬编码。
+     * 本 spec 的评分仍为 fixture 注入（judgeSource=fixture-mock），
+     * 该字段仅声明真实臂的可配路由。
+     */
+    judgePool: string[]
   }
   seed: number
   bootstrapResamples: number
@@ -160,9 +173,12 @@ const EVIDENCE: AbEvidencePayload = {
   meta: {
     judgeSource: "fixture-mock",
     modelPort: "mock",
+    judgePool: [...DEFAULT_JUDGE_POOL],
     note:
       "六维评分为确定性 fixture 注入（非真实 LLM 判官臂）：仅证明门槛①统计机械可算且自检不偏袒；" +
-      "真实 LLM 臂不可达 ⇒ 门槛①必须标 PENDING（硬门纪律：绝不粉饰为 PASS）。",
+      "真实 LLM 臂不可达 ⇒ 门槛①必须标 PENDING（硬门纪律：绝不粉饰为 PASS）。" +
+      "真实 LLM 判官臂的可配路由经 registry 声明（meta.judgePool = DEFAULT_JUDGE_POOL：" +
+      "flash+ox 双异模型，T36 真实补验轮定稿）。",
   },
   seed: OFFLINE_REPLAY_AB_SEED,
   bootstrapResamples: OFFLINE_REPLAY_AB_BOOTSTRAP_RESAMPLES,
@@ -410,6 +426,56 @@ describe("T36 精品模式 A/B 验收（终端硬门）", () => {
   EVIDENCE.pairing.sameTaskBriefByteEqualAllPairs = true
   EVIDENCE.arms.baseline.sixDimOverallByBook = { ...baselineOverallByBook }
   EVIDENCE.arms.premium.sixDimOverallByBook = { ...premiumOverallByBook }
+
+  // ── 判官池 registry 路由（DEBT-20260828-t31b-01） ────────────────────
+
+  describe("判官池 registry 路由（judgePool: [flash, ox] 语义，真实 LLM 臂可配）", () => {
+    it("注册表默认判官池 = T36 真实补验轮 flash+ox 双异模型对（J1=deepseek-v4-flash, J2=ox-alpha-free）", () => {
+      expect(DEFAULT_JUDGE_POOL).toHaveLength(2)
+      expect(new Set(DEFAULT_JUDGE_POOL).size).toBe(2) // 异模型不变量
+      expect(DEFAULT_JUDGE_POOL[0]).toContain("deepseek-v4-flash")
+      expect(DEFAULT_JUDGE_POOL[1]).toContain("ox-alpha-free")
+    })
+
+    it("显式 judgePool 配置经 resolveJudgePool 路由为双异模型判官臂", () => {
+      const pool = resolveJudgePool({ judgePool: [...DEFAULT_JUDGE_POOL] })
+      const { judgeA, judgeB } = resolveJudgePair(pool)
+      expect(pool).toEqual([...DEFAULT_JUDGE_POOL])
+      expect(judgeA).toBe(DEFAULT_JUDGE_POOL[0])
+      expect(judgeB).toBe(DEFAULT_JUDGE_POOL[1])
+      expect(judgeA).not.toBe(judgeB) // 双异模型交叉验证语义
+    })
+
+    it("向后兼容：无 judgePool 配置时回退单判官（judgeA === judgeB）", () => {
+      const pool = resolveJudgePool({ reviewModel: "gpt-4-review" })
+      expect(pool).toEqual(["gpt-4-review"])
+      const { judgeA, judgeB } = resolveJudgePair(pool)
+      expect(judgeA).toBe(judgeB)
+    })
+
+    it("向后兼容：fallbackChains.judge.primary 派生双判官（与 premium-execution 现状一致）", () => {
+      const pool = resolveJudgePool(
+        { reviewModel: DEFAULT_JUDGE_POOL[0] },
+        {
+          fallbackChains: {
+            judge: {
+              primary: DEFAULT_JUDGE_POOL[1],
+              fallbacks: [],
+              exhaustedAction: "checkpoint",
+              contentFailAction: "manual_review",
+            },
+          },
+        },
+      )
+      expect(pool).toEqual([...DEFAULT_JUDGE_POOL])
+    })
+
+    it("证据 meta 声明 registry 解析的判官池（不再硬编码于 driver/报告）", () => {
+      expect(EVIDENCE.meta.judgePool).toEqual([...DEFAULT_JUDGE_POOL])
+      // 本 spec 评分仍为 fixture 注入，真实 LLM 臂路由由 registry 声明
+      expect(EVIDENCE.meta.judgeSource).toBe("fixture-mock")
+    })
+  })
 
   // ── 门槛① 六维 overall 中位差 ────────────────────────────────────────
 

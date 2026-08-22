@@ -18,7 +18,11 @@
  */
 
 import { ModelPort } from "@/lib/llm/model-port"
-import { resolveRoleModel } from "@/lib/llm/model-resolver"
+import {
+  resolveRoleModel,
+  resolveJudgePool,
+  resolveJudgePair,
+} from "@/lib/llm/model-resolver"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { PremiumConfig } from "./premium-config"
 import { isPremiumEnabled, getEffectiveTriggers } from "./premium-config"
@@ -529,8 +533,10 @@ export async function runConsensusGate(
 ): Promise<ConsensusVerdict> {
   if (signal?.aborted) throw new Error("已停止生成")
 
-  const judgeModelA = resolveRoleModel("judge", input.projectConfig)
-  const judgeModelB = input.premiumConfig.fallbackChains.judge?.primary || judgeModelA
+  // 判官池 registry 路由（DEBT-20260828-t31b-01）:
+  //   judgePool 显式列表 > fallbackChains.judge 派生 > 单判官回退（现状）
+  const judgePool = resolveJudgePool(input.projectConfig, input.premiumConfig)
+  const { judgeA: judgeModelA, judgeB: judgeModelB } = resolveJudgePair(judgePool)
 
   const prompt = buildConsensusJudgePrompt(input.contextPack, text)
 
@@ -647,8 +653,10 @@ export async function runDualJudge(
 ): Promise<string> {
   if (signal?.aborted) throw new Error("已停止生成")
 
-  const judgeModelA = resolveRoleModel("judge", input.projectConfig)
-  const judgeModelB = input.premiumConfig.fallbackChains.judge?.primary || judgeModelA
+  // 判官池 registry 路由（DEBT-20260828-t31b-01）:
+  //   judgePool 显式列表 > fallbackChains.judge 派生 > 单判官回退（现状）
+  const judgePool = resolveJudgePool(input.projectConfig, input.premiumConfig)
+  const { judgeA: judgeModelA, judgeB: judgeModelB } = resolveJudgePair(judgePool)
 
   const prompt = buildConsensusJudgePrompt(input.contextPack, text)
 

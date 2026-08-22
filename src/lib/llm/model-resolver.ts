@@ -55,6 +55,8 @@ export interface ProjectModelConfig {
   reviewModel?: string
   summaryModel?: string
   extractModel?: string
+  /** 判官池显式模型列表（judge 角色多模型路由，见 resolveJudgePool）。 */
+  judgePool?: string[]
 }
 
 /**
@@ -73,7 +75,8 @@ export function resolveRoleModel(
   config: ProjectModelConfig,
 ): string {
   const field = ROLE_TO_CONFIG_FIELD[role] as keyof ProjectModelConfig
-  return config[field] || config.writingModel || ""
+  // judgePool 为 string[] 字段，与角色→模型单字段语义无关，需收窄为 string
+  return (config[field] as string | undefined) || config.writingModel || ""
 }
 
 /**
@@ -142,6 +145,110 @@ export function resolveTierModel(
  */
 export function resolveTierRole(tier: TaskTier): WritingRole {
   return TIER_TO_ROLE[tier]
+}
+
+// ── 判官池路由（judge 角色多模型，DEBT-20260828-t31b-01 后半截） ─────────────────
+
+/**
+ * 判官池显式配置（judgePool: [flash, ox] 语义）。
+ *
+ * `judgePool` 为判官模型的有序列表，首个为主判官。
+ * 空 / 缺省 → 回退到现有单判官绑定（resolveRoleModel("judge")），向后兼容。
+ */
+export interface JudgePoolConfig {
+  judgePool?: string[]
+}
+
+/**
+ * 判官池解析源（精品模式 fallback 链的 judge 角色槽）。
+ * 结构对齐 DEFAULT_PREMIUM_CONFIG.fallbackChains（premium-config.ts）。
+ */
+export interface JudgePoolSource {
+  fallbackChains?: Partial<Record<"judge", FallbackChainConfig>>
+}
+
+/**
+ * 注册表默认判官池：T36 真实补验轮定稿的 flash + ox 双异模型对
+ * （J1=cpa-responses/deepseek-v4-flash，J2=cpa-responses/ox-alpha-free，
+ * 见 docs/p6/ab-evidence/aggregate-summary.json 与 docs/p6/premium-mode-ab-report.md §3）。
+ *
+ * offline-replay A/B 判官臂显式引用此常量作为可配默认（registry 单点定义，
+ * 不再散落硬编码于 driver/spec/aggregator）；产品运行路径不隐式启用——
+ * 无 judgePool 配置时仍回退单判官（向后兼容）。
+ */
+export const DEFAULT_JUDGE_POOL: readonly string[] = [
+  "cpa-responses/deepseek-v4-flash",
+  "cpa-responses/ox-alpha-free",
+] as const
+
+/**
+ * 保序去重（保留首次出现），跳过非字符串与空串。纯函数。
+ */
+function dedupeKeepOrder(models: readonly (string | undefined)[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const m of models) {
+    if (typeof m !== "string") continue
+    const trimmed = m.trim()
+    if (trimmed === "" || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+/**
+ * 解析判官池（judge 角色多模型路由，judgePool: [flash, ox] 语义）。
+ *
+ * 解析优先级:
+ *   1. config.judgePool 显式列表（非空 → 保序去重原样返回）
+ *   2. roleJudge + fallbackChains.judge 派生（[roleJudge, primary, ...fallbacks]
+ *      保序去重）——与 DEFAULT_PREMIUM_CONFIG.fallbackChains.judge 结构对齐
+ *   3. 单判官 [roleJudge]（无任何配置 → 现状回退）
+ *   4. []（roleJudge 也为空，调用方自行处理）
+ *
+ * 向后兼容（DEBT-20260828-t31b-01）:
+ *   - 无 judgePool 且无 fallbackChains.judge → [resolveRoleModel("judge")]，
+ *     与 premium-execution 现状（judgeA === judgeB 单判官）行为一致；
+ *   - 仅 fallbackChains.judge.primary 且 ≠ roleJudge → [roleJudge, primary]，
+ *     与现状（judgeModelB = primary || judgeModelA）一致。
+ *
+ * 纯函数：同输入同输出，无 IO / 无模型调用。
+ */
+export function resolveJudgePool(
+  config: ProjectModelConfig & JudgePoolConfig,
+  premiumConfig?: JudgePoolSource,
+): string[] {
+  const explicit = config.judgePool
+  if (explicit && explicit.length > 0) {
+    return dedupeKeepOrder(explicit)
+  }
+  const roleJudge = resolveRoleModel("judge", config)
+  const chain = premiumConfig?.fallbackChains?.judge
+  const derived: (string | undefined)[] = [
+    roleJudge,
+    chain?.primary,
+    ...(chain?.fallbacks ?? []),
+  ]
+  return dedupeKeepOrder(derived)
+}
+
+/**
+ * 从判官池取双判官（judgeA / judgeB）——双判官执行语义的纯函数投影。
+ *
+ *   - 池长度 ≥ 2 → judgeA / judgeB 为池中前两个（双异模型）
+ *   - 池长度 1 → judgeA === judgeB（单判官，现状回退）
+ *   - 池空 → 双空（调用方自行处理）
+ *
+ * 纯函数。
+ */
+export function resolveJudgePair(pool: readonly string[]): {
+  judgeA: string
+  judgeB: string
+} {
+  const judgeA = pool[0] ?? ""
+  const judgeB = pool[1] ?? judgeA
+  return { judgeA, judgeB }
 }
 
 // ── Fallback 链 ─────────────────────────────────────────────────────────────────

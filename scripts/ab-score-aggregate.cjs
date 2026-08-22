@@ -33,6 +33,13 @@ const j1Prefs = readJSON('judges/judge-1-preferences.json')
 const j2Prefs = readJSON('judges/judge-2-preferences.json')
 const pairIndex = readJSON('pair-index.json')
 
+// 判官身份从判官池数据读取（DEBT-20260828-t31b-01）：
+// scores 文件的 `model` 字段即判官池成员（registry 默认池 flash+ox 的数据侧镜像），
+// 不再在脚本内硬编码双子代理标签。
+const j1Model = (j1Scores.model || 'deepseek-v4-flash')
+const j2Model = (j2Scores.model || 'ox-alpha-free')
+const judgeLabel = (full) => (full.includes('/') ? full.split('/').pop() : full)
+
 // 统一数据格式（兼容 scores 可能是数组或 {scores:[]}）
 const j1ScoresArr = j1Scores.scores || j1Scores
 const j2ScoresArr = j2Scores.scores || j2Scores
@@ -151,7 +158,7 @@ const avgDiffs = pairedData.map(p => {
 
 console.log(`\n## 门槛①：六维 overall 中位差（精品−基线）`)
 console.log(`\n配对样本数 N = ${pairedData.length}`)
-console.log(`\n### J1 (deepseek-v4-flash)`)
+console.log(`\n### J1 (${judgeLabel(j1Model)})`)
 const j1CI = bootstrapCI(j1Diffs, 10000)
 console.log(`  中位差: ${j1CI.median.toFixed(4)}`)
 console.log(`  均值差: ${mean(j1Diffs).toFixed(4)}`)
@@ -160,7 +167,7 @@ console.log(`  CI 含 0: ${j1CI.lower <= 0 && j1CI.upper >= 0 ? '⚠️ 是' : '
 console.log(`  meetsMinDiff(≥+0.5): ${j1CI.median >= 0.5 ? '✓ 是' : '✗ 否'}`)
 console.log(`  significant: ${j1CI.lower > 0 ? '✓ 是' : '✗ 否（CI 含 0 或跨零）'}`)
 
-console.log(`\n### J2 (ox-alpha-free)`)
+console.log(`\n### J2 (${judgeLabel(j2Model)})`)
 const j2CI = bootstrapCI(j2Diffs, 10000)
 console.log(`  中位差: ${j2CI.median.toFixed(4)}`)
 console.log(`  均值差: ${mean(j2Diffs).toFixed(4)}`)
@@ -314,7 +321,7 @@ const summary = {
   experiment: 'T36 真实补验轮',
   date: new Date().toISOString().split('T')[0],
   sampleSize: pairedData.length,
-  judges: ['J1-deepseek-v4-flash', 'J2-ox-alpha-free'],
+  judges: [`J1-${judgeLabel(j1Model)}`, `J2-${judgeLabel(j2Model)}`],
   threshold1: {
     medianDiff: avgCI.median,
     ci95: [avgCI.lower, avgCI.upper],
