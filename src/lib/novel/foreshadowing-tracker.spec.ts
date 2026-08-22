@@ -16,6 +16,7 @@ import {
   createEmptyForeshadowingStore,
   foreshadowingToContextText,
   loadForeshadowingTracker,
+  markAbandoned,
   saveForeshadowingTracker,
   type Foreshadowing,
 } from "./foreshadowing-tracker"
@@ -100,5 +101,44 @@ describe("foreshadowing-tracker", () => {
     expect(text).toContain("[已埋设] 玉佩：来历不明的玉佩（第3章埋设）")
     expect(text).toContain("[推进中] 铜镜：来历不明的玉佩（第5章埋设）")
     expect(text).not.toContain("c")
+  })
+
+  it("foreshadowingToContextText excludes abandoned items (卸离活跃伏笔链)", () => {
+    const store = {
+      items: [
+        shadow({ id: "a", status: "planted", name: "玉佩", plantedChapter: 3 }),
+        shadow({ id: "b", status: "abandoned", name: "断线", plantedChapter: 4 }),
+        shadow({ id: "c", status: "advanced", name: "铜镜", plantedChapter: 5 }),
+      ],
+      lastUpdated: "t",
+    }
+    const text = foreshadowingToContextText(store)
+    expect(text).toContain("玉佩")
+    expect(text).toContain("铜镜")
+    expect(text).not.toContain("断线")
+  })
+
+  describe("markAbandoned", () => {
+    it("planted → abandoned 合法转移，返回新对象不原地改", () => {
+      const f = shadow({ status: "planted" })
+      const out = markAbandoned(f)
+      expect(out.status).toBe("abandoned")
+      expect(f.status).toBe("planted")
+      expect(out).not.toBe(f)
+    })
+
+    it("advanced → abandoned 合法转移", () => {
+      const f = shadow({ status: "advanced" })
+      expect(markAbandoned(f).status).toBe("abandoned")
+      expect(f.status).toBe("advanced")
+    })
+
+    it("resolved 不可废弃 → 抛错", () => {
+      expect(() => markAbandoned(shadow({ status: "resolved", resolvedChapter: 8 }))).toThrow()
+    })
+
+    it("abandoned 不可二次废弃 → 抛错", () => {
+      expect(() => markAbandoned(shadow({ status: "abandoned" }))).toThrow()
+    })
   })
 })

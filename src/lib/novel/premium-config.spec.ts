@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_PREMIUM_CONFIG,
   DEFAULT_PREMIUM_MODE_TRIGGERS,
+  initJournalTtlMsFromConfig,
   isPremiumEnabled,
   getEffectiveTriggers,
   rollbackToSingleModel,
@@ -31,6 +32,7 @@ import {
   type PremiumModeTriggers,
   type HardPreconditionInput,
 } from "./premium-config"
+import { effectiveJournalTtlMs, JOURNAL_TTL_MS } from "./stage-output-journal"
 
 // ── 足够长的安全前缀（≥50 字符，用于测试）─────────────────────────────────
 const LONG_SAFE_PREFIX =
@@ -475,5 +477,27 @@ describe("tryEnablePremium", () => {
     const original = { ...baseConfig }
     tryEnablePremium(baseConfig, satisfiedInput)
     expect(baseConfig).toEqual(original)
+  })
+})
+
+// ── A9 journal TTL 接线 ─────────────────────────────────────────────────────
+describe("A9 journalTtlMs 配置面", () => {
+  it("DEFAULT_PREMIUM_CONFIG 不含 journalTtlMs（零差异默认）", () => {
+    expect(DEFAULT_PREMIUM_CONFIG.journalTtlMs).toBeUndefined()
+    // 未配置 → init 后回退 journal 默认 TTL
+    initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG })
+    expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
+  })
+
+  it("配置了 journalTtlMs → init 转发生效（幂等，最后一次胜）", () => {
+    initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: 123_456 })
+    expect(effectiveJournalTtlMs()).toBe(123_456)
+    initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: 999 })
+    expect(effectiveJournalTtlMs()).toBe(999)
+  })
+
+  it("显式 undefined → 回退默认；结束后恢复默认避免污染其他用例", () => {
+    initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: undefined })
+    expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
   })
 })

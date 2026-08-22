@@ -19,6 +19,7 @@
  */
 
 import type { FallbackChainConfig } from "@/lib/llm/model-resolver"
+import { setJournalTtlMs } from "./stage-output-journal"
 
 // ── 类型定义 ─────────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,12 @@ export interface PremiumConfig {
   >
   /** 硬前置检查所需最小零差异持续章数（默认 3）。 */
   requiredZeroDiffChapters: number
+  /**
+   * 编排面 LLM 工件缓存 TTL（ms）。可选；未配置/缺省 → journal 用默认 T+1h（零差异）。
+   * 配置加载方应在加载完成后调用 `initJournalTtlFromConfig` 接线到
+   * `stage-output-journal` 的 setter（本字段不进 DEFAULT，保证默认零差异）。
+   */
+  journalTtlMs?: number
 }
 
 // ── 默认值 ───────────────────────────────────────────────────────────────────────
@@ -328,4 +335,23 @@ export function tryEnablePremium(
   }
 
   return { ok: true, config, precondition }
+}
+
+// ── journal TTL 接线 ──────────────────────────────────────────────────────────
+
+/**
+ * 将 `PremiumConfig.journalTtlMs` 转发到 `stage-output-journal` 的 TTL setter。
+ *
+ * 配置加载完成处（编排面配置解析入口）调用一次：
+ *   `initJournalTtlFromConfig(config)`
+ * 未配置（`undefined`）时转 `null` → journal 回退默认 T+1h（零差异）。
+ *
+ * ⚠️ 注记：编排面唯一接线段 `deep-chapter-generation.ts` 为他人 WIP 禁区，
+ *   故此处不在 WIP 内直接调用，而是导出本接线函数，由未来采用方在非 WIP
+ *   加载入口调用一次即可。重复调用幂等（最后一次调用的 config 生效）。
+ *
+ * @param config 项目精品配置（可直接传 `DEFAULT_PREMIUM_CONFIG`，等价零差异）。
+ */
+export function initJournalTtlMsFromConfig(config: PremiumConfig): void {
+  setJournalTtlMs(config.journalTtlMs ?? null)
 }

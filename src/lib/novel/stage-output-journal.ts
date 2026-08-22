@@ -43,6 +43,28 @@ export const JOURNAL_TTL_MS = 60 * 60 * 1000
 /** 缓存记录 schema 版本号（用于日后兼容迁移）。 */
 export const JOURNAL_SCHEMA_VERSION = 1
 
+/**
+ * 运行期 TTL 覆写值（ms）。默认 `null`（未覆写 → 用 `JOURNAL_TTL_MS`）。
+ * 供配置面接线方经 `setJournalTtlMs` 写入；不写时行为与默认完全一致（零差异）。
+ *
+ * ⚠️ 技术债注记：[deep-chapter-generation.ts](/api/.../deep-chapter-generation.ts)
+ * 是编排面唯一应接线 journal 的入口（他人 WIP 禁区，此处不予触碰）。后续接入点：
+ *   `src/lib/novel/stage-output-journal.ts` 顶部调用 `setJournalTtlMs(config.ttlMs)`。
+ * 现阶段以模块内 setter 作为安全接线面，任何配置对象解析都在该文件内完成，
+ * 不把解析耦合进 `deep-chapter-generation.ts`。
+ */
+let journalTtlMsOverride: number | null = null
+
+/** 安全接线面：设置编排面 cache TTL（ms）。传任意正数即全量生效；传 null 恢复默认。 */
+export function setJournalTtlMs(ms: number | null): void {
+  journalTtlMsOverride = ms
+}
+
+/** 生效 TTL：优先取配置覆写，未配置则回退默认 `JOURNAL_TTL_MS`（T+1h，零差异）。 */
+export function effectiveJournalTtlMs(): number {
+  return journalTtlMsOverride ?? JOURNAL_TTL_MS
+}
+
 /** 运行的 journal 目录：`{projectId}/.novel/journal/`。 */
 export function journalDirPath(projectId: string): string {
   return `${normalizePath(projectId)}/.novel/${JOURNAL_DIR_NAME}`
@@ -152,7 +174,7 @@ export function buildStageRecord(
   stage: string,
   payload: unknown,
   now: number,
-  ttlMs: number = JOURNAL_TTL_MS,
+  ttlMs: number = effectiveJournalTtlMs(),
 ): StageOutputRecord {
   return {
     digest,
@@ -288,7 +310,7 @@ export async function resolveStageOutput(
   stage: string,
   producer: () => Promise<unknown>,
   now: number,
-  ttlMs: number = JOURNAL_TTL_MS,
+  ttlMs: number = effectiveJournalTtlMs(),
 ): Promise<StageCacheLookup> {
   const hit = await loadJournalEntry(deps, projectId, digest, stage, now)
   if (hit) return { hit: true, record: hit }

@@ -25,6 +25,8 @@ import {
   loadJournalEntry,
   resolveStageOutput,
   defaultStageJournalDeps,
+  setJournalTtlMs,
+  effectiveJournalTtlMs,
   type StageJournalDeps,
   type StageOutputRecord,
 } from "./stage-output-journal"
@@ -371,5 +373,32 @@ describe("defaultStageJournalDeps", () => {
   it("createDirectory 透传", async () => {
     await defaultStageJournalDeps().createDirectory("d")
     expect(createDirectoryMock).toHaveBeenCalledWith("d")
+  })
+})
+
+describe("TTL wiring（safe config surface）", () => {
+  beforeEach(() => {
+    setJournalTtlMs(null) // 复位全局覆写，避免污染其它用例
+  })
+
+  it("默认未覆写时回退 JOURNAL_TTL_MS（零差异）", () => {
+    expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
+  })
+
+  it("setJournalTtlMs 覆写后 buildStageRecord/resolveStageOutput 默认读取新值", async () => {
+    setJournalTtlMs(99_999)
+    expect(effectiveJournalTtlMs()).toBe(99_999)
+    const r = buildStageRecord("d", "gen", {}, NOW)
+    expect(r.ttlMs).toBe(99_999)
+    expect(r.expiresAt).toBe(NOW + 99_999)
+    const deps = mockDeps({ read: async () => "", writeFile: vi.fn(async () => {}) })
+    const res = await resolveStageOutput(deps, "C:/proj", "abc", "gen", async () => ({}), NOW)
+    expect(res.record!.ttlMs).toBe(99_999)
+  })
+
+  it("setJournalTtlMs(null) 恢复默认", () => {
+    setJournalTtlMs(1)
+    setJournalTtlMs(null)
+    expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
   })
 })

@@ -25,7 +25,7 @@ import {
 } from "@/lib/llm/model-resolver"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { PremiumConfig } from "./premium-config"
-import { isPremiumEnabled, getEffectiveTriggers } from "./premium-config"
+import { initJournalTtlMsFromConfig, isPremiumEnabled, getEffectiveTriggers } from "./premium-config"
 import type { ContextPack } from "./context-engine"
 import { contextPackToPrompt } from "./context-engine"
 
@@ -398,6 +398,8 @@ export async function runGcrLoop(
     const proposal: string = await (async () => {
       if (roundIndex === 0) {
         // 双提案模式启用时使用 runDualProposal 替代初始生成
+        // A9 TTL 接线：执行入口同步 journal TTL（幂等；未配置时零差异）
+        initJournalTtlMsFromConfig(input.premiumConfig)
         const triggers = getEffectiveTriggers(input.premiumConfig)
         if (triggers.dualProposal) {
           return runDualProposal(input, signal)
@@ -730,6 +732,8 @@ export async function runPremiumExecution(
     }
   }
 
+  // A9 TTL 接线：执行入口同步 journal TTL（幂等；未配置时零差异）
+  initJournalTtlMsFromConfig(input.premiumConfig)
   const triggers = getEffectiveTriggers(input.premiumConfig)
   let workingText = input.chapterContent
   let gcrRounds: GcrRound[] = []
