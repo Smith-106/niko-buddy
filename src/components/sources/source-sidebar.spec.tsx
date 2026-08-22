@@ -207,7 +207,9 @@ function fileRow(name: string): HTMLElement {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // resetAllMocks（而非 clearAllMocks）：清除 mockReturnValue，防兄弟测试
+  // 泄漏 isTauri:true 到非 Tauri 断言（shuffle 顺序下复现的 flake）。
+  vi.resetAllMocks()
   resetState()
   defaultFsMocks()
   stubGetAnimations()
