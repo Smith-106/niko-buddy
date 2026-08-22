@@ -69,6 +69,8 @@ const mocks = vi.hoisted(() => {
     resolveDefaultModel: vi.fn<() => string | null>(() => null),
     hasUsableLlm: vi.fn<() => boolean>(() => true),
     loadCognitionState: vi.fn<() => Promise<CognitionState | null>>(),
+    loadEmotionLedger: vi.fn<() => Promise<unknown>>(),
+    getCircuitBreakerStatus: vi.fn<() => { status: string; reason: string }>(),
     listGenerationHistory: vi.fn<() => Promise<GenerationHistoryEntry[]>>(),
     deleteGenerationHistoryEntry: vi.fn<(id: string) => Promise<void>>(),
     startNovelReviewRun: vi.fn<() => Promise<void>>(),
@@ -139,6 +141,10 @@ vi.mock("@/commands/fs", () => ({
 vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: mocks.resolveDefaultModel }))
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
 vi.mock("@/lib/novel/character-cognition", () => ({ loadCognitionState: mocks.loadCognitionState }))
+vi.mock("@/lib/novel/emotion-ledger", () => ({
+  loadEmotionLedger: mocks.loadEmotionLedger,
+  getCircuitBreakerStatus: mocks.getCircuitBreakerStatus,
+}))
 vi.mock("@/lib/novel/generation-history", () => ({
   listGenerationHistory: mocks.listGenerationHistory,
   deleteGenerationHistoryEntry: mocks.deleteGenerationHistoryEntry,
@@ -340,6 +346,8 @@ beforeEach(() => {
   mocks.listDirectory.mockResolvedValue([])
   mocks.deleteFile.mockResolvedValue(undefined)
   mocks.loadCognitionState.mockResolvedValue(makeCognition())
+  mocks.loadEmotionLedger.mockResolvedValue(null)
+  mocks.getCircuitBreakerStatus.mockReturnValue({ status: "open", reason: "" })
   mocks.listGenerationHistory.mockResolvedValue([])
   mocks.deleteGenerationHistoryEntry.mockResolvedValue(undefined)
   mocks.dismissFinding.mockResolvedValue(undefined)

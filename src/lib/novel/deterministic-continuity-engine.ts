@@ -42,6 +42,9 @@ import type { ForeshadowingStore } from "./foreshadowing-tracker"
 import type { Subplot } from "./subplot-board"
 import type { CharacterState } from "./character-state"
 import type { ChapterSnapshot } from "./chapter-ingest"
+// T24 (TASK-P3-24): taxonomyDimId 映射目标 = T22 audit-taxonomy 37 维 id。
+// 仅 type-only import (零运行时依赖, 守本文件 ADR-29 纯函数零 IO 零 LLM 纪律)。
+import type { AuditDimensionId } from "./audit-taxonomy"
 import { analyzeForeshadowingDebt } from "./foreshadowing-debt"
 // S2c (roadmap R08): Quillica Story Threads 6 状态机合并 — 新检测维度。
 // 只 import 纯函数 (deriveThreadArcState/detectArcTransitionViolations),
@@ -81,6 +84,15 @@ export interface ContinuityFindingBase {
   chapter: number
   /** 全脱敏证据 (实体标识/章号, 不引用正文守 CWE-532) */
   evidence?: string
+  /**
+   * T24 (TASK-P3-24) additive: 归属 T22 audit-taxonomy 37 维审计维度 id。
+   * 机械检测项 → 37 维映射 (dormant/overdue subplot→subplot_resolution,
+   * absent/dead→character_consistency, foreshadowing→foreshadowing_integrity,
+   * thread arc→arc_structural, timeline_drift→timeline_consistency)。
+   * data_gap 无 37 维槽位 → 字段缺省 (undefined, 非 consistency 统计口径守 IC-02)。
+   * additive-only: 缺省 undefined 时下游零行为变更 (守 ADR-31)。
+   */
+  taxonomyDimId?: AuditDimensionId
 }
 
 /**
@@ -306,6 +318,7 @@ function detectDormantThread(
         ref: `subplot:${s.id}`,
         message: `subplot ${s.title} 休眠 ${gap} 章 (lastSeen ${lastSeen}, current ${store.currentChapter}, threshold ${threshold})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "subplot_resolution",
       })
     }
   }
@@ -339,6 +352,7 @@ function detectAbsentCharacter(
         ref: `character:${c.characterName}`,
         message: `${c.characterName} 缺席 ${gap} 章 (lastSeen ${lastSeen})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "character_consistency",
       })
     }
   }
@@ -351,18 +365,69 @@ function detectAbsentCharacter(
  * consistency_mechanical), debtLevel==='warning' 产 unresolved_foreshadowing
  * (warning)。不重写逾期检测 (守 QMAI CLAUDE.md 禁止 clean-room 重写)。
  *
- * Subplot targetResolutionChapter? (Phase 3 deferred): 当前未接入, 全部 subplot
- * 走 foreshadowing-debt 检测; 后续 Phase 3 升级后可补 subplot 逾期检测。
+ * Phase 3 (LE-1): Subplot targetResolutionChapter?/abandoned? 结构化逾期标记
+ * 已接入 — 优先读 s.targetResolutionChapter?/s.abandoned?，字段存在则判 critical
+ * （结构化逾期），undefined 回退 data_gap 降级（不阻断，守 IC-02）。
+ * 既有 foreshadowing 逾期检测保留不变。
  */
 function detectOverdueThread(
   store: ReadonlyStore,
   _config: ContinuityEngineConfig,
 ): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+
+  // Phase 3: Subplot 结构化逾期检测（优先读结构化字段）
+  for (const s of store.subplots) {
+    if (s.status === "resolved") continue
+
+    // 结构化 abandoned=true → 废弃标记
+    if (s.abandoned === true) {
+      findings.push({
+        type: "overdue_thread",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: `subplot:${s.id}`,
+        message: `subplot ${s.title} 被标记为废弃 (abandoned=true, 结构化逾期)`,
+        chapter: store.currentChapter,
+        taxonomyDimId: "subplot_resolution",
+      })
+      continue
+    }
+
+    // 结构化 targetResolutionChapter 存在且 ≤ currentChapter → 逾期
+    if (s.targetResolutionChapter !== undefined) {
+      if (s.targetResolutionChapter <= store.currentChapter) {
+        findings.push({
+          type: "overdue_thread",
+          subtype: "consistency_mechanical",
+          severity: "critical",
+          ref: `subplot:${s.id}`,
+          message: `subplot ${s.title} targetResolutionChapter ${s.targetResolutionChapter} <= current ${store.currentChapter} (结构化逾期)`,
+          chapter: store.currentChapter,
+          taxonomyDimId: "subplot_resolution",
+        })
+      }
+      // targetResolutionChapter > currentChapter → 未到期，不产 finding
+      continue
+    }
+
+    // 结构化字段均 undefined → data_gap 降级（不阻断，守 IC-02）
+    findings.push({
+      type: "data_gap",
+      subtype: "data_gap",
+      severity: "info",
+      ref: `subplot:${s.id}`,
+      message: `subplot ${s.title} 缺 targetResolutionChapter/abandoned 字段，无法判断逾期`,
+      chapter: store.currentChapter,
+      missingField: "targetResolutionChapter",
+    })
+  }
+
+  // 既有 foreshadowing 逾期检测（保留不变）
   const report = analyzeForeshadowingDebt(
     { items: [...store.foreshadowing] } as ForeshadowingStore,
     store.currentChapter,
   )
-  const findings: ContinuityFinding[] = []
   for (const item of report.items) {
     if (item.debtLevel === "critical") {
       findings.push({
@@ -372,6 +437,7 @@ function detectOverdueThread(
         ref: `foreshadowing:${item.id}`,
         message: `foreshadowing ${item.name} 逾期未回收 (debtLevel critical, planted ${item.plantedChapter}, current ${store.currentChapter})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "foreshadowing_integrity",
       })
     } else if (item.debtLevel === "warning") {
       findings.push({
@@ -381,6 +447,7 @@ function detectOverdueThread(
         ref: `foreshadowing:${item.id}`,
         message: `foreshadowing ${item.name} 未回收 (debtLevel warning, status ${item.status})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "foreshadowing_integrity",
       })
     }
   }
@@ -408,10 +475,15 @@ function detectDeadCharacterState(
     const isDeadByStructural =
       c.isAlive === false ||
       (c.deathChapter !== undefined && c.deathChapter <= store.currentChapter)
+    // LE-2 Phase 2: isAlive === true 作为活态守卫, 跳过 regex fallback,
+    // 消除「死不瞑目」等成语假阳性 (AC-002.6)。isAlive undefined 时仍回退正则。
+    const isAliveGuard = c.isAlive === true
     const isDeadByText =
-      !c.status
+      isAliveGuard
         ? false
-        : config.deadCharacterPatterns.some((p) => c.status.includes(p))
+        : !c.status
+          ? false
+          : config.deadCharacterPatterns.some((p) => c.status.includes(p))
     const isDead = isDeadByStructural || isDeadByText
     if (!isDead) continue
     if (c.lastUpdatedChapter >= store.currentChapter - 3) {
@@ -422,6 +494,7 @@ function detectDeadCharacterState(
         ref: `character:${c.characterName}`,
         message: `${c.characterName} 标记死亡 (status:${c.status || "structural"}) 但 lastUpdatedChapter ${c.lastUpdatedChapter} 接近 currentChapter ${store.currentChapter} 疑似死亡角色活跃态`,
         chapter: store.currentChapter,
+        taxonomyDimId: "character_consistency",
       })
     }
   }
@@ -463,6 +536,7 @@ function detectThreadArcFinding(
         ref: `subplot:${s.id}`,
         message: `thread ${s.title} 弧状态违反: ${derived.transitionViolation} (Quillica 6 态)`,
         chapter: store.currentChapter,
+        taxonomyDimId: "arc_structural", // T24: 弧位语义归 T22 arc_structural (非支线闭环)
       })
       continue
     }
@@ -476,6 +550,7 @@ function detectThreadArcFinding(
         ref: `subplot:${s.id}`,
         message: `thread ${s.title} 高潮段后断裂 (Quillica: Climax→Falling, ${derived.basis})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "arc_structural", // T24: 同上, 弧结构槽位
       })
     }
   }
@@ -535,6 +610,7 @@ export function detectTimelineDrift(
       message: `事件 ${ev.ref} 章号跳跃 ${gap} 章 (referenced ${ev.referencedChapter}, current ${chapterNumber}, threshold ${maxGap})`,
       chapter: chapterNumber,
       evidence: `ref:${ev.ref}, referencedChapter:${ev.referencedChapter}`,
+      taxonomyDimId: "timeline_consistency",
     })
   }
 
@@ -562,6 +638,7 @@ export function detectTimelineDrift(
           message: `${ref} 事件时序矛盾: 章序 ${ev.chapter} 回引 ${ev.referencedChapter} 晚于已发生 ${maxReferred} (回退 ${magnitude})`,
           chapter: chapterNumber,
           evidence: `ref:${ref}, referencedChapter:${ev.referencedChapter}`,
+          taxonomyDimId: "timeline_consistency",
         })
       } else {
         maxReferred = ev.referencedChapter

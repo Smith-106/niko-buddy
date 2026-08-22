@@ -1,10 +1,13 @@
 // Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
 // SPDX-License-Identifier: MIT
 
+import { useState } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
@@ -47,6 +50,8 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const theme = useWikiStore((s) => s.theme)
   const setTheme = useWikiStore((s) => s.setTheme)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
+  // F-012: 封面 Prompt 工作台入口（独立 dialog，不新增 activeView，不进主链热路径）
+  const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
 
   const handleCycleTheme = () => {
     const themes: ("light" | "dark" | "deep-blue" | "system")[] = ["system", "light", "dark", "deep-blue"]
@@ -177,8 +182,19 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             <TooltipContent side="right">{t("nav.trash")}</TooltipContent>
           </Tooltip>
         </div>
-        {/* Bottom: daemon status + theme toggle + settings + switch project */}
+        {/* Bottom: cover workbench + daemon status + theme toggle + settings + switch project */}
         <div className="flex flex-col items-center gap-1 pb-1">
+          {/* F-012: 封面 Prompt 工作台（独立 dialog） */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setCoverWorkbenchOpen(true)}
+              data-cover-workbench-entry="true"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <Image className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">{t("novel.nav.coverWorkbench")}</TooltipContent>
+          </Tooltip>
           {/* Theme toggle */}
           <Tooltip>
             <TooltipTrigger
@@ -223,6 +239,16 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           </Tooltip>
         </div>
       </div>
+      {/* F-012: 封面 Prompt 工作台 dialog（纯客户端，不调 streamChat） */}
+      <Dialog open={coverWorkbenchOpen} onOpenChange={setCoverWorkbenchOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("novel.coverWorkbench.title")}</DialogTitle>
+            <DialogDescription>{t("novel.coverWorkbench.dialogHint")}</DialogDescription>
+          </DialogHeader>
+          <CoverPromptWorkbench />
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   )
 }

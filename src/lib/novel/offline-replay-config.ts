@@ -284,3 +284,140 @@ export function replayStates(states: ControlState[]): ReplayResult {
     stateCount: states.length,
   }
 }
+
+// ============================================================================
+// T36 A/B 双臂配对统计 (premium-mode-ab 五门槛① 的共享纯算术)
+// ============================================================================
+//
+// 归属 (TASK-P6-36): `scripts/offline-replay.js --ab` 双臂配对验收的门槛①统计量
+//   「六维 overall 中位差 (精品臂 − 基线臂) ≥ +0.5 且 bootstrap 95%CI 不含 0」。
+// 放在本文件 (而非 driver/spec 各写一份) 的理由: S10 §五.2 禁止出现第二套独立
+//   评分实现——driver 与证据 spec 必须同源复算交叉验证 (T31 模式), 本文件同时被
+//   两者 import (Node type-stripping 直读, 故保持零 value-import 不变)。
+// 口径:
+//   - 配对单位 = 同书同章同 task_brief 的双臂各得一个六维等权中位 overall 分;
+//   - 统计量 = median(premium_i − baseline_i) (配对中位差);
+//   - CI = 配对 bootstrap (有放回重采样配对单位) 百分位法;
+//   - 判定 significant = medianDiff ≥ minDiff 且 CI 不含 0。
+//   统计判定本身不区分数据来源; fixture/mock 注入评分只能支撑 PENDING 结论,
+//   真实 LLM 臂才可 PASS——来源标注由调用方 (evidence.meta.judgeSource) 承载。
+
+/** A/B 统计确定性种子 (LCG; 与 fault-injection.spec 种子化同型态)。 */
+export const OFFLINE_REPLAY_AB_SEED = 20260828
+
+/** 配对 bootstrap 重采样次数 (B)。 */
+export const OFFLINE_REPLAY_AB_BOOTSTRAP_RESAMPLES = 2000
+
+/** 门槛① 中位差达标线 (精品臂 − 基线臂 ≥ +0.5)。 */
+export const OFFLINE_REPLAY_AB_MIN_MEDIAN_DIFF = 0.5
+
+/** 门槛① 置信水平 (95%CI)。 */
+export const OFFLINE_REPLAY_AB_CI_CONFIDENCE = 0.95
+
+/** 配对中位差统计结果。 */
+export interface PairedMedianDiffStats {
+  /** 配对样本数 n */
+  pairs: number
+  /** observed 统计量: median(premium − baseline) */
+  medianDiff: number
+  /** bootstrap 百分位 CI 下界 */
+  ciLow: number
+  /** bootstrap 百分位 CI 上界 */
+  ciHigh: number
+  /** CI 是否包含 0 (含端点) */
+  ciContainsZero: boolean
+  /** 中位差是否 ≥ 达标线 */
+  meetsMinDiff: boolean
+  /** 门槛① 统计判定 = meetsMinDiff && !ciContainsZero */
+  significant: boolean
+  /** 实际使用的重采样次数 (诊断用) */
+  resamples: number
+  /** 实际使用的种子 (诊断用) */
+  seed: number
+}
+
+/**
+ * 确定性 LCG 伪随机数 (Park–Miller 型, 与 T18 fault-injection 种子化策略同型态):
+ * 返回推进后的 state 与 [0,1) 均匀随机数。纯函数。
+ */
+export function abLcgNext(state: number): { state: number; u: number } {
+  // 48 位精度安全的乘加参数 (Numerical Recipes 常用组合)
+  const next = (Math.imul(state, 1664525) + 1013904223) >>> 0
+  return { state: next, u: next / 4294967296 }
+}
+
+/** 数组中位数 (升序取中; 偶数长度取中间两数均值)。纯函数。 */
+export function medianOf(values: readonly number[]): number {
+  if (values.length === 0) return Number.NaN
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * 配对中位差 + bootstrap 95%CI (门槛① 共享纯算术, ADR-19 零 LLM)。
+ *
+ * @param baseline 基线臂每配对单位的 overall 分 (长度 n)
+ * @param premium  精品臂每配对单位的 overall 分 (长度必须等于 baseline)
+ * @param options 可选覆盖 (resamples/seed/minDiff/confidence); 缺省走本文件常量
+ * @returns 统计量; 输入为空或长度不等时抛错 (fail-fast, 不静默)
+ */
+export function computePairedMedianDiffStats(
+  baseline: readonly number[],
+  premium: readonly number[],
+  options?: {
+    resamples?: number
+    seed?: number
+    minDiff?: number
+    confidence?: number
+  },
+): PairedMedianDiffStats {
+  if (baseline.length === 0) throw new Error("computePairedMedianDiffStats: 输入为空")
+  if (baseline.length !== premium.length) {
+    throw new Error(
+      `computePairedMedianDiffStats: 双臂配对数不等 (${baseline.length} vs ${premium.length})`,
+    )
+  }
+  const resamples = options?.resamples ?? OFFLINE_REPLAY_AB_BOOTSTRAP_RESAMPLES
+  const seed = options?.seed ?? OFFLINE_REPLAY_AB_SEED
+  const minDiff = options?.minDiff ?? OFFLINE_REPLAY_AB_MIN_MEDIAN_DIFF
+  const confidence = options?.confidence ?? OFFLINE_REPLAY_AB_CI_CONFIDENCE
+
+  const diffs = baseline.map((b, i) => premium[i] - b)
+  const observedMedian = medianOf(diffs)
+
+  // 有放回重采样配对下标 → 每次重采样的中位差分布
+  let state = seed >>> 0
+  const bootMedians: number[] = new Array(resamples)
+  const n = diffs.length
+  for (let b = 0; b < resamples; b++) {
+    const sample: number[] = new Array(n)
+    for (let i = 0; i < n; i++) {
+      const r = abLcgNext(state)
+      state = r.state
+      sample[i] = diffs[Math.floor(r.u * n) % n]
+    }
+    bootMedians[b] = medianOf(sample)
+  }
+  bootMedians.sort((a, b) => a - b)
+
+  const alpha = 1 - confidence
+  const loIdx = Math.min(resamples - 1, Math.max(0, Math.floor((alpha / 2) * resamples)))
+  const hiIdx = Math.min(resamples - 1, Math.max(0, Math.ceil((1 - alpha / 2) * resamples) - 1))
+  const ciLow = bootMedians[loIdx]
+  const ciHigh = bootMedians[hiIdx]
+  const ciContainsZero = ciLow <= 0 && ciHigh >= 0
+  const meetsMinDiff = observedMedian >= minDiff
+
+  return {
+    pairs: n,
+    medianDiff: observedMedian,
+    ciLow,
+    ciHigh,
+    ciContainsZero,
+    meetsMinDiff,
+    significant: meetsMinDiff && !ciContainsZero,
+    resamples,
+    seed,
+  }
+}

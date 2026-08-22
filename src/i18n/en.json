@@ -295,7 +295,8 @@
     "dismantling": "Dismantling",
     "settings": "Settings",
     "switchProject": "Switch Project",
-    "trash": "Trash"
+    "trash": "Trash",
+    "coverWorkbench": "Cover Workbench"
   },
   "theme": {
     "switch": "Switch theme",
@@ -1276,7 +1277,8 @@
       "reviewCenter": "Review Center",
       "dismantling": "Dismantling",
       "settings": "模型与写作设置",
-      "switchProject": "Switch Project"
+      "switchProject": "Switch Project",
+      "coverWorkbench": "Cover Workbench"
     },
     "labels": {
       "knowledgeBase": "章节库",
@@ -1802,6 +1804,25 @@
       "chapterShort": "Ch.{{num}}",
       "noChapters": "No chapter columns yet",
       "noChaptersHint": "Chapter columns appear after canon chapter snapshots are saved"
+    },
+    "coverWorkbench": {
+      "title": "Cover Prompt Workbench",
+      "dialogHint": "Pick a platform → fill in book info → copy the generated cover prompt (generated locally, no AI call)",
+      "platform": "Platform",
+      "styleLabel": "Style",
+      "noStyle": "No style configured",
+      "dimensions": "Dimensions",
+      "bookTitle": "Book title",
+      "bookTitlePlaceholder": "Enter the novel title",
+      "genre": "Genre",
+      "genrePlaceholder": "e.g. Eastern fantasy / urban / historical romance",
+      "keywords": "Mood keywords",
+      "keywordsPlaceholder": "e.g. hot-blooded, comeback, intrigue",
+      "promptPreview": "Prompt preview",
+      "copy": "Copy prompt",
+      "copied": "Copied",
+      "hint": "Pure client-side one-shot output: no AI call, no draft flow. Paste into any text-to-image tool.",
+      "emptyTemplates": "No platform templates (config/cover-platform-templates.json is empty or malformed)"
     },
     "foreshadowing": {
       "title": "Foreshadowing Management",

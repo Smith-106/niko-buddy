@@ -1,0 +1,24 @@
+{
+  "$comment": "F-012 封面 Prompt 平台模板（外部化 config）。人工维护：番茄/起点/晋江封面规范变更时更新此文件；promptTemplate 支持 {{platform}}/{{style}}/{{width}}/{{height}}/{{title}}/{{genre}}/{{keywords}} 占位符。",
+  "version": 1,
+  "platforms": [
+    {
+      "platform": "番茄",
+      "style": "高饱和度竖版网文封面，人物半身特写居中，光影对比强烈，色彩鲜明抓眼球，适合小图缩略展示",
+      "dimensions": { "width": 600, "height": 800 },
+      "promptTemplate": "为小说《{{title}}》设计一张{{platform}}平台竖版封面。风格：{{style}}。画幅 {{width}}×{{height}} 像素。题材：{{genre}}。画面需突出书名《{{title}}》与主角形象，氛围关键词：{{keywords}}。要求构图清晰、主体醒目、缩略图状态下依然有辨识度。"
+    },
+    {
+      "platform": "起点",
+      "style": "写实厚重国风插画，场景纵深与人物并重，色调沉稳大气，带玄幻/都市质感",
+      "dimensions": { "width": 600, "height": 800 },
+      "promptTemplate": "为小说《{{title}}》设计一张{{platform}}平台竖版封面。风格：{{style}}。画幅 {{width}}×{{height}} 像素。题材：{{genre}}。画面需突出书名《{{title}}》与核心意象，氛围关键词：{{keywords}}。要求笔触细腻、层次分明、具备长线连载的稳重气质。"
+    },
+    {
+      "platform": "晋江",
+      "style": "柔美细腻言情风插画，人物唯美含蓄，色彩柔和清新，留白优雅",
+      "dimensions": { "width": 540, "height": 720 },
+      "promptTemplate": "为小说《{{title}}》设计一张{{platform}}平台竖版封面。风格：{{style}}。画幅 {{width}}×{{height}} 像素。题材：{{genre}}。画面需突出书名《{{title}}》与男女主意象，氛围关键词：{{keywords}}。要求色调统一、情绪细腻、符合女性向阅读审美。"
+    }
+  ]
+}

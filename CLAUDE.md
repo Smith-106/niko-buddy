@@ -81,6 +81,48 @@
 
 `src-tauri/src/novel/status_schema.rs`、`decision_gate.rs`、`consistency_gate.rs`、`src-tauri/src/commands/status_commands.rs`、`gate_commands.rs` — 这些是 **Stage 3 目标层**，仅当 Stage 2 gap audit 证明现有 TS 主链锚点不足时才进入。当前仓库不存在它们，修改时不得冒充现行锚点，只能在文档中标记为目标。
 
+## W1 启动波新增锚点（roadmap W1 19 任务已落地，2026-08-23 同步）
+
+| 能力 | 锚点 |
+|------|------|
+| 37 维审计注册表 | `src/lib/novel/audit-taxonomy.ts`（T22，AUDIT_TAXONOMY + GATE_MAPPING 三门控 + LITERARY_DIMS 文学提升维，与 inkos 37 维无重叠对照见 decision-log） |
+| RuleStack 门控栈 | `src/lib/novel/rule-stack.ts`（T23/F-16/A-04.2，hardShortCircuit P0>P1>P2 硬短路 + gateProjection + craft.finale 终局升格 + combinePacks 规范化冻结组合语义（run 前冻结/run 内禁动态注册），fast-check 属性面见 spec） |
+| craft 类型模型 | `src/lib/novel/craft/canon-craft-fields.ts` + `craft/beat-model.ts`（T26，ArcStage/ConflictCaliber/NarrativeMode/ClosureState 注册表 + Snyder 15-beat + 三段式） |
+| Route 语言裁决 | `docs/p4/route-language-verdict.md`（T29，不触发 Rust 移植：720k 穷举 491ms/5000ms 余量 90.18%，TS 续用 + v2 契约修订注记） |
+| canon 历史回填 | `src/lib/novel/canon-backfill.ts`（T30b，1..N-1 章离线摄取回填，复用 T15 影子双写 + T07 digest 幂等） |
+| LanceDB compaction | `src-tauri/src/commands/canon_store.rs`（T32b additive，ingest 计数阈值 100 触发 + 保留 5 个 manifest 版本 + DiskUsage/CompactionReport 指标） |
+| 备份/恢复/导出 | `src-tauri/src/canon_export.rs` + `src/components/novel/backup-export-view.tsx`（T34c，zip+sha2 校验和原子替换，零新依赖） |
+| 反 AI 语料库 | `docs/p0/corpus/{human,ai,gold}/batch-*/` + `MANIFEST.md`（T01b 受控降级轨，synthetic-degraded 种子 30+30+6，解锁 P2-19；真实采集后台继续） |
+| Radix Dialog 模式 | `@radix-ui/react-dialog@1.1.19`；新模态一律 DialogRoot+DialogOverlay(asChild)+DialogContent(asChild)，禁止手写 overlay/overflow 管理（LE-5；scroll lock=body[data-scroll-locked]） |
+| 上下文三态策略 | `src/lib/context-budget.ts`（F-008，selectContextStrategy full≤50/sliding 50-200/summary>200，adaptiveScale 曲线上层选择器） |
+| Voice Preservation | `src/lib/novel/book-analysis.ts` voiceStyleGuide + settings spelling convention 三字段（F-011，dialoguePunctuationStyle/paragraphIndent/quoteConvention 已入 NovelConfig+normalizeNovelConfig） |
+| 可视化子面板 | `src/components/novel/corkboard-view.tsx` + `plotgrid-view.tsx`（F-010，复用 getTimelineEvents 单一真源） |
+| 封面 Prompt 工作台 | `src/components/novel/cover-prompt-workbench.tsx` + `config/cover-platform-templates.json`（F-012，独立视图不走 Draft-first 不调 streamChat） |
+| Gate v2 对照文档 | `docs/gate-v2-benchmark.md`（F-004，QMAI Track A/L9 vs StoryForge 四级 grader 对照） |
+| 投影审计 | `src/lib/novel/projection-status-ledger.ts` auditTrail append-only 历史段（F-005，投影 commit/rebuild 取证） |
+| 反 AI 候选池+四统计因子 | `src/lib/novel/anti-ai-candidate-pool.ts` + mechanical-slop-detector TIER3_EXTENDED 48 条 + de-ai-rules 42 条（T19，n-gram/句式熵/标点指纹/段落分布四因子 warn 态，source=synthetic-degraded 入元数据；pack 层归 T24） |
+| 爽点量化+弧光追踪 | `src/lib/novel/craft/thrill-quantifier.ts` + `craft/arc-tracker.ts`（T27，三因子参数表版本化 config + EMA raw/smoothed 双列 + 增量重算 fast-check 增量≡全量，纯算术零 LLM） |
+| 技法编译器 | `src/lib/novel/craft/technique-compiler.ts` + `craft/nmem-snapshot.ts`（T27b，nmem space→规则包版本化，8 memory+1 skill 快照入仓含 memory_id+version，离线降级功能不退化） |
+| 角色生死结构化 | chapter-ingest.ts applyCharacterStateChangesToStore 写 isAlive/deathChapter（LE-2，结构化优先+正则 fallback 向后兼容，消除成语假阳性 AC-002.6） |
+| 支线逾期结构化 | chapter-ingest.ts applySubplotChangesToStore 写 targetResolutionChapter/abandoned + detectOverdueThread 接入（LE-3，undefined→data_gap info 降级 IC-02，幂等 fold_rebuildable） |
+| 规则包×4+共享特征 | `src/lib/novel/packs/{continuity,anti-ai-mech,anti-ai-llm,quality-six-dim}-pack.ts` + `shared-text-features.ts`（T24，composeCoreRulePacks 组合入口；六维有界并发 runSixDimBounded 复用 hardShortCircuit；review-adapter resolveReviewGateKey 读 GATE_MAPPING 唯一真源，CORR-108 保留常量） |
+| 文学提升规则包 | `src/lib/novel/packs/literary-craft-pack.ts`（T28，14 条规则 quality 门 warning 态）+ `craft/craft-rule-registry.ts`（skill↔rule 桥接表，W12 注入范围含技法块 F-19） |
+| 反AI标定流水线 | `scripts/anti-ai-calibrate.js` + `docs/p2/anti-ai-calibration.md`（T20，warn 档已标定 synthetic-degraded；block 档 pending-real-corpus 待真实语料重跑，A-12.3 可回溯） |
+| anti_ai_mode 三档门控 | `src/lib/novel/control-kernel.ts`（T21 additive，WarnAnnotation/warnAnnotation/blockThresholdApplied/antiAiReason；warn 随 T19 先行，block 随 T20 阈值接线不卡 warn）+ `anti-ai-rewrite-convergence.spec.ts`（检测→改写→检测收敛 + Myers diff） |
+| 三源真并行 ContextPack | `src/lib/novel/context-engine.ts` buildContextPackUnlocked Promise.all(wiki/canon/技法)+pack.sourceTimingsMs 计时探针 + temporal-memory.ts / character-cognition.ts fromCanonGraph()（T25，默认仍 fold 向后兼容，VIEW 契约不动） |
+| UI 三面板 | `src/components/novel/craft/{arc-workbench,thrill-dashboard,technique-panel}.tsx`（T29a F-06/F-07/F-08，ECharts raw/smoothed 双列 lazy load，@tanstack/react-table，spec=craft-panels） |
+| canon 写路径编辑 | `src/components/novel/canon-editor.tsx`（F-01 known_by/revealed_at 校正 POV 防泄密白名单）+ `wish-drive.tsx`（F-27 卡文引导 A-22.6 自洽校验）（T29b） |
+| ContextPack 冻结不变量 | `src/lib/novel/context-pack-freeze.spec.ts` + deep-chapter-task-brief.ts canonHash 参数（T25b：同章共享 pack digest 断言/canon 事实集哈希入 task_brief/前缀字节稳定三不变量） |
+| ★T31 P4 硬门 driver | `scripts/offline-replay.js`（可重跑，EXIT=0 纪律）+ offline-replay-t31-vertical-slice.spec.ts + `docs/p4/t31-vertical-slice-report.md`（T31 PASS：authoritative/回放评分 1.0≥0.9/崩溃注入×5/重放×2 一致/迁移前事实可查询；warn 态放行不计 FAIL） |
+| L9 回放+爽点有效性 | `scripts/thrill-retention-correlate.js` + `docs/p4/{l9-replay,thrill-validity}-report.md`（T31b，真实多模型不可达子项标 PENDING 不粉饰） |
+| canon_search 重调参 | `src-tauri/src/commands/canon_search.rs`（T32，α/β 参数扫 + 邻接物化 + 窗口衰减纯函数 spec） |
+| 模型角色化层 | `src/lib/llm/{provider-registry,model-resolver,model-port}.ts`（T33，五角色 writer/critic/reviser/arbiter/judge 默认单模型向后兼容，fallback 链+TaskTier 路由） |
+| 哨兵硬化 | `src/lib/novel/{budget-counters,watchdog,status-write-merge}.ts` + `scripts/50ch-telemetry.js`（T34，wallclock 全角色计入 + 分角色 token 软警告/硬封顶 + 无 token 卡死回落 + per-stage 预算表恰 45min） |
+| 精品模式 | `src/lib/novel/premium-config.ts`（T33b 默认 off+一键回退+前缀缓存开关+硬前置检查）+ `premium-execution.ts`（T33c GCR 两轮封顶+交叉共识门分歧落 manual_review 仅 P2 additive 永不覆盖 P0/P1） |
+| S10-S12/P6 文档件 | `docs/s10-evaluation-replay-foundation.md` / `s11-premium-mode-protocol.md` / `s12-literary-improvement-dimensions.md` + `docs/p6/{production-default-switch-decision,auto-update-contract}.md`（T34b） |
+| ★T36 A/B 终端硬门 | offline-replay.js --ab 双臂配对 + offline-replay-t36-ab-pair.spec.ts（13 测试）+ `docs/p6/premium-mode-ab-report.md`（T36：机械三门槛②④⑤真跑 PASS；①六维差/③盲评 κ PENDING 需真实多模型+人工；建议=精品保持 opt-in 默认关闭+release notes 标注，T36 依契约可结案） |
+| P4 垂直切片全验收（T31 硬门） | `scripts/offline-replay.js`（QMAI 内，A-10 全项 driver：驱动证据 spec + T02 同源纯函数评分复算 + 非零码退出纪律）+ `src/lib/novel/offline-replay-t31-vertical-slice.spec.ts`（机械证据 spec，纳入 `vitest run offline-replay` 过滤器）+ `docs/p4/t31-vertical-slice-report.md`（验收报告，2026-08-22 PASS） |
+
 ## 修改优先顺序
 
 1. `task-router` / `context-engine` / `deep-chapter-generation`

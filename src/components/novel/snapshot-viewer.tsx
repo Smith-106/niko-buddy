@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { useTranslation } from "react-i18next"
 import { readFile } from "@/commands/fs"
 import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
@@ -133,26 +134,40 @@ export interface SnapshotDiffModalProps {
 }
 
 export function SnapshotDiffModal({ open, original, modified, onClose }: SnapshotDiffModalProps) {
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // 与外层 SnapshotViewer 叠层：Escape/遮罩点击只作用于顶层（Radix DismissableLayer
+  // 栈语义），不再需要手写的 stopPropagation / Escape 分流。
   if (!open) return null
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
-      onClick={(e) => {
-        // 阻止冒泡到外层 SnapshotViewer 遮罩的 onClose，避免点对比遮罩连带关闭整个查看器。
-        e.stopPropagation()
-        onClose()
+    <DialogRoot
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="对比当前版本"
-        tabIndex={-1}
-        className="flex max-h-[80vh] w-[860px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none"
-        onClick={(e) => e.stopPropagation()}
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
+      onPointerDown={(e) => {
+        // TASK-LE-5: Radix DismissableLayer 在 Portal 外场景下可能不触发
+        // pointerdown outside；直接在 backdrop 上处理 outside click 作为兜底。
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        aria-modal={true}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
       >
+      <div className="flex max-h-[80vh] w-[860px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="text-lg font-semibold text-foreground">对比当前版本</h3>
+          <DialogTitle asChild>
+            <h3 className="text-lg font-semibold text-foreground">对比当前版本</h3>
+          </DialogTitle>
           <button
             type="button"
             onClick={onClose}
@@ -174,7 +189,9 @@ export function SnapshotDiffModal({ open, original, modified, onClose }: Snapsho
           />
         </div>
       </div>
+      </DialogContent>
     </div>
+    </DialogRoot>
   )
 }
 
@@ -193,44 +210,20 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   // TASK-303 版本对比状态：open 时渲染 SnapshotDiffModal，original=历史快照 JSON 文本。
   const [diffState, setDiffState] = useState<{ open: boolean; original: string }>({ open: false, original: "" })
 
-  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
-  // role=dialog/aria-modal 让屏幕阅读器识别为模态; Escape 键关闭; 打开时
-  // 聚焦模态(非背景元素),Tab 循环限于模态内(focus trap)。
-  const dialogRef = useRef<HTMLDivElement>(null)
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap、scroll lock、
+  // 背景 aria-hidden(inert)。对比模态打开时它是更高层：Escape/遮罩点击只关对比，
+  // 不再需要手写分流；焦点恢复在渲染期记录、卸载时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  if (previouslyFocusedRef.current === null && typeof document !== "undefined") {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+  }
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        // 对比模态打开时先关对比，避免一次 Escape 连带关闭整个查看器。
-        if (diffState.open) {
-          setDiffState((value) => ({ ...value, open: false }))
-          return
-        }
-        onClose()
-        return
-      }
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        /* v8 ignore next */
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
+    return () => {
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      previouslyFocusedRef.current?.focus()
     }
-    document.addEventListener("keydown", handleKeyDown)
-    // 打开时聚焦模态容器(不抢第一个按钮的焦点,但让 Tab 从模态内开始)
-    dialogRef.current?.focus()
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [onClose, diffState.open])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -387,28 +380,34 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   )
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={onClose}
+    <DialogRoot
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={chapterNumber < 0 && snapshot?.chapterTitle
-          ? `${snapshot.chapterTitle}快照`
-          : t("novel.snapshot.title", { number: chapterNumber })}
-        tabIndex={-1}
-        className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none"
-        onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        aria-modal={true}
+        onOpenAutoFocus={(event) => {
+          // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
       >
+      <div className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-foreground">
-              {chapterNumber < 0 && snapshot?.chapterTitle
-                ? `${snapshot.chapterTitle}快照`
-                : t("novel.snapshot.title", { number: chapterNumber })}
-            </h3>
+            <DialogTitle asChild>
+              <h3 className="text-lg font-semibold text-foreground">
+                {chapterNumber < 0 && snapshot?.chapterTitle
+                  ? `${snapshot.chapterTitle}快照`
+                  : t("novel.snapshot.title", { number: chapterNumber })}
+              </h3>
+            </DialogTitle>
             {snapshot && !loading ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 {snapshot.memorySyncedAt
@@ -462,6 +461,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
             ) : null}
             <button
               onClick={onClose}
+              aria-label={t("novel.snapshot.close")}
               className="rounded p-1 text-muted-foreground hover:bg-accent"
             >
               <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -520,6 +520,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
           )}
         </div>
       </div>
+      </DialogContent>
       <SnapshotDiffModal
         open={diffState.open}
         original={diffState.original}
@@ -527,5 +528,6 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
         onClose={() => setDiffState((value) => ({ ...value, open: false }))}
       />
     </div>
+    </DialogRoot>
   )
 }

@@ -1,4 +1,5 @@
-﻿import { useState, useCallback, useMemo, useEffect, memo } from "react"
+﻿import { useState, useCallback, useMemo, useEffect, memo, useRef } from "react"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Search, FileText, ImageIcon, X, ArrowUpRight } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
@@ -564,44 +565,70 @@ function Lightbox({
   onJumpToSource: () => void
 }) {
   const { t } = useTranslation()
-  // Escape-to-close. Body-scroll-lock while open: a long search-
-  // results list scrolling underneath the modal is disorienting.
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap、scroll lock
+  // （body data-scroll-locked）、背景 aria-hidden(inert)、点击遮罩关闭。
+  // 焦点恢复：渲染期记录打开前的焦点元素，卸载时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  if (previouslyFocusedRef.current === null) {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+  }
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    document.addEventListener("keydown", onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
     return () => {
-      document.removeEventListener("keydown", onKey)
-      document.body.style.overflow = prev
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      previouslyFocusedRef.current?.focus()
     }
-  }, [onClose])
+  }, [])
 
   const src = resolveMarkdownImageSrc(hit.url, projectPath)
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={onClose}
-      // Backdrop is the click target; the inner card stops
-      // propagation so clicks inside don't accidentally close.
-      role="dialog"
-      aria-modal="true"
+    <DialogRoot
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
     >
+    <DialogOverlay asChild>
       <div
-        className="flex max-h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border bg-background shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
+        onPointerDown={(e) => {
+          // TASK-LE-5: Radix DismissableLayer 在 jsdom 下可能不触发
+          // pointerdown outside；直接在 backdrop 上处理 outside click 作为兜底。
+          if (e.target === e.currentTarget) onClose()
+        }}
+      />
+    </DialogOverlay>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onPointerDown={(e) => {
+        // TASK-LE-5: 点击 backdrop（wrapper 本身，非 DialogContent 区域）关闭
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        aria-modal={true}
+        aria-label={hit.alt || t("search.noCaption")}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
+      >
+      <div
+        tabIndex={-1}
+        className="flex max-h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border bg-background shadow-xl outline-none"
       >
         {/* Header strip 鈥?caption + close button. */}
         <div className="flex items-start justify-between gap-3 border-b px-4 py-2.5">
           <div className="min-w-0 flex-1">
-            {hit.alt ? (
-              <div className="line-clamp-3 text-sm leading-snug">{hit.alt}</div>
-            ) : (
-              <div className="text-sm italic text-muted-foreground">{t("search.noCaption")}</div>
-            )}
+            <DialogTitle asChild>
+              <div className={hit.alt ? "line-clamp-3 text-sm leading-snug" : "text-sm italic text-muted-foreground"}>
+                {hit.alt || t("search.noCaption")}
+              </div>
+            </DialogTitle>
             <div className="mt-1 truncate text-[11px] text-muted-foreground">
               {t("search.fromSource")}{hit.sourceTitle}
             </div>
@@ -639,7 +666,9 @@ function Lightbox({
           </button>
         </div>
       </div>
+      </DialogContent>
     </div>
+    </DialogRoot>
   )
 }
 

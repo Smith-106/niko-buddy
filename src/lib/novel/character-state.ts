@@ -16,21 +16,25 @@ export interface CharacterState {
   // (旧 character-states.json 无 emotion 字段, load 时 undefined 不报错)。
   emotion?: EmotionState
   /**
-   * ADR-31 Phase 2 deferred 升级: 结构化死亡标记 (替代 status 自由文本正则匹配)。
-   * Additive optional — 引擎 detectDeadCharacterState 先读此字段 (undefined 回退
-   * deathChapter? → status 自由文本正则匹配 deadCharacterPatterns, 守 NFR-compat-001/
-   * ADR-31 引擎对缺字段回退不抛错)。旧 character-states.json 无此字段 load 时 undefined。
+   * ADR-31 Phase 2 已落地 (LE-2): 结构化死亡标记 (替代 status 自由文本正则匹配)。
+   * 生产端 (chapter-ingest.ts applyCharacterStateChangesToStore) 在死亡事件发生时
+   * 写入 isAlive=false + deathChapter=chapterNumber。Additive optional — 引擎
+   * detectDeadCharacterState 先读此字段 (undefined 回退 deathChapter? → status 自由
+   * 文本正则匹配 deadCharacterPatterns, 守 NFR-compat-001/ADR-31 引擎对缺字段回退不抛错)。
+   * 旧 character-states.json 无此字段 load 时 undefined。
    */
   isAlive?: boolean
   /**
-   * ADR-31 Phase 2 deferred 升级: 结构化死亡章号。
-   * Additive optional — 引擎先读 deathChapter? (undefined 回退 status 自由文本)。
+   * ADR-31 Phase 2 已落地 (LE-2): 结构化死亡章号。
+   * 生产端 (chapter-ingest.ts applyCharacterStateChangesToStore) 在死亡事件发生时写入
+   * deathChapter=chapterNumber。Additive optional — 引擎先读 deathChapter?
+   * (undefined 回退 status 自由文本正则匹配)。
    */
   deathChapter?: number
   /**
-   * ADR-31 Phase 4 deferred 升级: 角色最后出现章号 (替代 fold 反推 lastSeenChapter)。
-   * Additive optional — 引擎 detectAbsentCharacter 先读此字段 (undefined 回退
-   * lastUpdatedChapter, 守 NFR-compat-001/ADR-31)。
+   * ADR-31 Phase 4 已落地: 角色最后出现章号 (chapter-ingest.ts applyCharacterStateChangesToStore
+   * 结构化写入, 不再依赖 fold 反推)。Additive optional — 引擎 detectAbsentCharacter 先读此字段
+   * (undefined 回退 lastUpdatedChapter, 守 NFR-compat-001/ADR-31)。
    */
   lastSeenChapter?: number
 }

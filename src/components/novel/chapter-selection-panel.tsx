@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogTitle } from "@radix-ui/react-dialog"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
@@ -172,23 +172,30 @@ export function ChapterSelectionPanel({
   const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
 
   return (
-    <Dialog.Root
+    <DialogRoot
       open
       modal={!showCharacterPicker}
       onOpenChange={(open) => {
         if (!open) onCancel()
       }}
     >
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <DialogOverlay asChild>
+      <div className="fixed inset-0 z-50 bg-black/50" />
+    </DialogOverlay>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* 角色选择弹窗打开时外层切非模态（modal=false）：释放焦点陷阱与 scroll lock，
           避免与内层弹窗（Base UI Dialog）抢焦点；Escape/遮罩交互仍由各自层处理。 */}
       <DialogContent
         asChild
         aria-describedby={undefined}
+        // Radix 1.1.x 不再自动写入 aria-modal（依赖背景 aria-hidden）；保持原手写实现的 AT 语义。
+        // 角色选择弹窗打开时外层切非模态，aria-modal 同步撤除。
+        aria-modal={!showCharacterPicker || undefined}
         onOpenAutoFocus={(event) => {
           // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
           event.preventDefault()
-          event.currentTarget.focus()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
         }}
         onInteractOutside={(event) => {
           // 原实现不响应点击遮罩关闭；同时避免嵌套角色弹窗的交互误关本面板
@@ -503,6 +510,6 @@ export function ChapterSelectionPanel({
         />
       )}
     </div>
-    </Dialog.Root>
+    </DialogRoot>
   )
 }

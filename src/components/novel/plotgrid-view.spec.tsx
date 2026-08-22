@@ -11,7 +11,7 @@ import type { Foreshadowing } from "@/lib/novel/foreshadowing-tracker"
 import { derivePlotlineParticipation, derivePlotlineRows } from "./plotgrid-view"
 
 const tMock = vi.hoisted(() => ({
-  t: vi.fn((key: string) => key),
+  t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -162,9 +162,10 @@ describe("PlotgridView", () => {
     ingest.listSnapshots.mockResolvedValue([-1, 2])
     render(<PlotgridView />)
     await screen.findByText("novel.plotgrid.title")
-    expect(screen.getByText("novel.foreshadowing.planted")).toBeInTheDocument()
-    expect(screen.getByText("novel.foreshadowing.advanced")).toBeInTheDocument()
-    expect(screen.getByText("novel.foreshadowing.resolved")).toBeInTheDocument()
+    // 图例三项 + 行状态徽标（planted 状态行复用同一标签）
+    expect(screen.getAllByText("novel.foreshadowing.planted").length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText("novel.foreshadowing.advanced").length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText("novel.foreshadowing.resolved").length).toBeGreaterThanOrEqual(1)
     // outline 负号列被过滤，仅剩第2章
     expect(screen.queryByText(`novel.plotgrid.chapterShort::{"num":-1}`)).not.toBeInTheDocument()
     expect(screen.getByText(`novel.plotgrid.chapterShort::{"num":2}`)).toBeInTheDocument()

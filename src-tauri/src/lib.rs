@@ -80,6 +80,12 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        // T34 sentinel hardening (TASK-P6-34), additive wiring only:
+        //   - log: leveled structured logging (Rust-side; println sweep in
+        //     command modules is deferred — this task touches lib.rs only)
+        //   - window-state: remember main window size/position across restarts
+        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         // Rust-backed fetch so third-party LLM APIs that reject

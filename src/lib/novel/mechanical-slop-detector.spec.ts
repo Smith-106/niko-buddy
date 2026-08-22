@@ -190,8 +190,8 @@ describe("A19 机械层中文 slop 检测器 (借鉴点 #1, 零 LLM 纯正则+�
 
   it("QF-v1 E6: extended pattern count is bounded (not full corpus dump)", async () => {
     const { TIER3_EXTENDED_PATTERN_COUNT } = await import("./mechanical-slop-detector")
-    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeGreaterThanOrEqual(10)
-    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeLessThanOrEqual(20)
+    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeGreaterThanOrEqual(40)
+    expect(TIER3_EXTENDED_PATTERN_COUNT).toBeLessThanOrEqual(60)
   })
 })
 

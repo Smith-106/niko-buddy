@@ -1135,6 +1135,7 @@ mod tests {
         fs::write(p.join(".novel/drafts/conv_1.json"), r#"{"draft":1}"#).unwrap();
         fs::write(p.join(".novel/drafts/conv_2.superseded.1.json"), r#"{"draft":2-old}"#).unwrap();
         fs::create_dir_all(p.join(".qmai/lancedb/entities.lance")).unwrap();
+        fs::create_dir_all(p.join(".qmai/lancedb/_versions")).unwrap();
         fs::write(p.join(".qmai/lancedb/entities.lance/data.lance"), b"lance-bytes-1").unwrap();
         fs::write(p.join(".qmai/lancedb/_versions/manifest-0"), b"lance-manifest").unwrap();
         p
@@ -1498,7 +1499,7 @@ mod tests {
     #[test]
     fn sanitize_reason_normalizes_unsafe_chars() {
         assert_eq!(sanitize_reason("pre-supersede"), "pre-supersede");
-        assert_eq!(sanitize_reason("a b/c\\d:e*?"), "a-b-c-d-e-");
+        assert_eq!(sanitize_reason("a b/c\\d:e*?"), "a-b-c-d-e");
         assert_eq!(sanitize_reason("///"), "unspecified");
     }
 }

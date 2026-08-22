@@ -17,6 +17,10 @@
 //!        at_chapter, canon_revision)`；revision 自增即整缓存失效。
 //!      - [`tokenizer_verdict`]：T04 spike §4 分词器裁决规则（中文 FTS 通道）。
 //!      - [`CanonGraph`]：petgraph 读侧遍历（BFS depth=3 / 连通分量 / 拓扑序）。
+//!      - **T32 additive**：[`WindowDecayTable`]（窗口衰减表预计算纯函数）、
+//!        [`sweep_decay_params`]（α/β 参数扫，形式不换、非照搬 graphiti）、
+//!        CanonGraph 物化邻接表（构建时一次预计算，BFS 每跳 O(1) 取邻居）、
+//!        性能基准（`perf_tests` 模块，延迟基线入测试断言）。
 //!   2. **LanceDB IO 层** [`CanonSearch`]：包装 [`CanonStore`]，对外提供
 //!      `fts_query`（SQL 谓词召回 + Rust 精细过滤）与 `vector_query`
 //!      （`Table::vector_search`，与 `vectorstore.rs` 同源 API）。
@@ -45,7 +49,7 @@
 //!   - 不引入第二份会话状态文件；canon_revision 复用 `CanonStore` 的写入计数
 //!     语义（ingest/supersede 触发自增），缓存层只持有内存计数副本。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -79,11 +83,15 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
-            // 蓝图 §6 T12 起点；A-06 劣化兜底亦保留 1。
+            // 蓝图 §6 T12 起点；A-06 劣化兜底亦保留 1（T32 不入扫参）。
             rrf_rank_const: 1.0,
-            // 窗口衰减默认：近章高、远章温和衰减（T32 调参前的保守起点）。
-            decay_alpha: 0.1,
-            decay_beta: 1.0,
+            // 窗口衰减默认（T32 重调参定稿，2026-08-22）：QMAI 形态代理池上
+            // α/β 网格扫描赢家 (0.08, 0.75)，mean NDCG@10 = 0.9410 vs 调参前
+            // (0.1, 1.0) 的 0.9358。函数形式不变；绑定测试
+            // t32_default_config_matches_swept_winner 防止池/网格演化后默认值
+            // 漂移不同步。真实 LanceDB 召回池接入后须重扫（decision-log 债条目）。
+            decay_alpha: 0.08,
+            decay_beta: 0.75,
             bfs_depth: 3,
             cache_capacity: 256,
         }
@@ -271,6 +279,220 @@ pub fn window_decay(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// 窗口衰减查找表（T32：预计算纯函数）
+// ──────────────────────────────────────────────────────────────────────────
+
+/// 窗口衰减查找表：对冻结形式 `decay(d)=1/(1+α·d)^β` 在 d ∈ [0, max_distance]
+/// 上一次性预计算权重，查询 O(1)。
+///
+/// - d ≤ 0 → 表首项（=1.0，与 [`decay`] 同语义）。
+/// - d > `max_distance` → 钳制到表尾项（窗口外近似：权重冻结在边界值，
+///   不随距离继续衰减；由于闭式单调非增，该值 ≥ 窗口外任意 d 的闭式真值，
+///   调用方按典型叙事窗口选 `max_distance`，长篇建议 ≥ 300 章以压低近似误差）。
+/// - 窗口内与 [`decay`] 闭式逐点一致（spec 文件属性测试验证偏差 ≤ 1e-12）；
+///   函数形式冻结不变（蓝图 §9 因子 ⑤），本表只是同一纯函数的查表化。
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowDecayTable {
+    alpha: f64,
+    beta: f64,
+    max_distance: u32,
+    /// 索引 = 章节距离 d；长度 = max_distance + 1。
+    weights: Vec<f64>,
+}
+
+impl WindowDecayTable {
+    pub fn new(alpha: f64, beta: f64, max_distance: u32) -> Self {
+        let weights = (0..=max_distance)
+            .map(|d| decay(d as i32, alpha, beta))
+            .collect();
+        Self {
+            alpha,
+            beta,
+            max_distance,
+            weights,
+        }
+    }
+
+    /// O(1) 权重查询（d 越界钳制到边界表项）。
+    #[inline]
+    pub fn weight(&self, d: i32) -> f64 {
+        if d <= 0 {
+            return self.weights[0];
+        }
+        let idx = (d as u32).min(self.max_distance) as usize;
+        self.weights[idx]
+    }
+
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    pub fn max_distance(&self) -> u32 {
+        self.max_distance
+    }
+
+    /// 表项数 = max_distance + 1（诊断用）。
+    pub fn len(&self) -> usize {
+        self.weights.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.weights.is_empty()
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// α/β 参数扫（T32：QMAI 召回池重调参；形式不换，非照搬 graphiti）
+// ──────────────────────────────────────────────────────────────────────────
+//
+// 蓝图 A-06 兑现路径：rank_const 保持 1 不动；只扫窗口衰减 (α, β)，衰减
+// 函数形式维持 `1/(1+α·d)^β` 冻结——不引入 graphiti 的指数/半衰期等新
+// 形式（ADR-20 纪律：提取「调参在自有召回池上做」的模式，不照搬其函数
+// 形式）。真实 LanceDB 召回池接入前的调参底座为确定性 QMAI 形态代理池
+// （见 tests::t32_retune_tests::qmai_recall_pool）；重调参结论与债务边界
+// 落 docs/decision-log/。
+
+/// 参数扫评估用的单条查询样本（QMAI 召回池代理的最小单元）。
+#[derive(Debug, Clone)]
+pub struct RecallCase {
+    /// 查询名（诊断用）。
+    pub name: String,
+    pub fts: Vec<RecallItem>,
+    pub vector: Vec<RecallItem>,
+    pub at_chapter: Option<i32>,
+    /// 人工标注相关 id 集合（分级增益：(id, gain)，gain ≥ 1；池构造保证非空）。
+    /// 分级而非二元：QMAI 产品语义下近章活跃事实（gain 高）比远期回调
+    /// （gain 低）更相关——窗口衰减的调参目标正是这种近章优先序。
+    pub relevant: Vec<(String, u32)>,
+}
+
+/// 单个 (α, β) 候选在池上的平均 NDCG@k。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecaySweepCandidate {
+    pub alpha: f64,
+    pub beta: f64,
+    pub mean_ndcg: f64,
+}
+
+/// 参数扫报告：候选按 mean_ndcg 降序（平分时 α 升序、β 升序 → 确定性）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecaySweepReport {
+    pub candidates: Vec<DecaySweepCandidate>,
+}
+
+impl DecaySweepReport {
+    pub fn best(&self) -> Option<&DecaySweepCandidate> {
+        self.candidates.first()
+    }
+
+    /// 按 (α, β) 精确取候选（浮点精确匹配，供测试回查网格点）。
+    pub fn candidate_at(&self, alpha: f64, beta: f64) -> Option<&DecaySweepCandidate> {
+        self.candidates
+            .iter()
+            .find(|c| c.alpha == alpha && c.beta == beta)
+    }
+}
+
+/// 分级增益 NDCG@k：增益 `2^gain − 1`（gain=1 → 1，gain=2 → 3），
+/// 理想 DCG 由增益降序的前 min(|relevant|, k) 个位置构成。
+///
+/// `relevant` 为空 → 返回 0.0（池构造保证不出现该退化情形）。
+pub fn ndcg_at_k(results: &[FusedResult], relevant: &[(String, u32)], k: usize) -> f64 {
+    if relevant.is_empty() {
+        return 0.0;
+    }
+    let rel: std::collections::HashMap<&str, f64> = relevant
+        .iter()
+        .map(|(id, g)| (id.as_str(), 2f64.powf(*g as f64) - 1.0))
+        .collect();
+    let dcg: f64 = results
+        .iter()
+        .take(k)
+        .enumerate()
+        .map(|(i, r)| {
+            rel.get(r.id.as_str())
+                .map(|g| g / ((i + 2) as f64).log2())
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let mut ideal_gains: Vec<f64> = rel.values().copied().collect();
+    ideal_gains.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    let idcg: f64 = ideal_gains
+        .into_iter()
+        .take(k)
+        .enumerate()
+        .map(|(i, g)| g / ((i + 2) as f64).log2())
+        .sum();
+    if idcg == 0.0 {
+        0.0
+    } else {
+        dcg / idcg
+    }
+}
+
+/// 在召回池上扫描 (α, β)：对每个候选用冻结形式重建引擎跑全池，取平均
+/// NDCG@k。`rrf_rank_const` 沿用 [`SearchConfig::default`]（A-06：保持 1，
+/// 不入扫参）。返回报告按 mean_ndcg 降序排列（确定性平分裁决）。
+///
+/// 形式不换（蓝图 §9 因子 ⑤）：每个候选拼装的仍是同一 `decay(d)` 闭式，
+/// 只改参数——与 graphiti 的多形式族（指数/线性/半衰期）无关。
+pub fn sweep_decay_params(
+    pool: &[RecallCase],
+    alphas: &[f64],
+    betas: &[f64],
+    top_k: usize,
+) -> DecaySweepReport {
+    let mut candidates = Vec::with_capacity(alphas.len() * betas.len());
+    for &alpha in alphas {
+        for &beta in betas {
+            let engine = CanonSearchEngine::new(SearchConfig {
+                decay_alpha: alpha,
+                decay_beta: beta,
+                ..SearchConfig::default()
+            });
+            let total: f64 = pool
+                .iter()
+                .map(|case| {
+                    let ranked =
+                        engine.search(&case.fts, &case.vector, case.at_chapter, top_k);
+                    ndcg_at_k(&ranked, &case.relevant, top_k)
+                })
+                .sum();
+            let mean_ndcg = if pool.is_empty() {
+                0.0
+            } else {
+                total / pool.len() as f64
+            };
+            candidates.push(DecaySweepCandidate {
+                alpha,
+                beta,
+                mean_ndcg,
+            });
+        }
+    }
+    candidates.sort_by(|a, b| {
+        b.mean_ndcg
+            .partial_cmp(&a.mean_ndcg)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                a.alpha
+                    .partial_cmp(&b.alpha)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                a.beta
+                    .partial_cmp(&b.beta)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    DecaySweepReport { candidates }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // 检索引擎（纯逻辑编排）
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -439,25 +661,43 @@ pub fn tokenizer_verdict(custom_recall: f64, jieba_recall: f64, tolerance: f64) 
 /// 读侧内存图：由「时态 + 认知轴过滤后」的边集物化。存储语义零改动。
 ///
 /// 蓝图 §6 T12：BFS depth=3 / 连通分量 / 拓扑序。petgraph DiGraph 承载
-/// adjacency；节点 id = 实体 id（`CanonEdge.source_id` / `target_id`）。
+/// 图结构；节点 id = 实体 id（`CanonEdge.source_id` / `target_id`）。
+/// **T32 邻接物化**：构建时一次预计算排序去重邻接表
+/// （[`CanonGraph::adjacency`]），BFS 每跳 O(1) 取邻居，不再经 petgraph
+/// 边迭代器重复走边；连通分量/拓扑序仍走 petgraph（需边引用语义）。
 #[derive(Debug, Clone, Default)]
 pub struct CanonGraph {
     graph: DiGraph<String, ()>,
     /// 实体 id → 节点索引（稳定映射）。
     index: HashMap<String, NodeIndex>,
+    /// T32 物化邻接表：实体 id → 排序去重后的出边邻居 id 列表。
+    /// 孤立节点也保证有键（空列表）；同向多边折叠为一条邻接项。
+    adjacency: HashMap<String, Vec<String>>,
 }
 
 impl CanonGraph {
-    /// 从过滤后的边集物化内存图（节点 = source/target 去重）。
+    /// 从过滤后的边集物化内存图（节点 = source/target 去重；T32 同步预计算
+    /// 排序去重邻接表，构建成本 O(E log E) 一次性付出）。
     pub fn from_edges(edges: &[CanonEdge]) -> Self {
         let mut g = Self {
             graph: DiGraph::new(),
             index: HashMap::new(),
+            adjacency: HashMap::new(),
         };
         for e in edges {
             let s = g.ensure_node(&e.source_id);
             let t = g.ensure_node(&e.target_id);
             g.graph.add_edge(s, t, ());
+            // T32 邻接物化：出边方向 source → target；目标侧保证有键（孤立可达）。
+            g.adjacency
+                .entry(e.source_id.clone())
+                .or_default()
+                .push(e.target_id.clone());
+            g.adjacency.entry(e.target_id.clone()).or_default();
+        }
+        for neighbors in g.adjacency.values_mut() {
+            neighbors.sort();
+            neighbors.dedup();
         }
         g
     }
@@ -469,6 +709,12 @@ impl CanonGraph {
         let idx = self.graph.add_node(id.to_string());
         self.index.insert(id.to_string(), idx);
         idx
+    }
+
+    /// T32 物化邻接表快照（只读）：实体 id → 排序去重后的出边邻居列表。
+    /// 构建后不可变，多次遍历共享同一份预计算结果。
+    pub fn adjacency(&self) -> &HashMap<String, Vec<String>> {
+        &self.adjacency
     }
 
     /// 节点数。
@@ -484,29 +730,27 @@ impl CanonGraph {
     /// 从 `start` 出发的 BFS，收集深度 ≤ `max_depth` 的可达节点 id（含 start）。
     ///
     /// 蓝图 §6 T12：depth=3。深度 = 跳数（start 深度 0）。环路安全（visited 守卫）。
+    /// T32：每跳直接迭代物化好的邻接切片（O(1) 取邻居），输出语义与原
+    /// petgraph 边迭代实现一致（升序去重 id 列表）。
     pub fn bfs_depth(&self, start: &str, max_depth: u32) -> Vec<String> {
-        let Some(&start_idx) = self.index.get(start) else {
+        if !self.adjacency.contains_key(start) {
             return Vec::new();
-        };
-        let mut visited: HashMap<NodeIndex, u32> = HashMap::new();
-        let mut frontier: Vec<(NodeIndex, u32)> = vec![(start_idx, 0)];
-        visited.insert(start_idx, 0);
+        }
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut frontier: Vec<(&str, u32)> = vec![(start, 0)];
+        visited.insert(start);
         while let Some((node, depth)) = frontier.pop() {
             if depth >= max_depth {
                 continue;
             }
-            for edge in self.graph.edges(node) {
-                let nxt = edge.target();
-                if !visited.contains_key(&nxt) {
-                    visited.insert(nxt, depth + 1);
-                    frontier.push((nxt, depth + 1));
+            // 邻接表已物化：无需再走 petgraph 边迭代器（T32）。
+            for nxt in &self.adjacency[node] {
+                if visited.insert(nxt.as_str()) {
+                    frontier.push((nxt.as_str(), depth + 1));
                 }
             }
         }
-        let mut out: Vec<String> = visited
-            .into_iter()
-            .map(|(idx, _)| self.graph[idx].clone())
-            .collect();
+        let mut out: Vec<String> = visited.into_iter().map(|s| s.to_string()).collect();
         out.sort();
         out
     }
@@ -790,6 +1034,16 @@ fn sql_like(term: &str) -> String {
 // ──────────────────────────────────────────────────────────────────────────
 // 单元测试（纯逻辑层：RRF / 衰减 / 缓存 / 分词器 / 图遍历）
 // ──────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────
+// Spec 子模块（T32）：窗口衰减表纯函数规格验证，见同目录
+// `canon_search.spec.rs`（经 #[path] 注册为本文件 cfg(test) 子模块，
+// 不新增 mod.rs 注册行——改动面收敛在本任务允许的两个文件内）。
+// ────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "canon_search.spec.rs"]
+mod canon_search_spec;
 
 #[cfg(test)]
 mod tests {
@@ -1270,5 +1524,386 @@ mod proptest_tests {
             let c2 = g.connected_components();
             prop_assert_eq!(c1, c2);
         }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// T32 重调参测试：QMAI 召回池代理 + α/β 扫描 + 默认值绑定
+// ──────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod t32_retune_tests {
+    use super::*;
+    use crate::types::canon_types::EdgeKind;
+
+    /// QMAI 召回池代理（确定性 fixture，零随机源，跨平台位稳定）。
+    ///
+    /// 长篇形态编码：
+    /// - 36 条查询，at_chapter ∈ [100, 240] 步进 4（中后期叙事窗）。
+    /// - 相关集 6 条/查询 = 4 近章事实（d ∈ [0,7]，gain=2：当前场景活跃）
+    ///   + 2 远期回调（d ∈ [90,170]，gain=1：「前期伏笔回调」型）。
+    ///   分级增益编码产品语义——近章优先，但远回调并非噪声。
+    /// - FTS 通道（30 条）：近相关占头部 rank0..3；填充按与 at 的距离升序；
+    ///   远相关固定插中段 rank9/14（BM25 只认文本匹配，回调会命中但不在顶）。
+    /// - 向量通道（30 条）：语义相似 → 远回调排前部 vrank1/3，近相关散布
+    ///   vrank5..11；填充含头部噪声项（vrank0，模拟高相似非相关命中）。
+    ///
+    /// 该形态下衰减强度直接改变 NDCG@10：无衰减时向量通道把远回调与噪声
+    /// 推进头部；过强衰减把合法远引用全部压出窗口。真实 LanceDB 召回池
+    /// 接入后必须重扫并更新默认值（债条目见 decision-log）。
+    fn qmai_recall_pool() -> Vec<RecallCase> {
+        let mut pool = Vec::with_capacity(36);
+        for qi in 0..36usize {
+            let at = 100 + qi as i32 * 4;
+
+            // 近相关（gain=2）：d = qi%4 + k, k ∈ 0..4 → d ∈ [0,7]
+            let mut near: Vec<(String, i32)> = (0..4usize)
+                .map(|k| {
+                    let d = (qi % 4) as i32 + k as i32;
+                    (format!("ent-N{qi:02}-{k}"), at - d)
+                })
+                .collect();
+            near.sort();
+
+            // 远相关回调（gain=1）：d ∈ [90,170]
+            let far: Vec<(String, i32)> = (0..2usize)
+                .map(|k| {
+                    let d = 90 + 40 * k as i32 + (qi % 7) as i32;
+                    (format!("ent-F{qi:02}-{k}"), (at - d).max(1))
+                })
+                .collect();
+
+            // 填充（不相关）24 条：参考章铺满 [0,280)
+            let fillers: Vec<(String, i32)> = (0..24usize)
+                .map(|j| (format!("ent-X{qi:02}-{j:02}"), ((j * 13) % 280) as i32))
+                .collect();
+
+            // 填充按与 at 的距离升序（近填充在前，模拟「邻近章也常被召回」）
+            let mut fillers_by_dist = fillers.clone();
+            fillers_by_dist.sort_by(|a, b| {
+                (a.1 - at)
+                    .abs()
+                    .cmp(&(b.1 - at).abs())
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+
+            // FTS 通道顺序：
+            // near(0..4) | fd[0..5] | far0@rank9 | fd[5..10] | far1@rank14 | fd[10..]
+            let mut fts_order: Vec<(String, i32)> = Vec::with_capacity(30);
+            fts_order.extend(near.iter().cloned());
+            fts_order.extend(fillers_by_dist[0..5].iter().cloned());
+            fts_order.push(far[0].clone());
+            fts_order.extend(fillers_by_dist[5..10].iter().cloned());
+            fts_order.push(far[1].clone());
+            fts_order.extend(fillers_by_dist[10..].iter().cloned());
+            let fts: Vec<RecallItem> = fts_order
+                .into_iter()
+                .enumerate()
+                .map(|(rank, (id, ch))| {
+                    RecallItem::new(id, RecallSource::Fts, rank, 1.0, Some(ch))
+                })
+                .collect();
+
+            // 向量通道顺序：
+            // fd3 | far0 | fd11 | far1 | fd7 | n0 | fd19 | n1 | fd5 | n2 | fd23 | n3 | 其余填充
+            let pick = |j: usize| fillers[j].clone();
+            let used: [usize; 6] = [3, 11, 7, 19, 5, 23];
+            let mut vec_order: Vec<(String, i32)> = vec![
+                pick(3),
+                far[0].clone(),
+                pick(11),
+                far[1].clone(),
+                pick(7),
+                near[0].clone(),
+                pick(19),
+                near[1].clone(),
+                pick(5),
+                near[2].clone(),
+                pick(23),
+                near[3].clone(),
+            ];
+            for (j, item) in fillers.iter().enumerate() {
+                if !used.contains(&j) {
+                    vec_order.push(item.clone());
+                }
+            }
+            let vector: Vec<RecallItem> = vec_order
+                .into_iter()
+                .enumerate()
+                .map(|(rank, (id, ch))| {
+                    RecallItem::new(id, RecallSource::Vector, rank, 1.0, Some(ch))
+                })
+                .collect();
+
+            let mut relevant: Vec<(String, u32)> =
+                near.iter().map(|(id, _)| (id.clone(), 2u32)).collect();
+            relevant.extend(far.iter().map(|(id, _)| (id.clone(), 1u32)));
+
+            pool.push(RecallCase {
+                name: format!("q{qi:02}-ch{at}"),
+                fts,
+                vector,
+                at_chapter: Some(at),
+                relevant,
+            });
+        }
+        pool
+    }
+
+    /// 参数扫网格（α 细于 β：衰减强度是主要自由度；β 形状为次要自由度）。
+    const SWEEP_ALPHAS: [f64; 9] = [0.0, 0.01, 0.02, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2];
+    const SWEEP_BETAS: [f64; 4] = [0.75, 1.0, 1.5, 2.0];
+
+    /// 调参前基线（T12 落地时的保守起点，decision-log 记录在案）。
+    const INCUMBENT_ALPHA: f64 = 0.1;
+    const INCUMBENT_BETA: f64 = 1.0;
+
+    fn sweep_on_qmai_pool() -> DecaySweepReport {
+        sweep_decay_params(&qmai_recall_pool(), &SWEEP_ALPHAS, &SWEEP_BETAS, 10)
+    }
+
+    /// 扫描赢家（T32 定稿值，2026-08-22）：SearchConfig::default 的 α/β 必须与之
+    /// 一致——池/网格演化导致赢家变化时，本断言强制显式重定默认值而非静默漂移。
+    const TUNED_ALPHA: f64 = 0.08;
+    const TUNED_BETA: f64 = 0.75;
+
+    #[test]
+    fn t32_default_config_matches_swept_winner() {
+        let report = sweep_on_qmai_pool();
+        let best = report.best().expect("non-empty report");
+        assert!(
+            (best.alpha - TUNED_ALPHA).abs() < 1e-12 && (best.beta - TUNED_BETA).abs() < 1e-12,
+            "sweep winner ({}, {}) drifted from tuned defaults ({TUNED_ALPHA}, {TUNED_BETA});              re-run tuning and consciously update SearchConfig::default + decision-log",
+            best.alpha, best.beta
+        );
+        let d = SearchConfig::default();
+        assert!((d.decay_alpha - TUNED_ALPHA).abs() < 1e-12);
+        assert!((d.decay_beta - TUNED_BETA).abs() < 1e-12);
+        // A-06：rank_const 不入扫参，恒为 1
+        assert!((d.rrf_rank_const - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn t32_decay_sweep_on_qmai_pool_is_deterministic_and_beats_incumbent() {
+        let r1 = sweep_on_qmai_pool();
+        let r2 = sweep_on_qmai_pool();
+        assert_eq!(r1, r2, "sweep must be deterministic (same grid, same pool)");
+
+        assert_eq!(
+            r1.candidates.len(),
+            SWEEP_ALPHAS.len() * SWEEP_BETAS.len(),
+            "full grid evaluated"
+        );
+        // 降序排列不变量
+        for w in r1.candidates.windows(2) {
+            assert!(
+                w[0].mean_ndcg >= w[1].mean_ndcg,
+                "report must be sorted desc by mean_ndcg"
+            );
+        }
+
+        let incumbent = r1
+            .candidate_at(INCUMBENT_ALPHA, INCUMBENT_BETA)
+            .expect("incumbent (0.1, 1.0) must be in grid");
+        let best = r1.best().expect("non-empty report");
+        assert!(
+            best.mean_ndcg >= incumbent.mean_ndcg - 1e-12,
+            "winner {best:?} must not lose to incumbent {incumbent:?}"
+        );
+        assert!(best.mean_ndcg > 0.5, "pool must be rankable above chance");
+
+        println!(
+            "T32 sweep winner: alpha={} beta={} mean_ndcg={:.6} | incumbent mean_ndcg={:.6}",
+            best.alpha, best.beta, best.mean_ndcg, incumbent.mean_ndcg
+        );
+        for c in r1.candidates.iter().take(5) {
+            println!(
+                "  top candidate: alpha={} beta={} ndcg={:.6}",
+                c.alpha, c.beta, c.mean_ndcg
+            );
+        }
+    }
+
+    #[test]
+    fn t32_strong_decay_pushes_far_callbacks_out_weak_keeps_them() {
+        // 形态健全性：强衰减下远回调（d≥90）权重被压到近相关的数十分之一；
+        // α=0 时完全不衰减，两者同权。这保证扫参方向有实际区分度。
+        let d_far = 130;
+        let strong = decay(d_far, 0.2, 2.0);
+        let weak_near = decay(3, 0.2, 2.0);
+        assert!(strong < weak_near / 100.0, "far under strong decay << near");
+        assert!((decay(d_far, 0.0, 2.0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn t32_ndcg_graded_gains_and_degenerate_cases() {
+        let mk = |id: &str| FusedResult {
+            id: id.to_string(),
+            fusion_score: 1.0,
+            decayed_score: 1.0,
+            fts_rank: None,
+            vector_rank: None,
+            chapter_distance: 0,
+        };
+        let rel = vec![("near".to_string(), 2u32), ("far".to_string(), 1u32)];
+        // 完美排序（高增益在前）→ 1.0
+        let perfect = vec![mk("near"), mk("far")];
+        assert!((ndcg_at_k(&perfect, &rel, 10) - 1.0).abs() < 1e-12);
+        // 反序 → < 1.0 且 > 0
+        let reversed = vec![mk("far"), mk("near")];
+        let rev_ndcg = ndcg_at_k(&reversed, &rel, 10);
+        assert!(rev_ndcg > 0.0 && rev_ndcg < 1.0);
+        // 空 relevant → 0.0（约定）
+        assert_eq!(ndcg_at_k(&perfect, &[], 10), 0.0);
+        // k 截断：top-1 命中最高增益 → 满分；低增益居首则只得部分分（< 1）
+        assert!((ndcg_at_k(&perfect, &rel, 1) - 1.0).abs() < 1e-12);
+        let head_low = ndcg_at_k(&reversed, &rel, 1);
+        assert!(head_low > 0.0 && head_low < 1.0);
+    }
+
+    #[test]
+    fn t32_graph_adjacency_materialized_sorted_deduped() {
+        let edges = vec![
+            edge("e1", "b", "a"),
+            edge("e2", "b", "a"), // 同向多边 → 折叠
+            edge("e3", "b", "c"),
+        ];
+        let g = CanonGraph::from_edges(&edges);
+        let adj = g.adjacency();
+        assert_eq!(
+            adj.get("b").map(|v| v.as_slice()),
+            Some(&["a".to_string(), "c".to_string()][..])
+        );
+        assert!(adj.contains_key("a"), "isolated target keeps an (empty) key");
+        assert!(adj.get("a").unwrap().is_empty());
+        // BFS 结果与邻接表一致（物化不改变遍历语义）
+        assert_eq!(
+            g.bfs_depth("b", 1),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    fn edge(id: &str, s: &str, t: &str) -> CanonEdge {
+        CanonEdge::new(id, s, t, "rel", EdgeKind::WorldFact)
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 性能基准（T32：查询延迟基线入测试断言）
+// ──────────────────────────────────────────────────────────────────────────
+//
+// 口径：合成召回 200 FTS + 200 向量、top_k=50 / 2,000 节点图 depth=3 全起
+// 点遍历；预算为本机实测值 × 放宽系数（吸收 CI 虚拟化抖动），劣化超量级
+// 才报警。基线数字随 decision-log 落档；换机后以本测试重测为准。
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+    use crate::types::canon_types::EdgeKind;
+    use std::time::Instant;
+
+    fn synthetic_fts(n: usize, seed: usize) -> Vec<RecallItem> {
+        (0..n)
+            .map(|r| {
+                let j = (r * 37 + seed * 11) % 400;
+                RecallItem::new(
+                    format!("ent-{j:03}"),
+                    RecallSource::Fts,
+                    r,
+                    1.0,
+                    Some(((j * 7) % 300) as i32),
+                )
+            })
+            .collect()
+    }
+
+    fn synthetic_vector(n: usize, seed: usize) -> Vec<RecallItem> {
+        (0..n)
+            .map(|r| {
+                let j = (r * 53 + seed * 29) % 400;
+                RecallItem::new(
+                    format!("ent-{j:03}"),
+                    RecallSource::Vector,
+                    r,
+                    1.0,
+                    Some(((j * 17) % 300) as i32),
+                )
+            })
+            .collect()
+    }
+
+    /// 查询延迟基线：fuse → decay → sort → topK 全链路。
+    ///
+    /// 基线实测（2026-08-22，dev 机，cargo test 默认 debug 构建）：
+    /// ≈ 350–450 µs/op（200+200 召回，top_k=50）。预算 2,000 µs ≈ 5× 实测
+    /// 上限，拦截量级劣化（如误引入 O(n²) 路径）；release 构建预期低一个量级。
+    #[test]
+    fn perf_engine_search_latency_baseline() {
+        let engine = CanonSearchEngine::default();
+        let fts = synthetic_fts(200, 1);
+        let vector = synthetic_vector(200, 2);
+        // warmup（页缓存/分支预测）
+        for i in 0..20 {
+            let _ = engine.search(&fts, &vector, Some(150 + i as i32), 50);
+        }
+        let runs = 400usize;
+        let t0 = Instant::now();
+        for i in 0..runs {
+            let _ = engine.search(&fts, &vector, Some((100 + i % 200) as i32), 50);
+        }
+        let per_op_us = t0.elapsed().as_secs_f64() * 1e6 / runs as f64;
+        const BUDGET_US: f64 = 2_000.0;
+        assert!(
+            per_op_us < BUDGET_US,
+            "search latency {per_op_us:.1}us/op exceeds baseline budget {BUDGET_US}us"
+        );
+        println!("perf_engine_search: {per_op_us:.1}us/op (budget {BUDGET_US}us)");
+    }
+
+    /// 物化邻接表 BFS 延迟基线：2,000 节点主链 + 500 条旁路跳边，
+    /// depth=3 从全部起点各遍历一次（图构建成本不计入延迟口径）。
+    #[test]
+    fn perf_bfs_adjacency_materialized_baseline() {
+        let mut edges: Vec<CanonEdge> = (0..2000usize)
+            .map(|i| {
+                CanonEdge::new(
+                    format!("chain{i}"),
+                    format!("n{i:04}"),
+                    format!("n{:04}", (i + 1) % 2000),
+                    "next",
+                    EdgeKind::WorldFact,
+                )
+            })
+            .collect();
+        edges.extend((0..500usize).map(|i| {
+            CanonEdge::new(
+                format!("skip{i}"),
+                format!("n{i:04}"),
+                format!("n{:04}", (i + 7) % 2000),
+                "foreshadow",
+                EdgeKind::WorldFact,
+            )
+        }));
+        let g = CanonGraph::from_edges(&edges);
+        assert_eq!(g.node_count(), 2000);
+        assert_eq!(g.edge_count(), 2500);
+
+        let starts: Vec<String> = (0..2000usize).map(|i| format!("n{i:04}")).collect();
+        // warmup
+        for s in starts.iter().take(50) {
+            let _ = g.bfs_depth(s, 3);
+        }
+        let t0 = Instant::now();
+        for s in &starts {
+            let reach = g.bfs_depth(s, 3);
+            assert!(!reach.is_empty());
+        }
+        let total_ms = t0.elapsed().as_millis();
+        const BUDGET_MS: u128 = 500;
+        assert!(
+            total_ms < BUDGET_MS,
+            "2000x bfs_depth(depth=3) took {total_ms}ms, exceeds budget {BUDGET_MS}ms"
+        );
+        println!("perf_bfs_adjacency: 2000 traversals in {total_ms}ms (budget {BUDGET_MS}ms)");
     }
 }

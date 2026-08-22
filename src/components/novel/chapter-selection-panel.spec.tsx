@@ -3,7 +3,7 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { fireEvent, waitFor, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 
@@ -427,6 +427,21 @@ describe("ChapterSelectionPanel", () => {
     cleanup()
   })
 
+  it("TASK-LE-5 Radix 迁移：role=dialog/aria-modal/aria-labelledby + 打开时 scroll lock", async () => {
+    const { container, cleanup } = mount()
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.getAttribute("aria-modal")).toBe("true")
+    // DialogTitle（h2）提供可访问名称
+    expect(dialog.getAttribute("aria-labelledby")).toBeTruthy()
+    expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent).toContain(
+      "选择分析章节",
+    )
+    // Radix scroll lock：body 标记 data-scroll-locked（替代手写 overflow hidden）
+    await waitFor(() => expect(document.body.hasAttribute("data-scroll-locked")).toBe(true))
+    cleanup()
+  })
+
   it("Tab 焦点陷阱：shift+Tab 从首元素到末元素，Tab 从末元素回首元素", () => {
     const { container, cleanup } = mount()
     const focusable = Array.from(container.querySelectorAll("button:not([disabled])")) as HTMLElement[]
@@ -434,16 +449,16 @@ describe("ChapterSelectionPanel", () => {
     const last = focusable[focusable.length - 1]
     first.focus()
     expect(document.activeElement).toBe(first)
-    // shift+Tab：首元素 → 末元素
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    // shift+Tab：首元素 → 末元素（Radix FocusScope 在容器内拦截 Tab）
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(last)
     // Tab：末元素 → 首元素
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(last, { key: "Tab" })
     expect(document.activeElement).toBe(first)
     // 中间元素 + shift+Tab：不触发循环
     const middle = focusable[2]
     middle.focus()
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(middle, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(middle)
     cleanup()
   })
@@ -454,7 +469,7 @@ describe("ChapterSelectionPanel", () => {
     const middle = focusable[2]
     middle.focus()
     const keydown = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
-    document.dispatchEvent(keydown)
+    middle.dispatchEvent(keydown)
     expect(keydown.defaultPrevented).toBe(false)
     cleanup()
   })

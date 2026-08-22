@@ -198,7 +198,8 @@
     "settings": "设置",
     "switchProject": "切换小说",
     "trash": "回收站",
-    "chat": "聊天"
+    "chat": "聊天",
+    "coverWorkbench": "封面工作台"
   },
   "theme": {
     "switch": "切换主题",
@@ -1255,7 +1256,8 @@
       "dismantling": "拆文库",
       "settings": "模型与写作设置",
       "switchProject": "切换小说",
-      "chat": "聊天"
+      "chat": "聊天",
+      "coverWorkbench": "封面工作台"
     },
     "sidebar": {
       "knowledge": "章节",
@@ -1770,6 +1772,25 @@
       "chapterShort": "第{{num}}章",
       "noChapters": "暂无章节列",
       "noChaptersHint": "保存正式章节快照后，矩阵将出现章节列"
+    },
+    "coverWorkbench": {
+      "title": "封面 Prompt 工作台",
+      "dialogHint": "选择平台 → 填写作品信息 → 复制生成好的封面 Prompt（纯本地生成，不调用 AI）",
+      "platform": "平台",
+      "styleLabel": "风格基调",
+      "noStyle": "未配置风格",
+      "dimensions": "尺寸",
+      "bookTitle": "书名",
+      "bookTitlePlaceholder": "输入小说书名",
+      "genre": "题材",
+      "genrePlaceholder": "如：东方玄幻 / 都市脑洞 / 古代言情",
+      "keywords": "氛围关键词",
+      "keywordsPlaceholder": "如：热血、逆袭、权谋",
+      "promptPreview": "Prompt 预览",
+      "copy": "复制 Prompt",
+      "copied": "已复制",
+      "hint": "纯客户端一次性产出：不调用 AI、不进入草稿流程。可粘贴到任意文生图工具。",
+      "emptyTemplates": "暂无平台模板（config/cover-platform-templates.json 为空或格式错误）"
     },
     "foreshadowing": {
       "title": "伏笔管理",

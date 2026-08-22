@@ -68,6 +68,12 @@ md-5 = "0.10"
 notify = "8"
 walkdir = "2"
 tauri-plugin-single-instance = "2"
+# T34 sentinel hardening (TASK-P6-34): structured leveled logging
+# (replaces scattered eprintln/println over time; stage-output journal stays a
+# separate artifact channel and is NOT routed through the log plugin) + window
+# state persistence (size/position restore across restarts).
+tauri-plugin-log = "2"
+tauri-plugin-window-state = "2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power"] }
 
 [dev-dependencies]

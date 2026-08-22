@@ -14,7 +14,7 @@ import type { NameAliasMap } from "./book-analysis/types"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
 import { createEmptyEmotionalArcStore, loadEmotionalArcs, saveEmotionalArcs, type EmotionalArcStore } from "./emotional-arcs"
-import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard } from "./subplot-board"
+import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard, type SubplotBoardStore } from "./subplot-board"
 import { createEmptyResourceLedgerStore, loadResourceLedger, saveResourceLedger, type ResourceLedgerStore } from "./resource-ledger"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
@@ -597,17 +597,12 @@ export async function ingestChapter(
         await saveResourceLedger(pp, ledger)
       })
 
-      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. ANL-013 G2
-      // audit: QMAI has no支线剧情进度 projection. The snapshot has no
-      // dedicated subplot field yet (LLM extract-prompt extension is out of
-      // scope for this additive projection-infra task), so this commits an
-      // empty store until a snapshot field is added — but the projection is
-      // REGISTERED + tracked so future wiring is a one-line change. The
-      // projection stays alive (committed-empty, not missing) so the ledger
-      // shows it is reachable. Failure → ledger (IC-02).
+      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. Phase 3 (LE-1):
+      // 从 snapshot foreshadowingChanges/events 解析 subplot 解决/废弃事件,
+      // 写入 targetResolutionChapter/abandoned 结构化字段。
       await runProjection("subplot_board", async () => {
         const board = await loadSubplotBoard(pp)
-        board.lastUpdated = new Date().toISOString()
+        applySubplotChangesToStore(board, snapshot)
         await saveSubplotBoard(pp, board)
       })
 
@@ -1456,6 +1451,15 @@ function parseForeshadowingChange(change: string):
   return null
 }
 
+// LE-2 Phase 2: 死亡状态检测模式 — 与 deterministic-continuity-engine.ts
+// DEFAULT_CONTINUITY_CONFIG.deadCharacterPatterns 保持一致，确保生产端写入与引擎
+// 读端同源。正则 fallback 保留（结构化缺失时降级匹配，行为向后兼容）。
+const DEATH_PATTERNS = ["死", "亡", "殒", "逝", "毙"] as const
+
+function isDeathStatus(status: string): boolean {
+  return status.length > 0 && DEATH_PATTERNS.some((p) => status.includes(p))
+}
+
 function applyCharacterStateChangesToStore(
   existingChars: CharacterStateStore,
   snapshot: ChapterSnapshot,
@@ -1470,8 +1474,15 @@ function applyCharacterStateChangesToStore(
       if (existing) {
         existing.status = changeDesc
         existing.lastUpdatedChapter = snapshot.chapterNumber
+        existing.lastSeenChapter = snapshot.chapterNumber
         existing.lastUpdatedAt = new Date().toISOString()
+        // LE-2 Phase 2: 结构化死亡标记写入端落地
+        if (isDeathStatus(changeDesc)) {
+          existing.isAlive = false
+          existing.deathChapter = snapshot.chapterNumber
+        }
       } else {
+        const isDead = isDeathStatus(changeDesc)
         existingChars.characters.push({
           characterName: canonical,
           currentLocation: "",
@@ -1480,7 +1491,10 @@ function applyCharacterStateChangesToStore(
           abilities: [],
           relationships: {},
           lastUpdatedChapter: snapshot.chapterNumber,
+          lastSeenChapter: snapshot.chapterNumber,
           lastUpdatedAt: new Date().toISOString(),
+          // LE-2 Phase 2: 新角色死亡结构化标记
+          ...(isDead ? { isAlive: false as const, deathChapter: snapshot.chapterNumber } : {}),
         })
       }
     } else {
@@ -1488,7 +1502,13 @@ function applyCharacterStateChangesToStore(
       if (matched) {
         matched.status = change
         matched.lastUpdatedChapter = snapshot.chapterNumber
+        matched.lastSeenChapter = snapshot.chapterNumber
         matched.lastUpdatedAt = new Date().toISOString()
+        // LE-2 Phase 2: 结构化死亡标记写入端落地
+        if (isDeathStatus(change)) {
+          matched.isAlive = false
+          matched.deathChapter = snapshot.chapterNumber
+        }
       }
     }
   }
@@ -1669,6 +1689,83 @@ function applyResourceLedgerToStore(
   return ledger
 }
 
+// ============================================================================
+// Phase 3 (LE-1): Subplot 结构化逾期标记写入端
+// ============================================================================
+
+/**
+ * Phase 3 (LE-1): applySubplotChangesToStore — 从 snapshot 情节线解决/废弃事件
+ * 解析结构化标记，写入 SubplotBoard。
+ *
+ * 数据源:
+ *   - foreshadowingChanges "回收伏笔：name" → targetResolutionChapter = current chapter
+ *   - foreshadowingChanges "废弃：name" / "废弃伏笔：name" → abandoned = true
+ *   - events 含 "废弃" + subplot title → abandoned = true
+ *
+ * 匹配方式: 按 subplot.title substring 匹配（name 含 title 或 title 含 name），
+ * 与 foreshadowing 匹配风格一致。
+ *
+ * fold_rebuildable: 对同一 snapshot 重复调用零行为变更 (idempotent — 同章号
+ * 重复写入 targetResolutionChapter/abandoned 相同值)。
+ */
+function applySubplotChangesToStore(
+  board: SubplotBoardStore,
+  snapshot: ChapterSnapshot,
+): SubplotBoardStore {
+  for (const change of snapshot.foreshadowingChanges) {
+    const trimmed = change.trim()
+
+    // 回收 (resolve) → targetResolutionChapter = current chapter
+    if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
+      const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "")
+      const name = content.split("-")[0]?.trim() || content.trim()
+      if (!name) continue
+      for (const subplot of board.items) {
+        if (subplot.title.includes(name) || name.includes(subplot.title)) {
+          subplot.targetResolutionChapter = snapshot.chapterNumber
+          if (subplot.status !== "resolved") {
+            subplot.status = "resolved"
+            subplot.resolvedChapter = snapshot.chapterNumber
+          }
+        }
+      }
+    }
+
+    // 废弃 (abandon) → abandoned = true
+    if (/^(废弃|废弃伏笔)[:：]/.test(trimmed)) {
+      const content = trimmed.replace(/^(废弃|废弃伏笔)[:：]?\s*/, "")
+      const name = content.split("-")[0]?.trim() || content.trim()
+      if (!name) continue
+      for (const subplot of board.items) {
+        if (subplot.title.includes(name) || name.includes(subplot.title)) {
+          subplot.abandoned = true
+          if (subplot.status !== "resolved") {
+            subplot.status = "resolved"
+            subplot.resolvedChapter = snapshot.chapterNumber
+          }
+        }
+      }
+    }
+  }
+
+  // 同时检查 events 中 "废弃" + subplot title 组合
+  for (const event of snapshot.events) {
+    if (!event.includes("废弃")) continue
+    for (const subplot of board.items) {
+      if (event.includes(subplot.title)) {
+        subplot.abandoned = true
+        if (subplot.status !== "resolved") {
+          subplot.status = "resolved"
+          subplot.resolvedChapter = snapshot.chapterNumber
+        }
+      }
+    }
+  }
+
+  board.lastUpdated = new Date().toISOString()
+  return board
+}
+
 /**
  * F-002 (ANL-010 R4 / C-002): rebuild ALL derived projections from the
  * committed snapshot sequence. Previously `rebuildDerivedMemoryFromSnapshots`
@@ -1717,8 +1814,8 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
 
   // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs / resource ledger /
   // subplot board. Re-folded from the committed snapshot sequence (same
-  // shared apply* helpers as ingest → deterministic rebuild). Subplot board
-  // has no snapshot field yet → commits empty (projection stays alive).
+  // shared apply* helpers as ingest → deterministic rebuild). Phase 3 (LE-1):
+  // applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned.
   const emotionalArcStore = createEmptyEmotionalArcStore()
   const resourceLedger = createEmptyResourceLedgerStore()
   const subplotBoard = createEmptySubplotBoardStore()
@@ -1726,6 +1823,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
     const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
     applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps)
     applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps)
+    applySubplotChangesToStore(subplotBoard, snapshot)
   }
   await saveEmotionalArcs(projectPath, emotionalArcStore)
   await saveResourceLedger(projectPath, resourceLedger)

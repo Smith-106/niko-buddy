@@ -3,7 +3,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
-import { buildReviewPrompt, ReviewParseError, reviewChapter } from "./review-adapter"
+import { buildReviewPrompt, ReviewParseError, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
@@ -1271,5 +1271,46 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
     await reviewChapter("E:/Novel", "正文", 8, { contextPack })
 
     expect(streamChatMock.mock.calls.every((call) => call[4]?.reasoning?.mode === "high")).toBe(true)
+  })
+})
+
+// ==========================================================================
+// T24 (TASK-P3-24): resolveReviewGateKey 改读 T22 GATE_MAPPING（唯一真源）
+// ==========================================================================
+describe("T24 resolveReviewGateKey — GATE_MAPPING 唯一真源 + CORR-108 legacy 对照", () => {
+  it("37 维 id 经 GATE_MAPPING 归门（每门抽代表维验证三门归属）", () => {
+    expect(resolveReviewGateKey("timeline_consistency")).toBe("consistency")
+    expect(resolveReviewGateKey("subplot_resolution")).toBe("consistency")
+    expect(resolveReviewGateKey("slop_mechanical")).toBe("anti_ai")
+    expect(resolveReviewGateKey("de_ai_residual")).toBe("anti_ai")
+    expect(resolveReviewGateKey("thrill_density")).toBe("quality")
+    expect(resolveReviewGateKey("reading_power")).toBe("quality")
+  })
+
+  it("normalize 口径与 resolveDecisionGateKey 一致（trim + 大小写不敏感）", () => {
+    expect(resolveReviewGateKey("  TIMELINE_CONSISTENCY ")).toBe("consistency")
+    expect(resolveReviewGateKey("De_Ai_Residual")).toBe("anti_ai")
+  })
+
+  it("CORR-108 legacy alias 集归类不变（历史对照常量保真）", () => {
+    for (const type of CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES) {
+      expect(resolveReviewGateKey(type)).toBe("consistency")
+    }
+    for (const type of CORR108_LEGACY_ANTI_AI_REVIEW_TYPES) {
+      expect(resolveReviewGateKey(type)).toBe("anti_ai")
+    }
+  })
+
+  it("legacy alias 与 37 维注册表无冲突碰撞（双真源一致性守卫）", () => {
+    const legacyAll = [...CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, ...CORR108_LEGACY_ANTI_AI_REVIEW_TYPES]
+    // 若未来某 legacy alias 升格为 37 维 id，其 GATE_MAPPING 归属必须与 legacy 归类一致
+    for (const type of legacyAll) {
+      expect(resolveReviewGateKey(type)).toBe(resolveReviewGateKey(type.trim().toLowerCase()))
+    }
+  })
+
+  it("未知 type 保守缺省 quality（P2 永不覆盖 P0/P1）", () => {
+    expect(resolveReviewGateKey("unknown_type")).toBe("quality")
+    expect(resolveReviewGateKey("")).toBe("quality")
   })
 })

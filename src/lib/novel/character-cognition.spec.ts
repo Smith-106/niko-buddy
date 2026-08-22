@@ -6,16 +6,23 @@ import {
   cognitionToContextText,
   emptyCognitionState,
   exemplarABStats,
+  fromCanonGraph,
   loadCognitionState,
   mergeCognitionFromSnapshot,
   resolveCanonicalName,
   resolveMatchingMap,
   rewriteRateABStats,
   saveCognitionState,
+  type CanonCognitionInput,
   type CognitionState,
 } from "./character-cognition"
 import { buildNameAliasMap } from "./book-analysis/alias-resolver"
 import type { ChapterSnapshot } from "./chapter-ingest"
+import type { CanonFact } from "./canon-graph-client"
+
+// fromCanonGraph 经 canon-graph-client 引入 @tauri-apps/api/core（仅 import，
+// 不调用 invoke）—— 与 canon-backfill.spec 同款 mock，避免依赖 Tauri 运行时。
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
 
 // vi.hoisted: 内存文件系统 mock, 控制 save/loadCognitionState 与 A/B 埋点读写
 // (走 @/commands/fs readFile/writeFileAtomic/createDirectory/fileExists,
@@ -523,5 +530,94 @@ describe("cognitionToContextText", () => {
     expect(cognitionToContextText(state)).toBe(
       "林动知道：武学\n菜月昴不知道：真相\n读者知道：背景",
     )
+  })
+})
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// T25 (F-13/A-04.4): fromCanonGraph — 从 canon 图读认知轴（VIEW only，默认快照
+// 折叠路径 mergeCognitionFromSnapshot 完全不变）
+// ════════════════════════════════════════════════════════════════════════════
+
+function makeCanonEdge(overrides: Partial<CanonFact> & { id: string }): CanonFact {
+  return {
+    sourceId: "白砚",
+    targetId: "轩辕剑",
+    predicate: "OWNS",
+    edgeKind: "world_fact",
+    archived: false,
+    ...overrides,
+  }
+}
+
+describe("fromCanonGraph (T25 认知轴)", () => {
+  it("maps per-POV facts into knows text with revealedAt suffix", () => {
+    const entries: CanonCognitionInput[] = [
+      {
+        character: "白砚",
+        facts: [makeCanonEdge({ id: "e1", revealedAt: 3 })],
+      },
+    ]
+    expect(fromCanonGraph(entries)).toEqual([
+      { character: "白砚", knows: ["白砚 OWNS 轩辕剑（第3章）"], doesNotKnow: [] },
+    ])
+  })
+
+  it("suffix falls back validAt → sourceChapter → no suffix", () => {
+    const entries: CanonCognitionInput[] = [
+      {
+        character: "甲",
+        facts: [
+          makeCanonEdge({ id: "e1", validAt: 2 }),
+          makeCanonEdge({ id: "e2", sourceChapter: 7 }),
+          makeCanonEdge({ id: "e3" }),
+        ],
+      },
+    ]
+    const [entry] = fromCanonGraph(entries)
+    expect(entry!.knows).toEqual([
+      "白砚 OWNS 轩辕剑（第2章）",
+      "白砚 OWNS 轩辕剑（第7章）",
+      "白砚 OWNS 轩辕剑",
+    ])
+  })
+
+  it("folds the POV character name through alias maps", () => {
+    const aliasMaps = [{ canonical: "白砚", aliases: ["小白"] }]
+    const entries: CanonCognitionInput[] = [
+      { character: "小白", facts: [makeCanonEdge({ id: "e1" })] },
+    ]
+    const [entry] = fromCanonGraph(entries, aliasMaps)
+    expect(entry!.character).toBe("白砚")
+  })
+
+  it("deterministic order (chapter asc, id asc), dedup, archived skip, empty-facts entry kept", () => {
+    const entries: CanonCognitionInput[] = [
+      {
+        character: "乙",
+        facts: [
+          makeCanonEdge({ id: "b", revealedAt: 4 }),
+          makeCanonEdge({ id: "a", revealedAt: 4 }),
+          makeCanonEdge({ id: "dup", revealedAt: 1 }),
+          makeCanonEdge({ id: "dup", revealedAt: 1 }), // 渲染文本相同 → 去重
+          makeCanonEdge({ id: "dead", revealedAt: 0, archived: true }),
+        ],
+      },
+      { character: "丙", facts: [] },
+    ]
+    const result = fromCanonGraph(entries)
+    expect(result[0]!.knows).toEqual([
+      "白砚 OWNS 轩辕剑（第1章）",
+      "白砚 OWNS 轩辕剑（第4章）", // a 在 b 前：同章按 id 码点序；重复文本已去重
+    ])
+    expect(result[0]!.doesNotKnow).toEqual([])
+    // 零已知事实的 POV 显式保留（knows 空数组 = 该角色从 canon 无已知记录）。
+    expect(result[1]).toEqual({ character: "丙", knows: [], doesNotKnow: [] })
+  })
+
+  it("fail-loud on handle leak: known_by slipping into the input throws (POV 防泄密兑底)", () => {
+    const leaked = makeCanonEdge({ id: "e1" }) as unknown as CanonFact & { known_by?: string[] }
+    leaked.known_by = ["乙"]
+    expect(() => fromCanonGraph([{ character: "乙", facts: [leaked] }])).toThrow(/禁句柄外泄/)
   })
 })

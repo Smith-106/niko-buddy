@@ -973,16 +973,17 @@ describe("BookAnalysisResultViewer", () => {
     const buttons = screen.getAllByRole("button")
     const first = buttons[0]!
     const last = buttons[buttons.length - 1]!
+    // TASK-LE-5：Radix FocusScope 在容器内拦截 Tab（keydown 派发到模态内元素）
     first.focus()
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(last)
     // 焦点在 last 时再按 Shift+Tab：两个分支都不命中（覆盖 !e.shiftKey 为 false 的一侧）
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(last, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(last)
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(last, { key: "Tab" })
     expect(document.activeElement).toBe(first)
-    // 非 Tab / 非 Escape 键：`e.key === "Tab"` 整体为 false → 走跳过
-    fireEvent.keyDown(document, { key: "a" })
+    // 非 Tab / 非 Escape 键：不关闭
+    fireEvent.keyDown(first, { key: "a" })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

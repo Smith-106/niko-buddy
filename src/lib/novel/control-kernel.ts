@@ -62,6 +62,20 @@ export type RouteShellMode = (typeof ROUTE_SHELL_MODES)[number]
 /** 三档反 AI 模式 (T21): off=不挡 / warn=警告不挡 / block=硬挡。 */
 export type AntiAiMode = (typeof ANTI_AI_MODES)[number]
 
+/**
+ * T21 warn 档注解: 来自 T19 候选池的四统计因子检测结果,
+ * 仅在 antiAiMode="warn" 且 gates.anti_ai="fail" 时注入 reason。
+ * 纯数据字段, 不触发 IO/模型调用。
+ */
+export interface WarnAnnotation {
+  /** 触发 warn 的因子名列表 */
+  triggeredFactors: string[]
+  /** 综合建议 (纯文本, 执行层消费) */
+  summary: string
+  /** 标定语料来源 (synthetic-degraded / pending-real-corpus) */
+  calibrationSource: string
+}
+
 /** 规划师 tier: 空=未定 / short / long。 */
 export type PlanningTier = "" | "short" | "long"
 
@@ -117,6 +131,18 @@ export interface ControlState {
   hasArcSummary: boolean
   hasVolumeSummary: boolean
   shellMode: RouteShellMode
+  /**
+   * T21: warn 档注解（来自 T19 候选池）
+   * 仅在 antiAiMode="warn" 且门控评估后由执行层注入,
+   * route() 纯函数只读传递, 不解释不消费。
+   */
+  warnAnnotation?: WarnAnnotation
+  /**
+   * T21: block 档阈值标记（来自 T20 标定）
+   * pending-real-corpus 语义: 真实语料未到, 阈值暂不生效,
+   * 标记仅用于审计追踪, 不阻塞 warn 行为。
+   */
+  blockThresholdApplied?: boolean
 }
 
 /** 13 个互斥分支 (与 ROUTE_ACTIONS 一一对应)。 */
@@ -188,6 +214,27 @@ function gateRouting(state: ControlState): "revise" | "judge" {
   if (state.gates.consistency === "fail") return "revise"
   if (state.gates.anti_ai === "fail" && state.antiAiMode === "block") return "revise"
   return "judge"
+}
+
+/** 构建 anti_ai 门控理由 (含 T21 三档语境)。 */
+function antiAiReason(state: ControlState): string {
+  const mode = state.antiAiMode
+  const verdict = state.gates.anti_ai
+  if (verdict !== "fail") return ""
+  if (mode === "off") return "anti_ai fail 但 mode=off: 不阻塞"
+  if (mode === "warn") {
+    const base = "anti_ai fail 但 mode=warn: 警告不阻塞"
+    if (state.warnAnnotation) {
+      const factors = state.warnAnnotation.triggeredFactors.join(", ")
+      return `${base} (T19 候选池触发: ${factors}; 标定: ${state.warnAnnotation.calibrationSource})`
+    }
+    return `${base} (T19 候选池未触发或未加载)`
+  }
+  // mode === "block"
+  const thresholdNote = state.blockThresholdApplied
+    ? "T20 阈值已接线"
+    : "T20 阈值 pending-real-corpus (标定超期, 仍 allow warn 不卡)"
+  return `anti_ai fail 且 mode=block: 硬挡 (${thresholdNote})`
 }
 
 /**
@@ -270,9 +317,11 @@ export function route(state: ControlState): Instruction {
       }
       const verdict = gateRouting(state)
       if (verdict === "revise") {
-        return { action: "revise", role: "writer", chapter: state.chapterNumber, reason: "门控失败, 必须修订", shellMode }
+        const antiNote = antiAiReason(state)
+        return { action: "revise", role: "writer", chapter: state.chapterNumber, reason: antiNote || "门控失败, 必须修订", shellMode }
       }
-      return { action: "judge", role: "judge", chapter: state.chapterNumber, reason: "评审通过, 进入终审", shellMode }
+      const antiNote = antiAiReason(state)
+      return { action: "judge", role: "judge", chapter: state.chapterNumber, reason: antiNote || "评审通过, 进入终审", shellMode }
     }
     case "revision":
       return { action: "revise", role: "writer", chapter: state.chapterNumber, reason: `修订第 ${state.chapterNumber} 章`, shellMode }

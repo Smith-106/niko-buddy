@@ -696,6 +696,10 @@ function normalizeNovelConfig(
     outlineThrillSoftGateEnabled: config.outlineThrillSoftGateEnabled ?? DEFAULT_NOVEL_CONFIG.outlineThrillSoftGateEnabled,
     // Wave 2 (v2.5.0): @引用开关默认 true；显式 false 保留。
     referenceEnabled: config.referenceEnabled ?? DEFAULT_NOVEL_CONFIG.referenceEnabled,
+    // F-011 Voice Preservation spelling convention 三字段归一化。
+    dialoguePunctuationStyle: config.dialoguePunctuationStyle ?? DEFAULT_NOVEL_CONFIG.dialoguePunctuationStyle,
+    paragraphIndent: config.paragraphIndent ?? DEFAULT_NOVEL_CONFIG.paragraphIndent,
+    quoteConvention: config.quoteConvention ?? DEFAULT_NOVEL_CONFIG.quoteConvention,
   }
 }
 

@@ -39,6 +39,15 @@ import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
 import { listSnapshots, loadSnapshot } from "./chapter-ingest"
+// T24 (TASK-P3-24): 审查 type → 门控键映射改读 T22 GATE_MAPPING（唯一真源）。
+// getGateForDimension / ALL_AUDIT_DIMENSION_IDS 均为 audit-taxonomy 纯常量/纯函数
+// 导出，零 IO 零 LLM，不破坏本模块依赖纪律。
+import {
+  ALL_AUDIT_DIMENSION_IDS,
+  getGateForDimension,
+  type AuditDimensionId,
+  type GateKey,
+} from "./audit-taxonomy"
 
 export interface NovelReviewResult {
   severity: "error" | "warning" | "info"
@@ -84,6 +93,59 @@ export class ReviewParseError extends Error {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
+}
+
+// ==========================================================================
+// T24 (TASK-P3-24): 审查 type → 门控键解析（改读 T22 GATE_MAPPING，唯一真源）
+// ==========================================================================
+
+/**
+ * CORR-108 历史对照常量（原 deep-chapter-generation.ts CONSISTENCY_REVIEW_TYPES /
+ * ANTI_AI_REVIEW_TYPES 硬编码集，CORR-108 overall 裁定修复所依赖的 type→gate
+ * 归类口径）。T24 后 37 维 id 归类走 GATE_MAPPING（上方 resolveReviewGateKey），
+ * 本两常量仅作 legacy alias 对照保留防丢失历史口径（任务要求：CORR-108 映射
+ * 保留为代码常量）；deep-chapter-generation.resolveDecisionGateKey 运行时消费方
+ * 迁移由其后续任务承接（不在 T24 文件范围）。
+ */
+export const CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES: readonly string[] = [
+  "consistency",
+  "character_consistency",
+  "timeline",
+  "foreshadowing",
+  "setting",
+  "consistency_mechanical",
+]
+
+/** CORR-108 历史对照常量（anti-AI legacy alias 集，见上注）。 */
+export const CORR108_LEGACY_ANTI_AI_REVIEW_TYPES: readonly string[] = [
+  "anti_ai",
+  "style",
+  "de_ai",
+  "slop",
+]
+
+const AUDIT_DIMENSION_ID_SET: ReadonlySet<string> = new Set<string>(ALL_AUDIT_DIMENSION_IDS)
+
+/**
+ * 解析审查 finding type → 三门控键（consistency / anti_ai / quality）。
+ *
+ * 解析序（与 CORR-108 时代 resolveDecisionGateKey 优先级一致）：
+ *   1. type ∈ T22 37 维注册表 → 经 GATE_MAPPING/AUDIT_TAXONOMY 取归属门
+ *      （getGateForDimension，唯一真源路径）；
+ *   2. type ∈ CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES → "consistency"；
+ *   3. type ∈ CORR108_LEGACY_ANTI_AI_REVIEW_TYPES → "anti_ai"；
+ *   4. 其余（含未知 type）→ "quality"（保守缺省，P2 永不覆盖 P0/P1）。
+ *
+ * 纯函数零副作用；normalize 口径（trim + lowercase）与 resolveDecisionGateKey 一致。
+ */
+export function resolveReviewGateKey(type: string): GateKey {
+  const normalized = type.trim().toLowerCase()
+  if (AUDIT_DIMENSION_ID_SET.has(normalized)) {
+    return getGateForDimension(normalized as AuditDimensionId)
+  }
+  if (CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES.includes(normalized)) return "consistency"
+  if (CORR108_LEGACY_ANTI_AI_REVIEW_TYPES.includes(normalized)) return "anti_ai"
+  return "quality"
 }
 
 export interface NovelReviewCallbacks {
