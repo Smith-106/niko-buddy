@@ -23,12 +23,20 @@ const CHARS: RecognizedCharacter[] = [
 
 const mocks = vi.hoisted(() => ({
   pickerProps: null as null | Record<string, unknown>,
+  workstationProps: null as null | Record<string, unknown>,
 }))
 
 vi.mock("./character-selection-panel", () => ({
   CharacterSelectionPanel: (props: Record<string, unknown>) => {
     mocks.pickerProps = props
     return <div data-testid="character-picker">character-picker</div>
+  },
+}))
+
+vi.mock("./character-workstation-view", () => ({
+  CharacterWorkstationView: (props: Record<string, unknown>) => {
+    mocks.workstationProps = props
+    return <div data-testid="character-workstation">character-workstation</div>
   },
 }))
 
@@ -78,6 +86,15 @@ function findExactButton(container: HTMLElement, text: string): HTMLButtonElemen
   return btn as HTMLButtonElement
 }
 
+/** 按 aria-label 精确匹配按钮（用于无文本子节点的图标按钮） */
+function findByAriaLabel(container: HTMLElement, label: string): HTMLButtonElement {
+  const btn = Array.from(container.querySelectorAll("button[aria-label]")).find(
+    (b) => b.getAttribute("aria-label") === label,
+  )
+  expect(btn).toBeTruthy()
+  return btn as HTMLButtonElement
+}
+
 function clickAnalyze(container: HTMLElement): HTMLButtonElement {
   const btn = findButton(container, "开始分析")
   act(() => btn.click())
@@ -89,6 +106,7 @@ describe("ChapterSelectionPanel", () => {
     setupDomGlobals()
     vi.clearAllMocks()
     mocks.pickerProps = null
+    mocks.workstationProps = null
   })
 
   it("基础渲染：默认全选、统计信息、章节列表、取消按钮", () => {
@@ -471,6 +489,106 @@ describe("ChapterSelectionPanel", () => {
     const keydown = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
     middle.dispatchEvent(keydown)
     expect(keydown.defaultPrevented).toBe(false)
+    cleanup()
+  })
+
+  // === C7 角色工作台集成（chapter-selection-panel 接入 CharacterWorkstationView） ===
+
+  it("C7 入口出现条件：识别完成且有角色时显示「进入角色工作台」，否则不显示", () => {
+    const { container, cleanup, rerender } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    const hasEntry = () =>
+      Array.from(container.querySelectorAll("button")).some((b) =>
+        b.textContent?.includes("进入角色工作台"),
+      )
+    // 识别完成 + 有角色 → 入口出现
+    expect(hasEntry()).toBe(true)
+    // 识别未完成 → 消失
+    rerender({ recognitionStatus: "heuristic", recognizedCharacters: CHARS })
+    expect(hasEntry()).toBe(false)
+    // 无角色 → 消失
+    rerender({ recognitionStatus: "done", recognizedCharacters: [] })
+    expect(hasEntry()).toBe(false)
+    cleanup()
+  })
+
+  it("C7 打开工作台：以 recognizedCharacters 映射条目渲染兄弟组件", () => {
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeNull()
+    act(() => findButton(container, "进入角色工作台").click())
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeTruthy()
+    expect(mocks.workstationProps).toMatchObject({
+      characters: [
+        { id: "c1", name: "林烬", category: "主角", importanceScore: 90, appearances: 3 },
+        { id: "c2", name: "苏遥", category: "配角", importanceScore: 70, appearances: 2 },
+      ],
+    })
+    // 关闭工作台 → 卸载
+    act(() => findByAriaLabel(container, "关闭角色工作台").click())
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeNull()
+    cleanup()
+  })
+
+  it("C7 onBasicDraftChange 接内存态：写入后落回 initialDrafts", () => {
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    act(() => findButton(container, "进入角色工作台").click())
+    const ws = mocks.workstationProps as Record<string, (...args: unknown[]) => void>
+    act(() => ws.onBasicDraftChange("c1", "林烬专属草稿"))
+    act(() => findByAriaLabel(container, "关闭角色工作台").click())
+    // 重新打开：initialDrafts 应携带之前写入的内存草稿（持久化后续批接）
+    act(() => findButton(container, "进入角色工作台").click())
+    expect(mocks.workstationProps).toMatchObject({ initialDrafts: { c1: "林烬专属草稿" } })
+    cleanup()
+  })
+
+  it("C7 弹窗原流程不受影响：工作台与角色选择弹窗可并存，点击还原既有流程", () => {
+    const onToggleCharacter = vi.fn()
+    const onCharacterPickerClose = vi.fn()
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter,
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCharacterPickerClose,
+    })
+    // 既有角色选择弹窗照常渲染
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    // 打开工作台后角色弹窗仍在（并存）
+    act(() => findButton(container, "进入角色工作台").click())
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    // 关闭工作台恢复，弹窗选择流程照常
+    act(() => findByAriaLabel(container, "关闭角色工作台").click())
+    const p = mocks.pickerProps as Record<string, (...args: unknown[]) => void>
+    act(() => p.onToggle("c1"))
+    expect(onToggleCharacter).toHaveBeenCalledWith("c1")
+    expect(onCharacterPickerClose).not.toHaveBeenCalled()
     cleanup()
   })
 })

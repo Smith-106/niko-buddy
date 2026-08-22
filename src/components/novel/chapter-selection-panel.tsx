@@ -13,9 +13,11 @@
 import { useState, useEffect, useRef } from "react"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
-import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
+import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2, Workflow } from "lucide-react"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { CharacterSelectionPanel } from "./character-selection-panel"
+import { CharacterWorkstationView } from "./character-workstation-view"
+import type { CharacterWorkstationItem } from "./character-workstation-view"
 
 interface ChapterSelectionPanelProps {
   chapters: Array<{
@@ -82,6 +84,11 @@ export function ChapterSelectionPanel({
   const [selectAll, setSelectAll] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isBackgrounded, setIsBackgrounded] = useState(false)
+  const [showWorkstation, setShowWorkstation] = useState(false)
+
+  // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
+  // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
+  const workstationDraftsRef = useRef<Record<string, string>>({})
 
   // 同步 isAnalyzing 到父组件
   useEffect(() => {
@@ -170,6 +177,24 @@ export function ChapterSelectionPanel({
 
   // 是否正在提取中
   const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
+
+  // C7 工作台可见条件：识别完成且存在已识别角色，且非提取阶段。
+  const canOpenWorkstation = recognitionStatus === "done" && recognizedCharacters.length > 0 && !extractionPhase
+
+  // 将已识别角色映射为工作台条目。
+  const workstationItems: CharacterWorkstationItem[] = recognizedCharacters.map((c) => ({
+    id: c.id,
+    name: c.name,
+    category: c.category,
+    importanceScore: c.importanceScore,
+    appearances: c.appearances,
+  }))
+
+  /** 工作台草稿变更：先写入内存（按 id 隔离），落库由后续批次接入。 */
+  const handleWorkstationDraft = (id: string, draft: string) => {
+    workstationDraftsRef.current[id] = draft
+    // TODO(持久化): 落库接口接入位置。
+  }
 
   return (
     <DialogRoot
@@ -388,6 +413,17 @@ export function ChapterSelectionPanel({
               </div>
 
               <div className="flex items-center gap-3">
+                {/* C7 角色工作台：识别完成后提供独立工作台入口 */}
+                {canOpenWorkstation && (
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={() => setShowWorkstation(true)}
+                  >
+                    <Workflow className="h-4 w-4 mr-2" />
+                    进入角色工作台
+                  </Button>
+                )}
                 {/* 已提取角色按钮 */}
                 {hasExtractedCharacters && onLoadExtractedCharacters && (
                   <Button
@@ -509,7 +545,55 @@ export function ChapterSelectionPanel({
           onClose={onCharacterPickerClose}
         />
       )}
+
+      {/* C7 角色分离工作台：识别完成后独立叠加层，不改变既有弹窗选择流程 */}
+      {showWorkstation && (
+        <CharacterWorkstationOverlay
+          items={workstationItems}
+          initialDrafts={workstationDraftsRef.current}
+          onClose={() => setShowWorkstation(false)}
+          onDraftChange={handleWorkstationDraft}
+        />
+      )}
     </div>
     </DialogRoot>
+  )
+}
+
+/** C7 工作台叠加层：给纯展示壳补一层可关闭的外框，复用既有弹窗视觉（遮罩+居中+圆角）。 */
+function CharacterWorkstationOverlay({
+  items,
+  initialDrafts,
+  onClose,
+  onDraftChange,
+}: {
+  items: CharacterWorkstationItem[]
+  initialDrafts: Record<string, string>
+  onClose: () => void
+  onDraftChange: (id: string, draft: string) => void
+}) {
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
+      <div className="w-full max-w-3xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh]">
+        <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
+          <div>
+            <h3 className="text-xl font-semibold">角色工作台</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              为已识别角色独立保存草稿，切换不互相覆盖。
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭角色工作台">
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
+          <CharacterWorkstationView
+            characters={items}
+            initialDrafts={initialDrafts}
+            onBasicDraftChange={onDraftChange}
+          />
+        </div>
+      </div>
+    </div>
   )
 }
