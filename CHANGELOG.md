@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### Fixed（v2.5.1 发版后 CI 修复链，随下次发版归档）
+
+- **CI**：vitest `retry: process.env.CI ? 2 : 0`（仅 CI 重试时序型 flaky，本地保持 loud fail；根因 knowledge-tree 回退标题连字符竞态已定位待修）
+- **deps**：async-process/concurrent-queue 锁定版本从已 yanked 的 2.5.1 降回 2.5.0（修复 cargo metadata --locked 解析失败）
+- **deps**：windows 0.61 → 0.62 绕开已 yanked 的 windows-future 0.2.1（其引用非 Windows 目标不存在的 IMarshal）
+- **build**：windows 依赖移入 `[target.'cfg(windows)'.dependencies]`——声明与代码 cfg 门控对齐，修复 ubuntu/macos 编译 E0425
+- **unix**：claude_cli.rs kill(pid) 补 u32→i32 显式转换（修复非 Windows 平台 E0308）
+- 效果：master CI 自 v2.5.0 以来首次三平台全绿
+
 ## [2.5.1] - 2026-08-21
 
 ### Summary（工程卫生 + 文档对齐）
