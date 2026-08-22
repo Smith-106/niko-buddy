@@ -8,9 +8,11 @@
 //        （T18 收口时补）。
 //     2) novel-internal —— src/lib/novel 下其余全部内部模块（私有）。
 //     3) app —— src 下其余一切（UI/IPC/编排层）。
-//   依赖方向规则（boundaries/element-types）：
-//     from app        允许 novel-public + app，禁止 novel-internal；
-//     from novel-*    允许 novel-internal + novel-public（域内自由组合）。
+//   依赖方向规则（boundaries/dependencies，2026-08-22 自弃用的 element-types 迁移，
+//   语义与旧规则逐条等价——迁移前旧规则原文见 docs/decision-log/
+//   20260822-eslint-gate-revival.md「旧规则意图存档」一节）：
+//     from app        允许 to = novel-public + app，其余（含 novel-internal）默认禁止；
+//     from novel-*    允许 to = novel-internal + novel-public + app（域内自由组合）。
 //   语义：外部只能经 novel-public barrel 导入 novel 能力，不得直接 import 内部模块。
 //
 //   严重级别定为 warn（而非 error）：
@@ -88,37 +90,57 @@ export default tseslint.config(
         {
           type: 'novel-public',
           pattern: ['src/lib/novel/index.ts', 'src/lib/novel/*/index.ts'],
-          mode: 'full',
+          partialMatch: false,
           capture: ['element'],
         },
         {
           type: 'novel-internal',
           pattern: 'src/lib/novel/**/*',
-          mode: 'full',
+          partialMatch: false,
           capture: ['element'],
         },
         {
           type: 'app',
           pattern: 'src/**/*',
-          mode: 'full',
+          partialMatch: false,
           capture: ['element'],
         },
       ],
       'boundaries/include': ['src/**/*.{ts,tsx,js,jsx}'],
     },
     rules: {
-      'boundaries/element-types': [
+      'boundaries/dependencies': [
         'warn',
         {
           default: 'disallow',
-          rules: [
+          policies: [
             // 外部（UI/IPC/编排层）只能经 novel-public barrel 进入 novel 能力域——
             // 这是蓝图明文的窄接口白名单门禁。
-            { from: 'app', allow: ['novel-public', 'app'] },
+            {
+              from: { element: { type: 'app' } },
+              allow: [
+                { to: { element: { type: 'novel-public' } } },
+                { to: { element: { type: 'app' } } },
+              ],
+            },
             // novel 域内自由组合；并暂允许 novel→app（现状 novel/ 反向依赖 stores/commands/i18n
             // 等共 353 处，属更深的单向化债务）。T18 收口时可收紧此项为仅 novel-* 以强制单向。
-            { from: 'novel-internal', allow: ['novel-internal', 'novel-public', 'app'] },
-            { from: 'novel-public', allow: ['novel-internal', 'novel-public', 'app'] },
+            {
+              from: { element: { type: 'novel-internal' } },
+              allow: [
+                { to: { element: { type: 'novel-internal' } } },
+                { to: { element: { type: 'novel-public' } } },
+                { to: { element: { type: 'app' } } },
+              ],
+            },
+            {
+              from: { element: { type: 'novel-public' } },
+              allow: [
+                { to: { element: { type: 'novel-internal' } } },
+                { to: { element: { type: 'novel-public' } } },
+                { to: { element: { type: 'app' } } },
+              ],
+            },
           ],
         },
       ],
