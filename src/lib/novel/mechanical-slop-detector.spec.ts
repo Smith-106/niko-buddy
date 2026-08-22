@@ -10,6 +10,7 @@ import {
   characterActionsToText,
   type CharacterActionHit,
 } from "./mechanical-slop-detector"
+import { SUSPICIOUS_HOMOGLYPH_KEYS } from "./normalize-source-text"
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -208,6 +209,43 @@ describe("A19 机械层中文 slop 检测器 (借鉴点 #1, 零 LLM 纯正则+�
     expect(TIER3_EXTENDED_PATTERN_COUNT).toBeGreaterThanOrEqual(40)
     expect(TIER3_EXTENDED_PATTERN_COUNT).toBeLessThanOrEqual(60)
   })
+
+  // A11 TIER 词库扩展: 每 tier 新增 ≤8 词, 各自触发对应 tier 命中且 penalty 方向正确 (密度制)
+  it("A11: new TIER1 strong-signal words hit tier1 + raise penalty (density)", () => {
+    const newTier1 = [
+      "意味深长", "久久无法平静", "涌上心头", "难以忘怀",
+      "刻骨铭心", "历历在目", "心潮澎湃", "思绪万千",
+    ]
+    const report = slopScore(newTier1.join("。") + "。")
+    const kws = report.tier1Hits.map((h) => h.kw)
+    for (const w of newTier1) expect(kws).toContain(w)
+    // 密度制: 这些强信号词单独出现即推高 penalty, 且不误入 tier2/3 主导
+    expect(report.slopPenalty).toBeGreaterThan(0)
+    expect(report.slopPenalty).toBeLessThanOrEqual(10)
+  })
+
+  it("A11: new TIER2 suspicious modifiers hit tier + raise penalty (density)", () => {
+    const newTier2 = [
+      "微微一愣", "一丝不易察觉的", "莫名地", "若有所思地",
+      "说不清缘由", "无端地", "隐约觉得", "怔怔地",
+    ]
+    const report = slopScore(newTier2.join("。") + "。")
+    const kws = report.tier2Hits.map((h) => h.kw)
+    for (const w of newTier2) expect(kws).toContain(w)
+    expect(report.slopPenalty).toBeGreaterThan(0)
+    expect(report.slopPenalty).toBeLessThanOrEqual(10)
+  })
+
+  it("A11: new TIER3 mechanical-filler patterns hit + raise penalty (density)", () => {
+    const content = "呐呐自语了几句。眼底深处闪过一抹光。压在心头的秘密。出来时已成定局。暗中计划着。不禁陷入深思。内心深处涌起的情绪。刚想开口又止住。"
+    const report = slopScore(content)
+    const kws = report.tier3Hits.map((h) => h.kw)
+    for (const re of ["呐呐自语", "眼底深处闪过", "压在心头的", "出来时已成", "暗中计划", "不禁陷入", "内心深处涌起的", "刚想开口"]) {
+      expect(kws.some((k) => k.includes(re))).toBe(true)
+    }
+    expect(report.slopPenalty).toBeGreaterThan(0)
+    expect(report.slopPenalty).toBeLessThanOrEqual(10)
+  })
 })
 
 describe("S1a 防绕过预处理 normalizeText + TIER 词库补全 (roadmap S1 P1 机械层)", () => {
@@ -228,12 +266,45 @@ describe("S1a 防绕过预处理 normalizeText + TIER 词库补全 (roadmap S1 P
     expect(report.slopPenalty).toBeGreaterThan(0)
   })
 
-  it("slopScore normalizes CJK homoglyphs before matching (異體字 bypass)", () => {
-    // 同形字: 彷彿 (異體) vs 仿佛 (词库)
+  it("slopScore normalizes CJK homoglyphs before matching (C2 口径: 常见繁简互转只还原不计 bypass)", () => {
+    // 同形字: 彷彿 (異體) vs 仿佛 (词库)。C2 重定义后 彷彿 属常见繁简/異嵂互换字,
+    // 文本仍被还原 (词库命中), 但不计入 homoglyphCount/bypassCount (不把合法繁体当 AI 旁路)。
     const homoglyphText = "他彷彿回到了从前。"
     const report = slopScore(homoglyphText)
     expect(report.tier1Hits.some((h) => h.kw === "仿佛")).toBe(true)
+    expect(report.homoglyphCount).toBe(0)
+    expect(report.bypassCount).toBe(0)
+  })
+
+  it("C2: 纯繁体段落 bypassCount=0 且归一后词库检测仍命中 (不误判合法繁体文本)", () => {
+    const trad = "顯然他們說這段時間，彷彿早就注定了一切。"
+    const report = slopScore(trad)
+    // 繁体常用字 (們/說/時間/…/彷彿) 只还原不计 bypass: 无零宽 + 无非疑同形。
+    expect(report.zeroWidthCount).toBe(0)
+    expect(report.homoglyphCount).toBe(0)
+    expect(report.bypassCount).toBe(0)
+    // 文本还原仍生效: 归一后词库命中仿佛 (TIER1)。
+    expect(report.tier1Hits.some((h) => h.kw === "仿佛")).toBe(true)
+  })
+
+  it("C2: 西里尔同形字 (真正的 AI-humanizer 混淆) 计入 homoglyphCount/bypassCount", () => {
+    // 西里尔 е U+0435 替换拉丁 e。“dанные” / cold 混淆: 人类正常写作不会出现。
+    const cyr = "把值写进 c\u0435ll 数组" // c[е]ll
+    const result = normalizeText(cyr)
+    expect(result.text).toContain("cell")
+    expect(result.homoglyphCount).toBe(1)
+    expect(result.bypassCount).toBe(1)
+    // slopScore 入口 (NFKC + normalizeText) 同样把西里尔同形计为 bypass。
+    const report = slopScore(cyr)
     expect(report.homoglyphCount).toBeGreaterThan(0)
+    expect(report.bypassCount).toBeGreaterThan(0)
+  })
+
+  it("C2: SUSPICIOUS_HOMOGLYPH_KEYS 只含生僻混淆字 (西里尔同形), 不含常见繁简互转字", () => {
+    expect(SUSPICIOUS_HOMOGLYPH_KEYS.size).toBeGreaterThan(0)
+    for (const s of ["裡", "說", "時間", "們", "話", "彷彿"]) {
+      expect(SUSPICIOUS_HOMOGLYPH_KEYS.has(s)).toBe(false)
+    }
   })
 
   it("S1a: humanizer-zh 23 条禁止模式词库补全 (新增 TIER1 词命中)", () => {

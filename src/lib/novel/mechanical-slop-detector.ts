@@ -22,7 +22,6 @@
  */
 
 import {
-  normalizeText,
   normalizeSourceText,
 } from "./normalize-source-text"
 
@@ -54,6 +53,16 @@ const TIER1_BANNED = [
   "令人印象深刻", "引人注目", "至关重要",
   // AI 特征词 (过度使用即 slop, 合理语境由中低 penalty + LLM 复核兜底)
   "似乎", "仿佛", "如同", "宛如", "犹如",
+  // A11 TIER1 扩容: 高频中文 AI 强信号 (结语腔/情感强化), 已核实不与现有词重叠；
+  // 「不禁」已由 TIER3 正则覆盖故不重复; 避免 突然/终于 等正常叙事常用词逆向误伤
+  "意味深长",
+  "久久无法平静",
+  "涌上心头",
+  "难以忘怀",
+  "刻骨铭心",
+  "历历在目",
+  "心潮澎湃",
+  "思绪万千",
 ] as const
 
 /** TIER2_SUSPICIOUS: 模板句首/空洞形容/转折滥用 — 命中计中 penalty (可疑) */
@@ -66,6 +75,15 @@ const TIER2_SUSPICIOUS = [
   "赋能", "抓手", "底层逻辑", "颗粒度",
   // 转折滥用 (每段都用即 slop)
   "然而", "但是", "不过", "可是",
+  // A11 TIER2 扩容: 可疑情感/动作虚饰 (空洞限定), 已核实不与现有库重叠
+  "微微一愣",
+  "一丝不易察觉的",
+  "莫名地",
+  "若有所思地",
+  "说不清缘由",
+  "无端地",
+  "隐约觉得",
+  "怔怔地",
 ] as const
 
 /**
@@ -138,10 +156,19 @@ const TIER3_FILLER: readonly RegExp[] = [
   /[「"]你还好吗[」"]/,
   /[「"]我会一直[」"]/,  // 我会一直…
   /[「"]我回来了[」"]/,  // 我回来了 (AI 重聚标配)
+  // --- A11 TIER3 扩容: 高频中文 AI 腔句式 (心理/动作模板, 与现有正则不重叠) ---
+  /呐呐自语/,
+  /眼底深处闪过/,
+  /压在心头的/,
+  /出来时已成/,
+  /暗中计划/,
+  /不禁陷入(?:深思|回忆)/,
+  /内心深处涌起的/,
+  /刚想开口/,
 ]
 
 /** Exported for tests — count of extended TIER3 patterns (non-baseline). */
-export const TIER3_EXTENDED_PATTERN_COUNT = 48
+export const TIER3_EXTENDED_PATTERN_COUNT = 56
 
 // ============================================================================
 // A3 质检公平性窗口：slop 公式常量区（集中一处，便于校准与回退）
@@ -532,7 +559,9 @@ export interface CharacterActionHit {
  * 零 LLM，纯正则 + 上下文窗口匹配。
  */
 export function detectCharacterActions(rawText: string): CharacterActionHit[] {
-  const { text } = normalizeText(rawText)
+  // A4 检测视图统一归一: 走 normalizeSourceText (NFKC + 零宽 + soft-hyphen + 同形字还原),
+  // 与模块内 slopScore 同一归一口径; 返回的归一副本仅用于匹配, 不回写正文存储。
+  const { text } = normalizeSourceText(rawText)
   const results: CharacterActionHit[] = []
 
   for (const pattern of CHARACTER_ACTION_PATTERNS) {
