@@ -1,8 +1,11 @@
+mod canon_commands;
 mod canon_export;
 mod commands;
 mod panic_guard;
 mod proxy;
 mod types;
+
+use crate::canon_commands::CanonCommandState;
 
 #[cfg(target_os = "windows")]
 fn reinforce_window_focus(window: &tauri::WebviewWindow) {
@@ -63,7 +66,7 @@ fn reinforce_window_focus(_window: &tauri::WebviewWindow) {}
 #[tauri::command]
 fn set_proxy_env(config: proxy::ProxyConfig) -> String {
     let summary = proxy::apply_proxy_env(&config);
-    eprintln!("[proxy] live update: {summary}");
+    log::info!("[proxy] live update: {summary}");
     summary
 }
 
@@ -113,15 +116,16 @@ pub fn run() {
             // research, captioning. See src-tauri/src/proxy.rs.
             if let Ok(dir) = app.path().app_data_dir() {
                 let store_path = dir.join("app-state.json");
-                eprintln!("[proxy] reading from {}", store_path.display());
+                log::debug!("[proxy] reading from {}", store_path.display());
                 let summary = proxy::apply_proxy_env_from_store(&store_path);
-                eprintln!("[proxy] {summary}");
+                log::info!("[proxy] {summary}");
             } else {
-                eprintln!("[proxy] could not resolve app_data_dir");
+                log::warn!("[proxy] could not resolve app_data_dir");
             }
             // Registry of running `claude` subprocesses, keyed by the
             // frontend-generated stream id. Populated by claude_cli_spawn,
             // drained on process exit or by claude_cli_kill.
+            app.manage(CanonCommandState::default());
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::file_sync::FileSyncState::default());
@@ -185,6 +189,14 @@ pub fn run() {
             commands::power::release_wake_lock,
             commands::docx_export::export_novel_docx,
             commands::metrics::get_process_memory,
+            // T13 canon 数据面 IPC 命令（TASK-P1-08 / T13 增强）
+            canon_commands::canon_query,
+            canon_commands::canon_query_batch,
+            canon_commands::canon_facts_known_by,
+            canon_commands::canon_ingest_episode,
+            canon_commands::canon_supersede_edges,
+            canon_commands::canon_get_revision,
+            canon_commands::canon_save_divergence_trace,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

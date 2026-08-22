@@ -153,8 +153,27 @@ describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
   })
 
   it("returns the empty ledger when the ledger file is missing or unreadable", async () => {
-    // beforeEach 默认 readFile 抛 ENOENT → catch → emptyLedger
+    // beforeEach 默认 readFile 抛 ENOENT → catch → emptyLedger; 无 raw 内容,
+    // 所以不应产生 .corrupt-* 副本
+    fsMocks.writeFileAtomic.mockClear()
     expect(await loadProjectionStatusLedger("E:/Novel")).toEqual(emptyLedger())
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("A5: corrupt ledger returns emptyLedger and preserves the original to a .corrupt-<ISO timestamp> copy", async () => {
+    fsMocks.writeFileAtomic.mockClear()
+    const corruptRaw = "{{{not-valid-json"
+    fsMocks.readFile.mockResolvedValue(corruptRaw)
+
+    // 损坏 JSON → 仍返回空账本 (可用性保持)
+    const ledger = await loadProjectionStatusLedger("E:/Novel")
+    expect(ledger).toEqual(emptyLedger())
+
+    // 原始坏内容原样写入同目录 .novel 下的 .corrupt-<ISO时间戳> 副本
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [copyPath, payload] = fsMocks.writeFileAtomic.mock.calls[0]
+    expect(copyPath).toMatch(/^E:\/Novel\/\.novel\/projection-status\.corrupt-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/)
+    expect(payload).toBe(corruptRaw)
   })
 
   it("saveProjectionStatusLedger writes atomic json under .novel", async () => {

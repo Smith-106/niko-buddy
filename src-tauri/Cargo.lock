@@ -4835,6 +4835,7 @@ dependencies = [
  "futures",
  "image",
  "lancedb",
+ "log",
  "md-5",
  "notify",
  "pdfium-render",

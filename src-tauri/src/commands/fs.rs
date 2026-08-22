@@ -412,7 +412,7 @@ pub(crate) fn pdfium() -> Result<&'static pdfium_render::prelude::Pdfium, String
             let candidates = pdfium_candidate_paths();
             for path in &candidates {
                 if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                    eprintln!("[pdfium] loaded dynamic library from {path}");
+                    log::info!("[pdfium] loaded dynamic library from {path}");
                     return Ok(Pdfium::new(bindings));
                 }
             }

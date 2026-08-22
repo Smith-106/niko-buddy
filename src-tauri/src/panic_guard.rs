@@ -41,7 +41,7 @@ fn report(label: &str, payload: Box<dyn Any + Send>) -> String {
     } else {
         "(non-string panic payload)".to_string()
     };
-    eprintln!("[panic_guard] command '{label}' panicked: {msg}");
+    log::error!("[panic_guard] command '{label}' panicked: {msg}");
     format!("Internal error in {label}: {msg}")
 }
 

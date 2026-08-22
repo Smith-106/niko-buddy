@@ -440,6 +440,10 @@ impl CanonState {
 
 const META_KEY_SCHEMA: &str = "schema_version";
 const META_KEY_LANCE_PRE: &str = "lance_pre_migrate";
+const META_KEY_REVISION: &str = "canon_revision";
+/// divergence trace 持久化键（DEBT-20260820-15b 偿还：与 META_KEY_REVISION 分离，
+/// 避免 revision 写入时被 divergence trace 覆盖）。
+const META_KEY_DIVERGENCE_TRACE: &str = "canon_divergence_trace";
 
 /// 默认 compaction 触发阈值：N 批 ingest 操作后触发。
 const DEFAULT_COMPACTION_THRESHOLD: u64 = 100;
@@ -808,6 +812,122 @@ impl CanonStore {
     /// 当前 schema 清单（内存副本）。
     pub fn manifest(&self) -> &SchemaManifest {
         &self.manifest
+    }
+
+    // ── revision 持久化（DEBT-20260820-13）──
+
+    /// 从 meta 表加载持久化的 canon revision。
+    /// 不存在或不可读时返回 0（新库/未初始化）。
+    pub async fn load_revision(&self) -> Result<u64, String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_META)
+            .execute()
+            .await
+            .map_err(|e| format!("open meta: {e}"))?;
+        let batches = table
+            .query()
+            .only_if(format!("key = {}", sql_str(META_KEY_REVISION)))
+            .execute()
+            .await
+            .map_err(|e| format!("query revision: {e}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| format!("collect revision: {e}"))?;
+        for b in &batches {
+            if let Some(arr) = b
+                .column_by_name("value")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            {
+                for i in 0..arr.len() {
+                    if arr.is_null(i) {
+                        continue;
+                    }
+                    if let Ok(v) = arr.value(i).parse::<u64>() {
+                        return Ok(v);
+                    }
+                }
+            }
+        }
+        Ok(0)
+    }
+
+    /// 持久化 canon revision 到 meta 表（delete-then-insert 幂等）。
+    pub async fn save_revision(&self, rev: u64) -> Result<(), String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_META)
+            .execute()
+            .await
+            .map_err(|e| format!("open meta: {e}"))?;
+        let _ = table
+            .delete(&format!("key = {}", sql_str(META_KEY_REVISION)))
+            .await;
+        let batch = meta_batch(META_KEY_REVISION, &rev.to_string())?;
+        table
+            .add(vec![batch])
+            .execute()
+            .await
+            .map_err(|e| format!("meta add revision: {e}"))?;
+        Ok(())
+    }
+
+    // ── divergence trace 持久化（DEBT-20260820-15b）──
+
+    /// 从 meta 表加载 divergence trace JSON。
+    /// 不存在或不可读时返回空字符串。
+    /// DEBT-20260820-15b 偿还：改用 META_KEY_DIVERGENCE_TRACE 键（修复与 revision 的键碰撞）。
+    pub async fn load_divergence_trace(&self) -> Result<String, String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_META)
+            .execute()
+            .await
+            .map_err(|e| format!("open meta: {e}"))?;
+        let batches = table
+            .query()
+            .only_if(format!("key = {}", sql_str(META_KEY_DIVERGENCE_TRACE)))
+            .execute()
+            .await
+            .map_err(|e| format!("query divergence trace: {e}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| format!("collect divergence trace: {e}"))?;
+        for b in &batches {
+            if let Some(arr) = b
+                .column_by_name("value")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            {
+                for i in 0..arr.len() {
+                    if arr.is_null(i) {
+                        continue;
+                    }
+                    return Ok(arr.value(i).to_string());
+                }
+            }
+        }
+        Ok(String::new())
+    }
+
+    /// 持久化 divergence trace JSON 到 meta 表（delete-then-insert 幂等）。
+    /// DEBT-20260820-15b 偿还：改用 META_KEY_DIVERGENCE_TRACE 键（修复与 revision 的键碰撞）。
+    pub async fn save_divergence_trace(&self, json: &str) -> Result<(), String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_META)
+            .execute()
+            .await
+            .map_err(|e| format!("open meta: {e}"))?;
+        let _ = table
+            .delete(&format!("key = {}", sql_str(META_KEY_DIVERGENCE_TRACE)))
+            .await;
+        let batch = meta_batch(META_KEY_DIVERGENCE_TRACE, json)?;
+        table
+            .add(vec![batch])
+            .execute()
+            .await
+            .map_err(|e| format!("meta add divergence trace: {e}"))?;
+        Ok(())
     }
 
     // ── schema_version 迁移链（LanceDB IO）──

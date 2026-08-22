@@ -20,6 +20,9 @@ export interface NovelSearchParams {
   includeCanon?: boolean
   /** ISS-20260709-023 (DC-7) 渐进式 DI: 缺省回退 useWikiStore。 */
   embCfg?: EmbeddingConfig
+  /** C3: RRF fusion constant (default 60), overridable per call — kept a param
+   *  (rather than a global) so callers can tune fusion sharpness per query. */
+  rrfK?: number
 }
 
 export interface NovelSearchResult {
@@ -34,7 +37,7 @@ type RankedNovelSearchResult = NovelSearchResult & {
   sourceRank: number
 }
 
-const SOURCE_RRF_K = 60
+const SOURCE_RRF_K_DEFAULT = 60
 const SEARCH_SOURCE_TIMEOUT_MS = 2500
 const SOURCE_WEIGHTS: Record<NovelSearchResult["type"], number> = {
   keyword: 1,
@@ -113,7 +116,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   await Promise.all(promises)
 
-  const merged = deduplicateResults(results, topK)
+  const merged = deduplicateResults(results, topK, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
   const filtered = params.authoritativeOnly
     ? merged.filter((item) => {
       if (isHistoricalProjectionSnippet(item.path, item.snippet)) return false
@@ -407,7 +410,11 @@ async function runCanonSearch(
   }
 }
 
-function deduplicateResults(results: RankedNovelSearchResult[], topK: number): NovelSearchResult[] {
+function deduplicateResults(
+  results: RankedNovelSearchResult[],
+  topK: number,
+  rrfK: number = SOURCE_RRF_K_DEFAULT,
+): NovelSearchResult[] {
   const fused = new Map<string, {
     result: NovelSearchResult
     fusionScore: number
@@ -421,7 +428,7 @@ function deduplicateResults(results: RankedNovelSearchResult[], topK: number): N
     const sourceRank = Math.max(0, r.sourceRank)
     /* v8 ignore next */
     const weight = SOURCE_WEIGHTS[r.type] ?? 0.8
-    const contribution = weight / (SOURCE_RRF_K + sourceRank + 1)
+    const contribution = weight / (rrfK + sourceRank + 1)
     const key = normalizeResultPath(r.path)
     const cleanResult = toPublicResult(r)
     const existing = fused.get(key)

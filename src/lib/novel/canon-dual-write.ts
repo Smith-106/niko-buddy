@@ -36,6 +36,67 @@ import { normalizePath } from "@/lib/path-utils"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 
 // ──────────────────────────────────────────────────────────────────────────
+// canon revision 持久化 TS 侧预热（DEBT-20260820-13）
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * 从 canon_store 持久化存储获取当前项目 canon revision。
+ * 进程重启后调用，使 TS 侧缓存从持久化 revision 预热，避免缓存击穿。
+ * 返回 `max_revision`（0 = 新库/无写入记录）。
+ */
+export async function getCanonRevision(projectPath: string): Promise<number> {
+  try {
+    const res = await invoke<{ max_revision: number }>("canon_get_revision", {
+      projectId: projectPath,
+    })
+    return res.max_revision
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * TS 侧缓存预热：从持久化 revision 初始化缓存。
+ * 在应用启动/项目打开时调用，确保缓存 revision 与持久化状态一致。
+ *
+ * @param projectPath 项目路径
+ * @param setCacheRevision 设置缓存 revision 的回调（由缓存层实现）
+ */
+export async function warmCanonCacheFromRevision(
+  projectPath: string,
+  setCacheRevision: (rev: number) => void,
+): Promise<void> {
+  const rev = await getCanonRevision(projectPath)
+  if (rev > 0) {
+    setCacheRevision(rev)
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// divergence trace 持久化（DEBT-20260820-15b 偿还：差异留痕写入 canon_store）
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * 将 divergence trace JSON 持久化到 canon_store meta 表。
+ * twoPhaseReconcile 告警后调用，确保差异留痕可供后续审计/诊断查询。
+ * 与 revision 使用独立键（canon_divergence_trace），互不覆盖。
+ */
+export async function saveDivergenceTrace(
+  projectPath: string,
+  traceJson: string,
+): Promise<void> {
+  try {
+    await invoke("canon_save_divergence_trace", {
+      projectId: projectPath,
+      traceJson,
+    })
+  } catch (err) {
+    // divergence trace 是非致命审计操作，写入失败不阻断主流程
+    console.warn("[canon] saveDivergenceTrace failed (non-fatal):", err instanceof Error ? err.message : String(err))
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // 退避常量（指数退避 + 封顶）
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -209,14 +270,46 @@ export async function canonStoreWriter(
 }
 
 /**
- * 旧 snapshot-derived view 写适配器（占位 / 对账 seam）。
+ * 旧 snapshot-derived view 写适配器（真实投影写回，DEBT-20260820-15 偿还）。
  *
- * 双写期旧 view 的事实层已由 ingest 阶段持久化为不可变 snapshot（F-002 提交点），
- * 故此处对账占位返回 ok；T16 将替换为真实的 snapshot-derived 投影写回适配器。
+ * 将 T16 双写钩子产生的 `{ kind: "snapshot_fact", chapterNumber, fact }` 负载
+ * 写入 `.novel/canon-legacy.jsonl` 文件（每行包含章节号、事实文本、时间戳），
+ * 作为旧 view 的持久化投影。与 T16 `buildCanonDualWriteOps` 的输入契约对齐：
+ * 接受 `{ kind: "snapshot_fact", chapterNumber, fact }` 格式的负载。
+ *
  * 返回 `WriteOutcome` 保证与 `canonStoreWriter` 同契约、可被 `safeWrite` 统一包裹。
+ * 写失败（如权限/磁盘满）返回 `{ ok: false, error }`，不中断双写编排。
  */
-export async function noopLegacyWriter(_projectPath: string, _payload: unknown): Promise<WriteOutcome> {
-  return { ok: true }
+export async function snapshotLegacyWriter(
+  projectPath: string,
+  payload: unknown,
+): Promise<WriteOutcome> {
+  try {
+    const p = payload as { kind: string; chapterNumber: number; fact: string }
+    if (!p || p.kind !== "snapshot_fact") {
+      return { ok: true }
+    }
+    const pp = normalizePath(projectPath)
+    const legacyDir = `${pp}/.novel/canon-legacy`
+    const legacyPath = `${legacyDir}/canon-legacy.jsonl`
+    await createDirectory(legacyDir)
+    const line = JSON.stringify({
+      chapterNumber: p.chapterNumber,
+      fact: p.fact,
+      writtenAt: Date.now(),
+    }) + "\n"
+    // 追加写入：先读现有内容，追加新行，再原子写回
+    let existing = ""
+    try {
+      existing = await readFile(legacyPath)
+    } catch {
+      // 文件不存在，新建
+    }
+    await writeFileAtomic(legacyPath, existing + line)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /**
@@ -226,7 +319,7 @@ export async function noopLegacyWriter(_projectPath: string, _payload: unknown):
  */
 export function defaultCanonDualWriteDeps(): CanonDualWriteDeps {
   return {
-    writeLegacy: noopLegacyWriter,
+    writeLegacy: snapshotLegacyWriter,
     writeCanon: canonStoreWriter,
     queueRead: async (queuePath: string): Promise<string> => {
       try {

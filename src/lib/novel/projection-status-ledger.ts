@@ -142,8 +142,12 @@ function ledgerPath(projectPath: string): string {
 }
 
 export async function loadProjectionStatusLedger(projectPath: string): Promise<ProjectionStatusLedger> {
+  // A5: keep the raw bytes across the read/parse boundary so that on a JSON
+  // parse failure we can preserve the original file to a .corrupt-* sibling
+  // instead of silently zeroing history on the next save.
+  let raw: string | undefined
   try {
-    const raw = await readFile(ledgerPath(projectPath))
+    raw = await readFile(ledgerPath(projectPath))
     const parsed = JSON.parse(raw) as Partial<ProjectionStatusLedger>
     if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
       return emptyLedger()
@@ -157,8 +161,43 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
       auditTrail: Array.isArray(parsed.auditTrail) ? parsed.auditTrail : [],
     }
   } catch {
+    // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
+    // NOT silently reset the ledger. When we actually held file contents that
+    // failed to parse, copy them to a .corrupt-<timestamp> sibling in the same
+    // directory and warn — then still return emptyLedger() to stay available.
+    if (raw !== undefined) {
+      try {
+        await preserveCorruptLedger(projectPath, raw)
+      } catch (preserveErr) {
+        // Preserving the original is best-effort; never let it break the load.
+        console.error(
+          "[projection-status-ledger] failed to preserve corrupt ledger file:",
+          preserveErr,
+        )
+      }
+    }
     return emptyLedger()
   }
+}
+
+/**
+ * A5: copy the raw (corrupt) ledger contents to a `.corrupt-<ISO timestamp>`
+ * sibling in the same directory so the history is not silently lost when the
+ * next saveProjectionStatusLedger overwrites projection-status.json. Uses the
+ * project's existing IO primitives (readFile + writeFileAtomic); no rename
+ * primitive is exposed, so this is an explicit read+write copy.
+ */
+async function preserveCorruptLedger(projectPath: string, raw: string): Promise<void> {
+  const pp = normalizePath(projectPath)
+  // ISO timestamps contain ':' / '.' which are legal on most filesystems but
+  // awkward; normalize them so the suffix stays filename-friendly.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+  const corruptPath = `${pp}/.novel/projection-status.corrupt-${stamp}.json`
+  await writeFileAtomic(corruptPath, raw)
+  console.error(
+    `[projection-status-ledger] corrupted ledger detected at ${ledgerPath(projectPath)}; ` +
+      `original contents preserved to ${corruptPath}`,
+  )
 }
 
 export async function saveProjectionStatusLedger(

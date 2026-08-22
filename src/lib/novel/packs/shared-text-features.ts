@@ -31,6 +31,7 @@ import { createAntiAiLlmPack, type AntiAiLlmFindingInput } from "./anti-ai-llm-p
 import { createContinuityPack, EMPTY_CONTINUITY_INPUT } from "./continuity-pack"
 import { createQualitySixDimPack, type QualitySixDimInputs } from "./quality-six-dim-pack"
 import type { RulePackDefinition } from "../rule-stack"
+import { AntiAiCandidatePool } from "../anti-ai-candidate-pool"
 
 // ============================================================================
 // 共享特征类型
@@ -167,6 +168,19 @@ export function precomputeTextFeatures(rawText: string): SharedTextFeatures {
 // 公共 API — 核心四包组合入口
 // ============================================================================
 
+/**
+ * 默认池惰性构造（单例复用避免重复加载语料）。
+ * 仅在 composeCoreRulePools 未注入 pool 且 chapterContent 提供时触发。
+ */
+let _defaultPoolForCompose: AntiAiCandidatePool | null = null
+function getDefaultPoolForCompose(): AntiAiCandidatePool {
+  if (!_defaultPoolForCompose) {
+    _defaultPoolForCompose = new AntiAiCandidatePool()
+    _defaultPoolForCompose.loadCorpus()
+  }
+  return _defaultPoolForCompose
+}
+
 /** composeCoreRulePacks 输入（各域可选；缺省域产出空规则包，packIds 保持稳定）。 */
 export interface CorePackInputs {
   /** 章节正文（共享特征预计算的唯一扫描对象；缺省时各文本类包走各自的空态）。 */
@@ -176,7 +190,7 @@ export interface CorePackInputs {
     readonly config?: ContinuityEngineConfig
     readonly overrides?: ContinuityOverrideStore
   }
-  /** T19 候选池实例（可注入 stub；缺省用 quickAntiAiAnalysis 惰性默认池）。 */
+  /** T19 候选池实例（可注入 stub；缺省惰性构造默认池，保留 DI 覆盖）。 */
   readonly pool?: AntiAiPoolLike
   /** LLM 审查产出（anti-AI 相关 findings 投影；结构化最小接口，见 anti-ai-llm-pack）。 */
   readonly llmFindings?: readonly AntiAiLlmFindingInput[]
@@ -213,10 +227,18 @@ export function composeCoreRulePacks(inputs: CorePackInputs): RulePackDefinition
       })
     : createContinuityPack(EMPTY_CONTINUITY_INPUT)
 
+  // 生产池装配：调用方未注入 pool 时惰性构造默认池实例（保留 DI 覆盖，
+  // 等价于 quickAntiAiAnalysis 的默认池，使 renderer 可直连）。
+  // 见 DEBT-20260824-T24-01 偿还注记。
+  const defaultPool = !inputs.pool && inputs.chapterContent !== undefined
+    ? getDefaultPoolForCompose()
+    : undefined
+  const pool = inputs.pool ?? defaultPool
+
   const antiAiMechPack = createAntiAiMechPack({
     ...(inputs.chapterContent !== undefined ? { text: inputs.chapterContent } : {}),
     ...(features ? { features } : {}),
-    ...(inputs.pool ? { pool: inputs.pool } : {}),
+    ...(pool ? { pool } : {}),
   })
 
   const antiAiLlmPack = createAntiAiLlmPack({

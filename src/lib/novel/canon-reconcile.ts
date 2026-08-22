@@ -31,6 +31,7 @@ import {
   loadPendingQueue,
   reconcileOutcomes,
   replayPendingQueue,
+  saveDivergenceTrace,
   type CanonDualWriteDeps,
   type CanonPendingRecord,
   type CanonWriteOutcome,
@@ -264,6 +265,18 @@ export async function twoPhaseReconcile(
       phase: "alert",
       at: now,
       message: `alert: ${finalDivergences.length} unresolved divergence(s) — replay did NOT silently swallow`,
+    })
+    // DEBT-20260820-15b 偿还：差异留痕写入 canon_store，供后续审计/诊断查询
+    const tracePayload = JSON.stringify({
+      alertedAt: now,
+      finalDivergences: finalDivergences.map((d) => ({
+        digest: d.digest,
+        reasons: d.reasons,
+        metricDistance: d.metric.distance,
+      })),
+    })
+    saveDivergenceTrace(projectPath, tracePayload).catch(() => {
+      // 非致命审计操作，写入失败不阻断主流程
     })
   }
 

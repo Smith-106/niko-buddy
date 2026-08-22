@@ -36,7 +36,7 @@
 //!   - 本文件位于 `src-tauri/src/` 顶层（与 `canon_search.rs` 同层），由
 //!     `lib.rs` 注册 `mod canon_commands;` + `invoke_handler` 加 5 命令。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -56,11 +56,18 @@ use crate::types::canon_types::{
 ///
 /// - `revisions`：canon revision 计数（ingest/supersede 自增；读路径返回当前值
 ///   作 `max_revision`）。内存计数，进程内单调（与 T12 缓存失效语义对齐）。
+/// - `loaded`：已从持久化存储加载 revision 的项目集（避免重复加载）。
 /// - `project_locks`：每项目单实例写锁（守 status.json 单实例锁契约：同项目
 ///   写串行，无跨库 join）。
+///
+/// DEBT-20260820-13 偿还：revision 持久化。bump_revision 后自动持久化到
+/// canon_store 的 meta 表；current_revision 在首次访问时从 store 延迟加载。
+/// 进程重启后，TS 侧缓存从持久化 revision 预热。
 pub struct CanonCommandState {
     /// 每项目 canon revision（ingest/supersede 自增）。
     revisions: Mutex<HashMap<String, u64>>,
+    /// 已从 store 加载 revision 的项目集（延迟加载标记）。
+    loaded: Mutex<HashSet<String>>,
     /// 每项目单实例写锁（写路径串行化）。
     project_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
@@ -69,6 +76,7 @@ impl Default for CanonCommandState {
     fn default() -> Self {
         Self {
             revisions: Mutex::new(HashMap::new()),
+            loaded: Mutex::new(HashSet::new()),
             project_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -76,6 +84,8 @@ impl Default for CanonCommandState {
 
 impl CanonCommandState {
     /// 当前 revision（读路径用，无副作用）。
+    /// 若该项目尚未从持久化存储加载，返回 0（调用方需在打开 store 后
+    /// 调用 `lazy_load_revision` 补充）。
     pub fn current_revision(&self, project_id: &str) -> u64 {
         *self
             .revisions
@@ -85,12 +95,59 @@ impl CanonCommandState {
             .unwrap_or(&0)
     }
 
+    /// 是否已从持久化存储加载过 revision。
+    pub fn is_loaded(&self, project_id: &str) -> bool {
+        self.loaded
+            .lock()
+            .expect("loaded set poisoned")
+            .contains(project_id)
+    }
+
+    /// 从持久化存储延迟加载 revision（仅首次调用有效）。
+    /// 若 store 中存储的 revision > 0，则更新内存缓存。
+    pub async fn lazy_load_revision(
+        &self,
+        project_id: &str,
+        store: &CanonStore,
+    ) -> Result<(), String> {
+        // 先检查 loaded 集（短持有锁，不跨 await）
+        {
+            let loaded = self.loaded.lock().expect("loaded set poisoned");
+            if loaded.contains(project_id) {
+                return Ok(());
+            }
+        }
+        // 锁已释放，安全 await
+        let persisted = store.load_revision().await?;
+        if persisted > 0 {
+            let mut revs = self.revisions.lock().expect("revision lock poisoned");
+            revs.insert(project_id.to_string(), persisted);
+        }
+        // 标记已加载（重新拿锁，不跨 await）
+        let mut loaded = self.loaded.lock().expect("loaded set poisoned");
+        loaded.insert(project_id.to_string());
+        Ok(())
+    }
+
     /// 写路径自增并返回新 revision（缓存失效信号）。
+    /// 调用方应在持有写锁后调用此方法，并随后调用 `persist_revision`
+    /// 将新 revision 写入持久化存储。
     pub fn bump_revision(&self, project_id: &str) -> u64 {
         let mut m = self.revisions.lock().expect("revision lock poisoned");
         let e = m.entry(project_id.to_string()).or_insert(0);
         *e += 1;
         *e
+    }
+
+    /// 将当前 revision 持久化到 canon_store 的 meta 表。
+    /// 应在 bump_revision 后、_impl 函数返回前调用。
+    pub async fn persist_revision(
+        &self,
+        project_id: &str,
+        store: &CanonStore,
+    ) -> Result<(), String> {
+        let rev = self.current_revision(project_id);
+        store.save_revision(rev).await
     }
 
     /// 取（或建）该项目的写锁；首次访问即注册，等价单实例锁。
@@ -150,12 +207,17 @@ pub struct CanonSupersedeResponse {
 // ──────────────────────────────────────────────────────────────────────────
 
 /// 按 filter 查询边（时态 + 认知轴过滤，T11 结构化路径）。
+///
+/// DEBT-20260820-13 偿还：首次访问时从持久化存储延迟加载 revision。
 pub async fn canon_query_impl(
     state: &CanonCommandState,
     project_id: String,
     filter: CanonEdgeFilter,
 ) -> Result<CanonQueryResponse, String> {
     let store = CanonStore::open(&project_id).await?;
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
     let edges = store.query_edges(&filter).await?;
     Ok(CanonQueryResponse {
         edges,
@@ -164,12 +226,17 @@ pub async fn canon_query_impl(
 }
 
 /// 多查询单次 invoke：批量 filter → 批量结果。
+///
+/// DEBT-20260820-13 偿还：首次访问时从持久化存储延迟加载 revision。
 pub async fn canon_query_batch_impl(
     state: &CanonCommandState,
     project_id: String,
     filters: Vec<CanonEdgeFilter>,
 ) -> Result<CanonQueryBatchResponse, String> {
     let store = CanonStore::open(&project_id).await?;
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
     let mut results = Vec::with_capacity(filters.len());
     for f in &filters {
         results.push(store.query_edges(f).await?);
@@ -181,6 +248,8 @@ pub async fn canon_query_batch_impl(
 }
 
 /// POV 认知轴便利封装：固定 `known_by` + 可选 `valid_at_chapter`。
+///
+/// DEBT-20260820-13 偿还：首次访问时从持久化存储延迟加载 revision。
 pub async fn canon_facts_known_by_impl(
     state: &CanonCommandState,
     project_id: String,
@@ -196,6 +265,8 @@ pub async fn canon_facts_known_by_impl(
 }
 
 /// 幂等摄取 episode（写路径：串行化 + revision 自增）。
+///
+/// DEBT-20260820-13 偿还：写后 revision 持久化到 canon_store meta 表。
 pub async fn canon_ingest_episode_impl(
     state: &CanonCommandState,
     project_id: String,
@@ -206,6 +277,7 @@ pub async fn canon_ingest_episode_impl(
     let store = CanonStore::open(&project_id).await?;
     let inserted = store.ingest_episode(episode).await?;
     let max_revision = state.bump_revision(&project_id);
+    state.persist_revision(&project_id, &store).await?;
     Ok(CanonWriteResponse {
         inserted,
         max_revision,
@@ -213,6 +285,8 @@ pub async fn canon_ingest_episode_impl(
 }
 
 /// 批量 supersede（写路径：串行化 + revision 自增）。
+///
+/// DEBT-20260820-13 偿还：写后 revision 持久化到 canon_store meta 表。
 pub async fn canon_supersede_edges_impl(
     state: &CanonCommandState,
     project_id: String,
@@ -223,6 +297,7 @@ pub async fn canon_supersede_edges_impl(
     let store = CanonStore::open(&project_id).await?;
     let result = store.supersede_edges(request).await?;
     let max_revision = state.bump_revision(&project_id);
+    state.persist_revision(&project_id, &store).await?;
     Ok(CanonSupersedeResponse {
         result,
         max_revision,
@@ -232,6 +307,23 @@ pub async fn canon_supersede_edges_impl(
 // ──────────────────────────────────────────────────────────────────────────
 // `#[tauri::command]` 包装（首参 project_id 进签名；JS 侧 camelCase = projectId）
 // ──────────────────────────────────────────────────────────────────────────
+
+/// 获取当前项目 canon revision（TS 侧缓存预热 / 读路径专用，无副作用）。
+///
+/// DEBT-20260820-13 偿还：首次访问时从持久化存储延迟加载 revision。
+pub async fn canon_get_revision_impl(
+    state: &CanonCommandState,
+    project_id: String,
+) -> Result<CanonQueryResponse, String> {
+    let store = CanonStore::open(&project_id).await?;
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
+    Ok(CanonQueryResponse {
+        edges: Vec::new(),
+        max_revision: state.current_revision(&project_id),
+    })
+}
 
 #[tauri::command]
 pub async fn canon_query(
@@ -277,6 +369,35 @@ pub async fn canon_supersede_edges(
     request: SupersedeRequest,
 ) -> Result<CanonSupersedeResponse, String> {
     canon_supersede_edges_impl(state.inner(), project_id, request).await
+}
+
+#[tauri::command]
+pub async fn canon_get_revision(
+    state: State<'_, CanonCommandState>,
+    project_id: String,
+) -> Result<CanonQueryResponse, String> {
+    canon_get_revision_impl(state.inner(), project_id).await
+}
+
+// ── DEBT-20260820-15b：divergence trace 持久化 ──
+
+/// 将 divergence trace JSON 持久化写入 canon_store meta 表。
+/// DEBT-20260820-15b 偿还：twoPhaseReconcile 告警后调用，
+/// 将差异留痕写入 canon_store，供后续审计/诊断查询。
+pub async fn canon_save_divergence_trace_impl(
+    project_id: String,
+    trace_json: String,
+) -> Result<(), String> {
+    let store = CanonStore::open(&project_id).await?;
+    store.save_divergence_trace(&trace_json).await
+}
+
+#[tauri::command]
+pub async fn canon_save_divergence_trace(
+    project_id: String,
+    trace_json: String,
+) -> Result<(), String> {
+    canon_save_divergence_trace_impl(project_id, trace_json).await
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -544,5 +665,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(qb.max_revision, 1);
+    }
+
+    // ── DEBT-20260820-15b：divergence trace 持久化 ──
+
+    #[tokio::test]
+    async fn canon_save_and_load_divergence_trace_roundtrip() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+
+        // 写入 divergence trace
+        let trace = r#"[{\"digest\":\"abc\",\"reasons\":[\"canon:boom\"]}]"#.to_string();
+        canon_save_divergence_trace_impl(pid.clone(), trace.clone())
+            .await
+            .unwrap();
+
+        // 读回验证
+        let store = CanonStore::open(&pid).await.unwrap();
+        let loaded = store.load_divergence_trace().await.unwrap();
+        assert_eq!(loaded, trace, "divergence trace roundtrip");
+
+        // 验证 revision 独立（写入 divergence trace 不应覆盖 revision）
+        let rev = store.load_revision().await.unwrap();
+        assert_eq!(rev, 0, "divergence trace write should not affect revision");
     }
 }

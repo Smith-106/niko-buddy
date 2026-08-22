@@ -4,12 +4,267 @@ use arrow_array::{
 use arrow_schema::{DataType, Field, Schema};
 use lancedb::connect;
 use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::table::{CompactionOptions, OptimizeAction};
+use lancedb::Table;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::panic_guard::run_guarded_async;
 
-/// v2 per-chunk result. Surfaces the matching chunk's text + heading path
+// ──────────────────────────────────────────────────────────────────────
+// Chunk-table compaction (wiki_chunks_v2)
+// Pattern mirrors canon_store.rs compact_if_needed / compact_tables /
+// optimize. vectorstore keeps no long-lived cross-call state, so the host
+// write path (upsert / delete) bumps a cumulative change counter and hands
+// it to maybe_compact_chunks; below the threshold this is a no-op.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Chunk-table compaction trigger threshold (cumulative change count).
+const CHUNK_COMPACTION_THRESHOLD: u64 = 100;
+/// Manifest versions retained during prune (keep newest K).
+const CHUNK_RETAIN_VERSIONS: u64 = 5;
+
+/// v2 chunk-table compaction report.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ChunkCompactionReport {
+    pub fragments_removed: usize,
+    pub fragments_added: usize,
+    pub files_removed: usize,
+    pub files_added: usize,
+    pub bytes_removed: u64,
+    pub old_versions_removed: u64,
+}
+
+/// Threshold-trigger compact: only compacts once cumulative changes reach
+/// the threshold; below it returns Ok(None) (no-op). Missing table → Ok(None).
+pub async fn maybe_compact_chunks(
+    project_path: &str,
+    total_changes: u64,
+) -> Result<Option<ChunkCompactionReport>, String> {
+    if total_changes < CHUNK_COMPACTION_THRESHOLD {
+        return Ok(None);
+    }
+    compact_chunks(project_path).await.map(Some)
+}
+
+/// Force file compaction + old-version prune on wiki_chunks_v2.
+/// Missing table returns an empty report (Ok), matching lenient semantics.
+pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport, String> {
+    let db = connect(&db_path(project_path))
+        .execute()
+        .await
+        .map_err(|e| format!("DB connect error: {e}"))?;
+
+    let tables = db
+        .table_names()
+        .execute()
+        .await
+        .map_err(|e| format!("List tables error: {e}"))?;
+    if !tables.contains(&TABLE_V2.to_string()) {
+        return Ok(ChunkCompactionReport::default());
+    }
+
+    let table = db
+        .open_table(TABLE_V2)
+        .execute()
+        .await
+        .map_err(|e| format!("Open table error: {e}"))?;
+
+    let mut report = ChunkCompactionReport::default();
+
+    // Step 1: file compaction (merge small files)
+    let cstats = table
+        .optimize(OptimizeAction::Compact {
+            options: CompactionOptions::default(),
+            remap_options: None,
+        })
+        .await
+        .map_err(|e| format!("compact chunks: {e}"))?;
+
+    // Step 2: old-version prune (keep newest K manifest versions)
+    let (pruned_bytes, pruned_versions) = prune_chunk_table_versions(&table).await?;
+
+    if let Some(ref c) = cstats.compaction {
+        report.fragments_removed += c.fragments_removed;
+        report.fragments_added += c.fragments_added;
+        report.files_removed += c.files_removed;
+        report.files_added += c.files_added;
+    }
+    report.bytes_removed += pruned_bytes;
+    report.old_versions_removed += pruned_versions;
+
+    Ok(report)
+}
+
+/// Prune old manifest versions, keeping the newest K. Returns
+/// (pruned_bytes, pruned_versions). Mirrors canon_store prune_table_versions.
+async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String> {
+    let versions = table
+        .list_versions()
+        .await
+        .map_err(|e| format!("list versions: {e}"))?;
+
+    if versions.len() <= CHUNK_RETAIN_VERSIONS as usize {
+        return Ok((0, 0));
+    }
+
+    // Descending by version; keep the newest K, prune everything older.
+    let mut sorted: Vec<_> = versions.iter().collect();
+    sorted.sort_by(|a, b| b.version.cmp(&a.version));
+    let oldest_to_keep = &sorted[CHUNK_RETAIN_VERSIONS as usize - 1];
+
+    let now = chrono::Utc::now();
+    let age = now - oldest_to_keep.timestamp;
+    // +1s buffer to avoid boundary races (same as canon_store.rs).
+    let age = age + chrono::Duration::seconds(1);
+
+    let stats = table
+        .optimize(OptimizeAction::Prune {
+            older_than: Some(age),
+            delete_unverified: Some(false),
+            error_if_tagged_old_versions: Some(false),
+        })
+        .await
+        .map_err(|e| format!("prune chunks: {e}"))?;
+
+    if let Some(ref p) = stats.prune {
+        Ok((p.bytes_removed, p.old_versions))
+    } else {
+        Ok((0, 0))
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Startup reconciliation (pure function)
+//
+// reconcile_chunks is deliberately PURE — it compares an expected chunk
+// set against the actual table contents and returns an UPSERT / DELETE
+// plan without touching the DB. This keeps the decision logic unit-
+// testable and independent of LanceDB IO.
+//
+// UPSTREAM WIRING PATH (cross-layer, NOT wired here):
+//   A future startup/reindex check that owns the per-project LanceDB
+//   connection can: 1) derive the expected chunk set (page_id → indexes)
+//   from the source-of-truth doc inventory, 2) read the actual set via a
+//   v2 table scan (page_id + chunk_index), 3) feed both into
+//   reconcile_chunks, and 4) execute the returned plan by calling
+//   do_vector_upsert_chunks (for to_upsert, grouped by page_id) and
+//   do_vector_delete_page (for the page_ids in to_delete_pages). The plan
+//   grouping is designed so each action maps 1:1 onto the existing
+//   page-scoped mutators. Wiring requires that new module (or the existing
+//   search/upsert host) to own the connection lifetime, hence it is left
+//   out of this pure-function delivery.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Identity of one expected chunk.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExpectedChunk {
+    pub page_id: String,
+    pub chunk_index: u32,
+}
+
+/// Identity of one chunk currently present in the table.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ActualChunk {
+    pub page_id: String,
+    pub chunk_index: u32,
+}
+
+/// Reconciliation plan (pure output; nothing is executed here).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReconcilePlan {
+    /// Chunk refs expected in the table but missing → these pages should be
+    /// upserted (grouped by page_id before execution).
+    pub to_upsert: Vec<ExpectedChunk>,
+    /// Pages present in the table but with no matching expected chunk set →
+    /// the whole page should be deleted.
+    pub to_delete_pages: Vec<String>,
+    /// Pages that match between expected and actual → no action.
+    pub unchanged_pages: Vec<String>,
+}
+
+/// Pure reconciliation: expected chunk set vs actual table contents.
+///
+/// Returns a plan describing what to UPSERT and what to DELETE. It performs
+/// no IO and never executes the plan — it only returns the decision, so it
+/// is trivially unit-testable.
+///
+/// Semantics:
+///   - Any expected chunk with no matching (page_id, chunk_index) row in the
+///     actual set lands in `to_upsert` (its page is under-provisioned).
+///   - Any page that appears in the actual table but has no expected chunk at
+///     all lands in `to_delete_pages` (it is stale / no longer in the source
+///     of truth).
+///   - A page whose expected chunk set matches the actual chunk set exactly
+///     lands in `unchanged_pages`.
+pub fn reconcile_chunks(
+    expected: &[ExpectedChunk],
+    actual: &[ActualChunk],
+) -> ReconcilePlan {
+    let mut plan = ReconcilePlan::default();
+
+    // Indexes of actual chunks by page, plus the full page set seen in actual.
+    let actual_by_page: std::collections::HashMap<&str, HashSet<u32>> = {
+        let mut m: std::collections::HashMap<&str, HashSet<u32>> =
+            std::collections::HashMap::new();
+        for a in actual {
+            m.entry(a.page_id.as_str()).or_default().insert(a.chunk_index);
+        }
+        m
+    };
+
+    // Group expected chunks by page.
+    let mut expected_by_page: std::collections::HashMap<&str, HashSet<u32>> =
+        std::collections::HashMap::new();
+    for e in expected {
+        expected_by_page
+            .entry(e.page_id.as_str())
+            .or_default()
+            .insert(e.chunk_index);
+    }
+
+    // Page union (dedupe page ids).
+    let mut page_ids: Vec<&str> = expected_by_page
+        .keys()
+        .chain(actual_by_page.keys())
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    page_ids.sort_unstable();
+
+    for page_id in page_ids {
+        let expected_idx = expected_by_page.get(page_id).cloned().unwrap_or_default();
+        let actual_idx = actual_by_page.get(page_id).cloned().unwrap_or_default();
+
+        if expected_idx.is_empty() && !actual_idx.is_empty() {
+            // Present in table, but nothing expected → delete the page.
+            plan.to_delete_pages.push(page_id.to_string());
+            continue;
+        }
+        if expected_idx == actual_idx {
+            plan.unchanged_pages.push(page_id.to_string());
+            continue;
+        }
+        // Under-provisioned (expected ⊋ actual) → re-upsert the page. We emit
+        // the individual missing chunk refs so the caller can decide the
+        // granularity; existing do_vector_upsert_chunks is page-scoped and
+        // will re-add the whole expected set (idempotent by page delete+add).
+        let mut missing: Vec<u32> = expected_idx.difference(&actual_idx).cloned().collect();
+        missing.sort_unstable();
+        for idx in missing {
+            plan.to_upsert.push(ExpectedChunk {
+                page_id: page_id.to_string(),
+                chunk_index: idx,
+            });
+        }
+    }
+
+    plan
+}
+
+/// v2 per-chunk search result. Surfaces the matching chunk's text + heading path
 /// so the chat UI can show "matched in this section" and aggregators on
 /// the TS side can group by page_id.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -205,12 +460,14 @@ pub async fn do_vector_upsert_chunks(
             .await
             .map_err(|e| format!("Open table error: {e}"))?;
 
-        if let Err(e) = table.delete(&format!("page_id = '{}'", page_id)).await {
-            eprintln!(
-                "[vectorstore v2] Warning: delete before upsert failed for page '{}': {}",
-                page_id, e
-            );
-        }
+        // 语义变更：delete 失败必须中止 upsert 并向上传播错误，而不是静默继续。
+        // 若在此处宽容失败，旧 chunk（按 page_id 归组）会残留进索引，后续检索
+        // 会被过期内容污染。正确性优先于健壮性——调用方收到 Err 后可自行决定
+        // 是否重试。风格与 do_vector_delete_page 中的 delete 错误传播一致。
+        table
+            .delete(&format!("page_id = '{}'", page_id))
+            .await
+            .map_err(|e| format!("Delete error for page '{}': {e}", page_id))?;
 
         table
             .add(data)
@@ -751,6 +1008,97 @@ mod tests_v2 {
 
         // Should just return Ok(()), not error.
         vector_drop_legacy(pp).await.unwrap();
+    }
+
+    // ── reconcile_chunks (pure plan) ──
+
+    #[test]
+    fn reconcile_many_deletes_few_upserts() {
+        // Expected only page-a chunk 0; actual has page-a 0..2 plus a stale
+        // page-b 0..3. Plan: page-a under-provisioned (missing 1,2) -> upsert;
+        // page-b stale -> delete. Many deletes, few adds.
+        let expected = vec![ExpectedChunk {
+            page_id: "page-a".into(),
+            chunk_index: 0,
+        }];
+        let actual = vec![
+            ActualChunk { page_id: "page-a".into(), chunk_index: 0 },
+            ActualChunk { page_id: "page-a".into(), chunk_index: 1 },
+            ActualChunk { page_id: "page-a".into(), chunk_index: 2 },
+            ActualChunk { page_id: "page-b".into(), chunk_index: 0 },
+            ActualChunk { page_id: "page-b".into(), chunk_index: 1 },
+            ActualChunk { page_id: "page-b".into(), chunk_index: 2 },
+            ActualChunk { page_id: "page-b".into(), chunk_index: 3 },
+        ];
+        let plan = reconcile_chunks(&expected, &actual);
+
+        // page-b is entirely stale -> delete; page-a is short -> upsert chunk1,2.
+        assert_eq!(plan.to_delete_pages, vec!["page-b"]);
+        assert!(plan.unchanged_pages.is_empty());
+        let mut got: Vec<(String, u32)> =
+            plan.to_upsert.iter().map(|c| (c.page_id.clone(), c.chunk_index)).collect();
+        got.sort();
+        assert_eq!(got, vec![("page-a".to_string(), 1), ("page-a".to_string(), 2)]);
+    }
+
+    #[test]
+    fn reconcile_exact_match_is_unchanged() {
+        let expected = vec![
+            ExpectedChunk { page_id: "p".into(), chunk_index: 0 },
+            ExpectedChunk { page_id: "p".into(), chunk_index: 1 },
+        ];
+        let actual = vec![
+            ActualChunk { page_id: "p".into(), chunk_index: 0 },
+            ActualChunk { page_id: "p".into(), chunk_index: 1 },
+        ];
+        let plan = reconcile_chunks(&expected, &actual);
+        assert!(plan.to_upsert.is_empty());
+        assert!(plan.to_delete_pages.is_empty());
+        assert_eq!(plan.unchanged_pages, vec!["p"]);
+    }
+
+    #[test]
+    fn reconcile_all_actual_stale_is_deletable() {
+        // Nothing expected; table has two pages -> both deleted, nothing upserted.
+        let plan = reconcile_chunks(&[], &[
+            ActualChunk { page_id: "a".into(), chunk_index: 0 },
+            ActualChunk { page_id: "b".into(), chunk_index: 0 },
+        ]);
+        assert!(plan.to_upsert.is_empty());
+        assert_eq!(plan.to_delete_pages, vec!["a", "b"]);
+        assert!(plan.unchanged_pages.is_empty());
+    }
+
+    // ── compaction threshold logic ──
+
+    #[tokio::test]
+    async fn compaction_below_threshold_is_noop() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Below threshold -> Ok(None), no DB touched.
+        let res = maybe_compact_chunks(&pp, CHUNK_COMPACTION_THRESHOLD - 1)
+            .await
+            .unwrap();
+        assert!(res.is_none());
+    }
+
+    #[tokio::test]
+    async fn compaction_reaches_threshold_then_compacts() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Give the table rows so optimize has data to compact.
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+
+        // At/above threshold -> compact runs (optimize/prune) and data survives.
+        let res = maybe_compact_chunks(&pp, CHUNK_COMPACTION_THRESHOLD)
+            .await
+            .unwrap();
+        assert!(res.is_some());
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
     }
 }
 

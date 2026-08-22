@@ -297,7 +297,7 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
         let stderr_task = tokio::spawn(async move {
             let mut collected = String::new();
             while let Ok(Some(line)) = stderr_reader.next_line().await {
-                eprintln!("[codex-cli stderr] {line}");
+                log::debug!("[codex-cli stderr] {line}");
                 append_capped_line(&mut collected, &line, STDERR_LIMIT_BYTES);
             }
             collected
@@ -312,7 +312,7 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    eprintln!("[codex-cli stdout] read error: {e}");
+                    log::error!("[codex-cli stdout] read error: {e}");
                     break;
                 }
             }

@@ -28,7 +28,8 @@
  */
 
 import { readFileSync, existsSync, readdirSync } from "node:fs"
-import { resolve } from "node:path"
+import { resolve, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 
 // ============================================================================
 // 类型定义
@@ -99,11 +100,20 @@ export interface MutationTestResult {
 }
 
 // ============================================================================
-// 默认路径
+// 默认路径 (import.meta.url 兼容 renderer 直连)
 // ============================================================================
 
 /**
  * 语料根目录 (相对于项目根 niko-hub)。
+ * 使用 import.meta.url 解析，兼容 renderer bundle 直连。
+ * 可通过构造参数覆盖。
+ */
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+/**
+ * 语料根目录 (相对于项目根 niko-hub)。
+ * 使用 import.meta.url 代替 __dirname，兼容 renderer bundle 直连。
  * 可通过构造参数覆盖。
  */
 const DEFAULT_CORPUS_ROOT = resolve(__dirname, "../../../../docs/p0/corpus")

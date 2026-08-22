@@ -2,7 +2,8 @@
 
 import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
-import { getProviderConfig, type RequestOverrides } from "./llm-providers"
+import type { RequestOverrides } from "./llm-providers"
+import { defaultRegistry } from "./llm/provider-registry"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
@@ -321,7 +322,7 @@ export async function streamChat(
     }
   }
 
-  const providerConfig = getProviderConfig(runtimeConfig)
+  const providerConfig = defaultRegistry.getProviderConfig(runtimeConfig)
 
   const timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS
   let combinedSignal = signal

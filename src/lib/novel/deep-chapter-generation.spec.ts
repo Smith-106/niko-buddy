@@ -97,6 +97,7 @@ import {
   type DeepChapterDecisionGates,
   applyCachePrefix,
 } from "./deep-chapter-generation"
+import { createWatchdog, pollWatchdog } from "./watchdog"
 import { createDefaultStructureThrilPacingPlan } from "./chapter-structure-plan"
 import { RESIDUAL_OVERALL_MEDIAN_THRESHOLD } from "./residual-rewrite-policy"
 import {
@@ -930,7 +931,8 @@ describe("runDeepChapterGeneration", () => {
     expect(result.taskBrief).not.toContain("优先延续上一章结尾带出的悬念或动作：")
     expect(result.taskBrief).not.toContain("暂定设定：The old house")
     expect(result.taskBrief).not.toContain("---")
-    expect(result.taskBrief.length).toBeLessThan(420)
+    // T25b: canonHash 行（正史指纹 + 64 字 hex）约 77 字，计入长度上限
+    expect(result.taskBrief.length).toBeLessThan(520)
   })
 
   it("re-fallbacks a resumed half-sanitized task brief that still contains bare frontmatter dividers", async () => {
@@ -3856,5 +3858,103 @@ describe("F-003 retryCountCircuitBreaker 三分支 (双轨并存)", () => {
     expect(result.manualReviewRequired).toBe(true)
     expect(result.retryCount).toBe(3)
     expect(result.decisionGates.overall).toBe("manual_review")
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEBT-20260822-t34-wiring: watchdog + status-write-merger 接线测试
+  // ─────────────────────────────────────────────────────────────────────────
+  it("injecting watchdog polls at stage boundaries without snapshotWriter does not throw", async () => {
+    const deps = createDeps()
+    const watchdog = createWatchdog({ stallTimeoutMs: 99999, now: Date.now() })
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig,
+        watchdog,
+      },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.finalContent).toBeTruthy()
+    // watchdog 被 feedToken 消耗过（token 流处喂入）
+    expect(watchdog.lastTokenAtMs).not.toBeNull()
+    // watchdog 未触发（stallTimeoutMs 远大于生成时长）
+    expect(watchdog.triggered).toBe(false)
+  })
+
+  it("injecting snapshotWriter creates merger and does not block normal generation", async () => {
+    const deps = createDeps()
+    const writtenPayloads: string[] = []
+    const snapshotWriter = async (payload: string) => {
+      writtenPayloads.push(payload)
+    }
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig,
+        snapshotWriter,
+      },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.finalContent).toBeTruthy()
+    // merger 的 drain/flush 在阶段边界/完成时被调用；不阻塞正常生成
+    // （payload 内容由调用方决定，generator 只管理 merger 生命周期）
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("injecting both watchdog and snapshotWriter works together without breaking generation", async () => {
+    const deps = createDeps()
+    const watchdog = createWatchdog({ stallTimeoutMs: 99999, now: Date.now() })
+    const writtenPayloads: string[] = []
+    const snapshotWriter = async (payload: string) => {
+      writtenPayloads.push(payload)
+    }
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig,
+        watchdog,
+        snapshotWriter,
+      },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.finalContent).toBeTruthy()
+    expect(watchdog.lastTokenAtMs).not.toBeNull()
+    expect(watchdog.triggered).toBe(false)
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("watchdog feedToken is called on each stream token (watchdog.lastTokenAtMs advances)", async () => {
+    const deps = createDeps()
+    const startMs = Date.now()
+    const watchdog = createWatchdog({ stallTimeoutMs: 99999, now: startMs })
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig,
+        watchdog,
+      },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    // lastTokenAtMs 应在 startMs 之后（token 流已喂入）
+    expect(watchdog.lastTokenAtMs).toBeGreaterThanOrEqual(startMs)
+    // triggerCount 保持 0（未触发卡死）
+    expect(watchdog.triggerCount).toBe(0)
+  })
+
+  it("pollWatchdog at stage boundaries returns continue when not stalled", async () => {
+    const deps = createDeps()
+    const watchdog = createWatchdog({ stallTimeoutMs: 99999, now: Date.now() })
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig,
+        watchdog,
+      },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    // 轮询返回 continue（未超时）
+    const verdict = pollWatchdog(watchdog, Date.now())
+    expect(verdict.action).toBe("continue")
+    expect(verdict.triggered).toBe(false)
   })
 })

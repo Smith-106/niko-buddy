@@ -42,10 +42,114 @@ export function getLastEmbeddingError(): string | null {
   return lastEmbeddingError
 }
 
+// ── Embedding provider adapters ─────────────────────────────────────────
+
+/**
+ * A provider owns the provider-specific differences of the embedding
+ * request: endpoint resolution, auth headers, request-body shape,
+ * response payload shape, and the JSON path used in error messages.
+ * `fetchEmbedding` deals only with this interface, so adding a provider
+ * never touches the retry/error pipeline.
+ *
+ * Dispatch is by fixed order: Google → DashScope → Generic. `matches` is
+ * asked in that order and the first to win is used, which reproduces the
+ * previous string-sniffing precedence byte-for-byte (Google used to be
+ * checked first, then DashScope, then the OpenAI-compatible fallback).
+ */
+export interface EmbeddingProviderAdapter {
+  /** Does this provider own `cfg`? Called in ADAPTERS order, first match wins. */
+  matches(cfg: EmbeddingConfig): boolean
+  /** Resolve the final POST URL (Google normalises its endpoint here). */
+  resolveEndpoint(cfg: EmbeddingConfig): string
+  /** Request headers, including auth. */
+  buildHeaders(cfg: EmbeddingConfig): Record<string, string>
+  /** Request body for `text` (raw object; fetchEmbedding stringifies it once). */
+  buildRequest(cfg: EmbeddingConfig, text: string): unknown
+  /**
+   * Extract the embedding vector from a 2xx payload, or null/undefined
+   * when the payload doesn't carry it. The shared pipeline additionally
+   * validates it is a non-empty finite-number array.
+   */
+  parseResponse(payload: unknown): number[] | null | undefined
+  /** Human-readable JSON path to the embedding, used in "missing" errors. */
+  expectedShapeName: string
+}
+
+/** Walk a dotted/index path over an unknown object, tolerating missing nodes. */
+function readPath(root: unknown, path: Array<string | number>): unknown {
+  let cur = root
+  for (const key of path) {
+    if (cur === null || cur === undefined) return undefined
+    if (typeof cur !== "object") return undefined
+    cur = (cur as Record<string | number, unknown>)[key]
+  }
+  return cur
+}
+
+/** Google Gemini / AI Studio native endpoints. */
+const googleEmbeddingAdapter: EmbeddingProviderAdapter = {
+  matches: (cfg) => isGoogleEmbeddingConfig(cfg),
+  resolveEndpoint: (cfg) => googleEmbeddingEndpoint(cfg),
+  buildHeaders: (cfg) => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (cfg.apiKey) headers["x-goog-api-key"] = cfg.apiKey
+    return headers
+  },
+  buildRequest: (cfg, text) => googleEmbeddingBody(cfg.model, text, cfg.outputDimensionality),
+  parseResponse: (payload) => readPath(payload, ["embedding", "values"]) as number[] | null | undefined,
+  expectedShapeName: "embedding.values",
+}
+
+/** DashScope / Alibaba Cloud embedding endpoints. */
+const dashScopeEmbeddingAdapter: EmbeddingProviderAdapter = {
+  matches: (cfg) => isDashScopeEmbeddingConfig(cfg),
+  resolveEndpoint: (cfg) => cfg.endpoint,
+  buildHeaders: (cfg) => bearerHeaders(cfg),
+  buildRequest: (cfg, text) => dashScopeEmbeddingBody(cfg.model, text),
+  parseResponse: (payload) => readPath(payload, ["output", "embeddings", 0, "embedding"]) as number[] | null | undefined,
+  expectedShapeName: "output.embeddings[0].embedding",
+}
+
+/** Generic OpenAI-compatible fallback ({ model, input } / data[0].embedding). */
+const genericEmbeddingAdapter: EmbeddingProviderAdapter = {
+  // Matches everything: always the final fallback, so dispatch never falls through.
+  matches: () => true,
+  resolveEndpoint: (cfg) => cfg.endpoint,
+  buildHeaders: (cfg) => bearerHeaders(cfg),
+  buildRequest: (cfg, text) => ({ model: cfg.model, input: text }),
+  parseResponse: (payload) => readPath(payload, ["data", 0, "embedding"]) as number[] | null | undefined,
+  expectedShapeName: "data[0].embedding",
+}
+
+/** Bearer auth headers for DashScope and the generic OpenAI-compatible path. */
+function bearerHeaders(cfg: EmbeddingConfig): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
+  return headers
+}
+
+const ADAPTERS: EmbeddingProviderAdapter[] = [
+  googleEmbeddingAdapter,
+  dashScopeEmbeddingAdapter,
+  genericEmbeddingAdapter,
+]
+
+/**
+ * Pick the adapter for a config. Hard-coded order Google → DashScope →
+ * Generic keeps dispatch byte-identical to the old three-way string sniff.
+ */
+export function getEmbeddingAdapter(cfg: EmbeddingConfig): EmbeddingProviderAdapter {
+  for (const adapter of ADAPTERS) {
+    if (adapter.matches(cfg)) return adapter
+  }
+  // Unreachable: genericEmbeddingAdapter.matches is always true.
+  return genericEmbeddingAdapter
+}
+
 // ── fetchEmbedding with auto-halve retry ────────────────────────────────
 
 /**
- * Heuristic: does this error response look like an "input too long /
+ * Heuristic: does this error body look like an "input too long /
  * exceeds model context / payload too large" rejection? True for all
  * the phrasings we've seen from OpenAI, LM Studio, llama.cpp,
  * Ollama, and Azure. Safer to over-match than under-match — a false

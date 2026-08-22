@@ -73,6 +73,9 @@ tauri-plugin-single-instance = "2"
 # separate artifact channel and is NOT routed through the log plugin) + window
 # state persistence (size/position restore across restarts).
 tauri-plugin-log = "2"
+# log facade (DEBT-20260822-t34-log-sweep): leveled log::error!/warn!/info!/debug!
+# macros in commands layer, consumed by the tauri-plugin-log wiring in lib.rs.
+log = "0.4"
 tauri-plugin-window-state = "2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power"] }
 

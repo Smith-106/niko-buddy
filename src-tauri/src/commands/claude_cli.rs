@@ -739,7 +739,7 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
         let stderr_task = tokio::spawn(async move {
             let mut collected = String::new();
             while let Ok(Some(line)) = stderr_reader.next_line().await {
-                eprintln!("[claude-cli stderr] {line}");
+                log::debug!("[claude-cli stderr] {line}");
                 saw_output_for_stderr.store(true, Ordering::SeqCst);
                 stderr_emitter.emit_data(
                     &stderr_stream_id,
@@ -786,7 +786,7 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    eprintln!("[claude-cli stdout] read error: {e}");
+                    log::error!("[claude-cli stdout] read error: {e}");
                     break;
                 }
             }

@@ -16,7 +16,7 @@ import {
   computeBackoffMs,
   parentDir,
   canonStoreWriter,
-  noopLegacyWriter,
+  snapshotLegacyWriter,
   defaultCanonDualWriteDeps,
   attemptDualWrite,
   reconcileCanon,
@@ -188,9 +188,40 @@ describe("canonStoreWriter（默认 canon 写，IPC 分发）", () => {
   })
 })
 
-describe("noopLegacyWriter（旧 view 对账占位）", () => {
-  it("始终返回 ok", async () => {
-    expect(await noopLegacyWriter("P", { any: 1 })).toEqual({ ok: true })
+describe("snapshotLegacyWriter（真实 snapshot-derived 投影写入器，DEBT-20260820-15 偿还）", () => {
+  it("snapshot_fact 负载 → 写入 canon-legacy.jsonl，返回 ok", async () => {
+    createDirectoryMock.mockResolvedValue(undefined)
+    readFileMock.mockRejectedValue(new Error("ENOENT")) // 文件不存在→新建
+    writeFileAtomicMock.mockResolvedValue(undefined)
+
+    const res = await snapshotLegacyWriter("P", {
+      kind: "snapshot_fact",
+      chapterNumber: 5,
+      fact: "Alice 在第三章发现了钥匙",
+    })
+    expect(res).toEqual({ ok: true })
+    expect(createDirectoryMock).toHaveBeenCalledWith("P/.novel/canon-legacy")
+    expect(writeFileAtomicMock).toHaveBeenCalledTimes(1)
+    const [path, content] = writeFileAtomicMock.mock.calls[0]!
+    expect(path).toContain("canon-legacy.jsonl")
+    expect(content).toContain("Alice 在第三章发现了钥匙")
+    expect(content).toContain('"chapterNumber":5')
+  })
+  it("非 snapshot_fact 负载 → 无操作（ok:true）", async () => {
+    const res = await snapshotLegacyWriter("P", {
+      kind: "noop",
+    })
+    expect(res).toEqual({ ok: true })
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+  })
+  it("写失败 → 返回 ok:false + error", async () => {
+    createDirectoryMock.mockRejectedValue(new Error("perm denied"))
+    const res = await snapshotLegacyWriter("P", {
+      kind: "snapshot_fact",
+      chapterNumber: 1,
+      fact: "test",
+    })
+    expect(res).toEqual({ ok: false, error: "perm denied" })
   })
 })
 

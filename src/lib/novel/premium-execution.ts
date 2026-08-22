@@ -19,6 +19,7 @@
 
 import { ModelPort } from "@/lib/llm/model-port"
 import { resolveRoleModel } from "@/lib/llm/model-resolver"
+import type { LlmConfig } from "@/stores/wiki-store"
 import type { PremiumConfig } from "./premium-config"
 import { isPremiumEnabled, getEffectiveTriggers } from "./premium-config"
 import type { ContextPack } from "./context-engine"
@@ -443,8 +444,7 @@ async function generateProposal(
     : buildGeneratePrompt(input.contextPack)
 
   return input.modelPort.execute({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { model, provider: input.projectConfig.writingModel } as any,
+    config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
     messages: [{ role: "user", content: prompt }],
     signal,
   })
@@ -471,8 +471,7 @@ async function critiqueProposal(
 ): Promise<string> {
   const prompt = buildCritiquePrompt(input.contextPack, proposal)
   return input.modelPort.execute({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { model, provider: input.projectConfig.reviewModel } as any,
+    config: { model, provider: input.projectConfig.reviewModel } as LlmConfig,
     messages: [{ role: "user", content: prompt }],
     signal,
   })
@@ -497,8 +496,7 @@ async function reviseProposal(
 ): Promise<string> {
   const prompt = buildRevisePrompt(input.contextPack, critique, currentText)
   return input.modelPort.execute({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { model, provider: input.projectConfig.writingModel } as any,
+    config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
     messages: [{ role: "user", content: prompt }],
     signal,
   })
@@ -539,14 +537,12 @@ export async function runConsensusGate(
   // 双判官并行独立判定
   const [judgeAResult, judgeBResult] = await Promise.all([
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: judgeModelA, provider: input.projectConfig.reviewModel } as any,
+      config: { model: judgeModelA, provider: input.projectConfig.reviewModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: judgeModelB, provider: input.projectConfig.reviewModel } as any,
+      config: { model: judgeModelB, provider: input.projectConfig.reviewModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
@@ -602,14 +598,12 @@ export async function runDualProposal(
   // 双 writer 并行独立生成
   const [proposalA, proposalB] = await Promise.all([
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: modelA, provider: input.projectConfig.writingModel } as any,
+      config: { model: modelA, provider: input.projectConfig.writingModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: modelB, provider: input.projectConfig.writingModel } as any,
+      config: { model: modelB, provider: input.projectConfig.writingModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
@@ -621,8 +615,7 @@ export async function runDualProposal(
   const arbiterModel = resolveRoleModel("arbiter", input.projectConfig)
   const arbiterPrompt = buildArbiterPrompt(input.contextPack, proposalA, proposalB)
   const arbiterResult = await input.modelPort.execute({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { model: arbiterModel, provider: input.projectConfig.reviewModel } as any,
+    config: { model: arbiterModel, provider: input.projectConfig.reviewModel } as LlmConfig,
     messages: [{ role: "user", content: arbiterPrompt }],
     signal,
   })
@@ -662,14 +655,12 @@ export async function runDualJudge(
   // 双判官并行独立判定
   const [judgeAResult, judgeBResult] = await Promise.all([
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: judgeModelA, provider: input.projectConfig.reviewModel } as any,
+      config: { model: judgeModelA, provider: input.projectConfig.reviewModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
     input.modelPort.execute({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      config: { model: judgeModelB, provider: input.projectConfig.reviewModel } as any,
+      config: { model: judgeModelB, provider: input.projectConfig.reviewModel } as LlmConfig,
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
@@ -686,8 +677,7 @@ export async function runDualJudge(
     judgeBResult,
   )
   return input.modelPort.execute({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: { model: fusionModel, provider: input.projectConfig.reviewModel } as any,
+    config: { model: fusionModel, provider: input.projectConfig.reviewModel } as LlmConfig,
     messages: [{ role: "user", content: fusionPrompt }],
     signal,
   })
