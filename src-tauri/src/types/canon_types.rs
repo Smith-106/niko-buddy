@@ -529,6 +529,10 @@ pub struct CanonEdgeFilter {
     /// 返回上限（None=无上限）。
     #[serde(default)]
     pub limit: Option<usize>,
+    /// 按 digest 列表过滤（精确匹配；supersede 分歧检测用）。
+    /// None = 不过滤；Some(vec) = 仅返回 digest 在集合内的边。
+    #[serde(default)]
+    pub digest: Option<Vec<String>>,
 }
 
 impl CanonEdgeFilter {
@@ -569,6 +573,12 @@ impl CanonEdgeFilter {
             // 端点
             if let Some(ref ids) = self.entity_ids {
                 if !ids.iter().any(|id| id == &e.source_id || id == &e.target_id) {
+                    return false;
+                }
+            }
+            // digest 精确匹配（空列表 = 不过滤）
+            if let Some(ref digests) = self.digest {
+                if !digests.is_empty() && !digests.iter().any(|d| d == &e.digest) {
                     return false;
                 }
             }

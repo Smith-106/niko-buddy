@@ -328,9 +328,16 @@ impl CanonState {
     // ── invalidate（封顶：写 invalid_at）──
 
     /// 封顶单条边：写入 `invalid_at = cap_chapter`（原地 UPDATE，graphiti 模式）。
-    /// 返回是否命中。
+    /// 单调封顶：若已有 invalid_at ≤ cap_chapter，则幂等跳过（不降级封顶）。
+    /// 返回是否命中（实际执行了封顶操作）。
     pub fn invalidate_edge(&mut self, edge_id: &str, cap_chapter: i32) -> bool {
         if let Some(e) = self.edges.iter_mut().find(|x| x.id == edge_id) {
+            // 单调封顶：已有更早封顶则幂等跳过
+            if let Some(existing) = e.invalid_at {
+                if existing <= cap_chapter {
+                    return true; // 命中但跳过（已封顶）
+                }
+            }
             e.invalid_at = Some(cap_chapter);
             true
         } else {
@@ -683,6 +690,7 @@ impl CanonStore {
     }
 
     /// 封顶单条边（原地写 invalid_at：delete + 重新 add 带 invalid_at）。
+    /// 单调封顶：若已有 invalid_at ≤ cap_chapter，则幂等跳过（不降级封顶）。
     pub async fn invalidate_edge(&self, edge_id: &str, cap_chapter: i32) -> Result<bool, String> {
         let table = self
             .db
@@ -704,6 +712,12 @@ impl CanonStore {
             return Ok(false);
         }
         let mut e = edges.remove(0);
+        // 单调封顶：已有更早封顶则幂等跳过
+        if let Some(existing) = e.invalid_at {
+            if existing <= cap_chapter {
+                return Ok(true); // 命中但跳过（已封顶）
+            }
+        }
         e.invalid_at = Some(cap_chapter);
         // delete 旧行 + add 封顶后行
         let _ = table
@@ -741,7 +755,7 @@ impl CanonStore {
         })
     }
 
-    /// 查询边：LanceDB 推 down archived + edge_kind，Rust 精细过滤时态/认知轴。
+    /// 查询边：LanceDB 推 down archived + edge_kind + digest，Rust 精细过滤时态/认知轴。
     pub async fn query_edges(&self, filter: &CanonEdgeFilter) -> Result<Vec<CanonEdge>, String> {
         let table = self
             .db
@@ -757,6 +771,13 @@ impl CanonStore {
             if !kinds.is_empty() {
                 let in_list: Vec<String> = kinds.iter().map(|k| sql_str(k.as_str())).collect();
                 q = q.only_if(format!("edge_kind IN ({})", in_list.join(", ")));
+            }
+        }
+        // digest 推 down（LanceDB only_if，减少召回行数）
+        if let Some(ref digests) = filter.digest {
+            if !digests.is_empty() {
+                let in_list: Vec<String> = digests.iter().map(|d| sql_str(d)).collect();
+                q = q.only_if(format!("digest IN ({})", in_list.join(", ")));
             }
         }
         let batches = q
@@ -807,6 +828,31 @@ impl CanonStore {
             .map_err(|x| format!("episodes add: {x}"))?;
         self.ingest_count.fetch_add(1, Ordering::Relaxed);
         Ok(true)
+    }
+
+    /// 按章节号查询 episodes（LanceDB only_if 推 down chapter_number）。
+    /// 返回该章全部 episode 行（含 ingest 日志语义）。
+    /// DEBT-20260621-30b：supersede 分歧检测读路径。
+    pub async fn query_episodes_by_chapter(
+        &self,
+        chapter_number: i32,
+    ) -> Result<Vec<CanonEpisode>, String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_EPISODES)
+            .execute()
+            .await
+            .map_err(|x| format!("open episodes: {x}"))?;
+        let batches = table
+            .query()
+            .only_if(format!("chapter_number = {}", chapter_number))
+            .execute()
+            .await
+            .map_err(|x| format!("query episodes: {x}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|x| format!("collect episodes: {x}"))?;
+        read_episodes(&batches)
     }
 
     /// 当前 schema 清单（内存副本）。
@@ -1817,6 +1863,109 @@ mod tests {
         // 改回 3
         store.set_retain_versions(3);
         assert_eq!(store.retain_versions, 3);
+    }
+
+    // ── DEBT-20260621-30b：R1 invalidate_edge 单调封顶 ──
+
+    #[test]
+    fn canon_state_invalidate_edge_monotonic_cap() {
+        let mut s = CanonState::new();
+        s.upsert_edge(edge("ed1", Some(1), None));
+        // 首次封顶在 ch5
+        assert!(s.invalidate_edge("ed1", 5));
+        assert_eq!(s.edges[0].invalid_at, Some(5));
+        // 再次封顶在 ch10（更晚）：幂等跳过（已有 ch5 更早，更严格）
+        assert!(s.invalidate_edge("ed1", 10));
+        assert_eq!(s.edges[0].invalid_at, Some(5), "monotonic: existing ch5 <= ch10, skip");
+        // 第三次封顶在 ch3（更早）：应更新（ch3 比 ch5 更严格）
+        assert!(s.invalidate_edge("ed1", 3));
+        assert_eq!(s.edges[0].invalid_at, Some(3), "monotonic: ch3 < ch5, update to stricter cap");
+        // 同值幂等
+        assert!(s.invalidate_edge("ed1", 3));
+        assert_eq!(s.edges[0].invalid_at, Some(3), "same value: skip");
+    }
+
+    // ── DEBT-20260621-30b：R3 digest filter in query_edges ──
+
+    #[test]
+    fn canon_state_query_edges_digest_filter() {
+        let mut s = CanonState::new();
+        let mut e1 = edge("e1", Some(1), None);
+        e1.digest = "d1".into();
+        let mut e2 = edge("e2", Some(1), None);
+        e2.digest = "d2".into();
+        let mut e3 = edge("e3", Some(1), None);
+        e3.digest = "d3".into();
+        s.upsert_edge(e1);
+        s.upsert_edge(e2);
+        s.upsert_edge(e3);
+
+        // 按 digest 列表过滤
+        let r = s.query_edges(&CanonEdgeFilter {
+            digest: Some(vec!["d1".into(), "d3".into()]),
+            ..Default::default()
+        });
+        assert_eq!(r.len(), 2);
+        assert!(r.iter().any(|e| e.digest == "d1"));
+        assert!(r.iter().any(|e| e.digest == "d3"));
+
+        // 空 digest 列表 → 不过滤
+        let r2 = s.query_edges(&CanonEdgeFilter {
+            digest: Some(vec![]),
+            ..Default::default()
+        });
+        assert_eq!(r2.len(), 3);
+    }
+
+    // ── DEBT-20260621-30b：R2 query_episodes_by_chapter (IO) ──
+
+    #[tokio::test]
+    async fn canon_store_query_episodes_by_chapter() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let store = CanonStore::open(&pid).await.unwrap();
+
+        // 摄取两个 chapter 的 episodes
+        let ep1 = CanonEpisode::new("ep1", 1, "alice", "digest-a");
+        let ep2 = CanonEpisode::new("ep2", 1, "alice", "digest-b");
+        let ep3 = CanonEpisode::new("ep3", 2, "bob", "digest-c");
+        store.ingest_episode(ep1).await.unwrap();
+        store.ingest_episode(ep2).await.unwrap();
+        store.ingest_episode(ep3).await.unwrap();
+
+        // 按 chapter=1 查询
+        let eps = store.query_episodes_by_chapter(1).await.unwrap();
+        assert_eq!(eps.len(), 2);
+        assert!(eps.iter().any(|e| e.digest == "digest-a"));
+        assert!(eps.iter().any(|e| e.digest == "digest-b"));
+
+        // 按 chapter=3（无数据）
+        let empty = store.query_episodes_by_chapter(3).await.unwrap();
+        assert_eq!(empty.len(), 0);
+    }
+
+    // ── DEBT-20260621-30b：R5 CanonEdgeFilter digest 字段序列化 ──
+
+    #[test]
+    fn canon_edge_filter_digest_serialization() {
+        // serde 序列化 digest 字段
+        let filter = CanonEdgeFilter {
+            digest: Some(vec!["d1".into(), "d2".into()]),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&filter).unwrap();
+        assert!(json.contains("digest"));
+        assert!(json.contains("d1"));
+        assert!(json.contains("d2"));
+
+        // 反序列化
+        let parsed: CanonEdgeFilter = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.digest, Some(vec!["d1".into(), "d2".into()]));
+
+        // 默认值（不含 digest）
+        let default_json = r#"{}"#;
+        let default_filter: CanonEdgeFilter = serde_json::from_str(default_json).unwrap();
+        assert_eq!(default_filter.digest, None);
     }
 }
 

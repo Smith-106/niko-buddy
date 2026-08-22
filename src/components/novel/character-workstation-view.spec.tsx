@@ -42,7 +42,6 @@ describe("CharacterWorkstationView · 分位切换隔离性", () => {
   })
 
   it("非受控：编辑焦点隔离（key 重建）—— 切回角色后 textarea 全新挂载", async () => {
-    const user = userEvent.setup()
     const { container } = render(<CharacterWorkstationView characters={characters} />)
 
     const draftA = screen.getByTestId("station-draft-char-linjing")

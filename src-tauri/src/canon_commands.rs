@@ -705,6 +705,52 @@ mod tests {
         assert_eq!(qb.max_revision, 1);
     }
 
+    // ── DEBT-20260621-30b：R4 canon_query_episodes IPC ──
+
+    #[tokio::test]
+    async fn canon_query_episodes_ipc() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // 摄取两个 chapter 的 episodes
+        let _ = canon_ingest_episode_impl(
+            &state,
+            pid.clone(),
+            CanonEpisode::new("ep1", 1, "alice", "d1"),
+        )
+        .await
+        .unwrap();
+        let _ = canon_ingest_episode_impl(
+            &state,
+            pid.clone(),
+            CanonEpisode::new("ep2", 1, "alice", "d2"),
+        )
+        .await
+        .unwrap();
+        let _ = canon_ingest_episode_impl(
+            &state,
+            pid.clone(),
+            CanonEpisode::new("ep3", 2, "bob", "d3"),
+        )
+        .await
+        .unwrap();
+
+        // 查询 chapter=1
+        let res = canon_query_episodes_impl(&state, pid.clone(), 1)
+            .await
+            .unwrap();
+        assert_eq!(res.episodes.len(), 2);
+        assert!(res.episodes.iter().any(|e| e.digest == "d1"));
+        assert!(res.episodes.iter().any(|e| e.digest == "d2"));
+
+        // 查询 chapter=3（无数据）
+        let empty = canon_query_episodes_impl(&state, pid, 3)
+            .await
+            .unwrap();
+        assert_eq!(empty.episodes.len(), 0);
+    }
+
     // ── DEBT-20260820-15b：divergence trace 持久化 ──
 
     #[tokio::test]

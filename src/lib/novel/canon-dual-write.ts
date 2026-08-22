@@ -134,6 +134,7 @@ export interface WriteOutcome {
 export type CanonCanonPayload =
   | { kind: "episode"; episode: Record<string, unknown> }
   | { kind: "supersede"; request: Record<string, unknown> }
+  | { kind: "supersede_by_digest"; request: { oldDigest: string; capChapter: number; newDigest: string } }
 
 /** 单个双写操作：旧 view 负载 + 新 canon 负载 + 可选预置 digest / 派生内容。 */
 export interface CanonDualWriteOp {
@@ -256,6 +257,28 @@ export async function canonStoreWriter(
       const res = await invoke<{ inserted: boolean; max_revision: number }>("canon_ingest_episode", {
         projectId: projectPath,
         episode: payload.episode,
+      })
+      return { ok: true, revision: res.max_revision }
+    }
+    if (payload.kind === "supersede_by_digest") {
+      // DEBT-20260621-30b：按 oldDigest 查边，再调 supersede 封顶旧边
+      const { oldDigest, capChapter } = payload.request
+      const queryRes = await invoke<{ edges: Array<{ id: string }> }>("canon_query", {
+        projectId: projectPath,
+        filter: { digest: [oldDigest] },
+      })
+      const oldEdgeIds = queryRes.edges.map((e) => e.id)
+      if (oldEdgeIds.length === 0) {
+        // 无边可封顶：幂等跳过（旧边已被前次 supersede 处理或不存在）
+        return { ok: true }
+      }
+      const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
+        projectId: projectPath,
+        request: {
+          old_edge_ids: oldEdgeIds,
+          cap_chapter: capChapter,
+          new_edges: [],
+        },
       })
       return { ok: true, revision: res.max_revision }
     }

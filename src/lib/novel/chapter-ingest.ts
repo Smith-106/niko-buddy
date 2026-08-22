@@ -277,7 +277,7 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
           episode: {
             id: `ch${snapshot.chapterNumber}-fact${i}`,
             chapter_number: snapshot.chapterNumber,
-            entity_id: snapshot.chapterId,
+            entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。fact 作为章节快照的事实片段，其归属实体为章节本身——此映射在 canon DDL v3 冻结下是唯一可靠来源。若未来 snapshot schema 新增 entityId 字段，应改为该字段。
             summary: fact,
             digest,
           },

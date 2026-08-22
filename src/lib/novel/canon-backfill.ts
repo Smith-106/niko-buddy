@@ -51,6 +51,7 @@ import {
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
 import type { CanonFact } from "./canon-graph-client"
+import { queryEpisodesByChapter } from "./canon-graph-client"
 
 // ──────────────────────────────────────────────────────────────────────────
 // 快照发现（路径 + 文件名契约）
@@ -221,7 +222,7 @@ export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<Canon
           episode: {
             id: `ch${snapshot.chapterNumber}-fact${i}`,
             chapter_number: snapshot.chapterNumber,
-            entity_id: snapshot.chapterId,
+            entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。,
             summary: fact,
             digest,
           },
@@ -251,9 +252,128 @@ export const SOURCE_AWARE_MERGE_EVALUATION = {
     "wiki 写面隔离：回填只经 shadowWriteCanon（canon + legacy 影子负载），不触达 graph-adapter 的 mergeExistingPage / writePatchFieldsToWiki（F-006 用户编辑保护面）——结构上不可达即不可破坏",
   ],
   designedNotImplemented: [
-    "user-edit supersede 路由：用户手改历史快照事实后重放回填会产生分歧 digest，当前旧行与新行并存（永不覆盖但可能语义并存）；后续设计为按 (chapter, fact 槽位) 检测 digest 分歧 → 经 canon_supersede_edges 显式封顶旧行（A-05.3 时态不变量）",
+    "fact槽位位置索引漂移：同一事实在 chapters 间插入/删除导致 fact[i] 语义漂移时，槽位 i 对应的旧行与新行可能不是同一事实。本轮文档化限制不修 schema——后续需按事实语义匹配（而非槽位索引）检测分歧",
   ],
+  /** DEBT-20260621-30b 偿还注记：supersede 路由已实现（2026-08-21）。
+   *  detectSupersedeDivergences 在 buildBackfillOps 后查询已存 episodes，
+   *  按 (chapter, slot) 比较 digest；分歧时生成 supersede_by_digest op
+   *  （digest={chapter,slot,oldDigest,newDigest}），经 shadowWriteCanon
+   *  封顶旧边（先写新 episode 再封旧边，避免事实暂时消失）。 */
+  debtRepaid: {
+    debtId: "DEBT-20260621-30b",
+    repaidAt: "2026-08-21",
+    summary: "supersede 路由已实现：分歧检测 → supersede_by_digest 封顶旧边",
+  },
 } as const
+
+// ──────────────────────────────────────────────────────────────────────────
+// DEBT-20260621-30b：supersede 分歧检测（回填时检测已存 episode 的 digest 变更）
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 单条分歧检测结果。 */
+export interface SupersedeDivergence {
+  /** 事实槽位索引（ch{n}-fact{i} 中的 i）。 */
+  slot: number
+  /** 已存 episode 的旧 digest。 */
+  oldDigest: string
+  /** 新回填的 digest。 */
+  newDigest: string
+}
+
+/**
+ * 检测回填 ops 与已存 episodes 的 digest 分歧。
+ *
+ * 逻辑：
+ * 1. 查询该章已存 episodes（经 canon_query_episodes IPC）
+ * 2. 按 episode id 中的槽位索引（ch{n}-fact{i}）分组
+ * 3. 对每个新 op，若同槽位已存在 episode 且 digest 不同 → 分歧
+ * 4. 返回分歧列表（旧行与新行语义并存但需封顶旧边）
+ *
+ * ## 已知限制（fact槽位位置索引漂移）
+ *   同一事实在章节间插入/删除导致 fact[i] 语义漂移时，槽位 i 对应的
+ *   旧行与新行可能不是同一事实（false positive divergence）。本轮不修
+ *   schema——后续需按事实语义匹配（而非槽位索引）检测分歧。
+ *
+ * @param projectPath 项目路径（canon DB projectId）
+ * @param chapter    章节号
+ * @param ops        新回填 episode ops（buildBackfillOps 产物）
+ * @returns 分歧列表；空数组 = 无分歧（全量幂等或首次回填）
+ */
+export async function detectSupersedeDivergences(
+  projectPath: string,
+  chapter: number,
+  ops: CanonDualWriteOp[],
+): Promise<SupersedeDivergence[]> {
+  if (ops.length === 0) return []
+
+  // 查询已存 episodes
+  let existing: Array<{ id: string; digest: string }>
+  try {
+    const res = await queryEpisodesByChapter(projectPath, chapter)
+    existing = res.episodes.map((ep) => ({ id: ep.id, digest: ep.digest }))
+  } catch {
+    // 查询失败（如 DB 未初始化）→ 视为无已存数据，无分歧
+    return []
+  }
+  if (existing.length === 0) return []
+
+  // 按槽位索引建索引：episode id = "ch{n}-fact{i}" → 提取 i
+  const existingBySlot = new Map<number, string>()
+  for (const ep of existing) {
+    const m = /^ch\d+-fact(\d+)$/.exec(ep.id)
+    if (m) {
+      const slot = Number(m[1])
+      existingBySlot.set(slot, ep.digest)
+    }
+  }
+
+  // 比较新 ops 的 digest
+  const divergences: SupersedeDivergence[] = []
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]!
+    const newDigest = op.digest
+    if (!newDigest) continue
+    const oldDigest = existingBySlot.get(i)
+    if (oldDigest != null && oldDigest !== newDigest) {
+      divergences.push({ slot: i, oldDigest, newDigest })
+    }
+  }
+
+  return divergences
+}
+
+/**
+ * 从分歧列表派生 supersede ops（DEBT-20260621-30b）。
+ *
+ * 每条 supersede op：
+ * - digest = SHA-256({chapter, slot, oldDigest, newDigest})（队列幂等键）
+ * - canonPayload.kind = "supersede_by_digest"
+ * - canonPayload.request = { oldDigest, capChapter: chapter, newDigest }
+ *
+ * supersede_by_digest 由 canonStoreWriter 处理：按 oldDigest 查边 →
+ * canon_supersede_edges 封顶旧边。new_edges 为空——新 episode 已由 episode
+ * ops 先写入（先写新再封旧，避免事实暂时消失）。
+ */
+export async function buildSupersedeOps(
+  chapter: number,
+  divergences: SupersedeDivergence[],
+): Promise<CanonDualWriteOp[]> {
+  return Promise.all(
+    divergences.map(async (d) => {
+      const content = { chapter, slot: d.slot, oldDigest: d.oldDigest, newDigest: d.newDigest }
+      const digest = await computeCheckpointDigestOf(content)
+      return {
+        digest,
+        content,
+        legacyPayload: { kind: "supersede_snapshot", chapter, slot: d.slot },
+        canonPayload: {
+          kind: "supersede_by_digest" as const,
+          request: { oldDigest: d.oldDigest, capChapter: chapter, newDigest: d.newDigest },
+        },
+      }
+    }),
+  )
+}
 
 /** 合并决策分类（纯投影，不做任何写）。 */
 export type BackfillMergeDecision = "skip-existing" | "append-new"
@@ -420,7 +540,12 @@ export async function backfillCanonHistory(
       perChapter.push({ chapter, status: "no-facts", factCount: 0, written: 0, queued: 0 })
       continue
     }
-    const report = await shadowWriteCanon(deps.dualWrite, pp, ops, now)
+    // DEBT-20260621-30b：supersede 分歧检测（buildBackfillOps 后、shadowWriteCanon 前）
+    const divergences = await detectSupersedeDivergences(pp, chapter, ops)
+    const supersedeOps = divergences.length > 0 ? await buildSupersedeOps(chapter, divergences) : []
+    // op 顺序 = [...episodeOps, ...supersedeOps]（先写新再封旧，避免事实暂时消失）
+    const allOps = [...ops, ...supersedeOps]
+    const report = await shadowWriteCanon(deps.dualWrite, pp, allOps, now)
     allResults.push(...report.results)
     perChapter.push({
       chapter,

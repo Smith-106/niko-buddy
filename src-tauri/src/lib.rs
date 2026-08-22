@@ -195,6 +195,7 @@ pub fn run() {
             canon_commands::canon_facts_known_by,
             canon_commands::canon_ingest_episode,
             canon_commands::canon_supersede_edges,
+            canon_commands::canon_query_episodes,
             canon_commands::canon_get_revision,
             canon_commands::canon_save_divergence_trace,
         ])

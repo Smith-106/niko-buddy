@@ -64,6 +64,8 @@ export interface CanonEdgeFilter {
   entity_ids?: string[] | null
   archived?: boolean | null
   limit?: number | null
+  /** 按 digest 列表过滤（精确匹配；DEBT-20260621-30b supersede 分歧检测用）。 */
+  digest?: string[] | null
 }
 
 /** canon_query / canon_facts_known_by 原始响应。 */
@@ -214,4 +216,22 @@ export async function queryCanonEdgesBatch(
     filters,
   })
   return res.results.map(projectEdges)
+}
+
+/**
+ * 按章节号查询 episodes（DEBT-20260621-30b supersede 分歧检测读路径）。
+ * 返回该章全部 episode 行（含 ingest_log 去重语义）。
+ *
+ * @param projectId 项目 id
+ * @param chapterNumber 章节号
+ * @returns 该章原始 episode 行（含 digest 等内部字段，调用方自行处理）
+ */
+export async function queryEpisodesByChapter(
+  projectId: string,
+  chapterNumber: number,
+): Promise<{ episodes: Array<{ id: string; chapter_number: number; entity_id: string; summary: string; digest: string }>; max_revision: number }> {
+  return invoke("canon_query_episodes", {
+    projectId,
+    chapterNumber,
+  })
 }
