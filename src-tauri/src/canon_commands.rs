@@ -202,6 +202,15 @@ pub struct CanonSupersedeResponse {
     pub max_revision: u64,
 }
 
+/// `canon_query_episodes` 读响应（DEBT-20260621-30b）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CanonQueryEpisodesResponse {
+    /// 该章全部 episode 行。
+    pub episodes: Vec<CanonEpisode>,
+    /// 当前项目 canon revision。
+    pub max_revision: u64,
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // 核心逻辑（与 `#[tauri::command]` 分离，便于 `cargo test` 直测）
 // ──────────────────────────────────────────────────────────────────────────
@@ -304,6 +313,26 @@ pub async fn canon_supersede_edges_impl(
     })
 }
 
+/// 按章节号查询 episodes（读路径，DEBT-20260621-30b supersede 分歧检测）。
+///
+/// 返回该章全部 episode 行（含 ingest_log 去重语义；复用在 canon_store 中
+/// 纯读操作，不触发 revision 自增）。
+pub async fn canon_query_episodes_impl(
+    state: &CanonCommandState,
+    project_id: String,
+    chapter_number: i32,
+) -> Result<CanonQueryEpisodesResponse, String> {
+    let store = CanonStore::open(&project_id).await?;
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
+    let episodes = store.query_episodes_by_chapter(chapter_number).await?;
+    Ok(CanonQueryEpisodesResponse {
+        episodes,
+        max_revision: state.current_revision(&project_id),
+    })
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // `#[tauri::command]` 包装（首参 project_id 进签名；JS 侧 camelCase = projectId）
 // ──────────────────────────────────────────────────────────────────────────
@@ -369,6 +398,15 @@ pub async fn canon_supersede_edges(
     request: SupersedeRequest,
 ) -> Result<CanonSupersedeResponse, String> {
     canon_supersede_edges_impl(state.inner(), project_id, request).await
+}
+
+#[tauri::command]
+pub async fn canon_query_episodes(
+    state: State<'_, CanonCommandState>,
+    project_id: String,
+    chapter_number: i32,
+) -> Result<CanonQueryEpisodesResponse, String> {
+    canon_query_episodes_impl(state.inner(), project_id, chapter_number).await
 }
 
 #[tauri::command]
