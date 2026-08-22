@@ -21,6 +21,19 @@
  * 已验证中文 slop 词提取 (总结腔/解释腔/AI 特征词/模板句首/机械句式)。
  */
 
+import {
+  normalizeText,
+  normalizeSourceText,
+} from "./normalize-source-text"
+
+// ============================================================================
+// ABI 兼容转发: normalizeText 原语提升至 normalize-source-text.ts，历史消费方
+// (shared-text-features / packs / spec) 从本模块 import normalizeText 保持可用；
+// 本模块内部 slopScore 改用 normalizeSourceText (A4 检测视图)。
+// ============================================================================
+export { normalizeText } from "./normalize-source-text"
+export type { NormalizeTextResult } from "./normalize-source-text"
+
 // ============================================================================
 // 三级中文 slop 词库 (从 de-ai-rules.ts CHINESE_NOVEL_DE_AI_RULES 提取)
 // 分级对齐 autonovel: TIER1 强禁用 / TIER2 可疑 / TIER3 机械句式正则
@@ -131,84 +144,48 @@ const TIER3_FILLER: readonly RegExp[] = [
 export const TIER3_EXTENDED_PATTERN_COUNT = 48
 
 // ============================================================================
-// normalizeText: 防绕过预处理 (S1a absorb — avoid-ai-writing normalizeText 思路,
-// 中文适配。零 LLM 纯正则。)
+// A3 质检公平性窗口：slop 公式常量区（集中一处，便于校准与回退）
 // ============================================================================
 
-/** 零宽字符正则: ZWSP U+200B / ZWNJ U+200C / ZWJ U+200D / WORD JOINER U+2060 / BOM U+FEFF */
-const ZERO_WIDTH_RE = /[\u200B-\u200D\u2060\uFEFF]/g
-
 /**
- * CJK 同形字/混淆字符映射 (中文语境常见 AI-humanizer 绕过: 用异体字/生僻字替换
- * 常见汉字, 使精确字符串检测失效)。子集参考 avoid-ai-writing CYRILLIC_LOOKALIKES
- * 思路的中文版: 只映射高频叙事常用字的常见异体/相似形。
+ * 公式开关: RAW_COUNT_FALLBACK = true → 回退旧裸计数制 (tier*n weight 直接求和)；
+ * false (默认) → 新 density 制：severity = Σ max(0, density_i - target_i) * weight_i
+ *   + Σ_sameTypeBurst * SLOP_CLUSTER_PENALTY。一键回退便于 A/B 比对与发版降级。
  */
-const CJK_HOMOGLYPH_MAP: Readonly<Record<string, string>> = {
-  // 全角 → 半角 (数字/字母/标点混淆)
-  "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
-  "５": "5", "６": "6", "７": "7", "８": "8", "９": "9",
-  // 异体字 → 常用字 (叙事高频)
-  "裡": "里", "裏": "里", "牠": "它", "妳": "你", "妳們": "你们",
-  "的確": "的确", "彷彿": "仿佛", "傢伙": "家伙", "因為": "因为",
-  "已經": "已经", "認識": "认识", "時間": "时间", "媽媽": "妈妈",
-  "父親": "父亲", "母親": "母亲", "聲音": "声音", "樣": "样",
-  "邊": "边", "隻": "只", "雙": "双", "無": "无", "們": "们",
-  "說": "说", "話": "话", "書": "书", "讀": "读", "寫": "写",
-  "車": "车", "門": "门", "問": "问", "開": "开", "關": "关",
-  "點": "点", "頭": "头", "體": "体", "鳥": "鸟", "馬": "马",
-  "魚": "鱼", "鳥瞰": "鸟瞰",
+export const RAW_COUNT_FALLBACK = false
+
+/** slop 惩罚上限 (0-10)。 */
+export const SLOP_PENALTY_MAX = 10
+/** classifySlop 阈值（DD-3）——【待校准】暂维持 8/5，需真实语料校准后收敛。 */
+export const SLOP_CLASSIFY_BLOCK_THRESHOLD = 8
+/** classifySlop 阈值（DD-3）——【待校准】。 */
+export const SLOP_CLASSIFY_WARN_THRESHOLD = 5
+
+/** 裸计数旧公式权重 (RAW_COUNT_FALLBACK 时用)。 */
+export const RAW_COUNT_WEIGHTS = { tier1: 1.5, tier2: 0.8, tier3: 1.0 } as const
+
+/** 词数口径: Chinese 无词界，以非空白字符近似词数（density = hits / words * 1000）。 */
+export const SLOP_DENSITY_PER = 1000
+/** 各 tier 每千字可容忍命中密度（低于容忍线不计 severity = 不误伤）。 */
+export const SLOP_DENSITY_TARGETS = {
+  tier1: 1.0,
+  tier2: 2.0,
+  tier3: 3.0,
 } as const
+/** 各 tier 超出容忍线的边际权重。 */
+export const SLOP_DENSITY_WEIGHTS = {
+  tier1: 3.0,
+  tier2: 1.5,
+  tier3: 1.0,
+} as const
+/** 同类型短窗连击单体罚分。 */
+export const SLOP_CLUSTER_PENALTY = 1.5
+/** 同类型连击判定窗口（字符）。 */
+export const SLOP_CLUSTER_WINDOW_CHARS = 200
+/** 同类型连击最小爆发次数：窗口内 >= 3 次同类型命中算一次连击。 */
+export const SLOP_CLUSTER_MIN_BURST = 3
 
-/** 同形字符集: 收集映射中所有键, 构正则一次 */
-const CJK_HOMOGLYPH_KEYS = Object.keys(CJK_HOMOGLYPH_MAP).sort((a, b) => b.length - a.length)
-const CJK_HOMOGLYPH_RE = new RegExp(`(${CJK_HOMOGLYPH_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g")
-
-/**
- * normalizeText 结果: 剥离/还原后的文本 + 被剥离的防绕过字符计数。
- * 调用方可用 bypassCount 作为额外的 AI 信号 (humanizer 旁路痕迹)。
- */
-export interface NormalizeTextResult {
-  text: string
-  /** 剥离的零宽字符数 */
-  zeroWidthCount: number
-  /** 还原的同形字字符数 */
-  homoglyphCount: number
-  /** 总防绕过字符数 (zeroWidth + homoglyph) */
-  bypassCount: number
-}
-
-/**
- * 防绕过预处理: 剥离零宽字符 + 还原 CJK 同形字。
- * 零宽字符是 AI-humanizer 工具的常见旁路 (把 \u200B 插入词中使精确匹配失效);
- * 同形字 (异体字/全角) 同样使词库精确匹配失效。检测前先归一, 词库正则才能命中。
- * S1a absorb: 思路来自 avoid-ai-writing patterns.cjs normalizeText (已 vendored)。
- */
-export function normalizeText(rawText: string): NormalizeTextResult {
-  if (!rawText) return { text: rawText, zeroWidthCount: 0, homoglyphCount: 0, bypassCount: 0 }
-  let zeroWidthCount = 0
-  let homoglyphCount = 0
-  const strippedZeroWidth = rawText.replace(ZERO_WIDTH_RE, () => {
-    zeroWidthCount++
-    return ""
-  })
-  const normalized = strippedZeroWidth.replace(CJK_HOMOGLYPH_RE, (m) => {
-    homoglyphCount++
-    /* v8 ignore next */
-    return CJK_HOMOGLYPH_MAP[m as keyof typeof CJK_HOMOGLYPH_MAP] ?? m
-  })
-  return {
-    text: normalized,
-    zeroWidthCount,
-    homoglyphCount,
-    bypassCount: zeroWidthCount + homoglyphCount,
-  }
-}
-
-// ============================================================================
-// slopScore: 机械算术 (零 LLM)
-// ============================================================================
-
-/** 段落转折词开头比阈值 (超此 → +2 密度惩罚) */
+/** 段落开头转折词比阈值（结构罚，与 density 无关，保留）。 */
 const TRANSITION_OPENER_THRESHOLD = 0.4
 /**
  * 句长变异系数阈值 (低于此 → 句式机械 → +2 惩罚)。
@@ -219,12 +196,17 @@ const TRANSITION_OPENER_THRESHOLD = 0.4
  */
 const SENTENCE_CV_LOW_THRESHOLD = 0.1
 const SENTENCE_MIN_FOR_CV_PENALTY = 5
-const SLOP_PENALTY_MAX = 10
+/** 结构罚常量（CV 过齐 / 转折开头过多）。 */
+const STRUCTURAL_PENALTY_CV = 2
+const STRUCTURAL_PENALTY_TRANSITION = 2
 
 /** 段落开头转折词集合 (用于 transitionOpenerRatio 统计) */
 const PARAGRAPH_TRANSITION_OPENERS = [
   "然而", "但是", "不过", "可是", "与此同时", "紧接着", "此外", "因此",
 ] as const
+// ============================================================================
+// slopScore: 机械算术 (零 LLM)
+// ============================================================================
 
 export interface SlopHit {
   kw: string
@@ -260,6 +242,70 @@ function countOccurrences(haystack: string, needle: string): number {
     idx = haystack.indexOf(needle, idx + needle.length)
   }
   return count
+}
+
+/** 统计某词在文本中的所有出现位置（字符索引，供同型短窗连击聚类）。 */
+function occurrencePositions(haystack: string, needle: string): number[] {
+  if (!needle) return []
+  const positions: number[] = []
+  let idx = haystack.indexOf(needle)
+  while (idx !== -1) {
+    positions.push(idx)
+    idx = haystack.indexOf(needle, idx + needle.length)
+  }
+  return positions
+}
+
+/** 统计某正则命中的所有位置（matchAll/bepush 的 index）。 */
+function regexOccurrencePositions(text: string, pattern: RegExp): number[] {
+  const positions: number[] = []
+  const re = new RegExp(pattern.source, "g")
+  let m: RegExpExecArray | null
+  let guard = 0
+  while ((m = re.exec(text)) !== null && guard++ < 1000) {
+    positions.push(m.index)
+    if (m.index === re.lastIndex) re.lastIndex++
+  }
+  return positions
+}
+
+/** 收集某 tier（词库 + 可选正则）全部匹配位置。 */
+function collectTierPositions(
+  text: string,
+  lexicon: readonly string[],
+  patterns: readonly RegExp[],
+): number[] {
+  const positions: number[] = []
+  for (const kw of lexicon) positions.push(...occurrencePositions(text, kw))
+  for (const re of patterns) positions.push(...regexOccurrencePositions(text, re))
+  return positions.sort((a, b) => a - b)
+}
+
+/**
+ * 同类型短窗连击计数: 同一窗口 (SLOP_CLUSTER_WINDOW_CHARS) 内 >= SLOP_CLUSTER_MIN_BURST
+ * 次同类型命中计 1 次连击。滑窗贪心: 以每个起点向后取窗口内最大连续同型命中段。
+ */
+function countSameTypeBursts(positions: number[]): number {
+  if (positions.length < SLOP_CLUSTER_MIN_BURST) return 0
+  let bursts = 0
+  let i = 0
+  while (i < positions.length) {
+    let j = i + 1
+    while (
+      j < positions.length &&
+      positions[j] - positions[i] <= SLOP_CLUSTER_WINDOW_CHARS
+    ) {
+      j++
+    }
+    const run = j - i
+    if (run >= SLOP_CLUSTER_MIN_BURST) {
+      bursts++
+      i += run
+    } else {
+      i++
+    }
+  }
+  return bursts
 }
 
 /** 收集 tier 命中 (词库版) */
@@ -319,13 +365,21 @@ function transitionOpenerRatio(text: string): number {
 
 /**
  * 机械 slop 检测 (零 LLM 纯算术)。
- * 入口先 normalizeText 防绕过预处理 (零宽/同形字), 再跑词库与密度统计。
- * penalty = tier1命中次数*1.5 + tier2*0.8 + tier3*1.0 + 密度惩罚
- *   (sentenceLengthCV < 0.3 → +2, transitionOpenerRatio > 0.4 → +2),
- * clamp 0-10。
+ * 入口走 normalizeSourceText (NFKC + 零宽 + soft-hyphen) 得归一化文本, 再统计 ——
+ * A4 检测视图: 只读归一化副本, 不写存储字节。
+ *
+ * A3 默认 density 制（质检公平性窗口）:
+ *   density_i  = tierCount_i / words * SLOP_DENSITY_PER    (每千字命中密度)
+ *   severity   = Σ_tier max(0, density_i - target_i) * weight_i
+ *              + Σ_sameTypeBurst * SLOP_CLUSTER_PENALTY
+ *              + structural (CV 过齐 / 转折开头过多)
+ *   slopPenalty = clamp(severity, 0, 10)
+ *
+ * RAW_COUNT_FALLBACK = true 时回退旧裸计数制。
  */
 export function slopScore(rawText: string): SlopReport {
-  const { text, bypassCount, zeroWidthCount, homoglyphCount } = normalizeText(rawText)
+  const { text, zeroWidthCount, homoglyphCount } = normalizeSourceText(rawText)
+  const bypassCount = zeroWidthCount + homoglyphCount
   const tier1Hits = collectTierHits(text, TIER1_BANNED)
   const tier2Hits = collectTierHits(text, TIER2_SUSPICIOUS)
   const tier3Hits = collectTierRegexHits(text, TIER3_FILLER)
@@ -338,20 +392,43 @@ export function slopScore(rawText: string): SlopReport {
   const sentenceLengthCV = coefficientOfVariation(sentenceLengths)
   const transRatio = transitionOpenerRatio(text)
 
-  let penalty =
-    tier1Count * 1.5 + tier2Count * 0.8 + tier3Count * 1.0
-  // CV 密度惩罚: 句长极度一致 (CV<0.1) 且句数够多 (>=5) 才罚 — 中文短句 CV 天然低,
-  // 短文本偶然 CV 低不罚 (避免误伤正常叙事)。
+let penalty: number
+  if (RAW_COUNT_FALLBACK) {
+    // 旧裸计数制 (A/B 比对 / 发版降级)。
+    penalty =
+      tier1Count * RAW_COUNT_WEIGHTS.tier1 +
+      tier2Count * RAW_COUNT_WEIGHTS.tier2 +
+      tier3Count * RAW_COUNT_WEIGHTS.tier3
+  } else {
+    // A3 density 制 (篇幅归一)。
+    const words = Math.max(1, text.replace(/\s+/g, '').length)
+    const density1 = (tier1Count / words) * SLOP_DENSITY_PER
+    const density2 = (tier2Count / words) * SLOP_DENSITY_PER
+    const density3 = (tier3Count / words) * SLOP_DENSITY_PER
+
+    const severity =
+      Math.max(0, density1 - SLOP_DENSITY_TARGETS.tier1) * SLOP_DENSITY_WEIGHTS.tier1 +
+      Math.max(0, density2 - SLOP_DENSITY_TARGETS.tier2) * SLOP_DENSITY_WEIGHTS.tier2 +
+      Math.max(0, density3 - SLOP_DENSITY_TARGETS.tier3) * SLOP_DENSITY_WEIGHTS.tier3
+
+    // 同类型连击 (同 tier 短窗集中命中)。
+    const tier1Bursts = countSameTypeBursts(collectTierPositions(text, TIER1_BANNED, []))
+    const tier2Bursts = countSameTypeBursts(collectTierPositions(text, TIER2_SUSPICIOUS, []))
+    const tier3Bursts = countSameTypeBursts(collectTierPositions(text, [], TIER3_FILLER))
+
+    penalty = severity + (tier1Bursts + tier2Bursts + tier3Bursts) * SLOP_CLUSTER_PENALTY
+  }
+
+  // 结构罚 (与篇幅无关，保留): CV 过齐 / 转折开头过多。
   if (
     sentenceLengths.length >= SENTENCE_MIN_FOR_CV_PENALTY &&
     sentenceLengthCV < SENTENCE_CV_LOW_THRESHOLD
   ) {
-    penalty += 2
+    penalty += STRUCTURAL_PENALTY_CV
   }
   if (transRatio > TRANSITION_OPENER_THRESHOLD) {
-    penalty += 2
+    penalty += STRUCTURAL_PENALTY_TRANSITION
   }
-
   if (penalty > SLOP_PENALTY_MAX) penalty = SLOP_PENALTY_MAX
   /* v8 ignore next */
   if (penalty < 0) penalty = 0
