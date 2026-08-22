@@ -5,6 +5,7 @@ import { uniqueNonEmpty, logger } from "@/lib/utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
+import { applyPrecisionGateToSnapshot } from "./canon-precision-filter"
 
 export interface NovelGraphNode {
   id: string
@@ -265,6 +266,46 @@ export function snapshotToGraphEdges(snapshot: ChapterSnapshot): NovelGraphEdge[
   })
 
   return edges
+}
+
+/**
+ * A7 精度门源文：把快照声明的规范化实体集/正文字段拼成一个源文串，供机械层做
+ * 「实体名源文现身」校验。judge 含 characters/locations/organizations/items/events
+ *（裸名+带前缀），以及 newCanonFacts/timelineEvents 等正文字段，作为实体名是否
+ * 出现在章节内容的代理。仅供 applyPrecisionGateToSnapshot 使用，无副作用。
+ */
+function buildPrecisionSourceText(snapshot: ChapterSnapshot): string {
+  const parts: string[] = []
+  const pushNamed = (names: string[] | undefined, prefix?: string) => {
+    for (const name of names ?? []) {
+      const trimmed = name.trim()
+      if (!trimmed) continue
+      parts.push(trimmed)
+      if (prefix) parts.push(`${prefix}${trimmed}`)
+    }
+  }
+  pushNamed(snapshot.characters, "character:")
+  for (const alias of Object.values(snapshot.characterAliases ?? {})) pushNamed(alias)
+  pushNamed(snapshot.locations, "location:")
+  pushNamed(snapshot.organizations, "organization:")
+  pushNamed(snapshot.items, "item:")
+  pushNamed(snapshot.events, "event:")
+  for (const field of [
+    snapshot.summary,
+    snapshot.chapterTitle,
+    ...(snapshot.newCanonFacts ?? []),
+    ...(snapshot.timelineEvents ?? []),
+    ...(snapshot.conflicts ?? []),
+    ...(snapshot.relationshipChanges ?? []),
+  ]) {
+    if (field && field.trim()) parts.push(field.trim())
+  }
+  // 章节节点（chapter:NN）作为图的结构性顶点，非幻觉目标——把其 id/序号 token 加入源文，
+  // 避免影响力性 APPEARS_IN/HAPPENS_IN 结构边因裸名只含数字而被机械层误拒。
+  if (snapshot.chapterId) parts.push(snapshot.chapterId)
+  const absNo = Math.abs(snapshot.chapterNumber ?? 0)
+  if (absNo > 0) parts.push(String(absNo), `chapter:${absNo}`, `第${absNo}章`)
+  return parts.join("\n")
 }
 
 export function detectNodeType(label: string): NovelNodeType {
@@ -578,7 +619,21 @@ export async function writeSnapshotToWiki(
   const canonicalSnapshot = canonicalizeSnapshotCharacters(snapshot)
   const snapshotMeta = projectionSnapshotMeta(canonicalSnapshot)
   const nodes = snapshotToGraphNodes(canonicalSnapshot).filter(shouldPersistSnapshotNode)
-  const edges = snapshotToGraphEdges(canonicalSnapshot)
+  const allEdges = snapshotToGraphEdges(canonicalSnapshot)
+
+  // A7 精度门（degraded 机械层，不引 LLM 核验）：写实体页前先对边逐个机械预筛，
+  // 拒绝的幻觉边（实体名不在快照声明的规范化实体集/不含源文，或自环/空字段/超长）
+  // 不进 relatedMap/edgesByNode 即不复现於实体页。cover ingest 主路径 + 三处派生写路径。
+  const precisionSourceText = buildPrecisionSourceText(canonicalSnapshot)
+  const { kept: keptEdges } = await applyPrecisionGateToSnapshot(allEdges, precisionSourceText)
+  const rejectedEdges = allEdges.filter((e) => !keptEdges.includes(e))
+  if (rejectedEdges.length > 0) {
+    logger.warn("Graph Adapter", `A7 precision gate rejected ${rejectedEdges.length} edge(s) from entity pages`, {
+      chapter: canonicalSnapshot.chapterNumber,
+      rejected: rejectedEdges.map((e) => `${e.source}->${e.relation}->${e.target}`),
+    })
+  }
+  const edges = keptEdges
   const entitiesDir = `${pp}/wiki/entities`
   const today = new Date().toISOString().split("T")[0]
   const sourceFile = snapshotSourceFileName(canonicalSnapshot.chapterNumber)

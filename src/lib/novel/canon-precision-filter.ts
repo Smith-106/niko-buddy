@@ -21,25 +21,16 @@
  *     一旦被判拒不再进下一层。
  *   - 输出 `{ kept, rejected, degraded }`：`rejected` 逐条携带 `relation` + `reason`。
  *
- * ## 接线点（A7 本轮仅交付文档，未接线）
- *   已实读定位 "ingest 后、写库前" 的实际函数；接入方应在落库前把抽取边的候选集
- *   交给 `filterExtractedRelations`。推荐接线点（file:line 随代码漂移会失效，接前须复核）：
+ * ## 接线点（A7 本轮：已接线，graph-adapter 单点覆盖）
+ *   已实读并接入：`chapter-ingest.ts` 的四处 `writeSnapshotToWiki` 调用（ingest 主路径 :519，
+ *   以及 :1065 / :1227 / :1840 派生写路径）全部汇入 `graph-adapter.ts` 的 `writeSnapshotToWiki`
+ *   **单一下层函数**，因此只在它内部拦截一次（边分解后、写实体页前）即覆盖全部四处。
+ *   接线位置：`graph-adapter.ts` `writeSnapshotToWiki` 内部 `const edges = snapshotToGraphEdges(...)`
+ *   之后、`relatedMap`/`edgesByNode` 之前，通过本模块导出的 `applyPrecisionGateToSnapshot` 完成。
+ *   本轮 **degraded 机械层**（不引 LLM 核验），`kept` 即落库边集，`rejected` 记 warn 供审计。
  *
- *   - `src/lib/novel/chapter-ingest.ts:519`（`writeSnapshotToWiki(pp, snapshot)`，ingest
- *     主路径：把 snapshot 写为实体页）。承接两侧均在此**单峰**调用：先
- *     `filterExtractedRelations(edges, sourceText)` 再交 `writeSnapshotToWiki`。
- *     同文件 `:1065`、`:1227`、`:1840` 为 rebuild/restore/delete 派生写路径，同样位置。
- *   - `src/lib/novel/graph-adapter.ts:227`（`snapshotToGraphEdges`）+ `:581`（`writeSnapshotToWiki`
- *     内部 `const edges = snapshotToGraphEdges(...)`）：边的解析/产出点，也即边对象
- *     `NovelGraphEdge { source, target, relation }` 形成处；在 :581 处拦截即覆盖
- *     `writeSnapshotToWiki` 全部调用方。
- *   - `src/lib/novel/chapter-ingest-output.ts:254`（`buildGraphDerivation` 内
- *     `snapshotToGraphEdges(snapshot).map(...)`）：图谱投影候选（graphDerivation）产出点。
- *
- *   > 注意：本模块**不含生产调用方也未接线** —— 本轮只实现纯函数 + 测试 + 交付接线文档。
- *   > WIP 文件（`canon-dual-write.ts` / `canon-reconcile.ts`）与 `graph-adapter.ts` /
- *   > `chapter-ingest.ts` 一律不改。
- *
+ *   > 图形投影候选点（`chapter-ingest-output.ts` 的 `buildGraphDerivation`/graphDerivation）
+ *   > 本轮**未**接入——其为仅审计的候选（不见实体页落库），由后续批次单独评估。
  * 遵循 QMAI/CLAUDE.md：零 LLM 机械层 + 可注入核验，纯函数无副作用，Draft-first 不适用。
  */
 
@@ -218,4 +209,23 @@ export async function filterExtractedRelations(
   }
 
   return { kept, rejected, degraded: false }
+}
+/**
+ * 落库前小辅助：对快照抽取边的候选集施加精度门（A7 接线用）。
+ *
+ * 本轮接线契约：**degraded 机械层**——只跑 `filterExtractedRelations` 且**不注入 `verify`**
+ * （LLM 核验层留待后续批次注入）。逐条机械预筛（空字段/自环/超长/实体名源文现身），
+ * 幸存者即 `kept`；`degraded` 恒为 true。返回结构与 `filterExtractedRelations` 一致，
+ * 供调用方取 `kept` 作落库边集、`rejected` 作审计（logger.warn）。
+ *
+ * @param edges 抽取边候选集（`NovelGraphEdge` 与 `ExtractedRelation` 同构，可直接传入）。
+ * @param sourceText 图边的源文本（用于实体名源文现身的机械特征）。
+ * @param opts 可选的机械层参数覆盖（`verify` 一律忽略——本辅助固定 degraded）。
+ */
+export async function applyPrecisionGateToSnapshot(
+  edges: readonly ExtractedRelation[],
+  sourceText: string,
+  opts: Omit<PrecisionFilterOptions, "verify"> = {},
+): Promise<PrecisionFilterResult> {
+  return filterExtractedRelations(edges, sourceText, opts)
 }
