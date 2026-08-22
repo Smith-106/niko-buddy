@@ -3,6 +3,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import { getProviderConfig, type RequestOverrides } from "./llm-providers"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
@@ -71,7 +72,6 @@ export async function flushMetrics(): Promise<number> {
   if (!metricsFilePath || metricsBuffer.length === 0) return 0
   const toFlush = metricsBuffer.splice(0, metricsBuffer.length)
   try {
-    const { readFile, writeFileAtomic } = await import("@/commands/fs")
     let existing = ""
     try {
       existing = await readFile(metricsFilePath)
@@ -124,7 +124,6 @@ export async function flushContinuityMetrics(): Promise<number> {
   if (!continuityMetricsFilePath || continuityMetricBuffer.length === 0) return 0
   const toFlush = continuityMetricBuffer.splice(0, continuityMetricBuffer.length)
   try {
-    const { readFile, writeFileAtomic } = await import("@/commands/fs")
     let existing = ""
     try {
       existing = await readFile(continuityMetricsFilePath)

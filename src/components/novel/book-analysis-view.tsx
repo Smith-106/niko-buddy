@@ -225,7 +225,6 @@ export function BookAnalysisView() {
 
     try {
       const { splitNovelIntoChapters } = await import("@/lib/novel/book-analysis/analysis-engine")
-      const { useWikiStore } = await import("@/stores/wiki-store")
       const storeState = useWikiStore.getState()
       const analysisLlmConfig = storeState.aiChatModel
         ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)

@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { createDirectory, getExecutableDir, getResourceDir, readFile, writeFileAtomic } from "@/commands/fs"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
@@ -789,7 +789,6 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
     // Tauri 环境：尝试获取可执行文件目录和资源目录
     if (isTauri()) {
       try {
-        const { getExecutableDir, getResourceDir } = await import("@/commands/fs")
         try {
           const exeDir = await getExecutableDir()
           roots.push(exeDir)

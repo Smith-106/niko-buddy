@@ -1,4 +1,4 @@
-import { readFile, writeFile, createDirectory } from "@/commands/fs"
+import { listDirectory, readFile, writeFile, createDirectory } from "@/commands/fs"
 import { buildWikiGraph, type GraphNode, type CommunityInfo } from "@/lib/wiki-graph"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
@@ -258,7 +258,6 @@ export async function loadPersistedCommunitySummaries(
   const records: CommunitySummaryRecord[] = []
 
   try {
-    const { listDirectory } = await import("@/commands/fs")
     const nodes = await listDirectory(summaryDir)
     const files = nodes
       .filter((n) => n.name.endsWith(".json") && !n.is_dir)

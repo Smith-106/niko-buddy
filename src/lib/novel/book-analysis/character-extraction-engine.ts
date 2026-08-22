@@ -524,7 +524,6 @@ export async function extractSingleCharacter(
   }
 
   // six-dimension
-  const { analyzeSixDimensions } = await import("./six-dimension-engine")
   const result = await analyzeSixDimensions({
     character,
     corpus,

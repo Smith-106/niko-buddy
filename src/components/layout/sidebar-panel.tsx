@@ -28,6 +28,7 @@ import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 
 import { useWikiStore } from "@/stores/wiki-store"
+import { createOutlineIngestTask, runOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { createDirectory, fileExists, listDirectory, preprocessFile, readFile, writeFile } from "@/commands/fs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { buildChapterTotalWordCountLabel } from "@/lib/chapter-display"
@@ -728,7 +729,6 @@ export function SidebarPanel() {
         total: importedPaths.length,
         currentTitle: getFileName(outlinePath),
       })
-      const { createOutlineIngestTask, runOutlineIngestTask } = await import("@/lib/novel/outline-generation")
       const outlineTaskId = createOutlineIngestTask(projectPath, outlinePath)
       await runOutlineIngestTask(outlineTaskId)
       completed += 1
