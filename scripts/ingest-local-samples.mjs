@@ -22,7 +22,15 @@ const TARGET_PIECES = 120 // 每族目标片数（≥100 达标线）
 const SOURCES = [
   {
     root: `${WRITING}/_项目/网文/01、十日(1)/400+本高质量完本合集/400+本高质量完本合集`,
-    map: { "01、玄幻": "xuanhuan", "02、仙侠": "gufeng", "07、武侠": "gufeng", "09、高武": "xuanhuan", "15、女频": "yanqing", "10、灵异": "xuanyi", "11、悬疑": "xuanyi" },
+    // 正式族: 玄幻/仙侠武侠→古风/女频→言情/灵异悬疑→悬疑 | 参照层: 其余全谱系
+    map: {
+      "01、玄幻": "xuanhuan", "09、高武": "xuanhuan",
+      "02、仙侠": "gufeng", "07、武侠": "gufeng",
+      "15、女频": "yanqing",
+      "10、灵异": "xuanyi", "11、悬疑": "xuanyi",
+      "03、都市": "dushi", "04、科幻": "kehuan", "05、奇幻": "xihuan",
+      "06、历史": "lishi", "08、游戏": "youxi", "14、轻小说": "qingxs",
+    },
   },
   { root: `${WRITING}/悬疑`, genre: "xuanyi" },
 ]
