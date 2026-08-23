@@ -6,8 +6,8 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    // 2.6.0 头部 + 2.5.1 + 2.5.0 + 2.4.x 链（2.6.0 发布后整体后移）
-    expect(versions.slice(0, 10)).toEqual(["2.6.0", "2.5.1", "2.5.0", "2.4.11", "2.4.10", "2.4.6", "2.4.5", "2.4.4", "2.4.3", "2.4.2"])
+    // 2.6.1 头部 + 2.6.0 + 2.5.1 + 2.5.0 + 2.4.x 链（2.6.1 发布后整体后移）
+    expect(versions.slice(0, 10)).toEqual(["2.6.1", "2.6.0", "2.5.1", "2.5.0", "2.4.11", "2.4.10", "2.4.6", "2.4.5", "2.4.4", "2.4.3"])
     expect(versions[10]).toBe("2.4.1")
     expect(versions[11]).toBe("2.4.0")
     expect(versions[12]).toBe("2.3.2")

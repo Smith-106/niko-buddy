@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.6.1",
+  date: "2026-08-23",
+  highlights: {
+    en: [
+      "Anti-AI sentence-entropy false-positive fix: normalized entropy (<0.7) replaces raw-bit line, eliminating guaranteed warn noise on Chinese chapters.",
+      "Anti-AI text-origin instrumentation (#34 prerequisite): optional AntiAiTextOrigin field decorated at pack layer; analyze stays a pure function; zero gate impact.",
+      "route_shell_mode value normalization (#42): authoritative alias resolves to route — no more silent legacy fallback.",
+      "Shadow-profile script production-equivalent sampling: PL warn rate 35–53% → 0.0–0.8%; book-level aggregation view added.",
+    ],
+    zh: [
+      "反AI句式熵因子误报修复：归一化熵 (<0.7) 替代原始比特线，消除中文长章必触发的 warn 噪声（warning-only，门控语义不变）。",
+      "反AI 文本来源埋点（#34 前置）：AntiAiTextOrigin additive 字段 pack 层装饰；analyze 保持纯函数；不影响任何门控结果。",
+      "route_shell_mode 值归一（#42）：authoritative 别名档位归一为 route——消除静默回退 legacy 的失效路径。",
+      "反AI 影子画像脚本生产等价对齐：PL warn 率 35–53% → 0.0–0.8%；新增书本级聚合视图与种子缺失中止守卫。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_ZERO_CHANGELOG: ChangelogEntry = {
   version: "2.6.0",
   date: "2026-08-22",
@@ -959,6 +978,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_ONE_CHANGELOG.version) return [TWO_POINT_SIX_ONE_CHANGELOG]
   if (version === TWO_POINT_SIX_ZERO_CHANGELOG.version) return [TWO_POINT_SIX_ZERO_CHANGELOG]
   if (version === TWO_POINT_FIVE_ONE_CHANGELOG.version) return [TWO_POINT_FIVE_ONE_CHANGELOG]
   if (version === TWO_POINT_FIVE_ZERO_CHANGELOG.version) return [TWO_POINT_FIVE_ZERO_CHANGELOG]
@@ -1011,6 +1031,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_SIX_ONE_CHANGELOG,
     TWO_POINT_SIX_ZERO_CHANGELOG,
     TWO_POINT_FIVE_ONE_CHANGELOG,
     TWO_POINT_FIVE_ZERO_CHANGELOG,

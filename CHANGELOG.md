@@ -24,13 +24,19 @@ v2.6.0 聚焦 Read 侧摄取与索引质量、图谱可靠性、断点/伏笔生
 - **角色工作台**：角色识别后在独立工作台视图集中呈现档案、状态、认知、关系与近期出场，快速切换独立工位
 - **章节自评估**：结构化输出 `{score, gap, fix}`——质量评分、缺口定位与返修建议，返修前锁定问题点
 
-## [未发布]
+## [2.6.1] - 2026-08-23
+
+### Added
+
+- **反AI 文本来源埋点（#34 前置）**：新增 `AntiAiTextOrigin`（`ai_draft`／`user_text`／`unknown`）additive 可选字段；调用方经 `CorePackInputs.origin` 在 pack 层装饰进分析报告（`mech-pack` memo 点浅拷贝打标，`analyze` 本体保持 `text→report` 纯函数），`withPoolReportOrigin` 助手供测试与未来 #34 sink 复用；纯元数据绝不进 `finding` message、不影响任何门控结果。
+- **route_shell_mode 值归一（#42，A-11 解锁条件 a 前半）**：`RouteShellMode` 新增 `authoritative` 别名档位并在 `resolveRouteShellMode` 单点归一为 `route`——消除「写 authoritative 静默回退 legacy」的失效路径；gate 集成测试钉住与 route 档等价。
 
 ### Fixed
 
 - **反AI句式熵因子误报修复**：生产检测器由原始比特线 (<3.5 bits) 切换为认证链归一化口径 (<0.7, 归一化熵 = rawEntropy/log2(观测桶数))。中文句长普遍落在 ≤10 个 5 字符桶，log2(K)≤3.32 恒低于旧线，导致任意 ≥8 句章节必然产生熵 warn 噪声。切换仅削减 warn 噪声，门控语义不变 (warning-only)；新增孪生奇偶校验测试钉住双实现一致性。
+- **反AI 影子画像脚本生产等价对齐**：采样口径对齐生产单元——移除 `>=30` 字过滤、`2500` 字窗 × `<=12` 窗全书等分偏移、去掉 `slice(0,8000)` 截断；PL warn 率由 35–53% 降至 0.0–0.8%，书口径 CV<0.30、FPR 0.88%（n=340 本）；新增书本级聚合视图与种子缺失中止守卫。
 
-### Fixed（v2.5.1 发版后 CI 修复链，随下次发版归档）
+### Fixed（v2.5.1 发版后 CI 修复链）
 
 - **CI**：vitest `retry: process.env.CI ? 2 : 0`（仅 CI 重试时序型 flaky，本地保持 loud fail；根因 knowledge-tree 回退标题连字符竞态已定位待修）
 - **deps**：async-process/concurrent-queue 锁定版本从已 yanked 的 2.5.1 降回 2.5.0（修复 cargo metadata --locked 解析失败）
@@ -423,6 +429,7 @@ v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与
 
 [2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.6.1]: https://github.com/Smith-106/niko-buddy/compare/v2.6.0...v2.6.1
 [2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Smith-106/niko-buddy/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.4.0
