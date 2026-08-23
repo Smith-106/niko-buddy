@@ -40,6 +40,7 @@
 | 能力 | 锚点 |
 |------|------|
 | 离线回放 harness | `src/lib/novel/offline-replay-harness.spec.ts` + `offline-replay-config.ts`（评分因子权重/阈值候选值，type-only 契约） |
+| **语料 κ 盲标骨架** | `src/lib/novel/corpus-kappa.ts` + `corpus-kappa.spec.ts`（Cohen κ 纯函数，T01b，黄金集合格线 κ≥0.7，机械层零 LLM） |
 | 离线回放 runner | `scripts/offline-replay.js`（hub 根 `scripts/`，T02 创建） |
 | LanceDB FTS spike | `src-tauri/src/spike_fts.rs`（T04，**不进 mod.rs**） |
 | 基线/语料/审计文档 | `docs/p0/t00-baseline.md`、`docs/p0/chinese-benchmark-corpus.md`、`docs/p0/license-audit.md`、`docs/p0/lancedb-fts-spike.md`、`docs/p0/stage3-gap-audit.md`、`docs/p0/corpus/`（hub 根 `docs/p0/`，T00-T05 交付） |

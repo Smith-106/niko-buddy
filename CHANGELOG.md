@@ -7,6 +7,17 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] - Wave-2/3 Stage8 P0+P1 评测基座 + canon 数据面
+
+### Added
+
+- **T01b 语料 κ 盲标质量门**：`src/lib/novel/corpus-kappa.ts` Cohen's κ 纯函数计算（混淆矩阵→Po→Pe→κ）+ Landis-Koch 级别映射 + 黄金集合格线 GOLD_QUALIFIED_KAPPA=0.7 (A-21.2/A-23.2)；15 测试全绿；机械层零 LLM (ADR-19)；Draft-first (ADR-08) κ 结果先进 pending
+
+### Fixed
+
+- **eslint no-eval 规则注册**：`chunk-fingerprint.ts` 的 disable 指令引用了未注册的 `@typescript-eslint/no-eval`（该规则是 ESLint 内置非 TS 插件），改为 `no-eval` 恢复 T18 自设 "0 error" 底线
+- **changelog-section 版本断言**：v2.6.1 发版漏改测试 mock 版本号（2.6.0→2.6.1），徽标匹配失耦修复
+
 ## [2.6.0] - 2026-08-22
 
 ### Summary（摄取与索引增强 + 图谱精度 + 断点/伏笔增强 + 决策回放 + 角色工作台 + 自评估）
