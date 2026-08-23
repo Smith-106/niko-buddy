@@ -392,7 +392,7 @@ function calibrateFactor(genre, factorName, humanSamples, aiSamples, getWarn) {
 }
 
 function runCalibration(humanSamples, aiSamples, indexes) {
-  const genres = ["yanqing", "gufeng", "xuanhuan"]
+  const genres = ["yanqing", "gufeng", "xuanhuan", "xuanyi"]
   const factorNames = ["nGramOverlap", "sentenceEntropy", "punctuationFingerprint", "paragraphLengthDist"]
 
   const results = []
@@ -424,8 +424,8 @@ function fmtWilson(w) {
 }
 
 function printConsoleReport(results, humanSamples, aiSamples) {
-  const genres = ["yanqing", "gufeng", "xuanhuan"]
-  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻" }
+  const genres = ["yanqing", "gufeng", "xuanhuan", "xuanyi"]
+  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻", xuanyi: "悬疑" }
   const factorLabels = { nGramOverlap: "n-gram 重合度", sentenceEntropy: "句式熵", punctuationFingerprint: "标点指纹", paragraphLengthDist: "段落长度分布" }
 
   console.log("=".repeat(72))
@@ -469,8 +469,8 @@ function printConsoleReport(results, humanSamples, aiSamples) {
 }
 
 function generateMarkdownReport(results, humanSamples, aiSamples, allPass) {
-  const genres = ["yanqing", "gufeng", "xuanhuan"]
-  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻" }
+  const genres = ["yanqing", "gufeng", "xuanhuan", "xuanyi"]
+  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻", xuanyi: "悬疑" }
   const factorLabels = { nGramOverlap: "n-gram 重合度", sentenceEntropy: "句式熵", punctuationFingerprint: "标点指纹", paragraphLengthDist: "段落长度分布" }
   const dateStr = new Date().toISOString().slice(0, 10)
 
@@ -659,7 +659,7 @@ function main() {
   // 输出 voice profile
   console.log()
   console.log("── Voice Profile 表 (每族每因子统计) ──")
-  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻" }
+  const genreLabels = { yanqing: "言情", gufeng: "古风", xuanhuan: "玄幻", xuanyi: "悬疑" }
   const factorDefs = [
     { key: "ngo", label: "n-gram 重合度" },
     { key: "se", label: "句式熵(归一化)" },
@@ -667,7 +667,7 @@ function main() {
     { key: "pl", label: "段落长度(CV)" },
   ]
 
-  for (const genre of ["yanqing", "gufeng", "xuanhuan"]) {
+  for (const genre of ["yanqing", "gufeng", "xuanhuan", "xuanyi"]) {
     for (const layer of ["human", "ai"]) {
       const layerSamples = sampleProfiles.filter(s => s.genre === genre && s.layer === layer)
       if (layerSamples.length === 0) continue
