@@ -26,11 +26,18 @@ const REPORT = resolve(__dirname, "../docs/p2/anti-ai-shadow-profile.md")
 const BATCH_ID = "20260821-001"
 const WRITING = "D:/writing"
 
-// ── 源配置: 目录 → 标定族映射 ──
+// ── 源配置: 目录 → 标定族映射（与 ingest-local-samples.mjs 同一全谱系映射） ──
 const SOURCES = [
   {
     root: `${WRITING}/_项目/网文/01、十日(1)/400+本高质量完本合集/400+本高质量完本合集`,
-    map: { "01、玄幻": "xuanhuan", "02、仙侠": "gufeng", "07、武侠": "gufeng", "09、高武": "xuanhuan", "15、女频": "yanqing", "10、灵异": "xuanyi", "11、悬疑": "xuanyi" },
+    map: {
+      "01、玄幻": "xuanhuan", "09、高武": "xuanhuan",
+      "02、仙侠": "gufeng", "07、武侠": "gufeng",
+      "15、女频": "yanqing",
+      "10、灵异": "xuanyi", "11、悬疑": "xuanyi",
+      "03、都市": "dushi", "04、科幻": "kehuan", "05、奇幻": "xihuan",
+      "06、历史": "lishi", "08、游戏": "youxi", "14、轻小说": "qingxs",
+    },
   },
   { root: `${WRITING}/悬疑`, genre: "xuanyi" },
 ]
@@ -106,7 +113,7 @@ const indexes = buildCorpusIndexes(seedHuman, seedAi)
 
 // ── 检测 ──
 const FACTORS = ["nGramOverlap", "sentenceEntropy", "punctuationFingerprint", "paragraphLengthDist"]
-const LABELS = { xuanhuan: "玄幻", gufeng: "古风", yanqing: "言情", xuanyi: "悬疑" }
+const LABELS = { xuanhuan: "玄幻", gufeng: "古风", yanqing: "言情", xuanyi: "悬疑", dushi: "都市", kehuan: "科幻", xihuan: "西幻", lishi: "历史", youxi: "游戏", qingxs: "轻小说" }
 const results = {} // genre -> { factor -> [{...piece stats}] }
 let totalPieces = 0
 
