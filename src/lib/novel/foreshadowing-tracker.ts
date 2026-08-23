@@ -1,11 +1,16 @@
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
+export type ForeshadowingStatus = "planted" | "advanced" | "resolved" | "abandoned"
+
+/** 状态转移合法性：markAbandoned 仅允许 planted/advanced → abandoned。 */
+export const ABANDONABLE_STATUSES: readonly ForeshadowingStatus[] = ["planted", "advanced"]
+
 export interface Foreshadowing {
   id: string
   name: string
   description: string
-  status: "planted" | "advanced" | "resolved"
+  status: ForeshadowingStatus
   plantedChapter: number
   advancedChapters: number[]
   resolvedChapter?: number
@@ -52,8 +57,25 @@ export async function loadForeshadowingTracker(
   }
 }
 
+/**
+ * 将伏笔标记为「已废弃」：合法转移为 planted/advanced → abandoned；
+ * 已是 resolved 或 abandoned 的项拒绝变更并抛错（防误弃已回收/已废弃伏笔）。
+ * 返回变更后的新对象（immutable），不原地改写入参。
+ */
+export function markAbandoned(f: Foreshadowing): Foreshadowing {
+  if (f.status === "resolved" || f.status === "abandoned") {
+    throw new Error(
+      `无法废弃已 ${f.status} 的伏笔 "${f.name}"（仅 planted/advanced 可 → abandoned）`,
+    )
+  }
+  return { ...f, status: "abandoned" }
+}
+
 export function foreshadowingToContextText(store: ForeshadowingStore): string {
-  const unresolved = store.items.filter((f) => f.status !== "resolved")
+  // abandoned 视为已退出活跃伏笔链：不进入生成链上下文（与 resolved 等价过滤）。
+  const unresolved = store.items.filter(
+    (f) => f.status === "planted" || f.status === "advanced",
+  )
   if (unresolved.length === 0) return ""
   return unresolved
     .map(

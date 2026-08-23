@@ -65,6 +65,7 @@ import {
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
 import { FindingCompareDialog } from "./finding-compare-dialog"
+import { loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel/emotion-ledger"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
@@ -159,6 +160,8 @@ export function ReviewView({
   const [dismissReason, setDismissReason] = useState<ContinuityOverrideReasonCode>("false_positive")
   const [dismissNote, setDismissNote] = useState("")
   const dismissPanelId = useId()
+  // F-003 BreakerStatusBadge: 熔断器三态 (tripped/armed/open) 状态。
+  const [breakerStatus, setBreakerStatus] = useState<{ status: "tripped" | "armed" | "open"; reason: string } | null>(null)
 
   const dimensionScoped = Boolean(dimensionKey) || resultScoreDimensionKeys !== undefined
   const selectedDimensionResult = dimensionKey ? reviewRun?.dimensionResults?.[dimensionKey] : undefined
@@ -196,6 +199,24 @@ export function ReviewView({
       .catch(() => { if (!cancelled) setCognitionState(null) })
     return () => { cancelled = true }
   }, [novelMode, project, novelReviewResults, dataVersion])
+
+  // F-003 BreakerStatusBadge: 加载情绪账本熔断器状态 (tripped/armed/open)。
+  // 复用 emotion-ledger getCircuitBreakerStatus, 机械层零 LLM。
+  useEffect(() => {
+    if (!project?.path || !novelMode) {
+      setBreakerStatus(null)
+      return
+    }
+    let cancelled = false
+    loadEmotionLedger(project.path)
+      .then((store) => {
+        if (!cancelled) {
+          setBreakerStatus(getCircuitBreakerStatus(store, -0.6))
+        }
+      })
+      .catch(() => { if (!cancelled) setBreakerStatus(null) })
+    return () => { cancelled = true }
+  }, [project?.path, novelMode, dataVersion])
 
   useEffect(() => {
     if (!project?.path) {
@@ -961,7 +982,10 @@ export function ReviewView({
     <div className="flex h-full flex-col">
       {novelMode && (
         <div className="border-b px-4 py-2">
-          <ReviewJobStatusStrip refreshKey={isReviewing ? "running" : "idle"} />
+          <div className="flex items-center gap-2">
+            <ReviewJobStatusStrip refreshKey={isReviewing ? "running" : "idle"} />
+            <BreakerStatusBadge status={breakerStatus} />
+          </div>
         </div>
       )}
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -1453,6 +1477,33 @@ function ReviewRewritePreviewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * F-003 BreakerStatusBadge: 展示情绪账本熔断器三态 (tripped/armed/open)。
+ * 复用 emotion-ledger getCircuitBreakerStatus, 机械层零 LLM。
+ * tripped(红) / armed(黄) / open(绿), status=null 时不渲染。
+ */
+function BreakerStatusBadge({ status }: { status: { status: "tripped" | "armed" | "open"; reason: string } | null }) {
+  if (!status) return null
+  const labelKey = `review.breakerStatus.${status.status}`
+  const label = i18n.exists(labelKey) ? i18n.t(labelKey) : status.status
+  const colorMap: Record<string, string> = {
+    tripped: "bg-red-600/20 text-red-700 border-red-500/40 dark:bg-red-900/30 dark:text-red-300",
+    armed: "bg-yellow-600/20 text-yellow-700 border-yellow-500/40 dark:bg-yellow-900/30 dark:text-yellow-300",
+    open: "bg-green-600/20 text-green-700 border-green-500/40 dark:bg-green-900/30 dark:text-green-300",
+  }
+  return (
+    <span
+      title={status.reason}
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium leading-none ${colorMap[status.status]}`}
+    >
+      <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
+        status.status === "tripped" ? "bg-red-500" : status.status === "armed" ? "bg-yellow-500" : "bg-green-500"
+      }`} aria-hidden="true" />
+      {label}
+    </span>
   )
 }
 

@@ -924,3 +924,35 @@ describe("writePatchFieldsToWiki", () => {
     expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
   })
 })
+
+describe("A7 precision gate (writeSnapshotToWiki 单点接线)", () => {
+  it("幻觉边（实体名不在快照声明实体集）不进实体页；正常边通过", async () => {
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+
+    const s = mkSnapshot({
+      characters: ["林烬", "沈微"],
+      locations: ["旧城"],
+      // 正常边：两端实体均在 characters/locations 声明 -> 通过机械层。
+      // 幻觉边：target "幻影" 未在快照任何实体集/正文字段声明 -> 被精度门拦截。
+      graphEdges: ["林烬 -> KNOWS -> 沈微", "林烬 -> ALLY_OF -> 幻影"],
+    })
+    await writeSnapshotToWiki("E:/Novel", s)
+
+    const lj = fsMocks.writeFileAtomic.mock.calls[0][1]
+    expect(lj).toContain("[[沈微]]")
+    expect(lj).not.toContain("幻影")
+  })
+
+  it("自环边被拦截（source===target）", async () => {
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+
+    const s = mkSnapshot({ characters: ["林烬"], graphEdges: ["林烬 -> KNOWS -> 林烬"] })
+    await writeSnapshotToWiki("E:/Novel", s)
+    const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
+    expect(content).not.toContain("[[林烬]] — 知道")
+  })
+})

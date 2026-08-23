@@ -6,12 +6,14 @@ import {
   buildDimensionReviewPrompt,
   DimParseError,
   dimensionResultsToReviewResults,
+  findNearestEvidenceFragment,
   getCachedDimensionResults,
   normalizeDimensionScore,
   reviewChapterDimension,
   runSixDimensionReview,
   SIX_REVIEW_DIMENSION_ORDER,
   SIX_REVIEW_DIMENSIONS,
+  verifyEvidenceCitations,
 } from "./dimension-review-adapter"
 import type { DimensionReviewResult, DimensionReviewStatus, SixReviewDimensionKey } from "./dimension-review-adapter"
 
@@ -876,5 +878,151 @@ describe("six-dimension review adapter", () => {
     })
     expect(results.character?.status).toBe("error")
     expect(results.character?.summary).toContain("unknown error")
+  })
+
+  describe("F-001 evidence citation verification", () => {
+    const chapterBody = "雨点砸在祠堂瓦片上，他攥着旧钥匙，指节发白。小晴的声音很低。"
+
+    it("verbatim match succeeds after whitespace normalization", () => {
+      const result = verifyEvidenceCitations(
+        "雨点砸在   祠堂瓦片上，他攥着旧钥匙，指节发白。",
+        chapterBody,
+      )
+      expect(result.passed).toBe(true)
+      expect(result.matchType).toBe("verbatim")
+      expect(result.resolvedEvidence).toBe("雨点砸在   祠堂瓦片上，他攥着旧钥匙，指节发白。")
+      expect(result.originalEvidence).toBe("雨点砸在   祠堂瓦片上，他攥着旧钥匙，指节发白。")
+    })
+
+    it("verbatim match fails, returns fallback with nearest fragment", () => {
+      const result = verifyEvidenceCitations(
+        "他紧握着那把旧钥匙，指节泛白。",
+        chapterBody,
+      )
+      expect(result.passed).toBe(false)
+      expect(result.matchType).toBe("fallback")
+      expect(result.resolvedEvidence.length).toBeGreaterThan(0)
+    })
+
+    it("whitespace normalization collapses all whitespace runs for matching", () => {
+      const result = verifyEvidenceCitations(
+        "  小晴    的声音  很低。  ",
+        chapterBody,
+      )
+      expect(result.passed).toBe(true)
+      expect(result.matchType).toBe("verbatim")
+    })
+
+    it("returns fallback with empty resolvedEvidence when evidence is empty string", () => {
+      const result = verifyEvidenceCitations("", chapterBody)
+      expect(result.passed).toBe(false)
+      expect(result.matchType).toBe("fallback")
+      expect(result.resolvedEvidence).toBe("")
+    })
+
+    it("returns fallback with empty resolvedEvidence when evidence is whitespace only", () => {
+      const result = verifyEvidenceCitations("   \t\n  ", chapterBody)
+      expect(result.passed).toBe(false)
+      expect(result.matchType).toBe("fallback")
+      expect(result.resolvedEvidence).toBe("")
+    })
+
+    it("findNearestEvidenceFragment returns best match for near-miss evidence", () => {
+      const fragment = findNearestEvidenceFragment(
+        chapterBody,
+        "他紧握着旧钥匙，指节发白。",
+      )
+      expect(fragment).toBeTruthy()
+      expect(fragment).toContain("旧钥匙")
+      expect(fragment).toContain("指节发白")
+    })
+
+    it("findNearestEvidenceFragment returns empty string for empty evidence", () => {
+      expect(findNearestEvidenceFragment(chapterBody, "")).toBe("")
+    })
+
+    it("findNearestEvidenceFragment returns empty string for empty chapterBody", () => {
+      expect(findNearestEvidenceFragment("", "some evidence")).toBe("")
+    })
+
+    it("dimensionResultsToReviewResults applies verification when chapterBody is provided", () => {
+      const dimResult: DimensionReviewResult = {
+        dimensionKey: "thrill",
+        score: 7,
+        status: "high",
+        summary: "爽点有铺垫",
+        thinking: "",
+        issues: [{
+          severity: "warning",
+          type: "thrill",
+          dimensionKey: "thrill",
+          message: "证据不匹配",
+          evidence: "这把钥匙不存在于正文中。",
+          relatedMemory: "",
+          suggestion: "",
+          impact: "",
+          rewriteTarget: "",
+        }],
+      }
+      const results = dimensionResultsToReviewResults(
+        { thrill: dimResult },
+        chapterBody,
+      )
+      expect(results).toHaveLength(1)
+      // Failed verification downgrades to warning (from warning)
+      expect(results[0]!.severity).toBe("warning")
+      // evidence is backfilled with nearest fragment
+      expect(results[0]!.evidence.length).toBeGreaterThan(0)
+    })
+
+    it("dimensionResultsToReviewResults preserves error severity when verification fails on an error issue", () => {
+      const dimResult: DimensionReviewResult = {
+        dimensionKey: "thrill",
+        score: 0,
+        status: "error",
+        summary: "严重问题",
+        thinking: "",
+        issues: [{
+          severity: "error",
+          type: "thrill",
+          dimensionKey: "thrill",
+          message: "出错",
+          evidence: "不存在于正文。",
+          relatedMemory: "",
+          suggestion: "",
+          impact: "",
+          rewriteTarget: "",
+        }],
+      }
+      const results = dimensionResultsToReviewResults(
+        { thrill: dimResult },
+        chapterBody,
+      )
+      // error status → error floor, verification failure keeps error
+      expect(results[0]!.severity).toBe("error")
+    })
+
+    it("dimensionResultsToReviewResults skips verification when chapterBody is omitted", () => {
+      const dimResult: DimensionReviewResult = {
+        dimensionKey: "thrill",
+        score: 7,
+        status: "high",
+        summary: "s",
+        thinking: "",
+        issues: [{
+          severity: "warning",
+          type: "thrill",
+          dimensionKey: "thrill",
+          message: "m",
+          evidence: "任何文本",
+          relatedMemory: "",
+          suggestion: "",
+          impact: "",
+          rewriteTarget: "",
+        }],
+      }
+      const results = dimensionResultsToReviewResults({ thrill: dimResult })
+      expect(results[0]!.evidence).toBe("任何文本")
+    })
   })
 })

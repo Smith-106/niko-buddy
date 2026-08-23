@@ -9,6 +9,7 @@ import {
   emotionLedgerToContextText,
   extractChapterEmotionTone,
   formatEmotionContext,
+  getCircuitBreakerStatus,
   getTopEmotionalDebt,
   resolveSceneCharacterNames,
   updateEmotionLedgerFromChapter,
@@ -250,6 +251,39 @@ describe("A19 emotion-ledger pilot (NovelForge-v5 EmotionTracker 移植, 机械�
   it("checkEmotionCircuitBreaker on empty store does not trip (no debt to evaluate)", () => {
     const cb = checkEmotionCircuitBreaker(createEmptyEmotionLedgerStore(), -0.6)
     expect(cb.tripped).toBe(false)
+  })
+
+  it("getCircuitBreakerStatus returns 'tripped' when netValue < threshold (F-003 BreakerStatusBadge)", () => {
+    const store: EmotionLedgerStore = {
+      entries: [makeEntry("崩坏者", -0.8, 0.4, -0.6, [{ chapter: 2, delta: -0.4, reason: "背叛" }])],
+      lastUpdated: new Date().toISOString(),
+    }
+    const result = getCircuitBreakerStatus(store, -0.6)
+    expect(result.status).toBe("tripped")
+  })
+
+  it("getCircuitBreakerStatus returns 'armed' when netValue is close to threshold (F-003 BreakerStatusBadge)", () => {
+    const store: EmotionLedgerStore = {
+      entries: [makeEntry("预警者", -0.5, -0.5, -0.5)],
+      lastUpdated: new Date().toISOString(),
+    }
+    // netValue = (-0.5*0.4 + -0.5*0.3 + -0.5*0.3) = -0.5, which is >= -0.6 but < -0.3
+    const result = getCircuitBreakerStatus(store, -0.6)
+    expect(result.status).toBe("armed")
+  })
+
+  it("getCircuitBreakerStatus returns 'open' when netValue is well above threshold (F-003 BreakerStatusBadge)", () => {
+    const store: EmotionLedgerStore = {
+      entries: [makeEntry("平稳者", 0.5, 0.3, 0.4)],
+      lastUpdated: new Date().toISOString(),
+    }
+    const result = getCircuitBreakerStatus(store, -0.6)
+    expect(result.status).toBe("open")
+  })
+
+  it("getCircuitBreakerStatus returns 'open' for empty store (no debt to evaluate)", () => {
+    const result = getCircuitBreakerStatus(createEmptyEmotionLedgerStore(), -0.6)
+    expect(result.status).toBe("open")
   })
 })
 

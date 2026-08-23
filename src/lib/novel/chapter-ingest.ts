@@ -14,7 +14,7 @@ import type { NameAliasMap } from "./book-analysis/types"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
 import { createEmptyEmotionalArcStore, loadEmotionalArcs, saveEmotionalArcs, type EmotionalArcStore } from "./emotional-arcs"
-import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard } from "./subplot-board"
+import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard, type SubplotBoardStore } from "./subplot-board"
 import { createEmptyResourceLedgerStore, loadResourceLedger, saveResourceLedger, type ResourceLedgerStore } from "./resource-ledger"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
@@ -27,11 +27,18 @@ import { clearGraphCache } from "@/lib/graph-relevance"
 import { clearTemporalFactsCache } from "./context-engine"
 import { sliceChapterForReview } from "./chapter-window"
 import {
+  appendProjectionAuditEntry,
   loadProjectionStatusLedger,
+  recordProjectionAudit,
   recordProjectionStatus,
   saveProjectionStatusLedger,
+  type ProjectionAuditEntry,
+  type ProjectionAuditStatus,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
+import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
+import { shadowWriteCanon } from "./canon-dual-write"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -228,6 +235,89 @@ export interface IngestChapterOptions {
    * 缺省回退 useWikiStore.getState().setCommunitySummaryError（向后兼容）。
    */
   onCommunitySummaryError?: (message: string) => void
+  /**
+   * T16 / F-14 (F-14) canon 影子双写 DI 注入。
+   * 缺省 undefined → 不触发双写，向后兼容。
+   */
+  canonDualWriteDeps?: CanonDualWriteDeps
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// T16 / F-14: canon 影子双写钩子
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * T16 / F-14: 双写守卫 — 仅 final/accepted 章放行。
+ * reject 先于双写断言：pending/draft/outline/revised/archived 均拦截，
+ * 非字符串 / 缺失 / 大小写不匹配（如 "FINAL"）也拦截。
+ */
+export function isCanonDualWriteEligible(fm: Record<string, unknown>): boolean {
+  const status = fm.chapter_status
+  return status === "final" || status === "accepted"
+}
+
+/**
+ * T16 / F-14: 从 snapshot.newCanonFacts 派生 episode 双写操作集。
+ * 每条事实的 digest = SHA-256({ chapter, fact })——幂等键。
+ */
+export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
+  const facts = snapshot.newCanonFacts ?? []
+  if (facts.length === 0) return []
+
+  return Promise.all(
+    facts.map(async (fact, i) => {
+      const content = { chapter: snapshot.chapterNumber, fact }
+      const digest = await computeCheckpointDigestOf(content)
+      return {
+        digest,
+        content,
+        legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
+        canonPayload: {
+          kind: "episode" as const,
+          episode: {
+            id: `ch${snapshot.chapterNumber}-fact${i}`,
+            chapter_number: snapshot.chapterNumber,
+            entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。fact 作为章节快照的事实片段，其归属实体为章节本身——此映射在 canon DDL v3 冻结下是唯一可靠来源。若未来 snapshot schema 新增 entityId 字段，应改为该字段。
+            summary: fact,
+            digest,
+          },
+        },
+      }
+    }),
+  )
+}
+
+/**
+ * T16 / F-14: 单点双写钩子——在 validateCanonConflicts 调用点后调用。
+ * - deps 未注入 → 空操作（向后兼容）
+ * - 章未 accept/final → reject，不写 canon
+ * - 无新正史事实 → 无操作
+ * - final + 事实 → 调 shadowWriteCanon
+ * - 双写异常 → 非致命告警，不阻断
+ */
+export async function runCanonDualWriteHook(
+  deps: CanonDualWriteDeps | undefined,
+  projectPath: string,
+  fm: Record<string, unknown>,
+  snapshot: ChapterSnapshot,
+  now: number,
+): Promise<void> {
+  if (!deps) return
+  if (!isCanonDualWriteEligible(fm)) return
+
+  const ops = await buildCanonDualWriteOps(snapshot)
+  if (ops.length === 0) return
+
+  try {
+    const report = await shadowWriteCanon(deps, projectPath, ops, now)
+    if (report.queued > 0) {
+      logger.warn("Chapter Ingest", `Canon dual-write: ${report.queued}/${ops.length} ops queued (non-fatal)`)
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "Canon dual-write hook failed (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 export async function ingestChapter(
@@ -308,6 +398,15 @@ export async function ingestChapter(
         error: err instanceof Error ? err.message : String(err),
       })
     }
+    // T16 / F-14: canon 影子双写钩子（仅 final/accepted 章触发，deps 缺省空操作）。
+    // reject 先于双写断言：draft 章提前 return（not_final）不触达此处。
+    await runCanonDualWriteHook(
+      options.canonDualWriteDeps,
+      pp,
+      fm as Record<string, unknown>,
+      snapshot,
+      Date.now(),
+    )
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
@@ -347,17 +446,51 @@ export async function ingestChapter(
   // so the return value can carry memorySyncedAt (runProjection returns void).
   let memorySyncedAt: string | undefined
 
+  // F-005 (v2.6 Tier2): single audit choke-point for projection events.
+  // Keeps the in-memory ledger's auditTrail in sync (so the end-of-loop
+  // saveProjectionStatusLedger cannot clobber per-event durable flushes back
+  // off disk) AND durably appends each event to projection-status.json so a
+  // hard crash mid-ingest still leaves the emitted events on disk. Strictly
+  // additive — never throws into the projection loop.
+  const recordProjectionAuditEvent = async (
+    projection: string,
+    status: ProjectionAuditStatus,
+    durationMs: number,
+    error?: string,
+  ): Promise<void> => {
+    const entry: ProjectionAuditEntry = {
+      projection,
+      chapter: chapterNo,
+      status,
+      durationMs,
+      ...(error !== undefined ? { error } : {}),
+      timestamp: new Date().toISOString(),
+    }
+    projectionLedger = recordProjectionAudit(projectionLedger, entry)
+    try {
+      await appendProjectionAuditEntry(pp, entry)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "Projection audit append failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   const runProjection = async (
     projection: string,
     fn: () => Promise<void>,
   ): Promise<void> => {
+    // F-005: time the full projection body for the audit entry.
+    const startedAt = Date.now()
     try {
       await fn()
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
+      await recordProjectionAuditEvent(projection, "committed", Date.now() - startedAt)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.warn("Chapter Ingest", `Projection "${projection}" failed`, { error: message })
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
+      await recordProjectionAuditEvent(projection, "failed", Date.now() - startedAt, message)
     }
   }
 
@@ -464,17 +597,12 @@ export async function ingestChapter(
         await saveResourceLedger(pp, ledger)
       })
 
-      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. ANL-013 G2
-      // audit: QMAI has no支线剧情进度 projection. The snapshot has no
-      // dedicated subplot field yet (LLM extract-prompt extension is out of
-      // scope for this additive projection-infra task), so this commits an
-      // empty store until a snapshot field is added — but the projection is
-      // REGISTERED + tracked so future wiring is a one-line change. The
-      // projection stays alive (committed-empty, not missing) so the ledger
-      // shows it is reachable. Failure → ledger (IC-02).
+      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. Phase 3 (LE-1):
+      // 从 snapshot foreshadowingChanges/events 解析 subplot 解决/废弃事件,
+      // 写入 targetResolutionChapter/abandoned 结构化字段。
       await runProjection("subplot_board", async () => {
         const board = await loadSubplotBoard(pp)
-        board.lastUpdated = new Date().toISOString()
+        applySubplotChangesToStore(board, snapshot)
         await saveSubplotBoard(pp, board)
       })
 
@@ -512,16 +640,26 @@ export async function ingestChapter(
   // 社区摘要定期重建
   if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
     const rebuildCommunitySummaries = async () => {
+      // F-005: the scheduled community-summary rebuild is audited with the
+      // dedicated "rebuild" status on success; failures are audited as
+      // "failed" + error alongside the existing non-fatal warn/UI path.
+      // recordProjectionAuditEvent cannot reject (internal non-fatal catch),
+      // and audit calls stay OUTSIDE the summary try/catch so an audit hiccup
+      // could never be misreported as a summary failure.
+      const rebuildStartedAt = Date.now()
       try {
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
+        await recordProjectionAuditEvent("community_summary", "failed", Date.now() - rebuildStartedAt, message)
         // 弹窗提示（通过 store 触发 UI 通知）
         // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
         const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
         onErr(message)
+        return
       }
+      await recordProjectionAuditEvent("community_summary", "rebuild", Date.now() - rebuildStartedAt)
     }
 
     if (novelConfig.communitySummaryAsync) {
@@ -1313,6 +1451,15 @@ function parseForeshadowingChange(change: string):
   return null
 }
 
+// LE-2 Phase 2: 死亡状态检测模式 — 与 deterministic-continuity-engine.ts
+// DEFAULT_CONTINUITY_CONFIG.deadCharacterPatterns 保持一致，确保生产端写入与引擎
+// 读端同源。正则 fallback 保留（结构化缺失时降级匹配，行为向后兼容）。
+const DEATH_PATTERNS = ["死", "亡", "殒", "逝", "毙"] as const
+
+function isDeathStatus(status: string): boolean {
+  return status.length > 0 && DEATH_PATTERNS.some((p) => status.includes(p))
+}
+
 function applyCharacterStateChangesToStore(
   existingChars: CharacterStateStore,
   snapshot: ChapterSnapshot,
@@ -1327,8 +1474,15 @@ function applyCharacterStateChangesToStore(
       if (existing) {
         existing.status = changeDesc
         existing.lastUpdatedChapter = snapshot.chapterNumber
+        existing.lastSeenChapter = snapshot.chapterNumber
         existing.lastUpdatedAt = new Date().toISOString()
+        // LE-2 Phase 2: 结构化死亡标记写入端落地
+        if (isDeathStatus(changeDesc)) {
+          existing.isAlive = false
+          existing.deathChapter = snapshot.chapterNumber
+        }
       } else {
+        const isDead = isDeathStatus(changeDesc)
         existingChars.characters.push({
           characterName: canonical,
           currentLocation: "",
@@ -1337,7 +1491,10 @@ function applyCharacterStateChangesToStore(
           abilities: [],
           relationships: {},
           lastUpdatedChapter: snapshot.chapterNumber,
+          lastSeenChapter: snapshot.chapterNumber,
           lastUpdatedAt: new Date().toISOString(),
+          // LE-2 Phase 2: 新角色死亡结构化标记
+          ...(isDead ? { isAlive: false as const, deathChapter: snapshot.chapterNumber } : {}),
         })
       }
     } else {
@@ -1345,7 +1502,13 @@ function applyCharacterStateChangesToStore(
       if (matched) {
         matched.status = change
         matched.lastUpdatedChapter = snapshot.chapterNumber
+        matched.lastSeenChapter = snapshot.chapterNumber
         matched.lastUpdatedAt = new Date().toISOString()
+        // LE-2 Phase 2: 结构化死亡标记写入端落地
+        if (isDeathStatus(change)) {
+          matched.isAlive = false
+          matched.deathChapter = snapshot.chapterNumber
+        }
       }
     }
   }
@@ -1526,6 +1689,83 @@ function applyResourceLedgerToStore(
   return ledger
 }
 
+// ============================================================================
+// Phase 3 (LE-1): Subplot 结构化逾期标记写入端
+// ============================================================================
+
+/**
+ * Phase 3 (LE-1): applySubplotChangesToStore — 从 snapshot 情节线解决/废弃事件
+ * 解析结构化标记，写入 SubplotBoard。
+ *
+ * 数据源:
+ *   - foreshadowingChanges "回收伏笔：name" → targetResolutionChapter = current chapter
+ *   - foreshadowingChanges "废弃：name" / "废弃伏笔：name" → abandoned = true
+ *   - events 含 "废弃" + subplot title → abandoned = true
+ *
+ * 匹配方式: 按 subplot.title substring 匹配（name 含 title 或 title 含 name），
+ * 与 foreshadowing 匹配风格一致。
+ *
+ * fold_rebuildable: 对同一 snapshot 重复调用零行为变更 (idempotent — 同章号
+ * 重复写入 targetResolutionChapter/abandoned 相同值)。
+ */
+function applySubplotChangesToStore(
+  board: SubplotBoardStore,
+  snapshot: ChapterSnapshot,
+): SubplotBoardStore {
+  for (const change of snapshot.foreshadowingChanges) {
+    const trimmed = change.trim()
+
+    // 回收 (resolve) → targetResolutionChapter = current chapter
+    if (/^(回收伏笔|回收)[:：]/.test(trimmed)) {
+      const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "")
+      const name = content.split("-")[0]?.trim() || content.trim()
+      if (!name) continue
+      for (const subplot of board.items) {
+        if (subplot.title.includes(name) || name.includes(subplot.title)) {
+          subplot.targetResolutionChapter = snapshot.chapterNumber
+          if (subplot.status !== "resolved") {
+            subplot.status = "resolved"
+            subplot.resolvedChapter = snapshot.chapterNumber
+          }
+        }
+      }
+    }
+
+    // 废弃 (abandon) → abandoned = true
+    if (/^(废弃|废弃伏笔)[:：]/.test(trimmed)) {
+      const content = trimmed.replace(/^(废弃|废弃伏笔)[:：]?\s*/, "")
+      const name = content.split("-")[0]?.trim() || content.trim()
+      if (!name) continue
+      for (const subplot of board.items) {
+        if (subplot.title.includes(name) || name.includes(subplot.title)) {
+          subplot.abandoned = true
+          if (subplot.status !== "resolved") {
+            subplot.status = "resolved"
+            subplot.resolvedChapter = snapshot.chapterNumber
+          }
+        }
+      }
+    }
+  }
+
+  // 同时检查 events 中 "废弃" + subplot title 组合
+  for (const event of snapshot.events) {
+    if (!event.includes("废弃")) continue
+    for (const subplot of board.items) {
+      if (event.includes(subplot.title)) {
+        subplot.abandoned = true
+        if (subplot.status !== "resolved") {
+          subplot.status = "resolved"
+          subplot.resolvedChapter = snapshot.chapterNumber
+        }
+      }
+    }
+  }
+
+  board.lastUpdated = new Date().toISOString()
+  return board
+}
+
 /**
  * F-002 (ANL-010 R4 / C-002): rebuild ALL derived projections from the
  * committed snapshot sequence. Previously `rebuildDerivedMemoryFromSnapshots`
@@ -1574,8 +1814,8 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
 
   // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs / resource ledger /
   // subplot board. Re-folded from the committed snapshot sequence (same
-  // shared apply* helpers as ingest → deterministic rebuild). Subplot board
-  // has no snapshot field yet → commits empty (projection stays alive).
+  // shared apply* helpers as ingest → deterministic rebuild). Phase 3 (LE-1):
+  // applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned.
   const emotionalArcStore = createEmptyEmotionalArcStore()
   const resourceLedger = createEmptyResourceLedgerStore()
   const subplotBoard = createEmptySubplotBoardStore()
@@ -1583,6 +1823,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
     const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
     applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps)
     applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps)
+    applySubplotChangesToStore(subplotBoard, snapshot)
   }
   await saveEmotionalArcs(projectPath, emotionalArcStore)
   await saveResourceLedger(projectPath, resourceLedger)

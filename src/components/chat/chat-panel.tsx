@@ -58,6 +58,7 @@ import {
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 import { isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult } from "@/lib/novel/chat-edit-mode"
 import { backupChapterFile } from "@/lib/novel/chapter-backup"
+import { ContextPackReplayPanel } from "@/components/novel/context-pack-replay-panel"
 import { updateChapterStatus } from "@/lib/novel/chapter-meta"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
 import { normalizeChapterEditFile } from "@/lib/novel/chapter-edit-file"
@@ -376,6 +377,8 @@ export function ChatPanel() {
   const [exemplarCount, setExemplarCount] = useState<number>(0)
   const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
   const [deepChapterEnabled, setDeepChapterEnabledState] = useState(sharedDeepChapterEnabledRef.current)
+  // Wave C6: 最近一次 buildContextPack 装配结果 —— ContextPackReplayPanel 决策回放用（只读展示，零副作用）。
+  const [replayContextPack, setReplayContextPack] = useState<React.ComponentProps<typeof ContextPackReplayPanel>["pack"]>(null)
   const setDeepChapterEnabled = useCallback((nextValue: boolean | ((prev: boolean) => boolean)) => {
     /* v8 ignore next */
     const resolvedValue = typeof nextValue === "function"
@@ -1463,6 +1466,8 @@ export function ChatPanel() {
               nextChapterAdvice: "",
               revisionDirectives: "",
             }))
+            // Wave C6: 接入 ContextPackReplayPanel —— 捕获本次装配结果供回放面板只读展示。
+            setReplayContextPack(contextPack)
             if (contextPack.characterAuras.trim()) {
             const confirmed = await requestSoulDialog(contextPack.characterAuras)
             if (!confirmed) {
@@ -2088,6 +2093,8 @@ export function ChatPanel() {
              revisionDirectives: "",
              contextUsage: undefined,
            }))
+           // Wave C6: 接入 ContextPackReplayPanel —— 捕获 continue-unfinished 路径的装配结果供回放面板只读展示。
+           setReplayContextPack(contextPack)
            const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
            const dismantlingDirective = await loadEnabledDismantlingDirective(pp).catch(() => "")
            continueContextUsage = contextPack.contextUsage
@@ -2411,6 +2418,25 @@ export function ChatPanel() {
               </button>
             )}
             </div>
+
+            {/* Wave C6：ContextPack 决策回放 —— 只读展示最近一次 buildContextPack 装配轨迹。
+                原生 <details> 折叠（默认收起，不干扰聊天主 UX）；仅 novelMode 且已有装配结果时渲染。 */}
+            {novelMode && replayContextPack && (
+              <details
+                className="mx-3 mb-2 shrink-0 overflow-hidden rounded-lg border bg-background text-sm"
+                data-testid="context-pack-replay-collapsible"
+              >
+                <summary className="cursor-pointer select-none list-none px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/40" role="note">
+                  <span className="flex items-center gap-2">
+                    ContextPack 决策回放（最近一次装配）
+                    <span className="shrink-0 rounded bg-muted/60 px-1.5 py-0.5">点击展开</span>
+                  </span>
+                </summary>
+                <div className="px-3 pb-3">
+                  <ContextPackReplayPanel pack={replayContextPack} />
+                </div>
+              </details>
+            )}
 
             {showWriteButton && (
               <div className="border-t px-3 py-2">

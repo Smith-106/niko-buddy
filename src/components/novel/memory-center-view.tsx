@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
@@ -655,56 +656,60 @@ function DeleteMemoryConfirmDialog({
   onConfirm: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
-  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
-  // role=dialog/aria-modal + Escape 关闭 + focus trap。
-  const dialogRef = useRef<HTMLDivElement>(null)
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap、scroll lock、
+  // 背景 aria-hidden(inert)。deleting 中 Escape 不关闭（onEscapeKeyDown 守卫）。
+  // 焦点恢复：本组件常驻挂载（open 受控），open 翻真时的渲染期记录打开前的
+  // 焦点元素，翻假时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<{ el: HTMLElement | null } | null>(null)
+  if (open && previouslyFocusedRef.current === null) {
+    previouslyFocusedRef.current = { el: document.activeElement as HTMLElement | null }
+  }
   useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        if (!deleting) onCancel()
-        return
-      }
-      /* v8 ignore next -- focus trapping runs only while the confirmation dialog is open. */
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        /* v8 ignore next -- the dialog always contains its cancel and confirm buttons. */
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
+    if (!open && previouslyFocusedRef.current) {
+      const { el } = previouslyFocusedRef.current
+      previouslyFocusedRef.current = null
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      el?.focus()
     }
-    document.addEventListener("keydown", handleKeyDown)
-    dialogRef.current?.focus()
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [open, onCancel, deleting])
+  }, [open])
 
   if (!open) return null
 
   return (
+    <DialogRoot
+      open
+      onOpenChange={(next) => {
+        if (!next && !deleting) onCancel()
+      }}
+    >
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("novel.memoryCenter.deleteConfirmTitle")}
-        tabIndex={-1}
-        className="w-full max-w-md rounded-lg border border-destructive/60 bg-background shadow-xl outline-none"
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        aria-modal={true}
+        onOpenAutoFocus={(event) => {
+          // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
+        onInteractOutside={(event) => {
+          // 原实现不响应点击遮罩关闭
+          event.preventDefault()
+        }}
+        onEscapeKeyDown={(event) => {
+          // 删除进行中不允许 Escape 取消
+          if (deleting) event.preventDefault()
+        }}
       >
+      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background shadow-xl outline-none">
         <div className="flex items-start gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-destructive">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold">{t("novel.memoryCenter.deleteConfirmTitle")}</h3>
+            <DialogTitle asChild>
+              <h3 className="text-sm font-semibold">{t("novel.memoryCenter.deleteConfirmTitle")}</h3>
+            </DialogTitle>
             <p className="mt-1 truncate text-xs opacity-80">{title}</p>
           </div>
         </div>
@@ -727,6 +732,8 @@ function DeleteMemoryConfirmDialog({
           </Button>
         </div>
       </div>
+      </DialogContent>
     </div>
+    </DialogRoot>
   )
 }

@@ -1,6 +1,6 @@
 [package]
 name = "niko-buddy"
-version = "2.5.1"
+version = "2.6.0"
 description = "Niko Buddy - A memory-based AI writing desktop system for long-form novels"
 authors = ["Smith-106"]
 edition = "2021"
@@ -36,6 +36,10 @@ docx-rs = "0.4.20"
 cfb = "0.7.3"
 encoding_rs = "0.8.35"
 lancedb = "0.27.2"
+# petgraph (T12, blueprint §10 line 441): read-side in-memory graph
+# traversal over temporally/cognitively filtered edge sets (BFS depth=3 /
+# connected components / topo sort). Storage semantics unchanged.
+petgraph = "0.8"
 # tokio provided by tauri runtime for async commands
 arrow-array = "57"
 arrow-schema = "57"
@@ -64,9 +68,22 @@ md-5 = "0.10"
 notify = "8"
 walkdir = "2"
 tauri-plugin-single-instance = "2"
+# T34 sentinel hardening (TASK-P6-34): structured leveled logging
+# (replaces scattered eprintln/println over time; stage-output journal stays a
+# separate artifact channel and is NOT routed through the log plugin) + window
+# state persistence (size/position restore across restarts).
+tauri-plugin-log = "2"
+# log facade (DEBT-20260822-t34-log-sweep): leveled log::error!/warn!/info!/debug!
+# macros in commands layer, consumed by the tauri-plugin-log wiring in lib.rs.
+log = "0.4"
+tauri-plugin-window-state = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+# proptest (T11): property-based tests for canon temporal invariants /
+# migration-chain idempotency / ingest_digest dedup. dev-dep only —
+# never enters the release binary (consistent with blueprint §9.4).
+proptest = "1"
 
 # windows 链仅 Windows 目标编译：windows-core::imp::IMarshal 仅在
 # cfg(windows) 下存在，非 Windows 平台编译 windows-future 必炸 E0425。

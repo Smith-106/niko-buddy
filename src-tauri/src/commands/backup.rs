@@ -765,12 +765,14 @@ pub async fn export_backup(
         let app_state_path = match app.store("app-state.json") {
             Ok(store) => {
                 if let Err(e) = store.save() {
-                    eprintln!("保存 app-state 存储失败: {e}");
+                    // 非致命：导出继续，但 zip 内 app-state 可能落后于内存态。
+                    log::warn!("保存 app-state 存储失败: {e}");
                 }
                 app_data_dir.join("app-state.json")
             }
             Err(e) => {
-                eprintln!("无法获取 app-state 存储句柄: {e}");
+                // 非致命：回退到磁盘上的 app-state.json。
+                log::warn!("无法获取 app-state 存储句柄: {e}");
                 app_data_dir.join("app-state.json")
             }
         };

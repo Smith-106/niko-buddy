@@ -41,15 +41,19 @@ export interface Subplot {
    */
   lastSeenChapter?: number
   /**
-   * ADR-31 Phase 3 deferred 升级: subplot 目标回收章号 (结构化逾期判定字段)。
-   * Additive optional — 引擎对缺字段回退不抛错 (守 NFR-compat-001/ADR-31)。
-   * 当前 detectOverdueThread 复用 analyzeForeshadowingDebt 产 foreshadowing 逾期,
-   * subplot 逾期检测待 Phase 3 升级后激活; 缺此字段产 data_gap finding 不阻断。
+   * Phase 3 (LE-1) 已落地: subplot 目标回收章号 (结构化逾期判定字段)。
+   * 由 chapter-ingest.ts applySubplotChangesToStore 从 snapshot 情节线解决事件
+   * (foreshadowingChanges "回收" 匹配 subplot title) 写入。
+   * Additive optional — 旧 subplot-board.json 无此字段时引擎回退 data_gap 降级
+   * (不抛错，守 NFR-compat-001/ADR-31)。
    */
   targetResolutionChapter?: number
   /**
-   * ADR-31 Phase 3 deferred 升级: subplot 显式标记废弃 (结构化状态字段)。
-   * Additive optional — 引擎对缺字段回退不抛错 (守 NFR-compat-001/ADR-31)。
+   * Phase 3 (LE-1) 已落地: subplot 显式标记废弃 (结构化状态字段)。
+   * 由 chapter-ingest.ts applySubplotChangesToStore 从 snapshot 废弃事件
+   * (foreshadowingChanges/events 含 "废弃" 匹配 subplot title) 写入。
+   * Additive optional — 旧 subplot-board.json 无此字段时引擎回退 data_gap 降级
+   * (不抛错，守 NFR-compat-001/ADR-31)。
    */
   abandoned?: boolean
 }

@@ -86,6 +86,17 @@ vi.mock("@/lib/novel/start-six-dimension-review-run", () => ({
   startSixDimensionReviewRun: mocks.startSixDimensionReviewRun,
 }))
 
+// F-010: storyboard 子面板的三个可视化视图用占位 mock（入口逻辑测试不测内部渲染）
+vi.mock("@/components/novel/corkboard-view", () => ({
+  CorkboardView: () => <div data-storyboard-placeholder="corkboard" />,
+}))
+vi.mock("@/components/novel/plotgrid-view", () => ({
+  PlotgridView: () => <div data-storyboard-placeholder="plotgrid" />,
+}))
+vi.mock("@/components/novel/timeline-view", () => ({
+  TimelineView: () => <div data-storyboard-placeholder="timeline" />,
+}))
+
 function resetState(): void {
   mocks.state.selectedReviewDimension = "thrill"
   mocks.state.novelMode = true
@@ -259,5 +270,57 @@ describe("ReviewStartButton — 启动审查", () => {
     fireEvent.click(btn)
     await act(async () => {})
     expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+})
+
+describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
+  it("默认隐藏：仅渲染 opt-in 悬浮按钮，不渲染子面板", () => {
+    render(<ReviewCenterView />)
+    expect(document.querySelector("[data-storyboard-toggle]")).toBeTruthy()
+    expect(document.querySelector("[data-storyboard-panel]")).toBeNull()
+  })
+
+  it("点击悬浮按钮 → 打开子面板并默认显示 corkboard tab，按钮隐藏", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
+    expect(document.querySelector("[data-storyboard-toggle]")).toBeNull()
+    await waitFor(() =>
+      expect(document.querySelector('[data-storyboard-placeholder="corkboard"]')).toBeTruthy(),
+    )
+    // 面板打开时底层内容仍在（DashboardView 路由不受影响）
+  })
+
+  it("tab 切换：plotgrid / timeline 占位渲染", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    fireEvent.click(document.querySelector('[data-storyboard-tab="plotgrid"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-storyboard-placeholder="plotgrid"]')).toBeTruthy(),
+    )
+    fireEvent.click(document.querySelector('[data-storyboard-tab="timeline"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-storyboard-placeholder="timeline"]')).toBeTruthy(),
+    )
+  })
+
+  it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
+    fireEvent.click(document.querySelector("[data-storyboard-close]") as HTMLElement)
+    expect(document.querySelector("[data-storyboard-panel]")).toBeNull()
+    expect(document.querySelector("[data-storyboard-toggle]")).toBeTruthy()
+  })
+
+  it("六维维度视图下同样可打开子面板（入口与路由正交）", async () => {
+    mocks.state.selectedReviewDimension = "thrill"
+    render(<ReviewCenterView />)
+    expect(document.querySelector("[data-review-view]")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    await waitFor(() =>
+      expect(document.querySelector('[data-storyboard-placeholder="corkboard"]')).toBeTruthy(),
+    )
+    expect(document.querySelector("[data-review-view]")).toBeTruthy()
   })
 })

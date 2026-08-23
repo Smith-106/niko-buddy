@@ -14,6 +14,44 @@
  * MIT License — independently implemented.
  */
 
+/**
+ * F-008: 自适应上下文三态策略枚举。
+ *
+ * 作为现有 adaptiveScale 曲线上层选择器：先选态再算预算，不替换曲线。
+ * - `full`: 全量上下文（章节数 ≤ fullThreshold，默认 50）
+ * - `sliding`: 滑动窗口上下文（fullThreshold < 章节数 ≤ summaryThreshold，默认 50-200）
+ * - `summary`: 摘要级上下文（章节数 > summaryThreshold，默认 200）
+ */
+export type ContextStrategy = "full" | "sliding" | "summary"
+
+/** 三态策略阈值配置（可 novelConfig 覆盖）。 */
+export interface ContextStrategyConfig {
+  fullThreshold: number
+  summaryThreshold: number
+}
+
+const DEFAULT_STRATEGY_CONFIG: ContextStrategyConfig = {
+  fullThreshold: 50,
+  summaryThreshold: 200,
+}
+
+/**
+ * 根据章节号选择上下文策略（先选态再算预算，不替换 adaptiveScale 曲线）。
+ *
+ * @param chapterNumber 当前章节号（undefined/≤0 返回 full）
+ * @param config        可选阈值覆盖（默认 full≤50/sliding 50-200/summary>200）
+ */
+export function selectContextStrategy(
+  chapterNumber: number | undefined,
+  config?: Partial<ContextStrategyConfig>,
+): ContextStrategy {
+  const { fullThreshold, summaryThreshold } = { ...DEFAULT_STRATEGY_CONFIG, ...config }
+  if (chapterNumber === undefined || chapterNumber <= 0) return "full"
+  if (chapterNumber <= fullThreshold) return "full"
+  if (chapterNumber <= summaryThreshold) return "sliding"
+  return "summary"
+}
+
 /** All values are character counts. */
 export interface ContextBudget {
   /** Full context window (falls back to default when 0/undefined). */
@@ -36,6 +74,11 @@ export interface ContextBudget {
     rank1CompressibleCap: number
     rank2CompressibleCap: number
   }
+  /**
+   * F-008: 三态策略选择结果（full/sliding/summary）。
+   * 作为 adaptiveScale 曲线上层选择器，先选态再算预算。
+   */
+  strategy: ContextStrategy
 }
 
 const DEFAULT_MAX_CTX = 204_800
@@ -69,10 +112,12 @@ function adaptiveScale(chapterNumber: number | undefined): number {
  *                        Falsy values fall back to a 200K default.
  * @param chapterNumber   Optional chapter number for adaptive scaling.
  *                        Omit to preserve original static behavior.
+ * @param strategyConfig  Optional F-008 三态策略阈值覆盖。
  */
 export function computeContextBudget(
   maxContextSize: number | undefined,
   chapterNumber?: number,
+  strategyConfig?: Partial<ContextStrategyConfig>,
 ): ContextBudget {
   const maxCtx =
     typeof maxContextSize === "number" && maxContextSize > 0
@@ -80,6 +125,8 @@ export function computeContextBudget(
       : DEFAULT_MAX_CTX
 
   const responseReserve = Math.floor(maxCtx * RESERVE_FRAC)
+  // F-008: 先选态再算预算（作为 adaptiveScale 曲线上层选择器，不替换曲线）。
+  const strategy = selectContextStrategy(chapterNumber, strategyConfig)
   const scale = adaptiveScale(chapterNumber)
 
   // Index budget: 5% of context, scaled by chapter, with a floor.
@@ -105,5 +152,6 @@ export function computeContextBudget(
     pageBudget,
     maxPageSize,
     activeEntitiesBudget: { rank0Floor, rank1CompressibleCap, rank2CompressibleCap },
+    strategy,
   }
 }

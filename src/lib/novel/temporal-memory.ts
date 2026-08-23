@@ -30,6 +30,9 @@ import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
 import type { ContextEntity } from "./context-engine"
+// T25 (A-04.4): canon 图投影事实类型（T14 读出口产物，已剥离 known_by/digest）。
+// 仅 type-only import —— 本模块仍是纯 VIEW，不引入任何 IPC/IO 依赖。
+import type { CanonFact } from "./canon-graph-client"
 
 export interface TemporalFact {
   /** Stable id (e.g. `fact-ch5-<idx>`). */
@@ -230,6 +233,54 @@ export function factsFromCommittedSnapshots(
   }
 
   return facts
+}
+
+/**
+ * T25 (A-04.4): canon 图投影 → TemporalFact 视图转换。
+ *
+ * 输入是 T14 `canon-graph-client` 读出口的 `CanonFact[]`（如 `queryCanonEdges`
+ * 的返回值，已经 allowlist 投影 + 禁句柄外泄守护）。本函数把图投影边折叠为与
+ * `factsFromCommittedSnapshots` 同形的时序事实视图，供既有消费方（Track B rerank /
+ * renderTemporalCanonBlock / auditTemporalFactsStatus）零改动复用 —— VIEW 契约不动：
+ * temporal-memory 仍不持有存储，canon 三表（T11）才是真源。
+ *
+ * 字段映射（canon 时态语义 → TemporalFact 窗口模型）：
+ *   - validFrom  = validAt ?? sourceChapter ?? 0（缺时态数据 → 从第 0 章起恒真，保守）
+ *   - validUntil = invalidAt ?? undefined（Rust 侧 is_valid_at 同款 [valid_at, invalid_at) 半开区间）
+ *   - subject    = sourceId 经 resolveCanonicalName 折叠（别名/NFKC 与 fold 路径一致）
+ *   - source     = `canon-graph:<id>`（provenance 标记，区分 fold 路径的 `chapter-N`）
+ *
+ * 确定性（F-13 跨模型逐字节一致地基）：输出按 (validFrom, id) 双键升序排序，
+ * 与 IPC 返回顺序解耦；重复 id 去重；archived 边跳过（非权威）。
+ *
+ * 默认路径不变：调用方在 canon_migration 缺省/legacy 时仍走
+ * factsFromCommittedSnapshots 折叠（向后兼容），仅迁移态 ≥ dual 改用本视图。
+ */
+export function fromCanonGraph(
+  facts: readonly CanonFact[],
+  aliasMap?: NameAliasMap,
+): TemporalFact[] {
+  const out: TemporalFact[] = []
+  const seen = new Set<string>()
+  for (const fact of facts) {
+    if (fact.archived) continue
+    if (seen.has(fact.id)) continue
+    seen.add(fact.id)
+    out.push({
+      id: fact.id,
+      subject: resolveCanonicalName(fact.sourceId, aliasMap),
+      predicate: fact.predicate,
+      object: fact.targetId,
+      validFrom: fact.validAt ?? fact.sourceChapter ?? 0,
+      validUntil: fact.invalidAt ?? undefined,
+      source: `canon-graph:${fact.id}`,
+      confidence: fact.confidence ?? undefined,
+    })
+  }
+  // 确定性输出序：(validFrom 升序, id 升序，码点序 —— 不依赖 locale)。id 经上
+  // 方去重保证唯一，故 validFrom 相同时两两必不相等，二元比较器即完备。
+  out.sort((a, b) => a.validFrom - b.validFrom || (a.id < b.id ? -1 : 1))
+  return out
 }
 
 /**

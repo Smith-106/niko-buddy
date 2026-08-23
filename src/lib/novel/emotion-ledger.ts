@@ -168,6 +168,37 @@ export function checkEmotionCircuitBreaker(
 }
 
 /**
+ * F-003 BreakerStatusBadge 三态: 返回 tripped(红)/armed(黄)/open(绿) 状态。
+ * 复用 checkEmotionCircuitBreaker 判定逻辑, 增加预警区间 (threshold ~ threshold + 0.3)
+ * 的 armed 中间态, 供 UI 审查面板展示熔断器可见性。
+ * - tripped: netValue < threshold (已熔断, 红)
+ * - armed: netValue < threshold + 0.3 (接近阈值, 黄)
+ * - open: netValue >= threshold + 0.3 (安全, 绿)
+ */
+export function getCircuitBreakerStatus(
+  store: EmotionLedgerStore,
+  threshold: number,
+): { status: "tripped" | "armed" | "open"; reason: string } {
+  const worst = getTopEmotionalDebt(store, 1)[0]
+  if (!worst) {
+    return { status: "open", reason: "无情绪债务数据" }
+  }
+  if (worst.netValue < threshold) {
+    return {
+      status: "tripped",
+      reason: `熔断器已触发: ${worst.characterName} 净值 ${worst.netValue.toFixed(2)} 低于阈值 ${threshold} (应 SUSPEND 生成)`,
+    }
+  }
+  if (worst.netValue < threshold + 0.3) {
+    return {
+      status: "armed",
+      reason: `熔断器预警: ${worst.characterName} 净值 ${worst.netValue.toFixed(2)} 接近阈值 ${threshold} (建议关注)`,
+    }
+  }
+  return { status: "open", reason: "熔断器正常: 情绪债务在安全范围内" }
+}
+
+/**
  * Render top-N emotional-debt entries as protected-tier context text (与
  * emotionalArcsToContextText 同款模式, 供 context-engine 并入 characterStates 注入)。
  * 只注入 netValue 最低 (债务最重) 的 N 个角色, 避免上下文膨胀。空 store 返回 ""。

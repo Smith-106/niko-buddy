@@ -17,7 +17,7 @@ describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
     const stats = deAiStructuredStats()
     expect(stats.categoryCount).toBe(7)
     expect(stats.severityCount).toBe(4)
-    expect(stats.ruleCount).toBe(28) // TASK-202 收敛: 矩阵 24→28 满格 (7 类 × 4 档)
+    expect(stats.ruleCount).toBe(42) // TASK-P2-19 (T19): 增强 28→42 (7 类 × 4 档 + 14 统计检测规则)
     expect(stats.genreCount).toBe(14) // TASK-201 收敛: 流派 8→14
     expect(DE_AI_SEVERITIES).toEqual(["critical", "high", "medium", "low"])
   })

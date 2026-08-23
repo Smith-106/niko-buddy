@@ -139,6 +139,7 @@ const mocks = vi.hoisted(() => {
   }
 
   const emptyContextBudget: ContextBudget = {
+    strategy: "full",
     maxCtx: 204800,
     responseReserve: 30720,
     indexBudget: 5000,
@@ -1801,7 +1802,7 @@ describe("ChatPanel — handleSend 主链路", () => {
       if (path.includes("wiki/pages/b.md")) return "B" + "y".repeat(20)
       return ""
     })
-    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 30, pageBudget: 2000, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
+    mocks.computeContextBudget.mockReturnValue({ strategy: "full", maxCtx: 204800, responseReserve: 30720, indexBudget: 30, pageBudget: 2000, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.tokenizeQuery.mockReturnValue(["chapter"])
     mocks.searchWiki.mockImplementation(async () => [
       { title: "A", path: "/p/mybook/wiki/pages/a.md", snippet: "", score: 0, titleMatch: true, images: [] },
@@ -1855,7 +1856,7 @@ describe("ChatPanel — handleSend 主链路", () => {
 
   it("检索链路：预算/截断/读文件失败/overview 回退 + 索引不裁剪", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 25, maxPageSize: 10, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
+    mocks.computeContextBudget.mockReturnValue({ strategy: "full", maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 25, maxPageSize: 10, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("index.md")) return "短索引"
       if (path.includes("wiki/pages/")) return "L".repeat(40)
@@ -3714,7 +3715,7 @@ describe("ChatPanel — 补覆盖：handleSend 分支", () => {
 
   it("页面预算用尽 → tryAddPage 早退", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.computeContextBudget.mockReturnValue({ maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 80, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
+    mocks.computeContextBudget.mockReturnValue({ strategy: "full", maxCtx: 204800, responseReserve: 30720, indexBudget: 5000, pageBudget: 80, maxPageSize: 800, activeEntitiesBudget: { rank0Floor: 8, rank1CompressibleCap: 2000, rank2CompressibleCap: 1000 } })
     mocks.readFile.mockImplementation(async (path: string) => {
       if (path.includes("wiki/pages/a.md")) return "a".repeat(80)
       if (path.includes("wiki/pages/b.md")) return "b"

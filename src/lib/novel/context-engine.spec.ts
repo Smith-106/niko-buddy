@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest"
 import {
   contextPackToPrompt,
   truncateActiveEntitiesByBudget,
@@ -162,6 +162,26 @@ const hoisted = vi.hoisted(() => {
   return state
 })
 
+// T25 (A-04.4/F-13): canon 三源并行测试面 —— canon 迁移门（T09 会话状态）与
+// T14 投影读出口均 mock，不依赖 Tauri 运行时。默认实现由 resetHoistedDefaults 重置。
+const t25 = vi.hoisted(() => ({
+  loadNovelSessionStatus: vi.fn(),
+  queryCanonEdges: vi.fn(),
+  compileFromCommittedSnapshot: vi.fn(),
+}))
+vi.mock("./novel-session-status", () => ({
+  loadNovelSessionStatus: t25.loadNovelSessionStatus,
+}))
+vi.mock("./canon-graph-client", () => ({
+  queryCanonEdges: t25.queryCanonEdges,
+}))
+// 技法源：默认透传真实离线编译器（compileFromCommittedSnapshot 纯函数），
+// 失败降级用例可覆写为抛错。
+vi.mock("./craft/technique-compiler", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./craft/technique-compiler")>()
+  return { ...actual, compileFromCommittedSnapshot: t25.compileFromCommittedSnapshot }
+})
+
 // 捕获 parseFrontmatter 的默认实现，供 resetHoistedDefaults 恢复（避免用例间覆写泄漏）。
 const defaultParseFrontmatter = hoisted.parseFrontmatter.getMockImplementation()
 
@@ -246,6 +266,18 @@ vi.mock("./community-summary", () => ({
 }))
 
 // ── 测试夹具 ────────────────────────────────────────────────────────────────
+
+// T25: 真实离线技法编译器（mock 默认实现透传目标）。vi.importActual 是异步的，
+// 在 beforeAll 捕获一次同步引用 —— compileFromCommittedSnapshot 本体是纯同步函数，
+// mock 默认实现必须保持同步返回（返回 Promise 会让 loadTechniqueBlocks 拿到
+// Promise.pack 而走 catch 降级）。
+let realCompileFromCommittedSnapshot!: typeof import("./craft/technique-compiler")["compileFromCommittedSnapshot"]
+beforeAll(async () => {
+  const actual = await vi.importActual<typeof import("./craft/technique-compiler")>(
+    "./craft/technique-compiler",
+  )
+  realCompileFromCommittedSnapshot = actual.compileFromCommittedSnapshot
+})
 
 const mkLlmConfig = (maxContextSize: number): LlmConfig => ({
   provider: "openai",
@@ -384,6 +416,13 @@ function resetHoistedDefaults(): void {
   hoisted.defaultRawData = fixtureRawData()
   hoisted.loadAllImpl = null
   hoisted.lastLoadContext = undefined
+  // T25: canon 迁移门默认关闭（null → 默认折叠路径）；canon 查询默认空集；
+  // 技法编译默认透传真实离线编译器。
+  t25.loadNovelSessionStatus.mockReset().mockResolvedValue(null)
+  t25.queryCanonEdges.mockReset().mockResolvedValue([])
+  t25.compileFromCommittedSnapshot.mockReset().mockImplementation(
+    () => realCompileFromCommittedSnapshot(),
+  )
   useWikiStore.setState({
     novelMode: true,
     novelConfig: mkNovelConfig(),
@@ -2587,5 +2626,160 @@ describe("第三轮补齐：context-engine 分支全覆盖", () => {
     hoisted.readFile.mockRejectedValue(new Error("no file"))
     const out = await searchGraphRelevantContent("/p", "林晚秋 任务", undefined)
     expect(out).toBe("")
+  })
+})
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// T25 (A-04.4/F-13/F-19): 三源真并行（wiki / canon / 技法）+ canon 事实块注入
+// + temporal/character fromCanonGraph 接线。VIEW 契约不动 —— 既有 pack 字段与
+// prompt 字节基线全部由上方既有用例守恒，本块只断言 additive 面。
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("T25 三源真并行 + canon 事实块注入", () => {
+  it("全量装配注入三源计时探针（sourceTimingsMs 三槽位有限非负）+ 技法块文本", async () => {
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.sourceTimingsMs).toBeDefined()
+    for (const value of Object.values(pack.sourceTimingsMs!)) {
+      expect(Number.isFinite(value)).toBe(true)
+      expect(value).toBeGreaterThanOrEqual(0)
+    }
+    // 源3 技法：T27b 离线编译产物，仅渲染 injectionPoint="chapter_task_brief" 的块
+    // （真实编译器离线路径）；protagonist_brief / ending_guard 面不进 ContextPack。
+    expect(pack.techniqueBlocks).toContain("【爽点循环与延宕节奏注入】")
+    expect(pack.techniqueBlocks).toContain("【章末钩子注入】")
+    expect(pack.techniqueBlocks).not.toContain("【主角愿望—动机—行动注入】")
+    expect(pack.techniqueBlocks).not.toContain("【终局章三戒守卫】")
+  })
+
+  it("canon_migration=dual → 源2 走 T14 读出口：queryCanonEdges 过滤当前章 + fromCanonGraph 视图注入", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "dual" })
+    t25.queryCanonEdges.mockResolvedValue([
+      {
+        id: "c1",
+        sourceId: "白砚",
+        targetId: "轩辕剑",
+        predicate: "OWNS",
+        edgeKind: "world_fact",
+        validAt: 2,
+        invalidAt: 9,
+        confidence: 0.8,
+        archived: false,
+      },
+    ])
+    hoisted.renderTemporalCanonBlock.mockReturnValue("CANON-BLOCK-MARKER")
+
+    const pack = await buildContextPack("/p", "生成第3章正文", 3, {
+      novelConfig: mkNovelConfig({ temporalFactsEnabled: true }),
+    })
+
+    // T13/T14 IPC 契约：projectPath 即 projectId；世界时态过滤当前章有效 + 仅未归档。
+    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(1)
+    expect(t25.queryCanonEdges).toHaveBeenCalledWith("/p", { valid_at_chapter: 3, archived: false })
+    // fromCanonGraph 视图转换（真函数）：TemporalFact 窗口语义逐字段对齐。
+    expect(pack.temporalFacts).toEqual([
+      {
+        id: "c1",
+        subject: "白砚",
+        predicate: "OWNS",
+        object: "轩辕剑",
+        validFrom: 2,
+        validUntil: 9,
+        source: "canon-graph:c1",
+        confidence: 0.8,
+      },
+    ])
+    // 注入路径与折叠路径同款：renderTemporalCanonBlock → canonRules 合并。
+    expect(hoisted.renderTemporalCanonBlock).toHaveBeenCalled()
+    expect(pack.canonRules).toContain("CANON-BLOCK-MARKER")
+    expect(t25.loadNovelSessionStatus).toHaveBeenCalledWith("/p")
+  })
+
+  it("canon_migration=shadow → 同 dual 走 canon 读出口", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "shadow" })
+    t25.queryCanonEdges.mockResolvedValue([])
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(1)
+    expect(pack.temporalFacts).toEqual([])
+  })
+
+  it("canon_migration=legacy / 缺省 → 默认仍 fold：不触 canon 读出口（向后兼容 A-04.4）", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "legacy" })
+    const legacyPack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(t25.queryCanonEdges).not.toHaveBeenCalled()
+    expect(legacyPack.temporalFacts).toEqual([])
+
+    t25.loadNovelSessionStatus.mockClear()
+    const defaultPack = await buildContextPack("/p2", "生成第3章正文", 3)
+    expect(t25.loadNovelSessionStatus).toHaveBeenCalledWith("/p2") // 门照常读取
+    expect(t25.queryCanonEdges).not.toHaveBeenCalled()
+    expect(defaultPack.temporalFacts).toEqual([])
+  })
+
+  it("无章节号（targetChapter≤0）→ 不读迁移门、不加载数据源（原语义）", async () => {
+    await buildContextPack("/p", "任务")
+    expect(t25.loadNovelSessionStatus).not.toHaveBeenCalled()
+    expect(t25.queryCanonEdges).not.toHaveBeenCalled()
+  })
+
+  it("canon 读出口失败 → 降级 null + raw canonRules 兜底（不阻断装配）", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "dual" })
+    t25.queryCanonEdges.mockRejectedValue(new Error("ipc down"))
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.temporalFacts).toBeNull()
+    expect(pack.canonRules).toBe("正史规则")
+  })
+
+  it("折叠路径失败 → 同款降级 null + raw canonRules 兜底（原 catch 语义上移保留）", async () => {
+    hoisted.listDirectory.mockResolvedValue([
+      { name: "001.snapshot.json", path: "/p/.novel/snapshots/001.snapshot.json", is_dir: false },
+    ])
+    hoisted.getFileModifiedTime.mockResolvedValue(1000)
+    hoisted.listSnapshots.mockRejectedValue(new Error("ingest"))
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.temporalFacts).toBeNull()
+    expect(pack.canonRules).toBe("正史规则")
+    // 计时探针仍在（canon 槽位已计入本次失败耗时）
+    expect(pack.sourceTimingsMs!.canon).toBeGreaterThanOrEqual(0)
+  })
+
+  it("三源并发启动证明：wiki 被 gate 卡住期间 canon 源已启动（Promise.all 真并行）", async () => {
+    const started: string[] = []
+    let releaseWiki!: () => void
+    const wikiGate = new Promise<void>((resolve) => {
+      releaseWiki = resolve
+    })
+    hoisted.loadAllImpl = async () => {
+      started.push("wiki")
+      await wikiGate
+      return fixtureRawData()
+    }
+    t25.loadNovelSessionStatus.mockImplementation(async () => {
+      started.push("canon")
+      return null
+    })
+
+    const packPromise = buildContextPack("/p", "生成第3章正文", 3)
+    // wiki 仍被 gate 卡住时，canon 源必须已经启动 —— 若 wiki 串行 await 先行，
+    // canon 源此刻不可能出现（这正是 T25 要消除的串行装配形态）。
+    await vi.waitFor(() => expect(started).toContain("canon"), { timeout: 2000 })
+    expect(started).toContain("wiki")
+
+    releaseWiki()
+    const pack = await packPromise
+    expect(pack.task).toBe("生成第3章正文")
+    expect(pack.sourceTimingsMs).toBeDefined()
+  })
+
+  it("技法编译失败 → 降级不注入（undefined）且不阻断装配", async () => {
+    t25.compileFromCommittedSnapshot.mockImplementation(() => {
+      throw new Error("snapshot corrupt")
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.techniqueBlocks).toBeUndefined()
+    expect(pack.task).toBe("生成第3章正文")
+    // 其余两源不受影响：wiki 数据照常装配、计时探针三槽位齐全。
+    expect(pack.chapterGoal).toBe("细纲：目标")
+    expect(pack.sourceTimingsMs!.technique).toBeGreaterThanOrEqual(0)
   })
 })

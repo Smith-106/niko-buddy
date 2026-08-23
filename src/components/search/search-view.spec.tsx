@@ -524,10 +524,11 @@ describe("SearchView 图片网格与 lightbox", () => {
     const { onOpenFile } = await renderWithImages("2023年总资产合计", "media/foo/a.png")
     fireEvent.click(screen.getByTitle("2023年总资产合计"))
     expect(screen.getByRole("dialog")).toBeInTheDocument()
-    expect(document.body.style.overflow).toBe("hidden")
+    // TASK-LE-5：Radix scroll lock 以 data-scroll-locked 标记（替代手写 overflow hidden）
+    await waitFor(() => expect(document.body.hasAttribute("data-scroll-locked")).toBe(true))
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(document.body.style.overflow).not.toBe("hidden")
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    await waitFor(() => expect(document.body.hasAttribute("data-scroll-locked")).toBe(false))
     expect(onOpenFile).not.toHaveBeenCalled()
   })
 
@@ -542,8 +543,11 @@ describe("SearchView 图片网格与 lightbox", () => {
   it("lightbox：点击 backdrop 关闭但点击内部不关闭", async () => {
     await renderWithImages("2023年总资产合计", "media/foo/a.png")
     fireEvent.click(screen.getByTitle("2023年总资产合计"))
-    fireEvent.click(screen.getByRole("dialog"))
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    // TASK-LE-5：Radix 以 pointerdown 判定 outside + click 确认；role=dialog 在内容卡片上
+    const backdrop = screen.getByRole("dialog").parentElement!
+    fireEvent.pointerDown(backdrop)
+    fireEvent.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
 
     // 同一渲染内重新打开，点内部 img 不关闭
     fireEvent.click(screen.getByTitle("2023年总资产合计"))
@@ -661,8 +665,9 @@ describe("SearchView 图片网格与 lightbox", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument()
 
     // 清空项目后重渲染：Lightbox / ImageHitCard 的 projectPath 走 null 分支
+    // 对话框 aria-modal 使搜索框 aria-hidden，用 { hidden: true } 跳过可访问性检查
     mocks.state.project = null
-    const input = screen.getByRole("textbox")
+    const input = screen.getByRole("textbox", { hidden: true })
     fireEvent.change(input, { target: { value: "总资产x" } })
     expect(mocks.resolveMarkdownImageSrc).toHaveBeenCalledWith(
       "media/foo/a.png",

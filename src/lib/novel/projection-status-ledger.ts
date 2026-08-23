@@ -45,11 +45,50 @@ export interface ProjectionStatusEntry {
   last_error: string
 }
 
+// ============================================================================
+// F-005 (v2.6 Tier2): append-only audit trail.
+//
+// ProjectionStatusEntry above is a LAST-KNOWN-STATUS cell — re-running a
+// projection overwrites it, so the history of intermediate failures during a
+// single ingest (e.g. graph failed then succeeded on retry) is lost. The
+// auditTrail below is an APPEND-ONLY event log recorded alongside it: one
+// entry per projection commit/rebuild event, persisted per-event so a hard
+// crash mid-ingest still leaves the already-emitted events on disk (mid-ingest
+// forensics; the last-known-status cells are only saved in the loop's finally).
+//
+// ADR-16 boundary: auditTrail lives INSIDE the existing projection-status.json
+// as an additive field — NOT a second session-state file. The RMW writer
+// preserves every unknown top-level field, and readers of the ledger shape
+// ({projections, chapters}) ignore the extra key.
+// Growth note (OQ-3): the trail grows unbounded (~12 events/chapter); a
+// rolling-window policy is deferred past v2.6 baseline.
+// ============================================================================
+
+/** Outcome of one audited projection event. "rebuild" = scheduled rebuild succeeded (community_summary); failures are always "failed" + error. */
+export type ProjectionAuditStatus = "committed" | "rebuild" | "failed"
+
+export interface ProjectionAuditEntry {
+  /** The projection name (same keys as PROJECTION_CATEGORIES). */
+  projection: string
+  /** Chapter number the event belongs to (>0 — frontmatter-validated upstream). */
+  chapter: number
+  /** Event outcome: committed / rebuild / failed. */
+  status: ProjectionAuditStatus
+  /** Wall-clock duration of the projection body in ms. */
+  durationMs: number
+  /** Error message when status === "failed"; omitted otherwise. */
+  error?: string
+  /** ISO timestamp of when the event finished. */
+  timestamp: string
+}
+
 export interface ProjectionStatusLedger {
   /** Static category mapping per C-002 mixed_per_projection. */
   projections: Record<string, ProjectionCategory>
   /** Per-chapter projection status: chapters[chapterNumber][projection] = entry. */
   chapters: Record<string, Record<string, ProjectionStatusEntry>>
+  /** F-005: append-only audit history; additive optional field (older files lack it). */
+  auditTrail?: ProjectionAuditEntry[]
 }
 
 /**
@@ -91,6 +130,9 @@ export function emptyLedger(): ProjectionStatusLedger {
   return {
     projections: { ...PROJECTION_CATEGORIES },
     chapters: {},
+    // F-005: initial state — an empty (present, not undefined) trail so
+    // consumers can rely on array semantics after any load/empty path.
+    auditTrail: [],
   }
 }
 
@@ -100,8 +142,12 @@ function ledgerPath(projectPath: string): string {
 }
 
 export async function loadProjectionStatusLedger(projectPath: string): Promise<ProjectionStatusLedger> {
+  // A5: keep the raw bytes across the read/parse boundary so that on a JSON
+  // parse failure we can preserve the original file to a .corrupt-* sibling
+  // instead of silently zeroing history on the next save.
+  let raw: string | undefined
   try {
-    const raw = await readFile(ledgerPath(projectPath))
+    raw = await readFile(ledgerPath(projectPath))
     const parsed = JSON.parse(raw) as Partial<ProjectionStatusLedger>
     if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
       return emptyLedger()
@@ -111,10 +157,47 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
     return {
       projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
       chapters: parsed.chapters,
+      // F-005: preserve the append-only trail across loads (legacy files → []).
+      auditTrail: Array.isArray(parsed.auditTrail) ? parsed.auditTrail : [],
     }
   } catch {
+    // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
+    // NOT silently reset the ledger. When we actually held file contents that
+    // failed to parse, copy them to a .corrupt-<timestamp> sibling in the same
+    // directory and warn — then still return emptyLedger() to stay available.
+    if (raw !== undefined) {
+      try {
+        await preserveCorruptLedger(projectPath, raw)
+      } catch (preserveErr) {
+        // Preserving the original is best-effort; never let it break the load.
+        console.error(
+          "[projection-status-ledger] failed to preserve corrupt ledger file:",
+          preserveErr,
+        )
+      }
+    }
     return emptyLedger()
   }
+}
+
+/**
+ * A5: copy the raw (corrupt) ledger contents to a `.corrupt-<ISO timestamp>`
+ * sibling in the same directory so the history is not silently lost when the
+ * next saveProjectionStatusLedger overwrites projection-status.json. Uses the
+ * project's existing IO primitives (readFile + writeFileAtomic); no rename
+ * primitive is exposed, so this is an explicit read+write copy.
+ */
+async function preserveCorruptLedger(projectPath: string, raw: string): Promise<void> {
+  const pp = normalizePath(projectPath)
+  // ISO timestamps contain ':' / '.' which are legal on most filesystems but
+  // awkward; normalize them so the suffix stays filename-friendly.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+  const corruptPath = `${pp}/.novel/projection-status.corrupt-${stamp}.json`
+  await writeFileAtomic(corruptPath, raw)
+  console.error(
+    `[projection-status-ledger] corrupted ledger detected at ${ledgerPath(projectPath)}; ` +
+      `original contents preserved to ${corruptPath}`,
+  )
 }
 
 export async function saveProjectionStatusLedger(
@@ -127,6 +210,48 @@ export async function saveProjectionStatusLedger(
   // must not be corrupted by a crash mid-write, or it would defeat its
   // purpose of making projection failures visible.
   await writeFileAtomic(ledgerPath(projectPath), JSON.stringify(ledger, null, 2))
+}
+
+/**
+ * F-005: append one audit event to the in-memory ledger's trail (pure).
+ * Pairs with appendProjectionAuditEntry — the in-memory copy must stay in sync
+ * so the end-of-loop saveProjectionStatusLedger cannot clobber the per-event
+ * durable flushes back off disk.
+ */
+export function recordProjectionAudit(
+  ledger: ProjectionStatusLedger,
+  entry: ProjectionAuditEntry,
+): ProjectionStatusLedger {
+  return { ...ledger, auditTrail: [...(ledger.auditTrail ?? []), entry] }
+}
+
+/**
+ * F-005: durably append one audit event to projection-status.json.
+ *
+ * Read-modify-write that spreads ALL existing top-level fields through
+ * (projections / chapters / version / anything else) and only replaces the
+ * auditTrail array — strictly additive, never drops legacy or unknown fields.
+ * Tolerant of missing/corrupt files (starts a fresh document). Callers treat
+ * failure as non-fatal: audit must never break the projection loop.
+ */
+export async function appendProjectionAuditEntry(
+  projectPath: string,
+  entry: ProjectionAuditEntry,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  await createDirectory(`${pp}/.novel`)
+  let doc: Record<string, unknown> = {}
+  try {
+    const parsed: unknown = JSON.parse(await readFile(ledgerPath(pp)))
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      doc = parsed as Record<string, unknown>
+    }
+  } catch {
+    // Missing or corrupt file → start a fresh document; the spread below
+    // keeps whatever fields were recoverable (none) without failing the caller.
+  }
+  const existing = Array.isArray(doc.auditTrail) ? (doc.auditTrail as ProjectionAuditEntry[]) : []
+  await writeFileAtomic(ledgerPath(pp), JSON.stringify({ ...doc, auditTrail: [...existing, entry] }, null, 2))
 }
 
 /**

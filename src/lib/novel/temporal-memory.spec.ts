@@ -3,6 +3,7 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import {
   factsFromCommittedSnapshots,
+  fromCanonGraph,
   getFactsAt,
   invalidateFact,
   queryFactsAt,
@@ -12,6 +13,7 @@ import {
   resolveNegation,
   type TemporalFact,
 } from "./temporal-memory"
+import type { CanonFact } from "./canon-graph-client"
 import type { ContextEntity } from "./context-engine"
 
 function makeFact(overrides: Partial<TemporalFact> & { id: string }): TemporalFact {
@@ -482,5 +484,97 @@ describe("parseCanonFact (via factsFromCommittedSnapshots)", () => {
       undefined,
     )
     expect(facts.map((f) => f.validFrom)).toEqual([1, 5])
+  })
+})
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// T25 (A-04.4/F-13): fromCanonGraph — canon 图投影 → TemporalFact 视图转换
+// （默认仍走 factsFromCommittedSnapshots 折叠，本视图仅在迁移态 ≥ dual 使用）
+// ════════════════════════════════════════════════════════════════════════════
+
+function makeCanonFact(overrides: Partial<CanonFact> & { id: string }): CanonFact {
+  return {
+    sourceId: "主角",
+    targetId: "轩辕剑",
+    predicate: "OWNS",
+    edgeKind: "world_fact",
+    archived: false,
+    ...overrides,
+  }
+}
+
+describe("fromCanonGraph (T25)", () => {
+  it("maps projected CanonFact fields onto the TemporalFact window model", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e1", validAt: 3, invalidAt: 9, confidence: 0.9 }),
+    ])
+    expect(facts).toEqual([
+      {
+        id: "e1",
+        subject: "主角",
+        predicate: "OWNS",
+        object: "轩辕剑",
+        validFrom: 3,
+        validUntil: 9,
+        source: "canon-graph:e1",
+        confidence: 0.9,
+      },
+    ])
+  })
+
+  it("falls back validFrom to sourceChapter then 0, and drops absent windows", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e2", sourceChapter: 5 }),
+      makeCanonFact({ id: "e3" }),
+    ])
+    const byId = new Map(facts.map((f) => [f.id, f]))
+    const bySourceChapter = byId.get("e2")!
+    const timeless = byId.get("e3")!
+    expect(bySourceChapter.validFrom).toBe(5)
+    expect(bySourceChapter.validUntil).toBeUndefined()
+    expect(bySourceChapter.confidence).toBeUndefined()
+    // 无任何时态锚点 → 从第 0 章起恒真（保守）。
+    expect(timeless.validFrom).toBe(0)
+    expect(timeless.validUntil).toBeUndefined()
+  })
+
+  it("skips archived edges and dedupes repeated ids", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e1" }),
+      makeCanonFact({ id: "e1", predicate: "AT" }), // 同 id 去重
+      makeCanonFact({ id: "e2", archived: true }), // 归档边非权威
+      makeCanonFact({ id: "e3" }),
+    ])
+    expect(facts.map((f) => f.id)).toEqual(["e1", "e3"])
+  })
+
+  it("folds the subject through the alias map (same semantics as the fold path)", () => {
+    const facts = fromCanonGraph(
+      [makeCanonFact({ id: "e1", sourceId: "小白" })],
+      { canonical: "白砚", aliases: ["小白"] },
+    )
+    expect(facts[0]!.subject).toBe("白砚")
+  })
+
+  it("sorts output by (validFrom, id) regardless of input order — deterministic view", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "b2", validAt: 4 }),
+      makeCanonFact({ id: "a9", validAt: 1 }),
+      makeCanonFact({ id: "a1", validAt: 1 }),
+    ])
+    expect(facts.map((f) => f.id)).toEqual(["a1", "a9", "b2"])
+  })
+
+  it("stays a pure VIEW: output feeds getFactsAt / renderTemporalCanonBlock unchanged", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e-live", validAt: 1 }),
+      makeCanonFact({ id: "e-dead", targetId: "凌霄殿", validAt: 2, invalidAt: 5 }),
+    ])
+    // 第 6 章有效事实：live 在、dead 已关闭 —— 与 fold 路径同款时态查询语义。
+    expect(getFactsAt(6, undefined, facts).map((f) => f.id)).toEqual(["e-live"])
+    const block = renderTemporalCanonBlock(6, facts)
+    expect(block).toContain("[第1章起] 主角：OWNS 轩辕剑")
+    expect(block).not.toContain("凌霄殿")
   })
 })

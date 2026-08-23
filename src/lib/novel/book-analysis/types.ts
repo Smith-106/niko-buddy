@@ -262,6 +262,16 @@ export interface BookStyleProfile {
   constitution: string
   /** 3~6 段代表原文片段，作为模仿锚点（few-shot）。 */
   samples: string[]
+  /**
+   * F-011: Voice Preservation 第二层 — 文风蒸馏 voiceStyleGuide。
+   * 从 book-analysis 提取的语音风格指导（对话标点风格/段落缩进/引号规范等），
+   * 复用 style-extraction-engine 输出，无需额外 LLM 调用。
+   */
+  voiceStyleGuide?: {
+    punctuationStyle: string
+    paragraphStyle: string
+    dialogueTagStyle: string
+  }
 }
 
 // 作品库信息

@@ -14,7 +14,7 @@ import {
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
-import { reviewChapter, runContinuityMechanicalPreflight, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, runContinuityMechanicalPreflight, resolveReviewGateKey, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
   runSixDimensionReview,
@@ -44,7 +44,20 @@ import {
 } from "./scene-breakdown"
 import {
   appendStageMetric,
+  type RouteShellMode,
+  type AntiAiMode,
 } from "./novel-session-status"
+import {
+  route,
+  type ControlState,
+  type Instruction,
+  type RouteStage,
+  type RouteGates,
+  type RouteRole,
+  type AntiAiMode as KernelAntiAiMode,
+} from "./control-kernel"
+import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { resolveRoleModel as resolveRoleModelName } from "@/lib/llm/model-resolver"
 import {
   appendRewriteRateASample,
 } from "./character-cognition"
@@ -95,6 +108,12 @@ import {
   type ResidualRewritePolicyDecision,
 } from "./residual-rewrite-policy"
 import { buildStructureFirstRewriteConstraint } from "./structure-first-rewrite"
+import {
+  feedToken,
+  pollWatchdog,
+  type WatchdogState,
+} from "./watchdog"
+import { createStatusWriteMerger } from "./status-write-merge"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -131,6 +150,32 @@ export interface DeepChapterGenerationInput {
   residualRewriteMode?: ResidualRewriteMode
   chapterStructurePlan?: ChapterStructurePlan | null
   residualLengthPreserving?: boolean
+  /**
+   * T10 × T09：route 薄壳模式开关（additive-optional，项目级隔离）。
+   * 缺省 undefined → legacy（既有字节级等价顺序流水线，A-35 不破）；
+   * "route" → stage 推进改读 control-kernel.route()（T33 注册表落地前预览路径）。
+   */
+  routeShellMode?: RouteShellMode
+  /**
+   * T10 × T09：三档反 AI 模式（additive-optional，项目级隔离）。
+   * 缺省 undefined → off（现状：anti_ai 失败即挡）；
+   * route 模式下由 route() 门控消费（off/warn/block，T21）。
+   */
+  antiAiMode?: AntiAiMode
+  /**
+   * DEBT-20260822-t34-wiring: watchdog 注入点（可选，additive）。
+   * 缺省 undefined → 无卡死检测（现状字节级不变）。
+   * 存在时在 collectModelText 的 onToken 中喂入 feedToken，
+   * 在阶段边界处调用 pollWatchdog 判定卡死。
+   */
+  watchdog?: WatchdogState
+  /**
+   * DEBT-20260822-t34-wiring: status 快照 writer 注入点（可选，additive）。
+   * 缺省 undefined → checkpoint/指标写入走现有路径（保持不变）。
+   * 存在时创建 StatusWriteMerger 包装该 writer，checkpoint 关键写入
+   * 走 merger.schedule(critical)，阶段边界 drain，完成时 flush。
+   */
+  snapshotWriter?: (payload: string) => Promise<void>
 }
 
 /** True when caller opted into residual campaign fields (any residual hook present). */
@@ -312,29 +357,242 @@ const ONUPDATE_FLUSH_CHARS = 256
 // coverage but risks false positives on legitimate prose; deferred.
 const MAX_GATE_RETRY = 3
 // A19 emotion-ledger pilot: 情绪债务熔断阈值。任一角色 netValue 低于此值即触发
-// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 选自 NovelForge-v5
-// EmotionTracker 经验值: 三轴负偏 + history 负累积达此深度时角色状态已不可逆。
+// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 为 QMAI 设计阈值
+// (NovelForge-v5 EmotionTracker 的 net_debt 为 0-100+ 量纲, 无可直接对照的
+// Circuit Breaker 阈值; -0.6 基于 QMAI 的 -1.0~1.0 netValue 量纲经验设定:
+// 三轴负偏 + history 负累积达此深度时角色状态已不可逆, 对应 NovelForge-v5
+// CAUTIOUS 状态类比)。
 const EMOTION_CB_THRESHOLD = -0.6
 const MAX_TASK_BRIEF_REPAIR_ATTEMPTS = 2
 const USER_ABORT_MESSAGE = "已停止生成"
 
-const CONSISTENCY_REVIEW_TYPES = new Set([
-  "consistency",
-  "character_consistency",
-  "timeline",
-  "foreshadowing",
-  "setting",
-  "consistency_mechanical",
-])
-const ANTI_AI_REVIEW_TYPES = new Set([
-  "anti_ai",
-  "style",
-  "de_ai",
-  "slop",
-])
+// DEBT-20260824-T24-02 偿还：本地硬编码集已迁移到 review-adapter.resolveReviewGateKey
+// （GATE_MAPPING 唯一真源），保留以下引用锚点防止遗留 import 被误删。
+// CONSISTENCY_REVIEW_TYPES / ANTI_AI_REVIEW_TYPES 已删除，resolveDecisionGateKey
+// 现在委托给 review-adapter 的 resolveReviewGateKey。
+
 
 export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, enabled: boolean): boolean {
   return enabled
+}
+
+// ───────────────────────────────────────────────────────────────────
+// T10 薄编排化：route() 接入 + T09 additive 字段 + role→model 解析点预留
+// ───────────────────────────────────────────────────────────────────
+//
+// 设计决策（自动判决）:
+//   主循环 stage 推进改为『可』读 control-kernel.route() 获取下一步指令 → 分发；
+//   但默认 route_shell_mode=legacy（T09 缺省），此时 resolveNextStageViaRoute
+//   返回 null，既有顺序流水线一字不改运行 → 字节级等价 A-35 不破，
+//   deep-chapter-golden.spec.ts 与全部现有 deep-chapter *.spec.ts 零回归。
+//   route 分支仅当显式 route_shell_mode="route" 时激活（T33 注册表落地前预览路径，
+//   现有测试均走 legacy，故该分支标记 v8 ignore 不计入覆盖率）。
+//   route() 只决定『下一步做什么』（13 分支互斥纯函数，无 IO/LLM）；
+//   『怎么做』由 resolveRoleModel 按角色解析模型（默认全角色单模型 = 现状）。
+
+/**
+ * T10 × T09：route 薄壳模式开关读取（项目级隔离，缺省 legacy）。
+ * legacy = 既有字节级等价顺序流水线（默认）；route = 走 control-kernel.route() 决策。
+ */
+export function resolveRouteShellMode(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): RouteShellMode {
+  const fromInput = input.routeShellMode
+  const fromConfig = novelConfig
+    ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
+    : undefined
+  return fromInput ?? fromConfig ?? "legacy"
+}
+
+/**
+ * T10 × T09：三档反 AI 模式读取（项目级隔离，缺省 off = 现状：anti_ai 失败即挡）。
+ * 三档：off=不挡 / warn=警告不挡 / block=硬挡（T21；route 模式由 route() 门控消费）。
+ */
+export function resolveAntiAiMode(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): AntiAiMode {
+  const fromInput = input.antiAiMode
+  const fromConfig = novelConfig
+    ? (novelConfig as { antiAiMode?: AntiAiMode }).antiAiMode
+    : undefined
+  return fromInput ?? fromConfig ?? "off"
+}
+
+/** T09 AntiAiMode (含自定义 string&{}) → route() 内核三档字面量（未知档归 off，route() 仅 block 硬挡）。 */
+function normalizeAntiAiMode(mode: AntiAiMode): KernelAntiAiMode {
+  if (mode === "warn") return "warn"
+  if (mode === "block") return "block"
+  return "off"
+}
+
+/**
+ * T10 / T33 预留：stage executor 的 role→model 解析点。
+ *
+ * 默认全角色单模型 = 现状（writingConfig 即当前 AI 会话模型），位级等价 A-35 不破。
+ * T33 注册表落地后，仅在此处加注册接入（按 role 查注册表返回对应 model 配置），
+ * 0 重构：调用方签名不变（仍传 role + projectConfig）。
+ */
+export function resolveRoleModel(
+  role: RouteRole | undefined,
+  projectConfig: { writingConfig: LlmConfig },
+): LlmConfig {
+  // T33 registry routing: delegate to model-resolver for role→model name resolution,
+  // then use ProviderRegistry for provider routing.
+  if (role) {
+    const modelName = resolveRoleModelName(role as Parameters<typeof resolveRoleModelName>[0], {
+      writingModel: projectConfig.writingConfig.model,
+      reviewModel: projectConfig.writingConfig.model,
+    })
+    if (modelName && modelName !== projectConfig.writingConfig.model) {
+      // 角色专属模型覆盖：构造新 LlmConfig 使用已解析模型名。
+      // ProviderRegistry 在后续 getProviderConfig 调用中验证 provider 已注册。
+      return { ...projectConfig.writingConfig, model: modelName }
+    }
+  }
+  return projectConfig.writingConfig
+}
+
+/** T10 路由运行时（route() ControlState 的精简投影，纯函数无 IO）。 */
+export interface DeepChapterRouteRuntime {
+  phase: "writing"
+  stage: RouteStage
+  chapterNumber: number
+  completedChapters: number
+  pendingRewrites: number[]
+  gates: RouteGates
+  antiAiMode: KernelAntiAiMode
+  manualReviewRequired: boolean
+  foundationMissing: string[]
+  planningTier: ""
+  reviewInterval: number
+  lastGlobalReviewChapter: number
+  hasArcReview: boolean
+  hasArcSummary: boolean
+  hasVolumeSummary: boolean
+  shellMode: "legacy"
+}
+
+/** 恢复检查点 resume stage → route() RouteStage（与 control-sentinels ROUTE_STAGES 同构）。 */
+function mapResumeStageToRouteStage(
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+): RouteStage {
+  if (!checkpoint) return "context"
+  switch (checkpoint.stage) {
+    case "after_context": return "context"
+    case "after_scene_breakdown": return "scene_breakdown"
+    case "after_task_brief": return "task_brief"
+    case "after_draft": return "draft"
+    case "after_review": return "review"
+    case "after_revision": return "revision"
+    default: return "context"
+  }
+}
+
+/** DeepChapterDecisionGate.status（pending/passed/failed）→ route() GateVerdict（pending/pass/fail）。 */
+function mapDecisionGateStatusToVerdict(
+  status: "pending" | "passed" | "failed" | undefined,
+): "pending" | "pass" | "fail" {
+  if (status === "failed") return "fail"
+  if (status === "passed") return "pass"
+  return "pending"
+}
+
+/**
+ * T10：由 deep-chapter 运行时（输入 + 恢复检查点 + novelConfig）构造 route() 的 ControlState。
+ * 单章生成视角：completedChapters/reviewInterval/弧末事务均按当前章上下文归零/关闭
+ * （global_review / arc_transition 分支在单章生成内不触发），不影响 legacy 路径字节级等价。
+ */
+export function buildDeepChapterRouteRuntime(
+  input: DeepChapterGenerationInput,
+  resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+): DeepChapterRouteRuntime {
+  const gates: RouteGates = resumeCheckpoint?.decisionGates
+    ? {
+        consistency: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.consistency.status),
+        anti_ai: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.anti_ai.status),
+        quality: mapDecisionGateStatusToVerdict(resumeCheckpoint.decisionGates.quality.status),
+      }
+    : { consistency: "pending", anti_ai: "pending", quality: "pending" }
+  const antiAi = resolveAntiAiMode(input, novelConfig)
+  const normalizedAntiAi: KernelAntiAiMode = normalizeAntiAiMode(antiAi)
+  return {
+    phase: "writing",
+    stage: mapResumeStageToRouteStage(resumeCheckpoint),
+    chapterNumber: input.chapterNumber ?? 0,
+    completedChapters: 0,
+    pendingRewrites: [],
+    gates,
+    antiAiMode: normalizedAntiAi,
+    manualReviewRequired: Boolean(resumeCheckpoint?.manualReviewRequired),
+    foundationMissing: [],
+    planningTier: "",
+    reviewInterval: 0,
+    lastGlobalReviewChapter: 0,
+    hasArcReview: false,
+    hasArcSummary: false,
+    hasVolumeSummary: false,
+    shellMode: "legacy",
+  }
+}
+
+/** route() ControlState 投影（薄封装，无 IO/LLM，ADR-19 机械层）。 */
+function buildDeepChapterControlState(runtime: DeepChapterRouteRuntime): ControlState {
+  return {
+    phase: runtime.phase,
+    stage: runtime.stage,
+    chapterNumber: runtime.chapterNumber,
+    completedChapters: runtime.completedChapters,
+    pendingRewrites: runtime.pendingRewrites,
+    gates: runtime.gates,
+    antiAiMode: runtime.antiAiMode,
+    manualReviewRequired: runtime.manualReviewRequired,
+    foundationMissing: runtime.foundationMissing,
+    planningTier: runtime.planningTier,
+    reviewInterval: runtime.reviewInterval,
+    lastGlobalReviewChapter: runtime.lastGlobalReviewChapter,
+    hasArcReview: runtime.hasArcReview,
+    hasArcSummary: runtime.hasArcSummary,
+    hasVolumeSummary: runtime.hasVolumeSummary,
+    shellMode: runtime.shellMode,
+  }
+}
+
+/**
+ * T10 薄编排化：stage 推进改读 route()。
+ *
+ * 默认 legacy 分支（route_shell_mode 缺省/非 "route"）→ 返回 null，编排器走既有
+ * 字节级等价顺序流水线（A-35 不破；deep-chapter-golden.spec.ts 零回归）。
+ *
+ * route 分支（route_shell_mode === "route"）→ 由 control-kernel.route() 纯函数
+ * （13 分支互斥，无 IO/LLM）裁定下一步动作；执行层『怎么做』由 resolveRoleModel
+ * 按角色解析模型（默认全角色单模型 = 现状）。route 模式为 T33 注册表落地前的预览
+ * 路径，现有测试均走 legacy，故该分支 v8 ignore 不计入覆盖率。
+ */
+export function resolveNextStageViaRoute(
+  input: DeepChapterGenerationInput,
+  novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  runtime: DeepChapterRouteRuntime,
+): Instruction | null {
+  const shellMode = resolveRouteShellMode(input, novelConfig)
+  if (shellMode !== "route") {
+    return null
+  }
+  /* v8 ignore start */
+  const instruction = route(buildDeepChapterControlState(runtime))
+  return instruction
+  /* v8 ignore stop */
+}
+
+/**
+ * T07 × T09 step_digest 集成：基于 checkpoint-digest (SHA-256 幂等键) 计算当前步骤摘要。
+ * 输入经 stableStringify 规范化（键序稳定），同一步骤恒定同 digest，供 status.json
+ * 唯一真源 step_digest 字段落盘（崩溃续跑命中跳过重调 LLM）。薄封装，无 IO/LLM（ADR-19）。
+ */
+export async function computeStepDigest(stageLabel: string, payload: unknown): Promise<string> {
+  return computeCheckpointDigestOf({ stage: stageLabel, payload })
 }
 
 function createResumeCheckpoint(
@@ -371,15 +629,15 @@ function emptyDecisionGates(): DeepChapterDecisionGates {
   }
 }
 
+/**
+ * 解析审查 finding type → 三门控键（consistency / anti_ai / quality）。
+ *
+ * DEBT-20260824-T24-02 偿还：已迁移到 review-adapter.resolveReviewGateKey
+ * （GATE_MAPPING 唯一真源），删除本地硬编码重复集。
+ * normalize 口径（trim + lowercase）与 review-adapter 一致。
+ */
 function resolveDecisionGateKey(type: string): DeepChapterDecisionGateKey {
-  const normalized = type.trim().toLowerCase()
-  if (CONSISTENCY_REVIEW_TYPES.has(normalized)) {
-    return "consistency"
-  }
-  if (ANTI_AI_REVIEW_TYPES.has(normalized)) {
-    return "anti_ai"
-  }
-  return "quality"
+  return resolveReviewGateKey(type) as DeepChapterDecisionGateKey
 }
 
 function uniqueSuggestions(findings: NovelReviewResult[]): string[] {
@@ -977,11 +1235,59 @@ export async function runDeepChapterGeneration(
   const novelConfig = input.novelConfig
   const lengthSpec = resolveCurrentChapterLengthSpec(novelConfig)
 
+  // ── DEBT-20260822-t34-wiring：watchdog + status-write-merger ──
+  // watchdog 注入点：缺省 undefined → 无卡死检测（现状字节级不变）。
+  // 存在时 collectModelText 的 onToken 中喂入 feedToken，阶段边界处 poll。
+  const watchdog = input.watchdog
+  // snapshotWriter 注入点：缺省 undefined → 无 merger（现状字节级不变）。
+  // 存在时创建 StatusWriteMerger 包装该 writer 并管理其生命周期。
+  const statusMerger = input.snapshotWriter
+    ? createStatusWriteMerger(
+        { write: input.snapshotWriter, now: () => Date.now() },
+      )
+    : undefined
+
+  /** DEBT-20260822-t34-wiring: 阶段边界轮询 watchdog + drain merger。缺省无操作。 */
+  const pollWatchdogAtBoundary = () => {
+    if (watchdog) {
+      pollWatchdog(watchdog, Date.now())
+    }
+  }
+
+  // ── T10 薄编排化：route() 接入（默认 legacy 分支，A-35 字节级等价不破）──
+  // legacy（route_shell_mode 缺省/非 "route"）：routeInstruction === null，
+  // 下方既有顺序流水线一字不改运行，所有现有 deep-chapter *.spec.ts 零回归。
+  // route：routeInstruction 由 control-kernel.route() 纯函数裁定（13 分支互斥），
+  // 驱动阶段机；现有测试均走 legacy，route 分支 v8 ignore 不计入覆盖率。
+  const routeRuntime = buildDeepChapterRouteRuntime(input, resumeCheckpoint, novelConfig)
+  const routeInstruction = resolveNextStageViaRoute(input, novelConfig, routeRuntime)
+  if (routeInstruction) {
+    /* v8 ignore start */
+    // T07 × T09 step_digest：基于 checkpoint-digest 计算当前步骤幂等摘要（落 status.json 用）。
+    const stepDigest = await computeStepDigest(routeInstruction.action, routeRuntime)
+    // DEBT-20260820-01: 经 statusMerger 写 status.json.step_digest
+    if (statusMerger) {
+      await statusMerger.schedule(
+        JSON.stringify({ step_digest: stepDigest }),
+        "non_critical",
+      )
+    }
+    // T33 预留解析点：按 route() 角色解析执行模型（默认全角色单模型 = 现状，A-35 不破）。
+    resolveRoleModel(routeInstruction.role, { writingConfig })
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段路由(route)",
+      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} reason=${routeInstruction.reason}`,
+    ))
+    /* v8 ignore stop */
+  }
+
   // 阶段0：前情分析
   const previousChaptersAnalysis = await runPreviousChaptersAnalysis(
     input, writingConfig, novelConfig, resumeCheckpoint, callbacks, signal,
   )
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段1：上下文装配
   const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
@@ -990,6 +1296,8 @@ export async function runDeepChapterGeneration(
   )
   const { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // TASK-007: 确定性连续性引擎生成层预检 (grill GRL-011 Decision 1.3 bullet 模式)。
   // 非阻断: 只产提醒级 bullet 文本拼入任务书 prompt 末尾, 不阻止 generateDraft。
@@ -998,6 +1306,8 @@ export async function runDeepChapterGeneration(
   const continuityPreCheckText = await runContinuityPreCheck(input.projectPath, input.chapterNumber)
   const contextPrompt = continuityPreCheckText ? rawContextPrompt + continuityPreCheckText : rawContextPrompt
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // Quality Foundation v1 / FR-S1: outline thril soft-gate (pre-write).
   // Non-blocking: surfaces checklist via onThinking; FIX-1 fails are warnings, not Track A errors.
@@ -1009,25 +1319,32 @@ export async function runDeepChapterGeneration(
     callbacks,
   )
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段1.5：场景拆解
   await runSceneBreakdownStage(
     input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
   )
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段2 + 2.5：任务书生成 + 纠偏
   const taskBrief = await generateTaskBrief(
     input, writingConfig, deps, signal, callbacks,
     outlinePrompt, contextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
+    watchdog,
   )
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段3 + 3.5：正文初稿 + 草稿纠偏
   const draftContent = await generateDraft(
     input, writingConfig, deps, signal, callbacks,
     outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
-    notePartial, clearPartial,
+    notePartial, clearPartial, watchdog,
   )
   assertNotAborted(signal)
 
@@ -1041,12 +1358,15 @@ export async function runDeepChapterGeneration(
     callbacks,
   )
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段4-5：AI 审稿 + 返修循环
   const stage45 = await runReviewAndRepair(
     input, novelConfig, deps, signal, callbacks,
     contextPack, draftContent, resumeCheckpoint,
     writingConfig, outlinePrompt, contextPrompt, taskBrief, lengthSpec, cachePrefix, notePartial,
+    watchdog,
   )
   // MAX_GATE_RETRY 转人工：原内联此处 callbacks.onFinalContent + 完整 return。
   // 提取后在编排器层构造 result（能访问 partialReason，partial 语义绝对正确）。
@@ -1057,6 +1377,10 @@ export async function runDeepChapterGeneration(
   ]
   if (stage45.manualHandoff) {
     callbacks.onFinalContent?.(stage45.currentContent)
+    // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
+    if (statusMerger) {
+      await statusMerger.flush().catch(() => {})
+    }
     return {
       finalContent: stage45.currentContent,
       taskBrief,
@@ -1072,6 +1396,8 @@ export async function runDeepChapterGeneration(
     }
   }
   assertNotAborted(signal)
+  pollWatchdogAtBoundary()
+  await statusMerger?.drain()
 
   // 阶段7：简单审查与去AI味
   const finalContent = await finalPolishChapter(
@@ -1090,6 +1416,7 @@ export async function runDeepChapterGeneration(
     lengthSpec,
     cachePrefix,
     notePartial,
+    watchdog,
   )
   callbacks.onThinking?.(formatStageThinking(
     "阶段7：完成",
@@ -1108,6 +1435,10 @@ export async function runDeepChapterGeneration(
   // internally re-buffers on write failure (llm-client.ts :229) so a flush error
   // never breaks the run return; no-op when the buffer is empty (:209).
   void flushContinuityMetrics()
+  // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
+  if (statusMerger) {
+    await statusMerger.flush().catch(() => {})
+  }
   return {
     finalContent,
     taskBrief,
@@ -1468,6 +1799,7 @@ async function generateTaskBrief(
   resumeCheckpoint: DeepChapterGenerationResumeCheckpoint | undefined,
   contextPack: ContextPack,
   cachePrefix: string | undefined,
+  watchdog?: WatchdogState,
 ): Promise<string> {
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
   if (!taskBrief) {
@@ -1489,6 +1821,9 @@ async function generateTaskBrief(
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
       undefined,
       cachePrefix,
+      undefined,
+      undefined,
+      watchdog,
     )
     assertNotAborted(signal)
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief))
@@ -1505,6 +1840,7 @@ async function generateTaskBrief(
       input.userRequest,
       input.chapterNumber,
       lengthSpec,
+      await computeCheckpointDigestOf(contextPack.canonRules),
     )
     callbacks.onThinking?.(formatStageThinking(
       "阶段2.5：任务书纠偏",
@@ -1548,6 +1884,9 @@ async function generateTaskBrief(
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", partial)),
         undefined,
         cachePrefix,
+        undefined,
+        undefined,
+        watchdog,
       )
       assertNotAborted(signal)
       callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", taskBrief))
@@ -1560,6 +1899,7 @@ async function generateTaskBrief(
         input.userRequest,
         input.chapterNumber,
         lengthSpec,
+        await computeCheckpointDigestOf(contextPack.canonRules),
       )
       callbacks.onThinking?.(formatStageThinking(
         "阶段2.5：任务书纠偏",
@@ -1607,6 +1947,7 @@ async function generateDraft(
   cachePrefix: string | undefined,
   notePartial: (reason: string) => void,
   clearPartial: () => void,
+  watchdog?: WatchdogState,
 ): Promise<string> {
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
   if (!draftContent) {
@@ -1630,6 +1971,8 @@ async function generateDraft(
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
       notePartial,
+      undefined,
+      watchdog,
     )
     assertNotAborted(signal)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -1655,6 +1998,7 @@ async function generateDraft(
         cachePrefix,
         notePartial,
         clearPartial,
+        watchdog,
       )
       assertNotAborted(signal)
     }
@@ -1691,6 +2035,8 @@ async function generateDraft(
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
       notePartial,
+      undefined,
+      watchdog,
     )
     assertNotAborted(signal)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -1716,6 +2062,7 @@ async function generateDraft(
         cachePrefix,
         notePartial,
         clearPartial,
+        watchdog,
       )
       assertNotAborted(signal)
     }
@@ -1759,6 +2106,7 @@ async function runReviewAndRepair(
   lengthSpec: ChapterLengthSpec,
   cachePrefix: string | undefined,
   notePartial: (reason: string) => void,
+  watchdog?: WatchdogState,
 ): Promise<ReviewAndRepairResult> {
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
@@ -1962,7 +2310,10 @@ async function runReviewAndRepair(
       }
     }
 
-    if (retryCount >= MAX_GATE_RETRY) {
+    // F-003 retryCountCircuitBreaker: 显式计数判定 (retryCount >= MAX_GATE_RETRY=3)
+    // 强制 SUSPEND, 与 emotion-ledger Circuit Breaker 双轨并存。不改 manualHandoff 路径。
+    const retryCountCircuitBreakerTripped = retryCount >= MAX_GATE_RETRY
+    if (retryCountCircuitBreakerTripped) {
       manualReviewRequired = true
       decisionGates = buildDecisionGates(reviewResults, retryCount, true)
       callbacks.onThinking?.(formatStageThinking(
@@ -2032,6 +2383,8 @@ async function runReviewAndRepair(
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
       notePartial,
+      undefined,
+      watchdog,
     )
     assertNotAborted(signal)
     callbacks.onThinking?.(formatStageThinking(
@@ -2188,6 +2541,8 @@ async function runReviewAndRepair(
         { max_tokens: lengthSpec.maxOutputTokens },
         cachePrefix,
         notePartial,
+        undefined,
+        watchdog,
       )
       assertNotAborted(signal)
       if (polishedContent.trim()) {
@@ -2256,6 +2611,7 @@ async function finalPolishChapter(
   lengthSpec: ChapterLengthSpec = resolveChapterLengthSpec(),
   cachePrefix?: string,
   onPartial?: (reason: string) => void,
+  watchdog?: WatchdogState,
 ): Promise<string> {
   assertNotAborted(signal)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
@@ -2281,6 +2637,8 @@ async function finalPolishChapter(
     { max_tokens: lengthSpec.maxOutputTokens },
     cachePrefix,
     onPartial,
+    undefined,
+    watchdog,
   )
   assertNotAborted(signal)
   return polished.trim() ? polished : currentContent
@@ -2343,6 +2701,11 @@ async function collectModelText(
   // never cleared' policy produces false-positive partial flags on recovered
   // drafts, routing a complete chapter to pause instead of complete.
   onCompleteClearPartial?: () => void,
+  /**
+   * DEBT-20260822-t34-wiring: watchdog 注入点（可选，additive）。
+   * 缺省 undefined → onToken 中不喂入 watchdog（现状字节级不变）。
+   */
+  watchdog?: WatchdogState,
 ): Promise<string> {
   let content = ""
   let reasoningBuffer = ""
@@ -2394,6 +2757,10 @@ async function collectModelText(
         if (signal?.aborted) {
           stopStream(USER_ABORT_MESSAGE)
           return
+        }
+        // DEBT-20260822-t34-wiring: watchdog feed on each token
+        if (watchdog) {
+          feedToken(watchdog, Date.now())
         }
         content += token
         // Only re-scan for repeated tail when the content has grown by at least

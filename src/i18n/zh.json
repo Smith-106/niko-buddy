@@ -176,7 +176,15 @@
     "perDimOnly": "请按维阅读；书稿结案以 overall 中位≥9（N≥5）为硬门，且 Consistency 优先",
     "measurementFingerprintHint": "测量指纹：model+N+窗+packHash+正文Hash。pack 不同则 thril 不可比。非产品硬门。",
     "measurementFingerprintTitle": "测量指纹",
-    "measurementFingerprintEmpty": "尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）"
+    "measurementFingerprintEmpty": "尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）",
+    "storyboard": {
+      "title": "分镜板",
+      "toggle": "分镜板",
+      "corkboard": "卡片墙",
+      "plotgrid": "情节矩阵",
+      "timeline": "时间线",
+      "close": "收起分镜板"
+    }
   },
   "nav": {
     "wiki": "章节库",
@@ -190,7 +198,8 @@
     "settings": "设置",
     "switchProject": "切换小说",
     "trash": "回收站",
-    "chat": "聊天"
+    "chat": "聊天",
+    "coverWorkbench": "封面工作台"
   },
   "theme": {
     "switch": "切换主题",
@@ -1247,7 +1256,8 @@
       "dismantling": "拆文库",
       "settings": "模型与写作设置",
       "switchProject": "切换小说",
-      "chat": "聊天"
+      "chat": "聊天",
+      "coverWorkbench": "封面工作台"
     },
     "sidebar": {
       "knowledge": "章节",
@@ -1743,6 +1753,44 @@
       "noEvents": "暂无时间线事件。保存正式章节并提取记忆后，时间线将在此展示。",
       "noEventsHint": "章节生成后会自动记录时间线",
       "chapter": "第{{num}}章"
+    },
+    "corkboard": {
+      "title": "场景卡片墙",
+      "loading": "加载卡片...",
+      "noData": "暂无章节快照。保存正式章节并提取记忆后，卡片墙将在此展示。",
+      "noDataHint": "每张卡片对应一章的场景摘要",
+      "chapter": "第{{num}}章",
+      "words": "{{count}}字",
+      "noSummary": "暂无摘要"
+    },
+    "plotgrid": {
+      "title": "情节矩阵",
+      "loading": "加载矩阵...",
+      "noData": "暂无情节线。先在伏笔管理中埋设伏笔，矩阵将在此展示。",
+      "noDataHint": "行为情节线（复用伏笔池），列为章节",
+      "plotline": "情节线",
+      "chapterShort": "第{{num}}章",
+      "noChapters": "暂无章节列",
+      "noChaptersHint": "保存正式章节快照后，矩阵将出现章节列"
+    },
+    "coverWorkbench": {
+      "title": "封面 Prompt 工作台",
+      "dialogHint": "选择平台 → 填写作品信息 → 复制生成好的封面 Prompt（纯本地生成，不调用 AI）",
+      "platform": "平台",
+      "styleLabel": "风格基调",
+      "noStyle": "未配置风格",
+      "dimensions": "尺寸",
+      "bookTitle": "书名",
+      "bookTitlePlaceholder": "输入小说书名",
+      "genre": "题材",
+      "genrePlaceholder": "如：东方玄幻 / 都市脑洞 / 古代言情",
+      "keywords": "氛围关键词",
+      "keywordsPlaceholder": "如：热血、逆袭、权谋",
+      "promptPreview": "Prompt 预览",
+      "copy": "复制 Prompt",
+      "copied": "已复制",
+      "hint": "纯客户端一次性产出：不调用 AI、不进入草稿流程。可粘贴到任意文生图工具。",
+      "emptyTemplates": "暂无平台模板（config/cover-platform-templates.json 为空或格式错误）"
     },
     "foreshadowing": {
       "title": "伏笔管理",

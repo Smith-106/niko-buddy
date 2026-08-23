@@ -312,6 +312,13 @@ export interface NovelConfig {
   stateDeltaBlocksTrackA: boolean
   /** Quality Foundation v1: outline thril soft-gate before draft (default on). */
   outlineThrillSoftGateEnabled: boolean
+  /**
+   * F-011: Voice Preservation 第一层 — spelling convention 全局拼写约定。
+   * 存储在 settings 中，作为全局默认拼写规范而非 per-project 粒度。
+   */
+  dialoguePunctuationStyle: string
+  paragraphIndent: string
+  quoteConvention: string
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -350,6 +357,10 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   stateDeltaLightCheckEnabled: true,
   stateDeltaBlocksTrackA: false,
   outlineThrillSoftGateEnabled: true,
+  // F-011: Voice Preservation 第一层 — spelling convention 默认值
+  dialoguePunctuationStyle: "",
+  paragraphIndent: "",
+  quoteConvention: "",
 }
 
 // ── Revision feedback / multimodal ──────────────────────────────────────────────

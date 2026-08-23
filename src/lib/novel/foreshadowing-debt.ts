@@ -1,4 +1,4 @@
-import type { ForeshadowingStore } from "./foreshadowing-tracker"
+import type { Foreshadowing, ForeshadowingStore } from "./foreshadowing-tracker"
 
 export interface ForeshadowingDebtItem {
   id: string
@@ -40,7 +40,11 @@ export function analyzeForeshadowingDebt(
   const advancedStale = options?.advancedStale ?? DEFAULT_ADVANCED_STALE
   const densityLimit = options?.densityLimit ?? DEFAULT_DENSITY_LIMIT
 
-  const unresolved = store.items.filter((item) => item.status !== "resolved")
+  // abandoned 视为已退出伏笔链（不再计入活跃债务），与 resolved 等价排除。
+  const unresolved = store.items.filter(
+    (item): item is Foreshadowing & { status: "planted" | "advanced" } =>
+      item.status === "planted" || item.status === "advanced",
+  )
 
   const items: ForeshadowingDebtItem[] = unresolved.map((item) => {
     const chaptersSincePlanted = currentChapter - item.plantedChapter

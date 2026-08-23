@@ -21,6 +21,7 @@ import {
   rerankActiveEntitiesByTemporalFacts,
   factsFromCommittedSnapshots,
   renderTemporalCanonBlock,
+  fromCanonGraph,
   type TemporalFact,
 } from "./temporal-memory"
 import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-facts-audit"
@@ -57,6 +58,16 @@ import {
 } from "./related-chapters"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
+// T25 (A-04.4/F-13): canon 三源并行 — 源2 走 T14 投影读出口（canon_migration ≥ dual
+// 时启用；默认仍走折叠路径），源3 走 T27b 技法离线编译（runtime 唯一合法入口）。
+import { queryCanonEdges } from "./canon-graph-client"
+// T25: canon 迁移门读取（status.json canon_migration 字段，T09 契约）。
+// loadNovelSessionStatus 自吞错误（缺失/损坏 → null），不向外抛。
+// 无运行时循环依赖：novel-session-status 对 deep-chapter-generation/review-adapter
+// 均为 type-only import（编译期擦除）。
+import { loadNovelSessionStatus, type CanonMigrationMode } from "./novel-session-status"
+// T27b/F-19 (W12 注入范围含技法块): 离线编译产物渲染为技法提示块文本。
+import { compileFromCommittedSnapshot } from "./craft/technique-compiler"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -77,6 +88,7 @@ const SECTION_PRIORITY: Record<string, number> = {
   "修改反馈": 15,
   "下一章推进建议": 16,
   "写作风格": 17,
+  "语音风格指南": 17.5,
 }
 
 /**
@@ -318,6 +330,35 @@ export interface ContextPack {
    * legacy constructors / emptyPack / build 失败降级时 undefined（不渲染 ring）。
    */
   contextUsage?: ContextUsage
+  /**
+   * F-011: Voice Preservation 第二层 — voiceStyleGuide 段落。
+   * 从 book-analysis BookStyleProfile.voiceStyleGuide 读取，
+   * 复用文风蒸馏结果（对话标点风格/段落缩进/引号规范），
+   * 渲染为写作指导注入 prompt。
+   */
+  voiceStyleGuide?: string
+  /**
+   * T25 (F-19/A-04.4): 技法提示块文本 — T27b 离线编译产物
+   * （compileFromCommittedSnapshot）中 injectionPoint="chapter_task_brief"
+   * 的块渲染为行文本。additive 独立字段：消费方按需读取（与 relatedChapters
+   * 同款 pack 字段消费模式）；编译失败或空产物时不注入（undefined），
+   * 不改变任何既有段渲染（VIEW 契约不动）。
+   */
+  techniqueBlocks?: string
+  /**
+   * T25 (A-04.4): 三源并行装配计时探针（telemetry 计时点，ms，performance.now 差值）。
+   * wiki = 数据源注册器 loadAll；canon = 时序事实源（折叠路径或 T14 canon 图查询）；
+   * technique = 技法块编译渲染。仅 buildContextPack 主装配注入；legacy 构造器 /
+   * emptyPack / build 失败降级时 undefined。同时经 logger.info 输出一次遥测事件。
+   */
+  sourceTimingsMs?: SourceTimingsMs
+}
+
+/** T25: 三源计时探针槽位（毫秒）。 */
+export interface SourceTimingsMs {
+  wiki: number
+  canon: number
+  technique: number
 }
 
 /**
@@ -467,7 +508,33 @@ async function buildContextPackUnlocked(
   try {
     // 创建数据源注册器并加载所有数据
     const registry = createDataSourceRegistry()
-    const rawData = await registry.loadAll(context)
+    //
+    // ── T25 / A-04.4: 三源真并行（wiki / canon / 技法 单次 Promise.all）───────
+    // 源1 wiki   = registry.loadAll（原有全部上下文数据源，最长链）；
+    // 源2 canon  = 时序事实（loadCanonSourceFacts：默认折叠路径；canon_migration
+    //              ≥ dual 时改走 T14 读出口 queryCanonEdges + fromCanonGraph）；
+    // 源3 技法 = T27b 离线编译技法块（compileFromCommittedSnapshot，纯同步计算
+    //              包一层 async 以统一三源计时口径）。
+    // 三源无数据依赖，原先 wiki 串行 await 完才走后续装配；现在单次 Promise.all
+    // 并发发出，canon/technique 与 wiki 装载重叠。各源 performance.now 差值记入
+    // pack.sourceTimingsMs（telemetry 计时点）并输出一次 logger.info 遥测事件。
+    // 失败降级均在各源函数内处理（不 reject），不阻断主装配。
+    const timings: SourceTimingsMs = { wiki: 0, canon: 0, technique: 0 }
+    const timedSource = async <T>(slot: keyof SourceTimingsMs, run: () => Promise<T>): Promise<T> => {
+      const startedAt = performance.now()
+      try {
+        return await run()
+      } finally {
+        timings[slot] = performance.now() - startedAt
+      }
+    }
+    const [rawData, temporalFactsPreloaded, techniqueText] = await Promise.all([
+      timedSource("wiki", () => registry.loadAll(context)),
+      timedSource("canon", () => loadCanonSourceFacts(pp, context.chapterNumber ?? 0)),
+      timedSource("technique", () => loadTechniqueBlocks()),
+    ])
+    // telemetry 计时点：每次 build 输出一次三源耗时（毫秒，非整数保留亚毫秒分辨率）。
+    logger.info("ContextEngine", "context-pack 三源并行装配计时", { ...timings })
 
     // EPIC-001 + EPIC-003 / TASK-004 + TASK-006: 并行加载 exemplar + activeEntities，
     // 与 buildContextPackFromRawData 无数据依赖（两者在 pack 返回后 merge 注入）。
@@ -517,7 +584,7 @@ async function buildContextPackUnlocked(
           })()
         : Promise.resolve("")
     const [pack, exemplars, activeEntities, relatedChaptersText, referencesText] = await Promise.all([
-      buildContextPackFromRawData(rawData, context),
+      buildContextPackFromRawData(rawData, context, temporalFactsPreloaded),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
         ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
@@ -554,6 +621,10 @@ async function buildContextPackUnlocked(
     // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
     // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
     pack.references = referencesText
+    // T25 (F-19/A-04.4): 技法块注入（additive 独立字段）— 空文本不注入（undefined），
+    // 消费方按需读取 pack.techniqueBlocks；三源计时探针遥测字段同步注入。
+    pack.techniqueBlocks = techniqueText || undefined
+    pack.sourceTimingsMs = timings
     // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
     // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
     // EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): Track B rerank 接线（接上方
@@ -684,10 +755,17 @@ function createDataSourceRegistry(): DataSourceRegistry {
 
 /**
  * 从原始数据构建上下文包
+ *
+ * T25 (A-04.4): temporal 事实改为预载消费 —— `temporalFactsPreloaded` 由
+ * buildContextPackUnlocked 的三源并行段（loadCanonSourceFacts：默认折叠路径 /
+ * canon_migration ≥ dual 时 T14 读出口 + fromCanonGraph）产出后直传进来，
+ * 本函数不再重复加载（D7 避免 PAT-G2 孪生重复 load）。null = 未启用或加载失败 →
+ * canonRules 回退 raw（向后兼容；原 catch 降级语义已上移至 loadCanonSourceFacts）。
  */
 async function buildContextPackFromRawData(
   rawData: Record<string, any>,
   context: ContextLoadContext,
+  temporalFactsPreloaded: TemporalFact[] | null,
 ): Promise<ContextPack> {
   // PERF-011 (TASK-007): the adaptive budget for this build was already
   // computed in `buildContextPack` (stored as `currentBuildBudget`) before
@@ -798,19 +876,16 @@ async function buildContextPackFromRawData(
   // automatically excluded. Failure to load is non-fatal: canonRules falls
   // back to the raw canon rules (backward compatible).
   //
-  // PERF (odyssey-review): run loadTemporalFactsCached in parallel with
-  // buildCharacterAuraContext — the two have no data dependency (character
-  // aura uses rawData + chapterGoal; temporal facts use only projectPath).
-  // Previously these awaited serially, adding one extra round-trip latency
-  // per build.
+  // T25 (A-04.4): the facts are now PRELOADED by the three-source parallel
+  // stage in buildContextPackUnlocked (loadCanonSourceFacts — default fold
+  // path, or T14 canon-graph query + fromCanonGraph when canon_migration ≥
+  // dual) and handed in as `temporalFactsPreloaded`. This function only
+  // consumes the resolved value — no duplicate load here (D7, avoids the
+  // PAT-G2 twin-load). null = not enabled / load failed → canonRules keeps
+  // the raw canon rules (backward compatible).
   const targetChapter = context.chapterNumber ?? 0
   let canonRules = rawData.canonRules
-  const temporalFactsPromise = targetChapter > 0
-    ? loadTemporalFactsCached(context.projectPath).catch((error) => {
-        logger.warn("ContextEngine", "temporal-memory load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
-        return null
-      })
-    : Promise.resolve(null)
+  const temporalFactsPromise = Promise.resolve(temporalFactsPreloaded)
   const communityPromise = (async () => {
     try {
       const novelConfig = useWikiStore.getState().novelConfig
@@ -855,6 +930,7 @@ async function buildContextPackFromRawData(
     relatedSettings: rawData.relatedSettings,
     canonRules,
     writingStyle: rawData.writingStyle,
+    voiceStyleGuide: rawData.voiceStyleGuide || undefined,
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
     communitySummaries: communitySummaries || undefined,
@@ -871,6 +947,72 @@ async function buildContextPackFromRawData(
     revisionDirectives,
     gaps: [],
     temporalFacts,
+  }
+}
+
+/**
+ * T25 (A-04.4/F-13) 源2 canon：加载时序事实视图（三源并行段专用）。
+ *
+ * 双路分派（canon_migration 门，T09 会话状态契约）：
+ *   - 缺省 / "legacy" → 默认折叠路径 loadTemporalFactsCached（TASK-004 原行为
+ *     逐字保留：缓存 + 失败降级 null + 同款 warn 日志 —— 向后兼容，A-04.4
+ *     「默认仍 fold」）；
+ *   - "dual" / "shadow" → T14 读出口 queryCanonEdges（世界时态过滤当前章有效边 +
+ *     仅未归档）→ temporal-memory.fromCanonGraph 视图转换；失败降级 null（不阻断）。
+ *
+ * 与原 buildContextPackFromRawData 内联加载语义对齐：无章节号（≤0）不加载时序
+ * 事实返回 null。loadNovelSessionStatus 自吞错误（缺失/损坏 status.json → null），
+ * 故无需额外 catch 层。
+ */
+async function loadCanonSourceFacts(
+  pp: string,
+  targetChapter: number,
+): Promise<TemporalFact[] | null> {
+  if (targetChapter <= 0) return null
+  const migrationMode: CanonMigrationMode | undefined =
+    (await loadNovelSessionStatus(pp))?.canon_migration
+  if (migrationMode === "dual" || migrationMode === "shadow") {
+    // canon 路径：T14 投影读出口结构化查询（POV 句柄 known_by/digest 已在投影层剥离）。
+    try {
+      const edges = await queryCanonEdges(pp, {
+        valid_at_chapter: targetChapter,
+        archived: false,
+      })
+      return fromCanonGraph(edges)
+    } catch (error) {
+      logger.warn("ContextEngine", "canon-graph load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
+      return null
+    }
+  }
+  // 默认折叠路径（TASK-004 原行为）。
+  try {
+    return await loadTemporalFactsCached(pp)
+  } catch (error) {
+    logger.warn("ContextEngine", "temporal-memory load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
+    return null
+  }
+}
+
+/**
+ * T25 (F-19/W12 注入范围含技法块) 源3 技法：T27b 离线编译产物 → 技法提示块文本。
+ *
+ * runtime 唯一合法入口 compileFromCommittedSnapshot（蓝图 §8 P3「runtime 永不直连
+ * nmem」；纯同步、零 IO、零时钟）。渲染 injectionPoint="chapter_task_brief" 的块
+ * （章节任务书技法注入面），每行 `【标题】正文`。纯同步计算包一层 async 以统一
+ * 三源 Promise.all 计时口径；编译失败降级空文本不阻断装配（与 relatedChapters
+ * 同款优雅降级）。
+ */
+async function loadTechniqueBlocks(): Promise<string> {
+  try {
+    const registry = compileFromCommittedSnapshot()
+    const blocks = registry.packs
+      .flatMap((pack) => pack.promptBlocks)
+      .filter((block) => block.injectionPoint === "chapter_task_brief")
+    if (blocks.length === 0) return ""
+    return blocks.map((b) => `【${b.title}】${b.body}`).join("\n")
+  } catch (error) {
+    logger.warn("ContextEngine", "technique compile failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+    return ""
   }
 }
 
@@ -1176,6 +1318,7 @@ function emptyPack(task: string): ContextPack {
     relatedSettings: "",
     canonRules: "",
     writingStyle: "",
+    voiceStyleGuide: undefined,
     searchResults: "",
     graphSearchResults: "",
     mustDo: "",
@@ -2077,6 +2220,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
     },
   },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
+  { titleKey: "novel.contextPack.voiceStyleGuide", fieldKey: "voiceStyleGuide", layer: "L3" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },

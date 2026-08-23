@@ -11,10 +11,13 @@
  */
 
 import { useState, useEffect, useRef } from "react"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
-import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
+import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2, Workflow } from "lucide-react"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { CharacterSelectionPanel } from "./character-selection-panel"
+import { CharacterWorkstationView } from "./character-workstation-view"
+import type { CharacterWorkstationItem } from "./character-workstation-view"
 
 interface ChapterSelectionPanelProps {
   chapters: Array<{
@@ -81,6 +84,11 @@ export function ChapterSelectionPanel({
   const [selectAll, setSelectAll] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isBackgrounded, setIsBackgrounded] = useState(false)
+  const [showWorkstation, setShowWorkstation] = useState(false)
+
+  // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
+  // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
+  const workstationDraftsRef = useRef<Record<string, string>>({})
 
   // 同步 isAnalyzing 到父组件
   useEffect(() => {
@@ -101,37 +109,21 @@ export function ChapterSelectionPanel({
     setSelectAll(true)
   }, [chapters])
 
-  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
-  // role=dialog/aria-modal + Escape 关闭 + focus trap(Tab 循环限于模态内)。
-  const dialogRef = useRef<HTMLDivElement>(null)
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap(Tab 循环)、
+  // scroll lock(打开时锁定 body 滚动)、背景 aria-hidden(inert)。
+  // 焦点恢复：本组件由父级条件挂载（无 DialogTrigger），Radix 的 trigger 恢复
+  // 路径不可用，这里在渲染期记录打开前的焦点元素，卸载时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  if (previouslyFocusedRef.current === null) {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+  }
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-        return
-      }
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        /* v8 ignore next */
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
+    return () => {
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      previouslyFocusedRef.current?.focus()
     }
-    document.addEventListener("keydown", handleKeyDown)
-    dialogRef.current?.focus()
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [onCancel])
+  }, [])
 
   const handleToggleChapter = (chapterId: string) => {
     setSelectedChapters(prev => {
@@ -186,28 +178,74 @@ export function ChapterSelectionPanel({
   // 是否正在提取中
   const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
 
+  // C7 工作台可见条件：识别完成且存在已识别角色，且非提取阶段。
+  const canOpenWorkstation = recognitionStatus === "done" && recognizedCharacters.length > 0 && !extractionPhase
+
+  // 将已识别角色映射为工作台条目。
+  const workstationItems: CharacterWorkstationItem[] = recognizedCharacters.map((c) => ({
+    id: c.id,
+    name: c.name,
+    category: c.category,
+    importanceScore: c.importanceScore,
+    appearances: c.appearances,
+  }))
+
+  /** 工作台草稿变更：先写入内存（按 id 隔离），落库由后续批次接入。 */
+  const handleWorkstationDraft = (id: string, draft: string) => {
+    workstationDraftsRef.current[id] = draft
+    // TODO(持久化): 落库接口接入位置。
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="章节选择"
-        tabIndex={-1}
-        className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none"
+    <DialogRoot
+      open
+      modal={!showCharacterPicker}
+      onOpenChange={(open) => {
+        if (!open) onCancel()
+      }}
+    >
+    <DialogOverlay asChild>
+      <div className="fixed inset-0 z-50 bg-black/50" />
+    </DialogOverlay>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* 角色选择弹窗打开时外层切非模态（modal=false）：释放焦点陷阱与 scroll lock，
+          避免与内层弹窗（Base UI Dialog）抢焦点；Escape/遮罩交互仍由各自层处理。 */}
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        // Radix 1.1.x 不再自动写入 aria-modal（依赖背景 aria-hidden）；保持原手写实现的 AT 语义。
+        // 角色选择弹窗打开时外层切非模态，aria-modal 同步撤除。
+        aria-modal={!showCharacterPicker || undefined}
+        onOpenAutoFocus={(event) => {
+          // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
+        onInteractOutside={(event) => {
+          // 原实现不响应点击遮罩关闭；同时避免嵌套角色弹窗的交互误关本面板
+          event.preventDefault()
+        }}
+        onEscapeKeyDown={(event) => {
+          // 角色选择弹窗打开时，Escape 只作用于顶层弹窗
+          if (showCharacterPicker) event.preventDefault()
+        }}
       >
+      <div className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none">
         {/* 标题栏 */}
         <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
           <div>
-            <h2 className="text-xl font-semibold">
-              {isExtracting
-                ? extractionPhase === "deep"
-                  ? "深度 6 维提取中"
-                  : "简单提取中"
-                : extractionProgress?.isCompleted
-                  ? "提取完成"
-                  : "选择分析章节"}
-            </h2>
+            <DialogTitle asChild>
+              <h2 className="text-xl font-semibold">
+                {isExtracting
+                  ? extractionPhase === "deep"
+                    ? "深度 6 维提取中"
+                    : "简单提取中"
+                  : extractionProgress?.isCompleted
+                    ? "提取完成"
+                    : "选择分析章节"}
+              </h2>
+            </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {isExtracting
                 ? "正在提取角色特征，请耐心等待"
@@ -375,6 +413,17 @@ export function ChapterSelectionPanel({
               </div>
 
               <div className="flex items-center gap-3">
+                {/* C7 角色工作台：识别完成后提供独立工作台入口 */}
+                {canOpenWorkstation && (
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={() => setShowWorkstation(true)}
+                  >
+                    <Workflow className="h-4 w-4 mr-2" />
+                    进入角色工作台
+                  </Button>
+                )}
                 {/* 已提取角色按钮 */}
                 {hasExtractedCharacters && onLoadExtractedCharacters && (
                   <Button
@@ -480,6 +529,7 @@ export function ChapterSelectionPanel({
           </Button>
         </div>
       </div>
+      </DialogContent>
 
       {/* 角色选择弹窗 */}
       {showCharacterPicker && (
@@ -495,6 +545,55 @@ export function ChapterSelectionPanel({
           onClose={onCharacterPickerClose}
         />
       )}
+
+      {/* C7 角色分离工作台：识别完成后独立叠加层，不改变既有弹窗选择流程 */}
+      {showWorkstation && (
+        <CharacterWorkstationOverlay
+          items={workstationItems}
+          initialDrafts={workstationDraftsRef.current}
+          onClose={() => setShowWorkstation(false)}
+          onDraftChange={handleWorkstationDraft}
+        />
+      )}
+    </div>
+    </DialogRoot>
+  )
+}
+
+/** C7 工作台叠加层：给纯展示壳补一层可关闭的外框，复用既有弹窗视觉（遮罩+居中+圆角）。 */
+function CharacterWorkstationOverlay({
+  items,
+  initialDrafts,
+  onClose,
+  onDraftChange,
+}: {
+  items: CharacterWorkstationItem[]
+  initialDrafts: Record<string, string>
+  onClose: () => void
+  onDraftChange: (id: string, draft: string) => void
+}) {
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
+      <div className="w-full max-w-3xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh]">
+        <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
+          <div>
+            <h3 className="text-xl font-semibold">角色工作台</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              为已识别角色独立保存草稿，切换不互相覆盖。
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭角色工作台">
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
+          <CharacterWorkstationView
+            characters={items}
+            initialDrafts={initialDrafts}
+            onBasicDraftChange={onDraftChange}
+          />
+        </div>
+      </div>
     </div>
   )
 }

@@ -8,6 +8,25 @@ import type { CedEvidenceItem, CedReport } from "./ced-report"
 
 export const EVIDENCE_CHAIN_SCHEMA = "evidence-chain/1.0" as const
 
+/**
+ * F-001 (v2.6 Tier1 must): result of mechanical evidence citation verification.
+ * Each issue.evidence from the six-dimension LLM review is checked against the
+ * chapter body via verbatim substring match (normalized whitespace).
+ *
+ * - passed: true if the evidence text appears verbatim in the chapter body
+ * - originalEvidence: the evidence string as emitted by the LLM
+ * - resolvedEvidence: the matched fragment (same as original on pass; nearest
+ *   fallback on failure)
+ * - matchType: "verbatim" for exact match after normalization, "fallback" for
+ *   the nearest-fragment heuristic
+ */
+export interface EvidenceVerificationResult {
+  passed: boolean
+  originalEvidence: string
+  resolvedEvidence: string
+  matchType: "verbatim" | "fallback"
+}
+
 export interface EvidenceChainNode {
   id: string
   kind: "claim"
@@ -125,6 +144,32 @@ function finalizeChain(
     productHardGate: false,
     blocksAccept: false,
     summaryLine: `evidence-chain: n=${nodes.length} edges=${edges.length} source=${source}; export only; not accept blocker`,
+  }
+}
+
+/**
+ * F-001: append a verification result to the EvidenceChain as a claim node
+ * carrying the match outcome. Returns a new EvidenceChain (immutable).
+ */
+export function appendEvidenceVerification(
+  chain: EvidenceChain,
+  verification: EvidenceVerificationResult,
+  options?: { ref?: string; chapter?: number },
+): EvidenceChain {
+  const node: EvidenceChainNode = {
+    id: nodeId("v", chain.nodes.length, options?.ref ?? "evidence-verify"),
+    kind: "claim",
+    ref: options?.ref ?? "evidence-verify",
+    type: "evidence_verification",
+    severity: verification.passed ? "info" : "warning",
+    message: `evidence citation ${verification.passed ? "verified" : "fallback"}: "${verification.originalEvidence.slice(0, 80)}" → "${verification.resolvedEvidence.slice(0, 80)}" (${verification.matchType})`,
+    chapter: options?.chapter ?? 0,
+    dimension: "evidence_verification",
+  }
+  return {
+    ...chain,
+    nodes: [...chain.nodes, node],
+    summaryLine: `evidence-chain: n=${chain.nodes.length + 1} edges=${chain.edges.length} source=${chain.source}; export only; not accept blocker`,
   }
 }
 

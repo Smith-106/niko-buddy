@@ -212,6 +212,28 @@ export const DE_AI_STRUCTURED_RULES: readonly DeAiStructuredRule[] = [
   { category: "节奏", severity: "high", rule: "高潮前铺垫过长 (连续 3 段以上无推进) 必须压缩" },
   { category: "节奏", severity: "medium", rule: "段落长度不对称, 快慢节奏有变化" },
   { category: "节奏", severity: "low", rule: "悬疑铺垫留白不解释; 章节收束用悬念钩子不总结" },
+  // ── TASK-P2-19 (T19): 增强反 AI 统计检测规则 (synthetic-degraded 语料标定) ──
+  // 词汇: 标点指纹规则 (AI 倾向标点使用模式)
+  { category: "词汇", severity: "medium", rule: "句号密度过高 (>85% 句末标点) 且问号/感叹号/省略号稀疏, 提示 AI 句式机械" },
+  { category: "词汇", severity: "medium", rule: "连续冒号/引号模式 (对话标签过度模板化: 他说/她说/他说道) 须打破" },
+  // 句式: n-gram 重合度规则 (AI 候选池句级重复)
+  { category: "句式", severity: "high", rule: "句级 3-gram 与 AI 语料重合度 >40% 提示 AI 句式模板, 须改写" },
+  { category: "句式", severity: "medium", rule: "高频 2-gram 短语 (心中暗道/嘴角勾起/深吸一口气) 集中出现 >5 次/千字, 提示 AI 腔" },
+  // 叙事: 段落分布规则
+  { category: "叙事", severity: "medium", rule: "段落长度标准差 <15 字符且连续 5 段以上, 提示 AI 段落模板" },
+  { category: "叙事", severity: "low", rule: "句子长度分布过度均匀 (归一化熵 <0.7), 提示句式多样性不足" },
+  // 对白: 标点指纹与 n-gram 规则
+  { category: "对白", severity: "medium", rule: "对话标签模式单一 (>80% 为 '他说/她说') 须变化位置与省略" },
+  { category: "对白", severity: "low", rule: "对白中 AI 腔句首 ('好了' / '没事' / '就这样') 过度使用, 须替换" },
+  // 心理: 句式熵规则
+  { category: "心理", severity: "high", rule: "情绪词 (心中/感到/觉得/充满) 集中出现 >3 次/段, 提示 AI 心理概括模板" },
+  { category: "心理", severity: "medium", rule: "否定式心理描写 (不知道/无法/不能) 连续出现, 提示 AI 叙事规避" },
+  // 场景: 段落长度分布规则
+  { category: "场景", severity: "medium", rule: "场景段落长度过于均匀 (CV <0.3), 提示 AI 场景模板" },
+  { category: "场景", severity: "low", rule: "环境描写以 '阳光透过'/ '夜色如墨'/ '月光洒在' 等模板开头, 须具体化" },
+  // 节奏: 标点指纹规则
+  { category: "节奏", severity: "medium", rule: "感叹号密度 <0.5%/千字且问号 <1%/千字, 提示 AI 情感表达不足" },
+  { category: "节奏", severity: "low", rule: "省略号/破折号密度 >3%/千字, 提示 AI 堆砌留白" },
 ] as const
 
 /** 网文 genre 基线 (prosecreator 14 流派中的 web-novel 常用; genre 感知开关) */

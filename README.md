@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.5.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.6.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -77,6 +77,10 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 上下文包有 token 预算控制，自动在保证关键信息不遗漏的前提下裁剪内容；发送前还会按当前模型的真实输入上限再次裁剪并重试，避免长章节历史超出接口限制。
 
+**ContextPack 决策回放（v2.6.0+）：**
+
+发送给 LLM 的上下文包在 chat 内提供**可折叠的决策回放面板**，逐条展示当时组入了哪些记忆、各来源检索命中了什么、为何如此取舍顺序，写作者可直接追溯每次生成所用的上下文依据。
+
 **混合检索策略：**
 - 最近章节窗口：直接获取最近 N 章的正文片段（长章节同时保留开头与结尾）+ 摘要
 - 关键词搜索：BM25 风格的精确匹配
@@ -87,6 +91,12 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 **数据存储方式：**
 
 所有记忆数据以项目目录形式本地存储，章节正文保存为 Markdown，快照与状态保存为 JSON。支持导出、备份和索引重建。
+
+**摄取与索引增强（v2.6.0+）：**
+
+- **EPUB/HTML 特化摄取 + 提取器注册表**：导入 EPUB/HTML 参考素材时走特化管线，按文档类型自动分派对应提取器；缓存键已版本化，解析升级后旧缓存自动失效，避免沿用过期提取结果
+- **跨页 chunk 指纹去重**：为 chunk 建立 SHA-256 指纹索引，跨页/跨章节的重复片段只入库一次，检索结果更精准、向量库随重复内容增长受控
+- **chunk 表自动 compaction + 对账纯函数**：存储自动压缩碎片化记录，并配套纯函数对账校验索引一致性，长线写作下数据不漂移
 
 ---
 <img width="1235" height="843" alt="image" src="https://github.com/user-attachments/assets/d143793d-70d1-4dc2-915b-d413860727c0" />
@@ -128,6 +138,10 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 - `reader_knows_but_character_does_not`：读者知道但角色不知道的信息（信息差）
 
 这防止了 AI 写作中最常见的错误——让角色知道了不该知道的信息。
+
+**角色工作台（v2.6.0+）：**
+
+角色被识别后会在独立**工作台视图**落位，集中呈现该角色的档案、状态、认知、关系与近期出场，辨识各角色时快速切换独立工位，持续写作时不必在全局图谱中来回翻找。
 
 ---
 
@@ -187,6 +201,10 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 4. 按严重程度分级：阻塞 / 高 / 中 / 低
 5. 提供具体修改建议与原文证据
 
+**章节自评估（v2.6.0+）：**
+
+章节支持结构化自评估，输出 `{score, gap, fix}` 三要素——质量评分、缺口定位与返修建议，返修前即可锁定问题点。
+
 **角色一致性检查（专项能力）：**
 
 审查阶段会专门校验角色是否脱离记忆库设定：
@@ -215,6 +233,10 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 **伏笔债务追踪：**
 
 自动统计长期未回收的伏笔，计算债务评分，提醒作者哪些伏笔需要推进或收束。
+
+**阶段断点与伏笔状态增强（v2.6.0+）：**
+
+阶段断点的保留时长（TTL）可配置，过期自动清理，避免断点长期积压；伏笔状态新增 **abandoned（废弃）** 态，用于显式标记作者决定放弃的伏笔，废弃后不再计入活跃债务与回收提醒。
 
 **确定性连续性引擎（v2.4.0+）：**
 
@@ -277,6 +299,10 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 **图谱构建逻辑：**
 
 图谱数据来源于章节摄取过程。每当正式章节保存后，系统自动从快照中提取图谱节点和关系边，增量更新全局图谱。
+
+**图谱抽取双层精度过滤（v2.6.0+）：**
+
+抽取图谱关系边时先做机械层校验、再做语义层复核，**拦截幻觉边**，避免凭空捏造的人物关系或事件因果污染全局图谱，保证可视化与检索基于可靠边集。
 
 **应用场景：**
 - 查看某角色的完整关系网络
@@ -391,7 +417,7 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前正式发布产物为 **v2.5.1**（notes-only；v2.5.0 安装包资产沿用；macOS/Linux planned）。
+> 注：当前正式发布产物为 **v2.6.0**（八项新能力已落地；安装包资产沿用 v2.5.0 资产，待后续补挂；macOS/Linux planned）。
 > `smith/master` 源码 tip 与安装包资产同步；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
 ### 安装方式

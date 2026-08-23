@@ -280,6 +280,12 @@ export function buildFallbackTaskBrief(
   userRequest: string,
   chapterNumber: number | undefined,
   lengthSpec: ChapterLengthSpec,
+  /**
+   * T25b: canon 事实集 SHA-256 摘要指纹。由 computeCheckpointDigestOf(canonRules)
+   * 计算，随 canon 事实集变化，使 task_brief 可溯源正史版本。
+   * 可选参数：不传/undefined 时行为完全不变（向后兼容）。
+   */
+  canonHash?: string,
 ): string {
   const chapterLabel = chapterNumber ? `第${chapterNumber}章` : "当前章节"
   const mustDo = pickTaskBriefFallbackValue(
@@ -327,6 +333,7 @@ export function buildFallbackTaskBrief(
       "原始请求对齐",
       sanitizeTaskBriefSourceText(userRequest) || `围绕 ${chapterLabel} 的写作需求推进。`,
     ),
+    ...(canonHash ? [taskBriefFallbackLine("正史指纹", canonHash)] : []),
   ].join("\n")
 }
 

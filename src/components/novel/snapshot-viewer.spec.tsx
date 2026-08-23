@@ -315,10 +315,12 @@ describe("SnapshotViewer", () => {
     // 第二次对比成功打开模态，然后点击模态自身遮罩触发 onClose prop
     fireEvent.click(screen.getByText("对比当前版本"))
     await waitFor(() => expect(screen.getByTestId("monaco-diff")).toBeInTheDocument())
+    // TASK-LE-5：Radix 以 pointerdown 判定 outside + click 确认
     const modalOverlay = screen.getByTestId("monaco-diff").closest(".fixed")!
+    fireEvent.pointerDown(modalOverlay)
     fireEvent.click(modalOverlay)
     await waitFor(() => expect(screen.queryByTestId("monaco-diff")).not.toBeInTheDocument())
-    // 查看器自身未被关闭（历史面板仍开着）
+    // 查看器自身未被关闭（历史面板仍开着）——叠层语义：顶层对比模态自行处理，不连带外层
     expect(screen.getAllByText("历史版本").length).toBeGreaterThan(0)
   })
 
@@ -430,11 +432,12 @@ describe("SnapshotViewer", () => {
     const focusables = dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")
     const first = focusables[0]
     const last = focusables[focusables.length - 1]
+    // TASK-LE-5：Radix FocusScope 在容器内拦截 Tab（keydown 需派发到模态内元素）
     first.focus()
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(last)
     last.focus()
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(last, { key: "Tab" })
     expect(document.activeElement).toBe(first)
   })
 
@@ -445,7 +448,7 @@ describe("SnapshotViewer", () => {
     const focusables = dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")
     const middle = focusables[Math.floor(focusables.length / 2)]
     middle.focus()
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(middle, { key: "Tab" })
     // 既不是第一个（shift+Tab）也不是最后一个（Tab）→ 不触发 wrap
     expect(document.activeElement).toBe(middle)
   })
@@ -457,8 +460,11 @@ describe("SnapshotViewer", () => {
     const dialog = screen.getByRole("dialog")
     fireEvent.click(dialog)
     expect(onClose).not.toHaveBeenCalled()
-    fireEvent.click(container.firstChild as HTMLElement)
-    expect(onClose).toHaveBeenCalledTimes(1)
+    // TASK-LE-5：Radix 以 pointerdown 判定 outside + click 确认（deferred dismissal）
+    const backdrop = container.firstChild as HTMLElement
+    fireEvent.pointerDown(backdrop)
+    fireEvent.click(backdrop)
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
   it("closes via the close button", async () => {
@@ -503,13 +509,15 @@ describe("SnapshotDiffModal", () => {
     expect(diffProps.captured[0]).toMatchObject({ language: "json", readOnly: true, height: 520 })
   })
 
-  it("closes on backdrop click but not on inner content click", () => {
+  it("closes on backdrop click but not on inner content click", async () => {
     const onClose = vi.fn()
     render(<SnapshotDiffModal open original="" modified="" onClose={onClose} />)
     fireEvent.click(screen.getByRole("dialog"))
     expect(onClose).not.toHaveBeenCalled()
+    // TASK-LE-5：Radix 以 pointerdown 判定 outside + click 确认
     const overlay = screen.getByRole("dialog").parentElement!
+    fireEvent.pointerDown(overlay)
     fireEvent.click(overlay)
-    expect(onClose).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 })

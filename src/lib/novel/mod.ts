@@ -85,8 +85,10 @@ export {
   saveForeshadowingTracker,
   loadForeshadowingTracker,
   foreshadowingToContextText,
+  markAbandoned,
   type Foreshadowing,
   type ForeshadowingStore,
+  type ForeshadowingStatus,
 } from "./foreshadowing-tracker"
 export { exportProject, type ExportOptions, type ExportResult } from "./export"
 export { routeTask, buildTaskDirective, type NovelTaskIntent, type TaskRouteResult } from "./task-router"

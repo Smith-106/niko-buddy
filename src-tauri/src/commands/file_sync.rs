@@ -277,8 +277,8 @@ pub fn start_project_file_watcher(
                         }));
                         match result {
                             Ok(Ok(())) => {}
-                            Ok(Err(err)) => eprintln!("[file-sync] change handling failed: {err}"),
-                            Err(_) => eprintln!("[file-sync] watcher worker recovered from panic"),
+                            Ok(Err(err)) => log::error!("[file-sync] change handling failed: {err}"),
+                            Err(_) => log::error!("[file-sync] watcher worker recovered from panic"),
                         }
                         maybe_periodic_rescan(
                             &app_for_thread,
@@ -310,7 +310,7 @@ pub fn start_project_file_watcher(
                         }
                     }
                     Err(err) => {
-                        eprintln!("[file-sync] watcher error; scheduling rescan: {err}");
+                        log::warn!("[file-sync] watcher error; scheduling rescan: {err}");
                         let _ = tx_for_watcher.try_send(root_for_error.clone());
                     }
                 }
@@ -325,7 +325,7 @@ pub fn start_project_file_watcher(
             let path = root.join(rel);
             if path.exists() {
                 if let Err(err) = watcher.watch(&path, RecursiveMode::Recursive) {
-                    eprintln!(
+                    log::warn!(
                         "[file-sync] failed to add supplemental watch '{}': {err}",
                         path.display()
                     );
@@ -528,8 +528,8 @@ fn maybe_periodic_rescan(
     }));
     match result {
         Ok(Ok(())) => {}
-        Ok(Err(err)) => eprintln!("[file-sync] periodic rescan failed: {err}"),
-        Err(_) => eprintln!("[file-sync] periodic rescan recovered from panic"),
+        Ok(Err(err)) => log::error!("[file-sync] periodic rescan failed: {err}"),
+        Err(_) => log::error!("[file-sync] periodic rescan recovered from panic"),
     }
 }
 
@@ -1497,8 +1497,8 @@ pub(crate) fn do_start_project_file_watcher(
                         }));
                         match result {
                             Ok(Ok(())) => {}
-                            Ok(Err(err)) => eprintln!("[file-sync] change handling failed: {err}"),
-                            Err(_) => eprintln!("[file-sync] watcher worker recovered from panic"),
+                            Ok(Err(err)) => log::error!("[file-sync] change handling failed: {err}"),
+                            Err(_) => log::error!("[file-sync] watcher worker recovered from panic"),
                         }
                         maybe_periodic_rescan_with_emit(
                             &emit_for_thread,
@@ -1529,7 +1529,7 @@ pub(crate) fn do_start_project_file_watcher(
                         }
                     }
                     Err(err) => {
-                        eprintln!("[file-sync] watcher error; scheduling rescan: {err}");
+                        log::warn!("[file-sync] watcher error; scheduling rescan: {err}");
                         let _ = tx_for_watcher.try_send(root_for_error.clone());
                     }
                 }
@@ -1544,7 +1544,7 @@ pub(crate) fn do_start_project_file_watcher(
             let path = root.join(rel);
             if path.exists() {
                 if let Err(err) = watcher.watch(&path, RecursiveMode::Recursive) {
-                    eprintln!(
+                    log::warn!(
                         "[file-sync] failed to add supplemental watch '{}': {err}",
                         path.display()
                     );
@@ -1745,8 +1745,8 @@ fn maybe_periodic_rescan_with_emit(
     }));
     match result {
         Ok(Ok(())) => {}
-        Ok(Err(err)) => eprintln!("[file-sync] periodic rescan failed: {err}"),
-        Err(_) => eprintln!("[file-sync] periodic rescan recovered from panic"),
+        Ok(Err(err)) => log::error!("[file-sync] periodic rescan failed: {err}"),
+        Err(_) => log::error!("[file-sync] periodic rescan recovered from panic"),
     }
 }
 

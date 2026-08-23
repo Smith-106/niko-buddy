@@ -302,6 +302,17 @@ function resetBaseline(): void {
   mocks.buildEditableGraphNodePage.mockReset()
   sigma.refresh.mockClear()
   sigma.setSetting.mockClear()
+  // sigma 共享状态全量清理（防止跨测试泄漏）
+  for (const key of Object.keys(sigma.events)) {
+    delete sigma.events[key]
+  }
+  sigma.setGraph(null)
+  sigma.setSettings(null)
+  sigma.registerEvents.mockClear()
+  sigma.camera.animatedZoom.mockClear()
+  sigma.camera.animatedUnzoom.mockClear()
+  sigma.camera.animatedReset.mockClear()
+  sigma.container.style.cursor = ""
   mocks.state.project = null
   mocks.state.dataVersion = 0
   mocks.state.novelMode = true
@@ -327,6 +338,8 @@ function resetBaseline(): void {
 // RTL 自动清理依赖 vitest globals（本仓库未开启），显式注册
 afterEach(() => {
   cleanup()
+  localStorage.clear()
+  delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
 })
 
 describe("GraphView — 空态 / 加载 / 错误", () => {
@@ -340,6 +353,8 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -369,7 +384,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
   })
 
   it("构建失败显示错误信息并可重试（Error 实例）", async () => {
-    mocks.buildWikiGraph.mockRejectedValueOnce(new Error("boom"))
+    mocks.buildWikiGraph.mockRejectedValue(new Error("boom"))
     mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
@@ -386,7 +401,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
   })
 
   it("构建失败显示 i18n 兜底文案（非 Error 抛出）", async () => {
-    mocks.buildWikiGraph.mockRejectedValueOnce("plain-string")
+    mocks.buildWikiGraph.mockRejectedValue("plain-string")
     mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
@@ -432,6 +447,8 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -593,12 +610,14 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
 
   it("点击节点打开对应档案页；未知节点忽略；读取失败仅记录错误", async () => {
-    mocks.readFile.mockResolvedValueOnce("file content")
+    mocks.readFile.mockResolvedValue("file content")
     await renderLoadedGraph()
     fireSigmaEvent("clickNode", { node: "n1" })
     await waitFor(() => {
@@ -611,7 +630,7 @@ describe("GraphView — Sigma 事件与交互", () => {
     expect(mocks.readFile).toHaveBeenCalledTimes(1)
     // 读取失败 → console.error
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.readFile.mockRejectedValueOnce(new Error("read failed"))
+    mocks.readFile.mockRejectedValue(new Error("read failed"))
     fireSigmaEvent("clickNode", { node: "n1" })
     await waitFor(() => {
       expect(errorSpy).toHaveBeenCalled()
@@ -741,6 +760,8 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -983,6 +1004,8 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1076,7 +1099,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
   it("保存失败显示错误状态", async () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockResolvedValue("# Alpha\n\n正文")
-    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("disk full"))
     mocks.buildEditableGraphNodePage.mockReturnValue({
       path: "/p/test/wiki/characters/Alpha.md",
       pageId: "alpha",
@@ -1149,6 +1172,8 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1340,6 +1365,8 @@ describe("GraphView — 思维导图模式", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1380,6 +1407,8 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1436,7 +1465,7 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
 
   it("tracker 加载失败仍保留图谱，并覆盖拖拽后节点被替换的分支", async () => {
     mocks.buildWikiGraph.mockResolvedValue(BASIC_RESULT)
-    mocks.loadForeshadowingTracker.mockRejectedValueOnce(new Error("tracker unavailable"))
+    mocks.loadForeshadowingTracker.mockRejectedValue(new Error("tracker unavailable"))
     mocks.findSurprisingConnections.mockReturnValue([])
     mocks.detectKnowledgeGaps.mockReturnValue([])
     setState({ project: PROJECT })
@@ -1501,6 +1530,8 @@ describe("GraphView — 洞察面板（内部 state 不可达）", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1537,6 +1568,8 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })
@@ -1720,7 +1753,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
 
   it("文档视图：数据重载后渲染新分组与空 path 展示兜底", async () => {
     const { rerender } = await renderDocumentView()
-    mocks.buildWikiGraph.mockResolvedValueOnce({
+    mocks.buildWikiGraph.mockResolvedValue({
       nodes: [makeNode({ id: "ch:np", label: "无名角色", type: "character", path: "", linkCount: 1, community: 0 })],
       edges: [],
       communities: [],
@@ -1777,7 +1810,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
   it("文档视图：保存失败（非 Error）显示 i18n 兜底文案", async () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockResolvedValue("# Alpha\n\n正文")
-    mocks.writeFileAtomic.mockRejectedValueOnce("oops-string")
+    mocks.writeFileAtomic.mockRejectedValue("oops-string")
     mocks.buildEditableGraphNodePage.mockReturnValue({
       path: "/p/test/wiki/characters/Alpha.md",
       pageId: "alpha",
@@ -1959,7 +1992,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     fireEvent.click(screen.getByText("graph.hideThisNode"))
     await waitFor(() => expect(screen.getByText("graph.hiddenNodes")).toBeTruthy())
 
-    mocks.buildWikiGraph.mockResolvedValueOnce({
+    mocks.buildWikiGraph.mockResolvedValue({
       nodes: [
         makeNode({ id: "c1", label: "角色一", type: "character", path: "/p/test/wiki/chapters/c1.md", linkCount: 1, community: 0 }),
       ],
@@ -2079,6 +2112,8 @@ describe("GraphView — 覆盖率终局：可达边界", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
     document.body.dataset.panelResizing = ""
     delete document.body.dataset.panelResizing
   })

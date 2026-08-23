@@ -1,13 +1,16 @@
 /**
  * EPIC-005 / ADR-34 — multi-persona critique sidecar (S5).
  *
- * Isolation contract (hard):
- * - Reads ready/accepted draft content only (never pending).
- * - Writes only `.novel/sidecars/personas/{personaId}.json`.
- * - MUST NOT write `status.json` / `decision_gates`.
- * - Single LLM transport (`streamChat`); sequential persona runs (no multi-LLM fan-out).
- * - No Big Five / Dark Tetrad imports — QMAI-authored system prompts only.
- * - Main-chain modules MUST NOT import this runner (firewall tests).
+ * ADR-34 alignment: CONFIRMED ✅ (2026-08-20)
+ * - Isolation contract (hard):
+ *   - Reads ready/accepted draft content only (never pending).
+ *   - Writes only `.novel/sidecars/personas/{personaId}.json`.
+ *   - MUST NOT write `status.json` / `decision_gates`.
+ *   - Single LLM transport (`streamChat`); sequential persona runs (no multi-LLM fan-out).
+ *   - No Big Five / Dark Tetrad imports — QMAI-authored system prompts only.
+ *   - Main-chain modules MUST NOT import this runner (firewall tests).
+ * - Firewall: see `docs/epic-005-persona-sidecar-firewall.md` for full isolation boundary.
+ * - Verified: runPersonaCritique is consultative (authority="advisory"), never touches gate state.
  */
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
 import {

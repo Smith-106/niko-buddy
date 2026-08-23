@@ -16,11 +16,13 @@
  * (foreshadowing-debt.ts 也是纯函数无 IO)。override 持久化 IO 落 sibling 薄包装
  * continuity-overrides-store.ts (ADR-29 例外: 装配器薄包装层)。
  *
- * 5 项检测 (ADR-30 ConsistencyMechanicalFinding subtype=consistency_mechanical):
+ * 6 项检测 (ADR-30 ConsistencyMechanicalFinding subtype=consistency_mechanical):
  *   - detectDormantThread: subplot 休眠 (currentChapter - lastSeenChapter > 阈值)
  *   - detectAbsentCharacter: 角色缺席 (currentChapter - lastUpdatedChapter > 阈值)
  *   - detectOverdueThread: 复用 analyzeForeshadowingDebt 产 overdue/unresolved
- *   - detectDeadCharacterState: 死亡角色活跃态 (status 含死亡但近期仍更新)
+ *   - detectDeadCharacterState: 角色死亡但近期仍更新 (death 活跃)
+ *   - detectTimelineDrift (F-002 第 6 检测项): 事件时序矛盾 + 章号跳跃
+ *     (type timeline_drift, subtype consistency_mechanical, additive)
  *
  * ContinuityFinding (ADR-30): discriminated union on type, subtype 联合
  * consistency_mechanical | data_gap, severity 3 级 critical|warning|info (非
@@ -40,6 +42,9 @@ import type { ForeshadowingStore } from "./foreshadowing-tracker"
 import type { Subplot } from "./subplot-board"
 import type { CharacterState } from "./character-state"
 import type { ChapterSnapshot } from "./chapter-ingest"
+// T24 (TASK-P3-24): taxonomyDimId 映射目标 = T22 audit-taxonomy 37 维 id。
+// 仅 type-only import (零运行时依赖, 守本文件 ADR-29 纯函数零 IO 零 LLM 纪律)。
+import type { AuditDimensionId } from "./audit-taxonomy"
 import { analyzeForeshadowingDebt } from "./foreshadowing-debt"
 // S2c (roadmap R08): Quillica Story Threads 6 状态机合并 — 新检测维度。
 // 只 import 纯函数 (deriveThreadArcState/detectArcTransitionViolations),
@@ -56,6 +61,7 @@ export type ContinuityFindingType =
   | "overdue_thread"
   | "unresolved_foreshadowing"
   | "dead_character_state"
+  | "timeline_drift"
   | "data_gap"
 
 export type ContinuityFindingSubtype = "consistency_mechanical" | "data_gap"
@@ -78,6 +84,15 @@ export interface ContinuityFindingBase {
   chapter: number
   /** 全脱敏证据 (实体标识/章号, 不引用正文守 CWE-532) */
   evidence?: string
+  /**
+   * T24 (TASK-P3-24) additive: 归属 T22 audit-taxonomy 37 维审计维度 id。
+   * 机械检测项 → 37 维映射 (dormant/overdue subplot→subplot_resolution,
+   * absent/dead→character_consistency, foreshadowing→foreshadowing_integrity,
+   * thread arc→arc_structural, timeline_drift→timeline_consistency)。
+   * data_gap 无 37 维槽位 → 字段缺省 (undefined, 非 consistency 统计口径守 IC-02)。
+   * additive-only: 缺省 undefined 时下游零行为变更 (守 ADR-31)。
+   */
+  taxonomyDimId?: AuditDimensionId
 }
 
 /**
@@ -105,6 +120,24 @@ export interface DataGapFinding extends ContinuityFindingBase {
  */
 export type ContinuityFinding = ConsistencyMechanicalFinding | DataGapFinding
 
+/**
+ * TimelineDriftEvent (F-002 第 6 检测项): detectTimelineDrift 输入事件。由装配层
+ * 从 timeline.ts 事件序列 + 角色归因组装 (additive-only, 不改 timeline.ts — 后者
+ * TimelineEntry 仅含 chapterNumber/event, 无角色引用章维度)。纯函数零 IO: 引擎
+ * 不 reload, 事件由调用方加载传入 ReadonlyStore.timelineEvents。
+ *
+ * ref: 实体标识 (与 finding.ref 同格式, 如 `character:菜月昂`), detectTimelineDrift
+ * 按 ref 分组检测时间序矛盾。
+ * chapter: 事件记录/出现的章号 (录制顺序, 用于分组内时序排序)。
+ * referencedChapter: 事件叙事回引的章号 (故事时间点), 用于单调性 (非递减) +
+ * 章号跳跃检测。
+ */
+export interface TimelineDriftEvent {
+  ref: string
+  chapter: number
+  referencedChapter: number
+}
+
 // ============================================================================
 // ReadonlyStore (ADR-29 C-005 复用已加载 store 不可变视图) + ContinuityEngineConfig
 // ============================================================================
@@ -120,6 +153,9 @@ export interface ReadonlyStore {
   readonly characters: readonly CharacterState[]
   readonly snapshots: readonly ChapterSnapshot[]
   readonly currentChapter: number
+  /** F-002 第 6 检测项 (timeline_drift) 输入: 时间线事件序列 (additive, 可选)。
+   * 装配层从 timeline.ts 事件序列组装; 缺失 (undefined/空) 时引擎跳过该检测器。 */
+  readonly timelineEvents?: readonly TimelineDriftEvent[]
 }
 
 /**
@@ -135,6 +171,10 @@ export interface ContinuityEngineConfig {
   unresolvedForeshadowingRatio: number
   deadCharacterPatterns: string[]
   protagonistNames: string[]
+  /** F-002 第 6 检测项: 事件关联章号跳跃阈值 (当前 chapterNumber 与事件
+   * referencedChapter 差 > 此值才产 timeline_drift)。默认 3 (参照缺席 5→7/
+   * 休眠 3→10 校准先例, additive 覆盖机制允许用户微调)。 */
+  timelineDriftMaxChapterGap: number
 }
 
 // ============================================================================
@@ -196,6 +236,7 @@ export const DEFAULT_CONTINUITY_CONFIG: ContinuityEngineConfig = {
   unresolvedForeshadowingRatio: 0.05,
   deadCharacterPatterns: ["死", "亡", "殒", "逝", "毙"],
   protagonistNames: [],
+  timelineDriftMaxChapterGap: 3,
 }
 
 /**
@@ -277,6 +318,7 @@ function detectDormantThread(
         ref: `subplot:${s.id}`,
         message: `subplot ${s.title} 休眠 ${gap} 章 (lastSeen ${lastSeen}, current ${store.currentChapter}, threshold ${threshold})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "subplot_resolution",
       })
     }
   }
@@ -310,6 +352,7 @@ function detectAbsentCharacter(
         ref: `character:${c.characterName}`,
         message: `${c.characterName} 缺席 ${gap} 章 (lastSeen ${lastSeen})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "character_consistency",
       })
     }
   }
@@ -322,18 +365,69 @@ function detectAbsentCharacter(
  * consistency_mechanical), debtLevel==='warning' 产 unresolved_foreshadowing
  * (warning)。不重写逾期检测 (守 QMAI CLAUDE.md 禁止 clean-room 重写)。
  *
- * Subplot targetResolutionChapter? (Phase 3 deferred): 当前未接入, 全部 subplot
- * 走 foreshadowing-debt 检测; 后续 Phase 3 升级后可补 subplot 逾期检测。
+ * Phase 3 (LE-1): Subplot targetResolutionChapter?/abandoned? 结构化逾期标记
+ * 已接入 — 优先读 s.targetResolutionChapter?/s.abandoned?，字段存在则判 critical
+ * （结构化逾期），undefined 回退 data_gap 降级（不阻断，守 IC-02）。
+ * 既有 foreshadowing 逾期检测保留不变。
  */
 function detectOverdueThread(
   store: ReadonlyStore,
   _config: ContinuityEngineConfig,
 ): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+
+  // Phase 3: Subplot 结构化逾期检测（优先读结构化字段）
+  for (const s of store.subplots) {
+    if (s.status === "resolved") continue
+
+    // 结构化 abandoned=true → 废弃标记
+    if (s.abandoned === true) {
+      findings.push({
+        type: "overdue_thread",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: `subplot:${s.id}`,
+        message: `subplot ${s.title} 被标记为废弃 (abandoned=true, 结构化逾期)`,
+        chapter: store.currentChapter,
+        taxonomyDimId: "subplot_resolution",
+      })
+      continue
+    }
+
+    // 结构化 targetResolutionChapter 存在且 ≤ currentChapter → 逾期
+    if (s.targetResolutionChapter !== undefined) {
+      if (s.targetResolutionChapter <= store.currentChapter) {
+        findings.push({
+          type: "overdue_thread",
+          subtype: "consistency_mechanical",
+          severity: "critical",
+          ref: `subplot:${s.id}`,
+          message: `subplot ${s.title} targetResolutionChapter ${s.targetResolutionChapter} <= current ${store.currentChapter} (结构化逾期)`,
+          chapter: store.currentChapter,
+          taxonomyDimId: "subplot_resolution",
+        })
+      }
+      // targetResolutionChapter > currentChapter → 未到期，不产 finding
+      continue
+    }
+
+    // 结构化字段均 undefined → data_gap 降级（不阻断，守 IC-02）
+    findings.push({
+      type: "data_gap",
+      subtype: "data_gap",
+      severity: "info",
+      ref: `subplot:${s.id}`,
+      message: `subplot ${s.title} 缺 targetResolutionChapter/abandoned 字段，无法判断逾期`,
+      chapter: store.currentChapter,
+      missingField: "targetResolutionChapter",
+    })
+  }
+
+  // 既有 foreshadowing 逾期检测（保留不变）
   const report = analyzeForeshadowingDebt(
     { items: [...store.foreshadowing] } as ForeshadowingStore,
     store.currentChapter,
   )
-  const findings: ContinuityFinding[] = []
   for (const item of report.items) {
     if (item.debtLevel === "critical") {
       findings.push({
@@ -343,6 +437,7 @@ function detectOverdueThread(
         ref: `foreshadowing:${item.id}`,
         message: `foreshadowing ${item.name} 逾期未回收 (debtLevel critical, planted ${item.plantedChapter}, current ${store.currentChapter})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "foreshadowing_integrity",
       })
     } else if (item.debtLevel === "warning") {
       findings.push({
@@ -352,6 +447,7 @@ function detectOverdueThread(
         ref: `foreshadowing:${item.id}`,
         message: `foreshadowing ${item.name} 未回收 (debtLevel warning, status ${item.status})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "foreshadowing_integrity",
       })
     }
   }
@@ -379,10 +475,15 @@ function detectDeadCharacterState(
     const isDeadByStructural =
       c.isAlive === false ||
       (c.deathChapter !== undefined && c.deathChapter <= store.currentChapter)
+    // LE-2 Phase 2: isAlive === true 作为活态守卫, 跳过 regex fallback,
+    // 消除「死不瞑目」等成语假阳性 (AC-002.6)。isAlive undefined 时仍回退正则。
+    const isAliveGuard = c.isAlive === true
     const isDeadByText =
-      !c.status
+      isAliveGuard
         ? false
-        : config.deadCharacterPatterns.some((p) => c.status.includes(p))
+        : !c.status
+          ? false
+          : config.deadCharacterPatterns.some((p) => c.status.includes(p))
     const isDead = isDeadByStructural || isDeadByText
     if (!isDead) continue
     if (c.lastUpdatedChapter >= store.currentChapter - 3) {
@@ -393,6 +494,7 @@ function detectDeadCharacterState(
         ref: `character:${c.characterName}`,
         message: `${c.characterName} 标记死亡 (status:${c.status || "structural"}) 但 lastUpdatedChapter ${c.lastUpdatedChapter} 接近 currentChapter ${store.currentChapter} 疑似死亡角色活跃态`,
         chapter: store.currentChapter,
+        taxonomyDimId: "character_consistency",
       })
     }
   }
@@ -434,6 +536,7 @@ function detectThreadArcFinding(
         ref: `subplot:${s.id}`,
         message: `thread ${s.title} 弧状态违反: ${derived.transitionViolation} (Quillica 6 态)`,
         chapter: store.currentChapter,
+        taxonomyDimId: "arc_structural", // T24: 弧位语义归 T22 arc_structural (非支线闭环)
       })
       continue
     }
@@ -447,10 +550,116 @@ function detectThreadArcFinding(
         ref: `subplot:${s.id}`,
         message: `thread ${s.title} 高潮段后断裂 (Quillica: Climax→Falling, ${derived.basis})`,
         chapter: store.currentChapter,
+        taxonomyDimId: "arc_structural", // T24: 同上, 弧结构槽位
       })
     }
   }
   return findings
+}
+
+// ============================================================================
+// F-002 第 6 检测项: detectTimelineDrift (时间线漂移, timeline_drift)
+// ============================================================================
+
+/**
+ * classifyTimelineDriftSeverity: 漂移 magnitude → ADR-30 3 级 severity
+ * (critical|warning|info, 非 GRL-011 4 级 — engine 只有 3 级 blueprint 权威)。
+ * 任务定的三档 (critical>5 / high>3 / warning>0) 无 4 级 "high" 槽, 故把
+ * high 档映射为 warning: magnitude>5 → critical, 3<magnitude≤5 → warning,
+ * 0<magnitude≤3 → info。
+ */
+export function classifyTimelineDriftSeverity(magnitude: number): ContinuitySeverity {
+  if (magnitude > 5) return "critical"
+  if (magnitude > 3) return "warning"
+  return "info"
+}
+
+/**
+ * detectTimelineDrift (F-002 第 6 检测项): 纯函数零 IO 零 LLM。复用装配层组装
+ * 的 timeline 事件序列 (timeline.ts TimelineEntry 为权威数据源, 经角色归因映射为
+ * TimelineDriftEvent) 检测两类时间漂移:
+ *
+ * a) 事件时序矛盾 (order contradiction): 同 ref (角色) 事件按章序录制时
+ *    referencedChapter 非单调递增 (叙事时间倒退) → 产 timeline_drift, severity 按
+ *    回静止幅度 classify (info/warning/critical)。
+ * b) 事件关联章号跳跃 (chapter jump): 当前 chapterNumber 与事件 referencedChapter
+ *    差 > config.timelineDriftMaxChapterGap (默认 3) → 产 timeline_drift, severity
+ *    按 gap classify。
+ *
+ * subtype 固定 'consistency_mechanical' (同其它机械检测器, 进 consistency gate)。
+ * ref 沿用 TimelineDriftEvent.ref 实体标识, evidence 脱敏 (实体/章号, 不引正文守
+ * CWE-532)。additive-only: 不改既有检测项, 仅新增 (守 ADR-31)。
+ */
+export function detectTimelineDrift(
+  timelineEvents: readonly TimelineDriftEvent[],
+  chapterNumber: number,
+  config: ContinuityEngineConfig = DEFAULT_CONTINUITY_CONFIG,
+): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+  const maxGap = config.timelineDriftMaxChapterGap
+
+  // b) 章号跳跃: 当前章与事件回引章差 > 阈值才产漂移 (阈值内不误报, 守 GRL-011 R3)。
+  for (const ev of timelineEvents) {
+    const gap = Math.abs(chapterNumber - ev.referencedChapter)
+    if (gap <= maxGap) continue
+    findings.push({
+      type: "timeline_drift",
+      subtype: "consistency_mechanical",
+      severity: classifyTimelineDriftSeverity(gap),
+      ref: ev.ref,
+      message: `事件 ${ev.ref} 章号跳跃 ${gap} 章 (referenced ${ev.referencedChapter}, current ${chapterNumber}, threshold ${maxGap})`,
+      chapter: chapterNumber,
+      evidence: `ref:${ev.ref}, referencedChapter:${ev.referencedChapter}`,
+      taxonomyDimId: "timeline_consistency",
+    })
+  }
+
+  // a) 时序矛盾: 按 ref 分组, 章序录制时 referencedChapter 非递减 (running max)。
+  const byRef = new Map<string, TimelineDriftEvent[]>()
+  for (const ev of timelineEvents) {
+    const bucket = byRef.get(ev.ref)
+    if (bucket) bucket.push(ev)
+    else byRef.set(ev.ref, [ev])
+  }
+  for (const [ref, events] of byRef) {
+    // 按章号 + 回引章号稳定排序保证确定性 (同章多条按回引升序降伪报)。
+    const sorted = [...events].sort(
+      (a, b) => a.chapter - b.chapter || a.referencedChapter - b.referencedChapter,
+    )
+    let maxReferred = -Infinity
+    for (const ev of sorted) {
+      if (ev.referencedChapter < maxReferred) {
+        const magnitude = maxReferred - ev.referencedChapter
+        findings.push({
+          type: "timeline_drift",
+          subtype: "consistency_mechanical",
+          severity: classifyTimelineDriftSeverity(magnitude),
+          ref,
+          message: `${ref} 事件时序矛盾: 章序 ${ev.chapter} 回引 ${ev.referencedChapter} 晚于已发生 ${maxReferred} (回退 ${magnitude})`,
+          chapter: chapterNumber,
+          evidence: `ref:${ref}, referencedChapter:${ev.referencedChapter}`,
+          taxonomyDimId: "timeline_consistency",
+        })
+      } else {
+        maxReferred = ev.referencedChapter
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * detectTimelineDriftForStore: checkContinuity 内部适配器 — 复用 (store, config)
+ * 检测器签名。store.timelineEvents 缺失 (undefined/空) 时返回 [] (additive 向后
+ * 兼容: 旧调用点未装配 timelineEvents 零行为变化)。
+ */
+function detectTimelineDriftForStore(
+  store: ReadonlyStore,
+  config: ContinuityEngineConfig,
+): ContinuityFinding[] {
+  const events = store.timelineEvents
+  if (!events || events.length === 0) return []
+  return detectTimelineDrift(events, store.currentChapter, config)
 }
 
 // ============================================================================
@@ -689,6 +898,7 @@ const SUGGESTION_BY_TYPE: Record<ContinuityFindingType, string> = {
   unresolved_foreshadowing: "规划伏笔回收章节推进; 标记推进状态",
   absent_character: "补角色出场或显式标记离场; 配角降级 info 仅主角 warning",
   dead_character_state: "修正死亡角色状态层矛盾; 死亡后不应再有活跃状态变更",
+  timeline_drift: "回正 timeline 事件引用章号; 修正同角色时间序矛盾或章号跳跃 (机械 additive 可 override)",
   data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
 }
 
@@ -747,8 +957,11 @@ export function checkContinuity(
     detectOverdueThread,
     detectDeadCharacterState,
     // S2c (roadmap R08): Quillica Story Threads 6 状态机合并 — 新增检测维度。
-    // 只报 Falling 弧断裂 + 状态机转移违反, 不重复 dormant/absent/overdue 判定。
+    // 只报 Falling 弧与状态机转移违反, 不重复 dormant/absent/overdue 判定。
     detectThreadArcFinding,
+    // F-002 第 6 检测项: 时间线漂移 (timeline_drift, additive)。store 含
+    // timelineEvents 时调用, 缺失则内部返回 [] 零行为变化 (向后兼容)。
+    detectTimelineDriftForStore,
   ]
   const rawFindings = detectors.flatMap((d) => d(store, config))
   if (overrideStore && overrideStore.overrides.length > 0) {

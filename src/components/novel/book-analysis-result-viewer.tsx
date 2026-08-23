@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from "react"
+import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
 import { User, X, Plus, Feather } from "lucide-react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
@@ -111,39 +112,22 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     }
   }, [currentProject?.path])
 
-  // ISS-20260712-016 (WCAG 4.1.2 dialog semantics): 手写模态补 a11y。
-  // role=dialog/aria-modal 让屏幕阅读器识别为模态; Escape 键关闭; 打开时
-  // 聚焦模态(非背景元素),Tab 循环限于模态内(focus trap)。
-  const dialogRef = useRef<HTMLDivElement>(null)
+  // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
+  // Radix 内建：role=dialog/aria-modal、Escape 关闭、focus trap、scroll lock、
+  // 背景 aria-hidden(inert)。error 态的 alertdialog 分支保持手写（不抢 Escape，
+  // 与既有行为一致）。
+  // 焦点恢复：本组件由父级条件挂载（无 DialogTrigger），渲染期记录打开前的
+  // 焦点元素，卸载时归还（WCAG 2.4.3/3.2.1）。
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  if (previouslyFocusedRef.current === null) {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
+  }
   useEffect(() => {
-    if (error) return // error 态模态有自己的关闭按钮，不抢 Escape
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onClose()
-        return
-      }
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        /* v8 ignore next */
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
+    return () => {
+      /* v8 ignore next -- jsdom 下 activeElement 至少是 body，focus 恒存在 */
+      previouslyFocusedRef.current?.focus()
     }
-    document.addEventListener("keydown", handleKeyDown)
-    dialogRef.current?.focus()
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [onClose, error])
+  }, [])
 
   const characters = effectiveResult?.characters || []
   const skills = effectiveResult?.skills || []
@@ -510,19 +494,35 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   }
 
   return (
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="拆书分析结果"
-        tabIndex={-1}
-        className="w-full max-w-6xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none"
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        aria-modal={true}
+        onOpenAutoFocus={(event) => {
+          // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
+          event.preventDefault()
+          /* v8 ignore next -- 事件派发时 currentTarget 恒为模态容器 */
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
+        onInteractOutside={(event) => {
+          // 原实现不响应点击遮罩关闭
+          event.preventDefault()
+        }}
       >
+      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none">
         {/* 标题栏 */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>
-            <h2 className="text-xl font-semibold">分析结果</h2>
+            <DialogTitle asChild>
+              <h2 className="text-xl font-semibold">分析结果</h2>
+            </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {effectiveResult?.metadata?.title || "未命名作品"}
             </p>
@@ -972,7 +972,9 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           <Button onClick={onClose}>关闭</Button>
         </div>
       </div>
+      </DialogContent>
     </div>
+    </DialogRoot>
   )
 }
 

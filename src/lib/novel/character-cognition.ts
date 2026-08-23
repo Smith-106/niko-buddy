@@ -3,6 +3,10 @@ import { normalizePath } from "@/lib/path-utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { matchesAnyAlias } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
+// T25 (F-13): canon 图投影读出口产物类型 + 禁句柄外泄兜底断言（defense-in-depth）。
+// 输入只能来自 T14 `getFactsKnownBy` 的返回物；若上游契约被击穿（含 known_by/digest），
+// 此处 fail-loud 拦下，不静默传播 POV 泄密数据。
+import { assertNoHandleLeak, type CanonFact } from "./canon-graph-client"
 
 export interface CharacterCognition {
   character: string
@@ -442,4 +446,81 @@ function ensureCharacter(state: CognitionState, name: string, aliasMap?: NameAli
     state.characters.push(entry)
   }
   return entry
+}
+
+/**
+ * T25 (F-13) 认知轴读取输入：单个 POV 角色的已知事实集。
+ *
+ * `facts` 必须是 T14 `getFactsKnownBy(projectId, characterId)` 的投影产物 ——
+ * 认知轴句柄（known_by）在 Rust 过滤后已被剥离，此处只消费"该角色知道什么"的
+ * 结果集，POV 防泄密边界由 T14 读出口保证，本函数再经 assertNoHandleLeak 兕底。
+ */
+export interface CanonCognitionInput {
+  /** POV 角色 id / 名（与 getFactsKnownBy 的 characterId 同源）。 */
+  character: string
+  /** 该角色已知事实（T14 投影产物）。 */
+  facts: readonly CanonFact[]
+}
+
+/** 知晓时点：认知轴优先（revealed_at），缺省回退世界时态/来源章。 */
+function canonFactChapterRef(fact: CanonFact): number | null {
+  return fact.revealedAt ?? fact.validAt ?? fact.sourceChapter ?? null
+}
+
+/** 单条 canon 边 → 确定性 knows 文本（`source predicate target（第N章）`）。 */
+function canonFactToKnowsText(fact: CanonFact): string {
+  const base = `${fact.sourceId} ${fact.predicate} ${fact.targetId}`.trim()
+  const ch = canonFactChapterRef(fact)
+  return ch !== null ? `${base}（第${ch}章）` : base
+}
+
+/**
+ * T25 (F-13/A-04.4): 从 canon 图读出认知轴 → `CharacterCognition[]` 视图。
+ *
+ * 与 {@link mergeCognitionFromSnapshot}（正则抽取路径）互补的 canon 原生路径：
+ * 调用方对每个 POV 角色调一次 T14 `getFactsKnownBy`，把结果集按角色聚成
+ * `CanonCognitionInput[]` 传入。VIEW only —— 不写 cognition-state.json，
+ * 不持有任何存储；默认快照折叠路径完全不变（向后兼容）。
+ *
+ * 确定性（F-13「角色所知事实跨模型逐字节一致」地基）：
+ *   - knows 按 (知晓时点升序, id 码点升序) 双键排序，与 IPC 返回顺序解耦；
+ *   - 渲染文本去重（保序）；archived 边跳过（非权威）。
+ *
+ * doesNotKnow 恒为空数组：canon 读出口按 POV 查询只给正向已知集，「某角色不知
+ * 某事」需全量观众矩阵求补，属 T33 五角色编排层职责 —— 本视图不做隐式推断，
+ * 不伪造负向认知。
+ *
+ * @param entries   每个 POV 角色一条输入（facts 来自 getFactsKnownBy 投影产物）
+ * @param aliasMaps 可选别名映射群（与 mergeCognitionFromSnapshot 同款折叠语义）
+ */
+export function fromCanonGraph(
+  entries: readonly CanonCognitionInput[],
+  aliasMaps?: readonly NameAliasMap[],
+): CharacterCognition[] {
+  return entries.map((entry) => {
+    const canonical = resolveCanonicalName(
+      entry.character,
+      resolveMatchingMap(entry.character, aliasMaps),
+    )
+    // 确定性排序：(知晓时点 升序, id 码点升序)。时点缺失（null）排末尾 ——
+    // 无时态锚点的边视为最不稳定信息。
+    const sorted = [...entry.facts].sort(
+      (a, b) =>
+        (canonFactChapterRef(a) ?? Number.MAX_SAFE_INTEGER) -
+          (canonFactChapterRef(b) ?? Number.MAX_SAFE_INTEGER) ||
+        (a.id < b.id ? -1 : 1),
+    )
+    const knows: string[] = []
+    const seen = new Set<string>()
+    for (const fact of sorted) {
+      // POV 防泄密兑底：任何含 known_by/digest 的输入在此 fail-loud（T14 兑底断言复用）。
+      assertNoHandleLeak(fact)
+      if (fact.archived) continue
+      const text = canonFactToKnowsText(fact)
+      if (!text || seen.has(text)) continue
+      seen.add(text)
+      knows.push(text)
+    }
+    return { character: canonical, knows, doesNotKnow: [] }
+  })
 }

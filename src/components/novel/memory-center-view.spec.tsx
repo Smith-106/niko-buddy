@@ -563,16 +563,17 @@ describe("MemoryCenterView", () => {
     const buttons = within(dialog).getAllByRole("button")
     const cancel = buttons[0]
     const confirm = buttons[1]
+    // TASK-LE-5：Radix FocusScope 在容器内拦截 Tab（keydown 派发到模态内元素）
     // 从第一个元素 shift+Tab → 跳到最后一个
     cancel.focus()
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true })
     expect(document.activeElement).toBe(confirm)
     // 从最后一个元素 Tab → 回到第一个
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(confirm, { key: "Tab" })
     expect(document.activeElement).toBe(cancel)
     // 中间元素 Tab → 不拦截
     dialog.focus()
-    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.keyDown(dialog, { key: "Tab" })
     expect(document.activeElement).toBe(dialog)
   })
 

@@ -22,8 +22,24 @@ const MEDIA_EXTS: &[&str] = &[
     "mp4", "webm", "mov", "avi", "mkv", "flv", "wmv", "m4v", "mp3", "wav", "ogg", "flac", "aac",
     "m4a", "wma",
 ];
-const LEGACY_DOC_EXTS: &[&str] = &["doc", "xls", "ppt", "pages", "numbers", "key", "epub"];
+const LEGACY_DOC_EXTS: &[&str] = &["doc", "xls", "ppt", "pages", "numbers", "key"];
 const KNOWLEDGE_DIR: &str = "QM";
+
+/// Bumped whenever the cached extraction output for any format might
+/// change semantics (parser version, extraction rules, …). The value is
+/// baked into the cache key (`{name}.v{N}.txt` in `cache_path_for`), so a
+/// bump makes every pre-existing cache entry naturally miss and forces
+/// re-extraction — no manual cache invalidation needed.
+const EXTRACTOR_VERSION: u32 = 1;
+
+/// EPUB extraction safety limits (zip-bomb defense).
+///  - `EXTRACT_MAX_ENTRIES`: hard cap on the number of archive entries.
+///  - `EXTRACT_MAX_TOTAL_SIZE`: hard cap on the *sum of uncompressed* entry
+///    sizes (a real ebook rarely exceeds a few MB; 512 MiB is very generous
+///    for a legit title while still bounding decompression work).
+const EXTRACT_MAX_ENTRIES: usize = 4096;
+const EXTRACT_MAX_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
+
 const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".qmai";
 const LEGACY_META_DIR: &str = ".llm-wiki";
@@ -97,6 +113,24 @@ fn virtualize_project_storage_path(path: &Path) -> String {
     normalized
 }
 
+/// B3 提取器注册表: ext→统一签名提取器。读/预处理两处分派共用同一张表,
+/// 新增文本格式只需在此登记, 不再双处同步 match。office 多扩展名集合、
+/// image/media 占位与兑底语义不同, 保留在各自分派处。
+const TEXT_EXTRACTORS: &[(&str, fn(&str) -> Result<String, String>)] = &[
+    ("pdf", extract_pdf_text),
+    ("epub", extract_epub_text),
+    ("html", extract_html_file),
+    ("htm", extract_html_file),
+    ("doc", extract_legacy_doc_text),
+];
+
+fn lookup_text_extractor(ext: &str) -> Option<fn(&str) -> Result<String, String>> {
+    TEXT_EXTRACTORS
+        .iter()
+        .find(|(e, _)| *e == ext)
+        .map(|(_, f)| *f)
+}
+
 /// Core logic for `read_file`, callable from both Tauri commands and Axum handlers.
 pub fn do_read_file(path: &str) -> Result<String, String> {
     run_guarded("read_file", || {
@@ -112,10 +146,13 @@ pub fn do_read_file(path: &str) -> Result<String, String> {
             return Ok(cached);
         }
 
+        // B3: 注册表命中的格式先走统一提取器 (原 pdf/epub/html/doc 分支等价迁移)
+        if let Some(extract) = lookup_text_extractor(&ext) {
+            return extract(&path);
+        }
+
         match ext.as_str() {
-            "pdf" => extract_pdf_text(&path),
             e if OFFICE_EXTS.contains(&e) => extract_office_text(&path, e),
-            "doc" => extract_legacy_doc_text(&path),
             e if IMAGE_EXTS.contains(&e) => {
                 let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 Ok(format!(
@@ -175,11 +212,14 @@ pub fn do_preprocess_file(path: &str) -> Result<String, String> {
             .unwrap_or("")
             .to_lowercase();
 
-        let text = match ext.as_str() {
-            "pdf" => extract_pdf_text(&path)?,
-            e if OFFICE_EXTS.contains(&e) => extract_office_text(&path, e)?,
-            e if is_plain_text_ext(e) => read_plain_text_file(&path)?,
-            _ => return Ok("no preprocessing needed".to_string()),
+        let text = match lookup_text_extractor(&ext) {
+            // B3: 注册表统一提取 (原 pdf/epub/html/doc 分支等价迁移)
+            Some(extract) => extract(&path)?,
+            None => match ext.as_str() {
+                e if OFFICE_EXTS.contains(&e) => extract_office_text(&path, e)?,
+                e if is_plain_text_ext(e) => read_plain_text_file(&path)?,
+                _ => return Ok("no preprocessing needed".to_string()),
+            },
         };
 
         write_cache(p, &text)?;
@@ -221,18 +261,22 @@ fn decode_plain_text_bytes(bytes: &[u8]) -> String {
     gbk_text.into_owned()
 }
 
+/// Compute the cache file path for an original file. The key embeds
+/// `EXTRACTOR_VERSION`, so a code change that alters extraction output
+/// (new parser, new rules) invalidates *every* old cache simply by
+/// changing the filename from `{name}.v{N}.txt` — the old files stay on
+/// disk untouched but are never looked up again.
 fn cache_path_for(original: &Path) -> std::path::PathBuf {
     let parent = original.parent().unwrap_or(Path::new("."));
     let cache_dir = parent.join(".cache");
     let file_name = original.file_name().unwrap_or_default().to_string_lossy();
+    let cache_key = format!("{}.v{}.txt", file_name, EXTRACTOR_VERSION);
 
     // 如果缓存目录创建失败（如根目录无权限），回退到系统临时目录
     if fs::create_dir_all(&cache_dir).is_err() {
-        return std::env::temp_dir()
-            .join("qmai-cache")
-            .join(format!("{}.txt", file_name));
+        return std::env::temp_dir().join("qmai-cache").join(cache_key);
     }
-    cache_dir.join(format!("{}.txt", file_name))
+    cache_dir.join(cache_key)
 }
 
 fn read_cache(original: &Path) -> Option<String> {
@@ -412,7 +456,7 @@ pub(crate) fn pdfium() -> Result<&'static pdfium_render::prelude::Pdfium, String
             let candidates = pdfium_candidate_paths();
             for path in &candidates {
                 if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                    eprintln!("[pdfium] loaded dynamic library from {path}");
+                    log::info!("[pdfium] loaded dynamic library from {path}");
                     return Ok(Pdfium::new(bindings));
                 }
             }
@@ -1163,7 +1207,384 @@ fn extract_odf_text(archive: &mut zip::ZipArchive<fs::File>) -> Result<String, S
     }
 }
 
-/// Core logic for `write_file`, callable from both Tauri commands and Axum handlers.
+// ── HTML extraction ─────────────────────────────────────────────────────
+//
+// `.html` / `.htm` files get a dedicated extraction path: read the file,
+// drop every complete `<script>…</script>` / `<style>…</style>` block so
+// embedded code and CSS never leak into the plain text, then reuse the
+// XHTML stripper (`extract_xhtml_text`) to remove markup while preserving
+// block-level line breaks, and finally decode HTML/XML entities. The OPF/
+// package concept does not apply to standalone HTML documents.
+
+/// Extract the plain-text body of a standalone HTML/HTML file. Script and
+/// style blocks are removed first; remaining tags are stripped with
+/// block-level break preservation (reusing the XHTML path), then common
+/// HTML/XML entities are decoded.
+fn extract_html_file(path: &str) -> Result<String, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read HTML file '{path}': {e}"))?;
+    let stripped = strip_html_script_style(&content);
+    Ok(decode_html_entities(&extract_xhtml_text(&stripped)))
+}
+
+/// Remove every complete `<script …>…</script>` and `<style …>…</style>`
+/// block (opening and closing tags matched case-insensitively; the closing
+/// tag may carry trailing whitespace before `>`) from an HTML document, so
+/// the tag content never surfaces in the extracted text. Malformed input
+/// degrades gracefully to the nearest well-formed boundary.
+fn strip_html_script_style(html: &str) -> String {
+    fn strip_tag_blocks(html: &str, tag: &str) -> String {
+        let mut out = String::with_capacity(html.len());
+        let lower = html.to_lowercase();
+        let open = format!("<{tag}");
+        let close = format!("</{tag}");
+        let mut pos = 0usize;
+        loop {
+            let Some(rel) = lower[pos..].find(&open) else {
+                out.push_str(&html[pos..]);
+                break;
+            };
+            let open_start = pos + rel;
+            out.push_str(&html[pos..open_start]);
+            let Some(gt_rel) = lower[open_start..].find('>') else {
+                out.push_str(&html[open_start..]);
+                break;
+            };
+            let gt = open_start + gt_rel;
+            // Drop everything after the opening tag up to and including the
+            // closing tag. If there is no closing tag, bail out keeping the rest.
+            let content = gt + 1;
+            let Some(c_rel) = lower[content..].find(&close) else {
+                out.push_str(&html[open_start..]);
+                break;
+            };
+            let close_start = content + c_rel;
+            let close_gt = match lower[close_start..].find('>') {
+                Some(g) => close_start + g,
+                None => html.len(),
+            };
+            pos = close_gt.saturating_add(1);
+        }
+        out
+    }
+    strip_tag_blocks(&strip_tag_blocks(html, "script"), "style")
+}
+
+// ── EPUB extraction ──────────────────────────────────────────────────────
+//
+// EPUB files are ZIP archives. We locate the content OPF via
+// `META-INF/container.xml`, read the `<spine>` (ordered list of content
+// documents) through the `<manifest>` id→href map, then strip tags from
+// each XHTML document in spine order, preserving paragraph breaks and
+// decoding basic HTML/XML entities. If the package structure is absent or
+// malformed we fall back to reading every `.xhtml`/`.html` entry sorted by
+// name. Zip-bomb safety is enforced up front (entry count + sum of
+// uncompressed sizes) before any decompression is allowed.
+
+/// Extract the full plain-text body of an EPUB.
+fn extract_epub_text(path: &str) -> Result<String, String> {
+    let file = fs::File::open(path).map_err(|e| format!("Failed to open EPUB '{path}': {e}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("Failed to read EPUB (ZIP) '{path}': {e}"))?;
+
+    // Zip-bomb defense BEFORE touching any entry body.
+    let entry_count = archive.len();
+    if entry_count > EXTRACT_MAX_ENTRIES {
+        return Err(format!(
+            "EPUB '{path}' rejected: {entry_count} entries exceeds limit {EXTRACT_MAX_ENTRIES}"
+        ));
+    }
+    let mut total_uncompressed: u64 = 0;
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read EPUB entry #{i}: {e}"))?;
+        total_uncompressed = total_uncompressed.saturating_add(entry.size());
+    }
+    if total_uncompressed > EXTRACT_MAX_TOTAL_SIZE {
+        return Err(format!(
+            "EPUB '{path}' rejected: uncompressed size {total_uncompressed} bytes exceeds {EXTRACT_MAX_TOTAL_SIZE}"
+        ));
+    }
+
+    // Locate the OPF via META-INF/container.xml.
+    let container_xml = read_zip_file(&mut archive, "META-INF/container.xml")
+        .ok_or_else(|| format!("EPUB '{path}': missing META-INF/container.xml"))?;
+    let opf_path = epub_find_opf_path(&container_xml)
+        .ok_or_else(|| format!("EPUB '{path}': container.xml has no rootfile full-path"))?;
+    let opf_xml = read_zip_file(&mut archive, &opf_path)
+        .ok_or_else(|| format!("EPUB '{path}': OPF '{opf_path}' not found"))?;
+
+    // Spine-ordered content documents (resolved against the OPF directory).
+    let spine = epub_spine_order(&opf_xml);
+    let doc_paths: Vec<String> = if spine.is_empty() {
+        epub_sorted_content_paths(&mut archive)
+    } else {
+        spine
+            .iter()
+            .map(|(_, href)| resolve_opf_relative(&opf_path, href))
+            .collect()
+    };
+
+    let mut result = String::new();
+    for doc in &doc_paths {
+        if let Some(content) = read_zip_file(&mut archive, doc) {
+            let text = decode_html_entities(&extract_xhtml_text(&content));
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                result.push_str(trimmed);
+                result.push_str("\n\n");
+            }
+        }
+    }
+
+    if result.trim().is_empty() {
+        Ok("[Could not extract text from EPUB]".to_string())
+    } else {
+        Ok(result)
+    }
+}
+
+/// Parse `META-INF/container.xml` for the OPF path (attribute `full-path` on
+/// the first `<rootfile>` element). Returns the raw, OPF-relative path.
+fn epub_find_opf_path(container_xml: &str) -> Option<String> {
+    let mut found: Option<String> = None;
+    each_xml_tag(container_xml, "rootfile", |tag| {
+        if found.is_none() {
+            if let Some(p) = xml_attr_value(tag, "full-path") {
+                found = Some(p);
+            }
+        }
+    });
+    found
+}
+
+/// Map the OPF `<spine>` `<itemref idref>` sequence to content-document
+/// paths (via the `<manifest>` id→href map), preserving reading order.
+/// Returns `(idref, href)` pairs, empty if the OPF has no usable spine.
+fn epub_spine_order(opf_xml: &str) -> Vec<(String, String)> {
+    let mut manifest: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    each_xml_tag(opf_xml, "item", |tag| {
+        if let (Some(id), Some(href)) = (xml_attr_value(tag, "id"), xml_attr_value(tag, "href")) {
+            manifest.insert(id, href);
+        }
+    });
+
+    let mut order: Vec<(String, String)> = Vec::new();
+    each_xml_tag(opf_xml, "itemref", |tag| {
+        if let Some(idref) = xml_attr_value(tag, "idref") {
+            if let Some(href) = manifest.get(&idref) {
+                order.push((idref, href.clone()));
+            }
+        }
+    });
+    order
+}
+
+/// Fallback for OPF-less/spine-less EPUBs: every `.xhtml`/`.html` entry
+/// (outside META-INF), sorted by name for a deterministic reading order.
+fn epub_sorted_content_paths(archive: &mut zip::ZipArchive<fs::File>) -> Vec<String> {
+    let mut names: Vec<String> = (0..archive.len())
+        .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter(|n| {
+            let lower = n.to_lowercase();
+            !n.starts_with("META-INF/")
+                && (lower.ends_with(".xhtml") || lower.ends_with(".html"))
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Resolve an OPF-relative `href` (which may contain `./` or `../`) against
+/// the OPF's directory to an absolute in-archive path.
+fn resolve_opf_relative(opf_path: &str, href: &str) -> String {
+    let mut base: Vec<&str> = opf_path.split('/').collect();
+    base.pop(); // drop the OPF filename, keep its directory
+    let mut joined = base.join("/");
+    if !base.is_empty() {
+        joined.push('/');
+    }
+    joined.push_str(href);
+    normalize_archive_path(&joined)
+}
+
+/// Resolve `.`, `..` and empty segments out of an in-archive path. Safe to
+/// call on Windows/POSIX because archive names always use `/`.
+fn normalize_archive_path(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                out.pop();
+            }
+            s => out.push(s),
+        }
+    }
+    out.join("/")
+}
+
+/// Extract plain text from an XHTML body: strip all tags while converting
+/// block-level breaks into newlines, then decode HTML/XML entities. Raw
+/// markup (scripts/styles) is dropped along with the tags.
+fn extract_xhtml_text(xhtml: &str) -> String {
+    let bytes = xhtml.as_bytes();
+    let len = bytes.len();
+    let mut out = String::new();
+    let mut text_buf: Vec<u8> = Vec::new();
+    let mut pending_newline = false;
+
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == b'<' {
+            // Flush accumulated text before the tag.
+            if !text_buf.is_empty() {
+                if pending_newline {
+                    while out.ends_with('\n') {
+                        out.pop();
+                    }
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    pending_newline = false;
+                }
+                out.push_str(&String::from_utf8_lossy(&text_buf));
+                text_buf.clear();
+            }
+
+            // Parse tag name + skip attributes to the closing '>'.
+            let is_closing = i + 1 < len && bytes[i + 1] == b'/';
+            let mut j = i + 1;
+            if is_closing {
+                j += 1;
+            }
+            let mut name = String::new();
+            while j < len && bytes[j].is_ascii_alphanumeric() {
+                name.push(bytes[j] as char);
+                j += 1;
+            }
+            let mut k = j;
+            while k < len && bytes[k] != b'>' {
+                k += 1;
+            }
+            if is_block_tag_break(is_closing, &name.to_lowercase()) {
+                pending_newline = true;
+            }
+            i = if k < len { k + 1 } else { len };
+        } else {
+            text_buf.push(bytes[i]);
+            i += 1;
+        }
+    }
+
+    // Flush any trailing text / blank line.
+    if pending_newline {
+        while out.ends_with('\n') {
+            out.pop();
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+    }
+    if !text_buf.is_empty() {
+        out.push_str(&String::from_utf8_lossy(&text_buf));
+    }
+    out
+}
+
+/// Whether a tag implies a paragraph break in plain-text output. Open `<br>`
+/// and the *close* tags of common block elements map to a newline so a
+/// stripped document reads as discrete lines.
+fn is_block_tag_break(open: bool, name: &str) -> bool {
+    matches!(
+        (open, name),
+        (true, "br")
+            | (false, "p")
+            | (false, "div")
+            | (false, "li")
+            | (false, "ul")
+            | (false, "ol")
+            | (false, "h1")
+            | (false, "h2")
+            | (false, "h3")
+            | (false, "h4")
+            | (false, "h5")
+            | (false, "h6")
+            | (false, "tr")
+            | (false, "table")
+            | (false, "section")
+            | (false, "blockquote")
+    )
+}
+
+/// Iterate over every `<element_name …>` occurrence of the given tag in an
+/// XML/HTML fragment, invoking `visit` with the tag content (everything
+/// between `<` and `>`). Element names are matched case-insensitively;
+/// attribute values are taken from the original (un-lowercased) bytes.
+fn each_xml_tag(xml: &str, element_name: &str, mut visit: impl FnMut(&str)) {
+    let mut pos = 0usize;
+    while let Some(lt_rel) = xml[pos..].find('<') {
+        let lt = pos + lt_rel;
+        let rest = &xml[lt + 1..];
+
+        // Element name = ASCII alphanumerics right after '<' (skip '/').
+        let mut name_start = 0usize;
+        if rest.as_bytes().first() == Some(&b'/') {
+            name_start = 1;
+        }
+        let mut j = name_start;
+        let bytes = rest.as_bytes();
+        while j < bytes.len() && bytes[j].is_ascii_alphanumeric() {
+            j += 1;
+        }
+        let name = rest[name_start..j].to_lowercase();
+
+        // Consume the whole element (`>` included) so nested tags on the
+        // same line don't confuse cursor advances.
+        let gt_pos = rest.find('>').map(|g| g + 1).unwrap_or(rest.len());
+        if name == element_name && j > name_start {
+            // Inner content is everything between the name and '>'.
+            let inner_end = rest.find('>').unwrap_or(rest.len());
+            visit(&rest[..inner_end]);
+        }
+        pos = lt + 1 + gt_pos;
+    }
+}
+
+/// Read the value of a well-formed `name="v"` / `name='v'` attribute out of
+/// a tag fragment (just the tag's inner text, e.g. `item id="c1" href="…"`).
+fn xml_attr_value(fragment: &str, name: &str) -> Option<String> {
+    let idx = fragment.find(name)?;
+    let rest = fragment[idx + name.len()..].trim_start();
+    if !rest.starts_with('=') {
+        return None;
+    }
+    let rest = rest[1..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let body = &rest[quote.len_utf8()..];
+    let end = body.find(quote)?;
+    Some(body[..end].to_string())
+}
+
+/// Decode the common HTML/XML entities found in XHTML text (the five XML
+/// built-ins plus a handful of useful numerics and `&nbsp;`).
+fn decode_html_entities(text: &str) -> String {
+    let mut s = decode_xml_entities(text);
+    s = s.replace("&nbsp;", " ");
+    s = s.replace("&#160;", " ");
+    s = s.replace("&#39;", "'");
+    s = s.replace("&#34;", "\"");
+    s = s.replace("&#38;", "&");
+    s = s.replace("&#60;", "<");
+    s = s.replace("&#62;", ">");
+    s = s.replace("&copy;", "©");
+    s
+}
+
 pub fn do_write_file(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file", || {
         let path = resolve_project_storage_path(path);
@@ -1806,6 +2227,28 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// B3: 注册表无重复 ext 且非空 (新增格式登记时的完整性门)
+    #[test]
+    fn extractor_registry_has_no_duplicate_exts() {
+        assert!(TEXT_EXTRACTORS.len() >= 5);
+        let mut seen = std::collections::HashSet::new();
+        for (ext, _) in TEXT_EXTRACTORS {
+            assert!(seen.insert(*ext), "duplicate ext in TEXT_EXTRACTORS: {ext}");
+        }
+    }
+
+    /// B3: 注册表分派路由冒烟 —— html 走提取器而非兑底 (错误文案可区分)
+    #[test]
+    fn read_dispatch_routes_registered_ext_via_registry() {
+    let missing = std::env::temp_dir()
+        .join(format!("b3-registry-smoke-{}.html", std::process::id()))
+        .to_string_lossy()
+        .to_string();
+        let err = do_read_file(&missing).unwrap_err();
+        // 兑底文案含 "as text"; 提取器路径的错误不含该短语
+        assert!(!err.contains("as text"), "html 应走注册表提取器而非兜底: {err}");
+    }
+
     /// Write `bytes` to a fresh tmp path with `.pdf` suffix and return
     /// the path (the OS tmpdir is NOT cleaned up — acceptable for tests).
     fn tmp_pdf_with_bytes(bytes: &[u8]) -> String {
@@ -2392,6 +2835,281 @@ mod tests {
 
         assert!(extracted.contains("第一章 危机降临"), "{extracted}");
         assert!(extracted.contains("主角立刻行动"), "{extracted}");
+    }
+
+    // ── cache versioning (C1) ───────────────────────────────────────────
+
+    #[test]
+    fn cache_path_embeds_extractor_version() {
+        let dir = make_temp_dir("cachever");
+        let original = dir.join("book.epub");
+        let cache = cache_path_for(&original);
+
+        let expected = format!("book.epub.v{}.txt", EXTRACTOR_VERSION);
+        assert!(
+            cache.to_string_lossy().ends_with(&expected),
+            "got {}",
+            cache.display()
+        );
+        // A future version bump yields a different key ⇒ old caches
+        // naturally miss without any explicit cleanup.
+        let next = dir
+            .join(".cache")
+            .join(format!("book.epub.v{}.txt", EXTRACTOR_VERSION + 1));
+        assert_ne!(cache, next);
+        // The pre-version legacy name is also distinct.
+        let legacy = dir.join(".cache").join("book.epub.txt");
+        assert_ne!(cache, legacy);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── EPUB extraction ─────────────────────────────────────────────────
+
+    /// Build an EPUB (ZIP) archive in memory from `(archive_path, content)`
+    /// pairs, using the stored default compression so the bytes round-trip.
+    fn build_epub(files: &[(&str, &str)]) -> Vec<u8> {
+        use zip::write::SimpleFileOptions;
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            for (name, content) in files {
+                w.start_file(*name, options).unwrap();
+                w.write_all(content.as_bytes()).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf
+    }
+
+    /// Persist `bytes` to a freshly named `.epub` in the OS tempdir.
+    fn tmp_epub(label: &str, bytes: &[u8]) -> String {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "qmai-epub-{label}-{}.epub",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().to_string()
+    }
+
+    const MINI_EPUB_CONTAINER: &str = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    fn mini_opf(spine_idrefs: &[&str]) -> String {
+        let mut man = String::from("<manifest>\n");
+        let mut spin = String::from("<spine>\n");
+        for id in spine_idrefs {
+            man.push_str(&format!(
+                "<item id=\"{id}\" href=\"Text/{id}.xhtml\" media-type=\"application/xhtml+xml\"/>\n"
+            ));
+            spin.push_str(&format!("<itemref idref=\"{id}\"/>\n"));
+        }
+        man.push_str("</manifest>\n");
+        spin.push_str("</spine>\n");
+        format!(
+            "<?xml version=\"1.0\"?><package version=\"3.0\">{man}{spin}</package>"
+        )
+    }
+
+    #[test]
+    fn epub_extracts_text_in_spine_order_and_decodes_entities() {
+        let c1 = r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch1</title></head><body>
+<h1>Chapter One</h1>
+<p>Hello &amp; <b>world</b></p>
+<p>Second &nbsp;para</p>
+</body></html>"#;
+        let c2 = r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><h2>Chapter Two</h2><p>Tail &lt;3</p><p>Final.</p></body></html>"#;
+        let bytes = build_epub(&[
+            ("mimetype", "application/epub+zip"),
+            ("META-INF/container.xml", MINI_EPUB_CONTAINER),
+            ("OEBPS/content.opf", &mini_opf(&["c1", "c2"])),
+            ("OEBPS/Text/c1.xhtml", c1),
+            ("OEBPS/Text/c2.xhtml", c2),
+        ]);
+        let path = tmp_epub("spine", &bytes);
+        let out = extract_epub_text(&path).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Entities decoded, tags stripped; c1 precedes c2 (spine order).
+        assert!(out.contains("Hello & world"), "{out}");
+        assert!(out.contains("Second  para"), "{out}");
+        assert!(out.contains("Tail <3"), "{out}");
+        assert!(
+            out.find("Chapter One").unwrap() < out.find("Chapter Two").unwrap(),
+            "spine order violated: {out}"
+        );
+        // Paragraph breaks preserved as separate lines (no inline fusion).
+        assert!(out.contains("Second  para"), "{out}");
+    }
+
+    #[test]
+    fn epub_opf_relative_resolution_with_parent_traversal() {
+        assert_eq!(
+            resolve_opf_relative("OEBPS/content.opf", "Text/ch1.xhtml"),
+            "OEBPS/Text/ch1.xhtml"
+        );
+        assert_eq!(
+            resolve_opf_relative("OPS/package.opf", "../OEBPS/ch.xhtml"),
+            "OEBPS/ch.xhtml"
+        );
+    }
+
+    #[test]
+    fn epub_falls_back_to_sorted_content_when_spine_empty() {
+        // OPF exists but has no <spine>/<itemref> → fallback to sorted
+        // .xhtml entries, which must NOT include META-INF.
+        let opf = r#"<?xml version="1.0"?><package>ok</package>"#;
+        let bytes = build_epub(&[
+            ("mimetype", "application/epub+zip"),
+            ("META-INF/container.xml", MINI_EPUB_CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/Text/b.xhtml", "<p>Beta body</p>"),
+            ("OEBPS/Text/a.xhtml", "<p>Alpha body</p>"),
+        ]);
+        let path = tmp_epub("fallback", &bytes);
+        let out = extract_epub_text(&path).unwrap();
+        let _ = fs::remove_file(&path);
+
+        let alpha = out.find("Alpha body").unwrap();
+        let beta = out.find("Beta body").unwrap();
+        assert!(alpha < beta, "fallback should sort a.xhtml before b.xhtml: {out}");
+    }
+
+    #[test]
+    fn epub_rejects_zip_bomb_entry_count() {
+        // More entries than the limit SHOULD be rejected before any body
+        // is decompressed (entry-count limb of the zip-bomb defense).
+        let mut files: Vec<(&str, &str)> = Vec::with_capacity(EXTRACT_MAX_ENTRIES + 1);
+        for i in 0..EXTRACT_MAX_ENTRIES + 1 {
+            files.push((format!("entry{i:05}.bin").leak(), "x"));
+        }
+        let bytes = build_epub(&files);
+        let path = tmp_epub("bomb-count", &bytes);
+        let err = extract_epub_text(&path).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(err.contains("exceeds limit"), "{err}");
+    }
+
+    #[test]
+    fn epub_rejects_corrupt_or_non_zip() {
+        let path = tmp_epub("corrupt", b"definitely not a zip archive");
+        let err = extract_epub_text(&path).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(!err.is_empty());
+        assert!(
+            err.contains("EPUB") || err.contains("ZIP"),
+            "expected EPUB/ZIP error mentioning, got: {err}"
+        );
+    }
+
+    #[test]
+    fn epub_missing_container_is_an_error() {
+        // Valid ZIP but no META-INF/container.xml -> clear error, no partial
+        // output, and certainly no panic.
+        let bytes = build_epub(&[("mimetype", "application/epub+zip")]);
+        let path = tmp_epub("nocontainer", &bytes);
+        let err = extract_epub_text(&path).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(err.contains("container.xml"), "{err}");
+    }
+
+    // ---- HTML extraction (A10) ------------------------------------------------
+
+    fn write_tmp_html(label: &str, content: &str) -> String {
+        let dir = make_temp_dir(label);
+        let p = dir.join("page.html");
+        std::fs::write(&p, content).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn html_extracts_body_strips_script_style_and_decodes_entities() {
+        let html = r#"<html><head><title>T</title>
+<style>body { color: red; }</style>
+<script>var secret = "NSA";</script>
+</head>
+<body>
+<h1>Chapter One</h1>
+<p>Hello &amp; <b>world</b></p>
+<p data-x='1'>Second &nbsp;para</p>
+<script>alert('x')</script>
+<p>Tail &lt;3 &copy;</p>
+</body></html>"#;
+        let path = write_tmp_html("script-style", html);
+        let out = extract_html_file(&path).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Body text extracted, block-level breaks preserved.
+        assert!(out.contains("Chapter One"), "{out}");
+        assert!(out.contains("Second  para"), "{out}");
+        // Entities decoded.
+        assert!(out.contains("Hello & world"), "{out}");
+        assert!(out.contains("Tail <3"), "{out}");
+        assert!(out.contains("©"), "{out}");
+        // Script/style content must NOT appear.
+        assert!(!out.contains("secret"), "{out}");
+        assert!(!out.contains("alert"), "{out}");
+        assert!(!out.contains("color: red"), "{out}");
+    }
+
+    #[test]
+    fn html_dispatch_handles_htm_via_do_read_file_route() {
+        // `.htm` must be routed through `extract_html_file` (not the raw
+        // `read_to_string` fallback): script bodies are stripped and
+        // entities are decoded on that path.
+        let html = r#"<html><body><script>secret()</script><h2>Visible Text</h2><p>Fish &amp; chips</p></body></html>"#;
+        let dir = make_temp_dir("htm-route");
+        let p = dir.join("page.htm");
+        std::fs::write(&p, html).unwrap();
+        let p_str = p.to_string_lossy().into_owned();
+        let out = do_read_file(&p_str).unwrap();
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_dir_all(&dir);
+        assert!(out.contains("Visible Text"), "{out}");
+        // HTML-specialized extraction applies: entity decoded + script gone.
+        assert!(out.contains("Fish & chips"), "{out}");
+        assert!(!out.contains("&amp;"), "{out}");
+        assert!(!out.contains("secret()"), "{out}");
+    }
+
+    #[test]
+    fn html_empty_and_garbage_do_not_panic() {
+        // Empty file -> okay, empty output.
+        let dir = make_temp_dir("html-empty");
+        let p = dir.join("empty.html");
+        std::fs::write(&p, "").unwrap();
+        let p_str = p.to_string_lossy().into_owned();
+        let out = extract_html_file(&p_str).unwrap();
+        assert_eq!(out, "");
+        // Truncated / unbalanced tags must not panic; degrade gracefully.
+        let p2 = dir.join("bad.html");
+        std::fs::write(
+            &p2,
+            "<p>unclosed <script>oops</script><style>css",
+        )
+        .unwrap();
+        let p2_str = p2.to_string_lossy().into_owned();
+        let out2 = extract_html_file(&p2_str).unwrap();
+        assert!(out2.contains("unclosed"), "{out2}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn html_missing_file_is_an_error() {
+        let dir = make_temp_dir("html-missing");
+        let p = dir.join("missing.html").to_string_lossy().into_owned();
+        let err = extract_html_file(&p).unwrap_err();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(err.contains("Failed to read"), "{err}");
     }
 }
 
