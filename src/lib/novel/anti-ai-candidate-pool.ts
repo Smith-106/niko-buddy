@@ -30,6 +30,9 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
+// 方案②构建期预编译合成种子（scripts/generate-anti-ai-corpus-bundle.mjs 产物，入库）。
+// 生产主路径零 fs/零路径解析；resolveJsonModule 保证类型干净。
+import seedsBundle from "./anti-ai-seeds.generated.json"
 
 // ============================================================================
 // 类型定义
@@ -119,15 +122,22 @@ export interface MutationTestResult {
  * 使用 import.meta.url 解析，兼容 renderer bundle 直连。
  * 可通过构造参数覆盖。
  */
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
 /**
- * 语料根目录 (相对于项目根 niko-hub)。
- * 使用 import.meta.url 代替 __dirname，兼容 renderer bundle 直连。
- * 可通过构造参数覆盖。
+ * 语料根目录惰性解析 (相对项目根 niko-hub)。
+ * webview (tauri://) 下 import.meta.url 非 file:// → fileURLToPath 抛
+ * ERR_INVALID_URL；原模块级求值会使整模块加载失败，现收敛到函数内 try/catch。
+ * 仅 FS 扫描路径需要；内嵌种子路径不依赖此值。
  */
-const DEFAULT_CORPUS_ROOT = resolve(__dirname, "../../../../docs/p0/corpus")
+function resolveDefaultCorpusRoot(): string | null {
+  try {
+    return resolve(dirname(fileURLToPath(import.meta.url)), "../../../../docs/p0/corpus")
+  } catch {
+    return null // webview：无文件系统语义，FS 路径不可达
+  }
+}
+
+/** 默认构造哨兵：未显式传 corpusRoot → loadCorpus 内嵌种子优先（方案②）。 */
+const EMBEDDED_ROOT = "__embedded__"
 
 // ============================================================================
 // 文本工具函数
@@ -277,17 +287,67 @@ export class AntiAiCandidatePool {
   private humanPunctuationFingerprint: Record<string, number> = {}
 
   constructor(corpusRoot?: string, batchId = "20260821-001") {
-    this.corpusRoot = corpusRoot ?? DEFAULT_CORPUS_ROOT
+    this.corpusRoot = corpusRoot ?? EMBEDDED_ROOT
     this.batchId = batchId
     this.source = "synthetic-degraded"
   }
 
   /**
    * 加载语料并构建索引。
-   * 默认加载 batch-20260821-001。
-   * 返回加载统计。
+   * 默认（未显式传 corpusRoot）：内嵌种子优先（生产打包零 fs）；
+   * 种子为空时回退仓库语料树（dev），均不可达则空语料降级。
+   * 显式传入 corpusRoot（测试/工具）：维持既有 FS 扫描，行为不变。
    */
   loadCorpus(): CorpusLoadResult {
+    if (this.corpusRoot !== EMBEDDED_ROOT) return this.loadCorpusFromFs()
+    const embedded = this.loadEmbeddedCorpus()
+    if (embedded.total > 0) return embedded
+    const root = resolveDefaultCorpusRoot()
+    if (root) {
+      this.corpusRoot = root
+      return this.loadCorpusFromFs()
+    }
+    return embedded // webview 无种子：空语料降级（因子中性，非致命）
+  }
+
+  /** 内嵌种子加载（hydrate 为 CorpusSample 形状，与 FS 加载对齐）。 */
+  private loadEmbeddedCorpus(): CorpusLoadResult {
+    const raw = (seedsBundle.samples ?? []) as Array<{
+      file: string
+      genre: string
+      layer: string
+      words: number
+      text: string
+    }>
+    const batchId = seedsBundle.batchIds?.[0] ?? "20260821-001"
+    const hydrate = (s: (typeof raw)[number]): CorpusSample => ({
+      // FS 加载器存 basename，此处对齐（下游消费者按文件名匹配）
+      file: s.file.split("/").pop() ?? s.file,
+      genre: s.genre,
+      layer: s.layer === "ai" ? "ai" : "human",
+      text: s.text,
+      words: s.words,
+      source: "synthetic-degraded",
+      batchId,
+    })
+    this.humanCorpus = raw.filter((s) => s.layer === "human").map(hydrate)
+    this.aiCorpus = raw.filter((s) => s.layer === "ai").map(hydrate)
+    this.goldCorpus = []
+    if (raw.length > 0) {
+      this.buildIndexes()
+      this.loaded = true
+    }
+    return {
+      human: this.humanCorpus,
+      ai: this.aiCorpus,
+      gold: this.goldCorpus,
+      total: this.humanCorpus.length + this.aiCorpus.length + this.goldCorpus.length,
+      source: this.source,
+    }
+  }
+
+  /** 既有 FS 扫描路径（显式 corpusRoot：测试与本地工具）。 */
+  private loadCorpusFromFs(): CorpusLoadResult {
     this.humanCorpus = loadCorpusLayer(this.corpusRoot, "human", this.batchId)
     this.aiCorpus = loadCorpusLayer(this.corpusRoot, "ai", this.batchId)
     this.goldCorpus = loadCorpusLayer(this.corpusRoot, "gold", this.batchId)
