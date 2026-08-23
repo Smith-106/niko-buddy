@@ -35,7 +35,12 @@ src/test-helpers/*
 !src/lib/chat-request-budget.test.ts
 
 # === 根目录文档（仅本地保留）===
-/docs/
+# docs/ 整目录默认忽略，但 decision-log 是工程治理决策日志（蓝图 §9.7/A-34
+# 强制落档于 QMAI/docs/decision-log/），须纳入版本控制可审计。
+# 用 /docs/* 而非 /docs/ 以便白名单递归生效（git 对完全忽略的目录不递归检查否定模式）。
+/docs/*
+!/docs/decision-log/
+!/docs/.gitkeep
 /AGENTS.md
 /PDD.MD
 /QM-QUAI.md
