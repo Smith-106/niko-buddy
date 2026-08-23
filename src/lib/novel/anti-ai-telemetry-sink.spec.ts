@@ -5,11 +5,10 @@
  * 策略: FS 依赖注入（仿 stage-output-journal.spec.ts:24-72），零真实 IO。
  *      不导入 AntiAiCandidatePool 运行时（node:fs 地雷规避）。
  */
-import { describe, expect, it, beforeEach, vi } from "vitest"
+import { describe, expect, it, beforeEach } from "vitest"
 import {
   TELEMETRY_SCHEMA_VERSION,
   TELEMETRY_FLUSH_BATCH,
-  TELEMETRY_SEGMENT_MAX_BYTES,
   TELEMETRY_RETENTION_DAYS,
   createAntiAiTelemetrySink,
   normalizeOrigin,
