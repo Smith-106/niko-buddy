@@ -181,3 +181,43 @@ describe("mechanical-slop TIER3 接线", () => {
     }
   })
 })
+
+// ============================================================================
+// origin 埋点 (20260823 #34 前置, 裁决 A: pack 层装饰)
+// ============================================================================
+
+import { withPoolReportOrigin } from "./anti-ai-mech-pack"
+import type { AntiAiTextOrigin } from "../anti-ai-candidate-pool"
+
+describe("origin 打标 (#34 前置埋点)", () => {
+  it("withPoolReportOrigin: 设 origin → 报告携带; 缺省 → 同一引用无复制", () => {
+    const base = report()
+    expect(withPoolReportOrigin(base, "ai_draft").origin).toBe("ai_draft")
+    expect(withPoolReportOrigin(base)).toBe(base)
+    expect(withPoolReportOrigin(base, undefined)).toBe(base)
+    // 不改写输入对象
+    const tagged = withPoolReportOrigin(base, "user_text")
+    expect(base.origin).toBeUndefined()
+    expect(tagged).not.toBe(base)
+  })
+
+  it("getPoolReport memo: 带 origin 时 analyze 仍恰好调一次", () => {
+    const pool = stubPool(report({ hasWarnings: true, warningCount: 1 }))
+    const pack = createAntiAiMechPack({ text: "正文内容足够长。", pool, origin: "ai_draft" })
+    for (const rule of pack.rules) rule.run({} as never)
+    expect(pool.calls()).toBe(1)
+  })
+
+  it("warn 态报告 + origin 下 finding message 不泄漏 origin 字面量", () => {
+    const pool = stubPool(report({
+      hasWarnings: true, warningCount: 2,
+      factors: [factor({ factor: "sentenceEntropy", warn: true }), factor({ factor: "paragraphLengthDist", warn: true })],
+    }))
+    const pack = createAntiAiMechPack({ text: "正文。他推开门。屋里很静，只有风从窗缝里钻进来。他坐下点了灯。火光跳了两下映出影子。「谁？」没有人回答。他把刀横在膝上等。风又起了灯灭了。", pool, origin: "ai_draft" })
+    const allFindings = pack.rules.flatMap((r) => r.run({} as never))
+    expect(allFindings.length).toBeGreaterThan(0)
+    // origin 是纯元数据：绝不进 message（CWE-532 口径 + message 人类可读定位）
+    for (const f of allFindings) expect(f.message).not.toContain("ai_draft")
+    expect(pool.calls()).toBe(1)
+  })
+})

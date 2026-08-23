@@ -26,6 +26,7 @@ import type { ContinuityInput, ContinuityOverrideStore, ContinuityEngineConfig }
 import {
   createAntiAiMechPack,
   type AntiAiPoolLike,
+  type AntiAiTextOrigin,
 } from "./anti-ai-mech-pack"
 import { createAntiAiLlmPack, type AntiAiLlmFindingInput } from "./anti-ai-llm-pack"
 import { createContinuityPack, EMPTY_CONTINUITY_INPUT } from "./continuity-pack"
@@ -185,6 +186,11 @@ function getDefaultPoolForCompose(): AntiAiCandidatePool {
 export interface CorePackInputs {
   /** 章节正文（共享特征预计算的唯一扫描对象；缺省时各文本类包走各自的空态）。 */
   readonly chapterContent?: string
+  /**
+   * 文本来源声明（20260823 #34 前置埋点；调用方声明，不可判定时缺省）。
+   * 纯元数据透传至 anti-ai mech 包报告打标，不影响任何门控结果。
+   */
+  readonly origin?: AntiAiTextOrigin
   /** 连续性引擎入参（checkContinuity 的 ReadonlyStore 同构 + 可选 config/override）。 */
   readonly continuity?: ContinuityInput & {
     readonly config?: ContinuityEngineConfig
@@ -239,6 +245,7 @@ export function composeCoreRulePacks(inputs: CorePackInputs): RulePackDefinition
     ...(inputs.chapterContent !== undefined ? { text: inputs.chapterContent } : {}),
     ...(features ? { features } : {}),
     ...(pool ? { pool } : {}),
+    ...(inputs.origin ? { origin: inputs.origin } : {}),
   })
 
   const antiAiLlmPack = createAntiAiLlmPack({

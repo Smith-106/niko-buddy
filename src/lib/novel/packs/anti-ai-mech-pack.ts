@@ -24,7 +24,7 @@
  */
 
 import { classifySlop, slopScore } from "../mechanical-slop-detector"
-import type { AntiAiAnalysisReport } from "../anti-ai-candidate-pool"
+import type { AntiAiAnalysisReport, AntiAiTextOrigin } from "../anti-ai-candidate-pool"
 import type { RawRuleFinding, RuleDefinition, RulePackDefinition } from "../rule-stack"
 
 // ============================================================================
@@ -50,6 +50,13 @@ export interface AntiAiMechPackInput {
   }
   /** T19 候选池（可注入 stub；缺省无池 → 四因子规则空产出）。 */
   readonly pool?: AntiAiPoolLike
+  /**
+   * 文本来源声明（20260823 #34 前置埋点，getPoolReport origin 标注）。
+   * 调用方上下文数据：生成管线自审 → ai_draft；用户文本审查 → user_text；
+   * 无法判定时缺省（消费侧归一化为 unknown）。纯元数据：绝不进 finding message、
+   * 绝不影响门控结果。
+   */
+  readonly origin?: AntiAiTextOrigin
 }
 
 /** anti-ai-mech-pack 唯一包 id。 */
@@ -75,7 +82,10 @@ export function createAntiAiMechPack(input: AntiAiMechPackInput): RulePackDefini
   const getPoolReport = (): AntiAiAnalysisReport | null => {
     if (!input.pool || !hasText) return null
     if (!poolReportComputed) {
-      poolReport = input.pool.analyze(text)
+      const raw = input.pool.analyze(text)
+      // origin 装饰（#34 前置埋点）：有标注时浅拷贝打标，缺省保原引用
+      // （memo 至多一次语义与对象共享不变；analyze 本体保持 text→report 纯函数）
+      poolReport = input.origin ? { ...raw, origin: input.origin } : raw
       poolReportComputed = true
     }
     return poolReport
@@ -157,4 +167,15 @@ export function createAntiAiMechPack(input: AntiAiMechPackInput): RulePackDefini
   ]
 
   return { id: ANTI_AI_MECH_PACK_ID, rules }
+}
+
+/**
+ * 纯助手：为报告打来源标（origin 缺省返回同一引用，无复制）。
+ * 供测试与未来 #34 sink 以稳定契约复用；与 getPoolReport memo 装饰同语义。
+ */
+export function withPoolReportOrigin(
+  report: AntiAiAnalysisReport,
+  origin?: AntiAiTextOrigin,
+): AntiAiAnalysisReport {
+  return origin ? { ...report, origin } : report
 }
