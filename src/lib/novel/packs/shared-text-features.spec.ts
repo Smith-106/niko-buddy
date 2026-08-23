@@ -114,3 +114,27 @@ describe("composeCoreRulePacks 核心四包组合", () => {
     expect(findings[0]!.message).toContain(`${direct.trigramUnique}/${direct.trigramTotal}`)
   })
 })
+
+// ============================================================================
+// origin 埋点透传 (20260823 #34 前置, 裁决 A)
+// ============================================================================
+
+describe("composeCoreRulePacks origin 透传", () => {
+  it("中性等价: 带/不带 origin 的同输入 findings 逐字节相同 (origin 纯元数据不改门控)", () => {
+    const packsA = composeCoreRulePacks({ chapterContent: SAMPLE, origin: "ai_draft" })
+    const packsB = composeCoreRulePacks({ chapterContent: SAMPLE })
+    const findingsA = runRuleStack(combinePacks(packsA), {})
+    const findingsB = runRuleStack(combinePacks(packsB), {})
+    expect(JSON.stringify(findingsA)).toBe(JSON.stringify(findingsB))
+  })
+
+  it("透传链路: origin 经 CorePackInputs 到达 mech 包输入且产出结构不变", () => {
+    // 类型层透传由 tsc 保证; 运行层验证 compose 不因 origin 报错且产出结构不变
+    const packs = composeCoreRulePacks({ chapterContent: SAMPLE, origin: "user_text" })
+    expect(packs.length).toBe(4)
+    const result = runRuleStack(combinePacks(packs), { isFinale: false })
+    for (const outcome of result.outcomes) {
+      for (const f of outcome.findings) expect(f.message).not.toContain("user_text")
+    }
+  })
+})

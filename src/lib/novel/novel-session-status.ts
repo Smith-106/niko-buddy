@@ -182,7 +182,7 @@ export interface NovelSessionStatus {
  * 项目级隔离（每项目各自持有, 无跨项目共享全局态）。字面量为蓝图当前约定档位,
  * `(string & {})` 保留自定义扩展位（不承诺实现, 仅类型护栏）。
  */
-export type RouteShellMode = "legacy" | "route" | (string & {})
+export type RouteShellMode = "legacy" | "route" | "authoritative" | (string & {})
 export type CanonMigrationMode = "legacy" | "dual" | "shadow" | (string & {})
 export type AntiAiMode = "off" | "warn" | "block" | (string & {})
 

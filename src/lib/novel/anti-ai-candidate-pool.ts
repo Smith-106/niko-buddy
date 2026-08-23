@@ -75,6 +75,9 @@ export interface StatisticalFactorReport {
   bucketCount?: number
 }
 
+/** 文本来源声明（调用方上下文，非文本可推导属性；pack 层装饰进报告，analyze 本体恒不设置）。 */
+export type AntiAiTextOrigin = "ai_draft" | "user_text" | "unknown"
+
 /** 完整分析报告 */
 export interface AntiAiAnalysisReport {
   /** 四因子检测结果 */
@@ -87,6 +90,8 @@ export interface AntiAiAnalysisReport {
   summary: string
   /** 标定语料来源 */
   calibrationSource: string
+  /** 来源标注（20260823 #34 前置埋点；由 pack 层装饰，analyze 本体不设置；缺省容忍 undefined） */
+  readonly origin?: AntiAiTextOrigin
 }
 
 /** Mutation testing 结果 */
