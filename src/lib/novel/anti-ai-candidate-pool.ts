@@ -531,10 +531,14 @@ export class AntiAiCandidatePool {
    *
    * 计算段落长度的变异系数 (CV) 并对比 AI 语料段落 CV 范围。
    * CV 过低 (均匀段落) → 提示 AI 模板。
-   * 阈值: CV < 0.3 触发 warn (基于 synthetic-degraded 语料标定)。
+   * 阈值: CV < 0.3 触发 warn (基于 synthetic-degraded 语料标定);
+   * 短文本校正: 3-5 段时阈值放宽至 0.35。
    *
    * 标定 (synthetic-degraded): AI 语料段落 CV ~0.15-0.35,
    * 人写语料段落 CV ~0.4-0.8。阈值 0.3 为保守值。
+   * 2026-08-23 生产等价单元复测: 人写章节级 CV 中位 ~0.64,
+   * 0.30 位于人写分布 <P1 深尾, warn 语义为「均匀性异常」而非判别线;
+   * 维持 0.30/0.35 不变 (三模型共识裁决, 见 decision-log 2026-08-22-t01b 追记五)。
    */
   detectParagraphLengthDist(text: string): StatisticalFactorReport {
     const paragraphs = splitParagraphs(text)
@@ -552,14 +556,17 @@ export class AntiAiCandidatePool {
     const cv = coefficientOfVariation(lengths)
     const paraMean = mean(lengths)
 
-    const warn = cv < 0.3
+    // 短文本校正: 3-5 段时阈值放宽至 0.35 —— 与唯一实现 scripts/lib/anti-ai-factors.mjs 对齐
+    // (2026-08-23 三模型共识: TS 补齐放宽带消除孪生漂移, 阈值本身不变)
+    const plThreshold = paragraphs.length < 5 ? 0.35 : 0.3
+    const warn = cv < plThreshold
 
     return {
       factor: "paragraphLengthDist",
       value: cv,
-      threshold: 0.3,
+      threshold: plThreshold,
       warn,
-      description: `段落 CV ${cv.toFixed(3)} (${paragraphs.length} 段, 均值 ${paraMean.toFixed(0)} 字符), 阈值 <0.3 时 warn (段落过于均匀)`,
+      description: `段落 CV ${cv.toFixed(3)} (${paragraphs.length} 段, 均值 ${paraMean.toFixed(0)} 字符), 阈值 <${plThreshold} 时 warn (段落过于均匀)`,
     }
   }
 
