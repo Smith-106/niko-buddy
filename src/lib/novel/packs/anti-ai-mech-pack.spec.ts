@@ -187,7 +187,6 @@ describe("mechanical-slop TIER3 接线", () => {
 // ============================================================================
 
 import { withPoolReportOrigin } from "./anti-ai-mech-pack"
-import type { AntiAiTextOrigin } from "../anti-ai-candidate-pool"
 
 describe("origin 打标 (#34 前置埋点)", () => {
   it("withPoolReportOrigin: 设 origin → 报告携带; 缺省 → 同一引用无复制", () => {
