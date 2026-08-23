@@ -1865,12 +1865,14 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       preventSigmaDefault: vi.fn(),
     })
     await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    await waitFor(() => {
-      fireEvent.click(screen.getByText("graph.editRealProfilePage"))
-    })
-    await waitFor(() => {
-      expect(errorSpy).toHaveBeenCalled()
-    })
+    fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+    await waitFor(
+      () => {
+        expect(errorSpy).toHaveBeenCalled()
+      },
+      // 整文件并发时共享异步状态可能延迟 errorSpy 触发，默认 5s 不够
+      { timeout: 10000 },
+    )
     errorSpy.mockRestore()
     unmount()
   })

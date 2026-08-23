@@ -1,4 +1,5 @@
 import { readFile, listDirectory } from "@/commands/fs"
+import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath, getFileStem } from "@/lib/path-utils"
 import { sanitizeEntitySlug } from "./novel/graph-adapter"
@@ -292,7 +293,6 @@ export async function searchWiki(
   let vectorCount = 0
   if (options.includeVector !== false) {
     try {
-      const { useWikiStore } = await import("@/stores/wiki-store")
       const embCfg = useWikiStore.getState().embeddingConfig
       console.log(`[Vector Search] Config: enabled=${embCfg.enabled}, model="${embCfg.model}"`)
       if (embCfg.enabled && embCfg.model) {

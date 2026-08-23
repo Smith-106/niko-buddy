@@ -412,6 +412,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn parses_camelcase_bypassLocal_field() {
         let json = r#"{"enabled": true, "url": "http://x:1", "bypassLocal": false}"#;
         let cfg: ProxyConfig = serde_json::from_str(json).unwrap();
@@ -421,6 +422,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn missing_proxyConfig_returns_none() {
         let dir = tempdir_for_test();
         let path = dir.join("missing.json");

@@ -6,7 +6,7 @@ import {
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
 import { logger } from "@/lib/utils"
-import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 
 export interface FactCheckResult {
   severity: "blocking" | "high" | "medium" | "low"
@@ -551,7 +551,6 @@ export async function verifyFactCheckLlm(
     let llmConfigArg: LlmConfig | undefined = injectedStore?.llmConfig
     let novelConfigArg: NovelConfig | undefined = injectedStore?.novelConfig
     if (llmConfigArg === undefined || novelConfigArg === undefined) {
-      const { useWikiStore } = await import("@/stores/wiki-store")
       const state = useWikiStore.getState()
       if (llmConfigArg === undefined) llmConfigArg = state.llmConfig
       if (novelConfigArg === undefined) novelConfigArg = state.novelConfig

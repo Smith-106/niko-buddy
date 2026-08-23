@@ -1,4 +1,5 @@
 import { readFile, listDirectory } from "@/commands/fs"
+import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { buildRetrievalGraph, calculateRelevance } from "./graph-relevance"
 import { normalizePath } from "@/lib/path-utils"
@@ -418,7 +419,6 @@ export async function buildWikiGraph(
   // Calculate relevance weights using the retrieval graph
   let retrievalGraph: Awaited<ReturnType<typeof buildRetrievalGraph>> | null = null
   try {
-    const { useWikiStore } = await import("@/stores/wiki-store")
     const dv = useWikiStore.getState().dataVersion
     retrievalGraph = await buildRetrievalGraph(normalizePath(projectPath), dv)
   } catch {

@@ -417,7 +417,7 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前正式发布产物为 **v2.6.0**（NSIS 安装包 + 便携版与源码 tip 对齐；macOS/Linux planned）。
+> 注：当前正式发布产物为 **v2.6.0**（八项新能力已落地；安装包资产沿用 v2.5.0 资产，待后续补挂；macOS/Linux planned）。
 > `smith/master` 源码 tip 与安装包资产同步；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
 ### 安装方式

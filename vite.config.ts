@@ -121,6 +121,11 @@ export default defineConfig(async () => ({
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.
     setupFiles: ["./src/test-helpers/load-test-env.ts"],
+    // CI flaky 止血（2026-08-22 三模型裁决，见 .workflow p1-flaky-debt）：
+    // 仅 CI 重试 2 次（GA 默认 CI=true），本地 retry=0 保持 loud fail 不掩盖；
+    // 确定性失败重试后仍红，真回归门信号保留；sunset：根因修复入 master 且
+    // CI 连续绿跑后删除此行。
+    retry: process.env.CI ? 2 : 0,
     // 覆盖率基线（2026-08-16 战役启动）：全口径 s/l/b/f，目标 100%（白名单排除）
     // 测量命令：npm run test:coverage
     // 白名单（7 项，analyze 冻结）：

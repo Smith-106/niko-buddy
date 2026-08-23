@@ -10,6 +10,7 @@ import { SidebarPanel } from "./sidebar-panel"
 import { ContentArea } from "./content-area"
 import { ActivityPanel } from "./activity-panel"
 import { useOutlineGenerationStore, type OutlineGenerationTask, type OutlineGenerationState } from "@/stores/outline-generation-store"
+import { openGeneratedOutline, runOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
@@ -196,7 +197,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                   type="button"
                   className="rounded-md border px-3 py-1.5 text-xs"
                   onClick={async () => {
-                    const { openGeneratedOutline } = await import("@/lib/novel/outline-generation")
                     await openGeneratedOutline(latestOutlineTask.id)
                   }}
                 >
@@ -207,7 +207,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                     type="button"
                     className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
                     onClick={async () => {
-                      const { runOutlineIngestTask } = await import("@/lib/novel/outline-generation")
                       await runOutlineIngestTask(latestOutlineTask.id)
                     }}
                   >

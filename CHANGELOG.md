@@ -5,6 +5,59 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### Fixed（v2.5.1 发版后 CI 修复链，随下次发版归档）
+
+- **CI**：vitest `retry: process.env.CI ? 2 : 0`（仅 CI 重试时序型 flaky，本地保持 loud fail；根因 knowledge-tree 回退标题连字符竞态已定位待修）
+- **deps**：async-process/concurrent-queue 锁定版本从已 yanked 的 2.5.1 降回 2.5.0（修复 cargo metadata --locked 解析失败）
+- **deps**：windows 0.61 → 0.62 绕开已 yanked 的 windows-future 0.2.1（其引用非 Windows 目标不存在的 IMarshal）
+- **build**：windows 依赖移入 `[target.'cfg(windows)'.dependencies]`——声明与代码 cfg 门控对齐，修复 ubuntu/macos 编译 E0425
+- **unix**：claude_cli.rs kill(pid) 补 u32→i32 显式转换（修复非 Windows 平台 E0308）
+- 效果：master CI 自 v2.5.0 以来首次三平台全绿
+
+## [2.5.1] - 2026-08-21
+
+### Summary（工程卫生 + 文档对齐）
+
+小版本维护：CI typecheck 口径统一、仓库清理（回收 94GB 构建产物）、CHANGELOG 补齐 v2.5.0 条目、文档站部署链修复（deploy-docs 触发分支从 release-b51ab03 改回 master，修复线上文档站停留在 v2.4.4 的脱节问题）。无功能变更，纯 notes-only 发版。
+
+### Changed
+
+- **CI**：typecheck 口径统一为 `npm run typecheck`（T00 步骤⑥，A-31）
+- **文档站部署**：`deploy-docs.yml` 触发分支 `release-b51ab03` → `master`（根因修复：产品真源已回 master，旧绑定导致 Pages 部署与主线脱节）
+
+### Fixed
+
+- CHANGELOG 补记缺失的 [2.5.0] 条目（Wave 1-5 发布叙事此前仅存在于应用内 changelog.ts，未同步到本文件）
+- README 版本徽标与 docs-site download/build 页版本引用同步至 2.5.1
+
+## [2.5.0] - 2026-08-18
+
+### Summary（五大 Wave：用户记忆 / @引用 / 计划模式 / 批量去AI味 / 上下文圆环）
+
+v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与机械层纯函数纪律；基线重冻（T00 最终门全量跑）后打 tag。发布叙事与 `src/lib/changelog.ts` 应用内条目一致。
+
+### Added（Wave 1 用户记忆系统）
+
+- **写作指纹记忆**：主链接线 + 会话单例 + 避用词 prompt 注入；设置页写作偏好最小表单（手动录入版，自动提炼计划在 v2.6）；de-AI 规则权重 + 六维审查校准联动
+
+### Added（Wave 2 @引用系统）
+
+- **@-mention 引用注入（混合检索三路融合）**：对话框输入 @角色/@地点/@设定 即触发三路融合（图谱活跃实体 + 向量检索 + 用户记忆）再生成；ContextPack 新增具名引用槽位，模型看到被引用记忆的精确内容 + 检索证据而非转述；与正文预算去重
+
+### Added（Wave 3 计划模式）
+
+- **确定性章节范围**：新增 Plan Mode 开关，先写本章计划（目标/节拍/人物/伏笔债务）再深度生成；计划约束生成 prompt 并喂给一致性引擎伏笔债务台账；Draft-first 依旧（计划先为 pending 草稿，accept 后生效）
+
+### Added（Wave 4 批量去AI味）
+
+- **一键处理整本项目**：DeAiBatch 库（并发调度 + 草稿 + 断点续跑 + 双 pass 适配器）按偏好去 AI 味规则矩阵与流派基线执行；实时进度对话框逐章回填/拒绝 + 全部回填；断点存于 status.json 重启可续跑
+
+### Added（Wave 5 上下文用量圆环）
+
+- **透明度可视化**：生成完成页纯 SVG 圆环展示上下文预算在记忆/检索/图谱/正文/其他五段的分配，读自冻结的 ContextPack.contextUsage 快照并 additive 写入 status.json；旧数据优雅降级
+
 ## [2.4.11] - 2026-08-18
 
 ### Summary（Phase 1 速赢：统一导出 DOCX + pangu 排版 + wake-lock）

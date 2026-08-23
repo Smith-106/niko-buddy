@@ -1019,7 +1019,9 @@ pub async fn do_claude_cli_terminate(state: &ClaudeCliState, stream_id: &str) ->
             let already_exited = running.child.try_wait().map(|s| s.is_some()).unwrap_or(false);
             if !already_exited {
                 if let Some(pid) = running.child.id() {
-                    let _ = unsafe { kill(pid, SIGTERM) };
+                    // Child::id() 返回 u32；libc::kill 形参为 pid_t(i32)。
+                    // PID 空间远小于 i32::MAX，转换无损。
+                    let _ = unsafe { kill(pid as i32, SIGTERM) };
                 }
             }
         }

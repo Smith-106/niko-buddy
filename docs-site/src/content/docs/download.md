@@ -22,7 +22,14 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **角色工作台** — 角色档案/状态/认知/关系集中视图
 - ✅ **章节自评估** — 输出 `{score, gap, fix}` 三要素，返修前锁定问题点
 
-### v2.5.0 更新亮点（历史）
+### v2.5.1 更新亮点（2026-08-21，notes-only）
+
+- ✅ **CI 口径统一** — typecheck 统一为 `npm run typecheck`（T00 步骤⑥）
+- ✅ **文档站部署链修复** — deploy-docs 触发分支改回 master，修复线上文档站停留在 v2.4.4 的脱节
+- ✅ **CHANGELOG 补齐** — 补记缺失的 [2.5.0] 条目（Wave 1-5 发布叙事）
+- ✅ **仓库卫生** — 回收 94GB 构建产物，清理临时文件与缓存
+
+### v2.5.0 更新亮点（历史，2026-08-18）
 
 **v2.5.0**（2026-08-18 发布，源码 tip 与安装包资产对齐）
 
@@ -31,7 +38,6 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **计划模式（Wave 3）** — 章节计划驱动生成，长文写作确定性提升
 - ✅ **批量去 AI 味（Wave 4）** — 多章节批量 de-ai 处理，风格一致性增强
 - ✅ **上下文用量圆环（Wave 5）** — 实时上下文用量可视化，防超限
-- ✅ **版本对齐** — 版本号三处统一 2.5.0，安装包资产重建（NSIS + 便携版）
 
 > 源码 tip 与安装包资产同步（`smith/master`）；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
 
@@ -60,11 +66,11 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB），双击运行 NSIS 安装程序即可。
+下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB，v2.5.1 为 notes-only 源码版本，安装包沿用 v2.5.0 资产），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`QMaiWrite-portable.exe`](https://github.com/Smith-106/niko-buddy/releases/latest/download/QMaiWrite-portable.exe)（约 148 MB），解压后直接运行，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`QMaiWrite-portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite-portable.exe)（约 148 MB），解压后直接运行，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

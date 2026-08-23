@@ -97,6 +97,52 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "2.6.0",
+  date: "2026-08-22",
+  highlights: {
+    en: [
+      "Specialized EPUB/HTML ingestion pipeline + extractor registry: imported material auto-dispatched by document type.",
+      "Cross-page chunk fingerprint deduplication via SHA-256 index — duplicate passages are ingested only once.",
+      "Graph extraction dual-layer precision filtering: mechanical validation + semantic re-check, blocking hallucinated edges.",
+      "Chunk table compaction + pure-function reconciliation, automatically compressing fragmented records.",
+      "Breakpoint TTL config + foreshadowing abandoned state: expired breakpoints auto-cleaned; abandoned no longer counts as active debt.",
+      "ContextPack decision-replay panel: shows each packed memory and its selection rationale.",
+      "Character workbench: unified view of character profile / status / cognition / relations.",
+      "Chapter self-assessment: emits {score, gap, fix} triple to lock problem points before rework.",
+    ],
+    zh: [
+      "EPUB/HTML 特化摄取管线 + 提取器注册表：导入素材按文档类型自动分派。",
+      "跨页 chunk 指纹去重——SHA-256 指纹索引，重复片段只入库一次。",
+      "图谱抽取双层精度过滤：机械层校验 + 语义层复核，拦截幻觉边。",
+      "Compaction——chunk 表自动压缩碎片化记录 + 纯函数对账。",
+      "断点 TTL 配置 + 伏笔废弃态：断点过期自动清理；abandoned 不再计入活跃债务。",
+      "决策回放面板——上下文包逐条展示组入记忆与取舍依据。",
+      "角色工作台——角色档案/状态/认知/关系集中视图。",
+      "章节自评估——输出 {score, gap, fix} 三要素，返修前锁定问题点。",
+    ],
+  },
+}
+
+const TWO_POINT_FIVE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.5.1",
+  date: "2026-08-21",
+  highlights: {
+    en: [
+      "CI hygiene: typecheck口径统一为 npm run typecheck (T00 step 6, A-31); committed the test helper component-test-utils.tsx that was wrongly gitignored, restoring green typecheck on CI (291x TS2307 + chained matcher errors eliminated).",
+      "Docs site deployment chain fix: deploy-docs workflow trigger branch moved from release-b51ab03 back to master — the GitHub Pages site had been stuck at v2.4.4 while the source already said v2.5.0.",
+      "CHANGELOG backfill: the missing [2.5.0] entry (Wave 1-5 narrative) is now recorded in CHANGELOG.md, previously only present in the in-app changelog; version bumped to 2.5.1 across package.json/tauri.conf.json/Cargo.toml.",
+      "Notes-only release: installer assets stay v2.5.0; source tip semantics apply until the next asset rebuild.",
+    ],
+    zh: [
+      "CI 工程卫生：typecheck 口径统一为 npm run typecheck（T00 步骤⑥，A-31）；提交被 .gitignore 误拦的测试助手 component-test-utils.tsx，恢复 CI typecheck 绿灯（消除 291×TS2307 及连锁 matcher 类型错误）。",
+      "文档站部署链修复：deploy-docs 触发分支从 release-b51ab03 改回 master——此前 GitHub Pages 线上停留在 v2.4.4 而源码已是 v2.5.0。",
+      "CHANGELOG 补齐：缺失的 [2.5.0] 条目（Wave 1-5 发布叙事）补记入 CHANGELOG.md（此前仅存在于应用内 changelog）；版本号三处统一升至 2.5.1。",
+      "Notes-only 发布：安装包资产保持 v2.5.0；下次资产重建前适用源码 tip 语义。",
+    ],
+  },
+}
+
 const TWO_POINT_FIVE_ZERO_CHANGELOG: ChangelogEntry = {
   version: "2.5.0",
   date: "2026-08-18",
@@ -913,6 +959,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_ZERO_CHANGELOG.version) return [TWO_POINT_SIX_ZERO_CHANGELOG]
+  if (version === TWO_POINT_FIVE_ONE_CHANGELOG.version) return [TWO_POINT_FIVE_ONE_CHANGELOG]
   if (version === TWO_POINT_FIVE_ZERO_CHANGELOG.version) return [TWO_POINT_FIVE_ZERO_CHANGELOG]
   if (version === TWO_POINT_FOUR_ELEVEN_CHANGELOG.version) return [TWO_POINT_FOUR_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_FOUR_TEN_CHANGELOG.version) {
@@ -963,6 +1011,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_SIX_ZERO_CHANGELOG,
+    TWO_POINT_FIVE_ONE_CHANGELOG,
     TWO_POINT_FIVE_ZERO_CHANGELOG,
     TWO_POINT_FOUR_ELEVEN_CHANGELOG,
     TWO_POINT_FOUR_TEN_CHANGELOG,
