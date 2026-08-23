@@ -7,7 +7,19 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased] - Wave-2/3 Stage8 P0+P1 评测基座 + canon 数据面
+## [Unreleased] - Wave-2/3/4/5/6 Stage8 P0-P6 全工程波次 + T18/T31/T36 三硬门
+
+### T36 精品模式（实验性，默认关闭）
+
+- **精品模式为实验性功能，默认关闭**（`DEFAULT_PREMIUM_CONFIG.premiumMode = false`）。T36 终端硬门五项门槛机械层 3/3 PASS（一致性非劣/墙钟≤45min/无写入风暴），但**真实补验轮门槛①③ FAIL**：六维 overall 中位差 0.0（CI[-0.5,0] 含 0，未达 ≥+0.5）；盲评 Cohen's κ≈-0.01（随机水平，未达 ≥0.6）。
+- 按蓝图契约处置：精品模式保持 opt-in 默认关闭；使用前建议先跑人工评估基准质量。
+- 启用前置：`checkHardPreconditions`（canon_migration ≥ dual 且 reconcile 零差异持续 ≥3 章）+ 前缀缓存检查。
+- 一键回退 `rollbackToSingleModel()`：premiumMode=false + 清空 fallbackChains + 关前缀缓存。
+
+### Added
+
+- **T32-T35 检索重调参 + 精品 registry + 哨兵**：rerank-api（custom endpoint 直连重排）+ embedding 三实现（Google/DashScope/Generic）+ canon_search.rs RRF 融合（α=0.08/β=0.75 网格扫描赢家 NDCG@10=0.941）+ model-resolver 五角色路由 + provider-registry add-only + premium-config/execution（GCR 两轮封顶 + 共识门 + 双判官）+ control-sentinels（13 分支互斥 + 720k 穷举哨兵）
+- **T01b 语料 κ 盲标质量门**：`src/lib/novel/corpus-kappa.ts` Cohen's κ 纯函数计算（混淆矩阵→Po→Pe→κ）+ Landis-Koch 级别映射 + 黄金集合格线 GOLD_QUALIFIED_KAPPA=0.7 (A-21.2/A-23.2)；15 测试全绿；机械层零 LLM (ADR-19)；Draft-first (ADR-08) κ 结果先进 pending
 
 ### Added
 

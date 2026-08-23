@@ -5,7 +5,7 @@
  *      语料降级（pool 构造失败）= no-op 非致命。
  *      不验证真实四因子数值（那是 mech-pack/candidate-pool 的职责）。
  */
-import { describe, expect, it, beforeEach, vi } from "vitest"
+import { describe, expect, it, beforeEach } from "vitest"
 import {
   recordAntiAiShadowTelemetry,
   __resetShadowPoolForTest,
@@ -46,14 +46,8 @@ describe("recordAntiAiShadowTelemetry 影子接线契约", () => {
   it("sink init 后 + 池可用: 触发记录且写 JSONL 行（含 origin=ai_draft）", async () => {
     const deps = memDeps()
     const sink = initAntiAiTelemetrySink("/proj", "sess01", deps)
-    const beforeFiles = new Set<string>()
     await recordAntiAiShadowTelemetry("他推开门。屋内漆黑。谁？没人答。风起了！灯灭了。他坐下。", 42)
     await sink.flush()
-    const written = [...(await (async () => {
-      // 收集所有写入的文件内容
-      const out: string[] = []
-      return out
-    })())]
     // 至少有一条 JSONL 行被写入某 segment 文件
     // （动态 import 的真实池在生产测试环境可能载入真实 corpus 也可能降级；
     //   两种情况都不应抛错。验证不抛 + sink 仍可用即可。）
