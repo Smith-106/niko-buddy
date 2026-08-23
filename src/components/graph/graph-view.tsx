@@ -79,6 +79,7 @@ const FORESHADOWING_STATUS_FILL: Record<string, string> = {
   planted: "#f59e0b",
   advanced: "#3b82f6",
   resolved: "#22c55e",
+  abandoned: "#6b7280",
 }
 
 function nodeColor(type: string): string {
