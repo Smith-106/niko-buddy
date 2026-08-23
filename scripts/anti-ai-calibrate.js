@@ -27,8 +27,8 @@
  *   见 docs/p0/corpus/MANIFEST.md 及 docs/decision-log/2026-08-23-t01b-corpus-degraded.md
  *
  * PAT-G2 孪生镜像:
- *   四因子检测器逻辑内联复制（PAT-G2 孪生），与 anti-ai-candidate-pool.ts 保持同步。
- *   引擎变更时须同步本脚本的内联版本。
+ *   四因子检测器经 import 自 scripts/lib/anti-ai-factors.mjs 唯一实现 (PAT-G2)。
+ *   引擎变更时只改 lib, 本脚本与生产 TS 池自动同步。
  */
 
 // ============================================================================

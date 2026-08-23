@@ -145,14 +145,12 @@ export function rawNGramOverlap(text, ai3GramIndex, human3GramIndex) {
 
 /**
  * 检测器 2: 句式熵 (sentenceEntropy)
- * 返回: Shannon 熵值 (bits) — 句长分布熵
- *   AI 倾向: 低熵 (< 3.5 bits, short-text 校正后)
- * 阈值 (T19): < 3.5 bits → warn
+ * 返回: Shannon 熵值 (bits) + 归一化熵 (0-1)
+ *   normalized = rawEntropy / log2(观测桶数 K) —— 非句数!
+ * 阈值 (T19): count>=8 且 normalized < 0.7 → warn
  *
- * 短文本校正:
- *   对于短文本 (< 15 句), 计算最大可能熵 maxEnt = log2(numSentences, 2)
- *   归一化熵 = rawEntropy / maxEnt (0-1)
- *   归一化熵 < 0.7 (短文本校正) 视为 warn
+ * 为什么用归一化而非 raw<3.5: 中文句长普遍落在 ≤10 个 5 字符桶,
+ * log2(K)≤3.32 恒低于 3.5, raw 线对任意 ≥8 句中文文本必然误报。
  */
 export function rawSentenceEntropy(text) {
   const sentences = splitSentences(text)
@@ -238,7 +236,7 @@ export function runDetection(text, indexes) {
   // T19 阈值判定:
   // nGramOverlap: > 0.4 且 > humanOverlap * 1.5
   const ngoWarn = ngo.aiOverlap > 0.4 && ngo.aiOverlap > ngo.humanOverlap * 1.5
-  // sentenceEntropy: < 3.5 bits (短文本校正: 归一化熵 < 0.7)
+  // sentenceEntropy: 归一化熵 < 0.7 (= rawEntropy/log2(观测桶数); raw<3.5 在中文短桶场景恒真误报)
   const seWarn = se.count >= 8 && se.normalized < 0.7
   // punctuationFingerprint: > 0.85 且 > humanCosine * 1.2
   const pfWarn = pf.totalPunct > 0 && pf.aiCosine > 0.85 && pf.aiCosine > pf.humanCosine * 1.2

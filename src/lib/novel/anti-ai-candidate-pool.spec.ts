@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest"
 import { resolve } from "node:path"
+import { existsSync } from "node:fs"
 import {
   AntiAiCandidatePool,
   analysisReportToText,
@@ -10,8 +11,10 @@ import {
 
 // 使用真实语料路径 (相对于项目根 docs/p0/corpus)
 const CORPUS_ROOT = resolve(__dirname, "../../../../docs/p0/corpus")
+// CI 上语料不在仓内（.gitignore /docs/ 且语料树在 hub 根），硬计数断言的块在语料缺失时跳过
+const CORPUS_AVAILABLE = existsSync(CORPUS_ROOT)
 
-describe("TASK-P2-19 (T19) 反AI 候选池 — 语料加载", () => {
+describe.skipIf(!CORPUS_AVAILABLE)("TASK-P2-19 (T19) 反AI 候选池 — 语料加载", () => {
   let pool: AntiAiCandidatePool
 
   beforeAll(() => {
@@ -114,7 +117,7 @@ describe("TASK-P2-19 (T19) 四统计因子检测器 — sentenceEntropy", () => 
       "最后他们分开了。",
     ].join("")
     const report = pool.detectSentenceEntropy(uniformText)
-    // 低熵, 但不一定触发 warn (阈值 3.5 bits)
+    // 归一化熵判定: value 为 0-1 归一化值 (阈值 <0.7)
     expect(report.value).toBeGreaterThanOrEqual(0)
   })
 
@@ -242,7 +245,7 @@ describe("TASK-P2-19 (T19) 全量 analyze — 不阻塞主链", () => {
   })
 })
 
-describe("TASK-P2-19 (T19) Mutation Testing", () => {
+describe.skipIf(!CORPUS_AVAILABLE)("TASK-P2-19 (T19) Mutation Testing", () => {
   let pool: AntiAiCandidatePool
 
   beforeAll(() => {

@@ -221,7 +221,7 @@ export const DE_AI_STRUCTURED_RULES: readonly DeAiStructuredRule[] = [
   { category: "句式", severity: "medium", rule: "高频 2-gram 短语 (心中暗道/嘴角勾起/深吸一口气) 集中出现 >5 次/千字, 提示 AI 腔" },
   // 叙事: 段落分布规则
   { category: "叙事", severity: "medium", rule: "段落长度标准差 <15 字符且连续 5 段以上, 提示 AI 段落模板" },
-  { category: "叙事", severity: "low", rule: "句子长度熵 <3.5 bits (句长过于均匀), 提示句式多样性不足" },
+  { category: "叙事", severity: "low", rule: "句子长度分布过度均匀 (归一化熵 <0.7), 提示句式多样性不足" },
   // 对白: 标点指纹与 n-gram 规则
   { category: "对白", severity: "medium", rule: "对话标签模式单一 (>80% 为 '他说/她说') 须变化位置与省略" },
   { category: "对白", severity: "low", rule: "对白中 AI 腔句首 ('好了' / '没事' / '就这样') 过度使用, 须替换" },

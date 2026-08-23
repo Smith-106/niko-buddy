@@ -67,6 +67,12 @@ export interface StatisticalFactorReport {
   warn: boolean
   /** 描述 */
   description: string
+  /** 值量纲 (sentenceEntropy = "normalized"; 其余因子缺省历史语义) */
+  unit?: "bits" | "normalized"
+  /** 原始量纲值 (sentenceEntropy: raw bits), 调试对拍用 */
+  rawValue?: number
+  /** 句长分桶观测桶数 K (sentenceEntropy 调试字段; 归一化分母 = log2(K)) */
+  bucketCount?: number
 }
 
 /** 完整分析报告 */
@@ -408,12 +414,13 @@ export class AntiAiCandidatePool {
   /**
    * 检测器 2: 句式熵 (sentenceEntropy)
    *
-   * 计算句长分布的 Shannon 熵 (bits)。
-   * 句长过于均匀 (低熵) → 句式机械, 提示 AI 生成。
-   * 阈值: <3.5 bits 触发 warn (基于 synthetic-degraded 语料标定)。
+   * 计算句长分布 Shannon 熵并按观测桶数归一化 (归一化熵 = rawEntropy / log2(桶数))。
+   * 归一化消除桶数对原始比特线的支配: 中文句长普遍落在 ≤10 个 5 字符桶,
+   * log2(K)≤3.32 恒低于旧 raw<3.5 线 → 旧实现对任意 ≥8 句中文文本必然误报 warn。
+   * 阈值: 归一化熵 <0.7 触发 warn; <8 句跳过。
    *
-   * 标定 (synthetic-degraded): AI 语料句长熵 ~3.0-3.8 bits,
-   * 人写语料句长熵 ~3.8-4.5 bits。阈值 3.5 bits 为保守线。
+   * 标定: synthetic-degraded 认证链口径 (anti-ai-calibration.md 判据表)。
+   * 2026-08-23 三模型共识裁决 A: TS 对齐 .mjs 唯一实现 (修实现缺陷, 非重标定)。
    */
   detectSentenceEntropy(text: string): StatisticalFactorReport {
     const sentences = splitSentences(text)
@@ -421,8 +428,11 @@ export class AntiAiCandidatePool {
       return {
         factor: "sentenceEntropy",
         value: 0,
-        threshold: 3.5,
+        threshold: 0.7,
         warn: false,
+        unit: "normalized",
+        rawValue: 0,
+        bucketCount: 0,
         description: "句数过少 (<8), 无法计算有意义的句式熵",
       }
     }
@@ -436,15 +446,22 @@ export class AntiAiCandidatePool {
     }
 
     const ent = entropy(buckets, sentences.length)
+    const bucketCount = Object.keys(buckets).length
+    const maxEnt = Math.log2(bucketCount)
+    const normalized = maxEnt > 0 ? ent / maxEnt : 0
 
-    const warn = ent < 3.5
+    // 归一化判定线 —— 与 scripts/lib/anti-ai-factors.mjs 唯一实现同语义
+    const warn = normalized < 0.7
 
     return {
       factor: "sentenceEntropy",
-      value: ent,
-      threshold: 3.5,
+      value: normalized,
+      threshold: 0.7,
       warn,
-      description: `句长熵 ${ent.toFixed(2)} bits (${sentences.length} 句), 阈值 <3.5 bits 时 warn (低熵 = 句式机械)`,
+      unit: "normalized",
+      rawValue: ent,
+      bucketCount,
+      description: `句长分布归一化熵 ${normalized.toFixed(3)} (<0.7 触发 warn; 原始熵 ${ent.toFixed(2)} bits / 上限 log2(K=${bucketCount})=${maxEnt.toFixed(2)}, ${sentences.length} 句)`,
     }
   }
 
