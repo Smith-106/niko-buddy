@@ -42,6 +42,29 @@ describe("T10 薄编排化：route() 接入 + T09 字段 + role→model 解析�
     expect(resolveRouteShellMode(baseInput({ routeShellMode: "legacy" }), baseNovelConfig({ routeShellMode: "route" }))).toBe("legacy")
   })
 
+  it("#42 集成：authoritative 输入经归一激活 route 分支（与 route 档等价、非 legacy-null）", () => {
+    const cfg = baseNovelConfig()
+    const viaAlias = baseInput({ routeShellMode: "authoritative" })
+    const viaRoute = baseInput({ routeShellMode: "route" })
+    const rtAlias = buildDeepChapterRouteRuntime(viaAlias, undefined, cfg)
+    const rtRoute = buildDeepChapterRouteRuntime(viaRoute, undefined, cfg)
+    const outAlias = resolveNextStageViaRoute(viaAlias, cfg, rtAlias)
+    expect(outAlias).not.toBeNull() // 归一前此处恒为 null（静默回退）
+    expect(outAlias).toEqual(resolveNextStageViaRoute(viaRoute, cfg, rtRoute))
+  })
+
+  it("#42 值归一：authoritative 别名归一为 route（不再静默回退 legacy）", () => {
+    const cfg = baseNovelConfig()
+    // input 侧
+    expect(resolveRouteShellMode(baseInput({ routeShellMode: "authoritative" }), cfg)).toBe("route")
+    // novelConfig 侧（项目级隔离）
+    expect(resolveRouteShellMode(baseInput(), baseNovelConfig({ routeShellMode: "authoritative" }))).toBe("route")
+    // input 优先级在归一前生效
+    expect(resolveRouteShellMode(baseInput({ routeShellMode: "legacy" }), baseNovelConfig({ routeShellMode: "authoritative" }))).toBe("legacy")
+    // 未知自定义值仍保持原样透传（由激活判定回退 legacy，行为不变）
+    expect(resolveRouteShellMode(baseInput({ routeShellMode: "custom-x" as never }), cfg)).toBe("custom-x")
+  })
+
   it("resolveAntiAiMode 缺省 off（现状：anti_ai 失败即挡）", () => {
     const cfg = baseNovelConfig()
     expect(resolveAntiAiMode(baseInput(), cfg)).toBe("off")

@@ -402,7 +402,10 @@ export function resolveRouteShellMode(
   const fromConfig = novelConfig
     ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
     : undefined
-  return fromInput ?? fromConfig ?? "legacy"
+  const raw = fromInput ?? fromConfig ?? "legacy"
+  // #42 值语义归一（A-11 解锁条件 a 前半）："authoritative" 是 route 的别名档位，
+  // 归一为规范值 "route"，消除「写 authoritative 静默回退 legacy」的失效路径。
+  return raw === "authoritative" ? "route" : raw
 }
 
 /**
