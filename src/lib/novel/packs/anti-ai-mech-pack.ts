@@ -57,6 +57,9 @@ export interface AntiAiMechPackInput {
    * 绝不影响门控结果。
    */
   readonly origin?: AntiAiTextOrigin
+  /** #34 sink 暴露钩子：memo 首次计算后回调一次（含 origin 装饰后报告）；
+   *  短路未求值（无 pool/无文本/consistency P0 硬短跳过 anti_ai）则不回调。*/
+  readonly onPoolReport?: (report: AntiAiAnalysisReport | null) => void
 }
 
 /** anti-ai-mech-pack 唯一包 id。 */
@@ -87,6 +90,9 @@ export function createAntiAiMechPack(input: AntiAiMechPackInput): RulePackDefini
       // （memo 至多一次语义与对象共享不变；analyze 本体保持 text→report 纯函数）
       poolReport = input.origin ? { ...raw, origin: input.origin } : raw
       poolReportComputed = true
+      // #34 sink 暴露钩子（T24-01 接线）：memo 首次计算后回调一次，
+      // 把装饰后报告递给调用方（推式保 analyze 至多一次 memo 语义）。短路未求值不回调。
+      input.onPoolReport?.(poolReport)
     }
     return poolReport
   }

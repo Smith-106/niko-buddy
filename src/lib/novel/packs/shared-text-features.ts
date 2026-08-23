@@ -191,6 +191,8 @@ export interface CorePackInputs {
    * 纯元数据透传至 anti-ai mech 包报告打标，不影响任何门控结果。
    */
   readonly origin?: AntiAiTextOrigin
+  /** #34 sink 报告暴露钩子（透传给 mech 包 onPoolReport；详见 anti-ai-mech-pack.ts）*/
+  readonly onPoolReport?: (report: import("../anti-ai-candidate-pool").AntiAiAnalysisReport | null) => void
   /** 连续性引擎入参（checkContinuity 的 ReadonlyStore 同构 + 可选 config/override）。 */
   readonly continuity?: ContinuityInput & {
     readonly config?: ContinuityEngineConfig
@@ -246,6 +248,7 @@ export function composeCoreRulePacks(inputs: CorePackInputs): RulePackDefinition
     ...(features ? { features } : {}),
     ...(pool ? { pool } : {}),
     ...(inputs.origin ? { origin: inputs.origin } : {}),
+    ...(inputs.onPoolReport ? { onPoolReport: inputs.onPoolReport } : {}),
   })
 
   const antiAiLlmPack = createAntiAiLlmPack({

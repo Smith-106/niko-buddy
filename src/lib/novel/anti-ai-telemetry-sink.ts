@@ -74,7 +74,8 @@ export interface AntiAiTelemetryLine {
 export interface PoolReportContext {
   readonly chapter: number
   readonly text: string
-  readonly sessionId: string
+  /** 会话标识；调用方未必持有时可省略（段文件名用 init 时的 sessionId）*/
+  readonly sessionId?: string
   readonly projectId?: string
   readonly windowIndex?: number
   readonly windowCharOffset?: number
