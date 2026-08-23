@@ -114,6 +114,7 @@ import {
   type WatchdogState,
 } from "./watchdog"
 import { createStatusWriteMerger } from "./status-write-merge"
+import { recordAntiAiShadowTelemetry } from "./anti-ai-shadow-telemetry"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -983,6 +984,12 @@ export async function runFullReviewWithSixDim(
       six_dim_continuity_status: dimensionResults.continuity.status,
     })
   }
+  // T24-01 影子遥测接线（#34 ≥200 章累积钟）：跑 mech 四因子仅供 sink 记录，
+  // 不并入 reviewResults/gate（门裁语义零变更）。fire-and-forget，永不阻塞主评审。
+  // 语料降级：生产无 corpus 则 n-gram/标点因子中性，PL/熵正常算。
+  void recordAntiAiShadowTelemetry(content, chapterNumber).catch(() => {
+    /* 非致命：遥测失败绝不影响章节生成 */
+  })
   return { reviewResults, dimensionResults }
 }
 
