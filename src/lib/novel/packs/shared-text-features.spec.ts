@@ -123,8 +123,8 @@ describe("composeCoreRulePacks origin 透传", () => {
   it("中性等价: 带/不带 origin 的同输入 findings 逐字节相同 (origin 纯元数据不改门控)", () => {
     const packsA = composeCoreRulePacks({ chapterContent: SAMPLE, origin: "ai_draft" })
     const packsB = composeCoreRulePacks({ chapterContent: SAMPLE })
-    const findingsA = runRuleStack(combinePacks(packsA), {})
-    const findingsB = runRuleStack(combinePacks(packsB), {})
+    const findingsA = runRuleStack(combinePacks(packsA), { isFinale: false })
+    const findingsB = runRuleStack(combinePacks(packsB), { isFinale: false })
     expect(JSON.stringify(findingsA)).toBe(JSON.stringify(findingsB))
   })
 

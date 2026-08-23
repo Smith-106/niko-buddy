@@ -23,10 +23,10 @@
 
 import { normalizeText } from "../mechanical-slop-detector"
 import type { ContinuityInput, ContinuityOverrideStore, ContinuityEngineConfig } from "../deterministic-continuity-engine"
+import type { AntiAiTextOrigin } from "../anti-ai-candidate-pool"
 import {
   createAntiAiMechPack,
   type AntiAiPoolLike,
-  type AntiAiTextOrigin,
 } from "./anti-ai-mech-pack"
 import { createAntiAiLlmPack, type AntiAiLlmFindingInput } from "./anti-ai-llm-pack"
 import { createContinuityPack, EMPTY_CONTINUITY_INPUT } from "./continuity-pack"
