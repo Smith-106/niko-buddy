@@ -24,10 +24,7 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ### v2.5.1 更新亮点（2026-08-21，notes-only）
 
-- ✅ **CI 口径统一** — typecheck 统一为 `npm run typecheck`（T00 步骤⑥）
-- ✅ **文档站部署链修复** — deploy-docs 触发分支改回 master，修复线上文档站停留在 v2.4.4 的脱节
-- ✅ **CHANGELOG 补齐** — 补记缺失的 [2.5.0] 条目（Wave 1-5 发布叙事）
-- ✅ **仓库卫生** — 回收 94GB 构建产物，清理临时文件与缓存
+- CI 工程卫生、文档站部署链修复、CHANGELOG 补齐（详见应用内 changelog）
 
 ### v2.5.0 更新亮点（历史，2026-08-18）
 
