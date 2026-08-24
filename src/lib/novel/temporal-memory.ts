@@ -32,7 +32,7 @@ import type { NameAliasMap } from "./book-analysis/types"
 import type { ContextEntity } from "./context-engine"
 // T25 (A-04.4): canon 图投影事实类型（T14 读出口产物，已剥离 known_by/digest）。
 // 仅 type-only import —— 本模块仍是纯 VIEW，不引入任何 IPC/IO 依赖。
-import type { CanonFact } from "./canon-graph-client"
+import type { CanonFact, CanonModality } from "./canon-graph-client"
 
 export interface TemporalFact {
   /** Stable id (e.g. `fact-ch5-<idx>`). */
@@ -50,12 +50,26 @@ export interface TemporalFact {
    * superseding or negating fact). undefined while the fact is still current.
    */
   validUntil?: number
+  /**
+   * former 标记：该事实已失效（invalid_at <= 查询章节），属"曾成立"事实。
+   * 仅当 `fromCanonGraph(..., { includeInvalidated: true })` 模式且边在查询章节前
+   * 已失效时打 true。用于生成侧独立分块（人物误信/发现变化/回忆对照），
+   * 禁止作为当前叙述事实（P0 护栏：禁并入 canonRules 有效块 / buildMustAvoid）。
+   */
+  former?: boolean
   /** Ids of facts this fact supersedes (replaces). */
   supersedes?: string[]
   /** Chapter reference / provenance. */
   source: string
   /** Optional extraction confidence 0..1. */
   confidence?: number
+  /** 认知模态（落点①，来自 canon 图 projection；与 subject/predicate 正交）：
+   *  belief/hypothesis 视为角色认知（非事实陈述），渲染带「X 认为…」标记且不触发矛盾判定。
+   *  retconned 视为回溯改写，渲染带溯源标记。默认 undefined = 叙述者断言（assertive）。 */
+  modality?: CanonModality
+  /** 写入该事实边的 write attempt revision（as-of-revision 溯源戳，来自 canon 图 projection）。
+   *  former/retcon 事实渲染时打「第N版修订前成立」标记。 */
+  recordedRevision?: number | null
 }
 
 /**
@@ -256,25 +270,53 @@ export function factsFromCommittedSnapshots(
  * 默认路径不变：调用方在 canon_migration 缺省/legacy 时仍走
  * factsFromCommittedSnapshots 折叠（向后兼容），仅迁移态 ≥ dual 改用本视图。
  */
+export interface FromCanonGraphOpts {
+  /** 查询章节号：用于判定已失效窗口边（invalid_at <= chapter 即 former）。 */
+  chapter?: number
+  /** 召回已失效窗口边并打 `former` 标记（"曾以为"）。需配合 `chapter` 使用。 */
+  includeInvalidated?: boolean
+}
+
+/**
+ * 把 T14 `canon-graph-client` 读出口边折叠为时序事实视图（VIEW，不持有存储）。
+ *
+ * 扩展（C / 方案 X 全做 M+）：`opts.includeInvalidated=true` 且给定 `chapter` 时，
+ * 对 `invalidAt != null && invalidAt <= chapter` 的边保留并打 `former: true` 标记
+ * （"曾成立的事实"），交由消费方独立分块渲染 —— 不并入当前有效时序事实。
+ * 缺省（无 opts）行为完全不变：仅做 allowlist 投影 + 去重 + 确定排序。
+ */
 export function fromCanonGraph(
   facts: readonly CanonFact[],
   aliasMap?: NameAliasMap,
+  opts?: FromCanonGraphOpts,
 ): TemporalFact[] {
   const out: TemporalFact[] = []
   const seen = new Set<string>()
+  const chapter = opts?.chapter
+  const includeInvalidated = opts?.includeInvalidated === true
   for (const fact of facts) {
     if (fact.archived) continue
     if (seen.has(fact.id)) continue
     seen.add(fact.id)
+    const validUntil = fact.invalidAt ?? undefined
+    // former 标记：include_invalidated 模式下，边在查询章节之前已失效 → 曾成立。
+    const former =
+      includeInvalidated && chapter != null && validUntil != null && validUntil <= chapter
+        ? true
+        : undefined
     out.push({
       id: fact.id,
       subject: resolveCanonicalName(fact.sourceId, aliasMap),
       predicate: fact.predicate,
       object: fact.targetId,
       validFrom: fact.validAt ?? fact.sourceChapter ?? 0,
-      validUntil: fact.invalidAt ?? undefined,
+      validUntil,
+      former,
       source: `canon-graph:${fact.id}`,
       confidence: fact.confidence ?? undefined,
+      // D1：携带认知模态；A：携带 as-of-revision 溯源戳。
+      modality: fact.modality ?? undefined,
+      recordedRevision: fact.recordedRevision ?? undefined,
     })
   }
   // 确定性输出序：(validFrom 升序, id 升序，码点序 —— 不依赖 locale)。id 经上
@@ -335,7 +377,16 @@ export function renderTemporalCanonBlock(
   if (active.length === 0) return ""
   const lines = active.map((f) => {
     const tail = f.object ? `${f.predicate} ${f.object}`.trim() : ""
-    return `- [第${f.validFrom}章起] ${f.subject}${tail ? "：" + tail : ""}`
+    // 落点①：belief/hypothesis 认知标记 —— 角色「认为」而非陈述事实。
+    const cognitive = f.modality === "belief" || f.modality === "hypothesis"
+    const head = cognitive ? `${f.subject}认为` : f.subject
+    let line = `- [第${f.validFrom}章起] ${head}${tail ? "：" + tail : ""}`
+    // A：former/retcon 溯源标记 —— 用 recordedRevision 打「第N版修订前成立」。
+    if (f.former === true || f.modality === "retconned") {
+      const stamp = f.recordedRevision != null ? `第${f.recordedRevision}版` : ""
+      line += `（${stamp}修订前成立）`
+    }
+    return line
   })
   return `# 时序事实（截至第${chapterNumber}章有效）\n${lines.join("\n")}`
 }

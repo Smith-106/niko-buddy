@@ -3,7 +3,8 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
-import { buildReviewPrompt, ReviewParseError, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
+import { buildReviewPrompt, buildCanonModalityContext, ReviewParseError, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
+import type { TemporalFact } from "./temporal-memory"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
@@ -1314,3 +1315,60 @@ describe("T24 resolveReviewGateKey — GATE_MAPPING 唯一真源 + CORR-108 lega
     expect(resolveReviewGateKey("")).toBe("quality")
   })
 })
+
+// ════════════════════════════════════════════════════════════════════════════
+// 落点③：buildCanonModalityContext — canon 图事实（携带 modality）提示词组装，
+// 仅渲染 belief/hypothesis（角色认知）与 retconned（回溯改写）；assertive/无模态不注入。
+// ════════════════════════════════════════════════════════════════════════════
+describe("buildCanonModalityContext (落点③: canon 模态区分)", () => {
+  function makeTemporalFact(overrides: Partial<TemporalFact> & { id: string }): TemporalFact {
+    return {
+      subject: "主角",
+      predicate: "是",
+      object: "凡人",
+      validFrom: 1,
+      source: "canon-graph:x",
+      ...overrides,
+    }
+  }
+
+  it("仅渲染 belief/hypothesis/retconned 非 Assertive；assertive 不重复注入", () => {
+    const facts: TemporalFact[] = [
+      makeTemporalFact({ id: "a", modality: "belief", subject: "主角", predicate: "持有", object: "轩辕剑" }),
+      makeTemporalFact({ id: "b", modality: "assertive", subject: "配角", predicate: "位于", object: "凌霄殿" }),
+    ]
+    const ctx = buildCanonModalityContext(facts)
+    expect(ctx).toContain("# canon 图事实（模态区分）")
+    expect(ctx).toContain("[角色认知·belief] 主角 持有 轩辕剑（角色所信，非客观事实")
+    // assertive 事实已由 context-engine 独立分块呈现，此处不重复注入（A1+C1）
+    expect(ctx).not.toContain("[事实]")
+    expect(ctx).not.toContain("凌霄殿")
+  })
+
+  it("hypothesis 同样标记角色认知", () => {
+    const facts: TemporalFact[] = [
+      makeTemporalFact({ id: "h", modality: "hypothesis", subject: "主角", object: "非凡人" }),
+    ]
+    const ctx = buildCanonModalityContext(facts)
+    expect(ctx).toContain("[角色认知·hypothesis]")
+  })
+
+  it("retconned 标记回溯改写", () => {
+    const facts: TemporalFact[] = [
+      makeTemporalFact({ id: "r", modality: "retconned", subject: "主角", object: "凡人" }),
+    ]
+    const ctx = buildCanonModalityContext(facts)
+    expect(ctx).toContain("[回溯改写] 主角 是 凡人")
+  })
+
+  it("全 Assertive / 无模态事实 → 返回空串（不重复注入，由 context-engine 独立分块呈现）", () => {
+    const facts: TemporalFact[] = [makeTemporalFact({ id: "n", subject: "主角", object: "凡人" })]
+    const ctx = buildCanonModalityContext(facts)
+    expect(ctx).toBe("")
+  })
+
+  it("空输入返回空串（不污染 prompt）", () => {
+    expect(buildCanonModalityContext([])).toBe("")
+  })
+})
+

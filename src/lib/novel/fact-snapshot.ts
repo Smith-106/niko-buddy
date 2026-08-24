@@ -139,6 +139,11 @@ function checkTemporalConsistency(
       // rule engine's setting_conflict detector already covers plain
       // contradictions; this pass focuses on time-window violations.
       if (prior.validFrom >= snapshot.chapterNumber) continue
+      // 落点②：belief/hypothesis 模态的上游事实不触发矛盾判定
+      // （角色「相信/假设」≠ 事实陈述，不应作为 setting_conflict 依据）。
+      // 仅 canon 图投影经 fromCanonGraph 携带 modality 的 TemporalFact 能触发此 suppression
+      // （见 temporal-memory.fromCanonGraph）；原始 snapshot 字符串比较路径无 modality。
+      if (prior.modality === "belief" || prior.modality === "hypothesis") continue
       const contradicted = areFactsContradictory(prior.object || prior.predicate, rawFact)
       if (!contradicted) continue
 
@@ -387,6 +392,9 @@ function checkSettingConflict(
       const currSubject = extractFactSubject(currFact)
       if (!prevSubject || !currSubject || prevSubject !== currSubject) continue
 
+      // 注（落点②）：本路径比对原始 snapshot 字符串（newCanonFacts），不携带 modality，
+      // 故无 belief/hypothesis 可言 —— 矛盾判定按原语义照常进行；modal 抑制仅作用于
+      // 经 canon 图投影携带 modality 的 TemporalFact（checkTemporalConsistency 路径）。
       if (areFactsContradictory(prevFact, currFact)) {
         results.push({
           severity: "high",

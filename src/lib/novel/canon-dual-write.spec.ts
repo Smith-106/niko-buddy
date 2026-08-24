@@ -186,6 +186,32 @@ describe("canonStoreWriter（默认 canon 写，IPC 分发）", () => {
     const res = await canonStoreWriter("P", episodePayload())
     expect(res).toEqual({ ok: false, error: "string boom" })
   })
+  it("supersede_by_digest → canon_supersede_edges 带 caused_by=backfill-by-digest", async () => {
+    // canon_query 返回匹配 digest 的旧边
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return { edges: [{ id: "old1" }] }
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 4 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede_by_digest",
+      request: { oldDigest: "d1", capChapter: 5, newDigest: "d2" },
+    })
+    expect(invokeMock).toHaveBeenCalledWith("canon_query", {
+      projectId: "P",
+      filter: { digest: ["d1"] },
+    })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", {
+      projectId: "P",
+      request: {
+        old_edge_ids: ["old1"],
+        cap_chapter: 5,
+        new_edges: [],
+        caused_by: "backfill-by-digest",
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 4 })
+  })
 })
 
 describe("snapshotLegacyWriter（真实 snapshot-derived 投影写入器，DEBT-20260820-15 偿还）", () => {

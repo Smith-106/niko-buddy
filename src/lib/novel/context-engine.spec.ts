@@ -2674,8 +2674,10 @@ describe("T25 三源真并行 + canon 事实块注入", () => {
     })
 
     // T13/T14 IPC 契约：projectPath 即 projectId；世界时态过滤当前章有效 + 仅未归档。
-    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(1)
+    // C（include_invalidated）：第二查询召回已失效窗口边（former 标记），共 2 次调用。
+    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(2)
     expect(t25.queryCanonEdges).toHaveBeenCalledWith("/p", { valid_at_chapter: 3, archived: false })
+    expect(t25.queryCanonEdges).toHaveBeenCalledWith("/p", expect.objectContaining({ include_invalidated: true }))
     // fromCanonGraph 视图转换（真函数）：TemporalFact 窗口语义逐字段对齐。
     expect(pack.temporalFacts).toEqual([
       {
@@ -2699,8 +2701,74 @@ describe("T25 三源真并行 + canon 事实块注入", () => {
     t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "shadow" })
     t25.queryCanonEdges.mockResolvedValue([])
     const pack = await buildContextPack("/p", "生成第3章正文", 3)
-    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(1)
+    // C：第二查询（include_invalidated）同样发出，共 2 次。
+    expect(t25.queryCanonEdges).toHaveBeenCalledTimes(2)
     expect(pack.temporalFacts).toEqual([])
+  })
+
+  // ── C (方案 X / include_invalidated)：P0 护栏集成回归 ──
+  it("C (P0 护栏)：第二查询召回 former → pack.formerFacts 打标 + 独立分块渲染 + 不入 temporalFacts/mustAvoid/canonRules", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "dual" })
+    // 按 filter 区分两查询返回：第一查（当前有效）vs 第二查（include_invalidated 召回已失效窗口）。
+    t25.queryCanonEdges.mockImplementation((_pp: string, filter: Record<string, unknown>) => {
+      if (filter.include_invalidated === true) {
+        return Promise.resolve([
+          {
+            id: "old1",
+            sourceId: "白砚",
+            targetId: "伪证信物",
+            predicate: "OWNS",
+            edgeKind: "world_fact",
+            validAt: 1,
+            invalidAt: 4,
+            confidence: 0.7,
+            archived: false,
+          },
+        ])
+      }
+      return Promise.resolve([
+        {
+          id: "cur1",
+          sourceId: "白砚",
+          targetId: "真剑",
+          predicate: "OWNS",
+          edgeKind: "world_fact",
+          validAt: 2,
+          confidence: 0.9,
+          archived: false,
+        },
+      ])
+    })
+    hoisted.renderTemporalCanonBlock.mockReturnValue("CANON-BLOCK-MARKER")
+
+    const pack = await buildContextPack("/p", "生成第6章正文", 6, {
+      novelConfig: mkNovelConfig({ temporalFactsEnabled: true }),
+    })
+
+    // P0 护栏 1：former 不并入当前有效 temporalFacts（current/former 数学互斥）。
+    expect(pack.temporalFacts.map((f) => f.id)).toEqual(["cur1"])
+    // former 流入 pack.formerFacts 并打 former:true 标记（真实被消费）。
+    expect(pack.formerFacts).toHaveLength(1)
+    expect(pack.formerFacts![0]).toMatchObject({ id: "old1", former: true, object: "伪证信物" })
+
+    // 独立分块渲染（真实消费链闭环）：prompt 含 formerFacts 段标题 + former 边内容。
+    const prompt = contextPackToPrompt(pack)
+    expect(prompt).toContain("曾成立的事实") // i18n 段标题（zh）
+    expect(prompt).toContain("伪证信物") // former 边内容进入独立分块
+    // P0 护栏 2：former 内容不入 mustAvoid（禁语义倒置——避免把失效事实当当前真值去“避免违背”）。
+    expect(pack.mustAvoid).not.toContain("伪证信物")
+    // P0 护栏 3：former 不并入 canonRules 渲染块（renderTemporalCanonBlock 只吃 temporalFacts，不吃 formerFacts）。
+    expect(pack.canonRules).toContain("CANON-BLOCK-MARKER")
+    expect(pack.canonRules).not.toContain("伪证信物")
+  })
+
+  it("C (字节级不变)：无 former 边时 formerFacts=undefined → prompt 不渲染该段", async () => {
+    t25.loadNovelSessionStatus.mockResolvedValue({ canon_migration: "dual" })
+    t25.queryCanonEdges.mockResolvedValue([]) // 两查询均空
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.formerFacts).toBeUndefined()
+    const prompt = contextPackToPrompt(pack)
+    expect(prompt).not.toContain("曾成立的事实")
   })
 
   it("canon_migration=legacy / 缺省 → 默认仍 fold：不触 canon 读出口（向后兼容 A-04.4）", async () => {

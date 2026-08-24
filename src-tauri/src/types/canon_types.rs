@@ -49,6 +49,13 @@ pub const CANON_TABLE_ENTITIES: &str = "canon_entities";
 pub const CANON_TABLE_EDGES: &str = "canon_edges";
 /// §3 episodes 表 → canon_episodes（兼 ingest_log 去重语义）。
 pub const CANON_TABLE_EPISODES: &str = "canon_episodes";
+/// §B 审计事件表 → canon_events（独立物理表，与三表隔离，防爆半径）。
+///
+/// 选项 Z（data-JSON 承载）：审计事件以 `data` 列承载完整 JSON 负载，
+/// 物理列仅保留审计/溯源所需的标量键（id/event_type/caused_by/revision/
+/// cap_chapter/occurred_at），不引入任何业务新列——零迁移（不动 MIGRATIONS
+/// 断言，旧库下次 `open()` 经 `ensure_table` 自动补建）。
+pub const CANON_TABLE_EVENTS: &str = "canon_events";
 /// schema 版本清单表（key/value），记录当前应用 schema_version。
 pub const CANON_TABLE_META: &str = "canon_schema_meta";
 
@@ -90,6 +97,46 @@ impl EdgeKind {
             "attribute" => Self::Attribute,
             _ => return None,
         })
+    }
+}
+
+/// §3 edges.modality：事实的认知模态（落点①，与 edge_kind 正交）。
+///
+/// - `Assertive`：叙述者断言（默认；旧数据回填值，Rust `#[serde(default)]` 兼容）。
+/// - `Belief`：角色相信（渲染带认知标记「X 认为…」，不触发矛盾判定）。
+/// - `Hypothesis`：假设（同上）。
+/// - `Retconned`：回溯改写（as-of-revision 溯源标记）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Modality {
+    Assertive,
+    Belief,
+    Hypothesis,
+    Retconned,
+}
+
+impl Modality {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Assertive => "assertive",
+            Self::Belief => "belief",
+            Self::Hypothesis => "hypothesis",
+            Self::Retconned => "retconned",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Option<Self> {
+        Some(match s {
+            "assertive" => Self::Assertive,
+            "belief" => Self::Belief,
+            "hypothesis" => Self::Hypothesis,
+            "retconned" => Self::Retconned,
+            _ => return None,
+        })
+    }
+
+    pub fn default_modality() -> Self {
+        Self::Assertive
     }
 }
 
@@ -348,6 +395,11 @@ pub struct CanonEdge {
     /// Snyder beat 标签。
     #[serde(default)]
     pub beat_label: Option<String>,
+    /// 事实的认知模态（落点①：belief/hypothesis 不触发矛盾判定；与 edge_kind 正交）。
+    /// 封闭 enum + 默认 Assertive；旧数据（data JSON 无此字段）经
+    /// `#[serde(default = "Modality::default_modality")]` 回填 Assertive，零迁移。
+    #[serde(default = "Modality::default_modality")]
+    pub modality: Modality,
     #[serde(default)]
     pub beat_hit: Option<bool>,
     /// 伏笔埋设章节（foreshadow 边）。
@@ -363,6 +415,10 @@ pub struct CanonEdge {
     // ── 预留 ──
     #[serde(default)]
     pub archived: bool,
+    /// 最后一次写入该边的写尝试 revision（attempt-count，含幂等 skip 的 post-bump 值）。
+    /// None = 旧数据（data JSON 无此字段）；as-of-revision 过滤用 `<=` 比较。
+    #[serde(default)]
+    pub recorded_revision: Option<u64>,
 }
 
 impl CanonEdge {
@@ -388,11 +444,13 @@ impl CanonEdge {
             source_chapter: None,
             digest: String::new(),
             beat_label: None,
+            modality: Modality::default_modality(),
             beat_hit: None,
             foreshadow_planted_at: None,
             hook_type: None,
             payoff_chapter: None,
             archived: false,
+            recorded_revision: None,
         }
     }
 
@@ -514,9 +572,22 @@ pub struct CanonEdgeFilter {
     /// 世界时态：仅返回 `at_chapter` 时有效的边（valid_at <= c < invalid_at）。
     #[serde(default)]
     pub valid_at_chapter: Option<i32>,
+    /// include_invalidated 过滤：Some(true)=保留已失效窗口边（"曾以为"召回）；
+    /// None/Some(false)=旧行为（仅 valid_at 有效边）。与既有 invalid_at 物理列配合，
+    /// 无新列。仅在与 `valid_at_chapter` 同用时生效。
+    #[serde(default)]
+    pub include_invalidated: Option<bool>,
+    /// 仅返回 recorded_revision <= 该值的边（as-of-revision 视角重建）。
+    /// None = 不过滤；Some(max) = 过滤掉 recorded_revision > max 的边
+    /// （recorded_revision=None 的旧数据视作早于任何 revision，始终保留）。
+    #[serde(default)]
+    pub max_recorded_revision: Option<u64>,
     /// 按边类别过滤。
     #[serde(default)]
     pub edge_kinds: Option<Vec<EdgeKind>>,
+    /// 按认知模态过滤（belief/hypothesis 等非断言模态可单挑）。
+    #[serde(default)]
+    pub modalities: Option<Vec<Modality>>,
     /// 按谓词过滤（开放字符串精确匹配）。
     #[serde(default)]
     pub predicates: Option<Vec<String>>,
@@ -554,13 +625,35 @@ impl CanonEdgeFilter {
             }
             // 世界时态
             if let Some(ch) = self.valid_at_chapter {
-                if !e.is_valid_at(ch) {
+                // include_invalidated=true 时放宽：仅要求 valid_at <= ch（含已失效窗口边）；
+                // 旧行为（None/Some(false)）仍用 is_valid_at 严格半开区间判断。
+                let valid = if self.include_invalidated == Some(true) {
+                    e.valid_at.map_or(true, |v| v <= ch)
+                } else {
+                    e.is_valid_at(ch)
+                };
+                if !valid {
                     return false;
+                }
+            }
+            // as-of-revision 过滤（A：recorded_revision 溯源戳）
+            if let Some(max_rev) = self.max_recorded_revision {
+                // None = 旧数据（无戳），视作早于任何 revision → 始终包含。
+                if let Some(rev) = e.recorded_revision {
+                    if rev > max_rev {
+                        return false;
+                    }
                 }
             }
             // 边类别
             if let Some(ref kinds) = self.edge_kinds {
                 if !kinds.contains(&e.edge_kind) {
+                    return false;
+                }
+            }
+            // 认知模态过滤（D：modality 正交维度，与 edge_kind 独立）
+            if let Some(ref mods) = self.modalities {
+                if !mods.contains(&e.modality) {
                     return false;
                 }
             }
@@ -607,6 +700,11 @@ pub struct SupersedeRequest {
     pub cap_chapter: i32,
     /// 后继新边（全新 uuid，由调用方生成）。
     pub new_edges: Vec<CanonEdge>,
+    /// 审计溯源标记：触发本次 supersede 的上游动作（如 `backfill-by-digest` /
+    /// `manual-correction`）。`#[serde(default)]` 向后兼容：旧 IPC 调用方未传
+    /// 时视为 None（QC-5 不破坏既有契约）。
+    #[serde(default)]
+    pub caused_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -617,6 +715,70 @@ pub struct SupersedeResult {
     pub inserted: usize,
     /// 未找到的旧边 id（诊断用）。
     pub missing: Vec<String>,
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// §B canon_events 审计事件（独立物理表，data-JSON 承载，零迁移）
+// ──────────────────────────────────────────────────────────────────────────
+//
+// 设计要点（选项 Z + ox-alpha 升级）：
+//   - 独立 `canon_events` 表：NOT `CanonEdge` 扩展，兑现表隔离防爆半径（F6）。
+//   - data-JSON 承载：完整事件负载落 `data` 列，物理列仅标量溯源键。
+//   - `event_id` 服务端派生：f(project_id, max_revision, payload-hash)，
+//     不进 IPC 契约（调用方无需生成 id）。
+//   - 全字段 `#[serde(default)]`：旧 data（无字段）反序列化不报错，零迁移。
+
+/// §B 审计事件（写路径每次 supersede 追加一条，append-only）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanonEvent {
+    /// 服务端派生事件 id：f(project_id, max_revision, payload-hash)。
+    #[serde(default)]
+    pub event_id: String,
+    /// 事件类型（当前仅 `supersede`；预留 `ingest` / `divergence` 等）。
+    #[serde(default)]
+    pub event_type: String,
+    /// 审计溯源标记（透传 SupersedeRequest.caused_by）。
+    #[serde(default)]
+    pub caused_by: Option<String>,
+    /// 事件发生时 canon revision（溯源 as-of-revision 视角）。
+    #[serde(default)]
+    pub revision: Option<u64>,
+    /// 本次 supersede 封顶的旧边 id 列表。
+    #[serde(default)]
+    pub old_edge_ids: Vec<String>,
+    /// 封顶章节（旧边 invalid_at 写入值）。
+    #[serde(default)]
+    pub cap_chapter: Option<i32>,
+    /// 本次 supersede 插入的后继新边 id 列表。
+    #[serde(default)]
+    pub new_edge_ids: Vec<String>,
+    /// 事件发生的 ISO-8601 时间戳（服务端生成）。
+    #[serde(default)]
+    pub occurred_at: String,
+    /// 完整事件负载 JSON（前进兼容：未来字段无需新物理列）。
+    #[serde(default)]
+    pub data: String,
+}
+
+impl CanonEvent {
+    /// 构造一条 supersede 审计事件（event_id / occurred_at 由服务端
+    /// `append_canon_event` 派生/填充，此处留空）。
+    pub fn new_supersede(
+        revision: u64,
+        req: &SupersedeRequest,
+    ) -> Self {
+        CanonEvent {
+            event_id: String::new(),
+            event_type: "supersede".to_string(),
+            caused_by: req.caused_by.clone(),
+            revision: Some(revision),
+            old_edge_ids: req.old_edge_ids.clone(),
+            cap_chapter: Some(req.cap_chapter),
+            new_edge_ids: req.new_edges.iter().map(|e| e.id.clone()).collect(),
+            occurred_at: String::new(),
+            data: String::new(),
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1072,6 +1234,73 @@ mod tests {
         );
     }
 
+    // ── C: include_invalidated 过滤（方案 X 全做 M+）──
+
+    #[test]
+    fn canon_filter_include_invalidated_true_keeps_invalidated_window() {
+        // valid_at=5, invalid_at=10；查询章节 12 时该边已失效（窗口 [5,10)）。
+        let e = edge("e1", Some(5), Some(10));
+        let all = vec![e];
+        // 旧行为：第 12 章已超出 invalid_at 半开区间 → 0 条。
+        assert_eq!(
+            CanonEdgeFilter {
+                valid_at_chapter: Some(12),
+                ..Default::default()
+            }
+            .select(&all)
+            .len(),
+            0
+        );
+        // include_invalidated=true：仅要求 valid_at <= 12 → 保留已失效窗口边（1 条）。
+        assert_eq!(
+            CanonEdgeFilter {
+                valid_at_chapter: Some(12),
+                include_invalidated: Some(true),
+                ..Default::default()
+            }
+            .select(&all)
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn canon_filter_include_invalidated_none_or_false_old_behavior() {
+        let e = edge("e1", Some(5), Some(10));
+        let all = vec![e];
+        // None / Some(false) 均等同旧行为：第 12 章不召回。
+        assert_eq!(
+            CanonEdgeFilter {
+                valid_at_chapter: Some(12),
+                ..Default::default()
+            }
+            .select(&all)
+            .len(),
+            0
+        );
+        assert_eq!(
+            CanonEdgeFilter {
+                valid_at_chapter: Some(12),
+                include_invalidated: Some(false),
+                ..Default::default()
+            }
+            .select(&all)
+            .len(),
+            0
+        );
+        // 当前仍有效的边（第 7 章 < invalid_at=10）不受 include_invalidated 影响。
+        assert_eq!(
+            CanonEdgeFilter {
+                valid_at_chapter: Some(7),
+                include_invalidated: Some(true),
+                ..Default::default()
+            }
+            .select(&all)
+            .len(),
+            1
+        );
+    }
+
     #[test]
     fn canon_technique_columns_default_on_new() {
         let e = CanonEntity::new("e1", "character", "Alice", 1);
@@ -1186,5 +1415,79 @@ mod tests {
             validate_edge_temporal(&e),
             Err(TemporalInvariantError::RevealedBeforeValid { .. })
         ));
+    }
+
+    // ── A: recorded_revision 兼容 + as-of-revision 过滤 ──
+
+    #[test]
+    fn canon_edge_recorded_revision_serde_default_on_old_data() {
+        // 旧数据（无 recorded_revision / modality）→ 反序列化回填 None / Assertive。
+        let old_json = r#"{
+            "id":"e1","source_id":"s","target_id":"t","predicate":"rel",
+            "edge_kind":"world_fact"
+        }"#;
+        let e: CanonEdge = serde_json::from_str(old_json).unwrap();
+        assert_eq!(e.recorded_revision, None, "旧数据 recorded_revision 回填 None");
+        assert_eq!(e.modality, Modality::Assertive, "旧数据 modality 回填 Assertive");
+    }
+
+    #[test]
+    fn canon_edge_recorded_revision_serde_roundtrip() {
+        let mut e = CanonEdge::new("e1", "s", "t", "rel", EdgeKind::WorldFact);
+        e.recorded_revision = Some(7);
+        e.modality = Modality::Belief;
+        let json = serde_json::to_string(&e).unwrap();
+        let back: CanonEdge = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.recorded_revision, Some(7));
+        assert_eq!(back.modality, Modality::Belief);
+    }
+
+    #[test]
+    fn canon_filter_max_recorded_revision_keeps_le_and_excludes_gt() {
+        let mut e_old = CanonEdge::new("e-old", "s", "t", "rel", EdgeKind::WorldFact);
+        e_old.recorded_revision = Some(3);
+        let mut e_new = CanonEdge::new("e-new", "s", "t", "rel", EdgeKind::WorldFact);
+        e_new.recorded_revision = Some(9);
+        let mut e_none = CanonEdge::new("e-none", "s", "t", "rel", EdgeKind::WorldFact);
+        // recorded_revision 默认 None（旧数据无戳）
+        let all = vec![e_old.clone(), e_new.clone(), e_none.clone()];
+
+        // max=5：e_new(9) 被排除，e_old(3) 与 e_none(None) 保留。
+        let sel = CanonEdgeFilter {
+            max_recorded_revision: Some(5),
+            ..Default::default()
+        }
+        .select(&all);
+        let ids: Vec<&str> = sel.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["e-old", "e-none"], "max_recorded_revision as-of-revision 过滤");
+        assert!(sel.iter().all(|e| e.recorded_revision.map_or(true, |r| r <= 5)));
+
+        // None 过滤：全部保留（不过滤）。
+        assert_eq!(CanonEdgeFilter::default().select(&all).len(), 3);
+    }
+
+    // ── D: modality 过滤 ──
+
+    #[test]
+    fn canon_filter_modalities_belief_hypothesis() {
+        let mut e_assertive = CanonEdge::new("e-a", "s", "t", "rel", EdgeKind::WorldFact);
+        e_assertive.modality = Modality::Assertive;
+        let mut e_belief = CanonEdge::new("e-b", "s", "t", "rel", EdgeKind::WorldFact);
+        e_belief.modality = Modality::Belief;
+        let mut e_hyp = CanonEdge::new("e-h", "s", "t", "rel", EdgeKind::WorldFact);
+        e_hyp.modality = Modality::Hypothesis;
+        let all = vec![e_assertive, e_belief, e_hyp];
+
+        // 仅选 belief/hypothesis（非断言模态单挑）
+        let sel = CanonEdgeFilter {
+            modalities: Some(vec![Modality::Belief, Modality::Hypothesis]),
+            ..Default::default()
+        }
+        .select(&all);
+        let ids: Vec<&str> = sel.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["e-b", "e-h"]);
+
+        // None 过滤：全部保留。
+        assert_eq!(CanonEdgeFilter::default().select(&all).len(), 3);
     }
 }

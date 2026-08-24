@@ -45,7 +45,7 @@ import { loadUserMemoryForProject } from "@/lib/user-memory/session"
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
 // EPIC-003 / TASK-008: ROI 埋点写入 cognition-state.json（现有 key，HARD-1 守恒）。
-import { appendRoutingROISample, type RoutingROISample } from "./character-cognition"
+import { appendRoutingROISample, resolveChapterPovCharacter, type RoutingROISample } from "./character-cognition"
 // S2a (roadmap): 四维反查组合导入 — related-chapters 是独立纯函数模块,
 // context-engine 负责组合进 ContextPack (不平行实现, 与 searchRelevantContentUnified 互补)。
 import {
@@ -89,6 +89,7 @@ const SECTION_PRIORITY: Record<string, number> = {
   "下一章推进建议": 16,
   "写作风格": 17,
   "语音风格指南": 17.5,
+  "曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）": 18,
 }
 
 /**
@@ -305,6 +306,20 @@ export interface ContextPack {
    * legacy 构造器不填（IC-02 向后兼容，TASK-002 渲染器本就先查 flag）。
    */
   temporalFacts?: TemporalFact[] | null
+  /**
+   * C（方案 X 全做 M+）：已失效（曾成立）事实独立分块字段（IC-02 范式，可选 + 兼容 null）。
+   * 承载 canon 路径第二查询（include_invalidated=true）召回、打 `former` 标记的时序事实，
+   * 由 FIELD_CONFIGS 独立渲染为「曾成立的事实」段。
+   *
+   * ## P0 硬护栏（成败关键，不得破坏）
+   *   - 本字段 **独立分块**渲染，绝不并入 canonRules / 有效 temporal 块；
+   *   - `buildMustAvoid` 当前仅接收 (canonRules, timeline, characterStates) 签名，
+   *     **不含** formerFacts（禁把失效事实当当前真值"避免违背"——否则语义倒置）；
+   *   - 渲染条数上限 FORMER_FACTS_CAP，压缩误导空间；
+   *   - former 为空 → undefined → 不渲染该段（字节级不变）。注意：本字段无独立 flag 门控，
+   *     字节级等价由“数据空则不渲染”保证（与 temporalFacts 的 flag 门控不同）。
+   */
+  formerFacts?: TemporalFact[] | null
   /**
    * Wave B: GraphRAG-style community narrative summaries (persisted disk load).
    * Compressible tier — empty when none / disabled. Optional for legacy packs.
@@ -528,11 +543,12 @@ async function buildContextPackUnlocked(
         timings[slot] = performance.now() - startedAt
       }
     }
-    const [rawData, temporalFactsPreloaded, techniqueText] = await Promise.all([
+    const [rawData, canonSource, techniqueText] = await Promise.all([
       timedSource("wiki", () => registry.loadAll(context)),
       timedSource("canon", () => loadCanonSourceFacts(pp, context.chapterNumber ?? 0)),
       timedSource("technique", () => loadTechniqueBlocks()),
     ])
+    const temporalFactsPreloaded = canonSource.current
     // telemetry 计时点：每次 build 输出一次三源耗时（毫秒，非整数保留亚毫秒分辨率）。
     logger.info("ContextEngine", "context-pack 三源并行装配计时", { ...timings })
 
@@ -621,6 +637,9 @@ async function buildContextPackUnlocked(
     // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
     // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
     pack.references = referencesText
+    // C（方案 X 全做 M+）：已失效（曾成立）事实独立分块注入。former 为空时设 undefined
+    // → 不渲染该段（flag=false 字节级不变）。绝不并入 canonRules/有效 temporal 块。
+    pack.formerFacts = canonSource.former.length > 0 ? canonSource.former : undefined
     // T25 (F-19/A-04.4): 技法块注入（additive 独立字段）— 空文本不注入（undefined），
     // 消费方按需读取 pack.techniqueBlocks；三源计时探针遥测字段同步注入。
     pack.techniqueBlocks = techniqueText || undefined
@@ -961,35 +980,67 @@ async function buildContextPackFromRawData(
  *     仅未归档）→ temporal-memory.fromCanonGraph 视图转换；失败降级 null（不阻断）。
  *
  * 与原 buildContextPackFromRawData 内联加载语义对齐：无章节号（≤0）不加载时序
- * 事实返回 null。loadNovelSessionStatus 自吞错误（缺失/损坏 status.json → null），
- * 故无需额外 catch 层。
+ * 事实返回 { current: null, former: [] }。loadNovelSessionStatus 自吞错误（缺失/损坏
+ * status.json → null），故无需额外 catch 层。
+ *
+ * ## C（方案 X 全做 M+）：双查询结构
+ *   - 第一查询：当前章有效边（旧行为 `is_valid_at` 严格半开区间）→ `current`
+ *     （注入 pack.temporalFacts，保护一致性，禁改）。
+ *   - 第二查询：`include_invalidated: true` 召回已失效窗口边（"曾以为"），经
+ *     `fromCanonGraph(edges, { chapter, includeInvalidated: true })` 打 `former`
+ *     标记 → `former`（`former === true` 过滤）。POV 精确归因（见 resolveChapterPovCharacter）：
+ *     若解析到本章 POV 角色则叠加 `known_by` 过滤，否则世界层投影（include_invalidated
+ *     仍为 true）。former 仅供独立分块（Part 3），绝不并入当前有效时序事实。
  */
+/** loadCanonSourceFacts 双输出：当前有效时序事实 + 已失效（曾成立）时序事实。 */
+interface CanonSourceFacts {
+  /** 当前章有效时序事实（= 原 loadCanonSourceFacts 返回值，注入 pack.temporalFacts）。 */
+  current: TemporalFact[] | null
+  /** 已失效但曾成立的时序事实（former:true 标记），供独立分块注入 pack.formerFacts。 */
+  former: TemporalFact[]
+}
+
 async function loadCanonSourceFacts(
   pp: string,
   targetChapter: number,
-): Promise<TemporalFact[] | null> {
-  if (targetChapter <= 0) return null
+): Promise<CanonSourceFacts> {
+  if (targetChapter <= 0) return { current: null, former: [] }
   const migrationMode: CanonMigrationMode | undefined =
     (await loadNovelSessionStatus(pp))?.canon_migration
   if (migrationMode === "dual" || migrationMode === "shadow") {
     // canon 路径：T14 投影读出口结构化查询（POV 句柄 known_by/digest 已在投影层剥离）。
     try {
+      // 第一查询：当前章有效边（旧行为 is_valid_at 严格半开区间 → 保护一致性）。
       const edges = await queryCanonEdges(pp, {
         valid_at_chapter: targetChapter,
         archived: false,
       })
-      return fromCanonGraph(edges)
+      const current = fromCanonGraph(edges)
+      // 第二查询：include_invalidated=true 召回已失效窗口边（"曾以为"）。
+      const povId = await resolveChapterPovCharacter(pp, targetChapter)
+      const formerEdges = await queryCanonEdges(pp, {
+        valid_at_chapter: targetChapter,
+        archived: false,
+        include_invalidated: true,
+        ...(povId ? { known_by: povId } : {}),
+      })
+      const former = fromCanonGraph(
+        formerEdges,
+        undefined,
+        { chapter: targetChapter, includeInvalidated: true },
+      ).filter((f) => f.former === true)
+      return { current, former }
     } catch (error) {
       logger.warn("ContextEngine", "canon-graph load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
-      return null
+      return { current: null, former: [] }
     }
   }
-  // 默认折叠路径（TASK-004 原行为）。
+  // 默认折叠路径（TASK-004 原行为）：无 canon 图，former 恒为空。
   try {
-    return await loadTemporalFactsCached(pp)
+    return { current: await loadTemporalFactsCached(pp), former: [] }
   } catch (error) {
     logger.warn("ContextEngine", "temporal-memory load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
-    return null
+    return { current: null, former: [] }
   }
 }
 
@@ -1255,6 +1306,11 @@ export function buildMustDo(chapterGoal: string, previousChapterEnding: string, 
   return items.join("\n")
 }
 
+/**
+ * C（方案 X 全做 M+）P0 护栏：buildMustAvoid 仅接收 (canonRules, timeline, characterStates)，
+ * **刻意不含** `formerFacts`。失效事实若被纳入"避免违背"，语义将倒置（把已推翻信息当当前
+ * 真值去"避免违背"）——故 former 事实只走独立分块（FIELD_CONFIGS.formerFacts），绝不入此。
+ */
 export function buildMustAvoid(canonRules: string, timeline: string, characterStates: string): string {
   const items: string[] = []
   if (canonRules.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.canonRules", { value: canonRules.trim() }))
@@ -2185,6 +2241,12 @@ interface FieldConfig {
   layer?: "L0" | "L1" | "L2" | "L3" | "aux"
 }
 
+/**
+ * C（方案 X 全做 M+）P0 护栏：former 事实独立分块渲染条数上限。
+ * 压缩误导空间（失效事实不应喧宾夺主），与有效 temporal 块解耦。
+ */
+const FORMER_FACTS_CAP = 8
+
 const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.currentChapterGoal", fieldKey: "chapterGoal", layer: "L2" },
   { titleKey: "novel.contextPack.mustDo.title", fieldKey: "mustDo", layer: "L2" },
@@ -2237,6 +2299,36 @@ const FIELD_CONFIGS: FieldConfig[] = [
     serialize: (content) => {
       const entities = content as ContextEntity[]
       return entities.map((e) => "- " + e.name + (e.tags && e.tags.length ? " (tags: " + e.tags.join(", ") + ")" : ""))
+    },
+  },
+  {
+    // C：已失效（曾成立）事实独立分块 —— 禁并入 canonRules / 有效 temporal 块（P0 护栏）。
+    titleKey: "novel.contextPack.formerFacts",
+    fieldKey: "formerFacts",
+    layer: "L2",
+    // 仅当存在 former 事实才渲染；former 为空 → 不渲染（字节级不变，由数据空保证，无独立 flag 门控）。
+    renderIf: (pack) => (pack.formerFacts?.length ?? 0) > 0,
+    serialize: (content, pack) => {
+      const former = content as TemporalFact[]
+      // P0 护栏：条数上限 cap，压缩误导空间。
+      const capped = former.slice(0, FORMER_FACTS_CAP)
+      // 最佳努力配对：同 (subject,predicate) 的当前有效事实作为替代事实（曾以为X→现Y）。
+      const currentByKey = new Map<string, TemporalFact>()
+      for (const f of pack.temporalFacts ?? []) {
+        currentByKey.set(`${f.subject}::${f.predicate}`, f)
+      }
+      return capped.map((f) => {
+        const window = `[第${f.validFrom}章起→第${f.validUntil}章失效]`
+        const formerPhrase = f.object ? `${f.subject}${f.predicate ? f.predicate + " " : ""}${f.object}` : f.subject
+        const replacement = currentByKey.get(`${f.subject}::${f.predicate}`)
+        const replPhrase = replacement?.object
+          ? `${replacement.subject}${replacement.predicate ? replacement.predicate + " " : ""}${replacement.object}`
+          : ""
+        if (replacement && replPhrase) {
+          return `- ${window} 曾以为「${formerPhrase}」→ 现「${replPhrase}」`
+        }
+        return `- ${window} 曾以为「${formerPhrase}」（当前已失效，禁止作为当前叙述事实）`
+      })
     },
   },
 ]

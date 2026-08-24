@@ -81,6 +81,7 @@ describe("getFactsKnownBy（T13 canon_facts_known_by 投影封装）", () => {
       projectId: "proj-1",
       pov: "alice",
       atChapter: 5,
+      includeInvalidated: null,
     })
     expect(facts).toHaveLength(1)
     const f = facts[0]
@@ -102,6 +103,8 @@ describe("getFactsKnownBy（T13 canon_facts_known_by 投影封装）", () => {
       hookType: "mystery",
       payoffChapter: 9,
       archived: true,
+      recordedRevision: null,
+      modality: null,
     })
     // 禁句柄外泄：投影产物不得含内部句柄键
     expect("knownBy" in f).toBe(false)
@@ -119,6 +122,7 @@ describe("getFactsKnownBy（T13 canon_facts_known_by 投影封装）", () => {
       projectId: "proj-1",
       pov: "alice",
       atChapter: null,
+      includeInvalidated: null,
     })
   })
 
@@ -186,6 +190,33 @@ describe("queryCanonEdgesBatch（T13 canon_query_batch 投影封装）", () => {
     // 每条结果均经禁句柄外泄守护
     expect(results[0][0]).not.toHaveProperty("known_by")
     expect(results[2][0]).not.toHaveProperty("digest")
+  })
+})
+
+describe("projectEdge 透传 recorded_revision + modality（A/D 落点①）", () => {
+  it("projectEdge 透传 recorded_revision 与 modality（allowlist 映射）", () => {
+    const raw: RawCanonEdge = {
+      ...fullRawEdge(),
+      recorded_revision: 3,
+      modality: "belief",
+    }
+    const fact = projectEdge(raw)
+    expect(fact.recordedRevision).toBe(3)
+    expect(fact.modality).toBe("belief")
+    // 仍是安全投影：不含内部句柄
+    expect(fact).not.toHaveProperty("known_by")
+    expect(fact).not.toHaveProperty("digest")
+  })
+
+  it("projectEdge 缺省 recorded_revision/modality 为 null（旧数据兼容，不误伤）", () => {
+    const fact = projectEdge(sparseRawEdge())
+    expect(fact.recordedRevision).toBeNull()
+    expect(fact.modality).toBeNull()
+  })
+
+  it("assertNoHandleLeak 不因 recorded_revision/modality 新字段误伤", () => {
+    const fact = projectEdge({ ...fullRawEdge(), recorded_revision: 5, modality: "assertive" })
+    expect(() => assertNoHandleLeak(fact)).not.toThrow()
   })
 })
 

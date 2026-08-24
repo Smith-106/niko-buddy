@@ -135,6 +135,8 @@ export type CanonCanonPayload =
   | { kind: "episode"; episode: Record<string, unknown> }
   | { kind: "supersede"; request: Record<string, unknown> }
   | { kind: "supersede_by_digest"; request: { oldDigest: string; capChapter: number; newDigest: string } }
+// 注：generic `supersede` 分支的 `request` 为 Record<string, unknown>，调用方注入的
+// `causedBy` 字段原样经 IPC 下发（§B causedBy 透传），无需在此收窄类型。
 
 /** 单个双写操作：旧 view 负载 + 新 canon 负载 + 可选预置 digest / 派生内容。 */
 export interface CanonDualWriteOp {
@@ -278,6 +280,8 @@ export async function canonStoreWriter(
           old_edge_ids: oldEdgeIds,
           cap_chapter: capChapter,
           new_edges: [],
+          // §B causedBy：按 digest 回填 supersede 的高审计粒度标记
+          caused_by: "backfill-by-digest",
         },
       })
       return { ok: true, revision: res.max_revision }

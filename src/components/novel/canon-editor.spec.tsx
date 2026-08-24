@@ -126,6 +126,8 @@ describe("correction payload builders (pure)", () => {
     expect(req.old_edge_ids).toEqual(["e9"])
     expect(req.cap_chapter).toBe(3)
     expect(req.new_edges).toHaveLength(1)
+    // §B causedBy：人工校正 supersede 的审计溯源标记
+    expect(req.caused_by).toBe("manual-correction")
     // 后继边：id 全新、认知轴打补丁、世界时态与技法列原样继承
     const next = req.new_edges[0]!
     expect(next.id).toBe(makeCorrectionId("e9", "salt-1"))

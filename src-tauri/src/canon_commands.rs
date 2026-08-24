@@ -45,7 +45,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::commands::canon_store::CanonStore;
 use crate::types::canon_types::{
-    CanonEdge, CanonEdgeFilter, CanonEpisode, EdgeKind, SupersedeRequest, SupersedeResult,
+    CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, EdgeKind, SupersedeRequest,
+    SupersedeResult,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -264,10 +265,12 @@ pub async fn canon_facts_known_by_impl(
     project_id: String,
     pov: String,
     at_chapter: Option<i32>,
+    include_invalidated: Option<bool>,
 ) -> Result<CanonQueryResponse, String> {
     let filter = CanonEdgeFilter {
         known_by: Some(pov),
         valid_at_chapter: at_chapter,
+        include_invalidated,
         ..Default::default()
     };
     canon_query_impl(state, project_id, filter).await
@@ -296,16 +299,43 @@ pub async fn canon_ingest_episode_impl(
 /// 批量 supersede（写路径：串行化 + revision 自增）。
 ///
 /// DEBT-20260820-13 偿还：写后 revision 持久化到 canon_store meta 表。
+/// §B 写放大 guard 硬上限：单次 supersede 触达的旧边 + 新边总边数。
+/// 早于 write_lock 早拒（零锁开销），防止超大批量 supersede 触发海量
+/// 边变更 + 审计事件写入的写放大（P2 护栏，防爆半径）。
+const CANON_SUPERSEDE_HARD_CAP: usize = 4096;
+
 pub async fn canon_supersede_edges_impl(
     state: &CanonCommandState,
     project_id: String,
     request: SupersedeRequest,
 ) -> Result<CanonSupersedeResponse, String> {
+    // §B 写放大 guard：命令入口早拒（早于 write_lock，零锁开销）
+    if request.old_edge_ids.len() + request.new_edges.len() > CANON_SUPERSEDE_HARD_CAP {
+        return Err(format!(
+            "supersede too large: {} edges (old {} + new {}) exceeds hard cap {}",
+            request.old_edge_ids.len() + request.new_edges.len(),
+            request.old_edge_ids.len(),
+            request.new_edges.len(),
+            CANON_SUPERSEDE_HARD_CAP
+        ));
+    }
     let lock = state.write_lock(&project_id);
     let _guard = lock.lock().await;
     let store = CanonStore::open(&project_id).await?;
-    let result = store.supersede_edges(request).await?;
+    // A2: bump revision 提前到 store.supersede_edges 之前，使 new_edges 能带上
+    // post-bump 的 recorded_revision 戳（as-of-revision 溯源标记）。
     let max_revision = state.bump_revision(&project_id);
+    // 对 new_edges 逐个戳 recorded_revision = Some(max_revision)；old_edge_ids 走
+    // invalidate_edge（不动 recorded_revision），封顶边原戳自动保留（A3 自动满足）。
+    let mut request = request;
+    for e in &mut request.new_edges {
+        e.recorded_revision = Some(max_revision);
+    }
+    // §B：先落审计日志，再改状态（done-when #3：日志失败即中止变更，零边变更）。
+    // event_id 服务端派生 f(project_id, max_revision, payload-hash)，caused_by 透传。
+    let mut ev = CanonEvent::new_supersede(max_revision, &request);
+    store.append_canon_event(&mut ev).await?;
+    let result = store.supersede_edges(request).await?;
     state.persist_revision(&project_id, &store).await?;
     Ok(CanonSupersedeResponse {
         result,
@@ -378,8 +408,9 @@ pub async fn canon_facts_known_by(
     project_id: String,
     pov: String,
     at_chapter: Option<i32>,
+    include_invalidated: Option<bool>,
 ) -> Result<CanonQueryResponse, String> {
-    canon_facts_known_by_impl(state.inner(), project_id, pov, at_chapter).await
+    canon_facts_known_by_impl(state.inner(), project_id, pov, at_chapter, include_invalidated).await
 }
 
 #[tauri::command]
@@ -568,16 +599,48 @@ mod tests {
             .await
             .unwrap();
 
-        let r = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(5))
+        let r = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(5), None)
             .await
             .unwrap();
         assert_eq!(r.edges.len(), 1);
         assert_eq!(r.edges[0].id, "e1");
 
-        let r2 = canon_facts_known_by_impl(&state, pid, "bob".into(), Some(5))
+        let r2 = canon_facts_known_by_impl(&state, pid, "bob".into(), Some(5), None)
             .await
             .unwrap();
         assert_eq!(r2.edges.len(), 0);
+    }
+
+    // ── canon_facts_known_by_include_invalidated_passthrough（C: include_invalidated 透传）──
+
+    #[tokio::test]
+    async fn canon_facts_known_by_include_invalidated_passthrough() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // 有效窗 [1,5) 的世界事实，alice 已知；在第 7 章已失效。
+        let mut e = edge("e1", Some(1), Some(5), &["alice"]);
+        e.source_chapter = Some(1);
+        CanonStore::open(&pid)
+            .await
+            .unwrap()
+            .upsert_edge(e)
+            .await
+            .unwrap();
+
+        // 旧行为（None）：第 7 章不再有效 → 0 条。
+        let old = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(7), None)
+            .await
+            .unwrap();
+        assert_eq!(old.edges.len(), 0);
+
+        // include_invalidated=true：保留已失效窗口边 → 1 条。
+        let inc = canon_facts_known_by_impl(&state, pid, "alice".into(), Some(7), Some(true))
+            .await
+            .unwrap();
+        assert_eq!(inc.edges.len(), 1);
+        assert_eq!(inc.edges[0].id, "e1");
     }
 
     // ── canon_ingest_episode：幂等 + revision 自增 ──
@@ -636,6 +699,7 @@ mod tests {
             old_edge_ids: vec!["old1".into(), "ghost".into()],
             cap_chapter: 5,
             new_edges: vec![new1],
+            caused_by: None,
         };
         let r = canon_supersede_edges_impl(&state, pid.clone(), req)
             .await
@@ -772,5 +836,140 @@ mod tests {
         // 验证 revision 独立（写入 divergence trace 不应覆盖 revision）
         let rev = store.load_revision().await.unwrap();
         assert_eq!(rev, 0, "divergence trace write should not affect revision");
+    }
+
+    // ── A: supersede 戳 recorded_revision + 封顶边原戳保留（A3）──
+
+    #[tokio::test]
+    async fn canon_supersede_edges_stamps_recorded_revision_and_preserves_capped() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        let store = CanonStore::open(&pid).await.unwrap();
+        // 旧边先打一个原戳（模拟上一 revision 写入），用于验 A3 封顶后原戳保留。
+        let mut old1 = edge("old1", Some(1), None, &["alice"]);
+        old1.recorded_revision = Some(7);
+        store.upsert_edge(old1).await.unwrap();
+        store
+            .upsert_edge(edge("old2", Some(1), None, &["alice"]))
+            .await
+            .unwrap();
+
+        let new1 = edge("new1", Some(5), None, &["alice"]);
+        let req = SupersedeRequest {
+            old_edge_ids: vec!["old1".into(), "ghost".into()],
+            cap_chapter: 5,
+            new_edges: vec![new1],
+            caused_by: None,
+        };
+        let r = canon_supersede_edges_impl(&state, pid.clone(), req)
+            .await
+            .unwrap();
+        assert_eq!(r.result.capped, 1);
+        assert_eq!(r.result.inserted, 1);
+        assert_eq!(r.max_revision, 1, "supersede 自增 revision");
+
+        // 读回验证：new1 被戳 recorded_revision == max_revision(1)
+        let q = canon_query_impl(&state, pid, CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let by_id = |id: &str| q.edges.iter().find(|e| e.id == id).cloned();
+        let new1_back = by_id("new1").expect("new1 应存在");
+        assert_eq!(
+            new1_back.recorded_revision, Some(1),
+            "new_edges 戳 == max_revision"
+        );
+        // A3：封顶旧边 old1 原戳 (7) 在 supersede 后仍保留（invalidate_edge 不动 recorded_revision）
+        let old1_back = by_id("old1").expect("old1 应仍封顶存在");
+        assert_eq!(
+            old1_back.recorded_revision, Some(7),
+            "封顶边原戳保留（A3）"
+        );
+        assert_eq!(old1_back.invalid_at, Some(5), "封顶 invalid_at 写入");
+        // old2（未列入 old_edge_ids）应为 None 戳且仍有效
+        let old2_back = by_id("old2").expect("old2 应存在");
+        assert_eq!(old2_back.recorded_revision, None);
+    }
+
+    // ── §B：supersede 先落审计日志、再改状态（事件先落、状态后改）──
+
+    #[tokio::test]
+    async fn canon_supersede_appends_event_then_mutates() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // 预置一条旧边
+        let store0 = CanonStore::open(&pid).await.unwrap();
+        store0
+            .upsert_edge(edge("old1", Some(1), None, &["alice"]))
+            .await
+            .unwrap();
+
+        // 通过 impl 触发 supersede（含审计日志先落）
+        let req = SupersedeRequest {
+            old_edge_ids: vec!["old1".into()],
+            cap_chapter: 5,
+            new_edges: vec![edge("new1", Some(5), None, &["alice"])],
+            caused_by: Some("manual-correction".into()),
+        };
+        let r = canon_supersede_edges_impl(&state, pid.clone(), req)
+            .await
+            .unwrap();
+        assert_eq!(r.result.capped, 1);
+        assert_eq!(r.result.inserted, 1);
+
+        // 审计事件已落（事件先落、状态后改）
+        let store = CanonStore::open(&pid).await.unwrap();
+        let events = store.query_canon_events().await.unwrap();
+        assert_eq!(events.len(), 1, "supersede 恰好追加 1 条审计事件");
+        assert_eq!(events[0].event_type, "supersede");
+        assert_eq!(events[0].old_edge_ids, vec!["old1".to_string()]);
+        assert_eq!(events[0].new_edge_ids, vec!["new1".to_string()]);
+        assert_eq!(events[0].cap_chapter, Some(5));
+        assert_eq!(events[0].caused_by, Some("manual-correction".to_string()));
+        assert!(
+            !events[0].event_id.is_empty(),
+            "event_id 服务端派生非空"
+        );
+        assert!(
+            !events[0].occurred_at.is_empty(),
+            "occurred_at 服务端填充"
+        );
+
+        // 状态已改：old1 封顶、new1 可见
+        let q = canon_query_impl(&state, pid, CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let by_id = |id: &str| q.edges.iter().find(|e| e.id == id).cloned();
+        assert_eq!(by_id("old1").unwrap().invalid_at, Some(5), "旧边已封顶");
+        assert!(by_id("new1").is_some(), "新边已插入");
+    }
+
+    // ── §B：写放大 guard 命令入口早拒（零锁开销）──
+
+    #[tokio::test]
+    async fn canon_supersede_hard_cap_rejects() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // 构造超出硬上限（old + new 总边数 > CAP）的请求
+        let over = CANON_SUPERSEDE_HARD_CAP + 1;
+        let old_edge_ids: Vec<String> = (0..over).map(|i| format!("old{i}")).collect();
+        let req = SupersedeRequest {
+            old_edge_ids,
+            cap_chapter: 5,
+            new_edges: vec![],
+            caused_by: None,
+        };
+        let res = canon_supersede_edges_impl(&state, pid, req).await;
+        assert!(res.is_err(), "写放大 guard 应早拒超大 supersede");
+        let msg = res.err().unwrap();
+        assert!(
+            msg.contains("too large") || msg.contains("hard cap"),
+            "错误信息含硬上限提示: {msg}"
+        );
     }
 }

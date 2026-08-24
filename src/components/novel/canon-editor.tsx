@@ -43,6 +43,8 @@ export interface CanonSupersedeRequest {
   cap_chapter: number
   /** 后继新边（id 由调用方生成）。 */
   new_edges: RawCanonEdge[]
+  /** §B 审计溯源标记：人工校正 supersede 的高审计粒度标记。 */
+  caused_by?: string
 }
 
 /** T13 `canon_supersede_edges` 响应体（CanonSupersedeResponse 镜像）。 */
@@ -113,6 +115,8 @@ export function buildSupersedeRequestForCorrection(
     old_edge_ids: [old.id],
     cap_chapter: old.valid_at ?? 0,
     new_edges: [newEdge],
+    // §B causedBy：人工校正 supersede 的审计溯源标记
+    caused_by: "manual-correction",
   }
 }
 

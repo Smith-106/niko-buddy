@@ -333,6 +333,34 @@ describe("renderTemporalCanonBlock", () => {
     expect(block).toContain("- [第1章起] 主角")
     expect(block).not.toContain("：")
   })
+
+  // ── A/D 落点①：belief 认知标记 + former/retcon 溯源标记 ──
+  it("A/D: belief 模态渲染「X 认为…」认知标记（非事实陈述）", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "b", validFrom: 1, subject: "主角", predicate: "持有", object: "轩辕剑", modality: "belief" }),
+    ]
+    const block = renderTemporalCanonBlock(2, facts)
+    expect(block).toContain("主角认为")
+    expect(block).toContain("持有 轩辕剑")
+    expect(block).toContain("[第1章起]")
+  })
+
+  it("A/D: former 带溯源标记（recordedRevision → 第N版修订前成立）", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "f", validFrom: 1, subject: "主角", predicate: "是", object: "凡人", former: true, recordedRevision: 2 }),
+    ]
+    // validUntil 未设 → 在 ch2 仍 active（former 标记由 includeInvalidated 路径产生，此处仅验溯源标记渲染）
+    const block = renderTemporalCanonBlock(2, facts)
+    expect(block).toContain("第2版修订前成立")
+  })
+
+  it("A/D: retconned 模态渲染溯源标记（无 recordedRevision 用空戳）", () => {
+    const facts: TemporalFact[] = [
+      makeFact({ id: "r", validFrom: 1, subject: "主角", predicate: "是", object: "凡人", modality: "retconned" }),
+    ]
+    const block = renderTemporalCanonBlock(2, facts)
+    expect(block).toContain("修订前成立")
+  })
 })
 
 describe("rerankActiveEntitiesByTemporalFacts", () => {
@@ -576,5 +604,50 @@ describe("fromCanonGraph (T25)", () => {
     const block = renderTemporalCanonBlock(6, facts)
     expect(block).toContain("[第1章起] 主角：OWNS 轩辕剑")
     expect(block).not.toContain("凌霄殿")
+  })
+
+  // ── C (方案 X / include_invalidated)：former 打标 —— P0 护栏回归保护 ──
+  it("C: includeInvalidated=true 时 invalidAt<=chapter 的边保留并打 former:true（曾以为召回）", () => {
+    const facts = fromCanonGraph(
+      [
+        makeCanonFact({ id: "e-live", validAt: 1 }),
+        makeCanonFact({ id: "e-dead", targetId: "凌霄殿", validAt: 2, invalidAt: 5 }),
+      ],
+      undefined,
+      { chapter: 6, includeInvalidated: true },
+    )
+    const byId = new Map(facts.map((f) => [f.id, f]))
+    expect(facts).toHaveLength(2) // 两条都保留（include_invalidated 召回已失效窗口）
+    expect(byId.get("e-live")!.former).toBeUndefined() // 仍有效（无 invalidAt）→ 不打标
+    expect(byId.get("e-dead")!.former).toBe(true) // invalidAt 5 <= 6 → former
+  })
+
+  it("C: 缺省 opts 时 former 恒 undefined（旧行为字节级不变）", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e-dead", validAt: 2, invalidAt: 5 }),
+    ])
+    expect(facts[0]!.former).toBeUndefined()
+  })
+
+  it("C: includeInvalidated=true 但 invalidAt>chapter（仍有效）→ 不打 former 标记", () => {
+    const facts = fromCanonGraph(
+      [makeCanonFact({ id: "e-open", targetId: "凌霄殿", validAt: 2, invalidAt: 10 })],
+      undefined,
+      { chapter: 6, includeInvalidated: true },
+    )
+    expect(facts[0]!.former).toBeUndefined() // invalidAt 10 > 6 → 仍有效，非 former
+  })
+
+  // ── A/D: recordedRevision + modality 透传（落点①/消费链闭环）──
+  it("A/D: 透传 recordedRevision 与 modality（canon 边新字段经 fromCanonGraph 入 TemporalFact）", () => {
+    const facts = fromCanonGraph([
+      makeCanonFact({ id: "e-belief", recordedRevision: 4, modality: "belief" }),
+      makeCanonFact({ id: "e-assert", recordedRevision: 7, modality: "assertive" }),
+    ])
+    const byId = new Map(facts.map((f) => [f.id, f]))
+    expect(byId.get("e-belief")!.modality).toBe("belief")
+    expect(byId.get("e-belief")!.recordedRevision).toBe(4)
+    expect(byId.get("e-assert")!.modality).toBe("assertive")
+    expect(byId.get("e-assert")!.recordedRevision).toBe(7)
   })
 })
