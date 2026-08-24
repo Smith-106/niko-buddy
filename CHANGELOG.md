@@ -21,10 +21,6 @@
 - **T32-T35 检索重调参 + 精品 registry + 哨兵**：rerank-api（custom endpoint 直连重排）+ embedding 三实现（Google/DashScope/Generic）+ canon_search.rs RRF 融合（α=0.08/β=0.75 网格扫描赢家 NDCG@10=0.941）+ model-resolver 五角色路由 + provider-registry add-only + premium-config/execution（GCR 两轮封顶 + 共识门 + 双判官）+ control-sentinels（13 分支互斥 + 720k 穷举哨兵）
 - **T01b 语料 κ 盲标质量门**：`src/lib/novel/corpus-kappa.ts` Cohen's κ 纯函数计算（混淆矩阵→Po→Pe→κ）+ Landis-Koch 级别映射 + 黄金集合格线 GOLD_QUALIFIED_KAPPA=0.7 (A-21.2/A-23.2)；15 测试全绿；机械层零 LLM (ADR-19)；Draft-first (ADR-08) κ 结果先进 pending
 
-### Added
-
-- **T01b 语料 κ 盲标质量门**：`src/lib/novel/corpus-kappa.ts` Cohen's κ 纯函数计算（混淆矩阵→Po→Pe→κ）+ Landis-Koch 级别映射 + 黄金集合格线 GOLD_QUALIFIED_KAPPA=0.7 (A-21.2/A-23.2)；15 测试全绿；机械层零 LLM (ADR-19)；Draft-first (ADR-08) κ 结果先进 pending
-
 ### Fixed
 
 - **eslint no-eval 规则注册**：`chunk-fingerprint.ts` 的 disable 指令引用了未注册的 `@typescript-eslint/no-eval`（该规则是 ESLint 内置非 TS 插件），改为 `no-eval` 恢复 T18 自设 "0 error" 底线
