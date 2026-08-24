@@ -6,16 +6,17 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    // 2.6.1 头部 + 2.6.0 + 2.5.1 + 2.5.0 + 2.4.x 链（2.6.1 发布后整体后移）
-    expect(versions.slice(0, 10)).toEqual(["2.6.1", "2.6.0", "2.5.1", "2.5.0", "2.4.11", "2.4.10", "2.4.6", "2.4.5", "2.4.4", "2.4.3"])
-    expect(versions[10]).toBe("2.4.2")
-    expect(versions[11]).toBe("2.4.1")
-    expect(versions[12]).toBe("2.4.0")
-    expect(versions[13]).toBe("2.3.2")
-    expect(versions[14]).toBe("2.3.1")
-    expect(versions[15]).toBe("2.3.0")
+    // 2.6.2 头部 + 2.6.1 + 2.6.0 + 2.5.1 + 2.5.0 + 2.4.x 链（2.6.2 发布后整体后移）
+    expect(versions.slice(0, 10)).toEqual(["2.6.2", "2.6.1", "2.6.0", "2.5.1", "2.5.0", "2.4.11", "2.4.10", "2.4.6", "2.4.5", "2.4.4"])
+    expect(versions[10]).toBe("2.4.3")
+    expect(versions[11]).toBe("2.4.2")
+    expect(versions[12]).toBe("2.4.1")
+    expect(versions[13]).toBe("2.4.0")
+    expect(versions[14]).toBe("2.3.2")
+    expect(versions[15]).toBe("2.3.1")
+    expect(versions[16]).toBe("2.3.0")
     // 2.2.x patch chain starts after 2.6.x + 2.5.x + 2.4.x + 2.3.x heads
-    expect(versions.slice(16, 36)).toEqual([
+    expect(versions.slice(17, 37)).toEqual([
       "2.2.24", "2.2.23", "2.2.22", "2.2.21", "2.2.20",
       "2.2.19", "2.2.18", "2.2.17", "2.2.16", "2.2.14",
       "2.2.13", "2.2.12", "2.2.11", "2.2.10", "2.2.9",
