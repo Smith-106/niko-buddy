@@ -2746,7 +2746,7 @@ describe("T25 三源真并行 + canon 事实块注入", () => {
     })
 
     // P0 护栏 1：former 不并入当前有效 temporalFacts（current/former 数学互斥）。
-    expect(pack.temporalFacts.map((f) => f.id)).toEqual(["cur1"])
+    expect(pack.temporalFacts!.map((f) => f.id)).toEqual(["cur1"])
     // former 流入 pack.formerFacts 并打 former:true 标记（真实被消费）。
     expect(pack.formerFacts).toHaveLength(1)
     expect(pack.formerFacts![0]).toMatchObject({ id: "old1", former: true, object: "伪证信物" })
