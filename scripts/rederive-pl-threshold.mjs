@@ -15,6 +15,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { buildCorpusIndexes, runDetection } from "./lib/anti-ai-factors.mjs"
+import { assertBatchesIndexed } from "./lib/corpus-guard.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CORPUS_ROOT = resolve(__dirname, "../../docs/p0/corpus")
@@ -62,6 +63,8 @@ function quantile(vals, q) {
 }
 
 // ── 索引种子 ──
+// N2 守卫（fail-closed）：两个消费批次均须 indexed
+assertBatchesIndexed(CORPUS_ROOT, ["batch-20260821-001", "batch-20260822-writing"])
 function loadSeed(layer, batch) {
   const dir = resolve(CORPUS_ROOT, layer, batch)
   return existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith(".txt")).map(f => ({ file: f, text: readFileSync(resolve(dir, f), "utf-8") })) : []

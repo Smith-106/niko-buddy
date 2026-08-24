@@ -38,6 +38,7 @@
 import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
+import { assertBatchesIndexed } from "./lib/corpus-guard.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -50,6 +51,9 @@ const CORPUS_ROOT = resolve(__dirname, "../../docs/p0/corpus")
 const BATCH_ID = "20260821-001"
 const REPORT_PATH = resolve(__dirname, "../docs/p2/anti-ai-calibration.md")
 const GOLD_ROOT = resolve(CORPUS_ROOT, "gold", `batch-${BATCH_ID}`)
+
+// N2 守卫（fail-closed）：pin 批次必须为 indexed 才可标定消费
+assertBatchesIndexed(CORPUS_ROOT, [BATCH_ID])
 
 import {
   splitSentences, splitParagraphs, tokenize, extractWordNGrams,
