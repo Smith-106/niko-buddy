@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url"
 import {
   buildCorpusIndexes, runDetection,
 } from "./lib/anti-ai-factors.mjs"
+import { assertBatchesIndexed } from "./lib/corpus-guard.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CORPUS_ROOT = resolve(__dirname, "../../docs/p0/corpus")
@@ -95,6 +96,8 @@ function walkTxt(d) {
 }
 
 // ── 种子索引（batch-20260821-001, 与正式标定同源） ──
+// N2 守卫（fail-closed）：pin 批次必须为 indexed
+assertBatchesIndexed(CORPUS_ROOT, [BATCH_ID])
 function loadSeed(layer) {
   const dir = resolve(CORPUS_ROOT, layer, `batch-${BATCH_ID}`)
   if (!existsSync(dir)) return []
