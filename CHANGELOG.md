@@ -7,7 +7,14 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased] - Wave-2/3/4/5/6 Stage8 P0-P6 全工程波次 + T18/T31/T36 三硬门
+## [2.6.2] - 2026-08-24
+
+### 反AI 语料与遥测闭环（#34 / T01b 轨）
+
+- **反AI影子遥测接线**：四因子池报告逐章写入 JSONL sink（F-34 同意开关默认关、CWE-532 脱敏、轮转保留）——≥200 章标定累积钟启动；门裁语义零变更（warn-only 不进门裁）
+- **语料打包方案②**：合成种子构建期内嵌（60 片/93KB 入库），生产四因子零 node:fs 产出真值；修复 webview 下模块级 `fileURLToPath` 抛 ERR_INVALID_URL 导致整池加载失败的问题
+- **授权语料参数化摄取管线**：`ingest-authorized-corpus.mjs`（§4 六值枚举强制、unlicensed 双重红线、同批跨层增量合并、配额硬上限与 stopping_conditions）
+- **消费端守卫三件套**：`corpus-guard.mjs` indexed-only fail-closed 断言接入三个标定/画像脚本；打包器 genre 枚举 throw 式校验；16 项隔离不变量测试 + `corpus-check.mjs` 一致性校验器（蓝图 T01b-2）
 
 ### T36 精品模式（实验性，默认关闭）
 
@@ -448,6 +455,7 @@ v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与
 
 [2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.6.2]: https://github.com/Smith-106/niko-buddy/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/Smith-106/niko-buddy/compare/v2.6.0...v2.6.1
 [2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Smith-106/niko-buddy/compare/v2.4.0...v2.4.1
