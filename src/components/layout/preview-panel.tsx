@@ -677,8 +677,13 @@ export function PreviewPanel() {
             message: "正在提取章节记忆",
             abortController: ingestAbortController,
           })
-          const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-          const result = await ingestChapter(project.path, targetPath, resolveReviewModel(), ingestAbortController.signal)
+          const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
+            import("@/lib/novel/chapter-ingest"),
+            import("@/lib/novel/canon-dual-write"),
+          ])
+          const result = await ingestChapter(project.path, targetPath, resolveReviewModel(), ingestAbortController.signal, {
+            canonDualWriteDeps: defaultCanonDualWriteDeps(),
+          })
           useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
             completed: result.snapshot ? 1 : 0,
             total: 1,
@@ -737,8 +742,13 @@ export function PreviewPanel() {
       abortController: ingestAbortController,
     })
     try {
-      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-      const result = await ingestChapter(projectPath, filePath, resolveReviewModel(), ingestAbortController.signal)
+      const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
+        import("@/lib/novel/chapter-ingest"),
+        import("@/lib/novel/canon-dual-write"),
+      ])
+      const result = await ingestChapter(projectPath, filePath, resolveReviewModel(), ingestAbortController.signal, {
+        canonDualWriteDeps: defaultCanonDualWriteDeps(),
+      })
       useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
         completed: result.snapshot ? 1 : 0,
         total: 1,

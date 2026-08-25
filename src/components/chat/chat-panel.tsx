@@ -582,8 +582,13 @@ export function ChatPanel() {
       if (novelConfig.autoIngestOnSave) {
         const runtimeLlmConfig = resolveNovelModel(useWikiStore.getState().llmConfig, novelConfig, "extract")
         if (hasUsableLlm(runtimeLlmConfig)) {
-          const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-          const ingestResult = await ingestChapter(project.path, chapterPath, resolveReviewModel())
+          const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
+            import("@/lib/novel/chapter-ingest"),
+            import("@/lib/novel/canon-dual-write"),
+          ])
+          const ingestResult = await ingestChapter(project.path, chapterPath, resolveReviewModel(), undefined, {
+            canonDualWriteDeps: defaultCanonDualWriteDeps(),
+          })
           if (!ingestResult.snapshot) {
             nextStatus = `已接受草稿并保存为 ${chapterTitle}，但章节摄取未完成`
           }

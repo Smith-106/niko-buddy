@@ -8,6 +8,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter } from "./chapter-meta"
 import { ingestChapter } from "./chapter-ingest"
+import { defaultCanonDualWriteDeps } from "./canon-dual-write"
 import { flattenMdFilesBase } from "./chapter-utils"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 
@@ -84,7 +85,9 @@ export async function rebuildAllSnapshots(
     })
 
     try {
-      const result = await ingestChapter(pp, chapter.path)
+      const result = await ingestChapter(pp, chapter.path, undefined, undefined, {
+        canonDualWriteDeps: defaultCanonDualWriteDeps(),
+      })
       if (result.snapshot) {
         success++
       } else {
