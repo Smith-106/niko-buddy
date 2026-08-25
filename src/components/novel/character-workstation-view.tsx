@@ -35,7 +35,7 @@
  * 宿主通过 onBasicDraftChange 处理。未修改任何共享布局文件。
  */
 
-import { useId, useMemo, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 import { User } from "lucide-react"
 
 /** 一个角色工位的输入数据。字段取自既有角色类型（RecognizedCharacter /
@@ -188,7 +188,8 @@ export function CharacterStationSwitcher({
     )
   }
 
-  /** roving tabindex：←/→ 循环移动，Home/End 跳首尾。 */
+  /** roving tabindex：←/→ 循环移动，Home/End 跳首尾。焦点随选中移动（UAT C7-2b）。 */
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>())
   function moveFocus(delta: number, edge: "start" | "end" | null) {
     const currentIdx = tabs.findIndex((t) => t.id === (focusedId ?? activeId))
     let nextIdx: number
@@ -199,6 +200,10 @@ export function CharacterStationSwitcher({
     const target = tabs[nextIdx]
     setFocusedId(target.id)
     onSelect(target.id)
+    // APG tab 模式：真实 DOM 焦点须随选中移动，而非仅更新状态
+    queueMicrotask(() => {
+      tabRefs.current.get(target.id)?.focus()
+    })
   }
 
   return (
@@ -218,6 +223,10 @@ export function CharacterStationSwitcher({
             type="button"
             role="tab"
             id={`${tablistId}-${tab.id}`}
+            ref={(el) => {
+              if (el) tabRefs.current.set(tab.id, el)
+              else tabRefs.current.delete(tab.id)
+            }}
             aria-selected={selected}
             aria-controls="character-station-panel"
             tabIndex={focused || selected ? 0 : -1}

@@ -165,7 +165,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
                 </span>
                 <span className="text-xs text-muted-foreground">▸</span>
               </summary>
-              <p className="mt-2 border-t pt-2 text-xs leading-5 text-muted-foreground" data-source-detail={s.key}>
+              <p className="mt-2 border-t pt-2 text-xs leading-5 text-muted-foreground break-words" data-source-detail={s.key}>
                 {s.selected ? s.excerpt || "（该源已入选，预览为空）" : "装配时未注入该源。"}
               </p>
             </details>
@@ -189,7 +189,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
           ))}
           <ZoneTitle>③ 最终组装节选</ZoneTitle>
           {replay.assemblyExcerpt ? (
-            <pre className="whitespace-pre-wrap rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+            <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
               {replay.assemblyExcerpt}
             </pre>
           ) : (

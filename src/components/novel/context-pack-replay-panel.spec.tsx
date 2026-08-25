@@ -103,4 +103,15 @@ describe("ContextPackReplayPanel (render + interaction)", () => {
     expect(detail).toHaveAttribute("open")
     expect(screen.getByTestId("gate-consistency")).toBeInTheDocument()
   })
+
+  it("UAT C6-2 长文本加固：源详情与组装节选容器携带 break-words", () => {
+    const { container } = render(<ContextPackReplayPanel pack={pack({ chapterGoal: "x".repeat(500) })} />)
+    const detail = container.querySelector<HTMLDetailsElement>('[data-testid="source-searchResults"]')!
+    detail.open = true
+    expect(container.querySelector('[data-source-detail="searchResults"]')).toHaveClass("break-words")
+    const pre = container.querySelector("pre")
+    expect(pre).toBeTruthy()
+    expect(pre).toHaveClass("break-words")
+    expect(pre!.textContent!.length).toBeGreaterThan(0)
+  })
 })

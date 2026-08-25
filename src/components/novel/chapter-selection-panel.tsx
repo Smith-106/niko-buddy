@@ -199,7 +199,9 @@ export function ChapterSelectionPanel({
   return (
     <DialogRoot
       open
-      modal={!showCharacterPicker}
+      // 角色弹窗或角色工作台任一打开时外层切非模态：释放焦点陷阱与 scroll lock，
+      // 避免与顶层模态层抢焦点（UAT C7-2：仅查 showCharacterPicker 会把焦点拽回被遮挡的后层）。
+      modal={!showCharacterPicker && !showWorkstation}
       onOpenChange={(open) => {
         if (!open) onCancel()
       }}
@@ -208,14 +210,14 @@ export function ChapterSelectionPanel({
       <div className="fixed inset-0 z-50 bg-black/50" />
     </DialogOverlay>
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* 角色选择弹窗打开时外层切非模态（modal=false）：释放焦点陷阱与 scroll lock，
-          避免与内层弹窗（Base UI Dialog）抢焦点；Escape/遮罩交互仍由各自层处理。 */}
+      {/* 角色选择弹窗/工作台打开时外层切非模态（modal=false）：释放焦点陷阱与 scroll lock，
+          避免与内层 Radix 弹窗抢焦点；Escape/遮罩交互仍由各自层处理。 */}
       <DialogContent
         asChild
         aria-describedby={undefined}
         // Radix 1.1.x 不再自动写入 aria-modal（依赖背景 aria-hidden）；保持原手写实现的 AT 语义。
-        // 角色选择弹窗打开时外层切非模态，aria-modal 同步撤除。
-        aria-modal={!showCharacterPicker || undefined}
+        // 角色选择弹窗/工作台打开时外层切非模态，aria-modal 同步撤除。
+        aria-modal={!showCharacterPicker && !showWorkstation || undefined}
         onOpenAutoFocus={(event) => {
           // 保持原行为：初始焦点落在模态容器而非第一个可聚焦元素
           event.preventDefault()
@@ -227,8 +229,8 @@ export function ChapterSelectionPanel({
           event.preventDefault()
         }}
         onEscapeKeyDown={(event) => {
-          // 角色选择弹窗打开时，Escape 只作用于顶层弹窗
-          if (showCharacterPicker) event.preventDefault()
+          // 角色选择弹窗/工作台打开时，Escape 只作用于顶层模态层，不级联取消整个任务（UAT C7-2）
+          if (showCharacterPicker || showWorkstation) event.preventDefault()
         }}
       >
       <div className="w-full max-w-4xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none">
@@ -560,7 +562,8 @@ export function ChapterSelectionPanel({
   )
 }
 
-/** C7 工作台叠加层：给纯展示壳补一层可关闭的外框，复用既有弹窗视觉（遮罩+居中+圆角）。 */
+/** C7 工作台叠加层：真 Radix 模态（focus trap + Escape + aria-modal），
+ *  与外层章节面板、内层角色弹窗共用同一套模态契约（UAT C7-2/C7-3）。 */
 function CharacterWorkstationOverlay({
   items,
   initialDrafts,
@@ -573,27 +576,54 @@ function CharacterWorkstationOverlay({
   onDraftChange: (id: string, draft: string) => void
 }) {
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
-      <div className="w-full max-w-3xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh]">
-        <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
-          <div>
-            <h3 className="text-xl font-semibold">角色工作台</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              为已识别角色独立保存草稿，切换不互相覆盖。
-            </p>
+    <DialogRoot
+      open
+      modal
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogOverlay asChild>
+        <div className="fixed inset-0 z-50 bg-black/50" />
+      </DialogOverlay>
+      <DialogContent
+        asChild
+        aria-describedby={undefined}
+        // Radix 1.1.x 不自动写 aria-modal，手写保持 AT 语义（与外层面板同约定）
+        aria-modal={true}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
+        onInteractOutside={(event) => {
+          // 与外层面板一致：不响应点击遮罩误关
+          event.preventDefault()
+        }}
+        className="fixed inset-0 z-50 flex items-center justify-center outline-none"
+      >
+        <div className="w-full max-w-3xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none" tabIndex={-1}>
+          <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
+            <div>
+              <DialogTitle asChild>
+                <h3 className="text-xl font-semibold">角色工作台</h3>
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                为已识别角色独立保存草稿，切换不互相覆盖。
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭角色工作台">
+              <X className="h-5 w-5" />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭角色工作台">
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="min-h-0 flex-1 overflow-hidden p-4">
+            <CharacterWorkstationView
+              characters={items}
+              initialDrafts={initialDrafts}
+              onBasicDraftChange={onDraftChange}
+            />
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden p-4">
-          <CharacterWorkstationView
-            characters={items}
-            initialDrafts={initialDrafts}
-            onBasicDraftChange={onDraftChange}
-          />
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   )
 }
