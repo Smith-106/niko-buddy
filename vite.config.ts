@@ -126,6 +126,14 @@ export default defineConfig(async () => ({
     // 确定性失败重试后仍红，真回归门信号保留；sunset：根因修复入 master 且
     // CI 连续绿跑后删除此行。
     retry: process.env.CI ? 2 : 0,
+    // T5 flaky 治理（2026-08-23）：forks pool 全量并发下 worker 启动握手超时
+    // （B 类）+ 5s testTimeout 被 CPU 争抢击穿（A 类）——限流到 4 worker 同时
+    // 缓解两类；代价是全量跑更慢（263-344s → ~400-500s）。
+    poolOptions: {
+      forks: {
+        maxWorkers: 4,
+      },
+    },
     // 覆盖率基线（2026-08-16 战役启动）：全口径 s/l/b/f，目标 100%（白名单排除）
     // 测量命令：npm run test:coverage
     // 白名单（7 项，analyze 冻结）：

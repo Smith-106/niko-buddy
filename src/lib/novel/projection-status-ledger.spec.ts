@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
+  AUDIT_TRAIL_MAX_ENTRIES,
   PROJECTION_CATEGORIES,
   appendProjectionAuditEntry,
   emptyLedger,
@@ -7,6 +8,7 @@ import {
   recordProjectionAudit,
   recordProjectionStatus,
   saveProjectionStatusLedger,
+  trimAuditTrail,
   type ProjectionAuditEntry,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
@@ -274,6 +276,51 @@ describe("F-005 append-only auditTrail (projection-status.json additive)", () =>
     expect(ledger.auditTrail?.[1].error).toBe("boom")
     // Pure — the source array is not mutated.
     expect(emptyLedger().auditTrail).toEqual([])
+  })
+
+  // ── C5 rolling window ───────────────────────────────────────────────────────
+  it("C5: trimAuditTrail keeps the most recent N entries (tail-kept)", () => {
+    const trail = [1, 2, 3, 4, 5].map((n) => audit({ chapter: n }))
+    expect(trimAuditTrail(trail, 3)).toEqual([3, 4, 5].map((n) => audit({ chapter: n })))
+    // Under-cap and undefined are returned unchanged.
+    expect(trimAuditTrail(trail, 10)).toEqual(trail)
+    expect(trimAuditTrail(undefined)).toEqual([])
+  })
+
+  it("C5: recordProjectionAudit trims at the cap via the shared trim", () => {
+    let ledger: ProjectionStatusLedger = emptyLedger()
+    for (let i = 1; i <= AUDIT_TRAIL_MAX_ENTRIES + 5; i++) {
+      ledger = recordProjectionAudit(ledger, audit({ chapter: i }))
+    }
+    expect(ledger.auditTrail).toHaveLength(AUDIT_TRAIL_MAX_ENTRIES)
+    // Tail kept: oldest dropped, newest present.
+    expect(ledger.auditTrail?.[0].chapter).toBe(6)
+    expect(ledger.auditTrail?.at(-1)?.chapter).toBe(AUDIT_TRAIL_MAX_ENTRIES + 5)
+  })
+
+  it("C5: appendProjectionAuditEntry trims the durable trail at the cap", async () => {
+    const over = Array.from({ length: AUDIT_TRAIL_MAX_ENTRIES + 3 }, (_, i) => audit({ chapter: i + 1 }))
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({ projections: {}, chapters: [], auditTrail: over }),
+    )
+    await appendProjectionAuditEntry("E:/Novel", audit({ chapter: 999 }))
+    const [writtenPath, contents] = fsMocks.writeFileAtomic.mock.calls.at(-1)!
+    expect(writtenPath).toContain("projection-status.json")
+    const doc = JSON.parse(contents) as { auditTrail: ProjectionAuditEntry[] }
+    expect(doc.auditTrail).toHaveLength(AUDIT_TRAIL_MAX_ENTRIES)
+    // Tail kept: the new entry is present, oldest dropped (503+1-500=4 dropped).
+    expect(doc.auditTrail.at(-1)?.chapter).toBe(999)
+    expect(doc.auditTrail[0].chapter).toBe(5)
+  })
+
+  it("C5: loadProjectionStatusLedger trims a legacy over-cap trail once on load", async () => {
+    const over = Array.from({ length: AUDIT_TRAIL_MAX_ENTRIES + 20 }, (_, i) => audit({ chapter: i + 1 }))
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({ projections: {}, chapters: [{ number: 1 }], auditTrail: over }),
+    )
+    const ledger = await loadProjectionStatusLedger("E:/Pro")
+    expect(ledger.auditTrail).toHaveLength(AUDIT_TRAIL_MAX_ENTRIES)
+    expect(ledger.auditTrail?.[0].chapter).toBe(21)
   })
 })
 

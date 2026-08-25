@@ -161,7 +161,7 @@ fn open_project_folder_impl(app: &AppHandle, path: &str) -> Result<(), String> {
 // ── Implementation: open_file_location ──────────────────────────────────────
 
 fn open_file_location_impl(app: &AppHandle, path: &str) -> Result<(), String> {
-    let resolved = resolve_project_storage_path(path);
+    let resolved = resolve_project_storage_path(path)?;
     let file_path = Path::new(&resolved);
     if !file_path.exists() {
         return Err(format!("文件不存在：'{}'", resolved));

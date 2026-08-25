@@ -2,6 +2,7 @@ import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/comman
 import { normalizePath } from "@/lib/path-utils"
 import { mergeArrayFieldsIntoContent } from "@/lib/sources-merge"
 import { uniqueNonEmpty, logger } from "@/lib/utils"
+import { withProjectLock } from "./novel-locks"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
@@ -699,15 +700,9 @@ export async function writeSnapshotToWiki(
           node.label, tag, relatedSlugs, sourceFile, today, relationLines, snapshotMeta, aliases,
         )
 
-        let contentToWrite: string
-        if (await fileExists(filePath)) {
-          const existing = await readFile(filePath)
-          contentToWrite = applyProjectionSnapshotMeta(mergeExistingPage(existing, newContent, today), snapshotMeta)
-        } else {
-          contentToWrite = newContent
-        }
-
-        return { filePath, contentToWrite, nodeId: node.id }
+        // Phase4 锁族：read+merge+write 整体在写循环的 per-page 锁内完成
+        // （见下方 withProjectLock）——这里只做与磁盘无关的纯构建。
+        return { filePath, newContent, nodeId: node.id }
       } catch (err) {
         logger.warn("Graph Adapter", `Failed to prepare entity page for node ${node.id}`, { error: err instanceof Error ? err.message : String(err) })
         return null
@@ -719,7 +714,19 @@ export async function writeSnapshotToWiki(
   for (const item of prepared) {
     if (!item) continue
     try {
-      await writeFileAtomic(item.filePath, item.contentToWrite)
+      // Phase4 锁族：实体页 merge 锁——community rebuild 与 ingest 并行时
+      // 同页 RMW（fileExists→readFile→merge→write）会互踩丢更，per-page 互斥
+      // 保证同一页的读-合并-写不可分割（TS 锁在外 → Rust 命令在内，无回环）。
+      await withProjectLock(`page:${item.filePath}`, async () => {
+        let contentToWrite: string
+        if (await fileExists(item.filePath)) {
+          const existing = await readFile(item.filePath)
+          contentToWrite = applyProjectionSnapshotMeta(mergeExistingPage(existing, item.newContent, today), snapshotMeta)
+        } else {
+          contentToWrite = item.newContent
+        }
+        await writeFileAtomic(item.filePath, contentToWrite)
+      })
       writtenPaths.push(item.filePath)
     } catch (err) {
       logger.warn("Graph Adapter", `Failed to write entity page for node ${item.nodeId}`, { error: err instanceof Error ? err.message : String(err) })
@@ -890,14 +897,9 @@ export async function writePatchFieldsToWiki(
           ? entry.fields.aliases.map((alias) => String(alias).trim()).filter(Boolean)
           : []
 
-        let contentToWrite: string
-        if (await fileExists(filePath)) {
-          const existing = await readFile(filePath)
-          contentToWrite = appendChapterInfo(existing, sectionMd, today)
-        } else {
-          contentToWrite = buildNewEntityPage(entry.title, tag, today, sectionMd, aliases)
-        }
-        return { filePath, contentToWrite, entryId: entry.entryId }
+        // Phase4 锁族：与 writeSnapshotToWiki 同构——read+merge+write 整体在
+        // 写循环的 per-page 锁内完成（见下方 withProjectLock），这里只做纯构建。
+        return { filePath, title: entry.title, tag, sectionMd, aliases, entryId: entry.entryId }
       } catch (err) {
         logger.warn("Graph Adapter", `Failed to prepare patch fields for entry ${entry.entryId}`, { error: err instanceof Error ? err.message : String(err) })
         return null
@@ -909,7 +911,17 @@ export async function writePatchFieldsToWiki(
   for (const item of prepared) {
     if (!item) continue
     try {
-      await writeFileAtomic(item.filePath, item.contentToWrite)
+      // Phase4 锁族：per-page merge 锁，同一页的读-合并写不可分割。
+      await withProjectLock(`page:${item.filePath}`, async () => {
+        let contentToWrite: string
+        if (await fileExists(item.filePath)) {
+          const existing = await readFile(item.filePath)
+          contentToWrite = appendChapterInfo(existing, item.sectionMd, today)
+        } else {
+          contentToWrite = buildNewEntityPage(item.title, item.tag, today, item.sectionMd, item.aliases)
+        }
+        await writeFileAtomic(item.filePath, contentToWrite)
+      })
       writtenPaths.push(item.filePath)
     } catch (err) {
       logger.warn("Graph Adapter", `Failed to write patch fields for entry ${item.entryId}`, { error: err instanceof Error ? err.message : String(err) })

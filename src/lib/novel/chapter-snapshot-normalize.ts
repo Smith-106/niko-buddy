@@ -19,6 +19,7 @@ import { buildNameAliasMap } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
 import type {
   ChapterSnapshot,
+  ModalityFact,
   ValidationWarning,
   CharacterDetail,
   LocationDetail,
@@ -109,6 +110,22 @@ export function normalizeSnapshotDetailRecord<T extends object>(value: unknown):
   return value as Record<string, T>
 }
 
+/** T3 写端：模态事实三元组清洗（subject/predicate/object 非空字符串才保留）。 */
+export function normalizeModalityFacts(value: unknown): ModalityFact[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined
+  const out: ModalityFact[] = []
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue
+    const raw = item as Record<string, unknown>
+    const subject = normalizeSnapshotText(raw.subject)
+    const predicate = normalizeSnapshotText(raw.predicate)
+    const object = normalizeSnapshotText(raw.object)
+    if (!subject || !object) continue
+    out.push({ subject, predicate: predicate || "认为", object })
+  }
+  return out.length > 0 ? out : undefined
+}
+
 export function normalizeChapterSnapshot(
   value: unknown,
   fallback: Partial<Pick<ChapterSnapshot, "chapterId" | "chapterNumber">> = {},
@@ -136,6 +153,8 @@ export function normalizeChapterSnapshot(
     knowledgeChanges: normalizeSnapshotList(raw.knowledgeChanges),
     foreshadowingChanges: normalizeSnapshotList(raw.foreshadowingChanges),
     newCanonFacts: normalizeSnapshotList(raw.newCanonFacts),
+    beliefFacts: normalizeModalityFacts(raw.beliefFacts),
+    hypothesisFacts: normalizeModalityFacts(raw.hypothesisFacts),
     timelineEvents: normalizeSnapshotList(raw.timelineEvents),
     conflicts: normalizeSnapshotList(raw.conflicts),
     endingHook: normalizeSnapshotText(raw.endingHook),

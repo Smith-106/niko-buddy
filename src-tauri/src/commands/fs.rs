@@ -76,13 +76,60 @@ fn replace_all_path_segments(path: &str, from: &str, to: &str) -> Option<String>
     }
 }
 
-pub(crate) fn resolve_project_storage_path(path: &str) -> String {
+/// 段级路径卫生守卫（纵深防御，SEC-005 残余，对齐 TS isSafeIngestPath 的段卫生部分
+/// src/lib/ingest.ts:107-156）。仅拒绝路径卫生问题：
+///   - NUL / 控制字节（\x00-\x1f）
+///   - 归一化后任一段为 `..`
+///   - 任一段含 Windows 非法字符 `<>:"|?*`（盘符段 `C:` 除外——绝对路径合法）
+///   - 任一段以空格或 `.` 结尾
+///   - Windows 保留名（CON/PRN/AUX/NUL/COM1-9/LPT1-9，大小写不敏感）
+/// 注意：不拒绝绝对路径——本仓库全部合法写入路径均为绝对路径（项目根拼接/对话框
+/// 选择），绝对路径拒绝只存在于 TS 相对路径契约层（isSafeIngestPath 的 wiki/ 白名单）。
+fn reject_unsafe_storage_path(path: &str) -> Result<(), String> {
     let normalized = path.replace('\\', "/");
+    if normalized.trim().is_empty() {
+        return Err("empty path".into());
+    }
+    if normalized.chars().any(|c| (c as u32) < 0x20) {
+        return Err(format!("path contains control bytes: {path}"));
+    }
+    for seg in normalized.split('/') {
+        if seg == ".." {
+            return Err(format!("path contains '..' segment: {path}"));
+        }
+        // Windows drive letter (e.g. `C:`) is legal for absolute paths.
+        if seg.is_empty() || (seg.len() == 2 && seg.ends_with(':') && seg.chars().next().unwrap().is_ascii_alphabetic()) {
+            continue;
+        }
+        if seg.contains(['<', '>', ':', '"', '|', '?', '*']) {
+            return Err(format!("path segment '{seg}' contains Windows-illegal chars: {path}"));
+        }
+        if seg.ends_with(' ') || seg.ends_with('.') {
+            return Err(format!("path segment '{seg}' ends with space/dot: {path}"));
+        }
+        let stem = seg.split('.').next().unwrap_or_default().to_ascii_uppercase();
+        let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || (stem.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                && stem.as_bytes()[3].is_ascii_digit()
+                && stem.as_bytes()[3] != b'0');
+        if reserved {
+            return Err(format!("path segment '{seg}' uses Windows reserved name: {path}"));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn resolve_project_storage_path(path: &str) -> Result<String, String> {
+    let normalized = path.replace('\\', "/");
+
+    // 段级卫生守卫（纵深防御）：先拒绝再段替换，替换目标段均为安全常量。
+    reject_unsafe_storage_path(&normalized)?;
 
     // 先尝试替换所有 .llm-wiki → .qmai（可能有多个嵌套）
     if let Some(candidate) = replace_all_path_segments(&normalized, LEGACY_META_DIR, META_DIR) {
         if Path::new(&candidate).exists() || !Path::new(&normalized).exists() {
-            return candidate;
+            return Ok(candidate);
         }
     }
 
@@ -91,11 +138,11 @@ pub(crate) fn resolve_project_storage_path(path: &str) -> String {
         replace_all_path_segments(&normalized, LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)
     {
         if Path::new(&candidate).exists() || !Path::new(&normalized).exists() {
-            return candidate;
+            return Ok(candidate);
         }
     }
 
-    normalized
+    Ok(normalized)
 }
 
 fn virtualize_project_storage_path(path: &Path) -> String {
@@ -134,7 +181,7 @@ fn lookup_text_extractor(ext: &str) -> Option<fn(&str) -> Result<String, String>
 /// Core logic for `read_file`, callable from both Tauri commands and Axum handlers.
 pub fn do_read_file(path: &str) -> Result<String, String> {
     run_guarded("read_file", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         let ext = p
             .extension()
@@ -204,7 +251,7 @@ pub async fn read_file(path: String) -> Result<String, String> {
 /// Core logic for `preprocess_file`, callable from both Tauri commands and Axum handlers.
 pub fn do_preprocess_file(path: &str) -> Result<String, String> {
     run_guarded("preprocess_file", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         let ext = p
             .extension()
@@ -1587,7 +1634,7 @@ fn decode_html_entities(text: &str) -> String {
 
 pub fn do_write_file(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         if let Some(parent) = p.parent() {
             fs::create_dir_all(parent)
@@ -1613,7 +1660,7 @@ pub async fn write_file(path: String, contents: String) -> Result<(), String> {
 /// Core logic for `write_file_atomic`, callable from both Tauri commands and Axum handlers.
 pub fn do_write_file_atomic(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file_atomic", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         if let Some(parent) = p.parent() {
             fs::create_dir_all(parent)
@@ -1667,7 +1714,7 @@ pub async fn write_file_atomic(path: String, contents: String) -> Result<(), Str
 /// Core logic for `list_directory`, callable from both Tauri commands and Axum handlers.
 pub fn do_list_directory(path: &str) -> Result<Vec<FileNode>, String> {
     run_guarded("list_directory", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         if !p.exists() {
             return Err(format!("Path does not exist: '{}'", path));
@@ -1750,8 +1797,8 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
 /// Core logic for `copy_file`, callable from both Tauri commands and Axum handlers.
 pub fn do_copy_file(source: &str, destination: &str) -> Result<(), String> {
     run_guarded("copy_file", || {
-        let source = resolve_project_storage_path(source);
-        let destination = resolve_project_storage_path(destination);
+        let source = resolve_project_storage_path(source)?;
+        let destination = resolve_project_storage_path(destination)?;
         let dest = Path::new(&destination);
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
@@ -1779,8 +1826,8 @@ pub async fn copy_file(source: String, destination: String) -> Result<(), String
 /// Returns list of copied file paths (destination paths).
 pub fn do_copy_directory(source: &str, destination: &str) -> Result<Vec<String>, String> {
     run_guarded("copy_directory", || {
-        let source = resolve_project_storage_path(source);
-        let destination = resolve_project_storage_path(destination);
+        let source = resolve_project_storage_path(source)?;
+        let destination = resolve_project_storage_path(destination)?;
         let src = Path::new(&source);
         let dest = Path::new(&destination);
         file_sync::mark_app_write_path(dest);
@@ -1837,7 +1884,7 @@ pub async fn copy_directory(source: String, destination: String) -> Result<Vec<S
 /// Core logic for `delete_file`, callable from both Tauri commands and Axum handlers.
 pub fn do_delete_file(path: &str) -> Result<(), String> {
     run_guarded("delete_file", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
         file_sync::mark_app_write_path(p);
         if p.is_dir() {
@@ -2058,7 +2105,7 @@ fn collect_related_pages(
 /// Core logic for `create_directory`, callable from both Tauri commands and Axum handlers.
 pub fn do_create_directory(path: &str) -> Result<(), String> {
     run_guarded("create_directory", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         fs::create_dir_all(&path)
             .map_err(|e| format!("Failed to create directory '{}': {}", path, e))
     })
@@ -2095,7 +2142,7 @@ pub struct FileBase64 {
 pub fn do_read_file_as_base64(path: &str) -> Result<FileBase64, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
     run_guarded("read_file_as_base64", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let bytes = fs::read(&path).map_err(|e| format!("Failed to read '{}': {}", path, e))?;
         let p = Path::new(&path);
         let ext = p
@@ -2134,7 +2181,7 @@ pub async fn read_file_as_base64(path: String) -> Result<FileBase64, String> {
 /// Returns true iff `path` refers to something on disk right now.
 pub fn do_file_exists(path: &str) -> Result<bool, String> {
     run_guarded("file_exists", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         Ok(Path::new(&path).exists())
     })
 }
@@ -2151,7 +2198,7 @@ pub async fn file_exists(path: String) -> Result<bool, String> {
 /// Get the last modified timestamp of a file in milliseconds since Unix epoch.
 pub fn do_get_file_modified_time(path: &str) -> Result<u64, String> {
     run_guarded("get_file_modified_time", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let metadata = fs::metadata(&path)
             .map_err(|e| format!("Failed to get metadata for '{}': {}", path, e))?;
         let modified = metadata
@@ -2175,7 +2222,7 @@ pub async fn get_file_modified_time(path: String) -> Result<u64, String> {
 /// Core logic for `get_file_size`, callable from both Tauri commands and Axum handlers.
 pub fn do_get_file_size(path: &str) -> Result<u64, String> {
     run_guarded("get_file_size", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let metadata = fs::metadata(&path)
             .map_err(|e| format!("Failed to get metadata for '{}': {}", path, e))?;
         Ok(metadata.len())
@@ -2195,7 +2242,7 @@ pub async fn get_file_size(path: String) -> Result<u64, String> {
 pub fn do_get_file_md5(path: &str) -> Result<String, String> {
     use md5::{Digest, Md5};
     run_guarded("get_file_md5", || {
-        let path = resolve_project_storage_path(path);
+        let path = resolve_project_storage_path(path)?;
         let mut file =
             fs::File::open(&path).map_err(|e| format!("Failed to open file '{}': {}", path, e))?;
         let mut hasher = Md5::new();
@@ -2226,6 +2273,69 @@ pub async fn get_file_md5(path: String) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// SEC-005 纵深防御：段级卫生守卫拒绝 NUL/控制字节/`..`/Windows 非法字符/保留名
+    #[test]
+    fn reject_unsafe_storage_path_rejects_hazards() {
+        // NUL / 控制字节
+        assert!(reject_unsafe_storage_path("a\0b").is_err());
+        assert!(reject_unsafe_storage_path("a\x1fb.md").is_err());
+        // `..` 段（任意位置）
+        assert!(reject_unsafe_storage_path("wiki/../x.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/sub/../../x.md").is_err());
+        // Windows 非法字符（盘符段除外）
+        assert!(reject_unsafe_storage_path("wiki/a<b.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/a>b.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/a|b.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/a?b.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/a*b.md").is_err());
+        // 段尾空格/点（TS 语义：段以空格或 . 结尾才拒）
+        assert!(reject_unsafe_storage_path("wiki/name ").is_err());
+        assert!(reject_unsafe_storage_path("wiki/a.md.").is_err());
+        // Windows 保留名（大小写不敏感）
+        assert!(reject_unsafe_storage_path("wiki/CON.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/prn/x.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/aux.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/NUL.txt").is_err());
+        assert!(reject_unsafe_storage_path("wiki/COM1.md").is_err());
+        assert!(reject_unsafe_storage_path("wiki/lpt9/x.md").is_err());
+        // 空/纯空白
+        assert!(reject_unsafe_storage_path("").is_err());
+        assert!(reject_unsafe_storage_path("   ").is_err());
+    }
+
+    /// SEC-005 纵深防御：合法路径（含绝对路径/盘符/legacy 段/点文件）全部放行
+    #[test]
+    fn reject_unsafe_storage_path_accepts_legit_paths() {
+        // 绝对路径合法（主链全部调用方传绝对路径）
+        assert!(reject_unsafe_storage_path("C:/Users/niko/proj/wiki/a.md").is_ok());
+        assert!(reject_unsafe_storage_path("/Users/niko/proj/wiki/a.md").is_ok());
+        // 盘符段放行
+        assert!(reject_unsafe_storage_path("C:/a/b.md").is_ok());
+        // 点文件/多扩展名
+        assert!(reject_unsafe_storage_path("wiki/.hidden.md").is_ok());
+        assert!(reject_unsafe_storage_path("wiki/a.tar.gz").is_ok());
+        // COM10/LPT10 非保留名（仅 COM1-9/LPT1-9）
+        assert!(reject_unsafe_storage_path("wiki/COM10.md").is_ok());
+        // 中文/Unicode 路径
+        assert!(reject_unsafe_storage_path("wiki/角色/草稿.md").is_ok());
+        // legacy 段替换目标（安全常量段）
+        assert!(reject_unsafe_storage_path("proj/.llm-wiki/x.md").is_ok());
+        assert!(reject_unsafe_storage_path("proj/wiki/outlines/1/wiki/chapters/x.md").is_ok());
+    }
+
+    /// SEC-005：resolve 在卫生拒绝后返回 Err；legacy 段替换兼容不受影响
+    #[test]
+    fn resolve_project_storage_path_guards_and_preserves_legacy() {
+        // 卫生拒绝穿透 resolve
+        assert!(resolve_project_storage_path("wiki/../x.md").is_err());
+        assert!(resolve_project_storage_path("a\0b").is_err());
+        assert!(resolve_project_storage_path("C:/CON.md").is_err());
+        // 正常路径 OK
+        assert!(resolve_project_storage_path("C:/Users/niko/proj/wiki/a.md").is_ok());
+        // 绝对路径（对话框/主链形态）不被拒
+        assert!(resolve_project_storage_path("C:/Users/niko/proj/novel/ch1.md").is_ok());
+    }
 
     /// B3: 注册表无重复 ext 且非空 (新增格式登记时的完整性门)
     #[test]

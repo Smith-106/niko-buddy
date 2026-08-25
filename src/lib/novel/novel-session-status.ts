@@ -2,6 +2,7 @@ import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { pad, toErrorMessage } from "@/lib/utils"
 import { z } from "zod"
+import { withProjectLock } from "./novel-locks"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -1113,20 +1114,24 @@ export async function saveNovelSessionStatus(
   projectPath: string,
   status: NovelSessionStatus,
 ): Promise<void> {
-  await ensureNovelSessionDirs(projectPath)
-  const statusPath = novelSessionStatusPath(projectPath)
-  await writeVerifiedJson(
-    statusPath,
-    status,
-    "小说会话状态文件",
-    (parsed) => {
-      const candidate = parsed as Partial<NovelSessionStatus> | null
-      return candidate?.session_id === status.session_id
-        && candidate?.current_task?.conversation_id === status.current_task.conversation_id
-        && candidate?.status === status.status
-        && candidate?.draft?.draft_status === status.draft.draft_status
-    },
-  )
+  // Phase4 锁族：status.json 并锁（与 ledger 共用 per-project 键前缀区分，
+  // 防止 community rebuild 与 ingest 并行写会话状态时 RMW 交错）。
+  await withProjectLock(`session-status:${normalizePath(projectPath)}`, async () => {
+    await ensureNovelSessionDirs(projectPath)
+    const statusPath = novelSessionStatusPath(projectPath)
+    await writeVerifiedJson(
+      statusPath,
+      status,
+      "小说会话状态文件",
+      (parsed) => {
+        const candidate = parsed as Partial<NovelSessionStatus> | null
+        return candidate?.session_id === status.session_id
+          && candidate?.current_task?.conversation_id === status.current_task.conversation_id
+          && candidate?.status === status.status
+          && candidate?.draft?.draft_status === status.draft.draft_status
+      },
+    )
+  })
 }
 
 export async function startDeepChapterSession(

@@ -317,7 +317,9 @@ describe("SourceSidebar — 树交互", () => {
     expect(screen.getByText("f99.md")).toBeTruthy()
     // 全部可见后 loadingMore 消失
     await waitFor(() => expect(screen.queryByText("sources.loadingMore")).toBeNull())
-  })
+    // T5 flaky 治理（2026-08-23）：全量并发下实测 5486ms 超 5s 默认阈值
+    // （大量节点渲染 + CPU 争抢），用例级放宽到 15s。
+  }, 15_000)
 })
 
 describe("SourceSidebar — 自动提取开关", () => {

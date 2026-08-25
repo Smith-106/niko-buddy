@@ -1,5 +1,6 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { withProjectLock } from "./novel-locks"
 
 /**
  * F-002 (S3 / ANL-010): ProjectionStatusLedger — records the per-projection
@@ -62,7 +63,22 @@ export interface ProjectionStatusEntry {
 // ({projections, chapters}) ignore the extra key.
 // Growth note (OQ-3): the trail grows unbounded (~12 events/chapter); a
 // rolling-window policy is deferred past v2.6 baseline.
+// C5 (2026-08-23): rolling window landed — AUDIT_TRAIL_MAX_ENTRIES caps the
+// trail at both append sites (recordProjectionAudit / appendProjectionAuditEntry)
+// and on load (legacy files are trimmed once). Tail-kept (most recent N).
 // ============================================================================
+
+/** C5: rolling-window cap for the append-only audit trail (tail-kept). */
+export const AUDIT_TRAIL_MAX_ENTRIES = 500
+
+/** Shared C5 trim: keep the most recent `cap` entries (in order). */
+export function trimAuditTrail(
+  trail: ProjectionAuditEntry[] | undefined,
+  cap: number = AUDIT_TRAIL_MAX_ENTRIES,
+): ProjectionAuditEntry[] {
+  const arr = trail ?? []
+  return arr.length > cap ? arr.slice(arr.length - cap) : arr
+}
 
 /** Outcome of one audited projection event. "rebuild" = scheduled rebuild succeeded (community_summary); failures are always "failed" + error. */
 export type ProjectionAuditStatus = "committed" | "rebuild" | "failed"
@@ -158,7 +174,8 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
       projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
       chapters: parsed.chapters,
       // F-005: preserve the append-only trail across loads (legacy files → []).
-      auditTrail: Array.isArray(parsed.auditTrail) ? parsed.auditTrail : [],
+      // C5: legacy files may exceed the cap — trim once on load.
+      auditTrail: Array.isArray(parsed.auditTrail) ? trimAuditTrail(parsed.auditTrail) : [],
     }
   } catch {
     // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
@@ -204,12 +221,16 @@ export async function saveProjectionStatusLedger(
   projectPath: string,
   ledger: ProjectionStatusLedger,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — the ledger itself
-  // must not be corrupted by a crash mid-write, or it would defeat its
-  // purpose of making projection failures visible.
-  await writeFileAtomic(ledgerPath(projectPath), JSON.stringify(ledger, null, 2))
+  // Phase4 锁族：与 appendProjectionAuditEntry 共用同一把项目级锁，保证
+  // end-of-loop save 与 per-event flush 不会交错丢写。
+  await withProjectLock(`ledger:${normalizePath(projectPath)}`, async () => {
+    const pp = normalizePath(projectPath)
+    await createDirectory(`${pp}/.novel`)
+    // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — the ledger itself
+    // must not be corrupted by a crash mid-write, or it would defeat its
+    // purpose of making projection failures visible.
+    await writeFileAtomic(ledgerPath(projectPath), JSON.stringify(ledger, null, 2))
+  })
 }
 
 /**
@@ -222,7 +243,7 @@ export function recordProjectionAudit(
   ledger: ProjectionStatusLedger,
   entry: ProjectionAuditEntry,
 ): ProjectionStatusLedger {
-  return { ...ledger, auditTrail: [...(ledger.auditTrail ?? []), entry] }
+  return { ...ledger, auditTrail: trimAuditTrail([...(ledger.auditTrail ?? []), entry]) }
 }
 
 /**
@@ -238,20 +259,27 @@ export async function appendProjectionAuditEntry(
   projectPath: string,
   entry: ProjectionAuditEntry,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  let doc: Record<string, unknown> = {}
-  try {
-    const parsed: unknown = JSON.parse(await readFile(ledgerPath(pp)))
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      doc = parsed as Record<string, unknown>
+  // Phase4 锁族（A8 补遗）：RMW 临界区加项目级互斥——community rebuild
+  // （fire-and-forget）与下章摄取并发 append 时无锁会丢写。
+  await withProjectLock(`ledger:${normalizePath(projectPath)}`, async () => {
+    const pp = normalizePath(projectPath)
+    await createDirectory(`${pp}/.novel`)
+    let doc: Record<string, unknown> = {}
+    try {
+      const parsed: unknown = JSON.parse(await readFile(ledgerPath(pp)))
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        doc = parsed as Record<string, unknown>
+      }
+    } catch {
+      // Missing or corrupt file → start a fresh document; the spread below
+      // keeps whatever fields were recoverable (none) without failing the caller.
     }
-  } catch {
-    // Missing or corrupt file → start a fresh document; the spread below
-    // keeps whatever fields were recoverable (none) without failing the caller.
-  }
-  const existing = Array.isArray(doc.auditTrail) ? (doc.auditTrail as ProjectionAuditEntry[]) : []
-  await writeFileAtomic(ledgerPath(pp), JSON.stringify({ ...doc, auditTrail: [...existing, entry] }, null, 2))
+    const existing = Array.isArray(doc.auditTrail) ? (doc.auditTrail as ProjectionAuditEntry[]) : []
+    await writeFileAtomic(
+      ledgerPath(pp),
+      JSON.stringify({ ...doc, auditTrail: trimAuditTrail([...existing, entry]) }, null, 2),
+    )
+  })
 }
 
 /**
