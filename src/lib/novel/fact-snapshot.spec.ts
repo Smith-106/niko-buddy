@@ -569,6 +569,46 @@ describe("runFactCheck — temporal pass edge paths", () => {
     expect(finding).toBeDefined()
     expect(finding!.evidenceA).toContain("菜月昴")
   })
+
+  // ── 落点②：modality 门控（belief/hypothesis 不触发矛盾判定）──
+  it("落点②: belief 模态的上游事实不触发矛盾判定（角色认为≠事实陈述）", async () => {
+    const temporalFacts: TemporalFact[] = [
+      makeTemporalFact({ id: "fact-ch1-0", subject: "菜月昴", object: "是活人", validFrom: 1, modality: "belief" }),
+    ]
+    const snapshots: ChapterSnapshot[] = [
+      makeSnapshot(1, ["菜月昴：是活人"]),
+      makeSnapshot(5, ["菜月昴：不再是活人"]),
+    ]
+    const report = await runFactCheck(snapshots, { temporalFacts })
+    const temporalFindings = report.results.filter((r) => r.temporalFactId === "fact-ch1-0")
+    expect(temporalFindings).toEqual([])
+  })
+
+  it("落点②: hypothesis 模态同样不触发矛盾判定", async () => {
+    const temporalFacts: TemporalFact[] = [
+      makeTemporalFact({ id: "fact-ch1-0", subject: "菜月昴", object: "是活人", validFrom: 1, modality: "hypothesis" }),
+    ]
+    const snapshots: ChapterSnapshot[] = [
+      makeSnapshot(1, ["菜月昴：是活人"]),
+      makeSnapshot(5, ["菜月昴：不再是活人"]),
+    ]
+    const report = await runFactCheck(snapshots, { temporalFacts })
+    const temporalFindings = report.results.filter((r) => r.temporalFactId === "fact-ch1-0")
+    expect(temporalFindings).toEqual([])
+  })
+
+  it("落点②: assertive 模态仍触发矛盾判定（对照，门控不误伤）", async () => {
+    const temporalFacts: TemporalFact[] = [
+      makeTemporalFact({ id: "fact-ch1-0", subject: "菜月昴", object: "是活人", validFrom: 1, modality: "assertive" }),
+    ]
+    const snapshots: ChapterSnapshot[] = [
+      makeSnapshot(1, ["菜月昴：是活人"]),
+      makeSnapshot(5, ["菜月昴：不再是活人"]),
+    ]
+    const report = await runFactCheck(snapshots, { temporalFacts })
+    const temporalFindings = report.results.filter((r) => r.temporalFactId === "fact-ch1-0")
+    expect(temporalFindings.length).toBeGreaterThanOrEqual(1)
+  })
 })
 
 describe("verifyFactCheckLlm", () => {

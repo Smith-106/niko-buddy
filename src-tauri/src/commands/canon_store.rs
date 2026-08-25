@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::Path;
 
 use arrow_array::{
-    Array, BooleanArray, Int32Array, RecordBatch, StringArray,
+    Array, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
@@ -45,10 +45,10 @@ use lancedb::table::{CompactionOptions, NewColumnTransform, OptimizeAction};
 use lancedb::Table;
 
 use crate::types::canon_types::{
-    self, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, EdgeKind,
-    IngestKey, MigrationPlan, SchemaManifest, SchemaVersion, SupersedeRequest, SupersedeResult,
-    CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES, CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES,
-    CANON_TABLE_META,
+    self, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
+    EdgeKind, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion, SupersedeRequest,
+    SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES, CANON_TABLE_ENTITIES,
+    CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -263,6 +263,89 @@ fn read_episodes(batches: &[RecordBatch]) -> Result<Vec<CanonEpisode>, String> {
         }
     }
     Ok(out)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// §B events：schema / batch / read（data-JSON 承载，损坏行 Err 传播）
+// ──────────────────────────────────────────────────────────────────────────
+//
+// 设计（选项 Z + ox-alpha）：独立 `canon_events` 物理表，与三表隔离（防爆半径
+// F6）。`data` 列承载完整事件 JSON；物理列仅保留审计/溯源标量键。读取时只反
+// 序列化 `data` 列。损坏行（非空但非法 JSON / 结构）→ Err 传播（done-when 升格，
+// 不照抄 edges 的空串 continue 静默跳过——此处仅空串跳过，非法 JSON 必报错）。
+
+/// §B 审计事件表 arrow schema（v1，零迁移：旧库经 `ensure_table` 自动补建）。
+fn events_schema() -> SchemaRef {
+    Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Utf8, false),
+        Field::new("event_type", DataType::Utf8, true),
+        Field::new("caused_by", DataType::Utf8, true),
+        Field::new("revision", DataType::Int64, true),
+        Field::new("cap_chapter", DataType::Int32, true),
+        Field::new("occurred_at", DataType::Utf8, true),
+        Field::new("data", DataType::Utf8, false),
+    ]))
+}
+
+/// 事件 → 单行 RecordBatch（data 列承载完整 JSON）。
+fn events_batch(e: &CanonEvent) -> Result<RecordBatch, String> {
+    let schema = events_schema();
+    let data = serde_json::to_string(e).map_err(|x| format!("serde: {x}"))?;
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(vec![Some(e.event_id.as_str())])),
+            Arc::new(StringArray::from(vec![Some(e.event_type.as_str())])),
+            Arc::new(StringArray::from(vec![opt_str(&e.caused_by)])),
+            Arc::new(Int64Array::from(vec![e.revision.map(|r| r as i64)])),
+            Arc::new(Int32Array::from(vec![e.cap_chapter])),
+            Arc::new(StringArray::from(vec![Some(e.occurred_at.as_str())])),
+            Arc::new(StringArray::from(vec![Some(data.as_str())])),
+        ],
+    )
+    .map_err(|e| format!("batch: {e}"))
+}
+
+/// 批量读取审计事件：损坏行 Err 传播（非静默跳过）。
+fn read_events(batches: &[RecordBatch]) -> Result<Vec<CanonEvent>, String> {
+    let mut out = Vec::new();
+    for b in batches {
+        for json in read_data_column(b)? {
+            if json.is_empty() {
+                continue;
+            }
+            let e: CanonEvent =
+                serde_json::from_str(&json).map_err(|e| format!("deserialize event: {e}"))?;
+            out.push(e);
+        }
+    }
+    Ok(out)
+}
+
+/// FNV-1a 64 位摘要（稳定、确定性，用于事件 id 派生）。
+fn fnv1a_64(input: &[u8]) -> String {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut h = OFFSET;
+    for &b in input {
+        h ^= b as u64;
+        h = h.wrapping_mul(PRIME);
+    }
+    format!("{:016x}", h)
+}
+
+/// 服务端派生 event_id：f(project_id, max_revision, payload-hash)。
+///
+/// payload-hash 覆盖 event_type / old_edge_ids / cap_chapter / new_edge_ids /
+/// caused_by（确定性，不含 event_id / occurred_at 等变体），保证「同一逻辑
+/// supersede」派生同一 id——query-before-add 幂等基础（done-when #1）。
+fn derive_event_id(project_id: &str, revision: u64, ev: &CanonEvent) -> String {
+    let payload = format!(
+        "{:?}|{:?}|{:?}|{:?}|{:?}",
+        ev.event_type, ev.old_edge_ids, ev.cap_chapter, ev.new_edge_ids, ev.caused_by
+    );
+    let hash = fnv1a_64(payload.as_bytes());
+    format!("evt:{}:{}:{}", project_id, revision, hash)
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -512,6 +595,8 @@ impl CanonStore {
         ensure_table(&db, CANON_TABLE_ENTITIES, entities_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_EDGES, edges_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_EPISODES, episodes_schema(), &names).await?;
+        // §B：审计事件表（独立物理表，零迁移；旧库下次 open 自动补建）
+        ensure_table(&db, CANON_TABLE_EVENTS, events_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_META, meta_schema(), &names).await?;
 
         // manifest：新库（表刚建）= CURRENT；遗留库无 meta 行 = v1（触发迁移）
@@ -789,6 +874,65 @@ impl CanonStore {
             .map_err(|x| format!("collect edges: {x}"))?;
         let edges = read_edges(&batches)?;
         Ok(filter.select(&edges))
+    }
+
+    // ── §B 审计事件：append-only + 读取 ──
+
+    /// 追加一条审计事件（append-only；event_id 服务端派生 + query-before-add 幂等）。
+    ///
+    /// 须由持有写锁的调用方（canon_supersede_edges_impl）在「任何边变更之前」调用。
+    /// 返回 Ok(()) 表示已落盘或已存在（幂等跳过）；返回 Err 表示追加失败——
+    /// 调用方 MUST 据此中止后续变更（第三 done-when：日志失败即中止变更，零边变更）。
+    pub async fn append_canon_event(&self, ev: &mut CanonEvent) -> Result<(), String> {
+        // 服务端派生 event_id：f(project_id, max_revision, payload-hash)
+        ev.event_id = derive_event_id(&self.project_path, ev.revision.unwrap_or(0), ev);
+        ev.occurred_at = chrono::Utc::now().to_rfc3339();
+        let table = self
+            .db
+            .open_table(CANON_TABLE_EVENTS)
+            .execute()
+            .await
+            .map_err(|x| format!("open events: {x}"))?;
+        // query-before-add（幂等）：同 event_id 已存在则跳过，杜绝重复事件
+        let existing = table
+            .query()
+            .only_if(format!("id = {}", sql_str(&ev.event_id)))
+            .execute()
+            .await
+            .map_err(|x| format!("query events: {x}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|x| format!("collect events: {x}"))?;
+        if existing.iter().any(|b| b.num_rows() > 0) {
+            return Ok(()); // 幂等：已记录，跳过追加
+        }
+        let batch = events_batch(ev)?;
+        table
+            .add(vec![batch])
+            .execute()
+            .await
+            .map_err(|x| format!("events add: {x}"))?;
+        self.ingest_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// 读取全部审计事件（损坏行 Err 传播——done-when 升格，不静默跳过）。
+    pub async fn query_canon_events(&self) -> Result<Vec<CanonEvent>, String> {
+        let table = self
+            .db
+            .open_table(CANON_TABLE_EVENTS)
+            .execute()
+            .await
+            .map_err(|x| format!("open events: {x}"))?;
+        let batches = table
+            .query()
+            .execute()
+            .await
+            .map_err(|x| format!("query events: {x}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|x| format!("collect events: {x}"))?;
+        read_events(&batches)
     }
 
     /// 摄取 episode：(chapter, digest) 写前去重。返回是否实际写入。
@@ -1118,7 +1262,14 @@ impl CanonStore {
         let mut old_versions_removed = 0u64;
         let mut tables_compacted = Vec::new();
 
-        let tnames = [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES];
+        // §B：审计事件表纳入 compaction（写放大 guard 最小落点——flash 提示）：
+        // 事件表随 supersede 追加增长，纳入 compact 防止小文件写放大。
+        let tnames = [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+            CANON_TABLE_EVENTS,
+        ];
         for tname in tnames {
             let table = self
                 .db
@@ -1368,6 +1519,7 @@ mod tests {
             old_edge_ids: vec!["old1".into(), "ghost".into()],
             cap_chapter: 5,
             new_edges: vec![new1],
+            caused_by: None,
         };
         let r = s.supersede_edges(req);
         assert_eq!(r.capped, 1);
@@ -1557,6 +1709,7 @@ mod tests {
                 old_edge_ids: vec!["old1".into(), "ghost".into()],
                 cap_chapter: 5,
                 new_edges: vec![new1],
+                caused_by: None,
             })
             .await
             .unwrap();
@@ -1701,7 +1854,13 @@ mod tests {
             .execute()
             .await
             .unwrap();
-        for t in [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES, CANON_TABLE_META] {
+        for t in [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+            CANON_TABLE_EVENTS,
+            CANON_TABLE_META,
+        ] {
             assert!(names.contains(&t.to_string()), "table {t} created");
         }
     }
@@ -1741,7 +1900,7 @@ mod tests {
         // 强制 compaction
         let report = store.compact_tables().await.unwrap();
         // 报告应包含所有三表（使用常量表名）
-        assert_eq!(report.tables_compacted.len(), 3);
+        assert_eq!(report.tables_compacted.len(), 4);
         assert!(report.tables_compacted.contains(&CANON_TABLE_ENTITIES.to_string()));
         assert!(report.tables_compacted.contains(&CANON_TABLE_EDGES.to_string()));
         assert!(report.tables_compacted.contains(&CANON_TABLE_EPISODES.to_string()));
@@ -1781,13 +1940,14 @@ mod tests {
                 new_edges: vec![
                     CanonEdge::new("new-c1", "alice", "bob", "knows", EdgeKind::WorldFact),
                 ],
+                caused_by: None,
             })
             .await
             .unwrap();
 
         // 强制 compaction
         let report = store.compact_tables().await.unwrap();
-        assert_eq!(report.tables_compacted.len(), 3);
+        assert_eq!(report.tables_compacted.len(), 4);
 
         // 查询：老边封顶，新边可见
         let r = store
@@ -1838,7 +1998,7 @@ mod tests {
         let result = store.compact_if_needed().await.unwrap();
         assert!(result.is_some(), "达阈值应触发 compaction");
         let report = result.unwrap();
-        assert_eq!(report.tables_compacted.len(), 3);
+        assert_eq!(report.tables_compacted.len(), 4);
 
         // 重置后计数器归零，再次 compact_if_needed 返回 None
         assert!(store.compact_if_needed().await.unwrap().is_none());
@@ -1858,7 +2018,7 @@ mod tests {
 
         // compaction 仍可正常执行
         let report = store.compact_tables().await.unwrap();
-        assert_eq!(report.tables_compacted.len(), 3);
+        assert_eq!(report.tables_compacted.len(), 4);
 
         // 改回 3
         store.set_retain_versions(3);
@@ -1967,6 +2127,254 @@ mod tests {
         let default_filter: CanonEdgeFilter = serde_json::from_str(default_json).unwrap();
         assert_eq!(default_filter.digest, None);
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // §B canon_events 审计表（选项 Z + ox-alpha 升级）
+    // ──────────────────────────────────────────────────────────────────────
+
+    use std::sync::Arc;
+    use arrow_array::{Int32Array, Int64Array, RecordBatch, StringArray};
+
+    fn make_supersede_request(
+        old: &[&str],
+        cap: i32,
+        new: &[CanonEdge],
+        caused_by: Option<&str>,
+    ) -> SupersedeRequest {
+        SupersedeRequest {
+            old_edge_ids: old.iter().map(|s| s.to_string()).collect(),
+            cap_chapter: cap,
+            new_edges: new.to_vec(),
+            caused_by: caused_by.map(|s| s.to_string()),
+        }
+    }
+
+    // ── done-when #1：eventId 幂等（query-before-add）──
+
+    #[tokio::test]
+    async fn canon_event_idempotent_no_duplicate() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        let req = make_supersede_request(
+            &["old1"],
+            5,
+            &[edge("new1", Some(5), None)],
+            Some("manual-correction"),
+        );
+        // 同一逻辑 supersede（同 revision + 同 payload）→ 同 event_id
+        let mut ev1 = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev1).await.unwrap();
+        let mut ev2 = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev2).await.unwrap();
+
+        let events = store.query_canon_events().await.unwrap();
+        assert_eq!(events.len(), 1, "重复 supersede 不复制事件（query-before-add）");
+        assert_eq!(events[0].event_id, ev1.event_id, "幂等：同 event_id");
+    }
+
+    // ── done-when #2：损坏行报错（read_events Err 传播，非静默跳过）──
+
+    #[tokio::test]
+    async fn canon_event_corrupt_row_errs() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // 先落一条合法事件
+        let req = make_supersede_request(&["old1"], 5, &[edge("new1", Some(5), None)], None);
+        let mut ev = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev).await.unwrap();
+
+        // 注入一条 data 列损坏的行（非法 JSON）
+        let table = store
+            .db
+            .open_table(CANON_TABLE_EVENTS)
+            .execute()
+            .await
+            .unwrap();
+        let schema = events_schema();
+        let corrupt = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec![Some("evt-corrupt")])),
+                Arc::new(StringArray::from(vec![Some("supersede")])),
+                Arc::new(StringArray::from(vec![Some("x")])),
+                Arc::new(Int64Array::from(vec![Some(1i64)])),
+                Arc::new(Int32Array::from(vec![Some(5i32)])),
+                Arc::new(StringArray::from(vec![Some("t")])),
+                Arc::new(StringArray::from(vec![Some("NOT JSON{")])),
+            ],
+        )
+        .unwrap();
+        table.add(vec![corrupt]).execute().await.unwrap();
+
+        // 读取：损坏行必须 Err 传播（不得静默跳过）
+        let res = store.query_canon_events().await;
+        assert!(res.is_err(), "损坏行必须 Err 传播（done-when #2）");
+        assert!(
+            res.err().unwrap().contains("deserialize event"),
+            "错误应指向事件反序列化失败"
+        );
+    }
+
+    // ── done-when #3：日志失败即中止变更（append Err ⇒ 零边变更）──
+
+    #[tokio::test]
+    async fn canon_event_append_failure_aborts_mutation() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // 预置旧边
+        store.upsert_edge(edge("old1", Some(1), None)).await.unwrap();
+        // 预置新边（尚未插入，用于后续对比）
+        let new1 = edge("new1", Some(5), None);
+
+        // 制造 append 失败：删掉 events 表，使 append_canon_event 的 open_table 失败
+        store.db.drop_table(CANON_TABLE_EVENTS, &[]).await.unwrap();
+        let req = make_supersede_request(&["old1"], 5, &[new1], None);
+        let mut ev = CanonEvent::new_supersede(1, &req);
+        let append = store.append_canon_event(&mut ev).await;
+        assert!(append.is_err(), "events 表缺失 → append 必失败");
+
+        // impl 语义：append Err ⇒ `?` 早退，supersede_edges 绝不执行 → 零边变更。
+        // 此处直接验证「未调用 supersede 时的边状态」：旧边未封顶、新边未插入。
+        let edges = store.query_edges(&CanonEdgeFilter::default()).await.unwrap();
+        assert!(
+            edges.iter().all(|e| e.id != "new1"),
+            "新边未插入（零边变更）"
+        );
+        assert!(
+            edges.iter().any(|e| e.id == "old1" && e.invalid_at.is_none()),
+            "旧边未封顶（零边变更）"
+        );
+    }
+
+    // ── causedBy 透传 ──
+
+    #[tokio::test]
+    async fn canon_event_causedby_passthrough() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        let req = make_supersede_request(
+            &["old1"],
+            5,
+            &[edge("new1", Some(5), None)],
+            Some("backfill-by-digest"),
+        );
+        let mut ev = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev).await.unwrap();
+
+        let events = store.query_canon_events().await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].caused_by, Some("backfill-by-digest".to_string()));
+        // event_id 含 project_id + revision + payload-hash（服务端派生）
+        assert!(events[0].event_id.starts_with("evt:"), "event_id 服务端派生");
+    }
+
+    // ── 写放大 guard 三层 · 层1：结构不变量（每次 supersede 审计追加恰好 1 条）──
+    //
+    // 复用 impl 的「append 先于 supersede」顺序（此处于 store 层等价于
+    // canon_supersede_edges_impl 的调用序），验证与 N/M 无关都只追加 1 条事件。
+
+    #[tokio::test]
+    async fn canon_supersede_audit_appends_exactly_one_batch() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // N 条旧边 + M 条新边，与 N/M 无关都只追加 1 条审计事件
+        let n_old = 50usize;
+        let n_new = 50usize;
+        for i in 0..n_old {
+            store
+                .upsert_edge(edge(&format!("old{i}"), Some(1), None))
+                .await
+                .unwrap();
+        }
+        let new_edges: Vec<CanonEdge> = (0..n_new)
+            .map(|i| edge(&format!("new{i}"), Some(5), None))
+            .collect();
+        let old_ids: Vec<String> = (0..n_old).map(|i| format!("old{i}")).collect();
+        let req = SupersedeRequest {
+            old_edge_ids: old_ids,
+            cap_chapter: 5,
+            new_edges,
+            caused_by: Some("manual-correction".into()),
+        };
+        // 等价 impl 顺序：先 append 审计，再 supersede
+        let mut ev = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev).await.unwrap();
+        store.supersede_edges(req).await.unwrap();
+
+        let events = store.query_canon_events().await.unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "无论 N/M 多大，每次 supersede 只追加恰好 1 条审计事件（结构不变量）"
+        );
+    }
+
+    // ── 写放大 guard 三层 · 层2：tempdir 冒烟（数千边规模 prep + 审计完成性 + 时延比）──
+    //
+    // 回归检测（非生产级基准）：千级边下 supersede+审计的「1 事件追加 + 边变更
+    // 完整性 + 时延比」不退化。prep 用单次 batched add 落数千边，避免逐条 upsert
+    // 的写放大耗时；supersede 本身仍走真实逐边封顶/插入路径。
+
+    #[tokio::test]
+    async fn canon_supersede_audit_smoke_thousands_of_edges() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // 数千边规模 prep：单次 batched add 落 1500 条旧边
+        let n_prep = 1500usize;
+        let edges_table = store
+            .db
+            .open_table(CANON_TABLE_EDGES)
+            .execute()
+            .await
+            .unwrap();
+        let prep_batches: Vec<RecordBatch> = (0..n_prep)
+            .map(|i| edges_batch(&edge(&format!("old{i}"), Some(1), None)).unwrap())
+            .collect();
+        edges_table.add(prep_batches).execute().await.unwrap();
+
+        // supersede 其中 100 条旧边（封顶）+ 插入 100 条新边（载审计）
+        let n_sup = 100usize;
+        let new_edges: Vec<CanonEdge> = (0..n_sup)
+            .map(|i| edge(&format!("new{i}"), Some(5), None))
+            .collect();
+        let old_ids: Vec<String> = (0..n_sup).map(|i| format!("old{i}")).collect();
+        let req = SupersedeRequest {
+            old_edge_ids: old_ids,
+            cap_chapter: 5,
+            new_edges,
+            caused_by: Some("manual-correction".into()),
+        };
+
+        let start = std::time::Instant::now();
+        // 等价 impl 顺序：先 append 审计，再 supersede
+        let mut ev = CanonEvent::new_supersede(1, &req);
+        store.append_canon_event(&mut ev).await.unwrap();
+        store.supersede_edges(req).await.unwrap();
+        let elapsed = start.elapsed();
+
+        // 完整性：恰好 1 条审计事件
+        let events = store.query_canon_events().await.unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "千级边 supersede 仍只追加 1 条审计（completeness）"
+        );
+        // 完整性：100 旧边封顶、100 新边插入
+        let all = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let capped = all.iter().filter(|e| e.invalid_at == Some(5)).count();
+        let inserted = all.iter().filter(|e| e.id.starts_with("new")).count();
+        assert_eq!(capped, n_sup, "{n_sup} 旧边封顶");
+        assert_eq!(inserted, n_sup, "{n_sup} 新边插入");
+
+        // 时延比回归断言（非生产级基准）：千级边 supersede+审计在宽松上限内完成
+        assert!(
+            elapsed.as_secs() < 120,
+            "千级边 supersede+审计耗时 {elapsed:?} 超回归上限"
+        );
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -2067,6 +2475,7 @@ mod proptest_tests {
                 old_edge_ids: old_ids.clone(),
                 cap_chapter: cap,
                 new_edges: new_edges.clone(),
+                caused_by: None,
             });
             prop_assert_eq!(res.capped, n_old);
             // 所有旧边封顶

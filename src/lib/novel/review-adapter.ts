@@ -5,6 +5,7 @@ import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-st
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { validateSeverity, logger } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
+import type { TemporalFact } from "./temporal-memory"
 import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
 import { slopScore, classifySlop, slopReportToText, detectCharacterActions, characterActionsToText } from "./mechanical-slop-detector"
@@ -252,15 +253,49 @@ function splitChapterForReview(content: string): string[] {
   return chunks
 }
 
+/**
+ * 落点③：把 canon 图投影的时序事实（携带 modality）组装为审查上下文片段，
+ * 仅渲染 belief/hypothesis（角色认知，非事实陈述）与 retconned（回溯改写）这两类
+ * 「非 Assertive」模态事实。assertive（叙述者断言）与无 modality 旧数据已由
+ * context-engine 独立分块呈现，此处不重复注入，避免写放大与模态段重复。
+ *
+ * 纯函数零 IO 零 LLM：输入来自 ContextPack.temporalFacts / formerFacts（已由
+ * context-engine 经 fromCanonGraph 折叠，modality 随 canon 边流入）。供
+ * buildReviewPrompt 注入，使审稿模型区分「角色认为的事实」与「客观事实」，避免把
+ * 角色误信（belief）当作客观矛盾去判 setting_conflict。
+ *
+ * 仅当存在 belief/hypothesis/retconned 事实时返回非空串；全 assertive（含无模态）
+ * 或空输入均返回 ""（不污染 prompt，字节级等价未注入时的原行为）。
+ */
+export function buildCanonModalityContext(facts: readonly TemporalFact[]): string {
+  const lines: string[] = []
+  for (const f of facts) {
+    const tail = f.object ? f.predicate + " " + f.object : ""
+    const stmt = tail ? f.subject + " " + tail : f.subject
+    if (f.modality === "belief" || f.modality === "hypothesis") {
+      lines.push("- [角色认知·" + f.modality + "] " + stmt + "（角色所信，非客观事实，审稿勿视为矛盾）")
+    } else if (f.modality === "retconned") {
+      lines.push("- [回溯改写] " + stmt)
+    }
+    // assertive / 无模态事实已由 context-engine 独立分块呈现，此处不重复注入
+  }
+  if (lines.length === 0) return ""
+  return "# canon 图事实（模态区分）\n" + lines.join("\n")
+}
+
 export function buildReviewPrompt(pack: ContextPack, chapterContent: string, characterOnly = false): string {
   const dimensions = characterOnly ? CHARACTER_REVIEW_DIMENSIONS : REVIEW_DIMENSIONS
   const modeTitle = characterOnly ? "角色一致性专项审查" : "阶段式深度审查工作流"
   const modeStages = characterOnly
     ? ["阶段1：角色提取", "阶段2：记忆库对照", "阶段3：脱离判定", "阶段4：二次复核"]
     : REVIEW_STAGES
+  // 落点③：把 canon 图投影时序事实（携带 modality）组装为审查上下文，仅注入
+  // belief/hypothesis/retconned 非 Assertive 模态；formerFacts 仅由 context-engine
+  // 独立分块呈现（P0 护栏），不在此 spread。全 Assertive 或空 → 空串不注入。
+  const canonModalityContext = buildCanonModalityContext(pack.temporalFacts ?? [])
   return `${contextPackToPrompt(pack)}
 
-${modeTitle}：
+${canonModalityContext ? canonModalityContext + "\n\n" : ""}${modeTitle}：
 ${modeStages.map((stage) => `- ${stage}：必须使用高级 thinking，先分析证据，再给结论。`).join("\n")}
 
 ${characterOnly ? "角色一致性专项审查要求：" : "阶段要求："}

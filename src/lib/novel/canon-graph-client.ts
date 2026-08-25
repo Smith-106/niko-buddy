@@ -30,6 +30,13 @@ export type CanonEdgeKind =
   | "hook"
   | "attribute"
 
+/** 事实认知模态（落点①，与 edgeKind 正交）：assertive=叙述者断言（默认）；belief=角色相信；hypothesis=假设；retconned=回溯改写。 */
+export type CanonModality =
+  | "assertive"
+  | "belief"
+  | "hypothesis"
+  | "retconned"
+
 /** 原始边（IPC 返回，serde snake_case；含内部句柄 `known_by`/`digest`）。 */
 export interface RawCanonEdge {
   id: string
@@ -53,12 +60,18 @@ export interface RawCanonEdge {
   hook_type?: string | null
   payoff_chapter?: number | null
   archived?: boolean | null
+  /** 认知模态（落点①）：assertive/belief/hypothesis/retconned。旧数据（data JSON 无此字段）→ undefined。 */
+  modality?: CanonModality | null
+  /** 写入该边的写尝试 revision（attempt-count，含幂等 skip 的 post-bump 值）；旧数据无此字段 → undefined。 */
+  recorded_revision?: number | null
 }
 
 /** canon_query 过滤（与 Rust `CanonEdgeFilter` 契约一致，snake_case）。 */
 export interface CanonEdgeFilter {
   known_by?: string | null
   valid_at_chapter?: number | null
+  /** 召回已失效窗口边（"曾以为"）：true=保留 invalid_at<=章节 的边；缺省/ false=旧行为（仅有效边）。与 Rust `include_invalidated` 对齐。 */
+  include_invalidated?: boolean | null
   edge_kinds?: CanonEdgeKind[] | null
   predicates?: string[] | null
   entity_ids?: string[] | null
@@ -104,6 +117,10 @@ export interface CanonFact {
   hookType?: string | null
   payoffChapter?: number | null
   archived: boolean
+  /** 认知模态（落点①）：assertive/belief/hypothesis/retconned。 */
+  modality?: CanonModality | null
+  /** 写入该边的写尝试 revision（attempt-count）。 */
+  recordedRevision?: number | null
 }
 
 /**
@@ -156,6 +173,8 @@ export function projectEdge(raw: RawCanonEdge): CanonFact {
     hookType: raw.hook_type ?? null,
     payoffChapter: raw.payoff_chapter ?? null,
     archived: raw.archived ?? false,
+    modality: raw.modality ?? null,
+    recordedRevision: raw.recorded_revision ?? null,
   }
   assertNoHandleLeak(fact)
   return fact
@@ -172,17 +191,21 @@ export function projectEdges(raws: RawCanonEdge[]): CanonFact[] {
  * @param projectId 项目 id（多项目契约：单库查询，无跨库 join）
  * @param characterId POV 角色 id（认知轴 filter `known_by`）
  * @param atChapter 世界时态截点（可选；仅返回该章仍有效的边）
+ * @param includeInvalidated 召回已失效窗口边（"曾以为"）：true=保留 invalid_at<=章节 的边。
+ *   用于 POV 精确归因（角色 X 曾以为…），剥离世界层投影限制。
  * @returns 投影后的安全 `CanonFact[]`（已剥离 `known_by`/`digest`）
  */
 export async function getFactsKnownBy(
   projectId: string,
   characterId: string,
   atChapter?: number,
+  includeInvalidated?: boolean,
 ): Promise<CanonFact[]> {
   const res = await invoke<CanonQueryResponseRaw>("canon_facts_known_by", {
     projectId,
     pov: characterId,
     atChapter: atChapter ?? null,
+    includeInvalidated: includeInvalidated ?? null,
   })
   return projectEdges(res.edges)
 }

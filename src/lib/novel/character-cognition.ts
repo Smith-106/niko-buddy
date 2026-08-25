@@ -6,7 +6,7 @@ import type { NameAliasMap } from "./book-analysis/types"
 // T25 (F-13): canon 图投影读出口产物类型 + 禁句柄外泄兜底断言（defense-in-depth）。
 // 输入只能来自 T14 `getFactsKnownBy` 的返回物；若上游契约被击穿（含 known_by/digest），
 // 此处 fail-loud 拦下，不静默传播 POV 泄密数据。
-import { assertNoHandleLeak, type CanonFact } from "./canon-graph-client"
+import { assertNoHandleLeak, getFactsKnownBy, type CanonFact } from "./canon-graph-client"
 
 export interface CharacterCognition {
   character: string
@@ -523,4 +523,44 @@ export function fromCanonGraph(
     }
     return { character: canonical, knows, doesNotKnow: [] }
   })
+}
+
+/**
+ * T25 (F-13) POV 路由设施 —— 本章 POV 角色身份解析（接入点 / 扩展锚）。
+ *
+ * 主链今天无结构化 per-chapter POV 字段（ChapterSnapshot / NovelConfig / 章节 frontmatter /
+ * session-status 均无 POV；POV 路由属路线图级新设施，见 C 任务书硬约束「停下报告而非硬塞」）。
+ * 故本函数当前返回 null —— 优雅降级为世界层投影（行为不变），绝不臆造 POV（避免误归因）。
+ *
+ * 未来 per-chapter POV 真源落地（章节元数据 / cognition-state POV 字段 / 大纲 POV 标注）时，
+ * 在此解析并返回角色 id，下游 `buildPovCognition` 与 loadCanonSourceFacts 第二查询的
+ * `known_by` 过滤即自动激活「角色 X 曾以为」精确归因（剥离世界层限制）。
+ */
+export async function resolveChapterPovCharacter(
+  _projectPath: string,
+  _chapter: number,
+): Promise<string | null> {
+  // EXTENSION POINT: per-chapter POV 真源就绪时在此解析并返回角色 id。
+  return null
+}
+
+/**
+ * T25 (F-13) POV 精确归因首个运行时调用点：按 POV 角色取「曾以为」事实集。
+ *
+ * 调 T14 `getFactsKnownBy(projectId, povCharacterId, chapter, true)` —— 4 参形态
+ * （includeInvalidated=true）召回该角色已知且已失效的窗口边，剥离世界层投影限制，
+ * 真正实现「角色 X 曾以为…」而非世界层「此事实曾成立」。结果经本模块 fromCanonGraph
+ * 折叠为 `CharacterCognition` 视图（POV 防泄密兑底 assertNoHandleLeak 复用）。
+ *
+ * 调用方传入已解析的 `povCharacterId`（经 resolveChapterPovCharacter 解析）；当前 POV 真源
+ * 未就绪时由解析器返回 null 保护，本函数即设施锚点、不主动臆造 POV。
+ */
+export async function buildPovCognition(
+  projectId: string,
+  povCharacterId: string,
+  chapter: number,
+  aliasMaps?: readonly NameAliasMap[],
+): Promise<CharacterCognition[]> {
+  const facts = await getFactsKnownBy(projectId, povCharacterId, chapter, true)
+  return fromCanonGraph([{ character: povCharacterId, facts }], aliasMaps)
 }

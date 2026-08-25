@@ -1844,6 +1844,7 @@
       "relatedChapters": "## 相关章节四维反查",
       "references": "## 引用检索",
       "activeEntities": "## 当前章节关联实体",
+      "formerFacts": "## 曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）",
       "foreshadowing": {
         "repeatedUnresolved": "以下伏笔近期反复出现，但尚未明显推进，需注意是否在本章继续铺设或回收：{{names}}"
       },

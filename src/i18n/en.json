@@ -1876,6 +1876,7 @@
       "relatedChapters": "## Related Chapters Lookup",
       "references": "## Reference Lookup",
       "activeEntities": "## Active Entities (Current Chapter)",
+      "formerFacts": "## Former Facts (invalidated; for character misbelief / discovery / recollection contrast only — NOT current narrative truth)",
       "foreshadowing": {
         "repeatedUnresolved": "These foreshadowing threads have reappeared recently without clear progression. Decide whether to continue planting, advancing, or resolving them in this chapter: {{names}}"
       },
