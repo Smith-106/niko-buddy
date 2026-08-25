@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.6.2",
+  date: "2026-08-24",
+  highlights: {
+    en: [
+      "Anti-AI shadow telemetry wiring (#34): four-factor pool reports stream to JSONL sink per chapter — the ≥200-chapter calibration clock is running; zero gate-behavior change.",
+      "Corpus bundle strategy (option B): synthetic seeds embedded at build time — production four factors now emit real values without node:fs; ERR_INVALID_URL module-load fix for webview.",
+      "Authorized-corpus ingestion pipeline: parameterized batch/layer/license-status with §4 enum enforcement and unlicensed red-lines.",
+      "Corpus consumer guards: fail-closed indexed-only assertion shared by calibrate/rederive/profile scripts, packer genre-enum validation, and 16 isolation-invariant tests.",
+    ],
+    zh: [
+      "反AI影子遥测接线（#34）：四因子池报告逐章流入 JSONL sink——≥200 章标定累积钟启动；门裁语义零变更。",
+      "语料打包方案②：合成种子构建期内嵌——生产四因子零 node:fs 产出真值；修复 webview 下模块级 fileURLToPath 导致的整池加载失败。",
+      "授权语料参数化摄取管线：批次/层/§4 六值枚举强制 + unlicensed 双重红线；同批跨层增量合并。",
+      "语料消费端守卫：calibrate/rederive/profile 三脚本共享 indexed-only fail-closed 断言 + 打包器 genre 枚举校验 + 16 项隔离不变量测试与 corpus-check 校验器。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.6.1",
   date: "2026-08-23",
@@ -978,6 +997,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_TWO_CHANGELOG.version) return [TWO_POINT_SIX_TWO_CHANGELOG]
   if (version === TWO_POINT_SIX_ONE_CHANGELOG.version) return [TWO_POINT_SIX_ONE_CHANGELOG]
   if (version === TWO_POINT_SIX_ZERO_CHANGELOG.version) return [TWO_POINT_SIX_ZERO_CHANGELOG]
   if (version === TWO_POINT_FIVE_ONE_CHANGELOG.version) return [TWO_POINT_FIVE_ONE_CHANGELOG]
@@ -1031,6 +1051,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_SIX_TWO_CHANGELOG,
     TWO_POINT_SIX_ONE_CHANGELOG,
     TWO_POINT_SIX_ZERO_CHANGELOG,
     TWO_POINT_FIVE_ONE_CHANGELOG,

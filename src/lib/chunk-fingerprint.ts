@@ -40,7 +40,7 @@ function getCreateHash(): CreateHash {
   if (typeof process === "undefined" || !process.versions?.node) {
     throw new Error("chunkFingerprint requires a Node environment (ingestion pipeline)")
   }
-  // eslint-disable-next-line @typescript-eslint/no-eval
+  // eslint-disable-next-line no-eval
   const crypto = eval("require")("node:crypto") as { createHash: CreateHash }
   _createHash = crypto.createHash
   return _createHash

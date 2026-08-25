@@ -7,6 +7,32 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.2] - 2026-08-24
+
+### 反AI 语料与遥测闭环（#34 / T01b 轨）
+
+- **反AI影子遥测接线**：四因子池报告逐章写入 JSONL sink（F-34 同意开关默认关、CWE-532 脱敏、轮转保留）——≥200 章标定累积钟启动；门裁语义零变更（warn-only 不进门裁）
+- **语料打包方案②**：合成种子构建期内嵌（60 片/93KB 入库），生产四因子零 node:fs 产出真值；修复 webview 下模块级 `fileURLToPath` 抛 ERR_INVALID_URL 导致整池加载失败的问题
+- **授权语料参数化摄取管线**：`ingest-authorized-corpus.mjs`（§4 六值枚举强制、unlicensed 双重红线、同批跨层增量合并、配额硬上限与 stopping_conditions）
+- **消费端守卫三件套**：`corpus-guard.mjs` indexed-only fail-closed 断言接入三个标定/画像脚本；打包器 genre 枚举 throw 式校验；16 项隔离不变量测试 + `corpus-check.mjs` 一致性校验器（蓝图 T01b-2）
+
+### T36 精品模式（实验性，默认关闭）
+
+- **精品模式为实验性功能，默认关闭**（`DEFAULT_PREMIUM_CONFIG.premiumMode = false`）。T36 终端硬门五项门槛机械层 3/3 PASS（一致性非劣/墙钟≤45min/无写入风暴），但**真实补验轮门槛①③ FAIL**：六维 overall 中位差 0.0（CI[-0.5,0] 含 0，未达 ≥+0.5）；盲评 Cohen's κ≈-0.01（随机水平，未达 ≥0.6）。
+- 按蓝图契约处置：精品模式保持 opt-in 默认关闭；使用前建议先跑人工评估基准质量。
+- 启用前置：`checkHardPreconditions`（canon_migration ≥ dual 且 reconcile 零差异持续 ≥3 章）+ 前缀缓存检查。
+- 一键回退 `rollbackToSingleModel()`：premiumMode=false + 清空 fallbackChains + 关前缀缓存。
+
+### Added
+
+- **T32-T35 检索重调参 + 精品 registry + 哨兵**：rerank-api（custom endpoint 直连重排）+ embedding 三实现（Google/DashScope/Generic）+ canon_search.rs RRF 融合（α=0.08/β=0.75 网格扫描赢家 NDCG@10=0.941）+ model-resolver 五角色路由 + provider-registry add-only + premium-config/execution（GCR 两轮封顶 + 共识门 + 双判官）+ control-sentinels（13 分支互斥 + 720k 穷举哨兵）
+- **T01b 语料 κ 盲标质量门**：`src/lib/novel/corpus-kappa.ts` Cohen's κ 纯函数计算（混淆矩阵→Po→Pe→κ）+ Landis-Koch 级别映射 + 黄金集合格线 GOLD_QUALIFIED_KAPPA=0.7 (A-21.2/A-23.2)；15 测试全绿；机械层零 LLM (ADR-19)；Draft-first (ADR-08) κ 结果先进 pending
+
+### Fixed
+
+- **eslint no-eval 规则注册**：`chunk-fingerprint.ts` 的 disable 指令引用了未注册的 `@typescript-eslint/no-eval`（该规则是 ESLint 内置非 TS 插件），改为 `no-eval` 恢复 T18 自设 "0 error" 底线
+- **changelog-section 版本断言**：v2.6.1 发版漏改测试 mock 版本号（2.6.0→2.6.1），徽标匹配失耦修复
+
 ## [2.6.0] - 2026-08-22
 
 ### Summary（摄取与索引增强 + 图谱精度 + 断点/伏笔增强 + 决策回放 + 角色工作台 + 自评估）
@@ -429,6 +455,7 @@ v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与
 
 [2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.6.2]: https://github.com/Smith-106/niko-buddy/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/Smith-106/niko-buddy/compare/v2.6.0...v2.6.1
 [2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Smith-106/niko-buddy/compare/v2.4.0...v2.4.1
