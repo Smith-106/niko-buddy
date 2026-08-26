@@ -85,6 +85,12 @@ export function ChapterSelectionPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isBackgrounded, setIsBackgrounded] = useState(false)
   const [showWorkstation, setShowWorkstation] = useState(false)
+  // UAT C7-1：用户关闭“角色选择”弹窗后本地隐藏（识别完成态保留，工作台入口不消失）。
+  // 新一轮识别开始时复位，弹窗随识别完成再次自动弹出。
+  const [pickerDismissed, setPickerDismissed] = useState(false)
+  // UAT C7-2：工作台（Radix 栈）Esc 关闭时置位；同一次 keydown 中 Base UI 弹窗的独立
+  // Esc 监听会后触发——ref 标志使弹窗本次不关闭（渲染外读写，不受同步重渲染影响）。
+  const suppressPickerEscapeRef = useRef(false)
 
   // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
   // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
@@ -99,6 +105,17 @@ export function ChapterSelectionPanel({
   useEffect(() => {
     if (recognitionStatus === "done" || recognitionStatus === "error") {
       setIsAnalyzing(false)
+    }
+  }, [recognitionStatus])
+
+  // UAT C7-U-1：新一轮识别开始（任务确认/重识别）时复位弹窗隐藏态，识别完成后弹窗照常出现
+  useEffect(() => {
+    if (
+      recognitionStatus === "heuristic" ||
+      recognitionStatus === "llm_scoring" ||
+      recognitionStatus === "llm_recognizing"
+    ) {
+      setPickerDismissed(false)
     }
   }, [recognitionStatus])
 
@@ -169,6 +186,7 @@ export function ChapterSelectionPanel({
     recognitionStatus === "done" &&
     recognizedCharacters.length > 0 &&
     !extractionPhase &&
+    !pickerDismissed &&
     !!onToggleCharacter &&
     !!onSelectAllMain &&
     !!onClearSelection &&
@@ -544,7 +562,12 @@ export function ChapterSelectionPanel({
           onDeepExtract={onDeepExtract!}
           onSimpleExtract={onSimpleExtract!}
           onCancel={onCancel}
-          onClose={onCharacterPickerClose}
+          nonModal={showWorkstation}
+          escapeSuppressRef={suppressPickerEscapeRef}
+          onClose={() => {
+            setPickerDismissed(true)
+            onCharacterPickerClose?.()
+          }}
         />
       )}
 
@@ -553,7 +576,12 @@ export function ChapterSelectionPanel({
         <CharacterWorkstationOverlay
           items={workstationItems}
           initialDrafts={workstationDraftsRef.current}
-          onClose={() => setShowWorkstation(false)}
+          onClose={() => {
+            // UAT C7-2：工作台 Esc 关闭（含 Radix 级联触发时）置位抑制标志，
+            // 同一 keydown 中角色弹窗不再响应 Esc（消费后复位）。
+            suppressPickerEscapeRef.current = true
+            setShowWorkstation(false)
+          }}
           onDraftChange={handleWorkstationDraft}
         />
       )}

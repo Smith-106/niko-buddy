@@ -655,7 +655,8 @@ export function BookAnalysisView() {
           onClearSelection={handleClearSelection}
           onDeepExtract={handleDeepExtract}
           onSimpleExtract={handleSimpleExtract}
-          onCharacterPickerClose={clearRecognition}
+          // UAT C7-1：关闭“角色选择”弹窗不再 clearRecognition（识别完成态保留，工作台入口不消失）；
+          // 强重置仅保留在导入新书/切书/重新识别三处调用点。
           // 提取进度
           extractionPhase={chapterSelectionData.extractionPhase ?? null}
           extractionProgress={(() => {

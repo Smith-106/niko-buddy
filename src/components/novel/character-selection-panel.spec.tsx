@@ -358,4 +358,61 @@ describe("CharacterSelectionPanel", () => {
     expect(onCancel).not.toHaveBeenCalled()
     cleanup()
   })
+
+  it("UAT C7-2 escapeSuppressRef 置位时 Esc 不关闭弹窗（同次派发已消费）", async () => {
+    const onClose = vi.fn()
+    const onCancel = vi.fn()
+    const suppressRef = { current: true }
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel,
+      onClose,
+      escapeSuppressRef: suppressRef,
+      nonModal: true,
+    })
+    await flushAsync()
+    expect(
+      document.body.querySelector('[data-slot="dialog-close"]')
+    ).toBeTruthy()
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // 工作台 Esc 关闭后：抑制标志消费一次，本次 Esc 不关闭弹窗
+    expect(onClose).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(suppressRef.current).toBe(false)
+    expect(
+      document.body.querySelector('[data-slot="dialog-close"]')
+    ).toBeTruthy()
+    cleanup()
+  })
+
+  it("UAT C7-2 默认（无抑制 ref）Esc 仍关闭弹窗", async () => {
+    const onClose = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+      onClose,
+    })
+    await flushAsync()
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(onClose).toHaveBeenCalled()
+    cleanup()
+  })
 })
