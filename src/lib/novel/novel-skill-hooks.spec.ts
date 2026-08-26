@@ -28,6 +28,7 @@ const moduleMocks = vi.hoisted(() => ({
   formatCedReportPromptFragment: vi.fn(),
   runDeAiDualPass: vi.fn(),
   formatDualPassSummary: vi.fn(),
+  formatDualPassPromptFragment: vi.fn(),
   scoreStatisticalAiSignature: vi.fn(),
   formatStatisticalAiSignatureFragment: vi.fn(),
 }))
@@ -52,6 +53,7 @@ vi.mock("./ced-report", () => ({
 vi.mock("./de-ai-dual-pass", () => ({
   runDeAiDualPass: moduleMocks.runDeAiDualPass,
   formatDualPassSummary: moduleMocks.formatDualPassSummary,
+  formatDualPassPromptFragment: moduleMocks.formatDualPassPromptFragment,
 }))
 
 vi.mock("./statistical-ai-signature", () => ({
@@ -71,8 +73,9 @@ describe("novel-skill-hooks", () => {
     moduleMocks.formatAvoidAiPatternsPromptFragment.mockReturnValue("patterns frag")
     moduleMocks.computeCedReport.mockReturnValue({ summaryLine: "CED soft density 1.2/1k", density: 1.2 })
     moduleMocks.formatCedReportPromptFragment.mockReturnValue("ced frag")
-    moduleMocks.runDeAiDualPass.mockReturnValue({ pass2: { promptFragment: "de-ai frag" } })
+    moduleMocks.runDeAiDualPass.mockReturnValue({})
     moduleMocks.formatDualPassSummary.mockReturnValue("dual-pass summary")
+    moduleMocks.formatDualPassPromptFragment.mockReturnValue("de-ai frag")
     moduleMocks.scoreStatisticalAiSignature.mockReturnValue({ score0to1: 0.42, band: "low" })
     moduleMocks.formatStatisticalAiSignatureFragment.mockReturnValue("sig frag")
   })
@@ -310,10 +313,10 @@ describe("novel-skill-hooks", () => {
     expect(ctx.bag.notes.some((n) => n.includes("string patterns boom"))).toBe(true)
   })
 
-  it("de-ai dual-pass hook pushes summary + pass2 fragment", async () => {
-    registerNovelSkillHook(createDeAiDualPassHook({ text: "正文样本", baselineScores: [0.5] }))
+  it("de-ai dual-pass hook pushes summary + prompt fragment", async () => {
+    registerNovelSkillHook(createDeAiDualPassHook({ text: "正文样本" }))
     const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
-    expect(moduleMocks.runDeAiDualPass).toHaveBeenCalledWith("正文样本", { baselineScores: [0.5] })
+    expect(moduleMocks.runDeAiDualPass).toHaveBeenCalledWith("正文样本")
     expect(ctx.bag.notes).toContain("dual-pass summary")
     expect(ctx.bag.promptFragments).toContain("de-ai frag")
   })
@@ -343,8 +346,8 @@ describe("novel-skill-hooks", () => {
     expect(ctx.bag.notes.some((n) => n.includes("de-ai dual-pass soft-failed") && n.includes("error boom"))).toBe(true)
   })
 
-  it("de-ai dual-pass hook skips empty pass2 fragment", async () => {
-    moduleMocks.runDeAiDualPass.mockReturnValueOnce({ pass2: { promptFragment: "   " } })
+  it("de-ai dual-pass hook skips empty prompt fragment", async () => {
+    moduleMocks.formatDualPassPromptFragment.mockReturnValueOnce("   ")
     registerNovelSkillHook(createDeAiDualPassHook({ text: "正文" }))
     const ctx = await runNovelSkillHooks("post_draft_light_check", { projectPath: "/p" })
     expect(ctx.bag.promptFragments).toEqual([])

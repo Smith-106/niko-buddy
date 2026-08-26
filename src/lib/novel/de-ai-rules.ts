@@ -327,6 +327,166 @@ export function buildStructuredDeAiRules(genre?: string, minSeverity: DeAiSeveri
   return lines.join("\n")
 }
 
+// ============================================================================
+// F-009: 去 AI 分级替换表 + 两遍检测 (runDeAiDualPass)
+//
+// detect → rewrite → re-detect 强制两遍检测。
+// 第二遍结果写 dualPassRecheck 字段，仍命中标 residual 供人工审查。
+// 保持「信号非证据」立场 (误报率 >60%)，1B 低权重仅轻提示不升压为硬门控。
+// ============================================================================
+
+import { detectTieredDeAi, filterTieredDeAiHitsByTier, type TieredDeAiHit } from "./de-ai-tiered-table"
+
+/** 两遍检测结果 */
+export interface DualPassResult {
+  /** 第一遍: 检测命中 */
+  pass1: {
+    hits: TieredDeAiHit[]
+    /** 1A 高权重命中数 */
+    highCount: number
+    /** 1B 低权重命中数 */
+    lowCount: number
+    /** 3 弱提示命中数 */
+    weakCount: number
+    /** 加权总分 (1A×1.0 + 1B×0.4 + 3×0.1) */
+    weightedScore: number
+  }
+  /** 第二遍: 重检结果 */
+  dualPassRecheck: {
+    /** 仍命中的残留条目 (标 residual) */
+    residual: TieredDeAiHit[]
+    /** 已清除的条目 */
+    cleared: number
+    /** 残留率 */
+    residualRate: number
+    /** 改写建议 */
+    rewriteSuggestions: string[]
+  }
+  /** 是否建议人工审查 (残留率 >0.3 或 1A 残留 >0) */
+  needsReview: boolean
+}
+
+/**
+ * 模拟改写: 对 1A 高权重命中生成替换方案 (不实际改原文, 仅生成建议)。
+ * 返回改写后的文本 (模拟) 和改写建议列表。
+ */
+function simulateRewrite(text: string, hits: TieredDeAiHit[]): { rewrittenText: string; suggestions: string[] } {
+  const suggestions: string[] = []
+  let rewritten = text
+  // 按权重降序处理 (先处理高权重)
+  const sorted = [...hits].sort((a, b) => b.entry.weight - a.entry.weight)
+  for (const hit of sorted) {
+    if (hit.entry.tier === "1A" && hit.entry.weight >= 0.8) {
+      suggestions.push(`替换 "${hit.entry.term}" (×${hit.count}): ${hit.entry.suggestion}`)
+      // 只替换首次出现作为示例
+      rewritten = rewritten.replace(hit.entry.term, `【已替换:${hit.entry.suggestion}】`)
+    } else if (hit.entry.tier === "1A") {
+      suggestions.push(`考虑 "${hit.entry.term}" (×${hit.count}): ${hit.entry.suggestion}`)
+      rewritten = rewritten.replace(hit.entry.term, `【已替换:${hit.entry.suggestion}】`)
+    } else if (hit.entry.tier === "1B") {
+      suggestions.push(`轻提示 "${hit.entry.term}" (×${hit.count}): ${hit.entry.suggestion} (低权重, 非强制)`)
+    } else {
+      suggestions.push(`参考 "${hit.entry.term}" (×${hit.count}): ${hit.entry.suggestion} (弱提示, 仅参考)`)
+    }
+  }
+  return { rewrittenText: rewritten, suggestions }
+}
+
+/**
+ * runDeAiDualPass — 强制两遍检测 (detect → rewrite → re-detect)。
+ *
+ * 第一遍: 在原文中检测分级表 112 词命中。
+ * 第二遍: 对改写后文本再次检测, 仍命中标 residual。
+ *
+ * 保持「信号非证据」立场: 1A 高权重仅提供强信号, 不阻断;
+ * 1B 低权重仅轻提示, 不升级为 Anti-AI(P1) 硬门控。
+ */
+export function runDeAiDualPass(text: string): DualPassResult {
+  // ── Pass 1: Detect ──
+  const hits = detectTieredDeAi(text ?? "")
+  const highHits = filterTieredDeAiHitsByTier(hits, "1A")
+  const lowHits = filterTieredDeAiHitsByTier(hits, "1B")
+  const weakHits = filterTieredDeAiHitsByTier(hits, "3")
+  const highCount = highHits.reduce((s, h) => s + h.count, 0)
+  const lowCount = lowHits.reduce((s, h) => s + h.count, 0)
+  const weakCount = weakHits.reduce((s, h) => s + h.count, 0)
+  // 加权: 1A×1.0 + 1B×0.4 + 3×0.1
+  const weightedScore = Math.round((highCount * 1.0 + lowCount * 0.4 + weakCount * 0.1) * 10) / 10
+
+  // ── Simulate rewrite ──
+  const { rewrittenText, suggestions } = simulateRewrite(text ?? "", hits)
+
+  // ── Pass 2: Re-detect ──
+  const reHits = detectTieredDeAi(rewrittenText)
+  const residual = reHits.filter((rh) => {
+    // 只算 1A 和 1B 的残留, 3 弱提示不标残留
+    return rh.entry.tier === "1A" || rh.entry.tier === "1B"
+  })
+  const residualCount = residual.reduce((s, h) => s + h.count, 0)
+  const totalInitial = hits.reduce((s, h) => s + h.count, 0)
+  const cleared = totalInitial - residualCount
+  const residualRate = totalInitial > 0 ? Math.round((residualCount / totalInitial) * 100) / 100 : 0
+
+  // ── 判断是否建议人工审查 ──
+  const residualHigh = residual.filter((rh) => rh.entry.tier === "1A")
+  const needsReview = residualRate > 0.3 || residualHigh.length > 0
+
+  return {
+    pass1: {
+      hits,
+      highCount,
+      lowCount,
+      weakCount,
+      weightedScore,
+    },
+    dualPassRecheck: {
+      residual,
+      cleared,
+      residualRate,
+      rewriteSuggestions: suggestions,
+    },
+    needsReview,
+  }
+}
+
+/** F-009 两遍检测单行摘要 (供 skill-hooks note / 审计)。 */
+export function formatDualPassSummary(result: DualPassResult): string {
+  return [
+    `de-ai dual-pass: weighted=${result.pass1.weightedScore}`,
+    `high=${result.pass1.highCount}`,
+    `low=${result.pass1.lowCount}`,
+    `weak=${result.pass1.weakCount}`,
+    `residualRate=${result.dualPassRecheck.residualRate}`,
+    result.needsReview ? "needs-review" : "ok",
+    "Track B soft (F-009 分级两遍; not product hard gate)",
+  ].join(" ")
+}
+
+/**
+ * F-009 两遍检测 prompt 片段 (供 LLM 改写; 非产品硬门)。
+ * 可选携带用户避用词 (Wave 4 additive; 未传/空则不输出)。
+ */
+export function formatDualPassPromptFragment(
+  result: DualPassResult,
+  avoidWordsHits?: readonly { word: string; count: number }[],
+): string {
+  const parts: string[] = []
+  const suggestions = result.dualPassRecheck.rewriteSuggestions
+  if (suggestions.length > 0) {
+    parts.push(
+      [
+        `## De-AI dual-pass (F-009 分级两遍检测 · Track B soft)`,
+        `加权分=${result.pass1.weightedScore} · 残留率=${result.dualPassRecheck.residualRate}`,
+        ...suggestions.map((s) => `- ${s}`),
+      ].join("\n"),
+    )
+  }
+  if (avoidWordsHits && avoidWordsHits.length > 0) {
+    parts.push(`用户避用词（改写时禁止使用）：${avoidWordsHits.map((h) => h.word).join("、")}`)
+  }
+  return parts.join("\n\n")
+}
+
 /** 结构化规则统计 (供 spec/审计) */
 export function deAiStructuredStats(): {
   categoryCount: number

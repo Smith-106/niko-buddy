@@ -231,18 +231,17 @@ export function createAvoidAiMechanicalSlopHook(options: {
 }
 
 /**
- * Wave C: de-AI dual-pass soft hook (score + remediation notes).
+ * Wave C: de-AI dual-pass soft hook (F-009 分级两遍 · 112 词分级表)。
  * Never product hard gate.
  */
 export function createDeAiDualPassHook(options: {
   text?: string
   stages?: NovelSkillStage[]
-  baselineScores?: readonly number[]
 }): NovelSkillHook {
   const stages = options.stages ?? (["post_draft_light_check", "pre_six_dim_review"] as NovelSkillStage[])
   return {
     id: "builtin.de-ai-dual-pass",
-    title: "De-AI dual-pass soft (Wave C Track B)",
+    title: "De-AI dual-pass soft (F-009 分级两遍 · Track B)",
     stages,
     track: "B",
     enabled: true,
@@ -253,11 +252,13 @@ export function createDeAiDualPassHook(options: {
         return
       }
       try {
-        const { runDeAiDualPass, formatDualPassSummary } = await import("./de-ai-dual-pass")
-        const report = runDeAiDualPass(text, { baselineScores: options.baselineScores })
+        const { runDeAiDualPass, formatDualPassSummary, formatDualPassPromptFragment } =
+          await import("./de-ai-dual-pass")
+        const report = runDeAiDualPass(text)
         ctx.bag.notes.push(formatDualPassSummary(report))
-        if (report.pass2.promptFragment.trim()) {
-          ctx.bag.promptFragments.push(report.pass2.promptFragment.trim())
+        const fragment = formatDualPassPromptFragment(report).trim()
+        if (fragment) {
+          ctx.bag.promptFragments.push(fragment)
         }
       } catch (error) {
         ctx.bag.notes.push(

@@ -20,7 +20,7 @@ import {
 } from "@/lib/user-memory"
 import { extractChapterNumber, findChapterFileByNumber, flattenMdFiles } from "../chapter-utils"
 import { buildDeAiRewriteMessages } from "../de-ai-adapter"
-import { runDeAiDualPass } from "../de-ai-dual-pass"
+import { runDeAiDualPass, formatDualPassPromptFragment } from "../de-ai-dual-pass"
 import { loadNovelProjectMeta } from "../project-meta"
 import { isTransientLlmError, runBatch, runWithBackoff } from "./concurrency"
 import { deleteDeAiBatchDraft, loadDeAiBatchDraft, saveDeAiBatchDraft } from "./drafts"
@@ -57,6 +57,26 @@ function clampConcurrency(value: number | undefined): number {
 function isAbortError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /abort|request cancelled|request canceled/i.test(message)
+}
+
+/** 廉价子串扫描：用户避用词命中 (Wave 4 additive; 小词表, 批量可控)。 */
+function scanAvoidWords(
+  text: string,
+  avoidWords: readonly string[],
+): Array<{ word: string; count: number }> {
+  const hits: Array<{ word: string; count: number }> = []
+  for (const word of avoidWords) {
+    const trimmed = word.trim()
+    if (!trimmed) continue
+    let count = 0
+    let index = text.indexOf(trimmed)
+    while (index !== -1) {
+      count += 1
+      index = text.indexOf(trimmed, index + trimmed.length)
+    }
+    if (count > 0) hits.push({ word: trimmed, count })
+  }
+  return hits
 }
 
 async function resolveGenre(projectPath: string): Promise<string | undefined> {
@@ -200,15 +220,13 @@ export async function runDeAiBatch(
       const content = await readFile(filePath)
       if (!content.trim()) throw new Error("章节内容为空")
 
-      const report = runDeAiDualPass(content, { avoidWords })
-      const avoidWordsHits = report.pass1.avoidWordsHits ?? []
-      const mechanicallyClean = report.pass1.slopClass === "clean"
-        && report.pass1.avoidAi.issues.length === 0
-        && avoidWordsHits.length === 0
+      const report = runDeAiDualPass(content)
+      const avoidWordsHits = scanAvoidWords(content, avoidWords ?? [])
+      const mechanicallyClean = report.pass1.hits.length === 0 && avoidWordsHits.length === 0
       if (options.skipCleanChapters && mechanicallyClean) {
         await updateChapter(chapterNumber, {
           status: "skipped",
-          dualPassScore: report.pass1.combinedScore,
+          dualPassScore: report.pass1.weightedScore,
           updatedAt: nowIso(),
         })
         emitProgress({
@@ -221,7 +239,7 @@ export async function runDeAiBatch(
 
       const messages = buildDeAiRewriteMessages(content, customSkill, {
         userPrompt,
-        dualPassFragment: report.pass2.promptFragment,
+        dualPassFragment: formatDualPassPromptFragment(report, avoidWordsHits),
       })
       const candidate = await runWithBackoff(
         () => streamChatToText(options.llmConfig, messages, options.signal),
@@ -235,7 +253,7 @@ export async function runDeAiBatch(
         sourcePath: filePath,
         originalContent: content,
         candidateContent: candidate,
-        dualPassScore: report.pass1.combinedScore,
+        dualPassScore: report.pass1.weightedScore,
         avoidWordsHits,
         createdAt: nowIso(),
         updatedAt: nowIso(),
@@ -244,7 +262,7 @@ export async function runDeAiBatch(
       await updateChapter(chapterNumber, {
         status: "ready",
         draftPath,
-        dualPassScore: report.pass1.combinedScore,
+        dualPassScore: report.pass1.weightedScore,
         updatedAt: nowIso(),
       })
       emitProgress({
