@@ -1,7 +1,8 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-26T14:45:24.860Z",
-  "totalCases": 216,
+  "generatedAt": "2026-08-26T15:10:26.134Z",
+  "totalCases": 186,
+  "holdoutCount": 30,
   "holdoutRatio": 0.15,
   "scenarios": [
     "canon_retrieval",
@@ -12,7 +13,7 @@
     "temporal_inversion"
   ],
   "source": "real",
-  "corpusDigest": "b8045719ad956894088d5f991e3163f4141bc067641b7a826c02bcbeaf0f9313",
+  "corpusDigest": "27ab055dffffdef7487366394560dbb16fbf8b506d648eca244f91847ba21b52",
   "qualityReport": [
     {
       "file": "001.snapshot.json",

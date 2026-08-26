@@ -199,22 +199,39 @@ async function main() {
   const totalGold = extracted.reduce((a, c) => a + c.goldChunks.length, 0)
   const degradedCount = decodedSnapshots.filter((s) => s.problems.length > 0).length
 
-  const digest = await computeCheckpointDigestOf({ cases: extracted })
+  // holdout 分层（C8）：从提取 case 中按固定步长抽出 holdout（不参与日常基线训练集）
+  const HOLD_OUT_COUNT = Number(process.env.EVAL_HOLDOUT_COUNT || 30)
+  const holdoutCases = []
+  let trainCases = extracted
+  if (HOLD_OUT_COUNT > 0 && extracted.length > HOLD_OUT_COUNT) {
+    const step = Math.floor(extracted.length / HOLD_OUT_COUNT)
+    const idx = new Set()
+    for (let i = 0; i < HOLD_OUT_COUNT; i++) idx.add(i * step)
+    holdoutCases.push(...extracted.filter((_, i) => idx.has(i)))
+    trainCases = extracted.filter((_, i) => !idx.has(i))
+  }
+
+  const digest = await computeCheckpointDigestOf({ cases: trainCases })
 
   const outDir = args.out ?? args.fixtures
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
   const frozenDir = join(outDir, "frozen", digest.slice(0, 12))
   mkdirSync(frozenDir, { recursive: true })
 
-  // 落盘: cases.jsonl（真实）
+  // 落盘: cases.jsonl（真实，训练集=全量-holdout）
   const casesPath = join(outDir, "cases.jsonl")
-  writeFileSync(casesPath, extracted.map((c) => JSON.stringify(c)).join("\n") + "\n")
+  writeFileSync(casesPath, trainCases.map((c) => JSON.stringify(c)).join("\n") + "\n")
+
+  // 落盘: holdout.jsonl（C8：分层留出，不参与日常基线）
+  const holdoutPath = join(outDir, "holdout.jsonl")
+  writeFileSync(holdoutPath, holdoutCases.map((c) => JSON.stringify(c)).join("\n") + (holdoutCases.length ? "\n" : ""))
 
   // 落盘: manifest.json（source=real + 质量报告）
   const manifest = {
     version: "1.0.0",
     generatedAt: new Date().toISOString(),
-    totalCases: extracted.length,
+    totalCases: trainCases.length,
+    holdoutCount: holdoutCases.length,
     holdoutRatio: 0.15,
     scenarios: ["canon_retrieval", "temporal_current", "former_isolation", "contradiction", "crossbook_leak", "temporal_inversion"],
     source: "real",
@@ -228,6 +245,7 @@ async function main() {
 
   // 冻结（C6：追加式不删，防源书稿编辑回溯污染）
   writeFileSync(join(frozenDir, "cases.jsonl"), readFileSync(casesPath))
+  writeFileSync(join(frozenDir, "holdout.jsonl"), readFileSync(holdoutPath))
   writeFileSync(join(frozenDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n")
 
   const report = {
@@ -236,7 +254,8 @@ async function main() {
     snapshotsTotal: decodedSnapshots.length,
     snapshotsUsable: extracted.length,
     degradedChapters: degradedCount,
-    cases: extracted.length,
+    cases: trainCases.length,
+    holdoutCases: holdoutCases.length,
     goldChunks: totalGold,
     digest,
     qualityReport: manifest.qualityReport,

@@ -123,5 +123,31 @@ for (const [k, n] of [...counts.entries()].sort()) {
   if (n > HARD_CAP) fail(`${k}: 超过硬上限 ${HARD_CAP}（实际 ${n}）`)
 }
 
+// 5: 黄金集 pending 统计（--strict 下 pending>0 即失败——κ≥0.7 正式验收门禁）
+const STRICT = process.argv.includes("--strict")
+let goldPending = 0, goldTotal = 0
+{
+  const goldRoot = join(CORPUS_ROOT, "gold")
+  const walkGold = (d) => {
+    if (!existsSync(d)) return
+    for (const f of readdirSync(d)) {
+      const p = join(d, f)
+      if (statSync(p).isDirectory()) walkGold(p)
+      else if (f.endsWith(".json")) {
+        try {
+          const j = JSON.parse(readFileSync(p, "utf8"))
+          if (j.type === "arc" || j.type === "chapter_end") {
+            goldTotal++
+            if (j.pending === true) goldPending++
+          }
+        } catch { fail(`gold JSON 损坏: ${p}`) }
+      }
+    }
+  }
+  walkGold(goldRoot)
+  console.log(`\n[corpus-check] 黄金集: ${goldTotal} 条（arc/chapter_end），pending ${goldPending}${STRICT && goldPending > 0 ? "（--strict: 未达标）" : ""}`)
+  if (STRICT && goldPending > 0) fail(`黄金集仍有 ${goldPending} 条 pending（需 κ≥0.7 后 gold-promote --apply 升级）`)
+}
+
 console.log(`\n[corpus-check] ${violations === 0 && warnings === 0 ? "✓ 全部通过" : `完成：${violations} 违规 / ${warnings} 警告`}`)
 process.exit(violations === 0 ? 0 : 1)
