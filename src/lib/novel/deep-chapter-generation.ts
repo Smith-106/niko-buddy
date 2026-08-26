@@ -530,6 +530,9 @@ export function buildDeepChapterRouteRuntime(
     pendingRewrites: [],
     gates,
     antiAiMode: normalizedAntiAi,
+    // T21 接线点：block 档激活状态（T20 标定判据 FPR≤5%/召回≥75% 已达标，但未接线验证）。
+    // 激活前置：全章窗试跑确认 block 档零误杀后置 true（Draft-first 安全边界，三模型共识 2026-08-26）。
+    blockThresholdApplied: false,
     manualReviewRequired: Boolean(resumeCheckpoint?.manualReviewRequired),
     foundationMissing: [],
     planningTier: "",
