@@ -364,7 +364,15 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
 
     const belief = ops[1]!
     expect(belief.canonPayload.kind).toBe("supersede")
-    const request = (belief.canonPayload as { request: { new_edges: Array<Record<string, unknown>> } }).request
+    const request = (belief.canonPayload as {
+      kind: "supersede"
+      request: {
+        old_edge_ids: unknown[]
+        cap_chapter: number
+        caused_by: string
+        new_edges: Array<Record<string, unknown>>
+      }
+    }).request
     expect(request.old_edge_ids).toEqual([])
     expect(request.cap_chapter).toBe(1)
     expect(request.caused_by).toBe("snapshot-modality-facts")
@@ -379,7 +387,7 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(edge.digest).toBe(await computeCheckpointDigestOf({ chapter: 1, modality: "belief", fact: "林晚认为沈舟是凶手" }))
 
     const hypothesis = ops[2]!
-    const hEdge = (hypothesis.canonPayload as { request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
+    const hEdge = (hypothesis.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
     expect(hEdge.modality).toBe("hypothesis")
     expect(hypothesis.legacyPayload).toEqual({
       kind: "snapshot_modality_fact",

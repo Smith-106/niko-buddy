@@ -295,7 +295,7 @@ describe("F-005 append-only auditTrail (projection-status.json additive)", () =>
     expect(ledger.auditTrail).toHaveLength(AUDIT_TRAIL_MAX_ENTRIES)
     // Tail kept: oldest dropped, newest present.
     expect(ledger.auditTrail?.[0].chapter).toBe(6)
-    expect(ledger.auditTrail?.at(-1)?.chapter).toBe(AUDIT_TRAIL_MAX_ENTRIES + 5)
+    expect(ledger.auditTrail?.slice(-1)[0]?.chapter).toBe(AUDIT_TRAIL_MAX_ENTRIES + 5)
   })
 
   it("C5: appendProjectionAuditEntry trims the durable trail at the cap", async () => {
@@ -304,12 +304,12 @@ describe("F-005 append-only auditTrail (projection-status.json additive)", () =>
       JSON.stringify({ projections: {}, chapters: [], auditTrail: over }),
     )
     await appendProjectionAuditEntry("E:/Novel", audit({ chapter: 999 }))
-    const [writtenPath, contents] = fsMocks.writeFileAtomic.mock.calls.at(-1)!
+    const [writtenPath, contents] = fsMocks.writeFileAtomic.mock.calls[fsMocks.writeFileAtomic.mock.calls.length - 1]!
     expect(writtenPath).toContain("projection-status.json")
     const doc = JSON.parse(contents) as { auditTrail: ProjectionAuditEntry[] }
     expect(doc.auditTrail).toHaveLength(AUDIT_TRAIL_MAX_ENTRIES)
     // Tail kept: the new entry is present, oldest dropped (503+1-500=4 dropped).
-    expect(doc.auditTrail.at(-1)?.chapter).toBe(999)
+    expect(doc.auditTrail.slice(-1)[0]?.chapter).toBe(999)
     expect(doc.auditTrail[0].chapter).toBe(5)
   })
 
