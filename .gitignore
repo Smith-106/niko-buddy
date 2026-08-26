@@ -25,6 +25,7 @@ src/test-helpers/*
 !src/test-helpers/load-test-env.ts
 !src/test-helpers/component-test-utils.tsx
 **/*.test.ts
+!src/lib/novel/eval/eval-harness.real-llm.test.ts
 **/*.test.tsx
 !src/lib/chat-copy-content.test.ts
 !src/lib/dashboard-issue-actions.test.ts
