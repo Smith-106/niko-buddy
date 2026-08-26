@@ -116,18 +116,13 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   await Promise.all(promises)
 
-  const merged = deduplicateResults(results, topK, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
-  const filtered = params.authoritativeOnly
-    ? merged.filter((item) => {
-      if (isHistoricalProjectionSnippet(item.path, item.snippet)) return false
-      if (item.type === "canon" || item.type === "recent_chapter") return true
-      return isAuthoritativeGenerationPath(item.path)
-    })
-    : merged
+  const merged = deduplicateResults(results, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
+  const filtered = params.authoritativeOnly ? filterAuthoritative(merged) : merged
+  const truncated = filtered.slice(0, topK)
 
   const reranked = await rerankCandidates(
     params.query,
-    filtered.map((item) => ({
+    truncated.map((item) => ({
       ...item,
       id: `${item.type}:${normalizeResultPath(item.path)}`,
       source: item.type,
@@ -410,9 +405,16 @@ async function runCanonSearch(
   }
 }
 
+export function filterAuthoritative(items: NovelSearchResult[]): NovelSearchResult[] {
+  return items.filter((item) => {
+    if (item.type === "canon" || item.type === "recent_chapter") return true
+    if (isHistoricalProjectionSnippet(item.path, item.snippet)) return false
+    return isAuthoritativeGenerationPath(item.path)
+  })
+}
+
 function deduplicateResults(
   results: RankedNovelSearchResult[],
-  topK: number,
   rrfK: number = SOURCE_RRF_K_DEFAULT,
 ): NovelSearchResult[] {
   const fused = new Map<string, {
@@ -465,7 +467,6 @@ function deduplicateResults(
       /* v8 ignore next */
       return a.result.title.localeCompare(b.result.title)
     })
-    .slice(0, topK)
     .map((item) => ({
       ...item.result,
       relevance: Math.round(item.fusionScore * 1_000_000) / 1_000_000,

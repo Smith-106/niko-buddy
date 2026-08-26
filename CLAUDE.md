@@ -124,6 +124,14 @@
 | ★T36 A/B 终端硬门 | offline-replay.js --ab 双臂配对 + offline-replay-t36-ab-pair.spec.ts（13 测试）+ `docs/p6/premium-mode-ab-report.md`（T36：机械三门槛②④⑤真跑 PASS；①六维差/③盲评 κ PENDING 需真实多模型+人工；建议=精品保持 opt-in 默认关闭+release notes 标注，T36 依契约可结案） |
 | P4 垂直切片全验收（T31 硬门） | `scripts/offline-replay.js`（QMAI 内，A-10 全项 driver：驱动证据 spec + T02 同源纯函数评分复算 + 非零码退出纪律）+ `src/lib/novel/offline-replay-t31-vertical-slice.spec.ts`（机械证据 spec，纳入 `vitest run offline-replay` 过滤器）+ `docs/p4/t31-vertical-slice-report.md`（验收报告，2026-08-22 PASS） |
 
+## G1 评测集 + 检索适配新增锚点（S5' + F1 已落地，2026-08-25 同步）
+
+| 能力 | 锚点 |
+|------|------|
+| 检索适配（多源 RRF 融合检索） | `src/lib/novel/search-adapter.ts`（S5'，novelMixedSearch 六源混合检索 keyword/vector/graph/recent_chapter/canon + RRF 融合 rrfK + rerank；authoritativeOnly 先滤后截断 + filterAuthoritative 历史投影剔除） |
+| 评测集 G1 骨架（离线评测建集 F1） | `src/lib/novel/eval/`（13 文件 + fixtures/：eval-schema/eval-adapters/eval-metrics/eval-harness/eval-report/eval-gates/eval-corpus-synth/eval-l3-replay/index + A 门 spec×2 + C 门占位 `eval-harness.real-llm.test.ts`；硬共识阈值 L2≥0.99 > L1≥0.95 > L3<0.01 + digest 锁复用 computeCheckpointDigestOf；合成语料先行，真实基线门待 snapshot 语料到位） |
+| 评测脚本（真实基线门 + 快照修复） | `scripts/eval-baseline.mjs`（`npm run eval:baseline`，真实基线门入口）、`scripts/eval-extract-real.mjs`（真实评测抽取）、`scripts/repair-snapshot-object-string.mjs`（快照 object-string 修复）+ 入口 `npm run eval:l3`（REAL_LLM=1 vitest 跑 `eval-harness.real-llm.test.ts`） |
+
 ## 修改优先顺序
 
 1. `task-router` / `context-engine` / `deep-chapter-generation`

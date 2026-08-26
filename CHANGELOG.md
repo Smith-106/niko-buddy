@@ -7,6 +7,31 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.3] - 2026-08-26
+
+### 检索与评测工程（S5' / G1）
+
+- **S5' 多源检索适配**：`novelMixedSearch` 六源混合检索（keyword/vector/graph/recent_chapter/canon）+ RRF 融合（rrfK）+ rerank，统一 `search-adapter` 派发。
+- **G1 评测集落地**：`src/lib/novel/eval/` 整目录（schema/adapters/metrics/harness/report/gates/corpus-synth/l3-replay/index + A 门 spec×2 + C 门 real-llm 测试 + fixtures 含 V4 重建 baseline.json）。
+- **真实基线门**：`scripts/eval-baseline.mjs`（`npm run eval:baseline`）+ `scripts/eval-extract-real.mjs`，入口 `npm run eval:l3`。
+- **快照修复脚本**：`scripts/repair-snapshot-object-string.mjs`。
+
+### de-ai F-009 迁移
+
+- **F-009 112 词分级检测器**：`runDeAiDualPass` 真源收敛到 `de-ai-rules.ts`（112 词分级两遍 detect→rewrite→re-detect），`de-ai-dual-pass.ts` 改为兼容重导出；spec 重写为 F-009 契约 + tiered 分级表编辑 UI。
+
+### canon_search 模块迁移
+
+- `canon_search.rs` 从 `commands/` 迁至 `src/`（新增 `ensure_fts_index`、`FullTextSearchQuery`/`_score`），`lib.rs` 注册 `mod canon_search`；spec 随迁，`cargo test --lib canon_search: 52 passed, 0 failed`。
+
+### typecheck 清理
+
+- 修复 9 处 ISS-006/legacy 轨 typecheck 错误；清理 anti-ai spec TS6133 未用导入。
+
+### Notes-only 发布
+
+- 安装包资产沿用 v2.6.2；本次为源码 tip 语义发布，资产重建前不更新安装包。
+
 ## [2.6.2] - 2026-08-24
 
 ### 反AI 语料与遥测闭环（#34 / T01b 轨）
@@ -455,6 +480,7 @@ v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与
 
 [2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.6.3]: https://github.com/Smith-106/niko-buddy/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/Smith-106/niko-buddy/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/Smith-106/niko-buddy/compare/v2.6.0...v2.6.1
 [2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2

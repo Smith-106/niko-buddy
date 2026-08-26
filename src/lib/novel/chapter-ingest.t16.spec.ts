@@ -352,6 +352,64 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(ops[0]!.legacyPayload).toEqual({ kind: "snapshot_fact", chapterNumber: 1, fact: facts[0] })
     expect(ops[0]!.content).toEqual({ chapter: 1, fact: facts[0] })
   })
+
+  it("T3：beliefFacts/hypothesisFacts 派生 supersede 边 ops（modality 承载，digest 键含 modality）", async () => {
+    const ops = await buildCanonDualWriteOps({
+      ...snapshotWithFacts(["正史事实"]),
+      beliefFacts: [{ subject: "林晚", predicate: "认为", object: "沈舟是凶手" }],
+      hypothesisFacts: [{ subject: "沈舟", predicate: "猜测", object: "地宫有密道" }],
+    })
+    // 1 episode + 2 modality ops
+    expect(ops).toHaveLength(3)
+
+    const belief = ops[1]!
+    expect(belief.canonPayload.kind).toBe("supersede")
+    const request = (belief.canonPayload as {
+      kind: "supersede"
+      request: {
+        old_edge_ids: unknown[]
+        cap_chapter: number
+        caused_by: string
+        new_edges: Array<Record<string, unknown>>
+      }
+    }).request
+    expect(request.old_edge_ids).toEqual([])
+    expect(request.cap_chapter).toBe(1)
+    expect(request.caused_by).toBe("snapshot-modality-facts")
+    expect(request.new_edges).toHaveLength(1)
+    const edge = request.new_edges[0]!
+    expect(edge.source_id).toBe("林晚")
+    expect(edge.target_id).toBe("沈舟是凶手")
+    expect(edge.predicate).toBe("认为")
+    expect(edge.edge_kind).toBe("world_fact")
+    expect(edge.valid_at).toBe(1)
+    expect(edge.modality).toBe("belief")
+    expect(edge.digest).toBe(await computeCheckpointDigestOf({ chapter: 1, modality: "belief", fact: "林晚认为沈舟是凶手" }))
+
+    const hypothesis = ops[2]!
+    const hEdge = (hypothesis.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
+    expect(hEdge.modality).toBe("hypothesis")
+    expect(hypothesis.legacyPayload).toEqual({
+      kind: "snapshot_modality_fact",
+      chapterNumber: 1,
+      modality: "hypothesis",
+      subject: "沈舟",
+      predicate: "猜测",
+      object: "地宫有密道",
+    })
+  })
+
+  it("T3：仅模态事实（无 newCanonFacts）也派生 ops；两者皆空仍返回空", async () => {
+    const onlyModal = await buildCanonDualWriteOps({
+      ...snapshotWithFacts([]),
+      beliefFacts: [{ subject: "甲", predicate: "相信", object: "乙已离开" }],
+    })
+    expect(onlyModal).toHaveLength(1)
+    expect(onlyModal[0]!.canonPayload.kind).toBe("supersede")
+
+    const none = await buildCanonDualWriteOps(snapshotWithFacts(undefined))
+    expect(none).toEqual([])
+  })
 })
 
 describe("runCanonDualWriteHook（单点双写钩子）", () => {

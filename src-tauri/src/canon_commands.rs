@@ -61,6 +61,19 @@ use crate::types::canon_types::{
 /// - `project_locks`：每项目单实例写锁（守 status.json 单实例锁契约：同项目
 ///   写串行，无跨库 join）。
 ///
+/// ── A8 锁序不变式（2026-08-23 补写；原 1482881e 仅 message 声称，diff 无此文档）──
+/// 1. `loaded` → `revisions` 单向顺序：lazy_load_revision 先查 loaded（短持有，
+///    不跨 await），释放后再拿 revisions，最后重拿 loaded 标记。任何代码不得
+///    在持有 revisions 的同时获取 loaded（反向顺序 = 死锁面）。
+/// 2. `project_locks` 为最外层：所有写路径（ingest/supersede/bump）先取
+///    project_locks，锁内才允许触碰 revisions/loaded。禁止在 revisions 持有
+///    期间获取 project_locks。
+/// 3. 不跨 await 持有任何 std Mutex（全部短持有；AsyncMutex 允许跨 await，
+///    但只用于 project_locks 且无嵌套获取）。
+/// 4. 本项目锁序与 TS 侧约定（novel-locks.ts「TS 锁在外 → Rust 命令在内」）
+///    共同构成单向嵌套：TS per-key 锁 → project_locks → loaded/revisions，
+///    不存在回环。
+///
 /// DEBT-20260820-13 偿还：revision 持久化。bump_revision 后自动持久化到
 /// canon_store 的 meta 表；current_revision 在首次访问时从 store 延迟加载。
 /// 进程重启后，TS 侧缓存从持久化 revision 预热。

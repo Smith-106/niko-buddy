@@ -15,6 +15,8 @@ src-tauri/target/
 
 # === 依赖 ===
 node_modules/
+# 本仓库实际使用 npm（.github workflows 用 npm ci / npm install）；pnpm-lock.yaml 为孤儿锁文件，已移除并忽略
+pnpm-lock.yaml
 
 # === 测试文件 ===
 playwright-report/
@@ -25,6 +27,7 @@ src/test-helpers/*
 !src/test-helpers/load-test-env.ts
 !src/test-helpers/component-test-utils.tsx
 **/*.test.ts
+!src/lib/novel/eval/eval-harness.real-llm.test.ts
 **/*.test.tsx
 !src/lib/chat-copy-content.test.ts
 !src/lib/dashboard-issue-actions.test.ts

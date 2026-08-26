@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "frozenAt": "2026-08-23T00:00:00.000Z",
+  "source": "synthetic",
+  "cases": 200,
+  "holdout": 30,
+  "digest": "pending-computeCheckpointDigestOf",
+  "note": "冻结快照占位：真实语料到位后由 eval-corpus-synth 重新生成并计算 digest（C4 复用 computeCheckpointDigestOf）"
+}

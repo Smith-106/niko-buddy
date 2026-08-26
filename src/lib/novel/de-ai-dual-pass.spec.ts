@@ -1,75 +1,119 @@
 import { describe, expect, it } from "vitest"
-import { formatDualPassSummary, runDeAiDualPass } from "./de-ai-dual-pass"
+import {
+  formatDualPassPromptFragment,
+  formatDualPassSummary,
+  runDeAiDualPass,
+} from "./de-ai-dual-pass"
+import * as deAiRules from "./de-ai-rules"
 
-describe("de-ai-dual-pass", () => {
-  it("scores clean-ish text without hard gate", () => {
-    const r = runDeAiDualPass("白昼。他推开门，看见旧钥匙。")
-    expect(r.productHardGate).toBe(false)
-    expect(r.track).toBe("B")
-    expect(r.pass1.combinedScore).toBeGreaterThanOrEqual(0)
-    expect(r.pass2.remediationNotes.length).toBeGreaterThan(0)
-    expect(formatDualPassSummary(r)).toContain("Track B")
+/**
+ * de-ai-dual-pass — F-009 迁移后契约测试。
+ *
+ * 真源: de-ai-rules.ts runDeAiDualPass (112 词分级两遍检测)。
+ * de-ai-dual-pass.ts 仅为兼容重导出 (保持消费点模块路径)。
+ */
+describe("de-ai-dual-pass — F-009 分级两遍检测", () => {
+  it("API 契约: 返回 DualPassResult (pass1 / dualPassRecheck / needsReview)", () => {
+    const r = runDeAiDualPass("显然，这一切都毫无疑问。")
+    expect(r).toHaveProperty("pass1")
+    expect(r).toHaveProperty("dualPassRecheck")
+    expect(r).toHaveProperty("needsReview")
+    expect(r.pass1).toHaveProperty("hits")
+    expect(r.pass1).toHaveProperty("highCount")
+    expect(r.pass1).toHaveProperty("lowCount")
+    expect(r.pass1).toHaveProperty("weakCount")
+    expect(r.pass1).toHaveProperty("weightedScore")
+    expect(r.dualPassRecheck).toHaveProperty("residual")
+    expect(r.dualPassRecheck).toHaveProperty("cleared")
+    expect(r.dualPassRecheck).toHaveProperty("residualRate")
+    expect(r.dualPassRecheck).toHaveProperty("rewriteSuggestions")
   })
 
-  it("attaches percentile when baseline provided", () => {
-    const r = runDeAiDualPass("总之，值得注意的是，在这个意义上，我们需要进一步探讨。", {
-      baselineScores: [5, 10, 15, 20, 25, 30, 40, 50, 60, 70],
-    })
-    expect(r.pass1.percentileInBaseline).toBeTypeOf("number")
-    expect(r.productHardGate).toBe(false)
+  it("两遍检测: 1A 高权重词改写后残留清零 (cleared > 0)", () => {
+    // "显然" 是 1A weight 1.0 → simulateRewrite 生成替换并清除残留
+    const r = runDeAiDualPass("显然，他赢了。")
+    expect(r.pass1.highCount).toBe(1)
+    expect(r.pass1.lowCount).toBe(0)
+    expect(r.pass1.weakCount).toBe(0)
+    expect(r.dualPassRecheck.cleared).toBe(1)
+    expect(r.dualPassRecheck.residualRate).toBe(0)
+    expect(r.dualPassRecheck.rewriteSuggestions.length).toBe(1)
+    expect(r.dualPassRecheck.rewriteSuggestions[0]).toContain("显然")
+    expect(r.needsReview).toBe(false)
   })
 
-  it("mechanical-slop block/warn pushes 机械腔 remediation note and slopReportToText fragment", () => {
-    const r = runDeAiDualPass("显然事实上这一切似乎仿佛。目光交汇的瞬间空气凝固心中五味杂陈。然而但是不过。")
-    expect(r.pass1.slopClass).toBe("block")
-    expect(r.pass2.remediationNotes.some((n) => n.includes("机械腔"))).toBe(true)
-    expect(r.pass2.promptFragment).toContain("机械 slop 检测")
-    expect(formatDualPassSummary(r)).toContain("slop=block")
+  it("1B 低权重词仅轻提示不替换 → 残留率 1.0 且 needsReview=true", () => {
+    // "缓缓"/"点了点头" 均为 1B (weight 0.3-0.5), 不生成替换 → 残留
+    const r = runDeAiDualPass("他缓缓点了点头。")
+    expect(r.pass1.highCount).toBe(0)
+    expect(r.pass1.lowCount).toBe(2)
+    expect(r.dualPassRecheck.residual.length).toBe(2)
+    expect(r.dualPassRecheck.residualRate).toBe(1)
+    expect(r.needsReview).toBe(true)
+    // 1B 只轻提示, 不含 "替换" 前缀
+    expect(r.dualPassRecheck.rewriteSuggestions.every((s) => s.includes("轻提示"))).toBe(true)
   })
 
-  it("English avoid-ai boilerplate pushes avoid-ai remediation note", () => {
-    const r = runDeAiDualPass(
-      "Furthermore, it is important to note that we must delve into the intricate tapestry of this paradigm.",
-    )
-    expect(r.pass2.remediationNotes.some((n) => n.includes("avoid-ai patterns soft"))).toBe(true)
+  it("3 弱提示词不标 residual 但计入 weightedScore", () => {
+    const r = runDeAiDualPass("他不禁下意识地感到某种不安。")
+    expect(r.pass1.highCount).toBe(0)
+    expect(r.pass1.lowCount).toBe(0)
+    expect(r.pass1.weakCount).toBe(3) // 不禁 / 下意识 / 某种
+    expect(r.dualPassRecheck.residual.length).toBe(0)
+    expect(r.dualPassRecheck.cleared).toBe(3)
+    expect(r.dualPassRecheck.residualRate).toBe(0)
+    expect(r.needsReview).toBe(false)
+    expect(r.pass1.weightedScore).toBeCloseTo(0.3) // 3 × 0.1
   })
 
-  it("high percentile vs baseline pushes relative-percentile note", () => {
-    const r = runDeAiDualPass("显然事实上这一切似乎仿佛。目光交汇的瞬间空气凝固心中五味杂陈。", {
-      baselineScores: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    })
-    expect(r.pass1.percentileInBaseline).toBeGreaterThanOrEqual(90)
-    expect(r.pass2.remediationNotes.some((n) => n.includes("相对基线分位"))).toBe(true)
-    expect(formatDualPassSummary(r)).toContain("pct=")
+  it("weightedScore 加权公式: 1A×1.0 + 1B×0.4 + 3×0.1", () => {
+    // 显然 (1A) + 缓缓 (1B) + 不禁 (3) → 弱提示按固定 0.1 计
+    const r = runDeAiDualPass("显然，他缓缓地点头，不禁。")
+    expect(r.pass1.highCount).toBe(1)
+    expect(r.pass1.lowCount).toBe(1)
+    expect(r.pass1.weakCount).toBe(1)
+    expect(r.pass1.weightedScore).toBeCloseTo(1.5) // 1×1.0 + 1×0.4 + 1×0.1
   })
 
-  it("nullish text is tolerated via ?? '' (defensive branch)", () => {
-    const r = runDeAiDualPass(undefined as unknown as string)
-    expect(r.pass1.combinedScore).toBeGreaterThanOrEqual(0)
-    // avoidWords 存在时 scanAvoidWords 内的 text ?? "" 同样容错
-    const withWords = runDeAiDualPass(undefined as unknown as string, { avoidWords: ["不禁"] })
-    expect(withWords.pass1.avoidWordsHits).toBeUndefined()
+  it("空文本 / nullish 容错: 返回零值结构", () => {
+    for (const input of ["", undefined as unknown as string, null as unknown as string]) {
+      const r = runDeAiDualPass(input)
+      expect(r.pass1.hits).toEqual([])
+      expect(r.pass1.highCount).toBe(0)
+      expect(r.pass1.weightedScore).toBe(0)
+      expect(r.dualPassRecheck.residualRate).toBe(0)
+      expect(r.needsReview).toBe(false)
+    }
   })
 
-  it("Wave 4: 不传 avoidWords 时报告与旧版字节一致（additive-only）", () => {
-    const baseline = runDeAiDualPass("他不禁深吸一口气。")
-    const withEmpty = runDeAiDualPass("他不禁深吸一口气。", { avoidWords: [] })
-    const withBlank = runDeAiDualPass("他不禁深吸一口气。", { avoidWords: ["  ", ""] })
-    expect(withEmpty).toEqual(baseline)
-    expect(withBlank).toEqual(baseline)
-    expect(baseline.pass1.avoidWordsHits).toBeUndefined()
+  it("formatDualPassSummary 输出加权分与 Track B 软门标注", () => {
+    const r = runDeAiDualPass("显然，这一切。")
+    const summary = formatDualPassSummary(r)
+    expect(summary).toContain("weighted=")
+    expect(summary).toContain("Track B")
+    expect(summary).toContain("F-009")
   })
 
-  it("Wave 4: avoidWords 命中 → avoidWordsHits + remediation note + promptFragment 禁用词提示", () => {
-    const r = runDeAiDualPass("他不禁深吸一口气，不禁感到恍惚。", { avoidWords: ["不禁", "仿佛"] })
-    expect(r.pass1.avoidWordsHits).toEqual([{ word: "不禁", count: 2 }])
-    expect(r.pass2.remediationNotes.some((n) => n.includes("用户避用词命中：不禁×2"))).toBe(true)
-    expect(r.pass2.promptFragment).toContain("用户避用词（改写时禁止使用）：不禁")
+  it("formatDualPassPromptFragment 含 De-AI dual-pass 标记与建议", () => {
+    const r = runDeAiDualPass("显然，这一切都毫无疑问。")
+    const frag = formatDualPassPromptFragment(r)
+    expect(frag).toContain("De-AI dual-pass")
+    expect(frag).toContain("F-009")
+    expect(frag).toContain("加权分=")
+    expect(frag).toContain("显然")
   })
 
-  it("Wave 4: avoidWords 无命中 → 无 avoidWordsHits 且无禁用词提示", () => {
-    const r = runDeAiDualPass("白昼。他推开门。", { avoidWords: ["不禁"] })
-    expect(r.pass1.avoidWordsHits).toBeUndefined()
-    expect(r.pass2.promptFragment).not.toContain("用户避用词")
+  it("formatDualPassPromptFragment 无命中时返回空串; 有避用词时追加禁用词提示", () => {
+    const clean = runDeAiDualPass("白昼。他推开门。")
+    expect(formatDualPassPromptFragment(clean)).toBe("")
+    expect(
+      formatDualPassPromptFragment(clean, [{ word: "不禁", count: 1 }]),
+    ).toContain("用户避用词（改写时禁止使用）：不禁")
+  })
+
+  it("兼容重导出: de-ai-dual-pass 与 de-ai-rules 同名函数为同一引用", () => {
+    expect(runDeAiDualPass).toBe(deAiRules.runDeAiDualPass)
+    expect(formatDualPassSummary).toBe(deAiRules.formatDualPassSummary)
+    expect(formatDualPassPromptFragment).toBe(deAiRules.formatDualPassPromptFragment)
   })
 })

@@ -1,5 +1,6 @@
 mod canon_commands;
 mod canon_export;
+mod canon_search;
 mod commands;
 mod panic_guard;
 mod proxy;

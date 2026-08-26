@@ -1,0 +1,2 @@
+{"id":"synth-canon_retrieval-1","chapter":1,"query":"白砚 持有","goldChunks":[{"id":"g-1","subject":"白砚","predicate":"持有","object":"轩辕剑","tier":"protected","expectedLayer":"protected"}],"poisonChunks":[],"expectedLayer":"protected","source":"synthetic"}
+{"id":"synth-temporal_inversion-3000","chapter":4,"query":"墨渊 关系","goldChunks":[],"poisonChunks":[{"id":"p-3000","subject":"墨渊","predicate":"关系","object":"白砚","poisonType":"temporal_inversion","expectedLanding":"excluded"}],"expectedLayer":"excluded","source":"synthetic"}

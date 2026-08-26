@@ -189,19 +189,13 @@ export async function fetchEmbedding(
 ): Promise<number[] | null> {
   if (!cfg.endpoint) return null
 
-  const isGoogleNative = isGoogleEmbeddingConfig(cfg)
-  const isDashScope = isDashScopeEmbeddingConfig(cfg)
-  const endpoint = isGoogleNative ? googleEmbeddingEndpoint(cfg) : cfg.endpoint
-  const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (cfg.apiKey) {
-    if (isGoogleNative) {
-      headers["x-goog-api-key"] = cfg.apiKey
-    } else if (isDashScope) {
-      headers.Authorization = `Bearer ${cfg.apiKey}`
-    } else {
-      headers.Authorization = `Bearer ${cfg.apiKey}`
-    }
-  }
+  // Dispatch once, outside the retry loop: endpoint, auth headers, request
+  // body shape, response parsing, and the JSON path used in errors are
+  // all owned by the adapter. Order Google → DashScope → Generic reproduces
+  // the old string-sniffing precedence byte-for-byte.
+  const adapter = getEmbeddingAdapter(cfg)
+  const endpoint = adapter.resolveEndpoint(cfg)
+  const headers = adapter.buildHeaders(cfg)
 
   let current = text
   let attempts = 0
@@ -212,31 +206,17 @@ export async function fetchEmbedding(
       const resp = await httpFetch(endpoint, {
         method: "POST",
         headers,
-        body: JSON.stringify(
-          isGoogleNative
-            ? googleEmbeddingBody(cfg.model, current, cfg.outputDimensionality)
-            : isDashScope
-            ? dashScopeEmbeddingBody(cfg.model, current)
-            : { model: cfg.model, input: current },
-        ),
+        body: JSON.stringify(adapter.buildRequest(cfg, current)),
       })
 
       if (resp.ok) {
         const data = await resp.json()
-        const embedding = isGoogleNative
-          ? data?.embedding?.values ?? null
-          : isDashScope
-          ? data?.output?.embeddings?.[0]?.embedding ?? null
-          : data?.data?.[0]?.embedding ?? null
+        const embedding = adapter.parseResponse(data)
         if (isNonEmptyNumberArray(embedding)) {
           lastEmbeddingError = null
           return embedding
         }
-        const expectedShape = isGoogleNative
-          ? "embedding.values"
-          : isDashScope
-          ? "output.embeddings[0].embedding"
-          : "data[0].embedding"
+        const expectedShape = adapter.expectedShapeName
         lastEmbeddingError = `Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`
         console.warn(`[Embedding] ${lastEmbeddingError}`)
         return null

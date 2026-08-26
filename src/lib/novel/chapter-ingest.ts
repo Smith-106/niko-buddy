@@ -82,6 +82,15 @@ export interface EventDetail {
   followUpItems: string
 }
 
+export interface ModalityFact {
+  /** 认知主体（角色名；读端折叠 canonical name）。 */
+  subject: string
+  /** 认知谓词（认为/怀疑/假设…）。 */
+  predicate: string
+  /** 认知对象（事实内容；读端作为 object 渲染）。 */
+  object: string
+}
+
 export interface ChapterSnapshot {
   chapterId: string
   chapterNumber: number
@@ -98,6 +107,10 @@ export interface ChapterSnapshot {
   knowledgeChanges: string[]
   foreshadowingChanges: string[]
   newCanonFacts: string[]
+  /** T3 写端（路线 B）：角色认知事实（「X 认为…」）。可选，旧数据无此字段 → Assertive 保底。 */
+  beliefFacts?: ModalityFact[]
+  /** T3 写端（路线 B）：假设事实（「…假设…」）。可选，旧数据无此字段 → Assertive 保底。 */
+  hypothesisFacts?: ModalityFact[]
   timelineEvents: string[]
   conflicts: string[]
   endingHook: string
@@ -259,32 +272,91 @@ export function isCanonDualWriteEligible(fm: Record<string, unknown>): boolean {
 /**
  * T16 / F-14: 从 snapshot.newCanonFacts 派生 episode 双写操作集。
  * 每条事实的 digest = SHA-256({ chapter, fact })——幂等键。
+ *
+ * T3 写端（路线 B）：snapshot.beliefFacts / hypothesisFacts 派生 supersede
+ * new_edges 边 ops（modality=belief/hypothesis）。幂等键保持旧键兼容：
+ * digest=SHA-256({ chapter, modality, fact:subject+predicate+object })，
+ * 与 assertive episode 键空间（{ chapter, fact }）天然不同，双写队列重放
+ * 不会错配。缺省（无模态事实）返回 []——保底行为 = 现状，零倒退。
  */
 export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
   const facts = snapshot.newCanonFacts ?? []
-  if (facts.length === 0) return []
+  const beliefFacts = snapshot.beliefFacts ?? []
+  const hypothesisFacts = snapshot.hypothesisFacts ?? []
+  if (facts.length === 0 && beliefFacts.length === 0 && hypothesisFacts.length === 0) return []
 
-  return Promise.all(
-    facts.map(async (fact, i) => {
-      const content = { chapter: snapshot.chapterNumber, fact }
-      const digest = await computeCheckpointDigestOf(content)
-      return {
-        digest,
-        content,
-        legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
-        canonPayload: {
-          kind: "episode" as const,
-          episode: {
-            id: `ch${snapshot.chapterNumber}-fact${i}`,
-            chapter_number: snapshot.chapterNumber,
-            entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。fact 作为章节快照的事实片段，其归属实体为章节本身——此映射在 canon DDL v3 冻结下是唯一可靠来源。若未来 snapshot schema 新增 entityId 字段，应改为该字段。
-            summary: fact,
+  const episodeOps = facts.length > 0
+    ? await Promise.all(
+        facts.map(async (fact, i) => {
+          const content = { chapter: snapshot.chapterNumber, fact }
+          const digest = await computeCheckpointDigestOf(content)
+          return {
             digest,
+            content,
+            legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
+            canonPayload: {
+              kind: "episode" as const,
+              episode: {
+                id: `ch${snapshot.chapterNumber}-fact${i}`,
+                chapter_number: snapshot.chapterNumber,
+                entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。fact 作为章节快照的事实片段，其归属实体为章节本身——此映射在 canon DDL v3 冻结下是唯一可靠来源。若未来 snapshot schema 新增 entityId 字段，应改为该字段。
+                summary: fact,
+                digest,
+              },
+            },
+          }
+        }),
+      )
+    : []
+
+  // T3 路线 B：模态事实 → supersede new_edges 边 ops（纯插入，old_edge_ids 空）。
+  const modalityOps = await Promise.all(
+    [...beliefFacts.map((f) => ({ ...f, modality: "belief" as const })),
+     ...hypothesisFacts.map((f) => ({ ...f, modality: "hypothesis" as const }))].map(
+      async (mf, i) => {
+        const content = {
+          chapter: snapshot.chapterNumber,
+          modality: mf.modality,
+          fact: `${mf.subject}${mf.predicate}${mf.object}`,
+        }
+        const digest = await computeCheckpointDigestOf(content)
+        return {
+          digest,
+          content,
+          legacyPayload: {
+            kind: "snapshot_modality_fact",
+            chapterNumber: snapshot.chapterNumber,
+            modality: mf.modality,
+            subject: mf.subject,
+            predicate: mf.predicate,
+            object: mf.object,
           },
-        },
-      }
-    }),
+          canonPayload: {
+            kind: "supersede" as const,
+            request: {
+              old_edge_ids: [],
+              cap_chapter: snapshot.chapterNumber,
+              caused_by: "snapshot-modality-facts",
+              new_edges: [
+                {
+                  id: `ch${snapshot.chapterNumber}-modality${i}`,
+                  source_id: mf.subject,
+                  target_id: mf.object,
+                  predicate: mf.predicate,
+                  edge_kind: "world_fact",
+                  valid_at: snapshot.chapterNumber,
+                  modality: mf.modality,
+                  digest,
+                },
+              ],
+            },
+          },
+        }
+      },
+    ),
   )
+
+  return [...episodeOps, ...modalityOps]
 }
 
 /**
@@ -729,6 +801,8 @@ ${sliceChapterForReview(chapterBody)}
   "knowledgeChanges": ["角色认知变化描述"],
   "foreshadowingChanges": ["伏笔变化描述（新增/推进/回收）"],
   "newCanonFacts": ["新增正史设定"],
+  "beliefFacts": [{"subject": "认知主体（角色名）", "predicate": "认知谓词（认为/怀疑/以为…）", "object": "角色所信的事实内容"}],
+  "hypothesisFacts": [{"subject": "假设主体", "predicate": "假设谓词（假设/猜测/推测…）", "object": "假设内容"}],
   "timelineEvents": ["时间线事件"],
   "conflicts": ["冲突变化描述"],
   "endingHook": "章节结尾钩子描述",
@@ -778,6 +852,11 @@ ${sliceChapterForReview(chapterBody)}
   }
 }
 
+模态判定规则（限句式触发，避免误标）：
+- 仅当原文出现「X认为/怀疑/以为/相信/觉得」等认知动词时，才提取为 beliefFacts；
+- 仅当原文出现「假设/猜测/推测/猜想」等假设动词时，才提取为 hypothesisFacts；
+- 其余事实一律进 newCanonFacts（正史），绝不让角色认知污染正史事实。
+
 注意：如果同一个人物在正文里有昵称、小名、旧名或全名，请把正式名放进 characters，把其他称呼放进 characterAliases，不要把同一人物拆成多个 characters。
 注意：characterDetails、locationDetails、organizationDetails、itemDetails、eventDetails 仅在章节中确实有相关信息时才填写；如果某个字段没有相关信息，直接省略该字段即可。`
 
@@ -809,6 +888,30 @@ ${sliceChapterForReview(chapterBody)}
         knowledgeChanges: { type: "array", items: { type: "string" } },
         foreshadowingChanges: { type: "array", items: { type: "string" } },
         newCanonFacts: { type: "array", items: { type: "string" } },
+        beliefFacts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              subject: { type: "string" },
+              predicate: { type: "string" },
+              object: { type: "string" },
+            },
+            required: ["subject", "predicate", "object"],
+          },
+        },
+        hypothesisFacts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              subject: { type: "string" },
+              predicate: { type: "string" },
+              object: { type: "string" },
+            },
+            required: ["subject", "predicate", "object"],
+          },
+        },
         timelineEvents: { type: "array", items: { type: "string" } },
         conflicts: { type: "array", items: { type: "string" } },
         endingHook: { type: "string" },

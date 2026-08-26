@@ -2,6 +2,8 @@ import { createDirectory, fileExists, listDirectory, readFile, writeFile } from 
 import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
+import { defaultCanonDualWriteDeps } from "./canon-dual-write"
+import type { IngestChapterOptions } from "./chapter-ingest"
 import type { FileNode } from "@/types/wiki"
 
 export const CHAPTER_IMPORT_EXTENSIONS = ["txt", "md", "mdx", "doc", "docx"] as const
@@ -42,6 +44,8 @@ type IngestChapterDependency = (
   projectPath: string,
   chapterPath: string,
   reviewModel?: string,
+  signal?: AbortSignal,
+  options?: IngestChapterOptions,
 ) => Promise<{ snapshot: unknown | null; failReason?: string }>
 
 function normalizeFullWidthDigits(value: string): string {
@@ -345,7 +349,9 @@ export async function runImportedChapterMemoryExtraction({
     }
     onProgress?.({ completed, total: chapterPaths.length, currentPath: chapterPath })
     try {
-      const result = await ingestChapter(projectPath, chapterPath, reviewModel)
+      const result = await ingestChapter(projectPath, chapterPath, reviewModel, undefined, {
+        canonDualWriteDeps: defaultCanonDualWriteDeps(),
+      })
       if (result.snapshot) {
         completed += 1
       } else {

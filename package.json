@@ -1,7 +1,7 @@
 {
   "name": "niko-buddy",
   "private": true,
-  "version": "2.6.2",
+  "version": "2.6.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,6 +19,8 @@
     "build:github-release": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = Join-Path $env:USERPROFILE '\\.tauri\\qmai-updater.key' }; if (-not (Test-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH)) { throw '缺少 TAURI_SIGNING_PRIVATE_KEY_PATH 对应的签名私钥文件' }; if ($null -eq $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '' }; $env:CARGO_PROFILE_RELEASE_LTO='false'; $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS='16'; $env:CARGO_PROFILE_RELEASE_OPT_LEVEL='1'; npx tauri build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/build-portable.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/prepare-github-release.mjs\"",
     "bench": "vitest run bench --reporter=verbose",
     "bench:llm": "cross-env REAL_LLM=1 vitest run src/lib/novel/llm-latency.bench.ts",
+    "eval:baseline": "node scripts/eval-baseline.mjs",
+    "eval:l3": "cross-env REAL_LLM=1 vitest run src/lib/novel/eval/eval-harness.real-llm.test.ts --no-file-parallelism --reporter=verbose",
     "bench:startup": "vitest run src/test-helpers/startup.bench.ts",
     "test:coverage": "vitest run --exclude=\"**/*.real-llm.test.ts\" --exclude=\"**/*.bench.ts\" --exclude=\"**/.worktrees/**\" --exclude=\"**/.codex-temp/**\" --exclude=\"**/superpowers-main/**\" --exclude=\"**/SKILL/**\" --exclude=\"**/superpowers/**\" --exclude=\"**/nul\" --coverage"
   },
@@ -85,6 +87,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.5",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-boundaries": "^7.2.0",

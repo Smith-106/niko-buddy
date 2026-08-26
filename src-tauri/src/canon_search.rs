@@ -45,7 +45,9 @@
 //!
 //! ## 设计约束（QMAI 执行纪律）
 //!   - 不修改 T11 已落地文件（`canon_store.rs` / `canon_types.rs`）；只新增 +
-//!     `mod.rs` 注册一行。
+//!     `lib.rs` 注册一行（`mod canon_search;`）。本文件位于 `src-tauri/src/`
+//!     与 `types/` 同层（非 IPC 命令模块）；T13 `canon_commands.rs` 才进
+//!     `commands/` 并包装本模块的 async 函数。
 //!   - 不引入第二份会话状态文件；canon_revision 复用 `CanonStore` 的写入计数
 //!     语义（ingest/supersede 触发自增），缓存层只持有内存计数副本。
 
@@ -763,7 +765,7 @@ impl CanonGraph {
         for idx in self.graph.node_indices() {
             parent.insert(idx, idx);
         }
-        let mut find = |parent: &mut HashMap<NodeIndex, NodeIndex>, x: NodeIndex| -> NodeIndex {
+        let find = |parent: &mut HashMap<NodeIndex, NodeIndex>, x: NodeIndex| -> NodeIndex {
             let mut root = x;
             while parent[&root] != root {
                 root = parent[&root];
@@ -816,22 +818,30 @@ impl CanonGraph {
 //
 // 设计说明（与 canon_store.rs 同构）：
 //   - IO 层只负责「召回」（FTS / 向量），融合/衰减/缓存由纯逻辑层承担。
-//   - FTS：LanceDB 0.27 tantivy FTS 索引需在表上 `create_fts_index` 后生效；
-//     T12 首日对中文通道采纳 T04 裁决（内置或 jieba）。在 FTS 索引尚未建立的
-//     运行态，本层用 SQL `data LIKE '%term%'` 召回 + Rust 精细过滤作为兼容
-//     退化（与 canon_store.query_edges 的「推 down + 精细过滤」一致）；
-//     tantivy 索引建立后的加速路径在 T32 调参期接入（函数形式不变）。
+//   - FTS：LanceDB 0.27 内置 tantivy FTS 索引（T04 spike §5 裁决：FTS 与
+//     向量列同表共存可行）。[`CanonSearch::ensure_fts_index`] 幂等建索引
+//     （`list_indices` 查重），[`CanonSearch::fts_query`] 走
+//     `Query::full_text_search`（BM25，`_score` 入 raw_score）；建索引失败/
+//     表不存在的运行态降级 [`CanonSearch::fts_query_like`]（SQL `data LIKE`
+//     子串召回，与 canon_store.query_edges 的「推 down + 精细过滤」一致）。
+//     中文分词通道按 T04 §4 裁决（[`tokenizer_verdict`]）：默认内置 tokenizer
+//     对中文退化（空格分词），T32 调参期按裁决接入 jieba 自定义 tokenizer
+//     （函数形式不变）。
 //   - 向量：`Table::vector_search(query_embedding)`（与 vectorstore.rs 同源 API）；
-//     要求表上有向量列与 IVF/HNSW 索引（T04 §3 三参数）。无索引时仍可暴力扫描。
-//   - 本任务 convergence = `cargo test canon_search 全绿`，聚焦纯逻辑层；
-//     IO 层提供 async 函数供 T13 IPC 包装，LanceDB 集成冒烟由 T11 已覆盖。
+//     要求表上有向量列（T04 §3 三参数：dimension/normalize/metric）。
+//     无 ANN 索引时 LanceDB 暴力扫描。raw_score = 1/(1+_distance)
+//     （vectorstore.rs 同款约定，诊断用，不进 RRF）。
+//   - 本任务 convergence = `cargo test canon_search 全绿`：纯逻辑层 proptest
+//     全覆盖 + LanceDB 集成测试（FTS 索引路径 / 向量召回）在本文件内。
 
 use crate::types::canon_types::{
     CANON_TABLE_EDGES, CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES,
 };
-use arrow_array::{Array, StringArray};
+use arrow_array::{Array, Float32Array, StringArray};
 use futures::TryStreamExt;
 use lancedb::connect;
+use lancedb::index::scalar::{FtsIndexBuilder, FullTextSearchQuery};
+use lancedb::index::{Index, IndexType};
 use lancedb::query::{ExecutableQuery, QueryBase};
 
 /// canon LanceDB 库路径（与 canon_store.rs 同源约定：<project>/.qmai/lancedb）。
@@ -863,12 +873,44 @@ impl CanonSearch {
         &self.db
     }
 
-    /// FTS 召回：在 `canon_entities` 的 `data` 列上做文本匹配，返回 ranked 召回。
+    /// 确保 `data` 列上有 LanceDB FTS 索引（幂等：已存在则跳过）。
     ///
-    /// 当前实现对 `data` JSON 列做 SQL `LIKE` 子串匹配（FTS 索引未建立时的
-    /// 兼容退化；tantivy 加速路径在 T32 接入，函数形式不变）。`raw_score`
-    /// 用简单命中计数（1.0 固定，留待 T32 接 BM25）。`reference_chapter`
-    /// 取实体 `first_seen_chapter`。
+    /// LanceDB 0.27 内置 tantivy FTS（T04 spike §5 裁决）。默认 tokenizer
+    /// 对中文退化（空格分词），中文通道按 T04 §4 裁决（[`tokenizer_verdict`]）
+    /// 在 T32 调参期接入 jieba 自定义 tokenizer；本函数用默认参数建索引
+    /// （内置通道，少一层依赖）。
+    pub async fn ensure_fts_index(&self, table_name: &str, column: &str) -> Result<(), String> {
+        let db_table = self
+            .db
+            .open_table(table_name)
+            .execute()
+            .await
+            .map_err(|e| format!("open {table_name}: {e}"))?;
+        let indices = db_table
+            .list_indices()
+            .await
+            .map_err(|e| format!("list indices {table_name}: {e}"))?;
+        let has_fts = indices
+            .iter()
+            .any(|i| i.index_type == IndexType::FTS && i.columns.iter().any(|c| c == column));
+        if has_fts {
+            return Ok(());
+        }
+        db_table
+            .create_index(&[column], Index::FTS(FtsIndexBuilder::default()))
+            .execute()
+            .await
+            .map_err(|e| format!("create fts index on {table_name}.{column}: {e}"))?;
+        Ok(())
+    }
+
+    /// FTS 召回（LanceDB tantivy 索引路径）：`full_text_search` + `_score`。
+    ///
+    /// 先幂等确保 `data` 列 FTS 索引，再走 `Query::full_text_search`（BM25
+    /// 打分，`_score` 列入 `raw_score`）。建索引失败（表不存在/列类型不支持）
+    /// → 返回 Err，调用方可降级 [`Self::fts_query_like`]。`reference_chapter`
+    /// 从 `data` JSON 抽取（entities→first_seen_chapter / episodes→
+    /// chapter_number / edges→source_chapter 或 reference_time）。
     pub async fn fts_query(
         &self,
         table: CanonFtsTable,
@@ -876,12 +918,19 @@ impl CanonSearch {
         limit: usize,
     ) -> Result<Vec<RecallItem>, String> {
         let table_name = table.table_name();
-        let db_table = self.db.open_table(table_name).execute().await
+        self.ensure_fts_index(table_name, "data").await?;
+        let db_table = self
+            .db
+            .open_table(table_name)
+            .execute()
+            .await
             .map_err(|e| format!("open {table_name}: {e}"))?;
-        let like = sql_like(term);
+        let fts = FullTextSearchQuery::new(term.to_string())
+            .with_column("data".to_string())
+            .map_err(|e| format!("fts column: {e}"))?;
         let batches = db_table
             .query()
-            .only_if(format!("LOWER(data) LIKE LOWER({})", like))
+            .full_text_search(fts)
             .limit(limit)
             .execute()
             .await
@@ -897,19 +946,68 @@ impl CanonSearch {
             else {
                 continue;
             };
+            let scores = b
+                .column_by_name("_score")
+                .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
             for i in 0..arr.len() {
                 if arr.is_null(i) {
                     continue;
                 }
                 let json = arr.value(i);
                 let (id, ref_ch) = extract_id_and_chapter(table, json);
-                out.push(RecallItem::new(
-                    id,
-                    RecallSource::Fts,
-                    out.len(),
-                    1.0,
-                    ref_ch,
-                ));
+                let raw = match scores {
+                    Some(s) if !s.is_null(i) => s.value(i) as f64,
+                    _ => 1.0,
+                };
+                out.push(RecallItem::new(id, RecallSource::Fts, out.len(), raw, ref_ch));
+            }
+        }
+        Ok(out)
+    }
+
+    /// FTS 兼容退化：SQL `LOWER(data) LIKE` 子串召回（无 FTS 索引/建索引失败时）。
+    ///
+    /// `raw_score` 固定 1.0（命中计数语义；BM25 由索引路径 [`Self::fts_query`]
+    /// 提供）。与 canon_store.query_edges 的「推 down + 精细过滤」一致。
+    pub async fn fts_query_like(
+        &self,
+        table: CanonFtsTable,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<RecallItem>, String> {
+        let table_name = table.table_name();
+        let db_table = self
+            .db
+            .open_table(table_name)
+            .execute()
+            .await
+            .map_err(|e| format!("open {table_name}: {e}"))?;
+        let like = sql_like(term);
+        let batches = db_table
+            .query()
+            .only_if(format!("LOWER(data) LIKE LOWER({})", like))
+            .limit(limit)
+            .execute()
+            .await
+            .map_err(|e| format!("fts like query: {e}"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| format!("fts like collect: {e}"))?;
+        let mut out = Vec::new();
+        for b in &batches {
+            let Some(arr) = b
+                .column_by_name("data")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            else {
+                continue;
+            };
+            for i in 0..arr.len() {
+                if arr.is_null(i) {
+                    continue;
+                }
+                let json = arr.value(i);
+                let (id, ref_ch) = extract_id_and_chapter(table, json);
+                out.push(RecallItem::new(id, RecallSource::Fts, out.len(), 1.0, ref_ch));
             }
         }
         Ok(out)
@@ -954,19 +1052,21 @@ impl CanonSearch {
             else {
                 continue;
             };
+            let dists = b
+                .column_by_name("_distance")
+                .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
             for i in 0..arr.len() {
                 if arr.is_null(i) {
                     continue;
                 }
                 let json = arr.value(i);
                 let (id, ref_ch) = extract_id_and_chapter(table, json);
-                out.push(RecallItem::new(
-                    id,
-                    RecallSource::Vector,
-                    out.len(),
-                    1.0,
-                    ref_ch,
-                ));
+                // raw_score = 1/(1+distance)（vectorstore.rs 同款约定，诊断用）
+                let raw = match dists {
+                    Some(d) if !d.is_null(i) => 1.0 / (1.0 + d.value(i) as f64),
+                    _ => 1.0,
+                };
+                out.push(RecallItem::new(id, RecallSource::Vector, out.len(), raw, ref_ch));
             }
         }
         Ok(out)
@@ -1049,6 +1149,9 @@ mod canon_search_spec;
 mod tests {
     use super::*;
     use crate::types::canon_types::EdgeKind;
+    use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+    use std::sync::Arc;
 
     fn fts(id: &str, rank: usize, ch: Option<i32>) -> RecallItem {
         RecallItem::new(id, RecallSource::Fts, rank, 1.0, ch)
@@ -1360,6 +1463,144 @@ mod tests {
         assert!(s.contains("\\_"));
         assert!(s.starts_with("'%") && s.ends_with("%'"));
     }
+
+    // ── LanceDB 集成：FTS 索引路径 + 向量召回 ──
+
+    /// 唯一临时项目目录（每测试一个；不清理——沿用 canon_store 模式）。
+    fn tmp_project() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let p = std::env::temp_dir().join(format!("canon-search-test-{}-{}", ts, id));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[tokio::test]
+    async fn canon_search_lancedb_fts_roundtrip() {
+        let p = tmp_project();
+        let search = CanonSearch::open(&p.to_string_lossy()).await.unwrap();
+        let db = search.connection();
+        // 建 canon_entities 表（fts_query 只读 data 列）
+        let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::Utf8, false)]));
+        db.create_table(CANON_TABLE_ENTITIES, vec![RecordBatch::new_empty(schema.clone())])
+            .execute()
+            .await
+            .unwrap();
+        let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
+        let rows = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec![
+                Some(r#"{"id":"e1","canonical_name":"Alice","first_seen_chapter":1}"#),
+                Some(r#"{"id":"e2","canonical_name":"Bob","first_seen_chapter":2}"#),
+                Some(r#"{"id":"e3","canonical_name":"Alice Smith","first_seen_chapter":3}"#),
+            ]))],
+        )
+        .unwrap();
+        table.add(vec![rows]).execute().await.unwrap();
+
+        // FTS 索引路径：BM25 召回 + _score
+        let hits = search
+            .fts_query(CanonFtsTable::Entities, "Alice", 10)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(ids.contains(&"e1"), "Alice entity recalled: {ids:?}");
+        assert!(ids.contains(&"e3"), "Alice Smith entity recalled: {ids:?}");
+        assert!(!ids.contains(&"e2"), "Bob must not be recalled: {ids:?}");
+        assert!(hits.iter().all(|h| h.raw_score > 0.0), "BM25 _score > 0");
+        assert!(hits.iter().all(|h| h.source == RecallSource::Fts));
+        assert!(
+            hits.iter().any(|h| h.id == "e1" && h.reference_chapter == Some(1)),
+            "reference_chapter from data JSON"
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_search_lancedb_fts_index_idempotent() {
+        let p = tmp_project();
+        let search = CanonSearch::open(&p.to_string_lossy()).await.unwrap();
+        let db = search.connection();
+        let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::Utf8, false)]));
+        db.create_table(CANON_TABLE_ENTITIES, vec![RecordBatch::new_empty(schema)])
+            .execute()
+            .await
+            .unwrap();
+        search
+            .ensure_fts_index(CANON_TABLE_ENTITIES, "data")
+            .await
+            .unwrap();
+        // 二次 ensure = no-op（幂等）
+        search
+            .ensure_fts_index(CANON_TABLE_ENTITIES, "data")
+            .await
+            .unwrap();
+        let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
+        let indices = table.list_indices().await.unwrap();
+        assert_eq!(indices.len(), 1, "single FTS index, no duplicate");
+        assert_eq!(indices[0].index_type, IndexType::FTS);
+    }
+
+    #[tokio::test]
+    async fn canon_search_lancedb_vector_roundtrip() {
+        let p = tmp_project();
+        let search = CanonSearch::open(&p.to_string_lossy()).await.unwrap();
+        let db = search.connection();
+        let dim = 4i32;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("data", DataType::Utf8, false),
+            Field::new(
+                "embedding",
+                DataType::FixedSizeList(
+                    Arc::new(Field::new("item", DataType::Float32, true)),
+                    dim,
+                ),
+                false,
+            ),
+        ]));
+        db.create_table(CANON_TABLE_ENTITIES, vec![RecordBatch::new_empty(schema.clone())])
+            .execute()
+            .await
+            .unwrap();
+        let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
+        let emb = |vals: &[f32]| -> ArrayRef {
+            Arc::new(FixedSizeListArray::new(
+                Arc::new(Field::new("item", DataType::Float32, true)),
+                dim,
+                Arc::new(Float32Array::from(vals.to_vec())),
+                None,
+            ))
+        };
+        let rows = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec![
+                    Some(r#"{"id":"v1","first_seen_chapter":1}"#),
+                    Some(r#"{"id":"v2","first_seen_chapter":2}"#),
+                ])),
+                // 2 行 × dim=4（单列 FixedSizeListArray）
+                emb(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
+            ],
+        )
+        .unwrap();
+        table.add(vec![rows]).execute().await.unwrap();
+
+        let hits = search
+            .vector_query(CanonFtsTable::Entities, vec![1.0, 0.0, 0.0, 0.0], 10, "embedding")
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].id, "v1", "nearest embedding first");
+        assert!(
+            hits[0].raw_score > hits[1].raw_score,
+            "raw_score = 1/(1+distance) ordering"
+        );
+        assert!(hits.iter().all(|h| h.source == RecallSource::Vector));
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1523,6 +1764,33 @@ mod proptest_tests {
             let c1 = g.connected_components();
             let c2 = g.connected_components();
             prop_assert_eq!(c1, c2);
+        }
+
+        /// BFS depth 边界：链图 n00→n01→…→n0L 上，bfs_depth(n00, d) 恰含
+        /// 深度 ≤ d 的节点（含 start），深度 > d 的节点不可达。
+        #[test]
+        fn canon_proptest_bfs_depth_boundary(
+            len in 1usize..=8,
+            depth in 0u32..=5
+        ) {
+            use crate::types::canon_types::EdgeKind;
+            let canon_edges: Vec<CanonEdge> = (0..len)
+                .map(|i| {
+                    CanonEdge::new(
+                        format!("e{i}"),
+                        format!("n{i:02}"),
+                        format!("n{:02}", i + 1),
+                        "rel",
+                        EdgeKind::WorldFact,
+                    )
+                })
+                .collect();
+            let g = CanonGraph::from_edges(&canon_edges);
+            let reach = g.bfs_depth("n00", depth);
+            let expected: Vec<String> = (0..=len.min(depth as usize))
+                .map(|i| format!("n{i:02}"))
+                .collect();
+            prop_assert_eq!(reach, expected);
         }
     }
 }

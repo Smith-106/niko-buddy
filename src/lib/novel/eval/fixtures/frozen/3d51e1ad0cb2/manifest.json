@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-08-25T21:18:54.754Z",
+  "totalCases": 6,
+  "holdoutRatio": 0.15,
+  "scenarios": [
+    "canon_retrieval",
+    "temporal_current",
+    "former_isolation",
+    "contradiction",
+    "crossbook_leak",
+    "temporal_inversion"
+  ],
+  "source": "real",
+  "corpusDigest": "3d51e1ad0cb2c91c9fdea3f96cb37602cf1f9a0f71e5c7849b69a2d71ba8ceec",
+  "qualityReport": [
+    {
+      "file": "001.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    },
+    {
+      "file": "002.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    },
+    {
+      "file": "003.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    },
+    {
+      "file": "004.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    },
+    {
+      "file": "005.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    },
+    {
+      "file": "006.snapshot.json",
+      "encoding": "utf-8",
+      "problems": []
+    }
+  ],
+  "degradedChapters": 0,
+  "totalGoldChunks": 80,
+  "note": "由 scripts/eval-extract-real.mjs 生成（真实快照语料；质量不达标维度显式 SKIP，C7）"
+}

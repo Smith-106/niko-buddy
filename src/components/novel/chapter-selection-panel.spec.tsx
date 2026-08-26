@@ -591,4 +591,41 @@ describe("ChapterSelectionPanel", () => {
     expect(onCharacterPickerClose).not.toHaveBeenCalled()
     cleanup()
   })
+
+  it("UAT C7-2 工作台为真模态层：role=dialog + aria-modal（修复裸 div 无契约）", () => {
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(), onSelectAllMain: vi.fn(), onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(), onSimpleExtract: vi.fn(),
+    })
+    act(() => findButton(container, "进入角色工作台").click())
+    // 工作台包裹在真 dialog 内且 aria-modal 生效（Radix 嵌套继承 portal 容器）
+    const ws = container.querySelector('[data-testid="character-workstation"]')!
+    const dialogEl = ws.closest('[role="dialog"]') as HTMLElement | null
+    expect(dialogEl).toBeTruthy()
+    expect(dialogEl!.getAttribute("aria-modal")).toBe("true")
+    cleanup()
+  })
+
+  it("UAT C7-2 工作台打开时 Escape 只关工作台，不级联取消任务", () => {
+    const onCancel = vi.fn()
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(), onSelectAllMain: vi.fn(), onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(), onSimpleExtract: vi.fn(), onCancel,
+    })
+    act(() => findButton(container, "进入角色工作台").click())
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeTruthy()
+    // Radix DismissableLayer 在 document 级监听 Escape
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
+    // 工作台关闭，但外层面板仍打开、onCancel 未被调用
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeNull()
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    expect(onCancel).not.toHaveBeenCalled()
+    cleanup()
+  })
 })

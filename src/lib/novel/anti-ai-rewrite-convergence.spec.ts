@@ -161,8 +161,8 @@ describe("T21 anti-ai-rewrite-convergence", () => {
 
       // 2. Rewrite (dual-pass 软检, 模拟改写指导)
       const dualPass = runDeAiDualPass(AI_TAINTED_TEXT)
-      expect(dualPass.productHardGate).toBe(false) // Track B soft
-      expect(dualPass.pass2.remediationNotes.length).toBeGreaterThan(0)
+      expect(dualPass.pass1.highCount).toBeGreaterThan(0) // 1A 强信号命中
+      expect(dualPass.dualPassRecheck.rewriteSuggestions.length).toBeGreaterThan(0) // 生成改写建议
 
       // 模拟改写: 去除强禁用词 (TIER1 命中移除)
       const rewritten = AI_TAINTED_TEXT
@@ -201,7 +201,7 @@ describe("T21 anti-ai-rewrite-convergence", () => {
       const beforeReport = slopScore(CLEAN_TEXT)
 
       const dualPass = runDeAiDualPass(CLEAN_TEXT)
-      expect(dualPass.productHardGate).toBe(false)
+      expect(dualPass.pass1.highCount).toBe(0) // 无 1A 强信号 (F-009 信号非证据)
 
       // 干净文本不应有 remediation notes
       // 注: 可能仍有空提示, 但不应有实质性修改建议
