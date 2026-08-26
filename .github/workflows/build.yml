@@ -9,8 +9,36 @@ on:
 permissions:
   contents: write
 
+# CI 门（P0 #2）：
+# ci.yml 仅在 push/PR 到 master 时触发，tag push 不会触发它；GitHub Actions 也
+# 不支持跨 workflow 的 needs 链或可靠的 workflow_run 成功条件（workflow_run 只能
+# 监听默认分支上的已完成 run，无法绑定到 tag 指向的具体 commit）。因此在此处
+# 显式跑 typecheck + vitest 作为发布硬门，build 依赖 ci-gate 全绿后才启动。
 jobs:
+  ci-gate:
+    name: Release CI Gate (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+
+      - name: Run unit tests (vitest)
+        run: npm run test:mocks
+
   build:
+    needs: ci-gate
     name: Build ${{ matrix.display_label }}
     runs-on: ${{ matrix.runner }}
     env:
