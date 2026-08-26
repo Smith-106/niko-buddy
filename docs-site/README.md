@@ -1,8 +1,8 @@
-# niko-hub 文档站
+# Niko Buddy 文档站
 
-基于 [Astro](https://astro.build) + [Starlight](https://starlight.astro.build) 构建的 niko-hub 产品官网与技术文档站。
+基于 [Astro](https://astro.build) + [Starlight](https://starlight.astro.build) 构建的 Niko Buddy 产品官网与技术文档站。
 
-部署在 GitHub Pages：`https://smith-106.github.io/niko-hub/`
+部署在 GitHub Pages：`https://smith-106.github.io/niko-buddy/`
 
 ## 本地开发
 
@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-默认在 `http://localhost:4321/niko-hub/` 启动开发服务器。
+默认在 `http://localhost:4321/niko-buddy/` 启动开发服务器。
 
 ## 构建
 
@@ -43,7 +43,7 @@ docs-site/
 
 ## 部署
 
-通过 `.github/workflows/deploy-docs.yml` 自动部署。当 `release-b51ab03` 分支的 `docs-site/` 目录有改动并 push 时，GitHub Actions 自动构建并发布到 GitHub Pages。
+通过 `.github/workflows/deploy-docs.yml` 自动部署。当 `master` 分支的 `docs-site/` 目录有改动并 push 时，GitHub Actions 自动构建并发布到 GitHub Pages。
 
 仓库需在 Settings → Pages 启用，Source 设为 `GitHub Actions`。
 

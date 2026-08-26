@@ -543,7 +543,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 **8873 用例**（2 skipped 为凭证门控块；实测以 `docs/p0/t00-baseline.md` 为准，不硬编码）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
   - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
@@ -551,6 +551,7 @@ npm run build:github-release
   - 设置对应 env 即可激活该块（烧真实 LLM token / 真实 fs 写盘，CI 默认不触发）
 - **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）已达 **100%**，由 `vite.config.ts` 阈值门控（100/100/100/100）持续保障；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
+- **无 lint 门（有意决策）**：本仓库不设独立 lint script / lint CI 门——以 `typecheck`（tsc 严格模式）+ `test:mocks`（vitest 全量 + 覆盖率 100% 阈值）作为质量门；如需静态风格检查，`tsc --noEmit` 已覆盖大部分可静态发现的问题，后续引入 ESLint 需单独决策，勿默认添加。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 - **评测基线门（v2.6.3+）**：交付了双轨评测基线门，二者语义独立、不可互相替代：
   - **B 门（synthetic 合成基线）**：`npm run eval:baseline` —— 跑 `scripts/eval-baseline.mjs`，合成语料机械回归对照；预期 `PASS → ESTABLISHED → PASS`。合成基线合法留存作为机械回归基准。
