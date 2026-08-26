@@ -5,6 +5,9 @@
  *   - human 1035 抽样 → mutateTest 注入 AI 腔变异 → 检出率基线
  *   - ai 139 抽样 → analyze 四因子 warn 触发率基线
  * 语料树缺失（CI）时 skip；本地验收必跑。
+ *
+ * 注意：语料树位于 hub 根 docs/p0/corpus（上溯 4 级解析）；当前环境存在 → 本文件真实执行。
+ * 实测 5/5 PASS（mutation 检出率 ≥0.5、强变异 ≥0.8、组合强注入 ≥0.5、四因子基线）。
  */
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync, existsSync } from "node:fs"
