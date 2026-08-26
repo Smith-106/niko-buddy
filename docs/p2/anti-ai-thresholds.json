@@ -1,0 +1,68 @@
+{
+  "schema": "anti-ai-thresholds/1.0",
+  "corpus": {
+    "human": 1035,
+    "ai": 139,
+    "batches": [
+      "20260821-001",
+      "20260826-t01b1-human",
+      "20260822-writing",
+      "20260826-t01b2-ai",
+      "20260826-t01c-001"
+    ],
+    "hash": "0b04f81f30d1"
+  },
+  "thresholds": {
+    "nGramOverlap": {
+      "min": 0.5
+    },
+    "sentenceEntropy": {
+      "direction": "low",
+      "bound": 0.7
+    },
+    "punctuationFingerprint": {
+      "min": 0.7
+    },
+    "paragraphLengthDist": {
+      "shortThreshold": 0.2,
+      "longThreshold": 0.2
+    }
+  },
+  "metrics": {
+    "combined": {
+      "fpr": 0,
+      "fprK": 0,
+      "fprN": 1035,
+      "recall": 1,
+      "recallK": 139,
+      "recallN": 139
+    },
+    "byFactor": {
+      "nGramOverlap": {
+        "fpr": 0,
+        "recall": 1,
+        "fprZero": true
+      },
+      "sentenceEntropy": {
+        "fpr": 0,
+        "recall": 0,
+        "fprZero": true
+      },
+      "punctuationFingerprint": {
+        "fpr": 0,
+        "recall": 0.33093525179856115,
+        "fprZero": true
+      },
+      "paragraphLengthDist": {
+        "fpr": 0.1294685990338164,
+        "recall": 0,
+        "fprZero": false
+      }
+    }
+  },
+  "provenance": {
+    "date": "2026-08-26",
+    "gitCommit": "55d8f1dd",
+    "source": "real-corpus-1035-139"
+  }
+}
