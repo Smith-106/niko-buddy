@@ -543,7 +543,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 **8497+ 用例**（实测以 `npx vitest run` 输出为准）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件，当前稳定通过 **8873 用例**（2 skipped 为凭证门控块；实测以 `docs/p0/t00-baseline.md` 为准，不硬编码）；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
   - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
