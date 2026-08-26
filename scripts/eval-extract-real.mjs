@@ -8,8 +8,10 @@
  *      跨书 case 以项目短名前缀隔离）。
  *   2. goldChunks: 从 newCanonFacts 抽取（subject=chapter-<proj>-N, predicate=canon_fact,
  *      object=事实文本，canonical 归一）。
- *   3. poisonChunks: 真实数据中可检测的跨章冲突（characterStateChanges 前后不一致
- *      heuristic）——当前语料质量不足时显式留空（C7 不冒充）。
+ *   3. poisonChunks: crossbook_leak 毒丸（两阶段装配）：caseIndex % 7 === 3 的 case
+ *      标注 crossbook_leak，从「他书」factPool 以 chapterNumber 为偏移确定性轮转取
+ *      1 条真实事实构造毒丸（expectedLanding=excluded）；与宿主 gold 归一冲突时跳过
+ *      （最多 3 次尝试），不足则保留场景标注但 poison 为空。
  *   4. 输出 EvalCase JSONL → fixtures/cases.jsonl + manifest.json(source=real) +
  *      frozen/<digest>/ 冻结（C4/C6）。
  *   5. 质量校验不达标 → 显式 WARN + 部分抽取，绝不静默冒充完好语料（C7）。
@@ -77,8 +79,12 @@ function canonicalName(name) {
   return name.trim().normalize("NFKC").replace(/・/g, "")
 }
 
-/** 从快照抽取 EvalCase（真实 gold；poison 视数据质量而定）。proj 为项目短名（跨书隔离）。 */
-function extractCase(snapshot, chapterIndex, problems, proj) {
+/**
+ * 从快照抽取 EvalCase（真实 gold）。proj 为项目短名（跨书隔离）。
+ * scenario: 场景标注（canon_retrieval / crossbook_leak）。crossbook 毒丸由 main()
+ * 第二轮装配后回填 poisonChunks（此处初始为空）。
+ */
+function extractCase(snapshot, chapterIndex, problems, proj, scenario) {
   const chapterNumber = snapshot.chapterNumber ?? chapterIndex + 1
   const p = proj ?? "p"
   const goldChunks = (snapshot.newCanonFacts || [])
@@ -107,7 +113,43 @@ function extractCase(snapshot, chapterIndex, problems, proj) {
     poisonChunks,
     expectedLayer: "protected",
     source: "real",
+    scenario,
   }
+}
+
+/**
+ * crossbook_leak 毒丸装配（镜像 eval-corpus-synth.ts 的 crossbook_leak case 形态）：
+ *   - 只从「他书」factPool 取事实（宿主项目自身池不参与，源项目按扫描顺序轮转）；
+ *   - 项目/事实轮转均以宿主 case 的 chapterNumber 作偏移：
+ *     srcProj = otherProjOrder[(chapter + attempt) % len]，
+ *     idx     = (chapter + attempt) % pool.length；
+ *   - 去重护栏：候选事实 canonicalName 归一后与宿主 case 全部 goldChunks.object 相等
+ *     → 换下一条（最多尝试 3 条）；仍无可用候选返回 null（调用方保留 scenario 标注，
+ *     poisonChunks 为空）。
+ * poisonSeq.n 为全局毒丸序号（id 跨 case 唯一，全流程确定性）。
+ */
+function pickCrossbookPoison(caseItem, factPool, factSourceChapters, otherProjOrder, poisonSeq) {
+  const others = otherProjOrder.filter((pj) => pj !== caseItem.project) // 「他书」：排除宿主自身
+  if (others.length === 0) return null
+  const base = caseItem.chapter
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const srcProj = others[(base + attempt) % others.length]
+    const pool = factPool.get(srcProj)
+    const chapters = factSourceChapters.get(srcProj)
+    if (!pool || pool.length === 0 || !chapters) continue
+    const idx = (base + attempt) % pool.length
+    const norm = canonicalName(pool[idx])
+    if (caseItem.goldChunks.some((g) => g.object === norm)) continue // 去重护栏
+    return {
+      id: `real-${caseItem.project}-p-${poisonSeq.n++}`,
+      subject: `chapter-${srcProj}-${chapters[idx]}`,
+      predicate: "canon_fact",
+      object: norm,
+      poisonType: "crossbook_leak",
+      expectedLanding: "excluded",
+    }
+  }
+  return null
 }
 
 function parseArgs(argv) {
@@ -137,6 +179,7 @@ const USAGE = `eval-extract-real.mjs — F3 真实语料抽取（eval-real-basel
   - goldChunks 从 newCanonFacts 抽取（subject=chapter-<proj>-N, predicate=canon_fact,
     object=事实文本，canonical 归一）
   - 数据质量检测：结构化字段损坏（"[object Object]"）→ 该维度显式 SKIP + WARN
+  - 场景装配：caseIndex%7===3 的 case 标注 crossbook_leak，从他书 factPool 确定性轮转注入 1 条毒丸（无随机；相位 3 与 holdout 步长 7 的 0 余类不同余，避免全部被抽入 holdout）
   - C7：损坏/缺失维度绝不冒充完好
   - C4：digest 复用 computeCheckpointDigestOf`
 
@@ -151,9 +194,13 @@ async function main() {
     return 1
   }
 
-  // 多项目：每本快照目录独立扫描，跨书 case 以项目短名前缀隔离
+  // —— 第一轮：全项目扫描 + factPool 收集（两阶段：先集齐他书事实池，再逐 case 装配）——
+  // factPool: Map<proj, string[]>（仅无 quality 问题的快照贡献事实：typeof==='string' 且非空）
+  // factSourceChapters: Map<proj, number[]>（与 factPool 平行，记录每条事实的源章号，供 subject 用）
   const decodedSnapshots = []
-  const extracted = []
+  const caseSeeds = []
+  const factPool = new Map()
+  const factSourceChapters = new Map()
   for (const projPath of args.projects) {
     const snapshotsDir = join(projPath, ".novel", "snapshots")
     if (!existsSync(snapshotsDir)) {
@@ -188,12 +235,44 @@ async function main() {
     for (let i = 0; i < localDecoded.length; i++) {
       const s = localDecoded[i]
       if (!s.snapshot) continue
-      extracted.push(extractCase(s.snapshot, i, s.problems, proj))
+      caseSeeds.push({ snapshot: s.snapshot, chapterIndex: i, problems: s.problems, proj })
+      // factPool 仅采纳无 quality 问题的章（degraded 章不贡献跨书事实池）
+      if (s.problems.length === 0) {
+        const chapterNumber = s.snapshot.chapterNumber ?? i + 1
+        const facts = (s.snapshot.newCanonFacts || [])
+          .filter((f) => typeof f === "string" && f.trim().length > 0)
+        if (facts.length === 0) continue
+        const pool = factPool.get(proj) ?? []
+        const chapters = factSourceChapters.get(proj) ?? []
+        for (const f of facts) {
+          pool.push(f)
+          chapters.push(chapterNumber)
+        }
+        factPool.set(proj, pool)
+        factSourceChapters.set(proj, chapters)
+      }
     }
   }
-  if (extracted.length === 0) {
+  if (caseSeeds.length === 0) {
     process.stderr.write(`[eval-extract-real] ERROR: 无可用语料（C7 显式 SKIP）\n`)
     return 1
+  }
+
+  // —— 第二轮：逐 case 场景标注 + crossbook_leak 毒丸装配（确定性，无随机）——
+  // caseIndex % 7 === 3 → crossbook_leak（相位与 holdout 步长 7 的 0 余类不同余，毒丸留在 train）；其余 → canon_retrieval。
+  // 毒丸装配必须在 holdout 分层之前完成（分层作用于完整 extracted 数组）。
+  const otherProjOrder = [...factPool.keys()] // 项目扫描顺序 = 轮转基准（装配时排除宿主自身）
+  const poisonSeq = { n: 0 }
+  const extracted = []
+  for (let ci = 0; ci < caseSeeds.length; ci++) {
+    const seed = caseSeeds[ci]
+    const scenario = ci % 7 === 3 ? "crossbook_leak" : "canon_retrieval"
+    const c = extractCase(seed.snapshot, seed.chapterIndex, seed.problems, seed.proj, scenario)
+    if (scenario === "crossbook_leak") {
+      const poison = pickCrossbookPoison(c, factPool, factSourceChapters, otherProjOrder, poisonSeq)
+      if (poison) c.poisonChunks.push(poison)
+    }
+    extracted.push(c)
   }
 
   const totalGold = extracted.reduce((a, c) => a + c.goldChunks.length, 0)
@@ -239,7 +318,7 @@ async function main() {
     qualityReport: decodedSnapshots.map((s) => ({ file: s.file, encoding: s.encoding, problems: s.problems })),
     degradedChapters: degradedCount,
     totalGoldChunks: totalGold,
-    note: "由 scripts/eval-extract-real.mjs 生成（真实快照语料；质量不达标维度显式 SKIP，C7）",
+    note: "由 scripts/eval-extract-real.mjs 生成（真实快照语料；质量不达标维度显式 SKIP，C7）。crossbook 装配：caseIndex%7===3 的 case 标注 crossbook_leak（相位与 holdout 步长 7 的 0 余类不同余），从他书 factPool 以 chapterNumber 为偏移确定性轮转取 1 条毒丸（expectedLanding=excluded，subject=chapter-<他书>-<源章号>）；与宿主 goldChunks 归一冲突时跳过（最多 3 次尝试），不足则保留场景标注且 poison 为空。",
   }
   writeFileSync(join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n")
 
