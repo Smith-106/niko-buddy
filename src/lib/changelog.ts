@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_THREE_CHANGELOG: ChangelogEntry = {
+  version: "2.6.3",
+  date: "2026-08-26",
+  highlights: {
+    en: [
+      "S5' multi-source search adapter: novelMixedSearch six-source hybrid retrieval (keyword/vector/graph/recent_chapter/canon) with RRF fusion + rerank.",
+      "G1 evaluation suite landed under src/lib/novel/eval/ (schema/adapters/metrics/harness/report/gates + real-LLM gates) with real baseline gates (npm run eval:baseline) and a snapshot-repair script.",
+      "de-ai F-009 migration: dual-pass converged to de-ai-rules.ts 112-word tiered detector (detect→rewrite→re-detect); de-ai-dual-pass.ts is now a compatibility re-export.",
+      "canon_search module migration to src/ + 9 typecheck error fixes (ISS-006/legacy track). Notes-only: installer assets stay v2.6.2.",
+    ],
+    zh: [
+      "S5' 多源检索适配：novelMixedSearch 六源混合检索（keyword/vector/graph/recent_chapter/canon）+ RRF 融合 + rerank。",
+      "G1 评测集落地 src/lib/novel/eval/（schema/adapters/metrics/harness/report/gates + real-LLM 门），真实基线门 npm run eval:baseline + 快照修复脚本。",
+      "de-ai F-009 迁移：dual-pass 收敛到 de-ai-rules.ts 112 词分级检测（detect→rewrite→re-detect）；de-ai-dual-pass.ts 转为兼容重导出。",
+      "canon_search 模块迁至 src/ + 9 处 typecheck 错误修复（ISS-006/legacy 轨）。Notes-only：安装包资产沿用 v2.6.2。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.6.2",
   date: "2026-08-24",
@@ -997,6 +1016,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_THREE_CHANGELOG.version) return [TWO_POINT_SIX_THREE_CHANGELOG]
   if (version === TWO_POINT_SIX_TWO_CHANGELOG.version) return [TWO_POINT_SIX_TWO_CHANGELOG]
   if (version === TWO_POINT_SIX_ONE_CHANGELOG.version) return [TWO_POINT_SIX_ONE_CHANGELOG]
   if (version === TWO_POINT_SIX_ZERO_CHANGELOG.version) return [TWO_POINT_SIX_ZERO_CHANGELOG]
@@ -1051,6 +1071,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_SIX_THREE_CHANGELOG,
     TWO_POINT_SIX_TWO_CHANGELOG,
     TWO_POINT_SIX_ONE_CHANGELOG,
     TWO_POINT_SIX_ZERO_CHANGELOG,

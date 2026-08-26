@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.6.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.6.3-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -417,8 +417,8 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前正式发布产物为 **v2.6.0**（八项新能力已落地；安装包资产沿用 v2.5.0 资产，待后续补挂；macOS/Linux planned）。
-> `smith/master` 源码 tip 与安装包资产同步；以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为准。
+> 注：当前源码 tip 为 **v2.6.3**（notes-only：评测真实基线门 S5'/快照修复已落地，安装包资产沿用既有发布，待后续补挂；macOS/Linux planned）。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.6.3）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
@@ -552,6 +552,10 @@ npm run build:github-release
 - **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）已达 **100%**，由 `vite.config.ts` 阈值门控（100/100/100/100）持续保障；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
+- **评测基线门（v2.6.3+）**：交付了双轨评测基线门，二者语义独立、不可互相替代：
+  - **B 门（synthetic 合成基线）**：`npm run eval:baseline` —— 跑 `scripts/eval-baseline.mjs`，合成语料机械回归对照；预期 `PASS → ESTABLISHED → PASS`。合成基线合法留存作为机械回归基准。
+  - **C 门（real 真实语料基线）**：`npm run eval:l3` —— 8 人真实语料 / 6 章 / 80 gold，真实 ContextPack + 同步 L3 连续性引擎聚合；预期 `2 / 2 PASS`。real 基线由本门独立承接，与 vitest 主跑互不混计（real-llm 用例由命名排除表自动跳过）。语料缺失场景（如跨书 crossbook_leak）显式 `SKIP + 告警`，绝不静默 PASS。
+  - 快照修复后冻结 digest `3d51e1ad0cb2`（`src/lib/novel/eval/fixtures/frozen/3d51e1ad0cb2/`），degraded 章节 5→0、OO 221→0；快照为追加式不删，digest 一经冻结不可变。
 
 ---
 
