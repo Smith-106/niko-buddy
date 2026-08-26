@@ -19,6 +19,7 @@ import type {
 import { computeL1, computeL2, computeL3, aggregate } from "./eval-metrics"
 import { contextPackToAssembledView } from "./eval-adapters"
 import type { AssembledContextView } from "./eval-adapters"
+import type { SecondSignalReport } from "./eval-second-signal"
 
 /** 装配函数：case → ContextPack（tier 在装配期判定）。 */
 export type AssembleFn = (caseItem: EvalCase) => Promise<ContextPack>
@@ -26,9 +27,16 @@ export type AssembleFn = (caseItem: EvalCase) => Promise<ContextPack>
 /** L3 信号源：case → findings（复用 checkContinuity 的调用方接线）。 */
 export type L3FindingsFn = (caseItem: EvalCase, pack: ContextPack) => Promise<ContinuityFinding[]>
 
+/** L3 第二信号源：case → 义务三元组 vs 生成段比对报告（独立 warning 通道）。 */
+export type SecondSignalFn = (
+  caseItem: EvalCase,
+  pack: ContextPack,
+) => SecondSignalReport | Promise<SecondSignalReport>
+
 export interface RunEvalCaseOptions {
   assemble: AssembleFn
   l3Findings?: L3FindingsFn
+  secondSignal?: SecondSignalFn
   thresholds?: EvalRunConfig["thresholds"]
 }
 
@@ -46,12 +54,17 @@ export async function runEvalCase(
     ? computeL3(await options.l3Findings(caseItem, pack))
     : { layer: "L3", pass: true, score: 0, detail: { skipped: true } }
 
+  const secondSignal: SecondSignalReport | undefined = options.secondSignal
+    ? await options.secondSignal(caseItem, pack)
+    : undefined
+
   const agg = aggregate(l1, l2, l3, options.thresholds)
   return {
     caseId: caseItem.id,
     passed: agg.overall,
     layers: { L1: l1, L2: l2, L3: l3 },
     rejections: [],
+    secondSignal,
   }
 }
 
