@@ -50,6 +50,26 @@ describe("toSimplified", () => {
     expect(toSimplified("後時國")).toBe("后时国")
     expect(toSimplified("後A國")).toBe("后A国")
   })
+
+  it("ISS-20260802-005：扩展表覆盖 400+ 高频繁字（時/車/龍/頭/點 等）", () => {
+    // 高频基础字（原有 146 表）+ 扩展新增字
+    expect(toSimplified("時間車龍頭點熱飯馬鳥魚風雲電")).toBe("时间车龙头点热饭马鸟鱼风云电")
+    // 扩展字：言部/手部/貝部/頁部
+    expect(toSimplified("認識說話課堂禮物歸來繼續戰勝")).toBe("认识说话课堂礼物归来继续战胜")
+    // 未映射字符透传
+    expect(toSimplified("康熙字典")).toBe("康熙字典")
+  })
+
+  it("ISS-20260802-005：生成表无自映射/无空值（结构性）", async () => {
+    const { T2S_MAP } = await import("./t2s-map.generated")
+    const entries = Object.entries(T2S_MAP)
+    expect(entries.length).toBeGreaterThanOrEqual(400)
+    for (const [t, s] of entries) {
+      expect(t.length).toBe(1)
+      expect(s.length).toBe(1)
+      expect(t).not.toBe(s)
+    }
+  })
 })
 
 describe("safeSkillSlug", () => {
