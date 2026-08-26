@@ -394,6 +394,32 @@ describe("CharacterSelectionPanel", () => {
     cleanup()
   })
 
+  it("UAT C7-2 反向：escape-key 关闭时 onEscapedDismiss 被调用（面板防级联）", async () => {
+    const onClose = vi.fn()
+    const onEscapedDismiss = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCancel: vi.fn(),
+      onClose,
+      onEscapedDismiss,
+    })
+    await flushAsync()
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // escape-key 关闭：弹窗正常关闭且通知父层面板抑制级联
+    expect(onClose).toHaveBeenCalled()
+    expect(onEscapedDismiss).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
   it("UAT C7-2 默认（无抑制 ref）Esc 仍关闭弹窗", async () => {
     const onClose = vi.fn()
     const { cleanup } = renderPanel({

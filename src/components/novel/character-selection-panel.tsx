@@ -30,6 +30,8 @@ export interface CharacterSelectionPanelProps {
    * 置位时本次 Esc 不关闭弹窗，且消费后复位（下一次 Esc 恢复默认行为）。
    */
   escapeSuppressRef?: MutableRefObject<boolean>
+  /** UAT C7-2 反向：本弹窗因 escape-key 关闭时（dismiss 前）回调，父层面板用于在同次派发中阻止自身级联关闭。 */
+  onEscapedDismiss?: () => void
   /** UAT C7-2：工作台打开期间弹窗非模态，释放焦点陷阱与 scroll lock。 */
   nonModal?: boolean
   // 受控搜索词和排序（默认内部 state）
@@ -49,6 +51,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
     onCancel,
     onClose,
     escapeSuppressRef,
+    onEscapedDismiss,
     nonModal = false,
   } = props
   const dismiss = onClose ?? onCancel
@@ -75,12 +78,15 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
       modal={nonModal ? false : undefined}
       onOpenChange={(o, details) => {
         // UAT C7-2：同一次 Esc 派发中 Radix 工作台已先行关闭时，本次 Esc 不关闭弹窗。
-        // ref 读写在渲染之外，不受同步重渲染影响；消费后复位，下一次 Esc 恢复默认。
         if (!o && details?.reason === "escape-key" && escapeSuppressRef?.current) {
           escapeSuppressRef.current = false
           return
         }
-        if (!o) dismiss()
+        if (!o) {
+          // UAT C7-2 反向：通知父层"本弹窗被 Esc 关闭"，同次派发中阻止外层面板级联取消
+          if (details?.reason === "escape-key") onEscapedDismiss?.()
+          dismiss()
+        }
       }}
     >
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
