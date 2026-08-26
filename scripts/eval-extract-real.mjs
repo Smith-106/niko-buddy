@@ -4,8 +4,9 @@
  *
  * 职责:
  *   1. 读取真实书稿项目 .novel/snapshots/*.snapshot.json（自动编码检测：UTF-8 优先，
- *      GBK 回退；数据质量校验：结构化字段损坏检测）。
- *   2. goldChunks: 从 newCanonFacts 抽取（subject=chapter-N, predicate=canon_fact,
+ *      GBK 回退；数据质量校验：结构化字段损坏检测）。支持多项目（--project 可多次，
+ *      跨书 case 以项目短名前缀隔离）。
+ *   2. goldChunks: 从 newCanonFacts 抽取（subject=chapter-<proj>-N, predicate=canon_fact,
  *      object=事实文本，canonical 归一）。
  *   3. poisonChunks: 真实数据中可检测的跨章冲突（characterStateChanges 前后不一致
  *      heuristic）——当前语料质量不足时显式留空（C7 不冒充）。
@@ -14,7 +15,7 @@
  *   5. 质量校验不达标 → 显式 WARN + 部分抽取，绝不静默冒充完好语料（C7）。
  *
  * 用法:
- *   node scripts/eval-extract-real.mjs --project <path> [--fixtures <dir>] [--out <dir>]
+ *   node scripts/eval-extract-real.mjs --project <path> [--project <path2> ...] [--fixtures <dir>] [--out <dir>]
  *
  * 退出码: 0 = 抽取完成（含部分抽取+WARN）；1 = 无可用语料（硬 SKIP）。
  *
@@ -23,7 +24,7 @@
  * 该字段标记 degraded，相关检测维度显式跳过。
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs"
-import { join, resolve, dirname } from "node:path"
+import { join, resolve, dirname, basename } from "node:path"
 import { fileURLToPath } from "node:url"
 // C4：digest 单一幂等原语（checkpoint-digest.ts 零相对依赖，Node 24 类型剥离直引）。
 import { computeCheckpointDigestOf } from "../src/lib/novel/checkpoint-digest.ts"
@@ -76,14 +77,15 @@ function canonicalName(name) {
   return name.trim().normalize("NFKC").replace(/・/g, "")
 }
 
-/** 从快照抽取 EvalCase（真实 gold；poison 视数据质量而定）。 */
-function extractCase(snapshot, chapterIndex, problems) {
+/** 从快照抽取 EvalCase（真实 gold；poison 视数据质量而定）。proj 为项目短名（跨书隔离）。 */
+function extractCase(snapshot, chapterIndex, problems, proj) {
   const chapterNumber = snapshot.chapterNumber ?? chapterIndex + 1
+  const p = proj ?? "p"
   const goldChunks = (snapshot.newCanonFacts || [])
     .filter((f) => typeof f === "string" && f.trim().length > 0)
     .map((fact, i) => ({
-      id: `real-g-${String(chapterNumber).padStart(3, "0")}-${i}`,
-      subject: `chapter-${chapterNumber}`,
+      id: `real-${p}-g-${String(chapterNumber).padStart(3, "0")}-${i}`,
+      subject: `chapter-${p}-${chapterNumber}`,
       predicate: "canon_fact",
       object: canonicalName(fact),
       tier: "protected",
@@ -93,15 +95,14 @@ function extractCase(snapshot, chapterIndex, problems) {
   const poisonChunks = []
   // poison（former_as_current）：仅当 characterStateChanges 完好时可检测跨章回退；
   // 当前语料质量不足时显式留空（C7 不冒充）。
-  const cscDegraded = problems.some((p) => p.startsWith("characterStateChanges:"))
-  if (!cscDegraded && Array.isArray(snapshot.characterStateChanges)) {
-    // 先导版：跨章同实体状态回退启发式（留空，待完好语料启用完整检测）
-  }
+  const cscDegraded = problems.some((p2) => p2.startsWith("characterStateChanges:"))
+  void cscDegraded
 
   return {
-    id: `real-ch${String(chapterNumber).padStart(3, "0")}`,
+    id: `real-${p}-ch${String(chapterNumber).padStart(3, "0")}`,
     chapter: chapterNumber,
-    query: `chapter-${chapterNumber}`,
+    project: p,
+    query: `chapter-${p}-${chapterNumber}`,
     goldChunks,
     poisonChunks,
     expectedLayer: "protected",
@@ -110,10 +111,10 @@ function extractCase(snapshot, chapterIndex, problems) {
 }
 
 function parseArgs(argv) {
-  const args = { project: null, fixtures: DEFAULT_FIXTURES, out: null, help: false }
+  const args = { projects: [], fixtures: DEFAULT_FIXTURES, out: null, help: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === "--project") args.project = argv[++i]
+    if (a === "--project") args.projects.push(argv[++i])
     else if (a === "--fixtures") args.fixtures = resolve(process.cwd(), argv[++i] ?? args.fixtures)
     else if (a === "--out") args.out = resolve(process.cwd(), argv[++i] ?? args.fixtures)
     else if (a === "--help" || a === "-h") args.help = true
@@ -128,12 +129,12 @@ function parseArgs(argv) {
 const USAGE = `eval-extract-real.mjs — F3 真实语料抽取（eval-real-baseline-path.md）
 
 用法:
-  node scripts/eval-extract-real.mjs --project <path>    抽取真实书稿语料 → fixtures
+  node scripts/eval-extract-real.mjs --project <path> [--project <path2> ...]   多本合并（跨书前缀隔离）
   node scripts/eval-extract-real.mjs --project <path> --out <dir>   落盘到指定目录
   node scripts/eval-extract-real.mjs --help              本帮助
 
 语义:
-  - goldChunks 从 newCanonFacts 抽取（subject=chapter-N, predicate=canon_fact,
+  - goldChunks 从 newCanonFacts 抽取（subject=chapter-<proj>-N, predicate=canon_fact,
     object=事实文本，canonical 归一）
   - 数据质量检测：结构化字段损坏（"[object Object]"）→ 该维度显式 SKIP + WARN
   - C7：损坏/缺失维度绝不冒充完好
@@ -145,45 +146,56 @@ async function main() {
     process.stdout.write(USAGE + "\n")
     return 0
   }
-  if (!args.project) {
-    process.stderr.write("[eval-extract-real] ERROR: --project <path> 必填\n")
-    return 1
-  }
-  const snapshotsDir = join(args.project, ".novel", "snapshots")
-  if (!existsSync(snapshotsDir)) {
-    process.stderr.write(`[eval-extract-real] ERROR: 快照目录不存在: ${snapshotsDir}\n`)
+  if (args.projects.length === 0) {
+    process.stderr.write("[eval-extract-real] ERROR: --project <path> 必填（可多次）\n")
     return 1
   }
 
-  const files = readdirSync(snapshotsDir)
-    .filter((f) => /\.snapshot\.json$/.test(f))
-    .sort()
-  if (files.length === 0) {
-    process.stderr.write(`[eval-extract-real] ERROR: 无 *.snapshot.json（语料缺失，C7 显式 SKIP）\n`)
-    return 1
-  }
-
+  // 多项目：每本快照目录独立扫描，跨书 case 以项目短名前缀隔离
   const decodedSnapshots = []
-  for (const f of files) {
-    const decoded = readJsonSmart(join(snapshotsDir, f))
-    if (!decoded) {
-      decodedSnapshots.push({ file: f, snapshot: null, encoding: "none", problems: ["decode:failed"] })
+  const extracted = []
+  for (const projPath of args.projects) {
+    const snapshotsDir = join(projPath, ".novel", "snapshots")
+    if (!existsSync(snapshotsDir)) {
+      process.stderr.write(`[eval-extract-real] WARN: 快照目录不存在，跳过: ${snapshotsDir}\n`)
       continue
     }
-    decodedSnapshots.push({
-      file: f,
-      snapshot: decoded.obj,
-      encoding: decoded.encoding,
-      problems: qualityOf(decoded.obj),
-    })
+    const proj = basename(projPath).replace(/[^\w\u4e00-\u9fa5]/g, "").slice(0, 12) || "p"
+
+    const files = readdirSync(snapshotsDir)
+      .filter((f) => /\.snapshot\.json$/.test(f))
+      .sort()
+    if (files.length === 0) {
+      process.stderr.write(`[eval-extract-real] WARN: 无 *.snapshot.json，跳过: ${snapshotsDir}\n`)
+      continue
+    }
+
+    const localDecoded = []
+    for (const f of files) {
+      const decoded = readJsonSmart(join(snapshotsDir, f))
+      if (!decoded) {
+        localDecoded.push({ file: f, snapshot: null, encoding: "none", problems: ["decode:failed"] })
+        continue
+      }
+      localDecoded.push({
+        file: f,
+        snapshot: decoded.obj,
+        encoding: decoded.encoding,
+        problems: qualityOf(decoded.obj),
+      })
+    }
+    decodedSnapshots.push(...localDecoded)
+    for (let i = 0; i < localDecoded.length; i++) {
+      const s = localDecoded[i]
+      if (!s.snapshot) continue
+      extracted.push(extractCase(s.snapshot, i, s.problems, proj))
+    }
+  }
+  if (extracted.length === 0) {
+    process.stderr.write(`[eval-extract-real] ERROR: 无可用语料（C7 显式 SKIP）\n`)
+    return 1
   }
 
-  const extracted = []
-  for (let i = 0; i < decodedSnapshots.length; i++) {
-    const s = decodedSnapshots[i]
-    if (!s.snapshot) continue
-    extracted.push(extractCase(s.snapshot, i, s.problems))
-  }
   const totalGold = extracted.reduce((a, c) => a + c.goldChunks.length, 0)
   const degradedCount = decodedSnapshots.filter((s) => s.problems.length > 0).length
 
@@ -220,7 +232,7 @@ async function main() {
 
   const report = {
     status: totalGold === 0 && degradedCount === decodedSnapshots.length ? "EMPTY" : "EXTRACTED",
-    project: args.project,
+    projects: args.projects,
     snapshotsTotal: decodedSnapshots.length,
     snapshotsUsable: extracted.length,
     degradedChapters: degradedCount,
