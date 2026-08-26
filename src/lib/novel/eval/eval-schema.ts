@@ -18,6 +18,7 @@
  * 拆层（GoldChunk.tier / PoisonChunk.expectedLanding / EvalCase.expectedLayer）。
  */
 import { z } from "zod"
+import { secondSignalReportSchema } from "./eval-second-signal"
 
 /** 权威层 5 档（可接受差异：富集档位，供装配期 tier 判定与 L1/L2 分层断言）。 */
 export const authorityTierSchema = z.enum([
@@ -135,6 +136,8 @@ export const evalCaseResultSchema = z.object({
     L3: layerResultSchema,
   }),
   rejections: z.array(rejectionSignalSchema).default([]),
+  /** L3 第二信号源（独立 warning 通道，不进 L3 critical；未接线时缺省）。 */
+  secondSignal: secondSignalReportSchema.optional(),
 })
 export type EvalCaseResult = z.infer<typeof evalCaseResultSchema>
 
