@@ -38,7 +38,8 @@ const GENRE_OVERRIDE = argOf("genre")
 const CORPUS_ROOT = resolve(argOf("corpus-root") ?? resolve(process.cwd(), "../../docs/p0/corpus"))
 
 // ---- 合规常量（manifest.template.json §4 权威枚举）----
-const LICENSE_ENUM = ["public-domain", "cc0", "cc-by", "explicit-permission", "original-contributed", "rewritten-sanitized"]
+// §5.2 终裁（2026-08-26）：所有文本均视为授权，新增 authorized 全量值
+const LICENSE_ENUM = ["authorized", "public-domain", "cc0", "cc-by", "explicit-permission", "original-contributed", "rewritten-sanitized"]
 const FORBIDDEN = ["unlicensed-disputed", "self-authored"]
 const LAYER_ENUM = ["human", "ai"]
 const GENRE_ENUM = ["yanqing", "gufeng", "xuanhuan", "xuanyi", "dushi", "kehuan", "xihuan", "lishi", "youxi", "qingxs", "qita"]
@@ -111,12 +112,16 @@ mkdirSync(resolve(CORPUS_ROOT, LAYER, BATCH_ID), { recursive: true })
 const manifestPath = resolve(CORPUS_ROOT, "manifest.json")
 if (!existsSync(manifestPath)) fail(`manifest 不存在: ${manifestPath}（先在真实语料树执行，或用 --corpus-root 指向含 manifest 的树）`)
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-manifest.samples = manifest.samples.filter(s => !(s.batch_id === BATCH_ID && s.layer === LAYER))
+// 幂等：只清本批本层本轮将写入的 genre（跨轮次保留；修复 2026-08-26 同批多轮互覆盖）
+const batchGenres = new Set(genreGroups.keys())
+manifest.samples = manifest.samples.filter(s => {
+  if (s.batch_id !== BATCH_ID || s.layer !== LAYER) return true
+  return !batchGenres.has(s.genre)
+})
 let batch = manifest.batches.find(b => b.id === BATCH_ID)
 if (!batch) {
   batch = { id: BATCH_ID, layers: [] }
   manifest.batches.push(batch)
-  manifest.samples = manifest.samples.filter(s => s.batch_id !== BATCH_ID) // 新批：清残留
 }
 Object.assign(batch, {
   date: new Date().toISOString().slice(0, 10),
