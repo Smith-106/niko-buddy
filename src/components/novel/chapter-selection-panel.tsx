@@ -91,6 +91,9 @@ export function ChapterSelectionPanel({
   // UAT C7-2：工作台（Radix 栈）Esc 关闭时置位；同一次 keydown 中 Base UI 弹窗的独立
   // Esc 监听会后触发——ref 标志使弹窗本次不关闭（渲染外读写，不受同步重渲染影响）。
   const suppressPickerEscapeRef = useRef(false)
+  // UAT C7-2 反向：Base UI 弹窗因 Esc 关闭时置位；同一次 keydown 派发中 Radix 外层面板
+  // 不再级联取消（cancelTask 会清识别态致入口消失）。setTimeout(0) 在派发完成后自动清理。
+  const panelEscSuppressRef = useRef(false)
 
   // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
   // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
@@ -247,6 +250,12 @@ export function ChapterSelectionPanel({
           event.preventDefault()
         }}
         onEscapeKeyDown={(event) => {
+          // UAT C7-2 反向：弹窗 Esc 关闭的同次派发中，面板不级联关闭（消费后复位）
+          if (panelEscSuppressRef.current) {
+            panelEscSuppressRef.current = false
+            event.preventDefault()
+            return
+          }
           // 角色选择弹窗/工作台打开时，Escape 只作用于顶层模态层，不级联取消整个任务（UAT C7-2）
           if (showCharacterPicker || showWorkstation) event.preventDefault()
         }}
@@ -564,6 +573,12 @@ export function ChapterSelectionPanel({
           onCancel={onCancel}
           nonModal={showWorkstation}
           escapeSuppressRef={suppressPickerEscapeRef}
+          onEscapedDismiss={() => {
+            panelEscSuppressRef.current = true
+            setTimeout(() => {
+              panelEscSuppressRef.current = false
+            }, 0)
+          }}
           onClose={() => {
             setPickerDismissed(true)
             onCharacterPickerClose?.()
