@@ -13,7 +13,7 @@
 
 import { useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, waitFor } from "@testing-library/react"
 import {
   act,
   fireEvent,
@@ -3204,9 +3204,11 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     ])
     renderPanel()
     fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
-    await flushAsync()
+    // 动态导入 chapter-ingest / canon-dual-write 超出单次 setTimeout(0) 的 flush 能力，改用轮询断言
+    await waitFor(() => {
+      expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 测试章")
+    })
     expect(mocks.ingestChapter).toHaveBeenCalled()
-    expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 测试章")
     expect(screen.getByTestId("save-status").textContent).not.toContain("未完成")
   })
 
@@ -3221,8 +3223,10 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     ])
     renderPanel()
     fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
-    await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("但章节摄取未完成")
+    // 同上：动态导入导致时序超出 flushAsync，改用轮询断言
+    await waitFor(() => {
+      expect(screen.getByTestId("save-status").textContent).toContain("但章节摄取未完成")
+    })
   })
 
   it("autoIngestOnSave：无可用 LLM → 提示未配置", async () => {
