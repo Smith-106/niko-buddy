@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-08-25T15:04:43.856Z",
+  "source": "synthetic",
+  "baseline": {
+    "L1": {
+      "score": 1,
+      "pass": true
+    },
+    "L2": {
+      "score": 1,
+      "pass": true
+    },
+    "L3": {
+      "score": 0,
+      "pass": true
+    },
+    "verdict": "PASS"
+  },
+  "perScenarioL1": {
+    "canon_retrieval": 1,
+    "temporal_current": 1,
+    "former_isolation": 1,
+    "contradiction": 1,
+    "crossbook_leak": 1,
+    "temporal_inversion": 1
+  },
+  "perPoisonL2": {
+    "contradiction": 1,
+    "temporal_inversion": 1,
+    "former_as_current": 1,
+    "crossbook_leak": 1
+  },
+  "corpusDigest": "13404976fd9dbf645ac23209927819ade0a9a9d016197ed727518f7891416e8d",
+  "note": "由 scripts/eval-baseline.mjs 建立（C4 digest 复用 computeCheckpointDigestOf）"
+}

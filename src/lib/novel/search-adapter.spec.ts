@@ -58,11 +58,13 @@ vi.mock("@/lib/graph-relevance", () => ({
 }))
 
 import {
+  filterAuthoritative,
   isAuthoritativeGenerationPath,
   isHistoricalProjectionSnippet,
   novelMixedSearch,
   searchPlot,
 } from "./search-adapter"
+import type { NovelSearchResult } from "./search-adapter"
 
 const pp = "E:/Novel"
 
@@ -582,6 +584,47 @@ describe("novelMixedSearch", () => {
     // survive the authoritativeOnly filter via the type branch, not the path
     expect(results.some((r) => r.type === "canon")).toBe(true)
     expect(results.some((r) => r.type === "recent_chapter")).toBe(true)
+  })
+
+  it("filterAuthoritative: type branch (canon/recent_chapter) precedes historical projection check", () => {
+    const items: NovelSearchResult[] = [
+      { type: "canon", path: `${pp}/wiki/canon.md`, title: "正史", snippet: "is_historical: true", relevance: 0.5 },
+      { type: "recent_chapter", path: `${pp}/wiki/chapters/ch-9.md`, title: "第9章", snippet: "is_historical: true", relevance: 0.5 },
+      { type: "keyword", path: `${pp}/wiki/entities/好.md`, title: "好", snippet: "普通", relevance: 0.5 },
+      { type: "keyword", path: `${pp}/wiki/sources/原始.md`, title: "原始", snippet: "普通", relevance: 0.5 },
+      { type: "keyword", path: `${pp}/wiki/history/旧.md`, title: "旧", snippet: "普通", relevance: 0.5 },
+    ]
+    const filtered = filterAuthoritative(items)
+    expect(filtered.map((i) => i.path)).toEqual([
+      `${pp}/wiki/canon.md`,
+      `${pp}/wiki/chapters/ch-9.md`,
+      `${pp}/wiki/entities/好.md`,
+    ])
+  })
+
+  it("S5' regression: authoritativeOnly filters before truncation so low-fusion canon survives topK", async () => {
+    // 3 non-authoritative keyword hits (fusion 1/61, 1/62, 1/63) fill topK=3;
+    // canon hit (fusion 0.9/61) ranks 4th. Old code truncated inside dedup and
+    // dropped canon; S5' filters first, then truncates → canon survives.
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/sources/原始1.md`, title: "原始1" }),
+      keywordItem({ path: `${pp}/wiki/sources/原始2.md`, title: "原始2" }),
+      keywordItem({ path: `${pp}/wiki/sources/原始3.md`, title: "原始3" }),
+    ])
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path === `${pp}/wiki/canon.md`) return "正史\n关键词行\n更多正史"
+      throw new Error("ENOENT")
+    })
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "关键词",
+      topK: 3,
+      includeCanon: true,
+      authoritativeOnly: true,
+    })
+    expect(results).toHaveLength(1)
+    expect(results[0]!.type).toBe("canon")
+    expect(results[0]!.path).toBe(`${pp}/wiki/canon.md`)
   })
 
   it("graph branch: sorts scored nodes by relevance (2+ readable related files)", async () => {
