@@ -43,6 +43,7 @@ src/test-helpers/*
 # 用 /docs/* 而非 /docs/ 以便白名单递归生效（git 对完全忽略的目录不递归检查否定模式）。
 /docs/*
 !/docs/decision-log/
+!/docs/p2/
 !/docs/.gitkeep
 /AGENTS.md
 /PDD.MD

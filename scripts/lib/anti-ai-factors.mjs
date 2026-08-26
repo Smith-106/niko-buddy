@@ -227,21 +227,37 @@ export function rawParagraphLengthDist(text) {
   return { cv, count: paragraphs.length }
 }
 
-export function runDetection(text, indexes) {
+export function runDetection(text, indexes, thresholds) {
   const ngo = rawNGramOverlap(text, indexes.ai3GramIndex, indexes.human3GramIndex)
   const se = rawSentenceEntropy(text)
   const pf = rawPunctuationFingerprint(text, indexes.aiPunctFingerprint, indexes.humanPunctFingerprint)
   const pl = rawParagraphLengthDist(text)
 
-  // T19 阈值判定:
-  // nGramOverlap: > 0.4 且 > humanOverlap * 1.5
-  const ngoWarn = ngo.aiOverlap > 0.4 && ngo.aiOverlap > ngo.humanOverlap * 1.5
-  // sentenceEntropy: 归一化熵 < 0.7 (= rawEntropy/log2(观测桶数); raw<3.5 在中文短桶场景恒真误报)
-  const seWarn = se.count >= 8 && se.normalized < 0.7
+  // T19/T20 阈值判定（T20 起支持外部阈值覆盖；默认值 = T20 标定值，与
+  // src/lib/novel/anti-ai-thresholds.generated.ts 同步，来源 docs/p2/anti-ai-thresholds.json）:
+  // nGramOverlap: > 0.5 且 > humanOverlap * 1.5
+  const t = thresholds ?? {
+    nGramOverlap: { min: 0.5, humanRatio: 1.5 },
+    sentenceEntropy: { countMin: 8, direction: "low", bound: 0.7 },
+    punctuationFingerprint: { min: 0.7, humanRatio: 1.2 },
+    paragraphLengthDist: { shortThreshold: 0.2, longThreshold: 0.2 },
+  }
+  const ngoMin = t.nGramOverlap?.min ?? 0.4
+  const ngoRatio = t.nGramOverlap?.humanRatio ?? 1.5
+  const ngoWarn = ngo.aiOverlap > ngoMin && ngo.aiOverlap > ngo.humanOverlap * ngoRatio
+  // sentenceEntropy: 归一化熵 < 0.7（T20 诊断：真实 AI 熵高，方向可翻转）
+  const seCountMin = t.sentenceEntropy?.countMin ?? 8
+  const seDir = t.sentenceEntropy?.direction ?? "low" // "low"=熵低触发 | "high"=熵高触发
+  const seBound = t.sentenceEntropy?.bound ?? 0.7
+  const seWarn = se.count >= seCountMin && (seDir === "low" ? se.normalized < seBound : se.normalized > seBound)
   // punctuationFingerprint: > 0.85 且 > humanCosine * 1.2
-  const pfWarn = pf.totalPunct > 0 && pf.aiCosine > 0.85 && pf.aiCosine > pf.humanCosine * 1.2
+  const pfMin = t.punctuationFingerprint?.min ?? 0.85
+  const pfRatio = t.punctuationFingerprint?.humanRatio ?? 1.2
+  const pfWarn = pf.totalPunct > 0 && pf.aiCosine > pfMin && pf.aiCosine > pf.humanCosine * pfRatio
   // paragraphLengthDist: CV < 0.3 (短文本校正: 3-5 段时阈值 0.35)
-  const plThreshold = pl.count < 5 ? 0.35 : 0.3
+  const plShort = t.paragraphLengthDist?.shortThreshold ?? 0.35
+  const plLong = t.paragraphLengthDist?.longThreshold ?? 0.3
+  const plThreshold = pl.count < 5 ? plShort : plLong
   const plWarn = pl.count >= 3 && pl.cv < plThreshold
 
   const warnCount = [ngoWarn, seWarn, pfWarn, plWarn].filter(Boolean).length

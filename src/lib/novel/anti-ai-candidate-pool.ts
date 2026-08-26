@@ -33,6 +33,8 @@ import { fileURLToPath } from "node:url"
 // 方案②构建期预编译合成种子（scripts/generate-anti-ai-corpus-bundle.mjs 产物，入库）。
 // 生产主路径零 fs/零路径解析；resolveJsonModule 保证类型干净。
 import seedsBundle from "./anti-ai-seeds.generated.json"
+// T20 标定阈值（scripts/anti-ai-calibrate.js 生成产物，A-12.3 可回溯：docs/p2/anti-ai-thresholds.json）
+import { ANTI_AI_THRESHOLDS, ANTI_AI_COMBINED_FACTORS } from "./anti-ai-thresholds.generated"
 
 // ============================================================================
 // 类型定义
@@ -212,43 +214,45 @@ function entropy(counts: Record<string, number>, total: number): number {
 function loadCorpusLayer(
   corpusRoot: string,
   layer: "human" | "ai" | "gold",
-  batchId: string,
+  batchIds: string | string[],
 ): CorpusSample[] {
-  const layerDir = resolve(corpusRoot, layer, `batch-${batchId}`)
-  if (!existsSync(layerDir)) {
-    console.warn(`[anti-ai-candidate-pool] 语料层目录不存在: ${layerDir}`)
-    return []
-  }
-
-  const files = readdirSync(layerDir).filter((f) => f.endsWith(".txt") || f.endsWith(".json"))
+  const ids = Array.isArray(batchIds) ? batchIds : [batchIds]
   const samples: CorpusSample[] = []
+  for (const batchId of ids) {
+    const layerDir = resolve(corpusRoot, layer, `batch-${batchId}`)
+    if (!existsSync(layerDir)) {
+      console.warn(`[anti-ai-candidate-pool] 语料层目录不存在: ${layerDir}`)
+      continue
+    }
 
-  for (const file of files) {
-    const filePath = resolve(layerDir, file)
-    try {
-      const text = readFileSync(filePath, "utf-8")
-      // 跳过 JSON 金标准 (structure-only, 不能用作文本分析)
-      if (file.endsWith(".json")) continue
-      // 提取 genre 从文件名: {genre}-NNN.txt
-      const genreMatch = file.match(/^([a-z]+)-\d+/)
-      const genre = genreMatch ? genreMatch[1] : "unknown"
-      // 粗略字数
-      const words = text.replace(/\s+/g, "").length
+    const files = readdirSync(layerDir).filter((f) => f.endsWith(".txt") || f.endsWith(".json"))
 
-      samples.push({
-        file,
-        genre,
-        layer,
-        text,
-        words,
-        source: "synthetic-degraded",
-        batchId,
-      })
-    } catch {
-      console.warn(`[anti-ai-candidate-pool] 读取失败: ${filePath}`)
+    for (const file of files) {
+      const filePath = resolve(layerDir, file)
+      try {
+        const text = readFileSync(filePath, "utf-8")
+        // 跳过 JSON 金标准 (structure-only, 不能用作文本分析)
+        if (file.endsWith(".json")) continue
+        // 提取 genre 从文件名: {genre}-NNN.txt
+        const genreMatch = file.match(/^([a-z]+)-\d+/)
+        const genre = genreMatch ? genreMatch[1] : "unknown"
+        // 粗略字数
+        const words = text.replace(/\s+/g, "").length
+
+        samples.push({
+          file,
+          genre,
+          layer,
+          text,
+          words,
+          source: "synthetic-degraded",
+          batchId,
+        })
+      } catch {
+        console.warn(`[anti-ai-candidate-pool] 读取失败: ${filePath}`)
+      }
     }
   }
-
   return samples
 }
 
@@ -286,11 +290,21 @@ export class AntiAiCandidatePool {
   /** 人写语料标点指纹 (均值) */
   private humanPunctuationFingerprint: Record<string, number> = {}
 
-  constructor(corpusRoot?: string, batchId = "20260821-001") {
+  constructor(corpusRoot?: string, batchIds: string | string[] = "20260821-001", aiBatchIds?: string | string[]) {
     this.corpusRoot = corpusRoot ?? EMBEDDED_ROOT
-    this.batchId = batchId
+    this.batchId = Array.isArray(batchIds) ? batchIds.join("+") : batchIds
+    this._batchIds = Array.isArray(batchIds) ? batchIds : [batchIds]
+    // T20 分层批次：ai 层可独立指定（human 1035 与 ai 139 批次不同）
+    this._aiBatchIds = aiBatchIds === undefined
+      ? this._batchIds
+      : (Array.isArray(aiBatchIds) ? aiBatchIds : [aiBatchIds])
     this.source = "synthetic-degraded"
   }
+
+  /** 多批支持（T20：生产池加载 human 1035 / ai 139 全量） */
+  private _batchIds: string[]
+  /** ai 层独立批次（T20 分层加载） */
+  private _aiBatchIds: string[]
 
   /**
    * 加载语料并构建索引。
@@ -348,9 +362,9 @@ export class AntiAiCandidatePool {
 
   /** 既有 FS 扫描路径（显式 corpusRoot：测试与本地工具）。 */
   private loadCorpusFromFs(): CorpusLoadResult {
-    this.humanCorpus = loadCorpusLayer(this.corpusRoot, "human", this.batchId)
-    this.aiCorpus = loadCorpusLayer(this.corpusRoot, "ai", this.batchId)
-    this.goldCorpus = loadCorpusLayer(this.corpusRoot, "gold", this.batchId)
+    this.humanCorpus = loadCorpusLayer(this.corpusRoot, "human", this._batchIds)
+    this.aiCorpus = loadCorpusLayer(this.corpusRoot, "ai", this._aiBatchIds)
+    this.goldCorpus = loadCorpusLayer(this.corpusRoot, "gold", this._batchIds)
 
     this.buildIndexes()
     this.loaded = true
@@ -465,7 +479,7 @@ export class AntiAiCandidatePool {
     }
     const humanOverlap = humanHits / ngrams.length
 
-    const warn = overlap > 0.4 && overlap > humanOverlap * 1.5
+    const warn = overlap > ANTI_AI_THRESHOLDS.nGramOverlap.min && overlap > humanOverlap * 1.5
 
     return {
       factor: "nGramOverlap",
@@ -515,8 +529,9 @@ export class AntiAiCandidatePool {
     const maxEnt = Math.log2(bucketCount)
     const normalized = maxEnt > 0 ? ent / maxEnt : 0
 
-    // 归一化判定线 —— 与 scripts/lib/anti-ai-factors.mjs 唯一实现同语义
-    const warn = normalized < 0.7
+    // 归一化判定线 —— 与 scripts/lib/anti-ai-factors.mjs 唯一实现同语义（T20 标定：direction/bound）
+    const seT = ANTI_AI_THRESHOLDS.sentenceEntropy
+    const warn = seT.direction === "high" ? normalized > seT.bound : normalized < seT.bound
 
     return {
       factor: "sentenceEntropy",
@@ -597,7 +612,7 @@ export class AntiAiCandidatePool {
       : 0
 
     // warn: 接近 AI 指纹且远于人写指纹
-    const warn = cosineSimilarity > 0.85 && cosineSimilarity > humanSimilarity * 1.2
+    const warn = cosineSimilarity > ANTI_AI_THRESHOLDS.punctuationFingerprint.min && cosineSimilarity > humanSimilarity * 1.2
 
     return {
       factor: "punctuationFingerprint",
@@ -638,9 +653,10 @@ export class AntiAiCandidatePool {
     const cv = coefficientOfVariation(lengths)
     const paraMean = mean(lengths)
 
-    // 短文本校正: 3-5 段时阈值放宽至 0.35 —— 与唯一实现 scripts/lib/anti-ai-factors.mjs 对齐
-    // (2026-08-23 三模型共识: TS 补齐放宽带消除孪生漂移, 阈值本身不变)
-    const plThreshold = paragraphs.length < 5 ? 0.35 : 0.3
+    // 短文本校正: 3-5 段时阈值放宽 —— 与唯一实现 scripts/lib/anti-ai-factors.mjs 对齐
+    // (T20 标定: paragraphLengthDist 降级诊断因子, 阈值 0.2/0.2 来自标定扫描)
+    const plT = ANTI_AI_THRESHOLDS.paragraphLengthDist
+    const plThreshold = paragraphs.length < 5 ? plT.shortThreshold : plT.longThreshold
     const warn = cv < plThreshold
 
     return {
@@ -674,7 +690,7 @@ export class AntiAiCandidatePool {
       this.detectParagraphLengthDist(text),
     ]
 
-    const warnings = factors.filter((f) => f.warn)
+    const warnings = factors.filter((f) => f.warn && ANTI_AI_COMBINED_FACTORS.includes(f.factor))
     const hasWarnings = warnings.length > 0
 
     let summary: string
@@ -770,14 +786,13 @@ export class AntiAiCandidatePool {
         break
       }
       case "addAI3Gram": {
-        // 注入 AI 高频 3-gram (从 AI 索引中取前 10 个高频 3-gram)
-        const topNGrams = [...this.ai3GramIndex.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([ng]) => ng)
-          .filter((ng) => !text.includes(ng))
-        if (topNGrams.length > 0) {
-          mutatedText = `${mutatedText} ${topNGrams.join("，")}。`
+        // T20 修正：从 AI 语料抽整段注入（模拟 AI 化改写；短句无 3-gram 无效）
+        const aiParagraphs = this.aiCorpus
+          .flatMap(s => splitParagraphs(s.text))
+          .filter(p => p.length >= 60 && p.length <= 300)
+        if (aiParagraphs.length > 0) {
+          const picked = aiParagraphs.slice(0, Math.min(2, aiParagraphs.length))
+          mutatedText = `${mutatedText}\n\n${picked.join("\n\n")}`
         }
         break
       }
