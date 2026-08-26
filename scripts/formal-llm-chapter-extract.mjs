@@ -121,7 +121,18 @@ async function callLlm(messages) {
 }
 
 function normalizeSnapshot(parsed, ch) {
-  const arr = (v) => (Array.isArray(v) ? v.map(String) : [])
+  // 对象数组 → 字符串数组：对象取 .name/.label/.id/首字符串值（三模型共识 C1：禁 String() 压成 [object Object]）
+  const toStr = (x) => {
+    if (typeof x === "string") return x
+    if (x && typeof x === "object") {
+      const name = x.name ?? x.label ?? x.id ?? x.title
+      if (typeof name === "string" && name.trim()) return name
+      const first = Object.values(x).find((v) => typeof v === "string" && v.trim())
+      if (first) return first
+    }
+    return String(x)
+  }
+  const arr = (v) => (Array.isArray(v) ? v.map(toStr).filter((s) => s && s !== "[object Object]") : [])
   return {
     chapterId: `chapter-${ch}`,
     chapterNumber: ch,
@@ -167,6 +178,8 @@ chapterTitle, summary, characters[], locations[], organizations[], items[], even
 characterStateChanges[]（「名：状态」）, relationshipChanges[], knowledgeChanges[],
 foreshadowingChanges[], newCanonFacts[], timelineEvents[], conflicts[], endingHook,
 graphNodes[], graphEdges[]（可用空数组）, characterAliases{}（可选）
+
+要求：所有数组元素必须是纯字符串，禁止返回对象/嵌套结构；graphEdges 用「A-关系-B」格式。
 
 正文：
 ---
