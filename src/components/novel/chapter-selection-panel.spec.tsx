@@ -382,9 +382,12 @@ describe("ChapterSelectionPanel", () => {
       characters: CHARS,
       selectedIds: ["c1"],
       onCancel,
-      onClose: onCharacterPickerClose,
+      nonModal: false,
     })
+    expect((mocks.pickerProps as Record<string, unknown>).escapeSuppressRef).toBeTruthy()
     const p = mocks.pickerProps as Record<string, (...args: unknown[]) => void>
+    // UAT C7-1：onClose 为面板本地包装（隐藏弹窗并通知外部），不再是透传的 onCharacterPickerClose 本身
+    expect(typeof p.onClose).toBe("function")
     act(() => p.onToggle("c1"))
     expect(onToggleCharacter).toHaveBeenCalledWith("c1")
     act(() => p.onSelectAllMain())
@@ -395,6 +398,83 @@ describe("ChapterSelectionPanel", () => {
     expect(onDeepExtract).toHaveBeenCalledTimes(1)
     act(() => p.onSimpleExtract())
     expect(onSimpleExtract).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
+  it("UAT C7-1 关闭角色选择弹窗后识别态保留，工作台入口仍在", () => {
+    const onCharacterPickerClose = vi.fn()
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+      onCharacterPickerClose,
+    })
+    // 识别完成：弹窗与工作台入口并存
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    expect(findButton(container, "进入角色工作台")).toBeTruthy()
+    // 关闭角色选择弹窗（X / 返回 → onClose）：弹窗隐藏，识别态保留，入口不消失
+    const p = mocks.pickerProps as Record<string, (...args: unknown[]) => void>
+    act(() => p.onClose())
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeNull()
+    expect(onCharacterPickerClose).toHaveBeenCalledTimes(1)
+    expect(findButton(container, "进入角色工作台")).toBeTruthy()
+    // 入口仍可打开工作台（草稿可达）
+    act(() => findButton(container, "进入角色工作台").click())
+    expect(container.querySelector('[data-testid="character-workstation"]')).toBeTruthy()
+    cleanup()
+  })
+
+  it("UAT C7-1 重新识别开始后弹窗隐藏态复位", () => {
+    const { container, cleanup, rerender } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    // 关闭弹窗
+    const p = mocks.pickerProps as Record<string, (...args: unknown[]) => void>
+    act(() => p.onClose())
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeNull()
+    // 新一轮识别开始（heuristic）：复位 dismissed
+    rerender({ recognitionStatus: "heuristic" })
+    // 识别完成：弹窗再次自动弹出
+    rerender({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    cleanup()
+  })
+
+  it("UAT C7-2 工作台打开时弹窗转为非模态并注入 Esc 抑制 ref", () => {
+    const { container, cleanup } = mount({
+      recognitionStatus: "done",
+      recognizedCharacters: CHARS,
+      onToggleCharacter: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClearSelection: vi.fn(),
+      onDeepExtract: vi.fn(),
+      onSimpleExtract: vi.fn(),
+    })
+    expect(mocks.pickerProps).toMatchObject({ nonModal: false })
+    act(() => findButton(container, "进入角色工作台").click())
+    // 工作台打开：弹窗转非模态（释放焦点陷阱），ref 已传入供 Esc 抑制消费
+    expect(mocks.pickerProps).toMatchObject({ nonModal: true })
+    expect((mocks.pickerProps as Record<string, unknown>).escapeSuppressRef).toBeTruthy()
+    act(() => findByAriaLabel(container, "关闭角色工作台").click())
+    expect(mocks.pickerProps).toMatchObject({ nonModal: false })
     cleanup()
   })
 
