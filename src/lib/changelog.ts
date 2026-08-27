@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "2.6.4",
+  date: "2026-08-26",
+  highlights: {
+    en: [
+      "Adversarial regression-set framework (src/lib/novel/adversarial/): attack-sample schema (paraphrase/homoglyph/llm_rewrite × L1-L3), stratified recall computation, and honest reports (data_status=stub never fabricates scores).",
+      "Bidirectional-likelihood diagnostic factor (Binoculars-style): LLR math with hand-crafted logits fixtures, symmetric aggregation, and explicit degradation semantics (model_available/llr=null/degraded/fallback_reason) — registered alongside sentenceEntropy, ADR-19 zero-LLM in the mechanical layer.",
+      "Author fingerprint baseline: sentence-length/punctuation/dialogue/paragraph extraction plus drift detection (0.3 threshold) for judge-pool recalibration.",
+      "Judge-pool recalibration plan (citation anchors, rolling near-term baseline, L9 explicit trigger/rollback) and L9 revalidation plan (N≥5, drift threshold, dual sign-off, escalation path) documented.",
+    ],
+    zh: [
+      "对抗回归集框架（src/lib/novel/adversarial/）：改写攻击样本 schema（paraphrase/homoglyph/llm_rewrite × L1-L3）+ 分层召回计算 + 诚实报告（data_status=stub 不产模拟分）。",
+      "双向似然诊断因子（Binoculars 系）：LLR 数学计算（手工 logits fixture 可测）+ 对称聚合 + 显式降级语义（model_available/llr=null/degraded/fallback_reason）——与 sentenceEntropy 同级注册，ADR-19 机械层零 LLM。",
+      "原笔指纹基线：句长/标点/对话/段落抽取 + 漂移检测（阈值 0.3）——判官池重标定参照。",
+      "判官池重标定计划（引用锚点/滚动近端基线/L9 显式触发+回退）与 L9 复验计划（N≥5/漂移阈值/双签/升级路径）文档落盘。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_THREE_CHANGELOG: ChangelogEntry = {
   version: "2.6.3",
   date: "2026-08-26",
@@ -1016,6 +1035,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_FOUR_CHANGELOG.version) return [TWO_POINT_SIX_FOUR_CHANGELOG]
   if (version === TWO_POINT_SIX_THREE_CHANGELOG.version) return [TWO_POINT_SIX_THREE_CHANGELOG]
   if (version === TWO_POINT_SIX_TWO_CHANGELOG.version) return [TWO_POINT_SIX_TWO_CHANGELOG]
   if (version === TWO_POINT_SIX_ONE_CHANGELOG.version) return [TWO_POINT_SIX_ONE_CHANGELOG]

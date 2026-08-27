@@ -7,6 +7,15 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.4] - 2026-08-26
+
+### 检测对抗强化（7 团队共识 · 蓝图 blueprint-v264）
+
+- **对抗回归集框架**（`src/lib/novel/adversarial/`）：改写攻击样本 schema（paraphrase/homoglyph/llm_rewrite × L1-L3）+ 分层召回计算 + 诚实报告（`data_status=stub` 不产模拟分——攻击面覆盖审计范式）。
+- **双向似然诊断因子**（Binoculars 系）：LLR 数学计算（手工 logits fixture 可测）+ 对称聚合 + 显式降级语义（`model_available`/`llr=null`/`degraded`/`fallback_reason`）——与 sentenceEntropy 同级注册，ADR-19 机械层零 LLM。
+- **原笔指纹基线**：句长/标点/对话/段落抽取 + 漂移检测（阈值 0.3）——判官池重标定参照。
+- **判官池重标定计划**（引用锚点/滚动近端基线/L9 显式触发+回退）与 **L9 复验计划**（N≥5/漂移阈值/双签/升级路径）文档落盘。
+
 ## [2.6.3] - 2026-08-26
 
 ### 检索与评测工程（S5' / G1）
