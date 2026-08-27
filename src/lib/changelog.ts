@@ -97,6 +97,21 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_SIX_CHANGELOG: ChangelogEntry = {
+  version: "2.6.6",
+  date: "2026-08-27",
+  highlights: {
+    en: [
+      "Housekeeping release (notes-only): performance baseline timestamps refreshed (test auto-artifacts, no functional change).",
+      "Repository cleanup: redundant remote branches archived and removed, build artifacts cleaned, knowledge base re-synced.",
+    ],
+    zh: [
+      "维护发版（notes-only）：性能基线 timestamp 刷新（测试自动产物，无功能变更）。",
+      "仓库清理：冗余远程分支归档删除、构建产物清理、知识库重新同步。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_FIVE_CHANGELOG: ChangelogEntry = {
   version: "2.6.5",
   date: "2026-08-26",
@@ -1054,6 +1069,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_SIX_CHANGELOG.version) return [TWO_POINT_SIX_SIX_CHANGELOG]
   if (version === TWO_POINT_SIX_FIVE_CHANGELOG.version) return [TWO_POINT_SIX_FIVE_CHANGELOG]
   if (version === TWO_POINT_SIX_FOUR_CHANGELOG.version) return [TWO_POINT_SIX_FOUR_CHANGELOG]
   if (version === TWO_POINT_SIX_THREE_CHANGELOG.version) return [TWO_POINT_SIX_THREE_CHANGELOG]

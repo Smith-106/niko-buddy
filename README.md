@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.6.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.6.6-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -418,7 +418,7 @@ sequenceDiagram
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
 > 注：当前源码 tip 为 **v2.6.3**（notes-only：评测真实基线门 S5'/快照修复已落地，安装包资产沿用既有发布，待后续补挂；macOS/Linux planned）。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.6.3）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.6.6）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
