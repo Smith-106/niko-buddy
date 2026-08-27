@@ -49,7 +49,9 @@
       "errorDescription": "分析过程中出现错误",
       "completedDescription": "角色特征提取已完成",
       "viewResult": "查看结果",
-      "handleLater": "稍后处理"
+      "handleLater": "稍后处理",
+      "retry": "重试",
+      "restartInterrupted": "任务因应用重启而中断，可点击重试继续"
     },
     "usageGuidePrompt": {
       "close": "关闭软件使用说明提示",

@@ -34,6 +34,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const removeOutlineTask = useOutlineGenerationStore((s: OutlineGenerationState) => s.removeTask)
   const bookAnalysisTasks = useBookAnalysisStore((s) => s.tasks)
   const removeBookAnalysisTask = useBookAnalysisStore((s) => s.removeTask)
+  const retryBookAnalysisTask = useBookAnalysisStore((s) => s.retryTask)
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(() => {
@@ -156,7 +157,9 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     ? latestBookAnalysisTask.status === "running"
       ? latestBookAnalysisTask.progress.stageLabel || t("appLayout.bookAnalysis.processing")
       : latestBookAnalysisTask.status === "error"
-        ? latestBookAnalysisTask.error || t("appLayout.bookAnalysis.errorDescription")
+        ? latestBookAnalysisTask.error?.includes("应用重启")
+          ? t("appLayout.bookAnalysis.restartInterrupted")
+          : latestBookAnalysisTask.error || t("appLayout.bookAnalysis.errorDescription")
         : latestBookAnalysisTask.progress.stageLabel || t("appLayout.bookAnalysis.completedDescription")
     : ""
 
@@ -267,6 +270,18 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
             </div>
           )}
           <div className="mt-3 flex gap-2">
+            {latestBookAnalysisTask?.status === "error" && latestBookAnalysisTask.error?.includes("应用重启") && (
+              <button
+                type="button"
+                className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
+                onClick={() => {
+                  const result = retryBookAnalysisTask(latestBookAnalysisTask.id)
+                  if (result.ok) setActiveView("bookAnalysis")
+                }}
+              >
+                {t("appLayout.bookAnalysis.retry")}
+              </button>
+            )}
             {latestBookAnalysisTask.status === "completed" && (
               <button
                 type="button"

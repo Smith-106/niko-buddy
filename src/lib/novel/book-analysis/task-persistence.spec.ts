@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   subscribe: vi.fn<(cb: (s: { tasks: unknown[] }) => void) => () => void>(() => () => {}),
   getState: vi.fn<() => { tasks: BookAnalysisTask[] }>(() => ({ tasks: [] })),
 }))
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/commands/fs", () => ({
   readFile: mocks.readFile,
   writeFile: mocks.writeFile,
+  writeFileAtomic: mocks.writeFileAtomic,
 }))
 
 vi.mock("@/stores/book-analysis-store", () => ({
@@ -78,13 +80,15 @@ describe("attachTaskPersistence", () => {
     })
     mocks.getState.mockReturnValue({ tasks: [task] })
     attachTaskPersistence("C:/p")
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
 
     // Fire a change with a NEW tasks array reference (different from getState()'s snapshot).
     listener({ tasks: [{ ...task, status: "error", error: "中断" }] })
     await vi.advanceTimersByTimeAsync(500)
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
-    const args = mocks.writeFile.mock.calls[0]
+    // 原子写：writeFileAtomic 被调用，普通 writeFile 不参与
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+    const args = mocks.writeFileAtomic.mock.calls[0]
     expect(args[0]).toContain("book-analysis-tasks.json")
     const written = JSON.parse(args[1] as string) as { status: string }[]
     expect(written[0].status).toBe("error")
@@ -101,12 +105,12 @@ describe("attachTaskPersistence", () => {
     const same = { tasks: [task] }
     mocks.getState.mockReturnValue(same)
     attachTaskPersistence("C:/p")
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
 
     // 相同引用（如无关字段更新）→ 不触发写盘
     listener(same)
     await vi.advanceTimersByTimeAsync(500)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("500ms 内多次变更 → 防抖只写一次（timer 清理分支）", async () => {
@@ -117,14 +121,14 @@ describe("attachTaskPersistence", () => {
     })
     mocks.getState.mockReturnValue({ tasks: [task] })
     attachTaskPersistence("C:/p")
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
 
     listener({ tasks: [{ ...task, status: "running" }] })
     await vi.advanceTimersByTimeAsync(200)
     listener({ tasks: [{ ...task, status: "error", error: "中断" }] })
     await vi.advanceTimersByTimeAsync(500)
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
-    const written = JSON.parse(mocks.writeFile.mock.calls[0][1] as string) as { status: string }[]
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const written = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string) as { status: string }[]
     expect(written[0].status).toBe("error")
   })
 
@@ -136,12 +140,12 @@ describe("attachTaskPersistence", () => {
     })
     mocks.getState.mockReturnValue({ tasks: [task] })
     const detach = attachTaskPersistence("C:/p")
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
 
     listener({ tasks: [{ ...task, status: "error" }] })
     detach()
     await vi.advanceTimersByTimeAsync(500)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("写盘失败 → best-effort 静默（catch 分支）", async () => {
@@ -152,10 +156,10 @@ describe("attachTaskPersistence", () => {
     })
     mocks.getState.mockReturnValue({ tasks: [task] })
     attachTaskPersistence("C:/p")
-    mocks.writeFile.mockRejectedValue(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("disk full"))
 
     listener({ tasks: [{ ...task, status: "error" }] })
     await vi.advanceTimersByTimeAsync(500)
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
   })
 })

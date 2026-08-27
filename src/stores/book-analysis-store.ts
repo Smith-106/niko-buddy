@@ -18,6 +18,11 @@ import { normalizePath } from "@/lib/path-utils"
 
 type BookAnalysisChapterSummary = NonNullable<BookAnalysisTask["chapters"]>[number]
 
+/** Result of retrying a failed book analysis task. */
+export type RetryTaskResult =
+  | { ok: true; taskId: string }
+  | { ok: false; reason: "task_not_found" | "not_error_status" | "already_running" }
+
 /** Full state surface for the book analysis feature. */
 export interface BookAnalysisState {
   tasks: BookAnalysisTask[]
@@ -45,6 +50,7 @@ export interface BookAnalysisState {
   cancelTask: (taskId: string) => void
   completeTask: (taskId: string) => void
   errorTask: (taskId: string, error: string) => void
+  retryTask: (taskId: string) => RetryTaskResult
   removeTask: (taskId: string) => void
 
   // Result viewer
@@ -235,6 +241,22 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
       ),
       currentTaskId: clearIfCurrent(prev.currentTaskId, taskId),
     })),
+
+  retryTask: (taskId) => {
+    const state = get()
+    const task = state.tasks.find((t) => t.id === taskId)
+    if (!task) return { ok: false, reason: "task_not_found" }
+    if (task.status !== "error") return { ok: false, reason: "not_error_status" }
+    // 同一项目已有 running 任务 → 拒绝重试，避免并发冲突
+    const runningInProject = state.tasks.some(
+      (t) => t.projectPath === task.projectPath && t.status === "running",
+    )
+    if (runningInProject) return { ok: false, reason: "already_running" }
+    // 复用旧 config 启动新任务；旧 error 任务保留（半成品 bookId 目录不清理）
+    const controller = new AbortController()
+    const newTaskId = get().startTask(task.projectPath, task.config, controller)
+    return { ok: true, taskId: newTaskId }
+  },
 
   removeTask: (taskId) =>
     set((prev) => ({

@@ -17,6 +17,7 @@ const bookAnalysis = vi.hoisted(() => {
     triggerSidebarRefresh: vi.fn<() => void>(),
     tasks: [] as BookAnalysisTask[],
     cancelTask: vi.fn<(taskId: string) => void>(),
+    retryTask: vi.fn<(taskId: string) => { ok: true; taskId: string } | { ok: false; reason: string }>(() => ({ ok: true, taskId: "new-task" })),
     requestReopenChapterSelection: vi.fn<(taskId: string) => void>(),
   }
   return { state }
@@ -70,6 +71,10 @@ vi.mock("@/lib/toast", () => ({
 
 vi.mock("@/components/layout/panel-header-with-help", () => ({
   PanelHeaderWithHelp: ({ title }: { title: string }) => <span>{title}</span>,
+}))
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 vi.mock("@/stores/wiki-store", () => ({
@@ -137,6 +142,7 @@ function renderPanel(): { cleanup: () => void; rerender: () => void } {
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  bookAnalysis.state.retryTask.mockReturnValue({ ok: true, taskId: "new-task" })
   bookAnalysis.state.tasks = []
   wiki.state.project = { id: "p1", name: "Novel", path: "/proj" }
   fsMock.listDirectory.mockResolvedValue([])
@@ -638,6 +644,110 @@ describe("BookAnalysisSidebarPanel", () => {
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(bookAnalysis.state.requestReopenChapterSelection).toHaveBeenCalledWith("task-done-min")
+    cleanup()
+    await flushAsync(20)
+  })
+
+  it("renders error tasks with name, error info and a retry button that restarts the analysis", async () => {
+    bookAnalysis.state.tasks = [{
+      id: "task-error",
+      projectPath: "/proj",
+      bookId: "book-1",
+      config: { sourceType: "file", sourcePath: "/books/a.txt", selectedChapters: [] },
+      progress: {
+        stage: "error",
+        stageLabel: "处理中",
+        completed: 0,
+        total: 100,
+        percentage: 0,
+      },
+      status: "error",
+      error: "读取失败",
+      startedAt: 0,
+      updatedAt: 0,
+      chapters: [],
+      characters: [],
+      skills: [],
+    }]
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+    const text = document.body.textContent ?? ""
+    // 任务名：无 metadata 时回退到源文件名
+    expect(text).toContain("a.txt")
+    // 错误信息
+    expect(text).toContain("读取失败")
+    // 重试按钮（i18n key 渲染）
+    const retryBtn = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry")) as HTMLButtonElement | undefined
+    expect(retryBtn).toBeTruthy()
+    await act(async () => {
+      retryBtn?.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(bookAnalysis.state.retryTask).toHaveBeenCalledWith("task-error")
+    // 重试成功 → 切 bookAnalysis 视图
+    expect(wiki.state.setActiveView).toHaveBeenCalledWith("bookAnalysis")
+    cleanup()
+    await flushAsync(20)
+  })
+
+  it("重试被拒（同项目 running）时提示 toast 且不切视图", async () => {
+    bookAnalysis.state.retryTask.mockReturnValue({ ok: false, reason: "already_running" })
+    bookAnalysis.state.tasks = [{
+      id: "task-error",
+      projectPath: "/proj",
+      bookId: "book-1",
+      config: { sourceType: "file", sourcePath: "/books/a.txt", selectedChapters: [] },
+      progress: { stage: "error", stageLabel: "", completed: 0, total: 100, percentage: 0 },
+      status: "error",
+      error: "读取失败",
+      startedAt: 0,
+      updatedAt: 0,
+      chapters: [],
+      characters: [],
+      skills: [],
+    }]
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+    const retryBtn = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry")) as HTMLButtonElement | undefined
+    await act(async () => {
+      retryBtn?.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(bookAnalysis.state.retryTask).toHaveBeenCalledWith("task-error")
+    expect(toastMock.error).toHaveBeenCalledWith("同一项目已有拆书任务在运行，请稍后再试")
+    expect(wiki.state.setActiveView).not.toHaveBeenCalledWith("bookAnalysis")
+    cleanup()
+    await flushAsync(20)
+  })
+
+  it("非 error 任务（running）不显示重试按钮", async () => {
+    bookAnalysis.state.tasks = [{
+      id: "task-running",
+      projectPath: "/proj",
+      bookId: "book-1",
+      config: { sourceType: "file", sourcePath: "/books/a.txt", selectedChapters: [] },
+      progress: {
+        stage: "extracting_characters",
+        stageLabel: "处理中",
+        completed: 42,
+        total: 100,
+        percentage: 42,
+        recognitionStatus: "llm_recognizing",
+      },
+      status: "running",
+      startedAt: 0,
+      updatedAt: 0,
+      chapters: [],
+      characters: [],
+      skills: [],
+    }]
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+    const retryBtn = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry"))
+    expect(retryBtn).toBeUndefined()
     cleanup()
     await flushAsync(20)
   })

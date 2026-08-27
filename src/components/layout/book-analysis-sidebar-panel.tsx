@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { Button } from "@/components/ui/button"
-import { BookOpen, Trash2, RefreshCw, Loader2, Square, CheckCircle2 } from "lucide-react"
+import { BookOpen, Trash2, RefreshCw, Loader2, Square, CheckCircle2, AlertTriangle, RotateCcw } from "lucide-react"
 import { listDirectory, readFile, deleteFile } from "@/commands/fs"
-import { joinPath, normalizePath } from "@/lib/path-utils"
+import { joinPath, normalizePath, getFileName } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { deleteOrphanAurasForBook } from "@/lib/novel/book-analysis/aura-cleanup"
 import { listCharacterAuras } from "@/lib/novel/character-aura"
@@ -28,11 +29,13 @@ interface BookItem {
 }
 
 export function BookAnalysisSidebarPanel() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const { setSelectedLibraryBookId, sidebarRefreshCounter, triggerSidebarRefresh } = useBookAnalysisStore()
   const tasks = useBookAnalysisStore((s) => s.tasks)
   const cancelTask = useBookAnalysisStore((s) => s.cancelTask)
+  const retryTask = useBookAnalysisStore((s) => s.retryTask)
   const requestReopenChapterSelection = useBookAnalysisStore((s) => s.requestReopenChapterSelection)
   const [books, setBooks] = useState<BookItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -43,10 +46,25 @@ export function BookAnalysisSidebarPanel() {
   const runningTasks = tasks.filter((t) => t.status === "running" && t.progress.recognitionStatus !== "done")
   // 识别完成、等待用户处理（点"现在处理"重新打开面板）的任务
   const recognitionDoneTasks = tasks.filter((t) => t.status === "running" && t.progress.recognitionStatus === "done")
+  // 失败任务：显示错误信息 + 重试按钮
+  const errorTasks = tasks.filter((t) => t.status === "error")
 
   const handleReopenRecognition = (taskId: string) => {
     requestReopenChapterSelection(taskId)
     setActiveView("bookAnalysis")
+  }
+
+  const handleRetryTask = (taskId: string) => {
+    const result = retryTask(taskId)
+    if (result.ok) {
+      setActiveView("bookAnalysis")
+    } else {
+      toast.error(
+        result.reason === "already_running"
+          ? "同一项目已有拆书任务在运行，请稍后再试"
+          : "任务重试失败，请稍后再试",
+      )
+    }
   }
 
   useEffect(() => {
@@ -278,8 +296,32 @@ export function BookAnalysisSidebarPanel() {
       </div>
 
       {/* 提取进度区域 */}
-      {(runningTasks.length > 0 || recognitionDoneTasks.length > 0) && (
+      {(runningTasks.length > 0 || recognitionDoneTasks.length > 0 || errorTasks.length > 0) && (
         <div className="shrink-0 border-t px-3 py-2 space-y-2">
+          {/* 失败任务：任务名 + 错误信息 + 重试按钮 */}
+          {errorTasks.map((task) => {
+            const taskName = task.metadata?.title || getFileName(task.config.sourcePath) || t("appLayout.bookAnalysis.error")
+            return (
+              <div key={task.id} className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
+                  <span className="font-medium text-foreground truncate">{taskName}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRetryTask(task.id)}
+                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
+                    title={t("appLayout.bookAnalysis.retry")}
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                    {t("appLayout.bookAnalysis.retry")}
+                  </button>
+                </div>
+                {task.error && (
+                  <div className="text-xs text-destructive/90 truncate">{task.error}</div>
+                )}
+              </div>
+            )
+          })}
           {/* 识别完成、待处理：显示"现在处理"按钮，不再转圈 */}
           {recognitionDoneTasks.map((task) => {
             const stageLabel = task.progress.stageLabel || "识别完成"
