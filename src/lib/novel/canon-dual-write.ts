@@ -134,7 +134,7 @@ export interface WriteOutcome {
 export type CanonCanonPayload =
   | { kind: "episode"; episode: Record<string, unknown> }
   | { kind: "supersede"; request: Record<string, unknown> }
-  | { kind: "supersede_by_digest"; request: { oldDigest: string; capChapter: number; newDigest: string } }
+  | { kind: "supersede_by_digest"; request: { oldDigest: string; capChapter: number; newDigest: string; knownBy?: string[]; revealedAt?: number; causedBy?: string } }
 // 注：generic `supersede` 分支的 `request` 为 Record<string, unknown>，调用方注入的
 // `causedBy` 字段原样经 IPC 下发（§B causedBy 透传），无需在此收窄类型。
 

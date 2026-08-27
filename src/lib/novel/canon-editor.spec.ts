@@ -71,6 +71,7 @@ describe("TASK-P4-29b (T29b) canon-editor — 写路径 op 构建", () => {
   it("构建 supersede_by_digest 校正 op（句柄经写路径下发，不外泄）", () => {
     const { op, audit } = buildCorrectionOp(validCorrection)
     expect(op.canonPayload.kind).toBe("supersede_by_digest")
+    if (op.canonPayload.kind !== "supersede_by_digest") throw new Error("unreachable")
     const req = op.canonPayload.request as Record<string, unknown>
     expect(req.oldDigest).toBe("abc12345def")
     expect(req.revealedAt).toBe(5)
@@ -84,7 +85,7 @@ describe("TASK-P4-29b (T29b) canon-editor — 写路径 op 构建", () => {
   })
 
   it("纯函数应用校正到事实投影（UI 预览，不落库）", () => {
-    const fact = { digest: "abc12345def", knownBy: ["narrator"] as const, revealedAt: 2 }
+    const fact = { digest: "abc12345def", knownBy: ["narrator" as const], revealedAt: 2 }
     const updated = applyCorrectionToFact(fact, validCorrection)
     expect(updated.knownBy).toEqual(["protagonist"])
     expect(updated.revealedAt).toBe(5)
