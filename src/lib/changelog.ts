@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "2.6.5",
+  date: "2026-08-26",
+  highlights: {
+    en: [
+      "Severity gate (D1): hard_block/suggestion verdicts with degraded-cap semantics (degraded never triggers a hard veto) plus a four-dimension manifest state machine (fingerprint/judge/L9/anti-AI).",
+      "Score migration (D2): legacy scores preserved with explicit legacy markers (never recomputed, never retroactive), schemaVersion bump, idempotent pure-function migration.",
+      "Plain-language trio (D3): 19-term jargon→plain mapping (dual-read annotations), [STUB] legend (placeholder ≠ defect, zero positive conclusions), and buildRecalibrationSheet with before/after/drift/judge/sign fields.",
+      "Appeal receipts (D4): three-block receipts (factor chain / baseline version / reference anchors — missing block rejected), state machine with reject→draft loop-back, and stability gate N≥3 with spread ≤0.5.",
+    ],
+    zh: [
+      "评分核心（D1）：severity 硬否决/建议两档 + 降级封顶（降级永不触发硬否决）+ 四维清单状态机（指纹/判官/L9/anti-ai）。",
+      "旧分迁移（D2）：旧分保留 + legacy 显式标记（不重算不追溯）+ schemaVersion 递增 + 幂等纯函数迁移。",
+      "文档三件套（D3）：19 项术语→白话映射（加注双读）+ [STUB] 图例（占位非缺陷·零阳性）+ 重标定对照表（前后分/漂移/判官/签字位）。",
+      "运行保障（D4）：申诉回执三块（因子链/基线版本/对照锚点——缺任一块拒收）+ 状态机 reject→draft 环回 + 稳定性门 N≥3 差≤0.5。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_FOUR_CHANGELOG: ChangelogEntry = {
   version: "2.6.4",
   date: "2026-08-26",
@@ -1035,6 +1054,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_FIVE_CHANGELOG.version) return [TWO_POINT_SIX_FIVE_CHANGELOG]
   if (version === TWO_POINT_SIX_FOUR_CHANGELOG.version) return [TWO_POINT_SIX_FOUR_CHANGELOG]
   if (version === TWO_POINT_SIX_THREE_CHANGELOG.version) return [TWO_POINT_SIX_THREE_CHANGELOG]
   if (version === TWO_POINT_SIX_TWO_CHANGELOG.version) return [TWO_POINT_SIX_TWO_CHANGELOG]
