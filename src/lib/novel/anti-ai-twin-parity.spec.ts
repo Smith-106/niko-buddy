@@ -59,10 +59,10 @@ describe("anti-ai 孪生奇偶校验 (.mjs 权威实现 ↔ 生产 TS 池)", () 
     }
   })
 
-  it("放宽带在双侧同时生效 (3-4 段阈值 0.35 而非 0.30)", () => {
+  it("short/long 阈值参数化生效 (T20 标定: 0.2/0.2, 双侧一致)", () => {
     for (const name of ["band4", "band3"]) {
       const ts = pool.analyze(FIXTURES[name]).factors.find((f) => f.factor === "paragraphLengthDist")!
-      expect(ts.threshold, `${name}: TS 应携带 0.35 放宽带`).toBe(0.35)
+      expect(ts.threshold, `${name}: TS 应携带 T20 标定 short 阈值 0.2`).toBe(0.2)
       const indexes = buildCorpusIndexes([{ text: FIXTURES.band4 }], [{ text: FIXTURES.uniform8 }])
       expect(runDetection(FIXTURES[name], indexes).warns.paragraphLengthDist).toBe(ts.warn)
     }
