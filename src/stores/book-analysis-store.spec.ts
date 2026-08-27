@@ -335,6 +335,73 @@ describe("book analysis store 任务生命周期", () => {
     expect(tasks[0].status).toBe("error")
     expect(tasks[0].error).toBe("应用重启，任务已中断")
   })
+
+  it("retryTask 对 error 任务重试：复用 config、新 taskId、新 AbortController、旧任务保留", () => {
+    const oldId = useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig)
+    useBookAnalysisStore.getState().errorTask(oldId, "读取失败")
+
+    const result = useBookAnalysisStore.getState().retryTask(oldId)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected ok")
+
+    const tasks = useBookAnalysisStore.getState().tasks
+    // 旧任务保留且仍为 error（半成品 bookId 目录不清理）
+    expect(tasks).toHaveLength(2)
+    const oldTask = tasks.find((t) => t.id === oldId)!
+    expect(oldTask.status).toBe("error")
+    expect(oldTask.error).toBe("读取失败")
+    // 新任务：running、config 透传（同一引用）、新 id、新 AbortController
+    const newTask = tasks.find((t) => t.id === result.taskId)!
+    expect(result.taskId).not.toBe(oldId)
+    expect(newTask.status).toBe("running")
+    expect(newTask.projectPath).toBe("E:/Novel")
+    expect(newTask.config).toBe(baseConfig)
+    expect(newTask.abortController).toBeInstanceOf(AbortController)
+    expect(useBookAnalysisStore.getState().currentTaskId).toBe(result.taskId)
+  })
+
+  it("retryTask 同 projectPath 已有 running 任务 → 拒绝", () => {
+    const errId = useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig)
+    useBookAnalysisStore.getState().errorTask(errId, "boom")
+    useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig) // 同项目 running
+
+    expect(useBookAnalysisStore.getState().retryTask(errId)).toEqual({
+      ok: false,
+      reason: "already_running",
+    })
+    expect(useBookAnalysisStore.getState().tasks).toHaveLength(2)
+  })
+
+  it("retryTask 其他项目的 running 任务不阻塞重试", () => {
+    const errId = useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig)
+    useBookAnalysisStore.getState().errorTask(errId, "boom")
+    useBookAnalysisStore.getState().startTask("E:/Other", baseConfig) // 其他项目 running
+
+    const result = useBookAnalysisStore.getState().retryTask(errId)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected ok")
+    expect(useBookAnalysisStore.getState().tasks).toHaveLength(3)
+    expect(useBookAnalysisStore.getState().getTask(result.taskId)?.status).toBe("running")
+  })
+
+  it("retryTask 任务不存在 / 非 error 状态 → 拒绝且不新增任务", () => {
+    expect(useBookAnalysisStore.getState().retryTask("ghost")).toEqual({
+      ok: false,
+      reason: "task_not_found",
+    })
+    const runningId = useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig)
+    expect(useBookAnalysisStore.getState().retryTask(runningId)).toEqual({
+      ok: false,
+      reason: "not_error_status",
+    })
+    const completedId = useBookAnalysisStore.getState().startTask("E:/Novel", baseConfig)
+    useBookAnalysisStore.getState().completeTask(completedId)
+    expect(useBookAnalysisStore.getState().retryTask(completedId)).toEqual({
+      ok: false,
+      reason: "not_error_status",
+    })
+    expect(useBookAnalysisStore.getState().tasks).toHaveLength(2)
+  })
 })
 
 describe("book analysis store 角色识别 actions (feature/character-recognition-and-simple-mode)", () => {

@@ -1,4 +1,4 @@
-import { writeFile, readFile } from "@/commands/fs"
+import { writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import type { BookAnalysisTask } from "@/lib/novel/book-analysis/types"
@@ -70,7 +70,7 @@ export function attachTaskPersistence(projectPath: string): () => void {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       const summaries = state.tasks.map(toSummary)
-      void writeFile(tasksFilePath(projectPath), JSON.stringify(summaries, null, 2)).catch(() => {
+      void writeFileAtomic(tasksFilePath(projectPath), JSON.stringify(summaries, null, 2)).catch(() => {
         // non-critical: persistence is best-effort
       })
     }, 500)

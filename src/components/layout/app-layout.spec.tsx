@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
     bookState: {
       tasks: [] as Array<Record<string, unknown>>,
       removeTask: vi.fn(),
+      retryTask: vi.fn(() => ({ ok: true, taskId: "b2" })),
     },
     // ---- fs ----
     listDirectory: vi.fn(),
@@ -312,6 +313,31 @@ describe("AppLayout", () => {
     ]
     const view = render(<AppLayout onSwitchProject={() => {}} />)
     expect(screen.getByText("appLayout.bookAnalysis.errorDescription")).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("拆书通知：error 含「应用重启」→ restartInterrupted 文案 + 重试按钮；重试成功切视图", () => {
+    mocks.bookState.tasks = [
+      bookTask({ status: "error", error: "应用重启，任务已中断", progress: { stage: "error", stageLabel: null, percentage: 0, currentItem: null } }),
+    ]
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    expect(screen.getByText("appLayout.bookAnalysis.error")).toBeInTheDocument()
+    expect(screen.getByText("appLayout.bookAnalysis.restartInterrupted")).toBeInTheDocument()
+    expect(screen.getByText("appLayout.bookAnalysis.retry")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("appLayout.bookAnalysis.retry"))
+    expect(mocks.bookState.retryTask).toHaveBeenCalledWith("b1")
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("bookAnalysis")
+    view.unmount()
+  })
+
+  it("拆书通知：普通 error（不含「应用重启」）不显示重试按钮", () => {
+    mocks.bookState.tasks = [
+      bookTask({ status: "error", error: "分析失败", progress: { stage: "error", stageLabel: null, percentage: 0, currentItem: null } }),
+    ]
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    expect(screen.getByText("分析失败")).toBeInTheDocument()
+    expect(screen.queryByText("appLayout.bookAnalysis.retry")).not.toBeInTheDocument()
+    expect(screen.queryByText("appLayout.bookAnalysis.restartInterrupted")).not.toBeInTheDocument()
     view.unmount()
   })
 

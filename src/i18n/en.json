@@ -49,7 +49,9 @@
       "errorDescription": "An error occurred during analysis",
       "completedDescription": "Character feature extraction is complete",
       "viewResult": "View results",
-      "handleLater": "Later"
+      "handleLater": "Later",
+      "retry": "Retry",
+      "restartInterrupted": "The task was interrupted by an app restart. You can retry it."
     },
     "usageGuidePrompt": {
       "close": "Close usage guide prompt",
