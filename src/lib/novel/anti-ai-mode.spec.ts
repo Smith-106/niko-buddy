@@ -15,7 +15,7 @@
  *   - Draft-first (ADR-08): 不触及 .novel/status.json 正式层。
  */
 import { describe, expect, it } from "vitest"
-import { route, type ControlState, type AntiAiMode } from "./control-kernel"
+import { route, type ControlState } from "./control-kernel"
 import { ANTI_AI_MODES } from "./control-sentinels"
 
 // ============================================================================
@@ -91,7 +91,7 @@ describe("TASK-P2-21 (T21) 三档 anti_ai_mode 门控契约", () => {
     const s = baseState({
       antiAiMode: "warn",
       gates: { consistency: "pass", anti_ai: "fail", quality: "pass" },
-      warnAnnotation: { triggeredFactors: ["nGramOverlap"], calibrationSource: "real-corpus-1035-139" },
+      warnAnnotation: { triggeredFactors: ["nGramOverlap"], calibrationSource: "real-corpus-1035-139", summary: "anti-ai warn 档触发（T20 标定）" },
     })
     const r = route(s)
     expect(r.action).toBe("judge")

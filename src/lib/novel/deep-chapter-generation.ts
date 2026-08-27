@@ -468,6 +468,7 @@ export interface DeepChapterRouteRuntime {
   gates: RouteGates
   antiAiMode: KernelAntiAiMode
   manualReviewRequired: boolean
+  blockThresholdApplied: boolean
   foundationMissing: string[]
   planningTier: ""
   reviewInterval: number
