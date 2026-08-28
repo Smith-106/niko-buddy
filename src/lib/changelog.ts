@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_ELEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.6.11",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Domain drift baseline (D1): (chapter, model, prompt) triple anchor + cosine distance + ±σ hard baseline (over-threshold = drift).",
+      "Cross-dimension gate (D4): contradiction matrix rule table; multi-signal agreement required for AI verdict; single-dimension hit degrades to gray zone (no kill).",
+      "Full-window drift gate (D5): sliding-window score sequence; inter-window drift over threshold triggers full-chapter recheck; zero false kill on legal techniques.",
+      "P0 lock (D7): state machine LOCKED on any P0 failure; locked set = P0 ∪ uncleared Q0 (no silent clearing); explicit per-item close only; strictly P0-scoped; Quality never overrides.",
+      "Observation: FDR monitor (D2, EWMA control chart) + gray-zone review (D6, enter 0.45/exit 0.55, Kappa≥0.7, blocks writing until human review).",
+    ],
+    zh: [
+      "域漂移基准（D1）：(章次,模型,提示词) 三元组版本锚定 + cosine 距离 + ±σ 硬基线（超阈即漂）。",
+      "跨维交叉门（D4）：矛盾矩阵规则表；多信号一致才判 AI；单维命中降级灰区（不杀）。",
+      "全文窗漂移门（D5）：滑窗检测分序列；窗间漂移超阈整章重检；合法手法零误杀。",
+      "P0 锁死（D7）：任一 P0 失败→LOCKED；锁触发输出集=P0∪D8 未清（禁止静默清零）；仅显式逐项 close；严格限定 P0；Quality 不得覆盖。",
+      "观测：FDR 监控（D2，EWMA 控制图）/ 灰区复核（D6，进 0.45/出 0.55，Kappa≥0.7，阻断写作至人工复核）。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_TEN_CHANGELOG: ChangelogEntry = {
   version: "2.6.10",
   date: "2026-08-28",
@@ -1151,6 +1172,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_ELEVEN_CHANGELOG.version) return [TWO_POINT_SIX_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TEN_CHANGELOG.version) return [TWO_POINT_SIX_TEN_CHANGELOG]
   if (version === TWO_POINT_SIX_NINE_CHANGELOG.version) return [TWO_POINT_SIX_NINE_CHANGELOG]
   if (version === TWO_POINT_SIX_EIGHT_CHANGELOG.version) return [TWO_POINT_SIX_EIGHT_CHANGELOG]
