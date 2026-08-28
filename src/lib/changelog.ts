@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.7.2",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Dual-gate self-heal rollback: P0/P1 failures trigger auto-rollback (P2 advisory only); success rate >=90% (N=100 injection), P95 <60s dual condition; forced trace 100% + manual rollback channel + circuit breaker (chapter >=3 consecutive / wave >=10 total); silent rollback = 0; draft-only (pending/ready).",
+      "Circuit breaker three states: closed -> open (300s cooldown, manual takeover) -> half-open (1 probe, success closes / failure re-opens).",
+      "Chaos platform: default disabled, shadow-environment only (read-only replay), dual-person authorization, observable faults only (network/latency/resource); P0 consistency engine read-only shield (100% retained under injection); zero dirty writes to .novel/status.json.",
+      "Cold-review closeout finalize: Track A mechanical gates only (L9 literary score never auto-closes); miscloseout <2% (independent audit N>=200, 95% CI one-sided upper <2%) + manual confirm gate + low-confidence to human.",
+      "W3 adoption auto-intervention: whitelist actions (adopt/reject/re-evaluate/flag-P0/dispatch-task; never rewrites formal content); 100% audit trace (rule ID + veto); gate invariant P0>P1>P2 zero violations.",
+    ],
+    zh: [
+      "双门自愈回滚：P0/P1 失败触发自动回滚（P2 仅建议）；成功率 ≥90%（注入 N=100），P95<60s 双条件；强制 trace 100% + 人工回滚通道 + 熔断（单章连续 ≥3 / 单波累计 ≥10）；静默回滚=0；只动 pending/ready 草稿。",
+      "熔断三态：closed → open（300s 冷却转人工）→ half-open（1 次试探，成功转 closed 失败回 open）。",
+      "混沌平台：默认 disabled，仅影子环境（只读回放），双人授权，只注可观测故障（网络/延迟/资源）；P0 一致性引擎只读保护壳（注入下 100% 保持）；.novel/status.json 零脏写。",
+      "冷评收口：仅 Track A 机械门控（L9 文学分永不自动收口）；误结案 <2%（独立复核 N≥200，95%CI 单侧上界 <2%）+ 人工确认闸口 + 低置信转人工。",
+      "W3 采纳自动干预：白名单动作（采纳/驳回/重评/标 P0/派发任务——永不改写正式内容）；100% 审计 trace（规则 ID + veto）；门控不变量 P0>P1>P2 零违反。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.7.1",
   date: "2026-08-28",
@@ -1254,6 +1275,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_TWO_CHANGELOG.version) return [TWO_POINT_SEVEN_TWO_CHANGELOG]
   if (version === TWO_POINT_SEVEN_ONE_CHANGELOG.version) return [TWO_POINT_SEVEN_ONE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_THIRTEEN_CHANGELOG.version) return [TWO_POINT_SIX_THIRTEEN_CHANGELOG]
