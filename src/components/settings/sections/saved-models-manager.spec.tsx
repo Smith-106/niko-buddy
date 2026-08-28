@@ -279,7 +279,7 @@ describe("SavedModelsManager — 新增/编辑/删除", () => {
 })
 
 describe("SavedModelsManager — 拉取模型 (handleFetchModels)", () => {
-  it("成功：拉取数量 toast + console.log；按钮 busy 文案", async () => {
+  it("成功：拉取数量 toast；按钮 busy 文案", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "a" }, { id: "b" }, { id: "c" }] }), { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)
     renderManager([])
@@ -291,7 +291,6 @@ describe("SavedModelsManager — 拉取模型 (handleFetchModels)", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://new.example.com/v1/models", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer sk-new" }),
     }))
-    expect(console.log).toHaveBeenCalled()
     expect(screen.getByText("拉取模型")).toBeInTheDocument()
   })
 
@@ -355,7 +354,7 @@ describe("SavedModelsManager — 拉取模型 (handleFetchModels)", () => {
 })
 
 describe("SavedModelsManager — 测试模型 (handleTestModel)", () => {
-  it("卡片测试：成功 → 成功 toast + console.log；busy 文案切换", async () => {
+  it("卡片测试：成功 → 成功 toast；busy 文案切换", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)
     renderManager([makeModel()])

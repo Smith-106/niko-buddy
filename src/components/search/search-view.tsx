@@ -93,11 +93,9 @@ async function runNovelPanelSearch(
   }
 
   if (!shouldUseAdvancedNovelSearch(options)) {
-    console.log("[Search] using minimal novel keyword search")
     return runWikiPanelSearch(projectPath, query, { rerank: false, includeVector: false })
   }
 
-  console.log("[Search] using advanced novel mixed search")
   const { searchPlot } = await import("@/lib/novel/search-adapter")
   const novelResults = await searchPlot(projectPath, query, options)
   return novelResults.map((result) => ({
@@ -192,9 +190,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
 
   const doSearch = useCallback(
     async (q: string) => {
-      console.log("[Search] START", q, "novelMode=", novelMode)
       if (!project || !q.trim()) {
-        console.log("[Search] SKIP - no project or empty query")
         setResults([])
         return
       }
@@ -211,19 +207,16 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
         if (novelMode) {
           const t0 = performance.now()
           const novelResults = await runNovelPanelSearch(projectPath, q, searchOpts)
-          console.log("[Search] novel panel search done in", Math.round(performance.now() - t0), "ms, got", novelResults.length, "results")
           setResults(novelResults)
         } else {
           const t0 = performance.now()
           const found = await runWikiPanelSearch(projectPath, q, { rerank: true, includeVector: true })
-          console.log("[Search] searchWiki done in", Math.round(performance.now() - t0), "ms, got", found.length, "results")
           setResults(found)
         }
       } catch (err) {
         console.error("[搜索] 失败：", err instanceof Error ? err.message : String(err))
         setResults([])
       } finally {
-        console.log("[Search] FINISHED, searching=", false)
         setSearching(false)
       }
     },
@@ -346,7 +339,6 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
       const pp = normalizePath(projectPath)
       const rawPath = await findRawSourceForImage(hit.url, pp)
       if (rawPath) {
-        console.log(`[search:jump] ${hit.url} 鈫?raw source ${rawPath}`)
         openPath = rawPath
         scrollTarget = imageUrlToAbsolute(scrollTarget, pp)
       } else {

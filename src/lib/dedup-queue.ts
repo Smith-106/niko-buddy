@@ -266,9 +266,6 @@ export async function restoreQueue(
   const pending = queue.filter((t) => t.status === "pending").length
   const failed = queue.filter((t) => t.status === "failed").length
   if (pending > 0 || restored > 0) {
-    console.log(
-      `[Dedup Queue] Restored: ${pending} pending, ${failed} failed, ${restored} resumed from interrupted`,
-    )
     processNext(projectId)
   }
 }
@@ -313,9 +310,6 @@ async function processNext(projectId: string): Promise<void> {
     return
   }
 
-  console.log(
-    `[Dedup Queue] Processing: merge ${next.group.slugs.join(",")} → ${next.canonicalSlug}`,
-  )
 
   currentAbortController = new AbortController()
 
@@ -331,7 +325,6 @@ async function processNext(projectId: string): Promise<void> {
     // Notify rest of app that wiki tree changed.
     useWikiStore.getState().bumpDataVersion()
 
-    console.log(`[Dedup Queue] Done: ${next.group.slugs.join(",")}`)
   } catch (err) {
     if (currentProjectId !== projectId) return
     currentAbortController = null

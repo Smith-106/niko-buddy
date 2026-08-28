@@ -39,7 +39,6 @@ export function WelcomeScreen({
     setIsRestoring(true)
     try {
       const result = await importBackup("full", undefined, (progress) => {
-        console.log("[数据恢复]", progress.stage, progress.message)
       })
       if (result.success) {
         // 恢复成功后刷新最近项目列表

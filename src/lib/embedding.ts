@@ -508,17 +508,12 @@ export async function embedPage(
   await fingerprintIndex.save(projectPath)
 
   if (rows.length === 0) {
-    console.log(
-      `[Embedding] Indexed nothing for "${pageId}" — ${chunks.length - dedupedChunks} chunks failed, ${dedupedChunks} deduped. See getLastEmbeddingError().`,
-    )
+      console.warn(`[Embedding] Indexed nothing for "${pageId}" — ${chunks.length - dedupedChunks} chunks failed, ${dedupedChunks} deduped. See getLastEmbeddingError().`)
     return
   }
 
   await vectorUpsertChunks(projectPath, pageId, rows)
   const elapsed = Math.round(performance.now() - t0)
-  console.log(
-    `[Embedding] Indexed "${pageId}": ${rows.length}/${chunks.length} chunks (${failedChunks} failed, ${dedupedChunks} deduped) in ${elapsed}ms`,
-  )
 }
 
 /**
@@ -648,9 +643,6 @@ export async function searchByEmbedding(
   ranked.sort((a, b) => b.score - a.score)
 
   const elapsed = Math.round(performance.now() - t0)
-  console.log(
-    `[Embedding] LanceDB chunk search: ${rawChunks.length} chunks → ${ranked.length} pages in ${elapsed}ms`,
-  )
 
   return ranked.slice(0, topK)
 }

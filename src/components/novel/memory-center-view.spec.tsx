@@ -252,7 +252,7 @@ describe("MemoryCenterView", () => {
     expect(fsMock.readFile).toHaveBeenCalledWith("E:/Novel/wiki/memory/character-states.md")
     // 可编辑 → 编辑按钮
     fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
-    const textarea = screen.getByRole("textbox")
+    const textarea = await screen.findByRole("textbox")
     fireEvent.change(textarea, { target: { value: "新正文" } })
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
     await waitFor(() => {

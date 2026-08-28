@@ -284,19 +284,16 @@ describe("enqueueBatch", () => {
     ).rejects.toThrow(/not the active project/)
   })
 
-  it("enqueues multiple files, logs, and returns an id per unique path", async () => {
+  it("enqueues multiple files and returns an id per unique path", async () => {
     await restoreQueue("pid", "/proj")
-    const log = vi.spyOn(console, "log").mockImplementation(() => {})
     const ids = await enqueueBatch("pid", [
       { sourcePath: "raw/sources/a.pdf", folderContext: "papers" },
       { sourcePath: "raw/sources/b.docx", folderContext: "docs" },
     ])
     expect(ids).toHaveLength(2)
     expect(ids[0]).not.toBe(ids[1])
-    expect(log).toHaveBeenCalledWith("[Ingest Queue] Enqueued 2 files")
     await vi.waitFor(() => expect(getQueue()).toHaveLength(0))
     expect(mocks.autoIngest).toHaveBeenCalledTimes(2)
-    log.mockRestore()
   })
 
   it("dedupes paths repeated inside the same batch", async () => {
@@ -365,11 +362,8 @@ describe("cancelTask", () => {
     await restoreQueue("pid", "/proj")
     const gate = deferred<string | null>()
     mocks.getProjectPathById.mockReturnValue(gate.promise)
-    const log = vi.spyOn(console, "log").mockImplementation(() => {})
     await cancelTask("t1")
     expect(getQueue()).toHaveLength(0)
-    expect(log).toHaveBeenCalledWith("[Ingest Queue] Cancelled: raw/sources/a.pdf")
-    log.mockRestore()
     gate.resolve("/proj")
     await flush()
   })
@@ -600,8 +594,7 @@ describe("restoreQueue", () => {
     expect(mocks.autoIngest).not.toHaveBeenCalled()
   })
 
-  it("logs the restore summary when pending tasks are resumed", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {})
+  it("restores pending tasks and resumes interrupted ones", async () => {
     mocks.readFile.mockResolvedValue(
       JSON.stringify([
         task({ id: "t1", status: "pending" }),
@@ -610,12 +603,8 @@ describe("restoreQueue", () => {
       ]),
     )
     await restoreQueue("pid", "/proj")
-    expect(log).toHaveBeenCalledWith(
-      "[Ingest Queue] Restored: 2 pending, 1 failed, 1 resumed from interrupted",
-    )
     await vi.waitFor(() => expect(getQueue().length).toBe(1))
     expect(getQueue()[0]?.id).toBe("t3")
-    log.mockRestore()
   })
 })
 

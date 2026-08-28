@@ -289,7 +289,6 @@ export function BookAnalysisView() {
   const handleChapterSelectionBackground = () => {
     /* v8 ignore next */
     if (!chapterSelectionData) return
-    console.log('[后台运行] 关闭面板，任务继续后台执行', chapterSelectionData.taskId)
     toast.info("任务已在后台运行，完成后会自动刷新")
     setChapterSelectionData(null)
   }
@@ -640,9 +639,7 @@ export function BookAnalysisView() {
           onBackground={handleChapterSelectionBackground}
           onAnalyzingChange={(analyzing) => {
             if (analyzing) {
-              console.log('[book-analysis-view] 进入分析中状态')
             } else {
-              console.log('[book-analysis-view] 退出分析中状态')
             }
           }}
           // 角色识别 + 角色选择

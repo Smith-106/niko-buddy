@@ -590,7 +590,6 @@ export async function ingestChapter(
       await runProjection("graph_entity_pages", async () => {
         const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
         if (writtenPaths.length > 0) {
-          console.log(`[Chapter Ingest] Wrote ${writtenPaths.length} entity pages from snapshot`)
         }
       })
 
@@ -604,7 +603,6 @@ export async function ingestChapter(
         const patch = JSON.parse(patchJson)
         const patchPaths = await writePatchFieldsToWiki(pp, patch)
         if (patchPaths.length > 0) {
-          console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
         }
       })
 
@@ -683,7 +681,6 @@ export async function ingestChapter(
         const memoryPaths = await exportStructuredMemoryToWiki(pp, snapshot)
         /* v8 ignore next */
         if (memoryPaths.length > 0) {
-          console.log(`[Chapter Ingest] Wrote ${memoryPaths.length} structured memory pages`)
         }
       })
     }

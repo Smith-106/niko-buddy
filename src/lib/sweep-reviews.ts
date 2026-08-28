@@ -458,7 +458,6 @@ export async function sweepResolvedReviews(
     })
   }
 
-  if (total > 0) console.log(`[Sweep Reviews] ${detail}`)
 
   return total
 }

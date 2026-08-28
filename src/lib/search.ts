@@ -230,7 +230,6 @@ export async function searchWiki(
   options: SearchWikiOptions = {},
 ): Promise<SearchResult[]> {
   if (!query.trim()) return []
-  console.log("[searchWiki] START query=", query, "rerank=", options.rerank)
   const pp = normalizePath(projectPath)
 
   const tokens = tokenizeQuery(query)
@@ -259,20 +258,13 @@ export async function searchWiki(
   // not a workflow we want to optimize at the cost of every other
   // search call.
   try {
-    console.log("[searchWiki] listing directory...")
     const t0 = performance.now()
     const wikiTree = await listDirectory(`${pp}/wiki`)
-    console.log("[searchWiki] listDirectory done in", Math.round(performance.now() - t0), "ms")
     const wikiFiles = flattenMdFiles(wikiTree)
     const tList = Math.round(performance.now() - t0)
-    console.log("[searchWiki] wikiFiles:", wikiFiles.length)
     const t1 = performance.now()
     await searchFiles(wikiFiles, effectiveTokens, query, results)
     const tRead = Math.round(performance.now() - t1)
-    console.log("[searchWiki] searchFiles done in", tRead, "ms")
-    console.log(
-      `[Search:token] wiki/ ${wikiFiles.length} files | list=${tList}ms read+match=${tRead}ms`,
-    )
   } catch {
     // no wiki directory
   }
@@ -294,7 +286,6 @@ export async function searchWiki(
   if (options.includeVector !== false) {
     try {
       const embCfg = useWikiStore.getState().embeddingConfig
-      console.log(`[Vector Search] Config: enabled=${embCfg.enabled}, model="${embCfg.model}"`)
       if (embCfg.enabled && embCfg.model) {
         const t0 = performance.now()
         const { searchByEmbedding } = await import("@/lib/embedding")
@@ -302,12 +293,6 @@ export async function searchWiki(
         const vectorMs = Math.round(performance.now() - t0)
         vectorCount = vectorResults.length
 
-        console.log(
-          `[Vector Search] query="${query}" | ${vectorResults.length} results in ${vectorMs}ms | model=${embCfg.model}` +
-          (vectorResults.length > 0
-            ? ` | top: ${vectorResults.slice(0, 5).map((r) => `${r.id}(${r.score.toFixed(3)})`).join(", ")}`
-            : "")
-        )
 
         // Build vectorRank by page_id (slug); searchByEmbedding returns
         // results pre-sorted by descending similarity.
@@ -349,7 +334,6 @@ export async function searchWiki(
           }
         }
         if (added > 0) {
-          console.log(`[Vector Search] Added ${added} vector-only pages to candidate set`)
         }
       }
     } catch (err) {
@@ -357,7 +341,6 @@ export async function searchWiki(
       vectorRank = new Map()
     }
   } else {
-    console.log("[Vector Search] skipped by options")
   }
 
   // ── RRF fusion: replace each result's score with
@@ -384,18 +367,13 @@ export async function searchWiki(
   })
 
   const tokenHits = tokenRank.size
-  console.log(
-    `[Search] query="${query}" | RRF fused: ${tokenHits} token + ${vectorCount} vector → ${results.length} unique`,
-  )
 
   const limited = results.slice(0, options.topK ?? MAX_RESULTS)
   if (!options.rerank || limited.length <= 1) {
-    console.log("[searchWiki] skip rerank, returning", limited.length)
     return limited
   }
 
   try {
-    console.log("[searchWiki] calling rerankCandidates with", limited.length, "candidates...")
     const { rerankCandidates } = await import("@/lib/rerank")
     const reranked = await rerankCandidates(
       query,
@@ -409,7 +387,6 @@ export async function searchWiki(
         purpose: options.rerankPurpose ?? "用于搜索结果展示和知识检索。",
       },
     )
-    console.log("[searchWiki] rerankCandidates done, got", reranked.length)
     return reranked
   } catch (error) {
     // F-16 (CWE-532): rerank may hit an embedding/rerank provider whose error
@@ -466,7 +443,6 @@ async function searchFiles(
     const batch = files.slice(i, i + SEARCH_READ_CONCURRENCY)
     const batchNum = Math.floor(i / SEARCH_READ_CONCURRENCY) + 1
     const totalBatches = Math.ceil(files.length / SEARCH_READ_CONCURRENCY)
-    console.log("[searchFiles] batch", batchNum, "/", totalBatches, "| reading", batch.length, "files...")
     const batchResults = await Promise.all(
       batch.map(async (file) => {
         let content: string
@@ -478,7 +454,6 @@ async function searchFiles(
         return scoreFile(file, content, tokens, queryPhrase, query)
       }),
     )
-    console.log("[searchFiles] batch", batchNum, "done, matched", batchResults.filter(Boolean).length)
     for (const r of batchResults) {
       if (r) results.push(r)
     }

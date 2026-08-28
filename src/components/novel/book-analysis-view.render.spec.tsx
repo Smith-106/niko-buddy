@@ -653,8 +653,7 @@ describe("BookAnalysisView 渲染覆盖", () => {
     expect(screen.queryByTestId("chapter-panel")).toBeNull()
   })
 
-  it("章节面板后台运行：toast 提示 + console.log + 关闭面板", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+  it("章节面板后台运行：toast 提示 + 关闭面板", async () => {
     mocks.wikiState.project = PROJECT
     mocks.baState.tasks = [makeTask()]
     mockAnalysisSuccess()
@@ -664,12 +663,10 @@ describe("BookAnalysisView 渲染覆盖", () => {
     await waitFor(() => expect(screen.getByTestId("panel-chapters")).toBeTruthy())
     await clickAndFlush("panel-background")
     expect(mocks.toastInfo).toHaveBeenCalledWith("任务已在后台运行，完成后会自动刷新")
-    expect(logSpy).toHaveBeenCalledWith("[后台运行] 关闭面板，任务继续后台执行", "task-1")
     expect(screen.queryByTestId("chapter-panel")).toBeNull()
   })
 
-  it("onAnalyzingChange 回调输出进入/退出分析中日志", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+  it("onAnalyzingChange 回调切换分析中状态", async () => {
     mocks.wikiState.project = PROJECT
     mocks.baState.tasks = [makeTask()]
     mockAnalysisSuccess()
@@ -678,9 +675,7 @@ describe("BookAnalysisView 渲染覆盖", () => {
     await clickAndFlush("dialog-submit")
     await waitFor(() => expect(screen.getByTestId("panel-chapters")).toBeTruthy())
     await clickAndFlush("panel-analyzing-true")
-    expect(logSpy).toHaveBeenCalledWith("[book-analysis-view] 进入分析中状态")
     await clickAndFlush("panel-analyzing-false")
-    expect(logSpy).toHaveBeenCalledWith("[book-analysis-view] 退出分析中状态")
   })
 
   it("onSelectBook：设置选中 + 清空角色选中 + 写入 currentResult；未知书不写 currentResult", async () => {

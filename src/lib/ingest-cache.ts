@@ -77,9 +77,6 @@ export async function checkIngestCache(
       : `${pp}/${filePath}`
     try {
       if (!(await fileExists(fullPath))) {
-        console.log(
-          `[ingest-cache] cache miss for ${sourceFileName}: ${filePath} no longer on disk`,
-        )
         return null
       }
     } catch {

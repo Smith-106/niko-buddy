@@ -217,7 +217,6 @@ export async function enqueueBatch(
   }
 
   await saveQueue(currentProjectPath)
-  console.log(`[Ingest Queue] Enqueued ${files.length} files`)
   processNext(currentProjectId)
 
   return ids
@@ -258,7 +257,6 @@ export async function cancelTask(taskId: string): Promise<void> {
     /* v8 ignore next */
     if (lastWrittenFiles.length > 0) {
       await cleanupWrittenFiles(currentProjectPath, lastWrittenFiles)
-      console.log(`[Ingest Queue] Cleaned up ${lastWrittenFiles.length} files from cancelled task`)
       lastWrittenFiles = []
     }
 
@@ -267,7 +265,6 @@ export async function cancelTask(taskId: string): Promise<void> {
 
   queue = queue.filter((t) => t.id !== taskId)
   await saveQueue(currentProjectPath)
-  console.log(`[Ingest Queue] Cancelled: ${task.sourcePath}`)
 
   processNext(currentProjectId)
 }
@@ -306,7 +303,6 @@ export async function cancelAllTasks(): Promise<number> {
   const removed = before - queue.length
 
   await saveQueue(currentProjectPath)
-  console.log(`[Ingest Queue] Cancelled all: ${removed} tasks removed`)
   return removed
 }
 
@@ -448,7 +444,6 @@ export async function restoreQueue(
   const failed = queue.filter((t) => t.status === "failed").length
 
   if (pending > 0 || restored > 0) {
-    console.log(`[Ingest Queue] Restored: ${pending} pending, ${failed} failed, ${restored} resumed from interrupted`)
     processNext(projectId)
   }
 }
@@ -534,7 +529,6 @@ async function processNext(projectId: string): Promise<void> {
     ? normalizePath(next.sourcePath)
     : `${pp}/${next.sourcePath}`
 
-  console.log(`[Ingest Queue] Processing: ${next.sourcePath} (${queue.filter((t) => t.projectId === projectId && t.status === "pending").length} remaining)`)
 
   currentAbortController = new AbortController()
   lastWrittenFiles = []
@@ -563,7 +557,6 @@ async function processNext(projectId: string): Promise<void> {
     processedSinceDrain = true
     await saveQueue(pp)
 
-    console.log(`[Ingest Queue] Done: ${next.sourcePath}`)
   } catch (err) {
     if (currentProjectId !== projectId) return
     currentAbortController = null

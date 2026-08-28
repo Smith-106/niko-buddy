@@ -461,7 +461,6 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           setPendingScrollImageSrc(imageUrlToAbsolute(firstUrl, pp))
           setSelectedFile(rawPath)
           setFileContent(content)
-          console.log(`[refs:image-jump] ${firstUrl} → raw source ${rawPath}`)
           return
         } catch (err) {
           console.warn(`[refs:image-jump] failed to read ${rawPath}:`, err)

@@ -121,7 +121,6 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
       const models = data.data || []
 
       toast.success(`已拉取 ${models.length} 个模型`)
-      console.log("Available models:", models)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "未知错误")
     } finally {
@@ -160,7 +159,6 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
       const data = await response.json()
 
       toast.success(`模型 ${model.name} 可正常使用`)
-      console.log("Test response:", data)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "未知错误")
     } finally {

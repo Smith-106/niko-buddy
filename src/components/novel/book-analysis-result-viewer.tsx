@@ -258,10 +258,8 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     character: ExtractedCharacter,
     mode: "simple" | "six-dimension",
   ) => {
-    console.log('[单角色提取] 开始:', character.name, mode)
 
     if (!currentProject?.path || !effectiveResult) {
-      console.log('[单角色提取] 缺少项目路径或结果')
       toast.error("缺少项目信息")
       return
     }
@@ -269,7 +267,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     const storeState = useWikiStore.getState()
     const baseLlmConfig = storeState.llmConfig
     if (!baseLlmConfig) {
-      console.log('[单角色提取] 未配置LLM')
       toast.error("未配置 LLM，请先在设置中配置")
       return
     }
@@ -282,7 +279,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
     const bookId = task?.bookId
     if (!bookId) {
-      console.log('[单角色提取] 未找到bookId')
       toast.error("未找到作品标识")
       return
     }
@@ -290,7 +286,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
     const bookTitle = effectiveResult?.metadata?.title
     const bookAuthor = (effectiveResult?.metadata as any)?.author
-    console.log('[单角色提取] bookPath:', bookPath, 'bookTitle:', bookTitle)
 
     // 标记此角色正在后台提取（fix/character-reextract-and-loading-state）
     setSingleReextractingIds((prev) => {
@@ -307,7 +302,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     // 异步执行，不阻塞UI
     ;(async () => {
       try {
-        console.log('[单角色提取] 调用extractSingleCharacter')
         const { character: fresh } = await extractSingleCharacter({
           bookPath,
           bookId,
@@ -320,7 +314,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           signal: undefined,
         })
 
-        console.log('[单角色提取] 提取完成:', fresh.name)
 
         // 关键修复（fix/character-reextract-and-loading-state v2）：
         //   - viewer 的 effectiveResult 已改为优先从 task 派生（task 是 source of truth），
@@ -903,8 +896,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                           }
                           onClick={(e) => {
                             e.stopPropagation()
-                            console.log('[按钮点击] 再次提取(简单) - 事件触发', e)
-                            console.log('[按钮点击] selectedCharacter:', selectedCharacter)
                             /* v8 ignore next */
                             if (!selectedCharacter) {
                               console.error('[按钮点击] selectedCharacter 为空!')
@@ -927,8 +918,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                           }
                           onClick={(e) => {
                             e.stopPropagation()
-                            console.log('[按钮点击] 深度提取(6维) - 事件触发', e)
-                            console.log('[按钮点击] selectedCharacter:', selectedCharacter)
                             /* v8 ignore next */
                             if (!selectedCharacter) {
                               console.error('[按钮点击] selectedCharacter 为空!')
