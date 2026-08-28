@@ -1,21 +1,21 @@
 {
-  "timestamp": "2026-08-28T09:37:02.576Z",
+  "timestamp": "2026-08-28T10:20:13.504Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
     {
       "name": "IPC 1KB read",
       "p50": 0,
-      "p95": 0.03,
-      "p99": 0.15,
+      "p95": 0.02,
+      "p99": 0.19,
       "avg": 0.01
     },
     {
       "name": "IPC + compute (search)",
       "p50": 0.01,
-      "p95": 0.05,
-      "p99": 0.1,
-      "avg": 0.01
+      "p95": 0.07,
+      "p99": 0.16,
+      "avg": 0.02
     },
     {
       "name": "IPC 100KB read",

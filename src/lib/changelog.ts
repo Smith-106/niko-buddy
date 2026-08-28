@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.7.0",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Gate decoupling proof: same-manuscript 3-model decision-level triple agreement ≥95% (95%CI lower ≥90%, N≥30); pass/fail flip = 0 red line; per-dimension 5% tolerance diagnostics only.",
+      "Model-switch hard gate: fingerprint/version/weight change triggers 100% (CI monitors model manifest); zero missed detection (injected negative samples), audit-logged.",
+      "Version lock: build artifact hashes (bundle+binary) + full gate-config hash (prompt/temperature/weights) written to manifest; mismatch fails fast (no silent degrade).",
+      "Cold-review auto closeout: P0/P1 fully automatic + P2 anomaly revert (score<8 or >1.5σ); ≥90% zero-human closeout rate, manual fallback ≤10% fully traced; Draft-first guard keeps writes in pending/ready.",
+    ],
+    zh: [
+      "门控解耦证明：同稿 3 模型决策级三元一致率 ≥95%（95%CI 下限 ≥90%，N≥30）；结论翻转（pass↔fail）=0 红线；逐维 5% 容差仅辅助诊断。",
+      "换模型硬门：指纹/版本/权重变更触发 100%（CI 监听模型清单）；漏报=0（注入阴性样本）；审计留痕。",
+      "版本锁：build 产物哈希（bundle+二进制）+ 门控配置全谱哈希（prompt/温度/权重）写 manifest；失配 fail-fast（不做静默降级）。",
+      "冷评全自动结案：P0/P1 全自动 + P2 异常回退（分<8 或波动>1.5σ）；零人工结案率 ≥90%，人工兜底 ≤10% 全留痕；Draft-first 守卫只落 pending/ready。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_THIRTEEN_CHANGELOG: ChangelogEntry = {
   version: "2.6.13",
   date: "2026-08-28",
@@ -1214,6 +1233,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_THIRTEEN_CHANGELOG.version) return [TWO_POINT_SIX_THIRTEEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TWELVE_CHANGELOG.version) return [TWO_POINT_SIX_TWELVE_CHANGELOG]
   if (version === TWO_POINT_SIX_ELEVEN_CHANGELOG.version) return [TWO_POINT_SIX_ELEVEN_CHANGELOG]
