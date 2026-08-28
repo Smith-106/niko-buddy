@@ -1,28 +1,28 @@
 {
-  "timestamp": "2026-08-28T13:05:21.275Z",
+  "timestamp": "2026-08-28T13:48:00.287Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
     {
       "name": "tokenizeQuery x20",
-      "p50": 0.38,
-      "p95": 0.99,
-      "p99": 1.52,
-      "avg": 0.45
+      "p50": 0.35,
+      "p95": 0.95,
+      "p99": 1.36,
+      "avg": 0.4
     },
     {
       "name": "token search 50 files",
-      "p50": 0.08,
-      "p95": 0.16,
+      "p50": 0.07,
+      "p95": 0.14,
       "p99": 0.17,
-      "avg": 0.09
+      "avg": 0.08
     },
     {
       "name": "token search 200 files",
-      "p50": 0.26,
-      "p95": 0.58,
-      "p99": 5.49,
-      "avg": 0.42
+      "p50": 0.27,
+      "p95": 1,
+      "p99": 1.5,
+      "avg": 0.37
     },
     {
       "name": "vector search mock (30 chunks)",
@@ -34,9 +34,9 @@
     {
       "name": "RRF fusion 50 candidates",
       "p50": 0.01,
-      "p95": 0.05,
-      "p99": 0.14,
-      "avg": 0.02
+      "p95": 0.13,
+      "p99": 0.64,
+      "avg": 0.04
     }
   ]
 }
