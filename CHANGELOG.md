@@ -7,6 +7,15 @@
 
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.7] - 2026-08-28
+
+### 地基波（roadmap 9.5 Phase 0——信任根先行）
+
+- **黄金基线（D1）**：commit-pin + 产物 hash + 漂移探针（mismatch 即 fail）；只锁结构性约束（门控顺序 Consistency>Anti-AI>Quality——不锁文风）。
+- **最小埋点（D2）**：3 事件钉死（app_launch/gen_done/crash）；独立 jsonl 通道 10MB 滚动；invoke 前隐私门；永不进入 Track A 硬门。
+- **状态契约（D3）**：字段白名单 + 未知字段拒绝 + 章节状态机硬校验（不静默 coerce）。
+- **提交纪律（D4）**：单章 Draft-first 闭环；正式正文+记忆成对（无中间态）。
+
 ## [2.6.6] - 2026-08-27
 
 ### 维护发版（notes-only）

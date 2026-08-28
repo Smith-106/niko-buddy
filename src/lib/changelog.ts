@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.6.7",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Golden baseline (D1): commit-pin + artifact hashes + drift probe (mismatch fails), structural constraints only (gate priority Consistency>Anti-AI>Quality — never style).",
+      "Minimal telemetry (D2): 3 pinned events (app_launch/gen_done/crash), independent jsonl channel with 10MB roll, privacy gate before invoke, never enters Track A gates.",
+      "Status contract (D3): field whitelist + unknown-field rejection + chapter state machine hard validation (no silent coercion).",
+      "Commit discipline (D4): single-chapter Draft-first closed loop, canonical content+memory paired (no partial states).",
+    ],
+    zh: [
+      "黄金基线（D1）：commit-pin + 产物 hash + 漂移探针（mismatch 即 fail），只锁结构性约束（门控顺序 Consistency>Anti-AI>Quality——不锁文风）。",
+      "最小埋点（D2）：3 事件钉死（app_launch/gen_done/crash），独立 jsonl 通道 10MB 滚动，invoke 前隐私门，永不进入 Track A 硬门。",
+      "状态契约（D3）：字段白名单 + 未知字段拒绝 + 章节状态机硬校验（不静默 coerce）。",
+      "提交纪律（D4）：单章 Draft-first 闭环，正式正文+记忆成对（无中间态）。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_SIX_CHANGELOG: ChangelogEntry = {
   version: "2.6.6",
   date: "2026-08-27",
@@ -1069,6 +1088,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_SEVEN_CHANGELOG.version) return [TWO_POINT_SIX_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_SIX_CHANGELOG.version) return [TWO_POINT_SIX_SIX_CHANGELOG]
   if (version === TWO_POINT_SIX_FIVE_CHANGELOG.version) return [TWO_POINT_SIX_FIVE_CHANGELOG]
   if (version === TWO_POINT_SIX_FOUR_CHANGELOG.version) return [TWO_POINT_SIX_FOUR_CHANGELOG]
