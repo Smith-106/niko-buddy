@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_NINE_CHANGELOG: ChangelogEntry = {
+  version: "2.6.9",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Layered human baseline (D1): AI-style human subgroup N≥200/layer (no merge degradation) + drift threshold locked at 0.05 + no retroactive re-judgment.",
+      "Conformal gate (D2): split conformal + residual nonconformity score + marginal FDR≤0.05 (BH) + min-window N≥200 fallback.",
+      "Joint distribution (D3, observation): multi-signal correlation + dimension 2→10 degradation check (observation channel, not a hard gate).",
+      "Ruler calibration (D4, observation): ECE + monotonicity (minimal form, hash-fixed split).",
+      "Variance gate (D5): frozen per-dimension σ (soft dims 2.0-2.2 relaxed / hard dims 0.8-1.0 tight), unstable-only (never vetoes honest low scores), N≥5, missing-metadata falls back to most lenient.",
+    ],
+    zh: [
+      "分层人类基线（D1）：AI 风格真人子群 N≥200/层（不可退化为合并）+ 漂移阈值锁定 0.05 + 不回溯重判既有章节。",
+      "保角门（D2）：split conformal + 残差式 nonconformity + 边际 FDR≤0.05（BH 校正）+ 最小窗 N≥200 兜底。",
+      "联合分布（D3，观测）：多信号相关性 + 维度 2→10 退化检查（观测通道不升格硬门）。",
+      "标尺可信性（D4，观测）：ECE + 单调性（最小形态，split hash 固定）。",
+      "单维方差门（D5）：σ 冻结分维动态（软维 2.0-2.2 放宽/硬维 0.8-1.0 收紧），只判不稳不判无效（真实低分须穿过门），N≥5 才计入，缺元数据回退最宽松。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "2.6.8",
   date: "2026-08-28",
@@ -1109,6 +1130,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_NINE_CHANGELOG.version) return [TWO_POINT_SIX_NINE_CHANGELOG]
   if (version === TWO_POINT_SIX_EIGHT_CHANGELOG.version) return [TWO_POINT_SIX_EIGHT_CHANGELOG]
   if (version === TWO_POINT_SIX_SEVEN_CHANGELOG.version) return [TWO_POINT_SIX_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_SIX_CHANGELOG.version) return [TWO_POINT_SIX_SIX_CHANGELOG]
