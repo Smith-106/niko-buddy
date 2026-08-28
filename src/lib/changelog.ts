@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_THIRTEEN_CHANGELOG: ChangelogEntry = {
+  version: "2.6.13",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Adversarial stress (W4): three attack vectors (rewrite/style transfer/watermark strip), N≥30 deterministic generators (seed-reproducible); pass-rate significant drop vs frozen baseline (p<0.05 AND ≥30%, abs ≥5pp fallback); zero overlap with validation set.",
+      "Dual-gate certification: four AND conditions (median ≥9.5 ∧ chapter-level σ<0.3 ∧ Δ<0.15) — any chapter failing fails the book; independent reproduction ≥9.0 (cross-seed hard gate ≥3 seeds; cross-model generalization note).",
+      "Value reveal closed loop (W3): exposure→perception→adoption three-stage telemetry (100% coverage, write-back ≥99%) + circuit-breaker degrade (does not block release).",
+      "Consensus re-review: 7-direction median ≥9.5 (independent scoring, ICC≥0.8).",
+      "DoD closeout: 100% checklist + DEFER registered + integration clean (0 P0/P1 blocking).",
+    ],
+    zh: [
+      "对抗压测（W4）：三路攻击（改写/风格迁移/水印剥离）各 N≥30 确定性生成器（seed 可复现）；通过率较冻结基线显著下降（p<0.05 AND 降幅≥30%，绝对≥5pp 兜底）；对抗集与验收集零交集。",
+      "双门认证：四项 AND（中位≥9.5 ∧ 分章 σ<0.3 ∧ 分章 Δ<0.15）——任一章不过整书不过；独立复现 ≥9.0（跨种子硬门 ≥3 seed；换模型泛化补证）。",
+      "隐性价值显影闭环（W3）：曝光→感知→采纳三态埋点（覆盖 100%，回写≥99%）+ 熔断降级（不阻塞发版）。",
+      "共识复核：7 方向中位 ≥9.5（独立评分，ICC≥0.8）。",
+      "DoD 收口：清单 100% 勾选 + DEFER 登记 + 集成干净（0 P0/P1 阻断）。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_TWELVE_CHANGELOG: ChangelogEntry = {
   version: "2.6.12",
   date: "2026-08-28",
@@ -1193,6 +1214,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_THIRTEEN_CHANGELOG.version) return [TWO_POINT_SIX_THIRTEEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TWELVE_CHANGELOG.version) return [TWO_POINT_SIX_TWELVE_CHANGELOG]
   if (version === TWO_POINT_SIX_ELEVEN_CHANGELOG.version) return [TWO_POINT_SIX_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TEN_CHANGELOG.version) return [TWO_POINT_SIX_TEN_CHANGELOG]
