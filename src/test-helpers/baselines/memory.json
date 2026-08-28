@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-08-28T08:09:08.916Z",
+  "timestamp": "2026-08-28T08:50:52.935Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
     {
       "name": "idle memory read",
-      "p50": 0.02,
+      "p50": 0.03,
       "p95": 0.07,
-      "p99": 0.69,
+      "p99": 0.61,
       "avg": 0.04
     },
     {
@@ -20,9 +20,9 @@
     {
       "name": "graph-render memory alloc",
       "p50": 0.1,
-      "p95": 0.29,
-      "p99": 1.69,
-      "avg": 0.14
+      "p95": 0.17,
+      "p99": 6.6,
+      "avg": 0.23
     }
   ]
 }

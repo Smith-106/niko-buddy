@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_TWELVE_CHANGELOG: ChangelogEntry = {
+  version: "2.6.12",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Informed accept (W1): one-click reason card with traceable anchors (source/evidence) + accept rate ≥90% hard gate (N≥50).",
+      "Memory recall (W2): proactive recall after accept (non-intrusive sidebar); recall→accepted hard metric (anti-inflation, display not counted) + success rate ≥70% (N≥30).",
+      "Style scaffold (W4): static signature (sentence length/dialogue density/pacing) as optional soft constraint (can be disabled).",
+      "Weekly cold review (test W2): blind review pipeline (reviewer ≠ author); median ≥9.0 exit (N≥5); Consistency(P0) never overridden.",
+      "Mutation watershed (test W3): shadow-branch content mutation kill score ≥80% (cosine <0.85 = effective; style mutation not gated) + chaos regression (fault injection limited to shadow env, 0 blocking failures).",
+    ],
+    zh: [
+      "知情接受（W1）：理由卡一键生成（可回溯锚点：来源/证据）+ 接受率 ≥90% 硬门（N≥50）。",
+      "记忆固化主动召回（W2）：accept 后主动召回（非打断式侧边提醒）；召回→被 accept 硬口径（防刷量：展示不计数）+ 成功率 ≥70%（N≥30）。",
+      "风格脚手架（W4）：静态签名（句长/对话密度/节奏）作可选软约束（可关闭）。",
+      "周度冷评（测试 W2）：盲评流水线（评者非作者）；中位 ≥9.0 出关（N≥5）；Consistency(P0) 不得覆盖。",
+      "变异分水岭（测试 W3）：影子分支内容变异 kill score ≥80%（余弦 <0.85 记有效；风格变异不计门）+ 混沌回归（故障注入限影子环境，0 阻断级失败）。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_ELEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.6.11",
   date: "2026-08-28",
@@ -1172,6 +1193,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_TWELVE_CHANGELOG.version) return [TWO_POINT_SIX_TWELVE_CHANGELOG]
   if (version === TWO_POINT_SIX_ELEVEN_CHANGELOG.version) return [TWO_POINT_SIX_ELEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TEN_CHANGELOG.version) return [TWO_POINT_SIX_TEN_CHANGELOG]
   if (version === TWO_POINT_SIX_NINE_CHANGELOG.version) return [TWO_POINT_SIX_NINE_CHANGELOG]
