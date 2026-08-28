@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "2.7.4",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Dimension convergence (stretch gate): core dims <=3 at aggregation layer only (no dimension deletion); Track B six dims fully preserved (expandable detail); gate median variance reduction >=15% (same protocol/window N>=5, cross-version vs locked baseline, dimension-count normalized control); negative-set recall dual gate >= baseline-2% (convergence must not mask detection regression).",
+      "Cross-model generalization: same-text same-window pairwise delta median <=0.5 (N>=5), per-dimension report (no single dim >0.7).",
+      "Cross-language generalization: F1 >= locked source-domain baseline x95% (relative threshold, per-language, baseline version pinned).",
+      "Invariants: P0>P1>P2 unchanged; stretch gate optional (never raises hard gates); ADR-19 zero LLM/IO.",
+    ],
+    zh: [
+      "维度收敛（stretch gate）：核心维 ≤3 仅聚合层裁剪（非删维）；Track B 六维全量保留（明细可展开）；门控中位方差降 ≥15%（同协议同窗 N≥5，跨版本对比锁定基线，维度数归一化对照）；负向集召回双门 ≥基线−2%（收敛不得掩盖检测退化）。",
+      "跨模型泛化：同文同窗 pairwise Δ中位 ≤0.5（N≥5），分维度报告（无单维 >0.7）。",
+      "跨语言泛化：F1 ≥ 源域锁定基线×95%（相对阈值，每语言独立，基线版本钉死）。",
+      "不变量：P0>P1>P2 不变；stretch 可选不升硬门；ADR-19 零 LLM/IO。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_THREE_CHANGELOG: ChangelogEntry = {
   version: "2.7.3",
   date: "2026-08-28",
@@ -1294,6 +1313,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_FOUR_CHANGELOG.version) return [TWO_POINT_SEVEN_FOUR_CHANGELOG]
   if (version === TWO_POINT_SEVEN_THREE_CHANGELOG.version) return [TWO_POINT_SEVEN_THREE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_TWO_CHANGELOG.version) return [TWO_POINT_SEVEN_TWO_CHANGELOG]
   if (version === TWO_POINT_SEVEN_ONE_CHANGELOG.version) return [TWO_POINT_SEVEN_ONE_CHANGELOG]
