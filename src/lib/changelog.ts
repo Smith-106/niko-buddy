@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.7.1",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "D3 probe (adversarial depth): layered three-vote fusion (rule 0.3 + embedding 0.4 + consistency 0.3); detect rate >=90% AND false-positive <=5% dual gates reported together; gray zone [0.4,0.7] fully routed to human review (boundary stable <=1.5x).",
+      "Adversarial corpus expansion: >=2x baseline (7 attack families), 100% labeled review on entry, true-positive audit >=95% (>=50 samples), append-only versioned.",
+      "Daily online regression: golden set (accepted manuscripts) CI gate, 0 regression = window with any regression blocks release (detect <90% or FP >5%).",
+      "New attack vectors closed loop: semantic-rephrase (normalize->back-translate consistency) + jailbreak (instruction-override + role-boundary) — five-stage loop (reproduce/detect/attribute/patch/regress) 100%, >=10 cases each.",
+      "Writing-flow protection: false positives degrade to soft alerts (draft-mark/sidebar), never block accept/backfill; reasons transparent.",
+    ],
+    zh: [
+      "D3 探针（对抗纵深）：分层三票加权（规则 0.3+嵌入 0.4+一致性 0.3）；检出率 ≥90% 且误报率 ≤5% 双门同报；灰区 [0.4,0.7] 全量转人工复审（边界稳定 ≤1.5×）。",
+      "对抗样本扩库：≥2× 基线（7 攻击族），入库 100% 标注复核，真阳性抽检 ≥95%（样本 ≥50），只增不改版本化。",
+      "在线持续回归：金标（已 accept 稿件）日级 CI 门禁，0 回退=窗口内任一回退即阻断（检出<90% 或误报>5%）。",
+      "新攻击向量闭环：语义改写（归一化→回译一致性）+ 越狱（指令覆盖+角色边界）——五段闭环（复现/检中/归因/补丁/回归）100%，各 ≥10 用例。",
+      "写作流保护：误报降级为软告警（草稿标记/侧栏），绝不阻断 accept/回填；判定理由透明可查。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.7.0",
   date: "2026-08-28",
@@ -1233,6 +1254,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_ONE_CHANGELOG.version) return [TWO_POINT_SEVEN_ONE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_THIRTEEN_CHANGELOG.version) return [TWO_POINT_SIX_THIRTEEN_CHANGELOG]
   if (version === TWO_POINT_SIX_TWELVE_CHANGELOG.version) return [TWO_POINT_SIX_TWELVE_CHANGELOG]
