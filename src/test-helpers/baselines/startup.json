@@ -1,28 +1,28 @@
 {
-  "timestamp": "2026-08-28T13:48:05.332Z",
+  "timestamp": "2026-08-28T13:56:18.004Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
     {
       "name": "cold IPC invoke",
       "p50": 0,
-      "p95": 0.02,
+      "p95": 0.01,
       "p99": 0.14,
       "avg": 0.01
     },
     {
       "name": "warm IPC invoke",
       "p50": 0,
-      "p95": 0.01,
+      "p95": 0,
       "p99": 0.05,
       "avg": 0
     },
     {
       "name": "batch 10x IPC invoke",
-      "p50": 0.01,
-      "p95": 0.11,
-      "p99": 7.22,
-      "avg": 0.17
+      "p50": 0.02,
+      "p95": 0.06,
+      "p99": 0.28,
+      "avg": 0.02
     }
   ]
 }
