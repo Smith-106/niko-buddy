@@ -97,6 +97,25 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_THREE_CHANGELOG: ChangelogEntry = {
+  version: "2.7.3",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Style template auto-apply: 4-dim quantifiable style factors (sentence length/punctuation/qualifier frequency/POV drift=0 hard constraint); agreement >=90%, P95 <2s/chapter (chunks >5k chars); content-fidelity diff (contentDrift <=10% else revert); advisory diff not forced overwrite.",
+      "Retro reveal: historical-chapter consistency scan, hit >=90% / false-positive <=10% (dual-annotated set, Kappa>=0.8); non-blocking sidebar, confidence-sorted, one-click ignore revertible, low-confidence <0.5 folded; read-only (never rewrites).",
+      "Memory auto-rewrite: pending/ready->accept gate (zero direct writes to formal layer); diff=0 character-level pure replacement (zero add/delete outside declared replacements, diff-empty as proof); rejected keeps memory (no degrade/delete); deterministic backfill.",
+      "Editor real accept rate: dual annotation + arbitration >=80%; P0 failure veto (excluded from accept stats); gate penetration tests 0 success; P0>P1>P2 invariant.",
+    ],
+    zh: [
+      "风格模板自动套用：4 维可量化风格因子（句长/标点/限定词频/视角漂移=0 硬约束）；一致率 ≥90%，P95<2s/章（>5k 字分块）；内容保真 diff（contentDrift≤10% 超限回退）；建议 diff 非强制覆盖。",
+      "回溯显影：历史章节一致性扫描，命中 ≥90% / 误报 ≤10%（双人标注集 Kappa≥0.8）；非阻塞侧栏+置信度排序+一键忽略可撤销+低置信 <0.5 折叠；只读（永不改写正文）。",
+      "记忆自动改写：pending/ready→accept 闸门（正式层零直写）；diff=0 字符级纯替换（声明替换点外零增删，diff 空为铁证）；拒绝保留记忆（不降级不删除）；确定性回填。",
+      "编辑真实 accept 率：双标注+仲裁 ≥80%；P0 失败一票否决（剔除不计入）；闸门渗透测试 0 成功；P0>P1>P2 不变量。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.7.2",
   date: "2026-08-28",
@@ -1275,6 +1294,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_THREE_CHANGELOG.version) return [TWO_POINT_SEVEN_THREE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_TWO_CHANGELOG.version) return [TWO_POINT_SEVEN_TWO_CHANGELOG]
   if (version === TWO_POINT_SEVEN_ONE_CHANGELOG.version) return [TWO_POINT_SEVEN_ONE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_CHANGELOG]
