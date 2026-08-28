@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "2.6.8",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Calibration baseline (D1): six-dimension distribution (N≥5) + rubric version freeze + determinism.",
+      "Floor gate (D2): consistency 9.0 single-dimension veto / anti_ai 8.5 / quality 8.5 never overrides P0; backfill-only (draft edits free); P50 fallback under n<30.",
+      "Intent injection (D3): signal→diagnosis→action table, foreshadowing/setup protected (locked until author release), strip-to-pending (never silently dropped), injection≠bijection (polyphony preserved).",
+      "Decision points (D4): append-only log + hash chain validation + non-append write rejection (data-layer enforced) + anchor Anti-AI whitelist.",
+      "Rewrite criteria (D5): composite trigger (≥2 soft dims breached AND median<9.0), P0 failure short-circuits rewrite, reversible/irreversible classification + snapshot anchors.",
+    ],
+    zh: [
+      "校准基线（D1）：六维分维分布（N≥5）+ rubric 版本冻结 + 确定性。",
+      "地板闸（D2）：consistency 9.0 单维一票否决 / anti_ai 8.5 / quality 8.5 不得覆盖 P0；只挡正文回填（草稿修正自由）；n<30 回退 P50。",
+      "意图单射（D3）：信号→诊断→动作表，伏笔/铺垫受保护（锁死需作者解封），剥离进 pending 不静默丢弃，单射≠双向唯一（复调不压制）。",
+      "不可逆决策点（D4）：append-only 日志 + hash 链校验 + 写前拒非追加（数据层强制）+ 锚件 Anti-AI 白名单。",
+      "改写判据（D5）：复合触发（≥2 软维触地板 且 中位<9.0），P0 失败短路抑制改写，可回滚/不可回滚二分类 + 快照锚点。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.6.7",
   date: "2026-08-28",
@@ -1088,6 +1109,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_EIGHT_CHANGELOG.version) return [TWO_POINT_SIX_EIGHT_CHANGELOG]
   if (version === TWO_POINT_SIX_SEVEN_CHANGELOG.version) return [TWO_POINT_SIX_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SIX_SIX_CHANGELOG.version) return [TWO_POINT_SIX_SIX_CHANGELOG]
   if (version === TWO_POINT_SIX_FIVE_CHANGELOG.version) return [TWO_POINT_SIX_FIVE_CHANGELOG]
