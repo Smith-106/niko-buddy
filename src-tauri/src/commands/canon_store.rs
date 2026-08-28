@@ -975,28 +975,53 @@ impl CanonStore {
     }
 
     /// 按章节号查询 episodes（LanceDB only_if 推 down chapter_number）。
-    /// 返回该章全部 episode 行（含 ingest 日志语义）。
+    /// 返回该章 episode 行（含 ingest 日志语义），支持可选分页。
     /// DEBT-20260621-30b：supersede 分歧检测读路径。
+    /// v2.8 P1-2：`offset`/`limit` 为 None 时保持旧行为（全量拉取）；
+    /// 有分页时返回 `(页数据, 该章全量 total)` 供 UI 分页器使用。
     pub async fn query_episodes_by_chapter(
         &self,
         chapter_number: i32,
-    ) -> Result<Vec<CanonEpisode>, String> {
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<CanonEpisode>, usize), String> {
         let table = self
             .db
             .open_table(CANON_TABLE_EPISODES)
             .execute()
             .await
             .map_err(|x| format!("open episodes: {x}"))?;
-        let batches = table
-            .query()
-            .only_if(format!("chapter_number = {}", chapter_number))
+        let mut q = table.query().only_if(format!("chapter_number = {}", chapter_number));
+        if let Some(off) = offset {
+            q = q.offset(off);
+        }
+        if let Some(lim) = limit {
+            q = q.limit(lim);
+        }
+        let batches = q
             .execute()
             .await
             .map_err(|x| format!("query episodes: {x}"))?
             .try_collect::<Vec<_>>()
             .await
             .map_err(|x| format!("collect episodes: {x}"))?;
-        read_episodes(&batches)
+        let episodes = read_episodes(&batches)?;
+        // total：该章全量计数（分页器用）。无分页时 total = 页大小（旧语义）。
+        let total = if offset.is_some() || limit.is_some() {
+            let count_batches = table
+                .query()
+                .only_if(format!("chapter_number = {}", chapter_number))
+                .execute()
+                .await
+                .map_err(|x| format!("count episodes: {x}"))?
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|x| format!("count collect episodes: {x}"))?;
+            read_episodes(&count_batches)?.len()
+        } else {
+            episodes.len()
+        };
+        Ok((episodes, total))
     }
 
     /// 当前 schema 清单（内存副本）。
@@ -2093,15 +2118,25 @@ mod tests {
         store.ingest_episode(ep2).await.unwrap();
         store.ingest_episode(ep3).await.unwrap();
 
-        // 按 chapter=1 查询
-        let eps = store.query_episodes_by_chapter(1).await.unwrap();
+        // 按 chapter=1 查询（无分页 = 旧语义全量）
+        let (eps, total) = store.query_episodes_by_chapter(1, None, None).await.unwrap();
         assert_eq!(eps.len(), 2);
+        assert_eq!(total, 2);
         assert!(eps.iter().any(|e| e.digest == "digest-a"));
         assert!(eps.iter().any(|e| e.digest == "digest-b"));
 
         // 按 chapter=3（无数据）
-        let empty = store.query_episodes_by_chapter(3).await.unwrap();
+        let (empty, total0) = store.query_episodes_by_chapter(3, None, None).await.unwrap();
         assert_eq!(empty.len(), 0);
+        assert_eq!(total0, 0);
+
+        // v2.8 P1-2：分页（offset/limit）——total 保持全量计数
+        let (page, total_page) = store.query_episodes_by_chapter(1, Some(0), Some(1)).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(total_page, 2);
+        let (page2, _) = store.query_episodes_by_chapter(1, Some(1), Some(1)).await.unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_ne!(page[0].digest, page2[0].digest);
     }
 
     // ── DEBT-20260621-30b：R5 CanonEdgeFilter digest 字段序列化 ──

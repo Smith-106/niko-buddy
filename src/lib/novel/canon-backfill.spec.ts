@@ -622,6 +622,7 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
   it("T1: 无已存 episodes → 无分歧", async () => {
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [],
+      total: 0,
       max_revision: 0,
     })
     const ops = await buildBackfillOps(mkSnapshotForTest(1, ["事实A"]))
@@ -634,6 +635,7 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
     const existingDigest = ops[0]!.digest!
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: existingDigest }],
+      total: 1,
       max_revision: 1,
     })
     const divs = await detectSupersedeDivergences(PROJECT, 1, ops)
@@ -647,6 +649,7 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
         { id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-0" },
         { id: "ch1-fact1", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-1" },
       ],
+      total: 2,
       max_revision: 2,
     })
     const divs = await detectSupersedeDivergences(PROJECT, 1, ops)
@@ -699,6 +702,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
   it("T7: 完整流——首次回填无已存 episodes → 无 supersede", async () => {
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [],
+      total: 0,
       max_revision: 0,
     })
     const { store, dualWrite } = makeHarness()
@@ -716,6 +720,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     // 第一次回填
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [],
+      total: 0,
       max_revision: 0,
     })
     await backfillCanonHistory(deps, PROJECT, {}, 1_000)
@@ -725,6 +730,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     // 第二次回填：模拟已存 episode 同 digest
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: firstDigest }],
+      total: 0,
       max_revision: 1,
     })
     const report2 = await backfillCanonHistory(deps, PROJECT, {}, 2_000)
@@ -738,6 +744,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     // 第一次回填：事实A
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [],
+      total: 0,
       max_revision: 0,
     })
     const deps1 = makeFsDeps({ 1: snapshotJson(1, ["事实A"]) }, dualWrite)
@@ -747,6 +754,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     // 第三次编辑：事实A改为事实A'（新 snapshot）
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
+      total: 0,
       max_revision: 1,
     })
     const deps3 = makeFsDeps({ 1: snapshotJson(1, ["事实A改"]) }, dualWrite)
@@ -771,6 +779,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     const oldDigest = await computeCheckpointDigestOf({ chapter: 1, fact: "事实A" })
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
+      total: 0,
       max_revision: 1,
     })
 

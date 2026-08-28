@@ -243,18 +243,58 @@ export async function queryCanonEdgesBatch(
 
 /**
  * 按章节号查询 episodes（DEBT-20260621-30b supersede 分歧检测读路径）。
- * 返回该章全部 episode 行（含 ingest_log 去重语义）。
+ * 返回该章 episode 行（含 ingest_log 去重语义）。
+ *
+ * v2.8 P1-2：支持可选分页（offset/limit）。缺省时保持旧行为（全量拉取）；
+ * 分页时响应含 `total`（该章全量计数）供 UI 分页器使用。
  *
  * @param projectId 项目 id
  * @param chapterNumber 章节号
- * @returns 该章原始 episode 行（含 digest 等内部字段，调用方自行处理）
+ * @param page 可选分页（offset/limit）；缺省 = 全量
+ * @returns 该章 episode 行（含 digest 等内部字段，调用方自行处理）+ total + max_revision
  */
 export async function queryEpisodesByChapter(
   projectId: string,
   chapterNumber: number,
-): Promise<{ episodes: Array<{ id: string; chapter_number: number; entity_id: string; summary: string; digest: string }>; max_revision: number }> {
+  page?: { offset: number; limit: number },
+): Promise<{ episodes: Array<{ id: string; chapter_number: number; entity_id: string; summary: string; digest: string }>; total: number; max_revision: number }> {
   return invoke("canon_query_episodes", {
     projectId,
     chapterNumber,
+    offset: page?.offset ?? null,
+    limit: page?.limit ?? null,
   })
+}
+
+/**
+ * v2.8 P1-2：便捷筛选构造器（query_batch 批量筛选条件）。
+ *
+ * 把常见筛选意图（边类别/谓词/实体/认知轴/时态截点/分页）构造为
+ * 与 Rust `CanonEdgeFilter` 契约一致的 snake_case filter，供
+ * `queryCanonEdgesBatch` / `queryCanonEdges` 使用。
+ *
+ * @param opts 筛选意图（全部可选；缺省 = 全量查询）
+ */
+export function buildCanonEdgeFilter(opts: {
+  edgeKinds?: CanonEdgeKind[]
+  predicates?: string[]
+  entityIds?: string[]
+  knownBy?: string
+  validAtChapter?: number
+  includeInvalidated?: boolean
+  archived?: boolean
+  digest?: string[]
+  limit?: number
+}): CanonEdgeFilter {
+  return {
+    known_by: opts.knownBy ?? null,
+    valid_at_chapter: opts.validAtChapter ?? null,
+    include_invalidated: opts.includeInvalidated ?? null,
+    edge_kinds: opts.edgeKinds ?? null,
+    predicates: opts.predicates ?? null,
+    entity_ids: opts.entityIds ?? null,
+    archived: opts.archived ?? null,
+    digest: opts.digest ?? null,
+    limit: opts.limit ?? null,
+  }
 }

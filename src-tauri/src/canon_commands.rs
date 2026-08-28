@@ -219,8 +219,10 @@ pub struct CanonSupersedeResponse {
 /// `canon_query_episodes` 读响应（DEBT-20260621-30b）。
 #[derive(Debug, Clone, Serialize)]
 pub struct CanonQueryEpisodesResponse {
-    /// 该章全部 episode 行。
+    /// 该章 episode 行（分页时为当前页）。
     pub episodes: Vec<CanonEpisode>,
+    /// 该章全量 episode 计数（分页器用；无分页时 = episodes.len()）。
+    pub total: usize,
     /// 当前项目 canon revision。
     pub max_revision: u64,
 }
@@ -364,14 +366,19 @@ pub async fn canon_query_episodes_impl(
     state: &CanonCommandState,
     project_id: String,
     chapter_number: i32,
+    offset: Option<usize>,
+    limit: Option<usize>,
 ) -> Result<CanonQueryEpisodesResponse, String> {
     let store = CanonStore::open(&project_id).await?;
     if !state.is_loaded(&project_id) {
         state.lazy_load_revision(&project_id, &store).await?;
     }
-    let episodes = store.query_episodes_by_chapter(chapter_number).await?;
+    let (episodes, total) = store
+        .query_episodes_by_chapter(chapter_number, offset, limit)
+        .await?;
     Ok(CanonQueryEpisodesResponse {
         episodes,
+        total,
         max_revision: state.current_revision(&project_id),
     })
 }
@@ -449,8 +456,10 @@ pub async fn canon_query_episodes(
     state: State<'_, CanonCommandState>,
     project_id: String,
     chapter_number: i32,
+    offset: Option<usize>,
+    limit: Option<usize>,
 ) -> Result<CanonQueryEpisodesResponse, String> {
-    canon_query_episodes_impl(state.inner(), project_id, chapter_number).await
+    canon_query_episodes_impl(state.inner(), project_id, chapter_number, offset, limit).await
 }
 
 #[tauri::command]
@@ -813,19 +822,33 @@ mod tests {
         .await
         .unwrap();
 
-        // 查询 chapter=1
-        let res = canon_query_episodes_impl(&state, pid.clone(), 1)
+        // 查询 chapter=1（无分页 = 旧语义全量）
+        let res = canon_query_episodes_impl(&state, pid.clone(), 1, None, None)
             .await
             .unwrap();
         assert_eq!(res.episodes.len(), 2);
+        assert_eq!(res.total, 2);
         assert!(res.episodes.iter().any(|e| e.digest == "d1"));
         assert!(res.episodes.iter().any(|e| e.digest == "d2"));
 
         // 查询 chapter=3（无数据）
-        let empty = canon_query_episodes_impl(&state, pid, 3)
+        let empty = canon_query_episodes_impl(&state, pid.clone(), 3, None, None)
             .await
             .unwrap();
         assert_eq!(empty.episodes.len(), 0);
+        assert_eq!(empty.total, 0);
+
+        // v2.8 P1-2：分页（offset/limit）——total 保持全量计数
+        let page = canon_query_episodes_impl(&state, pid.clone(), 1, Some(0), Some(1))
+            .await
+            .unwrap();
+        assert_eq!(page.episodes.len(), 1);
+        assert_eq!(page.total, 2);
+        let page2 = canon_query_episodes_impl(&state, pid.clone(), 1, Some(1), Some(1))
+            .await
+            .unwrap();
+        assert_eq!(page2.episodes.len(), 1);
+        assert_ne!(page.episodes[0].digest, page2.episodes[0].digest);
     }
 
     // ── DEBT-20260820-15b：divergence trace 持久化 ──

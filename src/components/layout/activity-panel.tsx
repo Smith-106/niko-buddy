@@ -342,6 +342,8 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
   const { t } = useTranslation()
   const fileName = getFileName(task.path)
   const kindLabel = task.kind.charAt(0).toUpperCase() + task.kind.slice(1)
+  // v2.8 P1-3：冲突提示——处理中文件被外部修改（needsRerun）或任务被新变更取代（superseded）
+  const isConflict = task.status === "superseded" || (task.status === "processing" && task.needsRerun)
 
   return (
     <div className="py-1.5 text-xs">
@@ -350,12 +352,20 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
           {task.status === "processing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
           {task.status === "pending" && <Clock className="h-3 w-3 text-muted-foreground" />}
           {task.status === "failed" && <AlertCircle className="h-3 w-3 text-destructive" />}
+          {task.status === "superseded" && <GitMerge className="h-3 w-3 text-amber-500" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
           <div className="truncate text-[10px] text-muted-foreground/70">{kindLabel} - {task.path}</div>
           {task.status === "failed" && task.error && (
             <div className="mt-0.5 truncate text-[10px] text-destructive">{task.error}</div>
+          )}
+          {isConflict && (
+            <div className="mt-0.5 text-[10px] text-amber-500">
+              {task.status === "superseded"
+                ? t("activity.fileSyncSuperseded", "文件在同步期间被外部修改，此任务已被新变更取代")
+                : t("activity.fileSyncConflict", "文件在同步期间被外部修改，将自动重新同步")}
+            </div>
           )}
         </div>
         {task.status === "failed" && (

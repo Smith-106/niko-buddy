@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(),
 }))
 
-import { buildExitError, createClaudeCodeStreamParser, shouldRetryClaudeCliError, streamClaudeCodeCli } from "./claude-cli-transport"
+import { buildExitError, buildSpawnErrorGuide, classifySpawnError, createClaudeCodeStreamParser, shouldRetryClaudeCliError, streamClaudeCodeCli } from "./claude-cli-transport"
 
 function claudeCliConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
   return {
@@ -197,6 +197,36 @@ describe("shouldRetryClaudeCliError", () => {
         "claude CLI exited with code 1: Unknown model 'foo-bar'",
       ),
     ).toBe(false)
+  })
+})
+
+describe("classifySpawnError / buildSpawnErrorGuide (v2.8 P1-3 权限引导)", () => {
+  it("classifies not-found spawn failures", () => {
+    expect(classifySpawnError("spawn claude ENOENT: No such file or directory")).toBe("not_found")
+    expect(classifySpawnError("executable file not found in PATH")).toBe("not_found")
+    expect(classifySpawnError("command not found: claude")).toBe("not_found")
+  })
+
+  it("classifies permission-denied spawn failures", () => {
+    expect(classifySpawnError("spawn claude EACCES: permission denied")).toBe("permission")
+    expect(classifySpawnError("Access is denied.")).toBe("permission")
+    expect(classifySpawnError("operation not permitted")).toBe("permission")
+  })
+
+  it("falls back to other for unknown spawn failures", () => {
+    expect(classifySpawnError("spawn claude: invalid argument")).toBe("other")
+    expect(classifySpawnError("")).toBe("other")
+  })
+
+  it("buildSpawnErrorGuide gives actionable guidance per kind", () => {
+    const notFound = buildSpawnErrorGuide("not_found", "spawn claude ENOENT")
+    expect(notFound).toContain("Install `claude`")
+    const permission = buildSpawnErrorGuide("permission", "EACCES")
+    expect(permission).toContain("permission denied")
+    expect(permission).toContain("execute permission")
+    expect(permission).toContain("EACCES")
+    const other = buildSpawnErrorGuide("other", "spawn claude: invalid argument")
+    expect(other).toBe("spawn claude: invalid argument")
   })
 })
 

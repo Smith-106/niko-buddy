@@ -636,10 +636,9 @@ describe("setup and spawn failures", () => {
     findEvents(listeners)
 
     await expect(streamPromise).resolves.toBeUndefined()
-    // Spawn failures are captured inside the attempt (not the outer catch),
-    // so the raw message surfaces; the install hint is reserved for errors
-    // that escape the retry loop (covered by the onDone-throwing tests).
-    expect(cb.onError.mock.calls[0]?.[0]?.message).toBe("executable file not found")
+    // v2.8 P1-3：spawn 失败在 attempt 内即被分类（not_found → install hint），
+    // 比旧行为（原样透传、仅外层 catch 兜底）更早给出可执行引导。
+    expect(cb.onError.mock.calls[0]?.[0]?.message).toContain("Install `claude`")
   })
 
   it("kills the subprocess when aborted while spawn is still pending", async () => {

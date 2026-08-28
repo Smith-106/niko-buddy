@@ -300,6 +300,43 @@ export function shouldRetryClaudeCliError(message: string): boolean {
   return classifyTransportError({ message }).retryable
 }
 
+/**
+ * v2.8 P1-3：spawn 阶段错误分类（模型不可用时的引导提示）。
+ *
+ * 区分三类确定性本地失败，给用户可执行的下一步：
+ * - `not_found`：CLI 未安装（PATH 中找不到可执行文件）
+ * - `permission`：CLI 存在但无执行权限 / 被系统安全策略拦截
+ * - `other`：其余 spawn 失败（保留原始信息）
+ */
+export type SpawnErrorKind = "not_found" | "permission" | "other"
+
+export function classifySpawnError(message: string): SpawnErrorKind {
+  const text = message?.trim() ?? ""
+  if (/not found|No such file|executable file not found|command not found|spawn .* ENOENT/i.test(text)) {
+    return "not_found"
+  }
+  if (/permission denied|access is denied|EACCES|operation not permitted|not permitted|EPERM|blocked by|security policy/i.test(text)) {
+    return "permission"
+  }
+  return "other"
+}
+
+/** 把 spawn 错误转成带引导的用户可读信息。 */
+export function buildSpawnErrorGuide(kind: SpawnErrorKind, message: string): string {
+  if (kind === "not_found") {
+    return "Claude Code CLI not found. Install `claude` (https://www.anthropic.com/claude-code) or pick a different provider."
+  }
+  if (kind === "permission") {
+    return [
+      "Claude Code CLI exists but could not be executed (permission denied).",
+      "Check that the binary has execute permission and is not blocked by your OS security policy,",
+      "then retry. (LLM Wiki only spawns the binary - it can't change its permissions on your behalf.)",
+      message ? `\n\nCLI error:\n${message}` : "",
+    ].join(" ").trim()
+  }
+  return message
+}
+
 function appendClaudeCliIsolationRetryNote(message: string): string {
   return [
     message,
@@ -582,9 +619,11 @@ export async function streamClaudeCodeCli(
           } catch (err) {
             if (settled) return
             const message = err instanceof Error ? err.message : String(err)
+            // v2.8 P1-3：spawn 错误细分（未安装/权限不足/其他）→ 带引导的用户可读信息
+            const spawnKind = classifySpawnError(message)
             settle({
               kind: "error",
-              message,
+              message: buildSpawnErrorGuide(spawnKind, message),
               emittedToken,
             })
           }
