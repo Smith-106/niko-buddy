@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SIX_TEN_CHANGELOG: ChangelogEntry = {
+  version: "2.6.10",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "Blind recall (D1): one-sentence retell ≥95% hit rate (frozen criteria: point recall ≥70% = hit) + distance decay curve.",
+      "Foreshadow tracker (D2): register→resolve closed loop (key normalization + alias dictionary, confidence ≥0.7) + payoff quality second-level check (lazy-copy penalty).",
+      "Foreshadow diff into P0 (D4): pure-function set operations (mechanical, no LLM judge) + cross-segment diff (character drift); Quality never overrides P0.",
+      "Sign-off table (D6): top/bottom 10% with conclusion ≥50 chars + objection field + evidence quote ≥10 chars bound to conclusion (no rubber-stamping).",
+      "Observation: foreshadow feedback dry-run (D3), blind triple-edit with perspective split (D5), attribution feedback (D7).",
+    ],
+    zh: [
+      "盲测复述（D1）：一句话复述 ≥95% 命中率（口径冻结：要点召回率≥70% 记命中）+ 距离衰减曲线。",
+      "伏笔追踪（D2）：登记→回收闭环（key 归一化+别名词典，置信度≥0.7）+ 回扣质量二级校验（逐字复述惩罚）。",
+      "伏笔差分入 P0（D4）：纯函数集合运算（机械可判零 LLM）+ 跨段差分（人设漂移）；Quality 不得覆盖 P0。",
+      "独立签字表（D6）：top/bottom 10% 结论摘要≥50 字+异议栏+原文引用≥10 字且与结论绑定（防只签不评/签而不看）。",
+      "观测：回灌 dry-run（D3）/ 双盲三编辑视角分裂（D5）/ 归因反哺（D7）。",
+    ],
+  },
+}
+
 const TWO_POINT_SIX_NINE_CHANGELOG: ChangelogEntry = {
   version: "2.6.9",
   date: "2026-08-28",
@@ -1130,6 +1151,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SIX_TEN_CHANGELOG.version) return [TWO_POINT_SIX_TEN_CHANGELOG]
   if (version === TWO_POINT_SIX_NINE_CHANGELOG.version) return [TWO_POINT_SIX_NINE_CHANGELOG]
   if (version === TWO_POINT_SIX_EIGHT_CHANGELOG.version) return [TWO_POINT_SIX_EIGHT_CHANGELOG]
   if (version === TWO_POINT_SIX_SEVEN_CHANGELOG.version) return [TWO_POINT_SIX_SEVEN_CHANGELOG]
