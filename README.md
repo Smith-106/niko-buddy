@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.6.6-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.7.4-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,18 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.7 系列五波能力速览
+
+| 波次 | 版本 | 能力 | 核心交付 |
+|---|---|---|---|
+| 1 | v2.7.0 | 门控地基 | 门控解耦 / 模型切换闸 / 版本锁定 / 自动结案 / 审计报告 / Draft-first 草稿闸 |
+| 2 | v2.7.1 | 对抗纵深 | D3 探针 / 灰区审查 / 对抗语料 / 每日回归 / 攻击向量 / 软告警 |
+| 3 | v2.7.2 | 自动化闭环 | 自愈回滚 / 回滚追踪 / 混沌平台 / 结案终态 / W3 干预 / 门控不变量 |
+| 4 | v2.7.3 | 写作产能 | 风格模板自动套用（一致率≥90% P95<2s）/ 回溯显影（命中≥90% 误报≤10%）/ 记忆自动改写（diff=0 闸门） |
+| 5 | v2.7.4 | 收敛泛化（stretch） | 维度收敛（核心维≤3 方差降≥15%）/ 跨模型偏差≤0.5 / 跨语言 F1≥基线×95% |
+
+> 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。
 
 ## 核心功能
 
@@ -417,8 +429,8 @@ sequenceDiagram
 - **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前源码 tip 为 **v2.6.3**（notes-only：评测真实基线门 S5'/快照修复已落地，安装包资产沿用既有发布，待后续补挂；macOS/Linux planned）。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.6.6）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux planned）。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.4）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
@@ -543,7 +555,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **前端测试**：`npm test` 运行 Vitest 单元测试套件；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](../docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
   - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
