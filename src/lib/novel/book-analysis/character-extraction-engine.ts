@@ -8,6 +8,7 @@
  */
 
 import type { LlmConfig } from "@/stores/wiki-store"
+import { parseLlmJsonObject } from "./llm-json"
 import type {
   AnalysisDepth,
   ExtractedCharacter,
@@ -97,11 +98,11 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
       onError: (err) => { logger.error("Character Extraction", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
-    // 解析 JSON
-    const jsonMatch = response.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0])
-      return data.characters || []
+    // 解析 JSON（jsonrepair 容错）
+    const data = parseLlmJsonObject(response)
+    if (data) {
+      const characters = data.characters
+      return Array.isArray(characters) ? characters : []
     }
 
     return []
@@ -169,11 +170,9 @@ ${corpus}
       onError: (err) => { logger.error("Character Extraction", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
-    // 解析 JSON
-    const jsonMatch = response.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0])
-
+    // 解析 JSON（jsonrepair 容错）
+    const data = parseLlmJsonObject(response)
+    if (data) {
       const character: ExtractedCharacter = {
         // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
         id: stableCharacterId(data.name || characterName, ""),

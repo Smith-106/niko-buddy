@@ -9,6 +9,7 @@
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, extractJsonArraySpan } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { parseLlmJsonArray } from "./llm-json"
 import { stableCharacterId } from "./character-recognition-engine"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
 
@@ -175,17 +176,11 @@ function parseRecognitionResponse(raw: string): Array<{
   if (!raw) return []
   // 尝试提取 JSON 数组 span（PAT-G2 dedup: 共享 @/lib/llm-client
   // extractJsonArraySpan，含 stripCodeFence + 配平提取，比原 indexOf+slice 更稳健）。
-  const jsonStr = extractJsonArraySpan(raw)
-  if (!jsonStr) {
-    throw new Error("LLM 响应中未找到 JSON 数组")
+  const parsed = parseLlmJsonArray(raw)
+  if (!parsed) {
+    throw new Error("LLM 响应中未找到 JSON 数组（jsonrepair 容错后仍失败）")
   }
-  try {
-    const parsed = JSON.parse(jsonStr)
-    if (!Array.isArray(parsed)) throw new Error("LLM 响应不是 JSON 数组")
-    return parsed
-  } catch (e) {
-    throw new Error(`LLM 响应 JSON 解析失败：${(e as Error).message}`)
-  }
+  return parsed
 }
 
 function clampScore(score: unknown): number {

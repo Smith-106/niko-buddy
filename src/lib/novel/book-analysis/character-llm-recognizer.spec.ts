@@ -257,18 +257,19 @@ describe("llmRecognizeCharacters 边界分支", () => {
         sourceBook: "x",
         _llmCall: async () => "whatever",
       }),
-    ).rejects.toThrow("不是 JSON 数组")
+    ).rejects.toThrow("未找到 JSON 数组")
   })
 
-  it("JSON 解析失败 → 抛错（含解析错误信息）", async () => {
-    await expect(
-      llmRecognizeCharacters({
-        chapters,
-        llmConfig,
-        sourceBook: "x",
-        _llmCall: async () => "[{\"name\": }]",
-      }),
-    ).rejects.toThrow("JSON 解析失败")
+  it("脏数组 JSON → jsonrepair 容错修复 → 成功返回", async () => {
+    const result = await llmRecognizeCharacters({
+      chapters,
+      llmConfig,
+      sourceBook: "x",
+      _llmCall: async () => "[{\"name\": }]",
+    })
+    // jsonrepair 修复 '[{"name": }]' → 不再抛错
+    expect(Array.isArray(result)).toBe(true)
+  })
   })
 
   it("importance 相关别名键（importance/score/重要度/重要性/分数）", async () => {

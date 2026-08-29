@@ -130,7 +130,7 @@ describe("extractSimpleProfiles", () => {
     expect(result.error).toBe("aborted")
   })
 
-  it("parsed 非数组（对象）时 find 抛错进入 error 分支", async () => {
+  it("parsed 非数组（对象）时静默降级为 empty（jsonrepair 容错）", async () => {
     const llmCall = vi.fn().mockResolvedValue('{"a":1}')
     const result = await extractSimpleProfiles({
       candidates: [candidates[0]],
@@ -138,7 +138,6 @@ describe("extractSimpleProfiles", () => {
       llmConfig: stubLlmConfig,
       _llmCall: llmCall,
     })
-    expect(result.error).toBeDefined()
     expect(result.profiles[0].profile).toEqual(empty())
   })
 

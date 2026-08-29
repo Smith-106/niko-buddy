@@ -575,7 +575,7 @@ describe("extractCharactersFromChapters — 降级与错误路径", () => {
     expect(streamChatMock).toHaveBeenCalledTimes(2)
   })
 
-  it("深度分析 JSON 解析失败 → catch → 角色跳过", async () => {
+  it("深度分析脏 JSON → jsonrepair 容错修复 → 角色保留", async () => {
     setChapters({ c1: chapterFile("第一章", 1) })
     setStreamDispatch({
       identify: () => identifyJson([{ name: "韩立", importance: 9 }]),
@@ -586,7 +586,8 @@ describe("extractCharactersFromChapters — 降级与错误路径", () => {
       selectedChapterIds: ["c1"],
       llmConfig,
     })
-    expect(result.characters).toEqual([])
+    // jsonrepair 修复 '{"name": }' → 角色不再被跳过
+    expect(result.characters.length).toBeGreaterThan(0)
   })
 
   it("深度分析 LLM 抛错（Error）→ catch → 角色跳过", async () => {

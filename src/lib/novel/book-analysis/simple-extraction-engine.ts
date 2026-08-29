@@ -1,4 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
+import { parseLlmJsonArray } from "./llm-json"
 import type { RecognizedCharacter, PersonalityProfile } from "./types"
 import { buildSimpleExtractionPrompt } from "./simple-extraction-prompts"
 import { defaultLlmCall } from "@/lib/llm-client"
@@ -40,7 +41,7 @@ export async function extractSimpleProfiles(
     // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
     const stripped = raw.replace(/^[\s\S]*?```(?:json)?\s*\n?/i, "").replace(/\n?```\s*[\s\S]*$/, "").trim()
 
-    const parsed = JSON.parse(stripped) as Array<{
+    const parsed = (parseLlmJsonArray(raw) ?? []) as Array<{
       name: string
       personality: string
       motivation: string
@@ -125,7 +126,14 @@ export async function extractSingleProfile(
     }>
 
     try {
-      parsed = JSON.parse(stripped)
+      parsed = (parseLlmJsonArray(raw) ?? JSON.parse(stripped)) as Array<{
+        name: string
+        personality: string
+        motivation: string
+        speechStyle: string
+        behaviorPatterns: string
+        quotes: string[]
+      }>
       if (!Array.isArray(parsed)) {
         throw new Error("LLM 返回的不是数组")
       }

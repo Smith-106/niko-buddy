@@ -1,4 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
+import { parseLlmJsonArray } from "./llm-json"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
 import { fingerprintText } from "./content-fingerprint"
 import { defaultLlmCall } from "@/lib/llm-client"
@@ -163,7 +164,7 @@ export async function llmScoreCharacters(
     const llmFn = _llmCall ?? defaultLlmCall
     const raw = await llmFn(prompt)
     if (signal?.aborted) throw new Error("aborted")
-    const parsed = JSON.parse(raw) as Array<{
+    const parsed = (parseLlmJsonArray(raw) ?? []) as Array<{
       name: string
       importanceScore: number
       category: CharacterCategory
