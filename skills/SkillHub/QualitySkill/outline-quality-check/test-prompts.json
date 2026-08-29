@@ -1,0 +1,32 @@
+﻿[
+  {
+    "name": "reject_body_generation_in_outline",
+    "prompt": "检查一段 AI 大纲输出：用户要求生成第001章章纲，但 AI 直接写了3000字正文，并准备保存到章纲。",
+    "expected": [
+      "结论必须是不通过",
+      "必须指出生成了正文，违反 AI 大纲边界",
+      "必须要求改为章纲结构",
+      "必须检查保存协议"
+    ]
+  },
+  {
+    "name": "chapter_outline_missing_core_fields",
+    "prompt": "检查一个章纲文件：只有本章剧情摘要和一句章尾悬念，没有上章承接、核心事件链、角色状态、设定更新和下一章交接。",
+    "expected": [
+      "结论必须是需修改或不通过",
+      "必须引用章纲标准字段",
+      "必须列出缺失项",
+      "必须给出可执行修正建议"
+    ]
+  },
+  {
+    "name": "outline_save_request_check",
+    "prompt": "检查 AI 输出：内容看起来是题材卡，但没有 targetFolder、fileName、fileType、writeMode、referencedSkills。",
+    "expected": [
+      "必须指出保存协议缺失",
+      "必须要求补充 outlineSaveRequest",
+      "必须建议保存到大纲",
+      "不得直接判定通过"
+    ]
+  }
+]

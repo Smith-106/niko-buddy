@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频，玄幻修仙仙侠。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-xuanhuan-xianxia", "必须有力量体系", "必须有地图递升"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为男频玄幻生成章纲。",
+    "expected": ["必须有突破/夺宝/试炼等目标", "必须有策略和代价", "必须有更强敌人或规则钩子"]
+  }
+]

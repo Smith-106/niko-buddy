@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "这一章定位是男女主心动初遇，场景想放在雨天，但我不知道还要补哪些条件。",
+    "should_trigger": true,
+    "expected_behavior": "输出浓缩剧情、关键词、外出条件、触发条件、互动条件、结果条件和必须插入的信息。"
+  },
+  {
+    "prompt": "这一章已经写完了，帮我检查错别字。",
+    "should_trigger": false,
+    "expected_behavior": "这是校对任务，不应调用关键词条件 skill。"
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "female_rebirth_revenge_route",
+    "prompt": "用户选择长篇、女频、重生复仇。灵感：女主前世被妹妹和未婚夫害死，重生回订婚宴当天。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-rebirth-revenge", "必须有前世惨死原因和重生节点", "必须设计分层反派"]
+  },
+  {
+    "name": "female_rebirth_revenge_chapter",
+    "prompt": "生成第001章章纲：女主重生回订婚宴，决定当众退婚。",
+    "expected": ["必须有前世信息差", "必须有公开打脸或证据链", "必须有更大反派钩子"]
+  }
+]

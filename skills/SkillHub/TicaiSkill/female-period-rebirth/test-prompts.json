@@ -1,0 +1,12 @@
+[
+  {
+    "name": "period_rebirth_route",
+    "prompt": "用户选择长篇、女频、年代重生。灵感：女主重生到换亲前夜，决定不再嫁给前世害她的人。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-period-rebirth", "必须有重生节点和前世遗憾", "必须体现年代细节和女主主动性"]
+  },
+  {
+    "name": "period_chapter_outline",
+    "prompt": "生成第001章章纲：女主重生到换亲前夜。",
+    "expected": ["必须有年代物件或时代关系", "必须有前世信息差", "必须有婚姻选择钩子"]
+  }
+]

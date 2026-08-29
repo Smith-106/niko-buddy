@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频，都市脑洞或系统流。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-urban-system", "必须有系统规则和核心梗", "不得生成正文"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为都市系统流生成章纲。",
+    "expected": ["必须有系统触发条件", "必须有现实反差", "必须有奖励或任务钩子"]
+  }
+]

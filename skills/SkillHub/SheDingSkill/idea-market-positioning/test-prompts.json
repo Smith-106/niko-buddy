@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "我有一个新书灵感：穿越者用短视频改变军宣。帮我整理题材定位。",
+    "should_trigger": true,
+    "expected_behavior": "按设定信息标准输出题材定位，包含题材类型、核心梗、微创新、表层卖点、深层爽点、长线钩子、读者承诺、已验证爽点模块、续写定调和风险避坑。"
+  },
+  {
+    "prompt": "帮我判断这个灵感能不能写长篇。",
+    "should_trigger": true,
+    "expected_behavior": "拆出核心卖点、目标读者、长线骨架、可重复剧情方向、首卷承诺和风险点。"
+  },
+  {
+    "prompt": "帮我写角色语言风格。",
+    "should_trigger": false,
+    "expected_behavior": "这是角色请求，不应只调用题材定位。"
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "simulator_route",
+    "prompt": "用户选择长篇、男频、模拟器。灵感：主角每天能模拟一次未来死亡，带回一个提示。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-simulator-loop", "必须定义模拟规则和代价", "必须联动世界规则和伏笔悬念"]
+  },
+  {
+    "name": "simulator_chapter_outline",
+    "prompt": "生成第001章章纲：主角第一次模拟看到自己三小时后死亡。",
+    "expected": ["必须区分模拟段和现实段", "必须有现实偏差或隐藏条件", "不得只写剧透摘要"]
+  }
+]

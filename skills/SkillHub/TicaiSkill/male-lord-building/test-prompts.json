@@ -1,0 +1,12 @@
+[
+  {
+    "name": "lord_building_route",
+    "prompt": "用户选择长篇、男频、领主基建。灵感：主角穿到边境荒城，用现代管理和神秘图纸建城。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-lord-building", "必须设计资源、人口、军队、制度成长线", "必须联动势力和地图推进"]
+  },
+  {
+    "name": "lord_chapter_outline",
+    "prompt": "生成第001章章纲：主角接手濒临破产的边境小镇。",
+    "expected": ["必须有初始领地劣势", "必须有经营变化", "必须设置外部威胁钩子"]
+  }
+]

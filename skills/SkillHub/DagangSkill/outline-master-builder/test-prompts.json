@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "我想写一本修仙网文，但不知道大纲怎么写，你一步步带我做。",
+    "should_trigger": true,
+    "expected_behavior": "启动主控流程，先收集最小 premise，再按子 skill 顺序生成完整大纲。"
+  },
+  {
+    "prompt": "帮我总结一下这段音频讲了什么。",
+    "should_trigger": false,
+    "expected_behavior": "这是摘要需求，不应调用本 skill。"
+  },
+  {
+    "prompt": "我世界观已经写了三万字，但主线还是乱。",
+    "should_trigger": true,
+    "expected_behavior": "提醒世界观后置，回到剧情、卖点和目标阶梯。"
+  }
+]

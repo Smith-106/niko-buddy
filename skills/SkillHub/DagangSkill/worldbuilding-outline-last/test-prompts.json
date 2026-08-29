@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我前面的大纲有了，现在帮我补一个够用的修仙世界观。",
+    "should_trigger": true,
+    "expected_behavior": "只补服务剧情、卖点和阶段目标的设定。"
+  },
+  {
+    "prompt": "我还没想主角，先帮我写完整大陆历史和一百个境界。",
+    "should_trigger": false,
+    "expected_behavior": "应提醒先做剧情骨架，不应世界观先行。"
+  }
+]

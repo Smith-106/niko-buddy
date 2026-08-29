@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "主角人设有了，帮我安排配角，但不要乱塞人。",
+    "should_trigger": true,
+    "expected_behavior": "按主角缺口配置必要配角，并说明每个角色的功能。"
+  },
+  {
+    "prompt": "帮我随机生成一百个古风名字。",
+    "should_trigger": false,
+    "expected_behavior": "这是命名任务，不应调用配角功能设计 skill。"
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "book_transmigration_route",
+    "prompt": "用户选择长篇、女频、穿书。灵感：女主穿成三章就死的恶毒女配，决定救下原书反派。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-book-transmigration", "必须设计原书节点和剧情偏移", "必须联动世界规则和关系线"]
+  },
+  {
+    "name": "book_transmigration_chapter",
+    "prompt": "生成第001章章纲：女主醒来发现今晚就是原书死亡节点。",
+    "expected": ["必须标注原书节点", "必须有女主主动选择", "必须有剧情反噬或偏移钩子"]
+  }
+]

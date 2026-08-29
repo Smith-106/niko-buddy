@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频悬疑或民国言情。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-mystery-republic", "必须有悬疑线和情感线", "必须联动伏笔"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为女频悬疑民国生成章纲。",
+    "expected": ["必须有线索推进", "必须有关系张力", "必须有旧案或身份钩子"]
+  }
+]

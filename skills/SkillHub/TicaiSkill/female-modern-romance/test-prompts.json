@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频，现言或现言脑洞。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-modern-romance", "必须有关系线和女主主动性", "不得生成正文"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为现言题材生成章纲。",
+    "expected": ["必须有关系推进", "必须有现实冲突", "必须有情绪钩子"]
+  }
+]

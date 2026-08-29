@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频，都市高武或都市异能。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-urban-highmartial", "必须有现代评价体系", "必须有公开展示"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为都市高武生成章纲。",
+    "expected": ["必须有分数/排名/奖金等评价变化", "必须有能力边界", "必须有新任务钩子"]
+  }
+]

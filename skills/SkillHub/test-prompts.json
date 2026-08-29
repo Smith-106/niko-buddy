@@ -1,0 +1,35 @@
+﻿[
+  {
+    "name": "new_book_outline_save_protocol",
+    "prompt": "用户在 AI 大纲中选择：创建新书、长篇、男频、都市系统流，并输入灵感。请生成题材卡并保存。",
+    "expected": [
+      "必须读取 ROUTE_MANIFEST.json 或 ROUTING_MEMORY.md",
+      "必须路由到 TicaiSkill/male-urban-system",
+      "必须输出 outlineSaveRequest",
+      "targetFolder 必须是大纲",
+      "不得生成正文"
+    ]
+  },
+  {
+    "name": "chapter_outline_quality_gate",
+    "prompt": "用户要求生成章纲-第001章，并希望保存前检查质量。",
+    "expected": [
+      "必须调用 ZhanggangSkill",
+      "必须符合 CHAPTER_OUTLINE_STANDARD.md",
+      "必须追加 QualitySkill/outline-quality-check",
+      "必须输出 chapter-outline 类型保存请求",
+      "不得把正文保存到章纲"
+    ]
+  },
+  {
+    "name": "move_and_reference_folder_rules",
+    "prompt": "用户右键文件选择移动，并把一个文件夹发送到 AI 大纲会话。",
+    "expected": [
+      "右键点击移动后才显示目标文件夹",
+      "左键点击不得显示移动目标",
+      "长按拖拽允许移动到任意文件夹",
+      "会话区只显示一个引用",
+      "AI 可以读取引用文件夹中的内容"
+    ]
+  }
+]

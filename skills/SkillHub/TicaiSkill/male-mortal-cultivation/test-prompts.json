@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频凡人流。灵感：低灵根少年靠谨慎和一只残破药鼎慢慢修仙。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-mortal-cultivation", "必须有谨慎规则和资源算计", "必须避免天才碾压"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为凡人流生成章纲：主角决定是否进入危险秘洞。",
+    "expected": ["必须有利弊判断", "必须有撤退方案", "必须有隐藏风险钩子"]
+  }
+]

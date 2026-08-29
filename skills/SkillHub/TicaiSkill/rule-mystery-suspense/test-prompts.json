@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择规则怪谈、悬疑或悬疑灵异。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/rule-mystery-suspense", "必须有规则和悬念", "必须联动伏笔"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为规则怪谈生成章纲。",
+    "expected": ["必须有规则包装", "必须有通关线或死路", "必须有信息反转钩子"]
+  }
+]

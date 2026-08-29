@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频暗恋破镜重圆。灵感：女主多年后重逢学生时代暗恋的人，发现当年误会另有真相。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-secret-love-reunion", "必须有过去线和现在线", "必须有旧细节回收"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为破镜重圆生成章纲：男女主在旧校园重逢。",
+    "expected": ["必须有旧细节触发", "必须有关系阶段变化", "必须有误会真相钩子"]
+  }
+]

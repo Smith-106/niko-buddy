@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "帮我整理一个官方机构势力，主角后续会借它获得背书。",
+    "should_trigger": true,
+    "expected_behavior": "按设定信息标准输出势力文件，包含势力目标、资源来源、代表人物、内部矛盾、外部关系、主角关系、剧情功能和写作约束。"
+  },
+  {
+    "prompt": "这个反派阵营后续要升级成第二卷阻力，帮我整理组织设定。",
+    "should_trigger": true,
+    "expected_behavior": "必须写清目标、资源、压迫方式、代表人物、内部派系、外部对手、更新记录和主角关系。"
+  },
+  {
+    "prompt": "帮我整理章节情绪曲线。",
+    "should_trigger": false,
+    "expected_behavior": "这是章纲或节奏请求，不应只调用势力系统。"
+  }
+]

@@ -1,0 +1,87 @@
+[
+  {
+    "name": "male_xuanhuan_long_outline_route",
+    "prompt": "用户选择：创建新书，长篇小说，男频，玄幻修仙。灵感：废材少年得到会吞噬旧兵器的残破炉鼎，想写宗门压迫、家族旧案和登顶复仇。请生成题材卡并说明后续大纲路由。",
+    "expected": [
+      "必须先读取 GENRE_ROUTE_STANDARD.md",
+      "必须路由到 TicaiSkill/male-xuanhuan-xianxia",
+      "必须联动 DagangSkill、ZhanggangSkill、SheDingSkill/power-system、world-rules、faction-system、map-progression",
+      "不得路由到 female-xuanhuan-fantasy",
+      "不得调用 ZhengwenSkill 生成正文"
+    ]
+  },
+  {
+    "name": "female_xuanhuan_long_outline_route",
+    "prompt": "用户选择：创建新书，长篇小说，女频，玄幻幻想言情。灵感：女主被宗门当成灾星，但她能听见神树残魂，想写成长、命运反抗和感情拉扯。请生成题材卡并说明后续章纲路由。",
+    "expected": [
+      "必须先确认女频，不允许男女频融合",
+      "必须路由到 TicaiSkill/female-xuanhuan-fantasy",
+      "题材卡必须包含安全感、女主主动性、感情线与成长线双轴",
+      "必须联动 JueseSkill/relationship-emotion 与 SheDingSkill/world-rules、power-system",
+      "不得调用男频玄幻规则覆盖女频玄幻"
+    ]
+  },
+  {
+    "name": "short_family_drama_route",
+    "prompt": "用户选择：创建新书，短篇小说，女频，世情家庭矛盾。灵感：产后妻子被婆家逼着照顾全家，发现丈夫转移存款，想写反击和断亲。请生成题材卡和短篇章纲规则。",
+    "expected": [
+      "必须路由到 TicaiSkill/family-drama-short",
+      "必须使用短篇三幕结构：建压、爆点、落定",
+      "必须强调现实细节、信息差、证据、情绪释放",
+      "必须联动 JueseSkill/character-design 与 SheDingSkill/foreshadowing-suspense",
+      "不得把短篇扩成默认长篇八节点"
+    ]
+  },
+  {
+    "name": "zhihu_short_no_body_generation",
+    "prompt": "用户选择：创建新书，短篇小说，女频，知乎短篇。灵感：我救了妹妹三次，最后她却在婚礼上公开说我抢她人生。请生成题材卡，但不要写正文。",
+    "expected": [
+      "必须路由到 TicaiSkill/zhihu-short",
+      "必须输出题材卡而不是正文",
+      "必须保留用户第一人称灵感作为核心钩子",
+      "必须设计反转审判和情绪落点",
+      "不得调用 ZhengwenSkill/short-form-drafting 或 anti-ai-polish"
+    ]
+  },
+  {
+    "name": "urban_highmartial_no_body_route",
+    "prompt": "用户选择：创建新书，长篇小说，男频，都市高武。灵感：穷学生靠模拟战斗系统赚取治疗费，在全城联考中被官方发现。请生成题材卡和大纲联动。",
+    "expected": [
+      "必须路由到 TicaiSkill/male-urban-highmartial",
+      "必须包含现代评价体系、金钱压力、公开展示和地图递升",
+      "必须联动 SheDingSkill/power-system、map-progression 与 JueseSkill/character-design",
+      "不得调用 ZhengwenSkill/combat-action",
+      "不得直接输出战斗正文"
+    ]
+  },
+  {
+    "name": "male_beast_taming_route",
+    "prompt": "用户选择：创建新书，长篇小说，男频，御兽。灵感：主角契约了一只被判定废品的小黑犬，它能吞噬秘境影子进化。请生成题材卡。",
+    "expected": [
+      "必须路由到 TicaiSkill/male-beast-taming",
+      "必须设计宠兽进化路线和公开评价体系",
+      "必须联动 SheDingSkill/power-system、map-progression",
+      "不得路由到普通玄幻或都市高武"
+    ]
+  },
+  {
+    "name": "female_book_transmigration_route",
+    "prompt": "用户选择：创建新书，长篇小说，女频，穿书。灵感：女主穿成三章就死的恶毒女配，决定救下原书反派。请生成题材卡。",
+    "expected": [
+      "必须路由到 TicaiSkill/female-book-transmigration",
+      "必须设计原书节点、剧情偏移和反噬",
+      "必须联动 SheDingSkill/world-rules、foreshadowing-suspense 与 JueseSkill/relationship-emotion",
+      "不得用女频重生复仇覆盖穿书"
+    ]
+  },
+  {
+    "name": "short_public_trial_route",
+    "prompt": "用户选择：创建新书，短篇小说，女频，公开审判式打脸。灵感：婚礼现场妹妹诬陷我抢她人生，我准备了三份证据。请生成题材卡。",
+    "expected": [
+      "必须路由到 TicaiSkill/short-public-trial-face-slap",
+      "必须使用短篇公开场、证据递进、围观反转结构",
+      "必须联动 JueseSkill/supporting-cast 与 SheDingSkill/foreshadowing-suspense",
+      "不得扩成长篇复仇大纲"
+    ]
+  }
+]

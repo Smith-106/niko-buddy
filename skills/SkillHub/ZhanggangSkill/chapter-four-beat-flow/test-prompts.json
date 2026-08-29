@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我知道这一章是高潮章，但不知道每一段该写什么。",
+    "should_trigger": true,
+    "expected_behavior": "拆成开篇入戏、中段冲突、核心爆点、强钩收尾。"
+  },
+  {
+    "prompt": "帮我想十个角色名字。",
+    "should_trigger": false,
+    "expected_behavior": "这是命名任务，不应调用四段式流程。"
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频团宠萌宝。灵感：被遗弃的小女孩被豪门五个哥哥找回。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-family-pampering-child", "必须有亲情缺失和家人群像", "必须有身份线索"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为团宠萌宝生成章纲：小主角第一次被家人坚定保护。",
+    "expected": ["必须有保护行为", "必须有关系确认", "必须有身份或旧秘密钩子"]
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择短篇，世情家庭矛盾或弱者反击。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/family-drama-short", "必须使用建压、爆点、落定三幕", "不得扩成长篇"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为世情短篇生成章纲。",
+    "expected": ["必须有现实细节", "必须有反派恶行和反击", "必须有情绪释放"]
+  }
+]

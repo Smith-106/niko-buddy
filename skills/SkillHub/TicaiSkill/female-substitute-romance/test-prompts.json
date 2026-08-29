@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频，替身文或白月光。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-substitute-romance", "必须有身份错位和主体性回收", "必须联动关系线和伏笔"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为替身文生成章纲。",
+    "expected": ["必须有替身误判", "必须有身份或情感反转", "必须有女主主动选择"]
+  }
+]

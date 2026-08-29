@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频种田经商。灵感：女主被分家后靠一门卤味手艺开店翻身。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-farming-business", "必须有经营成长线", "必须有家庭或熟人社会阻力"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为女频种田经商生成章纲：女主第一次摆摊。",
+    "expected": ["必须有经营动作", "必须有口碑或资产变化", "必须有竞争/货源钩子"]
+  }
+]

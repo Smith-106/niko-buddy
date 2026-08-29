@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频反派流。灵感：主角穿成三天后会被天命之子打死的反派少主。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-villain-protagonist", "必须有必死命运和原主角优势", "必须有命运规则"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为反派流生成章纲：主角截胡原主角第一份机缘。",
+    "expected": ["必须有原命运线", "必须有资源夺取过程", "必须有气运反噬钩子"]
+  }
+]

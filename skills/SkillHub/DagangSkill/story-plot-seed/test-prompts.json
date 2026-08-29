@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我只有一个想法：普通人得到系统开始修仙，帮我先扩成大纲的剧情部分。",
+    "should_trigger": true,
+    "expected_behavior": "输出一句话梗概和约 500 字剧情骨架。"
+  },
+  {
+    "prompt": "帮我设计十个修仙等级名称。",
+    "should_trigger": false,
+    "expected_behavior": "这是世界观细节，不应调用剧情骨架 skill。"
+  }
+]

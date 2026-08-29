@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "这一章情节有了，但画面很空，都是心理活动。",
+    "should_trigger": true,
+    "expected_behavior": "补环境细节、动作微细节、信息暗线细节，并替换抽象心理描写。"
+  },
+  {
+    "prompt": "帮我规划下一卷的主线。",
+    "should_trigger": false,
+    "expected_behavior": "这是卷纲任务，不应调用单章画面细节。"
+  }
+]

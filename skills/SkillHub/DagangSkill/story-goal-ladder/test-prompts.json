@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我有剧情和卖点了，但不知道长篇主线怎么推进。",
+    "should_trigger": true,
+    "expected_behavior": "输出分阶段目标表，含目标、阻力、爽点和下一阶段钩子。"
+  },
+  {
+    "prompt": "帮我润色第一章的第一段。",
+    "should_trigger": false,
+    "expected_behavior": "这是 prose editing，不应调用目标阶梯 skill。"
+  }
+]

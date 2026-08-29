@@ -1,0 +1,12 @@
+[
+  {
+    "name": "marriage_betrayal_route",
+    "prompt": "用户选择短篇、女频、婚恋背叛。灵感：产后妻子发现丈夫把共同存款转给小三。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/short-marriage-betrayal", "必须有证据链", "必须有清算结果"]
+  },
+  {
+    "name": "marriage_betrayal_chapter",
+    "prompt": "生成短篇章纲：主角从一张账单发现丈夫转移财产。",
+    "expected": ["必须有异常发现", "必须有暗中取证", "必须有摊牌或反向设局钩子"]
+  }
+]

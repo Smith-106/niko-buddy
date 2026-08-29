@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频玄幻或幻想言情。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-xuanhuan-fantasy", "必须有女主主动性", "必须有感情线与成长线双轴"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为女频玄幻生成章纲。",
+    "expected": ["必须有关系推进", "必须有世界规则或力量代价", "必须有命运选择钩子"]
+  }
+]

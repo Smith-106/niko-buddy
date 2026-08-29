@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频，豪门总裁或先婚后爱。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-rich-family-ceo", "必须有关系契约或豪门阻力", "必须有安全感承诺"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为豪门总裁题材生成章纲。",
+    "expected": ["必须有甜虐或权力差场景", "必须有关系阶段变化", "必须有外部阻力钩子"]
+  }
+]

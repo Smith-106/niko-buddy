@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "这一章结尾太平了，读者可能不会点下一章，帮我设计钩子和伏笔。",
+    "should_trigger": true,
+    "expected_behavior": "设计回收旧伏笔、预埋新伏笔、结尾强钩子和读者会问的问题。"
+  },
+  {
+    "prompt": "帮我检查错别字。",
+    "should_trigger": false,
+    "expected_behavior": "这是校对任务，不应调用伏笔钩子。"
+  }
+]

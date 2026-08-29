@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频，无限流、科幻或末世。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-infinite-sci-fi-apocalypse", "必须有副本/危机规则", "必须联动世界规则和地图推进"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为无限流末世生成章纲。",
+    "expected": ["必须有规则或生存压力", "必须有副本/地图推进", "必须有终极真相钩子"]
+  }
+]

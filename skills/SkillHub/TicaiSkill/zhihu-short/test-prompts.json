@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择知乎短篇、强钩子、反转审判。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/zhihu-short", "必须有第一人称钩子", "不得生成正文"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为知乎短篇生成章纲。",
+    "expected": ["必须有反常问题", "必须有证据或真相反转", "必须有审判或余韵"]
+  }
+]

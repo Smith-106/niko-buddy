@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频强取豪夺。灵感：女主被迫和掌控家族命脉的男主交易。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-possessive-romance", "必须有权力差和女主筹码", "必须有安全感规则"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为强取豪夺生成章纲：女主第一次反向拿到谈判筹码。",
+    "expected": ["必须有关系权力变化", "必须体现女主主体性", "必须有关系失控钩子"]
+  }
+]

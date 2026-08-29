@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "这一章我想写退婚打脸，但不知道它算什么类型、要完成什么功能。",
+    "should_trigger": true,
+    "expected_behavior": "确定情绪标签、章节属性、主线承接、主线推进、人物变化和追读目的。"
+  },
+  {
+    "prompt": "把这段对白改得自然一点。",
+    "should_trigger": false,
+    "expected_behavior": "这是局部润色，不应调用章节定位。"
+  }
+]

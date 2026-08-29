@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "剧情、卖点、目标、人设、配角和世界观都有了，帮我合成一个完整小说大纲。",
+    "should_trigger": true,
+    "expected_behavior": "输出完整大纲，并检查黄金三章准备度。"
+  },
+  {
+    "prompt": "我只有一个灵感，直接帮我合并完整大纲。",
+    "should_trigger": false,
+    "expected_behavior": "应先走剧情骨架和其他步骤，不应直接合并。"
+  }
+]

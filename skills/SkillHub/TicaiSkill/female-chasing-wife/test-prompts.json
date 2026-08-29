@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频，追妻火葬场。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-chasing-wife", "必须有女主心死离开", "必须有男主追悔代价"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为追妻火葬场生成章纲。",
+    "expected": ["必须标注情绪阶段", "必须体现关系权力变化", "不得轻易复合"]
+  }
+]

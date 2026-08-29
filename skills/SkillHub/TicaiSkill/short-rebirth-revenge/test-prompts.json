@@ -1,0 +1,12 @@
+[
+  {
+    "name": "short_rebirth_revenge_route",
+    "prompt": "用户选择短篇、女频、重生复仇。灵感：女主重生回签遗产转让书当天，决定把陷阱原样送给妹妹。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/short-rebirth-revenge", "必须有前世伤害和重生节点", "必须有反常第一选择"]
+  },
+  {
+    "name": "short_rebirth_revenge_outline",
+    "prompt": "生成短篇章纲：主角重生后第一件事就是把前世拼命保护的东西送出去。",
+    "expected": ["必须有信息差", "必须有反向布局", "必须有集中清算"]
+  }
+]

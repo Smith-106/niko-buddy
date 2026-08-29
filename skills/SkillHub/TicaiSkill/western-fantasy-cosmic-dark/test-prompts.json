@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择西幻、克苏鲁或黑暗题材。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/western-fantasy-cosmic-dark", "必须有世界规则和黑暗压迫", "必须联动伏笔悬念"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为西幻黑暗题材生成章纲。",
+    "expected": ["必须有禁忌或代价", "必须有势力/规则压迫", "必须有认知恐惧钩子"]
+  }
+]

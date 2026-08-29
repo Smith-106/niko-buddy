@@ -1,0 +1,12 @@
+[
+  {
+    "name": "public_trial_route",
+    "prompt": "用户选择短篇、女频、公开审判式打脸。灵感：婚礼现场妹妹诬陷我抢她人生，我准备了三份证据。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/short-public-trial-face-slap", "必须有公开场", "必须有证据递进和围观反转"]
+  },
+  {
+    "name": "public_trial_outline",
+    "prompt": "生成短篇章纲：家族寿宴上主角被公开羞辱后逐层放证据。",
+    "expected": ["必须让反派先占上风", "必须逐层释放证据", "必须有最终清算"]
+  }
+]

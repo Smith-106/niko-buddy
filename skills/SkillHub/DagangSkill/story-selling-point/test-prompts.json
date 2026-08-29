@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我的剧情也是修仙系统流，感觉太普通，帮我找一个核心卖点。",
+    "should_trigger": true,
+    "expected_behavior": "先识别同类默认写法，再给出差异化钩子和可重复爽点。"
+  },
+  {
+    "prompt": "我还没有主角和剧情，你直接给我十个卖点。",
+    "should_trigger": false,
+    "expected_behavior": "应先调用剧情骨架或要求用户补最小 premise。"
+  }
+]

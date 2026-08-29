@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "帮我整理男主和女主从合作到暧昧的关系变化，并写回角色信息。",
+    "should_trigger": true,
+    "expected_behavior": "按人物角色信息标准更新双方关系网络、关系阶段、最近变化、语言风格差异、当前关系状态和后续可能。"
+  },
+  {
+    "prompt": "女主现在喜欢男主，但还不能表白，帮我设计她的角色状态。",
+    "should_trigger": true,
+    "expected_behavior": "不能只写喜欢主角，必须补齐独立目标、情绪触发器、关系阶段、行为证据、说话差异和状态追踪。"
+  },
+  {
+    "prompt": "帮我设计世界观力量体系。",
+    "should_trigger": false,
+    "expected_behavior": "这是设定/世界观请求，不应调用关系与情绪线。"
+  }
+]

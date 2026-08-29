@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频，历史或架空历史。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-history-alt-history", "必须有历史节点和信息差", "必须联动市场定位和配角"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为历史脑洞生成章纲。",
+    "expected": ["必须有时代危机", "必须有现代认知或信息差", "必须有地位变化钩子"]
+  }
+]

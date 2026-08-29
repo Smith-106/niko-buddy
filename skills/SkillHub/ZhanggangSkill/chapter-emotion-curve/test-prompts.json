@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "这一章读起来很平，高潮也没感觉，帮我设计情绪线。",
+    "should_trigger": true,
+    "expected_behavior": "输出开局、中段、峰值、结尾四节点情绪曲线。"
+  },
+  {
+    "prompt": "帮我写一个整本书的世界观设定。",
+    "should_trigger": false,
+    "expected_behavior": "这是世界观任务，不应调用单章情绪曲线。"
+  }
+]

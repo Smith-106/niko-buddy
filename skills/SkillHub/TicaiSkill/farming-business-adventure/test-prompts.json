@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择长篇，种田、经营或冒险题材。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/farming-business-adventure", "必须体现经营目标和地图推进", "必须联动势力或配角"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为种田经营冒险题材生成第001章章纲。",
+    "expected": ["必须有资源或经营变化", "必须有外部阻力", "必须有下一阶段钩子"]
+  }
+]

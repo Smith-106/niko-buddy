@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "帮我整理伏笔追踪表，包括已埋、推进中、预计回收和过期伏笔。",
+    "should_trigger": true,
+    "expected_behavior": "按设定信息标准输出伏笔追踪，包含伏笔状态表、埋设章节、预计回收、状态、重要度、回收日志、过期或风险伏笔。"
+  },
+  {
+    "prompt": "这个隐藏身份要第30章才揭开，帮我设计悬念生命周期。",
+    "should_trigger": true,
+    "expected_behavior": "必须写清埋设、推进、提示、回收、后果，以及每阶段影响的人物关系、规则或主线。"
+  },
+  {
+    "prompt": "帮我生成完整正文。",
+    "should_trigger": false,
+    "expected_behavior": "这是正文请求，不应只调用伏笔悬念。"
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "帮我整理主角的系统金手指，包括任务、奖励、限制和使用边界。",
+    "should_trigger": true,
+    "expected_behavior": "按设定信息标准输出金手指文件，包含绑定方式、触发条件、任务机制、奖励类型、已解锁能力、任务史、边界代价和防崩坏写作约束。"
+  },
+  {
+    "prompt": "这个能力会升级，但不能万能，帮我设计力量体系。",
+    "should_trigger": true,
+    "expected_behavior": "必须写清获取方式、成长路径、限制、代价、敌人反制点、使用史和爽点循环。"
+  },
+  {
+    "prompt": "帮我设计势力组织。",
+    "should_trigger": false,
+    "expected_behavior": "这是势力请求，不应只调用力量体系。"
+  }
+]

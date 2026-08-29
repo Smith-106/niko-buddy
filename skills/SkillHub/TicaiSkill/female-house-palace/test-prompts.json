@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择女频，古言宅斗宫斗。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/female-house-palace", "必须有势力和关系压迫", "必须联动配角和势力"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为宅斗宫斗生成章纲。",
+    "expected": ["必须有布局或借力打力", "必须有身份/权力变化", "必须有伏笔钩子"]
+  }
+]

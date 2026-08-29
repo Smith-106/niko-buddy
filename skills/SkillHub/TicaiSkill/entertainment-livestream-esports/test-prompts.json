@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择长篇，文娱娱乐圈、直播文或电竞题材。请生成题材卡和大纲路由。",
+    "expected": ["路由到 TicaiSkill/entertainment-livestream-esports", "必须体现才华展示、围观反应链或竞技目标", "不得生成正文"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为文娱/直播/电竞题材生成第001章章纲。",
+    "expected": ["必须有公开展示或比赛/直播场景", "必须有评价反转", "必须有章尾钩子"]
+  }
+]

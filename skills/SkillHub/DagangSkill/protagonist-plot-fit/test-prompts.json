@@ -1,0 +1,12 @@
+[
+  {
+    "prompt": "我的主角靠灵虫作战，不想写成热血莽夫，帮我设计主角人设。",
+    "should_trigger": true,
+    "expected_behavior": "从玩法反推性格、优势、缺陷和重复行为。"
+  },
+  {
+    "prompt": "帮我列全书二十个角色名字。",
+    "should_trigger": false,
+    "expected_behavior": "这是角色列表，不应调用主角适配 skill。"
+  }
+]

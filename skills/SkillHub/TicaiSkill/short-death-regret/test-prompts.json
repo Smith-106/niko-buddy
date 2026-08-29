@@ -1,0 +1,12 @@
+[
+  {
+    "name": "death_regret_route",
+    "prompt": "用户选择短篇、女频、死人文学。灵感：女主死后才被丈夫发现她一直在替他挡灾。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/short-death-regret", "必须突出不可逆失去和来不及", "不得生成正文"]
+  },
+  {
+    "name": "death_regret_outline",
+    "prompt": "生成短篇章纲：死亡事实开场，丈夫逐步发现真相。",
+    "expected": ["必须有死亡事实", "必须有证据逐层揭开", "必须有余韵落点"]
+  }
+]

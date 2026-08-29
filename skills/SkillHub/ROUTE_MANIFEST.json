@@ -1,0 +1,392 @@
+﻿{
+  "version": 1,
+  "scope": "ai-outline",
+  "protocols": {
+    "outputProtocol": "AI_OUTLINE_OUTPUT_PROTOCOL.md",
+    "folderStorageStandard": "OUTLINE_FOLDER_STORAGE_STANDARD.md",
+    "qualitySkill": "QualitySkill/outline-quality-check",
+    "genreRouteStandard": "TicaiSkill/GENRE_ROUTE_STANDARD.md"
+  },
+  "defaultFolders": [
+    "大纲",
+    "卷纲",
+    "章纲",
+    "人物小传",
+    "设定",
+    "伏笔",
+    "组织",
+    "质量检查"
+  ],
+  "fileTypeFolders": {
+    "outline": "大纲",
+    "volume-outline": "卷纲",
+    "chapter-outline": "章纲",
+    "character": "人物小传",
+    "setting": "设定",
+    "foreshadowing": "伏笔",
+    "organization": "组织",
+    "quality-report": "质量检查"
+  },
+  "routes": [
+    {
+      "id": "male-xuanhuan-xianxia",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["玄幻", "修仙", "仙侠", "高武", "西幻升级"],
+      "primarySkill": "TicaiSkill/male-xuanhuan-xianxia",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/power-system", "SheDingSkill/faction-system", "SheDingSkill/map-progression"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "setting", "foreshadowing"]
+    },
+    {
+      "id": "female-xuanhuan-fantasy",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["幻想言情", "女频玄幻", "仙侠情缘", "沙雕修真"],
+      "primarySkill": "TicaiSkill/female-xuanhuan-fantasy",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "SheDingSkill/world-rules", "SheDingSkill/power-system"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    },
+    {
+      "id": "male-urban-highmartial",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["都市", "都市异能", "都市高武", "神明复苏", "灵气复苏"],
+      "primarySkill": "TicaiSkill/male-urban-highmartial",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/power-system", "SheDingSkill/map-progression", "JueseSkill/character-design"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "male-urban-system",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["都市脑洞", "系统流", "金手指", "神豪"],
+      "primarySkill": "TicaiSkill/male-urban-system",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/idea-market-positioning", "SheDingSkill/power-system"],
+      "defaultOutputs": ["outline", "chapter-outline", "setting"]
+    },
+    {
+      "id": "male-beast-taming",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["御兽", "宠兽进化", "怪物伙伴", "学院联赛"],
+      "primarySkill": "TicaiSkill/male-beast-taming",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/power-system", "SheDingSkill/map-progression", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "male-lord-building",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["领主", "基建", "领地经营", "种田争霸"],
+      "primarySkill": "TicaiSkill/male-lord-building",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/faction-system", "SheDingSkill/map-progression", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting", "organization"]
+    },
+    {
+      "id": "male-simulator-loop",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["模拟器", "人生模拟", "未来预演", "读档循环"],
+      "primarySkill": "TicaiSkill/male-simulator-loop",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense", "SheDingSkill/power-system"],
+      "defaultOutputs": ["outline", "chapter-outline", "setting", "foreshadowing"]
+    },
+    {
+      "id": "male-behind-the-scenes",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["幕后流", "组织马甲", "暗中布局", "操盘世界"],
+      "primarySkill": "TicaiSkill/male-behind-the-scenes",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/foreshadowing-suspense", "JueseSkill/supporting-cast", "SheDingSkill/faction-system"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "foreshadowing", "organization"]
+    },
+    {
+      "id": "male-longevity-flow",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["长生流", "时代更替", "代际传承"],
+      "primarySkill": "TicaiSkill/male-longevity-flow",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/map-progression", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "male-mortal-cultivation",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["凡人流", "低天赋修仙", "谨慎生存"],
+      "primarySkill": "TicaiSkill/male-mortal-cultivation",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/power-system", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "setting", "foreshadowing"]
+    },
+    {
+      "id": "male-son-in-law-counterattack",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["male"],
+      "labels": ["赘婿", "隐藏身份", "家族羞辱", "社会打脸"],
+      "primarySkill": "TicaiSkill/male-son-in-law-counterattack",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "SheDingSkill/idea-market-positioning", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "chapter-outline", "character"]
+    },
+    {
+      "id": "male-villain-protagonist",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["反派流", "逆天改命", "夺取气运"],
+      "primarySkill": "TicaiSkill/male-villain-protagonist",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense", "SheDingSkill/world-rules"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    },
+    {
+      "id": "rule-mystery-suspense",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["male", "female"],
+      "labels": ["规则怪谈", "悬疑", "悬疑灵异", "推理"],
+      "primarySkill": "TicaiSkill/rule-mystery-suspense",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "setting", "foreshadowing"]
+    },
+    {
+      "id": "male-infinite-sci-fi-apocalypse",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["无限流", "科幻", "末世"],
+      "primarySkill": "TicaiSkill/male-infinite-sci-fi-apocalypse",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/map-progression", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "setting"]
+    },
+    {
+      "id": "male-history-alt-history",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["历史", "历史脑洞", "抗战谍战", "年代"],
+      "primarySkill": "TicaiSkill/male-history-alt-history",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/idea-market-positioning", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "female-modern-romance",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["现言", "现言脑洞", "职场外壳情绪线"],
+      "primarySkill": "TicaiSkill/female-modern-romance",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "JueseSkill/character-design"],
+      "defaultOutputs": ["outline", "chapter-outline", "character"]
+    },
+    {
+      "id": "female-rich-family-ceo",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["豪门总裁", "先婚后爱", "霸总甜宠"],
+      "primarySkill": "TicaiSkill/female-rich-family-ceo",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "JueseSkill/character-design"],
+      "defaultOutputs": ["outline", "chapter-outline", "character"]
+    },
+    {
+      "id": "female-chasing-wife",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["追妻火葬场", "狗血言情", "虐后翻盘"],
+      "primarySkill": "TicaiSkill/female-chasing-wife",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-substitute-romance",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["替身文", "白月光", "身份反转"],
+      "primarySkill": "TicaiSkill/female-substitute-romance",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-house-palace",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["古言", "宅斗", "宫斗"],
+      "primarySkill": "TicaiSkill/female-house-palace",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/faction-system", "JueseSkill/supporting-cast", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    },
+    {
+      "id": "female-workplace-youth-sweet",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["职场婚恋", "青春甜宠", "校园甜宠"],
+      "primarySkill": "TicaiSkill/female-workplace-youth-sweet",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "JueseSkill/character-design"],
+      "defaultOutputs": ["outline", "chapter-outline", "character"]
+    },
+    {
+      "id": "female-mystery-republic",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["女频悬疑", "民国言情", "探案情感线"],
+      "primarySkill": "TicaiSkill/female-mystery-republic",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/foreshadowing-suspense", "JueseSkill/relationship-emotion"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-period-rebirth",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["年代", "重生改命", "换亲", "军婚", "家庭反击"],
+      "primarySkill": "TicaiSkill/female-period-rebirth",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/idea-market-positioning", "JueseSkill/relationship-emotion", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "female-book-transmigration",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["穿书", "炮灰觉醒", "恶毒女配改命", "拯救反派"],
+      "primarySkill": "TicaiSkill/female-book-transmigration",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense", "JueseSkill/relationship-emotion"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    },
+    {
+      "id": "female-rebirth-revenge",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["重生复仇", "前世惨死", "信息差打脸"],
+      "primarySkill": "TicaiSkill/female-rebirth-revenge",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-family-pampering-child",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["团宠", "萌宝", "亲情治愈", "找回家人"],
+      "primarySkill": "TicaiSkill/female-family-pampering-child",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/supporting-cast", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-farming-business",
+      "lengthTypes": ["long"],
+      "audiences": ["female"],
+      "labels": ["种田经商", "穿越经营", "事业线成长"],
+      "primarySkill": "TicaiSkill/female-farming-business",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/faction-system", "SheDingSkill/map-progression", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "female-possessive-romance",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["强取豪夺", "权力差恋爱", "虐恋拉扯"],
+      "primarySkill": "TicaiSkill/female-possessive-romance",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "female-secret-love-reunion",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["female"],
+      "labels": ["暗恋", "破镜重圆", "久别重逢", "遗憾弥补"],
+      "primarySkill": "TicaiSkill/female-secret-love-reunion",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "entertainment-livestream-esports",
+      "lengthTypes": ["long"],
+      "audiences": ["male", "female"],
+      "labels": ["文娱娱乐圈", "直播文", "电竞"],
+      "primarySkill": "TicaiSkill/entertainment-livestream-esports",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/idea-market-positioning", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "farming-business-adventure",
+      "lengthTypes": ["long"],
+      "audiences": ["male", "female"],
+      "labels": ["种田", "经营", "冒险"],
+      "primarySkill": "TicaiSkill/farming-business-adventure",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/faction-system", "SheDingSkill/map-progression", "JueseSkill/supporting-cast"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting"]
+    },
+    {
+      "id": "western-fantasy-cosmic-dark",
+      "lengthTypes": ["long"],
+      "audiences": ["male"],
+      "labels": ["西幻", "克苏鲁", "黑暗题材"],
+      "primarySkill": "TicaiSkill/western-fantasy-cosmic-dark",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/power-system", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "setting", "foreshadowing"]
+    },
+    {
+      "id": "family-drama-short",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["世情", "家庭矛盾", "弱者反击", "婚恋背叛"],
+      "primarySkill": "TicaiSkill/family-drama-short",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "zhihu-short",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["知乎短篇", "强钩子", "反转", "情绪审判"],
+      "primarySkill": "TicaiSkill/zhihu-short",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "short-death-regret",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["死人文学", "死后追悔", "不可逆失去"],
+      "primarySkill": "TicaiSkill/short-death-regret",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "short-marriage-betrayal",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["婚恋背叛", "出轨", "财产转移", "离婚反击"],
+      "primarySkill": "TicaiSkill/short-marriage-betrayal",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "short-rebirth-revenge",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["短篇重生复仇", "反常选择", "集中清算"],
+      "primarySkill": "TicaiSkill/short-rebirth-revenge",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "short-public-trial-face-slap",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["公开审判式打脸", "证据连环揭露", "名誉反转"],
+      "primarySkill": "TicaiSkill/short-public-trial-face-slap",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/supporting-cast", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "foreshadowing"]
+    },
+    {
+      "id": "short-soul-perspective",
+      "lengthTypes": ["short"],
+      "audiences": ["female", "male"],
+      "labels": ["灵魂视角", "死后旁观", "无力阻止"],
+      "primarySkill": "TicaiSkill/short-soul-perspective",
+      "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense", "JueseSkill/relationship-emotion"],
+      "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    }
+  ],
+  "plannedCoverage": {
+    "male": [],
+    "female": [],
+    "short": []
+  },
+  "bodyGeneration": {
+    "enabledInAiOutline": false,
+    "note": "正文协作区读取已确认章纲，不在 AI 大纲路由中直接生成正文。"
+  }
+}

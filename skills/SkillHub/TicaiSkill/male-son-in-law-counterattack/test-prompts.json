@@ -1,0 +1,12 @@
+[
+  {
+    "name": "route",
+    "prompt": "用户选择男频赘婿反击。灵感：主角入赘三年被看不起，其实掌控海外财团。请生成题材卡。",
+    "expected": ["路由到 TicaiSkill/male-son-in-law-counterattack", "必须有隐藏身份理由", "必须有社会评价反转"]
+  },
+  {
+    "name": "chapter_outline",
+    "prompt": "为赘婿反击生成章纲：家宴上主角被公开羞辱。",
+    "expected": ["必须有误判", "必须有身份或资源反击", "必须有关系变化钩子"]
+  }
+]
