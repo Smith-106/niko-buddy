@@ -538,7 +538,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
@@ -614,6 +614,8 @@ interface WikiState {
   setSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
   setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
+  bindingVersion: number
+  bumpBindingVersion: () => void
   setMcpConfig: (mcpConfig: McpConfig) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
@@ -687,6 +689,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatDockPosition: readStoredChatDockPosition(),
   searchPanelOpen: false,
   activeView: "wiki",
+  bindingVersion: 0,
   selectedSkillLibrarySkillId: null,
   skillLibraryDraftDirty: false,
   selectedWritingSkillLibrarySkillId: null,
@@ -853,6 +856,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
+  bumpBindingVersion: () => set((state) => ({ bindingVersion: state.bindingVersion + 1 })),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setMcpConfig: (mcpConfig) => set({ mcpConfig }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
