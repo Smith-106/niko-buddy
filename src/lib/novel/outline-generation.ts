@@ -429,7 +429,15 @@ export async function generateOutlineFile(
   return { outlinePath, content }
 }
 
-export async function runOutlineGenerationTask(taskId: string, llmConfig: LlmConfig): Promise<void> {
+export interface OutlineGenerationTaskOptions {
+  multiAgent?: boolean
+}
+
+export async function runOutlineGenerationTask(
+  taskId: string,
+  llmConfig: LlmConfig,
+  options?: OutlineGenerationTaskOptions,
+): Promise<void> {
   const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
   if (!task) return
 
@@ -444,7 +452,9 @@ export async function runOutlineGenerationTask(taskId: string, llmConfig: LlmCon
   })
 
   try {
-    const { outlinePath } = await generateOutlineFile(task.projectPath, llmConfig, task.prompt, abortController.signal)
+    const { outlinePath } = options?.multiAgent
+      ? await generateOutlineFileMultiAgent(task.projectPath, llmConfig, task.prompt, abortController.signal)
+      : await generateOutlineFile(task.projectPath, llmConfig, task.prompt, abortController.signal)
     await refreshProjectState(task.projectPath)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "generated",
@@ -733,4 +743,59 @@ export async function runOutlineIngestTask(taskId: string): Promise<void> {
       message: `${outlineFileName} 提取失败`,
     })
   }
+}
+
+/**
+ * 多智能体协作生成大纲文件：规划子智能体 → 并行执行 → 合并 → 写盘。
+ * 规划失败或子智能体全部失败时自动回退单智能体（fallback 语义）。
+ */
+export async function generateOutlineFileMultiAgent(
+  projectPath: string,
+  llmConfig: LlmConfig,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<{ outlinePath: string; content: string }> {
+  const { planOutlineSubAgents } = await import("./outline-multi-agent-orchestrator")
+  const { runOutlineMultiAgentGeneration } = await import("./outline-multi-agent-adapter")
+
+  const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: [] })
+  const contextPack = {
+    task: prompt,
+    chapterGoal: "",
+    outline: "",
+    recentSummaries: [],
+    previousChapterEnding: "",
+    characterStates: "",
+    soulDoc: "",
+    characterAuras: "",
+    cognitionStates: "",
+    relatedSettings: "",
+    canonRules: "",
+    timeline: "",
+    foreshadowingStates: "",
+    writingStyle: "",
+    searchResults: "",
+    graphSearchResults: "",
+    mustDo: "",
+    mustAvoid: "",
+    nextChapterAdvice: "",
+    revisionDirectives: "",
+  }
+  const result = await runOutlineMultiAgentGeneration({
+    llmConfig,
+    userRequest: prompt,
+    contextPack,
+    plan,
+    signal,
+  })
+  const content = result.finalText.trim() || "AI大纲未返回内容。"
+
+  const pp = normalizePath(projectPath)
+  const outlinesDir = `${pp}/wiki/outlines`
+  await createDirectory(outlinesDir)
+  const outlineTitle = useEnglishOutlineNames() ? "Story Outline" : "总大纲"
+  const fullContent = outlinePageMarkdown(outlineTitle, content)
+  const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
+  await writeFile(outlinePath, fullContent)
+  return { outlinePath, content }
 }

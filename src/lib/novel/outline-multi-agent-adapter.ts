@@ -67,9 +67,11 @@ export async function runOutlineMultiAgentGeneration(
     const prompt = buildSubAgentPrompt(subPlan, scoped)
     let text = ""
     const callbacks: StreamCallbacks = {
-      onFinalContent: (content) => {
-        text = content
+      onToken: (token) => {
+        text += token
       },
+      onDone: () => {},
+      onError: () => {},
     }
     await streamChat(
       llmConfig,
@@ -84,9 +86,11 @@ export async function runOutlineMultiAgentGeneration(
     const payload = buildBoundedSubAgentMergePayload(results)
     let text = ""
     const callbacks: StreamCallbacks = {
-      onFinalContent: (content) => {
-        text = content
+      onToken: (token) => {
+        text += token
       },
+      onDone: () => {},
+      onError: () => {},
     }
     await streamChat(
       llmConfig,

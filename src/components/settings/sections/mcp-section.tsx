@@ -11,6 +11,7 @@ import {
   normalizeMcpServerConfig,
   type McpConfig,
   type McpServerConfig,
+  DEFAULT_MCP_CONFIG,
 } from "@/lib/mcp/config"
 import { buildMcpRuntime } from "@/lib/mcp/runtime"
 import { RealMcpConnector } from "@/lib/mcp/real-connector"
@@ -24,7 +25,7 @@ interface TestState {
 
 export function McpSection() {
   const { t } = useTranslation()
-  const mcpConfig = useWikiStore((s) => s.mcpConfig)
+  const mcpConfig = useWikiStore((s) => s.mcpConfig ?? DEFAULT_MCP_CONFIG)
   const setMcpConfig = useWikiStore((s) => s.setMcpConfig)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
@@ -42,11 +43,11 @@ export function McpSection() {
   }
 
   function updateServer(serverId: string, patch: Partial<McpServerConfig>) {
-    const nextServers = mcpConfig.servers.map((server) => {
+    const nextServers = mcpConfig.servers.map((server: McpServerConfig) => {
       if (server.id !== serverId) return server
       const nextServer = { ...server, ...patch }
       if (patch.id || patch.name) {
-        nextServer.tools = nextServer.tools.map((tool) => ({
+        nextServer.tools = nextServer.tools.map((tool: import("@/lib/mcp/types").McpToolDescriptor) => ({
           ...tool,
           serverId: nextServer.id,
           serverName: nextServer.name,
@@ -59,7 +60,7 @@ export function McpSection() {
 
   function addSampleServer() {
     const sample = createSampleGraphMcpServer()
-    const existingIds = new Set(mcpConfig.servers.map((server) => server.id))
+    const existingIds = new Set(mcpConfig.servers.map((server: McpServerConfig) => server.id))
     let next = sample
     let index = 2
     while (existingIds.has(next.id)) {
@@ -81,7 +82,7 @@ export function McpSection() {
 
   function removeServer(serverId: string) {
     if (!window.confirm(t("settings.sections.mcp.deleteConfirm"))) return
-    void persist({ servers: mcpConfig.servers.filter((server) => server.id !== serverId) })
+    void persist({ servers: mcpConfig.servers.filter((server: McpServerConfig) => server.id !== serverId) })
     setToolJsonDrafts((prev) => {
       const next = { ...prev }
       delete next[serverId]
@@ -199,7 +200,7 @@ export function McpSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {mcpConfig.servers.map((server) => (
+          {mcpConfig.servers.map((server: McpServerConfig) => (
             <div key={server.id} className="rounded-md border p-3">
               <div className="mb-3 flex items-center gap-2">
                 <button

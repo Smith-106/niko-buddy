@@ -71,14 +71,14 @@ function createMcpToolFromParameters(
     category: policy.category,
     permission: policy.permission,
     parameters,
-    execute: async (params, signal) => {
+    execute: async (params: Record<string, unknown>) => {
       try {
         const result = await caller({
           serverId: descriptor.serverId,
           serverName: descriptor.serverName,
           toolName: descriptor.name,
           qmaiToolName,
-        }, params, signal)
+        }, params)
         return JSON.stringify({
           status: result.status,
           serverId: descriptor.serverId,

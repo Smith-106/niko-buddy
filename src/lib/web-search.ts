@@ -315,3 +315,7 @@ function normaliseSerpApiResults(data: {
 function hostname(url: string): string {
   try { return new URL(url).hostname.replace("www.", "") } catch { return "" }
 }
+
+export function providerRequiresApiKey(provider: string): boolean {
+  return provider !== "none" && provider !== "local"
+}

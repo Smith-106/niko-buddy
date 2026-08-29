@@ -6,7 +6,7 @@
  * 缺点：依赖真实 LLM endpoint（失败时回退到 heuristicRecognizeCharacters）。
  */
 
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, extractJsonArraySpan } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { parseLlmJsonArray } from "./llm-json"
@@ -166,21 +166,16 @@ async function callLlmForRecognition(
  * 解析 LLM 返回的 JSON 响应
  * 兼容：纯 JSON 数组 / JSON 数组被包在 markdown ```json ... ``` 中 / 前后有解释文字
  */
-function parseRecognitionResponse(raw: string): Array<{
-  name: string
-  importanceScore: number
-  category: CharacterCategory
-  chapterIndices: number[]
-  aliases?: string[]
-}> {
+function parseRecognitionResponse(raw: string): Array<Record<string, unknown>> {
   if (!raw) return []
   // 尝试提取 JSON 数组 span（PAT-G2 dedup: 共享 @/lib/llm-client
   // extractJsonArraySpan，含 stripCodeFence + 配平提取，比原 indexOf+slice 更稳健）。
-  const parsed = parseLlmJsonArray(raw)
+  const parsed = parseLlmJsonArray(raw) as Array<Record<string, unknown>> | null
   if (!parsed) {
     throw new Error("LLM 响应中未找到 JSON 数组（jsonrepair 容错后仍失败）")
   }
-  return parsed
+  // 宽松透传原始字段（含中文别名键），由调用处 firstValue/firstString 等做别名解析
+  return parsed.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
 }
 
 function clampScore(score: unknown): number {

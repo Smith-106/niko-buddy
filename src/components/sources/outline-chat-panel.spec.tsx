@@ -77,6 +77,7 @@ const mocks = vi.hoisted(() => {
     setActiveConversation: vi.fn<(id: string | null) => void>(),
     addMessage: vi.fn<(convId: string, message: ConvMsg) => void>(),
     replaceLastAssistant: vi.fn<(message: ConvMsg) => void>(),
+    finalizeStructuredMarkdownMessage: vi.fn(async (content: string) => content),
     removeLastMessage: vi.fn<() => void>(),
     deleteConversation: vi.fn<(id: string) => void>(),
     setStreamingContent: vi.fn<(c: string) => void>((c: string) => { outlineState.streamingContent = c }),
@@ -174,6 +175,9 @@ vi.mock("@/stores/outline-chat-store", () => ({
 vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
 vi.mock("@/lib/novel/model-resolver", () => ({ resolveNovelModel: mocks.resolveNovelModel }))
+vi.mock("@/lib/novel/markdown-quality-finalizer", () => ({
+  finalizeStructuredMarkdownMessage: mocks.finalizeStructuredMarkdownMessage,
+}))
 vi.mock("@/lib/novel/deep-outline-generation", () => ({ runDeepOutlineGeneration: mocks.runDeepOutlineGeneration }))
 vi.mock("@/lib/deep-thinking-stream", () => ({ createDeepThinkingStreamRenderer: mocks.createDeepThinkingStreamRenderer }))
 vi.mock("@/lib/user-visible-reasoning", () => ({ resolveUserVisibleReasoning: mocks.resolveUserVisibleReasoning }))

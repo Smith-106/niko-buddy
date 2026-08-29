@@ -59,17 +59,16 @@ describe("MCP adapter", () => {
     expect(result.tool.name).toBe("mcp_knowledge_query_graph")
     expect(result.tool.category).toBe("action")
     expect(result.tool.permission).toBe("auto")
-    expect(result.tool.parameters.query).toEqual({
+    expect(result.tool.parameters?.query).toEqual({
       type: "string",
       description: "Query text",
       required: true,
     })
 
-    const output = JSON.parse(await result.tool.execute({ query: "A and B" }))
+    const output = JSON.parse(await result.tool.execute!({ query: "A and B" }) as string)
     expect(caller).toHaveBeenCalledWith(
       expect.objectContaining({ serverId: "knowledge", toolName: "query_graph" }),
       { query: "A and B" },
-      undefined,
     )
     expect(output.status).toBe("ok")
     expect(output.content).toBe("Graph answer")

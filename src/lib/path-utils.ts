@@ -112,3 +112,9 @@ export async function getUniqueOutlinePath(dir: string, fileName: string): Promi
 
   return `${dir}/${stem}-${Date.now()}${extension}`
 }
+
+export function isPathInside(child: string, parent: string): boolean {
+  const c = normalizePath(child).toLowerCase()
+  const p = normalizePath(parent).toLowerCase()
+  return c === p || c.startsWith(p.replace(/[\/]+$/, "") + "/")
+}

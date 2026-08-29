@@ -6,6 +6,9 @@ import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer"
+import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair"
+import { toast } from "@/lib/toast"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import ReactMarkdown from "react-markdown"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
@@ -377,6 +380,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           controller.signal,
         )
       }
+
+      // Markdown 质量流水线：对完成的大纲内容做结构化修复（AI 修复失败时保留原内容）
+      result = await finalizeStructuredMarkdownMessage(result, {
+        enabled: true,
+        repairWithAi: ({ content, maxTokens }) =>
+          repairMarkdownFormatWithAi({
+            content,
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+            maxTokens,
+          }),
+        onFailure: () => {
+          toast.info("Markdown 格式自动修复未完全通过，已保留内容最完整的版本。")
+        },
+      })
 
       replaceLastAssistant(convId, result, outlineSources)
       setStreamingContent("")

@@ -155,3 +155,9 @@ export function computeContextBudget(
     strategy,
   }
 }
+
+export function resolveContextPackTokenBudget(
+  config: { maxInputChars?: number; maxContextSize?: number } | undefined,
+): number {
+  return config?.maxInputChars ?? config?.maxContextSize ?? 204_800
+}

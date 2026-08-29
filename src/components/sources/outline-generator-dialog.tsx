@@ -114,6 +114,7 @@ export function OutlineGeneratorDialog({
   const [genre, setGenre] = useState<string>("general")
   const [scale, setScale] = useState<string>("medium")
   const [premise, setPremise] = useState("")
+  const [multiAgent, setMultiAgent] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ingesting, setIngesting] = useState(false)
@@ -266,7 +267,7 @@ export function OutlineGeneratorDialog({
         error: null,
       })
       setIngestResult(null)
-      void runOutlineGenerationTask(taskId, llmConfig)
+      void runOutlineGenerationTask(taskId, llmConfig, { multiAgent })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -454,6 +455,17 @@ export function OutlineGeneratorDialog({
                   rows={4}
                   className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={multiAgent}
+                    onChange={(e) => setMultiAgent(e.target.checked)}
+                    disabled={generating || taskGenerating}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  <span>{t("novel.outlineGenerator.multiAgent")}</span>
+                  <span className="text-muted-foreground/60">（{t("novel.outlineGenerator.multiAgentHint")}）</span>
+                </label>
               </div>
 
               {taskGenerating && (

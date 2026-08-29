@@ -66,12 +66,12 @@ function makePlan(): OutlineSubAgentPlan[] {
 describe("outline-multi-agent-adapter", () => {
   it("多智能体模式：子智能体输出经合并后返回", async () => {
     mockStreamChat.mockImplementation(async (_config, messages, callbacks) => {
-      const prompt = messages[0].content
+      const prompt = String(messages[0].content)
       if (prompt.includes("你是大纲子智能体")) {
         const id = prompt.includes("主线子智能体") ? "a1" : "a2"
-        callbacks.onFinalContent?.(id === "a1" ? "## 主线大纲\n第一卷：觉醒" : "## 角色大纲\n主角：林澈")
+        callbacks.onToken?.(id === "a1" ? "## 主线大纲\n第一卷：觉醒" : "## 角色大纲\n主角：林澈")
       } else if (prompt.includes("合并")) {
-        callbacks.onFinalContent?.("## 合并大纲\n第一卷：觉醒\n主角：林澈")
+        callbacks.onToken?.("## 合并大纲\n第一卷：觉醒\n主角：林澈")
       }
     })
 
@@ -90,14 +90,14 @@ describe("outline-multi-agent-adapter", () => {
     expect(result.failedAgents).toEqual([])
     // 子智能体上下文裁剪：角色子智能体应注入角色状态
     const characterPrompt = mockStreamChat.mock.calls.find(
-      (c) => c[1][0].content.includes("角色子智能体"),
+      (c) => String(c[1][0].content).includes("角色子智能体"),
     )?.[1][0].content
     expect(characterPrompt).toContain("主角：初醒")
   })
 
   it("全部子智能体失败时降级为单智能体（deep-outline 流水线）", async () => {
     mockStreamChat.mockImplementation(async (_config, messages, callbacks) => {
-      const prompt = messages[0].content
+      const prompt = String(messages[0].content)
       if (prompt.includes("你是大纲子智能体")) {
         // 子智能体全部失败：不输出
       } else {

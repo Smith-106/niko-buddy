@@ -43,3 +43,46 @@ export async function withWakeLock<T>(task: Promise<T>): Promise<T> {
     await releaseWakeLock()
   }
 }
+
+/**
+ * 引用计数版本地持锁：嵌套调用只 acquire 一次、全部结束后才 release。
+ * 用于 streamChat 包装（所有生成/审查/对话自动覆盖），避免并发请求相互释放。
+ */
+let holdCount = 0
+let active = false
+let settle: Promise<void> = Promise.resolve()
+
+function queue<T>(task: () => Promise<T>): Promise<T> {
+  const run = settle.then(task, task)
+  settle = run.then(() => undefined, () => undefined)
+  return run
+}
+
+export async function withWritingWakeLock<T>(
+  enabled: boolean,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (!enabled) {
+    return operation()
+  }
+  const { isTauri } = await import("@/lib/platform")
+  if (!isTauri()) {
+    return operation()
+  }
+  return queue(async () => {
+    holdCount += 1
+    if (holdCount === 1 && !active) {
+      active = true
+      await acquireWakeLock()
+    }
+    try {
+      return await operation()
+    } finally {
+      holdCount = Math.max(0, holdCount - 1)
+      if (holdCount === 0 && active) {
+        active = false
+        await releaseWakeLock()
+      }
+    }
+  })
+}

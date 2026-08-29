@@ -15,6 +15,11 @@ export type ContentBlock =
 export interface ChatMessage {
   role: "system" | "user" | "assistant"
   content: string | ContentBlock[]
+  /** Optional agent/tool-calling extensions (port of v3 agent chain). */
+  tool_calls?: Array<{ id?: string; type?: string; function: { name: string; arguments: string } }>
+  tool_call_id?: string
+  name?: string
+  reasoning_content?: string
 }
 
 export interface RequestOverrides {
@@ -25,6 +30,9 @@ export interface RequestOverrides {
   stop?: string | string[]
   reasoning?: ReasoningConfig
   jsonSchema?: Record<string, unknown>
+  /** Optional tool-calling extensions (port of v3 agent chain). */
+  tools?: unknown[]
+  toolChoice?: unknown
 }
 
 interface ProviderConfig {
@@ -707,8 +715,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           model,
         }),
         parseStream: parseOpenAiLine,
-        parseUsage: parseOpenAiUsage,
-        parseFinishReason: parseOpenAiFinishReason,
+        extractUsage: extractOpenAiUsage,
       }
     }
 
@@ -777,4 +784,16 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       throw new Error(`Unknown provider: ${String(exhaustive)}`)
     }
   }
+}
+
+export interface ToolCall {
+  id?: string
+  type?: string
+  function: { name: string; arguments: string }
+}
+
+export function getEffectiveMaxContextSize(config: { maxContextSize?: number }): number {
+  return typeof config.maxContextSize === "number" && config.maxContextSize > 0
+    ? config.maxContextSize
+    : 204_800
 }

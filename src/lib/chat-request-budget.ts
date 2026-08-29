@@ -119,6 +119,13 @@ function trimMessage(message: ChatMessage, maxChars: number): ChatMessage {
  * @param maxChars - Maximum total character budget allowed
  * @returns Trimmed message array that fits within budget
  */
+export function trimChatMessagesToTokenBudget(
+  messages: import("@/lib/llm-providers").ChatMessage[],
+  maxChars: number,
+): import("@/lib/llm-providers").ChatMessage[] {
+  return trimChatMessagesToBudget(messages, maxChars)
+}
+
 export function trimChatMessagesToBudget(
   messages: ChatMessage[],
   maxChars: number,
@@ -183,4 +190,26 @@ export function trimChatMessagesToBudget(
   }
 
   return next
+}
+
+/**
+ * v3 agent 兼容：估算消息 token 总量（port of v3 chat-request-budget）。
+ */
+export function estimateChatMessagesTokens(messages: import("@/lib/llm-providers").ChatMessage[]): number {
+  let total = 0
+  for (const message of messages) {
+    const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? [])
+    total += Math.ceil(content.length / 3)
+    if (message.reasoning_content) total += Math.ceil(message.reasoning_content.length / 3)
+  }
+  return total
+}
+
+export function estimateRequestScaffoldTokens(tools: unknown): number {
+  if (!tools) return 0
+  try {
+    return Math.ceil(JSON.stringify(tools).length / 3)
+  } catch {
+    return 0
+  }
 }

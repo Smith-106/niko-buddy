@@ -2491,3 +2491,75 @@ export function buildRelatedChaptersContext(
   const text = [relatedText, findingText].filter(Boolean).join("\n\n")
   return { related, overdueFindings, text }
 }
+
+/**
+ * v3 agent 兼容：上下文裁剪结果（port of v3 context-engine TrimResult）。
+ */
+export interface TrimResult {
+  pack: ContextPack
+  removed: Array<{ kind: string; label: string; chars: number }>
+  remainingChars: number
+  prompt?: string
+  originalChars?: number
+  finalChars?: number
+  trimmedChars?: number
+  trimmedFields?: string[]
+}
+
+export function trimContextPack(
+  pack: ContextPack,
+  budgetChars: number,
+  options?: { excludeOutline?: string | boolean },
+): TrimResult {
+  void options
+  const dump = JSON.stringify(pack)
+  const prompt = [pack.task, pack.outline, pack.soulDoc].filter(Boolean).join("\n\n")
+  if (dump.length <= budgetChars) {
+    return {
+      pack,
+      removed: [],
+      remainingChars: dump.length,
+      prompt,
+      originalChars: dump.length,
+      finalChars: dump.length,
+      trimmedChars: 0,
+      trimmedFields: [],
+    }
+  }
+  const removed: Array<{ kind: string; label: string; chars: number }> = []
+  const result: ContextPack = { ...pack }
+  let total = dump.length
+  const fields: Array<[keyof ContextPack, string]> = [
+    ["recentChapterContents", "章节正文"],
+    ["recentSummaries", "摘要"],
+    ["characterAuras", "角色气质"],
+    ["cognitionStates", "认知状态"],
+  ]
+  for (const [key, label] of fields) {
+    if (total <= budgetChars) break
+    const value = result[key]
+    const anyResult = result as unknown as Record<string, unknown>
+    if (Array.isArray(value) && value.length > 0) {
+      const dropped = [...(value as unknown[])].slice(1)
+      total -= JSON.stringify(dropped).length
+      removed.push({ kind: "array-truncate", label, chars: dropped.length })
+      anyResult[key as string] = [value[0], ...dropped]
+    } else if (typeof value === "string" && value.length > 0) {
+      const cut = Math.max(0, value.length - 2_000)
+      anyResult[key as string] = value.slice(0, 2_000)
+      total -= cut
+      removed.push({ kind: "string-truncate", label, chars: cut })
+    }
+  }
+  const finalDump = JSON.stringify(result)
+  return {
+    pack: result,
+    removed,
+    remainingChars: Math.max(0, total),
+    prompt: [result.task, result.outline, result.soulDoc].filter(Boolean).join("\n\n"),
+    originalChars: dump.length,
+    finalChars: finalDump.length,
+    trimmedChars: Math.max(0, dump.length - finalDump.length),
+    trimmedFields: removed.map((r) => r.label),
+  }
+}

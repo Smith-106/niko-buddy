@@ -171,23 +171,23 @@ ${corpus}
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON（jsonrepair 容错）
-    const data = parseLlmJsonObject(response)
+    const data = parseLlmJsonObject(response) as Record<string, unknown> | null
     if (data) {
       const character: ExtractedCharacter = {
         // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
-        id: stableCharacterId(data.name || characterName, ""),
-        name: data.name || characterName,
-        aliases: data.aliases || [],
+        id: stableCharacterId(typeof data.name === "string" ? data.name : characterName, ""),
+        name: typeof data.name === "string" ? data.name : characterName,
+        aliases: Array.isArray(data.aliases) ? data.aliases.map(String) : [],
         importance: 5, // 默认值，稍后会更新
-        category: data.category || "minor",
+        category: (typeof data.category === "string" ? data.category : "minor") as ExtractedCharacter["category"],
         firstAppearance: relevantChapters[0]?.order || 1,
         lastAppearance: relevantChapters[relevantChapters.length - 1]?.order || 1,
         appearanceCount: relevantChapters.length,
-        description: data.description || "",
-        personality: data.personality || "",
-        speechStyle: data.speechStyle || "",
-        relationships: data.relationships || [],
-        keyEvents: data.keyEvents || [],
+        description: typeof data.description === "string" ? data.description : "",
+        personality: typeof data.personality === "string" ? data.personality : "",
+        speechStyle: typeof data.speechStyle === "string" ? data.speechStyle : "",
+        relationships: Array.isArray(data.relationships) ? data.relationships.map((r: unknown) => r as { target: string; relation: string; description?: string }) : [],
+        keyEvents: Array.isArray(data.keyEvents) ? data.keyEvents.map((e: unknown) => e as { chapterId: string; description: string }) : [],
         corpus: corpus.substring(0, 10000), // 保留部分语料
       }
 

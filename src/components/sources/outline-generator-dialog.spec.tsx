@@ -327,7 +327,7 @@ describe("OutlineGeneratorDialog", () => {
         message: "novel.outlineGenerator.generationMayTakeLong",
         error: null,
       })
-      expect(mocks.runOutlineGenerationTask).toHaveBeenCalledWith(expect.any(String), mocks.llmConfig)
+      expect(mocks.runOutlineGenerationTask).toHaveBeenCalledWith(expect.any(String), mocks.llmConfig, { multiAgent: false })
 
       // run mock mutated the task to "generated" → ready panel
       expect(screen.getByText("novel.outlineGenerator.ready")).toBeInTheDocument()

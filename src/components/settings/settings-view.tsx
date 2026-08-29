@@ -14,8 +14,7 @@ import {
   HelpCircle,
   MessageCircle,
   HeartHandshake,
-  Archive,
-} from "lucide-react"
+  Archive,    Plug} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
 import { Button } from "@/components/ui/button"
@@ -54,6 +53,8 @@ type CategoryId =
   | "feedback"
   | "contact-support"
   | "changelog"
+  | "skill-library"
+  | "mcp"
 
 interface Category {
   id: CategoryId

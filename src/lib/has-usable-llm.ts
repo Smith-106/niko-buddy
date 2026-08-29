@@ -44,6 +44,7 @@ function isNonEmpty(value?: string): boolean {
 export function hasUsableLlm(
   cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">
     & Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>,
+  _providerConfigs?: unknown,
 ): boolean {
   switch (cfg.provider) {
     case "custom":
@@ -60,6 +61,9 @@ export function hasUsableLlm(
     case "google":
     case "minimax":
       return isNonEmpty(cfg.apiKey) && isNonEmpty(cfg.model)
+    case "cursor-cli":
+      // 本地 proxy 通道：无需 API key；有模型即可视为可用
+      return isNonEmpty(cfg.model)
     default: {
       const _exhaustive: never = cfg.provider
       return _exhaustive

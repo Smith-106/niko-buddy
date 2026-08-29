@@ -114,12 +114,11 @@ describe("buildMcpRuntime", () => {
     }
 
     const runtime = buildMcpRuntime(config, defaultUnavailableMcpCaller, { caller: realCaller } as any)
-    await runtime.mcpTools[0].execute({ query: "主角" })
+    await runtime.mcpTools[0]?.execute?.({ query: "主角" })
 
     expect(realCaller).toHaveBeenCalledWith(
       expect.objectContaining({ serverId: "graph", toolName: "query_graph" }),
       { query: "主角" },
-      undefined,
     )
   })
 })

@@ -3,6 +3,7 @@
 // Central application store — project state, LLM config, UI preferences and task lifecycle.
 
 import { create } from "zustand"
+import type { McpConfig } from "@/lib/mcp/config"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import type { LintResult } from "@/lib/lint"

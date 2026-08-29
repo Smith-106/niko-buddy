@@ -18,6 +18,15 @@ export interface StreamCallbacks {
   onReasoningToken?: (token: string) => void
   onDone: () => void
   onError: (error: Error) => void
+  /** Optional agent extensions (port of v3 agent chain). */
+  onToolCallDelta?: (delta: { index: number; type?: string; id?: string; name?: string; arguments?: string }) => void
+  onFinishReason?: (reason: string) => void
+  onUsage?: (usage: { input: number; output: number }) => void
+  onUserMemoryDecision?: (decision: { memoryKey: string; action: "accept" | "reject" }) => void
+}
+
+export function isOutputTruncatedError(error: unknown): boolean {
+  return error instanceof Error && /truncated|max_tokens|output token limit/i.test(error.message)
 }
 
 export interface LlmMetric {
@@ -274,6 +283,19 @@ export async function streamChat(
   signal?: AbortSignal,
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
+  const { withWritingWakeLock } = await import("./writing-wake-lock")
+  return withWritingWakeLock(true, () =>
+    streamChatHeld(config, messages, callbacks, signal, requestOverrides),
+  )
+}
+
+async function streamChatHeld(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+): Promise<void> {
   const resolvedLocal = await resolveRuntimeLocalCliConfig(config)
   const metricsStart = Date.now()
   let metricsErrorKind: string | undefined
@@ -322,13 +344,13 @@ export async function streamChat(
     }
   }
 
-  if (runtimeConfig.provider === "cursor-cli") {
+  let mutableRuntimeConfig = runtimeConfig
+  if (mutableRuntimeConfig.provider === "cursor-cli") {
     const mod = await import("./cursor-cli-proxy")
-    const endpoint = await mod.ensureCursorProxyRunning(runtimeConfig)
-    runtimeConfig = mod.withCursorProxyEndpoint(runtimeConfig, endpoint)
+    const endpoint = await mod.ensureCursorProxyRunning(mutableRuntimeConfig)
+    mutableRuntimeConfig = mod.withCursorProxyEndpoint(mutableRuntimeConfig, endpoint)
   }
-
-  const providerConfig = defaultRegistry.getProviderConfig(runtimeConfig)
+  const providerConfig = defaultRegistry.getProviderConfig(mutableRuntimeConfig)
 
   const timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS
   let combinedSignal = signal
@@ -350,7 +372,11 @@ export async function streamChat(
         if (timeoutId !== undefined) clearTimeout(timeoutId)
         timeoutController?.abort()
       }
-      signal.addEventListener("abort", onSignalAbort)
+      if (signal.aborted) {
+        onSignalAbort()
+      } else {
+        signal.addEventListener("abort", onSignalAbort)
+      }
     }
     combinedSignal = timeoutController.signal
   }

@@ -3,6 +3,8 @@ import {
   type OutlineSubAgentResult,
 } from "./outline-result-protocol"
 
+export type { OutlineSubAgentResult } from "./outline-result-protocol"
+
 export type OutlineSubAgentKind =
   | "outline"
   | "topic"
@@ -37,7 +39,7 @@ type OutlineSubAgentExecutionStatus =
   | "completed"
   | "failed"
 
-interface OutlineSubAgentStatusEvent {
+export interface OutlineSubAgentStatusEvent {
   agentId: string
   status: OutlineSubAgentExecutionStatus
   attempt: number

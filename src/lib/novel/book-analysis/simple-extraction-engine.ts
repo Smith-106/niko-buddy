@@ -39,7 +39,6 @@ export async function extractSimpleProfiles(
     if (signal?.aborted) throw new Error("aborted")
 
     // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
-    const stripped = raw.replace(/^[\s\S]*?```(?:json)?\s*\n?/i, "").replace(/\n?```\s*[\s\S]*$/, "").trim()
 
     const parsed = (parseLlmJsonArray(raw) ?? []) as Array<{
       name: string

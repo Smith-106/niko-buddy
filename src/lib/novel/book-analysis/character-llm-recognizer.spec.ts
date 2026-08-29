@@ -270,7 +270,6 @@ describe("llmRecognizeCharacters 边界分支", () => {
     // jsonrepair 修复 '[{"name": }]' → 不再抛错
     expect(Array.isArray(result)).toBe(true)
   })
-  })
 
   it("importance 相关别名键（importance/score/重要度/重要性/分数）", async () => {
     const raw = JSON.stringify([

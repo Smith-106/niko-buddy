@@ -12,7 +12,7 @@ import {
 
 describe("finalizeStructuredMarkdownMessage", () => {
   it("全文 markdown 围栏即使只有一个标题也必须本地去除围栏", async () => {
-    const repairWithAi = vi.fn<(content: string) => Promise<string>>()
+    const repairWithAi = vi.fn<({ content, maxTokens }: { content: string; maxTokens?: number }) => Promise<string>>()
 
     const finalMessage = await finalizeStructuredMarkdownMessage(
       "```markdown\n# 唯一标题\n```",
@@ -24,7 +24,7 @@ describe("finalizeStructuredMarkdownMessage", () => {
   })
 
   it("让全文 markdown 围栏进入本地修复并返回最终消息正文", async () => {
-    const repairWithAi = vi.fn<(content: string) => Promise<string>>()
+    const repairWithAi = vi.fn<({ content, maxTokens }: { content: string; maxTokens?: number }) => Promise<string>>()
     const source = "```markdown\n人物设定\n\n- 姓名：林川\n- 目标：复仇\n```"
 
     const finalMessage = await finalizeStructuredMarkdownMessage(source, {

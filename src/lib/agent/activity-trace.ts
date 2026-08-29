@@ -1,0 +1,420 @@
+import type {
+  AgentActivityEvent,
+  AgentActivityKind,
+  AgentStageStatus,
+  AgentStageTrace,
+  AgentToolEvent,
+} from "./types"
+import { getWorkflowToolResultDisplay } from "./workflow-trace"
+
+const EMPTY_CONTENT = "本阶段未返回可展示内容。"
+const AGGREGATE_STAGE_IDS = new Set(["chapter_workflow", "react_tools"])
+
+/** 细粒度章节流水线阶段；存在任一此类阶段时隐藏冗余的 chapter_workflow 聚合阶段。 */
+const DETAILED_CHAPTER_STAGE_IDS = new Set([
+  "read_context",
+  "plot_analysis",
+  "generate_draft",
+  "validate_revision",
+  "final_polish",
+  "execution_report",
+  "execution_recheck",
+  "plan_compliance",
+  "plan_deviation_repair",
+  "plan_deviation_recheck",
+  "final_output",
+])
+
+const AGENT_STAGE_DISPLAY_ORDER = [
+  "task_understanding",
+  "capability_selection",
+  "read_context",
+  "plot_analysis",
+  "generate_draft",
+  "validate_revision",
+  "final_polish",
+  "execution_report",
+  "execution_recheck",
+  "plan_compliance",
+  "plan_deviation_repair",
+  "plan_deviation_recheck",
+  "final_output",
+  "external_search",
+  "write_confirmation",
+  "react_tools",
+  "chapter_workflow",
+] as const
+
+const STAGE_DISPLAY_ORDER_INDEX = new Map<string, number>(
+  AGENT_STAGE_DISPLAY_ORDER.map((id, index) => [id, index]),
+)
+
+interface CreateAgentActivityEventInput {
+  id: string
+  stageId: string
+  kind: AgentActivityKind
+  title: string
+  content: string
+  sourceRefs?: AgentActivityEvent["sourceRefs"]
+  toolCallId?: string
+  timestamp?: number
+}
+
+interface CreateStageStartedEventInput {
+  stageId: string
+  title: string
+  summary: string
+  timestamp?: number
+}
+
+export function createAgentActivityEvent(input: CreateAgentActivityEventInput): AgentActivityEvent {
+  return {
+    id: input.id,
+    stageId: input.stageId,
+    kind: input.kind,
+    title: input.title.trim() || "阶段事件",
+    content: normalizeActivityContent(input.content),
+    sourceRefs: input.sourceRefs,
+    toolCallId: input.toolCallId,
+    timestamp: input.timestamp ?? Date.now(),
+  }
+}
+
+export function createStageStartedEvent(input: CreateStageStartedEventInput): AgentActivityEvent {
+  return createAgentActivityEvent({
+    id: `${input.stageId}:started:${input.timestamp ?? Date.now()}`,
+    stageId: input.stageId,
+    kind: "stage_started",
+    title: "进入阶段",
+    content: input.summary || input.title,
+    timestamp: input.timestamp,
+  })
+}
+
+export function appendAgentActivityEvent(
+  stages: AgentStageTrace[] | undefined,
+  event: AgentActivityEvent,
+): AgentStageTrace[] {
+  return applyAgentActivityEvent(stages, event)
+}
+
+export function applyAgentActivityEvent(
+  stages: AgentStageTrace[] | undefined,
+  event: AgentActivityEvent,
+): AgentStageTrace[] {
+  const current = settlePreviousSequentialStages(stages ?? [], event)
+  const existingIndex = current.findIndex((stage) => stage.id === event.stageId)
+  const existingStage = existingIndex >= 0 ? current[existingIndex] : createStageFromEvent(event)
+  const nextStage = applyEventToStage(existingStage, event)
+
+  if (existingIndex < 0) return [...current, nextStage]
+
+  return current.map((stage, index) => (index === existingIndex ? nextStage : stage))
+}
+
+export function summarizeAgentStage(stage: AgentStageTrace): string {
+  const output = [...stage.events].reverse().find((event) => event.kind === "stage_output" || event.kind === "final_output")
+  if (output?.content) return trimForSummary(output.content, 90)
+
+  const last = [...stage.events].reverse().find((event) => event.content)
+  if (last?.content) return trimForSummary(last.content, 90)
+
+  return stage.summary || "本阶段暂无摘要。"
+}
+
+export function getDefaultOpenAgentStageId(stages: AgentStageTrace[]): string | null {
+  return findMostRecentStageId(stages, "running")
+    ?? findMostRecentStageId(stages, "approval_required")
+    ?? findMostRecentStageId(stages, "error")
+    ?? null
+}
+
+function filterAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
+  const hasDetailedChapterStage = stages.some((stage) => DETAILED_CHAPTER_STAGE_IDS.has(stage.id))
+  if (!hasDetailedChapterStage) return stages
+  return stages.filter((stage) => stage.id !== "chapter_workflow")
+}
+
+function sortAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
+  const unknownBase = AGENT_STAGE_DISPLAY_ORDER.length
+  return stages
+    .map((stage, originalIndex) => ({ stage, originalIndex }))
+    .sort((a, b) => {
+      const orderA = STAGE_DISPLAY_ORDER_INDEX.get(a.stage.id) ?? unknownBase
+      const orderB = STAGE_DISPLAY_ORDER_INDEX.get(b.stage.id) ?? unknownBase
+      if (orderA !== orderB) return orderA - orderB
+
+      const startedA = a.stage.startedAt ?? Number.MAX_SAFE_INTEGER
+      const startedB = b.stage.startedAt ?? Number.MAX_SAFE_INTEGER
+      if (startedA !== startedB) return startedA - startedB
+
+      return a.originalIndex - b.originalIndex
+    })
+    .map(({ stage }) => stage)
+}
+
+export function prepareAgentStagesForDisplay(stages: AgentStageTrace[] | undefined): AgentStageTrace[] {
+  const visible = filterAgentStagesForDisplay(stages ?? [])
+  return sortAgentStagesForDisplay(visible)
+}
+
+export function settleRunningAgentStages(
+  stages: AgentStageTrace[] | undefined,
+  status: Extract<AgentStageStatus, "done" | "error" | "cancelled"> = "done",
+  timestamp: number = Date.now(),
+): AgentStageTrace[] | undefined {
+  if (!stages) return stages
+  return stages.map((stage) => {
+    if (stage.status !== "running" && stage.status !== "pending") return stage
+    return {
+      ...stage,
+      status,
+      finishedAt: timestamp,
+      summary: stage.summary || summarizeAgentStage(stage),
+    }
+  })
+}
+
+export function activityEventFromToolEvent(event: AgentToolEvent): AgentActivityEvent {
+  const kind = inferActivityKindFromToolName(event.name)
+  const statusText = toolStatusText(event.type)
+  return createAgentActivityEvent({
+    id: `tool:${event.callId}:${event.type}:${event.timestamp}`,
+    stageId: inferStageIdFromToolName(event.name),
+    kind,
+    title: `${statusText}：${event.name}`,
+    content: getWorkflowToolResultDisplay(event.result) || event.preview || formatParams(event.params),
+    sourceRefs: inferSourceRefsFromToolEvent(event),
+    toolCallId: event.callId,
+    timestamp: event.timestamp,
+  })
+}
+
+function inferSourceRefsFromToolEvent(event: AgentToolEvent): AgentActivityEvent["sourceRefs"] {
+  const fromParams = sourceRefsFromUnknown(event.params.sources)
+  if (fromParams.length > 0) return fromParams
+
+  const parsed = parseJsonObject(event.result)
+  if (!parsed) return undefined
+
+  if (Array.isArray(parsed.results)) {
+    const refs = webSourceRefsFromResults(parsed.results)
+    if (refs.length > 0) return refs
+  }
+
+  if (Array.isArray(parsed.items)) {
+    const refs = parsed.items.flatMap((item) => {
+      if (!item || typeof item !== "object") return []
+      const results = (item as { results?: unknown }).results
+      return Array.isArray(results) ? webSourceRefsFromResults(results) : []
+    })
+    if (refs.length > 0) return refs
+  }
+
+  const url = typeof parsed.url === "string" ? parsed.url.trim() : ""
+  const title = typeof parsed.title === "string" ? parsed.title.trim() : ""
+  if (!url && !title) return undefined
+  return [{ title: title || url, path: url || undefined, type: "web" }]
+}
+
+function webSourceRefsFromResults(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {
+  if (!Array.isArray(value)) return []
+  const refs: NonNullable<AgentActivityEvent["sourceRefs"]> = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const url = typeof record.url === "string" ? record.url.trim() : ""
+    const title = typeof record.title === "string" ? record.title.trim() : ""
+    if (!url && !title) continue
+    refs.push({ title: title || url, path: url || undefined, type: "web" })
+  }
+  return refs
+}
+
+function sourceRefsFromUnknown(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {
+  if (!Array.isArray(value)) return []
+  const refs: NonNullable<AgentActivityEvent["sourceRefs"]> = []
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) {
+      const [title, path] = splitSourceLabel(item.trim())
+      refs.push({ title, path, type: "web" })
+      continue
+    }
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const title = typeof record.title === "string" ? record.title.trim() : ""
+    const path = typeof record.url === "string"
+      ? record.url.trim()
+      : typeof record.path === "string" ? record.path.trim() : ""
+    if (!title && !path) continue
+    refs.push({ title: title || path, path: path || undefined, type: typeof record.type === "string" ? record.type : "web" })
+  }
+  return refs
+}
+
+function splitSourceLabel(label: string): [string, string | undefined] {
+  const match = label.match(/^(.*?)(?:\s+[—-]\s+|\s+)(https?:\/\/\S+)$/)
+  if (match) return [match[1].trim() || match[2], match[2]]
+  if (/^https?:\/\//.test(label)) return [label, label]
+  return [label, undefined]
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  if (!text?.trim()) return null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function createStageFromEvent(event: AgentActivityEvent): AgentStageTrace {
+  return {
+    id: event.stageId,
+    title: inferStageTitle(event),
+    status: "pending",
+    summary: event.content,
+    events: [],
+  }
+}
+
+function applyEventToStage(stage: AgentStageTrace, event: AgentActivityEvent): AgentStageTrace {
+  const events = [...stage.events, event].sort((a, b) => a.timestamp - b.timestamp)
+  const status = statusFromEvent(stage.status, event)
+  const startedAt = stage.startedAt ?? event.timestamp
+  const finishedAt = status === "done" || status === "error" || status === "cancelled"
+    ? event.timestamp
+    : stage.finishedAt
+
+  return {
+    ...stage,
+    title: event.kind === "stage_started" ? inferStageTitle(event) : stage.title,
+    summary: event.kind === "stage_started" || event.kind === "stage_output" || event.kind === "final_output" || event.kind === "error"
+      ? summarizeAgentStage({ ...stage, events })
+      : stage.summary,
+    status,
+    events,
+    startedAt,
+    finishedAt,
+  }
+}
+
+function settlePreviousSequentialStages(
+  stages: AgentStageTrace[],
+  event: AgentActivityEvent,
+): AgentStageTrace[] {
+  if (event.kind !== "stage_started") return stages
+
+  return stages.map((stage) => {
+    if (stage.id === event.stageId) return stage
+    if (AGGREGATE_STAGE_IDS.has(stage.id)) return stage
+    if (stage.status !== "running" && stage.status !== "pending") return stage
+
+    return {
+      ...stage,
+      status: "done",
+      finishedAt: event.timestamp,
+      summary: stage.summary || summarizeAgentStage(stage),
+    }
+  })
+}
+
+function findMostRecentStageId(
+  stages: AgentStageTrace[],
+  status: AgentStageStatus,
+): string | null {
+  const matching = stages.filter((stage) => stage.status === status)
+  if (matching.length === 0) return null
+  return matching.reduce((latest, stage) => {
+    const latestLastEvent = latest.events[latest.events.length - 1]
+    const stageLastEvent = stage.events[stage.events.length - 1]
+    const latestTime = latest.startedAt ?? latestLastEvent?.timestamp ?? 0
+    const stageTime = stage.startedAt ?? stageLastEvent?.timestamp ?? 0
+    return stageTime >= latestTime ? stage : latest
+  }).id
+}
+
+function statusFromEvent(current: AgentStageStatus, event: AgentActivityEvent): AgentStageStatus {
+  if (event.kind === "error") return "error"
+  if (event.kind === "stage_output" || event.kind === "final_output") return "done"
+  if (current === "done" || current === "error" || current === "cancelled") return current
+  if (event.kind === "tool_call" && /待确认|需要确认|approval/i.test(event.content)) return "approval_required"
+  return "running"
+}
+
+function normalizeActivityContent(content: string): string {
+  const trimmed = String(content ?? "").trim()
+  if (!trimmed || trimmed === "undefined" || trimmed === "null") return EMPTY_CONTENT
+  return trimmed
+}
+
+function trimForSummary(content: string, maxLength: number): string {
+  const normalized = normalizeActivityContent(content).replace(/\s+/g, " ")
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
+}
+
+function formatParams(params: Record<string, unknown>): string {
+  const entries = Object.entries(params)
+  if (entries.length === 0) return "已调用工具。"
+  return entries.map(([key, value]) => `${key}: ${String(value)}`).join("\n")
+}
+
+function inferStageIdFromToolName(name: string): string {
+  if (name === "web_search" || name === "read_web_page" || name === "summarize_search_results") {
+    return "external_search"
+  }
+  if (/read|context|chapter_context/.test(name)) return "read_context"
+  if (/skill/.test(name)) return "capability_selection"
+  if (/web|search/.test(name)) return "external_search"
+  if (/workflow|draft|chapter_/.test(name)) return "chapter_workflow"
+  if (/write|save|modify/.test(name)) return "write_confirmation"
+  return "react_tools"
+}
+
+export function resolveAgentStageTitle(stageId: string, fallbackTitle?: string): string {
+  const titles: Record<string, string> = {
+    task_understanding: "任务理解",
+    capability_selection: "能力选择",
+    read_context: "读取上下文",
+    plot_analysis: "分析剧情走向",
+    chapter_workflow: "多任务写作循环",
+    generate_draft: "生成章节草稿",
+    validate_revision: "校验与修正",
+    final_polish: "去AI味",
+    execution_report: "执行报告",
+    execution_recheck: "执行复检",
+    plan_compliance: "计划履约",
+    plan_deviation_repair: "计划偏离返修",
+    plan_deviation_recheck: "计划偏离复检",
+    final_output: "最终输出",
+    external_search: "外部检索",
+    write_confirmation: "写入确认",
+    react_tools: "工具调用",
+  }
+  return titles[stageId] ?? fallbackTitle ?? stageId
+}
+
+function inferStageTitle(event: AgentActivityEvent): string {
+  return resolveAgentStageTitle(event.stageId, event.title)
+}
+
+function inferActivityKindFromToolName(name: string): AgentActivityKind {
+  if (/skill/.test(name)) return "skill_used"
+  if (/mcp/.test(name)) return "mcp_call"
+  if (name === "web_search" || name === "read_web_page" || name === "summarize_search_results" || /web|search/.test(name)) {
+    return "web_search"
+  }
+  if (/read|context/.test(name)) return "read_source"
+  return "tool_call"
+}
+
+function toolStatusText(type: AgentToolEvent["type"]): string {
+  if (type === "call_started") return "开始调用"
+  if (type === "result") return "调用完成"
+  if (type === "approval_required") return "等待确认"
+  if (type === "cancelled") return "已取消"
+  return "调用失败"
+}

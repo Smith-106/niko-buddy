@@ -18,7 +18,7 @@ describe("cursor-cli-proxy helpers", () => {
       model: "claude-3.7-sonnet",
       customEndpoint: "",
       apiMode: "chat_completions" as const,
-    }
+    } as Parameters<typeof withCursorProxyEndpoint>[0]
     const out = withCursorProxyEndpoint(base, "http://127.0.0.1:8765/v1")
     expect(out.customEndpoint).toBe("http://127.0.0.1:8765/v1")
     expect(out.apiMode).toBe("chat_completions")

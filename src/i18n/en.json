@@ -1603,7 +1603,9 @@
         "medium": "Medium (500K words)",
         "long": "Long (1M words)",
         "epic": "Epic (2M+ words)"
-      }
+      },
+      "multiAgent": "Generate with multi-agent collaboration",
+      "multiAgentHint": "Parallel sub-agents; falls back to single agent on failure"
     },
     "lint": {
       "title": "Consistency Check",
