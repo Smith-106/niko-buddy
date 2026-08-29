@@ -769,7 +769,16 @@ export async function generateOutlineFileMultiAgent(
     mcpTools = undefined
   }
 
-  const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: [] })
+  // SkillHub：装载用户技能（含内置 SkillHub 种子技能）作为大纲子智能体可用技能
+  const { loadUserSkillConfig } = await import("./user-skill-store")
+  const skillNames: string[] = []
+  try {
+    const userSkills = await loadUserSkillConfig(projectPath)
+    skillNames.push(...userSkills.skills.map((skill) => skill.id))
+  } catch {
+    // 技能装载失败不阻断大纲生成
+  }
+  const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: skillNames })
   const contextPack = {
     task: prompt,
     chapterGoal: "",
