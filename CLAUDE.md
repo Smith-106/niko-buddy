@@ -31,6 +31,7 @@
 | Scene Breakdown | `src/lib/novel/scene-breakdown.ts`（阶段 1.5，`novelConfig.sceneBreakdownEnabled` 控制） |
 | 章节摄取/快照 | `src/lib/novel/chapter-ingest-output.ts` + `chapter-snapshot-normalize.ts`（ARCH-1 拆分） |
 | 深章 task-brief | `src/lib/novel/deep-chapter-task-brief.ts`（ARCH-1 从 `deep-chapter-generation` 拆出） |
+| 大纲多智能体编排 | `src/lib/novel/outline-multi-agent-orchestrator.ts` + `outline-dynamic-agent-planner.ts` + `outline-result-protocol.ts` + `outline-agent-context.ts` + `outline-workflow-state.ts`（纯逻辑，自 v3 提取模式）+ `outline-multi-agent-adapter.ts`（v2 接线：streamChat + deep-outline 降级） |
 | UI 闭环 | `src/components/chat/chat-panel.tsx` + `chat-message.tsx` + `chat-resume.ts` |
 
 完整映射见 `@../docs/qmai-codex-delivery/10-file-mapping.md`。
