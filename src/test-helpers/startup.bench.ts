@@ -60,21 +60,25 @@ describe("Startup IPC Benchmark", () => {
     expect(stats.p50).toBeGreaterThanOrEqual(0)
   })
 
-  it("saves baseline", async () => {
+  it("compares against baseline and rejects regression", async () => {
     const data: BaselineData = {
       timestamp: new Date().toISOString(),
-      version: "2.4.3",
+      version: (await import("../../package.json"))
+        .version as string,
       iterations: ITERATIONS,
       operations: results,
     }
-    saveBaseline("startup", data)
     const comparison = compareBaseline("startup", data)
-    if (comparison) {
+    if (comparison && comparison.length > 0) {
       for (const c of comparison) {
         console.log(
           `  [compare] ${c.operation}: ${c.baselineP50}ms -> ${c.currentP50}ms (${c.deltaPercent > 0 ? "+" : ""}${c.deltaPercent}%)${c.regression ? " ** REGRESSION" : ""}`,
         )
+        expect(c.regression).toBe(false)
       }
+    } else {
+      console.log("  [compare] 无既有基线，跳过回归断言（首次运行将建立基线）")
     }
+    saveBaseline("startup", data)
   })
 })
