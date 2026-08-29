@@ -179,4 +179,41 @@ describe("审计检测器（Grok 三口诀）", () => {
       detectLostItem({ previousHolders: { 玉佩: "甲" }, presentItems: ["玉佩"], explicitTransfers: {}, chapter: 5 }),
     ).toHaveLength(0)
   })
+
+  it("detectLostItem：粒子矛盾（伤势已愈却再现）→ critical", () => {
+    const findings = detectLostItem({
+      previousHolders: {},
+      presentItems: [],
+      explicitTransfers: {},
+      chapter: 7,
+      particleStates: { 甲: { 左臂: "已愈" } },
+      presentParticles: { 甲: ["左臂"] },
+    })
+    expect(findings).toHaveLength(1)
+    expect(findings[0].type).toBe("lost_item")
+    expect(findings[0].severity).toBe("critical")
+    expect(findings[0].ref).toBe("particle:甲:左臂")
+  })
+
+  it("detectLostItem：粒子无账本记录/状态正常不误报", () => {
+    expect(
+      detectLostItem({
+        previousHolders: {},
+        presentItems: [],
+        explicitTransfers: {},
+        chapter: 7,
+        particleStates: { 甲: { 左臂: "重伤" } },
+        presentParticles: { 甲: ["左臂"] },
+      }),
+    ).toHaveLength(0)
+    expect(
+      detectLostItem({
+        previousHolders: {},
+        presentItems: [],
+        explicitTransfers: {},
+        chapter: 7,
+        presentParticles: { 甲: ["左臂"] },
+      }),
+    ).toHaveLength(0)
+  })
 })

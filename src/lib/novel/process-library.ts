@@ -145,11 +145,13 @@ export async function auditChapter(
   chapter: number,
   presentCharacters: string[],
   presentItems: string[],
+  presentParticles?: Record<string, string[]>,
 ): Promise<AuditReport> {
-  const [cognition, matrix, resources] = await Promise.all([
+  const [cognition, matrix, resources, particles] = await Promise.all([
     loadCognitionState(projectPath),
     loadEncounterMatrix(projectPath),
     loadResourceLedger(projectPath),
+    loadParticleLedger(projectPath),
   ])
 
   const doesNotKnow: Record<string, string[]> = {}
@@ -167,11 +169,21 @@ export async function auditChapter(
   }
   const previousHolders: Record<string, string> = {}
   for (const e of resources.entries) previousHolders[e.item] = e.currentHolder
+  const particleStates: Record<string, Record<string, string>> = {}
+  for (const kind of ["money", "injury", "technique"] as const) {
+    for (const e of particles.entries) {
+      if (e.kind !== kind) continue
+      particleStates[e.character] ??= {}
+      particleStates[e.character][e.name] = e.state
+    }
+  }
   const lostInput: LostItemInput = {
     previousHolders,
     presentItems,
     explicitTransfers: {},
     chapter,
+    particleStates,
+    presentParticles,
   }
 
   const findings = [...detectKnowledgeLeak(knowledgeInput), ...detectLostItem(lostInput)]

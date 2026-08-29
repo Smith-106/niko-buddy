@@ -1072,6 +1072,12 @@ export interface LostItemInput {
   explicitTransfers: Record<string, string>
   /** 本章号. */
   chapter: number
+  /** 粒子账本当前状态 (particle-ledger currentParticleState 快照):
+   * 角色 → 粒子名 → 状态 (如 伤势已愈/功法一层). 复核 proc-lib-ds2 FAIL
+   * 修正: detectLostItem 需覆盖 money/injury/technique 三类粒子, 不只物品. */
+  particleStates?: Record<string, Record<string, string>>
+  /** 本章正文引用的粒子: 角色 → 粒子名 (如 甲 → 左臂). */
+  presentParticles?: Record<string, string[]>
 }
 
 export function detectLostItem(input: LostItemInput): ContinuityFinding[] {
@@ -1091,6 +1097,25 @@ export function detectLostItem(input: LostItemInput): ContinuityFinding[] {
         chapter: input.chapter,
         evidence: `previousHolder:unowned`,
       })
+    }
+  }
+  // 粒子矛盾检测: 正文引用某粒子但账本状态为「已愈/无」→ 报 critical
+  for (const [character, particles] of Object.entries(input.presentParticles ?? {})) {
+    const states = input.particleStates?.[character] ?? {}
+    for (const particle of particles) {
+      const state = states[particle]
+      if (state === undefined) continue // 无账本记录, 不误报
+      if (/已愈|痊愈|无|消失/.test(state)) {
+        findings.push({
+          type: "lost_item",
+          subtype: "consistency_mechanical",
+          severity: "critical",
+          ref: `particle:${character}:${particle}`,
+          message: `角色 ${character} 的粒子「${particle}」账本状态为「${state}」，本章正文却再次引用（粒子连续性矛盾）`,
+          chapter: input.chapter,
+          evidence: `particleState:${state}`,
+        })
+      }
     }
   }
   return findings
