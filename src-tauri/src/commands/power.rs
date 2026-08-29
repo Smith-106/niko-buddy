@@ -18,10 +18,17 @@ use windows::Win32::System::Power::{
     SetThreadExecutionState, ES_AWAYMODE_REQUIRED, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
 };
 
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+
+/// macOS 防休眠句柄（keepawake crate；App Nap 节流防护）。
+#[cfg(target_os = "macos")]
+static MACOS_WAKE_LOCK: Mutex<Option<keepawake::KeepAwake>> = Mutex::new(None);
+
 /// Acquire a wake lock so the OS will not sleep while a long task runs.
 ///
-/// Returns `true` on Windows when the state was applied, `false` on
-/// non-Windows targets (no-op).
+/// Returns `true` on Windows/macOS when the state was applied, `false` on
+/// other targets (no-op).
 #[tauri::command]
 pub async fn acquire_wake_lock() -> Result<bool, String> {
     #[cfg(target_os = "windows")]
@@ -35,7 +42,27 @@ pub async fn acquire_wake_lock() -> Result<bool, String> {
             Ok(prev.0 != 0)
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let mut guard = MACOS_WAKE_LOCK
+            .lock()
+            .map_err(|_| "wake-lock mutex poisoned".to_string())?;
+        if guard.is_none() {
+            *guard = Some(
+                keepawake::Builder::default()
+                    .display(true)
+                    .idle(true)
+                    .sleep(false)
+                    .reason("Niko Buddy 正在执行长任务")
+                    .app_name("Niko Buddy")
+                    .app_reverse_domain("com.niko-buddy.app")
+                    .create()
+                    .map_err(|error| format!("无法启用写作防休眠：{error}"))?,
+            );
+        }
+        Ok(true)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Ok(false)
     }
@@ -56,7 +83,15 @@ pub async fn release_wake_lock() -> Result<bool, String> {
             Ok(prev.0 != 0)
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let mut guard = MACOS_WAKE_LOCK
+            .lock()
+            .map_err(|_| "wake-lock mutex poisoned".to_string())?;
+        *guard = None;
+        Ok(true)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Ok(false)
     }
