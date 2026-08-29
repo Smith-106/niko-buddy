@@ -205,11 +205,9 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
       try {
         const projectPath = normalizePath(project.path)
         if (novelMode) {
-          const t0 = performance.now()
           const novelResults = await runNovelPanelSearch(projectPath, q, searchOpts)
           setResults(novelResults)
         } else {
-          const t0 = performance.now()
           const found = await runWikiPanelSearch(projectPath, q, { rerank: true, includeVector: true })
           setResults(found)
         }

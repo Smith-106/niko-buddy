@@ -38,7 +38,7 @@ export function WelcomeScreen({
     if (isRestoring) return
     setIsRestoring(true)
     try {
-      const result = await importBackup("full", undefined, (progress) => {
+      const result = await importBackup("full", undefined, (_progress) => {
       })
       if (result.success) {
         // 恢复成功后刷新最近项目列表

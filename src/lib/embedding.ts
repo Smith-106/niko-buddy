@@ -467,7 +467,6 @@ export async function embedPage(
 ): Promise<void> {
   if (!cfg.enabled || !cfg.model) return
 
-  const t0 = performance.now()
   const chunks = chunkMarkdown(content, {
     targetChars: cfg.maxChunkChars ?? 1000,
     overlapChars: cfg.overlapChunkChars ?? 200,
@@ -513,7 +512,6 @@ export async function embedPage(
   }
 
   await vectorUpsertChunks(projectPath, pageId, rows)
-  const elapsed = Math.round(performance.now() - t0)
 }
 
 /**
@@ -602,7 +600,6 @@ export async function searchByEmbedding(
   const queryEmb = await fetchEmbedding(query, cfg)
   if (!queryEmb) return []
 
-  const t0 = performance.now()
   let rawChunks: ChunkSearchResult[] = []
   try {
     rawChunks = await vectorSearchChunks(projectPath, queryEmb, Math.max(topK * 3, 30))
@@ -641,8 +638,6 @@ export async function searchByEmbedding(
     })
   }
   ranked.sort((a, b) => b.score - a.score)
-
-  const elapsed = Math.round(performance.now() - t0)
 
   return ranked.slice(0, topK)
 }

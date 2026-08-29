@@ -441,7 +441,6 @@ export async function restoreQueue(
   await saveQueue(pp)
 
   const pending = queue.filter((t) => t.status === "pending").length
-  const failed = queue.filter((t) => t.status === "failed").length
 
   if (pending > 0 || restored > 0) {
     processNext(projectId)

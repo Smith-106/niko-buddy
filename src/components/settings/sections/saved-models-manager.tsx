@@ -156,7 +156,7 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const data = await response.json()
+      await response.json()
 
       toast.success(`模型 ${model.name} 可正常使用`)
     } catch (error) {

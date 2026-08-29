@@ -258,13 +258,9 @@ export async function searchWiki(
   // not a workflow we want to optimize at the cost of every other
   // search call.
   try {
-    const t0 = performance.now()
     const wikiTree = await listDirectory(`${pp}/wiki`)
     const wikiFiles = flattenMdFiles(wikiTree)
-    const tList = Math.round(performance.now() - t0)
-    const t1 = performance.now()
     await searchFiles(wikiFiles, effectiveTokens, query, results)
-    const tRead = Math.round(performance.now() - t1)
   } catch {
     // no wiki directory
   }
@@ -282,17 +278,12 @@ export async function searchWiki(
   //    pages that token search missed. We do NOT add to results' score
   //    here — that's done in the RRF step below.
   let vectorRank = new Map<string, number>()
-  let vectorCount = 0
   if (options.includeVector !== false) {
     try {
       const embCfg = useWikiStore.getState().embeddingConfig
       if (embCfg.enabled && embCfg.model) {
-        const t0 = performance.now()
         const { searchByEmbedding } = await import("@/lib/embedding")
         const vectorResults = await searchByEmbedding(pp, query, embCfg, 10)
-        const vectorMs = Math.round(performance.now() - t0)
-        vectorCount = vectorResults.length
-
 
         // Build vectorRank by page_id (slug); searchByEmbedding returns
         // results pre-sorted by descending similarity.
@@ -365,8 +356,6 @@ export async function searchWiki(
     if (b.score !== a.score) return b.score - a.score
     return a.path.localeCompare(b.path)
   })
-
-  const tokenHits = tokenRank.size
 
   const limited = results.slice(0, options.topK ?? MAX_RESULTS)
   if (!options.rerank || limited.length <= 1) {
@@ -441,8 +430,6 @@ async function searchFiles(
   // — tested at N=200, that's where we saw the slowdown above.
   for (let i = 0; i < files.length; i += SEARCH_READ_CONCURRENCY) {
     const batch = files.slice(i, i + SEARCH_READ_CONCURRENCY)
-    const batchNum = Math.floor(i / SEARCH_READ_CONCURRENCY) + 1
-    const totalBatches = Math.ceil(files.length / SEARCH_READ_CONCURRENCY)
     const batchResults = await Promise.all(
       batch.map(async (file) => {
         let content: string
