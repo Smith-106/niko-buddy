@@ -322,6 +322,12 @@ export async function streamChat(
     }
   }
 
+  if (runtimeConfig.provider === "cursor-cli") {
+    const mod = await import("./cursor-cli-proxy")
+    const endpoint = await mod.ensureCursorProxyRunning(runtimeConfig)
+    runtimeConfig = mod.withCursorProxyEndpoint(runtimeConfig, endpoint)
+  }
+
   const providerConfig = defaultRegistry.getProviderConfig(runtimeConfig)
 
   const timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS

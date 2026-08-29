@@ -130,6 +130,7 @@ pub fn run() {
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::mcp_stdio::McpStdioState::default());
+            app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
             Ok(())
         })
@@ -172,6 +173,10 @@ pub fn run() {
             commands::mcp_stdio::mcp_stdio_write,
             commands::mcp_stdio::mcp_stdio_read,
             commands::mcp_stdio::mcp_stdio_kill,
+            commands::cursor_cli::cursor_cli_detect,
+            commands::cursor_cli::cursor_proxy_ensure,
+            commands::cursor_cli::cursor_proxy_status,
+            commands::cursor_cli::cursor_proxy_stop,
             commands::exemplar_commands::mark_style_exemplar,
             commands::exemplar_commands::load_style_exemplars,
             commands::extract_images::extract_and_save_pdf_images_cmd,
