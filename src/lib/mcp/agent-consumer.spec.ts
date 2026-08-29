@@ -113,7 +113,6 @@ describe("buildMcpAgentTools / describeMcpTools", () => {
 
   it("配置了 server 且无 command 时构建空工具集并给出警告", () => {
     const config: McpConfig = {
-      version: 1,
       servers: [
         {
           id: "s1",
