@@ -18,7 +18,7 @@ export interface LlmModelListResult {
 /** Browser-compatible headers added when the initial request gets a 403. */
 const COMPAT_HEADERS: Record<string, string> = {
   Accept: "application/json",
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QMaiWrite",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Niko Buddy",
 }
 
 /** Deduplicate, trim, and sort model names alphabetically. */

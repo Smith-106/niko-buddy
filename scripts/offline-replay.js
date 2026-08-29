@@ -130,7 +130,7 @@ function printQuality(q) {
 
 function runAcceptance(evidenceOut) {
   if (!existsSync(VITEST_ENTRY)) {
-    console.error("[t31] FATAL: 未找到 vitest 入口（先在 QMAI/ 内 npm install）:")
+    console.error("[t31] FATAL: 未找到 vitest 入口（先在 QMAI 仓库内 npm install）:")
     console.error(`       ${VITEST_ENTRY}`)
     return 2
   }
@@ -256,7 +256,7 @@ const AB_GATES = [
 
 function runAbMode(args) {
   if (!existsSync(VITEST_ENTRY)) {
-    console.error("[t36] FATAL: 未找到 vitest 入口（先在 QMAI/ 内 npm install）:")
+    console.error("[t36] FATAL: 未找到 vitest 入口（先在 QMAI 仓库内 npm install）:")
     console.error(`       ${VITEST_ENTRY}`)
     return 2
   }

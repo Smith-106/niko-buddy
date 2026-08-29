@@ -44,7 +44,7 @@ const mocks = vi.hoisted(() => {
     createProject: vi.fn(async () => ({ id: "proj-1", name: "Novel", path: "C:\\books\\novel" })),
     writeFile: vi.fn(async () => {}),
     createDirectory: vi.fn(async () => {}),
-    getExecutableDir: vi.fn(async () => "C:\\Program Files\\QMaiWrite"),
+    getExecutableDir: vi.fn(async () => "C:\\Program Files\\Niko Buddy"),
     getTemplate: vi.fn(() => template),
     saveOutputLanguage: vi.fn(async () => {}),
     pickDirectory: vi.fn<(dir?: string) => Promise<string | null>>(async () => null),
@@ -126,7 +126,7 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
-  mocks.getExecutableDir.mockResolvedValue("C:\\Program Files\\QMaiWrite")
+  mocks.getExecutableDir.mockResolvedValue("C:\\Program Files\\Niko Buddy")
   mocks.buildDefaultNovelDir.mockImplementation((p: string) =>
     p.startsWith("C:") ? "C:\\QM-BOOK" : "D:\\QM-BOOK",
   )

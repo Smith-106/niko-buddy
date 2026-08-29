@@ -1,4 +1,4 @@
-# QMAI 临时文件清理脚本
+# Niko Buddy 临时文件清理脚本
 # 执行时间：2026-08-02
 
 Write-Host "=== QMAI 临时文件清理 ===" -ForegroundColor Cyan

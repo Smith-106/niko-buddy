@@ -1,4 +1,4 @@
-name: QMAI Multi-Platform Release
+name: Niko Buddy Multi-Platform Release
 
 on:
   push:
@@ -170,7 +170,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           notes_path="release-assets/release-notes.txt"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "QMAI $tag" --notes-file "$notes_path" --verify-tag || true
+            gh release create "$tag" --title "Niko Buddy $tag" --notes-file "$notes_path" --verify-tag || true
           fi
           gh release edit "$tag" --notes-file "$notes_path"
 
@@ -213,7 +213,7 @@ jobs:
           $releaseDir = "release-assets"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          $assetName = "QMaiWrite_$($version)_windows_X64$($installer.Extension)"
+          $assetName = "niko-buddy_$($version)_windows_X64$($installer.Extension)"
           $assetPath = Join-Path $releaseDir $assetName
           $assetSignaturePath = "$assetPath.sig"
           Copy-Item $installer.FullName $assetPath -Force
@@ -224,7 +224,7 @@ jobs:
           $notes = Get-Content -Path $notesPath -Raw -Encoding utf8
           $latest = [ordered]@{
             version = $version
-            notes = "QMAI $version 发布版本"
+            notes = "Niko Buddy $version 发布版本"
             pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", [System.Globalization.CultureInfo]::InvariantCulture)
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
@@ -255,7 +255,7 @@ jobs:
 
           dmg_path="$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)"
           if [ -n "$dmg_path" ]; then
-            cp "$dmg_path" "release-assets/QMaiWrite_${version}_${system_label}.dmg"
+            cp "$dmg_path" "release-assets/niko-buddy_${version}_${system_label}.dmg"
           fi
 
           app_path="$(find src-tauri/target -path '*/release/bundle/macos/*.app' -print -quit)"
@@ -263,14 +263,14 @@ jobs:
             echo "No .app bundle found"
             exit 1
           fi
-          tar -C "$(dirname "$app_path")" -czf "release-assets/QMaiWrite_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
+          tar -C "$(dirname "$app_path")" -czf "release-assets/niko-buddy_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
 
       - name: Attach macOS app tarball to release
         if: github.event_name == 'push' && runner.os == 'macOS'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_macOS_* --clobber
+        run: gh release upload "${{ github.ref_name }}" release-assets/niko-buddy_*_macOS_* --clobber
 
       - name: Build Windows portable
         if: github.event_name == 'push' && matrix.label == 'windows-x64'
@@ -279,11 +279,11 @@ jobs:
           $ErrorActionPreference = "Stop"
           $version = node -p "require('./package.json').version"
           node scripts/build-portable.mjs
-          $portableExe = "release-portable/QMaiWrite.exe"
+          $portableExe = "release-portable/niko-buddy.exe"
           if (-not (Test-Path $portableExe)) {
             throw "便携版 EXE 未生成：$portableExe"
           }
-          $assetName = "QMaiWrite_${version}_windows_X64_portable.exe"
+          $assetName = "niko-buddy_${version}_windows_X64_portable.exe"
           $assetPath = "release-assets/$assetName"
           New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
           Copy-Item $portableExe $assetPath -Force
@@ -293,13 +293,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_portable.exe --clobber
+        run: gh release upload "${{ github.ref_name }}" release-assets/niko-buddy_*_portable.exe --clobber
 
       - name: Upload bundles as workflow artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: qmai-${{ matrix.label }}
+          name: niko-buddy-${{ matrix.label }}
           path: ${{ matrix.artifact_globs }}
           if-no-files-found: warn
           retention-days: 14

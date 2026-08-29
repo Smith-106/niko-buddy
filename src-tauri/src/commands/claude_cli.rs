@@ -811,7 +811,7 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                 stderr_text.push('\n');
             }
             stderr_text.push_str(
-                "Claude Code CLI produced no output within 30 seconds (process stuck before first byte; MCP is disabled by QMAI so this is not an MCP-bootstrap hang). The transport will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex), or set QMAI_CLAUDE_STARTUP_TIMEOUT_SECS for slow/portable/cold-start environments, or run `claude -p ... --verbose` in a terminal to inspect the environment.",
+                "Claude Code CLI produced no output within 30 seconds (process stuck before first byte; MCP is disabled by Niko Buddy so this is not an MCP-bootstrap hang). The transport will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex), or set QMAI_CLAUDE_STARTUP_TIMEOUT_SECS for slow/portable/cold-start environments, or run `claude -p ... --verbose` in a terminal to inspect the environment.",
             );
         } else if stderr_text.len() >= CLAUDE_STDERR_LIMIT_BYTES {
             stderr_text.push_str("\n[stderr truncated]");

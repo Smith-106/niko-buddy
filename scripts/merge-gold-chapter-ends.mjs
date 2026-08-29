@@ -12,7 +12,7 @@ const OUT = resolve("docs/p0/corpus/gold/batch-20260826-t01b-chapter-ends")
 mkdirSync(OUT, { recursive: true })
 
 // 读取所有 tmp-annot-*.mjs 文件并收集标注
-const scriptsDir = resolve("QMAI/scripts")
+const scriptsDir = resolve(__dirname)
 const files = readdirSync(scriptsDir).filter(f => /^tmp-annot-b\d+\.mjs$/.test(f))
 let all = []
 for (const f of files) {

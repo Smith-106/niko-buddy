@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
 const releaseNotes = await buildCurrentReleaseNotes(root)
 const bundleDir = resolve(root, "src-tauri/target/release/bundle/nsis")
 const outDir = resolve(root, "release-github")
-const portableExe = resolve(root, "release-portable/QMaiWrite.exe")
+const portableExe = resolve(root, "release-portable/niko-buddy.exe")
 
 if (!existsSync(bundleDir)) {
   throw new Error(`未找到安装包目录：${bundleDir}`)
@@ -28,7 +28,7 @@ if (!updaterAssetName) {
 }
 
 const updaterAssetPath = resolve(bundleDir, updaterAssetName)
-const releaseAssetName = `QMaiWrite_${pkg.version}_windows_X64${extname(updaterAssetName)}`
+const releaseAssetName = `niko-buddy_${pkg.version}_windows_X64${extname(updaterAssetName)}`
 const releaseAssetPath = resolve(outDir, releaseAssetName)
 const releaseSignaturePath = `${releaseAssetPath}.sig`
 
@@ -55,13 +55,13 @@ if (result.status !== 0) {
 }
 
 if (existsSync(portableExe)) {
-  cpSync(portableExe, resolve(outDir, "QMaiWrite-portable.exe"))
+  cpSync(portableExe, resolve(outDir, "niko-buddy-portable.exe"))
 }
 
 const signature = readFileSync(releaseSignaturePath, "utf8").trim()
 const latest = {
   version: pkg.version,
-  notes: `QMAI ${pkg.version} 发布版本`,
+  notes: `Niko Buddy ${pkg.version} 发布版本`,
   pub_date: new Date().toISOString(),
   platforms: {
     "windows-x86_64": {

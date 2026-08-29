@@ -119,7 +119,7 @@ function buildClaudeCliInactivityError(
     if (sawProgressOutput) {
       return `Claude Code CLI kept emitting progress heartbeats, but never produced assistant text or StructuredOutput before stalling. The upstream provider may be stuck in a long reasoning phase or stalling before the first visible token. The CLI will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex) or run \`claude -p ... --verbose\` in a terminal to inspect the environment.`
     }
-    return `Claude Code CLI started but produced no meaningful stream output within ${Math.round(firstMeaningfulMs / 1000)} seconds. The upstream provider may be stalling before the first token (MCP is disabled by QMAI, so this is not an MCP-bootstrap hang). The CLI will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex) or raise \`claudeCli.firstMeaningfulOutputTimeoutMs\` in app-state for slow/portable/cold-start environments.`
+    return `Claude Code CLI started but produced no meaningful stream output within ${Math.round(firstMeaningfulMs / 1000)} seconds. The upstream provider may be stalling before the first token (MCP is disabled by Niko Buddy, so this is not an MCP-bootstrap hang). The CLI will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex) or raise \`claudeCli.firstMeaningfulOutputTimeoutMs\` in app-state for slow/portable/cold-start environments.`
   }
   return `Claude Code CLI produced no additional stream output within ${Math.round(inactivityMs / 1000)} seconds. The upstream provider may have stalled mid-response. The CLI will retry with backoff; if this persists, switch provider in Settings (e.g. to Codex).`
 }

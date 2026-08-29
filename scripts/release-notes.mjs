@@ -55,7 +55,7 @@ export async function buildReleaseNotes(version, rootDir = root) {
   const entry = changelog.currentVersionChangelog(version)[0]
   const notes = formatReleaseNotes(entry)
 
-  return notes || `QMAI ${version} 发布版本`
+  return notes || `Niko Buddy ${version} 发布版本`
 }
 
 export async function buildCurrentReleaseNotes(rootDir = root) {

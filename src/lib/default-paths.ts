@@ -9,7 +9,7 @@ const FALLBACK_INSTALL_DRIVE = "D" as const
 export const DEFAULT_NOVEL_DIR_NAME = "QM-BOOK"
 
 /** Default name for application installation directory */
-export const DEFAULT_INSTALL_DIR_NAME = "QMaiWrite"
+export const DEFAULT_INSTALL_DIR_NAME = "Niko Buddy"
 
 /**
  * Extracts Windows drive letter from a path string.

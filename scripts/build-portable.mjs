@@ -22,7 +22,7 @@ const releasePdfium = resolve(root, "src-tauri/target/release/pdfium/pdfium.dll"
 const portableDevPdfium = resolve(root, "src-tauri/target/portable-dev/pdfium/pdfium.dll")
 const sourcePdfium = existsSync(portableDevPdfium) ? portableDevPdfium : releasePdfium
 const outDir = resolve(root, "release-portable")
-const outExe = resolve(outDir, "QMaiWrite.exe")
+const outExe = resolve(outDir, "niko-buddy.exe")
 const outPdfium = resolve(outDir, "pdfium/pdfium.dll")
 const outSkillDir = resolve(outDir, "skills")
 const manifest = resolve(outDir, "version-info.json")
@@ -54,7 +54,7 @@ mkdirSync(outDir, { recursive: true })
 // 复制 exe，处理被占用的情况
 try {
   if (existsSync(outExe)) {
-    const backupExe = resolve(outDir, "QMaiWrite-old.exe")
+    const backupExe = resolve(outDir, "niko-buddy-old.exe")
     try {
       if (existsSync(backupExe)) {
         rmSync(backupExe, { force: true })

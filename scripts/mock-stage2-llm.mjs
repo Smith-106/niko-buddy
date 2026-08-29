@@ -3,7 +3,7 @@ import http from "node:http"
 const HOST = "127.0.0.1"
 // Allow tests to pick a free port when 18080 is occupied by another service.
 const PORT = Number(process.env.MOCK_STAGE2_PORT || process.env.PORT || 18080)
-const MODEL = "mock-qmai"
+const MODEL = "mock-niko-buddy"
 const CHAPTER_TITLE_PREFIX = "# Chapter "
 
 const MARKERS = {

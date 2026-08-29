@@ -8,7 +8,7 @@ import {
 describe("default-paths constants", () => {
   it("exports the expected directory names", () => {
     expect(DEFAULT_NOVEL_DIR_NAME).toBe("QM-BOOK")
-    expect(DEFAULT_INSTALL_DIR_NAME).toBe("QMaiWrite")
+    expect(DEFAULT_INSTALL_DIR_NAME).toBe("Niko Buddy")
   })
 })
 
@@ -18,7 +18,7 @@ describe("buildDefaultNovelDir", () => {
   })
 
   it("uppercases a lowercase drive letter", () => {
-    expect(buildDefaultNovelDir("d:\\Program Files\\QMaiWrite")).toBe("D:\\QM-BOOK")
+    expect(buildDefaultNovelDir("d:\\Program Files\\Niko Buddy")).toBe("D:\\QM-BOOK")
   })
 
   it("handles forward-slash paths", () => {
