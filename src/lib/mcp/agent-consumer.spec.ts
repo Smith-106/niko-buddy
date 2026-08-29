@@ -120,7 +120,7 @@ describe("buildMcpAgentTools / describeMcpTools", () => {
           name: "测试服务",
           enabled: true,
           tools: [
-            { id: "t1", name: "lookup", serverId: "s1", description: "查询" },
+            { name: "lookup", serverId: "s1", description: "查询" },
           ],
         },
       ],
