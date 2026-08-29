@@ -69,7 +69,7 @@ ${StrLoc}
 !define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
 !define ESTIMATEDSIZE "{{estimated_size}}"
 !define STARTMENUFOLDER "{{start_menu_folder}}"
-!define INSTALLDIRNAME "QMaiWrite"
+!define INSTALLDIRNAME "Niko Buddy"
 
 Var PassiveMode
 Var UpdateMode
@@ -649,7 +649,7 @@ Function WaitForMainBinaryRelease
     IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" 0 wait_main_binary_released
     IntOp $0 $0 + 1
     ${If} $0 >= 30
-      Abort "当前程序文件仍被占用，请完全退出 QMaiWrite 后重试。"
+      Abort "当前程序文件仍被占用，请完全退出 ${PRODUCTNAME} 后重试。"
     ${EndIf}
     Sleep 500
     Goto wait_main_binary_release
