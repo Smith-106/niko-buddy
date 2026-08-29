@@ -18,6 +18,8 @@ import {
 } from "./outline-multi-agent-orchestrator"
 import { buildScopedOutlineSubAgentContext } from "./outline-agent-context"
 import type { ContextPack } from "./context-engine"
+import { runMcpToolLoop } from "@/lib/mcp/agent-consumer"
+import type { McpToolLike } from "@/lib/mcp/agent-consumer"
 
 export interface OutlineMultiAgentAdapterInput {
   llmConfig: LlmConfig
@@ -27,6 +29,8 @@ export interface OutlineMultiAgentAdapterInput {
   maxConcurrency?: number
   onStatusChange?: (event: OutlineSubAgentStatusEvent) => void
   signal?: AbortSignal
+  /** 可选的 MCP 工具集：子智能体可通过文本协议工具循环真实调用外部工具。 */
+  mcpTools?: McpToolLike[]
 }
 
 export interface OutlineMultiAgentAdapterResult {
@@ -60,11 +64,22 @@ function buildMergePrompt(payload: string): string {
 export async function runOutlineMultiAgentGeneration(
   input: OutlineMultiAgentAdapterInput,
 ): Promise<OutlineMultiAgentAdapterResult> {
-  const { llmConfig, userRequest, contextPack, plan, maxConcurrency, onStatusChange, signal } = input
+  const { llmConfig, userRequest, contextPack, plan, maxConcurrency, onStatusChange, signal, mcpTools } = input
 
   const runSubAgent = async (subPlan: OutlineSubAgentPlan): Promise<string> => {
     const scoped = buildScopedOutlineSubAgentContext(contextPack, subPlan.kind)
     const prompt = buildSubAgentPrompt(subPlan, scoped)
+    if (mcpTools && mcpTools.length > 0) {
+      // MCP 消费：子智能体可调用外部工具，结果回填后生成该维度内容
+      const loopResult = await runMcpToolLoop({
+        llmConfig,
+        prompt,
+        mcpTools,
+        signal,
+        maxTurns: 2,
+      })
+      return loopResult.finalText
+    }
     let text = ""
     const callbacks: StreamCallbacks = {
       onToken: (token) => {

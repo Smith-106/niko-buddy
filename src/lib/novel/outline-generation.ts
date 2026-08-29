@@ -758,6 +758,17 @@ export async function generateOutlineFileMultiAgent(
   const { planOutlineSubAgents } = await import("./outline-multi-agent-orchestrator")
   const { runOutlineMultiAgentGeneration } = await import("./outline-multi-agent-adapter")
 
+  // MCP 会话消费：用户配置的 stdio server 工具集注入多智能体生成
+  const { useWikiStore } = await import("@/stores/wiki-store")
+  const { buildMcpAgentTools } = await import("@/lib/mcp/agent-consumer")
+  let mcpTools = undefined as import("@/lib/mcp/agent-consumer").McpToolLike[] | undefined
+  try {
+    const built = await buildMcpAgentTools(useWikiStore.getState().mcpConfig)
+    if (built.tools.length > 0) mcpTools = built.tools
+  } catch {
+    mcpTools = undefined
+  }
+
   const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: [] })
   const contextPack = {
     task: prompt,
@@ -787,6 +798,7 @@ export async function generateOutlineFileMultiAgent(
     contextPack,
     plan,
     signal,
+    mcpTools,
   })
   const content = result.finalText.trim() || "AI大纲未返回内容。"
 
