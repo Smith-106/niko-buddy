@@ -17,7 +17,7 @@
   </a>
   <img src="https://img.shields.io/badge/version-2.7.4-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
@@ -426,17 +426,17 @@ sequenceDiagram
 
 ### 环境要求
 
-- **操作系统**：Windows 10+ / macOS（planned） / Linux（planned）
+- **操作系统**：Windows 10+ / macOS / Linux
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
-> 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux planned）。
+> 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 已发布）。
 > 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.4）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
 **方式一：下载安装包（推荐）**
 
-前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux 已发布）。
 
 ### 最快上手（5 分钟）
 
