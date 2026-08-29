@@ -36,6 +36,7 @@ const GraphView = lazy(async () => {
   return { default: mod.GraphView }
 })
 
+const UnifiedSkillLibraryView = lazy(() => import("@/components/skill-library/unified-skill-library-view").then((m) => ({ default: m.UnifiedSkillLibraryView })))
 const SoulView = lazy(async () => {
   const mod = await import("@/components/novel/soul-view")
   return { default: mod.SoulView }
@@ -91,6 +92,15 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <SoulView />
+          </Suspense>
+        )
+        break
+      case "skillLibrary":
+      case "writingSkillLibrary":
+      case "skillFavorites":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <UnifiedSkillLibraryView />
           </Suspense>
         )
         break

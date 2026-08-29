@@ -30,6 +30,7 @@ const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = 
   { view: "graph", icon: Network, labelKey: "novel.nav.graph" },
   { view: "lint", icon: Brain, labelKey: "novel.nav.lint" },
   { view: "soul", icon: Sparkles, labelKey: "novel.nav.soul" },
+  { view: "skillLibrary", icon: Sparkles, labelKey: "novel.nav.skillLibrary" },
   { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
 ]

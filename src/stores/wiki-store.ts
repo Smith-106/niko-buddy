@@ -515,6 +515,13 @@ type ReviewRunFinishState = Omit<Partial<ReviewRunState>, "runId" | "projectPath
 
 // ── WikiState interface ──────────────────────────────────────────────────────────
 
+const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前 Skill 还有未保存修改，确定放弃修改吗？"
+
+export function confirmDiscardSkillLibraryDraft(): boolean {
+  if (typeof window === "undefined" || typeof window.confirm !== "function") return true
+  return window.confirm(SKILL_LIBRARY_UNSAVED_CONFIRM)
+}
+
 interface WikiState {
   project: WikiProject | null
   fileTree: FileNode[]
@@ -531,7 +538,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
@@ -599,6 +606,14 @@ interface WikiState {
   setSelectedSoulId: (id: string | null) => void
   setSelectedSoulTab: (tab: "project" | "character") => void
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
+  selectedSkillLibrarySkillId: string | null
+  skillLibraryDraftDirty: boolean
+  selectedWritingSkillLibrarySkillId: string | null
+  writingSkillLibraryDraftDirty: boolean
+  setSelectedSkillLibrarySkillId: (id: string | null) => void
+  setSkillLibraryDraftDirty: (dirty: boolean) => void
+  setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
+  setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
   setMcpConfig: (mcpConfig: McpConfig) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
@@ -672,6 +687,10 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatDockPosition: readStoredChatDockPosition(),
   searchPanelOpen: false,
   activeView: "wiki",
+  selectedSkillLibrarySkillId: null,
+  skillLibraryDraftDirty: false,
+  selectedWritingSkillLibrarySkillId: null,
+  writingSkillLibraryDraftDirty: false,
   activeSettingsCategory: null,
   selectedSoulId: null,
   selectedSoulTab: "project",
@@ -787,11 +806,53 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ chatDockPosition })
   },
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
-  setActiveView: (activeView) => set({ activeView }),
+  setActiveView: (activeView) => set((state) => {
+    if (
+      state.activeView === "skillLibrary"
+      && activeView !== "skillLibrary"
+      && state.skillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    if (
+      state.activeView === "writingSkillLibrary"
+      && activeView !== "writingSkillLibrary"
+      && state.writingSkillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    return {
+      activeView,
+      skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
+      writingSkillLibraryDraftDirty: activeView === "writingSkillLibrary"
+        ? state.writingSkillLibraryDraftDirty
+        : false,
+    }
+  }),
   setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
   setSelectedSoulId: (selectedSoulId) => set({ selectedSoulId }),
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),
+  setSelectedSkillLibrarySkillId: (selectedSkillLibrarySkillId) => set((state) => {
+    if (state.selectedSkillLibrarySkillId === selectedSkillLibrarySkillId) return {}
+    if (state.skillLibraryDraftDirty && !confirmDiscardSkillLibraryDraft()) return {}
+    return {
+      selectedSkillLibrarySkillId,
+      skillLibraryDraftDirty: false,
+    }
+  }),
+  setSkillLibraryDraftDirty: (skillLibraryDraftDirty) => set({ skillLibraryDraftDirty }),
+  setSelectedWritingSkillLibrarySkillId: (selectedWritingSkillLibrarySkillId) => set((state) => {
+    if (state.selectedWritingSkillLibrarySkillId === selectedWritingSkillLibrarySkillId) return {}
+    if (state.writingSkillLibraryDraftDirty && !confirmDiscardSkillLibraryDraft()) return {}
+    return {
+      selectedWritingSkillLibrarySkillId,
+      writingSkillLibraryDraftDirty: false,
+    }
+  }),
+  setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setMcpConfig: (mcpConfig) => set({ mcpConfig }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
