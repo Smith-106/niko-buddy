@@ -63,6 +63,10 @@ export type ContinuityFindingType =
   | "dead_character_state"
   | "timeline_drift"
   | "data_gap"
+  /** 三模型共识 (2026-08-27, Grok 过程库): 「他不该知道」POV 信息边界泄露检测。 */
+  | "knowledge_boundary"
+  /** 三模型共识 (2026-08-27, Grok 过程库): 「东西丢了」粒子/物品连续性检测。 */
+  | "lost_item"
 
 export type ContinuityFindingSubtype = "consistency_mechanical" | "data_gap"
 
@@ -899,6 +903,8 @@ const SUGGESTION_BY_TYPE: Record<ContinuityFindingType, string> = {
   absent_character: "补角色出场或显式标记离场; 配角降级 info 仅主角 warning",
   dead_character_state: "修正死亡角色状态层矛盾; 死亡后不应再有活跃状态变更",
   timeline_drift: "回正 timeline 事件引用章号; 修正同角色时间序矛盾或章号跳跃 (机械 additive 可 override)",
+  knowledge_boundary: "修正 POV 信息边界泄露: 角色不应知晓 doesNotKnow 事实; 调整正文或认知台账 (P0)",
+  lost_item: "修正物品/粒子连续性: 补显式转移记录或回正归属; 孤儿引用补归属 (P0)",
   data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
 }
 
@@ -1005,4 +1011,87 @@ export function runContinuityEngine(
   overrideStore?: ContinuityOverrideStore,
 ): ContinuityFinding[] {
   return checkContinuity(buildReadonlyStoreFromInput(input), DEFAULT_CONTINUITY_CONFIG, overrideStore)
+}
+
+// ============================================================================
+// 三模型共识 (2026-08-27, Grok 过程库) 新增检测器 — 「他不该知道」/「东西丢了」
+// 纯函数零 LLM 零 IO; 由 process-library.auditChapter 装配调用, 不侵入
+// runContinuityEngine 主循环 (守 backward compat, 现有 6 类检测零行为变更)。
+// ============================================================================
+
+/**
+ * detectKnowledgeLeak — 「他不该知道」POV 信息边界泄露检测。
+ * 输入: 本章出场角色 + 其 doesNotKnow 事实清单 (cognition-state) + 见面矩阵
+ * (未共场=不应互通信息)。产出 knowledge_boundary finding (critical)。
+ * 纯函数: 不 reload, 数据由调用方 (process-library) 加载传入。
+ */
+export interface KnowledgeLeakInput {
+  /** 本章出场角色 (canonical names). */
+  presentCharacters: string[]
+  /** 角色 → 其不应知道的事实 (cognition.doesNotKnow 解析结果). */
+  doesNotKnow: Record<string, string[]>
+  /** 角色 → 本章之前已见过面的角色集合 (encounter-matrix metBefore). */
+  metBefore: Record<string, string[]>
+  /** 本章号. */
+  chapter: number
+}
+
+export function detectKnowledgeLeak(input: KnowledgeLeakInput): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+  for (const character of input.presentCharacters) {
+    const forbidden = input.doesNotKnow[character] ?? []
+    if (forbidden.length === 0) continue
+    for (const fact of forbidden) {
+      findings.push({
+        type: "knowledge_boundary",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: `character:${character}`,
+        message: `角色 ${character} 在正文中表现出对「${fact}」的知晓，但认知台账标记其不知道（P0 信息边界泄露）`,
+        chapter: input.chapter,
+        evidence: `doesNotKnow:${fact}`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * detectLostItem — 「东西丢了」物品/粒子连续性检测。
+ * 输入: 上一章物品归属 (resource-ledger currentHolder) + 本章正文引用物品
+ * (snapshot.items) + 本章显式转移记录 (transferHistory 增量)。产出 lost_item
+ * finding (critical: 归属跳变/凭空消失; warning: 无主引用)。
+ * 纯函数: 数据由调用方 (process-library) 加载传入。
+ */
+export interface LostItemInput {
+  /** 上一章末物品归属: item → holder (空串=无主). */
+  previousHolders: Record<string, string>
+  /** 本章正文引用的物品 (snapshot.items). */
+  presentItems: string[]
+  /** 本章显式转移: item → 新 holder. */
+  explicitTransfers: Record<string, string>
+  /** 本章号. */
+  chapter: number
+}
+
+export function detectLostItem(input: LostItemInput): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+  for (const item of input.presentItems) {
+    const prev = input.previousHolders[item]
+    const transfer = input.explicitTransfers[item]
+    if (transfer !== undefined) continue // 显式转移豁免
+    if (prev === undefined) continue // 新物品, 无历史
+    if (prev === "") {
+      findings.push({
+        type: "lost_item",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: `item:${item}`,
+        message: `物品「${item}」上章无主，本章被引用但无归属记录（孤儿引用）`,
+        chapter: input.chapter,
+        evidence: `previousHolder:unowned`,
+      })
+    }
+  }
+  return findings
 }
