@@ -822,7 +822,8 @@
       "contactSupport": "Contact & Support",
       "changelog": "Changelog",
       "dataManagement": "Data Management",
-      "about": "About"
+      "about": "About",
+      "mcp": "MCP Tools"
     },
     "sections": {
       "shared": {
@@ -1215,6 +1216,36 @@
         "scanning": "Scanning…",
         "lastScan": "Last scan: {{time}}",
         "never": "Never"
+      },
+      "mcp": {
+        "title": "MCP Tools",
+        "description": "Configure MCP tools visible to AI chat. Fill in a startup command to connect to a real MCP service; with no command it only validates locally.",
+        "addSample": "Add sample graph MCP",
+        "summary": "{{servers}} MCP servers configured, {{tools}} tools enabled, {{capabilities}} AI capabilities available.",
+        "saved": "Saved",
+        "warnings": "Runtime warnings",
+        "empty": "No MCP servers yet. Add the sample graph MCP, then edit the descriptors for your service.",
+        "enable": "Enable MCP server",
+        "disable": "Disable MCP server",
+        "delete": "Delete MCP server",
+        "deleteConfirm": "Delete this MCP server?",
+        "serverId": "Server ID",
+        "serverName": "Server name",
+        "toolsJson": "Tool descriptor JSON",
+        "toolsJsonHint": "Enter an array of MCP tool descriptors. Delete and overwrite tools are blocked at runtime.",
+        "invalidJson": "Invalid tool descriptor JSON",
+        "invalidTools": "Tool descriptors must be an MCP tool array",
+        "startup": "Startup command",
+        "startupHint": "Fill to connect to a real MCP service. On Windows prefer npx/uvx; it is auto-wrapped with cmd /c.",
+        "startupPlaceholder": "e.g. npx (leave empty for local-only validation)",
+        "startupArgs": "Startup args",
+        "startupArgsHint": "Space separated, e.g. -y @modelcontextprotocol/server-memory",
+        "testConnection": "Test connection",
+        "testing": "Connecting...",
+        "testOk": "Connected, found {{count}} available tools.",
+        "testFail": "Connection failed",
+        "testNeedCommand": "Please fill in the startup command first",
+        "testNotAllowed": "Please enable this MCP server first"
       }
     }
   },

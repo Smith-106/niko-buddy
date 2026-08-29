@@ -37,6 +37,7 @@ import { MaintenanceSection } from "./sections/maintenance-section"
 import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
 import { SkillLibrarySection } from "./sections/skill-library-section"
+import { McpSection } from "./sections/mcp-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
 
@@ -69,6 +70,7 @@ const CATEGORIES: Category[] = [
   { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "skill-library", labelKey: "settings.categories.skillLibrary", icon: BookOpen },
+  { id: "mcp", labelKey: "settings.categories.mcp", icon: Plug },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
@@ -463,6 +465,8 @@ export function SettingsView() {
         return <UsageGuideSection />
       case "skill-library":
         return <SkillLibrarySection />
+      case "mcp":
+        return <McpSection />
       case "maintenance":
         return <MaintenanceSection />
       case "data-management":

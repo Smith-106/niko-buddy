@@ -719,3 +719,15 @@ function normalizeRerankConfig(
     maxCandidates: Math.max(3, Math.min(30, config.maxCandidates ?? DEFAULT_RERANK_CONFIG.maxCandidates)),
   }
 }
+
+const MCP_CONFIG_KEY = "mcpConfig"
+
+export async function saveMcpConfig(config: McpConfig): Promise<void> {
+  const store = await getStore()
+  await store.set(MCP_CONFIG_KEY, normalizeMcpConfig(config))
+}
+
+export async function loadMcpConfig(): Promise<McpConfig | null> {
+  const store = await getStore()
+  return (await store.get<McpConfig>(MCP_CONFIG_KEY)) ?? null
+}

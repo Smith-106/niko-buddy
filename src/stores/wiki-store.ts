@@ -536,6 +536,7 @@ interface WikiState {
   selectedSoulTab: "project" | "character"
   selectedSoulSection: "builtIn" | "custom"
   selectedReviewDimension: string | null
+  mcpConfig: McpConfig | null
   selectedReviewFilePath: string
   /** Per-chapter thril soft-gate explicit acknowledge ("0" if unknown). Not a FIX-1 bypass. */
   thrilSoftGateAcknowledgedByChapter: Record<string, boolean>
@@ -597,6 +598,7 @@ interface WikiState {
   setSelectedSoulId: (id: string | null) => void
   setSelectedSoulTab: (tab: "project" | "character") => void
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
+  setMcpConfig: (mcpConfig: McpConfig) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setThrillSoftGateAcknowledged: (chapter: number | null | undefined, acknowledged: boolean) => void
@@ -727,6 +729,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     model: "",
   },
   rerankConfig: { ...DEFAULT_RERANK_CONFIG },
+  mcpConfig: null,
   multimodalConfig: {
     enabled: false,
     useMainLlm: true,
@@ -789,6 +792,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
+  setMcpConfig: (mcpConfig) => set({ mcpConfig }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setThrillSoftGateAcknowledged: (chapter, acknowledged) => set((prev) => {
     const key = chapter == null || !Number.isFinite(chapter) ? "0" : String(Math.trunc(chapter))
