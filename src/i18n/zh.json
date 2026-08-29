@@ -17,7 +17,7 @@
     "dismiss": "关闭提示"
   },
   "app": {
-    "title": "青幕AI写作",
+    "title": "Niko Buddy",
     "subtitle": "面向长篇小说的 AI 写作桌面端系统",
     "newProject": "新建项目",
     "openProject": "打开项目",
@@ -212,7 +212,7 @@
   },
   "iconSidebar": {
     "toggleSidebar": "展开或隐藏章节栏",
-    "logoAlt": "青幕AI写作",
+    "logoAlt": "Niko Buddy",
     "modelConnected": "模型连接正常",
     "modelChecking": "正在检测模型连接...",
     "modelDisconnected": "模型连接失败，请检查设置",
@@ -1397,7 +1397,7 @@
       "noCustomSoul": "暂无自定义灵魂"
     },
     "app": {
-      "title": "青幕AI写作",
+      "title": "Niko Buddy",
       "subtitle": "面向长篇小说的 AI 写作桌面端系统"
     },
     "chat": {

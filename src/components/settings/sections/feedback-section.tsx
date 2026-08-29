@@ -47,7 +47,7 @@ export function FeedbackSection() {
       <div>
         <h2 className="text-xl font-semibold">反馈与建议</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          反馈会发送到青幕 AI 写作的 Cloudflare D1 后台，用于排查问题和改进体验。
+          反馈会发送到Niko Buddy的 Cloudflare D1 后台，用于排查问题和改进体验。
         </p>
       </div>
 

@@ -40,9 +40,9 @@ describe("UsageGuideSection", () => {
 
   it("renders all three guide links with titles, descriptions, and open actions", () => {
     render(<UsageGuideSection />)
-    expect(screen.getByText("青幕AI写作完整使用说明")).toBeInTheDocument()
-    expect(screen.getByText("青幕AI写作正式用户手册")).toBeInTheDocument()
-    expect(screen.getByText("青幕AI小说介绍")).toBeInTheDocument()
+    expect(screen.getByText("Niko Buddy完整使用说明")).toBeInTheDocument()
+    expect(screen.getByText("Niko Buddy正式用户手册")).toBeInTheDocument()
+    expect(screen.getByText("Niko Buddy小说介绍")).toBeInTheDocument()
     expect(
       screen.getByText("从安装、模型配置到资料库、小说创作流程的完整说明。"),
     ).toBeInTheDocument()
