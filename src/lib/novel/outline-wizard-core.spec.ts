@@ -10,6 +10,7 @@ import {
   getDefaultFolderForOutlineFileType,
   inferOutlineFileTypeFromSkills,
   formatChapterOutlineFileName,
+  sanitizeOutlineFileNamePart,
   type OutlineSaveRequestFileType,
 } from "./outline-save-classifier"
 import { emptyPlotFrameworkLibrary } from "./plot-framework"
@@ -80,6 +81,11 @@ describe("outline-save-classifier（保存分类，qmai 移植）", () => {
     expect(formatChapterOutlineFileName(3, "宗门风云")).toBe("章纲-第003章-宗门风云.md")
     expect(formatChapterOutlineFileName(1)).toBe("章纲-第001章.md")
     expect(formatChapterOutlineFileName(1, 'a/b:c')).toBe("章纲-第001章-a-b-c.md")
+  })
+
+  it("sanitizeOutlineFileNamePart 清洗非法字符含反斜杠（GLM 终裁 P3 修复）", () => {
+    expect(sanitizeOutlineFileNamePart("a\\b/c:d")).toBe("a-b-c-d")
+    expect(sanitizeOutlineFileNamePart("  标题  ")).toBe("标题")
   })
 })
 

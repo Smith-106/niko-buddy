@@ -7,7 +7,7 @@ export type OutlineSaveRequestFileType =
 export function sanitizeOutlineFileNamePart(value: string): string {
   return value
     .trim()
-    .replace(/[\/:*?"<>|]/g, "-")
+    .replace(/[\\/:*?"<>|]/g, "-")
     .replace(/\s+/g, "")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
