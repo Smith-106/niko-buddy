@@ -21,7 +21,7 @@ function descriptor(operation: McpToolDescriptor["operation"], name = "query_gra
 describe("buildMcpRuntime", () => {
   it("ignores disabled servers", () => {
     const config: McpConfig = {
-      servers: [{ id: "graph", name: "Graph", enabled: false, tools: [descriptor("read")] }],
+      servers: [{ id: "graph", name: "Graph", enabled: false, transport: "stdio", tools: [descriptor("read")] }],
     }
 
     const runtime = buildMcpRuntime(config)
@@ -37,6 +37,7 @@ describe("buildMcpRuntime", () => {
         id: "graph",
         name: "Graph",
         enabled: true,
+        transport: "stdio",
         tools: [descriptor("read"), descriptor("analysis", "analyze_relation")],
       }],
     }
@@ -72,6 +73,7 @@ describe("buildMcpRuntime", () => {
         id: "graph",
         name: "Graph",
         enabled: true,
+        transport: "stdio",
         tools: [descriptor("delete"), descriptor("overwrite"), badSchema],
       }],
     }
@@ -109,6 +111,7 @@ describe("buildMcpRuntime", () => {
         name: "Graph",
         enabled: true,
         command: "node",
+        transport: "stdio",
         tools: [descriptor("read")],
       }],
     }

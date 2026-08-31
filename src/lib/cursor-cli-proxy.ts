@@ -39,6 +39,14 @@ export async function detectCursorCli(): Promise<LocalCliDetectResult> {
   return invoke<LocalCliDetectResult>("cursor_cli_detect")
 }
 
+/** Stop the managed cursor-api-proxy if the app started it. */
+export async function stopCursorProxy(): Promise<void> {
+  if (!isTauri()) {
+    throw new Error("Cursor CLI 仅桌面端可用。请在 Tauri 应用中使用。")
+  }
+  await invoke<void>("cursor_proxy_stop")
+}
+
 export async function getCursorProxyStatus(): Promise<CursorProxyStatus> {
   if (!isTauri()) {
     return {

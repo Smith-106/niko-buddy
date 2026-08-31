@@ -24,6 +24,7 @@ const config: McpConfig = {
       enabled: true,
       command: "node",
       args: ["server.js"],
+      transport: "stdio",
       tools: [
         {
           serverId: "graph",

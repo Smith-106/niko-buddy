@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Lightbulb } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { loadForeshadowingTracker, type ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
+import { loadForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
+import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
 
 const STATUS_LABEL_KEY: Record<string, string> = {
   planted: "novel.foreshadowing.planted",
@@ -28,8 +29,11 @@ export function ForeshadowingPanel() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const [store, setStore] = useState<ForeshadowingStore | null>(null)
   const [loading, setLoading] = useState(true)
+  const [rangeFrom, setRangeFrom] = useState("")
+  const [rangeTo, setRangeTo] = useState("")
 
   // dataVersion 监听: chapter-ingest saveForeshadowingTracker(554/1525/1666)
   // 后 bumpDataVersion(1037/1229/1927), 不订阅则 ingest 后显示陈旧伏笔列表。
@@ -45,17 +49,52 @@ export function ForeshadowingPanel() {
     return () => { cancelled = true }
   }, [project, dataVersion])
 
-  const unresolved = store?.items.filter(f => f.status !== "resolved") ?? []
-  const resolved = store?.items.filter(f => f.status === "resolved") ?? []
+  const fromNum = rangeFrom.trim() === "" ? -Infinity : Number(rangeFrom)
+  const toNum = rangeTo.trim() === "" ? Infinity : Number(rangeTo)
+  const inRange = (n: number) => n >= fromNum && n <= toNum
+  const touchesRange = (f: Foreshadowing) =>
+    inRange(f.plantedChapter) ||
+    (typeof f.resolvedChapter === "number" && inRange(f.resolvedChapter)) ||
+    (f.advancedChapters ?? []).some(inRange)
+  const visibleItems = (store?.items ?? []).filter(touchesRange)
+
+  const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    const path = await findChapterFileByNumber(project.path, chapterNumber)
+    if (path) setSelectedFile(path)
+  }, [project, setSelectedFile])
+
+  const unresolved = visibleItems.filter((f) => f.status !== "resolved")
+  const resolved = visibleItems.filter((f) => f.status === "resolved")
 
   if (!project) return null
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Lightbulb className={`h-4 w-4 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
-          <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Lightbulb className={`h-4 w-4 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
+            <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
+          </div>
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span>{t("novel.range.from", { defaultValue: "起" })}</span>
+            <input
+              type="number"
+              value={rangeFrom}
+              onChange={(e) => setRangeFrom(e.target.value)}
+              placeholder="1"
+              className="w-14 rounded border bg-background px-1 py-0.5"
+            />
+            <span>{t("novel.range.to", { defaultValue: "止" })}</span>
+            <input
+              type="number"
+              value={rangeTo}
+              onChange={(e) => setRangeTo(e.target.value)}
+              placeholder="∞"
+              className="w-14 rounded border bg-background px-1 py-0.5"
+            />
+          </div>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto scroll-fade-y p-3">
@@ -100,7 +139,19 @@ export function ForeshadowingPanel() {
                       {f.description && (
                         <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>
                       )}
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void handleOpenChapter(f.plantedChapter)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            void handleOpenChapter(f.plantedChapter)
+                          }
+                        }}
+                        title={t("novel.foreshadowing.openPlanted", { num: f.plantedChapter, defaultValue: `打开第${f.plantedChapter}章` })}
+                        className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
+                      >
                         {t("novel.foreshadowing.plantedAt", { chapter: f.plantedChapter })}
                       </p>
                     </div>
@@ -125,7 +176,19 @@ export function ForeshadowingPanel() {
                           {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => { if (typeof f.resolvedChapter === "number") void handleOpenChapter(f.resolvedChapter) }}
+                        onKeyDown={(e) => {
+                          if ((e.key === "Enter" || e.key === " ") && typeof f.resolvedChapter === "number") {
+                            e.preventDefault()
+                            void handleOpenChapter(f.resolvedChapter)
+                          }
+                        }}
+                        title={typeof f.resolvedChapter === "number" ? t("novel.foreshadowing.openResolved", { num: f.resolvedChapter, defaultValue: `打开第${f.resolvedChapter}章` }) : undefined}
+                        className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
+                      >
                         {t("novel.foreshadowing.resolvedAt", { chapter: f.resolvedChapter ?? "?" })}
                       </p>
                     </div>

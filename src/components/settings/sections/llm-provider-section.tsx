@@ -13,6 +13,7 @@ import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { getCursorProxyStatus, stopCursorProxy } from "@/lib/cursor-cli-proxy"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
@@ -182,7 +183,8 @@ function PresetRow({
   const needsApiKey =
     preset.provider !== "ollama" &&
     preset.provider !== "claude-code" &&
-    preset.provider !== "codex-cli"
+    preset.provider !== "codex-cli" &&
+    preset.provider !== "cursor-cli"
 
   const resolvedConfig = useMemo(
     () => resolveConfig(preset, ov, useWikiStore.getState().llmConfig),
@@ -424,6 +426,7 @@ function PresetRow({
 
           {preset.provider === "claude-code" && <ClaudeCliStatusPill />}
           {preset.provider === "codex-cli" && <CodexCliStatusPill />}
+          {preset.provider === "cursor-cli" && <CursorProxyStatusBadge />}
 
           {isLocalCliProvider && (
             <div className="space-y-2 rounded-md border p-3">
@@ -1152,6 +1155,153 @@ function CodexCliStatusPill() {
             </>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+interface CursorProxyStatusPayload {
+  healthy: boolean
+  base_url: string
+  managed: boolean
+  error: string | null
+}
+
+/** Extract `host:port` from a proxy base URL, e.g. `http://127.0.0.1:8765` → `127.0.0.1:8765`. */
+function proxyEndpointLabel(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl)
+    const host = url.host || baseUrl
+    return host
+  } catch {
+    return baseUrl
+  }
+}
+
+/**
+ * Status badge + stop control for the managed cursor-api-proxy (audit
+ * ①-2 / ③-13). Shows healthy / port when the proxy is reachable, an
+ * error hint otherwise, and lets the user stop the process the app
+ * started.
+ */
+function CursorProxyStatusBadge() {
+  const { t } = useTranslation()
+  const [state, setState] = useState<"loading" | "ok" | "err">("loading")
+  const [status, setStatus] = useState<CursorProxyStatusPayload | null>(null)
+  const [stopping, setStopping] = useState(false)
+
+  async function refresh() {
+    setState("loading")
+    try {
+      const s = await getCursorProxyStatus()
+      setStatus(s)
+      setState(s.healthy ? "ok" : "err")
+    } catch (e) {
+      setStatus({
+        healthy: false,
+        base_url: "",
+        managed: false,
+        error: e instanceof Error ? e.message : String(e),
+      })
+      setState("err")
+    }
+  }
+
+  async function handleStop() {
+    if (!status?.managed) return
+    setStopping(true)
+    try {
+      await stopCursorProxy()
+    } catch {
+      // 状态刷新会展示服务端错误；停止失败不阻塞。
+    } finally {
+      setStopping(false)
+      await refresh()
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  const endpointLabel = status ? proxyEndpointLabel(status.base_url) : ""
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="m-0">
+          {t("settings.sections.llm.cursorProxy.title", { defaultValue: "Cursor 代理状态" })}
+        </Label>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          disabled={state === "loading"}
+        >
+          {state === "loading"
+            ? t("settings.sections.llm.cliStatus.checking")
+            : t("settings.sections.llm.cliStatus.recheck")}
+        </button>
+      </div>
+      <div
+        className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+          state === "ok"
+            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            : state === "err"
+              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              : "border-border bg-background/50 text-muted-foreground"
+        }`}
+      >
+        {state === "loading" && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {state === "ok" && <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        {state === "err" && <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        <div className="min-w-0 flex-1 space-y-0.5">
+          {state === "loading" && (
+            <div>{t("settings.sections.llm.cursorProxy.checking", { defaultValue: "正在检测代理状态…" })}</div>
+          )}
+          {state === "ok" && (
+            <>
+              <div>
+                {t("settings.sections.llm.cursorProxy.healthy", {
+                  defaultValue: "代理运行正常（{{endpoint}}）",
+                  endpoint: endpointLabel,
+                })}
+              </div>
+              {status?.managed ? (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cursorProxy.managedHint", {
+                    defaultValue: "由应用托管，可随时停止",
+                  })}
+                </div>
+              ) : null}
+            </>
+          )}
+          {state === "err" && (
+            <>
+              <div>
+                {status?.error ?? t("settings.sections.llm.cursorProxy.unavailable", { defaultValue: "代理不可用" })}
+              </div>
+              <div className="text-muted-foreground">
+                {t("settings.sections.llm.cursorProxy.errHint", {
+                  defaultValue: "模型请求时会自动拉起托管代理；如需手动检查，请确认 cursor-api-proxy 可访问。",
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        {status?.managed && (
+          <button
+            type="button"
+            onClick={() => void handleStop()}
+            disabled={stopping || state === "loading"}
+            className="shrink-0 rounded border border-destructive/40 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+            title={t("settings.sections.llm.cursorProxy.stopTitle", { defaultValue: "停止托管代理" })}
+          >
+            {stopping
+              ? t("settings.sections.llm.cursorProxy.stopping", { defaultValue: "停止中…" })
+              : t("settings.sections.llm.cursorProxy.stop", { defaultValue: "停止代理" })}
+          </button>
+        )}
       </div>
     </div>
   )

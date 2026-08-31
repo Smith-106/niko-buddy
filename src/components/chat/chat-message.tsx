@@ -10,6 +10,7 @@ import {
   Image as ImageIcon, Loader2,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useTranslation } from "react-i18next"
 import { readFile } from "@/commands/fs"
 import { normalizePath, getFileName } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -1097,6 +1098,7 @@ function processContent(text: string): string {
 }
 
 function WikiLink({ pageName, children }: { pageName: string; children: React.ReactNode }) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileContent = useWikiStore((s) => s.setFileContent)
@@ -1151,7 +1153,7 @@ function WikiLink({ pageName, children }: { pageName: string; children: React.Re
 
   if (exists === false) {
     return (
-      <span className="inline text-muted-foreground" title={`Page not found: ${pageName}`}>
+      <span className="inline text-muted-foreground" title={t("chat.pageNotFound", { defaultValue: "页面不存在: {{name}}", name: pageName })}>
         {children}
       </span>
     )

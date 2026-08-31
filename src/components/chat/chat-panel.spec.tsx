@@ -607,6 +607,7 @@ const mocks = vi.hoisted(() => {
         resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
       }) => Promise<NovelSessionStatus>
     >(async () => ({ ...sessionStatusBase, status: "running", active_step_index: 1 })),
+    subscribeStatusJson: vi.fn(async () => () => {}),
     appendContinueUnfinishedDeepChapterContext: vi.fn<
       (content: string, context: ContinueUnfinishedDeepChapterContext) => string
     >((content: string) => content),
@@ -1085,6 +1086,7 @@ vi.mock("@/lib/novel/novel-session-status", () => ({
   rejectDeepChapterDraft: mocks.rejectDeepChapterDraft,
   resolveInterruptedSessionResumeCheckpoint: mocks.resolveInterruptedSessionResumeCheckpoint,
   startDeepChapterSession: mocks.startDeepChapterSession,
+  subscribeStatusJson: mocks.subscribeStatusJson,
 }))
 
 // 动态 import 模块

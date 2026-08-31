@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     loadSnapshot: vi.fn(),
     loadForeshadowingTracker: vi.fn(),
     loadNovelSessionStatus: vi.fn(),
+    subscribeStatusJson: vi.fn(async () => () => {}),
     loadEmotionLedger: vi.fn(),
     getTopEmotionalDebt: vi.fn(),
     streamChat: vi.fn(),
@@ -115,7 +116,10 @@ vi.mock("@/lib/novel/chapter-ingest", () => ({
   loadSnapshot: mocks.loadSnapshot,
 }))
 vi.mock("@/lib/novel/foreshadowing-tracker", () => ({ loadForeshadowingTracker: mocks.loadForeshadowingTracker }))
-vi.mock("@/lib/novel/novel-session-status", () => ({ loadNovelSessionStatus: mocks.loadNovelSessionStatus }))
+vi.mock("@/lib/novel/novel-session-status", () => ({
+  loadNovelSessionStatus: mocks.loadNovelSessionStatus,
+  subscribeStatusJson: mocks.subscribeStatusJson,
+}))
 vi.mock("@/lib/novel/emotion-ledger", () => ({
   loadEmotionLedger: mocks.loadEmotionLedger,
   getTopEmotionalDebt: mocks.getTopEmotionalDebt,

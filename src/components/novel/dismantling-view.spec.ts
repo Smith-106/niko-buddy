@@ -17,20 +17,19 @@ describe("dismantling library visibility", () => {
     expect(contentSource).toContain("@/components/novel/book-analysis-view")
   })
 
-  it("keeps the hidden dismantling sidebar disconnected from the visible workspace", () => {
+  it("keeps the dismantling sidebar removed from the visible workspace (P2-4: dead component deleted 2026-08-31)", () => {
     const viewSource = readFileSync(resolve(root, "src/components/novel/dismantling-view.tsx"), "utf8")
     const sidebarSource = readFileSync(resolve(root, "src/components/layout/sidebar-panel.tsx"), "utf8")
 
     expect(sidebarSource).not.toContain('activeView === "dismantling"')
-    expect(sidebarSource).toContain("DismantlingSidebarPanel")
+    expect(sidebarSource).not.toContain("DismantlingSidebarPanel")
     expect(viewSource).toContain("拆文结果")
   })
 
-  it("keeps the underlying dismantling implementation intact for later re-enable", () => {
-    const sidebarSource = readFileSync(resolve(root, "src/components/layout/sidebar-panel.tsx"), "utf8")
+  it("keeps the dismantling library data layer intact for later re-enable", () => {
+    const libSource = readFileSync(resolve(root, "src/lib/novel/dismantling.ts"), "utf8")
 
-    expect(sidebarSource).toContain("正在提取章节")
-    expect(sidebarSource).toContain("已存在相同拆文作品")
-    expect(sidebarSource).toContain("normalizeDismantlingProjectTitle")
+    expect(libSource).toContain("normalizeDismantlingLibrary")
+    expect(libSource).toContain("splitDismantlingTextIntoChapters")
   })
 })

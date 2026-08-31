@@ -57,11 +57,13 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 use zip::result::ZipError;
 use zip::write::SimpleFileOptions;
 use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 
+use crate::commands::backup::BackupProgressPayload;
 use crate::panic_guard::run_guarded;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -97,6 +99,34 @@ static OP_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn op_lock() -> &'static tokio::sync::Mutex<()> {
     OP_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// ③-3 审计补齐：canon 导出/恢复进度事件。
+///
+/// 复用既有 `backup-progress` 事件名与 `BackupProgressPayload` 形态
+/// （backup.rs 已确认：`{operation, stage, current, total, message}`，
+/// camelCase），以 `operation` 区分 canon_export / canon_restore，前端进度条
+/// 无需新监听器。`app` 为 `None`（纯逻辑/测试）时不发事件。
+fn emit_canon_progress(
+    app: Option<&AppHandle>,
+    operation: &str,
+    stage: &str,
+    current: usize,
+    total: usize,
+    message: &str,
+) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "backup-progress",
+            BackupProgressPayload {
+                operation: operation.into(),
+                stage: stage.into(),
+                current,
+                total,
+                message: message.into(),
+            },
+        );
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -413,6 +443,8 @@ fn base_opts() -> SimpleFileOptions {
 ///
 /// 被 export / restore 前置自动备份 / auto_backup 三方复用。
 fn pack_project(
+    app: Option<&AppHandle>,
+    operation: &str,
     project_path: &Path,
     output_zip: &Path,
     passphrase: Option<&str>,
@@ -465,6 +497,15 @@ fn pack_project(
         digest.update(file_hex.as_bytes());
         digest.update(b"\n");
         packed += 1;
+        // ③-3：打包进度（current=已打包条目数, total=条目总数, message=条目名）。
+        emit_canon_progress(
+            app,
+            operation,
+            "pack",
+            packed as usize,
+            entries.len(),
+            name,
+        );
     }
 
     // 2) manifest 最后写入（content digest 此时才齐备；zip 读端随机访问不受顺序影响）
@@ -651,6 +692,8 @@ struct StagedArchive {
 /// 公共前置流程：开 zip → 容器校验和 → 读 manifest → 全量解压到 staging →
 /// 内容层摘要复核。任何一层不过即 Err（restore / verify 共用）。
 fn stage_verified_archive(
+    app: Option<&AppHandle>,
+    operation: &str,
     zip_path: &Path,
     staging_root: &Path,
     expected_checksum: Option<&str>,
@@ -721,6 +764,15 @@ fn stage_verified_archive(
         fs::write(&target, &data)
             .map_err(|e| err_ctx(format!("写入暂存文件 {} 失败", target.display()).as_str(), e))?;
         staged_files += 1;
+        // ③-3：解压进度（current=已解压文件数, total=包内条目数, message=条目名）。
+        emit_canon_progress(
+            app,
+            operation,
+            "extract",
+            staged_files as usize,
+            names.len(),
+            name,
+        );
     }
 
     // ── 内容层摘要复核（从磁盘重算）──
@@ -781,7 +833,12 @@ fn swap_directory(staged: &Path, current: &Path, aside: &Path) -> Result<bool, S
 // ──────────────────────────────────────────────────────────────────────────
 
 /// 导出项目包。
-pub fn export_project_impl(request: &CanonExportRequest) -> Result<CanonExportResult, String> {
+/// 导出项目备份包（③-3：可选进度回调，command 包装层传入 AppHandle；
+/// 测试/纯逻辑调用传 `None` 不发进度事件）。
+pub fn export_project_impl_with_progress(
+    request: &CanonExportRequest,
+    app: Option<&AppHandle>,
+) -> Result<CanonExportResult, String> {
     let project = Path::new(&request.project_path);
     if !project.is_dir() {
         return Ok(failed_export(format!("项目目录不存在: {}", request.project_path)));
@@ -796,7 +853,7 @@ pub fn export_project_impl(request: &CanonExportRequest) -> Result<CanonExportRe
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
 
-    let outcome = pack_project(project, output, pass.as_deref(), &project_name)?;
+    let outcome = pack_project(app, "canon_export", project, output, pass.as_deref(), &project_name)?;
 
     Ok(CanonExportResult {
         success: true,
@@ -856,6 +913,8 @@ pub fn verify_export_impl(request: &CanonVerifyRequest) -> Result<CanonVerifyRes
 
     let staging = std::env::temp_dir().join(format!("t34c-verify-{}", unique_suffix()));
     let staged = stage_verified_archive(
+        None,
+        "canon_verify",
         zip_path,
         &staging,
         request.expected_checksum.as_deref(),
@@ -889,7 +948,12 @@ pub fn verify_export_impl(request: &CanonVerifyRequest) -> Result<CanonVerifyRes
 }
 
 /// 恢复：校验 → 自动备份现状 → staging → 原子替换。
-pub fn restore_project_impl(request: &CanonRestoreRequest) -> Result<CanonRestoreResult, String> {
+/// 恢复项目备份包（③-3：可选进度回调，command 包装层传入 AppHandle；
+/// 测试/纯逻辑调用传 `None` 不发进度事件）。
+pub fn restore_project_impl_with_progress(
+    request: &CanonRestoreRequest,
+    app: Option<&AppHandle>,
+) -> Result<CanonRestoreResult, String> {
     let project = Path::new(&request.project_path);
     let zip_path = Path::new(&request.zip_path);
     let pass = normalize_pass(&request.passphrase);
@@ -900,6 +964,8 @@ pub fn restore_project_impl(request: &CanonRestoreRequest) -> Result<CanonRestor
     let backups_root = project.join("backups");
     let staging = backups_root.join(format!(".t34c-staging-{stamp}"));
     let staged = match stage_verified_archive(
+        app,
+        "canon_restore",
         zip_path,
         &staging,
         request.expected_checksum.as_deref(),
@@ -925,7 +991,7 @@ pub fn restore_project_impl(request: &CanonRestoreRequest) -> Result<CanonRestor
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "project".to_string());
-        match pack_project(project, &auto_zip, None, &current_name) {
+        match pack_project(app, "canon_restore", project, &auto_zip, None, &current_name) {
             Ok(outcome) => {
                 auto_backup_path = Some(auto_zip.to_string_lossy().to_string());
                 warnings.extend(outcome.warnings.into_iter().map(|w| format!("[自动备份] {w}")));
@@ -1023,7 +1089,12 @@ fn failed_restore(
 }
 
 /// supersede / schema 迁移前的自动备份入口。
-pub fn auto_backup_impl(request: &CanonAutoBackupRequest) -> Result<CanonAutoBackupResult, String> {
+/// 自动备份（③-3：可选进度回调，command 包装层传入 AppHandle；
+/// 测试/纯逻辑调用传 `None` 不发进度事件）。
+pub fn auto_backup_impl_with_progress(
+    request: &CanonAutoBackupRequest,
+    app: Option<&AppHandle>,
+) -> Result<CanonAutoBackupResult, String> {
     let project = Path::new(&request.project_path);
     if !project.is_dir() {
         return Ok(CanonAutoBackupResult {
@@ -1057,7 +1128,7 @@ pub fn auto_backup_impl(request: &CanonAutoBackupRequest) -> Result<CanonAutoBac
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
 
-    let outcome = pack_project(project, &output, None, &project_name)?;
+    let outcome = pack_project(app, "canon_auto_backup", project, &output, None, &project_name)?;
     Ok(CanonAutoBackupResult {
         success: true,
         backup_path: Some(output.to_string_lossy().to_string()),
@@ -1073,16 +1144,26 @@ pub fn auto_backup_impl(request: &CanonAutoBackupRequest) -> Result<CanonAutoBac
 
 /// 导出项目备份包（zip + SHA-256 sidecar；可选本地 AES-256 口令）。
 #[tauri::command]
-pub async fn canon_export_project(request: CanonExportRequest) -> Result<CanonExportResult, String> {
+pub async fn canon_export_project(
+    app: tauri::AppHandle,
+    request: CanonExportRequest,
+) -> Result<CanonExportResult, String> {
     let _guard = op_lock().lock().await;
-    run_guarded("canon_export_project", || export_project_impl(&request))
+    run_guarded("canon_export_project", || {
+        export_project_impl_with_progress(&request, Some(&app))
+    })
 }
 
 /// 从备份包恢复项目（校验通过后原子替换；替换前自动备份现状）。
 #[tauri::command]
-pub async fn canon_restore_project(request: CanonRestoreRequest) -> Result<CanonRestoreResult, String> {
+pub async fn canon_restore_project(
+    app: tauri::AppHandle,
+    request: CanonRestoreRequest,
+) -> Result<CanonRestoreResult, String> {
     let _guard = op_lock().lock().await;
-    run_guarded("canon_restore_project", || restore_project_impl(&request))
+    run_guarded("canon_restore_project", || {
+        restore_project_impl_with_progress(&request, Some(&app))
+    })
 }
 
 /// 只校验备份包完整性（容器 SHA-256 + 内容摘要），不做任何写操作。
@@ -1093,9 +1174,14 @@ pub async fn canon_verify_export(request: CanonVerifyRequest) -> Result<CanonVer
 
 /// supersede / schema 迁移前的自动备份（TS 编排层显式调用）。
 #[tauri::command]
-pub async fn canon_auto_backup(request: CanonAutoBackupRequest) -> Result<CanonAutoBackupResult, String> {
+pub async fn canon_auto_backup(
+    app: tauri::AppHandle,
+    request: CanonAutoBackupRequest,
+) -> Result<CanonAutoBackupResult, String> {
     let _guard = op_lock().lock().await;
-    run_guarded("canon_auto_backup", || auto_backup_impl(&request))
+    run_guarded("canon_auto_backup", || {
+        auto_backup_impl_with_progress(&request, Some(&app))
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1168,7 +1254,7 @@ mod tests {
         let out_dir = tmp_dir("roundtrip-out");
         let zip = out_dir.join("proj-backup.zip");
 
-        let result = export_project_impl(&export_req(&project, &zip)).unwrap();
+        let result = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
         assert!(result.success, "导出应成功: {:?}", result.error);
         assert_eq!(result.file_count, 5, "status+2drafts+2lance 文件");
         assert!(result.checksum_sha256.as_ref().is_some_and(|c| c.len() == 64));
@@ -1179,12 +1265,12 @@ mod tests {
         fs::remove_file(project.join(".novel/drafts/conv_1.json")).unwrap();
         fs::write(project.join(".qmai/lancedb/_versions/manifest-0"), b"tampered").unwrap();
 
-        let restore = restore_project_impl(&CanonRestoreRequest {
+        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
             project_path: project.to_string_lossy().to_string(),
             zip_path: zip.to_string_lossy().to_string(),
             expected_checksum: None,
             passphrase: None,
-        })
+        }, None)
         .unwrap();
         assert!(restore.success, "恢复应成功: {:?}", restore.error);
         assert!(restore.restored_status && restore.restored_drafts && restore.restored_canon_lancedb);
@@ -1224,7 +1310,7 @@ mod tests {
     fn verify_detects_tampered_container() {
         let project = seed_project("tamper");
         let zip = tmp_dir("tamper-out").join("t.zip");
-        export_project_impl(&export_req(&project, &zip)).unwrap();
+        export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
 
         // 翻转压缩数据区一个字节（远离头尾 central directory）
         let mut bytes = fs::read(&zip).unwrap();
@@ -1252,7 +1338,7 @@ mod tests {
     fn expected_checksum_mismatch_rejects_restore() {
         let project = seed_project("mismatch");
         let zip = tmp_dir("mismatch-out").join("t.zip");
-        let exported = export_project_impl(&export_req(&project, &zip)).unwrap();
+        let exported = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
 
         let v = verify_export_impl(&CanonVerifyRequest {
             zip_path: zip.to_string_lossy().to_string(),
@@ -1304,11 +1390,11 @@ mod tests {
         let out = tmp_dir("passphrase-out");
         let zip = out.join("enc.zip");
 
-        let exported = export_project_impl(&CanonExportRequest {
+        let exported = export_project_impl_with_progress(&CanonExportRequest {
             project_path: project.to_string_lossy().to_string(),
             output_zip_path: zip.to_string_lossy().to_string(),
             passphrase: Some("本地口令-local-pass".to_string()),
-        })
+        }, None)
         .unwrap();
         assert!(exported.success);
 
@@ -1351,11 +1437,11 @@ mod tests {
     fn blank_passphrase_means_plain() {
         let project = seed_project("blankpass");
         let zip = tmp_dir("blankpass-out").join("t.zip");
-        let exported = export_project_impl(&CanonExportRequest {
+        let exported = export_project_impl_with_progress(&CanonExportRequest {
             project_path: project.to_string_lossy().to_string(),
             output_zip_path: zip.to_string_lossy().to_string(),
             passphrase: Some("   ".to_string()),
-        })
+        }, None)
         .unwrap();
         assert!(exported.success);
 
@@ -1397,12 +1483,12 @@ mod tests {
         zw.write_all(b"malicious").unwrap();
         zw.finish().unwrap();
 
-        let restore = restore_project_impl(&CanonRestoreRequest {
+        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
             project_path: project.to_string_lossy().to_string(),
             zip_path: evil_zip.to_string_lossy().to_string(),
             expected_checksum: None,
             passphrase: None,
-        })
+        }, None)
         .unwrap();
         assert!(!restore.success, "traversal 条目应被拒");
         assert!(restore.error.unwrap().contains("安全拦截"));
@@ -1414,10 +1500,10 @@ mod tests {
     #[test]
     fn auto_backup_creates_timestamped_zip_with_sidecar() {
         let project = seed_project("autobackup");
-        let r = auto_backup_impl(&CanonAutoBackupRequest {
+        let r = auto_backup_impl_with_progress(&CanonAutoBackupRequest {
             project_path: project.to_string_lossy().to_string(),
             reason: "pre supersede/迁移!".to_string(),
-        })
+        }, None)
         .unwrap();
         assert!(r.success, "{:?}", r.error);
         let path = Path::new(r.backup_path.as_ref().unwrap());
@@ -1432,10 +1518,10 @@ mod tests {
 
         // 空项目 → 报无可备份
         let empty = tmp_dir("autobackup-empty");
-        let r2 = auto_backup_impl(&CanonAutoBackupRequest {
+        let r2 = auto_backup_impl_with_progress(&CanonAutoBackupRequest {
             project_path: empty.to_string_lossy().to_string(),
             reason: "pre-migration".to_string(),
-        })
+        }, None)
         .unwrap();
         assert!(!r2.success);
         assert!(r2.error.unwrap().contains("没有"));
@@ -1451,7 +1537,7 @@ mod tests {
 
         let out = tmp_dir("partial-out");
         let zip = out.join("t.zip");
-        let exported = export_project_impl(&export_req(&project, &zip)).unwrap();
+        let exported = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
         assert!(exported.success, "{:?}", exported.error);
         assert_eq!(exported.file_count, 1);
         assert!(
@@ -1462,12 +1548,12 @@ mod tests {
 
         // 恢复到全新目录：只建 status
         let target = tmp_dir("partial-target");
-        let restore = restore_project_impl(&CanonRestoreRequest {
+        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
             project_path: target.to_string_lossy().to_string(),
             zip_path: zip.to_string_lossy().to_string(),
             expected_checksum: None,
             passphrase: None,
-        })
+        }, None)
         .unwrap();
         assert!(restore.success, "{:?}", restore.error);
         assert!(restore.restored_status);

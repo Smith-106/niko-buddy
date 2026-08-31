@@ -538,7 +538,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "canonEditor"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"

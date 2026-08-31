@@ -429,7 +429,8 @@
     "copy": "复制",
     "retry": "重试",
     "references": "引用",
-    "saveAsDraft": "保存为草稿"
+    "saveAsDraft": "保存为草稿",
+    "pageNotFound": "页面不存在: {{name}}"
   },
   "search": {
     "title": "搜索",
@@ -1288,6 +1289,8 @@
       "soul": "灵魂",
       "reviewCenter": "审查中心",
       "dismantling": "拆文库",
+      "canonEditor": "设定校正",
+      "backupExport": "备份与恢复",
       "settings": "模型与写作设置",
       "switchProject": "切换小说",
       "chat": "聊天",
@@ -2061,5 +2064,9 @@
       "category": "分类",
       "note": "笔记"
     }
+  },
+  "errorBoundary": {
+    "title": "出错了",
+    "retry": "重试"
   }
 }

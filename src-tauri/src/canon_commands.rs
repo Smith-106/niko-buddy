@@ -423,6 +423,7 @@ pub async fn canon_query_batch(
 }
 
 #[tauri::command]
+/// 内部能力：仅程序化消费（character-cognition.ts），无直接 UI 入口。
 pub async fn canon_facts_known_by(
     state: State<'_, CanonCommandState>,
     project_id: String,
@@ -463,6 +464,7 @@ pub async fn canon_query_episodes(
 }
 
 #[tauri::command]
+/// 内部能力：仅程序化消费（canon-dual-write.ts），无直接 UI 入口。
 pub async fn canon_get_revision(
     state: State<'_, CanonCommandState>,
     project_id: String,

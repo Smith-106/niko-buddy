@@ -152,14 +152,14 @@ describe("ChatInput", () => {
 
   it("流式模式：显示停止按钮、textarea 禁用、发送被拦截", () => {
     const { onStop, onSend } = renderChatInput({ isStreaming: true })
-    expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "停止生成（优雅）" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: "发送消息" })).toBeNull()
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
     expect(textarea).toBeDisabled()
     fireEvent.change(textarea, { target: { value: "x" } })
     fireEvent.keyDown(textarea, { key: "Enter" })
     expect(onSend).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "停止生成" }))
+    fireEvent.click(screen.getByRole("button", { name: "停止生成（优雅）" }))
     expect(onStop).toHaveBeenCalledTimes(1)
   })
 
@@ -172,7 +172,7 @@ describe("ChatInput", () => {
     expect(screen.getByTestId("lead")).toBeTruthy()
     expect(screen.getByTestId("foot")).toBeTruthy()
     expect(screen.queryByRole("button", { name: "发送消息" })).toBeNull()
-    expect(screen.queryByRole("button", { name: "停止生成" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "停止生成（优雅）" })).toBeNull()
     expect(onSend).not.toHaveBeenCalled()
   })
 

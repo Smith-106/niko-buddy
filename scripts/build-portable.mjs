@@ -86,7 +86,7 @@ if (existsSync(sourceSkillDir)) {
 
 const exeStat = statSync(outExe)
 writeFileSync(manifest, JSON.stringify({
-  productName: "青幕AI写作",
+  productName: "Niko Buddy",
   version: pkg.version,
   builtAt: new Date().toISOString(),
   sourceExe,

@@ -21,6 +21,19 @@ use std::path::Path;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter};
+
+/// ③-11 审计补齐：图片提取进度事件名（前端订阅 `extract-images-progress`）。
+pub const EVENT_EXTRACT_IMAGES_PROGRESS: &str = "extract-images-progress";
+
+/// 图片提取进度负载：`{current, total, file}`。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractImagesProgressPayload {
+    pub current: usize,
+    pub total: usize,
+    pub file: String,
+}
 
 /// Filter knobs. The defaults mirror what's documented in
 /// plans/multimodal-images.md; callers (the TS layer wiring this up)
@@ -388,6 +401,7 @@ fn ext_for_mime(mime: &str) -> &'static str {
 /// PNG re-encoding is unconditional (pdfium hands us decoded bitmaps
 /// regardless of source codec).
 pub fn extract_and_save_pdf_images(
+    app: Option<&AppHandle>,
     path: &str,
     dest_dir: &Path,
     rel_to: &Path,
@@ -404,6 +418,8 @@ pub fn extract_and_save_pdf_images(
 
     let mut out: Vec<SavedImage> = Vec::new();
     let mut idx: u32 = 0;
+    // ③-11：记录最近一次落盘文件名（PDF 进度事件 file 字段用）。
+    let mut last_saved_file: String = String::new();
     // Diagnostic counters — when extraction returns empty, the user's
     // first question is "did the PDF actually have raster images?"
     // These let us answer it from logs without having to crack open
@@ -471,6 +487,7 @@ pub fn extract_and_save_pdf_images(
             let file_name = format!("img-{idx}.png");
             let (rel_path, abs_path) = save_one_image(&png_bytes, dest_dir, rel_to, &file_name)?;
             let sha256 = sha256_hex(&png_bytes);
+            last_saved_file = file_name.clone();
 
             out.push(SavedImage {
                 index: idx,
@@ -491,6 +508,17 @@ pub fn extract_and_save_pdf_images(
                 break 'pages;
             }
         }
+        // ③-11：每页处理完发一次进度（current=页号, total=总页数, file=本页最后落盘图）。
+        if let Some(app) = app {
+            let _ = app.emit(
+                EVENT_EXTRACT_IMAGES_PROGRESS,
+                ExtractImagesProgressPayload {
+                    current: page_idx + 1,
+                    total: page_count as usize,
+                    file: last_saved_file.clone(),
+                },
+            );
+        }
     }
 
     log::info!(
@@ -506,6 +534,7 @@ pub fn extract_and_save_pdf_images(
 /// preserved (PNG stays PNG, JPEG stays JPEG) since pulling the raw
 /// bytes is cheap and there's no compositing happening.
 pub fn extract_and_save_office_images(
+    app: Option<&AppHandle>,
     path: &str,
     dest_dir: &Path,
     rel_to: &Path,
@@ -533,9 +562,11 @@ pub fn extract_and_save_office_images(
                 .unwrap_or(false)
         })
         .collect();
+    let total_media = media_indices.len();
 
     let mut out: Vec<SavedImage> = Vec::new();
     let mut idx: u32 = 0;
+    let mut processed: usize = 0;
 
     for archive_idx in media_indices {
         let mut entry = match archive.by_index(archive_idx) {
@@ -546,6 +577,18 @@ pub fn extract_and_save_office_images(
             }
         };
         let entry_name = entry.name().to_string();
+        processed += 1;
+        // ③-11：每个媒体条目发一次进度（current=已处理条目数, total=媒体条目总数）。
+        if let Some(app) = app {
+            let _ = app.emit(
+                EVENT_EXTRACT_IMAGES_PROGRESS,
+                ExtractImagesProgressPayload {
+                    current: processed,
+                    total: total_media,
+                    file: entry_name.clone(),
+                },
+            );
+        }
         let mime_type = match guess_mime_from_name(&entry_name) {
             Some(m) => m,
             None => continue,
@@ -614,13 +657,16 @@ pub fn extract_and_save_office_images(
 
 #[tauri::command]
 pub async fn extract_and_save_pdf_images_cmd(
+    app: tauri::AppHandle,
     source_path: String,
     dest_dir: String,
     rel_to: String,
 ) -> Result<Vec<SavedImage>, String> {
+    let app_for_emit = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         crate::panic_guard::run_guarded("extract_and_save_pdf_images", || {
             extract_and_save_pdf_images(
+                Some(&app_for_emit),
                 &source_path,
                 Path::new(&dest_dir),
                 Path::new(&rel_to),
@@ -634,13 +680,16 @@ pub async fn extract_and_save_pdf_images_cmd(
 
 #[tauri::command]
 pub async fn extract_and_save_office_images_cmd(
+    app: tauri::AppHandle,
     source_path: String,
     dest_dir: String,
     rel_to: String,
 ) -> Result<Vec<SavedImage>, String> {
+    let app_for_emit = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         crate::panic_guard::run_guarded("extract_and_save_office_images", || {
             extract_and_save_office_images(
+                Some(&app_for_emit),
                 &source_path,
                 Path::new(&dest_dir),
                 Path::new(&rel_to),

@@ -54,3 +54,22 @@ export async function loadStyleExemplarsViaRust(
 ): Promise<StyleExemplarRecord[]> {
   return invoke<StyleExemplarRecord[]>("load_style_exemplars", { projectPath })
 }
+
+/** 删除单条 style exemplar 的输入负载（UI → Rust）。 */
+export interface DeleteStyleExemplarInput {
+  exemplarId: string
+}
+
+/**
+ * 删除一条已标记的 style exemplar（③-6 审计修复：标记后可取消）。
+ *
+ * UI 调用此 wrapper → invoke Rust `delete_style_exemplar` command → Rust 侧
+ * read-modify-write `.novel/style-exemplars.json`，移除匹配 exemplarId 的记录。
+ * Rust 命令需同步新增（注册到 `generate_handler!`）。
+ */
+export async function deleteStyleExemplarViaRust(
+  projectPath: string,
+  exemplarId: string,
+): Promise<void> {
+  return invoke<void>("delete_style_exemplar", { projectPath, exemplarId })
+}

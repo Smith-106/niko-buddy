@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { LayoutGrid } from "lucide-react"
+import { Check, FileText, LayoutGrid, Plus, Trash2, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { listSnapshots, loadSnapshot } from "@/lib/novel/chapter-ingest"
 import { loadEmotionalArcs } from "@/lib/novel/emotional-arcs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { listDirectory, readFile } from "@/commands/fs"
+import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel/chapter-utils"
 
 /**
  * CorkboardView — 场景卡片墙（F-010，审查/记忆面板可选可视化子面板）。
@@ -113,6 +114,11 @@ export function CorkboardView() {
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const [cards, setCards] = useState<CorkboardCard[]>([])
   const [loading, setLoading] = useState(true)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null)
+  const [busyChapter, setBusyChapter] = useState<number | null>(null)
+  const [localVersion, setLocalVersion] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // dataVersion 监听与 TimelineView 同款：ingest bumpDataVersion 后重取，
   // cancelled flag 防旧 fetch 的 setCards 覆盖最新。
@@ -131,17 +137,95 @@ export function CorkboardView() {
       }
     })()
     return () => { cancelled = true }
-  }, [project, dataVersion])
+  }, [project, dataVersion, localVersion])
+
+  const refresh = useCallback(() => setLocalVersion((v) => v + 1), [])
+
+  const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    const path = await findChapterFileByNumber(project.path, chapterNumber)
+    if (path) setSelectedFile(path)
+  }, [project, setSelectedFile])
+
+  const handleCreateScene = useCallback(async () => {
+    if (!project) return
+    setBusyChapter(-1)
+    setNotice(null)
+    try {
+      const next = await getNextChapterNumber(project.path)
+      const fileName = `chapter-${String(next).padStart(3, "0")}.md`
+      const chapterPath = `${project.path}/wiki/chapters/${fileName}`
+      const title = t("novel.corkboard.newSceneTitle", { num: next, defaultValue: `第${next}章` })
+      const content = [
+        "---",
+        "type: chapter",
+        `title: "${title}"`,
+        `chapter_number: ${next}`,
+        "chapter_status: draft",
+        "---",
+        "",
+        `# ${title}`,
+        "",
+      ].join("\n")
+      await writeFile(chapterPath, content)
+      invalidateChapterCache(project.path)
+      setNotice(t("novel.corkboard.created", { num: next, defaultValue: `已创建 ${title}` }))
+      refresh()
+    } catch (err) {
+      setNotice(t("novel.corkboard.createFailed", { defaultValue: "新建场景卡片失败" }))
+      console.error("[corkboard] create scene failed", err)
+    } finally {
+      setBusyChapter(null)
+    }
+  }, [project, refresh, t])
+
+  const handleDeleteChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    setBusyChapter(chapterNumber)
+    setNotice(null)
+    try {
+      const path = await findChapterFileByNumber(project.path, chapterNumber)
+      if (!path) {
+        setNotice(t("novel.corkboard.chapterNotFound", { num: chapterNumber, defaultValue: `未找到第${chapterNumber}章文件` }))
+        return
+      }
+      await deleteFile(path)
+      invalidateChapterCache(project.path)
+      setNotice(t("novel.corkboard.deleted", { num: chapterNumber, defaultValue: `已删除第${chapterNumber}章文件` }))
+      setPendingDelete(null)
+      refresh()
+    } catch (err) {
+      setNotice(t("novel.corkboard.deleteFailed", { num: chapterNumber, defaultValue: `删除第${chapterNumber}章失败` }))
+      console.error("[corkboard] delete chapter failed", err)
+    } finally {
+      setBusyChapter(null)
+    }
+  }, [project, refresh, t])
 
   if (!project) return null
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">{t("novel.corkboard.title")}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">{t("novel.corkboard.title")}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCreateScene()}
+            disabled={busyChapter === -1}
+            title={t("novel.corkboard.createScene", { defaultValue: "新建场景卡片" })}
+            className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+            {t("novel.corkboard.createScene", { defaultValue: "新建场景卡片" })}
+          </button>
         </div>
+        {notice && (
+          <div className="mt-1.5 truncate text-[11px] text-muted-foreground">{notice}</div>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto scroll-fade-y p-3">
         {loading ? (
@@ -155,6 +239,15 @@ export function CorkboardView() {
             <LayoutGrid className="h-8 w-8 text-muted-foreground/40" />
             <p>{t("novel.corkboard.noData")}</p>
             <p className="text-xs italic">{t("novel.corkboard.noDataHint")}</p>
+            <button
+              type="button"
+              onClick={() => void handleCreateScene()}
+              disabled={busyChapter === -1}
+              className="mt-1 flex items-center gap-1 rounded border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("novel.corkboard.createScene", { defaultValue: "新建场景卡片" })}
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
@@ -162,9 +255,51 @@ export function CorkboardView() {
               <div
                 key={card.chapterNumber}
                 data-corkboard-card={card.chapterNumber}
-                className="flex flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-primary/40"
+                className="group relative flex flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-primary/40"
               >
-                <div className="flex items-center justify-between gap-2">
+                <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  {pendingDelete === card.chapterNumber ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteChapter(card.chapterNumber)}
+                        disabled={busyChapter === card.chapterNumber}
+                        title={t("novel.corkboard.confirmDelete", { defaultValue: "确认删除" })}
+                        className="rounded bg-destructive p-1 text-destructive-foreground hover:opacity-90 disabled:opacity-50"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(null)}
+                        title={t("novel.corkboard.cancelDelete", { defaultValue: "取消" })}
+                        className="rounded bg-muted p-1 text-foreground hover:opacity-80"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenChapter(card.chapterNumber)}
+                        title={t("novel.corkboard.openChapter", { defaultValue: "打开章节" })}
+                        className="rounded bg-muted p-1 text-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(card.chapterNumber)}
+                        title={t("novel.corkboard.deleteChapter", { defaultValue: "删除" })}
+                        className="rounded bg-muted p-1 text-foreground hover:bg-destructive/20 hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2 pr-12">
                   <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                     {t("novel.corkboard.chapter", { num: card.chapterNumber })}
                   </span>

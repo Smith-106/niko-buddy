@@ -40,7 +40,7 @@ describe("ErrorBoundary", () => {
       </ErrorBoundary>,
     )
     expect(screen.getByText("all good")).toBeInTheDocument()
-    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument()
+    expect(screen.queryByText("出错了")).not.toBeInTheDocument()
   })
 
   it("catches a render error and shows the default fallback UI", () => {
@@ -49,9 +49,9 @@ describe("ErrorBoundary", () => {
         <Bomb />
       </ErrorBoundary>,
     )
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument()
+    expect(screen.getByText("出错了")).toBeInTheDocument()
     expect(screen.getByText("kapow")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument()
     expect(screen.queryByText("all good")).not.toBeInTheDocument()
   })
 
@@ -73,7 +73,7 @@ describe("ErrorBoundary", () => {
       </ErrorBoundary>,
     )
     expect(screen.getByText("custom-fallback")).toBeInTheDocument()
-    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument()
+    expect(screen.queryByText("出错了")).not.toBeInTheDocument()
   })
 
   it("Retry resets the error state and re-renders children", () => {
@@ -82,11 +82,11 @@ describe("ErrorBoundary", () => {
         <Flaky />
       </ErrorBoundary>,
     )
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument()
+    expect(screen.getByText("出错了")).toBeInTheDocument()
 
     shouldThrow = false
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    fireEvent.click(screen.getByRole("button", { name: "重试" }))
     expect(screen.getByText("recovered")).toBeInTheDocument()
-    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument()
+    expect(screen.queryByText("出错了")).not.toBeInTheDocument()
   })
 })

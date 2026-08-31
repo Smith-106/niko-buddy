@@ -22,6 +22,12 @@ const mocks = vi.hoisted(() => {
     cancelBackup: vi.fn(),
     importBackup: vi.fn(),
     exportNovelDocx: vi.fn(),
+    countFinalChapters: vi.fn(),
+    countVectorChunks: vi.fn(),
+    legacyVectorRowCount: vi.fn(),
+    dropLegacyVectorTable: vi.fn(),
+    listen: vi.fn(),
+    unlisten: vi.fn(),
     project: { path: "E:/Novel" },
   }
 })
@@ -42,6 +48,17 @@ vi.mock("@/lib/backup/import", () => ({
 
 vi.mock("@/lib/novel/export", () => ({
   exportNovelDocx: mocks.exportNovelDocx,
+  countFinalChapters: mocks.countFinalChapters,
+}))
+
+vi.mock("@/lib/embedding", () => ({
+  countVectorChunks: mocks.countVectorChunks,
+  legacyVectorRowCount: mocks.legacyVectorRowCount,
+  dropLegacyVectorTable: mocks.dropLegacyVectorTable,
+}))
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: mocks.listen,
 }))
 
 vi.mock("@/stores/wiki-store", () => ({
@@ -82,8 +99,20 @@ beforeEach(() => {
   mocks.t.mockClear()
   mocks.exportBackup.mockReset()
   mocks.importBackup.mockReset()
+  mocks.exportNovelDocx.mockReset()
+  mocks.countFinalChapters.mockReset()
+  mocks.countVectorChunks.mockReset()
+  mocks.legacyVectorRowCount.mockReset()
+  mocks.dropLegacyVectorTable.mockReset()
+  mocks.listen.mockReset()
+  mocks.unlisten.mockReset()
   mocks.exportBackup.mockResolvedValue(exportResult())
   mocks.importBackup.mockResolvedValue(importResult())
+  mocks.countFinalChapters.mockResolvedValue(3)
+  mocks.countVectorChunks.mockResolvedValue(12)
+  mocks.legacyVectorRowCount.mockResolvedValue(0)
+  mocks.listen.mockResolvedValue(mocks.unlisten)
+  window.confirm = vi.fn(() => true)
 })
 
 afterEach(() => {
@@ -510,5 +539,91 @@ describe("DataManagementSection", () => {
     render(<DataManagementSection />)
     expect(screen.getByText("settings.sections.dataManagement.docxExportButton")).toBeDisabled()
     mocks.project.path = "E:/Novel"
+  })
+
+  it("docx export disabled with zero final chapters and shows empty-state hint", async () => {
+    mocks.countFinalChapters.mockResolvedValue(0)
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.docxEmptyChapters")).toBeInTheDocument()
+    })
+    expect(screen.getByText("settings.sections.dataManagement.docxExportButton")).toBeDisabled()
+    expect(screen.queryByText("settings.sections.dataManagement.docxNoProject")).not.toBeInTheDocument()
+  })
+
+  it("docx export shows 请先打开项目 hint without a project", async () => {
+    mocks.project.path = ""
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.docxNoProject")).toBeInTheDocument()
+    })
+    mocks.project.path = "E:/Novel"
+  })
+
+  it("docx export progress: docx-export-progress event drives the progress bar", async () => {
+    render(<DataManagementSection />)
+    expect(mocks.listen).toHaveBeenCalledWith(
+      "docx-export-progress",
+      expect.any(Function),
+    )
+    const handler = mocks.listen.mock.calls[0][1] as (event: { payload: { current: number; total: number } }) => void
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.docxExportButton"))
+    act(() => {
+      handler({ payload: { current: 1, total: 3 } })
+    })
+    expect(screen.getByText("settings.sections.dataManagement.docxExportProgress")).toBeInTheDocument()
+    expect(mocks.t).toHaveBeenCalledWith("settings.sections.dataManagement.docxExportProgress", expect.objectContaining({ current: 1, total: 3 }))
+    act(() => {
+      handler({ payload: { current: 3, total: 3 } })
+    })
+  })
+
+  it("vector store: shows chunk and legacy counts", async () => {
+    mocks.legacyVectorRowCount.mockResolvedValue(7)
+    render(<DataManagementSection />)
+    expect(screen.getByText("settings.sections.dataManagement.vectorTitle")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mocks.countVectorChunks).toHaveBeenCalledWith("E:/Novel")
+      expect(mocks.legacyVectorRowCount).toHaveBeenCalledWith("E:/Novel")
+    })
+    expect(screen.getByText("12")).toBeInTheDocument()
+    expect(screen.getByText("7")).toBeInTheDocument()
+  })
+
+  it("vector store: clean legacy double-confirms then drops and refreshes counts", async () => {
+    const confirmMock = vi.fn(() => true)
+    window.confirm = confirmMock
+    mocks.legacyVectorRowCount.mockResolvedValue(5)
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("5")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.vectorCleanButton"))
+    expect(confirmMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(mocks.dropLegacyVectorTable).toHaveBeenCalledWith("E:/Novel")
+      expect(mocks.countVectorChunks).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it("vector store: first confirm cancel aborts the cleanup", async () => {
+    const confirmMock = vi.fn(() => false)
+    window.confirm = confirmMock
+    mocks.legacyVectorRowCount.mockResolvedValue(5)
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("5")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.vectorCleanButton"))
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(mocks.dropLegacyVectorTable).not.toHaveBeenCalled()
+  })
+
+  it("vector store: clean button disabled when legacy rows are zero", async () => {
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.vectorCleanButton")).toBeInTheDocument()
+    })
+    expect(screen.getByText("settings.sections.dataManagement.vectorCleanButton")).toBeDisabled()
   })
 })

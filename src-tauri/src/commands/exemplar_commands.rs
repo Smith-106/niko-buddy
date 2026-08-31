@@ -195,6 +195,65 @@ pub async fn load_style_exemplars(
         .map_err(|e| format!("load_style_exemplars blocking task join error: {e}"))?
 }
 
+/// Core logic for `delete_style_exemplar`（③-6 审计补齐：标记后只增不减）。
+///
+/// 与 `do_mark_style_exemplar` 对称的 read-filter-rewrite：读现有 exemplars
+/// （双格式兼容），按 `exemplar_id` 过滤删除，原子写回（同样打 app 写路径标记
+/// 协调 file_sync 热重载）。缺失文件/不存在的目标 id 幂等返回 `Ok`（前端删除
+/// 列表项时目标已消失属常态）。损坏 JSON 抛脱敏异常（PAT-DC1，与 load 一致）。
+pub fn do_delete_style_exemplar(project_path: &str, exemplar_id: &str) -> Result<(), String> {
+    let file_path = exemplars_file_path(project_path);
+    let p = Path::new(&file_path);
+
+    if !p.exists() {
+        return Ok(()); // 无可删文件，幂等成功。
+    }
+
+    let raw = fs::read_to_string(p)
+        .map_err(|e| format!("style exemplars file read error: {}", e))?;
+    // FIX-2/EC-1：双格式兼容——裸数组优先，{$schema, exemplars:[...]} 包装次之。
+    let parsed: Vec<StyleExemplarRecord> =
+        match serde_json::from_str::<Vec<StyleExemplarRecord>>(&raw) {
+            Ok(arr) => arr,
+            Err(_) => match serde_json::from_str::<WrappedExemplars>(&raw) {
+                Ok(wrapped) => wrapped.exemplars,
+                Err(_) => return Err("style exemplars file is corrupt".to_string()),
+            },
+        };
+
+    let before = parsed.len();
+    let filtered: Vec<StyleExemplarRecord> = parsed
+        .into_iter()
+        .filter(|r| r.exemplar_id != exemplar_id)
+        .collect();
+    if filtered.len() == before {
+        return Ok(()); // id 不存在，幂等成功。
+    }
+
+    // 标记 app 写路径（file_sync 热重载协调）+ 写盘。
+    file_sync::mark_app_write_path(p);
+    let contents = serde_json::to_string_pretty(&filtered)
+        .map_err(|e| format!("Failed to serialize exemplars: {}", e))?;
+    fs::write(p, &contents)
+        .map_err(|e| format!("Failed to write style exemplars file: {}", e))?;
+    file_sync::mark_app_write_path(p);
+
+    Ok(())
+}
+
+/// ③-6 审计补齐：删除/取消标记一条 style exemplar（UI 范例列表删除按钮）。
+#[tauri::command]
+pub async fn delete_style_exemplar(
+    project_path: String,
+    exemplar_id: String,
+) -> Result<(), String> {
+    let pp = project_path.clone();
+    let id = exemplar_id.clone();
+    tauri::async_runtime::spawn_blocking(move || do_delete_style_exemplar(&pp, &id))
+        .await
+        .map_err(|e| format!("delete_style_exemplar blocking task join error: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +432,81 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].exemplar_id, "EX-001");
         assert_eq!(loaded[1].mark_type, "pacing");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_delete_style_exemplar_removes_target_only() {
+        let dir = tmp_project_dir("delete");
+        let mark1 = MarkStyleExemplarInput {
+            chapter_id: "ch-1".to_string(),
+            text: "第一段".to_string(),
+            mark_type: "style".to_string(),
+            note: None,
+        };
+        let mark2 = MarkStyleExemplarInput {
+            chapter_id: "ch-2".to_string(),
+            text: "第二段".to_string(),
+            mark_type: "voice".to_string(),
+            note: None,
+        };
+        do_mark_style_exemplar(dir.to_str().unwrap(), &mark1).unwrap();
+        do_mark_style_exemplar(dir.to_str().unwrap(), &mark2).unwrap();
+
+        let loaded = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        let victim = loaded[0].exemplar_id.clone();
+        let keeper = loaded[1].exemplar_id.clone();
+
+        do_delete_style_exemplar(dir.to_str().unwrap(), &victim).unwrap();
+        let after = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].exemplar_id, keeper);
+        assert_ne!(after[0].exemplar_id, victim);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_delete_style_exemplar_is_idempotent() {
+        let dir = tmp_project_dir("delete-idempotent");
+        let mark = MarkStyleExemplarInput {
+            chapter_id: "ch-1".to_string(),
+            text: "x".to_string(),
+            mark_type: "style".to_string(),
+            note: None,
+        };
+        do_mark_style_exemplar(dir.to_str().unwrap(), &mark).unwrap();
+        let loaded = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        let id = loaded[0].exemplar_id.clone();
+
+        // 删不存在的 id → 幂等 Ok，文件内容不变。
+        do_delete_style_exemplar(dir.to_str().unwrap(), "no-such-id").unwrap();
+        let after = do_load_style_exemplars(dir.to_str().unwrap()).unwrap();
+        assert_eq!(after.len(), 1);
+
+        // 删除后再次删除同一 id → 仍然 Ok（目标已不存在）。
+        do_delete_style_exemplar(dir.to_str().unwrap(), &id).unwrap();
+        assert!(do_delete_style_exemplar(dir.to_str().unwrap(), &id).is_ok());
+        assert!(do_load_style_exemplars(dir.to_str().unwrap()).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_delete_style_exemplar_missing_file_is_ok() {
+        let dir = tmp_project_dir("delete-missing");
+        assert!(do_delete_style_exemplar(dir.to_str().unwrap(), "x").is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn do_delete_style_exemplar_corrupt_throws_sanitized_error() {
+        let dir = tmp_project_dir("delete-corrupt");
+        fs::create_dir_all(dir.join(".novel")).unwrap();
+        fs::write(dir.join(".novel/style-exemplars.json"), "{not json").unwrap();
+
+        let err = do_delete_style_exemplar(dir.to_str().unwrap(), "x").unwrap_err();
+        assert_eq!(err, "style exemplars file is corrupt");
+        assert!(!err.contains("{not"));
+        assert!(!err.contains("/.novel/"));
         let _ = fs::remove_dir_all(&dir);
     }
 }

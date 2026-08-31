@@ -11,7 +11,7 @@ pub mod exemplar_commands;
 pub mod file_sync;
 pub mod fs;
 pub mod local_cli_config;
-pub mod metrics;
+pub mod log_diagnostic;
 pub mod mcp_stdio;
 pub mod power;
 pub mod project;

@@ -23,6 +23,7 @@ export type Provider =
   | "minimax"
   | "claude-code"
   | "codex-cli"
+  | "cursor-cli"
 
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
@@ -114,6 +115,19 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "gpt-5.3-codex",
       "gpt-5.3-codex-spark",
       "gpt-5.2",
+    ],
+    suggestedContextSize: 200000,
+  },
+  {
+    id: "cursor-cli",
+    label: "Cursor (local proxy)",
+    hint: "Uses the managed cursor-api-proxy (OpenAI-compatible HTTP) — no API key needed",
+    provider: "cursor-cli",
+    defaultModel: "claude-sonnet-4-6",
+    suggestedModels: [
+      "claude-sonnet-4-6",
+      "claude-opus-4-6",
+      "claude-haiku-4-5-20251001",
     ],
     suggestedContextSize: 200000,
   },

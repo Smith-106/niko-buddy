@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Download,
@@ -10,11 +10,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   FileText,
+  Database,
+  Trash2,
+  RefreshCw,
 } from "lucide-react"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { Button } from "@/components/ui/button"
 import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
-import { exportNovelDocx, type DocxExportResult } from "@/lib/novel/export"
+import { exportNovelDocx, countFinalChapters, type DocxExportResult } from "@/lib/novel/export"
+import { countVectorChunks, legacyVectorRowCount, dropLegacyVectorTable } from "@/lib/embedding"
 import { useWikiStore } from "@/stores/wiki-store"
 import type {
   ExportResult,
@@ -46,6 +51,83 @@ export function DataManagementSection() {
   const [progress, setProgress] = useState<BackupProgressPayload | null>(null)
   const [isExportingDocx, setIsExportingDocx] = useState(false)
   const [docxResult, setDocxResult] = useState<DocxExportResult | null>(null)
+  const [docxProgress, setDocxProgress] = useState<{ current: number; total: number } | null>(null)
+  const [finalChapterCount, setFinalChapterCount] = useState<number | null>(null)
+  const [vectorStats, setVectorStats] = useState<{ chunks: number; legacyRows: number } | null>(null)
+  const [vectorLoading, setVectorLoading] = useState(false)
+  const [cleaningLegacy, setCleaningLegacy] = useState(false)
+
+  // DOCX export progress subscription (audit ③-4): the Rust side emits
+  // "docx-export-progress" {current, total} per chapter while exporting.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    let cancelled = false
+    void (async () => {
+      try {
+        unlisten = await listen<{ current: number; total: number }>("docx-export-progress", (event) => {
+          if (!cancelled) setDocxProgress(event.payload)
+        })
+      } catch {
+        // 非 Tauri 环境（vite 预览）无事件通道，进度条直接不显示。
+      }
+    })()
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [])
+
+  // Count final chapters so the DOCX export button can show an empty-state
+  // hint and disable before the user starts an empty export.
+  useEffect(() => {
+    let cancelled = false
+    if (!currentProject?.path) {
+      setFinalChapterCount(null)
+      return
+    }
+    void countFinalChapters(currentProject.path).then((count) => {
+      if (!cancelled) setFinalChapterCount(count)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [currentProject?.path])
+
+  const loadVectorStats = useCallback(async () => {
+    if (!currentProject?.path) {
+      setVectorStats(null)
+      return
+    }
+    setVectorLoading(true)
+    try {
+      const [chunks, legacyRows] = await Promise.all([
+        countVectorChunks(currentProject.path),
+        legacyVectorRowCount(currentProject.path),
+      ])
+      setVectorStats({ chunks, legacyRows })
+    } catch {
+      setVectorStats(null)
+    } finally {
+      setVectorLoading(false)
+    }
+  }, [currentProject?.path])
+
+  useEffect(() => {
+    void loadVectorStats()
+  }, [loadVectorStats])
+
+  async function handleCleanLegacy() {
+    if (!currentProject?.path) return
+    if (!window.confirm(t("settings.sections.dataManagement.vectorCleanConfirm", { defaultValue: "确定清理遗留（legacy）向量表？此操作不可恢复。" }))) return
+    if (!window.confirm(t("settings.sections.dataManagement.vectorCleanConfirm2", { defaultValue: "再次确认：将删除 legacy 向量行并触发重建，继续吗？" }))) return
+    setCleaningLegacy(true)
+    try {
+      await dropLegacyVectorTable(currentProject.path)
+      await loadVectorStats()
+    } finally {
+      setCleaningLegacy(false)
+    }
+  }
 
   const handleProgress = useCallback((payload: BackupProgressPayload) => {
     setProgress(payload)
@@ -99,6 +181,7 @@ export function DataManagementSection() {
     if (!currentProject?.path) return
     setIsExportingDocx(true)
     setDocxResult(null)
+    setDocxProgress(null)
     try {
       const result = await exportNovelDocx({
         projectPath: currentProject.path,
@@ -114,6 +197,7 @@ export function DataManagementSection() {
       })
     } finally {
       setIsExportingDocx(false)
+      setDocxProgress(null)
     }
   }
 
@@ -228,7 +312,7 @@ export function DataManagementSection() {
             defaultValue: "将当前项目的 final 状态章节导出为单个 .docx 文件（Word 可打开），用于投稿或离线阅读。",
           })}
         </p>
-        <Button onClick={() => void handleExportDocx()} disabled={isBusy || !currentProject?.path}>
+        <Button onClick={() => void handleExportDocx()} disabled={isBusy || isExportingDocx || !currentProject?.path || finalChapterCount === 0}>
           {isExportingDocx ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -241,6 +325,33 @@ export function DataManagementSection() {
             </>
           )}
         </Button>
+        {!currentProject?.path && (
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.dataManagement.docxNoProject", { defaultValue: "请先打开项目" })}
+          </p>
+        )}
+        {currentProject?.path && finalChapterCount === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.dataManagement.docxEmptyChapters", { defaultValue: "章节为空：没有 final 状态章节可导出" })}
+          </p>
+        )}
+        {docxProgress && docxProgress.total > 0 && (
+          <div className="space-y-1.5">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${Math.round((docxProgress.current / docxProgress.total) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.sections.dataManagement.docxExportProgress", {
+                defaultValue: "{{current}} / {{total}}",
+                current: docxProgress.current,
+                total: docxProgress.total,
+              })}
+            </p>
+          </div>
+        )}
         {docxResult && (
           <div className="text-sm space-y-1">
             {docxResult.success ? (
@@ -264,6 +375,74 @@ export function DataManagementSection() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Vector store card — 向量库统计与 legacy 清理（audit ①-5） */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">
+            {t("settings.sections.dataManagement.vectorTitle", { defaultValue: "向量库" })}
+          </h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {t("settings.sections.dataManagement.vectorDescription", {
+            defaultValue: "统计当前项目已索引的向量 chunk 数与遗留（legacy）行数；可清理 legacy 表后重新索引。",
+          })}
+        </p>
+        {!currentProject?.path ? (
+          <p className="text-sm text-muted-foreground">
+            {t("settings.sections.dataManagement.vectorNoProject", { defaultValue: "请先打开项目" })}
+          </p>
+        ) : vectorLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("settings.sections.dataManagement.vectorLoading", { defaultValue: "加载中…" })}
+          </div>
+        ) : (
+          <div className="grid gap-2 text-sm sm:grid-cols-2">
+            <div className="rounded-md bg-muted/50 px-3 py-2">
+              <div className="text-xs text-muted-foreground">
+                {t("settings.sections.dataManagement.vectorChunksLabel", { defaultValue: "已索引 chunk" })}
+              </div>
+              <div className="font-medium">{vectorStats?.chunks ?? "—"}</div>
+            </div>
+            <div className="rounded-md bg-muted/50 px-3 py-2">
+              <div className="text-xs text-muted-foreground">
+                {t("settings.sections.dataManagement.vectorLegacyLabel", { defaultValue: "legacy 行" })}
+              </div>
+              <div className="font-medium">{vectorStats?.legacyRows ?? "—"}</div>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleCleanLegacy()}
+            disabled={!currentProject?.path || cleaningLegacy || !vectorStats || vectorStats.legacyRows === 0}
+          >
+            {cleaningLegacy ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t("settings.sections.dataManagement.vectorCleaning", { defaultValue: "清理中..." })}
+              </>
+            ) : (
+              <>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t("settings.sections.dataManagement.vectorCleanButton", { defaultValue: "清理 legacy 表" })}
+              </>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadVectorStats()}
+            disabled={vectorLoading || !currentProject?.path}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            {t("settings.sections.dataManagement.vectorRefresh", { defaultValue: "刷新" })}
+          </Button>
+        </div>
       </div>
 
       {/* Import card */}

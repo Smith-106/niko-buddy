@@ -20,7 +20,7 @@ import { runFactCheck, type FactCheckResult, type FactCheckReport } from "@/lib/
 import { analyzeForeshadowingDebt, type ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
 import { loadSnapshot, listSnapshots, type ChapterSnapshot } from "@/lib/novel/chapter-ingest"
 import { loadForeshadowingTracker } from "@/lib/novel/foreshadowing-tracker"
-import { loadNovelSessionStatus, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
+import { loadNovelSessionStatus, subscribeStatusJson, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
 import { getTopEmotionalDebt, loadEmotionLedger, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
 import { DebtBoardView } from "./debt-board-view"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
@@ -227,6 +227,30 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
 
     return () => { cancelled = true }
   }, [project?.path, dataVersion])
+
+  // 架构-1（30 号审计）：status.json 真源跨进程监听（novel-status-changed），
+  // 打开项目后注册；事件触发时重读 status.json 增量刷新状态派生数据
+  // （chase_debt 台账），无需整页重载或重开项目。
+  useEffect(() => {
+    const pp = project?.path ? normalizePath(project.path) : null
+    if (!pp) return
+    // 防御：旧测试/mock 未提供新导出时降级为不订阅（导出兼容护栏）
+    if (typeof subscribeStatusJson !== "function") return
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void subscribeStatusJson(pp, (status) => {
+      if (disposed) return
+      setChaseDebts(status?.chase_debt?.debts ?? [])
+      setChaseDebtEvents(status?.chase_debt?.debt_events ?? [])
+    }).then((un) => {
+      if (disposed) un?.()
+      else unlisten = un
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [project?.path])
 
   const toggleCollapse = useCallback((key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))

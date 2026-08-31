@@ -8,8 +8,10 @@
  * snippet for the LLM source context.
  */
 import { invoke } from "@tauri-apps/api/core"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { getFileName, normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
+import { toast } from "@/lib/toast"
 
 /** Mirrors `commands::extract_images::SavedImage` on the Rust side. */
 export interface SavedImage {
@@ -30,6 +32,25 @@ const PDF_EXTENSIONS = ["pdf"] as const
 const OFFICE_EXTENSIONS = ["pptx", "docx", "ppt", "doc"] as const
 
 /**
+ * Rust 侧 `extract-images-progress` 事件载荷（③-11 契约）。
+ * `{ current, total, file }` —— 已提取数 / 总数 / 当前文件名。
+ */
+export interface ExtractImagesProgress {
+  current: number
+  total: number
+  file: string
+}
+
+/** extractAndSaveSourceImages 可选项（additive，既有调用方不受影响）。 */
+export interface ExtractSourceImagesOptions {
+  /**
+   * 进度回调：内部订阅 `extract-images-progress` 事件后按帧转发，
+   * 供 ingest 管线等调用方展示提取进度（③-11）。缺省不订阅。
+   */
+  onProgress?: (progress: ExtractImagesProgress) => void
+}
+
+/**
  * Extract every embedded image from a source file and save them to
  * `<projectPath>/wiki/media/<slug>/`.
  *
@@ -39,6 +60,7 @@ const OFFICE_EXTENSIONS = ["pptx", "docx", "ppt", "doc"] as const
 export async function extractAndSaveSourceImages(
   projectPath: string,
   sourcePath: string,
+  options: ExtractSourceImagesOptions = {},
 ): Promise<SavedImage[]> {
   const pp = normalizePath(projectPath)
   const sp = normalizePath(sourcePath)
@@ -57,23 +79,42 @@ export async function extractAndSaveSourceImages(
   const relTo = `${pp}/wiki`
 
   try {
-    const images = await invoke<unknown[]>(
-      isPdf ? "extract_and_save_pdf_images_cmd" : "extract_and_save_office_images_cmd",
-      { sourcePath: sp, destDir, relTo },
-    )
-    return images.filter((it): it is SavedImage => {
-      if (!it || typeof it !== "object") return false
-      const obj = it as Record<string, unknown>
-      return (
-        typeof obj.index === "number" &&
-        typeof obj.relPath === "string" &&
-        typeof obj.absPath === "string"
+    // ③-11：订阅 Rust 侧进度事件（{current,total,file}），转发给 onProgress。
+    // 事件系统不可用时（非 Tauri / 旧后端）降级为不订阅，不影响提取主流程。
+    let unlisten: UnlistenFn | undefined
+    if (options.onProgress) {
+      try {
+        unlisten = await listen<ExtractImagesProgress>("extract-images-progress", (event) => {
+          options.onProgress?.(event.payload)
+        })
+      } catch {
+        unlisten = undefined
+      }
+    }
+    try {
+      const images = await invoke<unknown[]>(
+        isPdf ? "extract_and_save_pdf_images_cmd" : "extract_and_save_office_images_cmd",
+        { sourcePath: sp, destDir, relTo },
       )
-    })
+      return images.filter((it): it is SavedImage => {
+        if (!it || typeof it !== "object") return false
+        const obj = it as Record<string, unknown>
+        return (
+          typeof obj.index === "number" &&
+          typeof obj.relPath === "string" &&
+          typeof obj.absPath === "string"
+        )
+      })
+    } finally {
+      unlisten?.()
+    }
   } catch (err) {
+    // ③-11：错误从静默吞错改为 toast 提示（保留 console.warn 供诊断）
+    const message = err instanceof Error ? err.message : String(err)
+    toast.error(`图片提取失败（${fileName}）：${message}`)
     console.warn(
       `[ingest:images] extraction failed for "${fileName}":`,
-      err instanceof Error ? err.message : err,
+      message,
     )
     return []
   }

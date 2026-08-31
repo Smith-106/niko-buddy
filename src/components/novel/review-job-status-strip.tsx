@@ -40,6 +40,27 @@ export function ReviewJobStatusStrip({
     }
   }, [projectPath, refreshKey])
 
+  // ③-9：任务运行中轮询 status.json（仅 running 时启动，卸载/停止清理），
+  // 消除 refreshKey 不变时状态条停滞。已 grep 确认无跨进程 review 事件可订阅。
+  const shouldPoll = Boolean(projectPath) && model?.phase === "running"
+  useEffect(() => {
+    if (!shouldPoll || !projectPath) return
+    let cancelled = false
+    const id = setInterval(async () => {
+      try {
+        const status = await loadNovelSessionStatus(projectPath)
+        if (cancelled) return
+        setModel(getReviewJobUiModel(status?.review_job))
+      } catch {
+        /* 轮询失败不阻断：下次继续 */
+      }
+    }, 2000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [projectPath, shouldPoll])
+
   if (!model) return null
 
   return (

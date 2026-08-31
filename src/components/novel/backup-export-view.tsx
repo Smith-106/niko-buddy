@@ -18,22 +18,31 @@
  *   `canon_auto_backup`。
  */
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
   ArchiveRestore,
+  BadgeCheck,
   CheckCircle2,
   Download,
+  FileSearch,
+  History,
   KeyRound,
   Loader2,
   ShieldCheck,
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { ask, open, save } from "@tauri-apps/plugin-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { listDirectory } from "@/commands/fs"
+import { cancelBackup } from "@/lib/backup/export"
+import type { BackupProgressPayload } from "@/lib/backup/types"
+import { normalizePath } from "@/lib/path-utils"
+import { isTauri } from "@/lib/platform"
 import { useWikiStore } from "@/stores/wiki-store"
 
 // ── IPC 契约（与 src-tauri/src/canon_export.rs camelCase 一一对应）──
@@ -103,6 +112,23 @@ export interface CanonAutoBackupResult {
   error: string | null
 }
 
+/**
+ * canon_export.rs 项目导出的进度事件载荷（经 `backup-progress` 通道，operation 字段区分）。
+ * Rust 域同步 emit；后端尚未 emit 时前端静默不展示，不影响既有流程。
+ */
+export interface CanonExportProgressPayload {
+  stage: string
+  current: number
+  total: number
+  message?: string
+}
+
+/** 历史备份列表条目（`{project}/backups/auto/` 下 zip 包）。 */
+export interface BackupHistoryEntry {
+  name: string
+  path: string
+}
+
 // ── invoke 薄封装（导出供测试替身断言）──
 
 export function invokeCanonExportProject(request: CanonExportRequest): Promise<CanonExportResult> {
@@ -156,15 +182,70 @@ export function BackupExportView() {
   const projectPath = currentProject?.path ?? ""
 
   const [passphrase, setPassphrase] = useState("")
-  const [isBusy, setIsBusy] = useState<"export" | "restore" | "auto" | null>(null)
+  const [isBusy, setIsBusy] = useState<"export" | "restore" | "verify" | "auto" | null>(null)
   const [exportResult, setExportResult] = useState<CanonExportResult | null>(null)
   const [restoreResult, setRestoreResult] = useState<CanonRestoreResult | null>(null)
+  const [verifyResult, setVerifyResult] = useState<CanonVerifyResult | null>(null)
   const [autoResult, setAutoResult] = useState<CanonAutoBackupResult | null>(null)
+  /** backup-progress 事件最新载荷（操作进行中展示）。 */
+  const [progress, setProgress] = useState<CanonExportProgressPayload | BackupProgressPayload | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [backupHistory, setBackupHistory] = useState<BackupHistoryEntry[]>([])
 
   const tOr = useCallback(
     (key: string, defaultValue: string) => t(key, { defaultValue }) as string,
     [t],
   )
+
+  /**
+   * 历史备份列表：读取 `{project}/backups/auto/` 下 zip 包（自动备份与
+   * 恢复前自动备份落点），按名称倒序。仅 Tauri 运行时执行；浏览器预览与
+   * 单测环境（无 __TAURI_INTERNALS__）安全降级为空列表，不触发额外 IPC。
+   */
+  const refreshBackupHistory = useCallback(async () => {
+    if (!isTauri() || !projectPath) {
+      setBackupHistory([])
+      return
+    }
+    try {
+      const autoDir = `${normalizePath(projectPath)}/backups/auto`
+      const entries = (await listDirectory(autoDir)) ?? []
+      setBackupHistory(
+        entries
+          .filter((entry) => entry.name.endsWith(".zip"))
+          .sort((a, b) => b.name.localeCompare(a.name))
+          .map((entry) => ({ name: entry.name, path: entry.path })),
+      )
+    } catch {
+      // backups/auto 尚不存在或无权限（首次使用）→ 空列表，不打扰用户
+      setBackupHistory([])
+    }
+  }, [projectPath])
+
+  // 进度事件订阅（backup-progress 契约；canon_export.rs 复用该通道，operation 字段区分）。
+  // 仅 Tauri 运行时注册——浏览器预览与单测环境安全降级为不订阅。
+  useEffect(() => {
+    if (!isTauri()) return
+    let disposed = false
+    let unlistenBackup: UnlistenFn | undefined
+    void listen<BackupProgressPayload>("backup-progress", (event) => {
+      if (!disposed) setProgress(event.payload)
+    }).then((un) => { unlistenBackup = un }).catch(() => {})
+    return () => {
+      disposed = true
+      unlistenBackup?.()
+    }
+  }, [])
+
+  // 进入空闲后清空进度，避免残留上一次操作的进度条。
+  useEffect(() => {
+    if (isBusy === null) setProgress(null)
+  }, [isBusy])
+
+  // 项目打开/切换时刷新历史备份列表（操作完成后由各 handler 再显式刷新一次）。
+  useEffect(() => {
+    void refreshBackupHistory()
+  }, [refreshBackupHistory])
 
   async function handleExport() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
@@ -206,6 +287,7 @@ export function BackupExportView() {
       })
     } finally {
       setIsBusy(null)
+      void refreshBackupHistory()
     }
   }
 
@@ -276,6 +358,67 @@ export function BackupExportView() {
       })
     } finally {
       setIsBusy(null)
+      void refreshBackupHistory()
+    }
+  }
+
+  /** ①-1：恢复前预检备份包完整性（canon_verify_export，只校验不落盘）。 */
+  async function handleVerify() {
+    /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
+    if (!projectPath) return
+    setIsBusy("verify")
+    setVerifyResult(null)
+    try {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "ZIP 备份文件", extensions: ["zip"] }],
+      })
+      const zipPath = typeof picked === "string" ? picked : null
+      if (!zipPath) {
+        setVerifyResult({
+          success: false,
+          containerChecksumMatches: null,
+          computedChecksum: null,
+          manifestFound: false,
+          fileCount: 0,
+          contentDigestVerified: false,
+          warnings: [],
+          error: tOr("novel.backupExport.cancelled", "已取消"),
+        })
+        return
+      }
+      const result = await invokeCanonVerifyExport({
+        zipPath,
+        passphrase: passphrase.trim() || null,
+      })
+      setVerifyResult(result)
+    } catch (err) {
+      setVerifyResult({
+        success: false,
+        containerChecksumMatches: null,
+        computedChecksum: null,
+        manifestFound: false,
+        fileCount: 0,
+        contentDigestVerified: false,
+        warnings: [],
+        error: String(err),
+      })
+    } finally {
+      setIsBusy(null)
+    }
+  }
+
+  /** ③-3：取消进行中的导出（绑定 lib/backup/export.ts 既有 cancelBackup 传输）。 */
+  async function handleCancel() {
+    if (isCancelling) return
+    setIsCancelling(true)
+    try {
+      await cancelBackup()
+    } catch (err) {
+      setProgress((prev) => (prev ? { ...prev, message: `取消失败：${String(err)}` } : prev))
+    } finally {
+      setIsCancelling(false)
     }
   }
 
@@ -300,6 +443,7 @@ export function BackupExportView() {
       })
     } finally {
       setIsBusy(null)
+      void refreshBackupHistory()
     }
   }
 
@@ -341,6 +485,38 @@ export function BackupExportView() {
           )}
         </p>
       </div>
+
+      {/* 操作进度（backup-progress 通道）+ 取消按钮 */}
+      {isBusy !== null && progress && progress.total > 0 && (
+        <div className="rounded-lg border p-4 space-y-2" data-testid="backup-progress-area">
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <span className="truncate text-muted-foreground">
+              {progress.stage || progress.message || tOr("novel.backupExport.progressWorking", "处理中...")}
+            </span>
+            <span className="flex-shrink-0 font-mono text-xs">
+              {progress.current}/{progress.total} (
+              {Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%)
+            </span>
+          </div>
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={progress.total}
+            aria-valuenow={progress.current}
+          >
+            <div
+              className="h-full bg-primary transition-all"
+              style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
+            />
+          </div>
+          <Button size="sm" variant="outline" onClick={() => void handleCancel()} disabled={isCancelling}>
+            {isCancelling
+              ? tOr("novel.backupExport.cancelling", "取消中...")
+              : tOr("novel.backupExport.cancelButton", "取消")}
+          </Button>
+        </div>
+      )}
 
       {/* 导出卡片 */}
       <div className="rounded-lg border p-4 space-y-3">
@@ -391,6 +567,73 @@ export function BackupExportView() {
               </div>
             )}
             <Warnings items={exportResult.warnings} />
+          </div>
+        )}
+      </div>
+
+      {/* 校验卡片（①-1：canon_verify_export 预检备份包完整性） */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <BadgeCheck className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">{tOr("novel.backupExport.verifyTitle", "验证备份包")}</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {tOr(
+            "novel.backupExport.verifyDescription",
+            "恢复前预检备份包：容器 SHA-256（优先 .sha256 sidecar）+ 包内 manifest 内容摘要，只校验不落盘。",
+          )}
+        </p>
+        <Button
+          onClick={() => void handleVerify()}
+          disabled={!projectPath || isBusy !== null}
+          variant="outline"
+        >
+          {isBusy === "verify" ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {tOr("novel.backupExport.verifying", "验证中...")}
+            </>
+          ) : (
+            <>
+              <FileSearch className="mr-2 h-4 w-4" />
+              {tOr("novel.backupExport.verifyButton", "选择备份包并验证")}
+            </>
+          )}
+        </Button>
+        {verifyResult && (
+          <div className="text-sm space-y-1">
+            {verifyResult.success ? (
+              <div className="flex items-start gap-2 text-green-600">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1">
+                  <p>
+                    {tOr("novel.backupExport.verifySuccess", "验证通过")}：
+                    {verifyResult.fileCount} {tOr("novel.backupExport.filesUnit", "个文件")}，
+                    {tOr("novel.backupExport.verifyContentDigest", "内容摘要校验")}{" "}
+                    {verifyResult.contentDigestVerified ? "✓" : "✗"}
+                  </p>
+                  {verifyResult.computedChecksum && (
+                    <p className="font-mono text-xs break-all text-muted-foreground select-all">
+                      SHA-256: {verifyResult.computedChecksum}
+                    </p>
+                  )}
+                  {verifyResult.containerChecksumMatches === null && (
+                    <p className="text-xs text-yellow-600">
+                      {tOr(
+                        "novel.backupExport.verifyShaMissing",
+                        "未找到 .sha256 校验和文件：已降级为仅包内内容摘要校验（建议重新导出以获得完整校验）。",
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-red-600">
+                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <p>{verifyResult.error}</p>
+              </div>
+            )}
+            <Warnings items={verifyResult.warnings} />
           </div>
         )}
       </div>
@@ -501,6 +744,37 @@ export function BackupExportView() {
             )}
             <Warnings items={autoResult.warnings} />
           </div>
+        )}
+      </div>
+
+      {/* 历史备份列表（backups/auto/ 下 zip；操作完成后自动刷新） */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">{tOr("novel.backupExport.historyTitle", "历史备份")}</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {tOr(
+            "novel.backupExport.historyDescription",
+            "项目内自动备份（backups/auto/）：恢复前自动备份与手动自动备份落点。导出到外部路径的备份不在此列。",
+          )}
+        </p>
+        {!projectPath ? null : backupHistory.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {tOr(
+              "novel.backupExport.historyEmpty",
+              "暂无历史备份；执行恢复或自动备份后此处会自动刷新。",
+            )}
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {backupHistory.map((entry) => (
+              <li key={entry.path} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <FileSearch className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate select-all">{entry.name}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

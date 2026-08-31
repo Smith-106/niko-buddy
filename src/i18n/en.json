@@ -450,7 +450,8 @@
     "saveAsDraft": "Save as draft",
     "selectModel": "Select model",
     "searchModel": "Search models...",
-    "noModelFound": "No matching model"
+    "noModelFound": "No matching model",
+    "pageNotFound": "Page not found: {{name}}"
   },
   "search": {
     "title": "Search",
@@ -1310,6 +1311,8 @@
       "soul": "Soul",
       "reviewCenter": "Review Center",
       "dismantling": "Dismantling",
+      "canonEditor": "Canon Editor",
+      "backupExport": "Backup & Restore",
       "settings": "模型与写作设置",
       "switchProject": "Switch Project",
       "coverWorkbench": "Cover Workbench"
@@ -2061,5 +2064,9 @@
         "conflicts": "Conflicts"
       }
     }
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "retry": "Retry"
   }
 }

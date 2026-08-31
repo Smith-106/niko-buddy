@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { useWikiStore } from "@/stores/wiki-store"
 import { isTauri } from "@/lib/platform"
+import { toast } from "@/lib/toast"
 import { useChatStore } from "@/stores/chat-store"
 import { loadSourceWatchConfig, saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
@@ -383,10 +384,13 @@ export function SettingsView() {
     try {
       if (isTauri()) {
         const { invoke } = await import("@tauri-apps/api/core")
-        await invoke<string>("set_proxy_env", { config: newProxy })
+        const summary = await invoke<string>("set_proxy_env", { config: newProxy })
+        toast.success(summary)
       }
     } catch (err) {
       console.warn("[settings] live network update failed; restart will still apply:", err)
+      const message = err instanceof Error ? err.message : "代理环境变量应用失败"
+      toast.error(message)
     }
 
     const newScheduledImport = {

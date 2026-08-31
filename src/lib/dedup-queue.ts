@@ -333,12 +333,12 @@ async function processNext(projectId: string): Promise<void> {
 
     if (next.retryCount >= MAX_RETRIES) {
       next.status = "failed"
-      console.log(
+      console.error(
         `[Dedup Queue] Failed (${next.retryCount}x): ${next.group.slugs.join(",")} — ${message}`,
       )
     } else {
       next.status = "pending"
-      console.log(
+      console.error(
         `[Dedup Queue] Error (retry ${next.retryCount}/${MAX_RETRIES}): ${next.group.slugs.join(",")} — ${message}`,
       )
     }

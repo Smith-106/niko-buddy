@@ -5,6 +5,6 @@ import { test, expect } from "@playwright/test";
 // pageerror 作为硬断言；只验证「根节点非空 + 标题正确」这一启动契约。
 test("app boots: title and root render", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("青幕AI写作");
+  await expect(page).toHaveTitle("Niko Buddy");
   await expect(page.locator("#root")).not.toBeEmpty();
 });

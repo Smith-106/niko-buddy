@@ -251,7 +251,7 @@ describe("MemoryCenterView", () => {
     expect(await screen.findByTestId("wiki-reader")).toBeInTheDocument()
     expect(fsMock.readFile).toHaveBeenCalledWith("E:/Novel/wiki/memory/character-states.md")
     // 可编辑 → 编辑按钮
-    fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
+    fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     const textarea = await screen.findByRole("textbox")
     fireEvent.change(textarea, { target: { value: "新正文" } })
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
@@ -267,7 +267,7 @@ describe("MemoryCenterView", () => {
     wiki.state.selectedMemoryCenterEntry = "character-states"
     render(<MemoryCenterView />)
     await screen.findByTestId("wiki-reader")
-    fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
+    fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: "不要保存" } })
     fireEvent.click(screen.getByText("novel.memoryCenter.cancel"))
     expect(fsMock.writeFile).not.toHaveBeenCalled()
@@ -279,7 +279,7 @@ describe("MemoryCenterView", () => {
     wiki.state.selectedMemoryCenterEntry = "character-states"
     render(<MemoryCenterView />)
     await screen.findByTestId("wiki-reader")
-    fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
+    fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
     expect(await screen.findByText("只读文件")).toBeInTheDocument()
   })
@@ -346,7 +346,7 @@ describe("MemoryCenterView", () => {
     wiki.state.selectedMemoryCenterEntry = "snapshots"
     render(<MemoryCenterView />)
     await screen.findByText("第三章 夜宴")
-    fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
+    fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     expect(await screen.findByTestId("snapshot-viewer")).toBeInTheDocument()
     expect(snapshotViewerMock.projectPathRef.current).toBe("E:/Novel")
     expect(snapshotViewerMock.chapterNumberRef.current).toBe(3)
@@ -621,7 +621,7 @@ describe("MemoryCenterView", () => {
     wiki.state.selectedMemoryCenterEntry = "character-states"
     render(<MemoryCenterView />)
     await screen.findByTestId("wiki-reader")
-    fireEvent.click(screen.getByText("novel.memoryCenter.edit"))
+    fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
     expect(await screen.findByText("字符串保存错误")).toBeInTheDocument()
   })

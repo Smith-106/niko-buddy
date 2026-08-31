@@ -23,6 +23,7 @@ use std::io::BufWriter;
 
 use docx_rs::{Docx, Paragraph, Run};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
 /// A single chapter to export: `title` becomes a Heading1 paragraph, `body` is
 /// split on blank lines into body paragraphs.
@@ -41,14 +42,13 @@ pub struct DocxExportResult {
     pub message: String,
 }
 
-/// Build a `.docx` from ordered chapters and write it to `export_path`.
+/// Build the `.docx` from ordered chapters and write it to `export_path`.
 ///
 /// Returns `DocxExportResult` mirroring the shape of the existing Markdown
 /// exporter so the frontend can treat them uniformly.
-#[tauri::command]
-pub async fn export_novel_docx(
-    chapters: Vec<NovelChapter>,
-    export_path: String,
+fn build_and_write_docx(
+    chapters: &[NovelChapter],
+    export_path: &str,
 ) -> Result<DocxExportResult, String> {
     if export_path.trim().is_empty() {
         return Err("export_path must not be empty".to_string());
@@ -57,7 +57,7 @@ pub async fn export_novel_docx(
     let mut docx = Docx::new();
     let count = chapters.len();
 
-    for chapter in &chapters {
+    for chapter in chapters {
         // Heading1 so Word's navigation pane and TOC work out of the box.
         let heading = Paragraph::new()
             .style("Heading1")
@@ -81,7 +81,7 @@ pub async fn export_novel_docx(
         }
     }
 
-    let file = File::create(&export_path)
+    let file = File::create(export_path)
         .map_err(|e| format!("failed to create docx file: {e}"))?;
     let mut writer = BufWriter::new(file);
     docx.build()
@@ -90,10 +90,40 @@ pub async fn export_novel_docx(
 
     Ok(DocxExportResult {
         success: true,
-        export_path: export_path.clone(),
+        export_path: export_path.to_string(),
         chapter_count: count,
         message: format!("exported {count} chapters to {export_path}"),
     })
+}
+
+/// Progress payload emitted as the `docx-export-progress` event while
+/// exporting (audit ③-4). `current` is 1-based, `total` is the chapter count.
+#[derive(Debug, Clone, Serialize)]
+struct DocxExportProgress {
+    current: usize,
+    total: usize,
+}
+
+/// Build a `.docx` from ordered chapters and write it to `export_path`,
+/// emitting `docx-export-progress` {current, total} per chapter so the
+/// settings page can render a progress bar for large books.
+#[tauri::command]
+pub async fn export_novel_docx(
+    app: AppHandle,
+    chapters: Vec<NovelChapter>,
+    export_path: String,
+) -> Result<DocxExportResult, String> {
+    let count = chapters.len();
+    for (index, _) in chapters.iter().enumerate() {
+        let _ = app.emit(
+            "docx-export-progress",
+            DocxExportProgress {
+                current: index + 1,
+                total: count,
+            },
+        );
+    }
+    build_and_write_docx(&chapters, &export_path)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -122,8 +152,7 @@ mod tests {
         let path = dir.join("niko_buddy_docx_test.docx");
         let path_str = path.to_string_lossy().to_string();
 
-        let result = export_novel_docx(chapters_fixture(), path_str.clone())
-            .await
+        let result = build_and_write_docx(&chapters_fixture(), &path_str)
             .expect("export should succeed");
         assert!(result.success);
         assert_eq!(result.chapter_count, 2);
@@ -140,8 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_novel_docx_rejects_empty_path() {
-        let err = export_novel_docx(chapters_fixture(), "".to_string())
-            .await
+        let err = build_and_write_docx(&chapters_fixture(), "")
             .expect_err("empty path should error");
         assert!(err.contains("export_path"));
     }
@@ -150,8 +178,7 @@ mod tests {
     async fn export_novel_docx_empty_chapters_still_valid() {
         let dir = std::env::temp_dir();
         let path = dir.join("niko_buddy_docx_empty.docx");
-        let result = export_novel_docx(vec![], path.to_string_lossy().to_string())
-            .await
+        let result = build_and_write_docx(&[], &path.to_string_lossy())
             .expect("empty chapter list should still produce a valid docx");
         assert_eq!(result.chapter_count, 0);
 

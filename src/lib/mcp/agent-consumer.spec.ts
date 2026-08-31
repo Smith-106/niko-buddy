@@ -118,6 +118,7 @@ describe("buildMcpAgentTools / describeMcpTools", () => {
           id: "s1",
           name: "测试服务",
           enabled: true,
+          transport: "stdio",
           tools: [
             { name: "lookup", serverId: "s1", serverName: "测试服务", description: "查询", operation: "read", inputSchema: { type: "object", properties: {} } },
           ],

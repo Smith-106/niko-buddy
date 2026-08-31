@@ -13,9 +13,8 @@ import {
   waitFor,
   within,
 } from "@/test-helpers/component-test-utils"
-import { DismantlingSidebarPanel, SidebarPanel } from "./sidebar-panel"
+import { SidebarPanel } from "./sidebar-panel"
 import type { FileNode } from "@/types/wiki"
-import type { DismantlingChapter, DismantlingLibrary, DismantlingProject } from "@/lib/novel/dismantling"
 import type {
   ChapterImportCandidate,
   ImportedChapter,
@@ -31,13 +30,6 @@ interface ProjectLike {
   path: string
 }
 
-interface DismantlingProjectLike extends DismantlingProject {}
-
-interface DismantlingLibraryLike extends DismantlingLibrary {
-  version: 1
-  selectedProjectId: string | null
-}
-
 interface WikiStateLike {
   project: ProjectLike | null
   activeView: string
@@ -51,36 +43,11 @@ interface WikiStateLike {
   searchHistory: string[]
   setActiveView: ReturnType<typeof vi.fn>
   setSearchTrigger: ReturnType<typeof vi.fn>
-  selectedDismantlingProjectId: string | null
-  setSelectedDismantlingProjectId: ReturnType<typeof vi.fn>
   bumpDataVersion: ReturnType<typeof vi.fn>
 }
 
 const DEFAULT_PROJECT: ProjectLike = { id: "p1", name: "MyBook", path: "/p/mybook" }
 
-function makeProject(id: string, title: string, chapterCount = 1, memoryCount = 0): DismantlingProjectLike {
-  const now = Date.now()
-  return {
-    id,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    chapters: Array.from({ length: chapterCount }, (_, i) => ({
-      id: `chapter-${String(i + 1).padStart(3, "0")}`,
-      chapterNumber: i + 1,
-      title: `第${i + 1}章`,
-      content: "正文",
-      status: "pending",
-    })),
-    analyses: [],
-    structureMemory: Array.from({ length: memoryCount }, (_, i) => `mem-${i}`),
-    useInChat: false,
-  }
-}
-
-function makeLibrary(projects: DismantlingProjectLike[]): DismantlingLibraryLike {
-  return { version: 1, projects, selectedProjectId: projects[0]?.id ?? null }
-}
 
 const mocks = vi.hoisted(() => {
   const state: WikiStateLike = {
@@ -96,8 +63,6 @@ const mocks = vi.hoisted(() => {
     searchHistory: [],
     setActiveView: vi.fn(),
     setSearchTrigger: vi.fn(),
-    selectedDismantlingProjectId: null,
-    setSelectedDismantlingProjectId: vi.fn(),
     bumpDataVersion: vi.fn(),
   }
   const getStateSnapshot: { bumpDataVersion: ReturnType<typeof vi.fn> } = {
@@ -133,12 +98,8 @@ const mocks = vi.hoisted(() => {
     >((nodes) => nodes.map(({ name, path }) => ({ name, path }))),
     getNextChapterNumber: vi.fn<(projectPath: string) => Promise<number>>(async () => 1),
     invalidateChapterCache: vi.fn<(projectPath?: string) => void>(() => {}),
-    loadDismantlingLibrary: vi.fn<(projectPath: string) => Promise<DismantlingLibraryLike>>(async () => makeLibrary([])),
-    normalizeDismantlingLibrary: vi.fn<(input: Partial<DismantlingLibrary> | null | undefined) => DismantlingLibraryLike>((input) => input as DismantlingLibraryLike),
-    saveDismantlingLibrary: vi.fn<(projectPath: string, library: DismantlingLibrary) => Promise<void>>(async () => {}),
-    splitDismantlingTextIntoChapters: vi.fn<(text: string) => DismantlingChapter[]>(() => []),
-    sortChapterImportCandidates: vi.fn<(candidates: readonly ChapterImportCandidate[]) => ChapterImportCandidate[]>((c) => [...c]),
     makeChapterFileName: vi.fn<(title: string, n?: number | null) => string>((title: string, n?: number | null) => `chapter-${n ?? "?"}-${title}.md`),
+    sortChapterImportCandidates: vi.fn<(candidates: readonly ChapterImportCandidate[]) => ChapterImportCandidate[]>((c) => [...c]),
     makeDefaultChapterTitle: vi.fn<(n: number) => string>((n: number) => `第${n}章`),
     makeSafeFileSlug: vi.fn<(title: string) => string>((title: string) => title),
     collectChapterImportCandidatesFromFolder: vi.fn<(selectedFolder: string) => Promise<ChapterImportCandidate[]>>(async () => []),
@@ -210,13 +171,6 @@ vi.mock("@/lib/path-utils", () => ({
   getFileName: mocks.getFileName,
   getFileStem: mocks.getFileStem,
   normalizePath: mocks.normalizePath,
-}))
-
-vi.mock("@/lib/novel/dismantling", () => ({
-  loadDismantlingLibrary: mocks.loadDismantlingLibrary,
-  normalizeDismantlingLibrary: mocks.normalizeDismantlingLibrary,
-  saveDismantlingLibrary: mocks.saveDismantlingLibrary,
-  splitDismantlingTextIntoChapters: mocks.splitDismantlingTextIntoChapters,
 }))
 
 vi.mock("@/lib/novel/chapter-utils", () => ({
@@ -397,23 +351,6 @@ function renderSidebar(initial?: Partial<WikiStateLike>): {
   }
 }
 
-function renderDismantling(initial?: Partial<WikiStateLike>): {
-  container: HTMLElement
-  setState: (updates: Partial<WikiStateLike>) => void
-  unmount: () => void
-} {
-  Object.assign(mocks.state, initial)
-  const utils = render(<DismantlingSidebarPanel />)
-  return {
-    container: utils.container,
-    unmount: utils.unmount,
-    setState(updates) {
-      Object.assign(mocks.state, updates)
-      utils.rerender(<DismantlingSidebarPanel />)
-    },
-  }
-}
-
 async function flushAsync(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -425,518 +362,6 @@ function flush(): void {
 }
 
 const CH1 = "/p/mybook/wiki/chapters/ch1.md"
-
-describe("DismantlingSidebarPanel", () => {
-  beforeEach(() => {
-    cleanup()
-    setupDomGlobals()
-    vi.clearAllMocks()
-    Object.assign(mocks.state, {
-      project: null,
-      selectedDismantlingProjectId: null,
-      activeView: "dismantling",
-      novelMode: true,
-      selectedFile: null,
-      selectedMemoryCenterEntry: null,
-      dataVersion: 0,
-      searchHistory: [],
-    })
-    mocks.dialogOpen.mockResolvedValue(null)
-    mocks.listDirectory.mockResolvedValue([])
-    mocks.readFile.mockResolvedValue("")
-    mocks.fileExists.mockResolvedValue(false)
-    mocks.writeFile.mockResolvedValue(undefined)
-    mocks.createDirectory.mockResolvedValue(undefined)
-    mocks.preprocessFile.mockResolvedValue("")
-    mocks.splitDismantlingTextIntoChapters.mockReturnValue([])
-    mocks.saveDismantlingLibrary.mockResolvedValue(undefined)
-    mocks.loadDismantlingLibrary.mockResolvedValue(makeLibrary([]))
-    mocks.flattenMdFiles.mockImplementation(
-      (nodes) => nodes.filter((n) => !n.is_dir && n.name.endsWith(".md")).map((n) => ({ name: n.name, path: n.path })),
-    )
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-    cleanup()
-  })
-
-  it("无项目时清空拆文库并渲染空态", () => {
-    renderDismantling()
-    expect(screen.getByText("拆文作品")).toBeInTheDocument()
-    expect(screen.getByText("独立拆文库")).toBeInTheDocument()
-    expect(screen.getByText(/还没有拆文作品/)).toBeInTheDocument()
-    expect(mocks.loadDismantlingLibrary).not.toHaveBeenCalled()
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenCalledWith(null)
-    expect(screen.getByTestId("raw-sources")).toBeInTheDocument()
-  })
-
-  it("读取拆文库并自动选中首个作品（指定 id 不存在时回退）", async () => {
-    const library = makeLibrary([makeProject("dp1", "作品甲", 3, 2), makeProject("dp2", "作品乙", 1, 0)])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT, selectedDismantlingProjectId: "missing" })
-    await waitFor(() => expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenCalledWith("dp1"))
-    await flushAsync()
-
-    expect(mocks.loadDismantlingLibrary).toHaveBeenCalledWith("/p/mybook")
-    expect(screen.getByText("作品甲")).toBeInTheDocument()
-    expect(screen.getByText("作品乙")).toBeInTheDocument()
-    expect(screen.getByText("3 章 · 2 条结构记忆")).toBeInTheDocument()
-    expect(screen.getByText("1 章 · 0 条结构记忆")).toBeInTheDocument()
-  })
-
-  it("选中项与库内作品匹配时不重复设置", async () => {
-    const library = makeLibrary([makeProject("dp1", "作品甲"), makeProject("dp2", "作品乙")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT, selectedDismantlingProjectId: "dp2" })
-    await waitFor(() => expect(screen.getByText("作品甲")).toBeInTheDocument())
-    await flushAsync()
-    expect(mocks.state.setSelectedDismantlingProjectId).not.toHaveBeenCalled()
-  })
-
-  it("加载中显示提示，卸载后 promise 完成不更新状态", async () => {
-    let resolveLoad!: (value: DismantlingLibraryLike) => void
-    mocks.loadDismantlingLibrary.mockReturnValue(
-      new Promise<DismantlingLibraryLike>((resolve) => {
-        resolveLoad = resolve
-      }),
-    )
-    const { unmount } = renderDismantling({ project: DEFAULT_PROJECT })
-    expect(screen.getByText("正在读取拆文库...")).toBeInTheDocument()
-    unmount()
-    act(() => {
-      resolveLoad(makeLibrary([makeProject("dp1", "作品甲")]))
-    })
-    await flushAsync()
-    expect(mocks.state.setSelectedDismantlingProjectId).not.toHaveBeenCalled()
-  })
-
-  it("点击作品行切换选中项", async () => {
-    const library = makeLibrary([makeProject("dp1", "作品甲"), makeProject("dp2", "作品乙")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT })
-    await waitFor(() => expect(screen.getByText("作品乙")).toBeInTheDocument())
-    await flushAsync()
-    fireEvent.click(screen.getByText("作品乙"))
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenCalledWith("dp2")
-  })
-
-  it("删除作品：确认后保存并回退选中项到下一个作品", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
-    const library = makeLibrary([makeProject("dp1", "作品甲"), makeProject("dp2", "作品乙")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT, selectedDismantlingProjectId: "dp1" })
-    await waitFor(() => expect(screen.getByText("作品甲")).toBeInTheDocument())
-    await flushAsync()
-
-    fireEvent.click(screen.getAllByTitle("删除拆文作品")[0])
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("作品甲"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    const savedLibrary = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(savedLibrary.projects.map((p) => p.id)).toEqual(["dp2"])
-    expect(savedLibrary.selectedProjectId).toBe("dp2")
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenLastCalledWith("dp2")
-    expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
-    expect(screen.getByText("已删除拆文作品：作品甲")).toBeInTheDocument()
-  })
-
-  it("删除作品：取消确认时不保存", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
-    const library = makeLibrary([makeProject("dp1", "作品甲")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT })
-    await waitFor(() => expect(screen.getByText("作品甲")).toBeInTheDocument())
-    await flushAsync()
-
-    fireEvent.click(screen.getByTitle("删除拆文作品"))
-    expect(confirmSpy).toHaveBeenCalled()
-    expect(mocks.saveDismantlingLibrary).not.toHaveBeenCalled()
-    expect(screen.getByText("作品甲")).toBeInTheDocument()
-  })
-
-  it("删除作品：删除最后一个作品时选中回退为 null", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true)
-    const library = makeLibrary([makeProject("dp1", "作品甲")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT, selectedDismantlingProjectId: "dp1" })
-    await waitFor(() => expect(screen.getByText("作品甲")).toBeInTheDocument())
-    await flushAsync()
-
-    fireEvent.click(screen.getByTitle("删除拆文作品"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenLastCalledWith(null)
-  })
-
-  it("导入文件：单章/多章切分、标题回退与状态文案", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md", "/tmp/b.md", "/tmp/c.md"])
-    mocks.preprocessFile.mockResolvedValue("正文内容")
-    mocks.splitDismantlingTextIntoChapters.mockImplementation((content: string) => {
-      if (content === "正文内容") return []
-      return [
-        { id: "x", chapterNumber: 1, title: "第1章", content: "第一章正文", status: "pending" },
-        { id: "y", chapterNumber: 2, title: "第二章", content: "第二章正文", status: "pending" },
-      ]
-    })
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    expect(mocks.dialogOpen).toHaveBeenCalledWith(
-      expect.objectContaining({ multiple: true, title: "导入拆文文件" }),
-    )
-    expect(mocks.preprocessFile).toHaveBeenCalledTimes(3)
-    // a/b/c 三个文件各产生 1 章（split 空 → 标题回退到 getFileStem）
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects).toHaveLength(1)
-    expect(saved.projects[0]?.title).toBe("a")
-    expect(saved.projects[0]?.chapters).toHaveLength(3)
-    expect(saved.projects[0]?.chapters.map((c) => c.title)).toEqual(["a", "b", "c"])
-    expect(saved.projects[0]?.chapters[0]?.id).toBe("chapter-001")
-    expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
-    expect(screen.getByText("已提取 3 个章节。")).toBeInTheDocument()
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenLastCalledWith(expect.stringMatching(/^dismantling-/))
-    expect(alertSpy).not.toHaveBeenCalled()
-  })
-
-  it("导入文件：多章节切分时逐章登记", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/multi.md"])
-    mocks.preprocessFile.mockResolvedValue("multi")
-    mocks.splitDismantlingTextIntoChapters.mockImplementation((content: string) => {
-      if (content === "multi") {
-        return [
-          { id: "x", chapterNumber: 1, title: "第一章", content: "一", status: "pending" },
-          { id: "y", chapterNumber: 2, title: "第二章", content: "二", status: "pending" },
-        ]
-      }
-      return []
-    })
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.chapters).toHaveLength(2)
-    expect(saved.projects[0]?.chapters.map((c) => c.id)).toEqual(["chapter-001", "chapter-002"])
-    expect(saved.projects[0]?.chapters.map((c) => c.chapterNumber)).toEqual([1, 2])
-    expect(screen.getByText("已提取 2 个章节。")).toBeInTheDocument()
-  })
-
-  it("导入文件：单章切分且标题为“第1章”时回退到文件名", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/zero.md"])
-    mocks.preprocessFile.mockResolvedValue("single")
-    mocks.splitDismantlingTextIntoChapters.mockImplementation((content: string) => {
-      if (content === "single") {
-        return [{ id: "x", chapterNumber: 1, title: "第1章", content: "正文", status: "pending" }]
-      }
-      return []
-    })
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.chapters[0]?.title).toBe("zero")
-  })
-
-  it("导入文件：无需预处理时回读原文；预处理抛错时回退 readFile", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/raw.md", "/tmp/broken.md"])
-    mocks.preprocessFile.mockImplementation(async (path: string) => {
-      if (path === "/tmp/raw.md") return "no preprocessing needed"
-      throw new Error("preprocess boom")
-    })
-    mocks.readFile.mockImplementation(async (path: string) => (path === "/tmp/raw.md" ? "原文内容" : "回退内容"))
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    expect(mocks.readFile).toHaveBeenCalledWith("/tmp/raw.md")
-    expect(mocks.readFile).toHaveBeenCalledWith("/tmp/broken.md")
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.chapters.map((c) => c.content)).toEqual(["原文内容", "回退内容"])
-  })
-
-  it("导入文件：对话框取消/返回空数组时不导入", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await flushAsync()
-    expect(mocks.preprocessFile).not.toHaveBeenCalled()
-    expect(mocks.saveDismantlingLibrary).not.toHaveBeenCalled()
-
-    mocks.dialogOpen.mockResolvedValue([])
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await flushAsync()
-    expect(mocks.preprocessFile).not.toHaveBeenCalled()
-  })
-
-  it("导入文件：对话框返回单个字符串时归一为数组", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue("/tmp/only.md")
-    mocks.preprocessFile.mockResolvedValue("x")
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.preprocessFile).toHaveBeenCalledWith("/tmp/only.md"))
-    await flushAsync()
-  })
-
-  it("导入文件夹：收集候选后导入并回退标题", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue("/tmp/folder")
-    mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
-    mocks.preprocessFile.mockResolvedValue("x")
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await waitFor(() => expect(mocks.collectChapterImportCandidatesFromFolder).toHaveBeenCalledWith("/tmp/folder"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.title).toBe("folder")
-  })
-
-  it("导入文件：项目在对话框期间失效时内层守卫返回", async () => {
-    const project = { ...DEFAULT_PROJECT }
-    mocks.state.project = project
-    mocks.dialogOpen.mockImplementation(async () => {
-      project.path = ""
-      return ["/tmp/a.md"]
-    })
-    renderDismantling({ project })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await flushAsync()
-    expect(mocks.preprocessFile).not.toHaveBeenCalled()
-    expect(mocks.saveDismantlingLibrary).not.toHaveBeenCalled()
-  })
-
-  it("导入文件：缺失文件名时使用拆文作品默认标题", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md"])
-    mocks.getFileName.mockImplementationOnce(() => undefined as unknown as string)
-    mocks.getFileStem
-      .mockImplementationOnce(() => "")
-      .mockImplementationOnce(() => "")
-    mocks.preprocessFile.mockResolvedValue("正文")
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.title).toBe("拆文作品")
-  })
-
-  it("导入文件：第1章且文件名 stem 为空时回退章节标题", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md"])
-    mocks.getFileStem
-      .mockImplementationOnce(() => "作品标题")
-      .mockImplementationOnce(() => "")
-    mocks.preprocessFile.mockResolvedValue("正文")
-    mocks.splitDismantlingTextIntoChapters.mockReturnValue([
-      { id: "x", chapterNumber: 1, title: "第1章", content: "正文", status: "pending" },
-    ])
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.chapters[0]?.title).toBe("第1章")
-  })
-
-  it("导入文件夹：文件夹名为空时使用拆文作品默认标题", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue("/tmp/folder")
-    mocks.getFileName.mockImplementationOnce(() => "")
-    mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
-    mocks.preprocessFile.mockResolvedValue("正文")
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.title).toBe("拆文作品")
-  })
-
-  it("删除作品：项目路径失效时删除守卫返回", async () => {
-    const project = { ...DEFAULT_PROJECT }
-    const library = makeLibrary([makeProject("dp1", "作品甲")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project, selectedDismantlingProjectId: "dp1" })
-    await waitFor(() => expect(screen.getByText("作品甲")).toBeInTheDocument())
-
-    project.path = ""
-    fireEvent.click(screen.getByTitle("删除拆文作品"))
-    await flushAsync()
-    expect(mocks.saveDismantlingLibrary).not.toHaveBeenCalled()
-  })
-
-  it("导入文件夹：候选为空时提示没有可导入资料", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue("/tmp/empty-folder")
-    mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([])
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的拆文资料。"))
-    expect(mocks.saveDismantlingLibrary).not.toHaveBeenCalled()
-  })
-
-  it("导入文件夹：对话框返回数组或空值时守卫返回", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/a", "/b"])
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await flushAsync()
-    expect(mocks.collectChapterImportCandidatesFromFolder).not.toHaveBeenCalled()
-
-    mocks.dialogOpen.mockResolvedValue(null)
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await flushAsync()
-    expect(mocks.collectChapterImportCandidatesFromFolder).not.toHaveBeenCalled()
-  })
-
-  it("重复作品名：已存在时拦截并提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/dup.md"])
-    mocks.preprocessFile.mockResolvedValue("x")
-    renderDismantling({ project: DEFAULT_PROJECT })
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("已存在相同拆文作品")))
-    await flushAsync()
-    expect(screen.getByText(/已存在相同拆文作品：dup/)).toBeInTheDocument()
-    expect(mocks.saveDismantlingLibrary).toHaveBeenCalledTimes(1)
-  })
-
-  it("保存失败时 alert 导入失败", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md"])
-    mocks.preprocessFile.mockResolvedValue("x")
-    mocks.saveDismantlingLibrary.mockRejectedValue(new Error("disk full"))
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：disk full"))
-    await flushAsync()
-  })
-
-  it("无项目时导入按钮守卫返回", async () => {
-    renderDismantling()
-    fireEvent.click(screen.getByTitle("导入文件"))
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await flushAsync()
-    expect(mocks.dialogOpen).not.toHaveBeenCalled()
-    expect(mocks.preprocessFile).not.toHaveBeenCalled()
-    expect(mocks.collectChapterImportCandidatesFromFolder).not.toHaveBeenCalled()
-  })
-
-  it("导入进行中：按钮禁用且重复点击不触发新对话框", async () => {
-    let resolvePreprocess!: (value: string) => void
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md"])
-    mocks.preprocessFile.mockReturnValue(
-      new Promise<string>((resolve) => {
-        resolvePreprocess = resolve
-      }),
-    )
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(screen.getByText("正在提取章节：a.md")).toBeInTheDocument())
-
-    expect(screen.getByTitle("导入文件")).toBeDisabled()
-    expect(screen.getByTitle("导入文件夹")).toBeDisabled()
-    fireEvent.click(screen.getByTitle("导入文件"))
-    fireEvent.click(screen.getByTitle("导入文件夹"))
-    await flushAsync()
-    expect(mocks.dialogOpen).toHaveBeenCalledTimes(1)
-
-    act(() => {
-      resolvePreprocess("x")
-    })
-    await flushAsync()
-  })
-
-  it("读取到空拆文库时选中回退为 null", async () => {
-    mocks.loadDismantlingLibrary.mockResolvedValue({ version: 1, projects: [], selectedProjectId: null })
-    renderDismantling({ project: DEFAULT_PROJECT })
-    await waitFor(() => expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenCalledWith(null))
-    await flushAsync()
-    expect(screen.getByText(/还没有拆文作品/)).toBeInTheDocument()
-  })
-
-  it("删除非选中作品时保留当前选中", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true)
-    const library = makeLibrary([makeProject("dp1", "作品甲"), makeProject("dp2", "作品乙")])
-    mocks.loadDismantlingLibrary.mockResolvedValue(library)
-    renderDismantling({ project: DEFAULT_PROJECT, selectedDismantlingProjectId: "dp1" })
-    await waitFor(() => expect(screen.getByText("作品乙")).toBeInTheDocument())
-    await flushAsync()
-
-    fireEvent.click(screen.getAllByTitle("删除拆文作品")[1])
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-    expect(mocks.state.setSelectedDismantlingProjectId).toHaveBeenLastCalledWith("dp1")
-    expect(screen.getByText("已删除拆文作品：作品乙")).toBeInTheDocument()
-  })
-
-  it("点击停止按钮触发 onCancelExtraction 空回调", () => {
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTestId("raw-cancel"))
-  })
-
-  it("保存失败（非 Error 抛出）时 alert 原始字符串", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/a.md"])
-    mocks.preprocessFile.mockResolvedValue("x")
-    mocks.saveDismantlingLibrary.mockRejectedValue("disk-full-str")
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：disk-full-str"))
-    await flushAsync()
-  })
-
-  it("单章切分标题非“第1章”时直接沿用标题", async () => {
-    mocks.state.project = DEFAULT_PROJECT
-    mocks.dialogOpen.mockResolvedValue(["/tmp/intro.md"])
-    mocks.preprocessFile.mockResolvedValue("single")
-    mocks.splitDismantlingTextIntoChapters.mockImplementation((content: string) => {
-      if (content === "single") {
-        return [{ id: "x", chapterNumber: 1, title: "序章", content: "正文", status: "pending" }]
-      }
-      return []
-    })
-    renderDismantling({ project: DEFAULT_PROJECT })
-    fireEvent.click(screen.getByTitle("导入文件"))
-    await waitFor(() => expect(mocks.saveDismantlingLibrary).toHaveBeenCalled())
-    await flushAsync()
-    const saved = mocks.saveDismantlingLibrary.mock.calls[0]?.[1] as DismantlingLibraryLike
-    expect(saved.projects[0]?.chapters[0]?.title).toBe("序章")
-  })
-})
 
 describe("SidebarPanel 视图路由", () => {
   beforeEach(() => {
@@ -951,7 +376,6 @@ describe("SidebarPanel 视图路由", () => {
       selectedMemoryCenterEntry: null,
       dataVersion: 0,
       searchHistory: [],
-      selectedDismantlingProjectId: null,
     })
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")
@@ -1203,7 +627,6 @@ describe("SidebarPanel 知识模式（章节）", () => {
       selectedMemoryCenterEntry: null,
       dataVersion: 0,
       searchHistory: [],
-      selectedDismantlingProjectId: null,
     })
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")
@@ -1785,7 +1208,6 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       selectedMemoryCenterEntry: null,
       dataVersion: 0,
       searchHistory: [],
-      selectedDismantlingProjectId: null,
     })
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")
@@ -2154,7 +1576,6 @@ describe("SidebarPanel 创建流程", () => {
       selectedMemoryCenterEntry: null,
       dataVersion: 0,
       searchHistory: [],
-      selectedDismantlingProjectId: null,
     })
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")

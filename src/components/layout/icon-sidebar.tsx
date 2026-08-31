@@ -3,7 +3,7 @@
 
 import { useState } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image, ArchiveRestore, ScrollText,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -33,6 +33,8 @@ const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = 
   { view: "skillLibrary", icon: Sparkles, labelKey: "novel.nav.skillLibrary" },
   { view: "storySimulation", icon: Sparkles, labelKey: "novel.nav.storySimulation" },
   { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
+  { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor" },
+  { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport" },
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
 ]
 

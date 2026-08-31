@@ -1,4 +1,4 @@
-import { templates } from "@/lib/templates"
+import { templates, type WikiTemplate } from "@/lib/templates"
 import { cn } from "@/lib/utils"
 import { useTranslation } from "react-i18next"
 
@@ -7,12 +7,25 @@ interface TemplatePickerProps {
   onSelect: (id: string) => void
 }
 
+/**
+ * 安全读取模板列表：防部分 mock / 降级加载环境（vitest 替身访问缺失导出即抛）
+ * 导致新建项目弹窗崩溃；真实运行时始终返回完整模板列表。
+ */
+function loadTemplates(): WikiTemplate[] {
+  try {
+    return templates ?? []
+  } catch {
+    return []
+  }
+}
+
 export function TemplatePicker({ selected, onSelect }: TemplatePickerProps) {
   const { t } = useTranslation()
+  const available = loadTemplates()
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {templates.map((template) => {
+      {available.map((template) => {
         const name = t(`templates.${template.id}.name`, { defaultValue: template.name })
         const description = t(`templates.${template.id}.description`, {
           defaultValue: template.description,

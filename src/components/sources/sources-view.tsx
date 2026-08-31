@@ -104,7 +104,7 @@ export function SourcesView() {
               onMouseDown={startHorizontalResize}
             />
             <div className="h-full min-h-0 shrink-0 overflow-hidden border-l bg-background" style={{ width: chatWidth }}>
-              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
                 <OutlineChatPanel onClose={() => setOutlineChatOpen(false)} />
               </Suspense>
             </div>
@@ -121,7 +121,7 @@ export function SourcesView() {
             onMouseDown={startResize}
           />
           <div className="shrink-0 overflow-hidden border-t bg-background" style={{ height: chatHeight }}>
-            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
               <OutlineChatPanel onClose={() => setOutlineChatOpen(false)} />
             </Suspense>
           </div>

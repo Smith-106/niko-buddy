@@ -565,10 +565,10 @@ async function processNext(projectId: string): Promise<void> {
 
     if (next.retryCount >= MAX_RETRIES) {
       next.status = "failed"
-      console.log(`[Ingest Queue] Failed (${next.retryCount}x): ${next.sourcePath} — ${message}`)
+      console.error(`[Ingest Queue] Failed (${next.retryCount}x): ${next.sourcePath} — ${message}`)
     } else {
       next.status = "pending" // will retry
-      console.log(`[Ingest Queue] Error (retry ${next.retryCount}/${MAX_RETRIES}): ${next.sourcePath} — ${message}`)
+      console.error(`[Ingest Queue] Error (retry ${next.retryCount}/${MAX_RETRIES}): ${next.sourcePath} — ${message}`)
     }
 
     await saveQueue(pp)

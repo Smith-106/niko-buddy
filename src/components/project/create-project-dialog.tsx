@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { FolderOpen } from "lucide-react"
 import { createProject, writeFile, createDirectory, getExecutableDir } from "@/commands/fs"
 import { getTemplate } from "@/lib/templates"
+import { TemplatePicker } from "./template-picker"
 import type { WikiProject } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
@@ -29,6 +30,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const [error, setError] = useState("")
   const [creating, setCreating] = useState(false)
   const [hasInitializedPath, setHasInitializedPath] = useState(false)
+  // ②-3：模板选择（TemplatePicker 接入）；默认空白 general 模板，提交时 getTemplate(selectedTemplateId)
+  const [selectedTemplateId, setSelectedTemplateId] = useState("general")
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
 
   async function resolveDefaultParentDir(): Promise<string> {
@@ -96,7 +99,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       const project = await createProject(name.trim(), parentDir)
       const pp = normalizePath(project.path)
 
-      const template = getTemplate("general")
+      const template = getTemplate(selectedTemplateId)
       await writeFile(`${pp}/schema.md`, template.schema)
       await writeFile(`${pp}/purpose.md`, template.purpose)
       for (const dir of template.extraDirs) {
@@ -111,6 +114,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       onOpenChange(false)
       setName("")
       setPath("")
+      setSelectedTemplateId("general")
     } catch (err) {
       setError(String(err))
     } finally {
@@ -136,6 +140,10 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
             <div className="flex flex-col gap-2">
               <Label htmlFor="name">{t("project.name")}</Label>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("project.namePlaceholder")} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>{t("project.templateLabel", { defaultValue: "项目模板" })}</Label>
+              <TemplatePicker selected={selectedTemplateId} onSelect={setSelectedTemplateId} />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="path">{t("project.parentDir")}</Label>

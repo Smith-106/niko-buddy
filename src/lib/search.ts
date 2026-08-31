@@ -328,7 +328,7 @@ export async function searchWiki(
         }
       }
     } catch (err) {
-      console.log(`[Vector Search] Skipped: ${err instanceof Error ? err.message : "not available"}`)
+      console.error(`[Vector Search] Skipped: ${err instanceof Error ? err.message : "not available"}`)
       vectorRank = new Map()
     }
   } else {

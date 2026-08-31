@@ -34,6 +34,7 @@ describe("LLM Wiki model settings copied into QMAI", () => {
       "anthropic",
       "claude-code-cli",
       "codex-cli",
+      "cursor-cli",
       "openai",
       "google",
       "azure",

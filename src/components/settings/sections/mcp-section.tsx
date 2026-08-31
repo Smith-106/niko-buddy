@@ -247,6 +247,23 @@ export function McpSection() {
               </div>
 
               <div className="mt-3 space-y-1.5">
+                <Label>{t("settings.sections.mcp.transport")}</Label>
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={server.transport}
+                  onChange={(event) =>
+                    updateServer(server.id, { transport: event.target.value as "stdio" | "sse" })
+                  }
+                >
+                  <option value="stdio">{t("settings.sections.mcp.transportStdio")}</option>
+                  <option value="sse" disabled>
+                    {t("settings.sections.mcp.transportSse")}（{t("settings.sections.mcp.transportReserved")}）
+                  </option>
+                </select>
+                <p className="text-xs text-muted-foreground">{t("settings.sections.mcp.transportHint")}</p>
+              </div>
+
+              <div className="mt-3 space-y-1.5">
                 <Label>{t("settings.sections.mcp.startup")}</Label>
                 <Input
                   value={server.command ?? ""}

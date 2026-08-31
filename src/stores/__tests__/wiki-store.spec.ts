@@ -481,7 +481,7 @@ describe("视图与选择设置", () => {
   })
 
   it("setActiveView", () => {
-    for (const view of ["wiki", "sources", "search", "graph", "lint", "soul", "dismantling", "bookAnalysis", "settings", "trash", "reviewCenter"] as const) {
+    for (const view of ["wiki", "sources", "search", "graph", "lint", "soul", "bookAnalysis", "settings", "trash", "reviewCenter", "backupExport", "canonEditor"] as const) {
       useWikiStore.getState().setActiveView(view)
       expect(useWikiStore.getState().activeView).toBe(view)
     }

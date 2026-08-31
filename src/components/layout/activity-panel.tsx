@@ -16,9 +16,20 @@ import {
   ignoreFileChangeTask,
   rescanProjectFiles,
   retryFileChangeTask,
+  type FileChangeKind,
+  type FileChangeStatus,
   type FileChangeTask,
 } from "@/commands/file-sync"
 import { useTranslation } from "react-i18next"
+
+const FS_PAGE_SIZE = 50
+
+/** ③-5：watcher 启动错误含 Permission denied/Access denied/EACCES 时映射「目录无权限」文案。 */
+function mapFileSyncError(raw: string | null | undefined): string {
+  if (!raw) return ""
+  if (/Permission denied|Access denied|EACCES/i.test(raw)) return "目录无权限，无法监视该目录"
+  return raw
+}
 
 const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
   sources: BookOpen,
@@ -60,6 +71,9 @@ export function ActivityPanel() {
   const fileSyncError = useFileSyncStore((s) => s.lastError)
   const [expanded, setExpanded] = useState(false)
   const [queueTasks, setQueueTasks] = useState<IngestTask[]>([])
+  const [fsKindFilter, setFsKindFilter] = useState<FileChangeKind | "all">("all")
+  const [fsStatusFilter, setFsStatusFilter] = useState<FileChangeStatus | "all">("all")
+  const [fsPage, setFsPage] = useState(0)
   const prevRunningRef = useRef(0)
 
   const runningCount = items.filter((i) => i.status === "running").length
@@ -209,17 +223,78 @@ export function ActivityPanel() {
                   {t("activity.rescan")}
                 </button>
               </div>
+              <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                <select
+                  value={fsKindFilter}
+                  onChange={(e) => { setFsKindFilter(e.target.value as FileChangeKind | "all"); setFsPage(0) }}
+                  className="rounded border bg-background px-1 py-0.5"
+                  title={t("activity.filterKind", { defaultValue: "按类型筛选" })}
+                >
+                  <option value="all">{t("activity.filterAll", { defaultValue: "全部类型" })}</option>
+                  <option value="created">{t("activity.fsKind.created", { defaultValue: "新建" })}</option>
+                  <option value="modified">{t("activity.fsKind.modified", { defaultValue: "修改" })}</option>
+                  <option value="deleted">{t("activity.fsKind.deleted", { defaultValue: "删除" })}</option>
+                </select>
+                <select
+                  value={fsStatusFilter}
+                  onChange={(e) => { setFsStatusFilter(e.target.value as FileChangeStatus | "all"); setFsPage(0) }}
+                  className="rounded border bg-background px-1 py-0.5"
+                  title={t("activity.filterStatus", { defaultValue: "按状态筛选" })}
+                >
+                  <option value="all">{t("activity.filterAll", { defaultValue: "全部状态" })}</option>
+                  <option value="pending">{t("activity.fsStatus.pending", { defaultValue: "待处理" })}</option>
+                  <option value="processing">{t("activity.fsStatus.processing", { defaultValue: "处理中" })}</option>
+                  <option value="done">{t("activity.fsStatus.done", { defaultValue: "完成" })}</option>
+                  <option value="failed">{t("activity.fsStatus.failed", { defaultValue: "失败" })}</option>
+                  <option value="superseded">{t("activity.fsStatus.superseded", { defaultValue: "已取代" })}</option>
+                </select>
+              </div>
               {fileSyncError && (
-                <div className="mb-1 truncate text-[10px] text-destructive">{fileSyncError}</div>
+                <div className="mb-1 truncate text-[10px] text-destructive">{mapFileSyncError(fileSyncError)}</div>
               )}
-              {fileSyncTasks.map((task) => (
-                <FileSyncRow
-                  key={task.id}
-                  task={task}
-                  onRetry={handleFileSyncRetry}
-                  onIgnore={handleFileSyncIgnore}
-                />
-              ))}
+              {(() => {
+                const filtered = fileSyncTasks.filter(
+                  (task) =>
+                    (fsKindFilter === "all" || task.kind === fsKindFilter) &&
+                    (fsStatusFilter === "all" || task.status === fsStatusFilter),
+                )
+                const pageCount = Math.max(1, Math.ceil(filtered.length / FS_PAGE_SIZE))
+                const safePage = Math.min(fsPage, pageCount - 1)
+                const pageTasks = filtered.slice(safePage * FS_PAGE_SIZE, safePage * FS_PAGE_SIZE + FS_PAGE_SIZE)
+                return (
+                  <>
+                    {pageTasks.map((task) => (
+                      <FileSyncRow
+                        key={task.id}
+                        task={task}
+                        onRetry={handleFileSyncRetry}
+                        onIgnore={handleFileSyncIgnore}
+                      />
+                    ))}
+                    {pageCount > 1 && (
+                      <div className="mt-1 flex items-center justify-center gap-2 text-[10px] text-muted-foreground">
+                        <button
+                          type="button"
+                          onClick={() => setFsPage(Math.max(0, safePage - 1))}
+                          disabled={safePage <= 0}
+                          className="rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-40"
+                        >
+                          {t("activity.prevPage", { defaultValue: "上一页" })}
+                        </button>
+                        <span>{t("activity.pageInfo", { page: safePage + 1, total: pageCount, defaultValue: `第 ${safePage + 1}/${pageCount} 页` })}</span>
+                        <button
+                          type="button"
+                          onClick={() => setFsPage(Math.min(pageCount - 1, safePage + 1))}
+                          disabled={safePage >= pageCount - 1}
+                          className="rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-40"
+                        >
+                          {t("activity.nextPage", { defaultValue: "下一页" })}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
 
@@ -358,7 +433,7 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
           <div className="truncate font-medium">{fileName}</div>
           <div className="truncate text-[10px] text-muted-foreground/70">{kindLabel} - {task.path}</div>
           {task.status === "failed" && task.error && (
-            <div className="mt-0.5 truncate text-[10px] text-destructive">{task.error}</div>
+            <div className="mt-0.5 truncate text-[10px] text-destructive">{mapFileSyncError(task.error)}</div>
           )}
           {isConflict && (
             <div className="mt-0.5 text-[10px] text-amber-500">

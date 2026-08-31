@@ -53,6 +53,16 @@ const BookAnalysisView = lazy(async () => {
   return { default: mod.BookAnalysisView }
 })
 
+const BackupExportView = lazy(async () => {
+  const mod = await import("@/components/novel/backup-export-view")
+  return { default: mod.BackupExportView }
+})
+
+const CanonEditor = lazy(async () => {
+  const mod = await import("@/components/canon-editor/canon-editor")
+  return { default: mod.CanonEditor }
+})
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -64,6 +74,7 @@ function LoadingView() {
 export function ContentArea() {
   const activeView = useWikiStore((s) => s.activeView)
   const novelMode = useWikiStore((s) => s.novelMode)
+  const projectId = useWikiStore((s) => s.project?.id ?? "")
   const showWritingWorkspace = activeView === "wiki" || activeView === "trash"
 
   let content: React.ReactNode = null
@@ -137,6 +148,20 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <BookAnalysisView />
+          </Suspense>
+        )
+        break
+      case "backupExport":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <BackupExportView />
+          </Suspense>
+        )
+        break
+      case "canonEditor":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <CanonEditor projectId={projectId} />
           </Suspense>
         )
         break

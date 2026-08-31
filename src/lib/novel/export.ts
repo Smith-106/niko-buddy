@@ -193,6 +193,67 @@ export interface DocxExportResult {
 }
 
 /**
+ * Load final-status chapters (wiki/chapters, `chapter_status: final`) ordered by
+ * chapter number. Shared by the Markdown/DOCX exporters and the settings
+ * section that counts chapters to gate empty-state exports.
+ */
+async function loadFinalChapters(projectPath: string): Promise<{ num: number; title: string; body: string }[]> {
+  const pp = normalizePath(projectPath)
+  const chaptersDir = `${pp}/wiki/chapters`
+  let files: { name: string; path: string }[] = []
+  try {
+    const tree = await listDirectory(chaptersDir)
+    files = flattenMdFilesBase(tree)
+  } catch {
+    files = []
+  }
+
+  const chapters: { num: number; title: string; body: string }[] = []
+
+  // 并行 readFile + parseFrontmatter（Promise.all 保序，按 i 还原）；
+  // 最终 sort by num 后传给 Rust，输出顺序确定性不因并行完成顺序改变。
+  const loaded = await Promise.all(
+    files.map(async (file, i) => {
+      try {
+        const raw = await readFile(file.path)
+        const parsed = parseFrontmatter(raw)
+        const fm = parsed.frontmatter as Record<string, unknown> | null
+        const status = fm?.chapter_status as string | undefined
+        if (status && status !== "final") return { i, data: null }
+        /* v8 ignore next */
+        const num = typeof fm?.chapter_number === "number" ? fm.chapter_number as number : 0
+        const title = (typeof fm?.title === "string" ? fm.title : file.name.replace(/\.md$/, "")) as string
+        const body = parsed.body.trim()
+        return { i, data: { num, title, body } }
+      } catch {
+        // skip unreadable files
+        return { i, data: null }
+      }
+    }),
+  )
+  for (const entry of loaded) {
+    if (entry.data) chapters.push(entry.data)
+  }
+
+  chapters.sort((a, b) => a.num - b.num)
+  return chapters
+}
+
+/**
+ * Count final-status chapters in a novel project (0 when the project has
+ * no chapters or the chapters directory is missing). Settings uses this to
+ * disable the DOCX export button with an empty-state hint.
+ */
+export async function countFinalChapters(projectPath: string): Promise<number> {
+  try {
+    const chapters = await loadFinalChapters(projectPath)
+    return chapters.length
+  } catch {
+    return 0
+  }
+}
+
+/**
  * 将项目 final 状态章节导出为单个 .docx 文件（Word 可打开）。
  *
  * 复用 exportProject 的章节加载逻辑（wiki/chapters 下 final 状态章节，
@@ -206,43 +267,7 @@ export async function exportNovelDocx(options: DocxExportOptions): Promise<DocxE
   const { exportPath } = options
 
   try {
-    const chaptersDir = `${pp}/wiki/chapters`
-    let files: { name: string; path: string }[] = []
-    try {
-      const tree = await listDirectory(chaptersDir)
-      files = flattenMdFilesBase(tree)
-    } catch {
-      files = []
-    }
-
-    const chapters: { num: number; title: string; body: string }[] = []
-
-    // 并行 readFile + parseFrontmatter（Promise.all 保序，按 i 还原）；
-    // 最终 sort by num 后传给 Rust，输出顺序确定性不因并行完成顺序改变。
-    const loaded = await Promise.all(
-      files.map(async (file, i) => {
-        try {
-          const raw = await readFile(file.path)
-          const parsed = parseFrontmatter(raw)
-          const fm = parsed.frontmatter as Record<string, unknown> | null
-          const status = fm?.chapter_status as string | undefined
-          if (status && status !== "final") return { i, data: null }
-          /* v8 ignore next */
-          const num = typeof fm?.chapter_number === "number" ? fm.chapter_number as number : 0
-          const title = (typeof fm?.title === "string" ? fm.title : file.name.replace(/\.md$/, "")) as string
-          const body = parsed.body.trim()
-          return { i, data: { num, title, body } }
-        } catch {
-          // skip unreadable files
-          return { i, data: null }
-        }
-      }),
-    )
-    for (const entry of loaded) {
-      if (entry.data) chapters.push(entry.data)
-    }
-
-    chapters.sort((a, b) => a.num - b.num)
+    const chapters = await loadFinalChapters(pp)
 
     const result = await invoke<DocxExportResult>("export_novel_docx", {
       chapters: chapters.map((c) => ({ title: c.title, body: c.body })),

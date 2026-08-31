@@ -1485,7 +1485,7 @@ export function PreviewPanel() {
         )}
       </div>
       {showSnapshot && project && chapterNumber !== null ? (
-        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
           <SnapshotViewer
             projectPath={project.path}
             chapterNumber={chapterNumber}
@@ -1494,7 +1494,7 @@ export function PreviewPanel() {
         </Suspense>
       ) : null}
       {showOutlineSnapshot && project && outlineSnapshotNumber !== null ? (
-        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
+        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
           <SnapshotViewer
             projectPath={project.path}
             chapterNumber={outlineSnapshotNumber}

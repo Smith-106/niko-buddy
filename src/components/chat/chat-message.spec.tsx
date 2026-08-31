@@ -1209,7 +1209,7 @@ describe("MarkdownContent 渲染", () => {
       rejectProbe(new Error("late failure"))
       await Promise.resolve()
     })
-    expect(screen.queryByTitle("Page not found: 主角")).not.toBeInTheDocument()
+    expect(screen.queryByTitle("页面不存在: 主角")).not.toBeInTheDocument()
   })
 
 
@@ -1234,7 +1234,7 @@ describe("MarkdownContent 渲染", () => {
     mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
     mocks.readFile.mockRejectedValue(new Error("not found"))
     render(<ChatMessage message={createAssistantMessage("__direct_wikilink__")} />)
-    expect(await screen.findByTitle("Page not found: 主角")).toBeInTheDocument()
+    expect(await screen.findByTitle("页面不存在: 主角")).toBeInTheDocument()
   })
 
   it("direct WikiLink click ignores a read failure and unresolved links", async () => {

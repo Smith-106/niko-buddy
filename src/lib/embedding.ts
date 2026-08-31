@@ -404,7 +404,7 @@ async function vectorDeletePage(projectPath: string, pageId: string): Promise<vo
   })
 }
 
-async function vectorCountChunks(projectPath: string): Promise<number> {
+export async function countVectorChunks(projectPath: string): Promise<number> {
   const pp = normalizePath(projectPath)
   return await invoke("vector_count_chunks", {
     projectPath: pp,
@@ -604,7 +604,7 @@ export async function searchByEmbedding(
   try {
     rawChunks = await vectorSearchChunks(projectPath, queryEmb, Math.max(topK * 3, 30))
   } catch (err) {
-    console.log(`[Embedding] LanceDB chunk search failed: ${err instanceof Error ? err.message : err}`)
+    console.error(`[Embedding] LanceDB chunk search failed: ${err instanceof Error ? err.message : err}`)
     return []
   }
   if (rawChunks.length === 0) return []
@@ -672,7 +672,7 @@ export async function removePageEmbedding(
  */
 export async function getEmbeddingCount(projectPath: string): Promise<number> {
   try {
-    return await vectorCountChunks(projectPath)
+    return await countVectorChunks(projectPath)
   } catch {
     return 0
   }

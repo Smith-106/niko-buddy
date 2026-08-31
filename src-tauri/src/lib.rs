@@ -4,6 +4,7 @@ mod canon_search;
 mod commands;
 mod panic_guard;
 mod proxy;
+mod status_watcher;
 mod types;
 
 use crate::canon_commands::CanonCommandState;
@@ -132,6 +133,8 @@ pub fn run() {
             app.manage(commands::mcp_stdio::McpStdioState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
+            // 架构-1：{project}/.novel/status.json 独立监听器（novel-status-changed 事件）。
+            app.manage(status_watcher::StatusWatcherState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -179,6 +182,7 @@ pub fn run() {
             commands::cursor_cli::cursor_proxy_stop,
             commands::exemplar_commands::mark_style_exemplar,
             commands::exemplar_commands::load_style_exemplars,
+            commands::exemplar_commands::delete_style_exemplar,
             commands::extract_images::extract_and_save_pdf_images_cmd,
             commands::extract_images::extract_and_save_office_images_cmd,
             commands::file_sync::start_project_file_watcher,
@@ -199,7 +203,7 @@ pub fn run() {
             commands::power::acquire_wake_lock,
             commands::power::release_wake_lock,
             commands::docx_export::export_novel_docx,
-            commands::metrics::get_process_memory,
+            commands::log_diagnostic::log_diagnostic,
             // T13 canon 数据面 IPC 命令（TASK-P1-08 / T13 增强）
             canon_commands::canon_query,
             canon_commands::canon_query_batch,
@@ -297,6 +301,11 @@ pub fn run() {
                         let _ = window.set_focus();
                     }
                 }
+            }
+            // 架构-1：进程退出时停掉 status.json 监听线程（切项目由
+            // start_status_watcher 内部先停旧后启新处理）。
+            if let tauri::RunEvent::Exit = event {
+                status_watcher::stop_status_watcher(app);
             }
             let _ = (app, event); // suppress unused warnings on non-macOS
         });

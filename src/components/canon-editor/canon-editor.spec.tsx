@@ -21,6 +21,14 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { CanonEditor } from "./canon-editor"
 import type { CanonEdge, CanonQueryBatchResponse } from "./canon-types"
+import type { RawCanonEdge } from "@/lib/novel/canon-graph-client"
+import {
+  buildSupersedeRequestForCorrection,
+  computeCorrectionDigest,
+  makeCorrectionId,
+  validateKnownByCorrection,
+  validateRevealedAtCorrection,
+} from "./canon-editor"
 
 // ── invoke mock（canon-editor-client 唯一 IPC 缝合点）──────────────
 const invokeMock = vi.hoisted(() => vi.fn())
@@ -429,5 +437,366 @@ describe("CanonFactTable — known_by 多 POV 与缺省字段格式化", () => {
     const unknownEdge = { ...SPARSE_EDGE, id: "e9", edge_kind: "unknown_kind" as CanonEdge["edge_kind"] }
     await renderLoaded(batchResponse([unknownEdge], 1))
     expect(screen.getByTestId("canon-fact-row-e9").textContent).toContain("unknown_kind")
+  })
+})
+
+// ============================================================================
+// 以下为合并自原 components/novel/canon-editor（校正写路径）的测试收口。
+// 合并组件默认渲染浏览模式，校正相关用例先点「校正」进入校正模式。
+// ============================================================================
+
+const ALLOWLIST = ["pov:alpha", "pov:beta", "pov:gamma"]
+
+function makeCorrectionEdge(overrides: Partial<RawCanonEdge> = {}): RawCanonEdge {
+  return {
+    id: "e1",
+    source_id: "ent:alice",
+    target_id: "ent:bob",
+    predicate: "KNOWS",
+    edge_kind: "motivation",
+    valid_at: 3,
+    invalid_at: null,
+    reference_time: null,
+    known_by: ["pov:alpha"],
+    revealed_at: 4,
+    confidence: 0.9,
+    source_chapter: 3,
+    digest: "aaaa1111",
+    beat_label: null,
+    beat_hit: null,
+    foreshadow_planted_at: null,
+    hook_type: null,
+    payoff_chapter: null,
+    archived: false,
+    ...overrides,
+  }
+}
+
+/** 让 canon_query_batch 返回给定边集；canon_supersede_edges 返回成功回执。 */
+function mockCorrectInvoke(handlers: {
+  edges?: RawCanonEdge[]
+  maxRevision?: number
+  onSupersede?: () => Promise<unknown> | unknown
+}) {
+  invokeMock.mockImplementation(async (cmd: string) => {
+    if (cmd === "canon_query_batch") {
+      return { results: [handlers.edges ?? []], max_revision: handlers.maxRevision ?? 7 }
+    }
+    if (cmd === "canon_supersede_edges") {
+      if (handlers.onSupersede) return await handlers.onSupersede()
+      return { result: { capped: 1, inserted: 1, missing: [] }, max_revision: 8 }
+    }
+    throw new Error(`unexpected command: ${cmd}`)
+  })
+}
+
+/** 进入校正模式（合并组件默认渲染为浏览模式）。 */
+async function enterCorrectMode() {
+  fireEvent.click(await screen.findByTestId("canon-enter-correct"))
+  await waitFor(() => expect(screen.getByTestId("canon-max-revision")).toBeInTheDocument())
+}
+
+// ── 纯函数：校正载荷 ───────────────────────────────────────────────
+
+describe("correction payload builders (pure)", () => {
+  it("makeCorrectionId prefixes corr: and embeds the salt", () => {
+    expect(makeCorrectionId("e1", "abc")).toBe("corr:e1:abc")
+    expect(makeCorrectionId("e1", "abc")).not.toBe("e1")
+  })
+
+  it("computeCorrectionDigest is deterministic and content-sensitive", () => {
+    const a = computeCorrectionDigest("corr:e1:s|pov:alpha|5")
+    const b = computeCorrectionDigest("corr:e1:s|pov:alpha|5")
+    const c = computeCorrectionDigest("corr:e1:s|pov:beta|5")
+    expect(a).toBe(b)
+    expect(a).not.toBe(c)
+    expect(a).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  it("caps the old edge at its valid_at and patches only cognitive fields", () => {
+    const old = makeCorrectionEdge({
+      id: "e9",
+      known_by: ["pov:alpha"],
+      revealed_at: 4,
+      beat_label: "fun_and_games",
+      foreshadow_planted_at: 2,
+      confidence: 0.7,
+      source_chapter: 3,
+    })
+    const req = buildSupersedeRequestForCorrection(
+      old,
+      { knownBy: ["pov:beta"], revealedAt: 6 },
+      "salt-1",
+    )
+    expect(req.old_edge_ids).toEqual(["e9"])
+    expect(req.cap_chapter).toBe(3)
+    expect(req.new_edges).toHaveLength(1)
+    expect(req.caused_by).toBe("manual-correction")
+    const next = req.new_edges[0]!
+    expect(next.id).toBe(makeCorrectionId("e9", "salt-1"))
+    expect(next.id).not.toBe(old.id)
+    expect(next.known_by).toEqual(["pov:beta"])
+    expect(next.revealed_at).toBe(6)
+    expect(next.valid_at).toBe(3)
+    expect(next.invalid_at).toBeNull()
+    expect(next.predicate).toBe("KNOWS")
+    expect(next.source_id).toBe("ent:alice")
+    expect(next.target_id).toBe("ent:bob")
+    expect(next.edge_kind).toBe("motivation")
+    expect(next.beat_label).toBe("fun_and_games")
+    expect(next.foreshadow_planted_at).toBe(2)
+    expect(next.confidence).toBe(0.7)
+    expect(next.source_chapter).toBe(3)
+    expect(next.archived).toBe(false)
+    expect(next.digest).toBeTruthy()
+    expect(next.digest).not.toBe(old.digest)
+  })
+
+  it("caps at 0 when valid_at is absent and inherits an already-capped interval", () => {
+    const dead = makeCorrectionEdge({ id: "d1", valid_at: null, invalid_at: 12 })
+    const req = buildSupersedeRequestForCorrection(dead, { knownBy: [], revealedAt: null }, "s")
+    expect(req.cap_chapter).toBe(0)
+    expect(req.new_edges[0]!.invalid_at).toBe(12)
+    expect(req.new_edges[0]!.revealed_at).toBeNull()
+  })
+})
+
+// ── 纯函数：白名单与时态校验 ────────────────────────────────────────
+
+describe("validators (pure)", () => {
+  it("accepts allowlisted POVs and rejects blank entries", () => {
+    expect(validateKnownByCorrection(["pov:alpha", "pov:beta"], ALLOWLIST).ok).toBe(true)
+    const bad = validateKnownByCorrection(["  "], ALLOWLIST)
+    expect(bad.ok).toBe(false)
+    expect(bad.violations[0]!.code).toBe("empty_pov")
+  })
+
+  it("rejects non-allowlisted additions (fail-closed, incl. empty allowlist)", () => {
+    const bad = validateKnownByCorrection(["pov:stranger"], ALLOWLIST)
+    expect(bad.ok).toBe(false)
+    expect(bad.violations[0]!.code).toBe("not_in_allowlist")
+
+    const none = validateKnownByCorrection(["pov:alpha"], [])
+    expect(none.ok).toBe(false)
+    expect(none.violations[0]!.code).toBe("not_in_allowlist")
+
+    expect(validateKnownByCorrection([], []).ok).toBe(true)
+  })
+
+  it("flags duplicate POVs after trimming", () => {
+    const bad = validateKnownByCorrection(["pov:alpha", " pov:alpha "], ALLOWLIST)
+    expect(bad.violations.some((v) => v.code === "duplicate_pov")).toBe(true)
+  })
+
+  it("revealed_at must be a positive integer chapter or null", () => {
+    expect(validateRevealedAtCorrection(null, 3, 1).ok).toBe(true)
+    expect(validateRevealedAtCorrection(5, 3, 2).ok).toBe(true)
+    expect(validateRevealedAtCorrection(0, 3, 2).violations[0]!.code).toBe("invalid_revealed_at")
+    expect(validateRevealedAtCorrection(-1, 3, 2).violations[0]!.code).toBe("invalid_revealed_at")
+    expect(validateRevealedAtCorrection(Number.NaN, 3, 2).violations[0]!.code).toBe("invalid_revealed_at")
+  })
+
+  it("enforces revealed_at >= valid_at (Rust RevealedBeforeValid parity)", () => {
+    const bad = validateRevealedAtCorrection(2, 3, 1)
+    expect(bad.ok).toBe(false)
+    expect(bad.violations[0]!.code).toBe("revealed_before_valid")
+  })
+
+  it("rejects a revelation with nobody knowing", () => {
+    const bad = validateRevealedAtCorrection(5, 3, 0)
+    expect(bad.ok).toBe(false)
+    expect(bad.violations[0]!.code).toBe("revealed_without_known_by")
+  })
+})
+
+// ── 校正模式 UI 可观测行为（合并收口）───────────────────────────────
+
+describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()] })
+  })
+
+  it("进入校正模式后加载边并展示 revision", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("canon_query_batch", {
+        projectId: PROJECT_ID,
+        filters: [{}],
+      }),
+    )
+    await enterCorrectMode()
+    expect(await screen.findByText("KNOWS")).toBeInTheDocument()
+    expect(screen.getByTestId("canon-max-revision")).toHaveTextContent("7")
+  })
+
+  it("加载失败时展示错误并可经刷新重试", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("库打不开"))
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("库打不开")
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()] })
+    fireEvent.click(screen.getByTestId("canon-refresh"))
+    expect(await screen.findByText("KNOWS")).toBeInTheDocument()
+  })
+
+  it("非 Error 拒绝展示兜底文案", async () => {
+    invokeMock.mockRejectedValueOnce("raw")
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("canon_query_batch 调用失败")
+  })
+
+  it("无边时展示空态（过滤控件已具备，文案有对应控件）", async () => {
+    mockCorrectInvoke({ edges: [], maxRevision: 0 })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    expect(await screen.findByTestId("canon-empty")).toBeInTheDocument()
+    expect(screen.queryByTestId("correction-panel")).not.toBeInTheDocument()
+  })
+
+  it("选中行打开校正面板并预填，取消关闭", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    expect(screen.getByTestId("correction-panel")).toBeInTheDocument()
+    expect(screen.getByTestId("correction-pov-chip-pov:alpha")).toBeInTheDocument()
+    expect(screen.getByTestId("correction-revealed-at")).toHaveValue("4")
+    expect(screen.getByTestId("correction-save")).toBeDisabled()
+    fireEvent.click(screen.getByTestId("correction-cancel"))
+    expect(screen.queryByTestId("correction-panel")).not.toBeInTheDocument()
+  })
+
+  it("白名单外 POV 在触达 IPC 前被拦截", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-pov-input"), {
+      target: { value: "pov:stranger" },
+    })
+    fireEvent.click(screen.getByTestId("correction-pov-add"))
+    expect(screen.getByTestId("correction-pov-error")).toHaveTextContent(/不在项目角色白名单内/)
+    expect(screen.getByTestId("correction-pov-chip-pov:alpha")).toBeInTheDocument()
+    expect(screen.queryByTestId("correction-pov-chip-pov:stranger")).not.toBeInTheDocument()
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("移除 POV chip 不受白名单限制", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.click(screen.getByLabelText("移除 pov:alpha"))
+    expect(screen.queryByTestId("correction-pov-chip-pov:alpha")).not.toBeInTheDocument()
+  })
+
+  it("白名单内 POV 加入草稿 chips", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-pov-input"), { target: { value: "pov:beta" } })
+    fireEvent.click(screen.getByTestId("correction-pov-add"))
+    expect(screen.getByTestId("correction-pov-chip-pov:beta")).toBeInTheDocument()
+    expect(screen.getByTestId("correction-pov-input")).toHaveValue("")
+  })
+
+  it("保存时暴露违规且不调用 canon_supersede_edges", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "1" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    expect(
+      screen.getAllByRole("alert").map((el) => el.textContent).join("\n"),
+    ).toContain("revealed_before_valid")
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "abc" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    expect(
+      screen.getAllByRole("alert").map((el) => el.textContent).join("\n"),
+    ).toContain("invalid_revealed_at")
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("保存有效校正经 canon_supersede_edges 并自动重载边列表（③-2）", async () => {
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()], maxRevision: 8 })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "5" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", {
+        projectId: PROJECT_ID,
+        request: expect.objectContaining({
+          old_edge_ids: ["e1"],
+          cap_chapter: 3,
+          new_edges: [
+            expect.objectContaining({
+              known_by: ["pov:alpha"],
+              revealed_at: 5,
+              id: expect.stringMatching(/^corr:e1:/),
+            }),
+          ],
+        }),
+      }),
+    )
+    expect(await screen.findByTestId("correction-saved")).toHaveTextContent(
+      /封顶 1 条 · 插入 1 条 · revision → 8/,
+    )
+    // 挂载查询(1) + 进入校正查询(2) + supersede(3) + 保存后重载(4)
+    expect(invokeMock).toHaveBeenCalledTimes(4)
+    expect(screen.queryByTestId("correction-panel")).not.toBeInTheDocument()
+  })
+
+  it("写 IPC 拒绝时保持面板打开并展示错误", async () => {
+    mockCorrectInvoke({
+      edges: [makeCorrectionEdge()],
+      maxRevision: 1,
+      onSupersede: () => {
+        throw new Error("写锁被占")
+      },
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "6" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    expect(await screen.findByTestId("correction-save-error")).toHaveTextContent("写锁被占")
+    expect(screen.getByTestId("correction-panel")).toBeInTheDocument()
+    const queryCalls = invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch")
+    expect(queryCalls).toHaveLength(2) // 挂载查询 + 进入校正查询
+  })
+
+  it("非 Error 写拒绝展示兜底文案", async () => {
+    mockCorrectInvoke({
+      edges: [makeCorrectionEdge()],
+      onSupersede: () => {
+        throw "boom"
+      },
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "6" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    expect(await screen.findByTestId("correction-save-error")).toHaveTextContent(
+      "canon_supersede_edges 调用失败",
+    )
+  })
+
+  it("在两条不同选中行间切换时重置草稿", async () => {
+    mockCorrectInvoke({
+      edges: [
+        makeCorrectionEdge({ id: "e1", revealed_at: 4 }),
+        makeCorrectionEdge({ id: "e2", predicate: "BESIEGES", known_by: ["pov:beta"], revealed_at: null }),
+      ],
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    expect(screen.getByTestId("correction-revealed-at")).toHaveValue("4")
+    fireEvent.click(screen.getByTestId("canon-select-e2"))
+    expect(screen.getByTestId("correction-revealed-at")).toHaveValue("")
+    expect(screen.getByTestId("correction-pov-chip-pov:beta")).toBeInTheDocument()
+    expect(screen.queryByTestId("correction-pov-chip-pov:alpha")).not.toBeInTheDocument()
   })
 })

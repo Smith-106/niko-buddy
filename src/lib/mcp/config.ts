@@ -1,10 +1,15 @@
 import type { McpToolDescriptor } from "./types"
 import type { McpJsonSchema, McpToolOperation } from "./types"
 
+/** MCP transport kinds. SSE is reserved (enum kept for forward-compat); stdio is the default. */
+export type McpTransport = "stdio" | "sse"
+
 export interface McpServerConfig {
   id: string
   name: string
   enabled: boolean
+  /** stdio (spawn command) by default; SSE reserved for future support. */
+  transport: McpTransport
   command?: string
   args?: string[]
   cwd?: string
@@ -47,6 +52,7 @@ export function normalizeMcpServerConfig(input: unknown): McpServerConfig | null
     id,
     name,
     enabled: input.enabled !== false,
+    transport: input.transport === "sse" ? "sse" : "stdio",
     command: readOptionalTrimmedString(input.command),
     args: readStringArray(input.args),
     cwd: readOptionalTrimmedString(input.cwd),
@@ -60,6 +66,7 @@ export function createSampleGraphMcpServer(): McpServerConfig {
     id: "graph",
     name: "Knowledge Graph",
     enabled: true,
+    transport: "stdio",
     tools: [
       {
         serverId: "graph",

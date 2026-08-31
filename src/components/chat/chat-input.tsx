@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, type ReactNode } from "react"
-import { Send, Square } from "lucide-react"
+import { Send, Square, Octagon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import { useChatStore } from "@/stores/chat-store"
@@ -13,6 +13,8 @@ import {
 interface ChatInputProps {
   onSend: (text: string) => void
   onStop: () => void
+  /** ①-7 审计修复：强制终止（SIGKILL）回调。提供时显示「强制终止」按钮。 */
+  onForceStop?: () => void
   isStreaming: boolean
   placeholder?: string
   leadingControls?: ReactNode
@@ -35,7 +37,7 @@ function resolveResizePanelHeight(root: HTMLDivElement | null): number {
   return panelHeight
 }
 
-export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange, mentionEnabled = false }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange, mentionEnabled = false }: ChatInputProps) {
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const setConversationInputDraft = useChatStore((state) => state.setConversationInputDraft)
   const conversation = useChatStore((state) =>
@@ -225,16 +227,30 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
           style={{ height: inputHeight, maxHeight: inputHeight, overflowY: "auto" }}
         />
         {inlineSendButton && (isStreaming ? (
-          <Button
-            variant="destructive"
-            size="icon"
-            onClick={onStop}
-            className="shrink-0"
-            title="停止生成"
-            aria-label="停止生成"
-          >
-            <Square className="h-4 w-4" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="destructive"
+              size="icon"
+              onClick={onStop}
+              className="shrink-0"
+              title="停止生成（优雅 SIGTERM）"
+              aria-label="停止生成（优雅）"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+            {onForceStop ? (
+              <Button
+                variant="destructive"
+                size="icon"
+                onClick={onForceStop}
+                className="shrink-0"
+                title="强制终止（SIGKILL）"
+                aria-label="强制终止"
+              >
+                <Octagon className="h-4 w-4" />
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <Button
             size="icon"

@@ -32,8 +32,8 @@ pub fn create_project(name: String, path: String) -> Result<WikiProject, String>
 }
 
 #[tauri::command]
-pub fn open_project(path: String) -> Result<WikiProject, String> {
-    run_guarded("open_project", || open_project_impl(&path))
+pub fn open_project(app: AppHandle, path: String) -> Result<WikiProject, String> {
+    run_guarded("open_project", || open_project_impl(&app, &path))
 }
 
 #[tauri::command]
@@ -114,11 +114,17 @@ pub fn create_project_impl(name: String, path: String) -> Result<WikiProject, St
 
 // ── Implementation: open_project ────────────────────────────────────────────
 
-fn open_project_impl(path: &str) -> Result<WikiProject, String> {
+fn open_project_impl(app: &AppHandle, path: &str) -> Result<WikiProject, String> {
     let root = Path::new(path);
 
     validate_wiki_project_root(root)?;
     migrate_project_dirs(root)?;
+
+    // 架构-1：启动（或切换）status.json 独立监听。失败不阻断项目打开
+    // （仅日志降级）——事件监听是增强能力，不是打开项目的硬依赖。
+    if let Err(e) = crate::status_watcher::start_status_watcher(app, path) {
+        log::warn!("[status-watcher] start failed for '{}': {e}", path);
+    }
 
     let name = root
         .file_name()

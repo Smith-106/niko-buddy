@@ -1,5 +1,7 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { listen } from "@tauri-apps/api/event"
 import { normalizePath } from "@/lib/path-utils"
+import { isTauri } from "@/lib/platform"
 import { pad, toErrorMessage } from "@/lib/utils"
 import { z } from "zod"
 import { withProjectLock } from "./novel-locks"
@@ -1685,4 +1687,40 @@ export function updateChaseDebtStatus(
       updated_at: new Date().toISOString(),
     },
   }
+}
+
+// ============================================================================
+// 架构-1 (30 号审计): status.json 真源跨进程监听
+// ============================================================================
+
+/**
+ * 订阅 status.json 真源变更（HARD-1）。
+ *
+ * Rust 域同步 status_watcher 在 `.novel/status.json` 每次写入后 emit
+ * `novel-status-changed`（事件仅携带「已变更」信号，无载荷）。本函数负责
+ * 按调用方传入的 projectPath 重读 status.json（唯一真源），把最新状态交给
+ * 回调 —— 消费方（dashboard-view / chat-panel）在打开项目后注册，即可实现
+ * 外部/跨进程写入的增量刷新，无需重开项目或手动刷新。
+ *
+ * 非 Tauri 环境（浏览器预览 / vitest 替身，无 __TAURI_INTERNALS__）安全
+ * 降级为不订阅，返回 no-op 取消函数 —— 保证既有调用路径与导出兼容。
+ *
+ * @param projectPath 项目根路径（事件无载荷，需按调用方项目重读真源）
+ * @param onStatus    收到最新状态（null = 真源缺失/损坏/重读失败）后的回调
+ * @returns 取消订阅函数（Promise 化，与 listen 语义一致）
+ */
+export async function subscribeStatusJson(
+  projectPath: string,
+  onStatus: (status: NovelSessionStatus | null) => void | Promise<void>,
+): Promise<() => void> {
+  if (!isTauri()) return () => {}
+  return listen("novel-status-changed", () => {
+    void loadNovelSessionStatus(projectPath)
+      .then(async (status) => {
+        await onStatus(status)
+      })
+      .catch(() => {
+        // 重读失败：消费方按既有空态（null）语义处理，不向上抛出
+      })
+  })
 }

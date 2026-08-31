@@ -70,8 +70,8 @@ export function resolveConfig(
     }
   }
 
-  if (preset.provider === "claude-code" || preset.provider === "codex-cli") {
-    // Subprocess transport — no API key or endpoint URL needed.
+  if (preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "cursor-cli") {
+    // Subprocess / local-proxy transport — no API key or endpoint URL needed.
     // Model id is forwarded to the local CLI's model flag; leaving it
     // empty lets the CLI use its own default model.
     //
@@ -86,7 +86,7 @@ export function resolveConfig(
       customEndpoint: fallback.customEndpoint,
       maxContextSize,
       reasoning,
-      localCliIsolation,
+      localCliIsolation: preset.provider === "cursor-cli" ? false : localCliIsolation,
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
       explicitProviderSelection: true,
     }

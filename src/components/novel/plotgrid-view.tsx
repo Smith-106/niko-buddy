@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Table } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -7,6 +7,7 @@ import {
   loadForeshadowingTracker,
   type Foreshadowing,
 } from "@/lib/novel/foreshadowing-tracker"
+import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
 
 /**
  * PlotgridView — 情节线×章节矩阵（F-010，审查/记忆面板可选可视化子面板）。
@@ -74,9 +75,12 @@ export function PlotgridView() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const [rows, setRows] = useState<PlotlineRow[]>([])
   const [chapters, setChapters] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
+  const [rangeFrom, setRangeFrom] = useState("")
+  const [rangeTo, setRangeTo] = useState("")
 
   // dataVersion 监听与 TimelineView 同款：cancelled flag 防旧 fetch 覆盖最新。
   useEffect(() => {
@@ -104,6 +108,17 @@ export function PlotgridView() {
     return () => { cancelled = true }
   }, [project, dataVersion])
 
+  const fromNum = rangeFrom.trim() === "" ? -Infinity : Number(rangeFrom)
+  const toNum = rangeTo.trim() === "" ? Infinity : Number(rangeTo)
+  const inRange = (n: number) => n >= fromNum && n <= toNum
+  const visibleChapters = chapters.filter(inRange)
+
+  const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    const path = await findChapterFileByNumber(project.path, chapterNumber)
+    if (path) setSelectedFile(path)
+  }, [project, setSelectedFile])
+
   if (!project) return null
 
   const legendItems: Array<{ mark: PlotlineCellMark; labelKey: string }> = [
@@ -120,16 +135,36 @@ export function PlotgridView() {
             <Table className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold">{t("novel.plotgrid.title")}</h2>
           </div>
-          {!loading && rows.length > 0 && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              {legendItems.map(({ mark, labelKey }) => (
-                <span key={mark} className="flex items-center gap-1">
-                  <span className={`inline-block h-2 w-2 rounded-full ${MARK_CLASS[mark]}`} aria-hidden="true" />
-                  {t(labelKey)}
-                </span>
-              ))}
+          <div className="flex items-center gap-3">
+            {!loading && rows.length > 0 && (
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                {legendItems.map(({ mark, labelKey }) => (
+                  <span key={mark} className="flex items-center gap-1">
+                    <span className={`inline-block h-2 w-2 rounded-full ${MARK_CLASS[mark]}`} aria-hidden="true" />
+                    {t(labelKey)}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <span>{t("novel.range.from", { defaultValue: "起" })}</span>
+              <input
+                type="number"
+                value={rangeFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                placeholder="1"
+                className="w-14 rounded border bg-background px-1 py-0.5"
+              />
+              <span>{t("novel.range.to", { defaultValue: "止" })}</span>
+              <input
+                type="number"
+                value={rangeTo}
+                onChange={(e) => setRangeTo(e.target.value)}
+                placeholder="∞"
+                className="w-14 rounded border bg-background px-1 py-0.5"
+              />
             </div>
-          )}
+          </div>
         </div>
       </div>
       <div className="flex-1 overflow-auto scroll-fade-y p-3">
@@ -158,7 +193,7 @@ export function PlotgridView() {
                 <th className="sticky left-0 z-10 min-w-[140px] bg-background px-2 py-2 text-left font-semibold">
                   {t("novel.plotgrid.plotline")}
                 </th>
-                {chapters.map((chapter) => (
+                {visibleChapters.map((chapter) => (
                   <th key={chapter} className="min-w-[48px] px-1 py-2 text-center font-medium text-muted-foreground">
                     {t("novel.plotgrid.chapterShort", { num: chapter })}
                   </th>
@@ -180,7 +215,7 @@ export function PlotgridView() {
                       </span>
                     </div>
                   </td>
-                  {chapters.map((chapter) => {
+                  {visibleChapters.map((chapter) => {
                     const cell = row.participation.find((p) => p.chapterNumber === chapter)
                     const markLabel = cell
                       ? cell.mark === "planted"
@@ -192,7 +227,17 @@ export function PlotgridView() {
                     return (
                       <td
                         key={chapter}
-                        className="px-1 py-2 text-center"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void handleOpenChapter(chapter)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            void handleOpenChapter(chapter)
+                          }
+                        }}
+                        title={t("novel.plotgrid.openChapter", { num: chapter, defaultValue: `打开第${chapter}章` })}
+                        className="cursor-pointer px-1 py-2 text-center hover:bg-primary/10"
                         data-plotgrid-cell={`${row.id}:${chapter}`}
                         data-plotgrid-mark={cell?.mark ?? ""}
                       >

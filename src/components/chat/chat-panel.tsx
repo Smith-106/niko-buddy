@@ -22,7 +22,9 @@ import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   markStyleExemplarViaRust,
   loadStyleExemplarsViaRust,
+  deleteStyleExemplarViaRust,
   type StyleExemplarMarkType,
+  type StyleExemplarRecord,
 } from "@/commands/exemplar"
 import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel/character-cognition"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
@@ -43,6 +45,7 @@ import { resolveReviewModel } from "@/lib/novel/review-model"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { saveAiChatModel } from "@/lib/project-store"
+import { isTauri } from "@/lib/platform"
 import {
   buildGoldenThreeChapterDirective,
   detectGoldenThreeChapterRequest,
@@ -74,6 +77,7 @@ import {
   rejectDeepChapterDraft,
   resolveInterruptedSessionResumeCheckpoint,
   startDeepChapterSession,
+  subscribeStatusJson,
 } from "@/lib/novel/novel-session-status"
 
 function formatDate(timestamp: number): string {
@@ -152,6 +156,9 @@ const sharedStreamSessionGuardRef = { current: createStreamSessionGuard() }
 const sharedActiveStreamSessionsRef = { current: {} as Record<string, number> }
 const sharedNovelManagedStopRef = { current: {} as Record<string, boolean> }
 const sharedDeepChapterEnabledRef = { current: false }
+// ①-7 审计修复：跟踪活跃 Rust CLI stream IDs，供「强制终止」直接 invoke claude_cli_kill。
+// 通过拦截 __TAURI_INTERNALS__.invoke 的 plugin:event|listen 调用来捕获 claude-cli:* 事件名中的 streamId。
+const sharedActiveRustStreamIdsRef = { current: new Set<string>() }
 
 function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) => void }) {
   const { t } = useTranslation()
@@ -376,6 +383,9 @@ export function ChatPanel() {
   const [exemplarNote, setExemplarNote] = useState("")
   const [exemplarCount, setExemplarCount] = useState<number>(0)
   const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
+  // ③-6 审计修复：范例列表 + 删除确认状态。
+  const [exemplarList, setExemplarList] = useState<StyleExemplarRecord[]>([])
+  const [exemplarDeleteConfirmId, setExemplarDeleteConfirmId] = useState<string | null>(null)
   const [deepChapterEnabled, setDeepChapterEnabledState] = useState(sharedDeepChapterEnabledRef.current)
   // Wave C6: 最近一次 buildContextPack 装配结果 —— ContextPackReplayPanel 决策回放用（只读展示，零副作用）。
   const [replayContextPack, setReplayContextPack] = useState<React.ComponentProps<typeof ContextPackReplayPanel>["pack"]>(null)
@@ -442,10 +452,11 @@ export function ChatPanel() {
     setExemplarMarkType("style")
     setExemplarNote("")
     setExemplarFeedback("")
-    // 刷新计数（标记前基线）
+    // 刷新计数 + 范例列表（标记前基线）
     try {
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarCount(list.length)
+      setExemplarList(list)
     } catch {
       // non-fatal — 计数失败不阻断标记
     }
@@ -465,12 +476,29 @@ export function ChatPanel() {
       })
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarCount(list.length)
+      setExemplarList(list)
       setExemplarFeedback("已标记为用户锚点（非自动生成）")
       setExemplarDialog({ open: false, text: "", chapterId: "" })
     } catch (e) {
       setExemplarFeedback(`标记失败：${e instanceof Error ? e.message : String(e)}`)
     }
   }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
+
+  // ③-6 审计修复：删除一条已标记的 style exemplar（二次确认）。
+  const deleteExemplar = useCallback(async (exemplarId: string) => {
+    if (!project) return
+    const pp = normalizePath(project.path)
+    try {
+      await deleteStyleExemplarViaRust(pp, exemplarId)
+      const list = await loadStyleExemplarsViaRust(pp)
+      setExemplarList(list)
+      setExemplarCount(list.length)
+      setExemplarFeedback(`已删除范例 ${exemplarId.slice(0, 8)}`)
+      setExemplarDeleteConfirmId(null)
+    } catch (e) {
+      setExemplarFeedback(`删除失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [project])
 
   // EPIC-001 / TASK-005: 提交文风主观评分（1-5 星）→ cognition-state.json A/B 埋点。
   // G-002 UI 埋点驱动 PM-03 文风一致性 ROI 可量化。
@@ -689,6 +717,29 @@ export function ChatPanel() {
       })
     }
   }, [getLatestAssistantDraftContext, markLastAssistantDiscarded, project, t])
+
+  // 架构-1（30 号审计）：status.json 真源跨进程监听（novel-status-changed）。
+  // 打开项目后注册；事件触发时重读 status.json 并增量刷新项目状态，保证
+  // 「继续未完成」恢复上下文与真源一致（外部/跨进程写入无需重开项目）。
+  useEffect(() => {
+    const pp = project?.path ? normalizePath(project.path) : null
+    if (!pp) return
+    // 防御：旧测试/mock 未提供新导出时降级为不订阅（导出兼容护栏）
+    if (typeof subscribeStatusJson !== "function") return
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void subscribeStatusJson(pp, async () => {
+      if (disposed) return
+      await refreshProjectState(pp)
+    }).then((un) => {
+      if (disposed) un?.()
+      else unlisten = un
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [project?.path])
 
   // 注意：组件卸载时不 abort 流式请求，允许 AI 在后台继续生成
   // 聊天数据存在全局 Zustand store 中，切回来时仍可看到生成结果
@@ -1737,6 +1788,61 @@ export function ChatPanel() {
     }
   }, [finalizeStream, planningPlan])
 
+  // ①-7 审计修复：强制终止（SIGKILL）— 绕过优雅 grace 窗口直接 kill Rust CLI 进程。
+  const handleForceStop = useCallback(() => {
+    const convId = useChatStore.getState().activeConversationId
+    if (!convId) return
+    // 先 abort HTTP fetch（同 handleStop）
+    abortControllersRef.current[convId]?.abort()
+    // 直接 invoke claude_cli_kill 绕过 grace 窗口（streamId 由 __TAURI_INTERNALS__ 拦截跟踪）
+    if (isTauri()) {
+      for (const streamId of sharedActiveRustStreamIdsRef.current) {
+        void import("@tauri-apps/api/core").then(({ invoke }) =>
+          invoke("claude_cli_kill", { streamId }).catch(() => {}),
+        ).catch(() => {})
+      }
+      sharedActiveRustStreamIdsRef.current.clear()
+    }
+    if (novelManagedStopRef.current[convId] === true) {
+      return
+    }
+    delete abortControllersRef.current[convId]
+    const sessionId = activeStreamSessionsRef.current[convId]
+    const currentStreamingContent = useChatStore.getState().getStreamingContent(convId)
+    if (sessionId !== undefined) {
+      streamSessionGuardRef.current.stop(convId, sessionId, () => {
+        finalizeStream(`${currentStreamingContent ? `${currentStreamingContent}\n\n` : ""}已强制终止生成。`, [], convId)
+        delete activeStreamSessionsRef.current[convId]
+      })
+    }
+  }, [finalizeStream])
+
+  // ①-7 审计修复：拦截 __TAURI_INTERNALS__.invoke 的 plugin:event|listen 调用，
+  // 从 claude-cli:* 事件名中提取 streamId 供 handleForceStop 直接 kill。
+  useEffect(() => {
+    if (!isTauri()) return
+    const internals = (window as Window & { __TAURI_INTERNALS__?: { invoke?: Function } }).__TAURI_INTERNALS__
+    if (!internals?.invoke) return
+    const originalInvoke = internals.invoke
+    internals.invoke = function(this: unknown, cmd: string, args: unknown, ...rest: unknown[]) {
+      try {
+        if (cmd === "plugin:event|listen" && typeof args === "object" && args !== null) {
+          const eventName = (args as { event?: unknown }).event
+          if (typeof eventName === "string" && eventName.startsWith("claude-cli:") && !eventName.endsWith(":done")) {
+            const streamId = eventName.slice("claude-cli:".length)
+            if (streamId) sharedActiveRustStreamIdsRef.current.add(streamId)
+          }
+        }
+      } catch {
+        // best-effort — 拦截失败不影响正常 IPC
+      }
+      return originalInvoke.call(this, cmd, args, ...rest)
+    }
+    return () => {
+      internals.invoke = originalInvoke
+    }
+  }, [])
+
   const handleRegenerate = useCallback(async () => {
     // 直接从 store 获取最新状态，避免闭包旧值
     const storeState = useChatStore.getState()
@@ -2479,6 +2585,7 @@ export function ChatPanel() {
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}
+            onForceStop={handleForceStop}
             isStreaming={isStreaming}
             mentionEnabled={novelMode}
             footerControls={
@@ -2496,12 +2603,17 @@ export function ChatPanel() {
                                 type="button"
                                 variant="ghost"
                                 size="icon"
+                                className="relative"
                                 onClick={openExemplarDialogFromSelection}
                                 title="标记为 Style Exemplar"
                                 aria-label="标记为 Style Exemplar"
                               />
                             )}
                           >
+                            {/* ③-6 审计修复：计数徽标 */}
+                            {exemplarCount > 0 ? (
+                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
+                            ) : null}
                             <TooltipContent>标记为 Style Exemplar（用户锚点）</TooltipContent>
                           </TooltipTrigger>
                         </Tooltip>
@@ -2635,6 +2747,45 @@ export function ChatPanel() {
               <div className="text-muted-foreground">
                 当前项目已标记 exemplar：<span className="font-mono">{exemplarCount}</span> 条
               </div>
+              {/* ③-6 审计修复：范例列表 + 删除按钮（二次确认） */}
+              {exemplarList.length > 0 ? (
+                <div className="max-h-32 overflow-y-auto rounded-md border bg-muted/10">
+                  <div className="sticky top-0 bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground">已标记范例</div>
+                  {exemplarList.map((ex) => (
+                    <div key={ex.exemplarId} className="flex items-start gap-2 border-t px-2 py-1 text-xs first:border-t-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-foreground">{ex.text.slice(0, 60)}{ex.text.length > 60 ? "…" : ""}</div>
+                        <div className="text-muted-foreground">{ex.markType}{ex.chapterId !== "chat-selection" ? ` · ${ex.chapterId}` : ""}</div>
+                      </div>
+                      {exemplarDeleteConfirmId === ex.exemplarId ? (
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => void deleteExemplar(ex.exemplarId)}
+                          >确认删除</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => setExemplarDeleteConfirmId(null)}
+                          >取消</Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 shrink-0 px-2 text-[10px]"
+                          onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
+                          title="删除此范例"
+                          aria-label="删除此范例"
+                        >删除</Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {exemplarFeedback && (
                 <div className="rounded bg-muted/40 px-2 py-1 text-xs text-foreground">{exemplarFeedback}</div>
               )}

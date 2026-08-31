@@ -97,6 +97,7 @@ export function ChapterSelectionPanel({
 
   // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
   // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
+  // 已知债务（2026-08-31 登记）：owner=角色工作台模块，目标版本 v2.8；不阻塞当前发版。
   const workstationDraftsRef = useRef<Record<string, string>>({})
 
   // 同步 isAnalyzing 到父组件
@@ -215,6 +216,7 @@ export function ChapterSelectionPanel({
   const handleWorkstationDraft = (id: string, draft: string) => {
     workstationDraftsRef.current[id] = draft
     // TODO(持久化): 落库接口接入位置。
+    // 已知债务（2026-08-31 登记）：owner=角色工作台模块，目标版本 v2.8；不阻塞当前发版。
   }
 
   return (

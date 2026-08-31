@@ -102,6 +102,8 @@ const mocks = vi.hoisted(() => {
     },
     recordModelOptions: vi.fn(),
     setLlmConfig: vi.fn(),
+    getCursorProxyStatus: vi.fn(),
+    stopCursorProxy: vi.fn(),
   }
 })
 
@@ -132,6 +134,11 @@ vi.mock("@/lib/endpoint-normalizer", () => ({
 
 vi.mock("@/lib/platform", () => ({
   isTauri: mocks.isTauri,
+}))
+
+vi.mock("@/lib/cursor-cli-proxy", () => ({
+  getCursorProxyStatus: mocks.getCursorProxyStatus,
+  stopCursorProxy: mocks.stopCursorProxy,
 }))
 
 vi.mock("@/lib/azure-openai", () => ({
@@ -236,6 +243,7 @@ const DEFAULT_PRESETS: LlmPreset[] = [
     suggestedModels: ["claude-opus-4-7"],
   },
   { id: "codex-cli", label: "CodexCli", provider: "codex-cli", defaultModel: "gpt-5.4-mini" },
+  { id: "cursor-cli", label: "CursorCli", provider: "cursor-cli", defaultModel: "claude-sonnet-4-6" },
   {
     id: "openai-main",
     label: "OpenAI",
@@ -309,6 +317,14 @@ beforeEach(() => {
   mocks.store.save.mockClear()
   mocks.store.data = {}
   mocks.recordModelOptions.mockClear()
+  mocks.getCursorProxyStatus.mockClear()
+  mocks.stopCursorProxy.mockClear()
+  mocks.getCursorProxyStatus.mockResolvedValue({
+    healthy: true,
+    base_url: "http://127.0.0.1:8765",
+    managed: true,
+    error: null,
+  })
 })
 
 afterEach(() => {
@@ -1053,3 +1069,70 @@ describe("LlmProviderSection — provider connection tests", () => {
     expect(within(card).getByText("settings.sections.llm.testFunction").closest("button")).toBeDisabled()
   })
 })
+
+  describe("cursor proxy status badge (audit ①-2 / ③-13)", () => {
+    function cursorCard() {
+      const card = cardByLabel("CursorCli")
+      expandCard(card)
+      return card
+    }
+
+    it("healthy managed proxy shows endpoint and a stop button", async () => {
+      render(<LlmProviderSection />)
+      const card = cursorCard()
+      await waitFor(() => {
+        expect(mocks.getCursorProxyStatus).toHaveBeenCalled()
+      })
+      expect(mocks.t).toHaveBeenCalledWith(
+        "settings.sections.llm.cursorProxy.healthy",
+        expect.objectContaining({ endpoint: "127.0.0.1:8765" }),
+      )
+      expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+    })
+
+    it("stop button invokes stopCursorProxy and refreshes the status", async () => {
+      render(<LlmProviderSection />)
+      const card = cursorCard()
+      await waitFor(() => {
+        expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+      })
+      fireEvent.click(within(card).getByText("settings.sections.llm.cursorProxy.stop"))
+      await waitFor(() => {
+        expect(mocks.stopCursorProxy).toHaveBeenCalled()
+      })
+      // refresh after stop
+      expect(mocks.getCursorProxyStatus.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it("unhealthy managed proxy shows the error, kept stop button for zombie cleanup", async () => {
+      mocks.getCursorProxyStatus.mockResolvedValue({
+        healthy: false,
+        base_url: "http://127.0.0.1:8765",
+        managed: true,
+        error: "cursor-api-proxy is not reachable",
+      })
+      render(<LlmProviderSection />)
+      const card = cursorCard()
+      await waitFor(() => {
+        expect(within(card).getByText("cursor-api-proxy is not reachable")).toBeInTheDocument()
+      })
+      // managed proxy stays stoppable even when unhealthy (zombie cleanup)
+      expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+    })
+
+    it("external (unmanaged) healthy proxy hides the stop button", async () => {
+      mocks.getCursorProxyStatus.mockResolvedValue({
+        healthy: true,
+        base_url: "http://127.0.0.1:9000",
+        managed: false,
+        error: null,
+      })
+      render(<LlmProviderSection />)
+      const card = cursorCard()
+      await waitFor(() => {
+        expect(mocks.getCursorProxyStatus).toHaveBeenCalled()
+      })
+      expect(within(card).queryByText("settings.sections.llm.cursorProxy.stop")).not.toBeInTheDocument()
+    })
+  })
+

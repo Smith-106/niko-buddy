@@ -98,6 +98,7 @@ vi.mock("@/stores/wiki-store", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
+  initReactI18next: { init: () => {} },
 }))
 
 vi.mock("@/commands/fs", () => ({
