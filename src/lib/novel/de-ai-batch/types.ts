@@ -128,6 +128,10 @@ export interface DeAiBatchDraftArtifact {
   candidateContent: string
   dualPassScore: number
   avoidWordsHits: Array<{ word: string; count: number }>
+  /** P2-1: 本次改写使用的 skill 版本（provenance 追踪，可选）。 */
+  skillVersion?: string
+  /** P2-1: 介入分级 triage 结果（可选，Track B soft）。 */
+  interventionTier?: "light" | "medium" | "rewrite"
   createdAt: string
   updatedAt: string
 }

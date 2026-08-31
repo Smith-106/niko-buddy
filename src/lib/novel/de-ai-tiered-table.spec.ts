@@ -6,6 +6,9 @@ import {
   filterTieredDeAiHitsByTier,
   groupTieredDeAiByTier,
   groupTieredDeAiByCategory,
+  DE_AI_EXTENDED_TABLE,
+  detectExtendedDeAi,
+  computeExtendedDeAiStats,
   type TieredDeAiTier,
   type TieredDeAiCategory,
 } from "./de-ai-tiered-table"
@@ -190,5 +193,31 @@ describe("de-ai-tiered-table — F-009 分级替换表", () => {
     // 各分类总词数 = 112
     const total = Object.values(byCategory).reduce((s, entries) => s + entries.length, 0)
     expect(total).toBe(112)
+  })
+})
+// ============================================================================
+// P1-5: 2026 强信号补漏扩展表
+// ============================================================================
+describe("DE_AI_EXTENDED_TABLE — 2026 补漏扩展 (不扰动 112 词基线)", () => {
+  it("112 词基线保持不动", () => {
+    expect(TIERED_DEAI_TABLE.length).toBe(112)
+  })
+  it("扩展表存在且含新类别", () => {
+    expect(DE_AI_EXTENDED_TABLE.length).toBeGreaterThan(0)
+    const stats = computeExtendedDeAiStats()
+    expect(stats.totalEntries).toBe(DE_AI_EXTENDED_TABLE.length)
+    expect(stats.categoryCounts["夸大腔"] ?? 0).toBeGreaterThanOrEqual(5)
+    expect(stats.categoryCounts["格言腔"] ?? 0).toBeGreaterThanOrEqual(3)
+    expect(stats.uniqueTerms).toBe(DE_AI_EXTENDED_TABLE.length)
+  })
+  it("detectExtendedDeAi 命中夸大腔/格言腔", () => {
+    const hits = detectExtendedDeAi("这是史无前例的突破。所谓命运，不过是选择的结果。")
+    const cats = new Set(hits.map((h) => h.entry.category))
+    expect(cats.has("夸大腔")).toBe(true)
+    expect(cats.has("格言腔")).toBe(true)
+  })
+  it("干净文本零命中", () => {
+    const hits = detectExtendedDeAi("他推开门走了出去。夜色很深。远处有狗叫。")
+    expect(hits).toEqual([])
   })
 })

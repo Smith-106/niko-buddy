@@ -2,9 +2,23 @@ import type { ChatMessage } from "@/lib/llm-providers"
 import { readFile } from "@/commands/fs"
 import { join, resourceDir } from "@tauri-apps/api/path"
 import deAiSkillMarkdown from "../../../skills/de-ai-writing/SKILL.md?raw"
+import { HUMANIZER_CAVITY_GUARD } from "./de-ai-rules"
 import type { ContextPack } from "./context-engine"
 
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
+
+/**
+ * 解析 SKILL.md frontmatter 中的 metadata.version（P2-1 skill-versioning）。
+ * 供审计/追踪：内置 skill 版本随产品发版（2.7.4），自定义 skill 无版本时返回 null。
+ */
+export function extractSkillVersion(markdown: string): string | null {
+  const match = markdown.match(/^---[\s\S]*?metadata:[\s\S]*?version:\s*["']?([^\s"']+)/m)
+  return match?.[1] ?? null
+}
+
+/** 内置 QM-QUAI skill 版本（发版同步 package.json 版本）。 */
+export const BUILTIN_DE_AI_SKILL_VERSION: string =
+  extractSkillVersion(deAiSkillMarkdown) ?? "unknown"
 
 export async function loadCustomDeAiSkill(projectPath?: string | null): Promise<string | null> {
   if (!projectPath) return null
@@ -32,12 +46,15 @@ export function buildDeAiSystemPrompt(customSkill?: string): string {
 export function buildQmQuaiRewriteMessages(
   content: string,
   customSkill?: string,
-  extra?: { userPrompt?: string; dualPassFragment?: string },
+  extra?: { userPrompt?: string; dualPassFragment?: string; cavityGuard?: boolean },
 ): ChatMessage[] {
   if (!content.trim()) throw new Error("去AI味内容为空，无法处理")
+  const guardFragment = extra?.cavityGuard
+    ? `\n\n${HUMANIZER_CAVITY_GUARD}`
+    : ""
   const systemContent = extra?.userPrompt?.trim()
-    ? `${buildQmQuaiSystemPrompt(customSkill)}\n\n${extra.userPrompt.trim()}`
-    : buildQmQuaiSystemPrompt(customSkill)
+    ? `${buildQmQuaiSystemPrompt(customSkill)}${guardFragment}\n\n${extra.userPrompt.trim()}`
+    : `${buildQmQuaiSystemPrompt(customSkill)}${guardFragment}`
   const userContent = extra?.dualPassFragment?.trim()
     ? `请严格按照 QM-QUAI skill 规则处理下面正文。\n\n${extra.dualPassFragment.trim()}\n\n输出仅返回改写后的正文，不要解释。\n\n正文如下：\n\n${content}`
     : `请严格按照 QM-QUAI skill 规则处理下面正文。\n\n输出仅返回改写后的正文，不要解释。\n\n正文如下：\n\n${content}`
@@ -50,7 +67,7 @@ export function buildQmQuaiRewriteMessages(
 export function buildDeAiRewriteMessages(
   content: string,
   customSkill?: string,
-  extra?: { userPrompt?: string; dualPassFragment?: string },
+  extra?: { userPrompt?: string; dualPassFragment?: string; cavityGuard?: boolean },
 ): ChatMessage[] {
   return buildQmQuaiRewriteMessages(content, customSkill, extra)
 }

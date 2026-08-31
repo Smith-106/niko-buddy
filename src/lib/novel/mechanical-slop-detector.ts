@@ -629,3 +629,156 @@ export function characterActionsToText(hits: CharacterActionHit[]): string {
 
   return lines.join("\n")
 }
+
+// ============================================================================
+// P0-1: Humanizer Cavity Guard — 反「改写器腔」检测 (2026 前沿共识)
+//
+// aigc.md / untell 双向启示: humanizer 越追指标越收敛成「humanizer 腔」—
+// 句长异常齐整、假口语堆砌 (呃/嗯/那个 密度异常)、填充词泛滥、标点密度
+// 从过低跳到过高。深度分类器 (Pangram4 humanizer 头 / EditLens) 直接抓此信号。
+//
+// 本 guard 为 A19 机械层 (零 LLM), 输出 overCorrection 报告:
+//   - 句长 CV 过高 (改写器常制造超不均匀分布) 或过低 (过度齐整)
+//   - 假口语密度 (呃/嗯/那个/emm 等填充) — 超过阈值 = 假口语腔
+//   - 自然度 delta: 与 de-ai-intensity 的 cavitySkipUpper 联动 (>=0.7 跳过改写)
+// ============================================================================
+
+/** 假口语填充词 (humanizer 过度注入信号) */
+const CAVITY_FILLER_WORDS = [
+  "呃", "嗯", "那个", "emm", "emmm", "额", "唔", "嘛", "啊这个",
+] as const
+
+/** 过度齐整阈值: CV 低于此 = 机械齐整; 高于此 = 人为造不规则 (改写器腔) */
+export const CAVITY_CV_LOW = 0.08
+/** 过度不规则阈值: 正常中文叙事 CV 峰值 ~0.5, 改写器腔常 >0.75 */
+export const CAVITY_CV_HIGH = 0.75
+/** 假口语密度阈值: 每千字填充词 > 此值 = 假口语腔 */
+export const CAVITY_FILLER_PER_1000 = 3.0
+/** 假口语连击窗口内最少个数 (与 SLOP_CLUSTER 同思路) */
+export const CAVITY_BURST_MIN = 3
+
+/** overCorrection 报告 */
+export interface OverCorrectionReport {
+  sentenceLengthCV: number
+  fillerDensityPer1000: number
+  fillerCount: number
+  /** 0-1 改写痕迹得分: 齐整/过不规则/假口语 加权 */
+  humanizerCavityScore: number
+  /** 触发原因列表 (空 = 无改写痕迹) */
+  flags: string[]
+}
+
+/**
+ * 反改写器腔检测 (零 LLM)。
+ * 输入 slopScore 已算出的 CV 可复用 (text 归一化在 slopScore 内完成,
+ * 本函数独立归一化以保证可独立调用)。
+ */
+export function overCorrectionReport(rawText: string): OverCorrectionReport {
+  const { text } = normalizeSourceText(rawText)
+  const flags: string[] = []
+
+  const sentenceLengths = splitSentences(text)
+  const cv = coefficientOfVariation(sentenceLengths)
+
+  // 假口语密度
+  const words = Math.max(1, text.replace(/\s+/g, "").length)
+  let fillerCount = 0
+  for (const w of CAVITY_FILLER_WORDS) fillerCount += countOccurrences(text, w)
+  const fillerDensity = (fillerCount / words) * 1000
+
+  if (sentenceLengths.length >= SENTENCE_MIN_FOR_CV_PENALTY && cv < CAVITY_CV_LOW) {
+    flags.push(`句长过度齐整 (CV ${cv.toFixed(2)}) — 机械模板嫌疑`)
+  }
+  if (sentenceLengths.length >= SENTENCE_MIN_FOR_CV_PENALTY && cv > CAVITY_CV_HIGH) {
+    flags.push(`句长过度不规则 (CV ${cv.toFixed(2)}) — 人为造差异的改写器腔嫌疑`)
+  }
+  if (fillerDensity > CAVITY_FILLER_PER_1000) {
+    flags.push(`假口语填充词密度异常 (${fillerDensity.toFixed(1)}/千字) — humanizer 腔嫌疑`)
+  }
+  // 假口语连击: 同句内 >=3 个填充词
+  const burstRe = new RegExp(
+    `[^。！？.?!]{1,80}(?:${CAVITY_FILLER_WORDS.join("|")})[^。！？.?!]{1,80}`,
+    "g",
+  )
+  const burstMatches = text.match(burstRe)
+  if (burstMatches && burstMatches.some((m) => {
+    let n = 0
+    for (const w of CAVITY_FILLER_WORDS) {
+      n += m.split(w).length - 1
+    }
+    return n >= CAVITY_BURST_MIN
+  })) {
+    flags.push("同句假口语连击 (单句 ≥3 填充词) — 假口语腔")
+  }
+
+  // 0-1 得分: 各 flag 贡献 0.3~0.4
+  let score = 0
+  if (flags.length > 0) {
+    const cvFlag = flags.some((f) => f.includes("齐整") || f.includes("不规则"))
+    const fillerFlag = flags.some((f) => f.includes("填充词") || f.includes("连击"))
+    if (cvFlag) score += 0.4
+    if (fillerFlag) score += 0.3
+    if (flags.length >= 2) score += 0.2
+  }
+
+  return {
+    sentenceLengthCV: cv,
+    fillerDensityPer1000: fillerDensity,
+    fillerCount,
+    humanizerCavityScore: Math.min(1, score),
+    flags,
+  }
+}
+
+/** 文本化 overCorrection 报告 (供 LLM prompt / 审计)。空 flags 返回 ""。 */
+export function overCorrectionToText(report: OverCorrectionReport): string {
+  if (report.flags.length === 0) return ""
+  const lines: string[] = ["改写痕迹检测 (humanizer 腔):"]
+  for (const f of report.flags) lines.push(`- ⚠️ ${f}`)
+  lines.push(`- 综合改写痕迹分 ${report.humanizerCavityScore.toFixed(2)} (>=0.7 建议跳过改写)` )
+  return lines.join("\n")
+}
+
+// ============================================================================
+// P1-5: 规则补漏 — 2026 检测侧强信号模式 (humanizer 参考 patterns 吸收)
+//
+// 从 reference/humanizer (Wikipedia Signs of AI writing 35 patterns) 提取
+// 中文网文适用模式, 以正则为机械层信号 (LLM 语义层已由 de-ai-rules 覆盖):
+//   - 夸大腔 (inflated claims): 里程碑/革命性/史无前例 等绝对化
+//   - 格言腔 (aphorism): "XX 才是 Y" / "从来如此" / 总结式格言
+//   - 二选一/二元对立 (binary): "要么 A 要么 B" / "非此即彼"
+//   - 三连排比 (triad): "A、B、C" 机械三连
+//   - 稻草人/反驳腔 (objection): "有人说…" 自设靶子
+// ============================================================================
+
+/** TIER3 补漏正则 (新增强信号) — 独立导出, 不影响既有 TIER3_FILLER
+ * 注意: normalizeSourceText NFKC 会把全角逗号「，」转半角「,」, 字符类须双写兼容。 */
+export const TIER3_CAVITY_PATTERNS: readonly RegExp[] = [
+  // 夸大腔
+  /(?:史无前例|前所未有|划时代|里程碑|革命性|开创性|颠覆性|独一无二|绝无仅有)/,
+  // 格言腔 (NFKC 后逗号可变半角, 只排除句末标点)
+  /[^。.]{2,12}(?:才是|不过是|终究是|不外乎)[^。.]{2,12}/,
+  // 二选一
+  /要么[^，。,.]{1,10}要么/,
+  /(?:非此即彼|非A即B|不是[^，。,.]{1,8}就是[^，。,.]{1,8})/,
+  // 三连排比 (顿号三连 + 名动结构)
+  /[^，。,.]{1,6}、[^，。,.]{1,6}、[^，。,.]{1,6}(?:[，,]|[。.])/,
+  // 稻草人
+  /(?:有人说|有人会说|总有人说|有人认为)(?:[，,]|[。.])/,
+  // 反驳腔 (自问自答)
+  /(?:难道|岂不|何尝)[^，。,.]{1,12}(?:吗|呢|[？?])/,
+  // 抽象总结 (AI 概括癖)
+  /(?:归根结底|说到底|说白了|说到底)(?:[，,]|[。.])/,
+]
+
+/** 补漏检测: 在 slopScore 基础上叠加新信号, 返回追加的 penalty (0-10 内) */
+export function cavityPatternPenalty(rawText: string): { penalty: number; hits: SlopHit[] } {
+  const { text } = normalizeSourceText(rawText)
+  const hits = collectTierRegexHits(text, TIER3_CAVITY_PATTERNS)
+  const count = hits.reduce((s, h) => s + h.count, 0)
+  const words = Math.max(1, text.replace(/\s+/g, "").length)
+  const density = (count / words) * SLOP_DENSITY_PER
+  // 0.5/千字容忍, 超出每千字 +1.0 (上限 4)
+  const penalty = Math.min(4, Math.max(0, density - 0.5))
+  return { penalty, hits }
+}

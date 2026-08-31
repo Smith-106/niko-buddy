@@ -10,6 +10,10 @@ import {
   filterRulesBySeverity,
   buildStructuredDeAiRules,
   deAiStructuredStats,
+  HUMANIZER_CAVITY_GUARD,
+  buildHumanizerCavityGuard,
+  classifyResidualOrigin,
+  signalDisclosure,
 } from "./de-ai-rules"
 
 describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
@@ -86,5 +90,70 @@ describe("S1e de-ai 双层结构化 (prosecreator 7×4 结构)", () => {
         expect(buildStructuredDeAiRules(undefined, severity)).toContain(category)
       }
     }
+  })
+})
+
+// ============================================================================
+// P0-3/P0-4: residual 三类分诊 + 信号分证
+// ============================================================================
+describe("P0-3 classifyResidualOrigin — residual 三类分诊", () => {
+  it("高残留 + 高源 slop + 低 cavity → SOURCE-AI continue", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.6, sourceSlopPenalty: 7, cavityScore: 0.2 })
+    expect(t.origin).toBe("SOURCE-AI")
+    expect(t.action).toBe("continue")
+    expect(t.productHardGate).toBe(false)
+  })
+
+  it("高残留 + 低源 slop + 高 cavity → REWRITER-CAVITY revert", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.6, sourceSlopPenalty: 2, cavityScore: 0.8 })
+    expect(t.origin).toBe("REWRITER-CAVITY")
+    expect(t.action).toBe("revert")
+  })
+
+  it("低残留 + 高 cavity → REWRITER-CAVITY revert (清理动作引入腔)", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.1, sourceSlopPenalty: 2, cavityScore: 0.8 })
+    expect(t.origin).toBe("REWRITER-CAVITY")
+    expect(t.action).toBe("revert")
+  })
+
+  it("低残留 + 低 cavity → 已清除 continue", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.1, sourceSlopPenalty: 2, cavityScore: 0.1 })
+    expect(t.origin).toBe("SOURCE-AI")
+    expect(t.action).toBe("continue")
+  })
+
+  it("中等残留 → AMBIGUOUS manual", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.5, sourceSlopPenalty: 3, cavityScore: 0.3 })
+    expect(t.origin).toBe("AMBIGUOUS")
+    expect(t.action).toBe("manual")
+  })
+
+  it("evidence 含关键指标", () => {
+    const t = classifyResidualOrigin({ residualRate: 0.5, sourceSlopPenalty: 3, cavityScore: 0.3 })
+    expect(t.evidence.some((e) => e.includes("residualRate=0.50"))).toBe(true)
+    expect(t.evidence.some((e) => e.includes("cavityScore=0.30"))).toBe(true)
+  })
+})
+
+describe("P0-4 signalDisclosure — 反过拟合信号分证", () => {
+  it("机械指标永远 Track B soft, 不设产品硬门", () => {
+    const s = signalDisclosure({ metricName: "slopPenalty" })
+    expect(s.productHardGate).toBe(false)
+    expect(s.track).toBe("B")
+    expect(s.note).toContain("Consistency(P0)")
+  })
+})
+
+describe("P0-1 HUMANIZER_CAVITY_GUARD — 改写器腔 must-not-emit", () => {
+  it("guard 内容覆盖关键反改写规则", () => {
+    expect(HUMANIZER_CAVITY_GUARD).toContain("假口语")
+    expect(HUMANIZER_CAVITY_GUARD).toContain("统一风格")
+    expect(HUMANIZER_CAVITY_GUARD).toContain("分布对齐自然文本")
+  })
+
+  it("buildHumanizerCavityGuard 返回非空片段", () => {
+    const g = buildHumanizerCavityGuard()
+    expect(g.length).toBeGreaterThan(100)
+    expect(g).toContain("改写器腔禁止")
   })
 })

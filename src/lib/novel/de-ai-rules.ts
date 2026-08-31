@@ -517,3 +517,151 @@ export function deAiStructuredStats(): {
     genreCount: WEB_NOVEL_GENRES.length,
   }
 }
+
+// ============================================================================
+// P0-3: residual 三类分诊 (SOURCE-AI / REWRITER-CAVITY / AMBIGUOUS)
+//
+// 共识 R5 (v1-hy3) + V1-ds r-hcavity: dual-pass 残留不能只当「AI 味剩多少」,
+// 要区分残留来源:
+//   - SOURCE-AI:    源文本本身是 AI 生成的硬信号 (1A 高权重词频高, cavity 低)
+//   - REWRITER-CAVITY: 改写器腔 — 改写后新出现的信号 (cavity 高, 源 slop 低)
+//   - AMBIGUOUS:    无法归因 (两者指标均中等)
+// 分诊驱动后续动作: SOURCE-AI → 继续去 AI; REWRITER-CAVITY → 停止改写并回退;
+// AMBIGUOUS → 保留人工审查。
+// ============================================================================
+
+/** 残留来源分类 */
+export type ResidualOrigin = "SOURCE-AI" | "REWRITER-CAVITY" | "AMBIGUOUS"
+
+/** 分诊结果 */
+export interface ResidualTriage {
+  origin: ResidualOrigin
+  /** 证据摘要 (供人工审查) */
+  evidence: string[]
+  /** 建议动作: continue|revert|manual */
+  action: "continue" | "revert" | "manual"
+  /** Track B soft — 永不产品硬门 */
+  productHardGate: false
+}
+
+/**
+ * residual 三类分诊。
+ *
+ * 输入: dual-pass residual 统计 + 可选改写痕迹 (overCorrectionReport) +
+ * 可选源文本 slop (用于比较 cavity 相对源信号)。
+ *
+ * 规则:
+ *   - residualRate 高 + 源文本自身 AI 信号强 (sourceSlopPenalty 高) → SOURCE-AI
+ *   - residualRate 高 + cavity 高 + 源 slop 低 → REWRITER-CAVITY (改写器腔)
+ *   - 其余 → AMBIGUOUS
+ */
+export function classifyResidualOrigin(input: {
+  residualRate: number
+  sourceSlopPenalty?: number
+  cavityScore?: number
+}): ResidualTriage {
+  const evidence: string[] = []
+  const { residualRate, sourceSlopPenalty = 0, cavityScore = 0 } = input
+  evidence.push(`residualRate=${residualRate.toFixed(2)}`)
+  evidence.push(`sourceSlopPenalty=${sourceSlopPenalty.toFixed(1)}`)
+  evidence.push(`cavityScore=${cavityScore.toFixed(2)}`)
+
+  if (residualRate <= 0.3) {
+    // 低残留: 已基本清除; 但若 cavity 高, 说明清除动作本身引入了改写器腔
+    if (cavityScore >= 0.5) {
+      return {
+        origin: "REWRITER-CAVITY",
+        evidence,
+        action: "revert",
+        productHardGate: false,
+      }
+    }
+    return {
+      origin: "SOURCE-AI",
+      evidence,
+      action: "continue",
+      productHardGate: false,
+    }
+  }
+
+  if (sourceSlopPenalty >= 5 && cavityScore < 0.5) {
+    // 源文本本身 AI 信号强, cavity 低 → 残留是源信号没去干净
+    return { origin: "SOURCE-AI", evidence, action: "continue", productHardGate: false }
+  }
+
+  if (cavityScore >= 0.5 && sourceSlopPenalty < 5) {
+    // 残留是改写器腔 — 改写过深产生的伪信号
+    return {
+      origin: "REWRITER-CAVITY",
+      evidence,
+      action: "revert",
+      productHardGate: false,
+    }
+  }
+
+  return {
+    origin: "AMBIGUOUS",
+    evidence,
+    action: "manual",
+    productHardGate: false,
+  }
+}
+
+// ============================================================================
+// P0-4: 信号分证 — 反过拟合护栏
+//
+// 共识 v1-ds r-antifit + v1-hy3 R10: 去 AI 目标不是把分数压到 0, 而是分布对齐
+// 自然文本。机械指标 (slopPenalty / weightedScore) 只是信号, 不是证据;
+// 永远不因「指标好看」而批准产品硬门。
+//
+// 分证原则:
+//   1. 指标达标 ≠ 自然: 完全干净的文本可能是改写器过度打磨的结果
+//   2. 指标不达标 ≠ 必改: 人类写作天然有重复、停顿、不完美
+//   3. 机械指标只驱动 Track B soft 建议; 产品发布门 (Consistency P0) 永远
+//      由语义层 (LLM 六维 / 一致性) 判定 — 防「为过反 AI 指标而毁一致性」
+// ============================================================================
+
+/** 信号分证声明 (供审计 / spec) */
+export function signalDisclosure(input: {
+  productHardGateEnabled?: boolean
+  metricName: string
+}): { metricName: string; productHardGate: false; track: "B" | "A"; note: string } {
+  return {
+    metricName: input.metricName,
+    productHardGate: false,
+    track: "B",
+    note: "机械去 AI 指标为 Track B soft 信号; 产品硬门仅由 Consistency(P0) 语义层判定, 防止为过指标改写破坏一致性",
+  }
+}
+
+// ============================================================================
+// P0-1: 改写器腔 (humanizer-cavity) 防护 — 2026 检测对抗前沿共识
+//
+// aigc.md 核心反直觉: 乱加错字/假口语/机械断句对深度分类器 (Pangram4
+// humanizer 头 / EditLens 介入度回溯) 适得其反 — 改写越深、越暴露改写痕迹。
+// 三模型共识 (V1-ds r-hcavity / V1-hy3 R1/R3 / V2-ds+glm humanizer-tone-guard
+// / V3-glm preserve-lock FPR 护栏): 目标不是把 slop 分数压到 0, 而是
+// 「分布对齐自然文本」— 保留自然不均匀性, 禁止 converge 到统一改写风格。
+// ============================================================================
+
+/** 改写器腔 must-not-emit 指令 (注入 LLM 改写 prompt, 与 QM-QUAI 规则并列) */
+export const HUMANIZER_CAVITY_GUARD = `## 改写器腔禁止 (2026 检测对抗前沿)
+
+以下行为会制造「改写器腔」——深度检测器 (Pangram4 humanizer 头 / EditLens 介入度回溯) 专门抓这类信号, 越改写越暴露:
+
+1. 假口语: 不要在每句加「呃/嗯/那个/额」，也不要刻意把对白改得结巴。真实口语密度远低于此。
+2. 机械断句: 不要把所有长句切成等长短句。自然文本句长分布不均匀——允许长句存在。
+3. 填充词泛滥: 不要在句首堆「其实/说白了/然而」。
+4. 完美改写: 不要把每段都改到「无可挑剔」。人类写作有瑕疵: 松散段落、重复词、不完美转折。
+5. 统一风格: 不要对全文施加同一种改写变换 (同批替换词/同句式)。检测器可聚类识别「单一改写者风格」。
+6. 过度不规则: 不要刻意制造「不规则」来显得人工。CV 过高的句长分布本身就是改写信号。
+
+**目标不是 slop 分数 0, 而是分布对齐自然文本**: 保留叙事节奏的自然不均匀性, 只消除真正的 AI 腔。`
+
+/**
+ * 构建 must-not-emit 指令片段, 供 adapter 拼接进 system prompt。
+ * 与 HUMANIZER_CAVITY_GUARD 相同内容, 但可作为独立片段注入。
+ */
+export function buildHumanizerCavityGuard(): string {
+  return HUMANIZER_CAVITY_GUARD
+}

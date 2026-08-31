@@ -35,6 +35,8 @@ import {
   buildDeAiRewriteMessages,
   injectDeAiDirective,
   loadSmartDeAiSkill,
+  extractSkillVersion,
+  BUILTIN_DE_AI_SKILL_VERSION,
 } from "./de-ai-adapter"
 
 beforeEach(() => {
@@ -131,6 +133,37 @@ describe("buildQmQuaiRewriteMessages / buildDeAiRewriteMessages", () => {
   it("Wave 4: buildDeAiRewriteMessages 透传 extra", () => {
     const messages = buildDeAiRewriteMessages("正文内容", undefined, { userPrompt: "规则" })
     expect(messages[0].content).toContain("规则")
+  })
+
+  it("P0-1: cavityGuard 注入改写器腔 must-not-emit 到 system", () => {
+    const no = buildQmQuaiRewriteMessages("正文内容", "custom")
+    expect(no[0].content).not.toContain("改写器腔禁止")
+    const yes = buildQmQuaiRewriteMessages("正文内容", "custom", { cavityGuard: true })
+    expect(yes[0].content).toContain("改写器腔禁止")
+    expect(yes[0].content).toContain("假口语")
+    // 用户 prompt 存在时 guard 也注入
+    const both = buildQmQuaiRewriteMessages("正文内容", "custom", {
+      cavityGuard: true,
+      userPrompt: "个性化",
+    })
+    expect(both[0].content).toContain("改写器腔禁止")
+    expect(both[0].content).toContain("个性化")
+  })
+})
+
+describe("extractSkillVersion / BUILTIN_DE_AI_SKILL_VERSION (P2-1 skill-versioning)", () => {
+  it("解析 SKILL.md frontmatter version", () => {
+    const md = `---\nname: x\nmetadata:\n  version: "1.2.3"\n---\n# body`
+    expect(extractSkillVersion(md)).toBe("1.2.3")
+  })
+
+  it("无 version 字段返回 null", () => {
+    expect(extractSkillVersion("---\nname: x\n---")).toBeNull()
+    expect(extractSkillVersion("no frontmatter")).toBeNull()
+  })
+
+  it("内置 skill 版本与产品版本一致 (2.7.4)", () => {
+    expect(BUILTIN_DE_AI_SKILL_VERSION).toBe("2.7.4")
   })
 })
 

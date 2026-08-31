@@ -8,6 +8,9 @@ import {
   slopScore,
   detectCharacterActions,
   characterActionsToText,
+  overCorrectionReport,
+  overCorrectionToText,
+  cavityPatternPenalty,
   type CharacterActionHit,
 } from "./mechanical-slop-detector"
 import { SUSPICIOUS_HOMOGLYPH_KEYS } from "./normalize-source-text"
@@ -422,5 +425,68 @@ describe("slopReportToText 附加分支 (bypass / 单 tier / 密度行)", () => 
     expect(report.sentenceLengthCV).toBeGreaterThanOrEqual(0.1)
     const text = slopReportToText(report)
     expect(text).not.toContain("句长过于一致")
+  })
+})
+
+// ============================================================================
+// P0-1: Humanizer Cavity Guard + P1-5 规则补漏 (2026 检测对抗前沿)
+// ============================================================================
+describe("P0-1 overCorrectionReport — 反改写器腔 (humanizer 腔)", () => {
+  it("句长过度齐整 → 改写痕迹", () => {
+    const r = overCorrectionReport("他走了。她来了。天黑了。风起了。灯灭了。门关了。")
+    expect(r.sentenceLengthCV).toBeLessThan(0.08)
+    expect(r.flags.some((f) => f.includes("齐整"))).toBe(true)
+    expect(r.humanizerCavityScore).toBeGreaterThan(0)
+  })
+
+  it("假口语密度异常 → 改写痕迹", () => {
+    const fillerText = Array.from({ length: 12 }, () => "呃，这个嘛，嗯那个……").join("")
+    const r = overCorrectionReport(fillerText)
+    expect(r.fillerDensityPer1000).toBeGreaterThan(3)
+    expect(r.flags.some((f) => f.includes("填充词"))).toBe(true)
+  })
+
+  it("正常文本 → 无标记", () => {
+    const r = overCorrectionReport("他推开门，夜风卷着雨丝扑在脸上。走廊尽头那盏灯还亮着，像一只不肯闭上的眼睛。")
+    expect(r.flags).toEqual([])
+    expect(r.humanizerCavityScore).toBe(0)
+  })
+
+  it("overCorrectionToText 空 flags 返回空串", () => {
+    expect(overCorrectionToText({ sentenceLengthCV: 0.5, fillerDensityPer1000: 1, fillerCount: 2, humanizerCavityScore: 0, flags: [] })).toBe("")
+  })
+
+  it("overCorrectionToText 有 flags 时输出报告", () => {
+    const text = overCorrectionToText({ sentenceLengthCV: 0.05, fillerDensityPer1000: 5, fillerCount: 10, humanizerCavityScore: 0.8, flags: ["句长过度齐整 (CV 0.05) — 机械模板嫌疑", "假口语填充词密度异常 (5.0/千字) — humanizer 腔嫌疑"] })
+    expect(text).toContain("综合改写痕迹分 0.80")
+  })
+})
+
+describe("P1-5 cavityPatternPenalty — 2026 强信号补漏", () => {
+  it("夸大腔命中有惩罚", () => {
+    const { penalty, hits } = cavityPatternPenalty("这是划时代的革命性突破，史无前例的开创性时刻。")
+    expect(hits.length).toBeGreaterThan(0)
+    expect(penalty).toBeGreaterThan(0)
+  })
+
+  it("格言腔命中", () => {
+    const { hits } = cavityPatternPenalty("所谓命运，不过是人自己选择的结果。")
+    expect(hits.length).toBeGreaterThan(0)
+  })
+
+  it("三连排比命中", () => {
+    const { hits } = cavityPatternPenalty("他愤怒、绝望、崩溃，最终沉默。")
+    expect(hits.length).toBeGreaterThan(0)
+  })
+
+  it("稻草人腔命中", () => {
+    const { hits } = cavityPatternPenalty("有人说，坚持就是胜利。")
+    expect(hits.length).toBeGreaterThan(0)
+  })
+
+  it("干净文本零惩罚", () => {
+    const { penalty, hits } = cavityPatternPenalty("他推开门走了出去，夜色很深，远处有狗叫。")
+    expect(hits).toEqual([])
+    expect(penalty).toBe(0)
   })
 })

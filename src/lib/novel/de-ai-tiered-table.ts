@@ -41,6 +41,12 @@ export type TieredDeAiCategory =
   | "轻度AI腔"
   | "弱解释"
   | "通用模糊"
+  | "夸大腔"
+  | "格言腔"
+  | "二元对立"
+  | "稻草人"
+  | "抽象总结"
+  | "情感虚饰"
 
 /** 分级表条目 */
 export interface TieredDeAiEntry {
@@ -296,4 +302,79 @@ export function filterTieredDeAiHitsByTier(
   tier: TieredDeAiTier,
 ): TieredDeAiHit[] {
   return hits.filter((h) => h.entry.tier === tier)
+}
+// ============================================================================
+// P1-5: 2026 强信号补漏扩展表 (2026-08-31 三模型共识)
+//
+// 现有 TIERED_DEAI_TABLE 为 112 词稳定表 (spec 硬断言 62/38/12),
+// 不扰动既有断言; 新信号独立扩展, 供 formatDualPassPromptFragment/
+// simulateRewrite 等调用方按需叠加。来源:
+//   - reference/humanizer (Wikipedia Signs of AI writing)
+//   - reference/humanizer-x / ultimate-humanizer (severity 模式)
+//   - aigc.md 2026 检测对抗综述 (夸大腔/格言腔/二元对立/稻草人)
+// ============================================================================
+
+/** 2026 补漏扩展表: 新类别信号 (不并入 112 词表, 避免打破既有统计/基线) */
+export const DE_AI_EXTENDED_TABLE: readonly TieredDeAiEntry[] = [
+  // ── 夸大腔 (inflated claims, humanizer P1) ──
+  { term: "史无前例", tier: "1A", category: "夸大腔", weight: 0.8, suggestion: "删掉绝对化，用具体事件呈现" },
+  { term: "前所未有", tier: "1A", category: "夸大腔", weight: 0.8, suggestion: "删掉绝对化，用具体事件呈现" },
+  { term: "划时代", tier: "1A", category: "夸大腔", weight: 0.8, suggestion: "删掉，直接写变化本身" },
+  { term: "里程碑", tier: "1A", category: "夸大腔", weight: 0.7, suggestion: "用具体节点替代抽象里程碑" },
+  { term: "革命性", tier: "1A", category: "夸大腔", weight: 0.7, suggestion: "删掉，让情节自己说明" },
+  { term: "开创性", tier: "1A", category: "夸大腔", weight: 0.7, suggestion: "删掉，让情节自己说明" },
+  // ── 格言腔 (aphorism) ──
+  { term: "不过是", tier: "1B", category: "格言腔", weight: 0.5, suggestion: "叙事中慎用总结式格言" },
+  { term: "终究是", tier: "1B", category: "格言腔", weight: 0.5, suggestion: "叙事中慎用总结式格言" },
+  { term: "不外乎", tier: "1B", category: "格言腔", weight: 0.5, suggestion: "删掉，直接呈现事实" },
+  // ── 二元对立 (binary, humanizer P13) ──
+  { term: "要么", tier: "1B", category: "二元对立", weight: 0.5, suggestion: "避免非此即彼的绝对化选择" },
+  { term: "非此即彼", tier: "1B", category: "二元对立", weight: 0.6, suggestion: "删掉，呈现中间可能" },
+  // ── 稻草人/伪辩论 (objection, humanizer P34/35) ──
+  { term: "有人说", tier: "1B", category: "稻草人", weight: 0.5, suggestion: "避免自设靶子，直接写观点" },
+  { term: "有人会说", tier: "1B", category: "稻草人", weight: 0.5, suggestion: "避免自设靶子，直接写观点" },
+  { term: "总有人说", tier: "1B", category: "稻草人", weight: 0.5, suggestion: "避免自设靶子，直接写观点" },
+  // ── 抽象总结 (AI 概括癖) ──
+  { term: "归根结底", tier: "1B", category: "抽象总结", weight: 0.5, suggestion: "删掉，让叙事自己收束" },
+  { term: "说到底", tier: "1B", category: "抽象总结", weight: 0.5, suggestion: "删掉，直接推进" },
+  // ── 情感虚饰 (humanizer 夸大情绪) ──
+  { term: "震撼人心", tier: "1B", category: "情感虚饰", weight: 0.6, suggestion: "用具体感官替代情绪总结" },
+  { term: "感人至深", tier: "1B", category: "情感虚饰", weight: 0.6, suggestion: "用具体情节替代情绪总结" },
+  { term: "动人心弦", tier: "1B", category: "情感虚饰", weight: 0.6, suggestion: "用具体情节替代情绪总结" },
+] as const
+
+/** 扩展表检测 (与 detectTieredDeAi 同语义, 独立于 112 词表) */
+export function detectExtendedDeAi(text: string): TieredDeAiHit[] {
+  if (!text) return []
+  const hits: TieredDeAiHit[] = []
+  for (const entry of DE_AI_EXTENDED_TABLE) {
+    let count = 0
+    let idx = text.indexOf(entry.term)
+    while (idx !== -1) {
+      count++
+      idx = text.indexOf(entry.term, idx + entry.term.length)
+    }
+    if (count > 0) hits.push({ entry, count })
+  }
+  return hits
+}
+
+/** 扩展表统计 */
+export function computeExtendedDeAiStats(): TieredDeAiStats {
+  const byTier = { "1A": [] as TieredDeAiEntry[], "1B": [] as TieredDeAiEntry[], "3": [] as TieredDeAiEntry[] }
+  for (const entry of DE_AI_EXTENDED_TABLE) byTier[entry.tier].push(entry)
+  const categoryCounts: Record<string, number> = {}
+  for (const entry of DE_AI_EXTENDED_TABLE) {
+    categoryCounts[entry.category] = (categoryCounts[entry.category] ?? 0) + 1
+  }
+  return {
+    totalEntries: DE_AI_EXTENDED_TABLE.length,
+    tierCounts: { "1A": byTier["1A"].length, "1B": byTier["1B"].length, "3": byTier["3"].length },
+    categoryCounts,
+    uniqueTerms: new Set(DE_AI_EXTENDED_TABLE.map((e) => e.term)).size,
+    weightRange: {
+      min: Math.min(...DE_AI_EXTENDED_TABLE.map((e) => e.weight)),
+      max: Math.max(...DE_AI_EXTENDED_TABLE.map((e) => e.weight)),
+    },
+  }
 }

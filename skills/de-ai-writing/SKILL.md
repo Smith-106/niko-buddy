@@ -8,8 +8,9 @@ allowed-tools:
   - AskUserQuestion
 metadata:
   trigger: 去AI味、像人写的、保留原意改写、中文润色、结构保真翻译、检查中文稿 AI 痕迹
+  version: "2.7.4"
+  contentVersion: 1
 ---
-
 # de-AI-writing
 
 ## 读取策略
