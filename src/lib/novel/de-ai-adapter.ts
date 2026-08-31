@@ -8,12 +8,30 @@ import type { ContextPack } from "./context-engine"
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
 
 /**
- * 解析 SKILL.md frontmatter 中的 metadata.version（P2-1 skill-versioning）。
+ * 提取文档顶部 YAML frontmatter 块（开 --- 行起到下一个独占一行的 --- 止）。
+ * 无 frontmatter 或未闭合 → null（严格边界，宁缺勿误配）。
+ * BOM 兼容；CRLF 兼容；非贪婪停在首个闭合 ---，正文横线不干扰。
+ */
+function extractFrontmatter(markdown: string): string | null {
+  if (!markdown) return null
+  const start = markdown.match(/^\uFEFF?---[ \t]*\r?\n/)
+  if (!start) return null
+  const body = markdown.slice(start[0].length)
+  const close = body.match(/\r?\n---[ \t]*(?:\r?\n|$)/)
+  if (!close || close.index === undefined) return null
+  return body.slice(0, close.index)
+}
+
+/**
+ * 解析 SKILL.md frontmatter 中的 metadata.version（P2-1 skill-versioning，35 号 frontmatter 边界化）。
  * 供审计/追踪：内置 skill 版本随产品发版（2.7.4），自定义 skill 无版本时返回 null。
- * 正则锚定行首 + 字段名边界，避免误匹配 contentVersion/schemaVersion。
+ * 仅匹配文档顶部 --- frontmatter 块内的 version 键：正文孤立 version: 行不误配（理论边角修复）；
+ * 字段名边界避免误匹配 contentVersion/schemaVersion；^[ \t]* 兼容 metadata 嵌套缩进。
  */
 export function extractSkillVersion(markdown: string): string | null {
-  const match = markdown.match(/^\s*version:\s*["']?([^\s"']+)/m)
+  const fm = extractFrontmatter(markdown)
+  if (!fm) return null
+  const match = fm.match(/^[ \t]*version:[ \t]*["']?([^\s"']+)/m)
   return match?.[1] ?? null
 }
 

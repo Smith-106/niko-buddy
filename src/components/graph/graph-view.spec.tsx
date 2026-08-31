@@ -98,7 +98,8 @@ vi.mock("@/stores/wiki-store", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
-  initReactI18next: { init: () => {} },
+  // i18next v26 use() 校验 module.type 必须存在，否则抛 "wrong module"（spec 环境修复）
+  initReactI18next: { type: "3rdParty", init: () => {} },
 }))
 
 vi.mock("@/commands/fs", () => ({

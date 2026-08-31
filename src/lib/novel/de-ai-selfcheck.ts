@@ -61,8 +61,10 @@ export const SELFCHECK_WEIGHTS: Record<SelfCheckDimension, number> = {
   "节奏": 0.1,
 }
 
-/** PASS 阈值 (综合分 >= 此值 PASS) */
-export const SELFCHECK_PASS_THRESHOLD = 0.6
+/** PASS 阈值 (综合分 >= 此值 PASS)。
+ *  35 号 DD-3 标定 S8: 0.6→0.7（实测 human P5=0.90 空档 0.3 → 上调零误杀且
+ *  ai REVIEW 5/30→13/30 判别力翻倍；Track B soft，productHardGate:false 不变）。 */
+export const SELFCHECK_PASS_THRESHOLD = 0.7
 
 /** 句式维: 基于指纹子项 */
 function scoreSyntax(r: FingerprintResult): number {

@@ -193,11 +193,16 @@ export const RAW_COUNT_WEIGHTS = { tier1: 1.5, tier2: 0.8, tier3: 1.0 } as const
 
 /** 词数口径: Chinese 无词界，以非空白字符近似词数（density = hits / words * 1000）。 */
 export const SLOP_DENSITY_PER = 1000
-/** 各 tier 每千字可容忍命中密度（低于容忍线不计 severity = 不误伤）。 */
+/** 密度分母下限（35 号 DD-3 标定 S4）: 短文本会系统性放大密度（~170 字样本 1 词命中
+ *  即越 warn 线），与 SENTENCE_MIN_FOR_CV_PENALTY 同款 guard；生产 2-5K 字章节不受影响。 */
+export const SLOP_DENSITY_MIN_WORDS = 500
+/** 各 tier 每千字可容忍命中密度（低于容忍线不计 severity = 不误伤）。
+ *  35 号 DD-3 标定 S2: tier3 3.0→1.0（human 层 tier3 密度全 0，ai P50=1.52，
+ *  下调零 FPR 且 TPR warn 0.57→0.63-0.67）。 */
 export const SLOP_DENSITY_TARGETS = {
   tier1: 1.0,
   tier2: 2.0,
-  tier3: 3.0,
+  tier3: 1.0,
 } as const
 /** 各 tier 超出容忍线的边际权重。 */
 export const SLOP_DENSITY_WEIGHTS = {
@@ -428,7 +433,7 @@ let penalty: number
       tier3Count * RAW_COUNT_WEIGHTS.tier3
   } else {
     // A3 density 制 (篇幅归一)。
-    const words = Math.max(1, text.replace(/\s+/g, '').length)
+    const words = Math.max(SLOP_DENSITY_MIN_WORDS, text.replace(/\s+/g, '').length)
     const density1 = (tier1Count / words) * SLOP_DENSITY_PER
     const density2 = (tier2Count / words) * SLOP_DENSITY_PER
     const density3 = (tier3Count / words) * SLOP_DENSITY_PER
@@ -680,8 +685,8 @@ export function overCorrectionReport(rawText: string): OverCorrectionReport {
   const sentenceLengths = splitSentences(text)
   const cv = coefficientOfVariation(sentenceLengths)
 
-  // 假口语密度
-  const words = Math.max(1, text.replace(/\s+/g, "").length)
+  // 假口语密度 (S4: 密度分母也保底, 短文本不放大)
+  const words = Math.max(SLOP_DENSITY_MIN_WORDS, text.replace(/\s+/g, "").length)
   let fillerCount = 0
   for (const w of CAVITY_FILLER_WORDS) fillerCount += countOccurrences(text, w)
   const fillerDensity = (fillerCount / words) * 1000

@@ -87,8 +87,8 @@ function percentile(sorted: number[], p: number): number {
  * 统计指纹自检 (零 LLM)。
  *
  * 算法:
- *   - 句长 CV: 0.2-0.5 为自然区间 (中文短句为主 CV 偏低, 参考 mechanical
- *     SENTENCE_CV_LOW_THRESHOLD=0.1); CV 过低=机械齐整, 过高=人为造不规则
+ *   - 句长 CV: 0.2-0.7 为自然区间 (中文短句为主 CV 偏低, 参考 mechanical
+ *     SENTENCE_CV_LOW_THRESHOLD=0.1; 35 号 DD-3 S7 实测 human P50=0.51); CV 过低=机械齐整, 过高=人为造不规则
  *   - 熵: 接近均匀分布=1 (自然), 集中=0
  *   - 突发性: 中等区间 (0.3-0.7) 自然; 过高=假不规则, 过低=匀速
  *   - 句首多样性: 独特句首 / 总句数
@@ -137,11 +137,12 @@ export function statisticalFingerprint(rawText: string): FingerprintResult {
   const topWordRepetition = chars.length > 0 ? topCount / chars.length : 0
 
   // 综合评分 (0-1, 各维贡献)
-  // - CV: 自然区间 0.2-0.5 → 1.0, 越偏离越低 (线性衰减)
+  // - CV: 自然区间 0.2-0.7 → 1.0, 越偏离越低 (线性衰减)
+  //   35 号 DD-3 标定 S7: 0.2-0.5→0.2-0.7（实测 human P50=0.51 恰在旧窗沿、P75=0.58 出窗）
   let cvScore = 0
-  if (cv >= 0.2 && cv <= 0.5) cvScore = 1
+  if (cv >= 0.2 && cv <= 0.7) cvScore = 1
   else if (cv < 0.2) cvScore = cv / 0.2
-  else cvScore = Math.max(0, 1 - (cv - 0.5) / 0.5)
+  else cvScore = Math.max(0, 1 - (cv - 0.7) / 0.7)
 
   const entropyScore = sentenceEntropy(lengths)
   const burstScore = burstiness(std, mean)

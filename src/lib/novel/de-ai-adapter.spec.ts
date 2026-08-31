@@ -165,6 +165,67 @@ describe("extractSkillVersion / BUILTIN_DE_AI_SKILL_VERSION (P2-1 skill-versioni
   it("内置 skill 版本与产品版本一致 (2.7.4)", () => {
     expect(BUILTIN_DE_AI_SKILL_VERSION).toBe("2.7.4")
   })
+
+  // ---- 35 号 frontmatter 边界化（理论边角修复）----
+  it("正文孤立 version: 行不再误配（核心修复点）", () => {
+    const md = `---\nname: x\nversion: "1.0.0"\n---\n\nversion: 9.9.9 是最初的方案，后来废弃`
+    expect(extractSkillVersion(md)).toBe("1.0.0")
+  })
+
+  it("无 frontmatter 但正文含 version: 行 → null", () => {
+    const md = `# 标题\n\nversion: 9.9.9\n正文内容`
+    expect(extractSkillVersion(md)).toBeNull()
+  })
+
+  it("正文代码块含 version: 行不影响 frontmatter 值", () => {
+    const md = `---\nname: x\nversion: "2.0.0"\n---\n\n\`\`\`yaml\nversion: 8.8.8\n\`\`\``
+    expect(extractSkillVersion(md)).toBe("2.0.0")
+  })
+
+  it("contentVersion/schemaVersion 不误配", () => {
+    const md = `---\nname: x\nmetadata:\n  contentVersion: 1\n  schemaVersion: 2\n  version: "3.1.0"\n---`
+    expect(extractSkillVersion(md)).toBe("3.1.0")
+  })
+
+  it("仅 frontmatter 含 contentVersion 无 version → null", () => {
+    const md = `---\ncontentVersion: 1\n---\n正文 version: 8.8.8`
+    expect(extractSkillVersion(md)).toBeNull()
+  })
+
+  it("CRLF 换行 frontmatter 解析成功", () => {
+    const md = `---\r\nname: x\r\nversion: \"4.2.0\"\r\n---\r\n正文`
+    expect(extractSkillVersion(md)).toBe("4.2.0")
+  })
+
+  it("BOM 前缀 frontmatter 解析成功", () => {
+    const md = `\uFEFF---\nname: x\nversion: "5.0.0"\n---`
+    expect(extractSkillVersion(md)).toBe("5.0.0")
+  })
+
+  it("frontmatter 未闭合 → null（严格边界）", () => {
+    const md = `---\nname: x\nversion: "6.6.6"\n正文继续`
+    expect(extractSkillVersion(md)).toBeNull()
+  })
+
+  it("顶层 version 与嵌套 metadata.version 并存 → 顶层优先", () => {
+    const md = `---\nversion: "7.1.0"\nmetadata:\n  version: "7.0.0"\n---`
+    expect(extractSkillVersion(md)).toBe("7.1.0")
+  })
+
+  it("version 无引号 + 行内注释截断", () => {
+    const md = `---\nname: x\nversion: 7.7.7 # comment\n---`
+    expect(extractSkillVersion(md)).toBe("7.7.7")
+  })
+
+  it("正文 markdown 分隔线（---）不干扰首块 frontmatter", () => {
+    const md = `---\nversion: "8.0.0"\n---\n\n正文\n\n---\n尾部横线\nversion: 0.0.1`
+    expect(extractSkillVersion(md)).toBe("8.0.0")
+  })
+
+  it("空串/纯空白 → null", () => {
+    expect(extractSkillVersion("")).toBeNull()
+    expect(extractSkillVersion("   \n  ")).toBeNull()
+  })
 })
 
 describe("injectDeAiDirective", () => {

@@ -123,12 +123,14 @@ describe("mechanical-slop TIER3 接线", () => {
   it("TIER3 命中未达阻断 → warning (slop_mechanical)", () => {
     // A3 密度制校准：短文本命中率天然超高（原句单独 penalty=10 直接 block），
     // 用中性叙事稀释至 warn 带 [5,8) 验证「未达阻断→warning」语义而非绝对值。
+    // 35 号 DD-3 S2 下调 tier3 target 3.0→1.0 后，稀释倍数由 9→11 保持 warn 带
+    // （实测 rep=11: penalty=6.30 warn；rep=13 起跌出 warn 带）。
     const neutral = [
       "他推开门走了出去，风很大，吹得衣角猎猎作响。",
       "桌上的茶凉了半盏，窗外的天色一点点暗了下去。",
       "他把纸叠好收进口袋，转身下了楼。",
     ].join("")
-    const text = "他深吸一口气，目光交汇的瞬间，空气仿佛凝固。" + neutral.repeat(9)
+    const text = "他深吸一口气，目光交汇的瞬间，空气仿佛凝固。" + neutral.repeat(11)
     const pack = createAntiAiMechPack({ text })
     const result = runRuleStack(combinePacks([pack]), { isFinale: false })
     const tier3 = result.allFindings.filter((f) => f.ruleId === "anti-ai-mech.slop-tier3")
