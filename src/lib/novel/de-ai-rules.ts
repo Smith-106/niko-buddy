@@ -623,7 +623,6 @@ export function classifyResidualOrigin(input: {
 
 /** 信号分证声明 (供审计 / spec) */
 export function signalDisclosure(input: {
-  productHardGateEnabled?: boolean
   metricName: string
 }): { metricName: string; productHardGate: false; track: "B" | "A"; note: string } {
   return {

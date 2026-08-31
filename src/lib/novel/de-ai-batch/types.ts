@@ -42,6 +42,10 @@ export interface DeAiChapterState {
   dualPassScore?: number
   /** 草稿工件相对路径（.novel/de-ai-batch-drafts/{n}.json）。 */
   draftPath?: string
+  /** P1-3 自检摘要（Track B soft 诊断，非门）。 */
+  selfCheckSummary?: string
+  /** P1-2 preserve-lock 还原缺失项（非门，供人工审查）。 */
+  preserveMissing?: string[]
   updatedAt?: string
 }
 

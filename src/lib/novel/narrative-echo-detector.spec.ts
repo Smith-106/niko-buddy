@@ -109,3 +109,36 @@ describe("narrative-echo-detector — P1-4 跨章回纹检测", () => {
     })
   })
 })
+
+// ============================================================================
+// 34 号验收修复回归 (hy3 P1-1): 句长量化必须基于原始分句 — 不同句长分布的
+// 章节不得因 normText 剥离标点后句长恒等而误报同构
+// ============================================================================
+describe("P1-1 修复回归 — 句长分布区分度", () => {
+  it("短句章节 vs 长句章节: hash 不同且不判同构 (同段落数/转场桶)", () => {
+    // 同 3 段、无转折开头 (转场桶一致)、段落长度接近 (段长桶容差内)
+    // 但句长分布完全不同: 短句 vs 长句
+    const shortSent = "他走了。她来了。天黑了。风起了。灯灭了。门关了。\n" +
+      "他坐下。她站着。茶凉了。雨停了。鸟飞了。夜深了。\n" +
+      "他笑了。她哭了。人散了。路尽了。"
+    const longSent = "他推开门走了出去，夜风卷着雨丝扑在脸上，走廊尽头那盏灯还亮着。\n" +
+      "她放下杯子没有看他，窗外雨势渐小，屋檐滴水声断断续续。\n" +
+      "他沉默了很久才开口，声音沙哑，像砂纸磨过铁皮。"
+    const sigA = chapterStructuralSignature(shortSent)
+    const sigB = chapterStructuralSignature(longSent)
+    // 句长 hash 必须不同 (修复前 normText 剥离标点导致恒 fnv1a32("2")=923577301)
+    expect(sigA.sentenceLengthHash).not.toBe(sigB.sentenceLengthHash)
+    expect(sigA.sentenceLengthHash).not.toBe(923577301)
+    expect(sigB.sentenceLengthHash).not.toBe(923577301)
+    // 转场桶可能不同 (长句段不以转折开头, 两者都是 0) → 允许比较
+    expect(signaturesSimilar(sigA, sigB)).toBe(false)
+  })
+
+  it("相同文本 hash 稳定且同构", () => {
+    const t = "他推开门走了出去。夜色很深。远处有狗叫。\n她放下杯子。窗外下雨了。\n他沉默了很久。"
+    const a = chapterStructuralSignature(t)
+    const b = chapterStructuralSignature(t)
+    expect(a.sentenceLengthHash).toBe(b.sentenceLengthHash)
+    expect(signaturesSimilar(a, b)).toBe(true)
+  })
+})

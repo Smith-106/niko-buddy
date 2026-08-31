@@ -57,7 +57,12 @@ export interface StructuralSignature {
   transitionDensityBucket: number
   /** 章节文本长度 (字符, 归一) */
   length: number
+  /** 句级 n-gram 模板哈希 (参与同构判定重合度) */
+  ngramHashes: number[]
 }
+
+/** n-gram 最小重合率 (>= 此值才算同构附加维度) */
+export const NGRAM_OVERLAP_MIN = 0.3
 
 /** 段长桶: 每段长度分桶 (0-20/21-60/61-200/200+) */
 function paragraphBuckets(text: string): number[] {
@@ -76,7 +81,8 @@ function paragraphBuckets(text: string): number[] {
 /** 转场词 (与 mechanical slop 一致) */
 const TRANSITION_OPENERS = ["然而", "但是", "不过", "可是", "与此同时", "紧接着", "此外", "因此"] as const
 
-/** 章节结构签名 (零 LLM) */
+/** 章节结构签名 (零 LLM)
+ * 注意: 分句必须用原始文本 (保留句末标点), normText 剥离标点后无法分句。 */
 export function chapterStructuralSignature(rawText: string): StructuralSignature {
   const text = normText(rawText)
   const paras = rawText.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 0)
@@ -85,8 +91,8 @@ export function chapterStructuralSignature(rawText: string): StructuralSignature
   // 转场密度分桶: 0-10% / 10-25% / 25-50% / 50%+
   const transBucket = transRatio <= 0.1 ? 0 : transRatio <= 0.25 ? 1 : transRatio <= 0.5 ? 2 : 3
 
-  // 句长序列量化: >35 字=长(2), 12-35=中(1), <12=短(0) → 数字串哈希
-  const sentenceLens = text.split(/[。！？.!?]+/).map((s) => s.length).filter((l) => l > 0)
+  // 句长序列量化: 基于原始文本分句 (>35 字=长(2), 12-35=中(1), <12=短(0)) → 数字串哈希
+  const sentenceLens = rawText.split(/[。！？.!?]+/).map((s) => s.length).filter((l) => l > 0)
   const quantized = sentenceLens.map((l) => (l > 35 ? "2" : l >= 12 ? "1" : "0")).join("")
   const sentenceLengthHash = fnv1a32(quantized.slice(0, 400))
 
@@ -95,17 +101,27 @@ export function chapterStructuralSignature(rawText: string): StructuralSignature
     sentenceLengthHash,
     transitionDensityBucket: transBucket,
     length: text.length,
+    ngramHashes: sentenceNGramSignature(rawText, 8),
   }
+}
+
+/** 两签名 n-gram 集合重合率 (最小集为分母) */
+export function ngramOverlap(a: number[], b: number[]): number {
+  if (a.length === 0 || b.length === 0) return 0
+  const setB = new Set(b)
+  const common = a.filter((h) => setB.has(h)).length
+  return common / Math.min(a.length, b.length)
 }
 
 /** 同构判定: 两个签名在容差内的结构重复 */
 export function signaturesSimilar(
   a: StructuralSignature,
   b: StructuralSignature,
-  opts?: { bucketTolerance?: number; lengthRatioTolerance?: number },
+  opts?: { bucketTolerance?: number; lengthRatioTolerance?: number; ngramMinOverlap?: number },
 ): boolean {
   const tol = opts?.bucketTolerance ?? 1
   const lenRatio = opts?.lengthRatioTolerance ?? 0.3
+  const ngramMin = opts?.ngramMinOverlap ?? NGRAM_OVERLAP_MIN
   // 长度差异太大 → 不算同构 (章节规模不同)
   if (a.length > 0 && b.length > 0) {
     const ratio = Math.min(a.length, b.length) / Math.max(a.length, b.length)
@@ -118,7 +134,12 @@ export function signaturesSimilar(
     if (Math.abs(a.paragraphBuckets[i]! - b.paragraphBuckets[i]!) > tol) return false
   }
   // 句长指纹相同 (模板级重复)
-  return a.sentenceLengthHash === b.sentenceLengthHash
+  if (a.sentenceLengthHash !== b.sentenceLengthHash) return false
+  // 句级 n-gram 重合率 (句首模板惯性, 防仅长度/转场碰巧同构)
+  if (a.ngramHashes.length >= 2 && b.ngramHashes.length >= 2) {
+    return ngramOverlap(a.ngramHashes, b.ngramHashes) >= ngramMin
+  }
+  return true
 }
 
 /** 跨章回声注册器: 维护已见章节签名, 跨 K 章窗口检测重复 */

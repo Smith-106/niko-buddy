@@ -563,3 +563,48 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
     expect(await discardDeAiBatch("/p")).toBe(false)
   })
 })
+
+// ============================================================================
+// 34 号强化接线验收: preserve-lock / cavityGuard / selfcheck / intervention
+// ============================================================================
+describe("34 号 de-AI 强化接线（P0-1/P0-2/P1-2/P1-3/P2-1）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    fsMocks.writeFile.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.deleteFile.mockResolvedValue(undefined)
+    projectMetaMocks.loadNovelProjectMeta.mockResolvedValue({ genre: "玄幻" })
+    mockChapterFiles()
+    mockLlmOk()
+    mockStatusOk()
+    mockUserMemoryEmpty()
+  })
+
+  it("LLM 消息携带 cavityGuard + preserve 指令；工件带 skillVersion/interventionTier", async () => {
+    const summary = await runDeAiBatch("/p", { llmConfig })
+    expect(summary.phase).toBe("completed")
+
+    // cavityGuard + preserve-lock 指令注入 system
+    const messages = llmMocks.streamChat.mock.calls[0][1]
+    expect(messages[0].content).toContain("改写器腔禁止")
+    expect(messages[0].content).toContain("保留要求")
+
+    // 工件 provenance 字段
+    const draft1 = JSON.parse(
+      (fsMocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("1.json"))?.[1] ?? "{}"),
+    )
+    expect(draft1.skillVersion).toBe("2.7.4")
+    expect(["light", "medium", "rewrite"]).toContain(draft1.interventionTier)
+
+    // 状态带自检摘要 + preserve 缺失列表（遍历 calls 找 de_ai_batch 线穿）
+    const withBatch = statusMocks.buildNextStatus.mock.calls.find(
+      (c) => (c[1] as { de_ai_batch?: unknown })?.de_ai_batch !== undefined,
+    )
+    const savedState = withBatch?.[1] as { de_ai_batch?: DeAiBatchState }
+    expect(savedState?.de_ai_batch).toBeDefined()
+    expect(savedState!.de_ai_batch!.perChapter[1].selfCheckSummary).toContain("selfcheck")
+    expect(Array.isArray(savedState!.de_ai_batch!.perChapter[1].preserveMissing)).toBe(true)
+  })
+})

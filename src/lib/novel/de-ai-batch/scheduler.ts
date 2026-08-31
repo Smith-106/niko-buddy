@@ -19,8 +19,12 @@ import {
   loadUserMemoryForProject,
 } from "@/lib/user-memory"
 import { extractChapterNumber, findChapterFileByNumber, flattenMdFiles } from "../chapter-utils"
-import { buildDeAiRewriteMessages } from "../de-ai-adapter"
+import { buildDeAiRewriteMessages, BUILTIN_DE_AI_SKILL_VERSION } from "../de-ai-adapter"
 import { runDeAiDualPass, formatDualPassPromptFragment } from "../de-ai-dual-pass"
+import { classifyIntervention } from "../de-ai-intensity"
+import { lockProtectedSpans, buildPreserveDirective } from "../de-ai-preserve-lock"
+import { runDeAiSelfCheck } from "../de-ai-selfcheck"
+import { overCorrectionReport } from "../mechanical-slop-detector"
 import { loadNovelProjectMeta } from "../project-meta"
 import { isTransientLlmError, runBatch, runWithBackoff } from "./concurrency"
 import { deleteDeAiBatchDraft, loadDeAiBatchDraft, saveDeAiBatchDraft } from "./drafts"
@@ -237,14 +241,33 @@ export async function runDeAiBatch(
         return
       }
 
-      const messages = buildDeAiRewriteMessages(content, customSkill, {
+      // P1-2 preserve-lock: 改写前锁定关键内容（URL/数字/引号/角色名/时间词/对白标签）
+      const lock = lockProtectedSpans(content)
+      // 介入分级 (P0-2): light/medium/rewrite + cavitySkip 防过度改写
+      const cavityBefore = overCorrectionReport(content)
+      const triage = classifyIntervention({
+        slopPenalty: report.pass1.highCount > 0 ? Math.min(10, report.pass1.highCount) : 0,
+        weightedScore: report.pass1.weightedScore,
+        humanizerCavityScore: cavityBefore.humanizerCavityScore,
+        sentenceLengthCV: cavityBefore.sentenceLengthCV,
+      })
+
+      const messages = buildDeAiRewriteMessages(lock.maskedText, customSkill, {
         userPrompt,
         dualPassFragment: formatDualPassPromptFragment(report, avoidWordsHits),
+        cavityGuard: true,
+        preserveDirective: buildPreserveDirective(lock.spans),
       })
       const candidate = await runWithBackoff(
         () => streamChatToText(options.llmConfig, messages, options.signal),
         { shouldRetry: (error) => !isAbortError(error) && isTransientLlmError(error) },
       )
+
+      // P1-2 还原占位符 + P1-3 自检（Track B soft 诊断，非门）
+      const restored = lock.restore(candidate)
+      const restoreCheck = lock.verify(restored)
+      const selfcheck = runDeAiSelfCheck(content, restored)
+      const cavityAfter = overCorrectionReport(restored)
 
       const artifact: DeAiBatchDraftArtifact = {
         schemaVersion: DE_AI_BATCH_SCHEMA,
@@ -252,9 +275,11 @@ export async function runDeAiBatch(
         chapterNumber,
         sourcePath: filePath,
         originalContent: content,
-        candidateContent: candidate,
+        candidateContent: restored,
         dualPassScore: report.pass1.weightedScore,
         avoidWordsHits,
+        skillVersion: BUILTIN_DE_AI_SKILL_VERSION,
+        interventionTier: triage.tier,
         createdAt: nowIso(),
         updatedAt: nowIso(),
       }
@@ -263,6 +288,8 @@ export async function runDeAiBatch(
         status: "ready",
         draftPath,
         dualPassScore: report.pass1.weightedScore,
+        selfCheckSummary: `${selfcheck.summary} | cavityAfter=${cavityAfter.humanizerCavityScore.toFixed(2)}`,
+        preserveMissing: restoreCheck.missing,
         updatedAt: nowIso(),
       })
       emitProgress({
