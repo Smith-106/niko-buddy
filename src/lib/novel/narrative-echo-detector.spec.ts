@@ -111,6 +111,48 @@ describe("narrative-echo-detector — P1-4 跨章回纹检测", () => {
 })
 
 // ============================================================================
+// 36 号真实语料标定回归: 合成回纹 spec
+// 真实 6 章两两 8-gram 重叠全 0.000 (human 零误报已由标定脚本实测)。
+// 本组验证: ①非逐字重复的模板化 AI 章节 (句首模板循环 + 同构句长/转场)
+// 仍能打响 (接线后检测器非死代码); ②人类句首分散但结构巧合相似时不误报。
+// ============================================================================
+describe("36 号标定回归 — 合成回纹 (模板循环非逐字重复)", () => {
+  const AI_TEMPLATE_HEADS = ["他推", "他走", "他看", "他坐", "他抬", "他开", "她端", "她放", "她转", "她看"]
+
+  /** 模板化 AI 章节: 句首完全复用模板集, 句尾内容变化 (非逐字重复) */
+  function templateChapter(tails: string[]): string {
+    const sentences = AI_TEMPLATE_HEADS.map((h, i) => `${h}${tails[i] ?? "。"}`)
+    // 每 2 句一段: 5 段, 段长桶一致
+    return [sentences.slice(0, 2).join(""), sentences.slice(2, 4).join(""), sentences.slice(4, 6).join(""), sentences.slice(6, 8).join(""), sentences.slice(8).join("")].join("\n")
+  }
+
+  it("非逐字重复的模板循环章节 → 检出同构 (接线后能打响)", () => {
+    const a = chapterStructuralSignature(templateChapter(["开门。", "过廊。", "着影。", "下来。", "起头。", "口说。", "着碗。", "下杯。", "过身。", "向他。"]))
+    const b = chapterStructuralSignature(templateChapter(["开窗。", "下楼。", "着书。", "进椅。", "眼看。", "灯了。", "着盘。", "下勺。", "过头。", "过来。"]))
+    expect(signaturesSimilar(a, b)).toBe(true)
+  })
+
+  it("人类句首分散 + 结构巧合相似 → 不误报 (NGRAM 门有效)", () => {
+    // 结构凑齐: 同段数 (每 2 句一段)、同句长量化 (短句)、无转场开头、长度接近
+    // 但句首前 2 字互不重复 (人类自由句首) → 8-gram 重叠 0
+    const humanA = "他推开门。夜色很深。远处狗叫。风从巷口灌来。".replace(/[。]/g, (m) => m) + "\n" +
+      "她放下杯。窗外下雨。檐水滴答。灯影晃了晃。\n" +
+      "他沉默着。烟头明灭。墙根潮湿。蜘蛛结着网。"
+    const humanB = "白砚抬头。巷子很静。雨已经停。门缝漏出光。\n" +
+      "李薇攥着信。纸张发皱。她咬了咬唇。眼眶有点红。\n" +
+      "警笛远去。玻璃反光。楼梯吱呀。谁也没说话。"
+    const sigA = chapterStructuralSignature(humanA)
+    const sigB = chapterStructuralSignature(humanB)
+    // 结构维度可能巧合一致 (段长桶/句长/转场), 但句首模板不重合 → 不判同构
+    if (sigA.transitionDensityBucket === sigB.transitionDensityBucket) {
+      expect(signaturesSimilar(sigA, sigB)).toBe(false)
+    } else {
+      expect(signaturesSimilar(sigA, sigB)).toBe(false)
+    }
+  })
+})
+
+// ============================================================================
 // 34 号验收修复回归 (hy3 P1-1): 句长量化必须基于原始分句 — 不同句长分布的
 // 章节不得因 normText 剥离标点后句长恒等而误报同构
 // ============================================================================

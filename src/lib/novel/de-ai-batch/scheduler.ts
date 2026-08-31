@@ -24,7 +24,13 @@ import { runDeAiDualPass, formatDualPassPromptFragment } from "../de-ai-dual-pas
 import { classifyIntervention } from "../de-ai-intensity"
 import { lockProtectedSpans, buildPreserveDirective } from "../de-ai-preserve-lock"
 import { runDeAiSelfCheck } from "../de-ai-selfcheck"
-import { overCorrectionReport } from "../mechanical-slop-detector"
+import { overCorrectionReport, slopScore } from "../mechanical-slop-detector"
+import {
+  echoReportToText,
+  chapterStructuralSignature,
+  signaturesSimilar,
+  type StructuralSignature,
+} from "../narrative-echo-detector"
 import { loadNovelProjectMeta } from "../project-meta"
 import { isTransientLlmError, runBatch, runWithBackoff } from "./concurrency"
 import { deleteDeAiBatchDraft, loadDeAiBatchDraft, saveDeAiBatchDraft } from "./drafts"
@@ -173,6 +179,20 @@ export async function runDeAiBatch(
         genre,
       })
   state.concurrency = concurrency
+
+  /** P1-4 跨章回纹 (36 号接线, Track B soft): 窗口内前序已处理章节的回显命中。
+   *  并发 worker 下以 state.echoSignatures (持久化) 为真源, 按章节号取最近 windowSize 个
+   *  前序签名做同构判定 —— 断点恢复天然一致 (resume 后签名随 state 保留)。 */
+  const detectEchoMatches = (chapterNumber: number, signature: StructuralSignature): number[] => {
+    const prior = Object.entries(state.echoSignatures ?? {})
+      .map(([n, sig]) => ({ chapter: Number(n), sig }))
+      .filter((e) => e.chapter < chapterNumber)
+      .sort((a, b) => b.chapter - a.chapter)
+      .slice(0, 5)
+    return prior
+      .filter((e) => signaturesSimilar(e.sig, signature))
+      .map((e) => e.chapter)
+  }
   const remaining = deriveRemainingQueue(state)
   if (remaining.length === 0) {
     state.phase = "completed"
@@ -227,6 +247,12 @@ export async function runDeAiBatch(
       const report = runDeAiDualPass(content)
       const avoidWordsHits = scanAvoidWords(content, avoidWords ?? [])
       const mechanicallyClean = report.pass1.hits.length === 0 && avoidWordsHits.length === 0
+      // 跨章回纹签名在跳过章上也注册（保持窗口连续性）
+      state.echoSignatures = {
+        ...state.echoSignatures,
+        [chapterNumber]: chapterStructuralSignature(content),
+      }
+      persistState()
       if (options.skipCleanChapters && mechanicallyClean) {
         await updateChapter(chapterNumber, {
           status: "skipped",
@@ -243,18 +269,29 @@ export async function runDeAiBatch(
 
       // P1-2 preserve-lock: 改写前锁定关键内容（URL/数字/引号/角色名/时间词/对白标签）
       const lock = lockProtectedSpans(content)
-      // 介入分级 (P0-2): light/medium/rewrite + cavitySkip 防过度改写
+      // 介入分级 (P0-2): light/medium/rewrite + cavitySkip 防过度改写。
+      // 36 号: slopPenalty 直传机械层 slopScore (弃 highCount 代理);
+      //        weightedScore 按 charCount 归一为每千字密度口径 (intensity 双轨)。
       const cavityBefore = overCorrectionReport(content)
+      const slop = slopScore(content)
       const triage = classifyIntervention({
-        slopPenalty: report.pass1.highCount > 0 ? Math.min(10, report.pass1.highCount) : 0,
+        slopPenalty: slop.slopPenalty,
         weightedScore: report.pass1.weightedScore,
         humanizerCavityScore: cavityBefore.humanizerCavityScore,
         sentenceLengthCV: cavityBefore.sentenceLengthCV,
+        charCount: content.replace(/\s+/g, "").length,
       })
+
+      // P1-4 跨章回纹 (36 号接线, Track B soft): 注册本章签名, 查窗口回显, 注入改写提示
+      const echoSignature = chapterStructuralSignature(content)
+      const echoMatches = detectEchoMatches(chapterNumber, echoSignature)
+      state.echoSignatures = { ...state.echoSignatures, [chapterNumber]: echoSignature }
+      persistState()
+      const echoNote = echoReportToText(echoMatches, chapterNumber)
 
       const messages = buildDeAiRewriteMessages(lock.maskedText, customSkill, {
         userPrompt,
-        dualPassFragment: formatDualPassPromptFragment(report, avoidWordsHits),
+        dualPassFragment: formatDualPassPromptFragment(report, avoidWordsHits) + (echoNote ? `\n${echoNote}` : ""),
         cavityGuard: true,
         preserveDirective: buildPreserveDirective(lock.spans),
       })
@@ -280,6 +317,7 @@ export async function runDeAiBatch(
         avoidWordsHits,
         skillVersion: BUILTIN_DE_AI_SKILL_VERSION,
         interventionTier: triage.tier,
+        echoChapters: echoMatches.length > 0 ? echoMatches : undefined,
         createdAt: nowIso(),
         updatedAt: nowIso(),
       }

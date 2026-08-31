@@ -655,8 +655,11 @@ const CAVITY_FILLER_WORDS = [
 
 /** 过度齐整阈值: CV 低于此 = 机械齐整; 高于此 = 人为造不规则 (改写器腔) */
 export const CAVITY_CV_LOW = 0.08
-/** 过度不规则阈值: 正常中文叙事 CV 峰值 ~0.5, 改写器腔常 >0.75 */
-export const CAVITY_CV_HIGH = 0.75
+/** 过度不规则阈值: 正常中文叙事 CV 峰值 ~0.5, 改写器腔常 >0.9。
+ * 36 号真实语料标定: 《8人》6 章真实 human CV=0.648-0.809 (ch2=0.809 最高),
+ * 旧 0.75 误报 ch1/ch2/ch5 三章 (FPR=3/6); 上调至 0.85 (真实 P95 0.809 + 裕量),
+ * 6 章零误报且保留改写器腔 (CV>0.9) 检测空间。 */
+export const CAVITY_CV_HIGH = 0.85
 /** 假口语密度阈值: 每千字填充词 > 此值 = 假口语腔 */
 export const CAVITY_FILLER_PER_1000 = 3.0
 /** 假口语连击窗口内最少个数 (与 SLOP_CLUSTER 同思路) */

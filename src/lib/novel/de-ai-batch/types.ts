@@ -66,6 +66,9 @@ export interface DeAiBatchState {
   /** 剩余待处理章节号（顺序固定）。 */
   queue: number[]
   perChapter: Record<number, DeAiChapterState>
+  /** P1-4 跨章回纹 (36 号接线): 已处理章节的结构签名 (章节号 → 签名),
+   *  供断点恢复后重建 NarrativeEchoTracker (Track B soft, 不阻断改写)。 */
+  echoSignatures?: Record<number, import("../narrative-echo-detector").StructuralSignature>
 }
 
 export interface DeAiBatchProgress {
@@ -136,6 +139,8 @@ export interface DeAiBatchDraftArtifact {
   skillVersion?: string
   /** P2-1: 介入分级 triage 结果（可选，Track B soft）。 */
   interventionTier?: "light" | "medium" | "rewrite"
+  /** P1-4 (36 号): 跨章回纹命中章节（可选，Track B soft 诊断）。 */
+  echoChapters?: number[]
   createdAt: string
   updatedAt: string
 }

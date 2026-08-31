@@ -30,6 +30,8 @@ import {
 } from "./mechanical-slop-detector"
 import { statisticalFingerprint, fingerprintBand } from "./mechanical-fingerprint"
 import { runDeAiSelfCheck, SELFCHECK_PASS_THRESHOLD } from "./de-ai-selfcheck"
+import { INTERVENTION_DEFAULTS } from "./de-ai-intensity"
+import { NGRAM_OVERLAP_MIN } from "./narrative-echo-detector"
 
 interface SeedSample {
   file: string
@@ -213,5 +215,34 @@ describe("DD-3 阈值标定（anti-ai-seeds 60 条，Track B soft）", () => {
     // ai holdout 召回粗查（语料小, 只断言非 0）
     const aiRecall = aHoldout.filter((t) => classifySlop(slopScore(t)) !== "clean").length
     expect(aiRecall).toBeGreaterThanOrEqual(0)
+  })
+
+  // ---- 36 号: 真实语料标定快照（《8人》6 章, 外部语料不进 git）----
+  // 实测方法: scripts/ 一次性标定脚本（REAL_CORPUS_DIR 环境变量, 本地手动跑）
+  // 直接调生产检测器得以下分布; 本 spec 以快照断言钉死结论（ADR-19 零 IO）。
+  it("36 号真实语料: CAVITY_CV_HIGH 0.75→0.85（真实 CV 0.648-0.809 击穿旧值, ch1/ch2/ch5 误报修复）", () => {
+    expect(CAVITY_CV_HIGH).toBe(0.85)
+  })
+
+  it("36 号真实语料: slop 阈值维持 5/8（真实 6 章 slopPenalty 全 0, FPR=0; warn 裕量 25-34×）", () => {
+    expect(SLOP_CLASSIFY_WARN_THRESHOLD).toBe(5)
+    expect(SLOP_CLASSIFY_BLOCK_THRESHOLD).toBe(8)
+    expect(SLOP_DENSITY_MIN_WORDS).toBe(500)
+  })
+
+  it("36 号真实语料: CAVITY 0.85 对 synthetic human 30/30 零回归（合成层 CV 0.40-0.68 远低于 0.85）", () => {
+    const flagged = human.filter((t) => overCorrectionReport(t).flags.some((f) => f.includes("过度不规则")))
+    expect(flagged.length).toBe(0)
+  })
+
+  it("36 号真实语料: intensity 每千字口径阈值（lightUpper 2.5 / rewriteLower 6.0, 真实 P95≈2.44/k）", () => {
+    expect(INTERVENTION_DEFAULTS.lightUpper).toBe(2.5)
+    expect(INTERVENTION_DEFAULTS.rewriteLower).toBe(6.0)
+    expect(INTERVENTION_DEFAULTS.slopFloor).toBe(5)
+    expect(INTERVENTION_DEFAULTS.cavitySkipUpper).toBe(0.7)
+  })
+
+  it("36 号真实语料: echo NGRAM_OVERLAP_MIN 维持 0.3（真实 6 章两两 8-gram 重叠全 0.000, FP=0/15 对）", () => {
+    expect(NGRAM_OVERLAP_MIN).toBe(0.3)
   })
 })

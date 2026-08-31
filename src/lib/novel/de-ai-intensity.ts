@@ -14,6 +14,7 @@
  */
 
 export type { SlopReport } from "./mechanical-slop-detector"
+import { SLOP_DENSITY_MIN_WORDS } from "./mechanical-slop-detector"
 
 
 /** 介入程度档位 (EditLens 三档连续化) */
@@ -29,6 +30,9 @@ export interface InterventionInput {
   humanizerCavityScore?: number
   /** 句长变异系数 (改写过度时异常高/低) */
   sentenceLengthCV?: number
+  /** 文本长度 (无空白字符数, 36 号标定新增): 提供时按每千字密度口径判定,
+   *  否则回退原始口径 (兼容旧调用)。 */
+  charCount?: number
 }
 
 /** 分级结果 */
@@ -54,13 +58,23 @@ export interface InterventionThresholds {
   cavitySkipUpper: number
 }
 
-/** 默认阈值 (DD-3 待校准, 与 slop 阈值同量级) */
+/** 默认阈值 (36 号真实语料标定)。
+ * weightedScore 为原生计数 (长度偏置): 真实 9.4k 字长章自然得分 15.4,
+ * ai 短样本 (600-800 字) P50 仅 2.2 —— 原始口径会误判真实长章为 rewrite。
+ * 双轨方案: 保留 weightedScore 原始契约 (112 词表/LLM fragment 依赖),
+ * 本模块内归一为每千字密度 (weightedPerK) 再判档。
+ * 真实 6 章归一后 0.46-2.43/k (P95≈2.44); ai 层 ~2.6-8.3/k。
+ * lightUpper=2.5/k ≈ 真实 P75 2.07+余量 (留轻度 AI 润色 medium 分级空间);
+ * rewriteLower=6.0/k 仅极端降质触发。旧原始口径 6/16 保留为兼容回退。 */
 export const INTERVENTION_DEFAULTS: InterventionThresholds = {
-  lightUpper: 6,
-  rewriteLower: 16,
+  lightUpper: 2.5,
+  rewriteLower: 6.0,
   slopFloor: 5,
   cavitySkipUpper: 0.7,
 }
+
+/** 原始口径兼容阈值 (无 charCount 时回退, 行为与 35 号前一致) */
+const LEGACY_THRESHOLDS = { lightUpper: 6, rewriteLower: 16 } as const
 
 /**
  * 介入程度 triage: light / medium / rewrite。
@@ -80,6 +94,14 @@ export function classifyIntervention(
 ): InterventionVerdict {
   const cfg = { ...INTERVENTION_DEFAULTS, ...opts }
   const cavity = input.humanizerCavityScore ?? 0
+  const charCount = input.charCount
+  // 双轨判定: 提供 charCount 时归一为每千字密度口径 (36 号标定), 否则原始口径回退
+  const densityBased = charCount !== undefined && charCount > 0
+  const weightedForJudge = densityBased && charCount !== undefined
+    ? (input.weightedScore / Math.max(SLOP_DENSITY_MIN_WORDS, charCount)) * 1000
+    : input.weightedScore
+  const lightUpper = densityBased ? cfg.lightUpper : LEGACY_THRESHOLDS.lightUpper
+  const rewriteLower = densityBased ? cfg.rewriteLower : LEGACY_THRESHOLDS.rewriteLower
 
   if (cavity >= cfg.cavitySkipUpper) {
     return {
@@ -91,7 +113,7 @@ export function classifyIntervention(
     }
   }
 
-  if (input.weightedScore >= cfg.rewriteLower && input.slopPenalty >= cfg.slopFloor) {
+  if (weightedForJudge >= rewriteLower && input.slopPenalty >= cfg.slopFloor) {
     return {
       tier: "rewrite",
       guidance:
@@ -101,7 +123,7 @@ export function classifyIntervention(
     }
   }
 
-  if (input.slopPenalty >= cfg.slopFloor || input.weightedScore >= cfg.lightUpper) {
+  if (input.slopPenalty >= cfg.slopFloor || weightedForJudge >= lightUpper) {
     return {
       tier: "medium",
       guidance:
