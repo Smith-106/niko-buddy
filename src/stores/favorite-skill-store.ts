@@ -58,7 +58,8 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
   load: async (projectPath) => {
     set({ loading: true })
     try {
-      const config = await loadFavorites()
+      // G7 (39 号修复): 收藏分轨后读路径必须传 projectPath，否则项目收藏能写不能读
+      const config = await loadFavorites(projectPath)
       // v5 R4：守卫必须用 normalizePath，与 App.tsx isCurrentProject 一致
       const current = useWikiStore.getState().project
       if (!current || normalizePath(current.path) !== normalizePath(projectPath)) return
@@ -140,7 +141,7 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
     set({ favorites: nextFavorites })
     try {
       const config: FavoriteSkillConfig = { version: 1, favorites: nextFavorites }
-      await saveFavorites(config)
+      await saveFavorites(config, currentProjectPath)
       toast.success(toastMessage)
     } catch (err) {
       console.error("[favorite] 保存失败:", err)
@@ -155,7 +156,7 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
     set({ favorites: nextFavorites })
     try {
       const config: FavoriteSkillConfig = { version: 1, favorites: nextFavorites }
-      await saveFavorites(config)
+      await saveFavorites(config, get().currentProjectPath)
     } catch (err) {
       console.error("[favorite] 删除失败:", err)
       set({ favorites: previousFavorites })

@@ -167,6 +167,60 @@ function flattenMdFiles(nodes: FileNode[]): FileNode[] {
   return files
 }
 
+// ── Wiki 内容缓存 (G8, 39 号修复) ──────────────────────────────────
+// 每次 searchWiki 都经 IPC 重读全部 wiki/*.md (16 并发批读)。200 文件
+// 项目 = 每次搜索 200 次 readFile 往返。方案: 内存内容缓存 + 短 TTL +
+// dataVersion 失效 (应用内写 wiki 会 bumpDataVersion)。搜索结果是瞬态
+// 展示, TTL 窗口内陈旧可接受; 应用外手工编辑靠 TTL 兜底。
+const WIKI_CACHE_TTL_MS = 30_000
+const WIKI_CACHE_MAX_ENTRIES = 2000
+
+interface WikiCacheEntry {
+  content: string
+  cachedAt: number
+}
+
+const wikiContentCache = new Map<string, WikiCacheEntry>()
+const wikiTreeCache = new Map<string, { files: FileNode[]; cachedAt: number }>()
+let wikiCacheDataVersion = -1
+
+export function invalidateWikiSearchCache(projectPath?: string): void {
+  if (!projectPath) {
+    wikiContentCache.clear()
+    wikiTreeCache.clear()
+    return
+  }
+  const pp = normalizePath(projectPath)
+  for (const key of [...wikiContentCache.keys()]) {
+    if (key.startsWith(pp + "/")) wikiContentCache.delete(key)
+  }
+  wikiTreeCache.delete(pp)
+}
+
+function readFileCached(path: string): Promise<string> {
+  const hit = wikiContentCache.get(path)
+  if (hit && Date.now() - hit.cachedAt < WIKI_CACHE_TTL_MS) {
+    return Promise.resolve(hit.content)
+  }
+  return readFile(path).then((content) => {
+    if (wikiContentCache.size >= WIKI_CACHE_MAX_ENTRIES) {
+      const oldest = wikiContentCache.keys().next().value
+      if (oldest !== undefined) wikiContentCache.delete(oldest)
+    }
+    wikiContentCache.set(path, { content, cachedAt: Date.now() })
+    return content
+  })
+}
+
+async function listWikiFiles(pp: string): Promise<FileNode[]> {
+  const hit = wikiTreeCache.get(pp)
+  if (hit && Date.now() - hit.cachedAt < WIKI_CACHE_TTL_MS) return hit.files
+  const wikiTree = await listDirectory(`${pp}/wiki`)
+  const files = flattenMdFiles(wikiTree)
+  wikiTreeCache.set(pp, { files, cachedAt: Date.now() })
+  return files
+}
+
 function extractTitle(content: string, fileName: string): string {
   // Try YAML frontmatter title
   const frontmatterMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
@@ -258,8 +312,14 @@ export async function searchWiki(
   // not a workflow we want to optimize at the cost of every other
   // search call.
   try {
-    const wikiTree = await listDirectory(`${pp}/wiki`)
-    const wikiFiles = flattenMdFiles(wikiTree)
+    // G8 (39 号修复): dataVersion 变化 (应用内写 wiki) → 整体失效
+    const dataVersion = useWikiStore.getState().dataVersion
+    if (dataVersion !== wikiCacheDataVersion) {
+      wikiContentCache.clear()
+      wikiTreeCache.clear()
+      wikiCacheDataVersion = dataVersion
+    }
+    const wikiFiles = await listWikiFiles(pp)
     await searchFiles(wikiFiles, effectiveTokens, query, results)
   } catch {
     // no wiki directory
@@ -306,7 +366,7 @@ export async function searchWiki(
           for (const dir of dirs) {
             const tryPath = `${pp}/wiki/${dir}/${safeId}.md`
             try {
-              const content = await readFile(tryPath)
+              const content = await readFileCached(tryPath)
               const title = extractTitle(content, `${safeId}.md`)
               results.push({
                 path: tryPath,
@@ -434,7 +494,7 @@ async function searchFiles(
       batch.map(async (file) => {
         let content: string
         try {
-          content = await readFile(file.path)
+          content = await readFileCached(file.path)
         } catch {
           return null
         }

@@ -187,6 +187,8 @@ export function StorySimulationView() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const resumeSimulationRef = useRef<SimulationResumePoint | null>(null);
+  /** 本次推演是否降级（连续 Agent 决策失败） */
+  const degradedRef = useRef(false);
   const resumeSnapshotRef = useRef<{
     agentSnapshot?: ReturnType<typeof serializeSimulationState> | null;
     debugTraces?: SimulationDebugTrace[];
@@ -539,6 +541,7 @@ export function StorySimulationView() {
     setDebugTraces(resumePoint ? resumeSnapshot?.debugTraces || [] : []);
     setCurrentRumors(resumePoint ? resumeSnapshot?.rumors || [] : []);
     setIsCancelling(false);
+    degradedRef.current = false;
     const ac = new AbortController();
     abortControllerRef.current = ac;
 
@@ -600,6 +603,9 @@ export function StorySimulationView() {
         onProgress: (p, label) => setProgress(50 + Math.floor(p / 2), label),
         onComplete: () => {},
         onError: () => {},
+        onDegraded: () => {
+          degradedRef.current = true;
+        },
         onTimelineEvent: (event) => {
           collectedTimeline.push(event);
           addTimelineEvent(event);
@@ -728,6 +734,13 @@ export function StorySimulationView() {
           agentSnapshot,
           currentRumors,
           debugTraces,
+          degradedRef.current
+            ? {
+                status: "degraded",
+                partialReason:
+                  "连续 3 次 Agent 决策失败（可能为离线或 API 错误），推演结果仅含系统事件",
+              }
+            : undefined,
         );
         // 刷新历史结果列表
         const results = await loadSimulationResults(
@@ -752,6 +765,12 @@ export function StorySimulationView() {
         );
       } catch (saveErr) {
         console.error("保存推演结果失败:", saveErr);
+      }
+      if (degradedRef.current) {
+        setInfoMessage(
+          "推演降级完成：连续 Agent 决策失败（可能为离线或 API 错误），结果仅含系统事件，请检查网络/模型配置后重试。",
+        );
+        setTimeout(() => setInfoMessage(null), 8000);
       }
     } catch (err) {
       if (ac.signal.aborted) {

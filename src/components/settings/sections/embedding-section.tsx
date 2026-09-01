@@ -45,6 +45,8 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const embeddingConfig = useWikiStore((s) => s.embeddingConfig)
+  const offlineMode = useWikiStore((s) => s.offlineMode)
+  const setOfflineMode = useWikiStore((s) => s.setOfflineMode)
 
   const [expanded, setExpanded] = useState(false)
   const [chunkCount, setChunkCount] = useState<number | null>(null)
@@ -205,6 +207,31 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold">{t("settings.sections.embedding.title")}</h2>
+      </div>
+
+      {/* G10 (39 号修复): 统一离线模式开关 — 短路 embedding/rerank 等可选网络依赖 */}
+      <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">{t("settings.sections.embedding.offlineMode")}</span>
+          <span className="text-xs text-muted-foreground">
+            {t("settings.sections.embedding.offlineModeHint")}
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={offlineMode}
+          onClick={() => setOfflineMode(!offlineMode)}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+            offlineMode ? "bg-primary" : "bg-input"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-background transition-transform ${
+              offlineMode ? "translate-x-5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
       </div>
 
       <div

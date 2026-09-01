@@ -181,6 +181,7 @@ function ReviewStartButton() {
   const project = useWikiStore((s) => s.project)
   const selectedReviewFilePath = useWikiStore((s) => s.selectedReviewFilePath)
   const reviewRun = useWikiStore((s) => s.reviewRun)
+  const cancelReviewRun = useWikiStore((s) => s.cancelReviewRun)
   const isReviewing = reviewRun?.running ?? false
   const canReview = Boolean(project?.path && selectedReviewFilePath) && !isReviewing
 
@@ -198,6 +199,19 @@ function ReviewStartButton() {
         console.error("[ReviewCenterView] 读取审查章节失败:", error)
       })
   }, [isReviewing, project?.path, selectedReviewFilePath, t])
+
+  if (isReviewing) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={cancelReviewRun}
+        title={t("reviewCenter.cancelReview")}
+      >
+        {t("reviewCenter.cancelReview")}
+      </Button>
+    )
+  }
 
   return (
     <Button

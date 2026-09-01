@@ -138,7 +138,12 @@ export function HistoryResultsModal({
                           草稿
                         </span>
                       )}
-                      {(result.status ?? "complete") !== "complete" && (
+                      {result.status === "degraded" && (
+                        <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-700 dark:text-red-300">
+                          降级
+                        </span>
+                      )}
+                      {(result.status === "partial" || result.status === "cancelled") && (
                         <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
                           未完成
                         </span>
@@ -148,7 +153,7 @@ export function HistoryResultsModal({
                       {result.summary.slice(0, 40)}
                     </span>
                   </div>
-                  {(result.status ?? "complete") !== "complete" && onContinueResult && (
+                  {(result.status === "partial" || result.status === "cancelled") && onContinueResult && (
                     <button
                       type="button"
                       className="shrink-0 rounded px-2 py-1 text-xs text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"

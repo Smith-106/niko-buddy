@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   searchWiki,
   tokenizeQuery,
+  invalidateWikiSearchCache,
 } from "./search"
 import type { FileNode } from "@/types/wiki"
 
@@ -85,6 +86,8 @@ describe("searchWiki — guard and token pass", () => {
     mocks.readFile.mockResolvedValue("")
     mocks.searchByEmbedding.mockResolvedValue([])
     mocks.rerankCandidates.mockResolvedValue([])
+    // G8 (39 号修复): 模块级 wiki 缓存跨测试隔离
+    invalidateWikiSearchCache()
   })
 
   it("returns [] for a blank query without touching the fs", async () => {
@@ -184,6 +187,8 @@ describe("searchWiki — guard and token pass", () => {
     expect(r?.snippet).toContain("needle")
 
     mocks.readFile.mockResolvedValue(`needle ${"y".repeat(50)}`)
+    // G8: 同测试内第二次调用前清缓存 (缓存语义: TTL 内同路径返回缓存)
+    invalidateWikiSearchCache()
     const [r2] = await searchWiki(PP, "needle", { includeVector: false })
     expect(r2?.snippet.startsWith("...")).toBe(false)
     expect(r2?.snippet.endsWith("...")).toBe(false)
@@ -215,6 +220,8 @@ describe("searchWiki — vector materialization and RRF", () => {
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockRejectedValue(new Error("missing"))
     mocks.searchByEmbedding.mockResolvedValue([])
+    // G8 (39 号修复): 模块级 wiki 缓存跨测试隔离
+    invalidateWikiSearchCache()
   })
 
   it("materializes vector-only pages by probing wiki subdirectories", async () => {
@@ -332,6 +339,8 @@ describe("searchWiki — rerank", () => {
     mocks.readFile.mockImplementation(async (p: string) =>
       p.endsWith("a.md") ? "# needle 标题\n\nneedle 内容" : "needle 内容",
     )
+    // G8 (39 号修复): 模块级 wiki 缓存跨测试隔离
+    invalidateWikiSearchCache()
     mocks.rerankCandidates.mockImplementation(async (_q, candidates) =>
       [...candidates].reverse(),
     )

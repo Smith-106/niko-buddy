@@ -90,12 +90,43 @@ export function isRerankEnabled(rerankConfig: RerankConfig): boolean {
   return rerankConfig.enabled
 }
 
+// ── rerank 结果缓存 (G8, 39 号修复) ───────────────────────────────
+// 每次搜索都调 rerankCandidates → 一次 LLM 往返。同一 query + 同一候选集
+// (path 指纹) 在 TTL 窗口内直接复用, 避免重复付费。
+const RERANK_CACHE_TTL_MS = 60_000
+const RERANK_CACHE_MAX_ENTRIES = 50
+
+interface RerankCacheEntry<T> {
+  candidatesKey: string
+  result: T[]
+  cachedAt: number
+}
+
+const rerankCache = new Map<string, RerankCacheEntry<unknown>>()
+
+export function invalidateRerankCache(): void {
+  rerankCache.clear()
+}
+
 export async function rerankCandidates<T extends RerankCandidate>(
   query: string,
   candidates: T[],
   options: RerankOptions = {},
 ): Promise<T[]> {
   if (candidates.length <= 1) return candidates.slice(0, options.topK ?? candidates.length)
+
+  // G10 (39 号修复): 统一离线模式短路可选网络依赖
+  if (useWikiStore.getState().offlineMode) {
+    return candidates.slice(0, options.topK ?? candidates.length)
+  }
+
+  // G8 (39 号修复): 缓存命中直接复用 (query + 候选 path 指纹 + topK)
+  const candidatesKey = candidates.map((c) => c.path ?? c.title).join("|")
+  const cacheKey = `${query}::${candidatesKey}::${options.topK ?? "all"}`
+  const cached = rerankCache.get(cacheKey)
+  if (cached && Date.now() - cached.cachedAt < RERANK_CACHE_TTL_MS) {
+    return (cached.result as T[]).slice(0, options.topK ?? cached.result.length)
+  }
 
   const { llmConfig: rawLlmConfig, rerankConfig } = useWikiStore.getState()
   const llmConfig = resolveDefaultModel(rawLlmConfig)
@@ -131,7 +162,14 @@ export async function rerankCandidates<T extends RerankCandidate>(
         ordered.push(candidateSlice[index] as T)
       }
       const result = [...ordered, ...candidates.slice(candidateLimit)]
-      return result.slice(0, options.topK ?? result.length)
+      const finalResult = result.slice(0, options.topK ?? result.length)
+      // G8: 写缓存 (容量上限 LRU 近似: 超限删最旧)
+      if (rerankCache.size >= RERANK_CACHE_MAX_ENTRIES) {
+        const oldest = rerankCache.keys().next().value
+        if (oldest !== undefined) rerankCache.delete(oldest)
+      }
+      rerankCache.set(cacheKey, { candidatesKey, result: finalResult, cachedAt: Date.now() })
+      return finalResult
     } catch (error) {
       console.warn("[rerank] direct rerank endpoint failed, using original order:", error instanceof Error ? error.message : String(error))
       return candidates.slice(0, options.topK ?? candidates.length)
@@ -187,5 +225,12 @@ export async function rerankCandidates<T extends RerankCandidate>(
   }
 
   const result = [...ordered, ...candidates.slice(candidateLimit)]
-  return result.slice(0, options.topK ?? result.length)
+  const finalResult = result.slice(0, options.topK ?? result.length)
+  // G8: 写缓存 (容量上限 LRU 近似: 超限删最旧)
+  if (rerankCache.size >= RERANK_CACHE_MAX_ENTRIES) {
+    const oldest = rerankCache.keys().next().value
+    if (oldest !== undefined) rerankCache.delete(oldest)
+  }
+  rerankCache.set(cacheKey, { candidatesKey, result: finalResult, cachedAt: Date.now() })
+  return finalResult
 }

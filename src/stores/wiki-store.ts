@@ -20,6 +20,7 @@ const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
 const CHAT_DOCK_POSITION_KEY = "qmai-chat-dock-position"
+const OFFLINE_MODE_KEY = "qmai-offline-mode"
 const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 
 // ── Public type exports ────────────────────────────────────────────────────────
@@ -586,6 +587,8 @@ interface WikiState {
   finalChapterSave: FinalChapterSaveState | null
   lintRun: LintRunState | null
   reviewRun: ReviewRunState | null
+  /** G4 (39 号修复): 当前六维审查的 AbortController, 供 cancelReviewRun 级联 abort。 */
+  reviewRunAbortController: AbortController | null
   theme: "light" | "dark" | "deep-blue" | "system"
   uiFontSizeScale: number
   dataVersion: number
@@ -659,9 +662,14 @@ interface WikiState {
   finishLintRun: (runId: string, lintRun: LintRunFinishState) => void
   setReviewRun: (reviewRun: ReviewRunState | null) => void
   finishReviewRun: (runId: string, reviewRun: ReviewRunFinishState) => void
+  /** G4 (39 号修复): 取消当前六维审查 (abort 级联到 streamChat)。 */
+  cancelReviewRun: () => void
   clearTransientTaskState: () => void
   setTheme: (theme: "light" | "dark" | "deep-blue" | "system") => void
   setUiFontSizeScale: (scale: number) => void
+  /** G10 (39 号修复): 统一离线模式 — 短路 embedding/rerank 等可选网络依赖。 */
+  offlineMode: boolean
+  setOfflineMode: (enabled: boolean) => void
   bumpDataVersion: () => void
 }
 
@@ -789,6 +797,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   finalChapterSave: null,
   lintRun: null,
   reviewRun: null,
+  reviewRunAbortController: null,
   theme: "system",
   uiFontSizeScale: readStoredUiFontSizeScale(),
 
@@ -918,6 +927,11 @@ export const useWikiStore = create<WikiState>((set) => ({
     if (prev.reviewRun?.runId !== runId) return {}
     return { reviewRun: { ...prev.reviewRun, ...reviewRun } }
   }),
+  cancelReviewRun: () => set((prev) => {
+    if (!prev.reviewRun?.running) return prev
+    prev.reviewRunAbortController?.abort()
+    return { reviewRun: { ...prev.reviewRun, running: false, error: undefined } }
+  }),
   clearTransientTaskState: () => set({ finalChapterSave: null, lintRun: null, reviewRun: null }),
   setTheme: (theme) => set({ theme }),
   setUiFontSizeScale: (scale) => {
@@ -926,6 +940,16 @@ export const useWikiStore = create<WikiState>((set) => ({
       localStorage.setItem(UI_FONT_SIZE_SCALE_KEY, String(clamped))
     }
     set({ uiFontSizeScale: clamped })
+  },
+  offlineMode: (() => {
+    if (typeof localStorage === "undefined") return false
+    return localStorage.getItem(OFFLINE_MODE_KEY) === "1"
+  })(),
+  setOfflineMode: (enabled) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(OFFLINE_MODE_KEY, enabled ? "1" : "0")
+    }
+    set({ offlineMode: enabled })
   },
   bumpDataVersion: () => set((prev) => ({ dataVersion: prev.dataVersion + 1 })),
 }))

@@ -306,7 +306,7 @@ export interface SimulationReport {
   createdAt: string
 }
 
-export type SimulationResultStatus = "complete" | "partial" | "cancelled"
+export type SimulationResultStatus = "complete" | "partial" | "cancelled" | "degraded"
 
 export interface SimulationResumePoint {
   nextNodeIndex: number

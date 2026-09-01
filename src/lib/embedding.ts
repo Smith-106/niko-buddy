@@ -22,7 +22,7 @@
 
 import { readFile, listDirectory } from "@/commands/fs"
 import { invoke } from "@tauri-apps/api/core"
-import type { EmbeddingConfig } from "@/stores/wiki-store"
+import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
@@ -187,6 +187,8 @@ export async function fetchEmbedding(
   cfg: EmbeddingConfig,
   maxRetries = 3,
 ): Promise<number[] | null> {
+  // G10 (39 号修复): 统一离线模式短路可选网络依赖
+  if (useWikiStore.getState().offlineMode) return null
   if (!cfg.endpoint) return null
 
   // Dispatch once, outside the retry loop: endpoint, auth headers, request

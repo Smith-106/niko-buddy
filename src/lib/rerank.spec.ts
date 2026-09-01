@@ -25,7 +25,7 @@ vi.mock("@/lib/novel/model-resolver", () => ({
   resolveDefaultModel: mocks.resolveDefaultModel,
 }))
 
-import { isRerankEnabled, rerankCandidates } from "./rerank"
+import { isRerankEnabled, rerankCandidates, invalidateRerankCache } from "./rerank"
 import type { RerankCandidate } from "./rerank"
 import type { LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
@@ -59,6 +59,8 @@ beforeEach(() => {
   mocks.getState.mockReturnValue({ llmConfig: baseConfig, rerankConfig })
   mocks.resolveDefaultModel.mockImplementation((c: LlmConfig) => c)
   mocks.isDirectRerankEndpoint.mockReturnValue(false)
+  // G8 (39 号修复): 模块级 rerank 缓存跨测试隔离
+  invalidateRerankCache()
 })
 
 describe("isRerankEnabled", () => {

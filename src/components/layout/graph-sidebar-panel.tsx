@@ -42,6 +42,12 @@ export function GraphSidebarPanel() {
         <div className="flex items-center gap-1.5 text-sm font-semibold">
           <PanelHeaderWithHelp title={t("novel.graph.title")} helpKey="graph" />
         </div>
+        <span
+          className="hidden shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground lg:flex"
+          title={t("novel.graph.titleWikiNote")}
+        >
+          Wiki 知识图
+        </span>
         <Button
           type="button"
           size="icon"

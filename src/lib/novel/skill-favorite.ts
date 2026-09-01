@@ -1,6 +1,8 @@
 import type { SkillKind, SkillStage, SkillMode, SkillCategory, UserSkill } from "@/lib/novel/skill-library"
 import type { DeAiSkill } from "@/lib/novel/de-ai-skill-library"
 import { getStore } from "@/lib/web-store"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
+import { join } from "@tauri-apps/api/path"
 
 export type FavoriteSkillLibrary = "writing" | "de-ai"
 
@@ -94,19 +96,41 @@ export function buildDeAiSnapshot(
 const FAVORITE_SKILL_CONFIG_KEY = "favoriteSkills"
 const configSaveQueues = new Map<string, Promise<void>>()
 
+// G7 (39 号修复): 收藏分轨 — 内置/全局 (originProjectPath === "") 留 app KV;
+// 项目级收藏落 {projectPath}/.qmai/skill-favorites.json (随项目迁移)。
+const PROJECT_FAVORITES_FILE = ".qmai/skill-favorites.json"
+
+async function loadProjectFavorites(projectPath: string): Promise<FavoriteSkillConfig> {
+  try {
+    const content = await readFile(await join(projectPath, PROJECT_FAVORITES_FILE))
+    const config = JSON.parse(content) as FavoriteSkillConfig
+    if (!config || typeof config !== "object" || !Array.isArray(config.favorites)) {
+      return EMPTY_FAVORITE_CONFIG
+    }
+    return { version: 1, favorites: config.favorites.filter(isValidFavoriteEntry) }
+  } catch {
+    return EMPTY_FAVORITE_CONFIG
+  }
+}
+
 /**
- * 从全局 web-store 加载收藏配置。
+ * 从全局 web-store + 项目文件加载收藏配置 (G7 分轨)。
  * 失败时返回空配置，不抛异常（参考 project-store.ts 模式）。
  */
-export async function loadFavorites(): Promise<FavoriteSkillConfig> {
+export async function loadFavorites(projectPath?: string): Promise<FavoriteSkillConfig> {
   try {
     const store = await getStore()
     const config = await store.get<FavoriteSkillConfig>(FAVORITE_SKILL_CONFIG_KEY)
-    if (!config || typeof config !== "object") return EMPTY_FAVORITE_CONFIG
-    if (!Array.isArray(config.favorites)) return EMPTY_FAVORITE_CONFIG
+    const globalFavorites = !config || typeof config !== "object" || !Array.isArray(config.favorites)
+      ? []
+      : config.favorites.filter(isValidFavoriteEntry)
+    if (!projectPath) {
+      return { version: 1, favorites: globalFavorites }
+    }
+    const projectConfig = await loadProjectFavorites(projectPath)
     return {
       version: 1,
-      favorites: config.favorites.filter(isValidFavoriteEntry),
+      favorites: [...globalFavorites, ...projectConfig.favorites],
     }
   } catch (err) {
     console.warn("[skill-favorite] 加载收藏配置失败:", err)
@@ -130,15 +154,36 @@ function isValidFavoriteEntry(value: unknown): value is FavoriteSkillEntry {
 }
 
 /**
- * 保存收藏配置到全局 web-store（串行化写入，防止竞态）。
- * 参考 de-ai-skill-library.ts:31 的 configSaveQueues 模式。
+ * 保存收藏配置 (G7 分轨): 内置/全局 → app KV; 项目级 → 项目文件。
+ * 串行化写入，防止竞态。
  */
-export async function saveFavorites(config: FavoriteSkillConfig): Promise<void> {
+export async function saveFavorites(config: FavoriteSkillConfig, projectPath?: string): Promise<void> {
+  const globalFavorites = config.favorites.filter((f) => f.originProjectPath === "")
+  const projectFavorites = projectPath
+    ? config.favorites.filter((f) => f.originProjectPath !== "")
+    : []
   const key = FAVORITE_SKILL_CONFIG_KEY
   const previous = configSaveQueues.get(key) ?? Promise.resolve()
-  const next = previous.then(() => persistFavorites(config)).catch(() => persistFavorites(config))
+  const next = previous
+    .then(() => persistFavorites({ version: 1, favorites: globalFavorites }))
+    .then(() => {
+      if (projectPath && projectFavorites.length > 0) {
+        return persistProjectFavorites(projectPath, { version: 1, favorites: projectFavorites })
+      }
+      return undefined
+    })
+    .catch(() => persistFavorites({ version: 1, favorites: globalFavorites }))
   configSaveQueues.set(key, next)
   await next
+}
+
+async function persistProjectFavorites(projectPath: string, config: FavoriteSkillConfig): Promise<void> {
+  try {
+    await createDirectory(await join(projectPath, ".qmai"))
+  } catch {
+    // .qmai 已存在或创建失败均继续
+  }
+  await writeFileAtomic(await join(projectPath, PROJECT_FAVORITES_FILE), JSON.stringify(config, null, 2))
 }
 
 async function persistFavorites(config: FavoriteSkillConfig): Promise<void> {

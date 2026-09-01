@@ -198,12 +198,12 @@ describe("ReviewStartButton — 可用性", () => {
     expect(btn.getAttribute("title")).toBe("请先在左侧选择审查章节")
   })
 
-  it("审查进行中（reviewRun.running）→ 禁用 + reviewingAction 文案", () => {
+  it("审查进行中（reviewRun.running）→ 显示取消按钮（G4）", () => {
     mocks.state.reviewRun = { running: true }
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.reviewingAction" }) as HTMLButtonElement
-    expect(btn.hasAttribute("disabled")).toBe(true)
+    const btn = screen.getByRole("button", { name: "reviewCenter.cancelReview" }) as HTMLButtonElement
+    expect(btn).toBeTruthy()
   })
 
   it("可审查时按钮可用、无提示 title", () => {
@@ -262,11 +262,11 @@ describe("ReviewStartButton — 启动审查", () => {
     expect(mocks.readFile).not.toHaveBeenCalled()
   })
 
-  it("审查进行中时点击不触发读取（守卫返回）", async () => {
+  it("审查进行中时点击取消按钮不触发读取（守卫返回）", async () => {
     mocks.state.reviewRun = { running: true }
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.reviewingAction" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "reviewCenter.cancelReview" }) as HTMLButtonElement
     fireEvent.click(btn)
     await act(async () => {})
     expect(mocks.readFile).not.toHaveBeenCalled()

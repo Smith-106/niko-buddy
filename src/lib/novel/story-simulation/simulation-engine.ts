@@ -53,12 +53,16 @@ export interface SimulationCallbacks {
   onTimelineEvent?: (event: TimelineEvent) => void
   /** 推演过程观察回调：用于 UI 展示 Agent 调度和 blackboard 状态 */
   onDebugTrace?: (trace: SimulationDebugTrace) => void
+  /** 连续 Agent 决策失败达到阈值时回调一次（锁存，不重复触发） */
+  onDegraded?: (info: { consecutiveFailures: number; lastError?: string }) => void
 }
 
 // ── 常量 ──
 
 const MAX_ROUNDS_PER_NODE_FALLBACK = 3
 const REACT_CHAIN_LIMIT = 2
+/** 连续 Agent 决策失败达到该次数后，将本次推演标记为 degraded（不中止） */
+export const DEGRADED_CONSECUTIVE_FAILURE_THRESHOLD = 3
 
 // ── 内部辅助：将 streamChat 的流式回调收拢为一个完整字符串 ──
 
@@ -1178,6 +1182,10 @@ export async function runSimulation(
   const baseRounds = Math.max(1, maxRoundsPerNode ?? calculatedRounds)
   const maxRounds = Math.max(1, Math.round(baseRounds * modeConfig.roundsMultiplier))
   let aborted = false
+  /** 连续 Agent 决策失败计数（成功决策后清零） */
+  let consecutiveAgentFailures = 0
+  /** 是否已标记降级（锁存） */
+  let degraded = false
   const resumeTimelineEvents = resume?.timelineEvents ?? []
   const normalizedResumeNodeIndex = Math.max(0, Math.min(totalNodes - 1, resume?.nextNodeIndex ?? 0))
   const normalizedResumeRound = Math.max(0, resume?.nextRound ?? 0)
@@ -1362,6 +1370,21 @@ export async function runSimulation(
               aborted = true
               break
             }
+            consecutiveAgentFailures += 1
+            if (!degraded && consecutiveAgentFailures >= DEGRADED_CONSECUTIVE_FAILURE_THRESHOLD) {
+              degraded = true
+              callbacks.onDegraded?.({
+                consecutiveFailures: consecutiveAgentFailures,
+                lastError: agentErr instanceof Error ? agentErr.message : String(agentErr),
+              })
+              const degradedEvent: SimulationEvent = {
+                type: "info",
+                timestamp: new Date().toISOString(),
+                message: `推演降级：连续 ${DEGRADED_CONSECUTIVE_FAILURE_THRESHOLD} 次 Agent 决策失败（可能为离线或 API 错误），后续结果可能仅含系统事件`,
+              }
+              events.push(degradedEvent)
+              callbacks.onEvent(degradedEvent)
+            }
             console.warn(`[simulation] Agent ${currentAgent.name} 决策失败，跳过本轮：`, agentErr)
             const warnEvent: SimulationEvent = {
               type: "info",
@@ -1381,6 +1404,9 @@ export async function runSimulation(
             // null 且非 abort，跳过该 agent 继续
             continue
           }
+
+          // 决策成功：清零连续失败计数（恢复路径）
+          consecutiveAgentFailures = 0
 
           const { parsed, tlEvent, simEvent } = result
 

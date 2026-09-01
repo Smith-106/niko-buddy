@@ -1,4 +1,4 @@
-import { readFile, writeFile, writeFileAtomic } from "@/commands/fs"
+import { readFile, writeFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { join } from "@tauri-apps/api/path"
 import { DEFAULT_SKILL_PRIORITY, type UserSkill } from "@/lib/novel/skill-library"
 
@@ -25,8 +25,11 @@ export interface DeAiSkillConfig {
 }
 
 export const DEFAULT_DE_AI_SKILL_ID = "built-in:comprehensive"
-const DE_AI_SKILL_CONFIG_FILE = "de-ai-skills.json"
-const DE_AI_SKILL_BACKUP_FILE = "de-ai-skills.backup.json"
+// G7 (39 号修复): 配置迁入 .qmai/ 治理目录 (备份/清理脚本覆盖范围);
+// 旧根路径 (projectPath/de-ai-skills.json) 保留为回退源, load 时惰性迁移。
+const DE_AI_SKILL_CONFIG_FILE = ".qmai/de-ai-skills.json"
+const DE_AI_SKILL_BACKUP_FILE = ".qmai/de-ai-skills.backup.json"
+const DE_AI_SKILL_LEGACY_ROOT_FILE = "de-ai-skills.json"
 
 const configSaveQueues = new Map<string, Promise<void>>()
 
@@ -800,6 +803,22 @@ export async function loadDeAiSkillConfig(projectPath: string | null | undefined
     if (isDeAiSkillConfigCorruptError(error)) throw error
   }
 
+  // G7: 旧根路径回退 + 惰性迁移 (读旧→写新, 不删旧作为安全副本)
+  try {
+    const legacyPath = await join(projectPath, DE_AI_SKILL_LEGACY_ROOT_FILE)
+    const legacyContent = await readFile(legacyPath)
+    const legacyConfig = normalizeDeAiSkillConfig(JSON.parse(legacyContent))
+    try {
+      await createDirectory(await join(projectPath, ".qmai"))
+      await writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2))
+    } catch {
+      // 迁移写失败不阻断, 下次再试
+    }
+    return legacyConfig
+  } catch {
+    // 无旧配置, 继续 legacy txt 回退
+  }
+
   try {
     const legacyPath = await join(projectPath, "de-ai-skill.txt")
     const legacyContent = (await readFile(legacyPath)).trim()
@@ -825,6 +844,11 @@ async function writeDeAiSkillConfig(projectPath: string, config: DeAiSkillConfig
   const configPath = await join(projectPath, DE_AI_SKILL_CONFIG_FILE)
   const backupPath = await join(projectPath, DE_AI_SKILL_BACKUP_FILE)
   const content = JSON.stringify(normalizeDeAiSkillConfig(config), null, 2)
+  try {
+    await createDirectory(await join(projectPath, ".qmai"))
+  } catch {
+    // .qmai 已存在或创建失败均继续 (writeFileAtomic 会再试)
+  }
   try {
     const existingContent = await readFile(configPath)
     JSON.parse(existingContent)

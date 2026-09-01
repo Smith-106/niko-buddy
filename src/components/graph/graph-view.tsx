@@ -9,7 +9,7 @@ import {
   EdgeLineProgram,
 } from "sigma/rendering"
 import EdgeCurveProgram from "@sigma/edge-curve"
-import forceAtlas2 from "graphology-layout-forceatlas2"
+import { useGraphLayoutWorker } from "@/components/graph/use-graph-layout-worker"
 import { Network, RefreshCw, ZoomIn, ZoomOut, Maximize, Lightbulb, AlertTriangle, Link2, X, Filter, EyeOff, FileText } from "lucide-react"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { Button } from "@/components/ui/button"
@@ -184,6 +184,8 @@ function GraphLoader({
   foreshadowingStatusMap: Map<string, string>
 }) {
   const loadGraph = useLoadGraph()
+  const { computeLayout } = useGraphLayoutWorker()
+  const sigma = useSigma()
 
   useEffect(() => {
     const dataKey = nodes.map((n) => `${n.id}:${n.community}:${n.linkCount}`).sort().join(",") + "|" + edges.map((edge) => `${edge.source}->${edge.target}:${edge.weight}`).sort().join(",")
@@ -245,27 +247,44 @@ function GraphLoader({
       }
     }
 
-    // Only run expensive ForceAtlas2 layout when data actually changed
+    // G3 (39 号修复): ForceAtlas2 下沉 Web Worker — 先以初始/缓存坐标立即渲染
+    // (渐进式 UX, 不再白屏等待), worker 返回后更新坐标 + refresh。
+    // worker 不可用/超时/出错时 computeLayout 内部回退主线程同步计算 (与原逻辑等价)。
     if (needsLayout && nodes.length > 1) {
-      const settings = forceAtlas2.inferSettings(graph)
-      forceAtlas2.assign(graph, {
-        iterations: GRAPH_LAYOUT_ITERATIONS,
-        settings: {
-          ...settings,
-          ...GRAPH_LAYOUT_SETTINGS,
-          barnesHutOptimize: nodes.length > 50,
-        },
-      })
       lastLayoutDataKey = dataKey
-
-      // Cache computed positions
-      graph.forEachNode((nodeId, attrs) => {
-        positionCache.set(nodeId, { x: attrs.x, y: attrs.y })
+      const layoutInput = {
+        nodes: nodes.map((n) => {
+          const cached = positionCache.get(n.id)
+          const initialPosition = initialGraphPosition(n, nodes.indexOf(n), nodes.length)
+          return {
+            id: n.id,
+            x: cached?.x ?? initialPosition.x,
+            y: cached?.y ?? initialPosition.y,
+            size: nodeSize(n.linkCount, maxLinks, visualSettings),
+          }
+        }),
+        edges: edges.map((e) => ({ source: e.source, target: e.target, weight: e.weight })),
+        iterations: GRAPH_LAYOUT_ITERATIONS,
+        settings: GRAPH_LAYOUT_SETTINGS,
+        barnesHutOptimize: nodes.length > 50,
+      }
+      void computeLayout(layoutInput).then((positions) => {
+        // dataKey 守卫: 过期响应不覆盖新数据
+        if (lastLayoutDataKey !== dataKey) return
+        graph.forEachNode((nodeId) => {
+          const pos = positions[nodeId]
+          if (pos) {
+            graph.setNodeAttribute(nodeId, "x", pos.x)
+            graph.setNodeAttribute(nodeId, "y", pos.y)
+            positionCache.set(nodeId, { x: pos.x, y: pos.y })
+          }
+        })
+        sigma.refresh()
       })
     }
 
     loadGraph(graph)
-  }, [loadGraph, nodes, edges, colorMode, novelMode, graphMode, labelDisplayMode, edgeColorHex, edgeStrengthPercent, edgeLabelsAlwaysVisible, visualSettings, foreshadowingStatusMap])
+  }, [loadGraph, computeLayout, sigma, nodes, edges, colorMode, novelMode, graphMode, labelDisplayMode, edgeColorHex, edgeStrengthPercent, edgeLabelsAlwaysVisible, visualSettings, foreshadowingStatusMap])
 
   return null
 }
