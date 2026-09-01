@@ -5,8 +5,6 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
-
 ## [2.7.4] - 2026-08-28
 
 ### 收敛泛化波（stretch gate，roadmap v2.7 第五波）
@@ -201,23 +199,6 @@
 - **eslint no-eval 规则注册**：`chunk-fingerprint.ts` 的 disable 指令引用了未注册的 `@typescript-eslint/no-eval`（该规则是 ESLint 内置非 TS 插件），改为 `no-eval` 恢复 T18 自设 "0 error" 底线
 - **changelog-section 版本断言**：v2.6.1 发版漏改测试 mock 版本号（2.6.0→2.6.1），徽标匹配失耦修复
 
-## [2.6.0] - 2026-08-22
-
-### Summary（摄取与索引增强 + 图谱精度 + 断点/伏笔增强 + 决策回放 + 角色工作台 + 自评估）
-
-v2.6.0 聚焦 Read 侧摄取与索引质量、图谱可靠性、断点/伏笔生命周期，以及写作侧的可追溯性与角色/章节可视化。涵盖八项新能力。
-
-### Added
-
-- **EPUB/HTML 特化摄取 + 提取器注册表**：导入 EPUB/HTML 参考素材走特化管线，按文档类型自动分派对应提取器；缓存键已版本化，解析升级后旧缓存自动失效
-- **跨页 chunk 指纹去重**：为 chunk 建立 SHA-256 指纹索引，跨页 / 跨章节重复片段只入库一次，检索更精准、向量库增长受控
-- **chunk 表自动 compaction + 对账纯函数**：自动压缩碎片化记录，配套纯函数对账校验索引一致性，长线写作数据不漂移
-- **图谱抽取双层精度过滤**：关系边先机械层校验再语义层复核，拦截幻觉边，保证图谱与检索基于可靠边集
-- **阶段断点 TTL 配置 + 伏笔 abandoned 态**：断点保留时长（TTL）可配置、过期自动清理；伏笔新增 abandoned（废弃）态，废弃后不计入活跃债务与回收提醒
-- **ContextPack 决策回放面板**：聊天内可折叠面板逐条展示上下文组入的记忆、命中来源与取舍顺序，追溯每次生成依据
-- **角色工作台**：角色识别后在独立工作台视图集中呈现档案、状态、认知、关系与近期出场，快速切换独立工位
-- **章节自评估**：结构化输出 `{score, gap, fix}`——质量评分、缺口定位与返修建议，返修前锁定问题点
-
 ## [2.6.1] - 2026-08-23
 
 ### Added
@@ -238,6 +219,24 @@ v2.6.0 聚焦 Read 侧摄取与索引质量、图谱可靠性、断点/伏笔生
 - **build**：windows 依赖移入 `[target.'cfg(windows)'.dependencies]`——声明与代码 cfg 门控对齐，修复 ubuntu/macos 编译 E0425
 - **unix**：claude_cli.rs kill(pid) 补 u32→i32 显式转换（修复非 Windows 平台 E0308）
 - 效果：master CI 自 v2.5.0 以来首次三平台全绿
+
+
+## [2.6.0] - 2026-08-22
+
+### Summary（摄取与索引增强 + 图谱精度 + 断点/伏笔增强 + 决策回放 + 角色工作台 + 自评估）
+
+v2.6.0 聚焦 Read 侧摄取与索引质量、图谱可靠性、断点/伏笔生命周期，以及写作侧的可追溯性与角色/章节可视化。涵盖八项新能力。
+
+### Added
+
+- **EPUB/HTML 特化摄取 + 提取器注册表**：导入 EPUB/HTML 参考素材走特化管线，按文档类型自动分派对应提取器；缓存键已版本化，解析升级后旧缓存自动失效
+- **跨页 chunk 指纹去重**：为 chunk 建立 SHA-256 指纹索引，跨页 / 跨章节重复片段只入库一次，检索更精准、向量库增长受控
+- **chunk 表自动 compaction + 对账纯函数**：自动压缩碎片化记录，配套纯函数对账校验索引一致性，长线写作数据不漂移
+- **图谱抽取双层精度过滤**：关系边先机械层校验再语义层复核，拦截幻觉边，保证图谱与检索基于可靠边集
+- **阶段断点 TTL 配置 + 伏笔 abandoned 态**：断点保留时长（TTL）可配置、过期自动清理；伏笔新增 abandoned（废弃）态，废弃后不计入活跃债务与回收提醒
+- **ContextPack 决策回放面板**：聊天内可折叠面板逐条展示上下文组入的记忆、命中来源与取舍顺序，追溯每次生成依据
+- **角色工作台**：角色识别后在独立工作台视图集中呈现档案、状态、认知、关系与近期出场，快速切换独立工位
+- **章节自评估**：结构化输出 `{score, gap, fix}`——质量评分、缺口定位与返修建议，返修前锁定问题点
 
 ## [2.5.1] - 2026-08-21
 
@@ -621,11 +620,36 @@ v2.5.0 以五个 Wave 交付写作主链纵深能力，全部守 Draft-first 与
 - **v2.1.x**: 小说写作主链功能系列
 - **v2.0.x**: Tauri 2 架构升级系列
 
-[2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
-[2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
+[2.7.4]: https://github.com/Smith-106/niko-buddy/compare/v2.7.3...v2.7.4
+[2.7.3]: https://github.com/Smith-106/niko-buddy/compare/v2.7.2...v2.7.3
+[2.7.2]: https://github.com/Smith-106/niko-buddy/compare/v2.7.1...v2.7.2
+[2.7.1]: https://github.com/Smith-106/niko-buddy/compare/v2.7.0...v2.7.1
+[2.7.0]: https://github.com/Smith-106/niko-buddy/compare/v2.6.13...v2.7.0
+[2.6.13]: https://github.com/Smith-106/niko-buddy/compare/v2.6.12...v2.6.13
+[2.6.12]: https://github.com/Smith-106/niko-buddy/compare/v2.6.11...v2.6.12
+[2.6.11]: https://github.com/Smith-106/niko-buddy/compare/v2.6.10...v2.6.11
+[2.6.10]: https://github.com/Smith-106/niko-buddy/compare/v2.6.9...v2.6.10
+[2.6.9]: https://github.com/Smith-106/niko-buddy/compare/v2.6.8...v2.6.9
+[2.6.8]: https://github.com/Smith-106/niko-buddy/compare/v2.6.7...v2.6.8
+[2.6.7]: https://github.com/Smith-106/niko-buddy/compare/v2.6.6...v2.6.7
+[2.6.6]: https://github.com/Smith-106/niko-buddy/compare/v2.6.5...v2.6.6
+[2.6.5]: https://github.com/Smith-106/niko-buddy/compare/v2.6.4...v2.6.5
+[2.6.4]: https://github.com/Smith-106/niko-buddy/compare/v2.6.3...v2.6.4
 [2.6.3]: https://github.com/Smith-106/niko-buddy/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/Smith-106/niko-buddy/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/Smith-106/niko-buddy/compare/v2.6.0...v2.6.1
+[2.6.0]: https://github.com/Smith-106/niko-buddy/compare/v2.5.1...v2.6.0
+[2.5.1]: https://github.com/Smith-106/niko-buddy/compare/v2.5.0...v2.5.1
+[2.5.0]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.5.0
+[2.4.11]: https://github.com/Smith-106/niko-buddy/compare/v2.4.10...v2.4.11
+[2.4.10]: https://github.com/Smith-106/niko-buddy/compare/v2.4.9...v2.4.10
+[2.4.9]: https://github.com/Smith-106/niko-buddy/compare/v2.4.8...v2.4.9
+[2.4.8]: https://github.com/Smith-106/niko-buddy/compare/v2.4.7...v2.4.8
+[2.4.7]: https://github.com/Smith-106/niko-buddy/compare/v2.4.6...v2.4.7
+[2.4.6]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.4.6
+[2.4.5]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.4.5
+[2.4.4]: https://github.com/Smith-106/niko-buddy/compare/v2.4.3...v2.4.4
+[2.4.3]: https://github.com/Smith-106/niko-buddy/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/Smith-106/niko-buddy/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Smith-106/niko-buddy/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/Smith-106/niko-buddy/releases/tag/v2.4.0

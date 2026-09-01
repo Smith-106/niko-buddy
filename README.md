@@ -375,7 +375,7 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 | 富文本编辑 | Milkdown 7 |
 | 图谱渲染 | Sigma.js 3 + Graphology |
 | 图表/流程图 | Mermaid |
-| 简繁转换 | OpenCC |
+| 简繁转换 | 原生 t2s-map（`scripts/gen-t2s-map.mjs` 生成；v2.4.4 起 LGPL opencc-js 移除） |
 | 拼音匹配 | pinyin-pro |
 | 后端 | Rust |
 | 向量存储 | LanceDB |
@@ -428,6 +428,23 @@ sequenceDiagram
 
 - **操作系统**：Windows 10+ / macOS / Linux
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
+
+### 构建期 LLM 环境变量（可选）
+
+以下 `VITE_QMAI_LLM_*` 变量提供**构建期默认** LLM provider（`src/lib/env-llm-defaults.ts` `loadEnvLlmDefault`，composition-root 运行时加载）；未设置时应用启动后仍在设置页手动配置，二者等价。**三者（API_KEY / ENDPOINT / MODEL）同时设置**才生效，缺任一即回退应用内配置。
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `VITE_QMAI_LLM_API_KEY` | 自定义 LLM provider API key | 无（未设则不启用） |
+| `VITE_QMAI_LLM_ENDPOINT` | OpenAI 兼容 endpoint（如 `https://api.example.com/v1`，或 Ollama `http://localhost:11434/v1`） | 无 |
+| `VITE_QMAI_LLM_MODEL` | 模型名（如 `gpt-4o` / `qwen2.5:14b`） | 无 |
+| `VITE_QMAI_LLM_CONTEXT_SIZE` | 最大上下文（token） | `204800`（非法/非正值回退） |
+
+### 离线模式（v2.7.4 起，39 号 G10）
+
+- **开关**：设置页（embedding-section）「离线模式」；状态存 `wiki-store.offlineMode`，localStorage 键 `qmai-offline-mode`（持久化，重启保留）。
+- **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
+- **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
 > 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 已发布）。
 > 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.4）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
