@@ -14,6 +14,8 @@ interface PendingEntry {
   resolve: (value: NodePositions) => void
   reject: (reason: unknown) => void
   timeoutId: ReturnType<typeof setTimeout>
+  /** onerror/超时回退主线程计算所需入参 (G3 修复) */
+  input: ForceAtlas2LayoutInput
 }
 
 export function useGraphLayoutWorker() {
@@ -46,7 +48,12 @@ export function useGraphLayoutWorker() {
         workerRef.current = null
         for (const [, pending] of pendingRef.current) {
           clearTimeout(pending.timeoutId)
-          pending.reject(new Error("graph-layout worker error"))
+          // G3 修复: 与超时分支同语义 — 回退主线程同步计算, 保证布局仍产出
+          try {
+            pending.resolve(computeForceAtlas2Positions(pending.input))
+          } catch {
+            pending.resolve({})
+          }
         }
         pendingRef.current.clear()
       }
@@ -73,9 +80,13 @@ export function useGraphLayoutWorker() {
           workerRef.current?.terminate()
           workerRef.current = null
           // 超时回退主线程
-          resolve(computeForceAtlas2Positions(input))
+          try {
+            resolve(computeForceAtlas2Positions(input))
+          } catch {
+            resolve({})
+          }
         }, TIMEOUT_MS)
-        pendingRef.current.set(id, { resolve, reject, timeoutId })
+        pendingRef.current.set(id, { resolve, reject, timeoutId, input })
         try {
           worker.postMessage({ id, type: "layout", payload: input })
         } catch {

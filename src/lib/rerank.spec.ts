@@ -56,7 +56,7 @@ function candidate(id: string): RerankCandidate {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.getState.mockReturnValue({ llmConfig: baseConfig, rerankConfig })
+  mocks.getState.mockReturnValue({ llmConfig: baseConfig, rerankConfig, dataVersion: 0 })
   mocks.resolveDefaultModel.mockImplementation((c: LlmConfig) => c)
   mocks.isDirectRerankEndpoint.mockReturnValue(false)
   // G8 (39 号修复): 模块级 rerank 缓存跨测试隔离
@@ -84,6 +84,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
   it("returns original order when rerank is disabled", async () => {
     mocks.getState.mockReturnValue({
       llmConfig: baseConfig,
+      dataVersion: 0,
       rerankConfig: { ...rerankConfig, enabled: false },
     })
     const list = [candidate("a"), candidate("b")]
@@ -94,6 +95,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
   it("returns original order when the configured model is blank", async () => {
     mocks.getState.mockReturnValue({
       llmConfig: baseConfig,
+      dataVersion: 0,
       rerankConfig: { ...rerankConfig, model: "  " },
     })
     const list = [candidate("a"), candidate("b")]
@@ -103,6 +105,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
   it("uses the main LLM config with reasoning disabled when useMainLlm is set", async () => {
     mocks.getState.mockReturnValue({
       llmConfig: baseConfig,
+      dataVersion: 0,
       rerankConfig: { ...rerankConfig, useMainLlm: true },
     })
     const list = [candidate("a"), candidate("b")]
@@ -120,6 +123,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
   it("resolves custom provider apiMode and caps maxContextSize", async () => {
     mocks.getState.mockReturnValue({
       llmConfig: { ...baseConfig, maxContextSize: 200_000 },
+      dataVersion: 0,
       rerankConfig: {
         ...rerankConfig,
         provider: "custom",
@@ -141,7 +145,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
 
   it("defaults maxContextSize to 65536 when the base config omits it", async () => {
     const { maxContextSize: _drop, ...withoutSize } = baseConfig
-    mocks.getState.mockReturnValue({ llmConfig: withoutSize, rerankConfig })
+    mocks.getState.mockReturnValue({ llmConfig: withoutSize, rerankConfig, dataVersion: 0 })
     mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {
       callbacks.onToken('{"order":[]}')
       callbacks.onDone()
@@ -316,6 +320,7 @@ describe("rerankCandidates — streamed chat path", () => {
     })
     mocks.getState.mockReturnValue({
       llmConfig: baseConfig,
+      dataVersion: 0,
       rerankConfig: { ...rerankConfig, maxCandidates: 2 },
     })
     const list = [candidate("a"), candidate("b"), candidate("c")]
@@ -325,5 +330,26 @@ describe("rerankCandidates — streamed chat path", () => {
     expect(prompt).toContain("当前用途：章节连贯")
     expect(prompt).toContain('"id": "a"')
     expect(prompt).not.toContain('"id": "c"')
+  })
+
+  it("G8 修复: dataVersion bump 后同 query 同候选集重新 rerank (缓存联动失效)", async () => {
+    mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {
+      callbacks.onToken('{"order":[{"id":"c"},{"id":"a"}]}')
+      callbacks.onDone()
+    })
+    const list = [candidate("a"), candidate("b"), candidate("c")]
+    // 第一次: 写缓存
+    const out1 = await rerankCandidates("q", list)
+    expect(out1.map((c) => c.id)).toEqual(["c", "a", "b"])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    // 同 query 同候选: 缓存命中, 不再调 LLM
+    const out2 = await rerankCandidates("q", list)
+    expect(out2.map((c) => c.id)).toEqual(["c", "a", "b"])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    // dataVersion bump (应用内编辑) → 缓存失效, 重新调 LLM
+    mocks.getState.mockReturnValue({ llmConfig: baseConfig, rerankConfig, dataVersion: 1 })
+    const out3 = await rerankCandidates("q", list)
+    expect(out3.map((c) => c.id)).toEqual(["c", "a", "b"])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
   })
 })

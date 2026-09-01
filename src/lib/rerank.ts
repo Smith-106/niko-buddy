@@ -103,6 +103,8 @@ interface RerankCacheEntry<T> {
 }
 
 const rerankCache = new Map<string, RerankCacheEntry<unknown>>()
+// G8 修复 (40 号): dataVersion 联动失效 — 与 search.ts 的 wikiContentCache 共用同一契约
+let rerankCacheDataVersion = -1
 
 export function invalidateRerankCache(): void {
   rerankCache.clear()
@@ -120,9 +122,17 @@ export async function rerankCandidates<T extends RerankCandidate>(
     return candidates.slice(0, options.topK ?? candidates.length)
   }
 
-  // G8 (39 号修复): 缓存命中直接复用 (query + 候选 path 指纹 + topK)
+  // G8 修复 (40 号): 应用内任一 dataVersion bump (写 wiki/图谱/知识树/lint 等)
+  // 都意味着候选内容可能已变化 — 复用陈旧排序会让用户在编辑后 ≤60s 内看到旧排序。
+  const dataVersion = useWikiStore.getState().dataVersion
+  if (dataVersion !== rerankCacheDataVersion) {
+    invalidateRerankCache()
+    rerankCacheDataVersion = dataVersion
+  }
+
+  // G8 (39 号修复): 缓存命中直接复用 (query + 候选 path 指纹 + purpose + topK)
   const candidatesKey = candidates.map((c) => c.path ?? c.title).join("|")
-  const cacheKey = `${query}::${candidatesKey}::${options.topK ?? "all"}`
+  const cacheKey = `${query}::${candidatesKey}::${options.purpose ?? ""}::${options.topK ?? "all"}`
   const cached = rerankCache.get(cacheKey)
   if (cached && Date.now() - cached.cachedAt < RERANK_CACHE_TTL_MS) {
     return (cached.result as T[]).slice(0, options.topK ?? cached.result.length)
