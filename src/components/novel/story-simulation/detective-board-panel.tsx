@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { Eye, EyeOff, Filter, MessageSquare, Zap, Clock } from "lucide-react"
 import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel/story-simulation/types"
 import { actionTypeShortLabel } from "@/lib/novel/story-simulation/action-type-utils"
@@ -28,6 +29,7 @@ interface ClueItem {
 }
 
 export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelProps) {
+  const { t } = useTranslation()
   const [filterType, setFilterType] = useState<"all" | ClueType>("all")
   const [filterAgent, setFilterAgent] = useState<FilterAgent>("all")
   const [filterNode, setFilterNode] = useState<"all" | number>("all")
@@ -80,7 +82,9 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
         nodeIndex: r.nodeIndex,
         round: r.round,
         timestamp: new Date(r.timestamp).getTime(),
-        title: sourceName ? `传闻（源自${sourceName}）` : "传闻",
+        title: sourceName
+          ? t("storySimulation.rumorSourcedFrom", { name: sourceName })
+          : t("storySimulation.rumor"),
         content: r.content,
         actorName: spreaderName || sourceName || undefined,
         knowAgents,
@@ -94,7 +98,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
       if (a.round !== b.round) return a.round - b.round
       return a.timestamp - b.timestamp
     })
-  }, [events, rumors, agentList])
+  }, [events, rumors, agentList, t])
 
   const filteredClues = useMemo(() => {
     return clues.filter((clue) => {
@@ -127,15 +131,15 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
 
   const typeInfo = (type: ClueType) => {
     if (type === "event") {
-      return { label: "事件", icon: Zap, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-400" }
+      return { label: t("storySimulation.eventType"), icon: Zap, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-400" }
     }
-    return { label: "传闻", icon: MessageSquare, color: "text-amber-600 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400" }
+    return { label: t("storySimulation.rumor"), icon: MessageSquare, color: "text-amber-600 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400" }
   }
 
   if (clues.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        暂无线索数据，开始推演后会自动生成
+        {t("storySimulation.noClueData")}
       </div>
     )
   }
@@ -146,7 +150,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2 text-xs">
         <div className="flex items-center gap-1 text-muted-foreground">
           <Filter className="h-3.5 w-3.5" />
-          <span>筛选</span>
+          <span>{t("storySimulation.filter")}</span>
         </div>
 
         {/* 类型筛选 */}
@@ -156,7 +160,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             className={`rounded px-2 py-1 ${filterType === "all" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setFilterType("all")}
           >
-            全部
+            {t("storySimulation.all")}
           </button>
           <button
             type="button"
@@ -164,7 +168,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             onClick={() => setFilterType("event")}
           >
             <Zap className="h-3 w-3" />
-            事件
+            {t("storySimulation.eventType")}
           </button>
           <button
             type="button"
@@ -172,7 +176,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             onClick={() => setFilterType("rumor")}
           >
             <MessageSquare className="h-3 w-3" />
-            传闻
+            {t("storySimulation.rumor")}
           </button>
         </div>
 
@@ -182,7 +186,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
           value={filterAgent}
           onChange={(e) => setFilterAgent(e.target.value)}
         >
-          <option value="all">全部角色</option>
+          <option value="all">{t("storySimulation.allCharacters")}</option>
           {agentList.map((a) => (
             <option key={a.characterId} value={a.characterId}>{a.name}</option>
           ))}
@@ -194,9 +198,9 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
           value={filterNode === "all" ? "all" : String(filterNode)}
           onChange={(e) => setFilterNode(e.target.value === "all" ? "all" : Number(e.target.value))}
         >
-          <option value="all">全部节点</option>
+          <option value="all">{t("storySimulation.allNodes")}</option>
           {nodeList.map((n) => (
-            <option key={n} value={n}>节点 {n + 1}</option>
+            <option key={n} value={n}>{t("storySimulation.nodeTitle", { index: n + 1 })}</option>
           ))}
         </select>
 
@@ -208,12 +212,12 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
               onChange={(e) => setShowOnlyUnknown(e.target.checked)}
               className="h-3 w-3"
             />
-            只看不知道的
+            {t("storySimulation.showOnlyUnknown")}
           </label>
         )}
 
         <div className="ml-auto text-[11px] text-muted-foreground">
-          共 {filteredClues.length} 条线索
+          {t("storySimulation.totalClues", { count: filteredClues.length })}
         </div>
       </div>
 
@@ -221,7 +225,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {groupedByNode.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            没有符合筛选条件的线索
+            {t("storySimulation.noMatchingClues")}
           </div>
         ) : (
           <div className="space-y-4">
@@ -230,10 +234,10 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                 <div className="mb-2 flex items-center gap-2">
                   <Clock className="h-3.5 w-3.5 text-primary" />
                   <span className="text-xs font-medium text-primary">
-                    节点 {nodeIndex + 1}
+                    {t("storySimulation.nodeTitle", { index: nodeIndex + 1 })}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    {nodeClues.length} 条线索
+                    {t("storySimulation.countClues", { count: nodeClues.length })}
                   </span>
                 </div>
                 <div className="space-y-2 pl-5 border-l-2 border-muted">
@@ -256,12 +260,12 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                             {info.label}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
-                            第 {clue.round + 1} 轮
+                            {t("storySimulation.roundLabel", { round: clue.round + 1 })}
                           </span>
                           {clue.isSecret && (
                             <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
                               <EyeOff className="h-2.5 w-2.5" />
-                              秘密
+                              {t("storySimulation.secret")}
                             </span>
                           )}
                         </div>
@@ -281,9 +285,9 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                           <Eye className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
                           <div className="flex flex-wrap gap-1">
                             {clue.knowAgents.length === 0 ? (
-                              <span className="text-[10px] text-muted-foreground">无人知晓</span>
+                              <span className="text-[10px] text-muted-foreground">{t("storySimulation.knownByNone")}</span>
                             ) : clue.knowAgents.length === agentList.length ? (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">所有人都知道</span>
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{t("storySimulation.knownByAll")}</span>
                             ) : (
                               clue.knowAgents.map((id) => (
                                 <span
@@ -311,7 +315,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                               ))}
                               {clue.unknowAgents.length > 5 && (
                                 <span className="text-[10px] text-muted-foreground">
-                                  +{clue.unknowAgents.length - 5}人
+                                  {t("storySimulation.morePeople", { count: clue.unknowAgents.length - 5 })}
                                 </span>
                               )}
                             </div>

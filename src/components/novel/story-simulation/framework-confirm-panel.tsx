@@ -156,7 +156,7 @@ export function FrameworkConfirmPanel({
               <Input
                 value={titleDraft}
                 onChange={(e) => setTitleDraft(e.target.value)}
-                placeholder="框架标题"
+                placeholder={t("storySimulation.frameworkTitlePlaceholder")}
                 className="h-8 flex-1 min-w-[200px] text-base font-semibold"
                 autoFocus
                 onKeyDown={(e) => {
@@ -167,7 +167,7 @@ export function FrameworkConfirmPanel({
               <Input
                 value={shortTitleDraft}
                 onChange={(e) => setShortTitleDraft(e.target.value)}
-                placeholder="短标题（可选）"
+                placeholder={t("storySimulation.shortTitlePlaceholder")}
                 className="h-8 w-32 text-sm"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") saveTitle();
@@ -206,7 +206,7 @@ export function FrameworkConfirmPanel({
                 variant="ghost"
                 className="h-7 w-7 p-0 opacity-50 hover:opacity-100"
                 onClick={startEditTitle}
-                title="编辑标题"
+                title={t("storySimulation.editTitle")}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -216,7 +216,7 @@ export function FrameworkConfirmPanel({
         {!editingTitle && (
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" onClick={onViewHistory}>
-              历史推演
+              {t("storySimulation.viewHistory")}
             </Button>
             <Button variant="outline" onClick={onRegenerate}>
               {t("storySimulation.regenerateFramework")}
@@ -226,10 +226,10 @@ export function FrameworkConfirmPanel({
                 {savedTip ? (
                   <>
                     <Check className="mr-1 h-4 w-4 text-emerald-500" />
-                    已保存
+                    {t("storySimulation.saved")}
                   </>
                 ) : (
-                  "保存框架"
+                  t("storySimulation.saveFramework")
                 )}
               </Button>
             )}
@@ -252,7 +252,7 @@ export function FrameworkConfirmPanel({
               variant="ghost"
               className="h-6 w-6 p-0 opacity-50 hover:opacity-100"
               onClick={startEditPremise}
-              title="编辑前提"
+              title={t("storySimulation.editPremise")}
             >
               <Pencil className="h-3 w-3" />
             </Button>
@@ -269,17 +269,17 @@ export function FrameworkConfirmPanel({
             />
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="ghost" onClick={cancelEditPremise}>
-                取消
+                {t("storySimulation.cancel")}
               </Button>
               <Button size="sm" onClick={savePremise}>
                 <Check className="mr-1 h-3.5 w-3.5" />
-                保存
+                {t("storySimulation.save")}
               </Button>
             </div>
           </div>
         ) : (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">
-            {currentFramework.premise || "（无前提）"}
+            {currentFramework.premise || t("storySimulation.noPremise")}
           </p>
         )}
       </div>
@@ -292,7 +292,7 @@ export function FrameworkConfirmPanel({
         <div className="text-sm font-medium text-muted-foreground">
           {t("storySimulation.frameworkNodes")}
           <span className="ml-2 text-xs font-normal text-muted-foreground/70">
-            （拖拽手柄可排序）
+            {t("storySimulation.dragSortHint")}
           </span>
         </div>
         <DndContext
@@ -333,6 +333,7 @@ function SortableNodeCard({
     transition,
     isDragging,
   } = useSortable({ id: node.index });
+  const { t } = useTranslation();
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -347,7 +348,7 @@ function SortableNodeCard({
         className="absolute left-0 top-0 z-10 flex h-full w-6 cursor-grab items-center justify-center text-muted-foreground/30 hover:text-primary active:cursor-grabbing"
         {...attributes}
         {...listeners}
-        title="拖拽排序"
+        title={t("storySimulation.dragToSort")}
       >
         <GripVertical className="h-4 w-4" />
       </button>
@@ -437,7 +438,7 @@ function FrameworkNodeCard({
             variant="ghost"
             className="h-7 w-7 p-0 opacity-50 hover:opacity-100"
             onClick={startEdit}
-            title="编辑节点"
+            title={t("storySimulation.editNode")}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -485,7 +486,7 @@ function FrameworkNodeCard({
                   involvedCharacters: e.target.value,
                 })
               }
-              placeholder="用逗号或顿号分隔"
+              placeholder={t("storySimulation.charsSeparatorPlaceholder")}
               className="h-8 text-sm"
             />
           </FieldEdit>

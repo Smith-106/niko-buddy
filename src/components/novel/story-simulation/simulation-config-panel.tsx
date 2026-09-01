@@ -17,11 +17,11 @@ const MODES: { mode: SimulationMode }[] = [
 
 const CHAPTER_OPTIONS = [5, 10, 20, 30, 50]
 const ROUND_OPTIONS = [
-  { value: 0, label: "自动（按字数）" },
-  { value: 2, label: "快速（2轮）" },
-  { value: 3, label: "标准（3轮）" },
-  { value: 5, label: "深度（5轮）" },
-  { value: 8, label: "充分（8轮）" },
+  { value: 0, label: "storySimulation.roundAuto" },
+  { value: 2, label: "storySimulation.roundFast" },
+  { value: 3, label: "storySimulation.roundStandard" },
+  { value: 5, label: "storySimulation.roundDeep" },
+  { value: 8, label: "storySimulation.roundThorough" },
 ]
 
 const WORD_LABEL_KEYS: Record<number, string> = {
@@ -91,29 +91,29 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         {selectedModeInfo && (
           <div className="rounded-lg border bg-muted/30 p-4">
             <div className="mb-3 flex items-center gap-2">
-              <span className="font-medium">{selectedModeInfo.name}模式</span>
+              <span className="font-medium">{t("storySimulation.modeTitle", { name: selectedModeInfo.name })}</span>
               <span className={cn("ml-auto rounded-full px-2 py-0.5 text-xs", selectedModeInfo.color)}>
-                推荐
+                {t("storySimulation.recommended")}
               </span>
             </div>
             
             <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
               <div className="rounded-md bg-background p-2">
-                <div className="text-muted-foreground">轮数</div>
+                <div className="text-muted-foreground">{t("storySimulation.statRounds")}</div>
                 <div className="mt-0.5 font-medium">{selectedModeInfo.roundsLabel}</div>
               </div>
               <div className="rounded-md bg-background p-2">
-                <div className="text-muted-foreground">随机性</div>
+                <div className="text-muted-foreground">{t("storySimulation.statRandomness")}</div>
                 <div className="mt-0.5 font-medium">{selectedModeInfo.randomnessLabel}</div>
               </div>
               <div className="rounded-md bg-background p-2">
-                <div className="text-muted-foreground">自由度</div>
+                <div className="text-muted-foreground">{t("storySimulation.statFreedom")}</div>
                 <div className="mt-0.5 font-medium">{selectedModeInfo.freedomLabel}</div>
               </div>
             </div>
 
             <div className="mb-2">
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">模式特点：</p>
+              <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t("storySimulation.modeFeatures")}</p>
               <ul className="space-y-1">
                 {selectedModeInfo.features.map((feature, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-xs">
@@ -125,7 +125,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
             </div>
 
             <div className="rounded-md bg-primary/5 p-2 text-xs">
-              <span className="font-medium text-primary">适用场景：</span>
+              <span className="font-medium text-primary">{t("storySimulation.bestFor")}</span>
               <span className="text-foreground/80"> {selectedModeInfo.bestFor}</span>
             </div>
           </div>
@@ -191,7 +191,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
 
       {/* 5. 仿真轮次 */}
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">仿真深度（每节点轮次）</h3>
+        <h3 className="text-sm font-medium">{t("storySimulation.simulationDepth")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           {ROUND_OPTIONS.map((opt) => (
             <Button
@@ -200,18 +200,18 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
               size="sm"
               onClick={() => setSimulationRounds(opt.value)}
             >
-              {opt.label}
+              {t(opt.label)}
             </Button>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          轮次越多，角色互动越丰富，但消耗token越多。自动模式：1万字约1轮，至少2轮。
+          {t("storySimulation.roundsHint")}
         </p>
       </section>
 
       {/* 6. 高级设置 */}
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">高级设置</h3>
+        <h3 className="text-sm font-medium">{t("storySimulation.advancedSettings")}</h3>
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -224,11 +224,11 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
             htmlFor="director-enabled"
             className="cursor-pointer text-sm font-medium"
           >
-            启用导演 Agent
+            {t("storySimulation.directorEnabled")}
           </label>
         </div>
         <p className="text-xs text-muted-foreground pl-6">
-          节点结束时自动评估剧情质量，张力不足时会在下一节点注入突发事件以提升戏剧性。（默认关闭）
+          {t("storySimulation.directorHint")}
         </p>
       </section>
 

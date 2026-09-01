@@ -388,7 +388,7 @@ export function StorySimulationView() {
         createdAt: r.report.createdAt,
       })),
     );
-    setInfoMessage("已保存未完成推演，可在历史推演结果中继续。");
+    setInfoMessage(t("storySimulation.partialSavedInfo"));
     setTimeout(() => setInfoMessage(null), 5000);
   };
 
@@ -396,7 +396,7 @@ export function StorySimulationView() {
   const handleCancel = () => {
     if (abortControllerRef.current) {
       setIsCancelling(true);
-      setError("正在取消并保存未完成推演...");
+      setError(t("storySimulation.savingPartial"));
       abortControllerRef.current.abort();
     }
   };
@@ -404,7 +404,7 @@ export function StorySimulationView() {
   /** 提取内容并生成故事框架，进入框架确认阶段。 */
   const handleStart = async () => {
     if (!projectPath) {
-      setError("请先打开一个项目");
+      setError(t("storySimulation.openProjectFirst"));
       return;
     }
     setError(null);
@@ -440,7 +440,7 @@ export function StorySimulationView() {
       // 2. 生成框架
       setPhase("framework-generating");
       phaseBaseProgressRef.current = 30;
-      setProgress(30, "正在生成故事框架...");
+      setProgress(30, t("storySimulation.generatingFramework"));
       const framework: StoryFramework = await generateStoryFramework({
         extraction,
         mode,
@@ -531,7 +531,7 @@ export function StorySimulationView() {
   /** 确认框架：必要时先保存 → 构建角色 → 仿真 → 生成报告。 */
   const handleConfirmFramework = async () => {
     if (!projectPath || !currentFramework) {
-      setError("缺少项目路径或故事框架");
+      setError(t("storySimulation.missingProjectOrFramework"));
       return;
     }
     const resumePoint = resumeSimulationRef.current;
@@ -586,7 +586,7 @@ export function StorySimulationView() {
       // 强制校验：没有 Agent 直接中止推演，避免空跑浪费 token
       if (agents.length === 0) {
         throw new Error(
-          "未提取到任何角色 Agent，无法推演。请检查项目快照（.novel/snapshots）中是否包含 characters 字段，或检查框架节点的 involvedCharacters 是否与提取到的角色名匹配。",
+          t("storySimulation.noAgentsExtracted"),
         );
       }
       lastAgentsRef.current = agents;
@@ -680,7 +680,7 @@ export function StorySimulationView() {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError("推演已取消");
+        setError(t("storySimulation.simulationCancelled"));
         setTimeout(() => setError(null), 3000);
         return;
       }
@@ -698,7 +698,7 @@ export function StorySimulationView() {
       // 生成推演报告
       setPhase("report-generating");
       phaseBaseProgressRef.current = 80;
-      setProgress(80, "正在生成推演报告...");
+      setProgress(80, t("storySimulation.generatingReport"));
       const report = await generateSimulationReport({
         events,
         framework: currentFramework,
@@ -711,7 +711,7 @@ export function StorySimulationView() {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError("已取消");
+        setError(t("storySimulation.cancelled"));
         setTimeout(() => setError(null), 3000);
         return;
       }
@@ -767,16 +767,14 @@ export function StorySimulationView() {
         console.error("保存推演结果失败:", saveErr);
       }
       if (degradedRef.current) {
-        setInfoMessage(
-          "推演降级完成：连续 Agent 决策失败（可能为离线或 API 错误），结果仅含系统事件，请检查网络/模型配置后重试。",
-        );
+        setInfoMessage(t("storySimulation.degradedInfo"));
         setTimeout(() => setInfoMessage(null), 8000);
       }
     } catch (err) {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError("推演已取消");
+        setError(t("storySimulation.simulationCancelled"));
         setTimeout(() => setError(null), 3000);
       } else {
         setError(err instanceof Error ? err.message : String(err));
@@ -806,7 +804,7 @@ export function StorySimulationView() {
   /** 选择走向分支并生成故事草稿。 */
   const handleGenerateDraft = async (branch: StoryBranch) => {
     if (!projectPath || !currentFramework || !currentReport) {
-      setError("缺少项目路径、故事框架或推演报告");
+      setError(t("storySimulation.missingDraftInputs"));
       return;
     }
     setError(null);
@@ -817,7 +815,7 @@ export function StorySimulationView() {
     try {
       setPhase("draft-generating");
       phaseBaseProgressRef.current = 90;
-      setProgress(90, "正在生成故事草稿...");
+      setProgress(90, t("storySimulation.generatingDraft"));
       const llmConfig = resolveDefaultModel(baseLlmConfig);
       const draft = await generateStoryDraft({
         framework: currentFramework,
@@ -830,7 +828,7 @@ export function StorySimulationView() {
 
       if (ac.signal.aborted) {
         setPhase("report-viewing");
-        setError("草稿生成已取消");
+        setError(t("storySimulation.draftCancelled"));
         setTimeout(() => setError(null), 3000);
         return;
       }
@@ -883,7 +881,7 @@ export function StorySimulationView() {
     } catch (err) {
       if (ac.signal.aborted) {
         setPhase("report-viewing");
-        setError("草稿生成已取消");
+        setError(t("storySimulation.draftCancelled"));
         setTimeout(() => setError(null), 3000);
       } else {
         setError(err instanceof Error ? err.message : String(err));
@@ -929,10 +927,10 @@ export function StorySimulationView() {
         activeChatAgent.name,
         agentChatMessages,
       );
-      setInfoMessage(`对话已导出到：${filePath}`);
+      setInfoMessage(t("storySimulation.chatExported", { path: filePath }));
       setTimeout(() => setInfoMessage(null), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败");
+      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"));
     } finally {
       setChatExporting(false);
     }
@@ -960,7 +958,7 @@ export function StorySimulationView() {
       let existingId: string | undefined;
       if (continuingInterviewId) {
         const choice = confirm(
-          "覆盖原采访对话？\n\n确定 = 覆盖原采访\n取消 = 另存为新采访",
+          t("storySimulation.overwriteInterviewConfirm"),
         );
         if (choice) {
           existingId = continuingInterviewId;
@@ -973,10 +971,10 @@ export function StorySimulationView() {
         existingId,
       });
       setContinuingInterviewId(null);
-      setInfoMessage(`采访对话已保存（${agentChatMessages.length}条消息）`);
+      setInfoMessage(t("storySimulation.interviewSaved", { count: agentChatMessages.length }));
       setTimeout(() => setInfoMessage(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : t("storySimulation.saveFailed"));
       setTimeout(() => setError(null), 5000);
     } finally {
       setChatSaving(false);
@@ -1002,8 +1000,9 @@ export function StorySimulationView() {
             lastSimulationStateRef.current = state;
           } catch (err) {
             setError(
-              "恢复角色状态失败：" +
-                (err instanceof Error ? err.message : String(err)),
+              t("storySimulation.restoreAgentFailed", {
+                message: err instanceof Error ? err.message : String(err),
+              }),
             );
             return;
           }
@@ -1014,7 +1013,7 @@ export function StorySimulationView() {
         !lastSimulationStateRef.current ||
         lastAgentsRef.current.length === 0
       ) {
-        setError("没有可用的角色状态，无法进行采访。请先完成一次推演。");
+        setError(t("storySimulation.noAgentState"));
         return;
       }
     }
@@ -1030,7 +1029,7 @@ export function StorySimulationView() {
       );
     }
     if (!agent) {
-      setError(`找不到角色：${activeChatAgent.name}`);
+      setError(t("storySimulation.agentNotFound", { name: activeChatAgent.name }));
       return;
     }
 
@@ -1111,13 +1110,13 @@ export function StorySimulationView() {
       case "extracting":
         return t("storySimulation.extracting");
       case "framework-generating":
-        return "正在生成故事框架...";
+        return t("storySimulation.generatingFramework");
       case "simulating":
         return t("storySimulation.simulating");
       case "report-generating":
-        return "正在生成推演报告...";
+        return t("storySimulation.generatingReport");
       case "draft-generating":
-        return "正在生成故事草稿...";
+        return t("storySimulation.generatingDraft");
       default:
         return "";
     }
@@ -1149,7 +1148,7 @@ export function StorySimulationView() {
               className="shrink-0 text-xs underline"
               onClick={() => setInfoMessage(null)}
             >
-              关闭
+              {t("storySimulation.close")}
             </button>
           </div>
         )}
@@ -1314,7 +1313,7 @@ export function StorySimulationView() {
                                 节点{ev.nodeIndex + 1} · 第{ev.round}轮
                               </span>
                               <span className="text-muted-foreground">
-                                {ev.actorName || "系统"}
+                                {ev.actorName || t("storySimulation.system")}
                               </span>
                               <span className="text-muted-foreground">·</span>
                               <span className="inline-flex items-center gap-1 text-muted-foreground">
@@ -1326,7 +1325,7 @@ export function StorySimulationView() {
                               </span>
                             </div>
                             <div className="text-sm">
-                              {ev.content || "(无内容)"}
+                              {ev.content || t("storySimulation.noContent")}
                             </div>
                           </div>
                         ))}
@@ -1498,7 +1497,7 @@ export function StorySimulationView() {
                             节点{ev.nodeIndex + 1} · 第{ev.round}轮
                           </span>
                           <span className="text-muted-foreground">
-                            {ev.actorName || "系统"}
+                            {ev.actorName || t("storySimulation.system")}
                           </span>
                           <span className="text-muted-foreground">·</span>
                           <span className="text-muted-foreground">
@@ -1506,7 +1505,7 @@ export function StorySimulationView() {
                           </span>
                         </div>
                         <div className="text-sm">
-                          {ev.content || "(无内容)"}
+                          {ev.content || t("storySimulation.noContent")}
                         </div>
                       </div>
                     ))}
@@ -1563,6 +1562,7 @@ function ProgressPanel({
   onCancel?: () => void;
   cancelling?: boolean;
 }) {
+  const { t } = useTranslation()
   const clamped = Math.min(100, Math.max(0, progress));
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
@@ -1583,7 +1583,7 @@ function ProgressPanel({
           disabled={cancelling}
           className="mt-2"
         >
-          {cancelling ? "正在取消..." : "取消"}
+          {cancelling ? t("storySimulation.cancelling") : "取消"}
         </Button>
       )}
     </div>
@@ -1632,6 +1632,7 @@ function SimulatingTimelinePanel({
   onSetCompareMode: (enabled: boolean) => void;
   onClearCompareSelection: () => void;
 }) {
+  const { t } = useTranslation()
   const clamped = Math.min(100, Math.max(0, progress));
   const logRef = useRef<HTMLDivElement | null>(null);
   const [activeStreamView, setActiveStreamView] = useState<
@@ -1756,7 +1757,7 @@ function SimulatingTimelinePanel({
               disabled={cancelling}
               className="h-7 text-xs"
             >
-              {cancelling ? "正在取消..." : "取消推演"}
+              {cancelling ? t("storySimulation.cancelling") : "取消推演"}
             </Button>
           )}
         </div>
@@ -1827,13 +1828,13 @@ function SimulatingTimelinePanel({
           {/* 筛选栏 */}
           {events.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-muted-foreground">筛选：</span>
+              <span className="text-muted-foreground">{t("storySimulation.filterLabel")}</span>
               <select
                 value={filterActor}
                 onChange={(e) => setFilterActor(e.target.value)}
                 className="h-7 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
               >
-                <option value="all">全部角色</option>
+                <option value="all">{t("storySimulation.allCharacters")}</option>
                 {actors.map((name) => (
                   <option key={name} value={name}>
                     {name}
@@ -1845,7 +1846,7 @@ function SimulatingTimelinePanel({
                 onChange={(e) => setFilterType(e.target.value)}
                 className="h-7 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
               >
-                <option value="all">全部行为</option>
+                <option value="all">{t("storySimulation.allActions")}</option>
                 {actionTypes.map((type) => (
                   <option key={type} value={type}>
                     {actionTypeShortLabel(type)}
@@ -1894,8 +1895,8 @@ function SimulatingTimelinePanel({
             {groupedEvents.length === 0 ? (
               <div className="py-8 text-center text-xs text-muted-foreground">
                 {events.length === 0
-                  ? "等待角色行动..."
-                  : "没有符合筛选条件的事件"}
+                  ? t("storySimulation.waitForActions")
+                  : t("storySimulation.noMatchingEvents")}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1904,7 +1905,7 @@ function SimulatingTimelinePanel({
                     const isCollapsed = collapsedNodes.has(nodeIndex);
                     const phase = nodeInfo?.phase || "起";
                     const nodeTitle =
-                      nodeInfo?.title || `节点 ${nodeIndex + 1}`;
+                      nodeInfo?.title || t("storySimulation.nodeTitle", { index: nodeIndex + 1 });
                     return (
                       <div
                         key={nodeIndex}
@@ -2044,6 +2045,7 @@ function ProcessDebugPanel({
 }: {
   debugTraces: SimulationDebugTrace[];
 }) {
+  const { t } = useTranslation()
   const latestTrace = debugTraces[debugTraces.length - 1];
   const displayTraces = debugTraces.slice(-50).reverse();
 
@@ -2060,29 +2062,28 @@ function ProcessDebugPanel({
       <div className="h-full overflow-y-auto p-3 text-sm">
         <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <DebugStat
-            label="全量角色"
+            label={t("storySimulation.statAllAgents")}
             value={latestTrace.blackboard.allAgentCount}
           />
           <DebugStat
-            label="活跃角色"
+            label={t("storySimulation.statActiveAgents")}
             value={latestTrace.blackboard.activeAgentCount}
           />
           <DebugStat
-            label="总事件"
+            label={t("storySimulation.statTotalEvents")}
             value={latestTrace.blackboard.totalEventCount}
           />
           <DebugStat
-            label="公共事件"
+            label={t("storySimulation.statPublicEvents")}
             value={latestTrace.blackboard.publicEventCount}
           />
         </div>
 
         {latestTrace.blackboard.allAgentCount === 0 && (
           <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            <div className="mb-1 font-medium">💡 当前推演没有角色参与</div>
+            <div className="mb-1 font-medium">{t("storySimulation.noAgentsWarnTitle")}</div>
             <div className="text-amber-700">
-              可能原因：故事框架的节点未指定涉及角色，或提取的角色未匹配到框架节点。
-              请在框架编辑器中为每个节点设置"涉及角色"，角色才会参与推演。
+              {t("storySimulation.noAgentsWarnBody")}
             </div>
           </div>
         )}
@@ -2095,7 +2096,7 @@ function ProcessDebugPanel({
             >
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                  {trace.type === "round-plan" ? "轮次计划" : "事件写入"}
+                  {trace.type === "round-plan" ? t("storySimulation.traceRoundPlan") : "事件写入"}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   节点 {trace.nodeIndex + 1}：{trace.nodeTitle}
@@ -2107,28 +2108,28 @@ function ProcessDebugPanel({
                   <span className="text-xs text-muted-foreground">
                     策略：
                     {trace.strategy === "all-agents"
-                      ? "全部角色"
+                      ? t("storySimulation.strategyAll")
                       : trace.strategy === "subset"
-                        ? "部分角色"
-                        : "无角色"}
+                        ? t("storySimulation.strategySubset")
+                        : t("storySimulation.strategyNone")}
                   </span>
                 )}
               </div>
 
               <div className="mb-2 grid gap-2 md:grid-cols-2">
                 <DebugAgentList
-                  title="候选 Agent"
+                  title={t("storySimulation.candidateAgents")}
                   agents={trace.candidateAgents}
                 />
                 <DebugAgentList
-                  title="本轮行动 Agent"
+                  title={t("storySimulation.actingAgents")}
                   agents={trace.selectedAgents}
                 />
               </div>
 
               {trace.latestEvent && (
                 <div className="mb-2 rounded border bg-muted/30 px-2 py-1.5 text-xs">
-                  <span className="font-medium">最近事件：</span>
+                  <span className="font-medium">{t("storySimulation.latestEvent")}</span>
                   <span className="text-muted-foreground">
                     {trace.latestEvent.actorName} /{" "}
                     {actionTypeShortLabel(trace.latestEvent.actionType)}
@@ -2186,12 +2187,13 @@ function DebugAgentList({
   title: string;
   agents: SimulationDebugTrace["candidateAgents"];
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded border bg-muted/20 p-2">
       <div className="mb-1 text-xs font-medium">{title}</div>
       <div className="flex flex-wrap gap-1">
         {agents.length === 0 ? (
-          <span className="text-xs text-muted-foreground">无</span>
+          <span className="text-xs text-muted-foreground">{t("storySimulation.none")}</span>
         ) : (
           agents.map((agent) => (
             <span
@@ -2236,10 +2238,11 @@ function AgentChatPanel({
   saving: boolean;
   chatLogRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex w-80 shrink-0 flex-col border-l">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-semibold">与 {agentName} 对话</div>
+        <div className="text-sm font-semibold">{t("storySimulation.chatWith", { name: agentName })}</div>
         <div className="flex items-center gap-1">
           <Button
             type="button"
@@ -2247,7 +2250,7 @@ function AgentChatPanel({
             variant="ghost"
             className="h-7 w-7"
             onClick={onSave}
-            title="保存采访对话"
+            title={t("storySimulation.saveInterviewTip")}
             disabled={saving || messages.length === 0}
           >
             {saving ? (
@@ -2262,7 +2265,7 @@ function AgentChatPanel({
             variant="ghost"
             className="h-7 w-7"
             onClick={onExport}
-            title="导出对话为MD"
+            title={t("storySimulation.exportChatMd")}
             disabled={exporting || messages.length === 0}
           >
             <Download className="h-4 w-4" />
@@ -2273,7 +2276,7 @@ function AgentChatPanel({
             variant="ghost"
             className="h-7 w-7"
             onClick={onClose}
-            title="关闭对话"
+            title={t("storySimulation.closeChat")}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -2285,7 +2288,7 @@ function AgentChatPanel({
       >
         {messages.length === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            你可以向 {agentName} 提问，了解他/她的想法。
+            {t("storySimulation.chatHint", { name: agentName })}
           </div>
         ) : (
           messages.map((msg) => (
@@ -2318,7 +2321,7 @@ function AgentChatPanel({
                 onSend();
               }
             }}
-            placeholder="输入你的问题..."
+            placeholder={t("storySimulation.chatPlaceholder")}
             className="flex-1 rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
             disabled={sending}
           />

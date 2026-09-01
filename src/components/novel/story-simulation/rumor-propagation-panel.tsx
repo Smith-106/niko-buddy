@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { MessageCircle, Users, Eye, CheckCircle, GitBranch, Filter } from "lucide-react"
 import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel/story-simulation/types"
 
@@ -52,6 +54,7 @@ function getAgentName(agents: Map<string, NovelAgent>, agentId: string): string 
 }
 
 export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagationPanelProps) {
+  const { t } = useTranslation()
   const [selectedRumorId, setSelectedRumorId] = useState<string | null>(null)
   const [filter, setFilter] = useState<RumorFilter>("all")
 
@@ -86,7 +89,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
   if (rumors.length === 0) {
     return (
       <div className="flex h-full items-center justify-center rounded-lg border bg-muted/30 p-6 text-center text-xs text-muted-foreground">
-        暂无传闻数据
+        {t("storySimulation.noRumorData")}
       </div>
     )
   }
@@ -101,17 +104,17 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
             onChange={(e) => setFilter(e.target.value as RumorFilter)}
             className="h-7 flex-1 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
           >
-            <option value="all">全部传闻</option>
-            <option value="unverified">未验证</option>
-            <option value="verified">已验证</option>
-            <option value="falsified">已证伪</option>
+            <option value="all">{t("storySimulation.allRumors")}</option>
+            <option value="unverified">{t("storySimulation.unverified")}</option>
+            <option value="verified">{t("storySimulation.verified")}</option>
+            <option value="falsified">{t("storySimulation.falsified")}</option>
           </select>
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {filteredRumors.length === 0 ? (
             <div className="rounded-md border bg-muted/20 p-4 text-center text-xs text-muted-foreground">
-              暂无符合条件的传闻
+              {t("storySimulation.noMatchingRumors")}
             </div>
           ) : (
             filteredRumors.map((rumor) => (
@@ -135,10 +138,10 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                           : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
                     }`}
                   >
-                    失真 {(rumor.distortion * 100).toFixed(0)}%
+                    {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    第 {rumor.round + 1} 轮
+                    {t("storySimulation.roundLabel", { round: rumor.round + 1 })}
                   </span>
                 </div>
                 <div className="mb-1.5 line-clamp-2 text-xs">
@@ -166,7 +169,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <MessageCircle className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">传闻详情</span>
+                <span className="text-sm font-medium">{t("storySimulation.rumorDetail")}</span>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-xs">
                 {selectedRumor.content}
@@ -176,7 +179,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">传播家谱</span>
+                <span className="text-sm font-medium">{t("storySimulation.spreadTree")}</span>
               </div>
 
               <div className="space-y-2">
@@ -190,14 +193,14 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                     sourceEvent={sourceEvent}
                   />
                 ) : (
-                  <div className="text-xs text-muted-foreground">暂无传播链数据</div>
+                  <div className="text-xs text-muted-foreground">{t("storySimulation.noSpreadChain")}</div>
                 )}
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">失真度</div>
+                <div className="text-[10px] text-muted-foreground">{t("storySimulation.distortionRate")}</div>
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
@@ -211,13 +214,13 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">可见人数</div>
+                <div className="text-[10px] text-muted-foreground">{t("storySimulation.visibleCount")}</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.observableBy.length}
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">验证人数</div>
+                <div className="text-[10px] text-muted-foreground">{t("storySimulation.verifiedCount")}</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.verifiedBy.length}
                 </div>
@@ -228,7 +231,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             <div className="text-center">
               <Eye className="mx-auto mb-2 h-8 w-8 opacity-50" />
-              <div>选择左侧传闻查看传播链</div>
+              <div>{t("storySimulation.selectRumorHint")}</div>
             </div>
           </div>
         )}
@@ -254,6 +257,7 @@ function RumorTreeNodeView({
   isRoot,
   sourceEvent,
 }: RumorTreeNodeViewProps) {
+  const { t } = useTranslation()
   const { rumor } = node
   const isSelected = rumor.id === selectedRumorId
   const spreaderName = rumor.spreadBy ? getAgentName(agents, rumor.spreadBy) : undefined
@@ -279,11 +283,11 @@ function RumorTreeNodeView({
               <div className="flex items-center gap-1.5">
                 {isRoot ? (
                   <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    原始传闻
+                    {t("storySimulation.originalRumor")}
                   </span>
                 ) : (
                   <span className="text-[10px] text-muted-foreground">
-                    第 {rumor.generation} 代
+                    {t("storySimulation.generation", { gen: rumor.generation })}
                   </span>
                 )}
                 <span
@@ -295,11 +299,11 @@ function RumorTreeNodeView({
                         : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
                   }`}
                 >
-                  失真 {(rumor.distortion * 100).toFixed(0)}%
+                  {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}
                 </span>
               </div>
               <span className="text-[10px] text-muted-foreground">
-                第 {rumor.round + 1} 轮
+                {t("storySimulation.roundLabel", { round: rumor.round + 1 })}
               </span>
             </div>
             <div className="mb-1.5 line-clamp-2 text-xs">{rumor.content}</div>
@@ -307,22 +311,25 @@ function RumorTreeNodeView({
               {spreaderName && (
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" />
-                  传播者：{spreaderName}
+                  {t("storySimulation.spreader", { name: spreaderName })}
                 </span>
               )}
               <span className="flex items-center gap-1">
                 <Eye className="h-3 w-3" />
-                {rumor.observableBy.length} 人可见
+                {t("storySimulation.visiblePeople", { count: rumor.observableBy.length })}
               </span>
               <span className="flex items-center gap-1">
                 <CheckCircle className="h-3 w-3" />
-                {rumor.believedBy.length} 人相信
+                {t("storySimulation.believedPeople", { count: rumor.believedBy.length })}
               </span>
             </div>
             {isRoot && sourceEvent && (
               <div className="mt-2 rounded-md border bg-muted/20 p-2 text-[10px] text-muted-foreground">
                 <div className="mb-0.5 font-medium text-foreground">
-                  源事件：{sourceEvent.actorName} 的{actionTypeLabel(sourceEvent.actionType)}
+                  {t("storySimulation.sourceEvent", {
+                    name: sourceEvent.actorName,
+                    action: actionTypeLabel(sourceEvent.actionType, t),
+                  })}
                 </div>
                 <div className="line-clamp-2">{sourceEvent.content}</div>
               </div>
@@ -349,27 +356,27 @@ function RumorTreeNodeView({
   )
 }
 
-function actionTypeLabel(type: string): string {
+function actionTypeLabel(type: string, t: TFunction): string {
   switch (type) {
     case "evaluate":
-      return "评价"
+      return t("storySimulation.actionEvaluate")
     case "pushPlot":
-      return "行动"
+      return t("storySimulation.rumorActionDefault")
     case "observe":
-      return "观察"
+      return t("storySimulation.actionObserve")
     case "react":
-      return "反应"
+      return t("storySimulation.actionReact")
     case "speak":
-      return "对话"
+      return t("storySimulation.rumorActionSpeak")
     case "ally":
-      return "结盟"
+      return t("storySimulation.actionAlly")
     case "confront":
-      return "对抗"
+      return t("storySimulation.actionConfront")
     case "conceal":
-      return "隐瞒"
+      return t("storySimulation.actionConceal")
     case "investigate":
-      return "调查"
+      return t("storySimulation.actionInvestigate")
     default:
-      return "行动"
+      return t("storySimulation.rumorActionDefault")
   }
 }

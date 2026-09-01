@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
@@ -32,6 +33,7 @@ export function FrameworkBindingDialog({
   framework,
   onBound,
 }: FrameworkBindingDialogProps) {
+  const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
   const bumpBindingVersion = useWikiStore((s) => s.bumpBindingVersion)
   const binding = useStorySimulationStore((s) => s.binding)
@@ -62,7 +64,7 @@ export function FrameworkBindingDialog({
       onBound()
       onOpenChange(false)
     } catch (err) {
-      setError("绑定失败，请重试")
+      setError(t("storySimulation.bindingFailed"))
       console.error(err)
     } finally {
       setSubmitting(false)
@@ -80,7 +82,7 @@ export function FrameworkBindingDialog({
       onBound()
       onOpenChange(false)
     } catch (err) {
-      setError("取消绑定失败，请重试")
+      setError(t("storySimulation.unbindFailed"))
       console.error(err)
     } finally {
       setSubmitting(false)
@@ -91,15 +93,15 @@ export function FrameworkBindingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle>绑定框架到 AI 会话</DialogTitle>
+          <DialogTitle>{t("storySimulation.bindDialogTitle")}</DialogTitle>
           <DialogDescription>
-            将「{framework.title}」按章节数分配到各故事节点，并注入 AI 写作会话。
+            {t("storySimulation.bindDialogDesc", { title: framework.title })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <span className="text-sm font-medium">目标章节数</span>
+            <span className="text-sm font-medium">{t("storySimulation.targetChapters")}</span>
             <div className="flex flex-wrap gap-2">
               {CHAPTER_OPTIONS.map((count) => (
                 <Button
@@ -109,12 +111,12 @@ export function FrameworkBindingDialog({
                   onClick={() => setChapterCount(count)}
                   disabled={submitting}
                 >
-                  {count} 章
+                  {count} {t("storySimulation.chapters")}
                 </Button>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              共 {framework.nodes.length} 个故事节点，章节将按起承转合分配。
+              {t("storySimulation.bindNodeSummary", { count: framework.nodes.length })}
             </p>
           </div>
 
@@ -128,7 +130,7 @@ export function FrameworkBindingDialog({
               onClick={handleClear}
               disabled={submitting}
             >
-              取消绑定
+              {t("storySimulation.unbind")}
             </Button>
           )}
           <Button
@@ -136,10 +138,10 @@ export function FrameworkBindingDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            关闭
+            {t("storySimulation.close")}
           </Button>
           <Button onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "处理中..." : "确认绑定"}
+            {submitting ? t("storySimulation.processing") : t("storySimulation.confirmBinding")}
           </Button>
         </DialogFooter>
       </DialogContent>

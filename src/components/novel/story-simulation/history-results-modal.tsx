@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
@@ -29,6 +30,7 @@ export function HistoryResultsModal({
   onContinueResult,
   onClose,
 }: HistoryResultsModalProps) {
+  const { t } = useTranslation()
   const [results, setResults] = useState<ResultItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -45,14 +47,14 @@ export function HistoryResultsModal({
           data.map((r) => ({
             id: r.id,
             createdAt: r.report.createdAt,
-            summary: r.report.recommendation || "查看推演结果",
+            summary: r.report.recommendation || t("storySimulation.viewResultFallback"),
             hasDraft: !!r.draft,
             status: r.status,
           })),
         )
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "加载失败")
+        setError(err instanceof Error ? err.message : t("storySimulation.loadFailed"))
         setResults([])
       })
       .finally(() => setLoading(false))
@@ -61,7 +63,7 @@ export function HistoryResultsModal({
   const handleDelete = async (e: React.MouseEvent, resultId: string) => {
     e.stopPropagation()
     if (!projectPath) return
-    if (!confirm("确定要删除这个推演结果吗？此操作不可撤销。")) return
+    if (!confirm(t("storySimulation.deleteResultConfirm"))) return
 
     setDeletingId(resultId)
     try {
@@ -83,7 +85,7 @@ export function HistoryResultsModal({
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-muted-foreground" />
-            <span className="font-semibold">历史推演结果</span>
+            <span className="font-semibold">{t("storySimulation.historyTitle")}</span>
             {results.length > 0 && (
               <span className="text-xs text-muted-foreground">
                 ({results.length})
@@ -112,7 +114,7 @@ export function HistoryResultsModal({
             </div>
           ) : results.length === 0 ? (
             <div className="px-2 py-8 text-center text-sm text-muted-foreground">
-              暂无历史推演结果
+              {t("storySimulation.noHistoryResults")}
             </div>
           ) : (
             <div className="space-y-1">
@@ -135,17 +137,17 @@ export function HistoryResultsModal({
                       </span>
                       {result.hasDraft && (
                         <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                          草稿
+                          {t("storySimulation.badgeDraft")}
                         </span>
                       )}
                       {result.status === "degraded" && (
                         <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-700 dark:text-red-300">
-                          降级
+                          {t("storySimulation.badgeDegraded")}
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
                         <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-                          未完成
+                          {t("storySimulation.badgePartial")}
                         </span>
                       )}
                     </div>
@@ -162,7 +164,7 @@ export function HistoryResultsModal({
                         onContinueResult(result.id)
                       }}
                     >
-                      继续推演
+                      {t("storySimulation.continueSimulation")}
                     </button>
                   )}
                   <button
@@ -170,7 +172,7 @@ export function HistoryResultsModal({
                     className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                     onClick={(e) => void handleDelete(e, result.id)}
                     disabled={deletingId === result.id}
-                    title="删除此结果"
+                    title={t("storySimulation.deleteResult")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

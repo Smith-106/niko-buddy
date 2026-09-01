@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Link2, Search, Trash2 } from "lucide-react"
 
 import { useWikiStore } from "@/stores/wiki-store"
@@ -33,6 +34,7 @@ export function FrameworkList({
   onNewFramework,
   refreshKey,
 }: FrameworkListProps) {
+  const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
   const frameworks = useStorySimulationStore((s) => s.frameworks)
   const setFrameworks = useStorySimulationStore((s) => s.setFrameworks)
@@ -93,7 +95,7 @@ export function FrameworkList({
   const handleDelete = async (framework: StoryFramework) => {
     if (!projectPath) return
     const confirmed = window.confirm(
-      `确定删除框架「${framework.title}」吗？删除后不可恢复。`,
+      t("storySimulation.deleteFrameworkConfirm", { title: framework.title }),
     )
     if (!confirmed) return
     setDeletingId(framework.id)
@@ -111,7 +113,7 @@ export function FrameworkList({
   if (!projectPath) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-xs text-muted-foreground">
-        请先打开一个项目
+        {t("storySimulation.openProjectFirst")}
       </div>
     )
   }
@@ -120,13 +122,13 @@ export function FrameworkList({
     <div className="flex h-full flex-col">
       {loading ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-          加载中...
+          {t("storySimulation.loading")}
         </div>
       ) : frameworks.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-          <div className="text-xs text-muted-foreground">暂无故事框架</div>
+          <div className="text-xs text-muted-foreground">{t("storySimulation.noFrameworks")}</div>
           <Button size="sm" variant="outline" onClick={onNewFramework}>
-            新建框架
+            {t("storySimulation.newFramework")}
           </Button>
         </div>
       ) : (
@@ -140,7 +142,7 @@ export function FrameworkList({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索框架..."
+                  placeholder={t("storySimulation.searchFrameworkPlaceholder")}
                   className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
                 />
               </div>
@@ -149,7 +151,7 @@ export function FrameworkList({
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
             {filteredFrameworks.length === 0 ? (
               <div className="py-4 text-center text-xs text-muted-foreground">
-                无匹配框架
+                {t("storySimulation.noMatch")}
               </div>
             ) : (
               filteredFrameworks.map((framework) => {
@@ -176,8 +178,11 @@ export function FrameworkList({
                         {displayTitle(framework)}
                       </span>
                       <span className="mt-0.5 text-[11px] text-muted-foreground">
-                        {framework.nodes.length} 节点 · {framework.targetWords} 字
-                        {isBound ? " · 已绑定" : ""}
+                        {t("storySimulation.nodesWords", {
+                          nodes: framework.nodes.length,
+                          words: framework.targetWords,
+                        })}
+                        {isBound ? t("storySimulation.boundSuffix") : ""}
                       </span>
                     </button>
                     <div className="flex shrink-0 items-center opacity-60 group-hover:opacity-100">
@@ -186,7 +191,7 @@ export function FrameworkList({
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7"
-                        title={isBound ? "管理绑定" : "绑定到 AI 会话"}
+                        title={isBound ? t("storySimulation.manageBinding") : t("storySimulation.bindToSession")}
                         onClick={(e) => {
                           e.stopPropagation()
                           setDialogFramework(framework)
@@ -201,7 +206,7 @@ export function FrameworkList({
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        title="删除框架"
+                        title={t("storySimulation.deleteFramework")}
                         disabled={deletingId === framework.id}
                         onClick={(e) => {
                           e.stopPropagation()

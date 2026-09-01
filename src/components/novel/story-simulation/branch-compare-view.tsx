@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { ArrowLeft, BarChart3, Clock, Zap } from "lucide-react"
 import type { SimulationBranch, DirectorScore } from "@/lib/novel/story-simulation/types"
 import { actionTypeShortLabel } from "@/lib/novel/story-simulation/action-type-utils"
@@ -21,14 +23,25 @@ const DIMENSION_KEYS: (keyof DirectorScore)[] = [
   "logicConsistency",
 ]
 
-const DIMENSION_LABELS: Record<keyof DirectorScore, string> = {
-  tension: "剧情张力",
-  pace: "节奏把控",
-  characterUtilization: "角色发挥",
-  characterArc: "人物弧光",
-  infoDensity: "信息密度",
-  emotionalResonance: "情感共鸣",
-  logicConsistency: "逻辑自洽",
+function dimensionLabel(key: keyof DirectorScore, t: TFunction): string {
+  switch (key) {
+    case "tension":
+      return t("storySimulation.dimensionTension")
+    case "pace":
+      return t("storySimulation.dimensionPace")
+    case "characterUtilization":
+      return t("storySimulation.dimensionCharacterUtilization")
+    case "characterArc":
+      return t("storySimulation.dimensionCharacterArc")
+    case "infoDensity":
+      return t("storySimulation.dimensionInfoDensity")
+    case "emotionalResonance":
+      return t("storySimulation.dimensionEmotionalResonance")
+    case "logicConsistency":
+      return t("storySimulation.dimensionLogicConsistency")
+    default:
+      return String(key)
+  }
 }
 
 const BRANCH_COLORS = [
@@ -78,6 +91,7 @@ function RadarChart({
   branches: SimulationBranch[]
   size?: number
 }) {
+  const { t } = useTranslation()
   const center = size / 2
   const radius = size * 0.38
   const levels = 3
@@ -136,7 +150,7 @@ function RadarChart({
         dominantBaseline="middle"
         className="fill-current text-[11px] text-foreground"
       >
-        {DIMENSION_LABELS[key]}
+        {dimensionLabel(key, t)}
       </text>
     )
   })
@@ -189,6 +203,7 @@ function RadarChart({
 }
 
 function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
+  const { t } = useTranslation()
   const scoresList = branches.map((b) => getAvgDirectorScore(b))
 
   return (
@@ -213,13 +228,13 @@ function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">维度</th>
+              <th className="px-3 py-2 text-left font-medium text-muted-foreground">{t("storySimulation.dimensionHeader")}</th>
               {branches.map((b) => (
                 <th key={b.id} className="px-3 py-2 text-center font-medium">
                   {b.name}
                 </th>
               ))}
-              <th className="px-3 py-2 text-center font-medium text-muted-foreground">最大差异</th>
+              <th className="px-3 py-2 text-center font-medium text-muted-foreground">{t("storySimulation.maxDiff")}</th>
             </tr>
           </thead>
           <tbody>
@@ -230,7 +245,7 @@ function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
               const diff = Math.round((max - min) * 10) / 10
               return (
                 <tr key={key} className="border-b hover:bg-muted/30">
-                  <td className="px-3 py-2">{DIMENSION_LABELS[key]}</td>
+                  <td className="px-3 py-2">{dimensionLabel(key, t)}</td>
                   {values.map((v, idx) => (
                     <td key={idx} className="px-3 py-2 text-center font-medium">
                       <span
@@ -247,7 +262,7 @@ function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
               )
             })}
             <tr className="border-t-2 border-primary/30 bg-primary/5 font-medium">
-              <td className="px-3 py-2">综合评分</td>
+              <td className="px-3 py-2">{t("storySimulation.overallScoreLabel")}</td>
               {branches.map((b) => (
                 <td key={b.id} className="px-3 py-2 text-center text-primary">
                   {b.overallScore.toFixed(1)}
@@ -265,6 +280,7 @@ function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
 }
 
 function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
+  const { t } = useTranslation()
   const groupedList = branches.map((b) => {
     const groups = new Map<number, typeof b.timelineEvents>()
     for (const ev of b.timelineEvents) {
@@ -285,19 +301,19 @@ function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
         <div key={branch.id} className="flex min-h-0 flex-col rounded-lg border bg-muted/20">
           <div className="border-b px-3 py-2 text-center">
             <div className="text-sm font-medium">{branch.name}</div>
-            <div className="text-xs text-primary">综合 {branch.overallScore.toFixed(1)} 分</div>
+            <div className="text-xs text-primary">{t("storySimulation.overallScorePoints", { score: branch.overallScore.toFixed(1) })}</div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {rounds.length === 0 ? (
               <div className="py-8 text-center text-xs text-muted-foreground">
-                暂无事件
+                {t("storySimulation.noEvents")}
               </div>
             ) : (
               <div className="space-y-3">
                 {rounds.map(({ round, events }) => (
                   <div key={round} className="space-y-1.5">
                     <div className="text-[11px] font-medium text-muted-foreground">
-                      第 {round + 1} 轮 · {events.length} 条事件
+                      {t("storySimulation.roundEventsSummary", { round: round + 1, count: events.length })}
                     </div>
                     {events.map((ev) => (
                       <div
@@ -310,7 +326,7 @@ function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
                           </span>
                           <span className="text-muted-foreground">
                             {" "}
-                            {ev.targetName ? `对 ${ev.targetName}` : ""} · {actionTypeShortLabel(ev.actionType)}
+                            {ev.targetName ? t("storySimulation.targetPrefix", { name: ev.targetName }) : ""} · {actionTypeShortLabel(ev.actionType)}
                           </span>
                         </div>
                         <div className="line-clamp-3 text-muted-foreground">
@@ -330,6 +346,7 @@ function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
 }
 
 function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
+  const { t } = useTranslation()
   const { calcBranchDiff } = useSimulationWorker()
   const [diffResult, setDiffResult] = useState<{
     dimensionDiffs: { key: string; diff: number; maxBranchName: string; maxValue: number; minValue: number }[]
@@ -356,7 +373,7 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
   if (loading || !diffResult) {
     return (
       <div className="flex h-40 items-center justify-center">
-        <div className="text-sm text-muted-foreground">分析中...</div>
+        <div className="text-sm text-muted-foreground">{t("storySimulation.analyzing")}</div>
       </div>
     )
   }
@@ -365,7 +382,7 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
 
   const dimensionDiffs = rawDimensionDiffs.map((d) => ({
     ...d,
-    label: DIMENSION_LABELS[d.key as keyof DirectorScore],
+    label: dimensionLabel(d.key as keyof DirectorScore, t),
   }))
 
   const bestBranch = branches[bestBranchIdx]
@@ -376,7 +393,7 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border bg-muted/20 p-4">
-          <h3 className="mb-3 text-sm font-medium">评分差异最大的 3 个维度</h3>
+          <h3 className="mb-3 text-sm font-medium">{t("storySimulation.topDimensionDiffs")}</h3>
           <div className="space-y-2">
             {dimensionDiffs.map((d, idx) => (
               <div key={d.key} className="flex items-center justify-between text-sm">
@@ -384,7 +401,11 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
                   {idx + 1}. {d.label}
                 </span>
                 <span className="font-medium">
-                  {d.maxBranchName} 领先 {d.maxValue.toFixed(1)} vs {d.minValue.toFixed(1)}
+                  {t("storySimulation.dimensionLeader", {
+                    branch: d.maxBranchName,
+                    max: d.maxValue.toFixed(1),
+                    min: d.minValue.toFixed(1),
+                  })}
                 </span>
               </div>
             ))}
@@ -392,24 +413,24 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
         </div>
 
         <div className="rounded-lg border bg-muted/20 p-4">
-          <h3 className="mb-3 text-sm font-medium">基础数据对比</h3>
+          <h3 className="mb-3 text-sm font-medium">{t("storySimulation.basicDataCompare")}</h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">事件数量</span>
+              <span className="text-muted-foreground">{t("storySimulation.eventCountLabel")}</span>
               <span className="font-medium">
-                {eventCounts.join(" / ")} 条
+                {t("storySimulation.countItems", { count: eventCounts.join(" / ") })}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">角色数量</span>
+              <span className="text-muted-foreground">{t("storySimulation.characterCountLabel")}</span>
               <span className="font-medium">
-                {characterCounts.join(" / ")} 人
+                {t("storySimulation.countPeople", { count: characterCounts.join(" / ") })}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">分岔轮次</span>
+              <span className="text-muted-foreground">{t("storySimulation.divergenceRoundLabel")}</span>
               <span className="font-medium">
-                {divergenceRound > 0 ? `第 ${divergenceRound} 轮开始` : "无明显分岔"}
+                {divergenceRound > 0 ? t("storySimulation.divergenceFrom", { round: divergenceRound }) : t("storySimulation.noDivergence")}
               </span>
             </div>
           </div>
@@ -417,9 +438,9 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
       </div>
 
       <div className="rounded-lg border bg-muted/20 p-4">
-        <h3 className="mb-3 text-sm font-medium">角色好感度差异最大的 3 对</h3>
+        <h3 className="mb-3 text-sm font-medium">{t("storySimulation.topSentimentDiffsTitle")}</h3>
         {topSentimentDiffs.length === 0 ? (
-          <div className="text-sm text-muted-foreground">暂无数据</div>
+          <div className="text-sm text-muted-foreground">{t("storySimulation.noData")}</div>
         ) : (
           <div className="space-y-2">
             {topSentimentDiffs.map((d, idx) => (
@@ -428,7 +449,10 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
                   {idx + 1}. {d.charName}
                 </span>
                 <span className="font-medium">
-                  {d.maxBranch} 最高 ({d.values.map((v) => v.toFixed(0)).join(" / ")})
+                  {t("storySimulation.sentimentHighest", {
+                    branch: d.maxBranch,
+                    values: d.values.map((v) => v.toFixed(0)).join(" / "),
+                  })}
                 </span>
               </div>
             ))}
@@ -438,19 +462,27 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
         <h3 className="mb-2 text-sm font-medium text-primary">
-          推荐结论：综合推荐 {bestBranch.name}
+          {t("storySimulation.recommendationConclusion", { name: bestBranch.name })}
         </h3>
         <div className="text-sm text-muted-foreground">
-          <div className="mb-1 font-medium text-foreground">主要优势：</div>
+          <div className="mb-1 font-medium text-foreground">{t("storySimulation.mainAdvantages")}</div>
           <div className="space-y-1">
             {dimensionDiffs.slice(0, 3).map((d, idx) => (
               <div key={d.key}>
-                {idx + 1}. {d.label}更出色（{d.maxValue.toFixed(1)} vs {d.minValue.toFixed(1)}）
+                {t("storySimulation.dimensionBetter", {
+                  index: idx + 1,
+                  label: d.label,
+                  max: d.maxValue.toFixed(1),
+                  min: d.minValue.toFixed(1),
+                })}
               </div>
             ))}
             {eventCounts[bestBranchIdx] >= (secondBest ? eventCounts[secondBestIdx] : 0) && (
               <div>
-                {dimensionDiffs.length + 1}. 事件数量更丰富（{eventCounts[bestBranchIdx]} 条）
+                {t("storySimulation.moreEvents", {
+                  index: dimensionDiffs.length + 1,
+                  count: eventCounts[bestBranchIdx],
+                })}
               </div>
             )}
           </div>
@@ -465,6 +497,7 @@ export function BranchCompareView({
   compareBranchIds,
   onBack,
 }: BranchCompareViewProps) {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<"score" | "timeline" | "differences">("score")
 
   const compareBranches = useMemo(() => {
@@ -477,16 +510,16 @@ export function BranchCompareView({
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center text-sm text-muted-foreground">
-          请选择至少 2 个分支进行对比
+          {t("storySimulation.selectAtLeastTwoBranches")}
         </div>
       </div>
     )
   }
 
   const tabs = [
-    { key: "score" as const, label: "评分对比", icon: BarChart3 },
-    { key: "timeline" as const, label: "时间线对比", icon: Clock },
-    { key: "differences" as const, label: "关键差异", icon: Zap },
+    { key: "score" as const, label: t("storySimulation.tabScoreCompare"), icon: BarChart3 },
+    { key: "timeline" as const, label: t("storySimulation.tabTimelineCompare"), icon: Clock },
+    { key: "differences" as const, label: t("storySimulation.tabKeyDifferences"), icon: Zap },
   ]
 
   return (
@@ -500,7 +533,7 @@ export function BranchCompareView({
           className="h-8"
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
-          返回分支管理
+          {t("storySimulation.backToBranchManagement")}
         </Button>
         <div className="flex items-center gap-2">
           {compareBranches.map((b, idx) => (

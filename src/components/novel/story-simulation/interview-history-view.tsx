@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { X, MessageCircle, Trash2, Clock, User, ChevronRight, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
@@ -11,6 +12,7 @@ import type { SavedInterview } from "@/lib/novel/story-simulation/interview-stor
 import type { NovelAgent } from "@/lib/novel/story-simulation/types"
 
 export function InterviewHistoryView() {
+  const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
   const showInterviewHistory = useStorySimulationStore((s) => s.showInterviewHistory)
   const savedInterviews = useStorySimulationStore((s) => s.savedInterviews)
@@ -58,7 +60,7 @@ export function InterviewHistoryView() {
 
   const handleDelete = async (interview: SavedInterview) => {
     if (!projectPath) return
-    if (!confirm(`确定要删除与「${interview.agentName}」的采访对话吗？此操作不可恢复。`)) {
+    if (!confirm(t("storySimulation.deleteInterviewConfirm", { name: interview.agentName }))) {
       return
     }
     setDeleting(interview.id)
@@ -69,10 +71,10 @@ export function InterviewHistoryView() {
       if (viewingInterview?.id === interview.id) {
         setViewingInterview(null)
       }
-      setInfoMessage("采访已删除")
+      setInfoMessage(t("storySimulation.interviewDeleted"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.deleteFailed"))
       setTimeout(() => setError(null), 3000)
     } finally {
       setDeleting(null)
@@ -84,10 +86,10 @@ export function InterviewHistoryView() {
     setExporting(interview.id)
     try {
       const filePath = await exportInterview(projectPath, interview)
-      setInfoMessage(`采访已导出到：${filePath}`)
+      setInfoMessage(t("storySimulation.interviewExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
       setTimeout(() => setError(null), 3000)
     } finally {
       setExporting(null)
@@ -121,7 +123,7 @@ export function InterviewHistoryView() {
       }
 
       if (agents.length === 0) {
-        setError("无法恢复角色状态，仅支持只读查看")
+        setError(t("storySimulation.cannotRestoreReadonly"))
         setTimeout(() => setError(null), 3000)
         return
       }
@@ -129,7 +131,7 @@ export function InterviewHistoryView() {
       // 找到对应角色的 agent
       const targetAgent = agents.find((a) => a.name === interview.agentName)
       if (!targetAgent) {
-        setError(`未找到角色「${interview.agentName}」的 agent 数据`)
+        setError(t("storySimulation.agentDataNotFound", { name: interview.agentName }))
         setTimeout(() => setError(null), 3000)
         return
       }
@@ -140,10 +142,10 @@ export function InterviewHistoryView() {
       setContinuingInterviewId(interview.id)
       setShowInterviewHistory(false)
       setViewingInterview(null)
-      setInfoMessage("已恢复采访，可继续对话")
+      setInfoMessage(t("storySimulation.interviewResumed"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "恢复失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.restoreFailed"))
       setTimeout(() => setError(null), 3000)
     } finally {
       setResuming(false)
@@ -171,7 +173,7 @@ export function InterviewHistoryView() {
 
   const getPreview = (interview: SavedInterview) => {
     const messages = interview.session.messages
-    if (messages.length === 0) return "（空对话）"
+    if (messages.length === 0) return t("storySimulation.emptyConversation")
     const lastMsg = messages[messages.length - 1]
     return lastMsg.content.slice(0, 50) + (lastMsg.content.length > 50 ? "..." : "")
   }
@@ -186,7 +188,9 @@ export function InterviewHistoryView() {
           <div className="flex items-center gap-2">
             <MessageCircle className="h-5 w-5 text-primary" />
             <h2 className="text-base font-semibold">
-              {viewingInterview ? `与 ${viewingInterview.agentName} 的对话` : "采访历史"}
+              {viewingInterview
+                ? t("storySimulation.chatViewTitle", { name: viewingInterview.agentName })
+                : t("storySimulation.interviewHistory")}
             </h2>
           </div>
           <Button variant="ghost" size="sm" onClick={handleClose}>
@@ -207,12 +211,12 @@ export function InterviewHistoryView() {
                   onClick={() => setViewingInterview(null)}
                 >
                   <ChevronRight className="h-4 w-4 rotate-180" />
-                  返回列表
+                  {t("storySimulation.backToList")}
                 </button>
                 <div className="flex items-center gap-2">
                   {viewingInterview.frameworkTitle && (
                     <span className="text-xs text-muted-foreground">
-                      框架：{viewingInterview.frameworkTitle}
+                      {t("storySimulation.frameworkPrefix", { title: viewingInterview.frameworkTitle })}
                     </span>
                   )}
                   <Button
@@ -221,7 +225,7 @@ export function InterviewHistoryView() {
                     onClick={() => handleContinueInterview(viewingInterview)}
                     disabled={resuming}
                   >
-                    {resuming ? "恢复中..." : "继续对话"}
+                    {resuming ? t("storySimulation.resuming") : t("storySimulation.continueChat")}
                   </Button>
                   <Button
                     variant="outline"
@@ -230,7 +234,7 @@ export function InterviewHistoryView() {
                     disabled={exporting === viewingInterview.id}
                   >
                     <Download className="mr-1 h-3.5 w-3.5" />
-                    {exporting === viewingInterview.id ? "导出中..." : "导出"}
+                    {exporting === viewingInterview.id ? t("storySimulation.exporting") : t("storySimulation.export")}
                   </Button>
                   <Button
                     variant="outline"
@@ -240,7 +244,7 @@ export function InterviewHistoryView() {
                     className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
                   >
                     <Trash2 className="mr-1 h-3.5 w-3.5" />
-                    {deleting === viewingInterview.id ? "删除中..." : "删除"}
+                    {deleting === viewingInterview.id ? t("storySimulation.deleting") : t("storySimulation.delete")}
                   </Button>
                 </div>
               </div>
@@ -262,7 +266,7 @@ export function InterviewHistoryView() {
                       >
                         <div className="mb-1 flex items-center gap-1.5 text-xs opacity-70">
                           <User className="h-3 w-3" />
-                          {msg.role === "user" ? "你" : viewingInterview.agentName}
+                          {msg.role === "user" ? t("storySimulation.you") : viewingInterview.agentName}
                         </div>
                         <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                       </div>
@@ -270,7 +274,7 @@ export function InterviewHistoryView() {
                   ))}
                   {viewingInterview.session.messages.length === 0 && (
                     <div className="py-12 text-center text-sm text-muted-foreground">
-                      暂无对话内容
+                      {t("storySimulation.noMessages")}
                     </div>
                   )}
                 </div>
@@ -281,13 +285,13 @@ export function InterviewHistoryView() {
             <div className="flex w-full flex-col">
               {loading ? (
                 <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                  加载中...
+                  {t("storySimulation.loading")}
                 </div>
               ) : savedInterviews.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
                   <MessageCircle className="h-12 w-12 opacity-20" />
-                  <p className="text-sm">暂无保存的采访对话</p>
-                  <p className="text-xs">在推演报告中与角色对话后点击保存即可</p>
+                  <p className="text-sm">{t("storySimulation.noInterviews")}</p>
+                  <p className="text-xs">{t("storySimulation.noInterviewsHint")}</p>
                 </div>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -319,7 +323,7 @@ export function InterviewHistoryView() {
                                 <Clock className="h-3 w-3" />
                                 {formatDate(interview.updatedAt)}
                               </span>
-                              <span>{getMessageCount(interview)} 条消息</span>
+                              <span>{t("storySimulation.messageCount", { count: getMessageCount(interview) })}</span>
                             </div>
                           </button>
                           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -332,7 +336,7 @@ export function InterviewHistoryView() {
                                 handleExport(interview)
                               }}
                               disabled={exporting === interview.id}
-                              title="导出"
+                              title={t("storySimulation.export")}
                             >
                               <Download className="h-3.5 w-3.5" />
                             </Button>
@@ -345,7 +349,7 @@ export function InterviewHistoryView() {
                                 handleDelete(interview)
                               }}
                               disabled={deleting === interview.id}
-                              title="删除"
+                              title={t("storySimulation.delete")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>

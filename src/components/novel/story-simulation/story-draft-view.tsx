@@ -91,10 +91,10 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
     setExporting(true)
     try {
       const filePath = await exportDraft(projectPath, currentFramework, draft)
-      setInfoMessage(`草稿已导出到：${filePath}`)
+      setInfoMessage(t("storySimulation.draftExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
       setTimeout(() => setError(null), 5000)
     } finally {
       setExporting(false)
@@ -104,7 +104,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   const handleImport = async () => {
     if (!projectPath || !currentFramework || !draft) return
     if (selectedIndices.length === 0) {
-      setError("请至少选择一章导入")
+      setError(t("storySimulation.selectAtLeastOne"))
       setTimeout(() => setError(null), 3000)
       return
     }
@@ -136,7 +136,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         setSelectedFile(result.chapterPaths[0])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导入失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.importFailed"))
       setTimeout(() => setError(null), 5000)
     } finally {
       setImporting(false)
@@ -220,7 +220,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
             disabled={importing}
           >
             <BookOpen className="mr-1 h-3.5 w-3.5" />
-            导入到章节库
+            {t("storySimulation.importToChapters")}
           </Button>
           <Button
             variant="outline"
@@ -229,7 +229,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
             disabled={exporting}
           >
             <Download className="mr-1 h-3.5 w-3.5" />
-            {exporting ? "导出中..." : "导出MD"}
+            {exporting ? t("storySimulation.exporting") : t("storySimulation.exportMd")}
           </Button>
           <Button variant="outline" size="sm" onClick={handleCopyAll}>
             {copied ? (
@@ -258,7 +258,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   size="sm"
                   className="ml-auto h-7 w-7 p-0 opacity-50 hover:opacity-100"
                   onClick={() => openEditDialog(idx)}
-                  title="编辑章节"
+                  title={t("storySimulation.editChapter")}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
@@ -268,7 +268,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
               </p>
               {chapter.rawContent && chapter.rawContent !== chapter.content && (
                 <div className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
-                  ✓ 已编辑（原始内容已备份）
+                  {t("storySimulation.editedBadge")}
                 </div>
               )}
             </div>
@@ -284,11 +284,11 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {importResult ? "导入成功" : "导入草稿到章节库"}
+              {importResult ? t("storySimulation.importSuccess") : t("storySimulation.importDraftTitle")}
             </DialogTitle>
             {!importResult && (
               <DialogDescription>
-                选择要导入的章节，配置起始章节号和覆盖选项。
+                {t("storySimulation.importDesc")}
               </DialogDescription>
             )}
           </DialogHeader>
@@ -296,13 +296,16 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
           {importResult ? (
             <div className="space-y-3 py-2">
               <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                <div className="font-medium">✓ 成功导入 {importResult.count} 章</div>
+                <div className="font-medium">{t("storySimulation.importSuccessCount", { count: importResult.count })}</div>
                 <div className="mt-1 text-xs opacity-80">
-                  章节范围：第{importResult.startChapter}章 ~ 第{importResult.startChapter + importResult.count - 1}章
+                  {t("storySimulation.chapterRange", {
+                    start: importResult.startChapter,
+                    end: importResult.startChapter + importResult.count - 1,
+                  })}
                 </div>
                 {importResult.backedUpCount > 0 && (
                   <div className="mt-1 text-xs opacity-80">
-                    已自动备份 {importResult.backedUpCount} 个原章节文件
+                    {t("storySimulation.autoBackupCount", { count: importResult.backedUpCount })}
                   </div>
                 )}
               </div>
@@ -312,13 +315,13 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
               {/* 章节选择 */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">选择导入章节</span>
+                  <span className="text-sm font-medium">{t("storySimulation.selectChapters")}</span>
                   <button
                     type="button"
                     onClick={toggleAll}
                     className="text-xs text-primary hover:underline"
                   >
-                    {allSelected ? "取消全选" : "全选"}
+                    {allSelected ? t("storySimulation.deselectAll") : t("storySimulation.selectAll")}
                   </button>
                 </div>
                 <div className="max-h-48 space-y-1 overflow-y-auto rounded border p-2">
@@ -337,13 +340,16 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                         {idx + 1}. {chapter.title}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        ~{chapter.content.length}字
+                        {t("storySimulation.chapterWords", { count: chapter.content.length })}
                       </span>
                     </label>
                   ))}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  已选 {selectedIndices.length} / {draft.chapters.length} 章
+                  {t("storySimulation.selectedChapters", {
+                    selected: selectedIndices.length,
+                    total: draft.chapters.length,
+                  })}
                 </div>
               </div>
 
@@ -362,12 +368,12 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
                   <span className="text-sm font-medium">
-                    自动选择起始章节号
+                    {t("storySimulation.autoStartChapter")}
                   </span>
                 </label>
                 {!autoStartChapter && (
                   <div className="flex items-center gap-2 pl-6">
-                    <span className="text-sm text-muted-foreground">起始章节：</span>
+                    <span className="text-sm text-muted-foreground">{t("storySimulation.startChapterLabel")}</span>
                     <Input
                       type="number"
                       min={1}
@@ -376,13 +382,13 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                       className="w-24"
                     />
                     <span className="text-xs text-muted-foreground">
-                      将从第{startChapter}章开始
+                      {t("storySimulation.willStartAt", { chapter: startChapter })}
                     </span>
                   </div>
                 )}
                 {autoStartChapter && (
                   <div className="pl-6 text-xs text-muted-foreground">
-                    从下一个可用章节号（第{startChapter}章）开始
+                    {t("storySimulation.autoStartHint", { chapter: startChapter })}
                   </div>
                 )}
               </div>
@@ -397,17 +403,17 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
                   <span className="text-sm font-medium">
-                    覆盖已存在的章节文件
+                    {t("storySimulation.overwriteFiles")}
                   </span>
                 </label>
                 {overwrite && (
                   <p className="pl-6 text-xs text-emerald-600 dark:text-emerald-400">
-                    ✓ 覆盖前会自动备份原章节文件到 .qmai/chapter-backups/
+                    {t("storySimulation.overwriteBackupHint")}
                   </p>
                 )}
                 {!overwrite && (
                   <p className="pl-6 text-xs text-amber-600 dark:text-amber-400">
-                    ⚠️ 如果目标章节号已存在，导入将失败并中止。
+                    {t("storySimulation.overwriteWarnHint")}
                   </p>
                 )}
               </div>
@@ -418,16 +424,16 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
             {importResult ? (
               <>
                 <Button variant="outline" onClick={handleCloseDialog}>
-                  留在当前页
+                  {t("storySimulation.stayHere")}
                 </Button>
                 <Button onClick={handleGoToChapters}>
-                  前往章节查看
+                  {t("storySimulation.goToChapters")}
                 </Button>
               </>
             ) : importing && importProgress ? (
               <div className="w-full space-y-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="truncate">正在导入：{importProgress.title}</span>
+                  <span className="truncate">{t("storySimulation.importingChapter", { title: importProgress.title })}</span>
                   <span className="shrink-0">{importProgress.current}/{importProgress.total}</span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -444,14 +450,14 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   onClick={handleCloseDialog}
                   disabled={importing}
                 >
-                  取消
+                  {t("storySimulation.cancel")}
                 </Button>
                 <Button onClick={handleImport} disabled={importing || selectedIndices.length === 0}>
                   {importing && importProgress
-                    ? `导入中 ${importProgress.current}/${importProgress.total}...`
+                    ? t("storySimulation.importingCount", { current: importProgress.current, total: importProgress.total })
                     : importing
-                      ? "导入中..."
-                      : `确认导入（${selectedIndices.length}章）`}
+                      ? t("storySimulation.importing")
+                      : t("storySimulation.confirmImportCount", { count: selectedIndices.length })}
                 </Button>
               </>
             )}
@@ -465,14 +471,14 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       }}>
         <DialogContent className="max-h-[90vh] max-w-3xl">
           <DialogHeader>
-            <DialogTitle>编辑章节</DialogTitle>
+            <DialogTitle>{t("storySimulation.editChapter")}</DialogTitle>
             <DialogDescription>
-              编辑后的内容将用于导入到章节库。
+              {t("storySimulation.editChapterDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">章节标题</label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">{t("storySimulation.chapterTitleLabel")}</label>
               <Input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
@@ -481,9 +487,9 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">章节内容</label>
+                <label className="text-xs font-medium text-muted-foreground">{t("storySimulation.chapterContentLabel")}</label>
                 <span className="text-xs text-muted-foreground">
-                  {editContent.length} 字
+                  {t("storySimulation.wordCount", { count: editContent.length })}
                 </span>
               </div>
               <Textarea
@@ -496,11 +502,11 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={cancelEdit}>
-              放弃
+              {t("storySimulation.discard")}
             </Button>
             <Button onClick={saveEdit}>
               <Save className="mr-1 h-3.5 w-3.5" />
-              保存修改
+              {t("storySimulation.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>

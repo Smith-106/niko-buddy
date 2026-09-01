@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, ChevronRight, GitCompare, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore, type SavedSimulationResult } from "@/stores/story-simulation-store"
@@ -24,28 +25,28 @@ interface SimulationReportViewProps {
 }
 
 /** 将 actionType 映射为中文动词短语 */
-function actionLabel(type: string): string {
+function actionLabel(type: string, t: TFunction): string {
   switch (type) {
     case "evaluate":
-      return "评价"
+      return t("storySimulation.actionEvaluate")
     case "pushPlot":
-      return "推动事态"
+      return t("storySimulation.actionPushPlot")
     case "observe":
-      return "观察"
+      return t("storySimulation.actionObserve")
     case "react":
-      return "反应"
+      return t("storySimulation.actionReact")
     case "speak":
-      return "说"
+      return t("storySimulation.actionSpeak")
     case "ally":
-      return "结盟"
+      return t("storySimulation.actionAlly")
     case "confront":
-      return "对抗"
+      return t("storySimulation.actionConfront")
     case "conceal":
-      return "隐瞒"
+      return t("storySimulation.actionConceal")
     case "investigate":
-      return "调查"
+      return t("storySimulation.actionInvestigate")
     default:
-      return "行动"
+      return t("storySimulation.actionFallback")
   }
 }
 
@@ -75,6 +76,7 @@ interface ReportContentProps {
 }
 
 function ReportContent({ report, timelineEvents, framework, onInterviewAgent, onGenerateDraft, title, compact, compareReport, compareTimelineEvents }: ReportContentProps) {
+  const { t } = useTranslation()
   // 安全清洗 recommendation：防止模型返回 JSON 对象导致显示乱码
   const safeRecommendation = useMemo(() => {
     const raw = report.recommendation
@@ -105,7 +107,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
               return String(item)
             }).filter(Boolean).join("；")
           }
-          return "模型未提供规范格式的综合推荐建议"
+          return t("storySimulation.noRecommendation")
         }
       } catch {
         // 解析失败，继续用原文本
@@ -242,12 +244,12 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
           {/* 关键剧情事件时间线 */}
           {timelineDiff && (
             <div className="flex items-center gap-4 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
-              <span className="font-medium">事件数量对比：</span>
+              <span className="font-medium">{t("storySimulation.eventCountCompare")}</span>
               <span className="text-primary">A: {timelineDiff.aCount}</span>
               <span className="text-muted-foreground">vs</span>
               <span className="text-red-500">B: {timelineDiff.bCount}</span>
               <span className="ml-auto text-muted-foreground">
-                差异: {Math.abs(timelineDiff.aCount - timelineDiff.bCount)} 条
+                {t("storySimulation.diffCount", { count: Math.abs(timelineDiff.aCount - timelineDiff.bCount) })}
               </span>
             </div>
           )}
@@ -266,7 +268,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
             <section>
               <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <MessageCircle className="h-3.5 w-3.5" />
-                采访角色
+                {t("storySimulation.interviewCharacters")}
               </h3>
               <div className="flex flex-wrap gap-2">
                 {report.characterAnalyses.map((char) => (
@@ -277,7 +279,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     onClick={() => onInterviewAgent(char.characterId, char.name)}
                   >
                     <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                    与 {char.name} 对话
+                    {t("storySimulation.chatWith", { name: char.name })}
                   </Button>
                 ))}
               </div>
@@ -288,7 +290,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
           {report.characterAnalyses.length > 0 && (
             <section>
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                角色行为分析
+                {t("storySimulation.characterAnalysis")}
               </h3>
               <div className="space-y-3">
                 {report.characterAnalyses.map((char) => (
@@ -296,7 +298,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{char.name}</span>
                       <span className="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                        一致性: {char.consistencyScore}
+                        {t("storySimulation.consistency", { score: char.consistencyScore })}
                         {characterDiff?.scoreDiff.has(char.name) && (
                           <span className="ml-1 text-amber-600">
                             (B: {characterDiff.scoreDiff.get(char.name)!.b})
@@ -307,12 +309,12 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
                     {char.behaviors.length > 0 && (
                       <div className="mt-2">
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">行为：</p>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.behaviors")}</p>
                         <ul className="space-y-1">
                           {char.behaviors.map((b, i) => (
                             <li key={i} className="text-sm">
                               <span className="text-muted-foreground">[{b.node}]</span> {b.action}
-                              <span className="text-muted-foreground"> — 动机: {b.motivation}</span>
+                              <span className="text-muted-foreground">{t("storySimulation.motivation", { motivation: b.motivation })}</span>
                             </li>
                           ))}
                         </ul>
@@ -321,7 +323,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
                     {char.stateChanges.length > 0 && (
                       <div className="mt-2">
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">状态变化：</p>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.stateChanges")}</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-sm">
                           {char.stateChanges.map((s, i) => <li key={i}>{s}</li>)}
                         </ul>
@@ -337,7 +339,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
           {report.branches.length > 0 && (
             <section>
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                走向分支
+                {t("storySimulation.branchSection")}
               </h3>
               <div className="space-y-3">
                 {report.branches.map((branch, idx) => (
@@ -345,10 +347,16 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{branch.title}</span>
                       {branch.recommendation && (
-                        <span className="rounded px-1.5 py-0.5 text-xs bg-primary/10 text-primary">推荐</span>
+                        <span className="rounded px-1.5 py-0.5 text-xs bg-primary/10 text-primary">{t("storySimulation.recommended")}</span>
                       )}
                       <span className={`rounded px-1.5 py-0.5 text-xs ${PROBABILITY_COLORS[branch.probability]}`}>
-                        概率: {branch.probability === "high" ? "高" : branch.probability === "medium" ? "中" : "低"}
+                        {t("storySimulation.probabilityLabel", {
+                          value: branch.probability === "high"
+                            ? t("storySimulation.probabilityHigh")
+                            : branch.probability === "medium"
+                              ? t("storySimulation.probabilityMedium")
+                              : t("storySimulation.probabilityLow"),
+                        })}
                       </span>
                     </div>
 
@@ -356,7 +364,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
                     {branch.keyEvents.length > 0 && (
                       <div className="mt-2">
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">关键事件：</p>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.keyEvents")}</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-sm">
                           {branch.keyEvents.map((e, i) => <li key={i}>{e}</li>)}
                         </ul>
@@ -366,13 +374,13 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {branch.pros && (
                         <div className="rounded-md bg-green-50 p-2 text-sm dark:bg-green-950/30">
-                          <span className="font-medium text-green-700 dark:text-green-400">利：</span>
+                          <span className="font-medium text-green-700 dark:text-green-400">{t("storySimulation.pros")}</span>
                           {branch.pros}
                         </div>
                       )}
                       {branch.cons && (
                         <div className="rounded-md bg-red-50 p-2 text-sm dark:bg-red-950/30">
-                          <span className="font-medium text-red-700 dark:text-red-400">弊：</span>
+                          <span className="font-medium text-red-700 dark:text-red-400">{t("storySimulation.cons")}</span>
                           {branch.cons}
                         </div>
                       )}
@@ -386,7 +394,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         onClick={() => onGenerateDraft(branch)}
                       >
                         <Sparkles className="h-3.5 w-3.5" />
-                        生成草稿
+                        {t("storySimulation.generateDraft")}
                       </Button>
                     )}
                   </div>
@@ -401,9 +409,9 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
-                  综合推荐
+                  {t("storySimulation.overallRecommendation")}
                   {recommendationDiff && (
-                    <span className="ml-auto text-xs font-normal text-amber-600">有差异</span>
+                    <span className="ml-auto text-xs font-normal text-amber-600">{t("storySimulation.hasDiff")}</span>
                   )}
                 </h3>
                 {recommendationDiff ? (
@@ -470,10 +478,10 @@ export function SimulationReportView({
     setExporting(true)
     try {
       const filePath = await exportReport(projectPath, currentFramework, activeReport, activeTimeline)
-      setInfoMessage(`报告已导出到：${filePath}`)
+      setInfoMessage(t("storySimulation.reportExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败")
+      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
       setTimeout(() => setError(null), 5000)
     } finally {
       setExporting(false)
@@ -512,7 +520,7 @@ export function SimulationReportView({
               }}
               className="h-7 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
             >
-              <option value="">最新推演</option>
+              <option value="">{t("storySimulation.latestResult")}</option>
               {savedResults.map((r) => (
                 <option key={r.id} value={r.id}>
                   {formatDate(r.createdAt)} ({r.report.mode})
@@ -533,7 +541,7 @@ export function SimulationReportView({
               }}
             >
               <GitCompare className="mr-1 h-3.5 w-3.5" />
-              对比结果
+              {t("storySimulation.compareResults")}
             </Button>
           )}
           {compareMode && (
@@ -545,7 +553,7 @@ export function SimulationReportView({
               >
                 {comparableResults.map((r) => (
                   <option key={r.id} value={r.id}>
-                    对比: {formatDate(r.createdAt)}
+                    {t("storySimulation.compareWith", { date: formatDate(r.createdAt) })}
                   </option>
                 ))}
               </select>
@@ -561,7 +569,7 @@ export function SimulationReportView({
               onClick={onViewInterviewHistory}
             >
               <MessageCircle className="mr-1 h-3.5 w-3.5" />
-              采访历史
+              {t("storySimulation.interviewHistory")}
             </Button>
           )}
           <Button
@@ -571,12 +579,12 @@ export function SimulationReportView({
             disabled={exporting}
           >
             <Download className="mr-1 h-3.5 w-3.5" />
-            {exporting ? "导出中..." : "导出报告"}
+            {exporting ? t("storySimulation.exporting") : t("storySimulation.exportReport")}
           </Button>
           {!currentResult && hasDraft && onViewDraft && (
             <Button variant="default" size="sm" onClick={onViewDraft}>
               <Sparkles className="mr-1 h-3.5 w-3.5" />
-              查看草稿
+              {t("storySimulation.viewDraft")}
             </Button>
           )}
           {!currentResult && (
@@ -598,7 +606,7 @@ export function SimulationReportView({
               framework={currentFramework}
               onInterviewAgent={!currentResult ? onInterviewAgent : undefined}
               onGenerateDraft={!currentResult ? onGenerateDraft : undefined}
-              title={currentResult ? `结果 A (${formatDate(currentResult.createdAt)})` : "结果 A (最新)"}
+              title={currentResult ? t("storySimulation.resultA", { date: formatDate(currentResult.createdAt) }) : t("storySimulation.resultALatest")}
               compact={true}
               compareReport={compareResult?.report}
               compareTimelineEvents={compareResult?.timelineEvents || []}
@@ -609,7 +617,7 @@ export function SimulationReportView({
               report={compareResult.report}
               timelineEvents={compareResult.timelineEvents || []}
               framework={currentFramework}
-              title={`结果 B (${formatDate(compareResult.createdAt)})`}
+              title={t("storySimulation.resultB", { date: formatDate(compareResult.createdAt) })}
               compact={true}
             />
           </div>
@@ -642,6 +650,7 @@ function TimelineGroupedEvents({
   onInterviewAgent?: (agentId: string, agentName: string) => void
   compact?: boolean
 }) {
+  const { t } = useTranslation()
   // 折叠状态：key = nodeIndex，value = 是否折叠
   const [collapsedNodes, setCollapsedNodes] = useState<Set<number>>(new Set())
 
@@ -656,9 +665,14 @@ function TimelineGroupedEvents({
     return map
   }, [framework])
 
-  // 阶段中文标签
+  // 阶段显示标签
   const phaseLabel = (phase: string): string => {
-    const map: Record<string, string> = { 起: "起", 承: "承", 转: "转", 合: "合" }
+    const map: Record<string, string> = {
+      起: t("storySimulation.phaseQi"),
+      承: t("storySimulation.phaseChen"),
+      转: t("storySimulation.phaseZhuan"),
+      合: t("storySimulation.phaseHe"),
+    }
     return map[phase] || phase
   }
 
@@ -701,7 +715,7 @@ function TimelineGroupedEvents({
     <section>
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          关键剧情事件
+          {t("storySimulation.keyPlotEvents")}
         </h3>
         <div className="flex items-center gap-1 text-xs">
           <button
@@ -709,7 +723,7 @@ function TimelineGroupedEvents({
             className="text-muted-foreground hover:text-foreground"
             onClick={expandAll}
           >
-            全部展开
+            {t("storySimulation.expandAll")}
           </button>
           <span className="text-muted-foreground">|</span>
           <button
@@ -717,7 +731,7 @@ function TimelineGroupedEvents({
             className="text-muted-foreground hover:text-foreground"
             onClick={collapseAll}
           >
-            全部折叠
+            {t("storySimulation.collapseAll")}
           </button>
         </div>
       </div>
@@ -725,7 +739,7 @@ function TimelineGroupedEvents({
         {groupedEvents.map(({ nodeIndex, nodeInfo, events: nodeEvents }) => {
           const isCollapsed = collapsedNodes.has(nodeIndex)
           const phase = nodeInfo?.phase || "起"
-          const nodeTitle = nodeInfo?.title || `节点 ${nodeIndex + 1}`
+          const nodeTitle = nodeInfo?.title || t("storySimulation.nodeTitle", { index: nodeIndex + 1 })
           return (
             <div key={nodeIndex} className="rounded-md border bg-background/50">
               {/* 节点标题栏 - 可点击折叠 */}
@@ -743,10 +757,10 @@ function TimelineGroupedEvents({
                   {phaseLabel(phase)}
                 </span>
                 <span className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>
-                  节点 {nodeIndex + 1}：{nodeTitle}
+                  {t("storySimulation.nodeWithTitle", { index: nodeIndex + 1, title: nodeTitle })}
                 </span>
                 <span className="ml-auto text-[11px] text-muted-foreground">
-                  {nodeEvents.length} 条
+                  {t("storySimulation.countItems", { count: nodeEvents.length })}
                 </span>
               </button>
               {/* 节点事件列表 */}
@@ -773,7 +787,7 @@ function TimelineGroupedEvents({
                           <span className="font-medium">{ev.actorName}</span>
                         )}
                         <span className="text-xs text-muted-foreground">
-                          {actionLabel(ev.actionType)}
+                          {actionLabel(ev.actionType, t)}
                         </span>
                         {ev.targetName && (
                           <>
