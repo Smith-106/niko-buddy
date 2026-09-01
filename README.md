@@ -60,7 +60,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 4 | v2.7.3 | 写作产能 | 风格模板自动套用（一致率≥90% P95<2s）/ 回溯显影（命中≥90% 误报≤10%）/ 记忆自动改写（diff=0 闸门） |
 | 5 | v2.7.4 | 收敛泛化（stretch） | 维度收敛（核心维≤3 方差降≥15%）/ 跨模型偏差≤0.5 / 跨语言 F1≥基线×95% |
 
-> 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。
+> 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
 ## 核心功能
 
@@ -440,6 +440,18 @@ sequenceDiagram
 | `VITE_QMAI_LLM_MODEL` | 模型名（如 `gpt-4o` / `qwen2.5:14b`） | 无 |
 | `VITE_QMAI_LLM_CONTEXT_SIZE` | 最大上下文（token） | `204800`（非法/非正值回退） |
 
+### 运行时环境变量
+
+以下为**运行时**（非构建期）生效的环境变量，代码已支持但此前 README 未记录；按需设置，缺省走内置默认值。
+
+| 变量 | 说明 | 来源 |
+|------|------|------|
+| `ANTHROPIC_API_KEY` | Claude 直连场景的 Anthropic API key | `src/components/settings/preset-resolver.ts:120` |
+| `NOVEL_LOG_JSON` | 启用 JSON 结构化日志（替代纯文本日志输出） | `src/lib/utils.ts:77` |
+| `QMAI_CLAUDE_STARTUP_TIMEOUT_SECS` | Claude CLI 启动超时（秒） | `src-tauri/src/commands/claude_cli.rs:45-57` |
+| `PDFIUM_DYNAMIC_LIB_PATH` | PDF 引擎动态库路径（四级回退定位 PDFium） | `src-tauri/src/commands/fs.rs:395-407` |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` | 代理配置（网络请求走系统代理） | `src-tauri/src/proxy.rs:191` |
+
 ### 离线模式（v2.7.4 起，39 号 G10）
 
 - **开关**：设置页（embedding-section）「离线模式」；状态存 `wiki-store.offlineMode`，localStorage 键 `qmai-offline-mode`（持久化，重启保留）。
@@ -447,6 +459,7 @@ sequenceDiagram
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
 > 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
+> 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
 > 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.4）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
@@ -572,7 +585,7 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **前端测试**：`npm test` 运行 Vitest 单元测试套件；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](../docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **测试**：`npm test` = `test:mocks`（Vitest 全量）+ `test:llm`（真实 LLM 凭证块）+ `test:cargo`（Rust 测试）；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](../docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
 - **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
   - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
@@ -580,7 +593,7 @@ npm run build:github-release
   - 设置对应 env 即可激活该块（烧真实 LLM token / 真实 fs 写盘，CI 默认不触发）
 - **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）已达 **100%**，由 `vite.config.ts` 阈值门控（100/100/100/100）持续保障；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
-- **无 lint 门（有意决策）**：本仓库不设独立 lint script / lint CI 门——以 `typecheck`（tsc 严格模式）+ `test:mocks`（vitest 全量 + 覆盖率 100% 阈值）作为质量门；如需静态风格检查，`tsc --noEmit` 已覆盖大部分可静态发现的问题，后续引入 ESLint 需单独决策，勿默认添加。
+- **无 lint 门（有意决策）**：本仓库不设独立 lint script / lint CI 门——以 `typecheck`（tsc 严格模式）+ `test:mocks`（vitest 全量 + 覆盖率 100% 阈值）作为质量门；如需静态风格检查，`tsc --noEmit` 已覆盖大部分可静态发现的问题；已配置 eslint.config.js（eslint ^9.39.5 在 devDependencies），但无独立 lint script/CI 门，静态检查以 tsc --noEmit 为主
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 - **评测基线门（v2.6.3+）**：交付了双轨评测基线门，二者语义独立、不可互相替代：
   - **B 门（synthetic 合成基线）**：`npm run eval:baseline` —— 跑 `scripts/eval-baseline.mjs`，合成语料机械回归对照；预期 `PASS → ESTABLISHED → PASS`。合成基线合法留存作为机械回归基准。

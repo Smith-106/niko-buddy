@@ -34,7 +34,11 @@
 //!     `canon_query` 走结构化过滤（§4 契约）；T14/T25 投影客户端与 ContextPack
 //!     在 packaging 层叠加 T12 语义召回，不在本 IPC 层混入向量通道。
 //!   - 本文件位于 `src-tauri/src/` 顶层（与 `canon_search.rs` 同层），由
-//!     `lib.rs` 注册 `mod canon_commands;` + `invoke_handler` 加 5 命令。
+//!     `lib.rs` 注册 `mod canon_commands;` + `invoke_handler` 加 8 命令：
+//!     `canon_query` / `canon_query_batch` / `canon_facts_known_by` /
+//!     `canon_ingest_episode` / `canon_supersede_edges` /
+//!     `canon_query_episodes` / `canon_get_revision` /
+//!     `canon_save_divergence_trace`（清单见 lib.rs invoke_handler）。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

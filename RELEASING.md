@@ -4,6 +4,8 @@
 
 ## 版本策略（语义化）
 
+> 本项目以 minor 承载破坏性/架构级变更（2.x 不升 major），与严格 SemVer 的 major 语义有意偏离。
+
 | 变更类型 | 版本位 | 示例 |
 |---|---|---|
 | 破坏性变更 / 架构级 | minor | 2.8.0 |
@@ -16,7 +18,7 @@
 ## 发布节奏
 
 - **stable：每周 ≤1 个**。候选版一律走 `prerelease` 标记（内测渠道），验证通过后再提升为 stable。
-- 同日重复 tag：CI 门禁自动标 `prerelease` 或拒绝（见 build.yml 门禁）。
+- 同日重复 tag：无 CI 自动门禁，靠人工纪律执行（重复 tag 一律拒绝；候选版如需走 `prerelease`，由发布者手动加 `--prerelease` 标记）。
 - 发布前检查：`npm run typecheck` 0 错误 + `npx vitest run` 全绿 + 真机冒烟（安装/更新/重启）。
 
 ## 资产命名（唯一规范）
@@ -43,6 +45,7 @@ latest.json
 
 - Windows（nsis + portable）+ macOS（AppleSilicon + Intel）+ Linux（AppImage + deb，matrix 已就绪）。
 - 每个平台资产齐全才发布；缺失平台在正文标注原因。
+- 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf targets 默认仅 nsis；历史发布资产为 Windows-only。macOS/Linux 是否正式发版以 Releases 为准。
 
 ## 发布后检查清单
 
