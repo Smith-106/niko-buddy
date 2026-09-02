@@ -160,10 +160,10 @@ export function serializePoolReportLine(
 }
 
 // ── 路径/命名（规格 §1） ────────────────────────────────────────────────────
-import { resolve, dirname, join } from "node:path"
+// 注意：不 import node:path（Vite 浏览器外部化崩溃）——纯字符串拼接（Windows 主力平台）。
 
 export function antiAiTelemetryDir(projectPath: string): string {
-  return resolve(projectPath, ".novel", SEGMENT_DIR_NAME)
+  return `${projectPath.replace(/[\\/]+$/, "")}/.novel/${SEGMENT_DIR_NAME}`
 }
 
 export function segmentFileName(dayUtc: string, sessionId: string, seq: number): string {
@@ -192,7 +192,7 @@ export async function pruneExpiredSegments(
     const segDate = new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!))
     if (segDate < cutoff) {
       try {
-        await deps.deleteFile(join(dir, name))
+        await deps.deleteFile(`${dir}/${name}`)
         removed++
       } catch {
         /* 非致命 */
@@ -236,7 +236,7 @@ export function createAntiAiTelemetrySink(
     const day = dayUtcOf(d)
     let seq = 0
     // 段序号：同日同会话已有多少段（防御性重建时按文件推断）
-    const s: SegmentState = { path: join(dir, segmentFileName(day, sessionId, seq)), lines: [], approxBytes: 0 }
+    const s: SegmentState = { path: `${dir}/${segmentFileName(day, sessionId, seq)}`, lines: [], approxBytes: 0 }
     return s
   }
 
@@ -354,5 +354,3 @@ export async function shutdownAntiAiTelemetrySink(): Promise<void> {
 export function __resetAntiAiTelemetrySinkForTest(): void {
   activeSink = null
 }
-
-export { dirname }

@@ -41,9 +41,9 @@ const FIXTURES: Record<string, string> = {
 describe("anti-ai 孪生奇偶校验 (.mjs 权威实现 ↔ 生产 TS 池)", () => {
   let pool: AntiAiCandidatePool
 
-  beforeAll(() => {
+  beforeAll(async () => {
     pool = new AntiAiCandidatePool(CORPUS_ROOT)
-    pool.loadCorpus()
+    await pool.loadCorpus()
   })
 
   it("PL 因子逐 fixture warn 判定一致", () => {
@@ -126,9 +126,9 @@ describe("anti-ai 孪生奇偶: 熵因子 (裁决A 归一化<0.7)", () => {
   let pool: AntiAiCandidatePool
   let indexes: ReturnType<typeof buildCorpusIndexes>
 
-  beforeAll(() => {
+  beforeAll(async () => {
     pool = new AntiAiCandidatePool(CORPUS_ROOT)
-    pool.loadCorpus()
+    await pool.loadCorpus()
     indexes = buildCorpusIndexes([{ text: FIXTURES.dialogue }], [{ text: FIXTURES.uniform8 }])
   })
 

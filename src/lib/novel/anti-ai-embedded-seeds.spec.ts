@@ -19,9 +19,9 @@ const HUB_CORPUS_ROOT = resolve(__dirname, "../../../../docs/p0/corpus")
 const HUB_TREE_EXISTS = existsSync(resolve(HUB_CORPUS_ROOT, "human", "batch-20260821-001"))
 
 describe("AntiAiCandidatePool 内嵌种子（方案②）", () => {
-  it("默认构造：内嵌加载 60 片，索引非空，零 fs 依赖", () => {
+  it("默认构造：内嵌加载 60 片，索引非空，零 fs 依赖", async () => {
     const pool = new AntiAiCandidatePool()
-    const result = pool.loadCorpus()
+    const result = await pool.loadCorpus()
     expect(result.total).toBe(60)
     expect(result.human).toHaveLength(30)
     expect(result.ai).toHaveLength(30)
@@ -37,25 +37,25 @@ describe("AntiAiCandidatePool 内嵌种子（方案②）", () => {
     expect(result.ai[0].batchId).toBe("20260821-001")
   })
 
-  it("显式 corpusRoot：FS 扫描路径不受影响", () => {
+  it("显式 corpusRoot：FS 扫描路径不受影响", async () => {
     const pool = new AntiAiCandidatePool(HUB_TREE_EXISTS ? HUB_CORPUS_ROOT : undefined)
     if (!HUB_TREE_EXISTS) {
       // fresh clone：显式传 undefined 等价默认构造（内嵌），只验证不抛
-      expect(() => pool.loadCorpus()).not.toThrow()
+      await expect(pool.loadCorpus()).resolves.not.toThrow()
       return
     }
-    const result = pool.loadCorpus()
+    const result = await pool.loadCorpus()
     expect(result.total).toBeGreaterThan(0)
     expect(pool.loaded).toBe(true)
   })
 
   it.skipIf(!HUB_TREE_EXISTS)(
     "奇偶校验：内嵌 vs FS 同文本因子判定一致",
-    () => {
+    async () => {
       const emb = new AntiAiCandidatePool()
-      emb.loadCorpus()
+      await emb.loadCorpus()
       const fsp = new AntiAiCandidatePool(HUB_CORPUS_ROOT)
-      fsp.loadCorpus()
+      await fsp.loadCorpus()
 
       // 索引级对拍
       const e = emb as unknown as { ai3GramTotal: number }

@@ -15,7 +15,18 @@ export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // 浏览器/Tauri-webview 环境 node:* 外部化崩溃 shim（vitest 走真 Node，不 alias）：
+      // 生产主路径零 fs（内嵌种子），shim 保证模块求值不崩、FS 路径降级。
+      ...(process.env.VITEST
+        ? {}
+        : {
+            "node:fs": path.resolve(__dirname, "./src/lib/novel/browser-fs-shim.ts"),
+            "node:path": path.resolve(__dirname, "./src/lib/novel/browser-path-shim.ts"),
+            "node:url": path.resolve(__dirname, "./src/lib/novel/browser-url-shim.ts"),
+          }),
+    },
   },
 
   define: {

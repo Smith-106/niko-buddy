@@ -27,11 +27,6 @@
  *   paragraphLengthDist    — 段落长度分布 (CV)
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs"
-import { resolve, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
-// 方案②构建期预编译合成种子（scripts/generate-anti-ai-corpus-bundle.mjs 产物，入库）。
-// 生产主路径零 fs/零路径解析；resolveJsonModule 保证类型干净。
 import seedsBundle from "./anti-ai-seeds.generated.json"
 // T20 标定阈值（scripts/anti-ai-calibrate.js 生成产物，A-12.3 可回溯：docs/p2/anti-ai-thresholds.json）
 import { ANTI_AI_THRESHOLDS, ANTI_AI_COMBINED_FACTORS } from "./anti-ai-thresholds.generated"
@@ -119,25 +114,6 @@ export interface MutationTestResult {
 // 默认路径 (import.meta.url 兼容 renderer 直连)
 // ============================================================================
 
-/**
- * 语料根目录 (相对于项目根 niko-hub)。
- * 使用 import.meta.url 解析，兼容 renderer bundle 直连。
- * 可通过构造参数覆盖。
- */
-/**
- * 语料根目录惰性解析 (相对项目根 niko-hub)。
- * webview (tauri://) 下 import.meta.url 非 file:// → fileURLToPath 抛
- * ERR_INVALID_URL；原模块级求值会使整模块加载失败，现收敛到函数内 try/catch。
- * 仅 FS 扫描路径需要；内嵌种子路径不依赖此值。
- */
-function resolveDefaultCorpusRoot(): string | null {
-  try {
-    return resolve(dirname(fileURLToPath(import.meta.url)), "../../../../docs/p0/corpus")
-  } catch {
-    return null // webview：无文件系统语义，FS 路径不可达
-  }
-}
-
 /** 默认构造哨兵：未显式传 corpusRoot → loadCorpus 内嵌种子优先（方案②）。 */
 const EMBEDDED_ROOT = "__embedded__"
 
@@ -206,57 +182,6 @@ function entropy(counts: Record<string, number>, total: number): number {
 // ============================================================================
 // 语料加载
 // ============================================================================
-
-/**
- * 从语料目录加载某层 (human/ai/gold) 的样本。
- * 每批格式: {layer}/batch-{id}/{genre}-NNN.txt
- */
-function loadCorpusLayer(
-  corpusRoot: string,
-  layer: "human" | "ai" | "gold",
-  batchIds: string | string[],
-): CorpusSample[] {
-  const ids = Array.isArray(batchIds) ? batchIds : [batchIds]
-  const samples: CorpusSample[] = []
-  for (const batchId of ids) {
-    const layerDir = resolve(corpusRoot, layer, `batch-${batchId}`)
-    if (!existsSync(layerDir)) {
-      console.warn(`[anti-ai-candidate-pool] 语料层目录不存在: ${layerDir}`)
-      continue
-    }
-
-    const files = readdirSync(layerDir).filter((f) => f.endsWith(".txt") || f.endsWith(".json"))
-
-    for (const file of files) {
-      const filePath = resolve(layerDir, file)
-      try {
-        const text = readFileSync(filePath, "utf-8")
-        // 跳过 JSON 金标准 (structure-only, 不能用作文本分析)
-        if (file.endsWith(".json")) continue
-        // 提取 genre 从文件名: {genre}-NNN.txt
-        const genreMatch = file.match(/^([a-z]+)-\d+/)
-        const genre = genreMatch ? genreMatch[1] : "unknown"
-        // 粗略字数
-        const words = text.replace(/\s+/g, "").length
-
-        samples.push({
-          file,
-          genre,
-          layer,
-          text,
-          words,
-          source: "synthetic-degraded",
-          batchId,
-        })
-      } catch {
-        console.warn(`[anti-ai-candidate-pool] 读取失败: ${filePath}`)
-      }
-    }
-  }
-  return samples
-}
-
-// ============================================================================
 // 候选池类
 // ============================================================================
 
@@ -311,11 +236,14 @@ export class AntiAiCandidatePool {
    * 默认（未显式传 corpusRoot）：内嵌种子优先（生产打包零 fs）；
    * 种子为空时回退仓库语料树（dev），均不可达则空语料降级。
    * 显式传入 corpusRoot（测试/工具）：维持既有 FS 扫描，行为不变。
+   * 注意：FS 扫描路径经动态 import（anti-ai-corpus-fs.ts，Node-only），
+   * 浏览器/Tauri-webview 不加载 node:fs 模块（Vite 外部化崩溃防护）。
    */
-  loadCorpus(): CorpusLoadResult {
+  async loadCorpus(): Promise<CorpusLoadResult> {
     if (this.corpusRoot !== EMBEDDED_ROOT) return this.loadCorpusFromFs()
     const embedded = this.loadEmbeddedCorpus()
     if (embedded.total > 0) return embedded
+    const { resolveDefaultCorpusRoot } = await import("./anti-ai-corpus-fs")
     const root = resolveDefaultCorpusRoot()
     if (root) {
       this.corpusRoot = root
@@ -361,7 +289,13 @@ export class AntiAiCandidatePool {
   }
 
   /** 既有 FS 扫描路径（显式 corpusRoot：测试与本地工具）。 */
-  private loadCorpusFromFs(): CorpusLoadResult {
+  private async loadCorpusFromFs(): Promise<CorpusLoadResult> {
+    // 浏览器（非 Node）环境：node:fs 不可用——空语料降级（内嵌种子路径不受影响）
+    if (typeof process === "undefined" || !process.versions?.node) {
+      this.loaded = true
+      return { total: 0, human: [], ai: [], gold: [], source: "browser-degraded" }
+    }
+    const { loadCorpusLayer } = await import("./anti-ai-corpus-fs")
     this.humanCorpus = loadCorpusLayer(this.corpusRoot, "human", this._batchIds)
     this.aiCorpus = loadCorpusLayer(this.corpusRoot, "ai", this._aiBatchIds)
     this.goldCorpus = loadCorpusLayer(this.corpusRoot, "gold", this._batchIds)

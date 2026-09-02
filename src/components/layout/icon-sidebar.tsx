@@ -134,6 +134,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             <Tooltip key={view}>
               <TooltipTrigger
                 onClick={() => handleNavClick(view)}
+                data-view={view}
                 className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                   activeView === view
                     ? "qm-selected"
@@ -156,6 +157,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           <Tooltip>
             <TooltipTrigger
               onClick={handleSearchClick}
+              data-view="search"
               className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                 activeView === "search"
                   ? "qm-selected"
@@ -175,6 +177,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                 setActiveView("trash")
                 onOpenSidebar?.()
               }}
+              data-view="trash"
               className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                 activeView === "trash"
                   ? "qm-selected"
@@ -217,6 +220,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                 setSearchPanelOpen(false)
                 setActiveView("settings")
               }}
+              data-view="settings"
               className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                 activeView === "settings"
                   ? "qm-selected"

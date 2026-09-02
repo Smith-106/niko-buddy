@@ -9,7 +9,7 @@
  * 注意：语料树位于 hub 根 docs/p0/corpus（上溯 4 级解析）；当前环境存在 → 本文件真实执行。
  * 实测 5/5 PASS（mutation 检出率 ≥0.5、强变异 ≥0.8、组合强注入 ≥0.5、四因子基线）。
  */
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -42,7 +42,11 @@ describe.skipIf(!HAS_CORPUS)("TASK-P2-19 (T19) 真实语料 mutation 验证（hu
     ["20260826-t01b1-human", "20260821-001"],
     ["20260826-t01b2-ai", "20260826-t01c-001", "20260821-001", "20260822-writing"],
   )
-  const load = pool.loadCorpus()
+  let load: import("./anti-ai-candidate-pool").CorpusLoadResult
+
+  beforeAll(async () => {
+    load = await pool.loadCorpus()
+  })
 
   it("候选池加载（真实语料全量）", () => {
     expect(load.total).toBeGreaterThan(0)

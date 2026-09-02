@@ -177,7 +177,7 @@ let _defaultPoolForCompose: AntiAiCandidatePool | null = null
 function getDefaultPoolForCompose(): AntiAiCandidatePool {
   if (!_defaultPoolForCompose) {
     _defaultPoolForCompose = new AntiAiCandidatePool()
-    _defaultPoolForCompose.loadCorpus()
+    void _defaultPoolForCompose.loadCorpus()
   }
   return _defaultPoolForCompose
 }

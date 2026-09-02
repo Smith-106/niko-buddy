@@ -17,9 +17,9 @@ const CORPUS_AVAILABLE = existsSync(CORPUS_ROOT)
 describe.skipIf(!CORPUS_AVAILABLE)("TASK-P2-19 (T19) 反AI 候选池 — 语料加载", () => {
   let pool: AntiAiCandidatePool
 
-  beforeAll(() => {
+  beforeAll(async () => {
     pool = new AntiAiCandidatePool(CORPUS_ROOT)
-    const result = pool.loadCorpus()
+    const result = await pool.loadCorpus()
     // 预期: human 30 + ai 30 + gold 6 = 66, 但 gold 是 .json 被跳过
     // 实际: human 30 txt + ai 30 txt = 60
     expect(result.total).toBeGreaterThanOrEqual(56)
