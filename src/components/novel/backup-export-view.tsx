@@ -19,6 +19,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
@@ -191,10 +192,18 @@ export function BackupExportView() {
   const [progress, setProgress] = useState<CanonExportProgressPayload | BackupProgressPayload | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
   const [backupHistory, setBackupHistory] = useState<BackupHistoryEntry[]>([])
+  const [backupHistoryPage, setBackupHistoryPage] = useState(0)
+  const BACKUP_HISTORY_PAGE_SIZE = PAGINATION_PAGE_SIZE
 
   const tOr = useCallback(
     (key: string, defaultValue: string) => t(key, { defaultValue }) as string,
     [t],
+  )
+
+  const backupHistoryPageCount = Math.max(1, Math.ceil(backupHistory.length / BACKUP_HISTORY_PAGE_SIZE))
+  const visibleBackupHistory = backupHistory.slice(
+    backupHistoryPage * BACKUP_HISTORY_PAGE_SIZE,
+    (backupHistoryPage + 1) * BACKUP_HISTORY_PAGE_SIZE,
   )
 
   /**
@@ -205,6 +214,7 @@ export function BackupExportView() {
   const refreshBackupHistory = useCallback(async () => {
     if (!isTauri() || !projectPath) {
       setBackupHistory([])
+      setBackupHistoryPage(0)
       return
     }
     try {
@@ -216,6 +226,7 @@ export function BackupExportView() {
           .sort((a, b) => b.name.localeCompare(a.name))
           .map((entry) => ({ name: entry.name, path: entry.path })),
       )
+      setBackupHistoryPage(0)
     } catch {
       // backups/auto 尚不存在或无权限（首次使用）→ 空列表，不打扰用户
       setBackupHistory([])
@@ -767,14 +778,23 @@ export function BackupExportView() {
             )}
           </p>
         ) : (
-          <ul className="space-y-1">
-            {backupHistory.map((entry) => (
+          <>
+            <ul className="space-y-1">
+            {visibleBackupHistory.map((entry) => (
               <li key={entry.path} className="flex items-center gap-2 text-xs text-muted-foreground">
                 <FileSearch className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate select-all">{entry.name}</span>
               </li>
             ))}
           </ul>
+          <Pagination
+            page={backupHistoryPage + 1}
+            pageCount={backupHistoryPageCount}
+            total={backupHistory.length}
+            onPrev={() => setBackupHistoryPage((p) => Math.max(0, p - 1))}
+            onNext={() => setBackupHistoryPage((p) => Math.min(backupHistoryPageCount - 1, p + 1))}
+          />
+          </>
         )}
       </div>
     </div>

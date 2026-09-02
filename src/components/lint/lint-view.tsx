@@ -29,6 +29,7 @@ import {
   saveGenerationHistoryEntry,
   type GenerationHistoryEntry,
 } from "@/lib/novel/generation-history"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 
 export function LintView() {
   const { t } = useTranslation()
@@ -58,6 +59,8 @@ export function LintView() {
   const hasRun = lintRun?.hasRun ?? false
   const error = lintRun?.error
   const [history, setHistory] = useState<GenerationHistoryEntry[]>([])
+  const [historyPage, setHistoryPage] = useState(0)
+  const LINT_HISTORY_PAGE_SIZE = PAGINATION_PAGE_SIZE
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null)
   const [runSemantic, setRunSemantic] = useState(false)
   const [fixingId, setFixingId] = useState<string | null>(null)
@@ -78,9 +81,11 @@ export function LintView() {
     /* v8 ignore next */
     if (!project) {
       setHistory([])
+      setHistoryPage(0)
       return
     }
     setHistory(await listGenerationHistory(project.path, "lint"))
+    setHistoryPage(0)
   }, [project])
 
   useEffect(() => {
@@ -293,6 +298,8 @@ export function LintView() {
 
   const warnings = results.filter((r) => r.severity === "warning")
   const infos = results.filter((r) => r.severity === "info")
+  const historyPageCount = Math.max(1, Math.ceil(history.length / LINT_HISTORY_PAGE_SIZE))
+  const visibleHistory = history.slice(historyPage * LINT_HISTORY_PAGE_SIZE, (historyPage + 1) * LINT_HISTORY_PAGE_SIZE)
 
   return (
     <div className="flex h-full flex-col">
@@ -388,7 +395,7 @@ export function LintView() {
           <div className="border-t p-3">
             <div className="mb-2 text-xs font-semibold text-muted-foreground">{t("novel.lint.historyTitle")}</div>
             <div className="space-y-2">
-              {history.map((entry) => {
+              {visibleHistory.map((entry) => {
                 const entryResults = entry.results as LintResult[]
                 const warningCount = entryResults.filter((result) => result.severity === "warning").length
                 const infoCount = entryResults.filter((result) => result.severity === "info").length
@@ -428,6 +435,13 @@ export function LintView() {
                 )
               })}
             </div>
+            <Pagination
+              page={historyPage + 1}
+              pageCount={historyPageCount}
+              total={history.length}
+              onPrev={() => setHistoryPage((p) => Math.max(0, p - 1))}
+              onNext={() => setHistoryPage((p) => Math.min(historyPageCount - 1, p + 1))}
+            />
           </div>
         )}
       </div>

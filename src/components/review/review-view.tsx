@@ -15,6 +15,7 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import {
   Dialog,
   DialogContent,
@@ -145,6 +146,11 @@ export function ReviewView({
   const reviewError = reviewRun?.error
   const [reviewHistory, setReviewHistory] = useState<GenerationHistoryEntry[]>([])
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null)
+  const [reviewHistoryPage, setReviewHistoryPage] = useState(0)
+  const [reviewEntryResultsPage, setReviewEntryResultsPage] = useState(0)
+  const REVIEW_HISTORY_PAGE_SIZE = PAGINATION_PAGE_SIZE
+  // 展开项切换时，嵌套结果回到首页。
+  useEffect(() => { setReviewEntryResultsPage(0) }, [expandedHistoryId])
   const [cognitionState, setCognitionState] = useState<CognitionState | null>(null)
   const [cognitionExpanded, setCognitionExpanded] = useState(false)
   const [issueState, setIssueState] = useState<DashboardIssueState>(createEmptyDashboardIssueState())
@@ -1208,7 +1214,9 @@ export function ReviewView({
                 <h3 className="text-xs font-semibold text-muted-foreground">
                   {t("novel.review.historyTitle")}
                 </h3>
-                {reviewHistory.map((entry) => {
+                {reviewHistory
+                  .slice(reviewHistoryPage * REVIEW_HISTORY_PAGE_SIZE, (reviewHistoryPage + 1) * REVIEW_HISTORY_PAGE_SIZE)
+                  .map((entry) => {
                   const entryResults = entry.results as NovelReviewResult[]
                   const errors = entryResults.filter((result) => result.severity === "error").length
                   const warnings = entryResults.filter((result) => result.severity === "warning").length
@@ -1240,19 +1248,35 @@ export function ReviewView({
                           <div className="mt-2 space-y-1 border-t pt-2">
                             {entryResults.length === 0 ? (
                               <p className="text-muted-foreground">{t("novel.history.emptyResult")}</p>
-                            ) : entryResults.map((result, index) => (
+                            ) : entryResults
+                              .slice(reviewEntryResultsPage * REVIEW_HISTORY_PAGE_SIZE, (reviewEntryResultsPage + 1) * REVIEW_HISTORY_PAGE_SIZE)
+                              .map((result, index) => (
                               <div key={`${entry.id}-${result.type}-${index}`} className="rounded bg-muted/50 p-2">
                                 <div className="font-medium">{i18n.exists(`review.results.dimension.${result.type}`) ? i18n.t(`review.results.dimension.${result.type}`) : result.type}</div>
                                 <div className="text-muted-foreground">{result.message}</div>
                                 {result.suggestion && <div className="mt-1 text-success">{result.suggestion}</div>}
                               </div>
                             ))}
+                            <Pagination
+                              page={reviewEntryResultsPage + 1}
+                              pageCount={Math.max(1, Math.ceil(entryResults.length / REVIEW_HISTORY_PAGE_SIZE))}
+                              total={entryResults.length}
+                              onPrev={() => setReviewEntryResultsPage((p) => Math.max(0, p - 1))}
+                              onNext={() => setReviewEntryResultsPage((p) => Math.min(Math.ceil(entryResults.length / REVIEW_HISTORY_PAGE_SIZE) - 1, p + 1))}
+                            />
                           </div>
                         </div>
                       </div>
                     </div>
                   )
                 })}
+                <Pagination
+                  page={reviewHistoryPage + 1}
+                  pageCount={Math.max(1, Math.ceil(reviewHistory.length / REVIEW_HISTORY_PAGE_SIZE))}
+                  total={reviewHistory.length}
+                  onPrev={() => setReviewHistoryPage((p) => Math.max(0, p - 1))}
+                  onNext={() => setReviewHistoryPage((p) => Math.min(Math.ceil(reviewHistory.length / REVIEW_HISTORY_PAGE_SIZE) - 1, p + 1))}
+                />
               </div>
             )}
             {showCognition && (

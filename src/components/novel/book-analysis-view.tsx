@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 import { BookAnalysisResultViewer } from "./book-analysis-result-viewer"
+import { BookAnalysisVersionHistory } from "./book-analysis-version-history"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -375,6 +376,7 @@ export function BookAnalysisView() {
     return (
       <>
         {libraryLayout}
+        <BookAnalysisVersionHistory projectPath={currentProject?.path ?? ""} />
         {/* v8 ignore start */}
         {false && (
         <div className="flex h-full items-center justify-center p-8">
@@ -464,6 +466,7 @@ export function BookAnalysisView() {
   return (
     <div className="flex h-full flex-col">
       {libraryLayout}
+      <BookAnalysisVersionHistory projectPath={currentProject?.path ?? ""} />
       {/* v8 ignore start */}
       {false && (
       <div className="hidden">

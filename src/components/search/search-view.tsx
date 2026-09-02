@@ -9,9 +9,12 @@ import { normalizePath } from "@/lib/path-utils"
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
 import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-resolver"
 import { isImeComposing } from "@/lib/keyboard-utils"
+import { Pagination } from "@/components/ui/pagination"
 
 const MAX_HISTORY = 20
-const SEARCH_PAGE_TOP_K = 20
+// 搜索结果池上限（解除原 20 硬顶）：一次最多取回的候选数，展示层再按 SEARCH_PAGE_SIZE 分页。
+const SEARCH_PAGE_TOP_K = 100
+const SEARCH_PAGE_SIZE = 20
 const STOP_WORDS = new Set([
   "的", "是", "了", "在", "有", "和", "中", "对", "们",
   "the", "is", "a", "an", "what", "how", "are", "was", "were",
@@ -166,6 +169,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
 
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<SearchResult[]>([])
+  const [page, setPage] = useState(0)
   const [searching, setSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
   const [lightbox, setLightbox] = useState<ImageHit | null>(null)
@@ -204,13 +208,14 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
       setSearchHistory(next)
       try {
         const projectPath = normalizePath(project.path)
+        let found: SearchResult[]
         if (novelMode) {
-          const novelResults = await runNovelPanelSearch(projectPath, q, searchOpts)
-          setResults(novelResults)
+          found = await runNovelPanelSearch(projectPath, q, searchOpts)
         } else {
-          const found = await runWikiPanelSearch(projectPath, q, { rerank: true, includeVector: true })
-          setResults(found)
+          found = await runWikiPanelSearch(projectPath, q, { rerank: true, includeVector: true })
         }
+        setResults(found)
+        setPage(0)
       } catch (err) {
         console.error("[搜索] 失败：", err instanceof Error ? err.message : String(err))
         setResults([])
@@ -279,6 +284,10 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
   const matchingImages = imageHits.filter((h) => h.altMatchesQuery)
   const supportingImages = imageHits.filter((h) => !h.altMatchesQuery)
   const visibleImages = showSupportingImages ? imageHits : matchingImages
+
+  // 搜索结果分页：全量结果已取回，仅切片当前页渲染。
+  const searchPageCount = Math.max(1, Math.ceil(results.length / SEARCH_PAGE_SIZE))
+  const pageResults = results.slice(page * SEARCH_PAGE_SIZE, (page + 1) * SEARCH_PAGE_SIZE)
 
   const handleOpen = useCallback(
     async (path: string) => {
@@ -514,7 +523,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
             <div className="flex flex-col gap-1">
-              {results.map((result) => (
+              {pageResults.map((result) => (
                 <SearchResultCard
                   key={result.path}
                   result={result}
@@ -525,6 +534,13 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
               ))}
             </div>
           </div>
+          <Pagination
+            page={page + 1}
+            pageCount={searchPageCount}
+            total={results.length}
+            onPrev={() => setPage((p) => Math.max(0, p - 1))}
+            onNext={() => setPage((p) => Math.min(searchPageCount - 1, p + 1))}
+          />
         </div>
       )}
 

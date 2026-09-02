@@ -184,20 +184,38 @@ impl CanonCommandState {
 // 响应类型（每条响应含 max_revision）
 // ──────────────────────────────────────────────────────────────────────────
 
-/// `canon_query` / `canon_facts_known_by` 响应。
+/// `canon_query` 响应。
 #[derive(Debug, Clone, Serialize)]
 pub struct CanonQueryResponse {
     /// 过滤后的边集（时态 + 认知轴 + 类别 + 谓词 + 端点）。
+    /// 分页时（filter.offset = Some）为当前页。
     pub edges: Vec<CanonEdge>,
+    /// 过滤后全量计数（v2.8 P1-2）：分页时 = 幸存集全量（供分页器）；
+    /// 无分页（offset = None，旧行为）= edges.len()（与 episodes 契约一致）。
+    pub total: usize,
     /// 当前项目 canon revision（读路径返回当前值，供缓存失效判定）。
+    pub max_revision: u64,
+}
+
+/// `canon_facts_known_by` 分页响应（P1-1：offset/limit/total）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CanonFactsKnownByResponse {
+    /// 当前页边集（offset/limit 截取后）。
+    pub edges: Vec<CanonEdge>,
+    /// 该 POV 全量边计数（分页器用；无分页时 = edges.len()）。
+    pub total: usize,
+    /// 当前项目 canon revision。
     pub max_revision: u64,
 }
 
 /// `canon_query_batch` 响应（多查询单次 invoke）。
 #[derive(Debug, Clone, Serialize)]
 pub struct CanonQueryBatchResponse {
-    /// 与入参 `filters` 顺序一一对应的结果集。
+    /// 与入参 `filters` 顺序一一对应的结果集（分页 filter 时为当前页）。
     pub results: Vec<Vec<CanonEdge>>,
+    /// 与 `results` 下标一一对应的过滤后全量计数（v2.8 P1-2；
+    /// 无分页 filter 时 = results[i].len()）。供 canonEditor 服务端分页器消费。
+    pub totals: Vec<usize>,
     /// 当前项目 canon revision。
     pub max_revision: u64,
 }
@@ -247,9 +265,18 @@ pub async fn canon_query_impl(
     if !state.is_loaded(&project_id) {
         state.lazy_load_revision(&project_id, &store).await?;
     }
-    let edges = store.query_edges(&filter).await?;
+    // v2.8 P1-2 路由：filter.offset = Some → paged 读（切片 + 全量 total）；
+    // None → 旧行为（全量/limit 截断），total = 返回条数。
+    let (edges, total) = if filter.offset.is_some() {
+        store.query_edges_paged(&filter).await?
+    } else {
+        let edges = store.query_edges(&filter).await?;
+        let total = edges.len();
+        (edges, total)
+    };
     Ok(CanonQueryResponse {
         edges,
+        total,
         max_revision: state.current_revision(&project_id),
     })
 }
@@ -267,11 +294,22 @@ pub async fn canon_query_batch_impl(
         state.lazy_load_revision(&project_id, &store).await?;
     }
     let mut results = Vec::with_capacity(filters.len());
+    let mut totals = Vec::with_capacity(filters.len());
     for f in &filters {
-        results.push(store.query_edges(f).await?);
+        // v2.8 P1-2 路由（与 canon_query_impl 同一规则）：offset = Some → paged。
+        let (edges, total) = if f.offset.is_some() {
+            store.query_edges_paged(f).await?
+        } else {
+            let edges = store.query_edges(f).await?;
+            let total = edges.len();
+            (edges, total)
+        };
+        results.push(edges);
+        totals.push(total);
     }
     Ok(CanonQueryBatchResponse {
         results,
+        totals,
         max_revision: state.current_revision(&project_id),
     })
 }
@@ -285,14 +323,30 @@ pub async fn canon_facts_known_by_impl(
     pov: String,
     at_chapter: Option<i32>,
     include_invalidated: Option<bool>,
-) -> Result<CanonQueryResponse, String> {
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<CanonFactsKnownByResponse, String> {
+    let store = CanonStore::open(&project_id).await?;
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
     let filter = CanonEdgeFilter {
         known_by: Some(pov),
         valid_at_chapter: at_chapter,
         include_invalidated,
         ..Default::default()
     };
-    canon_query_impl(state, project_id, filter).await
+    // 全量收集（filter 不含 limit），据此计算 total，再在内存做 offset/limit 截取。
+    let all = store.query_edges(&filter).await?;
+    let total = all.len();
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(usize::MAX);
+    let edges = all.into_iter().skip(offset).take(limit).collect();
+    Ok(CanonFactsKnownByResponse {
+        edges,
+        total,
+        max_revision: state.current_revision(&project_id),
+    })
 }
 
 /// 幂等摄取 episode（写路径：串行化 + revision 自增）。
@@ -404,6 +458,8 @@ pub async fn canon_get_revision_impl(
     }
     Ok(CanonQueryResponse {
         edges: Vec::new(),
+        // 纯 revision 探针（无 UI 入口，程序化消费）：无可分页数据，total 恒 0。
+        total: 0,
         max_revision: state.current_revision(&project_id),
     })
 }
@@ -427,15 +483,27 @@ pub async fn canon_query_batch(
 }
 
 #[tauri::command]
-/// 内部能力：仅程序化消费（character-cognition.ts），无直接 UI 入口。
+/// POV 认知轴便利封装（分页版）。消费方：character-cognition.ts（无分页）
+/// 与 canon-facts-known-by-panel（服务端分页）。
 pub async fn canon_facts_known_by(
     state: State<'_, CanonCommandState>,
     project_id: String,
     pov: String,
     at_chapter: Option<i32>,
     include_invalidated: Option<bool>,
-) -> Result<CanonQueryResponse, String> {
-    canon_facts_known_by_impl(state.inner(), project_id, pov, at_chapter, include_invalidated).await
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<CanonFactsKnownByResponse, String> {
+    canon_facts_known_by_impl(
+        state.inner(),
+        project_id,
+        pov,
+        at_chapter,
+        include_invalidated,
+        offset,
+        limit,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -610,6 +678,96 @@ mod tests {
         assert_eq!(r.max_revision, 0);
     }
 
+    // ── v2.8 P1-2：canon_query 分页（offset/limit → total 全量计数）──
+
+    #[tokio::test]
+    async fn canon_query_paged_offset_limit_total() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        let store = CanonStore::open(&pid).await.unwrap();
+        for i in 0..5 {
+            store
+                .upsert_edge(edge(&format!("e{i}"), Some(1), None, &["alice"]))
+                .await
+                .unwrap();
+        }
+        drop(store);
+
+        // offset=2 无 limit → 第 3 条起全量余下（3 条），total = 幸存集全量 5
+        let r = canon_query_impl(
+            &state,
+            pid.clone(),
+            CanonEdgeFilter {
+                offset: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.edges.len(), 3);
+        assert_eq!(r.total, 5, "total 为过滤后全量计数（非页大小）");
+        assert_eq!(r.edges[0].id, "e2", "skip(2) 后从第 3 条开始");
+
+        // offset=0 + limit=2 → 首页 2 条，total 仍 5
+        let page1 = canon_query_impl(
+            &state,
+            pid.clone(),
+            CanonEdgeFilter {
+                offset: Some(0),
+                limit: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(page1.edges.len(), 2);
+        assert_eq!(page1.total, 5);
+
+        // 无 offset（旧行为）→ 全量 5 条，total = edges.len()（与 episodes 契约一致）
+        let all = canon_query_impl(&state, pid, CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(all.edges.len(), 5);
+        assert_eq!(all.total, 5);
+    }
+
+    // ── v2.8 P1-2：canon_query_batch 分页（totals 与 results 下标对齐）──
+
+    #[tokio::test]
+    async fn canon_query_batch_paged_totals() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        let store = CanonStore::open(&pid).await.unwrap();
+        for i in 0..5 {
+            store
+                .upsert_edge(edge(&format!("e{i}"), Some(1), None, &["alice"]))
+                .await
+                .unwrap();
+        }
+        drop(store);
+
+        // filter 1：分页（offset=2, limit=2）；filter 2：无分页（旧行为回归）
+        let filters = vec![
+            CanonEdgeFilter {
+                offset: Some(2),
+                limit: Some(2),
+                ..Default::default()
+            },
+            CanonEdgeFilter::default(),
+        ];
+        let r = canon_query_batch_impl(&state, pid, filters).await.unwrap();
+        assert_eq!(r.results.len(), 2);
+        assert_eq!(r.totals.len(), 2, "totals 与 results 下标一一对应");
+        assert_eq!(r.results[0].len(), 2, "分页 filter → 当前页 2 条");
+        assert_eq!(r.totals[0], 5, "分页 filter → total 为全量计数");
+        assert_eq!(r.results[1].len(), 5);
+        assert_eq!(r.totals[1], 5, "无分页 filter → total = results[i].len()（旧行为）");
+    }
+
     // ── canon_facts_known_by：POV 认知轴封装 ──
 
     #[tokio::test]
@@ -627,13 +785,13 @@ mod tests {
             .await
             .unwrap();
 
-        let r = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(5), None)
+        let r = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(5), None, None, None)
             .await
             .unwrap();
         assert_eq!(r.edges.len(), 1);
         assert_eq!(r.edges[0].id, "e1");
 
-        let r2 = canon_facts_known_by_impl(&state, pid, "bob".into(), Some(5), None)
+        let r2 = canon_facts_known_by_impl(&state, pid, "bob".into(), Some(5), None, None, None)
             .await
             .unwrap();
         assert_eq!(r2.edges.len(), 0);
@@ -658,17 +816,78 @@ mod tests {
             .unwrap();
 
         // 旧行为（None）：第 7 章不再有效 → 0 条。
-        let old = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(7), None)
+        let old = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(7), None, None, None)
             .await
             .unwrap();
         assert_eq!(old.edges.len(), 0);
 
         // include_invalidated=true：保留已失效窗口边 → 1 条。
-        let inc = canon_facts_known_by_impl(&state, pid, "alice".into(), Some(7), Some(true))
+        let inc = canon_facts_known_by_impl(&state, pid, "alice".into(), Some(7), Some(true), None, None)
             .await
             .unwrap();
         assert_eq!(inc.edges.len(), 1);
         assert_eq!(inc.edges[0].id, "e1");
+    }
+
+    // ── canon_facts_known_by 分页：offset/limit/total ──
+
+    #[tokio::test]
+    async fn canon_facts_known_by_pagination_total_and_offset() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        let store = CanonStore::open(&pid).await.unwrap();
+        for id in ["e1", "e2", "e3"] {
+            let mut e = edge(id, Some(1), None, &["alice"]);
+            e.source_chapter = Some(1);
+            store.upsert_edge(e).await.unwrap();
+        }
+
+        // offset=0, limit=2 → 2 条，total=3
+        let page = canon_facts_known_by_impl(
+            &state,
+            pid.clone(),
+            "alice".into(),
+            None,
+            None,
+            Some(0),
+            Some(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.edges.len(), 2);
+        assert_eq!(page.total, 3, "total 保持全量计数");
+
+        // offset=2, limit=2 → 1 条，total=3
+        let page2 = canon_facts_known_by_impl(
+            &state,
+            pid.clone(),
+            "alice".into(),
+            None,
+            None,
+            Some(2),
+            Some(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page2.edges.len(), 1);
+        assert_eq!(page2.total, 3);
+
+        // offset=None, limit=None → 全量，total=3（旧行为，向后兼容）
+        let all = canon_facts_known_by_impl(
+            &state,
+            pid,
+            "alice".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(all.edges.len(), 3);
+        assert_eq!(all.total, 3);
     }
 
     // ── canon_ingest_episode：幂等 + revision 自增 ──

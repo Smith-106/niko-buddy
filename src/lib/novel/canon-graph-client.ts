@@ -77,19 +77,34 @@ export interface CanonEdgeFilter {
   entity_ids?: string[] | null
   archived?: boolean | null
   limit?: number | null
+  /** 分页偏移（v2.8 P1-2）：仅 paged 读路径消费；缺省 = 旧行为（全量/limit 截断）。 */
+  offset?: number | null
   /** 按 digest 列表过滤（精确匹配；DEBT-20260621-30b supersede 分歧检测用）。 */
   digest?: string[] | null
+  /** as-of-revision 视角重建：仅返回 recorded_revision <= 该值的边（None=旧数据无戳，始终保留）。 */
+  max_recorded_revision?: number | null
 }
 
 /** canon_query / canon_facts_known_by 原始响应。 */
 export interface CanonQueryResponseRaw {
   edges: RawCanonEdge[]
+  /** v2.8 P1-2：过滤后全量计数（分页时为幸存集全量；旧后端无此字段 → undefined）。 */
+  total?: number
+  max_revision: number
+}
+
+/** canon_facts_known_by 分页原始响应（P1-1：offset/limit/total）。 */
+export interface CanonFactsKnownByResponseRaw {
+  edges: RawCanonEdge[]
+  total: number
   max_revision: number
 }
 
 /** canon_query_batch 原始响应（多查询单 invoke）。 */
 export interface CanonQueryBatchResponseRaw {
   results: RawCanonEdge[][]
+  /** v2.8 P1-2：与 results 下标一一对应的过滤后全量计数（旧后端无此字段 → undefined）。 */
+  totals?: number[]
   max_revision: number
 }
 
@@ -201,13 +216,41 @@ export async function getFactsKnownBy(
   atChapter?: number,
   includeInvalidated?: boolean,
 ): Promise<CanonFact[]> {
-  const res = await invoke<CanonQueryResponseRaw>("canon_facts_known_by", {
+  return (
+    await getFactsKnownByPaged(projectId, characterId, atChapter, includeInvalidated)
+  ).facts
+}
+
+/**
+ * 按 POV 认知轴取该角色已知事实（分页版；P1-1）。
+ *
+ * @param projectId 项目 id
+ * @param characterId POV 角色 id（认知轴 filter `known_by`）
+ * @param atChapter 世界时态截点（可选）
+ * @param includeInvalidated 召回已失效窗口边（可选）
+ * @param page 可选分页（offset/limit）；缺省 = 全量
+ * @returns 投影后 `facts` + 服务端 `total` + `maxRevision`
+ */
+export async function getFactsKnownByPaged(
+  projectId: string,
+  characterId: string,
+  atChapter?: number,
+  includeInvalidated?: boolean,
+  page?: { offset: number; limit: number },
+): Promise<{ facts: CanonFact[]; total: number; maxRevision: number }> {
+  const res = await invoke<CanonFactsKnownByResponseRaw>("canon_facts_known_by", {
     projectId,
     pov: characterId,
     atChapter: atChapter ?? null,
     includeInvalidated: includeInvalidated ?? null,
+    offset: page?.offset ?? null,
+    limit: page?.limit ?? null,
   })
-  return projectEdges(res.edges)
+  return {
+    facts: projectEdges(res.edges),
+    total: res.total,
+    maxRevision: res.max_revision,
+  }
 }
 
 /**
@@ -273,6 +316,8 @@ export async function queryEpisodesByChapter(
  * 与 Rust `CanonEdgeFilter` 契约一致的 snake_case filter，供
  * `queryCanonEdgesBatch` / `queryCanonEdges` 使用。
  *
+ * v2.8 P1-2：分页（offset/limit）随 filter 搭载（canon_query/batch 签名不变）。
+ *
  * @param opts 筛选意图（全部可选；缺省 = 全量查询）
  */
 export function buildCanonEdgeFilter(opts: {
@@ -285,6 +330,9 @@ export function buildCanonEdgeFilter(opts: {
   archived?: boolean
   digest?: string[]
   limit?: number
+  /** 分页偏移（0 基；与 limit 搭载实现服务端分页）。 */
+  offset?: number
+  maxRecordedRevision?: number
 }): CanonEdgeFilter {
   return {
     known_by: opts.knownBy ?? null,
@@ -296,5 +344,7 @@ export function buildCanonEdgeFilter(opts: {
     archived: opts.archived ?? null,
     digest: opts.digest ?? null,
     limit: opts.limit ?? null,
+    offset: opts.offset ?? null,
+    max_recorded_revision: opts.maxRecordedRevision ?? null,
   }
 }

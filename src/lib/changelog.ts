@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "2.7.5",
+  date: "2026-09-02",
+  highlights: {
+    en: [
+      "i18n full coverage: storySimulation 13 components hardcoded Chinese strings fully i18n-ized (348 keys each in zh/en, #45).",
+      "UI walkthrough fixes: 16/16 activeView walkthrough (#43) + P2-1 fixes (#44, 31 key backfill).",
+      "Docs & Design Gate corrections: 13 items in A2/A3/B tiers (#46: P1-1 reverse annotation fix, RELEASING CI gate to manual discipline, dangling references repointed, platform wording cross-clarified, canon header note 5->8, etc.).",
+      "Docs site: 11 activeView pages added (wiki/sources/search/lint/settings/trash/skillLibrary/storySimulation/backupExport/canonEditor), 23 pages build passed.",
+      "Cleanup: build artifacts/caches/temp files removed (~34G reclaimed: src-tauri/target 33G + dist/.vite/tsbuildinfo etc.).",
+    ],
+    zh: [
+      "i18n 全量化：storySimulation 13 组件硬编码中文串全部 i18n 化（zh/en 各 348 key，45 号）。",
+      "UI 走查修复：43 号 16/16 activeView 走查 + 44 号 P2-1 修复（storySimulation 31 key 补漏）。",
+      "Docs & Design Gate 勘误：46 号 A2/A3/B 档 13 项（P1-1 反向标注修正、RELEASING CI 门禁改人工纪律、悬空引用改指、平台口径交叉澄清、canon 头注 5→8 等）。",
+      "文档站：docs-site 补 11 个 activeView 页面（wiki/sources/search/lint/settings/trash/skillLibrary/storySimulation/backupExport/canonEditor），23 页构建通过。",
+      "清理：构建产物/缓存/临时文件清理（回收约 34G：src-tauri/target 33G + dist/.vite/tsbuildinfo 等）。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_FOUR_CHANGELOG: ChangelogEntry = {
   version: "2.7.4",
   date: "2026-08-28",
@@ -1313,6 +1334,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_FIVE_CHANGELOG.version) return [TWO_POINT_SEVEN_FIVE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FOUR_CHANGELOG.version) return [TWO_POINT_SEVEN_FOUR_CHANGELOG]
   if (version === TWO_POINT_SEVEN_THREE_CHANGELOG.version) return [TWO_POINT_SEVEN_THREE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_TWO_CHANGELOG.version) return [TWO_POINT_SEVEN_TWO_CHANGELOG]

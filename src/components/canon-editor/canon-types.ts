@@ -52,22 +52,33 @@ export interface CanonEdge {
 
 /**
  * canon_query / canon_query_batch 的边过滤条件（§4）。
- * 全部字段可选；undefined = 不过滤该维。
+ * 与 `src/lib/novel/canon-graph-client.ts` 的 `CanonEdgeFilter`（Rust 镜像）结构一致，
+ * 使 `buildCanonEdgeFilter` 产物可直接赋值给本地状态类型。
+ * 全部字段可选；undefined/null = 不过滤该维。
  */
 export interface CanonEdgeFilter {
-  known_by?: string
-  valid_at_chapter?: number
-  edge_kinds?: EdgeKind[]
-  predicates?: string[]
-  entity_ids?: string[]
-  archived?: boolean
-  limit?: number
+  known_by?: string | null
+  valid_at_chapter?: number | null
+  /** 召回已失效窗口边（"曾以为"）：true=保留 invalid_at<=章节 的边。 */
+  include_invalidated?: boolean | null
+  edge_kinds?: EdgeKind[] | null
+  predicates?: string[] | null
+  entity_ids?: string[] | null
+  archived?: boolean | null
+  limit?: number | null
+  /** 分页偏移（v2.8 P1-2，镜像 Rust `CanonEdgeFilter`）：仅 paged 读路径消费。 */
+  offset?: number | null
+  digest?: string[] | null
+  /** as-of-revision 视角重建：仅返回 recorded_revision <= 该值的边（镜像 Rust `CanonEdgeFilter`）。 */
+  max_recorded_revision?: number | null
 }
 
 /** canon_query_batch 响应（多查询单次 invoke）。 */
 export interface CanonQueryBatchResponse {
-  /** 与入参 filters 顺序一一对应的结果集。 */
+  /** 与入参 filters 顺序一一对应的结果集（分页 filter 时为当前页）。 */
   results: CanonEdge[][]
+  /** v2.8 P1-2：与 results 下标一一对应的过滤后全量计数（旧后端无此字段 → undefined）。 */
+  totals?: number[]
   /** 当前项目 canon revision。 */
   max_revision: number
 }

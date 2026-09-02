@@ -29,6 +29,11 @@
     "back": "Back",
     "next": "Next",
     "dismiss": "Dismiss",
+    "pagination": {
+      "prev": "Previous",
+      "next": "Next",
+      "info": "Page {{page}} / {{pageCount}} · {{total}} items"
+    },
     "previous": "Previous",
     "loading": "Loading",
     "error": "Error",
@@ -672,6 +677,15 @@
     "recentProjects": "Novel Shelf"
   },
   "wiki": {
+    "gatingProgress": {
+      "title": "Chapter Gate Progress",
+      "passed": "Passed",
+      "pending": "Pending",
+      "consistency": "Consistency (P0)",
+      "antiAi": "Anti-AI (P1)",
+      "quality": "Quality (P2)",
+      "ratio": "{{passed}}/{{total}} ({{percent}}%)"
+    },
     "title": "Knowledge Base",
     "newPage": "New Page",
     "newSubPage": "New Sub-page",
@@ -1670,6 +1684,46 @@
       "switchProject": "Switch Project",
       "coverWorkbench": "Cover Workbench"
     },
+    "backupExport": {
+      "cancelled": "Cancelled",
+      "restoreConfirm": "Restoring will overwrite the project's status.json, drafts, and Canon data (current state is auto-backed-up before replacement). Continue?",
+      "restoreConfirmTitle": "Confirm Restore",
+      "title": "Project Backup & Restore",
+      "description": "Standalone backup of the current project: status.json (session state) + drafts + Canon LanceDB snapshot, zip + SHA-256 checksum. For global config backup go to Settings → Data Management.",
+      "passphraseLabel": "Local passphrase (optional)",
+      "passphrasePlaceholder": "Leave empty to skip encryption; applies to this operation only",
+      "passphraseNote": "AES-256 local encryption, not connected to the cloud; the passphrase is not saved and cannot be recovered if lost.",
+      "progressWorking": "Processing...",
+      "cancelling": "Cancelling...",
+      "cancelButton": "Cancel",
+      "exportTitle": "Export Project Backup",
+      "exporting": "Exporting...",
+      "exportButton": "Export Backup",
+      "exportSuccess": "Export succeeded",
+      "filesUnit": "files",
+      "sidecarWritten": "Checksum file",
+      "verifyTitle": "Verify Backup",
+      "verifyDescription": "Pre-check the backup before restoring: container SHA-256 (prefer .sha256 sidecar) + in-package manifest content digest. Verify only, nothing written to disk.",
+      "verifying": "Verifying...",
+      "verifyButton": "Select backup package to verify",
+      "verifySuccess": "Verification passed",
+      "verifyContentDigest": "Content digest verification",
+      "verifyShaMissing": "No .sha256 checksum file found: downgraded to in-package content digest only (re-export to obtain a full checksum).",
+      "restoreTitle": "Restore from Backup",
+      "restoreDescription": "Atomically replace current project data after checksum (SHA-256 + content digest) passes; current state is auto-backed-up to backups/auto/ before replacement.",
+      "restoring": "Restoring...",
+      "restoreButton": "Select backup package to restore",
+      "restoreSuccess": "Restore succeeded",
+      "autoBackupTaken": "Auto-backup taken before replacement",
+      "autoTitle": "Auto Backup (before supersede / migration)",
+      "autoRunning": "Backing up...",
+      "autoButton": "Run auto backup now",
+      "autoSuccess": "Auto backup complete",
+      "autoDescription": "Before destructive writes such as a Canon supersede or schema migration, drop a timestamped snapshot with checksum into backups/auto/.",
+      "historyTitle": "Backup History",
+      "historyDescription": "In-project auto backups (backups/auto/): the landing point for pre-restore auto backups and manual auto backups. Backups exported to external paths are not listed here.",
+      "historyEmpty": "No backup history yet; this list refreshes automatically after a restore or auto backup."
+    },
     "labels": {
       "knowledgeBase": "章节库",
       "file": "大纲",
@@ -2419,8 +2473,44 @@
       }
     }
   },
+  "canon": {
+    "common": {
+      "loading": "Loading…",
+      "refresh": "Refresh"
+    },
+    "factsPanel": {
+      "title": "Known Facts (POV)",
+      "povLabel": "POV character",
+      "povPlaceholder": "Select a POV character",
+      "chapterLabel": "Chapter cutoff",
+      "chapterPlaceholder": "Chapter (empty = no cutoff)",
+      "includeInvalidated": "Include invalidated-window edges",
+      "total": "{{count}} total",
+      "empty": "No known facts for this POV at this cutoff.",
+      "emptyNoPov": "Select a POV character first.",
+      "pagePrev": "Previous",
+      "pageNext": "Next",
+      "pageInfo": "Page {{page}} / {{pages}} · {{total}} total"
+    },
+    "revisionViewer": {
+      "title": "Revision History",
+      "currentRevision": "Current revision",
+      "noStampGroup": "Legacy data (no revision stamp)",
+      "groupLabel": "revision {{rev}}",
+      "empty": "No revisions yet.",
+      "factCount": "{{count}} edges"
+    }
+  },
   "errorBoundary": {
     "title": "Something went wrong",
     "retry": "Retry"
+  },
+  "bookAnalysis": {
+    "versionHistory": {
+      "title": "Book Analysis Versions",
+      "empty": "No book analysis versions yet",
+      "count": "{{count}} versions",
+      "view": "View"
+    }
   }
 }

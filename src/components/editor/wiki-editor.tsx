@@ -14,6 +14,7 @@ import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { WikiReader } from "@/components/editor/wiki-reader"
+import { ChapterGatingProgress } from "./wiki-gating-progress"
 import {
   rebuildChapterBody,
   splitChapterHeading,
@@ -410,6 +411,7 @@ export function WikiEditor({
 
   return (
     <div className={immersiveWriting ? "relative h-full overflow-hidden" : "relative h-full overflow-auto"}>
+      <ChapterGatingProgress />
       {!immersiveWriting && (
         <button
           type="button"

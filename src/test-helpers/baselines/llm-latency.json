@@ -1,20 +1,20 @@
 {
-  "timestamp": "2026-08-31T19:47:59.161Z",
+  "timestamp": "2026-09-02T04:06:59.402Z",
   "version": "2.4.3",
   "iterations": 50,
   "operations": [
     {
       "name": "scene-breakdown orchestration",
-      "p50": 0.01,
-      "p95": 0.14,
-      "p99": 0.44,
-      "avg": 0.03
+      "p50": 0.03,
+      "p95": 0.07,
+      "p99": 0.59,
+      "avg": 0.04
     },
     {
       "name": "context-engine assembly",
       "p50": 0,
       "p95": 0,
-      "p99": 0.05,
+      "p99": 0.04,
       "avg": 0
     }
   ]

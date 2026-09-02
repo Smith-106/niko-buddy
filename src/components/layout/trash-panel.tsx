@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { RotateCcw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { listDirectory } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
@@ -30,10 +31,17 @@ export function TrashPanel() {
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [items, setItems] = useState<TrashItem[]>([])
+  const [trashPage, setTrashPage] = useState(0)
+  const TRASH_PAGE_SIZE = PAGINATION_PAGE_SIZE
   const [loading, setLoading] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
+
+  // 删除/恢复/重载后历史条目集合变化，重置到首页。
+  useEffect(() => {
+    setTrashPage(0)
+  }, [items])
 
   const loadTrash = useCallback(async () => {
     if (!project) {
@@ -156,8 +164,11 @@ export function TrashPanel() {
         ) : items.length === 0 ? (
           <div className="px-2 py-3 text-xs text-muted-foreground">{t("trash.empty", { defaultValue: "回收站为空" })}</div>
         ) : (
-          <div className="space-y-1">
-            {items.map((item) => {
+          <>
+            <div className="space-y-1">
+            {items
+              .slice(trashPage * TRASH_PAGE_SIZE, (trashPage + 1) * TRASH_PAGE_SIZE)
+              .map((item) => {
               const remainingDays = getTrashDaysRemaining(item)
               const isRestoring = restoringId === item.id
               const isSelected = selectedTrashItem?.id === item.id
@@ -205,7 +216,15 @@ export function TrashPanel() {
                 </div>
               )
             })}
-          </div>
+            </div>
+            <Pagination
+              page={trashPage + 1}
+              pageCount={Math.max(1, Math.ceil(items.length / TRASH_PAGE_SIZE))}
+              total={items.length}
+              onPrev={() => setTrashPage((p) => Math.max(0, p - 1))}
+              onNext={() => setTrashPage((p) => Math.min(Math.ceil(items.length / TRASH_PAGE_SIZE) - 1, p + 1))}
+            />
+          </>
         )}
       </div>
     </div>

@@ -37,6 +37,33 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
 }))
 
+// 合并后 CanonEditor 浏览模式渲染两个 P1-1 面板（facts/revision），它们各自经
+// @/lib/novel/* 投影封装取数；此处 mock 掉使面板不触达真实 invoke，保留
+// canon-editor 自身 IPC 缝合点（canon_query_batch / canon_supersede_edges）的
+// invokeMock 断言不受干扰。buildCanonEdgeFilter 保留真实实现（v2.8 P1-2：
+// buildFilter 委托共享构造器，骨架产物形状由真实构造器保证）。
+vi.mock("@/lib/novel/canon-graph-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/canon-graph-client")>()
+  return {
+    ...actual,
+    getFactsKnownByPaged: vi.fn().mockResolvedValue({ facts: [], total: 0, maxRevision: 0 }),
+    queryCanonEdges: vi.fn().mockResolvedValue([]),
+  }
+})
+
+vi.mock("@/lib/novel/canon-dual-write", () => ({
+  getCanonRevision: vi.fn().mockResolvedValue(0),
+}))
+
+// i18next v26 use() 校验 module.type 必须存在，否则抛 "wrong module"（spec 环境修复）。
+// t 为 identity：面板文案渲染 key 字符串，既有中文硬编码断言不受影响；
+// tSpy 暴露插值参数断言（v2.8 P1-2：分页器 total/pageCount 断言用）。
+const tSpy = vi.hoisted(() => vi.fn((key: string) => key))
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: tSpy }),
+  initReactI18next: { type: "3rdParty", init: () => {} },
+}))
+
 // ── fixtures ──────────────────────────────────────────────────────
 const PROJECT_ID = "proj-1"
 
@@ -109,8 +136,17 @@ const SPARSE_EDGE: CanonEdge = {
 function batchResponse(
   edges: CanonEdge[],
   maxRevision: number,
+  total = edges.length,
 ): CanonQueryBatchResponse {
-  return { results: [edges], max_revision: maxRevision }
+  // v2.8 P1-2：响应含 totals（与 results 下标对齐的过滤后全量计数）
+  return { results: [edges], totals: [total], max_revision: maxRevision }
+}
+
+/** 生成 n 条可区分边（服务端分页用例造 100+ 条数据）。 */
+function makeEdgeRange(n: number, idPrefix = "p"): CanonEdge[] {
+  return Array.from({ length: n }, (_, i) =>
+    makeEdge({ id: `${idPrefix}${i}`, predicate: "KNOWS" }),
+  )
 }
 
 function lastInvokeArgs(): { projectId: string; filters: unknown[] } {
@@ -132,6 +168,7 @@ async function renderLoaded(
 
 afterEach(() => {
   cleanup()
+  tSpy.mockClear()
 })
 
 describe("CanonEditor — 渲染与 max_revision 展示", () => {
@@ -140,15 +177,18 @@ describe("CanonEditor — 渲染与 max_revision 展示", () => {
     setupDomGlobals()
   })
 
-  it("挂载即调用 canon_query_batch(projectId, [{}]) 并渲染事实表", async () => {
+  it("挂载即调用 canon_query_batch（首页 offset/limit + 空过滤）并渲染事实表", async () => {
     await renderLoaded()
 
     expect(invokeMock).toHaveBeenCalledTimes(1)
     expect(invokeMock.mock.calls[0][0]).toBe("canon_query_batch")
     const args = invokeMock.mock.calls[0][1] as { projectId: string; filters: unknown[] }
     expect(args.projectId).toBe(PROJECT_ID)
-    // 初始过滤为空对象（不过滤任何维 → 返回全部边）
-    expect(args.filters).toEqual([{}])
+    // v2.8 P1-2 服务端分页：初始过滤 = buildCanonEdgeFilter(空输入)（全 null 字段，
+    // 由真实构造器保证）+ 首页 offset/limit 注入
+    expect(args.filters).toEqual([
+      expect.objectContaining({ offset: 0, limit: 100 }),
+    ])
 
     // 两条边均渲染
     expect(screen.getByTestId("canon-fact-row-e1")).toBeTruthy()
@@ -219,7 +259,9 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
     const args = lastInvokeArgs()
     expect(args.projectId).toBe(PROJECT_ID)
-    expect(args.filters).toEqual([{ known_by: "pov:alpha" }])
+    expect(args.filters).toEqual([
+      expect.objectContaining({ known_by: "pov:alpha", offset: 0, limit: 100 }),
+    ])
   })
 
   it("valid_at_chapter 数字下推；非法输入忽略", async () => {
@@ -232,7 +274,9 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     })
     fireEvent.click(screen.getByTestId("canon-filter-apply"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
-    expect(lastInvokeArgs().filters).toEqual([{ valid_at_chapter: 5 }])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ valid_at_chapter: 5, offset: 0, limit: 100 }),
+    ])
 
     // 非法输入（空 / 非数字）→ 不带该字段
     fireEvent.change(screen.getByTestId("canon-filter-valid-at-chapter"), {
@@ -240,7 +284,9 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     })
     fireEvent.click(screen.getByTestId("canon-filter-apply"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3))
-    expect(lastInvokeArgs().filters).toEqual([{}])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ offset: 0, limit: 100 }),
+    ])
   })
 
   it("edge_kind 选择下推为 edge_kinds 数组", async () => {
@@ -253,7 +299,9 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     })
     fireEvent.click(screen.getByTestId("canon-filter-apply"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
-    expect(lastInvokeArgs().filters).toEqual([{ edge_kinds: ["foreshadow"] }])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ edge_kinds: ["foreshadow"], offset: 0, limit: 100 }),
+    ])
   })
 
   it("组合过滤下推（known_by + valid_at_chapter + edge_kinds）", async () => {
@@ -273,11 +321,13 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     fireEvent.click(screen.getByTestId("canon-filter-apply"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
     expect(lastInvokeArgs().filters).toEqual([
-      {
+      expect.objectContaining({
         known_by: "pov:beta",
         valid_at_chapter: 10,
         edge_kinds: ["arc"],
-      },
+        offset: 0,
+        limit: 100,
+      }),
     ])
   })
 
@@ -294,7 +344,9 @@ describe("CanonEditor — known_by / valid_at_chapter / edge_kinds 过滤下推"
     })
     fireEvent.click(screen.getByTestId("canon-filter-reset"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
-    expect(lastInvokeArgs().filters).toEqual([{}])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ offset: 0, limit: 100 }),
+    ])
     expect((screen.getByTestId("canon-filter-known-by") as HTMLInputElement).value).toBe("")
     expect((screen.getByTestId("canon-filter-edge-kind") as HTMLSelectElement).value).toBe("all")
   })
@@ -372,13 +424,17 @@ describe("CanonEditor — loading / error / 刷新", () => {
     })
     fireEvent.click(screen.getByTestId("canon-filter-apply"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
-    expect(lastInvokeArgs().filters).toEqual([{ known_by: "pov:alpha" }])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ known_by: "pov:alpha", offset: 0, limit: 100 }),
+    ])
 
     // 刷新 → 沿用 same filter
     invokeMock.mockResolvedValueOnce(batchResponse([makeEdge({ id: "e1" })], 3))
     fireEvent.click(screen.getByTestId("canon-refresh"))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3))
-    expect(lastInvokeArgs().filters).toEqual([{ known_by: "pov:alpha" }])
+    expect(lastInvokeArgs().filters).toEqual([
+      expect.objectContaining({ known_by: "pov:alpha", offset: 0, limit: 100 }),
+    ])
     await waitFor(() => {
       expect(screen.getByTestId("canon-max-revision-value").textContent).toBe("3")
     })
@@ -393,6 +449,122 @@ describe("CanonEditor — loading / error / 刷新", () => {
     rerender(<CanonEditor projectId="proj-2" />)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
     expect(lastInvokeArgs().projectId).toBe("proj-2")
+  })
+})
+
+// ============================================================================
+// v2.8 P1-2：服务端分页（offset/limit + total，PaginationControls）
+// ============================================================================
+
+describe("CanonEditor — 服务端分页（v2.8 P1-2）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+  })
+
+  it("total=150（2 页）→ 分页器可见，翻页触发 offset=100 的二次 invoke", async () => {
+    invokeMock.mockResolvedValueOnce(batchResponse(makeEdgeRange(100, "a"), 7, 150))
+    invokeMock.mockResolvedValue(batchResponse(makeEdgeRange(50, "b"), 7, 150))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1))
+    expect(invokeMock.mock.calls[0]![1].filters[0]).toEqual(
+      expect.objectContaining({ offset: 0, limit: 100 }),
+    )
+    await waitFor(() => expect(screen.getByTestId("canon-pagination")).toBeTruthy())
+    // 分页器信息：t 以服务端 total / 推导 pageCount 插值（identity mock 渲染 key，参数走断言）
+    expect(tSpy).toHaveBeenCalledWith(
+      "common.pagination.info",
+      expect.objectContaining({ page: 1, pageCount: 2, total: 150 }),
+    )
+
+    fireEvent.click(screen.getByTestId("canon-page-next"))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
+    expect(invokeMock.mock.calls[1]![1].filters[0]).toEqual(
+      expect.objectContaining({ offset: 100, limit: 100 }),
+    )
+  })
+
+  it("首页 prev 禁用；末页 next 禁用", async () => {
+    invokeMock.mockResolvedValueOnce(batchResponse(makeEdgeRange(100, "a"), 7, 150))
+    invokeMock.mockResolvedValue(batchResponse(makeEdgeRange(50, "b"), 7, 150))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("canon-pagination")).toBeTruthy())
+    expect((screen.getByTestId("canon-page-prev") as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId("canon-page-next") as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(screen.getByTestId("canon-page-next"))
+    await waitFor(() => {
+      expect((screen.getByTestId("canon-page-next") as HTMLButtonElement).disabled).toBe(true)
+    })
+    expect((screen.getByTestId("canon-page-prev") as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it("page>1 空页 + total>0 → 越界回跳以 offset=0 自动重取", async () => {
+    invokeMock.mockResolvedValueOnce(batchResponse(makeEdgeRange(100, "a"), 7, 150))
+    invokeMock.mockResolvedValue(batchResponse([], 7, 150))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("canon-pagination")).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId("canon-page-next"))
+    // 第 2 页返回空页但 total=150 → 越界回跳守卫回第 1 页（第三次 invoke offset=0）
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3))
+    expect(invokeMock.mock.calls[2]![1].filters[0]).toEqual(
+      expect.objectContaining({ offset: 0, limit: 100 }),
+    )
+  })
+
+  it("page>1 应用过滤 → 新过滤以 offset=0 下推（同步回页 1）", async () => {
+    invokeMock.mockResolvedValueOnce(batchResponse(makeEdgeRange(100, "a"), 7, 150))
+    invokeMock.mockResolvedValue(batchResponse(makeEdgeRange(50, "b"), 7, 150))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("canon-pagination")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("canon-page-next"))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2))
+
+    // 应用过滤：响应改为新过滤结果（total=30，仅 1 页）
+    invokeMock.mockResolvedValue(batchResponse([], 7, 30))
+    fireEvent.change(screen.getByTestId("canon-filter-known-by"), {
+      target: { value: "pov:alpha" },
+    })
+    fireEvent.click(screen.getByTestId("canon-filter-apply"))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3))
+    expect(invokeMock.mock.calls[2]![1].filters[0]).toEqual(
+      expect.objectContaining({ known_by: "pov:alpha", offset: 0, limit: 100 }),
+    )
+  })
+
+  it("单页（total≤100）→ 分页器隐藏（hideOnSinglePage）", async () => {
+    invokeMock.mockResolvedValue(batchResponse(SAMPLE_EDGES, 7, 2))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => {
+      expect(screen.getByTestId("canon-fact-row-e1")).toBeTruthy()
+    })
+    expect(screen.queryByTestId("canon-pagination")).toBeNull()
+  })
+
+  it("挂载即非「假脏」：应用过滤按钮禁用（全 null 初始过滤与 buildFilter 同构）", async () => {
+    invokeMock.mockResolvedValue(batchResponse([], 7, 0))
+    render(<CanonEditor projectId={PROJECT_ID} />)
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1))
+    expect((screen.getByTestId("canon-filter-apply") as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("校正模式翻页同样携带 offset/limit", async () => {
+    const edges = Array.from({ length: 100 }, (_, i) =>
+      makeCorrectionEdge({ id: `c${i}` }),
+    )
+    mockCorrectInvoke({ edges, total: 150 })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    const queryCalls = () =>
+      invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch")
+    await waitFor(() => expect(queryCalls().length).toBe(2))
+
+    fireEvent.click(screen.getByTestId("canon-page-next"))
+    await waitFor(() => expect(queryCalls().length).toBe(3))
+    expect((queryCalls()[2]![1] as { filters: unknown[] }).filters[0]).toEqual(
+      expect.objectContaining({ offset: 100, limit: 100 }),
+    )
   })
 })
 
@@ -476,11 +648,18 @@ function makeCorrectionEdge(overrides: Partial<RawCanonEdge> = {}): RawCanonEdge
 function mockCorrectInvoke(handlers: {
   edges?: RawCanonEdge[]
   maxRevision?: number
+  /** 过滤后全量计数（v2.8 P1-2 服务端分页）；缺省 = edges.length */
+  total?: number
   onSupersede?: () => Promise<unknown> | unknown
 }) {
   invokeMock.mockImplementation(async (cmd: string) => {
     if (cmd === "canon_query_batch") {
-      return { results: [handlers.edges ?? []], max_revision: handlers.maxRevision ?? 7 }
+      const edges = handlers.edges ?? []
+      return {
+        results: [edges],
+        totals: [handlers.total ?? edges.length],
+        max_revision: handlers.maxRevision ?? 7,
+      }
     }
     if (cmd === "canon_supersede_edges") {
       if (handlers.onSupersede) return await handlers.onSupersede()
@@ -623,7 +802,7 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("canon_query_batch", {
         projectId: PROJECT_ID,
-        filters: [{}],
+        filters: [expect.objectContaining({ offset: 0, limit: 100 })],
       }),
     )
     await enterCorrectMode()

@@ -600,6 +600,11 @@ pub struct CanonEdgeFilter {
     /// 返回上限（None=无上限）。
     #[serde(default)]
     pub limit: Option<usize>,
+    /// 分页偏移（v2.8 P1-2）：仅 paged 读路径（`query_edges_paged`）消费。
+    /// `select()` 语义不变（仍只应用 limit）；offset 在过滤后幸存集上内存切片
+    /// （known_by/时态精细过滤无法推 down，LanceDB 层先切片会截断幸存集 → 缺页）。
+    #[serde(default)]
+    pub offset: Option<usize>,
     /// 按 digest 列表过滤（精确匹配；supersede 分歧检测用）。
     /// None = 不过滤；Some(vec) = 仅返回 digest 在集合内的边。
     #[serde(default)]

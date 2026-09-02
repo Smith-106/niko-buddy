@@ -2,6 +2,7 @@
 import { useTranslation } from "react-i18next"
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
 import type { SimulationResultStatus } from "@/lib/novel/story-simulation/types"
 
@@ -32,6 +33,8 @@ export function HistoryResultsModal({
 }: HistoryResultsModalProps) {
   const { t } = useTranslation()
   const [results, setResults] = useState<ResultItem[]>([])
+  const [page, setPage] = useState(0)
+  const STORY_PAGE_SIZE = PAGINATION_PAGE_SIZE
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -52,6 +55,7 @@ export function HistoryResultsModal({
             status: r.status,
           })),
         )
+        setPage(0)
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("storySimulation.loadFailed"))
@@ -118,7 +122,9 @@ export function HistoryResultsModal({
             </div>
           ) : (
             <div className="space-y-1">
-              {results.map((result) => (
+              {results
+                .slice(page * STORY_PAGE_SIZE, (page + 1) * STORY_PAGE_SIZE)
+                .map((result) => (
                 <button
                   key={result.id}
                   type="button"
@@ -180,6 +186,13 @@ export function HistoryResultsModal({
               ))}
             </div>
           )}
+          <Pagination
+            page={page + 1}
+            pageCount={Math.max(1, Math.ceil(results.length / STORY_PAGE_SIZE))}
+            total={results.length}
+            onPrev={() => setPage((p) => Math.max(0, p - 1))}
+            onNext={() => setPage((p) => Math.min(Math.ceil(results.length / STORY_PAGE_SIZE) - 1, p + 1))}
+          />
         </div>
       </div>
     </div>

@@ -2,7 +2,8 @@
 //
 // 职责：
 //   - 浏览模式（默认）：接 canon_query_batch 渲染只读事实表（CanonFactTable），
-//     提供 known_by / valid_at_chapter / edge_kinds 过滤（下推到 IPC）+ 客户端分页；
+//     提供 known_by / valid_at_chapter / edge_kinds 过滤（下推到 IPC）+
+//     服务端分页（offset/limit + total，v2.8 P1-2，PaginationControls）；
 //   - 校正模式（入口=浏览模式「校正」按钮，退出=「返回浏览」）：复用同一 IPC 缝合点，
 //     渲染事实边列表 + 认知轴校正面板（known_by 白名单 fail-closed + 时态不变量守卫
 //     + 保存态），保存走 canon_supersede_edges，成功后自动重新 query 刷新边列表。
@@ -18,41 +19,46 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { CanonFactTable } from "./canon-fact-table"
+import { CanonFactsKnownByPanel } from "./canon-facts-known-by-panel"
+import { CanonRevisionViewer } from "./canon-revision-viewer"
 import { queryCanonBatch } from "./canon-editor-client"
+import { PaginationControls } from "@/components/ui/pagination"
 import {
   EDGE_KIND_LABELS,
   type CanonEdge,
   type CanonEdgeFilter,
   type EdgeKind,
 } from "./canon-types"
-import type {
-  CanonQueryBatchResponseRaw,
-  RawCanonEdge,
+import {
+  buildCanonEdgeFilter,
+  type CanonQueryBatchResponseRaw,
+  type RawCanonEdge,
 } from "@/lib/novel/canon-graph-client"
 
 const EDGE_KIND_OPTIONS = Object.entries(EDGE_KIND_LABELS) as Array<[EdgeKind, string]>
 
-/** 客户端分页页大小（不引新依赖）。 */
+/** 服务端分页页大小（offset/limit 载荷，v2.8 P1-2；不引新依赖）。 */
 const PAGE_SIZE = 100
 
 type EditorMode = "browse" | "correct"
 
 /**
  * 将当前过滤输入构建为单个 CanonEdgeFilter。
- * 空输入 → 空对象（不过滤任何维，返回全部边）。下推到 canon_query_batch。
+ * v2.8 P1-2：委托共享构造器 buildCanonEdgeFilter（42-spec §17 P1-2 骨架接线），
+ * 产物为全 null 字段对象（未提供的维不过滤）。分页 offset/limit 不在此处搭载，
+ * 仅在 reload 调用点注入（避免 page → filter → 重置 page 死循环）。
  */
 function buildFilter(input: {
   knownBy: string
   validAtChapter: string
   edgeKind: EdgeKind | "all"
 }): CanonEdgeFilter {
-  const filter: CanonEdgeFilter = {}
-  const trimmedPov = input.knownBy.trim()
-  if (trimmedPov) filter.known_by = trimmedPov
   const chapter = Number.parseInt(input.validAtChapter, 10)
-  if (Number.isFinite(chapter)) filter.valid_at_chapter = chapter
-  if (input.edgeKind !== "all") filter.edge_kinds = [input.edgeKind]
-  return filter
+  return buildCanonEdgeFilter({
+    knownBy: input.knownBy.trim() || undefined,
+    validAtChapter: Number.isFinite(chapter) ? chapter : undefined,
+    edgeKinds: input.edgeKind === "all" ? undefined : [input.edgeKind],
+  })
 }
 
 // ============================================================================
@@ -343,49 +349,7 @@ function FilterBar({
   )
 }
 
-// ============================================================================
-// 子组件：客户端分页（slice pageSize 100，不引新依赖）
-// ============================================================================
-
-interface PaginationProps {
-  page: number
-  pageCount: number
-  total: number
-  onPrev: () => void
-  onNext: () => void
-}
-
-function Pagination({ page, pageCount, total, onPrev, onNext }: PaginationProps) {
-  if (pageCount <= 1) return null
-  return (
-    <div
-      className="flex items-center justify-between gap-3 border-t px-4 py-2 text-xs text-muted-foreground"
-      data-testid="canon-pagination"
-    >
-      <button
-        type="button"
-        className="h-7 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-        onClick={onPrev}
-        disabled={page <= 1}
-        data-testid="canon-page-prev"
-      >
-        上一页
-      </button>
-      <span data-testid="canon-page-info">
-        第 {page} / {pageCount} 页 · 共 {total} 条
-      </span>
-      <button
-        type="button"
-        className="h-7 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-        onClick={onNext}
-        disabled={page >= pageCount}
-        data-testid="canon-page-next"
-      >
-        下一页
-      </button>
-    </div>
-  )
-}
+// 分页控件：@/components/ui/pagination 的 PaginationControls（服务端分页，v2.8 P1-2）。
 
 // ============================================================================
 // 主组件
@@ -420,7 +384,11 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
   const [edgeKind, setEdgeKind] = useState<EdgeKind | "all">("all")
 
   // ── 当前已下推到 IPC 的过滤（点击「应用过滤」后更新）──
-  const [appliedFilter, setAppliedFilter] = useState<CanonEdgeFilter>({})
+  // 初始值 = buildFilter(空输入)（全 null 字段对象）：与 filterDirty 的 JSON 比对
+  // 保持同构，避免挂载即「假脏」（v2.8 P1-2 防假脏）。
+  const [appliedFilter, setAppliedFilter] = useState<CanonEdgeFilter>(() =>
+    buildFilter({ knownBy: "", validAtChapter: "", edgeKind: "all" }),
+  )
 
   // ── 查询结果与状态 ──
   const [browseEdges, setBrowseEdges] = useState<CanonEdge[]>([])
@@ -429,12 +397,14 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── 客户端分页（两模式共用，过滤/模式变化时回到首页）──
+  // ── 服务端分页（v2.8 P1-2；两模式共用，过滤/模式/项目变化时回到首页）──
   const [page, setPage] = useState(1)
+  // 过滤后全量计数（来自响应 totals[0]；pageCount 据此推导）。
+  const [total, setTotal] = useState(0)
 
   useEffect(() => {
     setPage(1)
-  }, [appliedFilter, mode])
+  }, [appliedFilter, mode, projectId])
 
   // ── 校正草稿态 ──
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -447,29 +417,48 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSave, setLastSave] = useState<SaveOutcome | null>(null)
 
-  // 当前活动边列表（按模式选择；分页前全量）。
-  const activeEdges = mode === "browse" ? browseEdges : correctEdges
-  const pageCount = Math.max(1, Math.ceil(activeEdges.length / PAGE_SIZE))
+  // 分页派生量（v2.8 P1-2）：pageCount 由服务端全量计数推导；safePage 仅作显示钳位。
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
-  const pageStart = (safePage - 1) * PAGE_SIZE
-  const pageEnd = safePage * PAGE_SIZE
 
   const reload = useCallback(async () => {
     setLoading(true)
     setError(null)
+    // 服务端分页：offset/limit 仅在调用点注入（appliedFilter 不含分页字段），
+    // 每次 IPC 只传输当前页边（≤PAGE_SIZE 条）。
+    const pagedFilter: CanonEdgeFilter = {
+      ...appliedFilter,
+      offset: (safePage - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
+    }
     try {
+      let respTotal = 0
+      let pageEmpty = false
       if (mode === "browse") {
-        const response = await queryCanonBatch(projectId, [appliedFilter])
-        setBrowseEdges(response.results[0] ?? [])
+        const response = await queryCanonBatch(projectId, [pagedFilter])
+        const edges = response.results[0] ?? []
+        respTotal = response.totals?.[0] ?? edges.length
+        pageEmpty = edges.length === 0
+        setBrowseEdges(edges)
         setMaxRevision(response.max_revision)
       } else {
         // 校正模式需要原始边（含 known_by），直连 canon_query_batch，不走投影剥离。
         const res = await invoke<CanonQueryBatchResponseRaw>("canon_query_batch", {
           projectId,
-          filters: [appliedFilter],
+          filters: [pagedFilter],
         })
-        setCorrectEdges(res.results[0] ?? [])
+        const edges = res.results[0] ?? []
+        respTotal = res.totals?.[0] ?? edges.length
+        pageEmpty = edges.length === 0
+        setCorrectEdges(edges)
         setMaxRevision(res.max_revision)
+      }
+      setTotal(respTotal)
+      // 越界回跳守卫：page>1 且当前页为空但服务端仍有数据（过滤/删除后 total
+      // 缩小导致当前页越界）→ 回第 1 页重取。page>1 前置条件防死循环；
+      // 第 1 页空 = 真空态，不回跳。
+      if (safePage > 1 && pageEmpty && respTotal > 0) {
+        setPage(1)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "canon_query_batch 调用失败"
@@ -477,10 +466,11 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
       if (mode === "browse") setBrowseEdges([])
       else setCorrectEdges([])
       setMaxRevision(null)
+      setTotal(0)
     } finally {
       setLoading(false)
     }
-  }, [projectId, appliedFilter, mode])
+  }, [projectId, appliedFilter, mode, safePage])
 
   // projectId / 已应用过滤 / 模式变化时重新查询。
   useEffect(() => {
@@ -489,13 +479,17 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
   const handleApplyFilter = useCallback(() => {
     setAppliedFilter(buildFilter({ knownBy, validAtChapter, edgeKind }))
+    // 同步回页 1（与 setAppliedFilter 同批提交，避免旧页 offset 先发一次的双取）
+    setPage(1)
   }, [knownBy, validAtChapter, edgeKind])
 
   const handleResetFilter = useCallback(() => {
     setKnownBy("")
     setValidAtChapter("")
     setEdgeKind("all")
-    setAppliedFilter({})
+    // 重置 = 空输入走同一构造器（全 null 字段对象，与初始值同构；防假脏）
+    setAppliedFilter(buildFilter({ knownBy: "", validAtChapter: "", edgeKind: "all" }))
+    setPage(1)
   }, [])
 
   // 当前过滤是否与已应用过滤一致（用于禁用「应用过滤」按钮）。
@@ -509,6 +503,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
     setSaveError(null)
     setSelectedId(null)
     setMode("correct")
+    setPage(1)
   }, [])
 
   const exitCorrect = useCallback(() => {
@@ -517,6 +512,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
     setSaveError(null)
     setLastSave(null)
     setMode("browse")
+    setPage(1)
   }, [])
 
   // ── 校正模式：选中 / 草稿 ──
@@ -657,7 +653,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               </button>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              项目 {projectId} · 接 canon_query_batch 渲染事实表（known_by / valid_at_chapter / edge_kinds 过滤 + 客户端分页；max_revision 展示）。点「校正」进入认知轴校正（写路径）。
+              项目 {projectId} · 接 canon_query_batch 渲染事实表（known_by / valid_at_chapter / edge_kinds 过滤 + 服务端分页 offset/limit + total；max_revision 展示）。点「校正」进入认知轴校正（写路径）。
             </p>
           </header>
 
@@ -694,14 +690,22 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             </div>
           )}
 
-          <CanonFactTable edges={browseEdges.slice(pageStart, pageEnd)} maxRevision={maxRevision} />
-          <Pagination
+          {/* v2.8 P1-2：服务端分页 —— 当前页边集直渲染（无客户端切片） */}
+          <CanonFactTable edges={browseEdges} maxRevision={maxRevision} />
+          <PaginationControls
             page={safePage}
             pageCount={pageCount}
-            total={activeEdges.length}
-            onPrev={() => setPage((p) => Math.max(1, p - 1))}
-            onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+            total={total}
+            onPageChange={setPage}
+            disabled={loading}
+            testIdPrefix="canon"
           />
+          <CanonFactsKnownByPanel
+            projectId={projectId}
+            povAllowlist={povAllowlist}
+            refreshSignal={maxRevision ?? 0}
+          />
+          <CanonRevisionViewer projectId={projectId} refreshSignal={maxRevision ?? 0} />
         </div>
       </div>
     )
@@ -778,7 +782,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">事实边</h2>
             <span className="text-xs text-muted-foreground">
-              共 {activeEdges.length} 条
+              共 {total} 条（服务端过滤后全量）
             </span>
           </div>
           {correctEdges.length === 0 ? (
@@ -799,7 +803,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                   </tr>
                 </thead>
                 <tbody>
-                  {correctEdges.slice(pageStart, pageEnd).map((edge) => (
+                  {correctEdges.map((edge) => (
                     <tr key={edge.id} className="border-t">
                       <td className="px-2 py-1.5 font-mono">{edge.id}</td>
                       <td className="px-2 py-1.5">{edge.predicate}</td>
@@ -826,12 +830,13 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               </table>
             </div>
           )}
-          <Pagination
+          <PaginationControls
             page={safePage}
             pageCount={pageCount}
-            total={activeEdges.length}
-            onPrev={() => setPage((p) => Math.max(1, p - 1))}
-            onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+            total={total}
+            onPageChange={setPage}
+            disabled={loading}
+            testIdPrefix="canon"
           />
         </section>
 

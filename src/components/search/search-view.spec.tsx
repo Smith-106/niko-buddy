@@ -261,7 +261,7 @@ describe("SearchView wiki 搜索与结果", () => {
     expect(mocks.searchWiki).toHaveBeenCalledWith(
       "/p/mybook",
       "总资产",
-      expect.objectContaining({ rerank: true, includeVector: true, topK: 20 }),
+      expect.objectContaining({ rerank: true, includeVector: true, topK: 100 }),
     )
     // 图片区：caption 命中 1 张 + supporting 提示（重复 url 去重成一张卡）
     expect(screen.getByText("search.imagesSection")).toBeInTheDocument()

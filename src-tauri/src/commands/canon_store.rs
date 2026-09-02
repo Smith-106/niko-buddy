@@ -876,6 +876,29 @@ impl CanonStore {
         Ok(filter.select(&edges))
     }
 
+    /// v2.8 P1-2：分页读边。语义 = 过滤后幸存集上的 skip-then-take。
+    /// 返回 (当前页, 过滤后全量 total)。offset/limit 在内存 select 之后切片：
+    /// known_by/时态精细过滤无法推 down，LanceDB 层先切片会截断幸存集 →
+    /// 缺页/错页，故必须全量召回后切片（与 episodes 的二次 count 查询不同，
+    /// 边路径召回本就是全量，`full.len()` 即 total，无需二次查询）。
+    pub async fn query_edges_paged(
+        &self,
+        filter: &CanonEdgeFilter,
+    ) -> Result<(Vec<CanonEdge>, usize), String> {
+        let mut full_filter = filter.clone();
+        let offset = full_filter.offset.take();
+        let limit = full_filter.limit.take();
+        // select 无 limit → 全量幸存集（offset/limit 已剥离）
+        let full = self.query_edges(&full_filter).await?;
+        let total = full.len();
+        let page: Vec<CanonEdge> = full
+            .into_iter()
+            .skip(offset.unwrap_or(0))
+            .take(limit.unwrap_or(usize::MAX))
+            .collect();
+        Ok((page, total))
+    }
+
     // ── §B 审计事件：append-only + 读取 ──
 
     /// 追加一条审计事件（append-only；event_id 服务端派生 + query-before-add 幂等）。
@@ -2409,6 +2432,57 @@ mod tests {
             elapsed.as_secs() < 120,
             "千级边 supersede+审计耗时 {elapsed:?} 超回归上限"
         );
+    }
+
+    // ── v2.8 P1-2：query_edges_paged 分页读（skip-then-take + 全量 total）──
+
+    #[tokio::test]
+    async fn canon_store_query_edges_paged_offset_limit_total() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        for i in 0..5 {
+            store
+                .upsert_edge(edge(&format!("e{i}"), Some(1), None))
+                .await
+                .unwrap();
+        }
+
+        // offset=2, limit=2 → 第 3-4 条，total=5
+        let (page, total) = store
+            .query_edges_paged(&CanonEdgeFilter {
+                offset: Some(2),
+                limit: Some(2),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(total, 5, "total 为过滤后全量计数（非页大小）");
+        assert_eq!(page[0].id, "e2", "skip(2) 后从第 3 条开始");
+        assert_eq!(page[1].id, "e3");
+
+        // offset=0, limit=100（超出总量）→ 全量 5 条，total=5
+        let (full_page, total) = store
+            .query_edges_paged(&CanonEdgeFilter {
+                offset: Some(0),
+                limit: Some(100),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(full_page.len(), 5);
+        assert_eq!(total, 5);
+
+        // offset 越界 → 空页，total 仍为全量（分页器越界回跳守卫依赖此语义）
+        let (empty_page, total) = store
+            .query_edges_paged(&CanonEdgeFilter {
+                offset: Some(999),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert!(empty_page.is_empty());
+        assert_eq!(total, 5);
     }
 }
 
