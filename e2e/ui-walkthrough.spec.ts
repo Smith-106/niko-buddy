@@ -23,6 +23,7 @@ const SIDEBAR_VIEWS = [
 ]
 
 test.beforeEach(async ({ page }) => {
+  test.setTimeout(120000) // vite dev 冷启动时 React 挂载可能超默认 30s（瞬态竞态加固）
   await page.addInitScript(MOCK_INIT)
   await page.goto("/")
   await page.waitForSelector("#root")
