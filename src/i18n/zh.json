@@ -991,6 +991,10 @@
           "previousChapterCarryEnabledHint": "关闭后，上一章的延续事项不会注入当前上下文。",
           "lookbackIncludeMustFixOnly": "回溯章节仅保留必须修复项",
           "lookbackIncludeMustFixOnlyHint": "关闭后，回溯章节也会带入一般改进建议。"
+        },
+        "antiAiTelemetry": {
+          "title": "反 AI 遥测诊断",
+          "description": "应用级设置：仅控制本机匿名诊断遥测，与项目级小说设置相互独立。"
         }
       },
       "maintenance": {
@@ -1441,6 +1445,9 @@
       "entityBoostEnabledHint": "默认开启：上下文检索对命中当前任务/角色实体名的条目加分（mem0 式多信号之一，非整仓图谱）。",
       "stateDeltaLightCheckEnabled": "正文后状态轻检",
       "stateDeltaLightCheckEnabledHint": "默认开启：初稿后对照 character-states 做位置/物品/已故角色等启发式检查。默认仅警告，不阻断 Track A。",
+      "antiAiTelemetryConsent": "启用反 AI 遥测诊断（本地匿名）",
+      "antiAiTelemetryConsentHint": "开启后，应用在本机磁盘以匿名 JSONL 记录反 AI 门控诊断数据（池报告等）：仅本地落盘、不上传、不参与任何门控判定。默认关闭。有打开的项目时立即生效；未打开项目时于下次打开项目时生效。关闭后停止记录（内存已缓冲的行会先落盘）。",
+      "antiAiTelemetryConsentError": "保存遥测同意设置失败：{{message}}",
       "outlineThrillSoftGateEnabled": "大纲 thril 软门",
       "outlineThrillSoftGateEnabledHint": "默认开启：开写前检查 thril 五结构点（危机/释放/能动/章末钩/FIX-1）。不阻断生成；继续生成=确认。FIX-1 冲突不可用 thril 勾选绕过。",
       "outlineThrillChecklistTitle": "大纲 thril 检查点",

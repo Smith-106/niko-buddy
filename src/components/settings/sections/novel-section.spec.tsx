@@ -40,6 +40,9 @@ const mocks = vi.hoisted(() => {
     ),
     testNovelModel: vi.fn(async () => ({ model: "m", content: "c", usedFallbackModel: false })),
     saveNovelConfig: vi.fn(async () => {}),
+    loadAntiAiTelemetryConsent: vi.fn(async () => false),
+    saveAntiAiTelemetryConsent: vi.fn(async () => {}),
+    applyAntiAiTelemetryConsentOnProjectOpen: vi.fn(async () => {}),
     selectModelChanged: vi.fn(),
   }
 })
@@ -57,6 +60,12 @@ vi.mock("@/stores/wiki-store", () => ({
 
 vi.mock("@/lib/project-store", () => ({
   saveNovelConfig: mocks.saveNovelConfig,
+}))
+
+vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({
+  loadAntiAiTelemetryConsent: mocks.loadAntiAiTelemetryConsent,
+  saveAntiAiTelemetryConsent: mocks.saveAntiAiTelemetryConsent,
+  applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen,
 }))
 
 vi.mock("@/lib/novel/novel-model-test", () => ({
@@ -245,6 +254,12 @@ beforeEach(() => {
   mocks.wikiState.project = { id: "p1", path: "/p1" }
   mocks.testNovelModel.mockResolvedValue({ model: "m", content: "c", usedFallbackModel: false })
   mocks.saveNovelConfig.mockClear()
+  mocks.loadAntiAiTelemetryConsent.mockReset()
+  mocks.loadAntiAiTelemetryConsent.mockResolvedValue(false)
+  mocks.saveAntiAiTelemetryConsent.mockReset()
+  mocks.saveAntiAiTelemetryConsent.mockResolvedValue(undefined)
+  mocks.applyAntiAiTelemetryConsentOnProjectOpen.mockReset()
+  mocks.applyAntiAiTelemetryConsentOnProjectOpen.mockResolvedValue(undefined)
 })
 
 describe("NovelSection", () => {
@@ -545,6 +560,82 @@ describe("NovelSection", () => {
     fireEvent.click(checkbox)
     await waitFor(() => {
       expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, undefined, undefined)
+    })
+  })
+
+  describe("F-34 反 AI 遥测同意开关", () => {
+    it("渲染分组块：组标题/Label/tooltip 可见，load=false → 开关为关（bg-input）", async () => {
+      renderSection()
+      expect(screen.getByText("反 AI 遥测诊断")).toBeInTheDocument()
+      expect(screen.getByText("应用级设置：仅控制本机匿名诊断遥测，与项目级小说设置相互独立。")).toBeInTheDocument()
+      expect(screen.getByText("novel.settings.antiAiTelemetryConsent")).toBeInTheDocument()
+      expect(screen.getByText("novel.settings.antiAiTelemetryConsentHint")).toBeInTheDocument()
+      await waitFor(() => {
+        expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1)
+      })
+      expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-input")
+    })
+
+    it("load=true → 开关为开（bg-primary）", async () => {
+      mocks.loadAntiAiTelemetryConsent.mockResolvedValue(true)
+      renderSection()
+      const btn = toggleButtonFor("novel.settings.antiAiTelemetryConsent")
+      await waitFor(() => expect(String(btn.className)).toContain("bg-primary"))
+    })
+
+    it("点击开启：save(true) 先于 apply(/p1)，UI 变为开", async () => {
+      renderSection()
+      await waitFor(() => expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1))
+      fireEvent.click(toggleButtonFor("novel.settings.antiAiTelemetryConsent"))
+      await waitFor(() => expect(mocks.saveAntiAiTelemetryConsent).toHaveBeenCalledWith(true))
+      await waitFor(() => expect(mocks.applyAntiAiTelemetryConsentOnProjectOpen).toHaveBeenCalledWith("/p1"))
+      expect(mocks.saveAntiAiTelemetryConsent.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.applyAntiAiTelemetryConsentOnProjectOpen.mock.invocationCallOrder[0],
+      )
+      expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-primary")
+      expect(screen.queryByText(/antiAiTelemetryConsentError/)).not.toBeInTheDocument()
+    })
+
+    it("点击关闭：save(false) + apply(/p1)，UI 变为关", async () => {
+      mocks.loadAntiAiTelemetryConsent.mockResolvedValue(true)
+      renderSection()
+      const btn = toggleButtonFor("novel.settings.antiAiTelemetryConsent")
+      await waitFor(() => expect(String(btn.className)).toContain("bg-primary"))
+      fireEvent.click(btn)
+      await waitFor(() => expect(mocks.saveAntiAiTelemetryConsent).toHaveBeenCalledWith(false))
+      await waitFor(() => expect(mocks.applyAntiAiTelemetryConsentOnProjectOpen).toHaveBeenCalledWith("/p1"))
+      expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-input")
+    })
+
+    it("project 为 null：仍 save，但不 apply（下次打开项目生效）", async () => {
+      mocks.wikiState.project = null
+      renderSection()
+      await waitFor(() => expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1))
+      fireEvent.click(toggleButtonFor("novel.settings.antiAiTelemetryConsent"))
+      await waitFor(() => expect(mocks.saveAntiAiTelemetryConsent).toHaveBeenCalledWith(true))
+      expect(mocks.applyAntiAiTelemetryConsentOnProjectOpen).not.toHaveBeenCalled()
+    })
+
+    it("save 失败 → UI 回滚到原值 + 错误文案含 message", async () => {
+      mocks.saveAntiAiTelemetryConsent.mockRejectedValueOnce(new Error("boom"))
+      renderSection()
+      await waitFor(() => expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1))
+      fireEvent.click(toggleButtonFor("novel.settings.antiAiTelemetryConsent"))
+      await waitFor(() => {
+        expect(screen.getByText("novel.settings.antiAiTelemetryConsentError:boom")).toBeInTheDocument()
+      })
+      expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-input")
+    })
+
+    it("apply 失败 → UI 保持新值 + 错误文案（半态：store 已写，下次项目打开自愈）", async () => {
+      mocks.applyAntiAiTelemetryConsentOnProjectOpen.mockRejectedValueOnce(new Error("apply-boom"))
+      renderSection()
+      await waitFor(() => expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1))
+      fireEvent.click(toggleButtonFor("novel.settings.antiAiTelemetryConsent"))
+      await waitFor(() => {
+        expect(screen.getByText("novel.settings.antiAiTelemetryConsentError:apply-boom")).toBeInTheDocument()
+      })
+      expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-primary")
     })
   })
 })

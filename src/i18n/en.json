@@ -1539,6 +1539,10 @@
           "previousChapterCarryEnabledHint": "When disabled, carry-forward items from the previous chapter are not injected into the current context.",
           "lookbackIncludeMustFixOnly": "Only keep must-fix items from lookback chapters",
           "lookbackIncludeMustFixOnlyHint": "When disabled, lookback chapters also contribute general improvement suggestions."
+        },
+        "antiAiTelemetry": {
+          "title": "Anti-AI telemetry diagnostics",
+          "description": "App-level setting: controls only local anonymous diagnostic telemetry; independent from project-level novel settings."
         }
       },
       "maintenance": {
@@ -1824,6 +1828,9 @@
       "entityBoostEnabledHint": "On by default: boost context search hits that mention current task/character entity names (multi-signal style; not a full graph product).",
       "stateDeltaLightCheckEnabled": "Post-draft state light-check",
       "stateDeltaLightCheckEnabledHint": "On by default: after draft, heuristically check locations/inventory/dead characters against character-states. Warn-only by default; does not block Track A.",
+      "antiAiTelemetryConsent": "Enable anti-AI telemetry diagnostics (local, anonymous)",
+      "antiAiTelemetryConsentHint": "When enabled, the app records anonymous anti-AI gate diagnostics (pool reports) as JSONL on local disk only — never uploaded, never used in gate decisions. Off by default. Takes effect immediately while a project is open; otherwise on next project open. Turning off stops recording (already-buffered rows are flushed first).",
+      "antiAiTelemetryConsentError": "Failed to save telemetry consent: {{message}}",
       "outlineThrillSoftGateEnabled": "Outline thril soft-gate",
       "outlineThrillSoftGateEnabledHint": "On by default: before draft, check five thril structure points (crisis/release/agency/hook/FIX-1). Does not block generation; continuing = acknowledge. FIX-1 cannot be bypassed by thril ack.",
       "outlineThrillChecklistTitle": "Outline thril checkpoints",

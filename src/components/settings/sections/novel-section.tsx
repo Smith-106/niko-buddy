@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Info } from "lucide-react"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,11 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { saveNovelConfig } from "@/lib/project-store"
 
 import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
+import {
+  applyAntiAiTelemetryConsentOnProjectOpen,
+  loadAntiAiTelemetryConsent,
+  saveAntiAiTelemetryConsent,
+} from "@/lib/novel/anti-ai-telemetry-wiring"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
@@ -69,6 +74,40 @@ export function NovelSection({ draft, setDraft }: Props) {
     setDraft("novelConfig", newConfig)
     setNovelConfigStore(patch)
     await saveNovelConfig(newConfig, project?.id, project?.path)
+  }
+
+  // F-34: 反 AI 遥测同意（app 级 store，不走 draft.novelConfig；null = 加载中）
+  const [antiAiTelemetryConsent, setAntiAiTelemetryConsent] = useState<boolean | null>(null)
+  const [consentError, setConsentError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    loadAntiAiTelemetryConsent()
+      .then((v) => { if (!cancelled) setAntiAiTelemetryConsent(v) })
+      .catch(() => { if (!cancelled) setAntiAiTelemetryConsent(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleAntiAiTelemetryConsent = async () => {
+    const next = !(antiAiTelemetryConsent === true)
+    const prev = antiAiTelemetryConsent
+    setAntiAiTelemetryConsent(next)
+    setConsentError(null)
+    try {
+      await saveAntiAiTelemetryConsent(next)
+    } catch (error) {
+      setAntiAiTelemetryConsent(prev)
+      setConsentError(error instanceof Error ? error.message : String(error))
+      return
+    }
+    try {
+      if (project?.path) {
+        await applyAntiAiTelemetryConsentOnProjectOpen(project.path)
+      }
+    } catch (error) {
+      // store 已写入 next，UI 保持 next；sink 半态由下次项目打开自愈
+      setConsentError(error instanceof Error ? error.message : String(error))
+    }
   }
 
   const modelItems = useMemo(() => ([
@@ -693,6 +732,37 @@ export function NovelSection({ draft, setDraft }: Props) {
               className="w-full"
             />
           </div>
+        </div>
+      </div>
+
+      {/* F-34: 反 AI 遥测显式同意（app 级 store，不走 draft.novelConfig） */}
+      <div className="space-y-2">
+        <Label>
+          {t("settings.sections.novel.antiAiTelemetry.title", {
+            defaultValue: "反 AI 遥测诊断",
+          })}
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.novel.antiAiTelemetry.description", {
+            defaultValue: "应用级设置：仅控制本机匿名诊断遥测，与项目级小说设置相互独立。",
+          })}
+        </p>
+        <div className="grid gap-4 rounded-lg border p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.antiAiTelemetryConsent")}</Label>
+              {settingTooltip("antiAiTelemetryConsentHint")}
+            </div>
+            <NovelToggle
+              checked={antiAiTelemetryConsent === true}
+              onChange={() => { void toggleAntiAiTelemetryConsent() }}
+            />
+          </div>
+          {consentError ? (
+            <p className="text-xs text-destructive">
+              {t("novel.settings.antiAiTelemetryConsentError", { message: consentError })}
+            </p>
+          ) : null}
         </div>
       </div>
 

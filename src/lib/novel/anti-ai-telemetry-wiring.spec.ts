@@ -81,4 +81,14 @@ describe("applyAntiAiTelemetryConsentOnProjectOpen 门控", () => {
     expect(s2).not.toBe(s1)
     await shutdownAntiAiTelemetrySink()
   })
+
+  it("会话中撤销同意：save(false) → 再 apply → sink 置空（UI 开关即时生效路径）", async () => {
+    await saveAntiAiTelemetryConsent(true)
+    await applyAntiAiTelemetryConsentOnProjectOpen("/projA")
+    expect(getAntiAiTelemetrySink()).not.toBeNull()
+    // UI 关闭开关（F-34 revoke）：apply 重读 store = false → shutdown 后不再 init
+    await saveAntiAiTelemetryConsent(false)
+    await applyAntiAiTelemetryConsentOnProjectOpen("/projA")
+    expect(getAntiAiTelemetrySink()).toBeNull()
+  })
 })
