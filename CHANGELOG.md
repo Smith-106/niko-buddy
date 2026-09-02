@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.5] - 2026-09-02
+
+### 发布收尾（docs & i18n 收口，46 号 Gate 后）
+
+- **i18n 全量化**：storySimulation 13 组件硬编码中文串全部 i18n 化（zh/en 各 348 key，45 号）
+- **UI 走查修复**：43 号 16/16 activeView 走查 + 44 号 P2-1 修复（storySimulation 31 key 补漏）
+- **Docs & Design Gate 勘误**：46 号 A2/A3/B 档 13 项（P1-1 反向标注修正、RELEASING CI 门禁改人工纪律、悬空引用改指、平台口径交叉澄清、canon 头注 5→8 等）
+- **文档站**：docs-site 补 11 个 activeView 页面（wiki/sources/search/lint/settings/trash/skillLibrary/storySimulation/backupExport/canonEditor）
+- **清理**：构建产物/缓存/临时文件清理（回收约 34G：src-tauri/target 33G + dist/.vite/tsbuildinfo 等）
+
 ## [2.7.4] - 2026-08-28
 
 ### 收敛泛化波（stretch gate，roadmap v2.7 第五波）

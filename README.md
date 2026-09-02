@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.7.4-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.7.5-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -458,9 +458,9 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：当前源码 tip 为 **v2.7.4**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
+> 注：当前源码 tip 为 **v2.7.5**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
 > 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.4）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.5）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
