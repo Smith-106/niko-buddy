@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "react"
 import { cleanup } from "@testing-library/react"
-import { render, screen, fireEvent, waitFor, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { CharacterAuraView } from "./character-aura-view"
 import type { CharacterAura, CharacterAuraGenerationProgress } from "@/lib/novel/character-aura"
 import type { CharacterAuraBinding, CharacterAuraInput } from "@/lib/novel/character-aura-types"
@@ -988,5 +988,40 @@ describe("CharacterAuraView", () => {
       await new Promise((r) => setTimeout(r, 0))
     })
     // cancelled=true 分支已走：不再 setSkillError/setResearchError（无声无息）
+  })
+
+  it("自定义灵魂列表分页：21 条时首页 20 条、翻页可见第 21 条、分节切换回第 1 页", async () => {
+    const manyCustoms: CharacterAura[] = Array.from({ length: 21 }, (_, i) => ({
+      id: `p${i + 1}`, builtIn: false, name: `分页魂${String(i + 1).padStart(2, "0")}`, category: "批量",
+      sourceNote: "", corpus: "", styleDescription: `风格${i + 1}`, behaviorRules: "", boundaries: "", notes: "",
+    }))
+    auraLib.listCharacterAuras.mockResolvedValue([...auraLib.builtInAuras, ...manyCustoms])
+    render(<CharacterAuraView />)
+    await switchToCharacterTab()
+    fireEvent.click(screen.getByText("自定义灵魂"))
+    // 选中灵魂名会在主面板 h2 重复渲染 → 名称断言一律限定在侧栏 aside 内
+    const sidebar = document.querySelector("aside") as HTMLElement
+    await within(sidebar).findByText("分页魂01")
+    // 首页 20 条 + 分页控件出现
+    expect(within(sidebar).getByText("分页魂20")).toBeInTheDocument()
+    expect(within(sidebar).queryByText("分页魂21")).not.toBeInTheDocument()
+    expect(within(sidebar).getByTestId("pagination")).toBeInTheDocument()
+    expect(within(sidebar).getByTestId("pagination-prev")).toBeDisabled()
+    // 翻页 → 第 21 条可见
+    fireEvent.click(within(sidebar).getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(within(sidebar).getByText("分页魂21")).toBeInTheDocument()
+    })
+    expect(within(sidebar).queryByText("分页魂01")).not.toBeInTheDocument()
+    // 分节切换 → 页码重置回第 1 页
+    fireEvent.click(screen.getByText("内置灵魂"))
+    await waitFor(() => {
+      expect(within(sidebar).queryByText("分页魂21")).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("自定义灵魂"))
+    await waitFor(() => {
+      expect(within(sidebar).getByText("分页魂01")).toBeInTheDocument()
+    })
+    expect(within(sidebar).queryByText("分页魂21")).not.toBeInTheDocument()
   })
 })

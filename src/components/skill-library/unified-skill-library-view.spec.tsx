@@ -252,8 +252,10 @@ describe("UnifiedSkillLibraryView", () => {
     expect(sidebar).not.toBeNull()
     expect(searchInput).not.toBeNull()
 
-    expect(sidebar?.textContent).toContain("三翻四抖")
-    expect(sidebar?.textContent).toContain("沉浸式去AI味")
+    // 分页后初始视图为第 1 页（前 20 条内置写作技能）；自定义写作/去AI味条目在第 2 页，
+    // 双类型可达性改由下方搜索断言覆盖。
+    expect(sidebar?.textContent).toContain("章节承接")
+    expect(sidebar?.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).toBeNull()
 
     await setInputValue(searchInput!, "三翻")
     expect(sidebar?.textContent).toContain("三翻四抖")
@@ -268,6 +270,10 @@ describe("UnifiedSkillLibraryView", () => {
 
   it("routes selected unified entries to their existing detail views", async () => {
     const { container, root } = await renderLibrary()
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
+    // 内置种子技能（builtin:*/skillhub:*）由 ensureBuiltinSkills 前置，自定义条目不在首页：
+    // 用搜索把目标条目过滤到可见，再验证路由行为
+    await setInputValue(searchInput, "三翻")
 
     await act(async () => {
       container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')?.click()
@@ -277,6 +283,8 @@ describe("UnifiedSkillLibraryView", () => {
     expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBe("skill:three")
     expect(container.querySelector('[data-testid="writing-skill-library-view"]')).not.toBeNull()
+
+    await setInputValue(searchInput, "沉浸式")
 
     await act(async () => {
       container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')?.click()
@@ -292,8 +300,10 @@ describe("UnifiedSkillLibraryView", () => {
 
   it("marks a de-AI entry as current after switching from a writing entry", async () => {
     const { container, root } = await renderLibrary()
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
+    // 内置种子技能前置：用搜索隔离目标条目（分页后自定义条目不在首页）
+    await setInputValue(searchInput, "三翻")
     const writingEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')
-    const deAiEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
 
     await act(async () => {
       writingEntry?.click()
@@ -301,6 +311,9 @@ describe("UnifiedSkillLibraryView", () => {
     await flushEffects()
 
     expect(writingEntry?.getAttribute("aria-current")).toBe("true")
+
+    await setInputValue(searchInput, "沉浸式")
+    const deAiEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
 
     await act(async () => {
       deAiEntry?.click()
@@ -311,7 +324,53 @@ describe("UnifiedSkillLibraryView", () => {
     expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe("project:quiet")
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBeNull()
     expect(deAiEntry?.getAttribute("aria-current")).toBe("true")
-    expect(writingEntry?.getAttribute("aria-current")).toBeNull()
+    // 搜索切换后写作条目已被过滤出当前视图（从实时 DOM 重查；分离节点会保留旧属性）
+    expect(container.querySelector('[data-testid="unified-skill-entry-writing:skill:three"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("侧栏技能列表超过 20 条分页：首页 20 条、翻页可见第 21-40 条、搜索重置回第 1 页", async () => {
+    const manySkills = Array.from({ length: 25 }, (_, i) => ({
+      id: `skill:gen-${i + 1}`,
+      name: `分页技能${String(i + 1).padStart(2, "0")}`,
+      description: `第 ${i + 1} 个技能`,
+      kind: ["output"],
+      stages: ["planning"],
+      modes: ["standard"],
+      content: `内容 ${i + 1}`,
+      source: "uploaded",
+      createdAt: 100,
+      updatedAt: 100,
+    }))
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify({ ...writingConfig, skills: manySkills })
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')!
+    // 首页 20 条 + 分页控件出现，上一页禁用；自定义技能排在全部内置种子之后，首页不可见
+    // （注：normalizeUserSkillConfig 会去掉 id 数字段前导零：skill:gen-01 → skill:gen-1）
+    expect(sidebar.querySelectorAll('[data-testid^="unified-skill-entry-"]').length).toBe(20)
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:skill:gen-1"]')).toBeNull()
+    expect(sidebar.querySelector('[data-testid="pagination"]')).not.toBeNull()
+    expect(sidebar.querySelector<HTMLButtonElement>('[data-testid="pagination-prev"]')!.disabled).toBe(true)
+    // 翻页 → 第 2 页（第 21-40 条仍为内置种子 builtin:*/skillhub:*；首页首条被切走）
+    await act(async () => {
+      sidebar.querySelector<HTMLButtonElement>('[data-testid="pagination-next"]')!.click()
+    })
+    await flushEffects()
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:builtin:dialogue-design"]')).not.toBeNull()
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:builtin:chapter-connection"]')).toBeNull()
+    // 搜索变化 → 回到第 1 页，单页结果分页控件自动隐藏
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!, "分页技能01")
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:skill:gen-1"]')).not.toBeNull()
+    expect(sidebar.querySelector('[data-testid="pagination"]')).toBeNull()
+    // 清空搜索 → 恢复首页 20 条
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!, "")
+    expect(sidebar.querySelectorAll('[data-testid^="unified-skill-entry-"]').length).toBe(20)
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:skill:gen-1"]')).toBeNull()
 
     cleanup(root, container)
   })

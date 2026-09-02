@@ -5,7 +5,7 @@
  *      语料降级（pool 构造失败）= no-op 非致命。
  *      不验证真实四因子数值（那是 mech-pack/candidate-pool 的职责）。
  */
-import { describe, expect, it, beforeEach } from "vitest"
+import { describe, expect, it, beforeEach, vi } from "vitest"
 import {
   recordAntiAiShadowTelemetry,
   __resetShadowPoolForTest,
@@ -17,6 +17,38 @@ import {
   __resetAntiAiTelemetrySinkForTest,
   type TelemetrySinkDeps,
 } from "./anti-ai-telemetry-sink"
+import { defaultTelemetrySinkDeps } from "./anti-ai-telemetry-wiring"
+import { writeFileAtomic } from "@/commands/fs"
+
+// 隔离 node:fs 地雷：影子池以动态 import 引入，测试中以确定性假池替换。
+vi.mock("./anti-ai-candidate-pool", () => {
+  class FakePool {
+    loadCorpus(): void {
+      /* 生产/测试均无 corpus：降级空语料 */
+    }
+    analyze(): unknown {
+      return {
+        factors: [{ factor: "sentenceEntropy", value: 0.5, threshold: 0.7, warn: false, unit: "normalized" }],
+        hasWarnings: false,
+        warningCount: 0,
+        status: "pass",
+        origin: "ai_draft",
+      }
+    }
+    getPoolReport(): unknown {
+      return this.analyze()
+    }
+  }
+  return { AntiAiCandidatePool: FakePool }
+})
+
+vi.mock("@/commands/fs", () => ({
+  readFile: vi.fn(async () => ""),
+  writeFileAtomic: vi.fn(async () => {}),
+  createDirectory: vi.fn(async () => {}),
+  listDirectory: vi.fn(async () => []),
+  deleteFile: vi.fn(async () => {}),
+}))
 
 function memDeps(over: Partial<TelemetrySinkDeps> = {}): TelemetrySinkDeps {
   const files = new Map<string, string>()
@@ -59,6 +91,25 @@ describe("recordAntiAiShadowTelemetry 影子接线契约", () => {
     initAntiAiTelemetrySink("/proj", "sess01", memDeps())
     // 用 vi 模拟动态 import 失败不可行（已静态结构）；改验证函数签名不抛即可
     await expect(recordAntiAiShadowTelemetry("x", 1)).resolves.toBeUndefined()
+    await shutdownAntiAiTelemetrySink()
+  })
+})
+
+describe("生产接线：init 后 recordAntiAiShadowTelemetry 写 JSONL 行", () => {
+  it("同意态 (sink init + 工厂 deps): 触发记录并写出含 origin=ai_draft 的 pool_report 行", async () => {
+    const written: string[] = []
+    vi.mocked(writeFileAtomic).mockImplementation(async (_p: string, c: string) => {
+      written.push(c)
+    })
+    const sink = initAntiAiTelemetrySink("/proj", "sess01", defaultTelemetrySinkDeps())
+    await recordAntiAiShadowTelemetry("他推开门。屋内漆黑。谁？没人答。风起了！灯灭了。他坐下。", 42)
+    await sink.flush()
+    expect(written.length).toBeGreaterThanOrEqual(1)
+    // 段文件体为 JSONL（一行一记录）
+    const line = written[0]!.trim().split("\n")[0]!
+    const parsed = JSON.parse(line) as { type: string; origin: string }
+    expect(parsed.type).toBe("pool_report")
+    expect(parsed.origin).toBe("ai_draft")
     await shutdownAntiAiTelemetrySink()
   })
 })

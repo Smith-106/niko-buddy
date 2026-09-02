@@ -85,6 +85,8 @@ const mocks = vi.hoisted(() => {
     resolveConfig: vi.fn(),
     loadEnvLlmDefault: vi.fn(),
     loadNovelSessionStatus: vi.fn(),
+    applyAntiAiTelemetryConsentOnProjectOpen: vi.fn(),
+    shutdownAntiAiTelemetrySink: vi.fn(),
     applyTheme: vi.fn(),
     restoreDedupQueue: vi.fn(),
     startScheduledImport: vi.fn(),
@@ -144,6 +146,8 @@ vi.mock("@/components/settings/preset-resolver", () => ({
 }))
 vi.mock("@/lib/env-llm-defaults", () => ({ loadEnvLlmDefault: mocks.loadEnvLlmDefault }))
 vi.mock("@/lib/novel/novel-session-status", () => ({ loadNovelSessionStatus: mocks.loadNovelSessionStatus }))
+vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({ applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen }))
+vi.mock("@/lib/novel/anti-ai-telemetry-sink", () => ({ shutdownAntiAiTelemetrySink: mocks.shutdownAntiAiTelemetrySink }))
 vi.mock("@/lib/theme-utils", () => ({ applyTheme: mocks.applyTheme }))
 vi.mock("@/lib/dedup-queue", () => ({ restoreQueue: mocks.restoreDedupQueue }))
 vi.mock("@/lib/scheduled-import", () => ({ startScheduledImport: mocks.startScheduledImport }))

@@ -5,7 +5,7 @@
  * 策略: FS 依赖注入（仿 stage-output-journal.spec.ts:24-72），零真实 IO。
  *      不导入 AntiAiCandidatePool 运行时（node:fs 地雷规避）。
  */
-import { describe, expect, it, beforeEach } from "vitest"
+import { describe, expect, it, beforeEach, vi } from "vitest"
 import {
   TELEMETRY_SCHEMA_VERSION,
   TELEMETRY_FLUSH_BATCH,
@@ -26,7 +26,24 @@ import {
   type TelemetrySinkDeps,
   type AntiAiTelemetryLine,
 } from "./anti-ai-telemetry-sink"
+import {
+  defaultTelemetrySinkDeps,
+  initAntiAiTelemetryIfConsented,
+} from "./anti-ai-telemetry-wiring"
+import {
+  writeFileAtomic,
+  createDirectory,
+  deleteFile,
+} from "@/commands/fs"
 import type { AntiAiAnalysisReport } from "./anti-ai-candidate-pool"
+
+vi.mock("@/commands/fs", () => ({
+  readFile: vi.fn(async () => ""),
+  writeFileAtomic: vi.fn(async () => {}),
+  createDirectory: vi.fn(async () => {}),
+  listDirectory: vi.fn(async () => []),
+  deleteFile: vi.fn(async () => {}),
+}))
 
 function fakeReport(over: Partial<AntiAiAnalysisReport> = {}): AntiAiAnalysisReport {
   return {
@@ -245,5 +262,35 @@ describe("F-34 默认关薄壳", () => {
     await getAntiAiTelemetrySink()!.flush()
     await shutdownAntiAiTelemetrySink()
     expect(getAntiAiTelemetrySink()).toBeNull()
+  })
+})
+
+describe("生产接线 + F-34 同意门控 (anti-ai-telemetry-wiring)", () => {
+  it("defaultTelemetrySinkDeps: 经 @/commands/fs IPC 注入真实落盘 deps", async () => {
+    const deps = defaultTelemetrySinkDeps()
+    await deps.writeFile("seg.jsonl", "x")
+    await deps.createDirectory("/p/.novel/telemetry/anti-ai")
+    await deps.deleteFile!("old.jsonl")
+    expect(typeof deps.listFiles).toBe("function")
+    const names = await deps.listFiles!("/p/.novel/telemetry/anti-ai")
+    expect(names).toEqual([]) // mock listDirectory 返回 []
+    expect(vi.mocked(writeFileAtomic)).toHaveBeenCalledWith("seg.jsonl", "x")
+    expect(vi.mocked(createDirectory)).toHaveBeenCalledWith("/p/.novel/telemetry/anti-ai")
+    expect(vi.mocked(deleteFile)).toHaveBeenCalledWith("old.jsonl")
+    expect(typeof deps.now).toBe("function")
+    expect(deps.readFile).toBeTypeOf("function")
+  })
+
+  it("F-34 门控: consent=false → 不初始化 (sink 保持 null); consent=true → 初始化非 null", () => {
+    __resetAntiAiTelemetrySinkForTest()
+    expect(getAntiAiTelemetrySink()).toBeNull()
+    // 关：返回 null，不触碰模块单例
+    expect(initAntiAiTelemetryIfConsented(false, "/proj", "sess-x")).toBeNull()
+    expect(getAntiAiTelemetrySink()).toBeNull()
+    // 开：初始化并返回非 null sink（用工厂 deps）
+    const sink = initAntiAiTelemetryIfConsented(true, "/proj", "sess-x")
+    expect(sink).not.toBeNull()
+    expect(getAntiAiTelemetrySink()).toBe(sink)
+    return shutdownAntiAiTelemetrySink()
   })
 })

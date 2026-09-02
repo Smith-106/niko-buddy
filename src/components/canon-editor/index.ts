@@ -3,6 +3,8 @@ export { CanonEditor } from "./canon-editor"
 export type { CanonEditorProps } from "./canon-editor"
 export { CanonFactTable } from "./canon-fact-table"
 export type { CanonFactTableProps } from "./canon-fact-table"
+export { CanonRevisionDiffView } from "./canon-revision-diff-view"
+export type { CanonRevisionDiffViewProps } from "./canon-revision-diff-view"
 export { queryCanonBatch } from "./canon-editor-client"
 export {
   EDGE_KIND_LABELS,

@@ -4,6 +4,7 @@ import { AlertTriangle, Link2, PencilLine, Plus, Save, Sparkles, Trash2 } from "
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { buildContextPack, contextPackToPrompt } from "@/lib/novel/context-engine"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
@@ -147,12 +148,24 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [generationProgress, setGenerationProgress] = useState<CharacterAuraGenerationProgress | null>(null)
   const [message, setMessage] = useState("")
   const [soulTab, setSoulTab] = useState<"project" | "character">("project")
+  const [auraPage, setAuraPage] = useState(0)
+  const AURA_PAGE_SIZE = PAGINATION_PAGE_SIZE
   const effectiveSection = hideSidebar ? storedSelectedSoulSection : section
   const effectiveSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : selectedId
 
   const builtInAuras = useMemo(() => auras.filter((aura) => aura.builtIn), [auras])
   const customAuras = useMemo(() => auras.filter((aura) => !aura.builtIn), [auras])
   const visibleAuras = effectiveSection === "builtIn" ? builtInAuras : customAuras
+  const auraPageCount = Math.max(1, Math.ceil(visibleAuras.length / AURA_PAGE_SIZE))
+  const visibleAuraPageItems = visibleAuras.slice(auraPage * AURA_PAGE_SIZE, (auraPage + 1) * AURA_PAGE_SIZE)
+  // 分节（内置/自定义）切换 → 回到第 1 页（覆盖本地 section 与 hideSidebar 时的 stored section）
+  useEffect(() => {
+    setAuraPage(0)
+  }, [effectiveSection])
+  // 列表缩容兜底（数据重载后变短）
+  useEffect(() => {
+    if (auraPage > auraPageCount - 1) setAuraPage(0)
+  }, [auraPage, auraPageCount])
   const selected = useMemo(
     () => {
       if (effectiveSelectedId === "new-custom-soul") return null
@@ -519,7 +532,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
         )}
 
         <div className="flex-1 overflow-y-auto p-2">
-          {visibleAuras.map((aura) => (
+          {visibleAuraPageItems.map((aura) => (
             <button
               key={aura.id}
               type="button"
@@ -537,6 +550,14 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               <div className="mt-1 line-clamp-2 text-xs opacity-80">{aura.styleDescription}</div>
             </button>
           ))}
+
+          <Pagination
+            page={auraPage + 1}
+            pageCount={auraPageCount}
+            total={visibleAuras.length}
+            onPrev={() => setAuraPage((p) => Math.max(0, p - 1))}
+            onNext={() => setAuraPage((p) => Math.min(auraPageCount - 1, p + 1))}
+          />
 
           {effectiveSection === "custom" && visibleAuras.length === 0 && (
             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">

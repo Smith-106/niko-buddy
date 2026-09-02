@@ -17,6 +17,8 @@ import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { loadEnvLlmDefault } from "@/lib/env-llm-defaults"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { applyAntiAiTelemetryConsentOnProjectOpen } from "@/lib/novel/anti-ai-telemetry-wiring"
+import { shutdownAntiAiTelemetrySink } from "@/lib/novel/anti-ai-telemetry-sink"
 import { applyTheme } from "@/lib/theme-utils"
 import type { WikiProject } from "@/types/wiki"
 
@@ -114,6 +116,12 @@ export async function initializeApp(): Promise<void> {
         console.error("打开上次项目失败:", err)
       }
     }
+    // #34 退出 flush：webview 关闭/刷新时 flush 遥测缓冲 + 90 天清理（非致命）。
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", () => {
+        void shutdownAntiAiTelemetrySink()
+      })
+    }
     // One-time plaintext→encrypted apiKey migration (re-saves any plaintext values encrypted).
     await migratePlaintextApiKeys()
   } catch (err) {
@@ -134,6 +142,9 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
   await resetProjectState()
 
   useWikiStore.getState().setProject(proj)
+  // #34 反 AI 影子遥测：按 F-34 显式同意（默认关）在项目打开处接线；
+  // 切换项目前会先 flush 上一项目残留缓冲（applyAntiAiTelemetryConsentOnProjectOpen 内部）。
+  await applyAntiAiTelemetryConsentOnProjectOpen(proj.path)
   useWikiStore.getState().clearTransientTaskState()
   // 默认开启小说模式
   useWikiStore.getState().setNovelMode(true)

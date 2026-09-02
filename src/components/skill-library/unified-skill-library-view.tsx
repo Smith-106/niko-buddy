@@ -4,6 +4,7 @@ import { Star } from "lucide-react"
 import { readFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import {
   createBlankProjectDeAiSkill,
   getAllDeAiSkills,
@@ -354,6 +355,8 @@ export function UnifiedSkillLibrarySidebarPanel() {
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
+  const [skillPage, setSkillPage] = useState(0)
+  const SKILL_PAGE_SIZE = PAGINATION_PAGE_SIZE
 
   useEffect(() => {
     let cancelled = false
@@ -403,6 +406,18 @@ export function UnifiedSkillLibrarySidebarPanel() {
         .some((value) => value.toLowerCase().includes(keyword))
     })
   }, [category, entries, query])
+
+  const skillPageCount = Math.max(1, Math.ceil(filteredEntries.length / SKILL_PAGE_SIZE))
+  const visibleSkillEntries = filteredEntries.slice(skillPage * SKILL_PAGE_SIZE, (skillPage + 1) * SKILL_PAGE_SIZE)
+
+  // 搜索词/分类/数据重载变化 → 回到第 1 页
+  useEffect(() => {
+    setSkillPage(0)
+  }, [query, category, entries])
+  // 列表缩容兜底（数据重载后变短）
+  useEffect(() => {
+    if (skillPage > skillPageCount - 1) setSkillPage(0)
+  }, [skillPage, skillPageCount])
 
   function handleSelectEntry(entry: UnifiedSkillEntry) {
     if (entry.type === "writing") {
@@ -457,7 +472,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
             没有匹配的技能。
           </div>
         ) : null}
-        {filteredEntries.map((entry) => {
+        {visibleSkillEntries.map((entry) => {
           const active = entry.id === activeEntryId
           return (
             <div
@@ -513,6 +528,13 @@ export function UnifiedSkillLibrarySidebarPanel() {
             </div>
           )
         })}
+        <Pagination
+          page={skillPage + 1}
+          pageCount={skillPageCount}
+          total={filteredEntries.length}
+          onPrev={() => setSkillPage((p) => Math.max(0, p - 1))}
+          onNext={() => setSkillPage((p) => Math.min(skillPageCount - 1, p + 1))}
+        />
       </div>
     </div>
   )

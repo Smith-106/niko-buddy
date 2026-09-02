@@ -2499,6 +2499,22 @@
       "groupLabel": "revision {{rev}}",
       "empty": "No revisions yet.",
       "factCount": "{{count}} edges"
+    },
+    "revisionDiff": {
+      "title": "Revision Diff",
+      "toggleOn": "Compare mode",
+      "toggleOff": "Exit compare",
+      "revisionA": "From (A)",
+      "revisionB": "To (B)",
+      "baseline": "Baseline (empty)",
+      "insufficient": "At least two revisions are required to compare.",
+      "summary": "Added {{added}} · Superseded {{superseded}} · Invalidated {{invalidated}} · Removed {{removed}}",
+      "added": "Added",
+      "superseded": "Superseded",
+      "invalidated": "Invalidated",
+      "removed": "Removed",
+      "empty": "No differences between the selected revisions.",
+      "pairArrow": "{{before}} → {{after}}"
     }
   },
   "errorBoundary": {

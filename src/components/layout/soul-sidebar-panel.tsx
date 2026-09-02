@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Sparkles, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import {
   bindCharacterAura,
@@ -32,6 +33,8 @@ export function SoulSidebarPanel() {
   const [auras, setAuras] = useState<CharacterAura[]>(BUILT_IN_CHARACTER_AURAS)
   const [bindings, setBindings] = useState<CharacterAuraBinding[]>([])
   const [message, setMessage] = useState("")
+  const [auraPage, setAuraPage] = useState(0)
+  const AURA_PAGE_SIZE = PAGINATION_PAGE_SIZE
 
   useEffect(() => {
     if (!project) return
@@ -46,10 +49,21 @@ export function SoulSidebarPanel() {
   const builtInAuras = useMemo(() => auras.filter((a) => a.builtIn), [auras])
   const customAuras = useMemo(() => auras.filter((a) => !a.builtIn), [auras])
   const visibleAuras = selectedSoulSection === "builtIn" ? builtInAuras : customAuras
+  const auraPageCount = Math.max(1, Math.ceil(visibleAuras.length / AURA_PAGE_SIZE))
+  const visibleAuraPageItems = visibleAuras.slice(auraPage * AURA_PAGE_SIZE, (auraPage + 1) * AURA_PAGE_SIZE)
   const auraNameById = useMemo(
     () => new Map(auras.map((aura) => [aura.id, aura.name])),
     [auras],
   )
+
+  // 分节（内置/自定义）切换 → 回到第 1 页
+  useEffect(() => {
+    setAuraPage(0)
+  }, [selectedSoulSection])
+  // 列表缩容兜底（数据重载后变短）
+  useEffect(() => {
+    if (auraPage > auraPageCount - 1) setAuraPage(0)
+  }, [auraPage, auraPageCount])
 
   async function refreshProjectBindings() {
     /* v8 ignore next */
@@ -209,7 +223,7 @@ export function SoulSidebarPanel() {
               </div>
             )}
 
-            {visibleAuras.map((aura) => (
+            {visibleAuraPageItems.map((aura) => (
               <button
                 key={aura.id}
                 type="button"
@@ -222,6 +236,14 @@ export function SoulSidebarPanel() {
                 <div className="mt-1 text-xs opacity-80">{aura.category ?? (aura.builtIn ? t("novel.soul.builtInSoul") : t("novel.soul.customSoul"))}</div>
               </button>
             ))}
+
+            <Pagination
+              page={auraPage + 1}
+              pageCount={auraPageCount}
+              total={visibleAuras.length}
+              onPrev={() => setAuraPage((p) => Math.max(0, p - 1))}
+              onNext={() => setAuraPage((p) => Math.min(auraPageCount - 1, p + 1))}
+            />
 
             {selectedSoulSection === "custom" && visibleAuras.length === 0 && (
               <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">

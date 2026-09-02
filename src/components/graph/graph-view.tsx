@@ -13,6 +13,7 @@ import { useGraphLayoutWorker } from "@/components/graph/use-graph-layout-worker
 import { Network, RefreshCw, ZoomIn, ZoomOut, Maximize, Lightbulb, AlertTriangle, Link2, X, Filter, EyeOff, FileText } from "lucide-react"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { Button } from "@/components/ui/button"
+import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
 import { buildWikiGraph, type GraphNode, type GraphEdge, type CommunityInfo } from "@/lib/wiki-graph"
@@ -528,6 +529,9 @@ function DocumentGraphView({
   const [riskStateOverrides, setRiskStateOverrides] = useState<Record<string, string>>({})
   const [riskStateHistory, setRiskStateHistory] = useState<Array<{ nodeId: string; from: string; to: string; timestamp: number }>>([])
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set())
+  const [documentNodePage, setDocumentNodePage] = useState(0)
+  const DOCUMENT_NODES_PAGE_SIZE = PAGINATION_PAGE_SIZE
+  const [pendingScrollNodeId, setPendingScrollNodeId] = useState<string | null>(null)
   const activeGroup = groups.find((group) => group.title === activeGroupTitle) ?? groups[0]
   const nodeTypeOptions = useMemo(() => getGraphDocumentNodeTypeOptions(activeGroup?.nodes ?? []), [activeGroup])
   const riskStateOptions = useMemo(() => getGraphDocumentRiskStateOptions(activeGroup?.nodes ?? [], riskStateOverrides), [activeGroup, riskStateOverrides])
@@ -545,6 +549,8 @@ function DocumentGraphView({
     const byIsolation = filterGraphDocumentNodesByIsolation(byRelations, edges, showOnlyIsolatedNodes)
     return sortGraphDocumentNodes(byIsolation, documentSortMode)
   }, [activeGroup, documentSearchQuery, documentSortMode, edges, hideUnrelatedNodes, riskStateOverrides, selectedNodeType, selectedRiskState, showOnlyIsolatedNodes])
+  const documentNodePageCount = Math.max(1, Math.ceil(visibleNodes.length / DOCUMENT_NODES_PAGE_SIZE))
+  const visibleDocumentNodes = visibleNodes.slice(documentNodePage * DOCUMENT_NODES_PAGE_SIZE, (documentNodePage + 1) * DOCUMENT_NODES_PAGE_SIZE)
   const activeGroupIndex = groups.findIndex((group) => group.title === activeGroup?.title)
 
   useEffect(() => {
@@ -567,11 +573,43 @@ function DocumentGraphView({
     }
   }, [riskStateOptions, selectedRiskState])
 
+  // 筛选/分组/搜索变化 → 回到第 1 页。riskStateOverrides 有意不入 deps：循环风险标签是当前页
+  // 卡片上的高频交互，重置会打断阅读；其可能造成的列表缩容由下方钳位守卫兜底。
+  useEffect(() => {
+    setDocumentNodePage(0)
+  }, [activeGroupTitle, selectedNodeType, selectedRiskState, documentSearchQuery, hideUnrelatedNodes, showOnlyIsolatedNodes])
+
+  // 页码越界兜底（数据重载/风险标签循环导致列表缩容）
+  useEffect(() => {
+    if (documentNodePage > documentNodePageCount - 1) setDocumentNodePage(0)
+  }, [documentNodePage, documentNodePageCount])
+
+  // 编辑跳转（两效应流水线）：定位目标节点所在分组与页码，DOM 提交后再滚动，保证跨页/跨分组节点可达。
+  // 保存节点会 bumpDataVersion 触发图重载，loading 闪现时本组件会 remount 并重置 activeGroupTitle/
+  // expandedNodeIds/页码 —— effect 重跑时一并恢复分组与展开态。visibleNodes/groups/activeGroupTitle
+  // 故意不入 deps：跳转目标在编辑开始时锁定。
   useEffect(() => {
     if (!editingNode) return
     setExpandedNodeIds((current) => new Set(current).add(editingNode.id))
-    document.getElementById(graphDocumentNodeDomId(editingNode.id))?.scrollIntoView({ block: "start", behavior: "smooth" })
+    const ownerGroup = groups.find((group) => group.nodes.some((node) => node.id === editingNode.id))
+    if (ownerGroup && ownerGroup.title !== activeGroupTitle) setActiveGroupTitle(ownerGroup.title)
+    setPendingScrollNodeId(editingNode.id)
   }, [editingNode])
+
+  useEffect(() => {
+    if (!pendingScrollNodeId) return
+    const idx = visibleNodes.findIndex((node) => node.id === pendingScrollNodeId)
+    if (idx < 0) return // 分组切换尚未提交/节点被过滤：等待依赖变化重试（元素本就不存在时不滚动）
+    const targetPage = Math.floor(idx / DOCUMENT_NODES_PAGE_SIZE)
+    if (targetPage !== documentNodePage) {
+      setDocumentNodePage(targetPage)
+      return // 页码切换后 DOM 尚未提交，等待依赖变化重试
+    }
+    const el = document.getElementById(graphDocumentNodeDomId(pendingScrollNodeId))
+    if (!el) return // 页尚未提交，等待依赖变化重试
+    el.scrollIntoView({ block: "start", behavior: "smooth" })
+    setPendingScrollNodeId(null)
+  }, [pendingScrollNodeId, documentNodePage, visibleNodes])
 
   const toggleNode = useCallback((nodeId: string) => {
     setExpandedNodeIds((current) => {
@@ -819,7 +857,7 @@ function DocumentGraphView({
               <p className="text-sm text-muted-foreground">{showOnlyIsolatedNodes ? "当前分类暂无孤立节点。" : "当前筛选下暂无节点。"}</p>
             ) : (
               <div className="space-y-3">
-                {visibleNodes.map((node, nodeIndex) => {
+                {visibleDocumentNodes.map((node, nodeIndex) => {
                   const nodeEdges = getGraphNodeRelatedEdges(edges, node.id)
                   const eventEdges = nodeEdges.filter((edge) => {
                     const otherId = edge.source === node.id ? edge.target : edge.source
@@ -837,7 +875,7 @@ function DocumentGraphView({
                     <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
                       <button type="button" className="flex w-full items-start justify-between gap-3 text-left" onClick={() => toggleNode(node.id)}>
                         <div>
-                          <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{nodeIndex + 1} {node.label}</h3>
+                          <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{documentNodePage * DOCUMENT_NODES_PAGE_SIZE + nodeIndex + 1} {node.label}</h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
                             {riskLabel && <span className="rounded border border-amber-300 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 dark:border-amber-800 dark:text-amber-300">{riskLabel}</span>}
@@ -1001,6 +1039,13 @@ function DocumentGraphView({
                 })}
               </div>
             )}
+            <Pagination
+              page={documentNodePage + 1}
+              pageCount={documentNodePageCount}
+              total={visibleNodes.length}
+              onPrev={() => setDocumentNodePage((p) => Math.max(0, p - 1))}
+              onNext={() => setDocumentNodePage((p) => Math.min(documentNodePageCount - 1, p + 1))}
+            />
           </section>
         )}
       </div>

@@ -376,4 +376,45 @@ describe("SoulSidebarPanel", () => {
     const auraBtn = screen.getByText("秦始皇").closest("button") as HTMLElement
     expect(String(auraBtn.className)).toContain("qm-selected")
   })
+
+  it("custom 灵魂超过 20 条分页：首页 20 条、翻页可见第 21 条、分节切换回第 1 页", async () => {
+    const manyCustoms = Array.from({ length: 21 }, (_, i) => ({
+      id: `custom-p${i + 1}`, builtIn: false, name: `分页魂${String(i + 1).padStart(2, "0")}`,
+      sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+    }))
+    mocks.state.selectedSoulTab = "character"
+    mocks.state.selectedSoulSection = "custom"
+    mocks.listCharacterAuras.mockResolvedValue([...LOADED_AURAS.filter((a) => a.builtIn), ...manyCustoms])
+    const { rerender } = render(<SoulSidebarPanel />)
+    await waitFor(() => {
+      expect(screen.getByText("分页魂01")).toBeInTheDocument()
+    })
+    // 首页 20 条 + 分页控件出现，上一页禁用
+    expect(screen.getByText("分页魂20")).toBeInTheDocument()
+    expect(screen.queryByText("分页魂21")).not.toBeInTheDocument()
+    expect(screen.getByTestId("pagination")).toBeInTheDocument()
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+    // 翻页 → 第 21 条可见，首页条目卸载
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(screen.getByText("分页魂21")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("分页魂01")).not.toBeInTheDocument()
+    // 切回内置分节：2 条内置 → 分页控件自动隐藏
+    const builtInBtn = screen.getAllByText("novel.soul.builtInSoul").find((el) => el.tagName === "BUTTON") as HTMLElement
+    fireEvent.click(builtInBtn)
+    rerender(<SoulSidebarPanel />)
+    await waitFor(() => {
+      expect(screen.getByText("秦始皇")).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId("pagination")).not.toBeInTheDocument()
+    // 切回 custom 分节 → 页码重置回第 1 页
+    const customBtn = screen.getAllByText("novel.soul.customSoul").find((el) => el.tagName === "BUTTON") as HTMLElement
+    fireEvent.click(customBtn)
+    rerender(<SoulSidebarPanel />)
+    await waitFor(() => {
+      expect(screen.getByText("分页魂01")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("分页魂21")).not.toBeInTheDocument()
+  })
 })

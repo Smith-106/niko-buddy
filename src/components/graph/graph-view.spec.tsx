@@ -1360,6 +1360,98 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
     expect(reportPath).toBe("/p/test/wiki/risk-report.md")
     unmount()
   })
+
+  /** 与 renderDocumentView 相同环境，但允许注入自定义节点/边（分页用例） */
+  async function renderDocumentViewWith(nodes: GraphNode[], edges: GraphEdge[] = []) {
+    mocks.buildWikiGraph.mockResolvedValue({ nodes, edges, communities: [] })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT, graphDisplayMode: "document" })
+    const utils = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("小说图谱文档")).toBeTruthy()
+    })
+    return utils
+  }
+
+  /** 同组（剧情事件）21+ 个 secret 节点：默认排序保持插入序 → 第 21 个落在第 2 页 */
+  function makeSecretPageNodes(count: number): GraphNode[] {
+    return Array.from({ length: count }, (_, i) =>
+      makeNode({
+        id: `sc:p${i + 1}`,
+        label: `分页秘密${String(i + 1).padStart(2, "0")}`,
+        type: "secret",
+        path: `/p/test/wiki/secrets/p${i + 1}.md`,
+        linkCount: 1,
+        community: 0,
+      }),
+    )
+  }
+
+  it("短列表（≤20 节点）不渲染分页控件", async () => {
+    const { unmount } = await renderDocumentView()
+    expect(screen.queryByTestId("pagination")).toBeNull()
+    unmount()
+  })
+
+  it("长列表分页：21 节点出现分页、翻页编号连续、风险标签循环不重置页码、筛选回第 1 页", async () => {
+    const { unmount } = await renderDocumentViewWith(makeSecretPageNodes(21))
+    expect(screen.getByText("剧情事件 21")).toBeTruthy()
+    // 首页 20 条，编号全局连续（1.1 … 1.20）
+    expect(screen.getByTestId("pagination")).toBeTruthy()
+    expect(screen.getByText("1.1 分页秘密01")).toBeTruthy()
+    expect(screen.getByText("1.20 分页秘密20")).toBeTruthy()
+    expect(screen.queryByText(/分页秘密21/)).toBeNull()
+    // 翻到第 2 页：编号跨页连续（1.21）
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(screen.getByText("1.21 分页秘密21")).toBeTruthy()
+    })
+    expect(screen.queryByText(/分页秘密01/)).toBeNull()
+    // 循环第 2 页卡片风险标签（riskStateOverrides 变化）→ 不重置页码
+    const stateBtn = [...screen.getAllByText("未揭露")].find((el) => el.closest("button") && !el.closest("select"))!
+    fireEvent.click(stateBtn)
+    await waitFor(() => {
+      expect([...screen.getAllByText("部分揭露")].some((el) => el.closest("button"))).toBe(true)
+    })
+    expect(screen.getByText("1.21 分页秘密21")).toBeTruthy()
+    // 搜索筛选 → 回到第 1 页，单页结果控件自动隐藏
+    fireEvent.change(screen.getByPlaceholderText("搜索节点标题或来源路径"), { target: { value: "分页秘密01" } })
+    await waitFor(() => {
+      expect(screen.getByText("1.1 分页秘密01")).toBeTruthy()
+    })
+    expect(screen.queryByTestId("pagination")).toBeNull()
+    unmount()
+  })
+
+  it("编辑跳转跨页可达：编辑请求挂起期间翻页，editingNode 落地后列表自动回到目标页", async () => {
+    let resolveFileExists!: (value: boolean) => void
+    mocks.fileExists.mockImplementation(() => new Promise<boolean>((resolve) => { resolveFileExists = resolve }))
+    mocks.readFile.mockResolvedValue("# 分页秘密05\n\n正文")
+    const { unmount } = await renderDocumentViewWith(makeSecretPageNodes(21))
+    // 展开第 1 页「分页秘密05」并点击编辑（编辑流程因 fileExists 挂起）
+    fireEvent.click(screen.getByText(/分页秘密05/).closest("button")!)
+    await waitFor(() => {
+      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    // 编辑尚未落地 → 翻到第 2 页
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(screen.getByText("1.21 分页秘密21")).toBeTruthy()
+    })
+    // 编辑完成 → editingNode（全局序号 5）触发跨页跳转回第 1 页并滚动
+    await act(async () => {
+      resolveFileExists(true)
+    })
+    await waitFor(() => {
+      expect(screen.getByText("1.5 分页秘密05")).toBeTruthy()
+    })
+    expect(screen.getByText(/graph\.editingProfileFor/)).toBeTruthy()
+    expect(screen.queryByText(/分页秘密21/)).toBeNull()
+    unmount()
+  })
 })
 
 describe("GraphView — 思维导图模式", () => {

@@ -2499,6 +2499,22 @@
       "groupLabel": "revision {{rev}}",
       "empty": "暂无修订记录。",
       "factCount": "{{count}} 条边"
+    },
+    "revisionDiff": {
+      "title": "修订对比",
+      "toggleOn": "对比模式",
+      "toggleOff": "退出对比",
+      "revisionA": "起始（A）",
+      "revisionB": "目标（B）",
+      "baseline": "基线（空）",
+      "insufficient": "至少需要两个 revision 才能对比。",
+      "summary": "新增 {{added}} · 取代 {{superseded}} · 失效 {{invalidated}} · 移除 {{removed}}",
+      "added": "新增",
+      "superseded": "取代",
+      "invalidated": "失效",
+      "removed": "移除",
+      "empty": "所选 revision 间无差异。",
+      "pairArrow": "{{before}} → {{after}}"
     }
   },
   "errorBoundary": {

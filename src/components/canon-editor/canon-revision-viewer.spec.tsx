@@ -154,3 +154,107 @@ describe("CanonRevisionViewer — 空态 / 错误态 / 刷新", () => {
     await waitFor(() => expect(queryCanonEdgesMock).toHaveBeenCalledTimes(2))
   })
 })
+
+describe("CanonRevisionViewer — 对比模式", () => {
+  const fullEdges = [
+    makeFact({ id: "a", recordedRevision: 1, predicate: "KNOWS" }),
+    makeFact({ id: "b", recordedRevision: 2, predicate: "LOVES" }),
+    makeFact({ id: "c", recordedRevision: 3, predicate: "HATES" }),
+  ]
+
+  /** 时间线加载走 limit:500；对比模式全量拉取走空 filter（无 limit）。 */
+  function mockEdgesByLimit(timeline: CanonFact[], full: CanonFact[]) {
+    queryCanonEdgesMock.mockImplementation(
+      async (_pid: string, filter?: { limit?: number | null }) => {
+        return filter && filter.limit != null ? timeline : full
+      },
+    )
+  }
+
+  /** 统计对比模式全量拉取（无 limit）的调用次数。 */
+  const fullFetchCount = () =>
+    queryCanonEdgesMock.mock.calls.filter(([, f]) => !f || f.limit == null).length
+
+  it("开启对比模式 → 全量拉取（无 limit）+ A/B 默认值", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getByTestId("diff-rev-b")).toBeInTheDocument())
+
+    // 对比模式全量拉取：无 limit filter。
+    await waitFor(() => expect(fullFetchCount()).toBeGreaterThanOrEqual(1))
+    const diffCall = queryCanonEdgesMock.mock.calls.find(([, f]) => !f || f.limit == null)
+    expect(diffCall?.[1]).toEqual({})
+
+    // 默认 A=上一 revision(2)、B=最大 revision(3)。
+    await waitFor(() => {
+      expect(screen.getByTestId("diff-rev-b")).toHaveValue("3")
+      expect(screen.getByTestId("diff-rev-a")).toHaveValue("2")
+    })
+  })
+
+  it("A/B 变更重算 diff（不重新 IPC）", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(fullFetchCount()).toBeGreaterThanOrEqual(1))
+    const callsBefore = fullFetchCount()
+
+    // 默认 A=2、B=3 → 仅新增 rev3 的边 "c"。
+    await waitFor(() => expect(screen.getAllByTestId("diff-added-item")).toHaveLength(1))
+
+    // 改 A 为基线（空）→ 全部 3 条边为新增；且不触发额外 IPC。
+    fireEvent.change(screen.getByTestId("diff-rev-a"), { target: { value: "" } })
+    await waitFor(() => expect(screen.getAllByTestId("diff-added-item")).toHaveLength(3))
+    expect(fullFetchCount()).toBe(callsBefore)
+  })
+
+  it("基线→revB 显示全部新增（added 分区）", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getByTestId("diff-added-section")).toBeInTheDocument())
+
+    fireEvent.change(screen.getByTestId("diff-rev-a"), { target: { value: "" } })
+    await waitFor(() => expect(screen.getAllByTestId("diff-added-item")).toHaveLength(3))
+    expect(screen.getByTestId("diff-added-section")).toHaveTextContent("3")
+  })
+
+  it("无任何带戳边 → insufficient 态（禁用选择器）", async () => {
+    getCanonRevisionMock.mockResolvedValue(0)
+    const legacy = [makeFact({ id: "legacy", recordedRevision: null })]
+    mockEdgesByLimit(legacy, legacy)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-legacy")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getByTestId("diff-insufficient")).toBeInTheDocument())
+    expect(screen.getByTestId("diff-rev-a")).toBeDisabled()
+    expect(screen.getByTestId("diff-rev-b")).toBeDisabled()
+  })
+
+  it("退出对比 → 面板消失，时间线保留", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getByTestId("revision-diff-panel")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() =>
+      expect(screen.queryByTestId("revision-diff-panel")).not.toBeInTheDocument(),
+    )
+    expect(screen.getByTestId("revision-group-3")).toBeInTheDocument()
+  })
+})
