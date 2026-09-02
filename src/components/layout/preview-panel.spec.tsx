@@ -1292,6 +1292,116 @@ describe("PreviewPanel 选区变换（handleSelectionAction）", () => {
     await waitFor(() => expect(screen.getByTestId("tt-dialog").dataset.open).toBe("true"))
   }
 
+  it("处理中二次点击 → 防重入只调用一次 streamChat", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementation(() => new Promise(() => {}))
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await flushAsync(20)
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
+  it("处理中点击取消 → 状态「已取消」且不打开预览", async () => {
+    chapterSetup()
+    const captured: { cb: any; signal: AbortSignal } = {} as { cb: any; signal: AbortSignal }
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any, signal: AbortSignal) => {
+      captured.cb = cb
+      captured.signal = signal
+      return new Promise(() => {})
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await waitFor(() => expect(screen.getByText(/正在调用模型/)).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "取消" }))
+    expect(captured.signal.aborted).toBe(true)
+    // 模拟真实传输层：signal 中止后回调 onDone
+    act(() => {
+      captured.cb.onDone()
+    })
+    await waitFor(() => expect(screen.getByText(/已取消/)).toBeInTheDocument())
+    expect(screen.getByTestId("tt-dialog").dataset.open).toBe("false")
+    cleanup()
+  })
+
+  it("零 token 超时 → 黑洞/冷启动失败文案", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    vi.useFakeTimers()
+    const captured: { cb: any; signal: AbortSignal } = {} as { cb: any; signal: AbortSignal }
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any, signal: AbortSignal) => {
+      captured.cb = cb
+      captured.signal = signal
+      return new Promise(() => {})
+    })
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => {
+      vi.advanceTimersByTime(90_000)
+    })
+    expect(captured.signal.aborted).toBe(true)
+    act(() => {
+      captured.cb.onDone()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText(/未返回任何内容/)).toBeInTheDocument()
+    vi.useRealTimers()
+    cleanup()
+  })
+
+  it("有 token 超时 → 生成超时文案", async () => {
+    chapterSetup()
+    const { cleanup } = await renderPanel()
+    vi.useFakeTimers()
+    const captured: { cb: any; signal: AbortSignal } = {} as { cb: any; signal: AbortSignal }
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any, signal: AbortSignal) => {
+      captured.cb = cb
+      captured.signal = signal
+      return new Promise(() => {})
+    })
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => {
+      captured.cb.onToken("部分内容")
+    })
+    act(() => {
+      vi.advanceTimersByTime(90_000)
+    })
+    act(() => {
+      captured.cb.onDone()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText(/生成超时/)).toBeInTheDocument()
+    vi.useRealTimers()
+    cleanup()
+  })
+
+  it("成功后防重入护栏复位（可再次触发）", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("改写结果")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await waitFor(() => expect(screen.getByTestId("tt-dialog").dataset.open).toBe("true"))
+    fireEvent.click(screen.getByTestId("tt-close"))
+    fireEvent.click(screen.getByTestId("editor-selection-polish"))
+    await waitFor(() => expect(mocks.streamChat).toHaveBeenCalledTimes(2))
+    cleanup()
+  })
+
   it("选中文本为空 → 早退", async () => {
     chapterSetup()
     mocks.selectionText.value = ""

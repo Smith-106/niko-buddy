@@ -62,6 +62,18 @@ function inferEditorMode(path: string): "read" | "edit" {
   return "read"
 }
 
+// 选中文本去AI味/AI润色入口：组件级 deadline（统一约束 HTTP 与 Claude-CLI 通道，
+// 并截断 5 分钟网络重试）。不改动 llm-client.ts 的全局 30 分钟默认值。
+const DE_AI_SELECTION_TIMEOUT_MS = 90_000
+
+// 区分「模型全程零输出（疑似网络黑洞/冷启动失败）」与「部分生成后超时」的中文报错。
+function selectionTimeoutMessage(label: string, gotAnyToken: boolean): string {
+  if (gotAnyToken) {
+    return `${label}生成超时：已收到部分内容但 90 秒内未完成。请缩短选中文本或更换更快的模型后重试。`
+  }
+  return `${label}超时：模型在 90 秒内未返回任何内容，可能网络不通或代理不可达（本地代理 127.0.0.1:8756 未响应）、模型服务不可用或冷启动失败。请检查网络与模型设置后重试。`
+}
+
 function isChapterPath(path: string): boolean {
   return path.replace(/\\/g, "/").includes("/wiki/chapters/")
 }
@@ -202,6 +214,12 @@ export function PreviewPanel() {
   const [showPersona, setShowPersona] = useState(false)
   const [deAiProcessing, setDeAiProcessing] = useState(false)
   const [deAiPreviewOpen, setDeAiPreviewOpen] = useState(false)
+  // 选中文本去AI味/AI润色入口：防重入护栏 + deadline 控制器 + 取消（perf-fix-ds 前端侧）
+  const [selectionActionPending, setSelectionActionPending] = useState(false)
+  const selectionActionInFlightRef = useRef(false)
+  const selectionActionAbortRef = useRef<AbortController | null>(null)
+  const selectionActionTimedOutRef = useRef(false)
+  const selectionActionFirstTokenRef = useRef(false)
   // Wave 4 (v2.5.0): 批量去AI味状态（进度 + 结果 + 中止引用）
   const [batchRunning, setBatchRunning] = useState(false)
   const [batchProgress, setBatchProgress] = useState<DeAiBatchProgress | null>(null)
@@ -942,8 +960,14 @@ export function PreviewPanel() {
     setDeAiPreviewOpen(false)
   }, [])
 
+  const handleSelectionActionCancel = useCallback(() => {
+    selectionActionAbortRef.current?.abort()
+  }, [])
+
   const handleSelectionAction = useCallback(async (action: ChapterSelectionAction, selection: ChapterBodySelection) => {
     if (!selection.text.trim()) return
+    // 防重入：处理中直接忽略二次触发（浮动工具栏按钮 disabled 为 UX 强化）
+    if (selectionActionInFlightRef.current) return
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
       setSaveStatus("未配置可用的 AI 模型，无法处理选中文本")
@@ -952,7 +976,10 @@ export function PreviewPanel() {
 
     const actionFile = selectedFileRef.current
     const actionLabel = action === "polish" ? "AI润色" : "去AI味"
-    setSaveStatus(`${actionLabel}处理中...`)
+
+    selectionActionInFlightRef.current = true
+    setSelectionActionPending(true)
+    setSaveStatus(`正在调用模型，${actionLabel}中…`)
 
     const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
     const customDeAiSkill = await loadSmartDeAiSkill(
@@ -960,6 +987,15 @@ export function PreviewPanel() {
       action === "de-ai" ? "去AI味" : "润色",
       undefined
     )
+
+    const controller = new AbortController()
+    selectionActionAbortRef.current = controller
+    selectionActionTimedOutRef.current = false
+    selectionActionFirstTokenRef.current = false
+    const deadline = setTimeout(() => {
+      selectionActionTimedOutRef.current = true
+      controller.abort()
+    }, DE_AI_SELECTION_TIMEOUT_MS)
 
     let result = ""
     try {
@@ -971,9 +1007,22 @@ export function PreviewPanel() {
         {
           onToken: (token) => {
             result += token
+            if (!selectionActionFirstTokenRef.current) {
+              selectionActionFirstTokenRef.current = true
+              setSaveStatus(`正在生成${actionLabel}结果…`)
+            }
           },
           onDone: () => {
+            clearTimeout(deadline)
             if (selectedFileRef.current !== actionFile) return
+            if (controller.signal.aborted) {
+              setSaveStatus(
+                selectionActionTimedOutRef.current
+                  ? selectionTimeoutMessage(actionLabel, selectionActionFirstTokenRef.current)
+                  : `${actionLabel}已取消`,
+              )
+              return
+            }
             setSelectionTransformAction(action)
             setSelectionTransformSelection(selection)
             setSelectionTransformSourceContent(selection.text)
@@ -982,6 +1031,7 @@ export function PreviewPanel() {
             setSaveStatus("")
           },
           onError: (error) => {
+            clearTimeout(deadline)
             if (selectedFileRef.current !== actionFile) return
             // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
             // carry provider endpoint URL / auth header — strip before surfacing in
@@ -994,16 +1044,23 @@ export function PreviewPanel() {
             setSaveStatus(`${actionLabel}失败：${safe}`)
           },
         },
+        controller.signal,
       )
     } catch (err) {
       // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of onError above.
+      clearTimeout(deadline)
       const message = err instanceof Error ? err.message : String(err)
       const safe = message.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
       if (selectedFileRef.current !== actionFile) return
       console.error(`${actionLabel}失败:`, message)
       setSaveStatus(`${actionLabel}失败：${safe}`)
+    } finally {
+      clearTimeout(deadline)
+      selectionActionAbortRef.current = null
+      selectionActionInFlightRef.current = false
+      setSelectionActionPending(false)
     }
-  }, [])
+  }, [project])
 
   const handleApplySelectionTransform = useCallback(() => {
     if (!selectionTransformSelection || !selectionTransformCandidateContent) return
@@ -1455,7 +1512,16 @@ export function PreviewPanel() {
           </div>
         </div>
         {visibleSaveStatus ? (
-          <div className="mt-1 text-right">
+          <div className="mt-1 flex items-center justify-end gap-2 text-right">
+            {selectionActionPending ? (
+              <button
+                type="button"
+                onClick={handleSelectionActionCancel}
+                className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                取消
+              </button>
+            ) : null}
             <span className="block truncate text-[11px] text-muted-foreground/80">
               {visibleSaveStatus}
             </span>
@@ -1471,6 +1537,7 @@ export function PreviewPanel() {
             defaultMode={inferEditorMode(selectedFile)}
             immersiveWriting={isChapterPath(selectedFile)}
             onSelectionAction={isChapterPath(selectedFile) ? handleSelectionAction : undefined}
+            selectionActionDisabled={selectionActionPending}
             highlightRequest={isChapterPath(selectedFile) ? activeHighlightRequest : null}
             onHighlightHandled={() => {
               if (activeHighlightRequest) setPendingEditorHighlight(null)

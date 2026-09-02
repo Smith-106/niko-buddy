@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => {
   const streamClaudeCodeCli = vi.fn()
   const streamCodexCli = vi.fn()
   const resolveRuntimeLocalCliConfig = vi.fn()
+  const probeEndpointReachability = vi.fn()
+  const detectLocalCliConfig = vi.fn()
   return {
     fsReadFile,
     fsWriteFileAtomic,
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => {
     streamClaudeCodeCli,
     streamCodexCli,
     resolveRuntimeLocalCliConfig,
+    probeEndpointReachability,
+    detectLocalCliConfig,
     globalFetch: vi.fn(),
   }
 })
@@ -25,6 +29,10 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/tauri-fetch", () => ({
   getHttpFetch: (...a: unknown[]) => mocks.getHttpFetch(...a),
   isFetchNetworkError: (e: unknown) => mocks.isFetchNetworkError(e),
+}))
+
+vi.mock("./endpoint-probe", () => ({
+  probeEndpointReachability: (...a: unknown[]) => mocks.probeEndpointReachability(...a),
 }))
 
 vi.mock("@/commands/fs", () => ({
@@ -42,6 +50,7 @@ vi.mock("./codex-cli-transport", () => ({
 
 vi.mock("./local-cli-config", () => ({
   resolveRuntimeLocalCliConfig: (c: LlmConfig) => mocks.resolveRuntimeLocalCliConfig(c),
+  detectLocalCliConfig: (...a: unknown[]) => mocks.detectLocalCliConfig(...a),
 }))
 
 import {
@@ -51,6 +60,7 @@ import {
   collectLLMMetric,
   combineAbortSignals,
   defaultLlmCall,
+  EndpointUnreachableError,
   extractJsonArraySpan,
   flushContinuityMetrics,
   flushMetrics,
@@ -61,6 +71,7 @@ import {
   setMetricsTraceId,
   shouldRetryWithBrowserFetch,
   streamChat,
+  streamChatWithFailover,
   stripCodeFence,
 } from "./llm-client"
 
@@ -107,6 +118,7 @@ function makeCallbacks() {
     onReasoningToken: vi.fn(),
     onDone: vi.fn(),
     onError: vi.fn(),
+    onStatus: vi.fn(),
   }
 }
 
@@ -148,6 +160,16 @@ beforeEach(() => {
   mocks.streamCodexCli.mockReset()
   mocks.resolveRuntimeLocalCliConfig.mockReset()
   mocks.resolveRuntimeLocalCliConfig.mockImplementation(async (c: LlmConfig) => c)
+  mocks.probeEndpointReachability.mockReset()
+  mocks.probeEndpointReachability.mockResolvedValue({ reachable: true, latencyMs: 1 })
+  mocks.detectLocalCliConfig.mockReset()
+  mocks.detectLocalCliConfig.mockResolvedValue({
+    installed: true,
+    version: "1.0.0",
+    path: "claude",
+    model: null,
+    error: null,
+  })
   mocks.isFetchNetworkError.mockImplementation((e: unknown) =>
     (e as Error & { __network?: boolean })?.__network === true,
   )
@@ -628,7 +650,7 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
-  it("network error while the request is pending reports the timeout once the 30-min budget elapses", async () => {
+  it("a pre-header hang fast-fails via the header deadline + retry ladder well before the 30-min budget", async () => {
     vi.useFakeTimers()
     // fetch stays pending until the signal aborts, then fails with a NETWORK error
     const mockFetch = ((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -637,10 +659,12 @@ describe("streamChat HTTP path", () => {
     setupHttpFetch(mockFetch)
     const callbacks = makeCallbacks()
     const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1)
+    // 4 attempts × 20s header deadline + 2/5/10s backoff waits ≈ 97s — far below
+    // the 30-min total budget, which no longer governs pre-header hangs.
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
     await p
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError.mock.calls[0][0].message).toContain("Request timed out after 30 min")
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("已自动快速重试约 20 秒")
   })
 
   it("retry waits abort with onDone when the caller aborts mid-wait", async () => {
@@ -663,9 +687,28 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }))
   })
 
-  it("times out after DEFAULT_LLM_REQUEST_TIMEOUT_MS and reports the timeout", async () => {
+  it("the retained 30-min total budget caps a never-ending flowing stream", async () => {
     vi.useFakeTimers()
-    setupHttpFetch(abortAwareFetch(() => new Promise<Response>(() => {})))
+    const encoder = new TextEncoder()
+    // Headers arrive immediately; chunks keep flowing every 60s (resetting the
+    // 90s idle watchdog) and never end — only the 30-min total budget can stop it.
+    const mockFetch = ((_url: unknown, init?: RequestInit) => new Promise<Response>((resolve) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let i = 0
+          const interval = setInterval(() => {
+            i += 1
+            controller.enqueue(encoder.encode(sseLines(openAiToken(`chunk-${i}`))))
+          }, 60_000)
+          init?.signal?.addEventListener("abort", () => {
+            clearInterval(interval)
+            controller.error(new DOMException("aborted", "AbortError"))
+          })
+        },
+      })
+      resolve(new Response(stream, { status: 200 }))
+    })) as typeof fetch
+    setupHttpFetch(mockFetch)
     const callbacks = makeCallbacks()
     const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
     await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1)
@@ -1072,5 +1115,280 @@ describe("streamChat HTTP error handling", () => {
     const callbacks = makeCallbacks()
     await streamChat(llmConfig(), messages, callbacks)
     expect(callbacks.onError.mock.calls[0][0].message).toContain("输入内容过长")
+  })
+})
+
+// ── staged HTTP timeouts (connect / header deadline / stream idle) ────────
+
+describe("streamChat HTTP staged timeouts", () => {
+  it("aborts a hung connection at the header deadline, retries with short backoff, then reports a proxy-suspect error", async () => {
+    vi.useFakeTimers()
+    setupHttpFetch(abortAwareFetch(() => new Promise<Response>(() => {})))
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    // 4 attempts x 20s header deadline + 2/5/10s backoff waits
+    await vi.advanceTimersByTimeAsync(20_000 + 2_000 + 20_000 + 5_000 + 20_000 + 10_000 + 20_000)
+    await p
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("无响应")
+    expect(message).toContain("代理")
+    expect(mocks.probeEndpointReachability).toHaveBeenCalledTimes(1)
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("short-circuits retries with a terminal endpoint-unreachable error when the probe fails", async () => {
+    vi.useFakeTimers()
+    setMetricsFilePath("/tmp/metrics.jsonl")
+    let fetchCalls = 0
+    setupHttpFetch((async () => {
+      fetchCalls += 1
+      throw netError("Failed to fetch")
+    }) as typeof fetch)
+    mocks.probeEndpointReachability.mockResolvedValue({ reachable: false, latencyMs: 5, errorKind: "network" })
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await p
+    expect(fetchCalls).toBe(1)
+    expect(mocks.probeEndpointReachability).toHaveBeenCalledTimes(1)
+    expect(mocks.probeEndpointReachability).toHaveBeenCalledWith(expect.stringContaining("https://"))
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("不可达")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    mocks.fsReadFile.mockRejectedValue(new Error("no file"))
+    mocks.fsWriteFileAtomic.mockResolvedValue(undefined)
+    await flushMetrics()
+    const [, content] = mocks.fsWriteFileAtomic.mock.calls[0] as [string, string]
+    expect(content).toContain('"errorKind":"endpoint_unreachable"')
+  })
+
+  it("does not probe when a non-network error occurs", async () => {
+    setupHttpFetch((async () => { throw new Error("boom") }) as typeof fetch)
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(mocks.probeEndpointReachability).not.toHaveBeenCalled()
+  })
+
+  it("stream idle watchdog aborts a stalled stream after 90 seconds", async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    const mockFetch = ((_url: unknown, init?: RequestInit) => new Promise<Response>((resolve) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseLines(openAiToken("first"))))
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(new DOMException("The operation was aborted.", "AbortError"))
+          })
+        },
+      })
+      resolve(new Response(stream, { status: 200 }))
+    })) as typeof fetch
+    setupHttpFetch(mockFetch)
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(90_000)
+    await p
+    expect(callbacks.onToken).toHaveBeenCalledWith("first")
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("停滞")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("a slow but flowing stream (60s gaps) is not cut off by the idle watchdog", async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    const mockFetch = ((_url: unknown, init?: RequestInit) => new Promise<Response>((resolve) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let i = 0
+          const interval = setInterval(() => {
+            i += 1
+            controller.enqueue(encoder.encode(sseLines(openAiToken(`chunk-${i}`))))
+            if (i >= 3) {
+              clearInterval(interval)
+              controller.close()
+            }
+          }, 60_000)
+          init?.signal?.addEventListener("abort", () => {
+            clearInterval(interval)
+            controller.error(new DOMException("aborted", "AbortError"))
+          })
+        },
+      })
+      resolve(new Response(stream, { status: 200 }))
+    })) as typeof fetch
+    setupHttpFetch(mockFetch)
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(200_000)
+    await p
+    expect(callbacks.onToken.mock.calls.map((c) => c[0])).toEqual(["chunk-1", "chunk-2", "chunk-3"])
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("exhausts the retry ladder in ~17s (short backoff) and reports the fast-fail message", async () => {
+    vi.useFakeTimers()
+    let fetchCalls = 0
+    setupHttpFetch((async () => {
+      fetchCalls += 1
+      throw netError("Failed to fetch")
+    }) as typeof fetch)
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(17_000 + 5_000)
+    await p
+    expect(fetchCalls).toBe(4)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("无法连接到模型接口")
+    expect(message).toContain("约 20 秒")
+  })
+
+  it("passes the probe-derived connectTimeout to the transport init", async () => {
+    const seenInits: Array<RequestInit | undefined> = []
+    const mockFetch = ((_url: unknown, init?: RequestInit) => {
+      seenInits.push(init)
+      return Promise.resolve(streamResponse(sseLines(openAiToken("ok"), "data: [DONE]")))
+    }) as typeof fetch
+    setupHttpFetch(mockFetch)
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(seenInits[0] && (seenInits[0] as RequestInit & { connectTimeout?: number }).connectTimeout).toBe(10_000)
+  })
+})
+
+// ── streamChatWithFailover ────────────────────────────────────────────────
+
+describe("streamChatWithFailover", () => {
+  const failoverConfig = () =>
+    llmConfig({ provider: "custom", customEndpoint: "https://integrate.api.nvidia.com/v1", apiKey: "" })
+
+  function setupUnreachableEndpoint(): void {
+    setupHttpFetch((async () => { throw netError("Failed to fetch") }) as typeof fetch)
+    mocks.probeEndpointReachability.mockResolvedValue({ reachable: false, latencyMs: 5, errorKind: "network" })
+  }
+
+  it("forwards the unreachable error unchanged when failover is disabled (default)", async () => {
+    setupUnreachableEndpoint()
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(failoverConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(mocks.detectLocalCliConfig).not.toHaveBeenCalled()
+    expect(mocks.streamClaudeCodeCli).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("不可达")
+  })
+
+  it("switches to the claude-code transport once when failover is enabled and the CLI is detected", async () => {
+    setupUnreachableEndpoint()
+    mocks.streamClaudeCodeCli.mockImplementation(async (_c, _m, cb: { onDone: () => void }) => {
+      cb.onDone()
+    })
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(mocks.detectLocalCliConfig).toHaveBeenCalledWith("claude-code")
+    expect(mocks.streamClaudeCodeCli).toHaveBeenCalledTimes(1)
+    const [failoverUsedConfig] = mocks.streamClaudeCodeCli.mock.calls[0] as [LlmConfig]
+    expect(failoverUsedConfig.provider).toBe("claude-code")
+    expect(callbacks.onStatus).toHaveBeenCalledWith("主接口不可达，已自动切换到 Claude 主模型重试")
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("reports a detection-failure hint when failover is enabled but no claude CLI is available", async () => {
+    setupUnreachableEndpoint()
+    mocks.detectLocalCliConfig.mockResolvedValue({
+      installed: false,
+      version: null,
+      path: null,
+      error: "not found",
+    })
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(mocks.streamClaudeCodeCli).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("不可达")
+    expect(message).toContain("claude 命令行")
+  })
+
+  it("does not trigger failover for non-unreachable errors (HTTP 400)", async () => {
+    setupHttpFetch(async () => new Response("bad", { status: 400, statusText: "Bad Request" }))
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(mocks.detectLocalCliConfig).not.toHaveBeenCalled()
+    expect(mocks.streamClaudeCodeCli).not.toHaveBeenCalled()
+    // The transport appends the response body to the HTTP error detail
+    // (` — ${body}`) — assert the full message to lock that contract in.
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "HTTP 400: Bad Request — bad" }))
+  })
+
+  it("wraps the failover-side error with the original unreachable context", async () => {
+    setupUnreachableEndpoint()
+    mocks.streamClaudeCodeCli.mockImplementation(
+      async (_c, _m, cb: { onError: (e: Error) => void }) => {
+        cb.onError(new Error("claude cli exploded"))
+      },
+    )
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("claude cli exploded")
+    expect(message).toContain("不可达")
+    expect(callbacks.onStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it("skips failover when the provider is already claude-code", async () => {
+    // With a claude-code config the FIRST pass already routes through the CLI
+    // transport, so the mock must surface the unreachable error itself.
+    mocks.streamClaudeCodeCli.mockImplementation(
+      async (_c: unknown, _m: unknown, cb: { onError: (e: Error) => void }) => {
+        cb.onError(new EndpointUnreachableError("claude 通道报告接口不可达"))
+      },
+    )
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      llmConfig({ provider: "claude-code", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(mocks.detectLocalCliConfig).not.toHaveBeenCalled()
+    // Exactly one call: the original transport pass — no failover re-attempt.
+    expect(mocks.streamClaudeCodeCli).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("不可达")
   })
 })

@@ -33,6 +33,7 @@ interface WritingTextareaProps {
   onSave: (markdown: string) => void
   autoFocus?: boolean
   onSelectionAction?: (action: ChapterSelectionAction, selection: ChapterBodySelection) => void
+  selectionActionDisabled?: boolean
   highlightRequest?: PendingEditorHighlight | null
   onHighlightHandled?: () => void
 }
@@ -47,6 +48,7 @@ function WritingTextarea({
   onSave,
   autoFocus = false,
   onSelectionAction,
+  selectionActionDisabled = false,
   highlightRequest,
   onHighlightHandled,
 }: WritingTextareaProps) {
@@ -244,7 +246,8 @@ function WritingTextarea({
         >
           <button
             type="button"
-            className="rounded-full px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            disabled={selectionActionDisabled}
+            className="rounded-full px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => triggerSelectionAction("polish")}
           >
@@ -252,7 +255,8 @@ function WritingTextarea({
           </button>
           <button
             type="button"
-            className="rounded-full px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            disabled={selectionActionDisabled}
+            className="rounded-full px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => triggerSelectionAction("de-ai")}
           >
@@ -352,6 +356,7 @@ interface WikiEditorProps {
   defaultMode?: "read" | "edit"
   immersiveWriting?: boolean
   onSelectionAction?: (action: ChapterSelectionAction, selection: ChapterBodySelection) => void
+  selectionActionDisabled?: boolean
   highlightRequest?: PendingEditorHighlight | null
   onHighlightHandled?: () => void
 }
@@ -369,6 +374,7 @@ export function WikiEditor({
   defaultMode = "read",
   immersiveWriting = false,
   onSelectionAction,
+  selectionActionDisabled = false,
   highlightRequest,
   onHighlightHandled,
 }: WikiEditorProps) {
@@ -456,6 +462,7 @@ export function WikiEditor({
                 onSave={handleSave}
                 autoFocus={immersiveWriting}
                 onSelectionAction={onSelectionAction}
+                selectionActionDisabled={selectionActionDisabled}
                 highlightRequest={highlightRequest}
                 onHighlightHandled={onHighlightHandled}
               />

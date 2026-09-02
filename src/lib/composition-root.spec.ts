@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => {
     saveLlmConfig: vi.fn(),
     saveProviderConfigs: vi.fn(),
     saveActivePresetId: vi.fn(),
+    migratePlaintextApiKeys: vi.fn(),
     loadReviewItems: vi.fn(),
     loadChatHistory: vi.fn(),
     checkForAppUpdate: vi.fn(),
@@ -87,6 +88,9 @@ const mocks = vi.hoisted(() => {
     loadNovelSessionStatus: vi.fn(),
     applyAntiAiTelemetryConsentOnProjectOpen: vi.fn(),
     shutdownAntiAiTelemetrySink: vi.fn(),
+    createDirectory: vi.fn(),
+    setMetricsFilePath: vi.fn(),
+    flushMetrics: vi.fn(),
     applyTheme: vi.fn(),
     restoreDedupQueue: vi.fn(),
     startScheduledImport: vi.fn(),
@@ -105,6 +109,7 @@ vi.mock("@/lib/platform", () => ({ isTauri: mocks.isTauri }))
 vi.mock("@/commands/fs", () => ({
   listDirectory: mocks.listDirectory,
   openProject: mocks.openProject,
+  createDirectory: mocks.createDirectory,
 }))
 vi.mock("@/lib/project-store", () => ({
   getLastProject: mocks.getLastProject,
@@ -127,6 +132,7 @@ vi.mock("@/lib/project-store", () => ({
   saveLlmConfig: mocks.saveLlmConfig,
   saveProviderConfigs: mocks.saveProviderConfigs,
   saveActivePresetId: mocks.saveActivePresetId,
+  migratePlaintextApiKeys: mocks.migratePlaintextApiKeys,
 }))
 vi.mock("@/lib/persist", () => ({
   loadReviewItems: mocks.loadReviewItems,
@@ -148,6 +154,10 @@ vi.mock("@/lib/env-llm-defaults", () => ({ loadEnvLlmDefault: mocks.loadEnvLlmDe
 vi.mock("@/lib/novel/novel-session-status", () => ({ loadNovelSessionStatus: mocks.loadNovelSessionStatus }))
 vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({ applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen }))
 vi.mock("@/lib/novel/anti-ai-telemetry-sink", () => ({ shutdownAntiAiTelemetrySink: mocks.shutdownAntiAiTelemetrySink }))
+vi.mock("@/lib/llm-client", () => ({
+  setMetricsFilePath: mocks.setMetricsFilePath,
+  flushMetrics: mocks.flushMetrics,
+}))
 vi.mock("@/lib/theme-utils", () => ({ applyTheme: mocks.applyTheme }))
 vi.mock("@/lib/dedup-queue", () => ({ restoreQueue: mocks.restoreDedupQueue }))
 vi.mock("@/lib/scheduled-import", () => ({ startScheduledImport: mocks.startScheduledImport }))
@@ -201,6 +211,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("initializeApp", () => {
@@ -405,6 +416,32 @@ describe("initializeApp", () => {
     expect(mocks.initAnalytics).toHaveBeenCalledTimes(1)
   })
 
+  it("flushes LLM metrics and anti-AI telemetry on pagehide", async () => {
+    mocks.loadTheme.mockResolvedValue(null)
+    mocks.loadLlmConfig.mockResolvedValue(null)
+    mocks.loadEnvLlmDefault.mockReturnValue(null)
+    mocks.loadProviderConfigs.mockResolvedValue(null)
+    mocks.loadActivePresetId.mockResolvedValue(null)
+    mocks.getLastProject.mockResolvedValue(null)
+    mocks.checkForAppUpdate.mockResolvedValue(undefined)
+    mocks.initAnalytics.mockResolvedValue(undefined)
+    mocks.flushMetrics.mockResolvedValue(0)
+
+    const addEventListener = vi.fn()
+    vi.stubGlobal("window", { addEventListener })
+
+    await initializeApp()
+
+    const pagehideCall = addEventListener.mock.calls.find((c) => c[0] === "pagehide")
+    expect(pagehideCall).toBeDefined()
+    const handler = pagehideCall![1] as () => void
+    await handler()
+    expect(mocks.shutdownAntiAiTelemetrySink).toHaveBeenCalledTimes(1)
+    expect(mocks.flushMetrics).toHaveBeenCalledTimes(1)
+
+    vi.unstubAllGlobals()
+  })
+
   it("swallows initialization errors and still runs the silent checks", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.loadTheme.mockRejectedValue(new Error("store broken"))
@@ -419,6 +456,26 @@ describe("initializeApp", () => {
 })
 
 describe("hydrateProjectOnOpen", () => {
+  it("wires the LLM metrics sink to a per-day per-project JSONL file", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.loadScheduledImportConfig.mockResolvedValue(null)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+
+    await hydrateProjectOnOpen(proj)
+
+    expect(mocks.createDirectory).toHaveBeenCalledWith("C:/projects/test/.novel/metrics")
+    expect(mocks.setMetricsFilePath).toHaveBeenCalledWith(
+      `C:/projects/test/.novel/metrics/llm-metrics-${new Date().toISOString().slice(0, 10)}.jsonl`,
+    )
+  })
+
   it("resets state, loads project config and restores all Tauri queues", async () => {
     const novelConfig = { sceneBreakdownEnabled: true }
     const rfw = { windowSize: 5, enabled: false }

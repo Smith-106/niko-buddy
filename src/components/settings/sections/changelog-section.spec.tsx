@@ -70,7 +70,7 @@ function longHighlights(prefix: string): string[] {
 
 const ENTRIES = [
   {
-    version: "2.7.5", // == __APP_VERSION__ (package.json)
+    version: "2.7.6", // == __APP_VERSION__ (package.json)
     date: "2026-08-18",
     highlights: { zh: longHighlights("zh"), en: longHighlights("en") },
   },
@@ -105,7 +105,7 @@ beforeEach(() => {
 describe("ChangelogSection", () => {
   it("zh 语言：当前版本徽标 + 收起/展开长条目", () => {
     render(<ChangelogSection />)
-    expect(screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "v2.7.5")).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "v2.7.6")).toBeInTheDocument()
     expect(screen.getByText("\\u2190 当前版本")).toBeInTheDocument()
     expect(screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "v2.4.0")).toBeInTheDocument()
     // 长条目：默认只显示前 5 条 + 查看更多按钮
@@ -128,7 +128,7 @@ describe("ChangelogSection", () => {
     render(<ChangelogSection />)
     expect(screen.getByText("en line 1")).toBeInTheDocument()
     expect(screen.getByText("en short")).toBeInTheDocument()
-    expect(screen.getByText("当前版本：v2.7.5")).toBeInTheDocument()
+    expect(screen.getByText("当前版本：v2.7.6")).toBeInTheDocument()
   })
 
   it("短条目与空 highlights 无展开按钮", () => {

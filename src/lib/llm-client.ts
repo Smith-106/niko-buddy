@@ -5,6 +5,7 @@ import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import { type RequestOverrides } from "./llm-providers"
 import { defaultRegistry } from "./llm/provider-registry"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
+import { probeEndpointReachability } from "./endpoint-probe"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
@@ -23,6 +24,8 @@ export interface StreamCallbacks {
   onFinishReason?: (reason: string) => void
   onUsage?: (usage: { input: number; output: number }) => void
   onUserMemoryDecision?: (decision: { memoryKey: string; action: "accept" | "reject" }) => void
+  /** Optional transport status updates (e.g. failover switch notices). */
+  onStatus?: (status: string) => void
 }
 
 export function isOutputTruncatedError(error: unknown): boolean {
@@ -53,10 +56,39 @@ export function setMetricsTraceId(id: string): void {
   metricsTraceId = id
 }
 
+/**
+ * Transport-stage error names. They ride on `Error#name` (not message
+ * matching) so classification stays stable across locale/refactors.
+ */
+const ENDPOINT_UNREACHABLE_ERROR_NAME = "EndpointUnreachableError"
+const HEADER_TIMEOUT_ERROR_NAME = "HeaderTimeoutError"
+const STREAM_IDLE_ERROR_NAME = "StreamIdleTimeoutError"
+
+/** Thrown when the endpoint probe confirms the target host is unreachable — terminal, do not retry. */
+export class EndpointUnreachableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = ENDPOINT_UNREACHABLE_ERROR_NAME
+  }
+}
+
+export function isEndpointUnreachableError(error: unknown): boolean {
+  return error instanceof Error && error.name === ENDPOINT_UNREACHABLE_ERROR_NAME
+}
+
+function makeNamedError(name: string, message: string): Error {
+  const error = new Error(message)
+  error.name = name
+  return error
+}
+
 function classifyLlmError(err: unknown): string {
   /* v8 ignore next */
   if (err instanceof Error) {
     if (err.name === "AbortError") return "abort"
+    if (err.name === ENDPOINT_UNREACHABLE_ERROR_NAME) return "endpoint_unreachable"
+    if (err.name === HEADER_TIMEOUT_ERROR_NAME) return "header_timeout"
+    if (err.name === STREAM_IDLE_ERROR_NAME) return "stream_idle"
     const msg = err.message
     if (/timed out|timeout/i.test(msg)) return "timeout"
     if (/网络连接|Connection lost|connection/i.test(msg)) return "network"
@@ -177,8 +209,27 @@ async function streamViaCodexCli(
   return mod.streamCodexCli(config, messages, callbacks, signal, requestOverrides)
 }
 
-const NETWORK_RETRY_DELAYS_MS = [30_000, 60_000, 90_000, 120_000]
+/**
+ * Fast-fail retry backoff for the HTTP transport. Replaces the old linear
+ * 30/60/90/120s ladder (~5 min of silent waiting on a dead endpoint): a
+ * deterministic outage now terminates in ~17s of waiting plus one endpoint
+ * probe (see probeEndpointReachability).
+ */
+const NETWORK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000]
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * Staged HTTP timeouts (mirrors the claude-cli transport's phased watchdog):
+ *  - connect: reqwest-level connection establishment (incl. proxy tunnel);
+ *  - header : per-attempt deadline until response headers arrive (TS side,
+ *             catches proxy black holes the connect timeout can miss);
+ *  - idle   : max gap between stream chunks once streaming has started
+ *             (long generations are NOT cut off — only true stalls are).
+ * The 30-min DEFAULT_LLM_REQUEST_TIMEOUT_MS remains the total upper bound.
+ */
+export const DEFAULT_HTTP_CONNECT_TIMEOUT_MS = 10_000
+export const DEFAULT_HTTP_HEADER_TIMEOUT_MS = 20_000
+export const DEFAULT_HTTP_STREAM_IDLE_MS = 90_000
 
 export function combineAbortSignals(
   ...signals: Array<AbortSignal | undefined>
@@ -273,7 +324,7 @@ function parseInputLengthLimit(errorDetail: string): { inputLength: number; maxL
 }
 
 function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number }): string {
-  return `输入内容过长：本次请求约 ${limit.inputLength} 字符，接口最大允�?${limit.maxLength} 字符。请减少历史上下文、缩短章节正文，或确认当前接口是否真的支持所选模型的上下文长度。`
+  return `输入内容过长：本次请求约 ${limit.inputLength} 字符，接口最大允许 ${limit.maxLength} 字符。请减少历史上下文、缩短章节正文，或确认当前接口是否真的支持所选模型的上下文长度。`
 }
 
 export async function streamChat(
@@ -287,6 +338,100 @@ export async function streamChat(
   return withWritingWakeLock(true, () =>
     streamChatHeld(config, messages, callbacks, signal, requestOverrides),
   )
+}
+
+export interface StreamChatFailoverOptions {
+  /**
+   * When the HTTP endpoint probe confirms the endpoint is unreachable,
+   * retry once via the Claude Code CLI transport. Off by default: switching
+   * models changes cost/output and must be user-opt-in.
+   */
+  failoverEnabled?: boolean
+}
+
+/**
+ * streamChat with an opt-in single-shot failover to the Claude Code CLI when
+ * the primary HTTP endpoint is confirmed unreachable by the transport probe.
+ *
+ * Signature is a drop-in superset of {@link streamChat}: callers can switch
+ * to this helper without changing any argument. Without `failoverEnabled`
+ * (the default) it behaves exactly like streamChat.
+ *
+ * Failover requires: the error is an endpoint-unreachable terminal error,
+ * the current provider is not already claude-code, and the local
+ * `claude` CLI is detected. The switch is announced via
+ * `callbacks.onStatus` so the UI can surface it — never silent.
+ */
+export async function streamChatWithFailover(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+  options?: StreamChatFailoverOptions,
+): Promise<void> {
+  const failoverEnabled = options?.failoverEnabled ?? false
+  // Captured in an array: TS flow analysis ignores closure assignments to
+  // let bindings, which would wrongly narrow them to null at the read site.
+  const capturedUnreachable: Error[] = []
+  const firstPassCallbacks: StreamCallbacks = {
+    ...callbacks,
+    onError: (error) => {
+      // Hold endpoint-unreachable errors instead of forwarding: the failover
+      // decision below needs them. Everything else forwards immediately.
+      if (isEndpointUnreachableError(error) && capturedUnreachable.length === 0) {
+        capturedUnreachable.push(error)
+        return
+      }
+      callbacks.onError(error)
+    },
+  }
+  await streamChat(config, messages, firstPassCallbacks, signal, requestOverrides)
+
+  const unreachableError = capturedUnreachable[0]
+  if (!unreachableError) return
+
+  if (!failoverEnabled || config.provider === "claude-code") {
+    callbacks.onError(unreachableError)
+    return
+  }
+
+  const { detectLocalCliConfig } = await import("./local-cli-config")
+  let detected: Awaited<ReturnType<typeof detectLocalCliConfig>> = null
+  try {
+    detected = await detectLocalCliConfig("claude-code")
+  } catch {
+    detected = null
+  }
+  if (!detected?.installed) {
+    callbacks.onError(
+      new Error(
+        `${unreachableError.message}（已开启"自动切换 Claude 重试"，但未检测到可用的 claude 命令行。` +
+        `请在设置中确认 claude 命令已安装后重试，或直接切换模型。）`,
+      ),
+    )
+    return
+  }
+
+  callbacks.onStatus?.("主接口不可达，已自动切换到 Claude 主模型重试")
+  const capturedFailover: Error[] = []
+  try {
+    await streamChat(
+      { ...config, provider: "claude-code" },
+      messages,
+      { ...callbacks, onError: (error) => { capturedFailover.push(error) } },
+      signal,
+      requestOverrides,
+    )
+  } catch (err) {
+    capturedFailover.push(err instanceof Error ? err : new Error(String(err)))
+  }
+  const failoverError = capturedFailover[0]
+  if (failoverError) {
+    callbacks.onError(
+      new Error(`${failoverError.message}（注：主接口已探测确认不可达，以上为切换 Claude 主模型重试后的结果。）`),
+    )
+  }
 }
 
 async function streamChatHeld(
@@ -352,6 +497,17 @@ async function streamChatHeld(
   }
   const providerConfig = defaultRegistry.getProviderConfig(mutableRuntimeConfig)
 
+  // Stream-idle watchdog shared by every attempt of this request: armed once
+  // headers arrive, reset on each chunk, aborts the body read on a stall.
+  let streamIdleFired = false
+  const streamIdleController = new AbortController()
+  const armStreamIdleTimer = (): ReturnType<typeof setTimeout> =>
+    setTimeout(() => {
+      streamIdleFired = true
+      streamIdleController.abort()
+    }, DEFAULT_HTTP_STREAM_IDLE_MS)
+  let streamIdleTimer: ReturnType<typeof setTimeout> | undefined
+
   const timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS
   let combinedSignal = signal
   let timeoutController: AbortController | undefined
@@ -392,25 +548,69 @@ async function streamChatHeld(
     const sendRequest = async (requestInit: RequestInit): Promise<Response> => {
       const httpFetch = await getHttpFetch()
       let attempt = 0
+      let probeSettled = false
       while (true) {
+        // Per-attempt header deadline: aborts the in-flight request when no
+        // response headers arrive in time (proxy black hole / hung gateway).
+        const headerDeadlineController = new AbortController()
+        let headerTimeoutFired = false
+        const headerTimer = setTimeout(() => {
+          headerTimeoutFired = true
+          headerDeadlineController.abort()
+        }, DEFAULT_HTTP_HEADER_TIMEOUT_MS)
+        const attemptSignal = combineAbortSignals(
+          signal,
+          combinedSignal,
+          headerDeadlineController.signal,
+          streamIdleController.signal,
+        )
+        const attemptInit = {
+          ...requestInit,
+          signal: attemptSignal,
+          connectTimeout: DEFAULT_HTTP_CONNECT_TIMEOUT_MS,
+        } as RequestInit
         try {
-          return await httpFetch(providerConfig.url, requestInit)
+          return await httpFetch(providerConfig.url, attemptInit)
         } catch (err) {
           if (signal?.aborted || combinedSignal?.aborted) throw err
-          if (!isFetchNetworkError(err)) throw err
           /* v8 ignore next */
           if (timeoutFired) throw err
+          const headerTimedOut = headerTimeoutFired && !isFetchNetworkError(err)
+          if (!isFetchNetworkError(err) && !headerTimedOut) throw err
+          // First failure: probe the endpoint once. Confirmed-unreachable →
+          // terminal error immediately (no pointless retry waiting); reachable
+          // → keep the short backoff (genuine flaps still recover).
+          if (!probeSettled) {
+            probeSettled = true
+            const probe = await probeEndpointReachability(providerConfig.url)
+            if (!probe.reachable) {
+              throw new EndpointUnreachableError(
+                `无法连接到模型接口：端点探测确认接口当前不可达（连接失败或探测超时）。` +
+                `常见原因是代理服务未运行、代理地址配置错误，或接口地址本身无法访问。` +
+                `请检查网络、代理地址与接口地址后再重试。接口地址：${providerConfig.url}`,
+              )
+            }
+          }
           const retryDelay = NETWORK_RETRY_DELAYS_MS[attempt]
           if (retryDelay === undefined) {
-            throw new Error(
-              `无法连接到模型接口：软件已自动等待并重试�?5 分钟，但仍然连接失败。` +
-              `常见原因是网络不稳定、代理不可用、接口地址无法访问、服务商网关暂时中断，或本机网络环境阻断了访问。` +
-              `请检查网络、代理和接口地址后再重试。接口地址�?{providerConfig.url}`,
-            )
+            throw headerTimedOut
+              ? makeNamedError(
+                  HEADER_TIMEOUT_ERROR_NAME,
+                  `连接模型接口超过 ${Math.round(DEFAULT_HTTP_HEADER_TIMEOUT_MS / 1000)} 秒仍无响应，快速重试约 20 秒仍未成功。` +
+                  `这种情况常见于代理服务挂起或网络黑洞（TCP 已连通但数据无响应）。` +
+                  `请检查代理服务是否正常运行、代理地址是否正确，或尝试切换直连后重试。接口地址：${providerConfig.url}`,
+                )
+              : new Error(
+                  `无法连接到模型接口：已自动快速重试约 20 秒，但仍然连接失败。` +
+                  `常见原因是网络不稳定、代理不可用、接口地址无法访问、服务商网关暂时中断，或本机网络环境阻断了访问。` +
+                  `请检查网络、代理和接口地址后再重试。接口地址：${providerConfig.url}`,
+                )
           }
           attempt += 1
           const shouldContinue = await waitForRetry(retryDelay, combinedSignal)
           if (!shouldContinue) throw err
+        } finally {
+          clearTimeout(headerTimer)
         }
       }
     }
@@ -438,7 +638,7 @@ async function streamChatHeld(
           onError(new Error(`Request timed out after ${Math.round(timeoutMs / 60000)} min. Try a faster model or a smaller context.`))
           return
         }
-        onError(new Error(`网络连接中断，请检查网络、代理或接口地址后重试。接口地址�?{providerConfig.url}`))
+        onError(new Error(`网络连接中断，请检查网络、代理或接口地址后重试。接口地址：${providerConfig.url}`))
         return
         /* v8 ignore stop */
       }
@@ -450,7 +650,7 @@ async function streamChatHeld(
       let errorDetail = `HTTP ${response.status}: ${response.statusText}`
       try {
         const body = await response.text()
-        if (body) errorDetail += ` �?${body}`
+        if (body) errorDetail += ` — ${body}`
       } catch {
         // ignore body read failure
       }
@@ -477,7 +677,7 @@ async function streamChatHeld(
           let retryErrorDetail = `HTTP ${response.status}: ${response.statusText}`
           try {
             const retryBody = await response.text()
-            if (retryBody) retryErrorDetail += ` �?${retryBody}`
+            if (retryBody) retryErrorDetail += ` — ${retryBody}`
           } catch {
             // ignore body read failure
           }
@@ -493,7 +693,7 @@ async function streamChatHeld(
       ) {
         onError(
           new Error(
-            `${errorDetail}。Azure OpenAI 返回 404 通常表示部署名称不正确。请确认模型栏填写的�?Azure deployment name，而不是模�?SKU；接口地址填写 https://<resource>.openai.azure.com 或包�?/openai/deployments/<deployment-name> 的地址。`,
+            `${errorDetail}。Azure OpenAI 返回 404 通常表示部署名称不正确。请确认模型栏填写的是 Azure deployment name，而不是模型 SKU；接口地址填写 https://<resource>.openai.azure.com 或包含 /openai/deployments/<deployment-name> 的地址。`,
           ),
         )
         return
@@ -510,7 +710,7 @@ async function streamChatHeld(
           let retryErrorDetail = `HTTP ${response.status}: ${response.statusText}`
           try {
             const retryBody = await response.text()
-            if (retryBody) retryErrorDetail += ` �?${retryBody}`
+            if (retryBody) retryErrorDetail += ` — ${retryBody}`
           } catch {
             // ignore body read failure
           }
@@ -530,6 +730,14 @@ async function streamChatHeld(
 
     const reader = response.body.getReader()
     let lineBuffer = ""
+
+    // Arm the stream-idle watchdog: any gap > DEFAULT_HTTP_STREAM_IDLE_MS
+    // between chunks aborts the read (stall detection). Reset per chunk.
+    streamIdleTimer = armStreamIdleTimer()
+    const resetStreamIdleTimer = () => {
+      if (streamIdleTimer !== undefined) clearTimeout(streamIdleTimer)
+      streamIdleTimer = armStreamIdleTimer()
+    }
 
     let contentCharsEmitted = 0
     let reasoningCharsObserved = 0
@@ -553,6 +761,7 @@ async function streamChatHeld(
     try {
       while (true) {
         const { done, value } = await reader.read()
+        resetStreamIdleTimer()
 
         if (done) {
           if (lineBuffer.trim()) {
@@ -588,8 +797,8 @@ async function streamChatHeld(
         onError(
           new Error(
             `模型只输出了 ${reasoningCharsObserved.toLocaleString()} 字符的思考内容，但没有输出正文。` +
-            `这通常表示接口触发了思�?token 上限、模型没有从思考阶段切换到正式回答，或当前兼容接口的流式输出不完整。` +
-            `请缩短输入、提�?max_tokens，或在设置里切换其他模型后重试。`,
+            `这通常表示接口触发了思考 token 上限、模型没有从思考阶段切换到正式回答，或当前兼容接口的流式输出不完整。` +
+            `请缩短输入、提高 max_tokens，或在设置里切换其他模型后重试。`,
           ),
         )
         return
@@ -597,6 +806,23 @@ async function streamChatHeld(
 
       onDone()
     } catch (err) {
+      if (streamIdleFired) {
+        onError(
+          makeNamedError(
+            STREAM_IDLE_ERROR_NAME,
+            `模型输出停滞超过 ${Math.round(DEFAULT_HTTP_STREAM_IDLE_MS / 1000)} 秒，已中止本次请求。` +
+            `请重试；若反复出现，请检查代理稳定性或更换更快的模型/接口。`,
+          ),
+        )
+        return
+      }
+      // The retained 30-min total budget fires during streaming (headers long
+      // since arrived, chunks kept resetting the idle watchdog): report the
+      // timeout instead of silently treating the abort as a normal end.
+      if (timeoutFired) {
+        onError(new Error(`Request timed out after ${Math.round(timeoutMs / 60000)} min. Try a faster model or a smaller context.`))
+        return
+      }
       if (err instanceof Error && (err.name === "AbortError" || (signal?.aborted))) {
         onDone()
         return
@@ -607,9 +833,11 @@ async function streamChatHeld(
       }
       onError(err instanceof Error ? err : new Error(String(err)))
     } finally {
+      if (streamIdleTimer !== undefined) clearTimeout(streamIdleTimer)
       reader.releaseLock()
     }
   } finally {
+    if (streamIdleTimer !== undefined) clearTimeout(streamIdleTimer)
     if (onSignalAbort && signal) {
       signal.removeEventListener("abort", onSignalAbort)
     }

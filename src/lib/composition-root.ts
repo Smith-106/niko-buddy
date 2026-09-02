@@ -3,7 +3,9 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
-import { listDirectory, openProject } from "@/commands/fs"
+import { listDirectory, openProject, createDirectory } from "@/commands/fs"
+import { normalizePath, joinPath } from "@/lib/path-utils"
+import { setMetricsFilePath, flushMetrics } from "@/lib/llm-client"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId, migratePlaintextApiKeys } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { loadTaskSummaries, attachTaskPersistence } from "@/lib/novel/book-analysis/task-persistence"
@@ -30,6 +32,15 @@ import type { WikiProject } from "@/types/wiki"
 
 /** Holds the unsubscribe handle for the current project's task persistence subscription. */
 let detachTaskPersistence: (() => void) | null = null
+
+/**
+ * Per-day date stamp (YYYY-MM-DD, UTC) for the LLM metrics JSONL filename so
+ * the sink rotates daily with zero extra logic (mirrors the metric `ts` stamp,
+ * which is also UTC, so the validation query reads `llm-metrics-<today>.jsonl`).
+ */
+function llmMetricsDateStamp(d: Date = new Date()): string {
+  return d.toISOString().slice(0, 10)
+}
 
 export async function initializeApp(): Promise<void> {
   performance.mark("app-init-start") // bench: startup latency anchor
@@ -120,6 +131,7 @@ export async function initializeApp(): Promise<void> {
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", () => {
         void shutdownAntiAiTelemetrySink()
+        void flushMetrics()
       })
     }
     // One-time plaintext→encrypted apiKey migration (re-saves any plaintext values encrypted).
@@ -145,6 +157,19 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
   // #34 反 AI 影子遥测：按 F-34 显式同意（默认关）在项目打开处接线；
   // 切换项目前会先 flush 上一项目残留缓冲（applyAntiAiTelemetryConsentOnProjectOpen 内部）。
   await applyAntiAiTelemetryConsentOnProjectOpen(proj.path)
+  // R1 — wire the LLM metrics sink: ensure `<project>/.novel/metrics` exists and
+  // point the in-memory metric buffer at a per-day JSONL file so every streamChat
+  // `durationMs` record is persisted to disk. Previously `metricsFilePath` stayed
+  // empty in production, so `flushMetrics` early-returned and nothing was written.
+  const metricsDir = normalizePath(joinPath(proj.path, ".novel", "metrics"))
+  try {
+    await createDirectory(metricsDir)
+  } catch (err) {
+    console.error("创建 LLM 指标目录失败:", err)
+  }
+  setMetricsFilePath(
+    normalizePath(joinPath(metricsDir, `llm-metrics-${llmMetricsDateStamp()}.jsonl`)),
+  )
   useWikiStore.getState().clearTransientTaskState()
   // 默认开启小说模式
   useWikiStore.getState().setNovelMode(true)

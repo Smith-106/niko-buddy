@@ -97,6 +97,21 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_SIX_CHANGELOG: ChangelogEntry = {
+  version: "2.7.6",
+  date: "2026-09-02",
+  highlights: {
+    en: [
+      "Fix: chat-panel audit interceptor assigned to read-only __TAURI_INTERNALS__.invoke (Cannot assign to read only property) — now descriptor-aware fallback (writable direct assign / configurable defineProperty / else skip, best-effort).",
+      "Fix: de-AI response latency — selection toolbar in-flight guard + 90s deadline + cancel button; HTTP transport phased timeouts (connect 10s / headers 20s / stream stall 90s / 30min total), fast retry [2,5,10]s, endpoint probe (GET /models, 8s, 5min TTL) skips futile retries; LLM call metrics now persisted to <project>/.novel/metrics/llm-metrics-YYYY-MM-DD.jsonl.",
+    ],
+    zh: [
+      "修复：chat-panel ①-7 审计拦截对只读 __TAURI_INTERNALS__.invoke 赋值崩溃（Cannot assign to read only property）——改为属性描述符感知降级（writable 直接赋值 / configurable defineProperty / 皆否放弃拦截，best-effort）。",
+      "修复：去 AI 味响应慢——选中文本工具栏防重入 + 90s 超时 + 取消按钮；HTTP 传输层分阶段超时（连接 10s / 响应头 20s / 流内停滞 90s / 总上限 30min）、快速重试 [2,5,10]s、端点探测（GET /models，8s，5min TTL）跳过无意义重试；LLM 调用耗时落盘 <project>/.novel/metrics/llm-metrics-YYYY-MM-DD.jsonl。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_FIVE_CHANGELOG: ChangelogEntry = {
   version: "2.7.5",
   date: "2026-09-02",
@@ -1334,6 +1349,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_SIX_CHANGELOG.version) return [TWO_POINT_SEVEN_SIX_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FIVE_CHANGELOG.version) return [TWO_POINT_SEVEN_FIVE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FOUR_CHANGELOG.version) return [TWO_POINT_SEVEN_FOUR_CHANGELOG]
   if (version === TWO_POINT_SEVEN_THREE_CHANGELOG.version) return [TWO_POINT_SEVEN_THREE_CHANGELOG]
