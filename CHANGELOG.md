@@ -7,6 +7,12 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.6] - 2026-09-02
+
+### Bugfix（运行时修复）
+
+- **修复：chat-panel ①-7 审计拦截对 `__TAURI_INTERNALS__.invoke` 赋值报 `Cannot assign to read only property 'invoke'`**——Tauri 2 运行时该属性可能为只读；现按属性描述符降级（writable → 直接赋值；configurable → defineProperty 重定义；两者皆否 → 放弃拦截，best-effort 不影响主流程）
+
 ## [2.7.5] - 2026-09-02
 
 ### 发布收尾（docs & i18n 收口，46 号 Gate 后）

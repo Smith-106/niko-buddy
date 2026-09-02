@@ -1819,12 +1819,14 @@ export function ChatPanel() {
 
   // ①-7 审计修复：拦截 __TAURI_INTERNALS__.invoke 的 plugin:event|listen 调用，
   // 从 claude-cli:* 事件名中提取 streamId 供 handleForceStop 直接 kill。
+  // 注意：Tauri 2 的 __TAURI_INTERNALS__.invoke 可能为只读属性——按属性描述符降级：
+  // writable → 直接赋值；configurable → defineProperty 重定义；两者皆否 → 放弃拦截（best-effort）。
   useEffect(() => {
     if (!isTauri()) return
     const internals = (window as Window & { __TAURI_INTERNALS__?: { invoke?: Function } }).__TAURI_INTERNALS__
     if (!internals?.invoke) return
     const originalInvoke = internals.invoke
-    internals.invoke = function(this: unknown, cmd: string, args: unknown, ...rest: unknown[]) {
+    const wrapper = function(this: unknown, cmd: string, args: unknown, ...rest: unknown[]) {
       try {
         if (cmd === "plugin:event|listen" && typeof args === "object" && args !== null) {
           const eventName = (args as { event?: unknown }).event
@@ -1838,8 +1840,29 @@ export function ChatPanel() {
       }
       return originalInvoke.call(this, cmd, args, ...rest)
     }
+    const desc = Object.getOwnPropertyDescriptor(internals, "invoke")
+    let installed = false
+    if (desc?.writable) {
+      internals.invoke = wrapper
+      installed = true
+    } else if (desc?.configurable) {
+      try {
+        Object.defineProperty(internals, "invoke", { value: wrapper, writable: true, configurable: true })
+        installed = true
+      } catch {
+        // 只读且重定义失败——降级：放弃拦截
+      }
+    }
+    if (!installed) return
     return () => {
-      internals.invoke = originalInvoke
+      const current = Object.getOwnPropertyDescriptor(internals, "invoke")
+      if (current?.writable || current?.configurable) {
+        try {
+          internals.invoke = originalInvoke
+        } catch {
+          // 恢复失败不影响主流程
+        }
+      }
     }
   }, [])
 
