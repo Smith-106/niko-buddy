@@ -1243,6 +1243,8 @@
         "apiKey": "API Key",
         "model": "Model",
         "contextWindow": "Context Window",
+        "maxOutputTokens": "Max Output Tokens (generation cap)",
+        "maxOutputTokensHint": "Thinking models (e.g. deepseek) may fill the cap with reasoning and output no body text — raise this to mitigate. Leave empty for provider default (Anthropic 4096), min 256.",
         "wireOpenAi": "OpenAI Compatible",
         "wireResponses": "Responses API",
         "wireAnthropic": "Anthropic Compatible",

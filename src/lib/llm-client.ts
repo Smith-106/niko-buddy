@@ -328,6 +328,21 @@ function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number
   return `输入内容过长：本次请求约 ${limit.inputLength} 字符，接口最大允许 ${limit.maxLength} 字符。请减少历史上下文、缩短章节正文，或确认当前接口是否真的支持所选模型的上下文长度。`
 }
 
+/**
+ * W3 (54 号设计): 把 config.maxOutputTokens 合并进 RequestOverrides.max_tokens。
+ * - config.maxOutputTokens undefined → 原样返回 (provider 既有默认, 零行为变更);
+ * - overrides 已显式指定 max_tokens → 显式优先, 不覆盖;
+ * - 否则注入 config.maxOutputTokens (思考模型可把 4096 调大, 缓解思考吃满)。
+ */
+export function mergeConfigMaxTokens(
+  config: Pick<LlmConfig, "maxOutputTokens">,
+  requestOverrides?: RequestOverrides,
+): RequestOverrides | undefined {
+  if (config.maxOutputTokens === undefined) return requestOverrides
+  if (requestOverrides?.max_tokens !== undefined) return requestOverrides
+  return { ...requestOverrides, max_tokens: config.maxOutputTokens }
+}
+
 export async function streamChat(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
@@ -337,7 +352,13 @@ export async function streamChat(
 ): Promise<void> {
   const { withWritingWakeLock } = await import("./writing-wake-lock")
   return withWritingWakeLock(true, () =>
-    streamChatWithReasoningFallback(config, messages, callbacks, signal, requestOverrides),
+    streamChatWithReasoningFallback(
+      config,
+      messages,
+      callbacks,
+      signal,
+      mergeConfigMaxTokens(config, requestOverrides),
+    ),
   )
 }
 

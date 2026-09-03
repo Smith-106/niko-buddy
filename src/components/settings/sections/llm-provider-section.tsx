@@ -665,6 +665,24 @@ function PresetRow({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>{t("settings.sections.llm.maxOutputTokens")}</Label>
+            <Input
+              type="number"
+              min={256}
+              step={256}
+              placeholder="4096"
+              value={ov.maxOutputTokens ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value.trim()
+                onChange({ maxOutputTokens: raw === "" ? undefined : Math.max(256, Number(raw) || 4096) })
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings.sections.llm.maxOutputTokensHint")}
+            </p>
+          </div>
+
           <ReasoningControls
             value={reasoning}
             onChange={(reasoning) => onChange({ reasoning })}

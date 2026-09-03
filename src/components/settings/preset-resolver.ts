@@ -27,6 +27,13 @@ export function resolveConfig(
     typeof ov.codexCliTimeoutMinutes === "number" && Number.isFinite(ov.codexCliTimeoutMinutes)
       ? Math.max(1, Math.min(240, Math.floor(ov.codexCliTimeoutMinutes)))
       : undefined
+  // 54 W3: maxOutputTokens (UI 可调生成上限) 透传——仅合法正数生效, 其余 undefined (零行为变更)
+  const maxOutputTokens =
+    typeof ov.maxOutputTokens === "number" && Number.isFinite(ov.maxOutputTokens) && ov.maxOutputTokens > 0
+      ? Math.floor(ov.maxOutputTokens)
+      : typeof preset.suggestedMaxOutputTokens === "number" && preset.suggestedMaxOutputTokens > 0
+        ? Math.floor(preset.suggestedMaxOutputTokens)
+        : undefined
 
   if (preset.provider === "custom") {
     return {
@@ -39,6 +46,7 @@ export function resolveConfig(
       apiMode: ov.apiMode ?? preset.apiMode ?? "chat_completions",
       reasoning,
       localCliIsolation: false,
+      maxOutputTokens,
     }
   }
 
@@ -52,6 +60,7 @@ export function resolveConfig(
       maxContextSize,
       reasoning,
       localCliIsolation: false,
+      maxOutputTokens,
     }
   }
 
@@ -67,6 +76,7 @@ export function resolveConfig(
       maxContextSize,
       reasoning,
       localCliIsolation: false,
+      maxOutputTokens,
     }
   }
 
@@ -89,6 +99,7 @@ export function resolveConfig(
       localCliIsolation: preset.provider === "cursor-cli" ? false : localCliIsolation,
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
       explicitProviderSelection: true,
+      maxOutputTokens,
     }
   }
 
@@ -103,6 +114,7 @@ export function resolveConfig(
     maxContextSize,
     reasoning,
     localCliIsolation: false,
+    maxOutputTokens,
   }
 }
 

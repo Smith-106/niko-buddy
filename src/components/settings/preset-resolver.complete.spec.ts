@@ -81,6 +81,23 @@ describe("resolveConfig — custom provider", () => {
     expect(config.reasoning).toEqual({ mode: "auto" })
   })
 
+  it("54 W3: maxOutputTokens 透传 (合法正数 → floor; undefined/非法 → 不出现)", () => {
+    const withTokens = resolveConfig(
+      preset("custom"),
+      { model: "m", maxOutputTokens: 8192.9 },
+      fallback,
+    )
+    expect(withTokens.maxOutputTokens).toBe(8192)
+    // undefined / 0 / 负数 → 不注入 (零行为变更)
+    const noTokens = resolveConfig(preset("custom"), { model: "m" }, fallback)
+    expect(noTokens.maxOutputTokens).toBeUndefined()
+    const zeroTokens = resolveConfig(preset("custom"), { model: "m", maxOutputTokens: 0 }, fallback)
+    expect(zeroTokens.maxOutputTokens).toBeUndefined()
+    // cli 分支同样透传
+    const cliTokens = resolveConfig(preset("deepseek"), { maxOutputTokens: 3072 }, fallback)
+    expect(cliTokens.maxOutputTokens).toBe(3072)
+  })
+
   it("falls back to the fallback config maxContextSize when nothing suggests one", () => {
     // custom preset: 无 defaultModel/suggestedContextSize → 模型为空 + maxContextSize 取 fallback
     const config = resolveConfig(preset("custom"), undefined, fallback)

@@ -519,6 +519,53 @@ describe("streamChat CLI transports", () => {
 // ── HTTP happy path ───────────────────────────────────────────────────────
 
 describe("streamChat HTTP path", () => {
+  it("54 W3: config.maxOutputTokens 合并进请求体 max_tokens (openai 分支)", async () => {
+    let capturedBody: Record<string, unknown> | null = null
+    const capturingFetch = ((_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Promise.resolve(streamResponse(sseLines(openAiToken("hi"), "data: [DONE]")))
+    }) as typeof fetch
+    setupHttpFetch(capturingFetch)
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ maxOutputTokens: 8192 }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    expect(capturedBody!.max_tokens).toBe(8192)
+    expect(callbacks.onToken.mock.calls.map((c) => c[0])).toEqual(["hi"])
+  })
+
+  it("54 W3: 显式 requestOverrides.max_tokens 优先于 config.maxOutputTokens", async () => {
+    let capturedBody: Record<string, unknown> | null = null
+    const capturingFetch = ((_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Promise.resolve(streamResponse(sseLines(openAiToken("hi"), "data: [DONE]")))
+    }) as typeof fetch
+    setupHttpFetch(capturingFetch)
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ maxOutputTokens: 8192 }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      { max_tokens: 2048 },
+    )
+    expect(capturedBody!.max_tokens).toBe(2048)
+  })
+
+  it("54 W3: config 无 maxTokens → 请求体不带 max_tokens (零行为变更)", async () => {
+    let capturedBody: Record<string, unknown> | null = null
+    const capturingFetch = ((_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Promise.resolve(streamResponse(sseLines(openAiToken("hi"), "data: [DONE]")))
+    }) as typeof fetch
+    setupHttpFetch(capturingFetch)
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(capturedBody!.max_tokens).toBeUndefined()
+  })
+
   it("streams tokens, reasoning, and usage, then calls onDone", async () => {
     const chunks = [
       sseLines(openAiToken("Hello")),

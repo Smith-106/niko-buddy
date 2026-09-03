@@ -707,6 +707,8 @@
         "apiKey": "API 密钥",
         "model": "模型",
         "contextWindow": "上下文窗口",
+        "maxOutputTokens": "最大输出 Token 数 (生成上限)",
+        "maxOutputTokensHint": "思考模型 (如 deepseek) 思考内容吃满上限时只输出思考无正文——调大此值可缓解。留空 = 沿用各服务商默认 (Anthropic 4096)，最小 256。",
         "wireOpenAi": "OpenAI 兼容",
         "wireResponses": "Responses API",
         "wireAnthropic": "Anthropic 兼容",

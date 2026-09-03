@@ -59,6 +59,8 @@ export interface LlmPreset {
   apiMode?: CustomApiMode
   /** Suggested context window; user can override. */
   suggestedContextSize?: number
+  /** 54 W3: 该预设建议的输出 token 上限 (UI 输入框占位/默认; undefined = 服务商默认)。 */
+  suggestedMaxOutputTokens?: number
 }
 
 const RAW_LLM_PRESETS: LlmPreset[] = [

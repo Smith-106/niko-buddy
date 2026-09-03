@@ -124,6 +124,12 @@ interface LlmConfig {
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
   /**
+   * 54 号设计 W3: 生成最大 token 数 (UI 可调)。
+   * 可选 additive: undefined = 沿用各 provider 既有默认 (anthropic 4096 等);
+   * 传入时经 streamChat 合并进 RequestOverrides.max_tokens (显式 overrides 优先)。
+   */
+  maxOutputTokens?: number
+  /**
    * F-004 (S3 / ANL-010 f004_correction): true when the user explicitly
    * selected this provider in the settings dropdown (vs. it being a
    * carry-over default). `resolveProviderOverride` honors this to preserve
@@ -446,6 +452,8 @@ export interface ProviderOverride {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
+  /** 54 W3: 生成最大 token 数 (UI 可调, resolveConfig 透传至 LlmConfig.maxOutputTokens)。 */
+  maxOutputTokens?: number
   /** Whether to show models under this provider in AI conversations (default true). */
   enabled?: boolean
   /** Saved models for this provider. */
