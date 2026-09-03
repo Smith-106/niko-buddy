@@ -182,10 +182,18 @@ export interface DocxExportOptions {
 }
 
 /**
- * DOCX 导出结果。
+ * EPUB 导出选项（54 号设计 ⑥）：与 DOCX 同形，复用章节加载逻辑。
+ */
+export interface EbookExportOptions {
+  projectPath: string
+  exportPath: string
+}
+
+/**
+ * EPUB 导出结果。
  * MIT licensed implementation.
  */
-export interface DocxExportResult {
+export interface EbookExportResult {
   success: boolean
   exportedPath: string
   chapterCount: number
@@ -270,6 +278,39 @@ export async function exportNovelDocx(options: DocxExportOptions): Promise<DocxE
     const chapters = await loadFinalChapters(pp)
 
     const result = await invoke<DocxExportResult>("export_novel_docx", {
+      chapters: chapters.map((c) => ({ title: c.title, body: c.body })),
+      exportPath,
+    })
+    return {
+      success: result.success,
+      exportedPath: result.exportedPath,
+      chapterCount: result.chapterCount,
+      message: result.message,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { success: false, exportedPath: exportPath, chapterCount: 0, message }
+  }
+}
+
+/**
+ * 将项目 final 状态章节导出为单个 .epub 文件（EPUB3 最小合规）。
+ *
+ * 复用 loadFinalChapters（wiki/chapters 下 final 状态章节，按章节号排序），
+ * 通过 Rust 端 `export_novel_epub` 命令（zip crate 自写容器，零新依赖）
+ * 生成 EPUB3：mimetype 必须为 ZIP 首条目且 stored，container.xml → content.opf
+ * manifest/spine，章节 XHTML5 转义。导出期间 Rust 侧 emit epub-export-progress。
+ *
+ * 守 Draft-first：导出只读正式层，不写回任何内容。
+ */
+export async function exportNovelEpub(options: EbookExportOptions): Promise<EbookExportResult> {
+  const pp = normalizePath(options.projectPath)
+  const { exportPath } = options
+
+  try {
+    const chapters = await loadFinalChapters(pp)
+
+    const result = await invoke<EbookExportResult>("export_novel_epub", {
       chapters: chapters.map((c) => ({ title: c.title, body: c.body })),
       exportPath,
     })

@@ -100,7 +100,7 @@ vi.mock("@/commands/fs", () => ({
   getFileSize: vi.fn(async (): Promise<number> => 0),
 }))
 
-import { exportProject, exportNovelDocx } from "./export"
+import { exportProject, exportNovelDocx, exportNovelEpub } from "./export"
 import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
 
 afterEach(() => {
@@ -594,5 +594,64 @@ describe("exportNovelDocx（Phase 1 统一导出）", () => {
     })
     expect(result.success).toBe(false)
     expect(result.message).toBe("raw failure")
+  })
+})
+
+describe("exportNovelEpub（54 号设计 ⑥）", () => {
+  it("final 章节按 num 排序传给 Rust 命令，返回结果透传", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, [
+      "---",
+      "chapter_number: 1",
+      "title: 第一章 开端",
+      "chapter_status: final",
+      "---",
+      "雨停了。",
+    ].join("\n"))
+    fsState.files.set(`${PROJECT}/wiki/chapters/002.md`, [
+      "---",
+      "chapter_number: 2",
+      "title: 第二章 远行",
+      "chapter_status: draft",
+      "---",
+      "未完成。",
+    ].join("\n"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+      { name: "002.md", path: `${PROJECT}/wiki/chapters/002.md`, is_dir: false },
+    ])
+
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.epub`,
+      chapterCount: 1,
+      message: "exported 1 chapters",
+    })
+
+    const result = await exportNovelEpub({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.epub`,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(1)
+    // draft 章被过滤；命令名区分 epub
+    expect(invokeMock).toHaveBeenCalledWith("export_novel_epub", {
+      chapters: [{ title: "第一章 开端", body: "雨停了。" }],
+      exportPath: `${PROJECT}/complete-novel.epub`,
+    })
+  })
+
+  it("invoke 抛错时返回 success:false 并透传消息", async () => {
+    fsState.reset()
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("zip failed"))
+    const result = await exportNovelEpub({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.epub`,
+    })
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("zip failed")
   })
 })

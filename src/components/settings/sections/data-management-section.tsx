@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   FileText,
+  BookOpen,
   Database,
   Trash2,
   RefreshCw,
@@ -18,7 +19,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { Button } from "@/components/ui/button"
 import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
-import { exportNovelDocx, countFinalChapters, type DocxExportResult } from "@/lib/novel/export"
+import { exportNovelDocx, exportNovelEpub, countFinalChapters, type DocxExportResult, type EbookExportResult } from "@/lib/novel/export"
 import { countVectorChunks, legacyVectorRowCount, dropLegacyVectorTable } from "@/lib/embedding"
 import { useWikiStore } from "@/stores/wiki-store"
 import type {
@@ -52,6 +53,9 @@ export function DataManagementSection() {
   const [isExportingDocx, setIsExportingDocx] = useState(false)
   const [docxResult, setDocxResult] = useState<DocxExportResult | null>(null)
   const [docxProgress, setDocxProgress] = useState<{ current: number; total: number } | null>(null)
+  const [isExportingEpub, setIsExportingEpub] = useState(false)
+  const [epubResult, setEpubResult] = useState<EbookExportResult | null>(null)
+  const [epubProgress, setEpubProgress] = useState<{ current: number; total: number } | null>(null)
   const [finalChapterCount, setFinalChapterCount] = useState<number | null>(null)
   const [vectorStats, setVectorStats] = useState<{ chunks: number; legacyRows: number } | null>(null)
   const [vectorLoading, setVectorLoading] = useState(false)
@@ -60,12 +64,16 @@ export function DataManagementSection() {
   // DOCX export progress subscription (audit ③-4): the Rust side emits
   // "docx-export-progress" {current, total} per chapter while exporting.
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
+    let unlistenDocx: UnlistenFn | undefined
+    let unlistenEpub: UnlistenFn | undefined
     let cancelled = false
     void (async () => {
       try {
-        unlisten = await listen<{ current: number; total: number }>("docx-export-progress", (event) => {
+        unlistenDocx = await listen<{ current: number; total: number }>("docx-export-progress", (event) => {
           if (!cancelled) setDocxProgress(event.payload)
+        })
+        unlistenEpub = await listen<{ current: number; total: number }>("epub-export-progress", (event) => {
+          if (!cancelled) setEpubProgress(event.payload)
         })
       } catch {
         // 非 Tauri 环境（vite 预览）无事件通道，进度条直接不显示。
@@ -73,7 +81,8 @@ export function DataManagementSection() {
     })()
     return () => {
       cancelled = true
-      unlisten?.()
+      unlistenDocx?.()
+      unlistenEpub?.()
     }
   }, [])
 
@@ -198,6 +207,31 @@ export function DataManagementSection() {
     } finally {
       setIsExportingDocx(false)
       setDocxProgress(null)
+    }
+  }
+
+  async function handleExportEpub() {
+    /* v8 ignore next -- 按钮在无 project 时 disabled，守卫不可达 */
+    if (!currentProject?.path) return
+    setIsExportingEpub(true)
+    setEpubResult(null)
+    setEpubProgress(null)
+    try {
+      const result = await exportNovelEpub({
+        projectPath: currentProject.path,
+        exportPath: `${currentProject.path}/complete-novel.epub`,
+      })
+      setEpubResult(result)
+    } catch (err) {
+      setEpubResult({
+        success: false,
+        exportedPath: "",
+        chapterCount: 0,
+        message: String(err),
+      })
+    } finally {
+      setIsExportingEpub(false)
+      setEpubProgress(null)
     }
   }
 
@@ -371,6 +405,84 @@ export function DataManagementSection() {
               <div className="flex items-start gap-2 text-red-600">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{docxResult.message}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Novel EPUB export card（54 号设计 ⑥） */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">
+            {t("settings.sections.dataManagement.epubExportTitle", { defaultValue: "导出小说 EPUB 电子书" })}
+          </h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {t("settings.sections.dataManagement.epubExportDescription", {
+            defaultValue: "将当前项目的 final 状态章节导出为单个 .epub 文件（EPUB3 最小合规），可用于阅读器 / 投稿渠道。",
+          })}
+        </p>
+        <Button onClick={() => void handleExportEpub()} disabled={isBusy || isExportingEpub || !currentProject?.path || finalChapterCount === 0}>
+          {isExportingEpub ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t("settings.sections.dataManagement.epubExporting", { defaultValue: "导出中..." })}
+            </>
+          ) : (
+            <>
+              <BookOpen className="mr-2 h-4 w-4" />
+              {t("settings.sections.dataManagement.epubExportButton", { defaultValue: "导出 EPUB 电子书" })}
+            </>
+          )}
+        </Button>
+        {!currentProject?.path && (
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.dataManagement.epubNoProject", { defaultValue: "请先打开项目" })}
+          </p>
+        )}
+        {currentProject?.path && finalChapterCount === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.dataManagement.epubEmptyChapters", { defaultValue: "章节为空：没有 final 状态章节可导出" })}
+          </p>
+        )}
+        {epubProgress && epubProgress.total > 0 && (
+          <div className="space-y-1.5">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${Math.round((epubProgress.current / epubProgress.total) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.sections.dataManagement.epubExportProgress", {
+                defaultValue: "{{current}} / {{total}}",
+                current: epubProgress.current,
+                total: epubProgress.total,
+              })}
+            </p>
+          </div>
+        )}
+        {epubResult && (
+          <div className="text-sm space-y-1">
+            {epubResult.success ? (
+              <div className="flex items-start gap-2 text-green-600">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p>{t("settings.sections.dataManagement.epubExportSuccess", { defaultValue: "导出成功" })}</p>
+                  <p className="text-muted-foreground">
+                    {t("settings.sections.dataManagement.docxExportCount", {
+                      defaultValue: "共 {{count}} 个章节",
+                      count: epubResult.chapterCount,
+                    })}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-red-600">
+                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <p>{epubResult.message}</p>
               </div>
             )}
           </div>
