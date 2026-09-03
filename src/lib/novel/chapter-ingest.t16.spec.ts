@@ -491,6 +491,26 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
     expect(firstEpisode.summary).toBe("主角佩剑名为黑剑")
   })
 
+  it("54 ③: facts-store 接线——final 章 newCanonFacts 写入 facts.json (ADR-26 唯一真源)", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角：佩剑名为黑剑", "码头设防"] }))
+    // facts.json 不存在 → 空表重建
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result.snapshot).not.toBeNull()
+    // facts.json 被写入且含两条事实 + episode 溯源
+    const writeCall = fsMocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("facts.json"))
+    expect(writeCall).toBeDefined()
+    const written = JSON.parse(String(writeCall![1]))
+    expect(written.schema_version).toBe("facts/1.0")
+    expect(written.facts).toHaveLength(2)
+    expect(written.facts[0]!.subject).toBe("主角")
+    expect(written.facts[0]!.object).toBe("主角：佩剑名为黑剑")
+    expect(written.facts[0]!.valid_at).toBe(1)
+    expect(written.episodes).toHaveLength(1)
+    expect(written.episodes[0]!.chapter).toBe(1)
+  })
+
   it("未注入 canonDualWriteDeps → 旧行为，不触发双写（零回归）", async () => {
     fsMocks.readFile.mockResolvedValueOnce(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角佩剑名为黑剑"] }))

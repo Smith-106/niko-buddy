@@ -6,6 +6,7 @@ import { rerankCandidates } from "@/lib/rerank"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { sanitizeEntitySlug } from "./graph-adapter"
+import { rankByBm25 } from "./bm25-ranking"
 
 export interface NovelSearchParams {
   projectPath: string
@@ -74,7 +75,17 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeKeyword !== false) {
     const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query)).then(items => {
-      results.push(...items.slice(0, topK).map((item, sourceRank) => ({
+      // 54 号设计 ①: BM25 排序增强 (inkos/mem0 吸收)——只改顺序不改召回集,
+      // RRF 融合输入不变形; 零分文档保持原序 (rankByBm25 稳定排序)。
+      const bm25Order = rankByBm25(
+        params.query,
+        items.map((item) => ({ id: item.path, text: `${item.title ?? ""} ${item.snippet ?? ""}` })),
+      )
+      const byPath = new Map(items.map((item) => [item.path, item]))
+      const ordered = bm25Order
+        .map((r) => byPath.get(r.id))
+        .filter((item): item is NonNullable<typeof item> => item !== undefined)
+      results.push(...ordered.slice(0, topK).map((item, sourceRank) => ({
         type: "keyword" as const,
         path: item.path,
         title: item.title,
@@ -88,6 +99,31 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   if (params.includeVector) {
     const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, topK, params.embCfg)).then(items => {
+      if (items.length === 0) {
+        // 54 号设计 ①: 向量失败→BM25 降级——keyword 分支未启用时补跑
+        // searchWiki+BM25 作为 lexical 兜底 (标记 keyword, 不新增 type)。
+        if (params.includeKeyword === false) {
+          return runSearchBranch("keyword", searchWiki(pp, params.query)).then((kwItems) => {
+            const bm25Order = rankByBm25(
+              params.query,
+              kwItems.map((item) => ({ id: item.path, text: `${item.title ?? ""} ${item.snippet ?? ""}` })),
+            )
+            const byPath = new Map(kwItems.map((item) => [item.path, item]))
+            const ordered = bm25Order
+              .map((r) => byPath.get(r.id))
+              .filter((item): item is NonNullable<typeof item> => item !== undefined)
+            results.push(...ordered.slice(0, topK).map((item, sourceRank) => ({
+              type: "keyword" as const,
+              path: item.path,
+              title: item.title,
+              snippet: item.snippet ?? "",
+              relevance: item.score ?? 0,
+              sourceRank,
+            })))
+          })
+        }
+        return
+      }
       results.push(...rankSourceResults(items))
     })
     promises.push(pVector)

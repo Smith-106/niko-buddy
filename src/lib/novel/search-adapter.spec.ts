@@ -130,6 +130,41 @@ describe("novelMixedSearch", () => {
     expect(results).toHaveLength(5)
   })
 
+  it("54 ①: keyword 分支应用 BM25 重排——高词频命中排前 (只改顺序不改召回集)", async () => {
+    // 两个候选: 甲 snippet 含 query 词 3 次, 乙含 1 次; searchWiki 原序乙在前
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/乙.md`, title: "乙", snippet: "剑 剑 剑 设定", score: 0.5 }),
+      keywordItem({ path: `${pp}/wiki/entities/甲.md`, title: "甲", snippet: "剑 设定", score: 0.4 }),
+    ])
+    const results = await novelMixedSearch({ projectPath: pp, query: "剑" })
+    expect(results).toHaveLength(2)
+    // BM25 重排后高词频命中 (乙) 应排前
+    expect(results[0]!.path).toContain("乙")
+    expect(results[1]!.path).toContain("甲")
+  })
+
+  it("54 ①: 向量失败→BM25 降级——includeKeyword=false 时补跑 searchWiki+BM25 兜底", async () => {
+    mocks.useWikiStoreGetState.mockReturnValue({
+      embeddingConfig: { enabled: true, model: "bge" } as EmbeddingConfig,
+    })
+    mocks.searchByEmbedding.mockResolvedValue([]) // 向量零命中
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/剑.md`, title: "剑", snippet: "剑 剑 剑 设定" }),
+    ])
+    mocks.readFile.mockResolvedValue("# 剑\n正文")
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "剑",
+      includeVector: true,
+      includeKeyword: false,
+      includeGraph: false,
+      includeRecentChapters: false,
+      includeCanon: false,
+    })
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0]!.type).toBe("keyword")
+  })
+
   it("includes vector branch when includeVector and embedding enabled", async () => {
     mocks.useWikiStoreGetState.mockReturnValue({
       embeddingConfig: { enabled: true, model: "bge" } as EmbeddingConfig,

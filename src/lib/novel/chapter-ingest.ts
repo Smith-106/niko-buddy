@@ -477,6 +477,51 @@ export async function ingestChapter(
         error: err instanceof Error ? err.message : String(err),
       })
     }
+    // 54 号设计 ③: facts-store 接线 (graphiti Fact 契约吸收)。
+    // newCanonFacts → facts 表 (JSON 文件唯一持久化源, ADR-26 无第二真源);
+    // 投影层 (temporal-memory) 仍为派生视图。additive: 写入失败仅 warn 不阻塞 ingest;
+    // 文件不存在自动重建 (emptyFactsFile)。
+    try {
+      const { emptyFactsFile, loadFactsFile, saveFactsFile, addFact, recordEpisode } = await import("./facts-store")
+      const factsPath = `${pp}/.novel/facts.json`
+      let factsState = emptyFactsFile()
+      try {
+        const raw = await readFile(factsPath)
+        factsState = loadFactsFile(raw)
+      } catch {
+        // 无 facts.json → 空表重建 (零迁移成本)
+      }
+      const canonFacts = snapshot.newCanonFacts ?? []
+      if (canonFacts.length > 0) {
+        let next = factsState
+        const addedIds: string[] = []
+        for (const rawFact of canonFacts) {
+          // 主语解析: 冒号优先; 无冒号时取「是/属于/为」前 (排除「名为/称为/作为/因为」误切)
+          const subjectMatch = rawFact.match(/^(.+?)(：|:|是|属于|为(?!名|称|作|因))/)
+          const subject = subjectMatch ? subjectMatch[1].trim() : rawFact.slice(0, 20).trim()
+          const before = next
+          next = addFact(next, {
+            subject,
+            predicate: "状态",
+            object: rawFact,
+            valid_at: snapshot.chapterNumber,
+            source: "chapter-ingest newCanonFacts",
+          })
+          if (next.facts.length > before.facts.length) {
+            addedIds.push(next.facts[next.facts.length - 1]!.id)
+          }
+        }
+        if (addedIds.length > 0) {
+          next = recordEpisode(next, snapshot.chapterNumber, addedIds)
+          await writeFileAtomic(factsPath, saveFactsFile(next))
+          logger.info("Chapter Ingest", `facts-store ADD ${addedIds.length} facts (chapter ${snapshot.chapterNumber})`)
+        }
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "facts-store write skipped", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
     // T16 / F-14: canon 影子双写钩子（仅 final/accepted 章触发，deps 缺省空操作）。
     // reject 先于双写断言：draft 章提前 return（not_final）不触达此处。
     await runCanonDualWriteHook(

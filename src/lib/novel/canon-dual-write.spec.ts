@@ -287,7 +287,8 @@ describe("defaultCanonDualWriteDeps（真实 fs/invoke 默认）", () => {
     )
     expect(report.queued).toBe(1)
     expect(createDirectoryMock).toHaveBeenCalledWith("E:/Novel/.novel")
-    expect(writeFileAtomicMock).toHaveBeenCalledTimes(1)
+    // 54 ⑤: 写后对账重放会再次写队列 (重放失败重新退避保留)——2 次写入
+    expect(writeFileAtomicMock.mock.calls.length).toBeGreaterThanOrEqual(2)
     const written = writeFileAtomicMock.mock.calls[0]![1]
     expect(written).toContain("x1")
   })
@@ -579,8 +580,9 @@ describe("shadowWriteCanon（影子双写编排）", () => {
       writeLegacy: legacyWriter(okOutcome()),
       writeCanon: async (_p, c) => (c.kind === "episode" ? okOutcome() : failOutcome("canon boom")),
       queueRead: async () =>
-        // 既有队列已含同 digest "a" → 合并保留既有退避
-        JSON.stringify(pendingRec({ digest: "a", attempts: 3, nextRetryAt: 999 })) + "\n",
+        // 既有队列已含同 digest "a" → 合并保留既有退避 (payload 与本次 supersede 操作一致,
+        // 重放时仍失败 → 重新退避保留)
+        JSON.stringify(pendingRec({ digest: "a", attempts: 3, nextRetryAt: 999, canonPayload: supersedePayload() })) + "\n",
       queueWrite: async (_p, c) => {
         saved = c
       },
@@ -597,12 +599,12 @@ describe("shadowWriteCanon（影子双写编排）", () => {
     expect(report.written).toBe(1)
     expect(report.queued).toBe(1)
     expect(report.reconcile.divergences).toEqual([{ digest: "a", reasons: ["canon:canon boom"] }])
-    // 合并后 "a" 保留既有 attempts=3 / nextRetryAt=999（"b" 成功不进队列）
+    // 合并后 "a" 保留既有退避 (attempts=3→重放失败→4, nextRetryAt 重新退避); "b" 成功不进队列
     const lines = saved.split("\n").filter(Boolean)
     expect(lines).toHaveLength(1)
     const a = JSON.parse(lines.find((l) => l.includes("\"a\""))!)
-    expect(a.attempts).toBe(3)
-    expect(a.nextRetryAt).toBe(999)
+    expect(a.attempts).toBe(4)
+    expect(a.nextRetryAt).toBeGreaterThan(1000)
   })
 })
 

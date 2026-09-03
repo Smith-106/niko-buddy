@@ -28,6 +28,7 @@ import {
 import { runNovelSkillHooks } from "./novel-skill-hooks"
 import type { TaskRouteResult } from "./task-router"
 import { formatStageThinking } from "./chapter-utils"
+import { formatNormalize } from "./format-normalizer"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
 import {
   resolveChapterLengthSpec,
@@ -1414,11 +1415,30 @@ export async function runDeepChapterGeneration(
   await statusMerger?.drain()
 
   // 阶段3 + 3.5：正文初稿 + 草稿纠偏
-  const draftContent = await generateDraft(
+  const rawDraftContent = await generateDraft(
     input, writingConfig, deps, signal, callbacks,
     outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
     notePartial, clearPartial, watchdog,
   )
+  assertNotAborted(signal)
+
+  // 54 号设计 ②: format-normalizer 机械层接线 (character-arc humanizer-zh 吸收)。
+  // Draft-first: 规范化只作用于草稿 (pending 阶段), 不直接回填正式正文;
+  // 替换字典+AI 套话删除在审稿/返修前完成, 后续流程基于规范化草稿。
+  // additive: 纯函数零 LLM, 默认 enableColloquial=false 保留口癖。
+  const normalized = formatNormalize(rawDraftContent)
+  if (normalized.changed) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段3.5：机械层规范化",
+      [
+        `替换 ${normalized.replacementCount} 处 · 删除套话 ${normalized.deleteCount} 处 · 感叹号降级 ${normalized.exclamationReduced} 处 · 连续标点修复 ${normalized.repeatedPunctFixed} 处`,
+        normalized.text.length !== rawDraftContent.length
+          ? `文本长度 ${rawDraftContent.length} → ${normalized.text.length}`
+          : "文本长度不变",
+      ].join("\n"),
+    ))
+  }
+  const draftContent = normalized.text
   assertNotAborted(signal)
 
   // Quality Foundation v1 / FR-C1: post-draft StateDelta light-check (warn-only by default).

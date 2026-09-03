@@ -175,9 +175,9 @@ function chapterText(prefix: string, count = 3000): string {
     "小晴醒来时仍有些发冷，她的回答补上了上一章留下的疑点，却也带出新的矛盾。",
     "两人沿着走廊往里走，地板下的空响让他们意识到这间屋子被人提前动过手脚。",
     "主角试探着推开柜门，里面没有想象中的尸体，只有一封被雨气浸软的旧信。",
-    "信纸上的字迹和匿名信相互呼应，但关键名字被刻意刮掉，线索因此变得更危险。",
+    "信纸上的字迹和匿名信相互呼应，但关键名字被刻意刮掉，线索所以变得更危险。",
     "屋外的脚步声突然停住，像有人贴着门听他们说话，空气一下子绷紧。",
-    "主角把小晴挡到身后，决定先带走信纸，却在箱底摸到第二把完全陌生的钥匙。",
+    "主角把小晴挡到身后，打定主意先带走信纸，却在箱底摸到第二把完全陌生的钥匙。",
   ]
   let text = prefix
   let index = 0
@@ -290,6 +290,34 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("阶段4：AI审稿")
     expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
     expect(thinking.join("\n")).toContain("未发现阻断问题")
+  })
+
+  it("54 ②: format-normalizer 机械层接线——草稿中 AI 腔词被替换且 onThinking 提示", async () => {
+    const deps = createDeps()
+    const thinking: string[] = []
+    // 模拟 LLM 输出含 AI 腔词 (因此/决定), 规范化后应被替换
+    const aiFlavoredDraft = chapterText("纠偏后正文", 3000).replace("所以变得更危险", "因此变得更危险").replace("打定主意先带走", "决定先带走")
+    vi.mocked(deps.streamChat).mockImplementation(async (_config, messages, callbacks) => {
+      const prompt = messagesPromptText(messages)
+      if (prompt.includes("正文初稿")) {
+        callbacks.onToken(aiFlavoredDraft)
+      } else if (prompt.includes("最终去AI味")) {
+        callbacks.onToken(aiFlavoredDraft)
+      } else {
+        callbacks.onToken("可执行任务书内容")
+      }
+      callbacks.onDone()
+    })
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    expect(thinking.join("\n")).toContain("阶段3.5：机械层规范化")
+    expect(thinking.join("\n")).toContain("替换")
+    // 规范化后的草稿不含 AI 腔词
+    expect(result.finalContent).not.toContain("因此变得更危险")
+    expect(result.finalContent).not.toContain("决定先带走")
   })
 
   it("injects the enabled writing style into the stage 3 draft prompt", async () => {

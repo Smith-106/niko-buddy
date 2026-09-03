@@ -34,6 +34,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { twoPhaseReconcile } from "./canon-reconcile"
 import {
   checkCanonPreWrite,
   DEFAULT_PRE_WRITE_GATE_MODE,
@@ -704,12 +705,21 @@ export async function shadowWriteCanon(
     const merged = mergePending(existing, incoming)
     await savePendingQueue(deps, queuePath, merged)
   }
-  const reconcile = reconcileOutcomes(results)
+  // 54 号设计 ⑤: 写后对账薄编排 (lore-weave twoPhaseReconcile 吸收)。
+  // 一致时 noop 零开销; 不一致时重放待写队列; 重放后仍不一致才 alerted。
+  // 重放事件全程 trace 留痕, 绝不静默吞差异。
+  const reconcile = await twoPhaseReconcile(deps, projectPath, results, now)
   return {
     written: results.filter((r) => r.consistent).length,
     queued: incoming.length,
     results,
-    reconcile,
+    reconcile: {
+      consistent: reconcile.finalConsistent,
+      divergences: reconcile.finalDivergences.map((d) => ({
+        digest: d.digest,
+        reasons: d.reasons,
+      })),
+    },
   }
 }
 
