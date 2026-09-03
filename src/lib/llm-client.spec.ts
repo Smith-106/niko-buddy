@@ -1023,6 +1023,38 @@ describe("streamChat HTTP error handling", () => {
     expect(callbacks.onDone).not.toHaveBeenCalled()
   })
 
+  it("53 号报告延伸: reasoning-only 自动降级重试——第二次请求产出正文则成功恢复", async () => {
+    const bigReasoning = "r".repeat(250)
+    let callCount = 0
+    // 注意: 不用 abortAwareFetch——其 signal 监听在第一次 pass 结束后被 abort,
+    // 会使第二次请求立即 AbortError (测试环境 signal 复用, 真实 fetch 每次新建)。
+    const fetchMock = (async () => {
+      callCount += 1
+      if (callCount === 1) {
+        return streamResponse(sseLines(openAiReasoning(bigReasoning)))
+      }
+      return streamResponse(sseLines(openAiToken("正文内容"), openAiUsage(10, 5)))
+    }) as typeof fetch
+    setupHttpFetch(fetchMock)
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(callCount).toBe(2)
+    expect(callbacks.onStatus).toHaveBeenCalledWith(expect.stringContaining("自动关闭思考重试"))
+    expect(callbacks.onToken).toHaveBeenCalledWith("正文内容")
+    expect(callbacks.onDone).toHaveBeenCalled()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("53 号报告延伸: 降级重试仍无正文 → 转发原始错误且不 onDone", async () => {
+    const bigReasoning = "r".repeat(250)
+    const response = streamResponse(sseLines(openAiReasoning(bigReasoning)))
+    setupHttpFetch(abortAwareFetch(async () => response))
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("只输出了")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
   it("abort during stream reading calls onDone", async () => {
     const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({

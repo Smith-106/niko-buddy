@@ -7,6 +7,7 @@ import { defaultRegistry } from "./llm/provider-registry"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { probeEndpointReachability } from "./endpoint-probe"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
+import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "./reasoning-retry"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
 import { resolveProviderOverride } from "@/components/settings/preset-resolver"
@@ -336,8 +337,83 @@ export async function streamChat(
 ): Promise<void> {
   const { withWritingWakeLock } = await import("./writing-wake-lock")
   return withWritingWakeLock(true, () =>
-    streamChatHeld(config, messages, callbacks, signal, requestOverrides),
+    streamChatWithReasoningFallback(config, messages, callbacks, signal, requestOverrides),
   )
+}
+
+/**
+ * 53 号报告 P1-3 延伸（生成失败修复）: reasoning-only 自动降级重试。
+ * 思考模型（deepseek 等）思考内容吃满 max_tokens 时只输出思考无正文——
+ * 检测到该错误且思考未禁用时，自动以 reasoning off 重试一次（additive，
+ * 与 agent runner 既有降级语义一致；onStatus 提示不静默）。
+ */
+export function shouldRetryWithoutReasoning(
+  error: Error,
+  config: Pick<LlmConfig, "reasoning">,
+  requestOverrides?: RequestOverrides,
+): boolean {
+  return (
+    isReasoningOnlyResponseError(error) &&
+    !isReasoningDisabled(config, requestOverrides)
+  )
+}
+
+async function streamChatWithReasoningFallback(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+): Promise<void> {
+  const capturedReasoningOnly: Error[] = []
+  const firstPassCallbacks: StreamCallbacks = {
+    ...callbacks,
+    onError: (error) => {
+      // 拦截 reasoning-only 错误供降级决策；其余错误立即转发。
+      if (shouldRetryWithoutReasoning(error, config, requestOverrides) && capturedReasoningOnly.length === 0) {
+        capturedReasoningOnly.push(error)
+        return
+      }
+      callbacks.onError(error)
+    },
+  }
+  await streamChatHeld(config, messages, firstPassCallbacks, signal, requestOverrides)
+
+  if (capturedReasoningOnly.length === 0) return
+
+  callbacks.onStatus?.("模型仅输出思考内容未生成正文，已自动关闭思考重试一次")
+  const retryErrors: Error[] = []
+  let retryContentChars = 0
+  let retryDoneFired = false
+  try {
+    await streamChatHeld(
+      config,
+      messages,
+      {
+        ...callbacks,
+        onToken: (token) => { retryContentChars += token.length; callbacks.onToken(token) },
+        onError: (error) => { retryErrors.push(error) },
+        onDone: () => { retryDoneFired = true },
+      },
+      signal,
+      withReasoningDisabled(requestOverrides),
+    )
+  } catch (err) {
+    retryErrors.push(err instanceof Error ? err : new Error(String(err)))
+  }
+  const retryError = retryErrors[0]
+  if (retryError) {
+    callbacks.onError(
+      new Error(`${retryError.message}（注：已自动关闭思考重试一次仍失败。）`),
+    )
+  } else if (retryContentChars > 0 && retryDoneFired) {
+    // 重试成功产出正文——透传 onDone（onToken 已实时转发）。
+    callbacks.onDone()
+  } else {
+    // 重试未报错但也没有产出正文（空流/静默失败）——转发原始错误，
+    // 避免用户看到“成功”却无内容。
+    callbacks.onError(capturedReasoningOnly[0])
+  }
 }
 
 export interface StreamChatFailoverOptions {
