@@ -877,3 +877,100 @@ export function getGateDimensionCounts(): Record<GateKey, number> {
 export function getGateForDimension(id: AuditDimensionId): GateKey {
   return AUDIT_TAXONOMY[id].gate
 }
+
+// ============================================================================
+// 48号报告 §六-④ 题材条件化审计激活 + 升级阈值 + repair_scope 路由
+// ============================================================================
+
+/**
+ * 题材→激活审计维度子集映射 (对齐 inkos genre profile 动态激活维度).
+ * 未注册 genre 回落默认全集 (向后兼容)。注册的 genre 返回确定性子集。
+ * 仅含「可降载」维度 (Quality P2 类为主), Consistency(P0)+Anti-AI(P1) 恒激活
+ * (守门控优先级 P0>P1>P2 不破, 题材只决定 Quality 维度的激活动作)。
+ */
+export const GENRE_AUDIT_ACTIVATION: Record<string, AuditDimensionId[]> = {
+ // 推理/悬疑: 世界观沉浸可降 (重逻辑轻氛围), 但保留 consistency 全集
+ tuili: ["thrill_density", "reading_power", "pacing_tension", "dialogue_quality", "description_vividness", "structural_balance", "consistency_of_voice", "scene_craft", "tension_curve"],
+ lingyi: ["thrill_density", "reading_power", "pacing_tension", "dialogue_quality", "description_vividness", "structural_balance", "consistency_of_voice", "scene_craft", "tension_curve"],
+ // 短篇/做文: 叙事创新 + 文风优先
+ duanpian: ["thrill_density", "reading_power", "pacing_tension", "dialogue_quality", "emotional_impact", "narrative_innovation", "consistency_of_voice", "scene_craft"],
+ qita: ["thrill_density", "reading_power", "pacing_tension", "dialogue_quality", "emotional_impact", "narrative_innovation", "consistency_of_voice", "scene_craft"],
+ // 体育/竞技: 动作描写 + 节奏优先
+ tiyu: ["thrill_density", "reading_power", "pacing_tension", "description_vividness", "structural_balance", "scene_craft", "tension_curve"],
+}
+
+/**
+ * 维度修复范围 (对齐 inkos repair_scope 路由).
+ * - rewrite_body: 重写正文 (LLM 返修)
+ * - resettle_only: 仅重结算 (机械, 不动正文)
+ * - warn_only: 仅告警 (不自动修复)
+ */
+export type RepairScope = "rewrite_body" | "resettle_only" | "warn_only"
+
+/**
+ * repair_scope 默认路由: Consistency 维度→rewrite_body, Anti-AI→rewrite_body,
+ * Quality→warn_only (文学维不自动重写, 需人工裁定).
+ * 可被 GENRE_REPAIR_SCOPE 覆盖。
+ */
+export const DEFAULT_REPAIR_SCOPE: Record<GateKey, RepairScope> = {
+ consistency: "rewrite_body",
+ anti_ai: "rewrite_body",
+ quality: "warn_only",
+}
+
+/**
+ * 题材级 repair_scope 覆盖 (对齐 inkos genre-specific repair routing).
+ * 例: 推理题材的 consistency 问题走 resettle_only (逻辑链可机械重结算, 不重写文体).
+ */
+export const GENRE_REPAIR_SCOPE: Record<string, Partial<Record<GateKey, RepairScope>>> = {
+ tuili: { consistency: "resettle_only" },
+ lingyi: { consistency: "resettle_only" },
+}
+
+/**
+ * 升级阈值: warn→block 的触发频次 (对齐 inkos genre-specific upgrade thresholds).
+ * 当某维度 warn 累计达阈值 → 升级为 block。默认值缺省 (无表项不抛).
+ * key 格式: `${genre}:${dimensionId}`.
+ */
+export const GENRE_UPGRADE_THRESHOLDS: Record<string, number> = {
+ // 推理题材时间线连续性问题零容忍 (1 次即升 block)
+ "tuili:timeline_consistency": 1,
+ "tuili:causal_chain": 1,
+}
+
+/** 默认升级阈值 (未注册的 genre×dimension 用此). */
+export const DEFAULT_UPGRADE_THRESHOLD = 3
+
+/**
+ * 按题材选择激活的审计维度子集 (纯函数, 零 LLM/IO).
+ * 未注册 genre → 返回全量 37 维 (向后兼容, 守基数不变).
+ * 已注册 genre → Consistency(15) + Anti-AI(10) 恒全 + Quality 子集.
+ */
+export function selectAuditDimensions(genre: string | undefined): AuditDimensionId[] {
+ if (!genre) return ALL_AUDIT_DIMENSION_IDS
+ const qualitySubset = GENRE_AUDIT_ACTIVATION[genre]
+ if (!qualitySubset) return ALL_AUDIT_DIMENSION_IDS
+ // P0/P1 恒激活 + P2 子集
+ return [
+   ...GATE_MAPPING.consistency.dimensionIds,
+   ...GATE_MAPPING.anti_ai.dimensionIds,
+   ...qualitySubset,
+ ]
+}
+
+/**
+ * 查询题材级升级阈值 (纯函数). 未注册返回 DEFAULT_UPGRADE_THRESHOLD.
+ */
+export function getUpgradeThreshold(genre: string | undefined, dimensionId: AuditDimensionId): number {
+ if (!genre) return DEFAULT_UPGRADE_THRESHOLD
+ return GENRE_UPGRADE_THRESHOLDS[`${genre}:${dimensionId}`] ?? DEFAULT_UPGRADE_THRESHOLD
+}
+
+/**
+ * 查询题材级 repair_scope (纯函数). 未注册返回 DEFAULT_REPAIR_SCOPE.
+ */
+export function getRepairScope(genre: string | undefined, dimensionId: AuditDimensionId): RepairScope {
+ const gate = getGateForDimension(dimensionId)
+ if (!genre) return DEFAULT_REPAIR_SCOPE[gate]
+ return GENRE_REPAIR_SCOPE[genre]?.[gate] ?? DEFAULT_REPAIR_SCOPE[gate]
+}

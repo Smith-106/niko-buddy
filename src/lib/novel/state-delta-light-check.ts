@@ -6,6 +6,7 @@
 
 import type { CharacterState } from "./character-state"
 import type { NovelReviewResult } from "./review-adapter"
+import { z } from "zod"
 
 export type LightIssueSeverity = "info" | "warn" | "error"
 
@@ -18,6 +19,112 @@ export interface StateDelta {
   /** Characters observed active in draft text (names). */
   activeMentions?: string[]
   rawNotes?: string
+}
+
+/**
+ * 48号报告 §六-③ StateDelta Zod 强校验 + hookOps 四操作语义.
+ * 对齐 inkos RuntimeStateDeltaSchema: 用 Zod 运行时 schema 区分「无 delta」(合法 null)
+ * 与「格式坏」(显式抛错), 不再静默回退 null 吞掉坏数据 (守 IC-02 不静默降级).
+ *
+ * HookOp 四操作 (inkos hookOps 语义映射):
+ * - add: 新增状态条目 (inventory gain / 新关系 / 新 active mention)
+ * - remove: 移除状态条目 (inventory lose / 角色退场)
+ * - update: 修改既有状态 (status change / location change)
+ * - relocate: 位置迁移 (location change 专用子类, 与 update 区分以便 repair_scope 路由)
+ */
+export const HOOK_OPS = ["add", "remove", "update", "relocate"] as const
+export type HookOp = (typeof HOOK_OPS)[number]
+
+const locationChangeSchema = z.object({
+  entity: z.string().min(1),
+  from: z.string().optional(),
+  to: z.string().min(1),
+})
+const statusChangeSchema = z.object({
+  entity: z.string().min(1),
+  status: z.string().min(1),
+})
+const inventoryChangeSchema = z.object({
+  entity: z.string().min(1),
+  item: z.string().min(1),
+  op: z.enum(["gain", "lose"]),
+})
+const relationshipChangeSchema = z.object({
+  a: z.string().min(1),
+  b: z.string().min(1),
+  note: z.string(),
+})
+
+/** Zod 运行时 schema (48号 §六-③): 强校验 StateDelta, 未知字段/op 拒收. */
+export const stateDeltaSchema = z.object({
+  chapter: z.number(),
+  locationChanges: z.array(locationChangeSchema).optional(),
+  statusChanges: z.array(statusChangeSchema).optional(),
+  inventoryChanges: z.array(inventoryChangeSchema).optional(),
+  relationshipChanges: z.array(relationshipChangeSchema).optional(),
+  activeMentions: z.array(z.string()).optional(),
+  rawNotes: z.string().optional(),
+})
+
+/**
+ * 将 StateDelta 条目映射为 hookOps 语义操作 (48号 §六-③).
+ * 纯函数, 零 IO/LLM. 供 repair_scope 路由与审计用.
+ */
+export function deriveHookOps(delta: StateDelta): Array<{ op: HookOp; entity: string; detail: string }> {
+  const ops: Array<{ op: HookOp; entity: string; detail: string }> = []
+  for (const lc of delta.locationChanges ?? []) {
+    ops.push({ op: "relocate", entity: lc.entity, detail: `${lc.from ?? "?"}→${lc.to}` })
+  }
+  for (const sc of delta.statusChanges ?? []) {
+    ops.push({ op: "update", entity: sc.entity, detail: sc.status })
+  }
+  for (const ic of delta.inventoryChanges ?? []) {
+    ops.push({ op: ic.op === "gain" ? "add" : "remove", entity: ic.entity, detail: `${ic.op} ${ic.item}` })
+  }
+  for (const rc of delta.relationshipChanges ?? []) {
+    ops.push({ op: "add", entity: `${rc.a}/${rc.b}`, detail: rc.note })
+  }
+  return ops
+}
+
+/**
+ * 严格解析 (48号 §六-③): 空/缺无 delta 返回 null (合法), 格式坏抛 ZodError (显式不静默).
+ * 与 parseStructuredStateDelta 共存: 后者保留 lenient 回退向后兼容,
+ * 本函数供需要强校验的调用点 (如审计门控) 使用.
+ */
+export function parseStateDeltaStrict(raw: string, chapter: number): StateDelta | null {
+  if (!raw?.trim()) return null
+  let text = raw.trim()
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence?.[1]) text = fence[1].trim()
+  let obj: unknown
+  try {
+    obj = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`StateDelta JSON 解析失败: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    throw new Error(`StateDelta 根须为对象, 实际为 ${Array.isArray(obj) ? "array" : typeof obj}`)
+  }
+  const rec = obj as Record<string, unknown>
+  const normalized: Record<string, unknown> = {
+    ...rec,
+    chapter: typeof rec.chapter === "number" ? rec.chapter : chapter,
+    rawNotes: typeof rec.rawNotes === "string" ? rec.rawNotes : "structured",
+  }
+  const parsed = stateDeltaSchema.safeParse(normalized)
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+    throw new Error(`StateDelta schema 校验失败: ${issues}`)
+  }
+  const d = parsed.data
+  const hasBody =
+    (d.locationChanges?.length ?? 0) > 0
+    || (d.statusChanges?.length ?? 0) > 0
+    || (d.inventoryChanges?.length ?? 0) > 0
+    || (d.relationshipChanges?.length ?? 0) > 0
+    || (d.activeMentions?.length ?? 0) > 0
+  return hasBody ? (d as StateDelta) : null
 }
 
 export interface LightIssue {
@@ -405,5 +512,85 @@ export function runStateDeltaLightCheckOnDraft(
     issues,
     reviewResults: lightIssuesToReviewResults(issues, { ...options, chapter }),
     source,
+  }
+}
+
+// ============================================================================
+// 48号报告 §六-② REPAIR 三态结算（PASS / REPAIR / FAIL + state-degraded）
+// ============================================================================
+
+/**
+ * 三态结算结果（对齐 inkos state-validator PASS/REPAIR/FAIL）.
+ * - PASS: 正文 digest 有效 + 结算完整（无 error 级 issue）
+ * - REPAIR: 正文有效但结算缺漏（warn/info 级 issue 可重结算修复，不重写正文）
+ * - FAIL: 与既有矛盾（error 级 issue），阻断
+ */
+export type StateSettlementOutcome = "PASS" | "REPAIR" | "FAIL"
+
+export interface StateSettlementResult {
+  outcome: StateSettlementOutcome
+  /** REPAIR 重结算后仍失败 → degraded=true（VISIBLE 不静默，对齐 inkos state-degraded）。 */
+  degraded: boolean
+  /** 触发 REPAIR/FAIL 的 issue 列表。 */
+  issues: LightIssue[]
+  /** 结算来源（与 resolveStateDeltaForDraft 对齐）。 */
+  source: "structured" | "heuristic" | "empty"
+  /** 可读原因（供审计链）。 */
+  reason: string
+}
+
+/**
+ * 三态结算判定（纯函数，零 IO/LLM）.
+ * 正文不重写：REPAIR 仅标记需重结算，FAIL 阻断，都不触发明文重写。
+ * 与 twoPhaseReconcile 正交：本函数治理 StateDelta 结算层，对账链治理 canon 双写层。
+ */
+export function resolveStateSettlement(
+  _delta: StateDelta,
+  issues: readonly LightIssue[],
+  source: "structured" | "heuristic" | "empty",
+): StateSettlementResult {
+  // empty → PASS（无 delta 可结算，不阻断）
+  if (source === "empty") {
+    return { outcome: "PASS", degraded: false, issues: [...issues], source, reason: "empty draft, 无需结算" }
+  }
+  const errors = issues.filter((i) => i.severity === "error")
+  const warns = issues.filter((i) => i.severity === "warn")
+  // error 级 → FAIL（矛盾，阻断）
+  if (errors.length > 0) {
+    return {
+      outcome: "FAIL",
+      degraded: false,
+      issues: [...issues],
+      source,
+      reason: `${errors.length} 个 error 级一致性矛盾（如已故角色复活），阻断`,
+    }
+  }
+  // warn/info 级 → REPAIR（正文有效但结算缺漏，可重结算修复）
+  if (warns.length > 0 || source === "heuristic") {
+    return {
+      outcome: "REPAIR",
+      degraded: false,
+      issues: [...issues],
+      source,
+      reason: source === "heuristic"
+        ? "structured delta 缺失，启发式提取需重结算确认"
+        : `${warns.length} 个 warn 级结算缺漏，可重结算修复（不重写正文）`,
+    }
+  }
+  // 全清 → PASS
+  return { outcome: "PASS", degraded: false, issues: [...issues], source, reason: "结算完整，无缺漏" }
+}
+
+/**
+ * 模拟重结算（纯函数，零 IO）：REPAIR 态下重跑结算，返回是否仍 degraded.
+ * 实际重结算由调用方执行（如重跑 extractStateDeltaHeuristic 或重新注入 structured delta）。
+ * 本函数仅判定重结算后是否仍 degraded（重结算仍失败 → state-degraded 标记）。
+ */
+export function markStateDegraded(settlement: StateSettlementResult): StateSettlementResult {
+  if (settlement.outcome !== "REPAIR") return settlement
+  return {
+    ...settlement,
+    degraded: true,
+    reason: `REPAIR 重结算后仍 degraded: ${settlement.reason}`,
   }
 }

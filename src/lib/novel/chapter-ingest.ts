@@ -39,9 +39,10 @@ import {
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon } from "./canon-dual-write"
+import { runTruthAuthorityCheck } from "./truth-authority-adapter"
 
 export interface ValidationWarning {
-  type: "entity_new" | "canon_conflict"
+  type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
   message: string
 }
 
@@ -440,7 +441,12 @@ export async function ingestChapter(
       const linkWarnings = await linkSnapshotEntities(pp, snapshot)
       const entityWarnings = await validateEntityReferences(pp, snapshot)
       const canonWarnings = await validateCanonConflicts(pp, snapshot)
-      snapshot.validationWarnings = [...linkWarnings, ...entityWarnings, ...canonWarnings]
+      // 48号报告 §六-① truth-authority 生产接线（孤儿激活）:
+      // validateCanonConflicts 后、runCanonDualWriteHook 前插入纯机械冲突检测。
+      // 冲突转 NovelReviewResult[] 追加到 validationWarnings（可见不阻断 Track A 门控）。
+      // 纯函数零 IO/LLM，失败不阻断主 ingest（与外层 try/catch 安全网一致）。
+      const truthAuthorityWarnings = runTruthAuthorityCheck(snapshot)
+      snapshot.validationWarnings = [...linkWarnings, ...entityWarnings, ...canonWarnings, ...truthAuthorityWarnings]
       snapshot.entityIsNew = snapshot.entityIsNew || {}
     } catch (err) {
       logger.warn("Chapter Ingest", "Validation failed", { error: err instanceof Error ? err.message : String(err) })

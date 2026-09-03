@@ -14,7 +14,7 @@ import {
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
-import { reviewChapter, runContinuityMechanicalPreflight, resolveReviewGateKey, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, runContinuityMechanicalPreflight, resolveReviewGateKey, isReviewParseError, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
   runSixDimensionReview,
@@ -865,6 +865,8 @@ export async function runFullReviewWithSixDim(
 ): Promise<{
   reviewResults: NovelReviewResult[]
   dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
+  /** 48号报告 §六-⑥: 审查输出不可解析且重试耗尽 ⇒ 禁止 LLM 自动修订正文, 转人工。 */
+  reviewParseFailed?: boolean
 }> {
   // (a) reviewChapter — signal-aware ternary (both branches must stay or
   // non-signal callers break). Matches the original stage-4 call shape.
@@ -932,6 +934,33 @@ export async function runFullReviewWithSixDim(
       sixDimController.abort()
       void sixDimP.catch(() => {})
       logger.warn("Deep Chapter", "6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
+    }
+    // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析 (ReviewParseError,
+    // 重试耗尽后) ⇒ 禁止基于不可信审计触发 LLM 自动返修正文 (对齐 inkos
+    // chapter-review-cycle parseFailed → skip auto-revise 语义)。不 re-throw
+    // 触发 watchdog paused, 而是返回 warning finding + reviewParseFailed=true
+    // 让编排层走 manualHandoff 转人工。守 IC-02 "从不静默降级" 纪律。
+    if (isReviewParseError(err)) {
+      if (runSixDim) {
+        sixDimController.abort()
+        void sixDimP.catch(() => {})
+      }
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段4：审稿解析失败保护",
+        "重试耗尽，审查输出不可解析。禁止基于不可信审计自动返修正文，转人工处理。",
+      ))
+      return {
+        reviewResults: [{
+          severity: "warning" as const,
+          type: "review_parse_failed",
+          message: "审查输出解析失败（重试耗尽），已跳过自动修订以避免误改正文",
+          evidence: err.parseMessage,
+          relatedMemory: "review-adapter",
+          suggestion: "换用更强模型或检查结构化输出格式后重跑审稿；正文未做任何自动改动。",
+        }],
+        dimensionResults: {},
+        reviewParseFailed: true,
+      }
     }
     throw err
   }
@@ -2126,6 +2155,10 @@ async function runReviewAndRepair(
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
   let retryCount = resumeCheckpoint?.retryCount ?? 0
   let manualReviewRequired = Boolean(resumeCheckpoint?.manualReviewRequired)
+  // 48号报告 §六-⑥ parseFailed 防误修订: stage4/5.5 若返回 reviewParseFailed=true,
+  // 不进 fix-loop (否则会用不可解析的噪声审计驱动 LLM 重写有效正文)。转人工。
+  // 累积标记 (OR) 因 stage5.5 复审也可能触发, 任一命中即短路。
+  let reviewParseFailedFlag = false
   if (!hasCheckpointReview(resumeCheckpoint)) {
     if (!novelConfig.deepChapterReview) {
       callbacks.onThinking?.(formatStageThinking(
@@ -2143,6 +2176,7 @@ async function runReviewAndRepair(
       // resume/repair paths silently skipped it).
       const stage4 = await runFullReviewWithSixDim(draftContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
       reviewResults = stage4.reviewResults
+      reviewParseFailedFlag = reviewParseFailedFlag || stage4.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount)
       assertNotAborted(signal)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
@@ -2192,6 +2226,7 @@ async function runReviewAndRepair(
       // resumed revised content). dimensionResults is checkpointed additively.
       const stage55 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
       reviewResults = stage55.reviewResults
+      reviewParseFailedFlag = reviewParseFailedFlag || stage55.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired)
       assertNotAborted(signal)
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
@@ -2221,6 +2256,24 @@ async function runReviewAndRepair(
   // 变量 + 退化分支, 不改 buildDeepChapterRevisionPrompt/collectModelText/MAX_GATE_RETRY
   // (守 MAINT-1 拆分结构)。首次进循环时 prevCandidate===null, 用当前 currentContent 初始化。
   let prevCandidate: CandidateVersion | null = null
+
+  // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析时禁止进 fix-loop, 直接转人工。
+  if (reviewParseFailedFlag && blockingIssues.length > 0) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5：审稿解析失败转人工",
+      "审查输出不可解析，跳过自动返修以保护正文，转人工处理。",
+    ))
+    manualReviewRequired = true
+    return {
+      reviewResults,
+      decisionGates,
+      retryCount,
+      manualReviewRequired,
+      currentContent,
+      revised,
+      manualHandoff: true,
+    }
+  }
 
   while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
     // 借鉴点 #4 首次进循环: 用当前 currentContent (初稿/resume 版) 记前版候选。

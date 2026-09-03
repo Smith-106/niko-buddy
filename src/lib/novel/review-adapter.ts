@@ -92,6 +92,18 @@ export class ReviewParseError extends Error {
   }
 }
 
+/**
+ * Type guard for ReviewParseError (F-003 / 48号报告 §六-⑥ parseFailed 防误修订).
+ *
+ * ReviewParseError 区分了 parse 失败与 transport 失败 (F-003/ISS-20260705-020),
+ * 重试耗尽后编排层据此判定: 不可解析的审查输出 ⇒ 禁止 LLM 自动修订正文
+ * (对齐 inkos chapter-review-cycle parseFailed → skip auto-revise 语义),
+ * 转人工而非用噪声驱动重写有效正文。
+ */
+export function isReviewParseError(error: unknown): error is ReviewParseError {
+  return error instanceof ReviewParseError
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
