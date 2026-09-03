@@ -2258,7 +2258,8 @@ async function runReviewAndRepair(
   let prevCandidate: CandidateVersion | null = null
 
   // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析时禁止进 fix-loop, 直接转人工。
-  if (reviewParseFailedFlag && blockingIssues.length > 0) {
+  // 不依赖 blockingIssues>0 —— 不可信审计下 decisionGates 本身不可信, 一律转人工保护正文。
+  if (reviewParseFailedFlag) {
     callbacks.onThinking?.(formatStageThinking(
       "阶段5：审稿解析失败转人工",
       "审查输出不可解析，跳过自动返修以保护正文，转人工处理。",

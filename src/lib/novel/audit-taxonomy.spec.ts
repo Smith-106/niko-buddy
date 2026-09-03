@@ -26,6 +26,12 @@ import {
   getAllAuditDimensions,
   getGateDimensionCounts,
   getGateForDimension,
+  // 48/49 号 §六-④ 题材条件化新增符号 (50 号报告 S0 spec 补测)
+  GENRE_AUDIT_ACTIVATION,
+  selectAuditDimensions,
+  getUpgradeThreshold,
+  getRepairScope,
+  DEFAULT_UPGRADE_THRESHOLD,
   type AuditDimensionId,
 } from "./audit-taxonomy"
 
@@ -353,5 +359,77 @@ describe("边界与不变式", () => {
     for (const [key, dim] of Object.entries(AUDIT_TAXONOMY)) {
       expect(dim.id).toBe(key)
     }
+  })
+})
+
+// ============================================================================
+// 48/49 号 §六-④ 题材条件化审计激活（50 号报告 S0 spec 锁定）
+// ============================================================================
+
+describe("selectAuditDimensions（§六-④ 题材激活）", () => {
+  it("无 genre → 全量 37 维（向后兼容）", () => {
+    const ids = selectAuditDimensions(undefined)
+    expect(ids).toHaveLength(37)
+    expect(ids).toEqual(ALL_AUDIT_DIMENSION_IDS)
+  })
+
+  it("未注册 genre → 全量 37 维（向后兼容）", () => {
+    const ids = selectAuditDimensions("wuxia")
+    expect(ids).toHaveLength(37)
+  })
+
+  it("已注册 genre → Consistency(15)+Anti-AI(10) 恒全 + Quality 子集", () => {
+    const ids = selectAuditDimensions("tuili")
+    expect(ids).toHaveLength(34)
+    expect(ids).toContain("timeline_consistency")  // P0 恒激活
+    expect(ids).toContain("slop_explanation")      // P1 恒激活
+    expect(ids).toContain("thrill_density")        // P2 子集
+    expect(ids).not.toContain("worldbuilding_immersion") // P2 降载
+  })
+
+  it("已注册 genre 子集确定性可断言（同输入同输出）", () => {
+    expect(selectAuditDimensions("duanpian")).toEqual(selectAuditDimensions("duanpian"))
+  })
+
+  it("GENRE_AUDIT_ACTIVATION 值均为合法 AuditDimensionId 且属于 Quality gate", () => {
+    for (const ids of Object.values(GENRE_AUDIT_ACTIVATION)) {
+      for (const id of ids) {
+        expect(ALL_AUDIT_DIMENSION_IDS).toContain(id)
+        expect(getGateForDimension(id)).toBe("quality")
+      }
+    }
+  })
+})
+
+describe("getUpgradeThreshold（§六-④ 升级阈值）", () => {
+  it("无 genre → 默认阈值", () => {
+    expect(getUpgradeThreshold(undefined, "timeline_consistency")).toBe(DEFAULT_UPGRADE_THRESHOLD)
+  })
+
+  it("未注册 genre×dimension → 默认阈值（无表项不抛）", () => {
+    expect(getUpgradeThreshold("wuxia", "timeline_consistency")).toBe(DEFAULT_UPGRADE_THRESHOLD)
+  })
+
+  it("推理题材时间线零容忍（1 次即升 block）", () => {
+    expect(getUpgradeThreshold("tuili", "timeline_consistency")).toBe(1)
+  })
+
+  it("推理题材因果链同样零容忍", () => {
+    expect(getUpgradeThreshold("tuili", "causal_chain")).toBe(1)
+  })
+})
+
+describe("getRepairScope（§六-④ repair_scope 路由）", () => {
+  it("默认路由：Consistency→rewrite_body / Quality→warn_only", () => {
+    expect(getRepairScope(undefined, "timeline_consistency")).toBe("rewrite_body")
+    expect(getRepairScope(undefined, "thrill_density")).toBe("warn_only")
+  })
+
+  it("推理题材 Consistency → resettle_only（逻辑链机械重结算不重写文体）", () => {
+    expect(getRepairScope("tuili", "timeline_consistency")).toBe("resettle_only")
+  })
+
+  it("未注册 genre → 默认路由（无表项不抛）", () => {
+    expect(getRepairScope("wuxia", "timeline_consistency")).toBe("rewrite_body")
   })
 })

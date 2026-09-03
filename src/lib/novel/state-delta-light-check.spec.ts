@@ -10,6 +10,12 @@ import {
   resolveStateDeltaForDraft,
   runLightCheck,
   runStateDeltaLightCheckOnDraft,
+  // 48/49 号 §六-②③ 新增符号 (50 号报告 S0 spec 补测)
+  resolveStateSettlement,
+  markStateDegraded,
+  parseStateDeltaStrict,
+  deriveHookOps,
+  HOOK_OPS,
 } from "./state-delta-light-check"
 
 function char(partial: Partial<CharacterState> & { characterName: string }): CharacterState {
@@ -377,5 +383,138 @@ describe("runStateDeltaLightCheckOnDraft", () => {
     const { extractEmbeddedStateDeltaJson } = await import("./state-delta-light-check")
     const draft = '前言\n```state-delta\n{"activeMentions":["李四"]}\n```\n后文'
     expect(extractEmbeddedStateDeltaJson(draft)).toContain("李四")
+  })
+})
+
+// ============================================================================
+// 48/49 号 §六-② REPAIR 三态结算 + §六-③ StateDelta Zod 强校验（50 号 S0 spec 锁定）
+// ============================================================================
+
+describe("resolveStateSettlement（§六-② 三态 PASS/REPAIR/FAIL）", () => {
+  it("empty source → PASS（无 delta 可结算不阻断）", () => {
+    const r = resolveStateSettlement({ chapter: 1, rawNotes: "empty" }, [], "empty")
+    expect(r.outcome).toBe("PASS")
+    expect(r.degraded).toBe(false)
+  })
+
+  it("error 级 issue → FAIL（矛盾阻断）", () => {
+    const issues = [{
+      code: "dead_character_active",
+      severity: "error" as const,
+      message: "已故角色仍活跃",
+    }]
+    const r = resolveStateSettlement({ chapter: 3, activeMentions: ["阿宁"] }, issues, "structured")
+    expect(r.outcome).toBe("FAIL")
+    expect(r.reason).toContain("阻断")
+  })
+
+  it("warn 级 issue → REPAIR（可重结算不重写正文）", () => {
+    const issues = [{
+      code: "location_from_mismatch",
+      severity: "warn" as const,
+      message: "位置不匹配",
+    }]
+    const r = resolveStateSettlement({ chapter: 2, locationChanges: [] }, issues, "structured")
+    expect(r.outcome).toBe("REPAIR")
+    expect(r.reason).toContain("重结算")
+  })
+
+  it("heuristic source → REPAIR（structured 缺失需重结算确认）", () => {
+    const r = resolveStateSettlement({ chapter: 2, rawNotes: "h" }, [], "heuristic")
+    expect(r.outcome).toBe("REPAIR")
+    expect(r.reason).toContain("启发式")
+  })
+
+  it("全清 + structured → PASS", () => {
+    const r = resolveStateSettlement({ chapter: 2 }, [], "structured")
+    expect(r.outcome).toBe("PASS")
+  })
+})
+
+describe("markStateDegraded（§六-② state-degraded VISIBLE 不静默）", () => {
+  it("REPAIR 重结算后仍失败 → degraded=true 且 reason 追加", () => {
+    const base = resolveStateSettlement({ chapter: 2 }, [], "heuristic")
+    expect(base.outcome).toBe("REPAIR")
+    const degraded = markStateDegraded(base)
+    expect(degraded.degraded).toBe(true)
+    expect(degraded.reason).toContain("degraded")
+  })
+
+  it("PASS/FAIL 不受影响（幂等保底）", () => {
+    const pass = markStateDegraded(resolveStateSettlement({ chapter: 1 }, [], "empty"))
+    expect(pass.degraded).toBe(false)
+    const fail = markStateDegraded(resolveStateSettlement(
+      { chapter: 1 },
+      [{ code: "x", severity: "error" as const, message: "m" }],
+      "structured",
+    ))
+    expect(fail.degraded).toBe(false)
+  })
+})
+
+describe("parseStateDeltaStrict（§六-③ Zod 强校验）", () => {
+  it("合法 delta → 返回同构 StateDelta（与 lenient 解析字节一致）", () => {
+    const raw = JSON.stringify({
+      chapter: 3,
+      activeMentions: ["阿宁"],
+      locationChanges: [{ entity: "李四", from: "皇宫", to: "客栈" }],
+    })
+    const strict = parseStateDeltaStrict(raw, 3)
+    expect(strict?.chapter).toBe(3)
+    expect(strict?.activeMentions).toEqual(["阿宁"])
+  })
+
+  it("空/缺 → null（无 delta 合法）", () => {
+    expect(parseStateDeltaStrict("", 3)).toBeNull()
+    expect(parseStateDeltaStrict(undefined as unknown as string, 3)).toBeNull()
+  })
+
+  it("非法 JSON → 显式抛错（非静默回退）", () => {
+    expect(() => parseStateDeltaStrict("not-json{[", 3)).toThrow(/JSON 解析失败/)
+  })
+
+  it("根为数组 → 抛错", () => {
+    expect(() => parseStateDeltaStrict("[1,2,3]", 3)).toThrow(/根须为对象/)
+  })
+
+  it("未知 op 值 → schema 拒收抛错（含字段路径）", () => {
+    const raw = JSON.stringify({
+      chapter: 3,
+      inventoryChanges: [{ entity: "阿宁", item: "剑", op: "steal" }],
+    })
+    expect(() => parseStateDeltaStrict(raw, 3)).toThrow(/inventoryChanges/)
+  })
+
+  it("类型错（entity 非字符串）→ 抛错含字段路径", () => {
+    const raw = JSON.stringify({
+      chapter: 3,
+      locationChanges: [{ entity: 42, to: "客栈" }],
+    })
+    expect(() => parseStateDeltaStrict(raw, 3)).toThrow(/locationChanges/)
+  })
+})
+
+describe("deriveHookOps（§六-③ hookOps 四操作语义）", () => {
+  it("四操作齐全：relocate/update/add/remove", () => {
+    const ops = deriveHookOps({
+      chapter: 3,
+      locationChanges: [{ entity: "李四", from: "皇宫", to: "客栈" }],
+      statusChanges: [{ entity: "阿宁", status: "受伤" }],
+      inventoryChanges: [
+        { entity: "阿宁", item: "青霜剑", op: "gain" },
+        { entity: "李四", item: "旧信", op: "lose" },
+      ],
+      relationshipChanges: [{ a: "阿宁", b: "李四", note: "结盟" }],
+    })
+    expect(ops).toContainEqual({ op: "relocate", entity: "李四", detail: "皇宫→客栈" })
+    expect(ops).toContainEqual({ op: "update", entity: "阿宁", detail: "受伤" })
+    expect(ops).toContainEqual({ op: "add", entity: "阿宁", detail: "gain 青霜剑" })
+    expect(ops).toContainEqual({ op: "remove", entity: "李四", detail: "lose 旧信" })
+    // relationship → add
+    expect(ops).toContainEqual({ op: "add", entity: "阿宁/李四", detail: "结盟" })
+  })
+
+  it("HOOK_OPS 常量恰为四操作且顺序稳定", () => {
+    expect(HOOK_OPS).toEqual(["add", "remove", "update", "relocate"])
   })
 })

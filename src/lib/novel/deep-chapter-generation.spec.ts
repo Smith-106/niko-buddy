@@ -82,6 +82,7 @@ import { useWikiStore, DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
 import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { NovelReviewResult } from "./review-adapter"
+import { ReviewParseError } from "./review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 import {
   shouldUseDeepChapterGeneration,
@@ -3956,5 +3957,58 @@ describe("F-003 retryCountCircuitBreaker 三分支 (双轨并存)", () => {
     const verdict = pollWatchdog(watchdog, Date.now())
     expect(verdict.action).toBe("continue")
     expect(verdict.triggered).toBe(false)
+  })
+})
+
+describe("48/49 号 §六-⑥ parseFailed 防误修订 (50 号报告 S0 spec 锁定)", () => {
+  it("runFullReviewWithSixDim 捕获 ReviewParseError → 返回 reviewParseFailed=true 而非 rethrow", async () => {
+    const reviewChapter = vi.fn(async () => { throw new ReviewParseError("not-json", "bad json") })
+    const runSixDim = vi.fn((args: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        args.signal?.addEventListener("abort", () => reject(new Error("six-dim aborted")))
+      }),
+    )
+    const deps = {
+      buildContextPack: vi.fn(async () => ({} as ContextPack)),
+      contextPackToPrompt: vi.fn(() => ""),
+      reviewChapter,
+      runSixDimensionReview: runSixDim as never,
+      streamChat: vi.fn(async () => {}),
+    } as unknown as DeepChapterGenerationDeps
+
+    const result = await runFullReviewWithSixDim("章节内容", 3, "E:/Novel", deps, undefined, {} as ContextPack, {})
+    expect(result.reviewParseFailed).toBe(true)
+    expect(result.reviewResults).toHaveLength(1)
+    expect(result.reviewResults[0].type).toBe("review_parse_failed")
+    expect(result.reviewResults[0].severity).toBe("warning")
+    // 六维级联取消未造成未处理拒绝
+    expect(runSixDim).toHaveBeenCalledTimes(1)
+  })
+
+  it("reviewParseFailed 时 runReviewAndRepair 跳 fix-loop → manualHandoff=true 且零返修流式调用", async () => {
+    // reviewChapter 始终抛 ReviewParseError（重试耗尽语义）→ parseFailed 防误修订短路
+    const reviewChapter = vi.fn(async () => { throw new ReviewParseError("broken", "broken") })
+    const streamChat = vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+      callbacks.onToken("兜底正文")
+      callbacks.onDone()
+    })
+    const deps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat,
+    } as unknown as DeepChapterGenerationDeps
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onCheckpoint: () => {} },
+      deps,
+    )
+    expect(result.manualReviewRequired).toBe(true)
+    // 防误修订：不进 fix-loop 则「返修」阶段 streamChat 零调用
+    const revisionCalls = streamChat.mock.calls.filter((c) =>
+      messagesPromptText(c[1]).includes("返修"),
+    )
+    expect(revisionCalls).toHaveLength(0)
   })
 })
