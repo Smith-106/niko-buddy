@@ -1179,9 +1179,10 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
     if (cached && cached.latestRevision === emptyRevision) return cached.facts
     // 54 ③ 读侧：无 snapshots 但 facts.json 存在（如快照被清理）→ 仍投影事实表
     const factsPath = `${pp}/.novel/facts.json`
-    const factsRaw = await readFile(factsPath).catch(() => null)
+    const factsRaw =
+      typeof readFile === "function" ? await Promise.resolve(readFile(factsPath)).catch(() => null) : null
     let facts: TemporalFact[] = []
-    if (factsRaw !== null && factsRaw.trim().length > 0) {
+    if (factsRaw != null && factsRaw.trim().length > 0) {
       try {
         const { loadFactsFile } = await import("./facts-store")
         facts = factsFromFactsFile(loadFactsFile(factsRaw))
@@ -1217,8 +1218,10 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
   // ENOENT（legacy 项目 / 尚未 ingest）→ 回退 snapshot 折叠（零行为变更）。
   const factsPath = `${pp}/.novel/facts.json`
   let facts: TemporalFact[]
-  const factsRaw = await readFile(factsPath).catch(() => null)
-  if (factsRaw !== null && factsRaw.trim().length > 0) {
+  // perf/mock 环境可能未注入 readFile → 防御式降级到 snapshot 折叠
+  const factsRaw =
+      typeof readFile === "function" ? await Promise.resolve(readFile(factsPath)).catch(() => null) : null
+  if (factsRaw != null && factsRaw.trim().length > 0) {
     try {
       const { loadFactsFile } = await import("./facts-store")
       facts = factsFromFactsFile(loadFactsFile(factsRaw))
