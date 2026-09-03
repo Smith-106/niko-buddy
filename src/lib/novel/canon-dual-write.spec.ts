@@ -176,6 +176,24 @@ describe("canonStoreWriter（默认 canon 写，IPC 分发）", () => {
     expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", { projectId: "P", request: expect.any(Object) })
     expect(res).toEqual({ ok: true, revision: 3 })
   })
+  it("53 P1-2: 写前 gate WARN (含 block 降级) 不丢写——继续 invoke 且带 gate 标记", async () => {
+    // 同端点同 predicate 异值重叠 → gate WARN (默认 warn-only); 写必须继续
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return { edges: [{ id: "e1", source_id: "A", target_id: "C", predicate: "capital_of", valid_at: 1 }] }
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 7 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [{ id: "n1", source_id: "A", target_id: "B", predicate: "capital_of", valid_at: 2 }],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 7, gate: "pre_write_warn" })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
   it("invoke 抛错 → ok:false + error", async () => {
     invokeMock.mockRejectedValue(new Error("db down"))
     const res = await canonStoreWriter("P", episodePayload())

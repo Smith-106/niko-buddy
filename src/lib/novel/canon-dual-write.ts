@@ -331,6 +331,8 @@ export async function canonStoreWriter(
     if (payload.kind === "supersede") {
       // 53 号报告 P1-2: 写前一致性门控 (lore-weave L1 硬锁模式, 默认 warn-only
       // 零行为变更; block 模式拦截硬冲突)。gate 不 invoke, 不进 pending 队列。
+      // warn-only 语义: BLOCK 降级只记录 gate 标记继续写 (不静默丢写, 审计可追溯)
+      let gateHit: "pre_write_warn" | undefined = undefined
       const request = payload.request as {
         new_edges?: Array<{
           id: string
@@ -372,15 +374,24 @@ export async function canonStoreWriter(
               .join("; ")}`,
           }
         }
+        // warn-only 语义 (53 号设计 P1-2 决策 2): WARN/BLOCK 降级只记录 gate
+        // 标记, 继续写 (不静默丢写, 审计可追溯)
         if (gateResult.state === "WARN") {
-          return { ok: true, gate: "pre_write_warn" }
+          gateHit = "pre_write_warn"
         }
         if (gateResult.state === "DUPLICATE") {
           // 幂等去重: digest 重复且区间重叠 → 跳过写 (审计可追溯)
           return { ok: true, gate: "pre_write_duplicate" }
         }
       }
+      // 门控通过/降级后继续写 (gateHit 由本分支携带)
+      const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
+        projectId: projectPath,
+        request: payload.request,
+      })
+      return { ok: true, revision: res.max_revision, ...(gateHit ? { gate: gateHit } : {}) }
     }
+    // 未知 kind 兜底 (兼容旧调用方直接传 request)
     const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
       projectId: projectPath,
       request: payload.request,
