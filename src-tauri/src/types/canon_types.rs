@@ -419,6 +419,20 @@ pub struct CanonEdge {
     /// None = 旧数据（data JSON 无此字段）；as-of-revision 过滤用 `<=` 比较。
     #[serde(default)]
     pub recorded_revision: Option<u64>,
+
+    // ── G3 bi-temporal 事务时间轴 (51 号报告，graphiti 模式) ──
+    // 与 valid_at/invalid_at（故事有效时间，世界时态）正交：
+    //   valid_at   = 故事世界中该事实开始/结束的章节（世界时间）
+    //   created_at = 系统记录该版本事实的真实时间戳（事务/系统时间，unix seconds）
+    //   expired_at = 该版本被 supersede/invalidate 后置入的系统时间戳（None=当前有效记录）
+    // bi-temporal: 同一事实可有多个历史版本（不同 created_at），查「某时刻系统所知」
+    // 走 created_at <= t < expired_at。
+    /// 事务开始时间（记录创建/生效的真实时间戳，unix seconds）。
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    /// 事务结束时间（被 supersede/invalidate 后置入；None=当前有效记录）。
+    #[serde(default)]
+    pub expired_at: Option<i64>,
 }
 
 impl CanonEdge {
@@ -451,6 +465,8 @@ impl CanonEdge {
             payoff_chapter: None,
             archived: false,
             recorded_revision: None,
+            created_at: None,
+            expired_at: None,
         }
     }
 
@@ -465,6 +481,33 @@ impl CanonEdge {
     /// `pov` 是否知晓该边（认知轴过滤）。
     pub fn is_known_by(&self, pov: &str) -> bool {
         self.known_by.iter().any(|k| k == pov)
+    }
+
+    // ── G3 bi-temporal 事务时间轴查询辅助 (51 号报告) ──
+
+    /// 事务有效版本判定：记录在 `at_time`（unix seconds）是否为当前有效版本。
+    /// created_at <= at_time < expired_at（None 边界视为开放）。
+    /// 语义：查「某系统时刻该事实的当前版本」（bi-temporal as-of 查询）。
+    pub fn is_effective_at(&self, at_time: i64) -> bool {
+        let after_start = self.created_at.map_or(true, |c| c <= at_time);
+        let before_end = self.expired_at.map_or(true, |x| at_time < x);
+        after_start && before_end
+    }
+
+    /// 有效事务开始时间（回退：created_at 缺失 → valid_at 的 i64 投射 → 0）。
+    /// 旧数据无事务时间轴时，用故事时间近似回退（守向后兼容）。
+    pub fn effective_created_at(&self) -> i64 {
+        self.created_at
+            .or_else(|| self.valid_at.map(|v| v as i64))
+            .unwrap_or(0)
+    }
+
+    /// 有效事务结束时间（回退：expired_at 缺失 → invalid_at 的 i64 投射 → i64::MAX 表示仍有效）。
+    /// 旧数据无事务时间轴时，用故事封顶时间近似回退。
+    pub fn effective_expired_at(&self) -> i64 {
+        self.expired_at
+            .or_else(|| self.invalid_at.map(|inv| inv as i64))
+            .unwrap_or(i64::MAX)
     }
 }
 
@@ -824,7 +867,7 @@ impl SchemaVersion {
 }
 
 /// 当前 schema 版本（v3：base + archived + embedding 注记）。
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(3);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(4);
 
 /// LanceDB SQL 类型名（lance 4.0 DataFusion 方言，已核实：
 /// `CAST(NULL AS int/bigint/string/boolean)`）。
@@ -929,7 +972,26 @@ pub static MIGRATION_V3_EMBEDDING: &[ColumnSpec] = &[
     },
 ];
 
-/// 迁移链（v1=base 由 create_table 直接建满当前 schema；v2/v3 为 additive 升级）。
+/// v4 迁移（G3 bi-temporal 事务时间轴，51 号报告）：edges 表新增
+/// created_at / expired_at（bigint，事务/系统时间 unix seconds）。
+/// 与 valid_at/invalid_at（故事时间 int32）正交；nullable additive，
+/// 旧数据 NULL → effective_* 回退用故事时间近似（守向后兼容）。
+pub static MIGRATION_V4_BITEMPORAL: &[ColumnSpec] = &[
+    ColumnSpec {
+        table: CANON_TABLE_EDGES,
+        name: "created_at",
+        lance_type: LanceType::Int64,
+        description: "事务开始时间（记录创建/生效的真实时间戳 unix seconds；bi-temporal 系统时间轴）",
+    },
+    ColumnSpec {
+        table: CANON_TABLE_EDGES,
+        name: "expired_at",
+        lance_type: LanceType::Int64,
+        description: "事务结束时间（被 supersede/invalidate 后置入；NULL=当前有效版本）",
+    },
+];
+
+/// 迁移链（v1=base 由 create_table 直接建满当前 schema；v2/v3/v4 为 additive 升级）。
 pub static MIGRATIONS: &[Migration] = &[
     Migration {
         version: SchemaVersion(2),
@@ -940,6 +1002,11 @@ pub static MIGRATIONS: &[Migration] = &[
         version: SchemaVersion(3),
         name: "add_embedding_annotation",
         columns: MIGRATION_V3_EMBEDDING,
+    },
+    Migration {
+        version: SchemaVersion(4),
+        name: "add_bitemporal_txn_time",
+        columns: MIGRATION_V4_BITEMPORAL,
     },
 ];
 
@@ -1337,9 +1404,9 @@ mod tests {
         let plan = plan_migration(SchemaVersion(1), CURRENT_SCHEMA_VERSION);
         assert_eq!(plan.from, SchemaVersion(1));
         assert_eq!(plan.to, CURRENT_SCHEMA_VERSION);
-        assert_eq!(plan.steps.len(), 2, "v2 + v3");
-        // v2: 3 archived; v3: 4 embedding → 7 additive columns
-        assert_eq!(plan.added_columns.len(), 7);
+        assert_eq!(plan.steps.len(), 3, "v2 + v3 + v4");
+        // v2: 3 archived; v3: 4 embedding; v4: 2 bitemporal → 9 additive columns
+        assert_eq!(plan.added_columns.len(), 9);
         assert!(!plan.is_empty());
     }
 

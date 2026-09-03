@@ -48,6 +48,11 @@ export interface CanonEdge {
   hook_type?: string | null
   payoff_chapter?: number | null
   archived?: boolean
+  /** G3 bi-temporal 事务时间轴 (51 号报告，镜像 Rust CanonEdge)：事务/系统时间 unix seconds。
+   *  与 valid_at/invalid_at（故事时间）正交；旧数据缺失 → undefined（effective 回退用故事时间）。 */
+  created_at?: number | null
+  /** 事务结束时间（被 supersede/invalidate 后置入；null/undefined=当前有效版本）。 */
+  expired_at?: number | null
 }
 
 /**
@@ -81,4 +86,32 @@ export interface CanonQueryBatchResponse {
   totals?: number[]
   /** 当前项目 canon revision。 */
   max_revision: number
+}
+
+// ── G3 bi-temporal 事务时间轴查询辅助 (51 号报告，镜像 Rust CanonEdge::effective_*) ──
+
+/**
+ * 事务有效版本判定：记录在 `atTime`（unix seconds）是否为当前有效版本。
+ * created_at <= atTime < expired_at（null/undefined 边界视为开放）。
+ * 语义：查「某系统时刻该事实的当前版本」（bi-temporal as-of 查询）。
+ */
+export function isCanonEdgeEffectiveAt(edge: CanonEdge, atTime: number): boolean {
+  const afterStart = edge.created_at == null || edge.created_at <= atTime
+  const beforeEnd = edge.expired_at == null || atTime < edge.expired_at
+  return afterStart && beforeEnd
+}
+
+/**
+ * 有效事务开始时间（回退：created_at 缺失 → valid_at → 0）。
+ * 旧数据无事务时间轴时用故事时间近似回退（守向后兼容，镜像 Rust effective_created_at）。
+ */
+export function effectiveCanonCreatedAt(edge: CanonEdge): number {
+  return edge.created_at ?? edge.valid_at ?? 0
+}
+
+/**
+ * 有效事务结束时间（回退：expired_at 缺失 → invalid_at → Number.MAX_SAFE_INTEGER 表示仍有效）。
+ */
+export function effectiveCanonExpiredAt(edge: CanonEdge): number {
+  return edge.expired_at ?? edge.invalid_at ?? Number.MAX_SAFE_INTEGER
 }

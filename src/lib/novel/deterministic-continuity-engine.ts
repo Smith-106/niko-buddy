@@ -67,6 +67,14 @@ export type ContinuityFindingType =
   | "knowledge_boundary"
   /** 三模型共识 (2026-08-27, Grok 过程库): 「东西丢了」粒子/物品连续性检测。 */
   | "lost_item"
+  /** 51 号报告 G1: 地理/物理屏障状态违反（角色穿越未开启的屏障）— severity critical。 */
+  | "barrier_state"
+  /** 51 号报告 G1: 在场路径矛盾（角色同一时间窗出现在互斥地点）— severity warning。 */
+  | "presence_path"
+  /** 51 号报告 G1: 容器状态违反（物品从密闭容器无开启动作取出）— severity warning。 */
+  | "container_state"
+  /** 51 号报告 G1: 集合基数漂移（团队/库存计数跨章不一致）— severity warning。 */
+  | "set_count_drift"
 
 export type ContinuityFindingSubtype = "consistency_mechanical" | "data_gap"
 
@@ -142,6 +150,43 @@ export interface TimelineDriftEvent {
   referencedChapter: number
 }
 
+/**
+ * 51 号报告 G1: 屏障状态事件 (barrier_state 检测器输入)。
+ * 装配层从场景/地点状态组装 (additive, 可选切片)。
+ * ref: 屏障标识 (如 `barrier:北城门`)。chapter: 状态变更记录章号。
+ * isOpen: 章末状态。crossedChapter: 角色穿越该屏障的章号 (未穿越 undefined)。
+ */
+export interface BarrierStateEvent {
+  ref: string
+  chapter: number
+  isOpen: boolean
+  crossedChapter?: number
+}
+
+/** 51 号报告 G1: 在场事件 (presence_path 检测器输入)。 */
+export interface PresenceEvent {
+  ref: string
+  chapter: number
+  location: string
+}
+
+/** 51 号报告 G1: 容器状态事件 (container_state 检测器输入)。 */
+export interface ContainerStateEvent {
+  ref: string
+  chapter: number
+  isOpen: boolean
+  takenOutItem?: string
+}
+
+/** 51 号报告 G1: 集合基数快照 (set_count_drift 检测器输入)。 */
+export interface SetCountSnapshot {
+  /** 集合标识 (如 `party:主角团` / `inventory:背包`)。 */
+  ref: string
+  chapter: number
+  /** 章末计数 (成员数/物品数)。 */
+  count: number
+}
+
 // ============================================================================
 // ReadonlyStore (ADR-29 C-005 复用已加载 store 不可变视图) + ContinuityEngineConfig
 // ============================================================================
@@ -160,6 +205,14 @@ export interface ReadonlyStore {
   /** F-002 第 6 检测项 (timeline_drift) 输入: 时间线事件序列 (additive, 可选)。
    * 装配层从 timeline.ts 事件序列组装; 缺失 (undefined/空) 时引擎跳过该检测器。 */
   readonly timelineEvents?: readonly TimelineDriftEvent[]
+  /** 51 号报告 G1: 屏障状态事件 (barrier_state)。缺失时跳过该检测器 (additive)。 */
+  readonly barrierEvents?: readonly BarrierStateEvent[]
+  /** 51 号报告 G1: 在场事件 (presence_path)。缺失时跳过该检测器 (additive)。 */
+  readonly presenceEvents?: readonly PresenceEvent[]
+  /** 51 号报告 G1: 容器状态事件 (container_state)。缺失时跳过该检测器 (additive)。 */
+  readonly containerEvents?: readonly ContainerStateEvent[]
+  /** 51 号报告 G1: 集合基数快照 (set_count_drift)。缺失时跳过该检测器 (additive)。 */
+  readonly setCountSnapshots?: readonly SetCountSnapshot[]
 }
 
 /**
@@ -667,6 +720,134 @@ function detectTimelineDriftForStore(
 }
 
 // ============================================================================
+// 51 号报告 G1: 4 类确定性检测器 (barrier_state / presence_path /
+// container_state / set_count_drift) — 纯函数零 LLM, additive 可选切片。
+// 参考 reference/pagegod V38.py HARD_ 规则族 (实证 14 条机械规则)。
+// 各检测器遵循 timelineEvents 先例: 可选切片缺失 (undefined/空) → 返回 []
+// (additive 向后兼容, 旧调用点未装配零行为变化)。
+// ============================================================================
+
+/**
+ * detectBarrierState: 屏障状态违反 (severity critical)。
+ * 规则: 屏障关闭 (isOpen=false) 且存在 crossedChapter (角色穿越) → critical。
+ * 语义: 角色穿越了未开启的物理/地理屏障 (穿墙/锁门)。
+ */
+function detectBarrierState(store: ReadonlyStore): ContinuityFinding[] {
+  const events = store.barrierEvents
+  if (!events || events.length === 0) return []
+  const findings: ContinuityFinding[] = []
+  for (const e of events) {
+    if (!e.isOpen && e.crossedChapter !== undefined) {
+      findings.push({
+        type: "barrier_state",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: e.ref,
+        message: `屏障 ${e.ref} 在第 ${e.chapter} 章处于关闭状态，但记录显示第 ${e.crossedChapter} 章有角色穿越 (屏障状态违反)。`,
+        chapter: e.crossedChapter,
+        evidence: `barrier=${e.ref}; closedAtCh${e.chapter}; crossedAtCh${e.crossedChapter}`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * detectPresencePath: 在场路径矛盾 (severity warning)。
+ * 规则: 同一 ref (角色) 在同一 chapter 出现在 ≥2 个不同 location → warning。
+ * 语义: 角色同一时间窗出现在互斥地点 (分身矛盾)。
+ */
+function detectPresencePath(store: ReadonlyStore): ContinuityFinding[] {
+  const events = store.presenceEvents
+  if (!events || events.length === 0) return []
+  const findings: ContinuityFinding[] = []
+  const byRefCh = new Map<string, Set<string>>()
+  for (const e of events) {
+    const key = `${e.ref}@${e.chapter}`
+    const locs = byRefCh.get(key) ?? new Set<string>()
+    locs.add(e.location)
+    byRefCh.set(key, locs)
+  }
+  for (const [key, locs] of byRefCh) {
+    if (locs.size >= 2) {
+      const [ref, chStr] = key.split("@")
+      const chapter = Number(chStr)
+      findings.push({
+        type: "presence_path",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref,
+        message: `${ref} 在第 ${chapter} 章同时出现在 ${locs.size} 个不同地点 (在场路径矛盾)。`,
+        chapter,
+        evidence: `entity=${ref}; ch${chapter}; locations=${[...locs].join(",")}`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * detectContainerState: 容器状态违反 (severity warning)。
+ * 规则: 容器关闭 (isOpen=false) 且存在 takenOutItem → warning。
+ * 语义: 物品从关闭的密闭容器无开启动作被取出。
+ */
+function detectContainerState(store: ReadonlyStore): ContinuityFinding[] {
+  const events = store.containerEvents
+  if (!events || events.length === 0) return []
+  const findings: ContinuityFinding[] = []
+  for (const e of events) {
+    if (!e.isOpen && e.takenOutItem !== undefined) {
+      findings.push({
+        type: "container_state",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: e.ref,
+        message: `容器 ${e.ref} 在第 ${e.chapter} 章处于关闭状态，但记录显示取出物品「${e.takenOutItem}」 (容器状态违反)。`,
+        chapter: e.chapter,
+        evidence: `container=${e.ref}; closedAtCh${e.chapter}; item=${e.takenOutItem}`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * detectSetCountDrift: 集合基数漂移 (severity warning)。
+ * 规则: 同一 ref 的 count 在相邻章号间无增减事件却变化 → warning。
+ * 语义: 团队成员数/库存计数跨章不一致 (凭空增减)。
+ */
+function detectSetCountDrift(store: ReadonlyStore): ContinuityFinding[] {
+  const snapshots = store.setCountSnapshots
+  if (!snapshots || snapshots.length === 0) return []
+  const findings: ContinuityFinding[] = []
+  const byRef = new Map<string, SetCountSnapshot[]>()
+  for (const s of snapshots) {
+    const arr = byRef.get(s.ref) ?? []
+    arr.push(s)
+    byRef.set(s.ref, arr)
+  }
+  for (const [, arr] of byRef) {
+    const sorted = [...arr].sort((a, b) => a.chapter - b.chapter)
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prev = sorted[i - 1]
+      const curr = sorted[i]
+      if (prev.count !== curr.count) {
+        findings.push({
+          type: "set_count_drift",
+          subtype: "consistency_mechanical",
+          severity: "warning",
+          ref: curr.ref,
+          message: `${curr.ref} 计数从第 ${prev.chapter} 章 (${prev.count}) 变为第 ${curr.chapter} 章 (${curr.count})，无对应增减事件 (集合基数漂移)。`,
+          chapter: curr.chapter,
+          evidence: `set=${curr.ref}; ch${prev.chapter}=${prev.count}; ch${curr.chapter}=${curr.count}`,
+        })
+      }
+    }
+  }
+  return findings
+}
+
+// ============================================================================
 // subplot lastSeenChapter 反推 (纯函数 — 调用方已加载 snapshots)
 // ============================================================================
 
@@ -905,6 +1086,10 @@ const SUGGESTION_BY_TYPE: Record<ContinuityFindingType, string> = {
   timeline_drift: "回正 timeline 事件引用章号; 修正同角色时间序矛盾或章号跳跃 (机械 additive 可 override)",
   knowledge_boundary: "修正 POV 信息边界泄露: 角色不应知晓 doesNotKnow 事实; 调整正文或认知台账 (P0)",
   lost_item: "修正物品/粒子连续性: 补显式转移记录或回正归属; 孤儿引用补归属 (P0)",
+  barrier_state: "回正屏障状态: 角色穿越未开启屏障需补开启动作或修正穿越章号 (P1 critical)",
+  presence_path: "回正在场路径: 角色同一章不应出现在互斥地点; 修正地点或拆分章 (P1 warning)",
+  container_state: "回正容器状态: 物品从关闭容器取出需补开启动作或修正归属 (P1 warning)",
+  set_count_drift: "回正集合基数: 团队/库存计数跨章变化需补增减事件 (P1 warning)",
   data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
 }
 
@@ -968,6 +1153,12 @@ export function checkContinuity(
     // F-002 第 6 检测项: 时间线漂移 (timeline_drift, additive)。store 含
     // timelineEvents 时调用, 缺失则内部返回 [] 零行为变化 (向后兼容)。
     detectTimelineDriftForStore,
+    // 51 号报告 G1: 4 类确定性检测器 (barrier_state critical / presence_path /
+    // container_state / set_count_drift warning), additive 可选切片, 缺失返回 []。
+    detectBarrierState,
+    detectPresencePath,
+    detectContainerState,
+    detectSetCountDrift,
   ]
   const rawFindings = detectors.flatMap((d) => d(store, config))
   if (overrideStore && overrideStore.overrides.length > 0) {

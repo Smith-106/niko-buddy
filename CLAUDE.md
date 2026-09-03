@@ -133,6 +133,16 @@
 | 评测集 G1 骨架（离线评测建集 F1） | `src/lib/novel/eval/`（13 文件 + fixtures/：eval-schema/eval-adapters/eval-metrics/eval-harness/eval-report/eval-gates/eval-corpus-synth/eval-l3-replay/index + A 门 spec×2 + C 门占位 `eval-harness.real-llm.test.ts`；硬共识阈值 L2≥0.99 > L1≥0.95 > L3<0.01 + digest 锁复用 computeCheckpointDigestOf；合成语料先行，真实基线门待 snapshot 语料到位） |
 | 评测脚本（真实基线门 + 快照修复） | `scripts/eval-baseline.mjs`（`npm run eval:baseline`，真实基线门入口）、`scripts/eval-extract-real.mjs`（真实评测抽取）、`scripts/repair-snapshot-object-string.mjs`（快照 object-string 修复）+ 入口 `npm run eval:l3`（REAL_LLM=1 vitest 跑 `eval-harness.real-llm.test.ts`） |
 
+## G4/G6 编辑影响 + Plateau 停止新增锈点（51 号报告 P1 补齐，2026-09-03 同步）
+
+| 能力 | 锈点 |
+|------|------|
+| G1 确定性检测器扩展 | `src/lib/novel/deterministic-continuity-engine.ts`（新增 4 类检测器 barrier_state critical / presence_path / container_state / set_count_drift warning，additive 可选切片 barrierEvents/presenceEvents/containerEvents/setCountSnapshots 缺失返回 []，注册入 detectors 数组；SUGGESTION_BY_TYPE 补 4 键） + `deterministic-continuity-engine-g1.spec.ts`（7 绿） |
+| G2 声纹对齐闭环 | `src/lib/novel/voiceprint-alignment.ts`（G2，纯函数 checkVoiceprintConvergence 双向测量 driftVsBaseline + driftVsBefore，阈值 0.3，recommendation accept/revise/manual） + `voiceprint-alignment.spec.ts`（7 绿） |
+| G3 bi-temporal 事务时间轴 | `src-tauri/src/types/canon_types.rs`（CanonEdge + created_at/expired_at serde(default) + effective_created_at/effective_expired_at/is_effective_at 回退 + MIGRATION_V4_BITEMPORAL + CURRENT_SCHEMA_VERSION→4）+ `src-tauri/src/commands/canon_store.rs`（edges_schema/edges_batch + Int64 列）+ TS 镜像 `src/components/canon-editor/canon-types.ts`（created_at/expired_at + effectiveCanonCreatedAt/effectiveCanonExpiredAt/isCanonEdgeEffectiveAt）；双命令验收：cargo 5 测试 + vitest 6 契约 |
+| 编辑影响分析（事前冲击面预测） | `src/lib/novel/edit-impact-analyzer.ts`（G4，纯函数 analyzeEditImpact：before/after 文本 diff 预测受影响实体集 + riskLevel high/medium/low；接线 `chapter-ingest.ts` saveEditedSnapshot 内，非阻断 trace logger.info，异常吞掉绝不阻断保存） + `edit-impact-analyzer.spec.ts`（7 绿） |
+| Plateau 停止准则 | `src/lib/novel/plateau-stop.ts`（G6，纯函数 detectPlateau：window=2/epsilon=0.5，滑动窗近 N 轮评分增益 ≤ epsilon 判 plateau） + `plateau-stop.spec.ts`（7 绿）；接线 `deep-chapter-generation.ts`（import + tracker + plateau break，早退 break 不置 manualReviewRequired） |
+
 ## 修改优先顺序
 
 1. `task-router` / `context-engine` / `deep-chapter-generation`

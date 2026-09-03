@@ -99,6 +99,8 @@ fn edges_schema() -> SchemaRef {
         Field::new("source_chapter", DataType::Int32, true),
         Field::new("digest", DataType::Utf8, false),
         Field::new("archived", DataType::Boolean, true),
+        Field::new("created_at", DataType::Int64, true),
+        Field::new("expired_at", DataType::Int64, true),
         Field::new("data", DataType::Utf8, false),
     ]))
 }
@@ -173,6 +175,8 @@ fn edges_batch(e: &CanonEdge) -> Result<RecordBatch, String> {
             Arc::new(Int32Array::from(vec![e.source_chapter])),
             Arc::new(StringArray::from(vec![Some(e.digest.as_str())])),
             Arc::new(BooleanArray::from(vec![Some(e.archived)])),
+            Arc::new(Int64Array::from(vec![e.created_at])),
+            Arc::new(Int64Array::from(vec![e.expired_at])),
             Arc::new(StringArray::from(vec![Some(data.as_str())])),
         ],
     )
@@ -1641,8 +1645,8 @@ mod tests {
 
     #[test]
     fn canon_migration_definitions_sane() {
-        // v1=base（无迁移），v2/v3 additive
-        assert_eq!(MIGRATIONS.len(), 2);
+        // v1=base（无迁移），v2/v3/v4 additive
+        assert_eq!(MIGRATIONS.len(), 3);
         assert!(MIGRATIONS.iter().all(|m| !m.columns.is_empty()));
         // 所有列 nullable additive（CAST NULL）
         for m in MIGRATIONS {
@@ -1653,6 +1657,65 @@ mod tests {
         // LanceType 标签
         assert_eq!(LanceType::Boolean.label(), "boolean");
         assert_eq!(LanceType::Utf8.label(), "utf8");
+    }
+
+    // ── G3 bi-temporal 事务时间轴 (51 号报告) ──
+
+    #[test]
+    fn canon_g3_bitemporal_roundtrip_preserves_txn_time() {
+        // 序列化/反序列化 round-trip：created_at/expired_at 保留。
+        let mut e = CanonEdge::new("e1", "s", "t", "rel", EdgeKind::WorldFact);
+        e.created_at = Some(1_700_000_000);
+        e.expired_at = None; // 当前有效版本
+        let json = serde_json::to_string(&e).unwrap();
+        let back: CanonEdge = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.created_at, Some(1_700_000_000));
+        assert_eq!(back.expired_at, None);
+    }
+
+    #[test]
+    fn canon_g3_bitemporal_old_data_defaults_none() {
+        // 旧数据 JSON 无事务时间字段 → serde(default) 回填 None。
+        let old_json = r#"{"id":"e1","source_id":"s","target_id":"t","predicate":"rel","edge_kind":"world_fact","digest":"","archived":false}"#;
+        let e: CanonEdge = serde_json::from_str(old_json).unwrap();
+        assert_eq!(e.created_at, None);
+        assert_eq!(e.expired_at, None);
+    }
+
+    #[test]
+    fn canon_g3_effective_fallback_to_story_time() {
+        // 旧数据无事务时间 → effective_* 回退用故事时间近似。
+        let mut e = CanonEdge::new("e1", "s", "t", "rel", EdgeKind::WorldFact);
+        e.valid_at = Some(5);
+        e.invalid_at = Some(10);
+        assert_eq!(e.effective_created_at(), 5);
+        assert_eq!(e.effective_expired_at(), 10);
+    }
+
+    #[test]
+    fn canon_g3_effective_uses_txn_time_when_present() {
+        let mut e = CanonEdge::new("e1", "s", "t", "rel", EdgeKind::WorldFact);
+        e.created_at = Some(1_700_000_000);
+        e.expired_at = Some(1_700_999_999);
+        assert_eq!(e.effective_created_at(), 1_700_000_000);
+        assert_eq!(e.effective_expired_at(), 1_700_999_999);
+        assert!(e.is_effective_at(1_700_500_000));
+        assert!(!e.is_effective_at(1_999_999_999));
+    }
+
+    #[test]
+    fn canon_g3_migration_v4_plan_includes_bitemporal() {
+        // plan_migration(3 → 4) 含 v4 步骤与两列。
+        let plan = plan_migration(SchemaVersion(3), SchemaVersion(4));
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].version, SchemaVersion(4));
+        let names: Vec<&str> = plan.added_columns.iter().map(|c| c.name).collect();
+        assert!(names.contains(&"created_at"));
+        assert!(names.contains(&"expired_at"));
+        // Int64 类型
+        for c in plan.added_columns {
+            assert_eq!(c.lance_type, LanceType::Int64);
+        }
     }
 
     // ── 纯逻辑：时态不变量 ──

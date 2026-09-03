@@ -9,6 +9,7 @@ import {
   detectRegression,
   type CandidateVersion,
 } from "./candidate-selector"
+import { SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG } from "./plateau-stop"
 import {
   buildTrackBMultiObjectiveConstraint,
   createDefaultTrackBMultiObjectivePolicy,
@@ -2256,6 +2257,9 @@ async function runReviewAndRepair(
   // 变量 + 退化分支, 不改 buildDeepChapterRevisionPrompt/collectModelText/MAX_GATE_RETRY
   // (守 MAINT-1 拆分结构)。首次进循环时 prevCandidate===null, 用当前 currentContent 初始化。
   let prevCandidate: CandidateVersion | null = null
+  // 51 号报告 G6: plateau 停止准则滑窗记账器（与 prevCandidate 同源独立记账）。
+  // 每轮返修后 push slop 分，连续 window 轮 delta<epsilon → 提前接受当前稿。
+  const slopHistory = new SlopHistoryTracker()
 
   // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析时禁止进 fix-loop, 直接转人工。
   // 不依赖 blockingIssues>0 —— 不可信审计下 decisionGates 本身不可信, 一律转人工保护正文。
@@ -2496,6 +2500,27 @@ async function runReviewAndRepair(
       decisionGates,
       retryCount,
     }))
+    // 51 号报告 G6: plateau 停止准则——连续 window 轮 slop delta<epsilon 即平台期，
+    // 继续返修只会噪声波动，提前接受当前稿（不置 manualReviewRequired，与
+    // retryCountCircuitBreakerTripped 的 manualHandoff 路径严格区分）。
+    // 与 MAX_GATE_RETRY 硬上限共存（window=2 < 3，只可能在其前触发）。
+    // 已达硬上限 (retryCount >= MAX_GATE_RETRY) 时跳过 plateau 早退——下一轮循环
+    // 顶部 retryCountCircuitBreaker 会以 manualHandoff 转人工，plateau 不得抢占。
+    // checkpoint 已先行发出（resume 可续，partial 语义零变更）。
+    // 记返修后 slop 分（非采用版）：退化回退不产生假平台期（delta=0 误判）。
+    slopHistory.push(scoreCandidate(revisedContent))
+    const plateau = slopHistory.evaluate(DEFAULT_PLATEAU_CONFIG)
+    if (plateau.plateau && retryCount < MAX_GATE_RETRY) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5：返修平台期提前停止",
+        [
+          `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期，提前接受当前稿。`,
+          "",
+          formatReviewIssueList(blockingIssues),
+        ].join("\n"),
+      ))
+      break
+    }
 
     callbacks.onThinking?.(formatStageThinking(
       "阶段5.5：返修后复审",

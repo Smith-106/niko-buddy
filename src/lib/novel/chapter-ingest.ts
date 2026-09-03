@@ -40,6 +40,7 @@ import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
+import { analyzeEditImpact, type EditImpactStores } from "./edit-impact-analyzer"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
@@ -1193,6 +1194,24 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
   if (!normalizedSnapshot) {
     throw new Error("Invalid snapshot data.")
   }
+  // 51 号报告 G4: 编辑影响分析（事前冲击面预测，非阻断 trace）。
+  // 在覆写前对 before/after 快照投影做影响分析；异常吞掉，绝不阻断保存链路（守 ADR-19/29 additive）。
+  try {
+    const beforeText = projectSnapshotForImpact(currentSnapshot)
+    const afterText = projectSnapshotForImpact(normalizedSnapshot)
+    const impactStores = projectSnapshotToImpactStores(normalizedSnapshot)
+    if (beforeText || afterText) {
+      const impact = analyzeEditImpact({ before: beforeText, after: afterText }, impactStores)
+      logger.info("Chapter Ingest", `Edit impact (ch${snapshot.chapterNumber}): risk=${impact.riskLevel}, affected=${impact.affectedEntities.length}`, {
+        chapterNumber: snapshot.chapterNumber,
+        riskLevel: impact.riskLevel,
+        affectedEntities: impact.affectedEntities,
+        rationale: impact.rationale,
+      })
+    }
+  } catch (impactError) {
+    logger.warn("Chapter Ingest", "Edit impact analysis failed (non-fatal)", { error: impactError })
+  }
   await backupSnapshotBeforeOverwrite(pp, snapshot.chapterNumber)
   await saveSnapshot(pp, materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot))
   // ARCH-006 (REG-001 sibling): overwriting the current snapshot changes its
@@ -1200,6 +1219,30 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
   // from the pre-edit version — clear it for this project (same root cause as
   // delete/restore; saveEdited was missed).
   clearTemporalFactsCache(pp)
+}
+
+/** 51 号报告 G4: 将快照投影为影响分析文本（实体名 + 关键内容字段拼接）。 */
+function projectSnapshotForImpact(snapshot: ChapterSnapshot | null): string {
+  if (!snapshot) return ""
+  const parts: string[] = [
+    snapshot.summary ?? "",
+    ...(snapshot.characters ?? []),
+    ...(snapshot.locations ?? []),
+    ...(snapshot.organizations ?? []),
+    ...(snapshot.items ?? []),
+    ...(snapshot.events ?? []),
+    ...(snapshot.newCanonFacts ?? []),
+    ...(snapshot.characterStateChanges ?? []),
+    ...(snapshot.foreshadowingChanges ?? []),
+  ]
+  return parts.filter(Boolean).join("\n")
+}
+
+/** 51 号报告 G4: 从快照派生影响分析 stores（角色/伏笔；canon 边不在快照内留空）。 */
+function projectSnapshotToImpactStores(snapshot: ChapterSnapshot): EditImpactStores {
+  return {
+    characters: (snapshot.characters ?? []).map((name) => ({ id: name, characterName: name })),
+  }
 }
 
 function appendPreviewSection(lines: string[], title: string, items: string[]): void {
