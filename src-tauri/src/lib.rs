@@ -203,6 +203,7 @@ pub fn run() {
             commands::power::acquire_wake_lock,
             commands::power::release_wake_lock,
             commands::docx_export::export_novel_docx,
+            commands::epub_export::export_novel_epub,
             commands::log_diagnostic::log_diagnostic,
             // T13 canon 数据面 IPC 命令（TASK-P1-08 / T13 增强）
             canon_commands::canon_query,

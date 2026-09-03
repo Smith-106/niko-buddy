@@ -7,6 +7,7 @@ pub mod codex_cli;
 pub mod crypto;
 pub mod extract_images;
 pub mod docx_export;
+pub mod epub_export;
 pub mod exemplar_commands;
 pub mod file_sync;
 pub mod fs;

@@ -137,6 +137,12 @@ export interface DeepChapterGenerationInput {
    * 【本章确定性范围】块（marker 守卫防重复，append-only 不重写既有字段）。
    */
   planningPlan?: import("./planning").ChapterPlanView
+  /**
+   * 54 号设计 ⑧: 题材 (genre) 注入 (prosecreator 14 流派基线吸收)。
+   * 可选 additive: 缺省 undefined → 生成链零行为变化; 传入时 final-polish
+   * 提示词附加流派结构化规则 (仅低严重度微调)。
+   */
+  genre?: string
   llmConfig: LlmConfig
   resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
   /**
@@ -1518,6 +1524,42 @@ export async function runDeepChapterGeneration(
       : "未发现阻断问题，已完成最后一遍简单审查与去AI味。",
   ))
   callbacks.onFinalContent?.(finalContent)
+  // 54 号设计 ⑨: avoid-ai 审计 (51 type 目录吸收, 审计型只读)。
+  // final 产出后跑声纹审计, 结果经 onThinking 提示 + 日志留痕;
+  // Track B soft (english-heavy 引擎对中文网文仅参考), 不设产品硬门。
+  try {
+    const { analyzeAvoidAiPatterns, formatAvoidAiPatternsSummary } = await import("./avoid-ai-patterns")
+    const audit = analyzeAvoidAiPatterns(finalContent)
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段6.5：avoid-ai 审计",
+      [formatAvoidAiPatternsSummary(audit)],
+    ))
+  } catch (err) {
+    callbacks.onThinking?.(formatStageThinking(
+      "avoid-ai 审计",
+      [`审计跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`],
+    ))
+  }
+  // 54 号设计 ④: chase_debt 记账人接线 (webnovel-writer ChaseDebtMeta 吸收)。
+  // 章节提交时: 结尾钩子含承诺型悬念 → 创建追读债务; 既有未偿债务计息。
+  // additive: status.json 无 chase_debt 字段或写入失败 → 仅 warn 不阻塞。
+  try {
+    const { loadNovelSessionStatus, saveNovelSessionStatus, createChaseDebtFromHook, accrueAllChaseDebtInterest } = await import("./novel-session-status")
+    const status = await loadNovelSessionStatus(input.projectPath)
+    if (status) {
+      const chapter = input.chapterNumber ?? 0
+      const endingHook = finalContent.slice(-200)
+      const withDebt = accrueAllChaseDebtInterest(createChaseDebtFromHook(status, chapter, endingHook), chapter)
+      if (withDebt !== status) {
+        await saveNovelSessionStatus(input.projectPath, withDebt)
+      }
+    }
+  } catch (err) {
+    callbacks.onThinking?.(formatStageThinking(
+      "追读债务记账",
+      [`chase_debt 记账跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`],
+    ))
+  }
   // ISS-20260714-002: explicit run-end flush of buffered LLM metrics. Fire-
   // and-forget (void) — the run is done, metrics persist async after return.
   // Abort/throw paths rely on the collectLLMMetric auto-flush safety valve
@@ -2827,6 +2869,7 @@ async function finalPolishChapter(
         input.goldenThreeChapter,
         customDeAiSkill,
         userMemoryStore,
+        input.genre,
       ),
     }],
     deps,

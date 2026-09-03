@@ -1666,6 +1666,78 @@ export function accrueChaseDebtInterest(
   return { debt_id: debtId, event_type: "interest_accrued", amount: interestAmount, chapter }
 }
 
+/**
+ * 54 号设计 ④: chase_debt 记账人纯函数 (webnovel-writer ChaseDebtMeta 吸收)。
+ * 从章节结尾钩子创建追读债务——仅当结尾含明确承诺型悬念 (必须/承诺/三天后/回来等)
+ * 才创建, 防误报。additive: 无 chase_debt 字段的 status 原样返回。
+ */
+export function createChaseDebtFromHook(
+  status: NovelSessionStatus,
+  chapter: number,
+  endingHook: string,
+  opts: { dueIn?: number; interestRate?: number } = {},
+): NovelSessionStatus {
+  const ledger = status.chase_debt
+  if (!ledger) return status
+  const hook = endingHook.trim()
+  if (!hook) return status
+  // 承诺型悬念信号: 明确指向「后续必须发生」的表述
+  const COMMITMENT_HOOK_RE = /(必须|承诺|答应|三天后|明天|回来|找到|救出|揭开|真相|秘密|危险|危机|来不及|倒计时)/
+  if (!COMMITMENT_HOOK_RE.test(hook)) return status
+  const dueIn = opts.dueIn ?? 3
+  const interestRate = opts.interestRate ?? 0.1
+  const debt: ChaseDebt = {
+    id: `chase-${chapter}-${ledger.debts.length + 1}`,
+    debt_type: "hook_strength",
+    original_amount: 1,
+    current_amount: 1,
+    interest_rate: interestRate,
+    source_chapter: chapter,
+    due_chapter: chapter + dueIn,
+    status: "active",
+    ref: "ending-hook",
+  }
+  return {
+    ...status,
+    chase_debt: {
+      debts: [...ledger.debts, debt],
+      debt_events: [
+        ...ledger.debt_events,
+        { debt_id: debt.id, event_type: "created", amount: 1, chapter, note: "ending-hook commitment" },
+      ],
+      updated_at: new Date().toISOString(),
+    },
+  }
+}
+
+/**
+ * 54 号设计 ④: 章节提交时对既有未偿债务计息 (防重复计息事件溯源)。
+ * additive: 无 chase_debt 字段原样返回。
+ */
+export function accrueAllChaseDebtInterest(
+  status: NovelSessionStatus,
+  chapter: number,
+): NovelSessionStatus {
+  const ledger = status.chase_debt
+  if (!ledger) return status
+  const newEvents: ChaseDebtEvent[] = []
+  for (const debt of ledger.debts) {
+    if (debt.status !== "active") continue
+    if (chapter <= debt.source_chapter) continue
+    const event = accrueChaseDebtInterest(ledger.debt_events, debt.id, chapter, Math.round(debt.original_amount * debt.interest_rate * 100) / 100)
+    if (event) newEvents.push(event)
+  }
+  if (newEvents.length === 0) return status
+  return {
+    ...status,
+    chase_debt: {
+      ...ledger,
+      debt_events: [...ledger.debt_events, ...newEvents],
+      updated_at: new Date().toISOString(),
+    },
+  }
+}
+
 /** 更新 status.json 中某债务的状态 (additive: 无 chase_debt 字段则不动)。 */
 export function updateChaseDebtStatus(
   status: NovelSessionStatus,

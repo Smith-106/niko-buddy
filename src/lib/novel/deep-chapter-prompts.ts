@@ -1,6 +1,6 @@
 import type { NovelReviewResult } from "./review-adapter"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
-import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
+import { CHINESE_NOVEL_DE_AI_RULES, buildStructuredDeAiRules } from "./de-ai-rules"
 import { buildUserAwareDeAiPrompt, hasUserDeAiWeights } from "@/lib/user-memory/rules-weight"
 import type { UserMemoryStore } from "@/lib/user-memory/types"
 
@@ -218,12 +218,19 @@ export function buildDeepChapterFinalPolishPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
   customDeAiSkill?: string,
   userMemoryStore?: UserMemoryStore,
+  genre?: string,
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim()
     ? customDeAiSkill.trim()
     : (userMemoryStore && hasUserDeAiWeights(userMemoryStore)
         ? buildUserAwareDeAiPrompt(userMemoryStore)
         : CHINESE_NOVEL_DE_AI_RULES)
+  // 54 号设计 ⑧: genre 注入 (prosecreator 14 流派基线吸收)。
+  // genre 传入时附加结构化流派规则 (仅低严重度微调, critical/high 硬规则不受影响);
+  // 缺省 undefined → 零行为变更。
+  const genreFragment = genre && genre.trim()
+    ? ["", buildStructuredDeAiRules(genre.trim()), ""].join("\n")
+    : ""
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "[FINAL_POLISH_STAGE_MARKER]",
@@ -241,6 +248,7 @@ export function buildDeepChapterFinalPolishPrompt(
     "7. 只输出最终可保存的小说正文，不要输出审查报告、解释或修改说明。",
     "",
     deAiRules,
+    genreFragment,
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",

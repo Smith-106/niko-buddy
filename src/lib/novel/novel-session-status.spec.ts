@@ -52,6 +52,8 @@ import {
   computeChaseDebtState,
   accrueChaseDebtInterest,
   updateChaseDebtStatus,
+  createChaseDebtFromHook,
+  accrueAllChaseDebtInterest,
   type NovelSessionStatus,
   type ChaseDebt,
   type ChaseDebtEvent,
@@ -1933,6 +1935,77 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
       },
     })
     expect(next.chase_debt).toEqual({ debts: [], debt_events: [], updated_at: "2026-01-02T00:00:00.000Z" })
+  })
+
+  it("54 ④: createChaseDebtFromHook——承诺型悬念结尾创建追读债务", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+      chase_debt: { debts: [], debt_events: [], updated_at: "2026-01-01T00:00:00.000Z" },
+    }
+    // 承诺型悬念 → 创建
+    const withDebt = createChaseDebtFromHook(base, 3, "他必须在天亮前找到真相")
+    expect(withDebt.chase_debt!.debts).toHaveLength(1)
+    expect(withDebt.chase_debt!.debts[0]!.debt_type).toBe("hook_strength")
+    expect(withDebt.chase_debt!.debts[0]!.source_chapter).toBe(3)
+    expect(withDebt.chase_debt!.debts[0]!.due_chapter).toBe(6)
+    expect(withDebt.chase_debt!.debt_events[0]!.event_type).toBe("created")
+    // 无承诺信号 → 不创建
+    const noHook = createChaseDebtFromHook(base, 4, "夜色渐深，他合上了书。")
+    expect(noHook.chase_debt!.debts).toHaveLength(0)
+    // 无 chase_debt 字段 → 原样返回
+    const { chase_debt: _cd, ...legacy } = base
+    expect(createChaseDebtFromHook(legacy as NovelSessionStatus, 3, "他必须回来")).toBe(legacy)
+  })
+
+  it("54 ④: accrueAllChaseDebtInterest——既有未偿债务逐章计息 (防重复)", () => {
+    const base: NovelSessionStatus = {
+      schema_version: "1",
+      session_id: "s",
+      source: "deep_chapter_generation",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      status: "running",
+      active_step_index: 0,
+      current_task: { task_id: "t", conversation_id: "c", user_request: "r", checkpoint_stage: "started", status: "running" },
+      draft: { draft_id: "d", file_path: "p", draft_status: "pending", updated_at: "2026-01-01T00:00:00.000Z" },
+      decision_gates: {
+        consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "pending", verdict: "pending", findings: [], repair_suggestions: [], retry_count: 0 },
+        overall: "pending",
+      },
+      evidence_refs: [],
+      chase_debt: {
+        debts: [
+          { id: "d1", debt_type: "hook_strength", original_amount: 1, current_amount: 1, interest_rate: 0.1, source_chapter: 1, due_chapter: 5, status: "active" },
+          { id: "d2", debt_type: "hook_strength", original_amount: 1, current_amount: 1, interest_rate: 0.1, source_chapter: 1, due_chapter: 5, status: "paid" },
+        ],
+        debt_events: [],
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    }
+    const accrued = accrueAllChaseDebtInterest(base, 2)
+    // 仅 active 债务计息; paid 跳过; 同章再调不重复计息
+    expect(accrued.chase_debt!.debt_events).toHaveLength(1)
+    expect(accrued.chase_debt!.debt_events[0]!.debt_id).toBe("d1")
+    expect(accrued.chase_debt!.debt_events[0]!.event_type).toBe("interest_accrued")
+    const again = accrueAllChaseDebtInterest(accrued, 2)
+    expect(again.chase_debt!.debt_events).toHaveLength(1)
   })
 })
 

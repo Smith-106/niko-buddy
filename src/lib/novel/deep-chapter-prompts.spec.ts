@@ -105,6 +105,20 @@ describe("prompt builders fallback branches (w3nb 补齐)", () => {
     expect(prompt).not.toContain("中文小说去 AI 味补充规则")
   })
 
+  it("54 ⑧: genre 注入——传入流派时附加结构化规则片段, 缺省零变更", () => {
+    const withGenre = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, undefined, "玄幻")
+    expect(withGenre).toContain("中文小说去 AI 味语义层规则 (结构化)")
+    expect(withGenre).toContain("流派基线: 玄幻")
+    expect(withGenre).toContain("节奏: fast")
+    // 未知流派 → 无基线行但规则矩阵仍在
+    const unknown = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, undefined, "未知流派")
+    expect(unknown).toContain("中文小说去 AI 味语义层规则 (结构化)")
+    expect(unknown).not.toContain("流派基线:")
+    // 缺省 → 与旧行为一致 (无结构化片段)
+    const plain = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3)
+    expect(plain).not.toContain("中文小说去 AI 味语义层规则 (结构化)")
+  })
+
   it("final polish prompt includes user avoid words section", () => {
     const store = createDefaultStore()
     store.preferences.push(
