@@ -75,6 +75,16 @@ function App() {
   async function handleSelectRecent(proj: WikiProject) {
     try {
       const validated = await openProject(proj.path)
+      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .qmai/.novel 互相覆盖)
+      const claim = await import("@/lib/project-owner").then((m) => m.claimProjectOwnership(validated.path))
+      if (!claim.ok && claim.conflict && claim.occupant) {
+        const proceed = window.confirm(
+          `该项目正被「${claim.occupant.app}」占用（${new Date(claim.occupant.startedAt).toLocaleTimeString()} 起）。\n` +
+          `两个引擎实例同时写入 .qmai/ 与 .novel/status.json 会互相覆盖。\n\n` +
+          `确定继续打开？`,
+        )
+        if (!proceed) return
+      }
       await hydrateProjectOnOpen(validated)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -86,6 +96,16 @@ function App() {
     if (!path) return
     try {
       const proj = await openProject(path)
+      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .qmai/.novel 互相覆盖)
+      const claim = await import("@/lib/project-owner").then((m) => m.claimProjectOwnership(proj.path))
+      if (!claim.ok && claim.conflict && claim.occupant) {
+        const proceed = window.confirm(
+          `该项目正被「${claim.occupant.app}」占用（${new Date(claim.occupant.startedAt).toLocaleTimeString()} 起）。\n` +
+          `两个引擎实例同时写入 .qmai/ 与 .novel/status.json 会互相覆盖。\n\n` +
+          `确定继续打开？`,
+        )
+        if (!proceed) return
+      }
       await hydrateProjectOnOpen(proj)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -111,6 +131,10 @@ function App() {
     if (currentProject) {
       const currentConfig = useWikiStore.getState().scheduledImportConfig
       saveScheduledImportConfig(currentProject.path, currentConfig).catch(() => {})
+      // 54 号设计隐患 1: 切换项目时释放占用 (仅释放本应用记录, fire-and-forget)
+      import("@/lib/project-owner").then(({ releaseProjectOwnership }) =>
+        releaseProjectOwnership(currentProject.path),
+      ).catch(() => {})
     }
 
     // Clear all per-project state BEFORE flipping back to the welcome screen

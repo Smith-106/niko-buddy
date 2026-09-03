@@ -58,6 +58,11 @@ const mocks = vi.hoisted(() => {
     watchSystemTheme: vi.fn(() => () => {}),
     stopScheduledImport: vi.fn(),
     getCurrentWindow: vi.fn(() => ({ setTitle: vi.fn() })),
+    // project-owner 锁 (54 号设计隐患 1): 打开项目时读/写 .qmai/owner.json
+    readFile: vi.fn(async () => {
+      throw new Error("ENOENT: no owner.json")
+    }),
+    writeFileAtomic: vi.fn(async () => {}),
     t: vi.fn((key: string, opts?: { message?: string }) => `${key}::${opts?.message ?? ""}`),
   }
 })
@@ -80,6 +85,8 @@ vi.mock("@/lib/platform", () => ({
 
 vi.mock("@/commands/fs", () => ({
   openProject: mocks.openProject,
+  readFile: mocks.readFile,
+  writeFileAtomic: mocks.writeFileAtomic,
 }))
 
 vi.mock("@/lib/project-store", () => ({
