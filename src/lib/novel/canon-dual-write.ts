@@ -391,10 +391,12 @@ export async function canonStoreWriter(
       })
       return { ok: true, revision: res.max_revision, ...(gateHit ? { gate: gateHit } : {}) }
     }
-    // 未知 kind 兜底 (兼容旧调用方直接传 request)
+    // 未知 kind 兜底 (兼容旧调用方直接传 request; TS 收窄后 payload 为 never,
+    // 运行时仅当既有调用方以非 discriminated 形状传入时到达)
+    const fallbackReq = (payload as { request: Record<string, unknown> }).request
     const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
       projectId: projectPath,
-      request: payload.request,
+      request: fallbackReq,
     })
     return { ok: true, revision: res.max_revision }
   } catch (err) {
