@@ -18,9 +18,12 @@ describe("F-002 ingest atomicity — structural invariants (grep-verifiable)", (
     // the 3rd is the pre-commit validation catch which is a separate concern
     // from the post-commit projection segments being eliminated.)
     const src = readSource("chapter-ingest.ts").split("\n")
-    // Region 锚点随 T3（modality 写端）行号推移同步：ingestChapter 主体现为
-    // 395-748；projection region（runProjection 定义 + 循环）为 551-748。
-    const region = src.slice(550, 748) // lines 551-748 (0-indexed 550)
+    // 锚点式定位：从 runProjection 定义处取 200 行作为 projection region。
+    // 原硬编码 slice(550, 748) 因顶部新增 import 行位移而漂移（52 号报告
+    // 终验回归），改为锚点后对新增 import/导出行免疫。
+    const runProjectionIdx = src.findIndex((l) => l.includes("const runProjection = async"))
+    expect(runProjectionIdx).toBeGreaterThan(-1)
+    const region = src.slice(runProjectionIdx, runProjectionIdx + 200)
     const catchLines = region.filter((line) => /^\s*\}?\s*catch\b/.test(line))
     expect(catchLines.length).toBeLessThanOrEqual(3)
     // The 7 post-commit projection segments are gone — replaced by runProjection.

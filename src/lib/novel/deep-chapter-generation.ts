@@ -10,6 +10,8 @@ import {
   type CandidateVersion,
 } from "./candidate-selector"
 import { SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG } from "./plateau-stop"
+import { checkVoiceprintConvergence } from "./voiceprint-alignment"
+import { extractAuthorFingerprint } from "./adversarial/author-fingerprint"
 import {
   buildTrackBMultiObjectiveConstraint,
   createDefaultTrackBMultiObjectivePolicy,
@@ -2469,6 +2471,28 @@ async function runReviewAndRepair(
         `返修后正文约 ${countChapterChars(revisedContent)} 字。`,
       ].join("\n"),
     ))
+    // 51 号报告 G2: 声纹对齐闭环（additive 监控，不改变门控决策）——
+    // 返修前后双向声纹测量：driftVsBaseline（风格不漂移）+ driftVsBefore
+    // （不过度改写）。未收敛 → onThinking 提示（继续返修或转人工），
+    // 不置 manualReviewRequired（该标志为门控 CB 专用，保持既有语义）。
+    // baseline 取初稿（作者原笔近似）；beforeRewrite=返修前 currentContent。
+    const voiceprint = checkVoiceprintConvergence({
+      baseline: extractAuthorFingerprint(draftContent),
+      beforeRewrite: currentContent,
+      afterRewrite: revisedContent,
+      iteration: retryCount,
+    })
+    if (!voiceprint.converged) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5：声纹对齐检查",
+        [
+          `返修后声纹未收敛：风格漂移 ${voiceprint.driftVsBaseline.toFixed(3)}（阈值 ${voiceprint.threshold}），改写偏差 ${voiceprint.driftVsBefore.toFixed(3)}。`,
+          voiceprint.recommendation === "manual"
+            ? "已达返修上限，建议人工复核声纹漂移。"
+            : "继续返修以收敛声纹。",
+        ].join("\n"),
+      ))
+    }
     // 借鉴点 #4 退化检测: 返修后跑 detectRegression 比当前版 vs 前版 slop 分。
     // 退化 (当前版 slop 比前版高 +threshold) → 回退前版 (不采用更差返修), 但 retryCount
     // 仍 +1 (占一次重试额度防无限循环)。不退化 → 采用当前版 + 更新 prevCandidate (滑动窗口)。
@@ -2491,6 +2515,19 @@ async function runReviewAndRepair(
       prevCandidate = currCandidate
     }
     revised = true
+    // 51 号报告 G6: plateau 停止准则——连续 window 轮 slop delta<epsilon 即平台期，
+    // 继续返修只会噪声波动，提前接受当前稿（不置 manualReviewRequired，与
+    // retryCountCircuitBreakerTripped 的 manualHandoff 路径严格区分）。
+    // 与 MAX_GATE_RETRY 硬上限共存（window=2 < 3，只可能在其前触发）。
+    // 记返修后 slop 分（非采用版）：退化回退不产生假平台期（delta=0 误判）。
+    // push 在 retryCount 递增前：第 3 次 push 时 retryCount 仍为 2（< 3），
+    // plateau 才可触发（原实现在递增后 push，第 3 次 push 时 retryCount=3
+    // 被守卫拒绝，plateau 永不触发——GLM 终验发现的不可达死代码）。
+    // 实际 break 在复审后判定（见 after_review checkpoint 之后），
+    // 仅当复审确认无阻断残留时才早退，P0 门禁不受影响。
+    slopHistory.push(scoreCandidate(revisedContent))
+    const plateau = slopHistory.evaluate(DEFAULT_PLATEAU_CONFIG)
+    const plateauEligible = plateau.plateau && retryCount < MAX_GATE_RETRY
     retryCount = nextRetryCount
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
       taskBrief,
@@ -2500,28 +2537,6 @@ async function runReviewAndRepair(
       decisionGates,
       retryCount,
     }))
-    // 51 号报告 G6: plateau 停止准则——连续 window 轮 slop delta<epsilon 即平台期，
-    // 继续返修只会噪声波动，提前接受当前稿（不置 manualReviewRequired，与
-    // retryCountCircuitBreakerTripped 的 manualHandoff 路径严格区分）。
-    // 与 MAX_GATE_RETRY 硬上限共存（window=2 < 3，只可能在其前触发）。
-    // 已达硬上限 (retryCount >= MAX_GATE_RETRY) 时跳过 plateau 早退——下一轮循环
-    // 顶部 retryCountCircuitBreaker 会以 manualHandoff 转人工，plateau 不得抢占。
-    // checkpoint 已先行发出（resume 可续，partial 语义零变更）。
-    // 记返修后 slop 分（非采用版）：退化回退不产生假平台期（delta=0 误判）。
-    slopHistory.push(scoreCandidate(revisedContent))
-    const plateau = slopHistory.evaluate(DEFAULT_PLATEAU_CONFIG)
-    if (plateau.plateau && retryCount < MAX_GATE_RETRY) {
-      callbacks.onThinking?.(formatStageThinking(
-        "阶段5：返修平台期提前停止",
-        [
-          `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期，提前接受当前稿。`,
-          "",
-          formatReviewIssueList(blockingIssues),
-        ].join("\n"),
-      ))
-      break
-    }
-
     callbacks.onThinking?.(formatStageThinking(
       "阶段5.5：返修后复审",
       "正在对返修后的正文重新运行完整门控审查，确认阻断问题是否已经解除。",
@@ -2555,6 +2570,20 @@ async function runReviewAndRepair(
       decisionGates,
       retryCount,
     }))
+    // G6: plateau 早退在复审后判定——blockingIssues 为最新复审结果，
+    // 仅当无阻断残留时才提前接受（有阻断继续返修，retryCount 达硬上限时
+    // 由循环顶部 retryCountCircuitBreaker 以 manualHandoff 转人工，P0 保护）。
+    if (plateauEligible && blockingIssues.length === 0) {
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5：返修平台期提前停止",
+        [
+          `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期，提前接受当前稿。`,
+          "",
+          formatReviewIssueList(blockingIssues),
+        ].join("\n"),
+      ))
+      break
+    }
     callbacks.onThinking?.(formatStageThinking(
       "阶段5.5：返修后复审",
       blockingIssues.length === 0

@@ -1184,7 +1184,7 @@ export async function restoreSnapshotHistory(
   return restoredCurrent
 }
 
-export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
+export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<{ requireConfirmation: boolean }> {
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
   const normalizedSnapshot = normalizeChapterSnapshot(snapshot, {
@@ -1196,12 +1196,15 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
   }
   // 51 号报告 G4: 编辑影响分析（事前冲击面预测，非阻断 trace）。
   // 在覆写前对 before/after 快照投影做影响分析；异常吞掉，绝不阻断保存链路（守 ADR-19/29 additive）。
+  // riskLevel==='high' 时置 requireConfirmation 标志交调用方（52 号报告终验补全）。
+  let requireConfirmation = false
   try {
     const beforeText = projectSnapshotForImpact(currentSnapshot)
     const afterText = projectSnapshotForImpact(normalizedSnapshot)
     const impactStores = projectSnapshotToImpactStores(normalizedSnapshot)
     if (beforeText || afterText) {
       const impact = analyzeEditImpact({ before: beforeText, after: afterText }, impactStores)
+      requireConfirmation = impact.riskLevel === "high"
       logger.info("Chapter Ingest", `Edit impact (ch${snapshot.chapterNumber}): risk=${impact.riskLevel}, affected=${impact.affectedEntities.length}`, {
         chapterNumber: snapshot.chapterNumber,
         riskLevel: impact.riskLevel,
@@ -1219,6 +1222,7 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
   // from the pre-edit version — clear it for this project (same root cause as
   // delete/restore; saveEdited was missed).
   clearTemporalFactsCache(pp)
+  return { requireConfirmation }
 }
 
 /** 51 号报告 G4: 将快照投影为影响分析文本（实体名 + 关键内容字段拼接）。 */
@@ -1238,10 +1242,30 @@ function projectSnapshotForImpact(snapshot: ChapterSnapshot | null): string {
   return parts.filter(Boolean).join("\n")
 }
 
-/** 51 号报告 G4: 从快照派生影响分析 stores（角色/伏笔；canon 边不在快照内留空）。 */
+/** 51 号报告 G4: 从快照派生影响分析 stores（角色/伏笔/canon 事实；subplot 不在快照内留空）。 */
 function projectSnapshotToImpactStores(snapshot: ChapterSnapshot): EditImpactStores {
   return {
     characters: (snapshot.characters ?? []).map((name) => ({ id: name, characterName: name })),
+    // 52 号报告终验补全：newCanonFacts/foreshadowingChanges 也投影进 stores，
+    // 使 analyzeEditImpact 能命中 canon 边与伏笔的受影响判定（此前仅 characters）。
+    canonEdges: (snapshot.newCanonFacts ?? []).map((fact) => ({
+      id: fact,
+      source_id: "",
+      target_id: "",
+      predicate: fact,
+      edge_kind: "world_fact" as const,
+    })),
+    foreshadows: (snapshot.foreshadowingChanges ?? []).map((f) => ({
+      id: f,
+      name: f,
+      description: f,
+      status: "planted" as const,
+      plantedChapter: snapshot.chapterNumber,
+      advancedChapters: [],
+      relatedCharacters: [],
+      relatedEvents: [],
+      notes: "",
+    })),
   }
 }
 

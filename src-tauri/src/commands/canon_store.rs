@@ -426,6 +426,17 @@ impl CanonState {
                 }
             }
             e.invalid_at = Some(cap_chapter);
+            // 52 号报告 G3: supersede 闭合——封顶时同时写入 expired_at
+            // （Unix 秒），生产 supersede 流不再只靠测试手动设置。
+            // 幂等跳过分支（已封顶且更早）不更新：时间戳保持首次封顶值。
+            if e.expired_at.is_none() {
+                e.expired_at = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0),
+                );
+            }
             true
         } else {
             false

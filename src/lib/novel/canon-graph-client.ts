@@ -60,6 +60,10 @@ export interface RawCanonEdge {
   hook_type?: string | null
   payoff_chapter?: number | null
   archived?: boolean | null
+  /** 创建时间戳（Unix 秒）。 */
+  created_at?: number | null
+  /** 封顶/supersede 时间戳（Unix 秒）；有效边为 null。 */
+  expired_at?: number | null
   /** 认知模态（落点①）：assertive/belief/hypothesis/retconned。旧数据（data JSON 无此字段）→ undefined。 */
   modality?: CanonModality | null
   /** 写入该边的写尝试 revision（attempt-count，含幂等 skip 的 post-bump 值）；旧数据无此字段 → undefined。 */
