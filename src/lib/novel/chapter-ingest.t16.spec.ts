@@ -146,6 +146,7 @@ import {
   buildCanonDualWriteOps,
   ingestChapter,
   isCanonDualWriteEligible,
+  parseFactsSubject,
   runCanonDualWriteHook,
   type ChapterSnapshot,
 } from "./chapter-ingest"
@@ -509,6 +510,32 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
     expect(written.facts[0]!.valid_at).toBe(1)
     expect(written.episodes).toHaveLength(1)
     expect(written.episodes[0]!.chapter).toBe(1)
+  })
+
+  it("54 ③: subject 解析排除误切——「名为/称为/因为/作为」不切分, 冒号仍优先", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角：佩剑名为黑剑"] }))
+    // facts.json 不存在 → 空表重建
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result.snapshot).not.toBeNull()
+    const writeCall = fsMocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("facts.json"))
+    expect(writeCall).toBeDefined()
+    const written = JSON.parse(String(writeCall![1]))
+    // 冒号优先切分 → subject=主角 (即便后续有「名为」也不误切)
+    expect(written.facts[0]!.subject).toBe("主角")
+    // lookbehind: 无冒号时「李四被称为王」→ 不在「为」处切分, subject 回退 rawFact 前 20 字
+    let subject = parseFactsSubject("李四被称为王")
+    expect(subject).toContain("李四被称为王")
+    subject = parseFactsSubject("主角因为愤怒离开")
+    expect(subject).toContain("主角因为愤怒离开")
+    subject = parseFactsSubject("赵六作为队长")
+    expect(subject).toContain("赵六作为队长")
+    subject = parseFactsSubject("李四成为队长")
+    // 「成为」非排除词: 在「为」处切 → subject=李四成
+    expect(subject.startsWith("李四成")).toBe(true)
+    subject = parseFactsSubject("张三属于甲队")
+    expect(subject).toBe("张三")
   })
 
   it("未注入 canonDualWriteDeps → 旧行为，不触发双写（零回归）", async () => {

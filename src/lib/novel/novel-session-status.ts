@@ -1686,6 +1686,8 @@ export function createChaseDebtFromHook(
   if (!COMMITMENT_HOOK_RE.test(hook)) return status
   const dueIn = opts.dueIn ?? 3
   const interestRate = opts.interestRate ?? 0.1
+  // 54 终验（hy3 P2）：同章重新生成会重复创建 chase-<ch>-N 债务——按 source_chapter 去重
+  if (ledger.debts.some((d) => d.source_chapter === chapter)) return status
   const debt: ChaseDebt = {
     id: `chase-${chapter}-${ledger.debts.length + 1}`,
     debt_type: "hook_strength",

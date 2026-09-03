@@ -266,6 +266,17 @@ export interface IngestChapterOptions {
  * reject 先于双写断言：pending/draft/outline/revised/archived 均拦截，
  * 非字符串 / 缺失 / 大小写不匹配（如 "FINAL"）也拦截。
  */
+/**
+ * facts-store 主语解析（54 号设计 ③，导出供 spec 直测）。
+ * 冒号（：|:）优先；无冒号时取「是/属于/为」前作为切分点；
+ * 「为」前一字为 名/称/作/因（名为/称为/作为/因为）时不切分（lookbehind），
+ * 回退 rawFact 前 20 字。
+ */
+export function parseFactsSubject(rawFact: string): string {
+  const subjectMatch = rawFact.match(/^(.+?)(：|:|是|属于|(?<![名称作因])为)/)
+  return subjectMatch ? subjectMatch[1]!.trim() : rawFact.slice(0, 20).trim()
+}
+
 export function isCanonDualWriteEligible(fm: Record<string, unknown>): boolean {
   const status = fm.chapter_status
   return status === "final" || status === "accepted"
@@ -496,9 +507,7 @@ export async function ingestChapter(
         let next = factsState
         const addedIds: string[] = []
         for (const rawFact of canonFacts) {
-          // 主语解析: 冒号优先; 无冒号时取「是/属于/为」前 (排除「名为/称为/作为/因为」误切)
-          const subjectMatch = rawFact.match(/^(.+?)(：|:|是|属于|为(?!名|称|作|因))/)
-          const subject = subjectMatch ? subjectMatch[1].trim() : rawFact.slice(0, 20).trim()
+          const subject = parseFactsSubject(rawFact)
           const before = next
           next = addFact(next, {
             subject,
@@ -514,6 +523,8 @@ export async function ingestChapter(
         if (addedIds.length > 0) {
           next = recordEpisode(next, snapshot.chapterNumber, addedIds)
           await writeFileAtomic(factsPath, saveFactsFile(next))
+          // 54 ③ 读侧接线：facts.json 变更后失效 temporal cache（空路径键 0:0:0:0 不变）
+          clearTemporalFactsCache(pp)
           logger.info("Chapter Ingest", `facts-store ADD ${addedIds.length} facts (chapter ${snapshot.chapterNumber})`)
         }
       }

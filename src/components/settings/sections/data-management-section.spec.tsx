@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     cancelBackup: vi.fn(),
     importBackup: vi.fn(),
     exportNovelDocx: vi.fn(),
+    exportNovelEpub: vi.fn(),
     countFinalChapters: vi.fn(),
     countVectorChunks: vi.fn(),
     legacyVectorRowCount: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("@/lib/backup/import", () => ({
 
 vi.mock("@/lib/novel/export", () => ({
   exportNovelDocx: mocks.exportNovelDocx,
+  exportNovelEpub: mocks.exportNovelEpub,
   countFinalChapters: mocks.countFinalChapters,
 }))
 
@@ -100,6 +102,7 @@ beforeEach(() => {
   mocks.exportBackup.mockReset()
   mocks.importBackup.mockReset()
   mocks.exportNovelDocx.mockReset()
+  mocks.exportNovelEpub.mockReset()
   mocks.countFinalChapters.mockReset()
   mocks.countVectorChunks.mockReset()
   mocks.legacyVectorRowCount.mockReset()
@@ -557,6 +560,49 @@ describe("DataManagementSection", () => {
     await waitFor(() => {
       expect(screen.getByText("settings.sections.dataManagement.docxNoProject")).toBeInTheDocument()
     })
+    mocks.project.path = "E:/Novel"
+  })
+
+  it("epub export success: shows success block with chapter count (54 ⑥)", async () => {
+    mocks.exportNovelEpub.mockResolvedValueOnce({
+      success: true,
+      exportedPath: "E:/Novel/complete-novel.epub",
+      chapterCount: 12,
+      message: "exported 12 chapters",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.epubExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.epubExportSuccess")).toBeInTheDocument()
+    })
+    expect(mocks.exportNovelEpub).toHaveBeenCalledWith({
+      projectPath: "E:/Novel",
+      exportPath: "E:/Novel/complete-novel.epub",
+    })
+  })
+
+  it("epub export failure: shows message and no success block", async () => {
+    mocks.exportNovelEpub.mockResolvedValueOnce({
+      success: false,
+      exportedPath: "",
+      chapterCount: 0,
+      message: "zip failed",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.epubExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("zip failed")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.epubExportSuccess")).not.toBeInTheDocument()
+  })
+
+  it("epub export disabled without a project with epubNoProject hint", async () => {
+    mocks.project.path = ""
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.epubNoProject")).toBeInTheDocument()
+    })
+    expect(screen.getByText("settings.sections.dataManagement.epubExportButton")).toBeDisabled()
     mocks.project.path = "E:/Novel"
   })
 

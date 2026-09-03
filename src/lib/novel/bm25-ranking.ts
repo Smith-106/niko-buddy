@@ -28,12 +28,18 @@ export function tokenizeForBm25(text: string): string[] {
   const tokens: string[] = []
   const asciiRuns = text.toLowerCase().match(/[a-z0-9]+/g) ?? []
   tokens.push(...asciiRuns)
-  // 移除 ASCII run 后对剩余字符做 bigram
+  // 移除 ASCII run 后对剩余字符做 bigram，并同时收束单字 token：
+  // 网文实体名常为单字（如「剑」），纯 bigram 下单字查询恒 0 分（GLM 终验 P1）；
+  // 单字 token 的 IDF 偏低不影响多字查询区分度，但对单字查询恢复真实 BM25 排序。
   const cjk = text.replace(/[a-zA-Z0-9]+/g, "\u0000")
   const chars = [...cjk].filter((c) => c !== "\u0000" && /\S/.test(c))
   for (let i = 0; i < chars.length; i++) {
-    if (i + 1 < chars.length) tokens.push(chars[i] + chars[i + 1])
-    else tokens.push(chars[i])
+    if (i + 1 < chars.length) {
+      tokens.push(chars[i] + chars[i + 1])
+      tokens.push(chars[i])
+    } else {
+      tokens.push(chars[i])
+    }
   }
   return tokens
 }

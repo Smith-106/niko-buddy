@@ -3,6 +3,7 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import {
   factsFromCommittedSnapshots,
+  factsFromFactsFile,
   fromCanonGraph,
   getFactsAt,
   invalidateFact,
@@ -225,6 +226,43 @@ describe("recordSupersession + resolveNegation cross-function order-independence
     recordSupersession(facts[1]!, "target", facts)
     // recordSupersession @ch3 narrows 7 → 3 (monotonic, never widens).
     expect(facts[0]!.validUntil).toBe(3)
+  })
+})
+
+describe("factsFromFactsFile（54 号设计 ③ 读侧：facts.json 投影）", () => {
+  it("fact 表投影为 TemporalFact：valid_at→validFrom, invalid_at→validUntil, expired 跳过", () => {
+    const facts = factsFromFactsFile({
+      schema_version: "facts/1.0",
+      next_id: 4,
+      episodes: [],
+      facts: [
+        { id: "fact-1", subject: "林澈", predicate: "持有", object: "黑剑", valid_at: 2, invalid_at: 5, reference_time: 2, episodes: [2], source: "chapter-ingest" },
+        { id: "fact-2", subject: "林澈", predicate: "状态", object: "重伤", valid_at: 3, reference_time: 3, episodes: [3], source: "chapter-ingest" },
+        { id: "fact-3", subject: "苏晚", predicate: "状态", object: "失踪", valid_at: 1, expired_at: 2, reference_time: 1, episodes: [1], source: "chapter-ingest" },
+      ],
+    })
+    expect(facts).toHaveLength(2)
+    expect(facts[0]!.validFrom).toBe(2) // 排序后: fact-1 (valid_at=2) 在前
+    expect(facts[0]!.subject).toBe("林澈")
+    expect(facts[0]!.validUntil).toBe(5)
+    expect(facts[0]!.source).toBe("facts-file:fact-1")
+    expect(facts[1]!.validUntil).toBeUndefined()
+    // expired_at 已设 → 跳过（不可见）
+    expect(facts.some((f) => f.id === "fact-3")).toBe(false)
+  })
+
+  it("按 (validFrom, id) 双键升序确定性排序", () => {
+    const facts = factsFromFactsFile({
+      schema_version: "facts/1.0",
+      next_id: 3,
+      episodes: [],
+      facts: [
+        { id: "fact-b", subject: "甲", predicate: "状态", object: "B", valid_at: 1, reference_time: 1, episodes: [1], source: "chapter-ingest" },
+        { id: "fact-a", subject: "甲", predicate: "状态", object: "A", valid_at: 1, reference_time: 1, episodes: [1], source: "chapter-ingest" },
+        { id: "fact-c", subject: "甲", predicate: "状态", object: "C", valid_at: 2, reference_time: 2, episodes: [2], source: "chapter-ingest" },
+      ],
+    })
+    expect(facts.map((f) => f.id)).toEqual(["fact-a", "fact-b", "fact-c"])
   })
 })
 

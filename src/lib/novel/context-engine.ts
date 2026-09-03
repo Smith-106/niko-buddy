@@ -20,6 +20,7 @@ import {
 import {
   rerankActiveEntitiesByTemporalFacts,
   factsFromCommittedSnapshots,
+  factsFromFactsFile,
   renderTemporalCanonBlock,
   fromCanonGraph,
   type TemporalFact,
@@ -1176,7 +1177,18 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
     const emptyRevision = "0:0:0:0"
     const cached = temporalFactsCache.get(pp)
     if (cached && cached.latestRevision === emptyRevision) return cached.facts
-    const facts: TemporalFact[] = []
+    // 54 ③ 读侧：无 snapshots 但 facts.json 存在（如快照被清理）→ 仍投影事实表
+    const factsPath = `${pp}/.novel/facts.json`
+    const factsRaw = await readFile(factsPath).catch(() => null)
+    let facts: TemporalFact[] = []
+    if (factsRaw !== null && factsRaw.trim().length > 0) {
+      try {
+        const { loadFactsFile } = await import("./facts-store")
+        facts = factsFromFactsFile(loadFactsFile(factsRaw))
+      } catch {
+        facts = []
+      }
+    }
     setTemporalFactsCache(pp, { latestRevision: emptyRevision, facts })
     return facts
   }
@@ -1201,9 +1213,24 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
   if (cached && cached.latestRevision === latestRevision) {
     return cached.facts
   }
-  const snapshots = await loadAllSnapshots(pp)
-  const ledger = await loadProjectionStatusLedger(pp)
-  const facts = factsFromCommittedSnapshots(snapshots, ledger)
+  // 54 号设计 ③ 读侧接线：facts.json（ADR-26 真源）存在 → 优先投影；
+  // ENOENT（legacy 项目 / 尚未 ingest）→ 回退 snapshot 折叠（零行为变更）。
+  const factsPath = `${pp}/.novel/facts.json`
+  let facts: TemporalFact[]
+  const factsRaw = await readFile(factsPath).catch(() => null)
+  if (factsRaw !== null && factsRaw.trim().length > 0) {
+    try {
+      const { loadFactsFile } = await import("./facts-store")
+      facts = factsFromFactsFile(loadFactsFile(factsRaw))
+    } catch {
+      // 解析失败/损坏 → 回退 snapshot 折叠（additive 安全，不因坏表阻断）
+      facts = factsFromCommittedSnapshots(await loadAllSnapshots(pp), await loadProjectionStatusLedger(pp))
+    }
+  } else {
+    const snapshots = await loadAllSnapshots(pp)
+    const ledger = await loadProjectionStatusLedger(pp)
+    facts = factsFromCommittedSnapshots(snapshots, ledger)
+  }
   setTemporalFactsCache(pp, { latestRevision, facts })
   return facts
 }

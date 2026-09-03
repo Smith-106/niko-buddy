@@ -28,6 +28,7 @@
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { ProjectionStatusLedger } from "./projection-status-ledger"
 import { resolveCanonicalName } from "./character-cognition"
+import type { FactsFileShape } from "./facts-store"
 import type { NameAliasMap } from "./book-analysis/types"
 import type { ContextEntity } from "./context-engine"
 // T25 (A-04.4): canon 图投影事实类型（T14 读出口产物，已剥离 known_by/digest）。
@@ -205,6 +206,39 @@ export function resolveNegation(
     resolvedAt: negatingFact.validFrom,
     note,
   }
+}
+
+/**
+ * 54 号设计 ③ 读侧接线：把 facts.json 表（ADR-26 唯一持久化真源，chapter-ingest
+ * 写入）投影为 TemporalFact 视图，供 loadTemporalFacts 优先消费。
+ *
+ * 语义映射（与 factsFromCommittedSnapshots 同形）:
+ *   - validFrom  = valid_at；validUntil = invalid_at（半开区间一致）
+ *   - expired_at 已设 → 跳过（视为不可见，与 getFactsAtChapter 同语义）
+ *   - id 直接用事实稳定 id（含 chapter 溯源，重复投影幂等）
+ *   - source = `facts-file:<id>`（provenance 标记，区分 fold 路径的 `chapter-N`）
+ *
+ * 输出按 (validFrom, id) 双键升序排序，与 fromCanonGraph 确定性约定一致。
+ */
+export function factsFromFactsFile(
+  state: FactsFileShape,
+  aliasMap?: NameAliasMap,
+): TemporalFact[] {
+  const facts: TemporalFact[] = []
+  for (const record of state.facts) {
+    if (record.expired_at !== undefined) continue
+    facts.push({
+      id: record.id,
+      subject: resolveCanonicalName(record.subject, aliasMap),
+      predicate: record.predicate,
+      object: record.object,
+      validFrom: record.valid_at,
+      validUntil: record.invalid_at,
+      source: `facts-file:${record.id}`,
+    })
+  }
+  facts.sort((a, b) => a.validFrom - b.validFrom || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  return facts
 }
 
 /**

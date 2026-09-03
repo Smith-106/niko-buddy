@@ -14,11 +14,15 @@ use tauri::{AppHandle, Emitter};
 use super::docx_export::NovelChapter;
 
 /// EPUB 导出结果（与 DocxExportResult 同构，前端共用成功/路径/章节数）。
+/// serde camelCase：Tauri 返回值按 Rust 字段名序列化，TS 侧期望 exportedPath/chapterCount/message，
+/// 修复 40fe41d2 引入的契约错配（path/chapters vs exportedPath/chapterCount）。
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EpubExportResult {
     pub success: bool,
-    pub path: String,
-    pub chapters: usize,
+    pub exported_path: String,
+    pub chapter_count: usize,
+    pub message: String,
 }
 
 /// 构建并写出 EPUB3 包。
@@ -48,13 +52,22 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     )
     .map_err(|e| format!("EPUB 导出失败：container.xml 写入错误: {e}"))?;
 
-    // 3) content.opf（manifest + spine 按章节顺序）
+    // 3) content.opf（manifest + spine 按章节顺序；nav 文档满足 EPUB3 规范）
     let manifest: String = chapters
         .iter()
         .enumerate()
         .map(|(i, _)| format!(r#"<item id="ch{i}" href="chapters/ch{i}.xhtml" media-type="application/xhtml+xml"/>"#))
         .collect::<Vec<_>>()
         .join("\n    ");
+    let nav_items: String = chapters
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let title = escape_xml(&c.title);
+            format!(r#"<li><a href="chapters/ch{i}.xhtml">{title}</a></li>"#)
+        })
+        .collect::<Vec<_>>()
+        .join("\n      ");
     let spine: String = chapters
         .iter()
         .enumerate()
@@ -70,6 +83,7 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     <dc:language>zh-CN</dc:language>
   </metadata>
   <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     {manifest}
   </manifest>
   <spine>
@@ -80,6 +94,26 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     zip.start_file("OEBPS/content.opf", options)
         .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
     zip.write_all(opf.as_bytes()).map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
+
+    // 3b) nav.xhtml（EPUB3 规范要求 manifest 含 nav 文档，epubcheck 否则报 ERROR）
+    let nav = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN">
+<head><title>目录</title></head>
+<body>
+<nav epub:type="toc" id="toc">
+  <h1>目录</h1>
+  <ol>
+      {nav_items}
+  </ol>
+</nav>
+</body>
+</html>"#
+    );
+    zip.start_file("OEBPS/nav.xhtml", options)
+        .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
+    zip.write_all(nav.as_bytes()).map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
 
     // 4) 章节 XHTML（标题转义 + 空行切段）
     for (i, chapter) in chapters.iter().enumerate() {
@@ -110,8 +144,9 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     zip.finish().map_err(|e| format!("EPUB 导出失败：ZIP 收尾错误: {e}"))?;
     Ok(EpubExportResult {
         success: true,
-        path: export_path.to_string(),
-        chapters: chapters.len(),
+        exported_path: export_path.to_string(),
+        chapter_count: chapters.len(),
+        message: format!("exported {} chapters to {export_path}", chapters.len()),
     })
 }
 
@@ -168,12 +203,12 @@ mod tests {
         let path = dir.join("out.epub");
         let result = build_and_write_epub(&chapters_fixture(), path.to_str().unwrap()).unwrap();
         assert!(result.success);
-        assert_eq!(result.chapters, 2);
+        assert_eq!(result.chapter_count, 2);
 
         // 回读 ZIP：mimetype 必须是首条目且 stored
         let file = std::fs::File::open(&path).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();
-        assert_eq!(zip.len(), 5); // mimetype + container + opf + 2 章
+        assert_eq!(zip.len(), 6); // mimetype + container + opf + nav + 2 章
         let mut names: Vec<String> = zip.file_names().map(|s| s.to_string()).collect();
         assert_eq!(names[0], "mimetype");
         assert_eq!(zip.by_index(0).unwrap().compression(), zip::CompressionMethod::Stored);
@@ -185,6 +220,15 @@ mod tests {
         let mut container = String::new();
         zip.by_name("META-INF/container.xml").unwrap().read_to_string(&mut container).unwrap();
         assert!(container.contains("OEBPS/content.opf"));
+
+        // nav.xhtml 存在且 manifest 声明 properties="nav"（EPUB3 规范）
+        let mut nav = String::new();
+        zip.by_name("OEBPS/nav.xhtml").unwrap().read_to_string(&mut nav).unwrap();
+        assert!(nav.contains("epub:type=\"toc\""));
+        assert!(nav.contains("chapters/ch0.xhtml"));
+        let mut opf = String::new();
+        zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+        assert!(opf.contains("properties=\"nav\""));
 
         // 章节 XHTML：标题转义 + 段落切分
         let mut ch1 = String::new();

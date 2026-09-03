@@ -841,6 +841,30 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
     expect(mocks.state.providerConfigs["openai-main"].maxContextSize).toBe(262144)
   })
 
+  it("54 W3: maxOutputTokens 输入框读写 override（空=undefined，低于下限抬到 256）", () => {
+    const { rerender } = render(<LlmProviderSection />)
+    const card = cardByLabel("OpenAI")
+    expandCard(card)
+    const input = within(card).getByPlaceholderText("4096") as HTMLInputElement
+    // 初始：无配置 → 空
+    expect(input.value).toBe("")
+    // 输入合法值 → 写入 override
+    fireEvent.change(input, { target: { value: "8192" } })
+    expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBe(8192)
+    // 重渲染回读
+    rerender(<LlmProviderSection />)
+    expect((within(card).getByPlaceholderText("4096") as HTMLInputElement).value).toBe("8192")
+    // 低于下限 → 抬到 256
+    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "100" } })
+    expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBe(256)
+    // number 输入对非法字符在浏览器层过滤（abc → ""）→ undefined（零行为变更）
+    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "abc" } })
+    expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBeUndefined()
+    // 清空 → undefined
+    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "" } })
+    expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBeUndefined()
+  })
+
   it("ReasoningControls (exported): mode buttons + custom budget edge cases", () => {
     const onChange = vi.fn()
     const { rerender } = render(<ReasoningControls value={{ mode: "auto" }} onChange={onChange} />)

@@ -1967,6 +1967,10 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
     // 无承诺信号 → 不创建
     const noHook = createChaseDebtFromHook(base, 4, "夜色渐深，他合上了书。")
     expect(noHook.chase_debt!.debts).toHaveLength(0)
+    // 终验 P2：同章重新生成不重复创建（按 source_chapter 去重）
+    const again = createChaseDebtFromHook(withDebt, 3, "他必须在天亮前找到真相")
+    expect(again.chase_debt!.debts).toHaveLength(1)
+    expect(again).toBe(withDebt)
     // 无 chase_debt 字段 → 原样返回
     const { chase_debt: _cd, ...legacy } = base
     expect(createChaseDebtFromHook(legacy as NovelSessionStatus, 3, "他必须回来")).toBe(legacy)

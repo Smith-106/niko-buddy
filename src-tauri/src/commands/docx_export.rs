@@ -35,6 +35,7 @@ pub struct NovelChapter {
 
 /// Result of a DOCX export operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocxExportResult {
     pub success: bool,
     pub export_path: String,

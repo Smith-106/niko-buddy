@@ -1532,12 +1532,12 @@ export async function runDeepChapterGeneration(
     const audit = analyzeAvoidAiPatterns(finalContent)
     callbacks.onThinking?.(formatStageThinking(
       "阶段6.5：avoid-ai 审计",
-      [formatAvoidAiPatternsSummary(audit)],
+      formatAvoidAiPatternsSummary(audit),
     ))
   } catch (err) {
     callbacks.onThinking?.(formatStageThinking(
       "avoid-ai 审计",
-      [`审计跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`],
+      `审计跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
     ))
   }
   // 54 号设计 ④: chase_debt 记账人接线 (webnovel-writer ChaseDebtMeta 吸收)。
@@ -1557,7 +1557,7 @@ export async function runDeepChapterGeneration(
   } catch (err) {
     callbacks.onThinking?.(formatStageThinking(
       "追读债务记账",
-      [`chase_debt 记账跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`],
+      `chase_debt 记账跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
     ))
   }
   // ISS-20260714-002: explicit run-end flush of buffered LLM metrics. Fire-

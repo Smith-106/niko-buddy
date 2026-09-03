@@ -6,8 +6,22 @@ describe("tokenizeForBm25（中文 bigram + ASCII 词元混合切分）", () => 
     expect(tokenizeForBm25("Hello World 42")).toEqual(["hello", "world", "42"])
   })
 
-  it("中文按字符 bigram 切分，末位单字保留 unigram", () => {
-    expect(tokenizeForBm25("林澈跑了")).toEqual(["林澈", "澈跑", "跑了", "了"])
+  it("中文按字符 bigram 切分，同时收束单字 token（单字查询可命中）", () => {
+    expect(tokenizeForBm25("林澈跑了")).toEqual(["林澈", "林", "澈跑", "澈", "跑了", "跑", "了"])
+  })
+
+  it("终验 P1：单字 CJK 查询不再恒 0 分——单字 token 与文档单字匹配", () => {
+    const docs = [
+      { id: "乙", text: "剑 剑 剑 设定" },
+      { id: "甲", text: "剑 设定" },
+    ]
+    const ranked = rankByBm25("剑", docs)
+    // 乙词频高 → 真实 BM25 区分（不再依赖输入序巧合）
+    expect(ranked[0]!.id).toBe("乙")
+    expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score)
+    // 输入序反转同样成立
+    const reversed = rankByBm25("剑", [...docs].reverse())
+    expect(reversed[0]!.id).toBe("乙")
   })
 
   it("混合文本：ASCII 词与中文 bigram 共存", () => {

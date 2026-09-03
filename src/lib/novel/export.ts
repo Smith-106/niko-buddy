@@ -182,6 +182,17 @@ export interface DocxExportOptions {
 }
 
 /**
+ * DOCX 导出结果。
+ * MIT licensed implementation.
+ */
+export interface DocxExportResult {
+  success: boolean
+  exportedPath: string
+  chapterCount: number
+  message: string
+}
+
+/**
  * EPUB 导出选项（54 号设计 ⑥）：与 DOCX 同形，复用章节加载逻辑。
  */
 export interface EbookExportOptions {
@@ -190,15 +201,10 @@ export interface EbookExportOptions {
 }
 
 /**
- * EPUB 导出结果。
+ * EPUB 导出结果（与 DocxExportResult 同形；别名保持旧导出类型不回归）。
  * MIT licensed implementation.
  */
-export interface EbookExportResult {
-  success: boolean
-  exportedPath: string
-  chapterCount: number
-  message: string
-}
+export type EbookExportResult = DocxExportResult
 
 /**
  * Load final-status chapters (wiki/chapters, `chapter_status: final`) ordered by

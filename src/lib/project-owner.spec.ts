@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import {
   APP_OWNER_ID,
   OWNER_STALE_MS,
@@ -14,7 +14,6 @@ function makeDeps(over: Partial<OwnerDeps> = {}): OwnerDeps {
   const files = new Map<string, string>()
   // 预置初始文件内容 (供 readFile 读取, 与写入共享同一 map)
   if (over.readFile) {
-    const seed = over.readFile
     files.set("seed", "") // noop 占位防止读取顺序依赖
   }
   const base: OwnerDeps = {

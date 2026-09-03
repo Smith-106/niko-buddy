@@ -301,8 +301,12 @@ describe("runDeepChapterGeneration", () => {
       const prompt = messagesPromptText(messages)
       if (prompt.includes("正文初稿")) {
         callbacks.onToken(aiFlavoredDraft)
-      } else if (prompt.includes("最终去AI味")) {
-        callbacks.onToken(aiFlavoredDraft)
+      } else if (prompt.includes("去AI味")) {
+        // 终验（GLM P2）：旧分支名「最终去AI味」永不命中（真实提示词为
+        // 「最终质检与去AI味助手」/「待最终简单审查与去AI味正文」）→ 断言空转。
+        // 修正为真实串，断言目标改为 draftContent（规范化层输出；final 是 LLM
+        // 去 AI 输出，不再过机械层）。
+        callbacks.onToken(chapterText("最终质检后的正文", 3000))
       } else {
         callbacks.onToken("可执行任务书内容")
       }
@@ -315,9 +319,9 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(thinking.join("\n")).toContain("阶段3.5：机械层规范化")
     expect(thinking.join("\n")).toContain("替换")
-    // 规范化后的草稿不含 AI 腔词
-    expect(result.finalContent).not.toContain("因此变得更危险")
-    expect(result.finalContent).not.toContain("决定先带走")
+    // 规范化后的草稿不含 AI 腔词（draftContent = formatNormalize 输出，真实断言目标）
+    expect(result.draftContent).not.toContain("因此变得更危险")
+    expect(result.draftContent).not.toContain("决定先带走")
   })
 
   it("injects the enabled writing style into the stage 3 draft prompt", async () => {
