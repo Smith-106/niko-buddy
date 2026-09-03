@@ -18,6 +18,7 @@ import {
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
 import { reviewChapter, runContinuityMechanicalPreflight, resolveReviewGateKey, isReviewParseError, type NovelReviewResult } from "./review-adapter"
+import { getUpgradeThreshold, getRepairScope, GATE_MAPPING } from "./audit-taxonomy"
 import {
   dimensionResultsToReviewResults,
   runSixDimensionReview,
@@ -82,6 +83,9 @@ import { loadCharacterStates } from "./character-state"
 import {
   extractEmbeddedStateDeltaJson,
   runStateDeltaLightCheckOnDraft,
+  markStateDegraded,
+  resolveStateSettlement,
+  type StateDelta,
 } from "./state-delta-light-check"
 import {
   formatThrillSoftGateThinkingWithAck,
@@ -663,6 +667,7 @@ export function buildDecisionGates(
   reviewResults: NovelReviewResult[],
   retryCount: number,
   manualReviewRequired = false,
+  genre?: string,
 ): DeepChapterDecisionGates {
   const grouped: Record<DeepChapterDecisionGateKey, NovelReviewResult[]> = {
     consistency: [],
@@ -673,14 +678,25 @@ export function buildDecisionGates(
     grouped[resolveDecisionGateKey(item.type)].push(item)
   }
   const updatedAt = new Date().toISOString()
-  const createGate = (findings: NovelReviewResult[]): DeepChapterDecisionGate => {
+  const createGate = (findings: NovelReviewResult[], gateKey: DeepChapterDecisionGateKey): DeepChapterDecisionGate => {
     const hasError = findings.some((item) => item.severity === "error")
     const hasWarning = findings.some((item) => item.severity === "warning")
+    const warningCount = findings.filter((item) => item.severity === "warning").length
+    // 53 号报告 P0-3 接线② additive: 题材级 warn→fail 升级 (inkos
+    // getUpgradeThreshold 模式, AGPL 只借模式)。仅 genre 已传时启用
+    // (缺省零行为变更), 且只作用于 Quality 门 (P0/P1 恒硬门不受题材影响)。
+    // 语义: Quality 门无 error 但 warn 数 ≥ 阈值 → verdict 升 fail。
+    const upgradedToFail =
+      gateKey === "quality" &&
+      genre !== undefined &&
+      !hasError &&
+      hasWarning &&
+      warningCount >= getUpgradeThreshold(genre, GATE_MAPPING.quality.dimensionIds[0])
     return {
-      status: hasError ? "failed" : "passed",
-      verdict: manualReviewRequired && hasError
+      status: hasError || upgradedToFail ? "failed" : "passed",
+      verdict: manualReviewRequired && (hasError || upgradedToFail)
         ? "manual_review"
-        : hasError
+        : hasError || upgradedToFail
           ? "fail"
           : hasWarning
             ? "warning"
@@ -693,9 +709,9 @@ export function buildDecisionGates(
     }
   }
   const gates: DeepChapterDecisionGates = {
-    consistency: createGate(grouped.consistency),
-    anti_ai: createGate(grouped.anti_ai),
-    quality: createGate(grouped.quality),
+    consistency: createGate(grouped.consistency, "consistency"),
+    anti_ai: createGate(grouped.anti_ai, "anti_ai"),
+    quality: createGate(grouped.quality, "quality"),
     overall: "pass",
   }
   // CORR-108 fix (ADR-17 priority: Consistency > Anti-AI > Quality): a
@@ -762,10 +778,21 @@ export function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): 
  *
  * Exported for TS-01 testing (verify warning dims reach stage-5).
  */
-export function collectRepairIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
+export function collectRepairIssues(
+  decisionGates: DeepChapterDecisionGates,
+  genre?: string,
+): NovelReviewResult[] {
   const warnings: NovelReviewResult[] = []
   for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
     const gate = decisionGates[gateKey]
+    // 53 号报告 P0-3 接线③ additive: 题材级 repair_scope 路由 (inkos
+    // getRepairScope 模式, AGPL 只借模式)。scope=warn_only 的门不进自动修复
+    // (仅 surface); scope=resettle_only 由状态重结算路径处理 (不重写正文),
+    // 此处亦跳过 (避免正文重写)。genre 未传 → 全量进修复 (现状零行为变更)。
+    if (genre !== undefined) {
+      const scope = getRepairScope(genre, GATE_MAPPING[gateKey].dimensionIds[0])
+      if (scope === "warn_only" || scope === "resettle_only") continue
+    }
     for (const finding of gate.findings) {
       if (finding.severity === "warning") {
         warnings.push(finding)
@@ -1568,11 +1595,40 @@ async function runPostDraftStateDeltaLightCheck(
         structuredRaw,
       },
     )
+    // 53 号报告 P0-3 接线④ additive: 接入 PASS/REPAIR/FAIL 三态结算
+    // (inkos resolveStateSettlement 模式, AGPL 只借模式)。三态为新增输出,
+    // 不改变 reviewResults 流: REPAIR → 触发一次重结算 (不重写正文),
+    // markStateDegraded 判定重结算后是否仍 degraded; FAIL → 提示阻断语义
+    // (实际阻断仍由 stateDeltaBlocksTrackA 开关控制, 现状保留)。
+    const delta = structuredRaw
+      ? (JSON.parse(structuredRaw) as StateDelta)
+      : ({} as StateDelta)
+    let settlement = resolveStateSettlement(delta, issues, source)
+    const settlementLines: string[] = [`结算三态：${settlement.outcome}（${settlement.reason}）`]
+    if (settlement.outcome === "REPAIR") {
+      // 重结算一次: 重跑 light-check (同一输入), 再结算; 仍非 PASS → degraded
+      const reRun = runStateDeltaLightCheckOnDraft(
+        draftContent,
+        store.characters ?? [],
+        chapter,
+        { blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true, structuredRaw },
+      )
+      const reSettled = resolveStateSettlement(
+        structuredRaw ? (JSON.parse(structuredRaw) as StateDelta) : ({} as StateDelta),
+        reRun.issues,
+        reRun.source,
+      )
+      settlement = markStateDegraded(reSettled)
+      settlementLines.push(`重结算后：${settlement.outcome}${settlement.degraded ? "（degraded，需人工确认）" : "（已收敛）"}`)
+    } else if (settlement.outcome === "FAIL") {
+      settlementLines.push(`FAIL 阻断语义：${novelConfig.stateDeltaBlocksTrackA ? "阻断 Track A" : "warn-only（未启用阻断）"}`)
+    }
     if (issues.length > 0 || source !== "empty") {
       callbacks.onThinking?.(formatStageThinking(
         "阶段3.7：StateDelta 轻检",
         [
           `抽取源：${source === "structured" ? "结构化 JSON" : source === "heuristic" ? "启发式" : "跳过"}`,
+          ...settlementLines,
           issues.length === 0
             ? "无状态告警。"
             : [
@@ -2486,7 +2542,7 @@ async function runReviewAndRepair(
       callbacks.onThinking?.(formatStageThinking(
         "阶段5：声纹对齐检查",
         [
-          `返修后声纹未收敛：风格漂移 ${voiceprint.driftVsBaseline.toFixed(3)}（阈值 ${voiceprint.threshold}），改写偏差 ${voiceprint.driftVsBefore.toFixed(3)}。`,
+          `返修后声纹未收敛：风格漂移 ${voiceprint.driftVsBaseline.toFixed(3)}（默认阈值 0.3），改写偏差 ${voiceprint.driftVsBefore.toFixed(3)}。`,
           voiceprint.recommendation === "manual"
             ? "已达返修上限，建议人工复核声纹漂移。"
             : "继续返修以收敛声纹。",

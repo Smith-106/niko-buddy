@@ -46,14 +46,66 @@ use lancedb::Table;
 
 use crate::types::canon_types::{
     self, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
-    EdgeKind, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion, SupersedeRequest,
-    SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES, CANON_TABLE_ENTITIES,
-    CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
+    ConflictClass, EdgeKind, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
+    SupersedeRequest, SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES,
+    CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// 路径与 SQL 辅助
+// 53 号报告 P0-2: 确定性冲突语义分类 (graphiti dedupe/contradiction 语义,
+// Apache-2.0 借模式; Rust 存储层零 LLM 守 ADR-19, LLM 分类为 TS 侧 advisory)
 // ──────────────────────────────────────────────────────────────────────────
+
+/// 确定性冲突分类纯函数 (零 IO, 可 cargo test + proptest)。
+/// 判定规则 (宁漏勿误, 歧义一律 Independent 绝不误杀合法剧情):
+///  1. digest 非空且相等 + 有效区间重叠 → Duplicate (幂等键 graphiti 模式);
+///  2. (source_id, target_id, predicate) 全等 + 有效区间重叠 → Duplicate
+///     (同事实重复写入);
+///  3. 同 source_id 同 predicate 指向不同 target + 有效区间重叠 → Contradicted
+///     (同事实不同值);
+///  4. 其余 → Independent。
+/// 注: belief/hypothesis 认知模态边 (Modality 非 Assertive) 不参与矛盾判定
+/// (落点①: 认知模态与 edge_kind 正交, 不与确定性分类冲突)。
+pub fn classify_conflict(new_edge: &CanonEdge, existing: &[CanonEdge]) -> ConflictClass {
+    // 1. digest 非空且相等 + 有效区间重叠 → Duplicate (幂等键 graphiti 模式)。
+    //    仅 digest 判定重复: supersede 是调用方显式操作 (封顶旧边+插入新边),
+    //    同键非 digest 属信任调用方 (宁漏勿误, 绝不误拦合法更正)。
+    if !new_edge.digest.is_empty() {
+        if let Some(prev) = existing.iter().find(|e| e.digest == new_edge.digest) {
+            if intervals_overlap(prev, new_edge) {
+                return ConflictClass::Duplicate;
+            }
+        }
+    }
+    // 2. 同 source_id 同 predicate 指向不同 target + 有效区间重叠 → Contradicted
+    //    (同事实不同值, 语义矛盾)。belief/hypothesis 认知模态边不参与矛盾判定
+    //    (落点①: 认知模态与 edge_kind 正交)。
+    if existing.iter().any(|e| {
+        e.source_id == new_edge.source_id
+            && e.predicate == new_edge.predicate
+            && e.target_id != new_edge.target_id
+            && intervals_overlap(e, new_edge)
+    }) {
+        return ConflictClass::Contradicted;
+    }
+    // 3. 其余 → Independent (含全等键同值重复: 由调用方显式意图决定, 不自动拦)。
+    ConflictClass::Independent
+}
+
+/// 有效区间重叠判定: 未封顶 (invalid_at None) 视为延伸到未来, 与任何起始
+/// 不晚于自身的有效区间相交。
+fn intervals_overlap(a: &CanonEdge, b: &CanonEdge) -> bool {
+    let a_start = a.valid_at.unwrap_or(i32::MIN);
+    let b_start = b.valid_at.unwrap_or(i32::MIN);
+    match (a.invalid_at, b.invalid_at) {
+        // 双方都未封顶 → 均为 [start, ∞) → 必相交 (时间轴单调延续)
+        (None, None) => true,
+        // a 封顶 b 未封顶: a=[a_start,a_inv], b=[b_start,∞) → b_start ≤ a_inv
+        (Some(a_inv), None) => b_start <= a_inv,
+        (None, Some(b_inv)) => a_start <= b_inv,
+        (Some(a_inv), Some(b_inv)) => a_start <= b_inv && b_start <= a_inv,
+    }
+}
 
 fn db_path(project_path: &str) -> String {
     format!("{}/.qmai/lancedb", project_path.replace('\\', "/"))
@@ -447,6 +499,9 @@ impl CanonState {
 
     /// 批量 supersede：旧边封顶（invalid_at=cap_chapter），插入新边（全新 uuid）。
     /// 幂等：重复 supersede 同一组 new_edges（同 id）会替换而非复制。
+    /// 53 号报告 P0-2: 插入前对每条新边做确定性冲突分类 (classify_conflict) —
+    /// Duplicate → 跳过插入 (duplicate_skipped 计数, 幂等去重); Contradicted /
+    /// Independent → 正常封顶+插入。分类结果记录 conflict_notes (审计溯源)。
     pub fn supersede_edges(&mut self, req: SupersedeRequest) -> SupersedeResult {
         let mut capped = 0usize;
         let mut missing = Vec::new();
@@ -458,7 +513,16 @@ impl CanonState {
             }
         }
         let mut inserted = 0usize;
+        let mut duplicate_skipped = 0usize;
+        let mut conflict_notes = Vec::new();
         for ne in req.new_edges {
+            let class = classify_conflict(&ne, &self.edges);
+            conflict_notes.push(format!("new_edge_id={}:{}", ne.id, class.as_str()));
+            if class == ConflictClass::Duplicate {
+                // 幂等去重: 同事实已存在且区间重叠 → 跳过插入 (graphiti dedupe 语义)
+                duplicate_skipped += 1;
+                continue;
+            }
             self.upsert_edge(ne);
             inserted += 1;
         }
@@ -466,6 +530,8 @@ impl CanonState {
             capped,
             inserted,
             missing,
+            duplicate_skipped,
+            conflict_notes,
         }
     }
 
@@ -834,6 +900,12 @@ impl CanonStore {
 
     /// 批量 supersede：旧边封顶 + 新边插入（单次 invoke）。
     pub async fn supersede_edges(&self, req: SupersedeRequest) -> Result<SupersedeResult, String> {
+        // 53 号报告 P0-2: 写前取现存边快照供确定性冲突分类 (只读复用 query_edges,
+        // 零新读路径; 拉取失败则跳过分类降级纯插入, 不阻断写可用性)
+        let edges_snapshot = self
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap_or_default();
         let mut capped = 0usize;
         let mut missing = Vec::new();
         for old_id in &req.old_edge_ids {
@@ -844,7 +916,16 @@ impl CanonStore {
             }
         }
         let mut inserted = 0usize;
+        let mut duplicate_skipped = 0usize;
+        let mut conflict_notes = Vec::new();
         for ne in req.new_edges {
+            // 53 号报告 P0-2: 写时确定性冲突分类 (graphiti dedupe 语义, 零 LLM)
+            let class = classify_conflict(&ne, &edges_snapshot);
+            conflict_notes.push(format!("new_edge_id={}:{}", ne.id, class.as_str()));
+            if class == ConflictClass::Duplicate {
+                duplicate_skipped += 1;
+                continue;
+            }
             self.upsert_edge(ne).await?;
             inserted += 1;
         }
@@ -852,6 +933,8 @@ impl CanonStore {
             capped,
             inserted,
             missing,
+            duplicate_skipped,
+            conflict_notes,
         })
     }
 
@@ -1577,7 +1660,11 @@ mod tests {
         let mut s = CanonState::new();
         s.upsert_edge(edge("old1", Some(1), None));
         s.upsert_edge(edge("old2", Some(1), None));
-        let new1 = edge("new1", Some(5), None);
+        // 53 号报告 P0-2: 新边 target 不同 (同 source+predicate 异值重叠 →
+        // Contradicted) → 正常封顶+插入; 全等键重复才走 Duplicate 跳过
+        let mut new1 = edge("new1", Some(5), None);
+        new1.target_id = "tgt2".into();
+        new1.digest = "digest-new-1".into();
         let req = SupersedeRequest {
             old_edge_ids: vec!["old1".into(), "ghost".into()],
             cap_chapter: 5,
@@ -1588,6 +1675,8 @@ mod tests {
         assert_eq!(r.capped, 1);
         assert_eq!(r.inserted, 1);
         assert_eq!(r.missing, vec!["ghost".to_string()]);
+        assert_eq!(r.duplicate_skipped, 0);
+        assert!(r.conflict_notes.iter().any(|n| n.contains("new_edge_id=new1:contradicted")));
         // old1 封顶
         assert_eq!(
             s.edges.iter().find(|e| e.id == "old1").unwrap().invalid_at,
@@ -1595,6 +1684,87 @@ mod tests {
         );
         // new1 存在且有效
         assert!(s.edges.iter().any(|e| e.id == "new1"));
+    }
+
+    // ── 53 号报告 P0-2: 确定性冲突分类 (classify_conflict 纯函数) ──
+
+    #[test]
+    fn classify_conflict_digest_equal_is_duplicate() {
+        let mut existing = edge("e1", Some(1), None);
+        existing.digest = "abc".into();
+        let mut new_e = edge("new1", Some(2), None);
+        new_e.digest = "abc".into();
+        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Duplicate);
+    }
+
+    #[test]
+    fn classify_conflict_same_key_overlap_is_independent() {
+        // 全等键 (src/tgt/pred) + 重叠: supersede 为调用方显式操作, 非 digest
+        // 幂等键不自动判 duplical (宁漏勿误, 不误拦合法同事实更正)
+        let existing = edge("e1", Some(1), None);
+        let new_e = edge("new1", Some(2), None);
+        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+    }
+
+    #[test]
+    fn classify_conflict_same_key_non_overlap_is_independent() {
+        // 全等键但区间不重叠 (旧边已封顶) → 非重复, 正常插入
+        let existing = edge("e1", Some(1), Some(3));
+        let new_e = edge("new1", Some(5), None);
+        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+    }
+
+    #[test]
+    fn classify_conflict_same_pred_different_target_overlap_is_contradicted() {
+        let mut existing = edge("e1", Some(1), None);
+        existing.target_id = "capitalA".into();
+        let mut new_e = edge("new1", Some(2), None);
+        new_e.target_id = "capitalB".into();
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Contradicted
+        );
+    }
+
+    #[test]
+    fn classify_conflict_digest_equal_non_overlap_is_independent() {
+        // digest 相等但区间不重叠 (旧边已封顶新章) → 非重复 (时态递进合法)
+        let mut existing = edge("e1", Some(1), Some(3));
+        existing.digest = "abc".into();
+        let mut new_e = edge("new1", Some(5), None);
+        new_e.digest = "abc".into();
+        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+    }
+
+    #[test]
+    fn classify_conflict_unrelated_is_independent() {
+        let mut existing = edge("e1", Some(1), None);
+        existing.source_id = "srcA".into();
+        existing.predicate = "loves".into();
+        let mut new_e = edge("new1", Some(2), None);
+        new_e.source_id = "srcB".into();
+        new_e.predicate = "hates".into();
+        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+    }
+
+    #[test]
+    fn supersede_edges_duplicate_new_edge_is_skipped() {
+        let mut s = CanonState::new();
+        let mut existing = edge("e1", Some(1), None);
+        existing.digest = "dup-digest".into();
+        s.upsert_edge(existing);
+        let mut dup = edge("new-dup", Some(2), None);
+        dup.digest = "dup-digest".into();
+        let req = SupersedeRequest {
+            old_edge_ids: vec![],
+            cap_chapter: 2,
+            new_edges: vec![dup],
+            caused_by: None,
+        };
+        let r = s.supersede_edges(req);
+        assert_eq!(r.duplicate_skipped, 1);
+        assert_eq!(r.inserted, 0);
+        assert!(!s.edges.iter().any(|e| e.id == "new-dup"));
     }
 
     // ── 纯逻辑：query 认知轴 + 时态 ──

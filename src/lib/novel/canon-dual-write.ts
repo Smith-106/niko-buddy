@@ -34,6 +34,11 @@ import { invoke } from "@tauri-apps/api/core"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import {
+  checkCanonPreWrite,
+  DEFAULT_PRE_WRITE_GATE_MODE,
+  type PreWriteGateInput,
+} from "./canon-pre-write-gate"
 
 // ──────────────────────────────────────────────────────────────────────────
 // canon revision 持久化 TS 侧预热（DEBT-20260820-13）
@@ -128,6 +133,11 @@ export interface WriteOutcome {
   error?: string
   /** 写后 canon revision（canon 侧成功时由 IPC 返回）。 */
   revision?: number
+  /**
+   * 53 号报告 P1-2 additive: 写前门控命中标记 (BLOCK 且 block 模式时
+   * ok=false 并填充; warn/duplicate 模式时 ok=true 仅记录, 供审计追溯)。
+   */
+  gate?: "pre_write_block" | "pre_write_warn" | "pre_write_duplicate"
 }
 
 /** 新 canon_store 写负载（与 T13 IPC 命令一一对应）。 */
@@ -247,6 +257,38 @@ export function parentDir(p: string): string {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
+ * 53 号报告 P1-2: 写前 gate 现存边快照拉取 (复用既有 canon_query IPC)。
+ * 拉取失败 → 降级空数组 (gate 不阻断写可用性, 守 Draft-first)。
+ */
+async function queryAllEdges(projectPath: string): Promise<PreWriteGateInput["existingEdges"]> {
+  try {
+    const res = await invoke<{
+      edges: Array<{
+        id: string
+        source_id: string
+        target_id: string
+        predicate: string
+        digest?: string
+        valid_at?: number | null
+        invalid_at?: number | null
+      }>
+    }>("canon_query", { projectId: projectPath, filter: {} })
+    return res.edges.map((e) => ({
+      id: e.id,
+      sourceId: e.source_id,
+      targetId: e.target_id,
+      predicate: e.predicate,
+      digest: e.digest,
+      validAt: e.valid_at ?? null,
+      invalidAt: e.invalid_at ?? null,
+    }))
+  } catch {
+    // 拉取失败 → 降级 PASS (写前 gate 不阻断写可用性)
+    return []
+  }
+}
+
+/**
  * 新 canon_store 写适配器（默认 `writeCanon`）：按 payload.kind 分发到 T13 IPC。
  * 内部捕获异常 → `WriteOutcome`（绝不上抛，保证双写编排不被单次写抛错中断）。
  */
@@ -286,6 +328,59 @@ export async function canonStoreWriter(
       })
       return { ok: true, revision: res.max_revision }
     }
+    if (payload.kind === "supersede") {
+      // 53 号报告 P1-2: 写前一致性门控 (lore-weave L1 硬锁模式, 默认 warn-only
+      // 零行为变更; block 模式拦截硬冲突)。gate 不 invoke, 不进 pending 队列。
+      const request = payload.request as {
+        new_edges?: Array<{
+          id: string
+          source_id: string
+          target_id: string
+          predicate: string
+          digest?: string
+          valid_at?: number | null
+          invalid_at?: number | null
+        }>
+        old_edge_ids?: string[]
+        cap_chapter?: number
+      }
+      const newEdges = request.new_edges ?? []
+      if (newEdges.length > 0) {
+        const existingEdges = await queryAllEdges(projectPath)
+        const gateResult = checkCanonPreWrite(
+          {
+            newEdges: newEdges.map((e) => ({
+              id: e.id,
+              sourceId: e.source_id,
+              targetId: e.target_id,
+              predicate: e.predicate,
+              digest: e.digest,
+              validAt: e.valid_at ?? null,
+              invalidAt: e.invalid_at ?? null,
+            })),
+            existingEdges,
+          },
+          { mode: DEFAULT_PRE_WRITE_GATE_MODE },
+        )
+        if (gateResult.state === "BLOCK") {
+          return {
+            ok: false,
+            gate: "pre_write_block",
+            error: `写前一致性门控拦截（L1 硬冲突）：${gateResult.conflicts
+              .filter((c) => c.reason.startsWith("BLOCK"))
+              .map((c) => c.reason)
+              .join("; ")}`,
+          }
+        }
+        if (gateResult.state === "WARN") {
+          return { ok: true, gate: "pre_write_warn" }
+        }
+        if (gateResult.state === "DUPLICATE") {
+          // 幂等去重: digest 重复且区间重叠 → 跳过写 (审计可追溯)
+          return { ok: true, gate: "pre_write_duplicate" }
+        }
+      }
+    }
     const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
       projectId: projectPath,
       request: payload.request,
@@ -297,8 +392,24 @@ export async function canonStoreWriter(
 }
 
 /**
+ * 53 号报告 P0-2 additive: canon_supersede_edges 返回结构 (Rust SupersedeResult
+ * 的 TS 投影)。新增字段 optional 向后兼容 (QC-5); duplicate_skipped 供调用方
+ * 观察冲突分类去重, conflict_notes 为审计诊断备注。
+ */
+export interface SupersedeResultShape {
+  capped: number
+  inserted: number
+  missing?: string[]
+  duplicate_skipped?: number
+  conflict_notes?: string[]
+}
+
+export type SupersedeInvokeResult = {
+  result: SupersedeResultShape
+  max_revision: number
+}
+/**
  * 旧 snapshot-derived view 写适配器（真实投影写回，DEBT-20260820-15 偿还）。
- *
  * 将 T16 双写钩子产生的 `{ kind: "snapshot_fact", chapterNumber, fact }` 负载
  * 写入 `.novel/canon-legacy.jsonl` 文件（每行包含章节号、事实文本、时间戳），
  * 作为旧 view 的持久化投影。与 T16 `buildCanonDualWriteOps` 的输入契约对齐：

@@ -35,6 +35,11 @@ import {
   DEFAULT_CONTINUITY_CONFIG,
   classifyTimelineDriftSeverity,
   detectTimelineDrift,
+  CONTINUITY_CANONICAL_FAMILY,
+  denoiseContinuityFindings,
+  mergeContinuityFindings,
+  suppressContinuityFindings,
+  fillCanonicalFamily,
   type ContinuityFinding,
   type ContinuityInput,
   type ReadonlyStore,
@@ -1312,5 +1317,129 @@ describe("F-002 detectTimelineDrift 第 6 检测项 (timeline_drift, additive)",
 
   it("DEFAULT_TIMELINE gap 配置落地: config 缺省 timelineDriftMaxChapterGap = 3", () => {
     expect(DEFAULT_CONTINUITY_CONFIG.timelineDriftMaxChapterGap).toBe(3)
+  })
+})
+
+// ============================================================================
+// 53 号报告 P0-1: pagegod 三段式去噪链 + canonical_family 归一
+// ============================================================================
+
+describe("53 P0-1 canonical_family 归一 + 去噪链", () => {
+  const mk = (
+    type: "timeline_drift" | "set_count_drift" | "dormant_thread" | "data_gap" | "barrier_state" | "presence_path",
+    ref: string,
+    chapter: number,
+    severity: "critical" | "warning" | "info" = "warning",
+    extra: Partial<{ message: string; missingField: string }> = {},
+  ): any => ({
+    type,
+    subtype: type === "data_gap" ? "data_gap" : "consistency_mechanical",
+    severity,
+    ref,
+    chapter,
+    message: extra.message ?? `${type}@${ref}#${chapter}`,
+    ...(type === "data_gap" ? { missingField: extra.missingField ?? "targetResolutionChapter" } : {}),
+  })
+
+  it("CONTINUITY_CANONICAL_FAMILY 14 类映射 9 族", () => {
+    expect(CONTINUITY_CANONICAL_FAMILY.dormant_thread).toBe("thread_or_foreshadowing")
+    expect(CONTINUITY_CANONICAL_FAMILY.unresolved_foreshadowing).toBe("thread_or_foreshadowing")
+    expect(CONTINUITY_CANONICAL_FAMILY.timeline_drift).toBe("temporal")
+    expect(CONTINUITY_CANONICAL_FAMILY.barrier_state).toBe("barrier_or_layout")
+    expect(CONTINUITY_CANONICAL_FAMILY.set_count_drift).toBe("count_or_inventory")
+    expect(CONTINUITY_CANONICAL_FAMILY.data_gap).toBe("data_gap")
+  })
+
+  it("fillCanonicalFamily 为缺失字段机械赋值且幂等", () => {
+    const filled = fillCanonicalFamily([mk("timeline_drift", "r1", 1)])
+    expect(filled[0]!.canonicalFamily).toBe("temporal")
+    expect(filled[0] === mk("timeline_drift", "r1", 1)).toBe(false) // 新数组不修改入参
+  })
+
+  it("merge: 同 ref 连续 set_count_drift 3 条 (gap≤3) 合并为 1 条且 evidence 含 3 章号", () => {
+    const findings = [
+      mk("set_count_drift", "subplot:队伍", 1, "warning", { message: "集合基数漂移" }),
+      mk("set_count_drift", "subplot:队伍", 3, "warning", { message: "集合基数漂移" }),
+      mk("set_count_drift", "subplot:队伍", 5, "info", { message: "集合基数漂移" }),
+    ]
+    const merged = mergeContinuityFindings(fillCanonicalFamily(findings))
+    expect(merged).toHaveLength(1)
+    expect(merged[0]!.message).toContain("合并 3 条")
+    expect(merged[0]!.severity).toBe("warning") // 保留最高
+  })
+
+  it("merge: 不同 ref 同 family 不合并", () => {
+    const merged = mergeContinuityFindings(
+      fillCanonicalFamily([
+        mk("timeline_drift", "character:A", 1),
+        mk("timeline_drift", "character:B", 2),
+      ]),
+    )
+    expect(merged).toHaveLength(2)
+  })
+
+  it("merge: gap 超阈值不合并 (timeline 6, count_drift 3)", () => {
+    const merged = mergeContinuityFindings(
+      fillCanonicalFamily([
+        mk("set_count_drift", "r1", 1),
+        mk("set_count_drift", "r1", 5), // gap 4 > countDriftMaxGap 3
+      ]),
+    )
+    expect(merged).toHaveLength(2)
+  })
+
+  it("merge: data_gap 不参与去噪", () => {
+    const merged = mergeContinuityFindings(
+      fillCanonicalFamily([
+        mk("data_gap", "r1", 1),
+        mk("data_gap", "r1", 2),
+      ]),
+    )
+    expect(merged).toHaveLength(2)
+  })
+
+  it("suppress: 同 type+ref+chapter+message 双发 → 保留 severity 最高 (去噪)", () => {
+    const suppressed = suppressContinuityFindings(
+      fillCanonicalFamily([
+        mk("timeline_drift", "r1", 1, "info"),
+        mk("timeline_drift", "r1", 1, "warning"),
+      ]),
+    )
+    expect(suppressed).toHaveLength(1)
+    expect(suppressed[0]!.severity).toBe("warning")
+  })
+
+  it("suppress: barrier critical 抑制相邻章 presence_path 同 ref", () => {
+    const suppressed = suppressContinuityFindings(
+      fillCanonicalFamily([
+        mk("barrier_state", "location:闸门", 5, "critical"),
+        mk("presence_path", "location:闸门", 6, "warning"),
+      ]),
+    )
+    expect(suppressed).toHaveLength(1)
+    expect(suppressed[0]!.type).toBe("barrier_state")
+  })
+
+  it("denoise: data_gap 不受影响 (独立分组守 IC-02)", () => {
+    const out = denoiseContinuityFindings(
+      fillCanonicalFamily([
+        mk("data_gap", "r1", 1, "info"),
+        mk("timeline_drift", "r1", 1, "info"),
+        mk("timeline_drift", "r1", 1, "warning"),
+      ]),
+    )
+    expect(out.filter((f) => f.type === "data_gap")).toHaveLength(1)
+    expect(out.filter((f) => f.type === "timeline_drift")).toHaveLength(1)
+  })
+
+  it("denoise: enabled=false 完全禁用 (additive 兼容测试)", () => {
+    const out = denoiseContinuityFindings(
+      [
+        mk("timeline_drift", "r1", 1, "info"),
+        mk("timeline_drift", "r1", 1, "warning"),
+      ],
+      { enabled: false },
+    )
+    expect(out).toHaveLength(2)
   })
 })

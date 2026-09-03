@@ -32,6 +32,11 @@ import {
   type StructuralSignature,
 } from "../narrative-echo-detector"
 import { loadNovelProjectMeta } from "../project-meta"
+import {
+  appendRecoveryDirectives,
+  checkPer1kRecovery,
+  measurePer1kProfile,
+} from "../voiceprint-target-profile"
 import { isTransientLlmError, runBatch, runWithBackoff } from "./concurrency"
 import { deleteDeAiBatchDraft, loadDeAiBatchDraft, saveDeAiBatchDraft } from "./drafts"
 import {
@@ -282,6 +287,9 @@ export async function runDeAiBatch(
         charCount: content.replace(/\s+/g, "").length,
       })
 
+      // 53 号报告 P1-1: 改写前作者声纹画像 (targetProfile 未配置时零开销)
+      const voiceprintBefore = options.targetProfile ? measurePer1kProfile(content) : []
+
       // P1-4 跨章回纹 (36 号接线, Track B soft): 注册本章签名, 查窗口回显, 注入改写提示
       const echoSignature = chapterStructuralSignature(content)
       const echoMatches = detectEchoMatches(chapterNumber, echoSignature)
@@ -291,7 +299,11 @@ export async function runDeAiBatch(
 
       const messages = buildDeAiRewriteMessages(lock.maskedText, customSkill, {
         userPrompt,
-        dualPassFragment: formatDualPassPromptFragment(report, avoidWordsHits) + (echoNote ? `\n${echoNote}` : ""),
+        dualPassFragment: appendRecoveryDirectives(
+          formatDualPassPromptFragment(report, avoidWordsHits) + (echoNote ? `\n${echoNote}` : ""),
+          content,
+          options.targetProfile,
+        ),
         cavityGuard: true,
         preserveDirective: buildPreserveDirective(lock.spans),
       })
@@ -306,6 +318,13 @@ export async function runDeAiBatch(
       const selfcheck = runDeAiSelfCheck(content, restored)
       const cavityAfter = overCorrectionReport(restored)
 
+      // 53 号报告 P1-1: 改写后复测欠靶恢复方向 (纯函数, 记录 recoveryDeltas /
+      // recoveryStalled 供审计; 不进门控, 守 Draft-first — 恢复是生成层语义)
+      let recoveryDeltas: ReadonlyArray<{ metric: string; recovered: boolean; beforePerK: number; afterPerK: number }> | undefined
+      if (options.targetProfile) {
+        recoveryDeltas = checkPer1kRecovery(voiceprintBefore, measurePer1kProfile(restored), options.targetProfile)
+      }
+
       const artifact: DeAiBatchDraftArtifact = {
         schemaVersion: DE_AI_BATCH_SCHEMA,
         batchId: state.batchId,
@@ -318,6 +337,12 @@ export async function runDeAiBatch(
         skillVersion: BUILTIN_DE_AI_SKILL_VERSION,
         interventionTier: triage.tier,
         echoChapters: echoMatches.length > 0 ? echoMatches : undefined,
+        recoveryDeltas: recoveryDeltas?.map((d) => ({
+          metric: d.metric,
+          recovered: d.recovered,
+          beforePerK: d.beforePerK,
+          afterPerK: d.afterPerK,
+        })),
         createdAt: nowIso(),
         updatedAt: nowIso(),
       }

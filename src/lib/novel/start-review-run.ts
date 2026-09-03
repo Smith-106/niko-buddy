@@ -2,6 +2,10 @@ import type { TFunction } from "i18next"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { reviewChapter } from "@/lib/novel/review-adapter"
+import {
+  checkReviewCompletionGate,
+  computeChapterHash,
+} from "@/lib/novel/review-completion-gate"
 import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResults } from "@/lib/novel/revision-feedback"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
@@ -88,13 +92,29 @@ export async function startNovelReviewRun({
       },
     })
     thinkingPublisher.flush()
-    finishReviewRun(runId, { running: true, results, error: undefined })
+    // 53 号报告 P1-3: critic 防伪完成门 (open-write-studio 模式)。gate 失败
+    // → history 条目 gateStatus=incomplete (不宣称完成态), 审查结果仍展示
+    // (Draft-first: 审查可看, 完成态不可宣称)。新字段 additive。
+    const chapterHash = await computeChapterHash(fileContent)
+    const gateResult = checkReviewCompletionGate({
+      chapterHash,
+      chapterBody: fileContent,
+      results,
+    })
+    const gateStatus: "completed" | "incomplete" | "suspect" = gateResult.passed
+      ? "completed"
+      : gateResult.failures.includes("STALE_ARTIFACT") || gateResult.failures.includes("HOLLOW_PASS")
+        ? "suspect"
+        : "incomplete"
+    finishReviewRun(runId, { running: true, results, error: undefined, gateStatus })
     await saveGenerationHistoryEntry(projectPath, {
       kind: "review",
       title: target.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: target.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
       chapterNumber: target.chapterNumber,
       sourcePath: selectedFile,
       results,
+      chapterHash,
+      gateStatus,
     })
     await onHistorySaved?.()
 

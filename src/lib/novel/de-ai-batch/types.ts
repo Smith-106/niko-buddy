@@ -123,6 +123,12 @@ export interface DeAiBatchOptions {
   onProgress?: (progress: DeAiBatchProgress) => void
   /** 外部中止（触发 phase → paused）。 */
   signal?: AbortSignal
+  /**
+   * 53 号报告 P1-1 additive: 目标作者声纹画像 (中文 per-1k 度量)。
+   * 配置后 de-ai 改写 prompt 追加欠靶恢复指令 + 改写后复测 recovery 记录;
+   * 未配置 → 零行为变更 (fragment 逐字节同现状)。
+   */
+  targetProfile?: import("../voiceprint-target-profile").Per1kTargetProfile
 }
 
 /** 草稿工件内容（.novel/de-ai-batch-drafts/{chapterNumber}.json）。 */
@@ -141,6 +147,8 @@ export interface DeAiBatchDraftArtifact {
   interventionTier?: "light" | "medium" | "rewrite"
   /** P1-4 (36 号): 跨章回纹命中章节（可选，Track B soft 诊断）。 */
   echoChapters?: number[]
+  /** 53 号报告 P1-1: 欠靶恢复复测记录 (targetProfile 配置时产生, 可选)。 */
+  recoveryDeltas?: Array<{ metric: string; recovered: boolean; beforePerK: number; afterPerK: number }>
   createdAt: string
   updatedAt: string
 }

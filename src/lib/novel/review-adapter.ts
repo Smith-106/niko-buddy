@@ -45,7 +45,9 @@ import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 // 导出，零 IO 零 LLM，不破坏本模块依赖纪律。
 import {
   ALL_AUDIT_DIMENSION_IDS,
+  AUDIT_TAXONOMY,
   getGateForDimension,
+  selectAuditDimensions,
   type AuditDimensionId,
   type GateKey,
 } from "./audit-taxonomy"
@@ -178,6 +180,12 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
    */
   characterOnly?: boolean
   /**
+   * 53 号报告 P0-3 接线① additive: 题材 (genre) 透传 buildReviewPrompt,
+   * 按 selectAuditDimensions(genre) 裁剪 Quality 维度激活集 (Consistency+
+   * Anti-AI 恒全, 守门控优先级)。缺省 undefined → 现状全量 37 维零行为变更。
+   */
+  genre?: string
+  /**
    * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接
    * 使用, 不再读 useWikiStore.getState()；缺省时回退到 store 保持向后兼容。
    * 逐步消除 lib 层对 useWikiStore 的直接耦合, 使函数可脱离 UI store 独立测试。
@@ -295,7 +303,12 @@ export function buildCanonModalityContext(facts: readonly TemporalFact[]): strin
   return "# canon 图事实（模态区分）\n" + lines.join("\n")
 }
 
-export function buildReviewPrompt(pack: ContextPack, chapterContent: string, characterOnly = false): string {
+export function buildReviewPrompt(
+  pack: ContextPack,
+  chapterContent: string,
+  characterOnly = false,
+  genre?: string,
+): string {
   const dimensions = characterOnly ? CHARACTER_REVIEW_DIMENSIONS : REVIEW_DIMENSIONS
   const modeTitle = characterOnly ? "角色一致性专项审查" : "阶段式深度审查工作流"
   const modeStages = characterOnly
@@ -362,7 +375,24 @@ ${i18n.t("novel.reviewPrompt.outputFormat")}
   }
 ]
 
-${i18n.t("novel.reviewPrompt.emptyArrayFallback")}`
+${i18n.t("novel.reviewPrompt.emptyArrayFallback")}${buildGenreActivationSection(genre, characterOnly)}`
+}
+
+/**
+ * 53 号报告 P0-3 接线① additive: 按题材激活维度子集注入审查 prompt
+ * (inkos selectAuditDimensions 模式, AGPL 只借模式)。Consistency(15)+
+ * Anti-AI(10) 恒全激活 (守门控优先级), Quality 按题材子集裁剪。
+ * genre 未传或 characterOnly → 空串 (零行为变更, 全量 37 维现状)。
+ */
+function buildGenreActivationSection(genre: string | undefined, characterOnly: boolean): string {
+  if (!genre || characterOnly) return ""
+  const active = selectAuditDimensions(genre)
+  if (!active || active.length >= ALL_AUDIT_DIMENSION_IDS.length) {
+    // 未注册题材 → 全量激活, 无需注入 (现状)
+    return ""
+  }
+  const labels = active.map((id) => AUDIT_TAXONOMY[id]?.label ?? id).join("、")
+  return `\n\n## 本轮审查维度激活集（按题材《${genre}》裁剪）\n仅以下维度参与阻断与修复路由（未列出的 Quality 维度本轮跳过）: ${labels}`
 }
 
 /**
@@ -644,7 +674,7 @@ ${langReminder}`
       const chunkContent = chunks.length > 1
         ? `【第${i + 1}段/共${chunks.length}段】\n${chunk}`
         : chunk
-      const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly)
+      const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly, options.genre)
       const stageTitle = chunks.length > 1
         ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
         : (options.characterOnly ? "角色一致性审查" : "深度审查")

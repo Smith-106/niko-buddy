@@ -1372,3 +1372,27 @@ describe("buildCanonModalityContext (落点③: canon 模态区分)", () => {
   })
 })
 
+
+// ============================================================================
+// 53 号报告 P0-3 接线①: selectAuditDimensions → buildReviewPrompt (additive)
+// ============================================================================
+
+describe("53 P0-3 genre 激活维度注入 (buildReviewPrompt)", () => {
+  it("genre 未传 → 全量 37 维现状 (无激活段注入)", () => {
+    const prompt = buildReviewPrompt(contextPack, "正文", false)
+    expect(prompt).not.toContain("本轮审查维度激活集")
+  })
+  it("已注册题材 (tuili) → 注入激活子集段 (Consistency+Anti-AI+Quality 子集)", () => {
+    const prompt = buildReviewPrompt(contextPack, "正文", false, "tuili")
+    expect(prompt).toContain("本轮审查维度激活集（按题材《tuili》裁剪）")
+    // Consistency 维度 label 恒激活
+    expect(prompt).toContain("时间线一致性")
+    // 未注册题材 → 不注入
+    const unknown = buildReviewPrompt(contextPack, "正文", false, "unknown-genre")
+    expect(unknown).not.toContain("本轮审查维度激活集")
+  })
+  it("characterOnly 模式不注入激活段 (角色专项审查现状)", () => {
+    const prompt = buildReviewPrompt(contextPack, "正文", true, "tuili")
+    expect(prompt).not.toContain("本轮审查维度激活集")
+  })
+})

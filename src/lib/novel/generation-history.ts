@@ -20,6 +20,10 @@ export interface GenerationHistoryEntry {
   dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
   createdAt: string
   filePath: string
+  /** 53 号报告 P1-3 additive: 审查绑定章节 hash (防伪 STALE_ARTIFACT 判定)。 */
+  chapterHash?: string
+  /** 53 号报告 P1-3 additive: 完成门状态 (completed/incomplete/suspect)。 */
+  gateStatus?: "completed" | "incomplete" | "suspect"
 }
 
 export interface SaveGenerationHistoryInput {
@@ -29,6 +33,10 @@ export interface SaveGenerationHistoryInput {
   sourcePath?: string
   results: GenerationHistoryResult[]
   dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
+  /** 53 号报告 P1-3 additive。 */
+  chapterHash?: string
+  /** 53 号报告 P1-3 additive。 */
+  gateStatus?: "completed" | "incomplete" | "suspect"
 }
 
 function formatDateTime(value: number): string {

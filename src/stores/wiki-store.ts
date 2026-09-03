@@ -503,6 +503,8 @@ export interface ReviewRunState extends AsyncTaskState {
   dimensionProgress?: string
   /** M0: pack+text fingerprint for Track B score interpretation (not product gate). */
   measurementFingerprint?: MeasurementFingerprint | null
+  /** 53 号报告 P1-3 additive: critic 防伪完成门状态 (suspect/incomplete 不宣称完成态)。 */
+  gateStatus?: "completed" | "incomplete" | "suspect"
 }
 
 export interface PendingEditorHighlight {

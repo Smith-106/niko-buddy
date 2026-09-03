@@ -763,6 +763,40 @@ pub struct SupersedeResult {
     pub inserted: usize,
     /// 未找到的旧边 id（诊断用）。
     pub missing: Vec<String>,
+    /// 53 号报告 P0-2 additive: 因确定性 duplicate 分类被跳过的插入数
+    /// (digest 相等或全等键+有效区间重叠, 幂等跳过不重复插入)。
+    /// `#[serde(default)]` 向后兼容: 旧调用方未传时缺省 0 (QC-5)。
+    #[serde(default)]
+    pub duplicate_skipped: usize,
+    /// 53 号报告 P0-2 additive: 冲突分类诊断备注 (每条格式
+    /// `new_edge_id=<id>:<duplicate|contradicted|independent>`),
+    /// 供审计与 TS 侧 LLM advisory 回写。`#[serde(default)]` 向后兼容。
+    #[serde(default)]
+    pub conflict_notes: Vec<String>,
+}
+
+/// 53 号报告 P0-2: 写时冲突语义分类 (graphiti dedupe_edges/contradiction 语义,
+/// Apache-2.0 借模式)。QMAI 双层: Rust 确定性分类权威 (零 LLM 守 ADR-19) +
+/// TS 侧 LLM 语义分类 advisory (opt-in, 仅进审计事件不参与权威判定)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictClass {
+    /// 同事实重复写入 (digest 相等或全等键+有效区间重叠) → 幂等跳过。
+    Duplicate,
+    /// 同端点同 predicate 异值且有效区间重叠 → 封顶旧边+插入新边。
+    Contradicted,
+    /// 其余 → 正常插入。
+    Independent,
+}
+
+impl ConflictClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConflictClass::Duplicate => "duplicate",
+            ConflictClass::Contradicted => "contradicted",
+            ConflictClass::Independent => "independent",
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

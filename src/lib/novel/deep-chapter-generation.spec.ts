@@ -92,6 +92,7 @@ import {
   resolveStructurePlanForResidual,
   evaluateResidualPolicyForInput,
   buildDecisionGates,
+  collectRepairIssues,
   type DeepChapterGenerationDeps,
   type DeepChapterGenerationResumeCheckpoint,
   type DeepChapterGenerationInput,
@@ -4010,5 +4011,64 @@ describe("48/49 号 §六-⑥ parseFailed 防误修订 (50 号报告 S0 spec 锁
       messagesPromptText(c[1]).includes("返修"),
     )
     expect(revisionCalls).toHaveLength(0)
+  })
+})
+
+// ============================================================================
+// 53 号报告 P0-3: inkos 4 纯函数接线 (题材级门控路由, additive)
+// ============================================================================
+
+describe("53 P0-3 题材级接线 (buildDecisionGates / collectRepairIssues)", () => {
+  const mkFinding = (severity: "error" | "warning" | "info", type: string, i: number): NovelReviewResult => ({
+    severity,
+    type,
+    message: `msg-${i}`,
+    evidence: `ev-${i}`,
+    relatedMemory: "",
+    suggestion: "",
+  })
+  const qualityWarnings = (n: number) =>
+    Array.from({ length: n }, (_, i) => mkFinding("warning", "quality_issue", i))
+
+  it("genre 未传 → 现状零行为变更 (warn 不升级)", () => {
+    const gates = buildDecisionGates(qualityWarnings(5), 0)
+    expect(gates.quality.status).toBe("passed")
+    expect(gates.quality.verdict).toBe("warning")
+    expect(gates.overall).toBe("warning")
+  })
+
+  it("getUpgradeThreshold 接线: genre 已传且 warn 数 ≥ 阈值 → quality 门升 fail", () => {
+    // tuili 的 quality 首维未注册阈值 → DEFAULT_UPGRADE_THRESHOLD=3
+    const gates = buildDecisionGates(qualityWarnings(3), 0, false, "tuili")
+    expect(gates.quality.status).toBe("failed")
+    expect(gates.quality.verdict).toBe("fail")
+    expect(gates.overall).toBe("fail")
+  })
+
+  it("getUpgradeThreshold 接线: warn 数 < 阈值 → 不升级", () => {
+    const gates = buildDecisionGates(qualityWarnings(2), 0, false, "tuili")
+    expect(gates.quality.verdict).toBe("warning")
+    expect(gates.quality.status).toBe("passed")
+  })
+
+  it("getRepairScope 接线: resettle_only 门的 warning 不进自动修复集合", () => {
+    // tuili 的 consistency 门 scope=resettle_only → consistency warning 被跳过
+    const gates = buildDecisionGates(
+      [mkFinding("warning", "timeline_consistency", 1)],
+      0,
+      false,
+      "tuili",
+    )
+    const repaired = collectRepairIssues(gates, "tuili")
+    expect(repaired).toHaveLength(0)
+  })
+
+  it("getRepairScope 接线: genre 未传 → 全量进修复 (现状)", () => {
+    const gates = buildDecisionGates(
+      [mkFinding("warning", "timeline_consistency", 1)],
+      0,
+    )
+    const repaired = collectRepairIssues(gates, undefined)
+    expect(repaired).toHaveLength(1)
   })
 })
