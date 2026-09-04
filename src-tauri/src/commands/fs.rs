@@ -3221,6 +3221,41 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         assert!(err.contains("Failed to read"), "{err}");
     }
+
+    // ===== 58 号 P0-B2：write_file_atomic 冒烟（IPC 命令层关键路径） =====
+
+    #[test]
+    fn write_file_atomic_smoke_writes_content_and_reads_back() {
+        let dir = make_temp_dir("wfa-smoke");
+        let p = dir.join("sub").join("ch1.md");
+        let p_str = p.to_string_lossy().into_owned();
+        do_write_file_atomic(&p_str, "# 第一章\n\n正文。").unwrap();
+        let read = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(read, "# 第一章\n\n正文。");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_file_atomic_smoke_rejects_unsafe_path() {
+        // 越界路径（`..`）必须被拒绝，不产生任何文件
+        let dir = make_temp_dir("wfa-unsafe");
+        let bad = dir.join("..").join("escape.md");
+        let bad_str = bad.to_string_lossy().into_owned();
+        assert!(do_write_file_atomic(&bad_str, "x").is_err());
+        assert!(!bad.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_file_atomic_smoke_overwrites_existing() {
+        let dir = make_temp_dir("wfa-overwrite");
+        let p = dir.join("ch.md");
+        let p_str = p.to_string_lossy().into_owned();
+        do_write_file_atomic(&p_str, "旧内容").unwrap();
+        do_write_file_atomic(&p_str, "新内容").unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "新内容");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 /// Core logic for `get_executable_dir`, callable from both Tauri commands and Axum handlers.

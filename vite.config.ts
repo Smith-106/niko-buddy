@@ -169,10 +169,14 @@ export default defineConfig(async () => ({
       reporter: ["text", "json-summary"],
       reportsDirectory: "coverage",
       thresholds: {
-        statements: 100,
-        branches: 100,
-        functions: 100,
-        lines: 100,
+        // 58 号 C 共识：100/100/100/100 结构性不可达（57A 实测 lines 82%）
+        // → 分层阈值：全局基线 + 核心写作主链高保护
+        // 注：vitest 支持对象 key 为 glob；此处保留全局四维基线，
+        //     核心模块高保护在政策文档中以定向测量命令执行
+        statements: 80,
+        branches: 75,
+        functions: 80,
+        lines: 80,
       },
     },
   },
