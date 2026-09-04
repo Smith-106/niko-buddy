@@ -20,6 +20,7 @@ import {
 } from "@/lib/novel/novel-session-status"
 import { reviewChapter, type NovelReviewResult } from "@/lib/novel/review-adapter"
 import { applyReviewRewriteEditsToMarkdown } from "@/lib/review-rewrite-plan"
+import { writeFileAtomic, readFile } from "@/commands/fs"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"
 import type { LlmConfig } from "@/stores/wiki-store"
 
@@ -124,12 +125,48 @@ export function FindingCompareDialog({
       const finalEdits = edits.map((edit, index) =>
         index === 0 ? { ...edit, replacementText: modifiedText } : edit,
       )
-      const rewritten = applyReviewRewriteEditsToMarkdown(chapterContent, finalEdits)
+      // 56 号 review-1 P0：写回前 MUST 重读 targetPath 最新内容（对话框 chapterContent
+      // 是打开时快照，多 finding 连续接受会丢失先前改写；且 fileContent 可能 ≠ targetPath）
+      const latestContent = await readFile(finding.targetPath).catch(() => null)
+      if (latestContent === null) {
+        setErrorMsg("rewrite.readTargetFailed")
+        setGateChecking(false)
+        return
+      }
+      const rewritten = applyReviewRewriteEditsToMarkdown(latestContent, finalEdits)
+      // 56 号 P0-1 伴生修复：锚点部分失败（rewritten.ok=false）时不得进门控/写回
+      if (!rewritten.ok) {
+        setGateErrors([
+          {
+            severity: "error",
+            type: "rewrite-apply",
+            message: "rewrite.applyFailed",
+            evidence: "",
+            relatedMemory: "",
+            suggestion: "",
+            detail: `anchors: ${rewritten.failed.length} failed`,
+          } as NovelReviewResult,
+        ])
+        setGateChecking(false)
+        return
+      }
 
       const results = await reviewChapter(projectPath, rewritten.markdown, undefined, {}, undefined)
       const blocking = results.filter((r) => r.severity === "error")
       if (blocking.length > 0) {
         setGateErrors(blocking)
+        setGateChecking(false)
+        return
+      }
+
+      // 56 号 P0-1：门控通过后 MUST 将改写结果写回章节文件（targetPath），
+      // 再落 draft_status=accepted；写回失败则提示且不置 accepted（草稿可重试）
+      try {
+        await writeFileAtomic(finding.targetPath, rewritten.markdown)
+      } catch (writeError: unknown) {
+        setErrorMsg(
+          writeError instanceof Error ? writeError.message : String(writeError),
+        )
         setGateChecking(false)
         return
       }

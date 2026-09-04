@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => {
     acceptFindingRewriteDraft: vi.fn(async () => {}),
     rejectFindingRewriteDraft: vi.fn(async () => {}),
     reviewChapter: vi.fn(),
+    writeFileAtomic: vi.fn(async () => {}),
+    readFile: vi.fn(async () => CHAPTER),
     t: vi.fn((key: string) => key),
     resolveGenerate,
     rejectGenerate,
@@ -40,6 +42,11 @@ vi.mock("@/lib/novel/novel-session-status", () => ({
 
 vi.mock("@/lib/novel/review-adapter", () => ({
   reviewChapter: mocks.reviewChapter,
+}))
+
+vi.mock("@/commands/fs", () => ({
+  writeFileAtomic: mocks.writeFileAtomic,
+  readFile: mocks.readFile,
 }))
 
 vi.mock("@/components/ui/dialog", () => ({
@@ -123,6 +130,8 @@ describe("FindingCompareDialog", () => {
     mocks.writeFindingRewriteDraft.mockResolvedValue(undefined)
     mocks.acceptFindingRewriteDraft.mockResolvedValue(undefined)
     mocks.rejectFindingRewriteDraft.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.readFile.mockResolvedValue(CHAPTER)
   })
 
   afterEach(() => {
@@ -260,7 +269,7 @@ describe("FindingCompareDialog", () => {
     expect(props.onReject).toHaveBeenCalledTimes(1)
   })
 
-  it("接受：门控通过 → acceptFindingRewriteDraft + onAccept（多 edit 时仅首条替换 modifiedText）", async () => {
+  it("接受：门控通过 → 写回章节文件 + acceptFindingRewriteDraft + onAccept（多 edit 时仅首条替换 modifiedText）", async () => {
     const props = baseProps()
     render(<FindingCompareDialog {...props} />)
     await waitFor(() => expect(screen.getByTestId("diff-original")).toBeInTheDocument())
@@ -269,7 +278,9 @@ describe("FindingCompareDialog", () => {
     fireEvent.click(screen.getByTestId("diff-modify"))
 
     fireEvent.click(screen.getByText("接受改写"))
-    await waitFor(() => expect(mocks.acceptFindingRewriteDraft).toHaveBeenCalledWith("/proj", "s1"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledWith("chapters/ch1.md", CHAPTER))
+    expect(mocks.readFile).toHaveBeenCalledWith("chapters/ch1.md")
+    expect(mocks.acceptFindingRewriteDraft).toHaveBeenCalledWith("/proj", "s1")
     expect(props.onAccept).toHaveBeenCalledTimes(1)
 
     const [chapterArg, finalEdits] = mocks.applyReviewRewriteEditsToMarkdown.mock.calls[0] as unknown as [
@@ -280,6 +291,50 @@ describe("FindingCompareDialog", () => {
     expect(finalEdits[0].replacementText).toBe("新改写文本")
     expect(finalEdits[1].replacementText).toBe("第二段替换")
     expect(mocks.reviewChapter).toHaveBeenCalledWith("/proj", CHAPTER, undefined, {}, undefined)
+  })
+
+  it("接受：写回章节文件失败 → errorMsg，不 accept", async () => {
+    mocks.writeFileAtomic.mockRejectedValue(new Error("disk full"))
+    const props = baseProps()
+    render(<FindingCompareDialog {...props} />)
+    await waitFor(() => expect(screen.getByTestId("diff-original")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("diff-modify"))
+    fireEvent.click(screen.getByText("接受改写"))
+    await waitFor(() => expect(screen.getByText("disk full")).toBeInTheDocument())
+    expect(mocks.acceptFindingRewriteDraft).not.toHaveBeenCalled()
+    expect(props.onAccept).not.toHaveBeenCalled()
+  })
+
+  it("接受：rewritten.ok=false（锚点部分失败）→ 展示阻断，不写回不 accept", async () => {
+    mocks.applyReviewRewriteEditsToMarkdown.mockReturnValue({
+      markdown: CHAPTER,
+      applied: [],
+      ok: false,
+      failed: [{ id: "e1", originalText: "原文片段甲", replacementText: "替换文本乙" }],
+    } as never)
+    const props = baseProps()
+    render(<FindingCompareDialog {...props} />)
+    await waitFor(() => expect(screen.getByTestId("diff-original")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("diff-modify"))
+    fireEvent.click(screen.getByText("接受改写"))
+    await waitFor(() => expect(mocks.reviewChapter).not.toHaveBeenCalled())
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.acceptFindingRewriteDraft).not.toHaveBeenCalled()
+  })
+
+  it("接受：重读 targetPath 失败 → errorMsg，不写回不 accept", async () => {
+    mocks.readFile.mockRejectedValue(new Error("no such file"))
+    const props = baseProps()
+    render(<FindingCompareDialog {...props} />)
+    await waitFor(() => expect(screen.getByTestId("diff-original")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("diff-modify"))
+    fireEvent.click(screen.getByText("接受改写"))
+    await waitFor(() => expect(screen.getByText("rewrite.readTargetFailed")).toBeInTheDocument())
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.acceptFindingRewriteDraft).not.toHaveBeenCalled()
   })
 
   it("接受：门控阻断（severity=error）→ 展示阻断列表，不 accept", async () => {
