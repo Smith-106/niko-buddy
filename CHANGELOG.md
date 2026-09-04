@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.7] - 2026-09-04
+
+### 参考池覆盖 v2（55 号设计全链）
+
+- **W1 波**：genre 单真源全链（NovelConfig.genre + genre-codes 9 码映射 + 三调用点透传）；EPUB/DOCX reveal 按钮接线；reconcile 告警消费；stage6 终稿回流幂等再规范化；chase_debt UI 结账（结清/核销按钮 + 事件日志 written_off）
+- **W2 波**：大纲线 normalizeMarkdownBody 四处写盘路径补接（frontmatter 逐字节保留）；divergence trace 读路径（Rust canon_load_divergence_trace + TS 包装 + 设置页诊断卡）；replayPendingQueue 独立触发；avoid_ai_summary 审计持久化；数值事实检查（numeric-fact-checker 14 类 + warn-only）；自重复率 rep_2/3/4（第 5 因子，2026-09-04 激活阈值 0.35）；CJK 切分增强（cjk_clauses 层 + chunk-fingerprint v1: 版本位）；全角化/ mojibake 修复（mojibake 默认开启，正常文本零变更）
+- **W3 波**：hit-rag 契约文档；RAG 注入安全审计（12 层矩阵 11/12 覆盖）；EPUB 往返验收 PASS（PYTHONIOENCODING=utf-8 修复 GBK 乱码根因）；humanizer 115 条模式矩阵（45 覆盖/68 豁免/2 缺口）；索引一致性归零
+- **覆盖度 100%**：L1 34/34 / L2 9/9 / L3 40/40（声纹匹配激活 + mojibake 默认开启 + 编辑影响分析 computeEditImpact + 9 项重新判定覆盖）
+- **E-03/E-04 双库架构收尾**：process-library/promotion-bridge/trust-grader/kb-governance 等新模块 + 项目占用锁（owner.json）
+
+### 验证
+
+typecheck 0 错误 / vitest 11998 绿 / cargo 318 passed / 基线 0 漂移
+
 ## [2.7.6] - 2026-09-02
 
 ### Bugfix（运行时修复）
