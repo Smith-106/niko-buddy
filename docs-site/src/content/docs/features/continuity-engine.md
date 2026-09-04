@@ -20,6 +20,15 @@ description: 零 LLM 机械层连续性预检
 
 词库命中式 AI 味打分，在审查层前置惩罚。检测"标准化"模板化表达，识别哪些片段写得像 AI。
 
+## 55 号设计 W2 波（v2.7.7）
+
+- **数值事实检查**（`numeric-fact-checker`）：14 类数值漂移检测（时间/距离/金额/境界序数等），中文数字 CN_NUM_RE 处理，warn-only 不硬短路
+- **自重复率**（`self-repetition`）：rep_2/3/4 按字 n-gram 零 LLM 统计，2026-09-04 激活阈值 0.35（warn-only，入 ANTI_AI_COMBINED_FACTORS）
+- **CJK 切分增强**（`text-chunker`）：cjk_clauses 层（，、：）解决中文长句无空格溢出；半角冒号不参与切分（URL/时间不误切）；chunk-fingerprint v1: 版本位
+- **mojibake 修复**（`format-normalizer`）：UTF-8 双重编码乱码自动还原（默认开启，只匹配乱码特征序列，正常文本零变更）；全角化开关默认关闭
+- **编辑影响分析**（`edit-impact`）：编辑实体/章节前计算受影响章节（entity_id/reference_time 引用关系，零 LLM 纯函数）
+- **divergence trace 读路径**：Rust `canon_load_divergence_trace` + 设置页诊断卡（双写不一致留痕可视化）
+
 ## 阈值校准
 
 absent 与 dormant 的阈值经**真实中文长篇样本**校准：

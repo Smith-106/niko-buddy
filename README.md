@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.7.6-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.7.7-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -59,6 +59,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 3 | v2.7.2 | 自动化闭环 | 自愈回滚 / 回滚追踪 / 混沌平台 / 结案终态 / W3 干预 / 门控不变量 |
 | 4 | v2.7.3 | 写作产能 | 风格模板自动套用（一致率≥90% P95<2s）/ 回溯显影（命中≥90% 误报≤10%）/ 记忆自动改写（diff=0 闸门） |
 | 5 | v2.7.4 | 收敛泛化（stretch） | 维度收敛（核心维≤3 方差降≥15%）/ 跨模型偏差≤0.5 / 跨语言 F1≥基线×95% |
+| 6 | v2.7.7 | 参考池覆盖 v2 | 55 号设计全链：genre 单真源 / EPUB-DOCX reveal / 数值事实检查 / 自重复率激活 / CJK 切分增强 / mojibake 修复默认开启 / RAG 注入审计 / humanizer 115 条模式矩阵 / 覆盖度 L1-L3 100% |
 
 > 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
@@ -458,9 +459,9 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：当前源码 tip 为 **v2.7.6**（v2.7 系列五波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化；notes-only 语义，安装包资产沿用既有发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
+> 注：当前源码 tip 为 **v2.7.7**（v2.7 系列六波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化 → 参考池覆盖 v2；安装包资产随 v2.7.7 发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
 > 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.6）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.7）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 

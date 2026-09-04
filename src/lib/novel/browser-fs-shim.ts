@@ -4,6 +4,9 @@
 export const readFileSync = (): never => {
   throw new Error("node:fs unavailable in browser (shim)")
 }
+// node:fs/promises 同源 shim (pangu 依赖; 浏览器路径不触碰, 求值不崩即可)
+export const readFile = (): Promise<never> =>
+  Promise.reject(new Error("node:fs/promises unavailable in browser (shim)"))
 export const existsSync = (): boolean => false
 export const readdirSync = (): never[] => []
 export const writeFileSync = (): never => {

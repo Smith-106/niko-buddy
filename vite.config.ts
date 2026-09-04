@@ -22,6 +22,7 @@ export default defineConfig(async () => ({
       ...(process.env.VITEST
         ? {}
         : {
+            "node:fs/promises": path.resolve(__dirname, "./src/lib/novel/browser-fs-shim.ts"),
             "node:fs": path.resolve(__dirname, "./src/lib/novel/browser-fs-shim.ts"),
             "node:path": path.resolve(__dirname, "./src/lib/novel/browser-path-shim.ts"),
             "node:url": path.resolve(__dirname, "./src/lib/novel/browser-url-shim.ts"),
