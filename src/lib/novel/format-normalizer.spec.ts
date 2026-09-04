@@ -320,3 +320,49 @@ describe("pangu 中英文自动空格 (可选排版增强)", () => {
     expect(r.changed).toBe(true)
   })
 })
+
+describe("55 W2-8: 全角化 + mojibake 修复 (默认 false)", () => {
+  it("enableFullwidth 默认关闭: 半角逗号/句号/冒号保留", () => {
+    const r = formatNormalize("他走了, 天黑了. 时间: 3点; 括号(x)")
+    expect(r.text).toContain("他走了, 天黑了. 时间: 3点; 括号(x)")
+  })
+
+  it("enableFullwidth=true: 半角标点 → 全角 (空格保留)", () => {
+    const r = formatNormalize("他走了, 天黑了. 时间: 3点; 括号(x)", { enableFullwidth: true })
+    expect(r.text).toContain("他走了， 天黑了。 时间： 3点； 括号（x）")
+  })
+
+  it("enableMojibakeFix 默认开启 (2026-09-04 激活): 乱码自动还原", () => {
+    const r = formatNormalize("cafÃ© 和 â€œ引号â€")
+    expect(r.text).toContain("café")
+    expect(r.text).toContain("“引号”")
+  })
+
+  it("enableMojibakeFix 默认开启: 正常文本零变更 (A2 行为 additive 保持)", () => {
+    const input = "他沿着青石台阶拾级而上，两侧古木参天。"
+    const r = formatNormalize(input)
+    expect(r.text).toBe(input)
+  })
+
+  it("enableMojibakeFix=false 显式关闭: 乱码原样保留 (后向兼容)", () => {
+    const r = formatNormalize("cafÃ© 和 â€œ引号â€", { enableMojibakeFix: false })
+    expect(r.text).toContain("cafÃ©")
+  })
+
+  it("enableMojibakeFix=true: UTF-8 双重编码乱码还原", () => {
+    const r = formatNormalize("cafÃ© 和 â€œ引号â€", { enableMojibakeFix: true })
+    expect(r.text).toContain("café")
+    expect(r.text).toContain("“引号”")
+  })
+
+  it("enableMojibakeFix=true: â€™ (U+2019 撇号) 长序列先于 â€ 短序列还原 (55 终验 P2-2)", () => {
+    const r = formatNormalize("donâ€™t", { enableMojibakeFix: true })
+    expect(r.text).toContain("don’t")
+    expect(r.text).not.toContain("â€")
+  })
+
+  it("两选项叠加: 全角化 + mojibake 同时生效", () => {
+    const r = formatNormalize("cafÃ©, ok.", { enableFullwidth: true, enableMojibakeFix: true })
+    expect(r.text).toContain("café， ok。")
+  })
+})

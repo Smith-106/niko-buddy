@@ -23,8 +23,10 @@ describe("ISS-20260712-010 load error vs empty", () => {
 
   it("loadCognitionState returns null when file is missing", async () => {
     fileExists.mockResolvedValue(false)
+    // E-03 工厂迁移后 loadCognitionState 走 readFile 直读 (try/catch 降级),
+    // 不再先查 fileExists — 缺失语义由 readFile 抛错/空内容经 onMissing:"null" 兑现。
+    readFile.mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))
     await expect(loadCognitionState("/proj")).resolves.toBeNull()
-    expect(readFile).not.toHaveBeenCalled()
   })
 
   it("loadCognitionState returns null for empty file content", async () => {

@@ -134,7 +134,7 @@ describe("anti-ai 孪生奇偶: 熵因子 (裁决A 归一化<0.7)", () => {
 
   function tsSE(text: string) {
     const factors = pool.analyze(text).factors
-    expect(factors.length, "池应产出全部4因子 (语料未加载会假绿)").toBe(4)
+    expect(factors.length, "池应产出全部5因子 (语料未加载会假绿)").toBe(5)
     return factors.find((f) => f.factor === "sentenceEntropy")!
   }
 

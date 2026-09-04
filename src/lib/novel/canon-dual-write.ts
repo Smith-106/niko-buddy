@@ -28,6 +28,14 @@
  *   `@/commands/fs` 原子写。单测用 mock deps 覆盖全部分支，运行时路径在 `.novel/`。
  *
  * 遵循 QMAI/CLAUDE.md：T15 新增锚点，落 `src/lib/novel/`；运行期队列在 `.novel/`。
+ *
+ * ## E-05 幂等键交叉引用（R-3 / C-3，与 promotion-bridge.ts 模块头定义文档对齐）
+ *   本模块 digest = SHA-256(stable({chapter, fact})) —— **去重语义**（同一原料
+ *   重复摄入 → store 收敛单行）；promotion-bridge.ts replayKey =
+ *   `${channel}:${chapterId}:${entity}:${revision}` —— **可重放语义**（重复晋升
+ *   同版本 → 返回既有 record）。两者键空间/语义/失效条件不同，MUST NOT 混用
+ *   （BND-PRM-06 / C-3）。本模块 reconcile 一致时对 episode 类 ops 批量晋升
+ *   （channel=canon-dual-write，见 shadowWriteCanon 尾部接线）。
  */
 
 import { invoke } from "@tauri-apps/api/core"
@@ -40,6 +48,8 @@ import {
   DEFAULT_PRE_WRITE_GATE_MODE,
   type PreWriteGateInput,
 } from "./canon-pre-write-gate"
+import { appendFoldConflictLog, promote } from "./promotion-bridge"
+import { logger } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────────
 // canon revision 持久化 TS 侧预热（DEBT-20260820-13）
@@ -99,6 +109,21 @@ export async function saveDivergenceTrace(
   } catch (err) {
     // divergence trace 是非致命审计操作，写入失败不阻断主流程
     console.warn("[canon] saveDivergenceTrace failed (non-fatal):", err instanceof Error ? err.message : String(err))
+  }
+}
+
+/**
+ * 55 号设计 W2-2 (54⑤ 收尾): 读取 divergence trace JSON (读路径)。
+ * 不存在或不可读时返回空字符串 (与 save 对称的审计读接口)。
+ */
+export async function loadDivergenceTrace(projectPath: string): Promise<string> {
+  try {
+    return await invoke<string>("canon_load_divergence_trace", {
+      projectId: projectPath,
+    })
+  } catch (err) {
+    console.warn("[canon] loadDivergenceTrace failed (non-fatal):", err instanceof Error ? err.message : String(err))
+    return ""
   }
 }
 
@@ -379,6 +404,18 @@ export async function canonStoreWriter(
         // 标记, 继续写 (不静默丢写, 审计可追溯)
         if (gateResult.state === "WARN") {
           gateHit = "pre_write_warn"
+          // E-05 (C-9): 写前门 WARN 命中 → 冲突仲裁日志（报告工件非真相文件，
+          // 可删重建；实然优先已编码在 warn-only 降级语义中）。
+          await appendFoldConflictLog(projectPath, {
+            ts: new Date().toISOString(),
+            source: "pre-write-gate",
+            chapter: String(request.cap_chapter ?? "?"),
+            subject: newEdges.map((e) => e.id).join(",") || "supersede",
+            shouldSide: "canon 写前门 WARN（L1 硬冲突候选）",
+            actualSide: "actual-first（warn-only 降级继续写）",
+            resolution: "actual-first",
+            note: gateResult.conflicts.map((c) => c.reason).join("; "),
+          })
         }
         if (gateResult.state === "DUPLICATE") {
           // 幂等去重: digest 重复且区间重叠 → 跳过写 (审计可追溯)
@@ -689,6 +726,10 @@ export async function shadowWriteCanon(
   projectPath: string,
   ops: CanonDualWriteOp[],
   now: number,
+  /** E-05 (C-4/C-6): 晋升通道接线。缺省 undefined = 不晋升（向后兼容）。
+   *  ingest 路径（T16 钩子）传 "canon-dual-write"；backfill 路径在
+   *  canon-backfill.ts 循环内自行按章晋升（带 snapshot revision）。 */
+  promoteChannel?: "canon-dual-write",
 ): Promise<ShadowWriteReport> {
   const queuePath = canonPendingQueuePath(projectPath)
   const results: CanonWriteOutcome[] = []
@@ -709,6 +750,38 @@ export async function shadowWriteCanon(
   // 一致时 noop 零开销; 不一致时重放待写队列; 重放后仍不一致才 alerted。
   // 重放事件全程 trace 留痕, 绝不静默吞差异。
   const reconcile = await twoPhaseReconcile(deps, projectPath, results, now)
+  // E-05 (C-4/C-6): canon-dual-write 通道晋升接线。
+  // reconcile 一致 → 对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
+  // 失败/歧义 → promote 内部入 promotion-retry 队列 + warn（非致命，重放收敛）。
+  // 注：本层无 ChapterSnapshot.revision（C-2 权威字段在 ingest 层），保守取
+  // revision=1；正式 revision 语义由 formal-writeback 通道承载（C-2 主案）。
+  if (promoteChannel === "canon-dual-write" && reconcile.finalConsistent) {
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i]
+      const outcome = results[i]
+      if (!outcome.consistent || op.canonPayload.kind !== "episode") continue
+      const ep = op.canonPayload.episode
+      const chapterId =
+        typeof ep.entity_id === "string" ? ep.entity_id : `ch${ep.chapter_number}`
+      try {
+        await promote({
+          channel: "canon-dual-write",
+          projectPath,
+          chapterId,
+          chapterNumber: Number(ep.chapter_number) || 0,
+          revision: 1,
+          entity: chapterId,
+          gateContext: { isFinalChapter: true, dualWriteConsistent: true },
+          contentDigestPrefix: op.digest ? op.digest.slice(0, 16) : undefined,
+        })
+      } catch (err) {
+        logger.warn(
+          "promotion-bridge",
+          `canon-dual-write promote failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+  }
   return {
     written: results.filter((r) => r.consistent).length,
     queued: incoming.length,

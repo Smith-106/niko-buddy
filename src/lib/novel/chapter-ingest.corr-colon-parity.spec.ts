@@ -93,12 +93,14 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
   })
 
   it("live ingest character fold calls applyCharacterStateChangesToStore (no inline fold)", () => {
-    // The live ingest path must delegate to the shared helper instead of inlining
-    expect(src).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps)")
+    // The live ingest path must delegate to the shared helper instead of inlining.
+    // E-03 (C-3): fold 纯性 — 调用点注入 foldCtx (显式时间戳全链下传)。
+    expect(src).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)")
   })
 
   it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", () => {
-    expect(src).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot)")
+    // E-03 (C-3): 同上, 调用点注入 foldCtx。
+    expect(src).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)")
   })
 
   it("removes the ASCII-only double-indexOf from applyCharacterStateChangesToStore", () => {
@@ -219,14 +221,14 @@ describe("CORR-001/002: fold_rebuildable contract — ingest path delegates to s
     const charFoldIdx = src.indexOf('if (snapshot.characterStateChanges.length > 0)')
     expect(charFoldIdx).toBeGreaterThan(-1)
     const charFoldBlock = src.slice(charFoldIdx, charFoldIdx + 1100)
-    expect(charFoldBlock).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps)")
+    expect(charFoldBlock).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)")
     // No inline for-loop with change.search in the live ingest block
     expect(charFoldBlock).not.toMatch(/for \(const change of snapshot\.characterStateChanges\)[\s\S]*?change\.search\(\/\[:：\]\/\)/)
 
     const foreshadowFoldIdx = src.indexOf('if (snapshot.foreshadowingChanges.length > 0)')
     expect(foreshadowFoldIdx).toBeGreaterThan(-1)
     const foreshadowFoldBlock = src.slice(foreshadowFoldIdx, foreshadowFoldIdx + 1100)
-    expect(foreshadowFoldBlock).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot)")
+    expect(foreshadowFoldBlock).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)")
     // No inline for-loop with /^(新增伏笔|新增)[:：]/.test in the live ingest block
     expect(foreshadowFoldBlock).not.toMatch(/for \(const change of snapshot\.foreshadowingChanges\)[\s\S]*?\^\(新增伏笔\|新增\)\[:：\]\.test/)
   })

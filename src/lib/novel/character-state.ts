@@ -1,5 +1,4 @@
-import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { createAtomicJsonStore } from "./projection-store"
 
 export interface CharacterState {
   characterName: string
@@ -79,48 +78,34 @@ export function createEmptyCharacterStateStore(): CharacterStateStore {
   return { characters: [], lastUpdated: new Date().toISOString() }
 }
 
+// E-03 (run-execute-1, 双库架构蓝图): 直写迁移到 createAtomicJsonStore 工厂
+// (三模型共识 2026-09-04)。load 语义保留 ISS-20260712-010: missing/empty →
+// empty store; non-empty corrupt JSON → throw (error vs no-data) — 经
+// onCorrupt:"throw" 选项精确复刻; 意外读错误 (非 ENOENT) rethrow 经
+// isMissingError 谓词复刻, 零行为变化。
+const store = createAtomicJsonStore<CharacterStateStore>(
+  "character-states.json",
+  createEmptyCharacterStateStore,
+  {
+    onCorrupt: "throw",
+    isMissingError: (err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      return /not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)
+    },
+  },
+)
+
 export async function saveCharacterStates(
   projectPath: string,
-  store: CharacterStateStore,
+  storeData: CharacterStateStore,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002 (ANL-010 C5): upgrade writeFile → writeFileAtomic. A crash mid-write
-  // (power loss, panic) left a truncated character-states.json that broke
-  // ingest on next load. writeFileAtomic (fs.rs:1190 temp+fsync+rename) is
-  // crash-safe — the file is either the old or the new version, never half.
-  // This projection is fold_rebuildable (rebuildDerivedMemoryFromSnapshots
-  // re-derives it from the snapshot sequence), but a corrupt file blocks
-  // the rebuild itself, so atomicity still matters here.
-  await writeFileAtomic(
-    `${pp}/.novel/character-states.json`,
-    JSON.stringify(store, null, 2),
-  )
+  await store.save(projectPath, storeData)
 }
 
 export async function loadCharacterStates(
   projectPath: string,
 ): Promise<CharacterStateStore> {
-  const pp = normalizePath(projectPath)
-  // ISS-20260712-010: missing/empty → empty store; non-empty corrupt JSON → throw (error vs no-data).
-  try {
-    const raw = await readFile(`${pp}/.novel/character-states.json`)
-    if (!raw || !raw.trim()) return createEmptyCharacterStateStore()
-    try {
-      return JSON.parse(raw)
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      throw new Error(`Failed to parse character-states.json: ${detail}`)
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (/Failed to parse character-states\.json/.test(message)) throw err
-    // Missing file / not found → empty store (historical soft path for first-run projects).
-    if (/not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)) {
-      return createEmptyCharacterStateStore()
-    }
-    throw err instanceof Error ? err : new Error(message)
-  }
+  return store.load(projectPath)
 }
 
 export function characterStatesToContextText(store: CharacterStateStore): string {

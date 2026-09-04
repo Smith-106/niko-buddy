@@ -23,6 +23,7 @@ import {
   summarizeContinuityFindings,
   toConsistencyReviewResult,
   type ContinuityInput,
+  type ContinuityFinding,
   type ContinuityOverrideStore,
 } from "./deterministic-continuity-engine"
 // TASK-010 (GRL-011 Decision 7.2): continuity 观测层 metric sink — 薄包装层在引擎
@@ -39,6 +40,12 @@ import { loadContinuityOverrides } from "./continuity-overrides-store"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
+import { loadCognitionState } from "./character-cognition"
+import { loadResourceLedger } from "./resource-ledger"
+import { loadParticleLedger } from "./particle-ledger"
+import { auditChapter, extractAuditInputsFromText, type AuditChapterOptions } from "./process-library"
+import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
+import { z } from "zod"
 import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 // T24 (TASK-P3-24): 审查 type → 门控键映射改读 T22 GATE_MAPPING（唯一真源）。
 // getGateForDimension / ALL_AUDIT_DIMENSION_IDS 均为 audit-taxonomy 纯常量/纯函数
@@ -395,6 +402,163 @@ function buildGenreActivationSection(genre: string | undefined, characterOnly: b
   return `\n\n## 本轮审查维度激活集（按题材《${genre}》裁剪）\n仅以下维度参与阻断与修复路由（未列出的 Quality 维度本轮跳过）: ${labels}`
 }
 
+// ============================================================================
+// E-04 (run-execute-1, 双库架构蓝图 EPIC-04): 审计三口诀只读闭环
+// ============================================================================
+
+/**
+ * E-04 (C-7): checkConsistency — 史诗命名锚点的薄纯函数兑现。
+ * BLOCK iff 存在 severity=critical && subtype=consistency_mechanical 的 finding。
+ * 纯函数: 可测、无 IO、幂等重算 (可逆性: 无持久 BLOCK 状态)。
+ * 阻断机制复用既有链路: critical → toConsistencyReviewResult (severity:'error')
+ * → collectBlockingIssues (deep-chapter-generation) 阻断 approve。
+ */
+export function checkConsistency(
+  findings: readonly ContinuityFinding[],
+): { decision: "PASS" | "BLOCK"; critical: ContinuityFinding[] } {
+  const critical = findings.filter(
+    (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",
+  )
+  return { decision: critical.length > 0 ? "BLOCK" : "PASS", critical }
+}
+
+/**
+ * E-04 (C-6): findings 只读 JSONL 薄包装 sink — 审计组件 (L1 检测器 + L2
+ * auditChapter) 零写句柄的唯一例外层 (编排层)。落 `.novel/audit-findings.jsonl`。
+ * 行 schema: {type, severity, chapter, evidence} MUST + ref/message/subtype 受控补充
+ * (ref 是 ADR-34 override/dismiss 匹配键)。severity 落盘前 zod 断言 ∈ 三级。
+ * 幂等: 同 (type,severity,chapter,ref,evidence) 行已存在则跳过 (重跑审计不重复追加)。
+ * 失败降级: sink 是观测层报告工件, 写失败仅 log warn 不阻断审计门 (守 Decision 7.3
+ * 观测层失败不回滚正文; 门判定基于内存 findings, 与落盘解耦)。
+ */
+const AUDIT_FINDINGS_LINE_SCHEMA = z.object({
+  type: z.string().min(1),
+  severity: z.enum(["critical", "warning", "info"]),
+  chapter: z.number().int().positive(),
+  evidence: z.string().optional(),
+  ref: z.string().optional(),
+  message: z.string().optional(),
+  subtype: z.string().optional(),
+})
+
+export async function appendAuditFindings(
+  projectPath: string,
+  findings: readonly ContinuityFinding[],
+): Promise<void> {
+  if (findings.length === 0) return
+  try {
+    const dir = `${projectPath}/.novel`
+    const filePath = `${dir}/audit-findings.jsonl`
+    const lines = findings.map((f) => JSON.stringify(
+      AUDIT_FINDINGS_LINE_SCHEMA.parse({
+        type: f.type,
+        severity: f.severity,
+        chapter: f.chapter,
+        evidence: f.evidence,
+        ref: f.ref,
+        message: f.message,
+        subtype: f.subtype,
+      }),
+    ))
+    let existing = new Set<string>()
+    try {
+      if (await fileExists(filePath)) {
+        const content = await readFile(filePath)
+        existing = new Set(content.split("\n").filter((l) => l.trim().length > 0))
+      }
+    } catch {
+      existing = new Set()
+    }
+    const fresh = lines.filter((l) => !existing.has(l))
+    if (fresh.length === 0) return
+    await createDirectory(dir)
+    await writeFileAtomic(filePath, [...existing, ...fresh].join("\n") + "\n")
+  } catch (err) {
+    logger.warn(
+      "continuity-engine",
+      `audit findings sink degraded: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
+/**
+ * E-04 (C-8): 审计三口诀预检 — 审查侧主接线。
+ * 1) 有正文 → extractAuditInputsFromText 确定性提取在场实体 (角色/物品/粒子);
+ * 2) auditChapter 三口诀装配 (证据分级: 符号命中 → critical, 未命中/无输入 → info);
+ * 3) appendAuditFindings 落只读 JSONL (幂等);
+ * 4) checkConsistency → BLOCK → toConsistencyReviewResult (critical → severity:'error')
+ *    → 经既有短路 (reviewChapter) + collectBlockingIssues 阻断 approve。
+ * 审计异常 → 显式「审计未完成」warning (可见不阻断, 守 IC-02 不静默降级;
+ * 定稿确认点层面不放行定稿 — C-10)。
+ */
+export interface AuditTriadPreflightOptions {
+  /** 本章正文 (证据分级 + 在场实体提取). */
+  chapterText?: string
+  /** 已加载 store 注入 (守 S-20260718-ito3 不重复 reload). */
+  sources?: AuditChapterOptions["sources"]
+}
+
+export async function runAuditTriadPreflight(
+  projectPath: string,
+  chapterNumber: number,
+  options?: AuditTriadPreflightOptions,
+): Promise<NovelReviewResult[]> {
+  if (chapterNumber === undefined || chapterNumber < 1) return []
+  try {
+    const auditOptions: AuditChapterOptions = {
+      chapterText: options?.chapterText,
+      sources: options?.sources,
+    }
+    let presentCharacters: string[] = []
+    let presentItems: string[] = []
+    let presentParticles: Record<string, string[]> | undefined
+    if (options?.chapterText) {
+      const [cognition, resources, particles] = options?.sources
+        ? [
+            options.sources.cognition ?? (await loadCognitionState(projectPath)),
+            options.sources.resources ?? (await loadResourceLedger(projectPath)),
+            options.sources.particles ?? (await loadParticleLedger(projectPath)),
+          ]
+        : await Promise.all([
+            loadCognitionState(projectPath),
+            loadResourceLedger(projectPath),
+            loadParticleLedger(projectPath),
+          ])
+      const extracted = extractAuditInputsFromText(options.chapterText, { cognition, resources, particles })
+      presentCharacters = extracted.presentCharacters
+      presentItems = extracted.presentItems
+      presentParticles = extracted.presentParticles
+    }
+    const report = await auditChapter(
+      projectPath,
+      chapterNumber,
+      presentCharacters,
+      presentItems,
+      presentParticles,
+      auditOptions,
+    )
+    await appendAuditFindings(projectPath, report.findings)
+    const gate = checkConsistency(report.findings)
+    if (gate.decision === "BLOCK") {
+      return toConsistencyReviewResult(gate.critical)
+    }
+    return []
+  } catch (err) {
+    logger.warn(
+      "continuity-engine",
+      `audit triad degraded: ${err instanceof Error ? err.message : String(err)}`,
+    )
+    return [{
+      severity: "warning",
+      type: "consistency_mechanical",
+      message: "过程库审计执行异常, 审计未完成 (不阻断审查, 定稿前需人工确认)",
+      evidence: "audit_error",
+      relatedMemory: "",
+      suggestion: "检查真相文件完整性后重新审查",
+    }]
+  }
+}
+
 /**
  * TASK-008 (GRL-011): deterministic-continuity-engine 审查层薄包装。
  *
@@ -419,6 +583,7 @@ function buildGenreActivationSection(genre: string | undefined, characterOnly: b
 export async function runContinuityMechanicalPreflight(
   projectPath: string,
   chapterNumber?: number,
+  options?: { chapterText?: string },
 ): Promise<NovelReviewResult[]> {
   // chapterNumber 缺失无法算 gap, 跳过引擎 (不阻断)
   if (chapterNumber === undefined || chapterNumber < 1) return []
@@ -528,7 +693,13 @@ export async function runContinuityMechanicalPreflight(
     // 映射 critical→error/warning→warning/info→info; type='consistency_mechanical';
     // message/evidence/suggestion 文本一致)。ContinuityReviewResult 是 NovelReviewResult
     // 的结构性子类型 (type 字面量是 string 子类型), 数组协变兼容无需 cast。
-    return toConsistencyReviewResult(findings)
+    // E-04 (C-8): 审计三口诀接线 — 复用已 load store (foreshadowing/characterStates),
+    // 正文在场实体提取 + 证据分级; critical → error 并入返回 (经既有短路/门链路阻断)。
+    const auditResults = await runAuditTriadPreflight(projectPath, chapterNumber, {
+      chapterText: options?.chapterText,
+      sources: { foreshadowing: foreshadowingStore, characterStates: characterStateStore },
+    })
+    return [...toConsistencyReviewResult(findings), ...auditResults]
   } catch (err) {
     // Decision 7.3 + fold_rebuildable: 引擎异常降级 LLM continuity 维度兜底, 不阻断审查。
     // logger 双参 scope='continuity-engine' (memory a19-emotion-ledger 坑: 单参丢 scope)。
@@ -617,7 +788,7 @@ export async function reviewChapter(
   // (memory a19-emotion-ledger 坑: 单参 logger 调用会丢 scope)。CWE-532: message 用
   // finding.message 模板化字段, 不引用章节正文。
   const continuityResults = options.injectedContinuityResults
-    ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber)
+    ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber, { chapterText: chapterContent })
   if (continuityResults.some(r => r.severity === "error")) {
     // critical 机械 finding 阻断 approve, 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)
     return [...continuityResults, ...behaviorReview]

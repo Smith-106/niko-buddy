@@ -88,6 +88,8 @@
       "chaseDebtAmount": "当前债务",
       "chaseDebtInterest": "利率",
       "chaseDebtDue": "截止",
+      "chaseDebtSettle": "结清",
+      "chaseDebtWriteOff": "核销",
       "emotionDebt": "情绪债务",
       "emotionNetValue": "情绪净值",
       "loadingExtras": "正在加载补充数据..."
@@ -1025,7 +1027,9 @@
           "notDuplicates": "不是重复",
           "merged": "已合并",
           "skipped": "已标记为不重复"
-        }
+        },
+        "divergenceTraceTitle": "双写一致性差异留痕 (divergence trace)",
+        "divergenceTraceEmpty": "暂无差异留痕（未发生过双写不一致，或尚未生成）。"
       },
       "dataManagement": {
         "title": "数据管理",
@@ -1043,6 +1047,7 @@
         "importing": "导入中...",
         "importSuccess": "导入成功，请重启软件以使配置生效",
         "restoredProjects": "已恢复 {{count}} 个项目",
+        "openFolder": "打开所在文件夹",
         "securityWarning": "备份文件包含 API 密钥等敏感信息，请妥善保管，不要分享给他人。"
       },
       "changelog": {
@@ -1386,6 +1391,9 @@
     },
     "settings": {
       "title": "小说写作设置",
+      "genre": "题材",
+      "genreHint": "设置小说题材（英文稳定码）。题材会注入终稿去 AI 味提示词（仅低严重度规则微调，不改变 critical/high 硬规则与门控行为）。未设置 = 通用基线。",
+      "genreUnset": "未设置（通用）",
       "recentSummaryWindow": "最近章节正文窗口",
       "recentSummaryWindowHint": "控制写作时纳入上下文的最近章节数量。系统会读取这些章节的正文片段，并结合章节摘要帮助模型承接近期剧情；数值越大越连贯，但会占用更多上下文。",
       "searchTopK": "检索结果数量",
@@ -1940,6 +1948,7 @@
       "communitySummaries": "## 社区摘要（图谱社区）",
       "relatedChapters": "## 相关章节四维反查",
       "references": "## 引用检索",
+      "hardInject": "## 硬注入事实",
       "activeEntities": "## 当前章节关联实体",
       "formerFacts": "## 曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）",
       "foreshadowing": {

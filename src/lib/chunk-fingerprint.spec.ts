@@ -37,11 +37,12 @@ beforeEach(() => {
 })
 
 describe("chunkFingerprint", () => {
-  it("returns a deterministic 64-char SHA-256 hex for identical content", () => {
+  it("returns a deterministic versioned SHA-256 fingerprint for identical content", () => {
     const a = chunkFingerprint("The quick brown fox jumps over the lazy dog")
     const b = chunkFingerprint("The quick brown fox jumps over the lazy dog")
     expect(a).toBe(b)
-    expect(a).toMatch(/^[0-9a-f]{64}$/)
+    // 55 号设计 W2-7: 版本位 v1: + 64-char hex
+    expect(a).toMatch(/^v1:[0-9a-f]{64}$/)
   })
 
   it("collapses leading/trailing whitespace (trim) to the same fingerprint", () => {

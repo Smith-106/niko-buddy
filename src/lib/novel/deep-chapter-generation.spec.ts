@@ -11,11 +11,13 @@ const fsReadFileMock = vi.hoisted(() => vi.fn<(path: string) => Promise<string>>
   err.code = "ENOENT"
   throw err
 }))
+const fsListMock = vi.hoisted(() => vi.fn<() => Promise<unknown[]>>(async () => []))
 vi.mock("@/commands/fs", async () => {
   const actual = await vi.importActual<typeof import("@/commands/fs")>("@/commands/fs")
   return {
     ...actual,
     readFile: fsReadFileMock,
+    listDirectory: fsListMock,
   }
 })
 
@@ -4102,5 +4104,136 @@ describe("53 P0-3 题材级接线 (buildDecisionGates / collectRepairIssues)", (
     )
     const repaired = collectRepairIssues(gates, undefined)
     expect(repaired).toHaveLength(1)
+  })
+})
+
+describe("55 W1-4 终稿回流幂等再规范化 (stage6 finalPolish 后)", () => {
+  it("finalPolish 输出含全角连发感叹号 → finalContent 已降级 (审计对象 = 交付物)", async () => {
+    const finalPolished = chapterText("最终去AI味正文！！！！！", 3000)
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(finalPolished)
+        } else if (prompt.includes("章节正文")) {
+          callbacks.onToken("[N]\n你给我那五句话，我就继续写正文。本轮只给任务书，不写正文。")
+        } else {
+          callbacks.onToken("请先补充五句话，本轮只给任务书，不写正文。")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+    // 全角连发感叹号被降级 (format-normalizer 感叹号 ≤5 规则)
+    expect(result.finalContent).not.toContain("！！！！！")
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("干净终稿 → finalContent 逐字节不变 (幂等 no-op 路径)", async () => {
+    const finalPolished = chapterText("最终去AI味正文", 3000)
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(finalPolished)
+        } else if (prompt.includes("章节正文")) {
+          callbacks.onToken("[N]\n你给我那五句话，我就继续写正文。本轮只给任务书，不写正文。")
+        } else {
+          callbacks.onToken("请先补充五句话，本轮只给任务书，不写正文。")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+    expect(result.finalContent).toBe(finalPolished)
+  })
+
+  it("顺序守卫: avoid-ai 审计 onThinking 在终稿规范化之后 (审计对象 = 最终交付物)", async () => {
+    const finalPolished = chapterText("最终去AI味正文！！！！！", 3000)
+    const thinking: string[] = []
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(finalPolished)
+        } else if (prompt.includes("章节正文")) {
+          callbacks.onToken("[N]\n你给我那五句话，我就继续写正文。本轮只给任务书，不写正文。")
+        } else {
+          callbacks.onToken("请先补充五句话，本轮只给任务书，不写正文。")
+        }
+        callbacks.onDone()
+      }),
+    }
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    const auditIdx = thinking.findIndex((t) => t.includes("avoid-ai 审计"))
+    const normalizeIdx = thinking.findIndex((t) => t.includes("终稿规范化"))
+    // 规范化在审计之前 (审计对象 = 最终交付物)
+    expect(normalizeIdx).toBeGreaterThanOrEqual(0)
+    expect(auditIdx).toBeGreaterThan(normalizeIdx)
+  })
+})
+
+describe("55 W2-5 数值事实检查接线 (.novel/chapters/{n}/draft.md)", () => {
+  it("接线真实生效: 读正式章节目录 + 末章替换交付物 + onThinking 提示 (防空转)", async () => {
+    // 正式章节目录: .novel/chapters/{n}/draft.md (context-data-sources.ts:67)
+    vi.mocked(fsListMock).mockResolvedValue([
+      { name: "1", path: "/proj/.novel/chapters/1", is_dir: true, children: [] },
+      { name: "2", path: "/proj/.novel/chapters/2", is_dir: true, children: [] },
+      { name: "scenes.pending.json", path: "/proj/.novel/chapters/scenes.pending.json", is_dir: false },
+    ])
+    fsReadFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("/1/draft.md")) return "第1章: 他有三把剑。"
+      if (path.endsWith("/2/draft.md")) return "第2章: 他有三把剑。"
+      const err: NodeJS.ErrnoException = new Error("ENOENT")
+      err.code = "ENOENT"
+      throw err
+    })
+    const thinking: string[] = []
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(chapterText("最终正文：他有三把剑。", 200))
+        } else if (prompt.includes("章节正文")) {
+          callbacks.onToken("[N]\n你给我那五句话，我就继续写正文。本轮只给任务书，不写正文。")
+        } else {
+          callbacks.onToken("请先补充五句话，本轮只给任务书，不写正文。")
+        }
+        callbacks.onDone()
+      }),
+    }
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+    // 末章 (第2章) 被替换为最终交付物, 与第1章同值 → 数值检查应提示矛盾候选
+    const numericIdx = thinking.findIndex((t) => t.includes("数值一致性检查"))
+    expect(numericIdx).toBeGreaterThanOrEqual(0)
+    expect(thinking[numericIdx]).toContain("warn-only")
   })
 })

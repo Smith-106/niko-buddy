@@ -11,6 +11,7 @@ import { useImportProgressStore } from "@/stores/import-progress-store"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ingestOutline } from "./chapter-ingest"
+import { normalizeMarkdownBody } from "./normalize-markdown-body"
 import { buildContextPack, type ContextPack } from "./context-engine"
 
 export type OutlineSectionGenerationKey =
@@ -106,11 +107,15 @@ function getStoryOutlineFileName(): string {
   return useEnglishOutlineNames() ? "story-outline.md" : "总大纲.md"
 }
 
-function outlinePageMarkdown(title: string, content: string): string {
+function outlinePageMarkdown(title: string, content: string, genre?: string): string {
+  // 55 号设计 W1-1: genre frontmatter 为展示性派生写入 (非运行时真源, 真源 = NovelConfig)。
+  // 缺省 undefined → 不写行, 与现状逐字节一致。
+  const genreLine = genre && genre.trim() ? `genre: "${genre.trim().replace(/"/g, '\\"')}"` : null
   return [
     "---",
     "type: outline",
     `title: "${title.replace(/"/g, '\\"')}"`,
+    ...(genreLine ? [genreLine] : []),
     "---",
     "",
     `# ${title}`,
@@ -293,6 +298,8 @@ async function writeOutlineSectionFile(
   if (options.mode === "appendCurrent" && options.targetPath) {
     const targetPath = normalizePath(options.targetPath)
     const existing = await readFile(targetPath).catch(() => "")
+    // 55 号设计 W2-1: append 模式追加的分节内容同样过 body-only 规范化
+    const normalizedSection = normalizeMarkdownBody(sectionContent)
     const appended = [
       existing.trimEnd(),
       "",
@@ -300,7 +307,7 @@ async function writeOutlineSectionFile(
       "",
       `## ${sectionTitle}`,
       "",
-      sectionContent.trim(),
+      normalizedSection.trim(),
       "",
     ].filter((part, index) => index > 0 || part).join("\n")
     await writeFile(targetPath, appended)
@@ -310,7 +317,9 @@ async function writeOutlineSectionFile(
   const outlinePath = options.mode === "newFileAndAddToList"
     ? await getUniqueOutlinePath(outlinesDir, fileName)
     : `${outlinesDir}/${fileName}`
-  await writeFile(outlinePath, outlinePageMarkdown(sectionTitle, sectionContent))
+  // 55 号设计 W2-1 (54② 收尾): 大纲线写盘前 body-only 规范化 (frontmatter 原样保留)。
+  const normalized = normalizeMarkdownBody(sectionContent)
+  await writeFile(outlinePath, outlinePageMarkdown(sectionTitle, normalized))
   if (options.mode === "newFileAndAddToList") {
     await addOutlineFileToSourceList(projectPath, outlinePath)
   }
@@ -423,7 +432,8 @@ export async function generateOutlineFile(
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
   const outlineTitle = useEnglishOutlineNames() ? "Story Outline" : "总大纲"
-  const fullContent = outlinePageMarkdown(outlineTitle, content)
+  // 55 号设计 W2-1: 总大纲主路径同样过 body-only 规范化 (frontmatter 逐字节保留)
+  const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
   const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
   await writeFile(outlinePath, fullContent)
   return { outlinePath, content }
@@ -815,7 +825,8 @@ export async function generateOutlineFileMultiAgent(
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
   const outlineTitle = useEnglishOutlineNames() ? "Story Outline" : "总大纲"
-  const fullContent = outlinePageMarkdown(outlineTitle, content)
+  // 55 号设计 W2-1: 多智能体总大纲路径同样过 body-only 规范化
+  const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
   const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
   await writeFile(outlinePath, fullContent)
   return { outlinePath, content }

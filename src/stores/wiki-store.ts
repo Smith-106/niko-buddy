@@ -321,6 +321,41 @@ export interface NovelConfig {
   /** Quality Foundation v1: outline thril soft-gate before draft (default on). */
   outlineThrillSoftGateEnabled: boolean
   /**
+   * E-06 (run-execute-1, 双库架构蓝图 kb-governance): trust 过滤开关 (默认 false)。
+   * 开启后检索侧剔除 blocked 条目 (GOV-TRUST-05); 关闭 = 字节级回退现状。
+   */
+  trustFilterEnabled: boolean
+  /**
+   * E-06: 能力库衰减开关 (默认 false)。衰减参数 [需校准] (G-3), 校准前不生效。
+   */
+  decayEnabled: boolean
+  /**
+   * E-06: 过程库 supersession 过滤开关 (默认 false)。开启后 superseded 条目不装配。
+   */
+  supersessionFilterEnabled: boolean
+  /**
+   * E-02 (run-execute-1, 双库架构蓝图 capability-kb-retrieval): 双轨检索编排开关 (默认 false)。
+   * 开启后写作路径 searchRelevantContentUnified 经 retrieveDualTrack 编排
+   * (canon 不参与 RRF 排名, C-3); 关闭 = 字节级回退现状。
+   */
+  dualKbRoutingEnabled: boolean
+  /**
+   * E-02: 硬注入通道开关 (默认 false)。开启后 buildContextPack 第四源装配
+   * pack.hardInject (canon 认知轴 + visibleInfoFor POV 投影, 预算 cap 裁剪);
+   * 关闭 = 不注入 (字节级回退现状)。
+   */
+  hardInjectEnabled: boolean
+  /**
+   * E-02: 写作特化 usefulness rerank 开关 (默认 false)。开启后检索候选经
+   * reorderByUsefulness (canon_consistency 否决制) 重排; 关闭 = 现状排序。
+   */
+  usefulnessRerankEnabled: boolean
+  /**
+   * 55 号设计 W1-1 (54⑧ 收尾): 题材 (genre) 英文稳定码 (outline-generator 9 码之一)。
+   * 运行时单真源 (`.qmai/novel-config.json`); undefined = 未设置 → 生成链零行为变更。
+   */
+  genre?: string
+  /**
    * F-011: Voice Preservation 第一层 — spelling convention 全局拼写约定。
    * 存储在 settings 中，作为全局默认拼写规范而非 per-project 粒度。
    */
@@ -365,6 +400,14 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   stateDeltaLightCheckEnabled: true,
   stateDeltaBlocksTrackA: false,
   outlineThrillSoftGateEnabled: true,
+  // E-06 (kb-governance): 三 flag 默认 false（校准/接线前零行为变更）
+  trustFilterEnabled: false,
+  decayEnabled: false,
+  supersessionFilterEnabled: false,
+  // E-02 (capability-kb-retrieval): 三 flag 默认 false（接线前零行为变更，可逆上线）
+  dualKbRoutingEnabled: false,
+  hardInjectEnabled: false,
+  usefulnessRerankEnabled: false,
   // F-011: Voice Preservation 第一层 — spelling convention 默认值
   dialoguePunctuationStyle: "",
   paragraphIndent: "",

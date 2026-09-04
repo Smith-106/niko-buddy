@@ -574,3 +574,274 @@ export async function searchPlot(
     includeCanon: options?.includeCanon ?? false,
   })
 }
+
+// ============================================================================
+// E-02 (run-execute-1, 双库架构蓝图 EPIC-02): 检索双轨不对称 — 硬注入物理隔离
+// ============================================================================
+
+import kbRoutingView from "../../../../reference/REFERENCE-KB-VIEW.json"
+import { z } from "zod"
+import { getFactsKnownBy, type CanonFact } from "./canon-graph-client"
+import { visibleInfoFor } from "./process-library"
+import type { TrustGrade } from "./trust-grader"
+
+/**
+ * E-02 (C-6, DA-09): 路由矩阵消费 — MUST 从 JSON 读路由, 不得硬编码。
+ * 静态 JSON import (构建期绑定, Vite resolveJsonModule), zod 形状校验。
+ * 只读 `routing.agent` (写作 Agent 面, E-01 已保证无 tech)。
+ */
+const KB_ROUTING_AGENT_SCHEMA = z.record(
+  z.string(),
+  z.array(z.string()),
+)
+
+export interface KbRoutingMatrix {
+  /** intent → collection allowlist (routing.agent, 写作 Agent 面零 tech)。 */
+  agent: Record<string, string[]>
+}
+
+export function loadKbRoutingMatrix(): KbRoutingMatrix {
+  const raw = (kbRoutingView as { routing?: { agent?: unknown } }).routing?.agent
+  if (raw === undefined) {
+    throw new Error("REFERENCE-KB-VIEW.json 缺少 routing.agent (E-01 产物缺失或 schema 变更)")
+  }
+  const parsed = KB_ROUTING_AGENT_SCHEMA.parse(raw)
+  return { agent: parsed }
+}
+
+/** E-02 (C-6): 空收藏显式报缺 — 不静默、不用 tech 冒充 (DA-06)。 */
+export interface KbGap {
+  collection: string
+  impactedIntents: string[]
+  message: string
+}
+
+/**
+ * E-02 (C-6): 意图路由前置门 — 消费 routing.agent 矩阵。
+ * 空收藏 (collections[c].length===0) → 显式 KbGap + 阻断该 collection 路由
+ * (其余收藏继续, 部分阻断语义); tech 结构性缺席由数据面保证 + assertNoTechLeak 兜底。
+ */
+export function routeByQueryIntent(intent: string): {
+  collections: string[]
+  gaps: KbGap[]
+  blocked: string[]
+} {
+  const matrix = loadKbRoutingMatrix()
+  const allowlist = matrix.agent[intent] ?? []
+  const collections: string[] = []
+  const gaps: KbGap[] = []
+  const blocked: string[] = []
+  for (const collection of allowlist) {
+    const entries = (kbRoutingView as { collections?: Record<string, unknown[]> }).collections?.[collection] ?? []
+    if (entries.length === 0) {
+      gaps.push({
+        collection,
+        impactedIntents: [intent],
+        message: `【收藏缺失】意图「${intent}」路由面缺 ${collection} 收藏 (0 条), 已阻断该收藏检索, 禁止用 tech 工具仓冒充`,
+      })
+      blocked.push(collection)
+      continue
+    }
+    collections.push(collection)
+  }
+  return { collections, gaps, blocked }
+}
+
+/**
+ * E-02 (C-6): tech 隔离运行时断言 — 命中 tech/blocked 名即抛错 (fail-loud,
+ * 对齐 assertNoHandleLeak 模式)。Fixed 轴: tech_visible_to_agent MUST NOT
+ * 运行时关闭 (ARC-06 三不变量)。
+ */
+export function assertNoTechLeak(items: readonly { collection?: string; trust?: string }[]): void {
+  for (const item of items) {
+    if (item.collection === "tech" || item.trust === "blocked") {
+      throw new Error(
+        `tech 隔离断言失败: 检索结果含 ${item.collection ?? "?"} (trust=${item.trust ?? "?"}) — ` +
+        `写作 Agent 检索面 tech 零出现是安全不变量 (K-11)`,
+      )
+    }
+  }
+}
+
+/**
+ * E-02 (C-1): 硬注入条目 — 与 NovelSearchResult 类型隔离 (无 relevance 排名字段,
+ * 不产 NovelSearchResult, 物理隔离由类型系统背书)。
+ */
+export interface HardInjectItem {
+  /** canon | process_library */
+  source: "canon" | "process_library"
+  /** 实体标识 (ref, 供追溯/去重)。 */
+  ref: string
+  /** 注入文本 (POV 过滤后, 恒真信息)。 */
+  text: string
+  /** 来源事实 id (canon) 或投影段名 (process_library)。 */
+  origin: string
+}
+
+/**
+ * E-02 (C-1): 双轨检索编排 — 通道 A 硬注入 (RRF 前物理隔离) + 通道 B 语义检索。
+ * novelMixedSearch 既有 RRF 代码路径一字不动 (includeCanon:false 走通道 B)。
+ * 输出 { hardInject, ranked, gaps, usage } — hy3 RetrievalRouter 形状。
+ */
+export interface DualTrackParams {
+  projectPath: string
+  query: string
+  chapterNumber?: number
+  /** 主 POV 角色 (缺省 undefined → 不注入过程库投影, canon 仍按无 POV 过滤)。 */
+  povCharacter?: string
+  /** 意图 (draft/plan/revise/style/lookup) — 前置路由门。 */
+  intent?: string
+  topK?: number
+  /** 硬注入预算 cap (chars, 缺省 computeContextBudget 口径)。 */
+  hardInjectCapChars?: number
+  /** E-06 (C-2): trust 过滤开关 (默认 false → 字节级回退现状)。 */
+  trustFilterEnabled?: boolean
+  /** E-06 (C-2): path → trust 档位映射 (消费方提供; blocked 条目被剔除)。 */
+  trustGrades?: Record<string, TrustGrade>
+}
+
+export interface DualTrackResult {
+  hardInject: HardInjectItem[]
+  ranked: NovelSearchResult[]
+  gaps: KbGap[]
+  usage: { hardInjectChars: number; capChars: number; ratio: number; truncatedCount: number }
+}
+
+/**
+ * E-02 (C-1/C-4): 双轨装配 — 通道 A 硬注入 (canon 恒真事实 + 过程库 POV 投影,
+ * 预算 cap 条目级裁剪, 超限记 truncatedCount 不静默); 通道 B novelMixedSearch
+ * (includeCanon:false, 既有 RRF 主体零改动)。硬注入项从不 push 进 RRF results。
+ */
+export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTrackResult> {
+  const capChars = params.hardInjectCapChars ?? 3072
+  const hardInject: HardInjectItem[] = []
+  let hardInjectChars = 0
+  let truncatedCount = 0
+
+  // 通道 A: 硬注入 (RRF 前物理隔离)
+  const canonFacts: CanonFact[] = params.povCharacter
+    ? await getFactsKnownBy(params.projectPath, params.povCharacter, params.chapterNumber).catch(() => [])
+    : []
+  for (const fact of canonFacts) {
+    // CanonFact 无 subject/object 字段（sourceId/targetId 为实体 id，predicate 为关系）
+    const text = `${fact.sourceId} ${fact.predicate} ${fact.targetId}`
+    const item: HardInjectItem = {
+      source: "canon",
+      ref: `canon:${fact.id ?? fact.sourceId}:${fact.predicate}`,
+      text,
+      origin: fact.id ?? "canon-fact",
+    }
+    if (hardInjectChars + text.length > capChars) {
+      truncatedCount += 1
+      continue
+    }
+    hardInject.push(item)
+    hardInjectChars += text.length
+  }
+  if (params.povCharacter && params.chapterNumber) {
+    const povText = await visibleInfoFor(params.projectPath, params.povCharacter, params.chapterNumber).catch(() => "")
+    if (povText) {
+      if (hardInjectChars + povText.length > capChars) {
+        truncatedCount += 1
+      } else {
+        hardInject.push({
+          source: "process_library",
+          ref: `process_library:${params.povCharacter}:${params.chapterNumber}`,
+          text: povText,
+          origin: "visibleInfoFor",
+        })
+        hardInjectChars += povText.length
+      }
+    }
+  }
+
+  // 通道 B: 语义检索 (canon 不参与排名 — includeCanon:false)
+  const ranked = await novelMixedSearch({
+    projectPath: params.projectPath,
+    query: params.query,
+    chapterNumber: params.chapterNumber,
+    topK: params.topK ?? 8,
+    includeCanon: false,
+  })
+
+  // E-06 (C-2): trust 后置过滤 (GOV-TRUST-05: blocked 条目不进检索视图)。
+  // flag 门控 (trustFilterEnabled 默认 false → 字节级回退); 过滤掉的条目进 gaps
+  // (IC-02 绝不静默: type=filtered, ref=trust_blocked)。
+  const gaps: KbGap[] = []
+  let filteredRanked = ranked
+  if (params.trustFilterEnabled && params.trustGrades) {
+    const blockedCount = ranked.filter((r) => params.trustGrades?.[r.path] === "blocked").length
+    filteredRanked = ranked.filter((r) => params.trustGrades?.[r.path] !== "blocked")
+    if (blockedCount > 0) {
+      gaps.push({
+        collection: "trust",
+        impactedIntents: [params.intent ?? "lookup"],
+        message: `trust_blocked: ${blockedCount} 条 blocked 条目被过滤（GOV-TRUST-05）`,
+      })
+    }
+  }
+
+  return {
+    hardInject,
+    ranked: filteredRanked,
+    gaps,
+    usage: {
+      hardInjectChars,
+      capChars,
+      ratio: capChars > 0 ? hardInjectChars / capChars : 0,
+      truncatedCount,
+    },
+  }
+}
+
+/**
+ * E-02 (C-7): 写作特化 rerank — usefulness 纯函数 (零 LLM)。
+ * usefulness = canon_consistency + situational_fit + information_novelty − staleness
+ * - canon_consistency: 确定性谓词冲突检测 → 冲突即否决 (剔除候选, 不加权平均, CAP-RET-11)
+ * - situational_fit: POV/章号/场景实体命中度 (entityHints 子串命中计数)
+ * - information_novelty: 与已注入硬注入条目 ref 去重后的新增信息量
+ * - staleness: CanonFact.validAt/invalidAt 越旧越高; 无时间戳 → 0 (不惩罚旧数据)
+ * PF-2: 向量分只经 RRF 计入一次, 本层不叠加 relevance。
+ */
+export interface UsefulnessContext {
+  /** 硬注入条目 ref 集合 (novelty 去重基准)。 */
+  hardInjectRefs?: ReadonlySet<string>
+  /** 场景实体提示 (situational_fit 命中基准)。 */
+  entityHints?: readonly string[]
+  /** 当前章号 (situational_fit)。 */
+  chapterNumber?: number
+}
+
+export interface UsefulnessCandidate {
+  title: string
+  snippet: string
+  path?: string
+}
+
+export function reorderByUsefulness<T extends UsefulnessCandidate>(
+  candidates: readonly T[],
+  ctx?: UsefulnessContext,
+): T[] {
+  const hints = (ctx?.entityHints ?? []).map((h) => h.trim()).filter(Boolean)
+  const scored = candidates.map((c) => {
+    let score = 0
+    // canon_consistency: 冲突否决 — 候选 snippet 含 canon 冲突标记即剔除。
+    // (确定性谓词冲突检测的轻量实现: 冲突由调用方预标记, 本层只做否决制排序。)
+    if (c.snippet.includes("【冲突】") || c.snippet.includes("canon_conflict")) {
+      return { c, score: -Infinity }
+    }
+    // situational_fit: 实体提示命中度
+    for (const h of hints) {
+      if (c.title.includes(h) || c.snippet.includes(h)) score += 1
+    }
+    // information_novelty: 与硬注入 ref 去重 (path 级)
+    if (ctx?.hardInjectRefs && c.path && ctx.hardInjectRefs.has(c.path)) score -= 2
+    // staleness: 历史投影降权 (is_historical 标记)
+    if (c.path && isHistoricalProjectionSnippet(c.path, c.snippet)) score -= 1
+    return { c, score }
+  })
+  return scored
+    .filter((s) => s.score !== -Infinity)
+    .sort((a, b) => b.score - a.score)
+    .map((s) => s.c)
+}

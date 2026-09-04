@@ -79,6 +79,39 @@ export interface ContextBudget {
    * 作为 adaptiveScale 曲线上层选择器，先选态再算预算。
    */
   strategy: ContextStrategy
+  /**
+   * E-02 (双库架构蓝图 EPIC-02, 三模型共识 C-4): 硬注入保护槽。
+   * capChars = min(2048 tokens × 1.5 char/token, floor(maxCtx × 0.3))。
+   * 硬注入 MUST 优先占满, 软语料 (pageBudget 内) MUST 截断 (CAP-RET-08)。
+   */
+  hardInjectionBudget: HardInjectionBudget
+}
+
+/**
+ * E-02 (C-4): 硬注入预算槽 — 基线 2048 tokens (CJK ≈ 1.5 char/token → 3072 chars),
+ * cap = min(基线, maxCtx × 0.3)。口径写死防验收 6 不可复现。
+ */
+export interface HardInjectionBudget {
+  /** cap: min(基线换算 chars, floor(maxCtx × 0.3))。 */
+  capChars: number
+  /** 基线 2048 tokens 的 chars 换算 (CJK ≈ 1.5 char/token → 3072)。 */
+  baselineChars: number
+}
+
+/** E-02 (C-4): 硬注入 token 基线 (tokens)。 */
+export const HARD_INJECT_TOKEN_CAP = 2048
+/** E-02 (C-4): CJK 字符/token 换算 (与 context-engine CJK 口径同源)。 */
+export const CJK_CHARS_PER_TOKEN = 1.5
+/** E-02 (C-4): 硬注入占 maxCtx 比例上限。 */
+export const HARD_INJECT_CTX_FRAC = 0.3
+
+/**
+ * E-02 (C-4): 硬注入 cap 纯函数 — min(2048×1.5, floor(maxCtx×0.3)) chars。
+ * 供 context-engine 装配与 spec 断言共用 (单一口径)。
+ */
+export function hardInjectionCapChars(maxCtx: number): number {
+  const baselineChars = Math.floor(HARD_INJECT_TOKEN_CAP * CJK_CHARS_PER_TOKEN)
+  return Math.min(baselineChars, Math.floor(maxCtx * HARD_INJECT_CTX_FRAC))
 }
 
 const DEFAULT_MAX_CTX = 204_800
@@ -153,6 +186,11 @@ export function computeContextBudget(
     maxPageSize,
     activeEntitiesBudget: { rank0Floor, rank1CompressibleCap, rank2CompressibleCap },
     strategy,
+    // E-02 (C-4): 硬注入保护槽 — 恒算 (Fixed 轴, cap MUST NOT 运行时放宽)。
+    hardInjectionBudget: {
+      baselineChars: Math.floor(HARD_INJECT_TOKEN_CAP * CJK_CHARS_PER_TOKEN),
+      capChars: hardInjectionCapChars(maxCtx),
+    },
   }
 }
 

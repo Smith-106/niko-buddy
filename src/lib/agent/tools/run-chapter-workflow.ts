@@ -116,13 +116,16 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       // 兜底：AI 未在工具调用参数中携带 planBlueprint 时，从外部 getter 补上，
       // 保证用户确认的计划一定进入章节生成链路，不依赖模型是否遵守自然语言提示。
       const rawChapterNumber = params.chapterNumber
+      const novelConfig = (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig
       const result = await options.runDeepChapterGeneration(
         {
           projectPath: options.projectPath,
           userRequest,
           chapterNumber: typeof rawChapterNumber === "number" ? rawChapterNumber : undefined,
           llmConfig: options.llmConfig,
-          novelConfig: (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig,
+          novelConfig,
+          // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
+          genre: novelConfig.genre,
         },
         {
           // 终稿直接交付给会话，避免外层模型再复述一遍正文。

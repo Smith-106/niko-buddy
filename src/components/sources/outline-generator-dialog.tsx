@@ -261,6 +261,16 @@ export function OutlineGeneratorDialog({
         premise,
         prompt,
       })
+      // 55 号设计 W1-1 (54⑧ 收尾): 生成大纲时顺手固化题材到 NovelConfig (运行时单真源)。
+      // "general" → undefined (通用基线); 未选 (genre 保持默认 "general") 不覆盖用户已设值。
+      if (genre !== "general") {
+        const { useWikiStore } = await import("@/stores/wiki-store")
+        const { saveNovelConfig } = await import("@/lib/project-store")
+        const store = useWikiStore.getState()
+        const next = { ...store.novelConfig, genre }
+        store.setNovelConfig({ genre })
+        await saveNovelConfig(next, project.id, project.path)
+      }
       updateTask(taskId, {
         status: "generating",
         message: t("novel.outlineGenerator.generationMayTakeLong"),

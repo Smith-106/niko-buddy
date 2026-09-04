@@ -31,16 +31,19 @@ describe("F-002 ingest atomicity — structural invariants (grep-verifiable)", (
     expect(region.some((l) => l.includes("ProjectionStatusLedger") || l.includes("projectionLedger"))).toBe(true)
   })
 
-  it("character-state.ts uses writeFileAtomic (upgraded from non-atomic writeFile, ANL-010 C5)", () => {
+  it("character-state.ts 经 createAtomicJsonStore 工厂原子写（E-03 迁移，ANL-010 C5 语义保留）", () => {
     const src = readSource("character-state.ts")
-    expect(src).toMatch(/writeFileAtomic/)
-    // The non-atomic writeFile must no longer be imported for writes.
+    // E-03 (run-execute-1): 直写迁移到工厂 — 原子写由 createAtomicJsonStore
+    // 内部 writeFileAtomic (temp+fsync+rename) 保证，模块自身不再直接 import。
+    expect(src).toMatch(/createAtomicJsonStore/)
+    expect(src).not.toMatch(/writeFileAtomic/)
     expect(src).not.toMatch(/import\s*\{[^}]*\bwriteFile\b[^}]*\}/)
   })
 
-  it("foreshadowing-tracker.ts uses writeFileAtomic (upgraded from non-atomic writeFile, ANL-010 C5)", () => {
+  it("foreshadowing-tracker.ts 经 createAtomicJsonStore 工厂原子写（E-03 迁移，ANL-010 C5 语义保留）", () => {
     const src = readSource("foreshadowing-tracker.ts")
-    expect(src).toMatch(/writeFileAtomic/)
+    expect(src).toMatch(/createAtomicJsonStore/)
+    expect(src).not.toMatch(/writeFileAtomic/)
     expect(src).not.toMatch(/import\s*\{[^}]*\bwriteFile\b[^}]*\}/)
   })
 

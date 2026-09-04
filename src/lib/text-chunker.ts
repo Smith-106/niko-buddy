@@ -406,6 +406,10 @@ const SENTENCE_SPLITTERS: Array<[string, (t: string) => string[]]> = [
     "sentences",
     (t: string) => splitKeepingSep(t, /([。！？!?；;]+\s*|(?:\.\s+))/),
   ],
+  // 55 号设计 W2-7 (B-04): CJK 增强 — 中文长句无空格, 在 sentences 与 spaces 之间
+  // 插入中文次级标点层 (逗号/顿号/全角冒号), 否则超长中文句只能整句溢出 maxChars。
+  // 半角 `:` 不参与切分 (URL https:// / 时间 12:30 / 比例 0.95:1 误切风险, 55 终验 P2)。
+  ["cjk_clauses", (t: string) => splitKeepingSep(t, /([，、：]+)/)],
   ["spaces", (t: string) => splitKeepingSep(t, /(\s+)/)],
 ]
 

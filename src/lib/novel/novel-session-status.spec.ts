@@ -1775,6 +1775,51 @@ describe("S2b chase_debt 追读债务 (webnovel ChaseDebtMeta 契约移植)", ()
     expect(loaded!.schema_version).toBe("1")
   })
 
+  it("55 W2-4: avoid_ai_summary 是 additive-optional 字段: 旧 status.json 无该字段仍可加载", async () => {
+    fsState.fileMap.delete(statusPath)
+    const started = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-legacy-2",
+      userRequest: "写第一章",
+      chapterNumber: 1,
+    })
+    expect(started.avoid_ai_summary).toBeUndefined()
+    fsState.fileMap.set(statusPath, JSON.stringify(started, null, 2))
+    const loaded = await loadNovelSessionStatus(normalizedProjectPath)
+    expect(loaded).not.toBeNull()
+    expect(loaded!.avoid_ai_summary).toBeUndefined() // additive: 无字段不填充
+    expect(loaded!.schema_version).toBe("1")
+  })
+
+  it("55 W2-4: avoid_ai_summary 写入后回读 (仅计数/类型枚举, 不含正文)", async () => {
+    fsState.fileMap.delete(statusPath)
+    const started = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-aa",
+      userRequest: "写第一章",
+      chapterNumber: 1,
+    })
+    const withSummary = {
+      ...started,
+      avoid_ai_summary: {
+        score: 0.42,
+        label: "Mixed",
+        issueCount: 3,
+        issueTypes: ["repetition", "filler"],
+        updatedAt: "2026-09-04T00:00:00.000Z",
+      },
+    }
+    fsState.fileMap.set(statusPath, JSON.stringify(withSummary, null, 2))
+    const loaded = await loadNovelSessionStatus(normalizedProjectPath)
+    expect(loaded!.avoid_ai_summary).toEqual({
+      score: 0.42,
+      label: "Mixed",
+      issueCount: 3,
+      issueTypes: ["repetition", "filler"],
+      updatedAt: "2026-09-04T00:00:00.000Z",
+    })
+  })
+
   it("chase_debt 字段可写入并在 status.json 中回读", async () => {
     const debt: ChaseDebt = {
       id: "debt-1",

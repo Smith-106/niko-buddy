@@ -273,6 +273,8 @@ describe("ingestChapter — early guard branches", () => {
     fsMocks.readFile.mockResolvedValueOnce(chapterContent({ chapter_status: "draft" }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "not_final" })
+    // E-05 (C-10) 零向量化回归：draft 章 not_final 早退 → embedPage 零调用
+    expect(moduleMocks.embedPage).not.toHaveBeenCalled()
   })
 
   it("returns failReason invalid_chapter_number for zero chapter numbers", async () => {

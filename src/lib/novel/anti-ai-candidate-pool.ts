@@ -28,6 +28,7 @@
  */
 
 import seedsBundle from "./anti-ai-seeds.generated.json"
+import { computeSelfRepetition } from "./self-repetition"
 // T20 标定阈值（scripts/anti-ai-calibrate.js 生成产物，A-12.3 可回溯：docs/p2/anti-ai-thresholds.json）
 import { ANTI_AI_THRESHOLDS, ANTI_AI_COMBINED_FACTORS } from "./anti-ai-thresholds.generated"
 
@@ -558,6 +559,24 @@ export class AntiAiCandidatePool {
   }
 
   /**
+   * 55 号设计 W2-6 (B-03): 文本内自重复率 rep_2/3/4 (第 5 因子)。
+   * 2026-09-04 激活 (用户决策): 观察期结束, 给保守阈值 0.35 (warn-only 不硬门控)。
+   * 标定依据: self-repetition.spec 高度重复文本 rep2 > 0.5, 正常文本显著低于;
+   * 0.35 为保守值 (中文按字 n-gram, 严禁直套英文阈值)。
+   */
+  detectSelfRepetition(text: string): StatisticalFactorReport {
+    const { rep2, rep3, rep4, diversity, logDiversity } = computeSelfRepetition(text)
+    const threshold = 0.35
+    return {
+      factor: "selfRepetition",
+      value: rep2,
+      threshold,
+      warn: rep2 > threshold,
+      description: `文本内自重复率 rep2=${rep2.toFixed(3)} rep3=${rep3.toFixed(3)} rep4=${rep4.toFixed(3)} diversity=${diversity.toFixed(3)} logDiversity=${logDiversity.toFixed(3)} (阈值 >${threshold} warn, 2026-09-04 激活)`,
+    }
+  }
+
+  /**
    * 检测器 4: 段落长度分布 (paragraphLengthDist)
    *
    * 计算段落长度的变异系数 (CV) 并对比 AI 语料段落 CV 范围。
@@ -622,6 +641,7 @@ export class AntiAiCandidatePool {
       this.detectSentenceEntropy(text),
       this.detectPunctuationFingerprint(text),
       this.detectParagraphLengthDist(text),
+      this.detectSelfRepetition(text),
     ]
 
     const warnings = factors.filter((f) => f.warn && ANTI_AI_COMBINED_FACTORS.includes(f.factor))

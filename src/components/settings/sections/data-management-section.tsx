@@ -9,6 +9,7 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  FolderOpen,
   FileText,
   BookOpen,
   Database,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
 import { exportNovelDocx, exportNovelEpub, countFinalChapters, type DocxExportResult, type EbookExportResult } from "@/lib/novel/export"
+import { revealInFileManager } from "@/lib/reveal-in-file-manager"
 import { countVectorChunks, legacyVectorRowCount, dropLegacyVectorTable } from "@/lib/embedding"
 import { useWikiStore } from "@/stores/wiki-store"
 import type {
@@ -399,6 +401,16 @@ export function DataManagementSection() {
                       count: docxResult.chapterCount,
                     })}
                   </p>
+                  {/* 55 号设计 W1-2: 导出后打开所在文件夹 (revealInFileManager 接线) */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1"
+                    onClick={() => void revealInFileManager(docxResult.exportedPath)}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                    {t("settings.sections.dataManagement.openFolder", { defaultValue: "打开所在文件夹" })}
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -477,6 +489,16 @@ export function DataManagementSection() {
                       count: epubResult.chapterCount,
                     })}
                   </p>
+                  {/* 55 号设计 W1-2: 导出后打开所在文件夹 (revealInFileManager 接线) */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1"
+                    onClick={() => void revealInFileManager(epubResult.exportedPath)}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                    {t("settings.sections.dataManagement.openFolder", { defaultValue: "打开所在文件夹" })}
+                  </Button>
                 </div>
               </div>
             ) : (

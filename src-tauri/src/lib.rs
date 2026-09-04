@@ -214,6 +214,7 @@ pub fn run() {
             canon_commands::canon_query_episodes,
             canon_commands::canon_get_revision,
             canon_commands::canon_save_divergence_trace,
+            canon_commands::canon_load_divergence_trace,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

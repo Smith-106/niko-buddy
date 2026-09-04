@@ -565,6 +565,18 @@ pub async fn canon_save_divergence_trace(
     canon_save_divergence_trace_impl(project_id, trace_json).await
 }
 
+/// 55 号设计 W2-2 (54⑤ 收尾): 读取 divergence trace JSON (读路径)。
+/// 不存在或不可读时返回空字符串 (与 save 对称的审计读接口)。
+pub async fn canon_load_divergence_trace_impl(project_id: String) -> Result<String, String> {
+    let store = CanonStore::open(&project_id).await?;
+    store.load_divergence_trace().await
+}
+
+#[tauri::command]
+pub async fn canon_load_divergence_trace(project_id: String) -> Result<String, String> {
+    canon_load_divergence_trace_impl(project_id).await
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // 单元测试（IPC 冒烟：5 命令全绿 + 多项目契约 + max_revision）
 // ──────────────────────────────────────────────────────────────────────────

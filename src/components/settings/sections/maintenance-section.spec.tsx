@@ -72,7 +72,12 @@ vi.mock("@/lib/dedup-queue", () => ({
   groupKey: mocks.groupKey,
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: mocks.t }),
+  // E-05 接线后 canon-dual-write → promotion-bridge → chapter-ingest → context-engine
+  // 链路在模块加载期触发 i18n 初始化；mock 需提供 initReactI18next（既有 spec 同款模式）。
+  initReactI18next: { type: "3rdParty", init: () => {} },
+}))
 
 // ── Fixtures ────────────────────────────────────────────────────────
 

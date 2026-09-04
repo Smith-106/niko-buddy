@@ -31,6 +31,7 @@ import {
   type DedupTask,
 } from "@/lib/dedup-queue"
 import type { DuplicateGroup } from "@/lib/dedup"
+import { loadDivergenceTrace } from "@/lib/novel/canon-dual-write"
 
 interface GroupUiEntry {
   group: DuplicateGroup
@@ -273,6 +274,9 @@ export function MaintenanceSection() {
 
         {/* 小说写作场景详细说明 */}
         <NovelScenarioHelp />
+
+        {/* 55 号设计 W2-2: divergence trace 审计读视图 */}
+        <DivergenceTraceViewer />
 
         {!projectReady && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -660,6 +664,71 @@ function DuplicateGroupCard({
         <div className="flex items-start gap-1.5 rounded border border-rose-500/40 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-700 dark:text-rose-400">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>{task.error}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── 55 号设计 W2-2 (54⑤ 收尾): divergence trace 审计读视图 ───────────────────
+
+function DivergenceTraceViewer() {
+  const { t } = useTranslation()
+  const project = useWikiStore((s) => s.project)
+  const [open, setOpen] = useState(false)
+  const [trace, setTrace] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleToggle = useCallback(async () => {
+    if (!open) {
+      setOpen(true)
+      if (project && trace === null) {
+        setLoading(true)
+        try {
+          setTrace(await loadDivergenceTrace(project.path))
+        } finally {
+          setLoading(false)
+        }
+      }
+    } else {
+      setOpen(false)
+    }
+  }, [open, project, trace])
+
+  return (
+    <div className="rounded-md border border-border/40 bg-background/60">
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Clock className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1">
+          {t("settings.sections.maintenance.divergenceTraceTitle", {
+            defaultValue: "双写一致性差异留痕 (divergence trace)",
+          })}
+        </span>
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-3 py-3">
+          {loading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : trace ? (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {trace}
+            </pre>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("settings.sections.maintenance.divergenceTraceEmpty", {
+                defaultValue: "暂无差异留痕（未发生过双写不一致，或尚未生成）。",
+              })}
+            </p>
+          )}
         </div>
       )}
     </div>

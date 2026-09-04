@@ -1,4 +1,4 @@
-import { createAtomicJsonStore } from "./projection-store"
+import { createAtomicJsonStore, type FoldContext } from "./projection-store"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
 /**
@@ -105,14 +105,17 @@ export function foldChapterSummary(snapshot: ChapterSnapshot): ChapterSummaryEnt
 
 /**
  * 按章 upsert（同章已存在则替换，保持升序）。
+ * E-03 (run-execute-1): fold 纯性加固 — 移除隐式时钟, 时间戳只经显式
+ * ctx.now 写入; 缺省保留输入 store 的 lastUpdated (新 store 为 "")。
  */
 export function upsertChapterSummary(
   storeData: ChapterSummariesStore,
   entry: ChapterSummaryEntry,
+  ctx?: FoldContext,
 ): ChapterSummariesStore {
   const rest = storeData.entries.filter((e) => e.chapter !== entry.chapter)
   const entries = [...rest, entry].sort((a, b) => a.chapter - b.chapter)
-  return { entries, lastUpdated: new Date().toISOString() }
+  return { entries, lastUpdated: ctx?.now ?? storeData.lastUpdated }
 }
 
 /**

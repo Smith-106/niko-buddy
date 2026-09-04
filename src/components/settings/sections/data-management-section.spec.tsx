@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     importBackup: vi.fn(),
     exportNovelDocx: vi.fn(),
     exportNovelEpub: vi.fn(),
+    revealInFileManager: vi.fn(),
     countFinalChapters: vi.fn(),
     countVectorChunks: vi.fn(),
     legacyVectorRowCount: vi.fn(),
@@ -51,6 +52,10 @@ vi.mock("@/lib/novel/export", () => ({
   exportNovelDocx: mocks.exportNovelDocx,
   exportNovelEpub: mocks.exportNovelEpub,
   countFinalChapters: mocks.countFinalChapters,
+}))
+
+vi.mock("@/lib/reveal-in-file-manager", () => ({
+  revealInFileManager: mocks.revealInFileManager,
 }))
 
 vi.mock("@/lib/embedding", () => ({
@@ -103,6 +108,7 @@ beforeEach(() => {
   mocks.importBackup.mockReset()
   mocks.exportNovelDocx.mockReset()
   mocks.exportNovelEpub.mockReset()
+  mocks.revealInFileManager.mockReset()
   mocks.countFinalChapters.mockReset()
   mocks.countVectorChunks.mockReset()
   mocks.legacyVectorRowCount.mockReset()
@@ -579,6 +585,56 @@ describe("DataManagementSection", () => {
       projectPath: "E:/Novel",
       exportPath: "E:/Novel/complete-novel.epub",
     })
+  })
+
+  it("epub export success: open-folder button calls revealInFileManager with exportedPath (55 W1-2)", async () => {
+    mocks.exportNovelEpub.mockResolvedValueOnce({
+      success: true,
+      exportedPath: "E:/Novel/complete-novel.epub",
+      chapterCount: 12,
+      message: "exported 12 chapters",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.epubExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.epubExportSuccess")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.openFolder"))
+    expect(mocks.revealInFileManager).toHaveBeenCalledTimes(1)
+    // 消费链穿透: 断言真实契约字段 exportedPath (54 P1-b 教训: 禁近似字段名)
+    expect(mocks.revealInFileManager).toHaveBeenCalledWith("E:/Novel/complete-novel.epub")
+  })
+
+  it("docx export success: open-folder button calls revealInFileManager with exportedPath (55 W1-2)", async () => {
+    mocks.exportNovelDocx.mockResolvedValueOnce({
+      success: true,
+      exportedPath: "E:/Novel/complete-novel.docx",
+      chapterCount: 12,
+      message: "exported 12 chapters",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.docxExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.docxExportSuccess")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.openFolder"))
+    expect(mocks.revealInFileManager).toHaveBeenCalledTimes(1)
+    expect(mocks.revealInFileManager).toHaveBeenCalledWith("E:/Novel/complete-novel.docx")
+  })
+
+  it("export failure: open-folder button not rendered (55 W1-2 negative)", async () => {
+    mocks.exportNovelEpub.mockResolvedValueOnce({
+      success: false,
+      exportedPath: "",
+      chapterCount: 0,
+      message: "zip failed",
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.epubExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("zip failed")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.openFolder")).not.toBeInTheDocument()
   })
 
   it("epub export failure: shows message and no success block", async () => {

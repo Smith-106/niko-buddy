@@ -204,26 +204,19 @@ describe("EPIC-004 / ADR-33 / TASK-009: queryInspectorState 只读查询", () =>
       readerKnows: ["真相"],
       lastUpdatedChapter: 3,
     }
-    let fileExistsCalls = 0
+    let cognitionReadCalls = 0
     fsMocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("status.json")) return JSON.stringify(status)
-      if (path.endsWith("cognition-state.json")) return JSON.stringify(cognition)
+      if (path.endsWith("cognition-state.json")) {
+        cognitionReadCalls++
+        return JSON.stringify(cognition)
+      }
       if (path.endsWith("conv-1.json")) return "草稿正文"
       return ""
     })
     fsMocks.getFileModifiedTime.mockResolvedValue(0)
-    // loadCognitionState 调 fileExists — 我们需要 mock fileExists 返回 true 给 cognition-state.json。
-    // 但 vi.mock 已 stub fileExists 默认 false。这里通过让 readFile 返回 cognition JSON
-    // 间接验证：loadCognitionState 先 fileExists 检查路径，若 false 直接返回 null。
-    // 为测试 cognition 分支，需 fileExists 返回 true。重新 mock fileExists：
-    const { fileExists } = await import("@/commands/fs")
-    vi.mocked(fileExists).mockImplementation(async (path: string) => {
-      if (path.endsWith("cognition-state.json")) {
-        fileExistsCalls++
-        return true
-      }
-      return false
-    })
+    // E-03 工厂迁移后 loadCognitionState 走 readFile 直读 (try/catch 降级),
+    // 不再先查 fileExists — 以 readFile 命中 cognition-state.json 计数验证派生路径。
 
     const snapshot = await queryInspectorState("/P", "chapter-1")
 
@@ -232,7 +225,7 @@ describe("EPIC-004 / ADR-33 / TASK-009: queryInspectorState 只读查询", () =>
     expect(snapshot.cognitionState.characters[0].knows).toEqual(["秘密"])
     expect(snapshot.cognitionState.readerKnows).toEqual(["真相"])
     expect(snapshot.cognitionState.lastUpdatedChapter).toBe(3)
-    expect(fileExistsCalls).toBeGreaterThan(0)
+    expect(cognitionReadCalls).toBeGreaterThan(0)
   })
 
   it("PAT-DC1 脱敏：loadNovelSessionStatus 抛错被 catch 块吞，message 无 provider detail", async () => {

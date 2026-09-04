@@ -695,8 +695,18 @@ function normalizeNovelConfig(
     stateDeltaLightCheckEnabled: config.stateDeltaLightCheckEnabled ?? DEFAULT_NOVEL_CONFIG.stateDeltaLightCheckEnabled,
     stateDeltaBlocksTrackA: config.stateDeltaBlocksTrackA ?? DEFAULT_NOVEL_CONFIG.stateDeltaBlocksTrackA,
     outlineThrillSoftGateEnabled: config.outlineThrillSoftGateEnabled ?? DEFAULT_NOVEL_CONFIG.outlineThrillSoftGateEnabled,
+    // E-06 (kb-governance): 三 flag 默认 false（校准/接线前零行为变更）
+    trustFilterEnabled: config.trustFilterEnabled ?? DEFAULT_NOVEL_CONFIG.trustFilterEnabled,
+    decayEnabled: config.decayEnabled ?? DEFAULT_NOVEL_CONFIG.decayEnabled,
+    supersessionFilterEnabled: config.supersessionFilterEnabled ?? DEFAULT_NOVEL_CONFIG.supersessionFilterEnabled,
+    // E-02 (capability-kb-retrieval): 三 flag 默认 false（接线前零行为变更，可逆上线）
+    dualKbRoutingEnabled: config.dualKbRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.dualKbRoutingEnabled,
+    hardInjectEnabled: config.hardInjectEnabled ?? DEFAULT_NOVEL_CONFIG.hardInjectEnabled,
+    usefulnessRerankEnabled: config.usefulnessRerankEnabled ?? DEFAULT_NOVEL_CONFIG.usefulnessRerankEnabled,
     // Wave 2 (v2.5.0): @引用开关默认 true；显式 false 保留。
     referenceEnabled: config.referenceEnabled ?? DEFAULT_NOVEL_CONFIG.referenceEnabled,
+    // 55 号设计 W1-1: genre 透传 (undefined 保留, 旧配置文件无此字段 → 加载 undefined 不报错)。
+    genre: config.genre,
     // F-011 Voice Preservation spelling convention 三字段归一化。
     dialoguePunctuationStyle: config.dialoguePunctuationStyle ?? DEFAULT_NOVEL_CONFIG.dialoguePunctuationStyle,
     paragraphIndent: config.paragraphIndent ?? DEFAULT_NOVEL_CONFIG.paragraphIndent,

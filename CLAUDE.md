@@ -27,6 +27,13 @@
 | 审查/门控写回 | `src/lib/novel/review-adapter.ts` + `start-review-run.ts` + `start-six-dimension-review-run.ts` |
 | Anti-AI | `src/lib/novel/de-ai-rules.ts` + `de-ai-adapter.ts` + `mechanical-slop-detector.ts` |
 | 角色认知 | `src/lib/novel/character-cognition.ts` + `character-state.ts` + `character-aura.ts`（+ ARCH-1 拆分 `bindable-characters.ts`） |
+| 过程库门面 | `src/lib/novel/process-library.ts`（E-02/E-04 登记：loadForPlanning / visibleInfoFor / auditChapter / computeVisibility / extractAuditInputsFromText） |
+| 晋升桥凭证层 | `src/lib/novel/promotion-bridge.ts`（E-05 登记：PromotionRecord / replayKey / transitionPromotionState / PROMOTION_GATE_ALGEBRA / evaluateGate / promote / promotionAudit；三桥共享，接线点：formal-writeback.ts / canon-dual-write.ts / canon-backfill.ts） |
+| 治理·trust 分级 | `src/lib/novel/trust-grader.ts`（E-06 登记：normalizeADR / licensePolicy / synthesizeTrust / gradeTrust / isRetrievable / filterByTrust；纯函数零 IO，消费点即时计算不写回凭证） |
+| 治理·生命周期 | `src/lib/novel/kb-lifecycle.ts`（E-06 登记：decayFactorOf / recomputeDecay / markSuperseded / isSuperseded / filterAssemblable / supersedeByRevision / LIFECYCLE_POLICY；能力库衰减 + 过程库 supersession 双轨，策略不交叉） |
+| 治理·评测 gate | `src/lib/novel/eval-gate.ts`（E-06 登记：G-1 种子 zod schema / loadGovSeedSet 三态 / computeTripleCriteria / evaluateRetrievalGate PASS\|FAIL\|BLOCKED / renderEvalGateReport；gate 常量在 offline-replay-config.ts EVAL_GATE） |
+| 治理·可观测 | `src/lib/novel/kb-observability.ts`（E-06 登记：collectKbMetrics 6 指标 / checkTruthFoldDrift 告警 / 3 健康检查 / classifyKbError + recoveryPlanFor 四类错误分级） |
+| 治理·不变量与坐标 | `src/lib/novel/kb-governance.ts`（E-06 登记：SAFETY_INVARIANTS 三安全不变量 / assertInvariantsNotDisabled / DimensionCoord 27 格 zod schema + coordIndex 双射 + E06_FEATURE_IDS 注册表 / assertBridgeTimeOnlyMove） |
 | 确定性连续性引擎 | `src/lib/novel/deterministic-continuity-engine.ts` + `emotion-ledger.ts`（双层挂载：生成预检 + 审查兜底，机械层零 LLM） |
 | Scene Breakdown | `src/lib/novel/scene-breakdown.ts`（阶段 1.5，`novelConfig.sceneBreakdownEnabled` 控制） |
 | 章节摄取/快照 | `src/lib/novel/chapter-ingest-output.ts` + `chapter-snapshot-normalize.ts`（ARCH-1 拆分） |

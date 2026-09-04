@@ -457,6 +457,52 @@ describe("contextPackToPrompt", () => {
   })
 })
 
+describe("contextPackToPrompt E-02 hardInject 段（双库架构蓝图 capability-kb-retrieval）", () => {
+  const hardInjectPack: ContextPack = {
+    ...basePack,
+    hardInject: [
+      { source: "canon", ref: "canon:f1:持有", text: "林晚持有轩辕剑", origin: "f1" },
+      { source: "process_library", ref: "process_library:林晚:2", text: "【林晚 不知道】黑市入口", origin: "visibleInfoFor" },
+    ],
+    hardInjectUsage: { hardInjectChars: 40, capChars: 3072, ratio: 0.013, truncatedCount: 0 },
+  }
+
+  it("hardInjectEnabled=true 且条目非空 → 渲染硬注入段（独立分块，不并入 canonRules）", () => {
+    const prompt = contextPackToPrompt(hardInjectPack, undefined, { hardInjectEnabled: true })
+    expect(prompt).toContain("硬注入事实")
+    expect(prompt).toContain("林晚持有轩辕剑")
+    expect(prompt).toContain("【林晚 不知道】黑市入口")
+  })
+
+  it("hardInjectEnabled=false（默认）→ 完全跳过该段，prompt 字节级不变（可逆上线）", () => {
+    const baseline = contextPackToPrompt(basePack)
+    const flagOff = contextPackToPrompt(hardInjectPack)
+    expect(flagOff).toBe(baseline)
+    expect(flagOff).not.toContain("硬注入事实")
+    expect(flagOff).not.toContain("林晚持有轩辕剑")
+  })
+
+  it("flag 开但条目为空 → 不渲染（空数据不注入，字节级不变）", () => {
+    const emptyPack: ContextPack = { ...basePack, hardInject: [] }
+    const prompt = contextPackToPrompt(emptyPack, undefined, { hardInjectEnabled: true })
+    expect(prompt).not.toContain("硬注入事实")
+  })
+
+  it("SECTION_PRIORITY：硬注入段位于「禁止违背」与「最近剧情摘要」之间（5.5）", () => {
+    const prompt = contextPackToPrompt(
+      { ...hardInjectPack, canonRules: "轩辕剑不可丢失", recentSummaries: ["第1章：雨夜遭遇"] },
+      undefined,
+      { hardInjectEnabled: true },
+    )
+    const canonIdx = prompt.indexOf("禁止违背")
+    const hardIdx = prompt.indexOf("硬注入事实")
+    const summaryIdx = prompt.indexOf("最近剧情摘要")
+    expect(canonIdx).toBeGreaterThan(-1)
+    expect(hardIdx).toBeGreaterThan(canonIdx)
+    expect(summaryIdx).toBeGreaterThan(hardIdx)
+  })
+})
+
 describe("rerankActiveEntitiesByTemporalFacts", () => {
   const mkFact = (subject: string, validFrom: number): TemporalFact => ({
     id: `fact-${subject}`,

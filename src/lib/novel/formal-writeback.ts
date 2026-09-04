@@ -2,6 +2,7 @@ import { deleteFile, fileExists, writeFileAtomic } from "@/commands/fs"
 import { toErrorMessage, logger } from "@/lib/utils"
 import { acceptDeepChapterDraft } from "./novel-session-status"
 import { updateEmotionLedgerFromChapter } from "./emotion-ledger"
+import { promote, sha256Prefix } from "./promotion-bridge"
 
 export interface CommitAcceptedDeepChapterDraftInput {
   projectPath: string
@@ -47,6 +48,29 @@ export async function commitAcceptedDeepChapterDraft(
       logger.warn(
         "emotion-ledger",
         `write failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(emotionError)}`,
+      )
+    }
+    // E-05 (run-execute-1, 双库架构蓝图) C-7/C-13: formal-writeback 通道接线。
+    // accept 成功后触发晋升（PromotionRecord 落盘 + 事件日志）。
+    // 失败/歧义 → 入 promotion-retry 队列 + warn，**不回滚 accept/正文**
+    // （accept 唯一不可逆门，铁律②；「已 accept 未晋升」是可补偿态，重放收敛）。
+    try {
+      const digestPrefix = await sha256Prefix(input.finalChapterContent)
+      await promote({
+        channel: "formal-writeback",
+        projectPath: input.projectPath,
+        chapterId: `chapter-${input.chapterNumber}`,
+        chapterNumber: input.chapterNumber,
+        revision: 1,
+        entity: `chapter-${input.chapterNumber}`,
+        acceptTimestamp: new Date().toISOString(),
+        gateContext: { draftStatus: "accepted", decisionGatesPass: true, manualFinal: false },
+        contentDigestPrefix: digestPrefix,
+      })
+    } catch (promotionError) {
+      logger.warn(
+        "promotion-bridge",
+        `formal-writeback promote failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(promotionError)}`,
       )
     }
   } catch (error) {

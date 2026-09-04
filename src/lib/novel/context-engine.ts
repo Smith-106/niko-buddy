@@ -29,7 +29,7 @@ import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-fa
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext } from "@/lib/reference/search"
-import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
+import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
@@ -76,6 +76,9 @@ const SECTION_PRIORITY: Record<string, number> = {
   "项目灵魂": 3,
   "大纲要求": 4,
   "禁止违背": 5,
+  // E-02 (GLM 建议 5.5): 硬注入事实介于「禁止违背」与「最近剧情摘要」之间 —
+  // 恒真 canon/过程库投影，先于软性检索摘要呈现。
+  "硬注入事实": 5.5,
   "最近剧情摘要": 6,
   "上一章结尾": 7,
   "当前人物状态": 8,
@@ -340,6 +343,24 @@ export interface ContextPack {
    */
   references?: string
   /**
+   * E-02 (C-9, run-execute-1 双库架构蓝图 capability-kb-retrieval): 硬注入条目
+   * （canon 认知轴 getFactsKnownBy + 过程库 visibleInfoFor POV 投影，RRF 前物理隔离）。
+   * additive 独立字段 — 不并入 searchResults / canonRules（D6 独立分块）；消费方按需读取。
+   * hardInjectEnabled=false / POV 真源未就绪 / 零条目时为 undefined（不渲染该段，字节级不变）。
+   */
+  hardInject?: HardInjectItem[]
+  /**
+   * E-02 (C-9): 硬注入预算占用快照（chars/capChars/ratio/truncatedCount）。
+   * 超 cap 条目级裁剪 → pack.gaps 推 {type:"truncated", ref:"hardInject", reason:"budget_exceeded"}
+   * （IC-02 绝不静默）。
+   */
+  hardInjectUsage?: DualTrackResult["usage"]
+  /**
+   * E-02 (C-9): 意图路由缺口（空收藏显式报缺，DA-06 不静默、不用 tech 冒充）。
+   * 同步镜像进 pack.gaps（IC-02 主账）。
+   */
+  kbRoutingGaps?: KbGap[]
+  /**
    * Wave 5 (v2.5.0): 上下文用量快照 — 记忆/检索/图谱/正文/其他 字符分配。
    * 预算线直读 computeContextBudget 输出（不重算），记忆段实测 user-memory
    * store preference 字符数。additive：仅 buildContextPack 主装配注入，
@@ -404,6 +425,12 @@ export interface BuildContextOptions {
   embeddingConfig?: EmbeddingConfig
   /** Optional entity names for Quality Foundation entity-boost retrieval. */
   entityNames?: string[]
+  /**
+   * E-02 (C-5): 主 POV 角色 id（硬注入通道 A 的 POV 过滤输入）。
+   * 缺省回退 resolveChapterPovCharacter（当前 POV 真源未就绪 → null → 通道 A 空，
+   * 不臆造 POV）。调用方显式传入时激活 POV 过滤注入。
+   */
+  povCharacter?: string
 }
 
 /**
@@ -600,7 +627,40 @@ async function buildContextPackUnlocked(
             }
           })()
         : Promise.resolve("")
-    const [pack, exemplars, activeEntities, relatedChaptersText, referencesText] = await Promise.all([
+    // E-02 (C-5/C-9, run-execute-1 双库架构蓝图 capability-kb-retrieval): 硬注入第四源。
+    // 单次 retrieveDualTrack 调用（通道 A 硬注入 + 通道 B 语义检索）；POV 真源未就绪
+    // （resolveChapterPovCharacter 返回 null）→ 通道 A 空（不臆造 POV），通道 B 仍可用。
+    // 失败降级 null（不阻断 pack 装配，与 relatedChapters/references 同款模式）。
+    // 注：D5「复用 loadCanonSourceFacts 结果」未采纳——retrieveDualTrack 通道 A 走
+    // getFactsKnownBy（known_by 认知轴 POV 过滤，C-5 要求），与 loadCanonSourceFacts
+    // （世界层时序事实）语义不同；二次 load 仅发生在 hardInjectEnabled=true 时（flag 门控）。
+    const hardInjectPromise =
+      novelConfig.hardInjectEnabled
+        ? (async (): Promise<DualTrackResult | null> => {
+            try {
+              const povCharacter =
+                options.povCharacter ??
+                (await resolveChapterPovCharacter(pp, context.chapterNumber ?? 0).catch(() => null)) ??
+                undefined
+              return await retrieveDualTrack({
+                projectPath: pp,
+                query: task,
+                chapterNumber: context.chapterNumber,
+                povCharacter,
+                intent: "draft",
+                topK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
+                hardInjectCapChars: currentBuildBudget?.hardInjectionBudget.capChars,
+                trustFilterEnabled: novelConfig.trustFilterEnabled,
+                // trustGrades 由消费方提供（path→trust 映射）；本层无映射表 → 不传
+                // （trustFilterEnabled=true 且无 grades 时过滤不生效，见 retrieveDualTrack）。
+              })
+            } catch (error) {
+              logger.warn("ContextEngine", "hard-inject build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              return null
+            }
+          })()
+        : Promise.resolve(null)
+    const [pack, exemplars, activeEntities, relatedChaptersText, referencesText, hardInjectResult] = await Promise.all([
       buildContextPackFromRawData(rawData, context, temporalFactsPreloaded),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
@@ -623,6 +683,7 @@ async function buildContextPackUnlocked(
         : Promise.resolve([] as ContextEntity[]),
       relatedChaptersPromise,
       referencesPromise,
+      hardInjectPromise,
     ])
 
     pack.gaps = collectContextGaps()
@@ -638,6 +699,25 @@ async function buildContextPackUnlocked(
     // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
     // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
     pack.references = referencesText
+    // E-02 (C-9): 硬注入装配 — additive 独立字段。零条目 → undefined（不渲染该段）；
+    // 超 cap 裁剪与路由缺口同步镜像进 pack.gaps（IC-02 主账，绝不静默）。
+    if (hardInjectResult) {
+      pack.hardInject = hardInjectResult.hardInject.length > 0 ? hardInjectResult.hardInject : undefined
+      pack.hardInjectUsage = hardInjectResult.usage
+      if (hardInjectResult.gaps.length > 0) {
+        pack.kbRoutingGaps = hardInjectResult.gaps
+        for (const gap of hardInjectResult.gaps) {
+          const isBudget = gap.message.includes("budget_exceeded") || gap.collection === "hardInject"
+          pack.gaps.push({
+            type: isBudget ? "truncated" : "load_failed",
+            ref: gap.collection,
+            reason: isBudget ? "budget_exceeded" : "datasource_error",
+            originalLength: 0,
+            retainedLength: 0,
+          })
+        }
+      }
+    }
     // C（方案 X 全做 M+）：已失效（曾成立）事实独立分块注入。former 为空时设 undefined
     // → 不渲染该段（flag=false 字节级不变）。绝不并入 canonRules/有效 temporal 块。
     pack.formerFacts = canonSource.former.length > 0 ? canonSource.former : undefined
@@ -1879,19 +1959,35 @@ export async function searchRelevantContentUnified(
   }
   const query = queryParts.join(" ")
 
+  // E-02 (C-3/C-10): 双轨编排 flag 前置读取（同步 store 读，无行为变更）。
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   const [semanticResults, indexResults, vectorResults] = await Promise.all([
-    novelMixedSearch({
-      projectPath: pp,
-      query,
-      chapterNumber,
-      topK: Math.max(limit * 2, 6),
-      authoritativeOnly: true,
-      includeKeyword: true,
-      includeVector: true,
-      includeGraph: true,
-      includeRecentChapters: true,
-      includeCanon: true,
-    }).catch(() => []),
+    (async (): Promise<NovelSearchResult[]> => {
+      if (novelConfig.dualKbRoutingEnabled) {
+        // E-02 (C-3): 写作路径经 dual-track 编排 — canon 不参与 RRF 排名。
+        // 本层不传 povCharacter → 通道 A 空（通道 A 由 buildContextPackUnlocked
+        // 第四源承载，避免二次 load）；只消费通道 B（includeCanon:false）。
+        const dual = await retrieveDualTrack({
+          projectPath: pp,
+          query,
+          chapterNumber,
+          topK: Math.max(limit * 2, 6),
+        }).catch(() => null)
+        return dual ? dual.ranked : []
+      }
+      return novelMixedSearch({
+        projectPath: pp,
+        query,
+        chapterNumber,
+        topK: Math.max(limit * 2, 6),
+        authoritativeOnly: true,
+        includeKeyword: true,
+        includeVector: true,
+        includeGraph: true,
+        includeRecentChapters: true,
+        includeCanon: true,
+      }).catch(() => [])
+    })(),
     searchWiki(pp, `关键词索引 向量索引 ${task}`, {
       rerank: true,
       topK: Math.max(limit, 4),
@@ -1951,8 +2047,13 @@ export async function searchRelevantContentUnified(
     purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
   }).catch(() => candidates)
 
+  // E-02 (C-7): 写作特化 usefulness rerank（flag 门控，默认 false → 现状排序）。
+  // canon_consistency 否决制（冲突候选剔除，不加权平均）；置于 rerankCandidates 之后。
+  const usefulnessOrdered = novelConfig.usefulnessRerankEnabled
+    ? reorderByUsefulness(reranked, { entityHints, chapterNumber })
+    : reranked
+
   // Quality Foundation v1: additive entity boost after LLM/heuristic rerank (flag-off = no-op).
-  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   const boostEntities = [
     ...(options.entityNames ?? []),
     ...entityHints,
@@ -1960,7 +2061,7 @@ export async function searchRelevantContentUnified(
   const ordered =
     novelConfig.entityBoostEnabled
       ? reorderByEntityBoost(
-          reranked.map((r) => ({
+          usefulnessOrdered.map((r) => ({
             title: r.title,
             snippet: r.snippet ?? "",
             path: (r as { path?: string }).path,
@@ -2240,6 +2341,11 @@ export interface ContextPackToPromptOptions {
   excludeOutline?: boolean
   temporalFactsEnabled?: boolean
   /**
+   * E-02 (C-10): 硬注入段渲染开关（默认 false）。false 时完全跳过该段，
+   * 保 prompt 字节级不变（可逆上线）。
+   */
+  hardInjectEnabled?: boolean
+  /**
    * default / scenario_persona: L2+L3 first; L1-heavy blocks only when temporalFactsEnabled or full.
    * full: include all present sections (still subject to tokenBudget).
    */
@@ -2257,7 +2363,7 @@ interface FieldConfig {
    */
   renderIf?: (
     pack: ContextPack,
-    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode },
+    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode; hardInjectEnabled: boolean },
   ) => boolean
   /**
    * 对象数组序列化 — 把 ContextEntity[] 格式化为 string[], 避免 [object Object].
@@ -2265,7 +2371,7 @@ interface FieldConfig {
   serialize?: (
     content: unknown,
     pack: ContextPack,
-    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode },
+    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode; hardInjectEnabled: boolean },
   ) => string | string[]
   /** Soft layer tag for docs / budget policy (not a hard gate). */
   layer?: "L0" | "L1" | "L2" | "L3" | "aux"
@@ -2319,6 +2425,18 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
   // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）
   { titleKey: "novel.contextPack.references", fieldKey: "references", layer: "aux" },
+  {
+    // E-02 (C-9/D6): 硬注入段 — 独立 additive 分块（绝不并入 canonRules / searchResults）。
+    // renderIf 双门控：hardInjectEnabled flag（可逆上线）+ 条目非空（空数据不渲染，字节级不变）。
+    titleKey: "novel.contextPack.hardInject",
+    fieldKey: "hardInject",
+    layer: "L1",
+    renderIf: (pack, flags) => flags.hardInjectEnabled === true && (pack.hardInject?.length ?? 0) > 0,
+    serialize: (content) => {
+      const items = content as HardInjectItem[]
+      return items.map((item) => `- ${item.text}`)
+    },
+  },
   {
     titleKey: "novel.contextPack.activeEntities",
     fieldKey: "activeEntities",
@@ -2413,6 +2531,7 @@ export function contextPackToPrompt(
     const flags = {
       temporalFactsEnabled: options?.temporalFactsEnabled === true,
       layeredRecall,
+      hardInjectEnabled: options?.hardInjectEnabled === true,
     }
     if (config.renderIf && !config.renderIf(pack, flags)) continue
 

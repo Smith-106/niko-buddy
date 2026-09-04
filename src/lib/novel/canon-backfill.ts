@@ -52,6 +52,8 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
 import type { CanonFact } from "./canon-graph-client"
 import { queryEpisodesByChapter } from "./canon-graph-client"
+import { promote, promotionAudit } from "./promotion-bridge"
+import { logger } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────────
 // 快照发现（路径 + 文件名契约）
@@ -546,6 +548,36 @@ export async function backfillCanonHistory(
     // op 顺序 = [...episodeOps, ...supersedeOps]（先写新再封旧，避免事实暂时消失）
     const allOps = [...ops, ...supersedeOps]
     const report = await shadowWriteCanon(deps.dualWrite, pp, allOps, now)
+    // E-05 (C-4/C-6): canon-backfill 通道晋升接线。
+    // 逐章 backfilled 成功后批量晋升（凭证层落盘 + 事件日志）；
+    // revision 取 ChapterSnapshot.revision（C-2 权威字段，单调修订链）。
+    // 失败/歧义 → promote 内部入 promotion-retry 队列 + warn（非致命，幂等重放收敛）。
+    if (report.reconcile.consistent) {
+      const revision = typeof snapshot.revision === "number" ? snapshot.revision : 1
+      for (const op of ops) {
+        if (op.canonPayload.kind !== "episode") continue
+        const ep = op.canonPayload.episode
+        const chapterId =
+          typeof ep.entity_id === "string" ? ep.entity_id : `ch${ep.chapter_number}`
+        try {
+          await promote({
+            channel: "canon-backfill",
+            projectPath: pp,
+            chapterId,
+            chapterNumber: Number(ep.chapter_number) || chapter,
+            revision,
+            entity: chapterId,
+            gateContext: { rangeValid: true, snapshotReadable: true },
+            contentDigestPrefix: op.digest ? op.digest.slice(0, 16) : undefined,
+          })
+        } catch (err) {
+          logger.warn(
+            "promotion-bridge",
+            `canon-backfill promote failed (non-fatal, chapter ${chapter}): ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+      }
+    }
     allResults.push(...report.results)
     perChapter.push({
       chapter,
@@ -557,6 +589,22 @@ export async function backfillCanonHistory(
   }
 
   const reconcile = reconcileOutcomes(allResults)
+  // E-05 (C-4): 回填后 promotionAudit 对账（凭证与库状态一致性，BND-CON-03）。
+  // 只读审计 + 日志，不阻断回填主流程；不一致由重放/backfill 兜底收敛。
+  try {
+    const audit = await promotionAudit(pp)
+    if (!audit.consistent) {
+      logger.warn(
+        "promotion-bridge",
+        `canon-backfill promotionAudit inconsistent: recordWithoutEntry=${audit.recordWithoutEntry.length} entryWithoutRecord=${audit.entryWithoutRecord.length}`,
+      )
+    }
+  } catch (err) {
+    logger.warn(
+      "promotion-bridge",
+      `canon-backfill promotionAudit failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
   return {
     projectPath: pp,
     discoveredChapters,

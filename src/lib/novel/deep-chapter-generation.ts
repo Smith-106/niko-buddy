@@ -17,7 +17,7 @@ import {
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
-import { reviewChapter, runContinuityMechanicalPreflight, resolveReviewGateKey, isReviewParseError, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, runContinuityMechanicalPreflight, runAuditTriadPreflight, resolveReviewGateKey, isReviewParseError, type NovelReviewResult } from "./review-adapter"
 import { getUpgradeThreshold, getRepairScope, GATE_MAPPING } from "./audit-taxonomy"
 import {
   dimensionResultsToReviewResults,
@@ -29,6 +29,7 @@ import { runNovelSkillHooks } from "./novel-skill-hooks"
 import type { TaskRouteResult } from "./task-router"
 import { formatStageThinking } from "./chapter-utils"
 import { formatNormalize } from "./format-normalizer"
+import { resolveDeAiGenre } from "./genre-codes"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
 import {
   resolveChapterLengthSpec,
@@ -1183,6 +1184,7 @@ async function runContinuityPreCheck(
 async function checkContinuityCritical(
   projectPath: string,
   currentChapter: number | undefined,
+  chapterText?: string,
 ): Promise<{ tripped: boolean; reason: string }> {
   const startMs = Date.now()
   try {
@@ -1222,6 +1224,16 @@ async function checkContinuityCritical(
     const critical = findings.filter(
       (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",
     )
+    // E-04 (C-8 生成侧为辅): 审计三口诀 critical 并入 — 复用审查侧预检 (含 JSONL
+    // 落盘幂等), 正文在场实体提取 + 证据分级; critical → error 并入 tripped 判定,
+    // manualHandoff 语义不变 (机械 critical 不进 fix-loop LLM 重写)。
+    let auditCritical: NovelReviewResult[] = []
+    try {
+      auditCritical = await runAuditTriadPreflight(projectPath, chapterNum, { chapterText })
+        .then((rs) => rs.filter((r) => r.severity === "error"))
+    } catch {
+      auditCritical = []
+    }
     // TASK-010 (Decision 7.2): critical 分流 metric — short_circuit_hits=tripped 数
     // (机械 critical 短路 LLM fix-loop, 走 manualHandoff 非 LLM 重写)。
     // high_count=0 (3 级方案无 high, ADR-30 blueprint 对齐)。
@@ -1238,15 +1250,16 @@ async function checkContinuityCritical(
       gate: "consistency",
       timestamp: new Date().toISOString(),
     })
-    if (critical.length === 0) {
+    if (critical.length === 0 && auditCritical.length === 0) {
       return { tripped: false, reason: "" }
     }
-    const list = critical
-      .map((f) => `${f.ref}(${f.type})`)
-      .join(", ")
+    const list = [
+      ...critical.map((f) => `${f.ref}(${f.type})`),
+      ...auditCritical.map((r) => `${r.continuityMeta?.ref ?? r.message}(${r.type})`),
+    ].join(", ")
     return {
       tripped: true,
-      reason: `连续性机械 critical: ${list} (死亡角色活跃态/伏笔逾期未回收, 走人工处理避免 fix-loop LLM 重写加深不一致)`,
+      reason: `连续性机械 critical: ${list} (死亡角色活跃态/伏笔逾期未回收/信息边界泄露, 走人工处理避免 fix-loop LLM 重写加深不一致)`,
     }
   } catch (err) {
     logger.warn("continuity-engine", "critical check degraded: " + (err as Error).message)
@@ -1523,22 +1536,95 @@ export async function runDeepChapterGeneration(
       ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
       : "未发现阻断问题，已完成最后一遍简单审查与去AI味。",
   ))
-  callbacks.onFinalContent?.(finalContent)
+  // 55 号设计 W1-4 (54② 收尾): 终稿回流幂等再规范化。
+  // stage4.5 LLM 返修 + stage6 finalPolish 的输出不再过 normalizer (54 号半接线缺口);
+  // 此处补一次幂等 normalize, 保证审计对象 = 最终交付物 (顺序不可颠倒)。
+  // 纯函数零 LLM; 空内容/无替换 → 零开销路径。
+  const finalNormalized = formatNormalize(finalContent)
+  const finalContentNorm = finalNormalized.text
+  if (finalNormalized.changed) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段7：终稿规范化",
+      `终稿回流规范化: 替换 ${finalNormalized.replacementCount} 处, 删除 ${finalNormalized.deleteCount} 处`,
+    ))
+  }
+  callbacks.onFinalContent?.(finalContentNorm)
   // 54 号设计 ⑨: avoid-ai 审计 (51 type 目录吸收, 审计型只读)。
   // final 产出后跑声纹审计, 结果经 onThinking 提示 + 日志留痕;
   // Track B soft (english-heavy 引擎对中文网文仅参考), 不设产品硬门。
   try {
     const { analyzeAvoidAiPatterns, formatAvoidAiPatternsSummary } = await import("./avoid-ai-patterns")
-    const audit = analyzeAvoidAiPatterns(finalContent)
+    const audit = analyzeAvoidAiPatterns(finalContentNorm)
     callbacks.onThinking?.(formatStageThinking(
       "阶段6.5：avoid-ai 审计",
       formatAvoidAiPatternsSummary(audit),
     ))
+    // 55 号设计 W2-4 (54⑨ 收尾): 审计摘要持久化 (additive-optional, 仅计数/类型枚举)。
+    // 写入走 saveNovelSessionStatus 唯一真源; 失败仅 warn 不阻塞。
+    try {
+      const { loadNovelSessionStatus, saveNovelSessionStatus } = await import("./novel-session-status")
+      const status = await loadNovelSessionStatus(input.projectPath)
+      if (status) {
+        const issueTypes = [...new Set(audit.issues.map((i) => i.type))]
+        const next = {
+          ...status,
+          avoid_ai_summary: {
+            score: audit.score,
+            label: audit.label,
+            issueCount: audit.issues.length,
+            issueTypes,
+            updatedAt: new Date().toISOString(),
+          },
+        }
+        if (next !== status) {
+          await saveNovelSessionStatus(input.projectPath, next)
+        }
+      }
+    } catch (err) {
+      callbacks.onThinking?.(formatStageThinking(
+        "avoid-ai 审计持久化",
+        `摘要写入跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
+      ))
+    }
   } catch (err) {
     callbacks.onThinking?.(formatStageThinking(
       "avoid-ai 审计",
       `审计跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
     ))
+  }
+  // 55 号设计 W2-5 (B-01): 数值事实检查 (warn-only, 不硬短路)。
+  // 对最终交付物跑跨章数值一致性检查, 结果经 onThinking 提示 (Consistency 轴软信号)。
+  // 正式章节正文位于 .novel/chapters/{n}/draft.md (context-data-sources.ts:67)。
+  try {
+    const { runNumericFactCheck } = await import("./numeric-fact-checker")
+    const { readFile } = await import("@/commands/fs")
+    const { listDirectory } = await import("@/commands/fs")
+    const { normalizePath } = await import("@/lib/path-utils")
+    const chaptersDir = `${normalizePath(input.projectPath)}/.novel/chapters`
+    const dirs = await listDirectory(chaptersDir).catch(() => [])
+    const chapterDirs = dirs
+      .filter((d) => d.is_dir && /^\d+$/.test(d.name))
+      .map((d) => ({ chapter: Number(d.name), dir: d.name }))
+      .sort((a, b) => a.chapter - b.chapter)
+    const chapters: { chapter: number; text: string }[] = []
+    for (const { chapter, dir } of chapterDirs) {
+      const text = await readFile(`${chaptersDir}/${dir}/draft.md`).catch(() => "")
+      if (text) chapters.push({ chapter, text })
+    }
+    if (chapters.length > 0) {
+      // 末章 (当前生成章) 替换为最终交付物, 保证审计对象 = 交付物
+      const last = chapters[chapters.length - 1]
+      last.text = finalContentNorm
+      const numericFindings = runNumericFactCheck(chapters)
+      if (numericFindings.length > 0) {
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段6.6：数值一致性检查",
+          `发现 ${numericFindings.length} 处数值矛盾候选 (warn-only): ${numericFindings.map((f) => f.message).join(" | ")}`,
+        ))
+      }
+    }
+  } catch {
+    // 非致命: 数值检查失败不影响生成
   }
   // 54 号设计 ④: chase_debt 记账人接线 (webnovel-writer ChaseDebtMeta 吸收)。
   // 章节提交时: 结尾钩子含承诺型悬念 → 创建追读债务; 既有未偿债务计息。
@@ -1548,7 +1634,7 @@ export async function runDeepChapterGeneration(
     const status = await loadNovelSessionStatus(input.projectPath)
     if (status) {
       const chapter = input.chapterNumber ?? 0
-      const endingHook = finalContent.slice(-200)
+      const endingHook = finalContentNorm.slice(-200)
       const withDebt = accrueAllChaseDebtInterest(createChaseDebtFromHook(status, chapter, endingHook), chapter)
       if (withDebt !== status) {
         await saveNovelSessionStatus(input.projectPath, withDebt)
@@ -1575,7 +1661,7 @@ export async function runDeepChapterGeneration(
     await statusMerger.flush().catch(() => {})
   }
   return {
-    finalContent,
+    finalContent: finalContentNorm,
     taskBrief,
     draftContent,
     reviewResults: mergedReviewResults,
@@ -2298,7 +2384,7 @@ async function runReviewAndRepair(
       const stage4 = await runFullReviewWithSixDim(draftContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
       reviewResults = stage4.reviewResults
       reviewParseFailedFlag = reviewParseFailedFlag || stage4.reviewParseFailed === true
-      decisionGates = buildDecisionGates(reviewResults, retryCount)
+      decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
       assertNotAborted(signal)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
       // EPIC-002 / TASK-013 / Story 2.3: rewrite 率 A/B 埋点（severity=error /
@@ -2327,7 +2413,7 @@ async function runReviewAndRepair(
   }
 
   if (hasCheckpointReview(resumeCheckpoint) && decisionGates.overall === "pending") {
-    decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired)
+    decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
   }
 
   let currentContent = draftContent
@@ -2348,7 +2434,7 @@ async function runReviewAndRepair(
       const stage55 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
       reviewResults = stage55.reviewResults
       reviewParseFailedFlag = reviewParseFailedFlag || stage55.reviewParseFailed === true
-      decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired)
+      decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
       assertNotAborted(signal)
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
         taskBrief,
@@ -2422,7 +2508,7 @@ async function runReviewAndRepair(
         const cb = checkEmotionCircuitBreaker(emotionStore, EMOTION_CB_THRESHOLD)
         if (cb.tripped) {
           manualReviewRequired = true
-          decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+          decisionGates = buildDecisionGates(reviewResults, retryCount, true, resolveDeAiGenre(input.genre))
           callbacks.onThinking?.(formatStageThinking(
             "阶段5.5：情绪债务熔断转人工",
             [
@@ -2466,7 +2552,7 @@ async function runReviewAndRepair(
     // review 即误触发; 首次 review 的 critical 已由 review-adapter 审查层处理)。零 LLM:
     // checkContinuityCritical 调 runContinuityEngine 纯函数。
     if (retryCount > 0) {
-      const continuityCritical = await checkContinuityCritical(input.projectPath, input.chapterNumber)
+      const continuityCritical = await checkContinuityCritical(input.projectPath, input.chapterNumber, draftContent)
       if (continuityCritical.tripped) {
         logger.warn("continuity-engine", "critical continuity findings, manual handoff: " + continuityCritical.reason)
         manualReviewRequired = true
@@ -2810,7 +2896,7 @@ async function runReviewAndRepair(
         }
         const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
         reviewResults = stage57.reviewResults
-        decisionGates = buildDecisionGates(reviewResults, retryCount)
+        decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
         await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
           taskBrief,
           draftContent,
@@ -2869,7 +2955,8 @@ async function finalPolishChapter(
         input.goldenThreeChapter,
         customDeAiSkill,
         userMemoryStore,
-        input.genre,
+        // 55 号设计 W1-1: 入口统一解析 (英文码 → 中文流派名; undefined/未知码 → 默认基线)。
+        resolveDeAiGenre(input.genre),
       ),
     }],
     deps,

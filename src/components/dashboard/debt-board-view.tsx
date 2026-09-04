@@ -39,6 +39,11 @@ export interface DebtBoardViewProps {
   debtReport?: ForeshadowingDebtReport | null
   /** 情绪债务 Top-N（getTopEmotionalDebt 结果，netValue 升序） */
   emotionDebts?: EmotionLedgerEntry[]
+  /**
+   * 55 号设计 W1-5 (54④ 收尾): 结账回调 (debtId, newStatus)。
+   * optional: 缺省 → 不渲染操作按钮 (现状只读行为)。
+   */
+  onSettleDebt?: (debtId: string, newStatus: "paid" | "written_off") => void
 }
 
 export function DebtBoardView({
@@ -47,6 +52,7 @@ export function DebtBoardView({
   currentChapter = 0,
   debtReport = null,
   emotionDebts = [],
+  onSettleDebt,
 }: DebtBoardViewProps = {}) {
   const { t } = useTranslation()
 
@@ -90,6 +96,28 @@ export function DebtBoardView({
                     {t("dashboard.section.chaseDebtDue")}: 第{debt.due_chapter}
                     {t("dashboard.section.chapters")}
                   </p>
+                  {/* 55 号设计 W1-5 (54④ 收尾): 结账按钮——paid/written_off 态可达 (updateChaseDebtStatus 接线)。
+                      回调缺省 → 不渲染 (现状只读行为)。 */}
+                  {onSettleDebt && !isSettled && (
+                    <div className="mt-1 flex gap-1">
+                      <button
+                        type="button"
+                        data-testid={`settle-debt-${debt.id}`}
+                        onClick={() => onSettleDebt(debt.id, "paid")}
+                        className="rounded border border-input px-1.5 py-0.5 text-[11px] hover:bg-accent"
+                      >
+                        {t("dashboard.section.chaseDebtSettle")}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`writeoff-debt-${debt.id}`}
+                        onClick={() => onSettleDebt(debt.id, "written_off")}
+                        className="rounded border border-input px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent"
+                      >
+                        {t("dashboard.section.chaseDebtWriteOff")}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}

@@ -1,4 +1,5 @@
-import { createAtomicJsonStore } from "./projection-store"
+import { createAtomicJsonStore, type FoldContext } from "./projection-store"
+import type { ChapterSnapshot } from "./chapter-ingest"
 
 /**
  * R4 (S4 / ANL-013): ParticleLedger projection — 金钱/伤势/功法（修为）时序
@@ -71,19 +72,95 @@ export async function loadParticleLedger(
 
 /**
  * 追加一条粒子账目（强不变量：必有归属角色 + 章号，否则拒绝返回原 store）。
+ * E-03 (run-execute-1, 三模型共识): 幂等键 (kind, character, name, chapter) —
+ * 已存在则跳过并保留首条 (append-only 时序账本, 首条优先符合「最早成因」语义),
+ * 防 re-ingest 重复账目与 rebuild 漂移。
+ * fold 纯性: 无隐式时钟, 时间戳只经显式 ctx.now 写入。
  * 供 chapter-ingest 投影循环在 accept 后调用；模型不得直接覆写。
  */
 export function appendParticleEntry(
   storeData: ParticleLedgerStore,
   entry: ParticleEntry,
+  ctx?: FoldContext,
 ): ParticleLedgerStore {
   if (!entry.character || !entry.name || !entry.chapter || entry.chapter < 1) {
     return storeData
   }
+  const exists = storeData.entries.some(
+    (e) =>
+      e.kind === entry.kind &&
+      e.character === entry.character &&
+      e.name === entry.name &&
+      e.chapter === entry.chapter,
+  )
+  if (exists) return storeData
   return {
     entries: [...storeData.entries, entry],
-    lastUpdated: new Date().toISOString(),
+    lastUpdated: ctx?.now ?? storeData.lastUpdated,
   }
+}
+
+/**
+ * E-03: 从 snapshot 确定性 fold 出粒子账目（纯函数，零 LLM）。
+ * 保守文本映射: 从 characterStateChanges 行匹配 money/injury/technique 关键词
+ * (与 parseCharacterStateChange 行格式约定对齐); 无匹配降级不提取 (宁缺勿错,
+ * 守「不新增 LLM 提取语义」)。角色名经 aliasMaps 归一为 canonical。
+ */
+export function foldParticleEntries(
+  snapshot: ChapterSnapshot,
+  aliasMaps?: readonly import("./book-analysis/types").NameAliasMap[],
+): ParticleEntry[] {
+  const entries: ParticleEntry[] = []
+  for (const line of snapshot.characterStateChanges ?? []) {
+    const parsed = parseParticleLine(line, snapshot.chapterNumber, aliasMaps)
+    if (parsed) entries.push(parsed)
+  }
+  return entries
+}
+
+const PARTICLE_KIND_PATTERNS: Array<{ kind: ParticleKind; patterns: RegExp[] }> = [
+  { kind: "money", patterns: [/两|文|金|银|铜钱|灵石|币|钱/i] },
+  { kind: "injury", patterns: [/伤|创|断|裂|愈|血/i] },
+  { kind: "technique", patterns: [/功法|修为|境界|层|阶|内力|灵力|真气/i] },
+]
+
+function parseParticleLine(
+  line: string,
+  chapter: number,
+  aliasMaps?: readonly import("./book-analysis/types").NameAliasMap[],
+): ParticleEntry | null {
+  const colonIndexes = [line.indexOf("："), line.indexOf(":")].filter((i) => i >= 0)
+  if (colonIndexes.length === 0) return null
+  const name = line.slice(0, Math.min(...colonIndexes)).trim()
+  if (!name) return null
+  const rest = line.slice(Math.min(...colonIndexes) + 1).trim()
+  if (!rest) return null
+  for (const { kind, patterns } of PARTICLE_KIND_PATTERNS) {
+    if (!patterns.some((p) => p.test(rest))) continue
+    const character = resolveParticleName(name, aliasMaps)
+    if (!character) return null
+    return {
+      kind,
+      character,
+      name: rest.slice(0, 12),
+      chapter,
+      delta: 0,
+      state: rest,
+      note: "text-heuristic",
+    }
+  }
+  return null
+}
+
+function resolveParticleName(
+  name: string,
+  aliasMaps?: readonly import("./book-analysis/types").NameAliasMap[],
+): string {
+  if (!aliasMaps || aliasMaps.length === 0) return name
+  for (const map of aliasMaps) {
+    if (map.aliases.includes(name) || map.canonical === name) return map.canonical
+  }
+  return name
 }
 
 /**

@@ -1,5 +1,4 @@
-import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { createAtomicJsonStore } from "./projection-store"
 
 export type ForeshadowingStatus = "planted" | "advanced" | "resolved" | "abandoned"
 
@@ -28,33 +27,25 @@ export function createEmptyForeshadowingStore(): ForeshadowingStore {
   return { items: [], lastUpdated: new Date().toISOString() }
 }
 
+// E-03 (run-execute-1, 双库架构蓝图): 直写迁移到 createAtomicJsonStore 工厂
+// (三模型共识 2026-09-04)。load 语义保留 lenient (missing/corrupt → emptyCtor),
+// 与工厂默认一致, 零行为变化。
+const store = createAtomicJsonStore<ForeshadowingStore>(
+  "foreshadowing-tracker.json",
+  createEmptyForeshadowingStore,
+)
+
 export async function saveForeshadowingTracker(
   projectPath: string,
-  store: ForeshadowingStore,
+  storeData: ForeshadowingStore,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.novel`)
-  // F-002 (ANL-010 C5): upgrade writeFile → writeFileAtomic. Same
-  // crash-corruption risk as character-state.ts:30 — a truncated
-  // foreshadowing-tracker.json breaks ingest on next load. fold_rebuildable
-  // via rebuildDerivedMemoryFromSnapshots, but atomicity protects the
-  // rebuild path itself.
-  await writeFileAtomic(
-    `${pp}/.novel/foreshadowing-tracker.json`,
-    JSON.stringify(store, null, 2),
-  )
+  await store.save(projectPath, storeData)
 }
 
 export async function loadForeshadowingTracker(
   projectPath: string,
 ): Promise<ForeshadowingStore> {
-  const pp = normalizePath(projectPath)
-  try {
-    const raw = await readFile(`${pp}/.novel/foreshadowing-tracker.json`)
-    return JSON.parse(raw)
-  } catch {
-    return createEmptyForeshadowingStore()
-  }
+  return store.load(projectPath)
 }
 
 /**

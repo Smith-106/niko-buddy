@@ -431,4 +431,25 @@ describe("invariants", () => {
     expect(chunks).toHaveLength(1)
     expect(chunks[0].text).toContain("$$")
   })
+
+  it("55 W2-7: 中文长句无空格 → cjk_clauses 层按逗号切分, 不整句溢出 maxChars", () => {
+    // 单句 300 字中文 (无空格无句号), 旧实现只能整句溢出; CJK 层按逗号/顿号切分。
+    const clause = "他沿着青石台阶拾级而上，两侧古木参天，枝叶间漏下细碎的光斑，落在斑驳的苔痕上"
+    const text = Array.from({ length: 20 }, (_, i) => `${clause}${i}`).join("，")
+    const chunks = chunkMarkdown(text, { targetChars: 120, maxChars: 200, minChars: 0, overlapChars: 0 })
+    expect(chunks.length).toBeGreaterThan(1)
+    for (const c of chunks) expect(c.text.length).toBeLessThanOrEqual(200)
+  })
+
+  it("55 W2-7: 半角冒号不参与 CJK 切分 — URL/时间/比例不误切 (55 终验 P2)", () => {
+    // 超长句含 URL 与时间, 若半角 `:` 参与切分则 https:// 与 12:30 被切断
+    const url = "https://example.com/docs/guide"
+    const time = "12:30"
+    const longClause = `他打开 ${url} 查看说明，约定 ${time} 见面，然后继续赶路`
+    const text = Array.from({ length: 20 }, (_, i) => `${longClause}${i}`).join("，")
+    const chunks = chunkMarkdown(text, { targetChars: 120, maxChars: 200, minChars: 0, overlapChars: 0 })
+    const joined = chunks.map((c) => c.text).join("")
+    expect(joined).toContain(url)
+    expect(joined).toContain(time)
+  })
 })

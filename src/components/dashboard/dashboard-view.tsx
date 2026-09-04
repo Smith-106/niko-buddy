@@ -20,7 +20,7 @@ import { runFactCheck, type FactCheckResult, type FactCheckReport } from "@/lib/
 import { analyzeForeshadowingDebt, type ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
 import { loadSnapshot, listSnapshots, type ChapterSnapshot } from "@/lib/novel/chapter-ingest"
 import { loadForeshadowingTracker } from "@/lib/novel/foreshadowing-tracker"
-import { loadNovelSessionStatus, subscribeStatusJson, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
+import { loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
 import { getTopEmotionalDebt, loadEmotionLedger, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
 import { DebtBoardView } from "./debt-board-view"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
@@ -891,6 +891,24 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           currentChapter={chapterCount}
           debtReport={debtReport}
           emotionDebts={emotionDebts}
+          // 55 号设计 W1-5 (54④ 收尾): 结账回调——load → update → save 原子写链。
+          // 写入走 saveNovelSessionStatus 唯一真源; subscribeStatusJson 自动刷新面板。
+          onSettleDebt={(debtId, newStatus) => {
+            const pp = project?.path ? normalizePath(project.path) : null
+            if (!pp) return
+            void (async () => {
+              try {
+                const status = await loadNovelSessionStatus(pp)
+                if (!status) return
+                const next = updateChaseDebtStatus(status, debtId, newStatus, chapterCount)
+                if (next !== status) {
+                  await saveNovelSessionStatus(pp, next)
+                }
+              } catch (err) {
+                console.error("[Dashboard] Settle debt failed:", err instanceof Error ? err.message : String(err))
+              }
+            })()
+          }}
         />
 
         {extrasLoading && (

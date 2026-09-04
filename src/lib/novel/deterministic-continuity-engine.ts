@@ -75,6 +75,8 @@ export type ContinuityFindingType =
   | "container_state"
   /** 51 号报告 G1: 集合基数漂移（团队/库存计数跨章不一致）— severity warning。 */
   | "set_count_drift"
+  /** 55 号设计 W2-5 (B-01): 数值事实矛盾候选（金额/度量/数量跨章不一致, 序数回退）— severity warning。 */
+  | "numeric_drift"
 
 export type ContinuityFindingSubtype = "consistency_mechanical" | "data_gap"
 
@@ -1097,6 +1099,7 @@ const SUGGESTION_BY_TYPE: Record<ContinuityFindingType, string> = {
   presence_path: "回正在场路径: 角色同一章不应出现在互斥地点; 修正地点或拆分章 (P1 warning)",
   container_state: "回正容器状态: 物品从关闭容器取出需补开启动作或修正归属 (P1 warning)",
   set_count_drift: "回正集合基数: 团队/库存计数跨章变化需补增减事件 (P1 warning)",
+  numeric_drift: "回正数值事实: 同实体同量纲数值跨章冲突需补修正或显式标注 (warn-only)",
   data_gap: "补 lastSeenChapter 字段或接入 writehook 增量更新; 不阻断仅可见标注",
 }
 
@@ -1194,6 +1197,7 @@ export const CONTINUITY_CANONICAL_FAMILY: Record<ContinuityFindingType, string> 
   presence_path: "presence_path",
   container_state: "container_state",
   set_count_drift: "count_or_inventory",
+  numeric_drift: "count_or_inventory",
   lost_item: "object_custody",
   timeline_drift: "temporal",
   dormant_thread: "thread_or_foreshadowing",
@@ -1440,23 +1444,63 @@ export interface KnowledgeLeakInput {
   metBefore: Record<string, string[]>
   /** 本章号. */
   chapter: number
+  /**
+   * E-04 (验收⑤ 证据分级): 本章在场事实 (snapshot 提取, 确定性, 零 LLM)。
+   * 任一事实经规范化后符号命中 doesNotKnow 项 → 泄露证据充分 (critical);
+   * 未提供或未命中 → 降级 info (不妄断 critical)。additive, 缺省 undefined。
+   */
+  chapterFacts?: string[]
+  /**
+   * E-04 (验收⑤ 证据分级): 本章正文 (可选, 规范化子串匹配辅助通道)。
+   * 与 chapterFacts 取或 (双通道各自独立触发 critical — 漏报代价高于误报,
+   * 误报由 ADR-34 override 豁免兜底)。
+   */
+  chapterBody?: string
+}
+
+/**
+ * E-04 (验收⑤): 证据文本规范化 — NFKC + 去空白 (与 resolveCanonicalName
+ * 同款归一纪律, 引擎内本地实现保持零 IO 纯函数)。
+ */
+export function normalizeEvidenceText(text: string): string {
+  return text.normalize("NFKC").replace(/\s+/g, "")
 }
 
 export function detectKnowledgeLeak(input: KnowledgeLeakInput): ContinuityFinding[] {
   const findings: ContinuityFinding[] = []
+  const facts = (input.chapterFacts ?? []).map(normalizeEvidenceText)
+  const body = input.chapterBody !== undefined ? normalizeEvidenceText(input.chapterBody) : undefined
   for (const character of input.presentCharacters) {
     const forbidden = input.doesNotKnow[character] ?? []
     if (forbidden.length === 0) continue
     for (const fact of forbidden) {
-      findings.push({
-        type: "knowledge_boundary",
-        subtype: "consistency_mechanical",
-        severity: "critical",
-        ref: `character:${character}`,
-        message: `角色 ${character} 在正文中表现出对「${fact}」的知晓，但认知台账标记其不知道（P0 信息边界泄露）`,
-        chapter: input.chapter,
-        evidence: `doesNotKnow:${fact}`,
-      })
+      const normFact = normalizeEvidenceText(fact)
+      const hit = facts.some((f) => f.includes(normFact))
+        || (body !== undefined && body.includes(normFact))
+      if (hit) {
+        findings.push({
+          type: "knowledge_boundary",
+          subtype: "consistency_mechanical",
+          severity: "critical",
+          ref: `character:${character}`,
+          message: `角色 ${character} 在正文中表现出对「${fact}」的知晓，但认知台账标记其不知道（P0 信息边界泄露）`,
+          chapter: input.chapter,
+          evidence: `doesNotKnow:${fact}`,
+        })
+      } else {
+        // E-04 (验收⑤): 台账有 doesNotKnow 但本章无表现证据 (或无证据通道) →
+        // 降级 info + data_gap, 不妄断 critical (守 IC-02 不静默降级: 显式可见)。
+        findings.push({
+          type: "data_gap",
+          subtype: "data_gap",
+          severity: "info",
+          ref: `character:${character}`,
+          message: `角色 ${character} 认知台账标记其不知道「${fact}」，但本章正文/事实无命中证据（风险标记，不阻断）`,
+          chapter: input.chapter,
+          evidence: `doesNotKnow:${fact}`,
+          missingField: "leak_evidence",
+        })
+      }
     }
   }
   return findings
@@ -1484,7 +1528,20 @@ export interface LostItemInput {
   particleStates?: Record<string, Record<string, string>>
   /** 本章正文引用的粒子: 角色 → 粒子名 (如 甲 → 左臂). */
   presentParticles?: Record<string, string[]>
+  /**
+   * E-04 (验收⑤ 证据分级): 粒子状态串来源 — 角色 → 粒子名 →
+   * "ledger"(结构化账本条目佐证) | "text"(文本提取, E-03 C-12 保守映射)。
+   * "text" 源证据链最弱 → 降级 warning; "ledger" → critical; 缺省 → 现状 critical。
+   */
+  particleEvidence?: Record<string, Record<string, "ledger" | "text">>
 }
+
+/**
+ * E-04 (验收⑤): 粒子负向终态受限枚举 — 消除「无」单独成词的误报面。
+ * 仅匹配: 已愈 / 痊愈 / 消失 (精确终态) + 「无X」前缀形态 (如 无碍/无伤)。
+ */
+const NEGATIVE_TERMINAL_STATE = /^(已愈|痊愈|消失)$/
+const NEGATIVE_PREFIX_STATE = /^无.+/
 
 export function detectLostItem(input: LostItemInput): ContinuityFinding[] {
   const findings: ContinuityFinding[] = []
@@ -1505,23 +1562,110 @@ export function detectLostItem(input: LostItemInput): ContinuityFinding[] {
       })
     }
   }
-  // 粒子矛盾检测: 正文引用某粒子但账本状态为「已愈/无」→ 报 critical
+  // 粒子矛盾检测: 正文引用某粒子但账本状态为负向终态 (已愈/痊愈/消失/无X)
+  // → 报 finding。E-04 (验收⑤): 状态串来源为文本提取 (E-03 C-12 保守映射) 时
+  // 证据链最弱 → 降级 warning; 结构化账本佐证 → critical。
   for (const [character, particles] of Object.entries(input.presentParticles ?? {})) {
     const states = input.particleStates?.[character] ?? {}
     for (const particle of particles) {
       const state = states[particle]
       if (state === undefined) continue // 无账本记录, 不误报
-      if (/已愈|痊愈|无|消失/.test(state)) {
+      if (NEGATIVE_TERMINAL_STATE.test(state) || NEGATIVE_PREFIX_STATE.test(state)) {
+        const source = input.particleEvidence?.[character]?.[particle]
+        const severity: ContinuitySeverity = source === "text" ? "warning" : "critical"
         findings.push({
           type: "lost_item",
           subtype: "consistency_mechanical",
-          severity: "critical",
+          severity,
           ref: `particle:${character}:${particle}`,
           message: `角色 ${character} 的粒子「${particle}」账本状态为「${state}」，本章正文却再次引用（粒子连续性矛盾）`,
           chapter: input.chapter,
           evidence: `particleState:${state}`,
         })
       }
+    }
+  }
+  return findings
+}
+
+// ============================================================================
+// E-04 (run-execute-1, 双库架构蓝图 EPIC-04): 口诀③「伏笔没收」检测器
+// ============================================================================
+
+/**
+ * E-04 口诀③「伏笔没收」输入。纯函数, 零 IO 零 LLM。
+ * 终态信号 (没收候选): 关联角色已死亡 或 超长未收 (chaptersSincePlanted ≥
+ * confiscatedThreshold)。陈化信号: 与 analyzeForeshadowingDebt 同阈值
+ * (planted ≥5 → critical 档 / advanced ≥10 → warning 档)。
+ */
+export interface ForeshadowingConfiscationInput {
+  /** 伏笔台账 items (foreshadowing-tracker store.items). */
+  items: readonly ForeshadowingStore["items"][number][]
+  /** 本章号. */
+  currentChapter: number
+  /** 已死亡角色 canonical 名集合 (character-state isAlive=false, 终态信号). */
+  deadCharacters?: readonly string[]
+  /** 超长未收阈值 (终态信号, 缺省 20 = plantedStale 5 × 4 节奏档). */
+  confiscatedThreshold?: number
+}
+
+/**
+ * E-04 口诀③「伏笔没收」判定矩阵 (三模型共识 C-1):
+ *   - status ∈ {planted, advanced} 且 终态信号命中 (关联角色死亡 / 超长未收)
+ *     → unresolved_foreshadowing **warning** (没收候选, 不阻断 — ARCH-facade-audit
+ *     §2 明文「伏笔没收 → warning 候选」; critical 只留给有证据的不可逆项)
+ *   - status ∈ {planted, advanced} 且 陈化 (debtLevel critical/warning 档)
+ *     → unresolved_foreshadowing **warning** (陈化未收, 可修复不阻断)
+ *   - debtLevel normal / status abandoned|resolved → 不产 finding
+ *   - 证据不足 (缺 plantedChapter) → info + data_gap (不妄断)
+ * 不新增 finding type (N-3: 新 type 不在 37 维注册表 → 落 P2 永不阻断)。
+ */
+export function detectForeshadowingConfiscation(
+  input: ForeshadowingConfiscationInput,
+): ContinuityFinding[] {
+  const findings: ContinuityFinding[] = []
+  const threshold = input.confiscatedThreshold ?? 20
+  for (const item of input.items) {
+    if (item.status !== "planted" && item.status !== "advanced") continue
+    if (!item.plantedChapter || item.plantedChapter < 1) {
+      findings.push({
+        type: "unresolved_foreshadowing",
+        subtype: "data_gap",
+        severity: "info",
+        ref: `foreshadowing:${item.id}`,
+        message: `伏笔「${item.name}」缺少埋设章号，无法判定没收/陈化（风险标记，不阻断）`,
+        chapter: input.currentChapter,
+        evidence: `plantedChapter:missing`,
+        missingField: "plantedChapter",
+      })
+      continue
+    }
+    const chaptersSincePlanted = input.currentChapter - item.plantedChapter
+    const lastAdvanced = item.advancedChapters.length > 0
+      ? Math.max(...item.advancedChapters)
+      : undefined
+    const chaptersSinceAdvanced = lastAdvanced
+      ? input.currentChapter - lastAdvanced
+      : undefined
+    // 陈化分级 (与 analyzeForeshadowingDebt 同阈值, 不重复实现)
+    const debtCritical = item.status === "planted" && chaptersSincePlanted >= 5
+    const debtWarning = item.status === "advanced"
+      && chaptersSinceAdvanced !== undefined && chaptersSinceAdvanced >= 10
+    // 终态信号: 关联角色死亡 或 超长未收
+    const relatedDead = (input.deadCharacters ?? []).some((d) => item.relatedCharacters.includes(d))
+    const confiscated = relatedDead || chaptersSincePlanted >= threshold
+    if (confiscated || debtCritical || debtWarning) {
+      findings.push({
+        type: "unresolved_foreshadowing",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: `foreshadowing:${item.id}`,
+        message: confiscated
+          ? `伏笔「${item.name}」${relatedDead ? "关联角色已死亡" : `已 ${chaptersSincePlanted} 章未收`}，判定为没收候选（第${item.plantedChapter}章埋设）`
+          : `伏笔「${item.name}」陈化未收（第${item.plantedChapter}章埋设，已 ${chaptersSincePlanted} 章未推进）`,
+        chapter: input.currentChapter,
+        evidence: confiscated ? `confiscated:${item.id}` : `stale:${item.id}`,
+      })
     }
   }
   return findings

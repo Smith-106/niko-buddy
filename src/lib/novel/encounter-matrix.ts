@@ -1,4 +1,7 @@
-import { createAtomicJsonStore } from "./projection-store"
+import { createAtomicJsonStore, type FoldContext } from "./projection-store"
+import type { ChapterSnapshot } from "./chapter-ingest"
+import { matchesAnyAlias } from "./book-analysis/alias-resolver"
+import type { NameAliasMap } from "./book-analysis/types"
 
 /**
  * R4 (S4 / ANL-013): EncounterMatrix projection — 谁见过谁（character_matrix
@@ -62,22 +65,66 @@ export async function loadEncounterMatrix(
 }
 
 /**
- * 追加一条见面边（幂等：同 a/b/chapter 已存在则跳过）。
+ * 追加一条见面边（幂等：同 a/b/chapter 三元组已存在则跳过）。
+ * E-03 (run-execute-1, 三模型共识): 幂等键修复 — 原实现只查 (a,b) 无序对、
+ * 忽略 chapter, 导致同对角色跨章再见面被跳过, live ingest 与 rebuild 漂移。
+ * 键改为 (a,b,chapter) 三元组: 同章同对跳过, 跨章允许追加。
+ * fold 纯性: 无隐式时钟, 时间戳只经显式 ctx.now 写入。
  * 供 chapter-ingest 投影循环在 accept 后调用；模型不得直接覆写。
  */
 export function appendMeetingEdge(
   storeData: EncounterMatrixStore,
   edge: MeetingEdge,
+  ctx?: FoldContext,
 ): EncounterMatrixStore {
   const exists = storeData.edges.some(
     (e) =>
-      (e.a === edge.a && e.b === edge.b) || (e.a === edge.b && e.b === edge.a),
+      e.chapter === edge.chapter &&
+      ((e.a === edge.a && e.b === edge.b) || (e.a === edge.b && e.b === edge.a)),
   )
   if (exists) return storeData
   return {
     edges: [...storeData.edges, edge],
-    lastUpdated: new Date().toISOString(),
+    lastUpdated: ctx?.now ?? storeData.lastUpdated,
   }
+}
+
+/**
+ * E-03: 从 snapshot 确定性 fold 出见面边（纯函数，零 LLM）。
+ * 共现口径: snapshot.characters 两两共现 (i<j 稳定排序定 a/b) 即见面边;
+ * 角色名经 aliasMaps 归一为 canonical (join key 一致性, 验收⑦)。
+ * 幂等键 (a,b,chapter) 由 appendMeetingEdge 保证。
+ */
+export function foldMeetingEdges(
+  snapshot: ChapterSnapshot,
+  aliasMaps?: readonly NameAliasMap[],
+): MeetingEdge[] {
+  const names = [...(snapshot.characters ?? [])]
+  const edges: MeetingEdge[] = []
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const a = resolveEdgeName(names[i], aliasMaps)
+      const b = resolveEdgeName(names[j], aliasMaps)
+      if (!a || !b || a === b) continue
+      const witnessedBy = names
+        .filter((_, k) => k !== i && k !== j)
+        .map((n) => resolveEdgeName(n, aliasMaps))
+        .filter((n): n is string => Boolean(n) && n !== a && n !== b)
+      edges.push({ a, b, chapter: snapshot.chapterNumber, context: "", witnessedBy })
+    }
+  }
+  return edges
+}
+
+function resolveEdgeName(
+  name: string,
+  aliasMaps?: readonly NameAliasMap[],
+): string {
+  if (!aliasMaps || aliasMaps.length === 0) return name
+  for (const map of aliasMaps) {
+    if (matchesAnyAlias(name, map)) return map.canonical
+  }
+  return name
 }
 
 /**

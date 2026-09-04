@@ -16,6 +16,12 @@ import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadow
 import { createEmptyEmotionalArcStore, loadEmotionalArcs, saveEmotionalArcs, type EmotionalArcStore } from "./emotional-arcs"
 import { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard, type SubplotBoardStore } from "./subplot-board"
 import { createEmptyResourceLedgerStore, loadResourceLedger, saveResourceLedger, type ResourceLedgerStore } from "./resource-ledger"
+// E-03 (run-execute-1, 双库架构蓝图): 孤儿投影接线 — encounter-matrix /
+// chapter-summaries / particle-ledger 三类真相文件的 fold 函数此前无生产调用者。
+import { loadEncounterMatrix, saveEncounterMatrix, appendMeetingEdge, foldMeetingEdges, createEmptyEncounterMatrixStore } from "./encounter-matrix"
+import { loadChapterSummaries, saveChapterSummaries, upsertChapterSummary, foldChapterSummary, createEmptyChapterSummariesStore } from "./chapter-summaries"
+import { loadParticleLedger, saveParticleLedger, appendParticleEntry, foldParticleEntries, createEmptyParticleLedgerStore } from "./particle-ledger"
+import { truthStoreHash, type FoldContext } from "./projection-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
@@ -38,7 +44,7 @@ import {
 } from "./projection-status-ledger"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
-import { shadowWriteCanon } from "./canon-dual-write"
+import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
 import { analyzeEditImpact, type EditImpactStores } from "./edit-impact-analyzer"
 
@@ -255,6 +261,11 @@ export interface IngestChapterOptions {
    * 缺省 undefined → 不触发双写，向后兼容。
    */
   canonDualWriteDeps?: CanonDualWriteDeps
+  /**
+   * E-03 (run-execute-1, 双库架构蓝图): 显式 fold 时间戳。
+   * 缺省 → 入口取一次墙钟全链下传; 传入固定值 → ingest 全链确定性 (可测)。
+   */
+  now?: string
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -394,9 +405,18 @@ export async function runCanonDualWriteHook(
   if (ops.length === 0) return
 
   try {
-    const report = await shadowWriteCanon(deps, projectPath, ops, now)
+    // E-05 (C-4/C-6): T16 钩子传 promoteChannel="canon-dual-write" ——
+    // reconcile 一致时对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
+    const report = await shadowWriteCanon(deps, projectPath, ops, now, "canon-dual-write")
     if (report.queued > 0) {
       logger.warn("Chapter Ingest", `Canon dual-write: ${report.queued}/${ops.length} ops queued (non-fatal)`)
+    }
+    // 55 号设计 W1-3 (54⑤ 收尾): 消费对账报告——重放后仍不一致时告警带 divergences digest。
+    // 只增日志, 不参与任何门控 (对账差异不得阻断生成)。
+    if (report.reconcile && report.reconcile.consistent === false) {
+      logger.warn("Chapter Ingest", "Canon dual-write: reconcile divergences remain after replay", {
+        divergences: report.reconcile.divergences,
+      })
     }
   } catch (err) {
     logger.warn("Chapter Ingest", "Canon dual-write hook failed (non-fatal)", {
@@ -416,6 +436,22 @@ export async function ingestChapter(
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
   const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return { snapshot: null }
+
+  // 55 号设计 W2-3 (54⑤ 收尾): replayPendingQueue 独立触发 — 每次 ingest 开头
+  // 先重放积压双写队列 (LLM 提取前), 避免积压写无限延迟; 失败仅 warn 不阻断。
+  try {
+    const deps = options.canonDualWriteDeps
+    if (deps) {
+      const report = await replayPendingQueue(deps, pp, Date.now())
+      if (report.remaining > 0) {
+        logger.warn("Chapter Ingest", `Canon dual-write: ${report.remaining} pending ops remain after replay (non-fatal)`)
+      }
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "Canon dual-write replay failed (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
   const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
@@ -649,6 +685,9 @@ export async function ingestChapter(
       // all projection closures (was recomputed 4x — character/cognition/
       // emotional-arc/resource-ledger — for the same snapshot).
       const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
+      // E-03 (run-execute-1): fold 纯性 — 入口取一次显式时间戳, 全链下传
+      // (fold 函数体内禁止隐式时钟; 传入固定 now 时 ingest 全链确定性可测)。
+      const foldCtx = { now: options.now ?? new Date().toISOString() }
       // mutates_existing_non_rebuildable: graph entity pages (writeSnapshotToWiki).
       await runProjection("graph_entity_pages", async () => {
         const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
@@ -690,7 +729,7 @@ export async function ingestChapter(
           // so fullwidth-colon "角色名：状态" lines parse identically on both
           // paths. The shared parseCharacterStateChange helper guarantees the
           // fold_rebuildable contract (ingest == rebuild).
-          applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps)
+          applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)
           await saveCharacterStates(pp, existingChars)
         })
       }
@@ -707,7 +746,7 @@ export async function ingestChapter(
           // fold_rebuildable contract (ingest == rebuild). applyForeshadowingChangesToStore
           // takes no aliasMaps param (foreshadow matching is name-substring, not
           // alias-resolved) — signature unchanged.
-          applyForeshadowingChangesToStore(existingForeshadows, snapshot)
+          applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)
           await saveForeshadowingTracker(pp, existingForeshadows)
         })
       }
@@ -717,7 +756,7 @@ export async function ingestChapter(
       // (additive only); failure → ledger (IC-02: no silent degrade).
       await runProjection("emotional_arc", async () => {
         const arcStore = await loadEmotionalArcs(pp)
-        applyEmotionalArcsToStore(arcStore, snapshot, aliasMaps)
+        applyEmotionalArcsToStore(arcStore, snapshot, aliasMaps, foldCtx)
         await saveEmotionalArcs(pp, arcStore)
       })
 
@@ -726,7 +765,7 @@ export async function ingestChapter(
       // extract field (additive only); failure → ledger (IC-02).
       await runProjection("resource_ledger", async () => {
         const ledger = await loadResourceLedger(pp)
-        applyResourceLedgerToStore(ledger, snapshot, aliasMaps)
+        applyResourceLedgerToStore(ledger, snapshot, aliasMaps, foldCtx)
         await saveResourceLedger(pp, ledger)
       })
 
@@ -735,8 +774,37 @@ export async function ingestChapter(
       // 写入 targetResolutionChapter/abandoned 结构化字段。
       await runProjection("subplot_board", async () => {
         const board = await loadSubplotBoard(pp)
-        applySubplotChangesToStore(board, snapshot)
+        applySubplotChangesToStore(board, snapshot, foldCtx)
         await saveSubplotBoard(pp, board)
+      })
+
+      // E-03 (run-execute-1, 双库架构蓝图): 孤儿投影接线 — encounter-matrix /
+      // chapter-summaries / particle-ledger 三类的 fold 函数此前存在但无生产
+      // 调用者 (真相文件恒空)。三模型共识 (deepseek-v4-flash + GLM-5.3-flash
+      // + hy3): 接线是验收①「全部真相文件写路径」的实质前提。与 rebuild 共用
+      // 同一批 fold 函数 (fold_rebuildable 契约: ingest == rebuild)。
+      await runProjection("encounter_matrix", async () => {
+        const store = await loadEncounterMatrix(pp)
+        let next = store
+        for (const edge of foldMeetingEdges(snapshot, aliasMaps)) {
+          next = appendMeetingEdge(next, edge, foldCtx)
+        }
+        await saveEncounterMatrix(pp, next)
+      })
+
+      await runProjection("chapter_summaries", async () => {
+        const store = await loadChapterSummaries(pp)
+        const next = upsertChapterSummary(store, foldChapterSummary(snapshot), foldCtx)
+        await saveChapterSummaries(pp, next)
+      })
+
+      await runProjection("particle_ledger", async () => {
+        const store = await loadParticleLedger(pp)
+        let next = store
+        for (const entry of foldParticleEntries(snapshot, aliasMaps)) {
+          next = appendParticleEntry(next, entry, foldCtx)
+        }
+        await saveParticleLedger(pp, next)
       })
 
       // fold_rebuildable: summary_structured_memory.
@@ -1689,10 +1757,11 @@ function isDeathStatus(status: string): boolean {
   return status.length > 0 && DEATH_PATTERNS.some((p) => status.includes(p))
 }
 
-function applyCharacterStateChangesToStore(
+export function applyCharacterStateChangesToStore(
   existingChars: CharacterStateStore,
   snapshot: ChapterSnapshot,
   aliasMaps?: readonly NameAliasMap[],
+  ctx?: FoldContext,
 ): CharacterStateStore {
   for (const change of snapshot.characterStateChanges) {
     const parsed = parseCharacterStateChange(change)
@@ -1704,7 +1773,8 @@ function applyCharacterStateChangesToStore(
         existing.status = changeDesc
         existing.lastUpdatedChapter = snapshot.chapterNumber
         existing.lastSeenChapter = snapshot.chapterNumber
-        existing.lastUpdatedAt = new Date().toISOString()
+        // E-03 (C-3): fold 纯性 — 缺省保留输入值, 不引入隐式时钟。
+        existing.lastUpdatedAt = ctx?.now ?? existing.lastUpdatedAt
         // LE-2 Phase 2: 结构化死亡标记写入端落地
         if (isDeathStatus(changeDesc)) {
           existing.isAlive = false
@@ -1721,7 +1791,8 @@ function applyCharacterStateChangesToStore(
           relationships: {},
           lastUpdatedChapter: snapshot.chapterNumber,
           lastSeenChapter: snapshot.chapterNumber,
-          lastUpdatedAt: new Date().toISOString(),
+          // E-03 (C-3): 新条目无 ctx 时写 ""（不引入隐式时钟）。
+          lastUpdatedAt: ctx?.now ?? "",
           // LE-2 Phase 2: 新角色死亡结构化标记
           ...(isDead ? { isAlive: false as const, deathChapter: snapshot.chapterNumber } : {}),
         })
@@ -1732,7 +1803,8 @@ function applyCharacterStateChangesToStore(
         matched.status = change
         matched.lastUpdatedChapter = snapshot.chapterNumber
         matched.lastSeenChapter = snapshot.chapterNumber
-        matched.lastUpdatedAt = new Date().toISOString()
+        // E-03 (C-3): fold 纯性 — 缺省保留输入值。
+        matched.lastUpdatedAt = ctx?.now ?? matched.lastUpdatedAt
         // LE-2 Phase 2: 结构化死亡标记写入端落地
         if (isDeathStatus(change)) {
           matched.isAlive = false
@@ -1741,7 +1813,8 @@ function applyCharacterStateChangesToStore(
       }
     }
   }
-  existingChars.lastUpdated = new Date().toISOString()
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
+  existingChars.lastUpdated = ctx?.now ?? existingChars.lastUpdated
   return existingChars
 }
 
@@ -1751,7 +1824,7 @@ async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterS
   await saveCharacterStates(projectPath, existingChars)
 }
 
-export function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot): ForeshadowingStore {
+export function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot, ctx?: FoldContext): ForeshadowingStore {
   for (const change of snapshot.foreshadowingChanges) {
     const parsed = parseForeshadowingChange(change)
     if (!parsed) continue
@@ -1814,7 +1887,8 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
       }
     }
   }
-  existingForeshadows.lastUpdated = new Date().toISOString()
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
+  existingForeshadows.lastUpdated = ctx?.now ?? existingForeshadows.lastUpdated
   return existingForeshadows
 }
 
@@ -1834,6 +1908,7 @@ export function applyEmotionalArcsToStore(
   arcStore: EmotionalArcStore,
   snapshot: ChapterSnapshot,
   aliasMaps?: readonly NameAliasMap[],
+  ctx?: FoldContext,
 ): EmotionalArcStore {
   const details = snapshot.characterDetails ?? {}
   for (const [rawName, detail] of Object.entries(details)) {
@@ -1861,7 +1936,8 @@ export function applyEmotionalArcsToStore(
       })
     }
   }
-  arcStore.lastUpdated = new Date().toISOString()
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
+  arcStore.lastUpdated = ctx?.now ?? arcStore.lastUpdated
   return arcStore
 }
 
@@ -1871,10 +1947,11 @@ export function applyEmotionalArcsToStore(
  * fold is deterministic (fold_rebuildable contract). Each chapter's holder
  * becomes a transfer entry; the first holder seeds acquiredChapter.
  */
-function applyResourceLedgerToStore(
+export function applyResourceLedgerToStore(
   ledger: ResourceLedgerStore,
   snapshot: ChapterSnapshot,
   aliasMaps?: readonly NameAliasMap[],
+  ctx?: FoldContext,
 ): ResourceLedgerStore {
   const details = snapshot.itemDetails ?? {}
   for (const [itemName, detail] of Object.entries(details)) {
@@ -1914,7 +1991,8 @@ function applyResourceLedgerToStore(
       entry.currentHolder = canonicalHolder
     }
   }
-  ledger.lastUpdated = new Date().toISOString()
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
+  ledger.lastUpdated = ctx?.now ?? ledger.lastUpdated
   return ledger
 }
 
@@ -1937,9 +2015,10 @@ function applyResourceLedgerToStore(
  * fold_rebuildable: 对同一 snapshot 重复调用零行为变更 (idempotent — 同章号
  * 重复写入 targetResolutionChapter/abandoned 相同值)。
  */
-function applySubplotChangesToStore(
+export function applySubplotChangesToStore(
   board: SubplotBoardStore,
   snapshot: ChapterSnapshot,
+  ctx?: FoldContext,
 ): SubplotBoardStore {
   for (const change of snapshot.foreshadowingChanges) {
     const trimmed = change.trim()
@@ -1991,7 +2070,8 @@ function applySubplotChangesToStore(
     }
   }
 
-  board.lastUpdated = new Date().toISOString()
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
+  board.lastUpdated = ctx?.now ?? board.lastUpdated
   return board
 }
 
@@ -2019,8 +2099,11 @@ function applySubplotChangesToStore(
  * tracks each projection's rebuild status so a mid-rebuild crash leaves a
  * partially-rebuilt but detectable state.
  */
-async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot, options: { embeddingConfig?: EmbeddingConfig } = {}): Promise<void> {
+async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot, options: { embeddingConfig?: EmbeddingConfig; now?: string } = {}): Promise<void> {
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
+  // E-03 (C-3): rebuild 也是 fold 路径 — 入口取一次显式时间戳全链下传,
+  // 缺省 "" (不引入隐式时钟; drift 检查传固定值保证可重放)。
+  const foldCtx: FoldContext = { now: options.now ?? "" }
 
   // fold_rebuildable: cognition / character / foreshadow / structured-memory
   const cognitionState = snapshots.reduce(
@@ -2031,13 +2114,13 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
 
   const characterStateStore = createEmptyCharacterStateStore()
   for (const snapshot of snapshots) {
-    applyCharacterStateChangesToStore(characterStateStore, snapshot, buildAliasMapsFromSnapshot(snapshot))
+    applyCharacterStateChangesToStore(characterStateStore, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
   }
   await saveCharacterStates(projectPath, characterStateStore)
 
   const foreshadowingStore = createEmptyForeshadowingStore()
   for (const snapshot of snapshots) {
-    applyForeshadowingChangesToStore(foreshadowingStore, snapshot)
+    applyForeshadowingChangesToStore(foreshadowingStore, snapshot, foldCtx)
   }
   await saveForeshadowingTracker(projectPath, foreshadowingStore)
 
@@ -2050,13 +2133,12 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   const subplotBoard = createEmptySubplotBoardStore()
   for (const snapshot of snapshots) {
     const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
-    applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps)
-    applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps)
-    applySubplotChangesToStore(subplotBoard, snapshot)
+    applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps, foldCtx)
+    applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps, foldCtx)
+    applySubplotChangesToStore(subplotBoard, snapshot, foldCtx)
   }
   await saveEmotionalArcs(projectPath, emotionalArcStore)
   await saveResourceLedger(projectPath, resourceLedger)
-  subplotBoard.lastUpdated = new Date().toISOString()
   await saveSubplotBoard(projectPath, subplotBoard)
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
@@ -2107,6 +2189,144 @@ async function rebuildDerivedMemoryFromSnapshots(
   options: { embeddingConfig?: EmbeddingConfig } = {},
 ): Promise<void> {
   return rebuildFromCommittedSnapshot(projectPath, latestSnapshot, options)
+}
+
+// ============================================================================
+// E-03 (run-execute-1, 双库架构蓝图): truth_fold_drift 可执行定义
+// ============================================================================
+
+/**
+ * E-03 (C-8): 单类真相文件的 drift 比对结果。
+ * liveHash = 盘上 store 的稳定哈希; replayHash = 从 committed snapshot 序列
+ * 重放 (fold from empty) 的稳定哈希。哈希经 canonicalizeForHash 剔除易变元数据
+ * (lastUpdated / fileVersion / At$ 墙钟字段), 认识论字段 validAt/invalidAt/
+ * revealedAt 是数据不剔除 (GLM D-GLM2 裁决)。
+ */
+export interface TruthFoldDrift {
+  file: string
+  liveHash: string
+  replayHash: string
+  drifted: boolean
+}
+
+/**
+ * E-03 (C-8): 逐类比对 live 盘上 store vs 从 committed snapshot 序列重放的
+ * store。归属 chapter-ingest.ts 锚点 (rebuild 的只读副产品, 与
+ * rebuildFromCommittedSnapshot 同域内聚; 不新建文件)。
+ *
+ * 判定: drifted = liveHash !== replayHash; 任一类 drifted → truth_fold_drift > 0
+ * → 按 PRO-STO-04 告警并阻断 (不静默降级)。
+ *
+ * @param now 重放时注入的显式时间戳 (缺省 "" — 重放不产生新时间戳, 纯性优先)。
+ */
+export async function computeTruthFoldDrift(
+  projectPath: string,
+  now = "",
+): Promise<TruthFoldDrift[]> {
+  const snapshots = await loadValidMemorySnapshots(projectPath)
+  const foldCtx: FoldContext = { now }
+  const results: TruthFoldDrift[] = []
+
+  const compare = async (file: string, live: unknown, replay: unknown): Promise<void> => {
+    const [liveHash, replayHash] = await Promise.all([truthStoreHash(live), truthStoreHash(replay)])
+    results.push({ file, liveHash, replayHash, drifted: liveHash !== replayHash })
+  }
+
+  // 1. character-states.json
+  {
+    const live = await loadCharacterStates(projectPath)
+    const replay = createEmptyCharacterStateStore()
+    for (const snapshot of snapshots) {
+      applyCharacterStateChangesToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
+    }
+    await compare("character-states.json", live, replay)
+  }
+
+  // 2. cognition-state.json
+  {
+    const live = await loadCognitionState(projectPath)
+    const replay = snapshots.reduce(
+      (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot, buildAliasMapsFromSnapshot(snapshot)),
+      emptyCognitionState(),
+    )
+    await compare("cognition-state.json", live, replay)
+  }
+
+  // 3. encounter-matrix.json
+  {
+    const live = await loadEncounterMatrix(projectPath)
+    let replay = createEmptyEncounterMatrixStore()
+    for (const snapshot of snapshots) {
+      for (const edge of foldMeetingEdges(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
+        replay = appendMeetingEdge(replay, edge, foldCtx)
+      }
+    }
+    await compare("encounter-matrix.json", live, replay)
+  }
+
+  // 4. foreshadowing-tracker.json
+  {
+    const live = await loadForeshadowingTracker(projectPath)
+    const replay = createEmptyForeshadowingStore()
+    for (const snapshot of snapshots) {
+      applyForeshadowingChangesToStore(replay, snapshot, foldCtx)
+    }
+    await compare("foreshadowing-tracker.json", live, replay)
+  }
+
+  // 5. chapter-summaries.json
+  {
+    const live = await loadChapterSummaries(projectPath)
+    let replay = createEmptyChapterSummariesStore()
+    for (const snapshot of snapshots) {
+      replay = upsertChapterSummary(replay, foldChapterSummary(snapshot), foldCtx)
+    }
+    await compare("chapter-summaries.json", live, replay)
+  }
+
+  // 6. subplot-board.json
+  {
+    const live = await loadSubplotBoard(projectPath)
+    const replay = createEmptySubplotBoardStore()
+    for (const snapshot of snapshots) {
+      applySubplotChangesToStore(replay, snapshot, foldCtx)
+    }
+    await compare("subplot-board.json", live, replay)
+  }
+
+  // 7. emotional-arcs.json
+  {
+    const live = await loadEmotionalArcs(projectPath)
+    const replay = createEmptyEmotionalArcStore()
+    for (const snapshot of snapshots) {
+      applyEmotionalArcsToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
+    }
+    await compare("emotional-arcs.json", live, replay)
+  }
+
+  // 8. particle-ledger.json
+  {
+    const live = await loadParticleLedger(projectPath)
+    let replay = createEmptyParticleLedgerStore()
+    for (const snapshot of snapshots) {
+      for (const entry of foldParticleEntries(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
+        replay = appendParticleEntry(replay, entry, foldCtx)
+      }
+    }
+    await compare("particle-ledger.json", live, replay)
+  }
+
+  // 9. resource-ledger.json
+  {
+    const live = await loadResourceLedger(projectPath)
+    const replay = createEmptyResourceLedgerStore()
+    for (const snapshot of snapshots) {
+      applyResourceLedgerToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
+    }
+    await compare("resource-ledger.json", live, replay)
+  }
+
+  return results
 }
 
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {

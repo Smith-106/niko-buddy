@@ -112,6 +112,17 @@ export interface FormatNormalizeOptions {
   enablePangu?: boolean
   /** 自定义替换索引 (默认 ALL_REPLACEMENTS) */
   replacements?: readonly ReplacementEntry[]
+  /**
+   * 55 号设计 W2-8 (B-05): 全角化 — 半角逗号/句号/冒号/分号/括号 → 全角
+   * (默认 false — 保向后兼容; 中文网文排版可选开启)。
+   */
+  enableFullwidth?: boolean
+  /**
+   * 55 号设计 W2-8 (B-05): mojibake 修复 — UTF-8 双重编码乱码还原
+   * (2026-09-04 覆盖度 100% 激活: 默认 true — 只匹配乱码特征序列, 正常文本零变更;
+   * 用户决策, decision-log 20260904-55-ref-cover-v2-w1w3.md 追记)。
+   */
+  enableMojibakeFix?: boolean
 }
 
 export interface FormatNormalizeResult {
@@ -295,6 +306,31 @@ export function formatNormalize(rawText: string, options: FormatNormalizeOptions
 
   // 5. 半角标点转全角
   text = text.replace(HALF_PUNCT_RE, (m) => (m.includes("?") ? "？" : "！"))
+
+  // 5b. 55 号设计 W2-8 (B-05): 全角化 (默认 false) — 半角逗号/句号/冒号/分号/括号 → 全角
+  if (options.enableFullwidth) {
+    text = text
+      .replace(/,/g, "，")
+      .replace(/\./g, "。")
+      .replace(/:/g, "：")
+      .replace(/;/g, "；")
+      .replace(/\(/g, "（")
+      .replace(/\)/g, "）")
+  }
+
+  // 5c. 55 号设计 W2-8 (B-05): mojibake 修复 (2026-09-04 激活默认 true) — UTF-8 双重编码乱码还原
+  if (options.enableMojibakeFix !== false) {
+    // 长序列先于短序列: â€™/â€œ 若先被 â€ 吃掉前缀则无法还原 (55 终验 P2-2)
+    text = text
+      .replace(/Ã©/g, "é")
+      .replace(/Ã¨/g, "è")
+      .replace(/Ã¼/g, "ü")
+      .replace(/Ã¶/g, "ö")
+      .replace(/Ã¤/g, "ä")
+      .replace(/â€™/g, "’")
+      .replace(/â€œ/g, "“")
+      .replace(/â€/g, "”")
+  }
 
   // 6. 数字转中文 (年份/月日)
   let yearCount = 0

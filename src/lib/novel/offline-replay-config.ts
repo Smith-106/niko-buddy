@@ -314,6 +314,35 @@ export const OFFLINE_REPLAY_AB_MIN_MEDIAN_DIFF = 0.5
 /** 门槛① 置信水平 (95%CI)。 */
 export const OFFLINE_REPLAY_AB_CI_CONFIDENCE = 0.95
 
+// ============================================================================
+// E-06 检索精度发布 gate（REQ-EVAL-002/003，E-02 C-8 补落 + E-06 共识 C-6/C-7）
+// ============================================================================
+
+/**
+ * 三重判据发布 gate 常量（GOV-EVAL-08：MUST NOT 运行时关闭）。
+ * 冻结常量：任何配置试图覆盖 → 抛错（kb-governance.assertInvariantsNotDisabled）。
+ * 验收语义：canon 不违反（<1%）+ 氛围一致（atmosphereScore 达标，[需校准]）+
+ * 覆盖率（>95%）——MRR/NDCG 不构成验收（GOV-EVAL-05 / SA-06）。
+ */
+export const EVAL_GATE = Object.freeze({
+  /** canon_violation_rate 上限（< 此值通过；≥ 此值 FAIL） */
+  canonViolationMax: 0.01,
+  /** obligation_coverage 下限（> 此值通过；≤ 此值 FAIL） */
+  obligationCoverageMin: 0.95,
+  /** atmosphereScore 阈值 [需校准]：种子就绪前恒 BLOCKED(metric-unavailable) */
+  atmosphereMin: 0.8,
+} as const)
+
+/** 三重判据指标字段（E-02 C-8 口径，additive 输出）。 */
+export interface TripleCriteria {
+  /** canon 违反率 [0,1]；不可采集 → null */
+  canonViolationRate: number | null
+  /** 义务覆盖率 [0,1]；不可采集 → null */
+  obligationCoverage: number | null
+  /** 氛围一致分 [0,1]；本期无确定性实现 → null（绝不伪造满分） */
+  atmosphereScore: number | null
+}
+
 /** 配对中位差统计结果。 */
 export interface PairedMedianDiffStats {
   /** 配对样本数 n */

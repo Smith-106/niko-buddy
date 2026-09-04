@@ -185,6 +185,8 @@
       "chaseDebtAmount": "Current Amount",
       "chaseDebtInterest": "Interest",
       "chaseDebtDue": "Due",
+      "chaseDebtSettle": "Settle",
+      "chaseDebtWriteOff": "Write Off",
       "emotionDebt": "Emotional Debt",
       "emotionNetValue": "Emotion Net",
       "loadingExtras": "Loading supplementary data..."
@@ -1485,6 +1487,7 @@
         "importing": "Importing...",
         "importSuccess": "Import successful. Please restart the app.",
         "restoredProjects": "Restored {{count}} projects",
+        "openFolder": "Open Containing Folder",
         "securityWarning": "Backup files contain sensitive information like API keys. Keep them safe and do not share."
       },
       "changelog": {
@@ -1573,7 +1576,9 @@
           "notDuplicates": "Not Duplicates",
           "merged": "Merged",
           "skipped": "Marked as Not Duplicates"
-        }
+        },
+        "divergenceTraceTitle": "Dual-write divergence trace",
+        "divergenceTraceEmpty": "No divergence trace yet (no dual-write mismatch recorded, or not generated)."
       },
       "scheduledImport": {
         "title": "Scheduled Import",
@@ -1777,6 +1782,9 @@
     },
     "settings": {
       "title": "Novel Writing Settings",
+      "genre": "Genre",
+      "genreHint": "Sets the novel genre (stable English code). The genre is injected into the final-polish de-AI prompt (low-severity rules only; critical/high hard rules and gate behavior are unchanged). Unset = generic baseline.",
+      "genreUnset": "Unset (Generic)",
       "recentSummaryWindow": "Recent Chapter Text Window",
       "recentSummaryWindowHint": "Controls how many recent chapters are included in the writing context. The system reads text excerpts from these chapters and combines them with chapter summaries to preserve continuity; higher values use more context.",
       "searchTopK": "Search Result Count",
@@ -2331,6 +2339,7 @@
       "communitySummaries": "## Community Summaries (GraphRAG-style)",
       "relatedChapters": "## Related Chapters Lookup",
       "references": "## Reference Lookup",
+      "hardInject": "## Hard-Injected Facts",
       "activeEntities": "## Active Entities (Current Chapter)",
       "formerFacts": "## Former Facts (invalidated; for character misbelief / discovery / recollection contrast only — NOT current narrative truth)",
       "foreshadowing": {

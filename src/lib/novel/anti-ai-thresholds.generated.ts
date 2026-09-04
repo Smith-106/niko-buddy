@@ -20,8 +20,10 @@ export const ANTI_AI_THRESHOLDS = {
   }
 }
 
-export const ANTI_AI_COMBINED_FACTORS = ["nGramOverlap", "punctuationFingerprint"]
+export const ANTI_AI_COMBINED_FACTORS = ["nGramOverlap", "punctuationFingerprint", "selfRepetition"]
 
+// 2026-09-04 55 号设计覆盖度 100% 激活: selfRepetition 观察期结束 (用户决策),
+// 阈值 0.35 warn-only 不硬门控。G8 门控 hash 变更 = 有意激活, 非漂移 (decision-log 20260904-55-ref-cover-v2-w1w3.md 追记)。
 export const ANTI_AI_CALIBRATION_META = {
   corpusHash: "0b04f81f30d1",
   gitCommit: "55d8f1dd",

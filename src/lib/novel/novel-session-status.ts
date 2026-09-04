@@ -148,6 +148,17 @@ export interface NovelSessionStatus {
     updated_at: string
   }
   /**
+   * 55 号设计 W2-4 (54⑨ 收尾): avoid-ai 审计摘要 (additive-optional)。
+   * 仅计数/类型枚举, 不含正文片段 (CWE-532 纪律); 旧 status.json 无此字段仍可加载。
+   */
+  avoid_ai_summary?: {
+    score: number
+    label: string
+    issueCount: number
+    issueTypes: string[]
+    updatedAt: string
+  }
+  /**
    * Wave 4 (v2.5.0): 批量去AI味批次状态 (additive-optional)。
    * 状态/指针落 status.json 唯一真源；草稿内容落 .novel/de-ai-batch-drafts/ 工件。
    * 旧 status.json 无本字段仍可加载 (additive 兼容)。
@@ -245,7 +256,7 @@ export interface ChaseDebt {
 /** 债务事件日志 (webnovel DebtEventMeta: created/interest_accrued/partial/full/overdue) — 防重复计息 */
 export interface ChaseDebtEvent {
   debt_id: string
-  event_type: "created" | "interest_accrued" | "partial_payment" | "full_payment" | "overdue"
+  event_type: "created" | "interest_accrued" | "partial_payment" | "full_payment" | "overdue" | "written_off"
   amount: number
   chapter: number
   note?: string
@@ -1756,7 +1767,7 @@ export function updateChaseDebtStatus(
       debts,
       debt_events: [
         ...ledger.debt_events,
-        { debt_id: debtId, event_type: newStatus === "paid" ? "full_payment" : newStatus === "overdue" ? "overdue" : "created", amount: 0, chapter, note: `status → ${newStatus}` },
+        { debt_id: debtId, event_type: newStatus === "paid" ? "full_payment" : newStatus === "written_off" ? "written_off" : newStatus === "overdue" ? "overdue" : "created", amount: 0, chapter, note: `status → ${newStatus}` },
       ],
       updated_at: new Date().toISOString(),
     },

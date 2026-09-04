@@ -18,6 +18,7 @@ import {
   saveAntiAiTelemetryConsent,
 } from "@/lib/novel/anti-ai-telemetry-wiring"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
+import { OUTLINE_GENRE_CODES } from "@/lib/novel/genre-codes"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
@@ -277,6 +278,33 @@ export function NovelSection({ draft, setDraft }: Props) {
                 count: draft.maxHistoryMessages,
                 turns: draft.maxHistoryMessages / 2,
               })}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.genre")}</Label>
+              {settingTooltip("genreHint")}
+            </div>
+            <select
+              data-testid="novel-genre-select"
+              value={draft.novelConfig.genre ?? ""}
+              onChange={(e) => {
+                const value = e.target.value
+                // 空 = 未设置 (undefined); "general" 也存 undefined (通用基线)。
+                updateNovelConfig({ genre: value && value !== "general" ? value : undefined })
+              }}
+              className="h-9 w-48 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            >
+              <option value="">{t("novel.settings.genreUnset")}</option>
+              {OUTLINE_GENRE_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {t(`novel.outlineGenerator.genres.${code}`)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {t("novel.settings.genreHint")}
             </p>
           </div>
 

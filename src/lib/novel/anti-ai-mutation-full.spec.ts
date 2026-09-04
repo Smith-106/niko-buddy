@@ -46,7 +46,7 @@ describe.skipIf(!HAS_CORPUS)("TASK-P2-19 (T19) 真实语料 mutation 验证（hu
 
   beforeAll(async () => {
     load = await pool.loadCorpus()
-  })
+  }, 60000)
 
   it("候选池加载（真实语料全量）", () => {
     expect(load.total).toBeGreaterThan(0)
@@ -81,7 +81,7 @@ describe.skipIf(!HAS_CORPUS)("TASK-P2-19 (T19) 真实语料 mutation 验证（hu
     const factorWarn: Record<string, number> = { nGramOverlap: 0, sentenceEntropy: 0, punctuationFingerprint: 0, paragraphLengthDist: 0 }
     for (const a of ais) {
       const r = pool.analyze(a.text)
-      expect(r.factors.length).toBe(4) // 四因子结构完整
+      expect(r.factors.length).toBe(5) // 五因子结构完整 (W2-6 新增 detectSelfRepetition)
       if ((r.factors ?? []).some(f => f.warn && ANTI_AI_COMBINED_FACTORS.includes(f.factor))) warned++
       for (const f of r.factors ?? []) if (f.warn && f.factor in factorWarn) factorWarn[f.factor]++
     }

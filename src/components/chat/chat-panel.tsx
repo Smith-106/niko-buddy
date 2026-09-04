@@ -1122,6 +1122,8 @@ export function ChatPanel() {
               dismantlingReferenceDirective: dismantlingDirective,
               llmConfig: effectiveChatLlmConfig,
               novelConfig,
+              // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
+              genre: novelConfig.genre,
               resumeCheckpoint: interruptedResumeCheckpoint,
               // Wave 3 (v2.5.0): 计划模式 one-shot 附加（send 后清除；缺省 → 零行为变化）
               ...(planningPlan ? { planningPlan } : {}),
@@ -2056,6 +2058,8 @@ export function ChatPanel() {
             dismantlingReferenceDirective: dismantlingDirective,
             llmConfig: effectiveChatLlmConfig,
             novelConfig,
+            // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
+            genre: novelConfig.genre,
             resumeCheckpoint,
             ...(residualCampaignFields
               ? {

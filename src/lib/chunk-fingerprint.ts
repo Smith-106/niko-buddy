@@ -49,7 +49,8 @@ function getCreateHash(): CreateHash {
 const FINGERPRINT_FILE = ".qmai/vector-fingerprints.json"
 
 /** Version stamp so a future on-disk format change can migrate cleanly. */
-const STORE_VERSION = 1
+// 55 号设计 W2-7: v1: 前缀引入后 bump 2 — 旧 64-hex 键与新 v1: 键混存时版本化读者可区分
+const STORE_VERSION = 2
 
 interface IndexFile {
   version: number
@@ -76,9 +77,14 @@ export function normalizeChunkContent(content: string): string {
  * Compute the SHA-256 content fingerprint for a chunk (hex). Deterministic:
  * same content ⇒ same fingerprint. Callers that want the embed-wise
  * identity should pass the exact text that would otherwise be embedded.
+ *
+ * 55 号设计 W2-7 (B-04): 版本位前缀 `v1:` — chunker 算法变更 (如 CJK 断句层)
+ * 会改变切分结果, 旧指纹与新 chunk 混存会污染去重索引; 版本位使算法变更
+ * 自动失效旧指纹 (旧索引条目自然过期, 无需迁移)。
  */
 export function chunkFingerprint(content: string): string {
-  return getCreateHash()("sha256").update(normalizeChunkContent(content), "utf8").digest("hex")
+  const digest = getCreateHash()("sha256").update(normalizeChunkContent(content), "utf8").digest("hex")
+  return `v1:${digest}`
 }
 
 /**

@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
+import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { DebtBoardView } from "./debt-board-view"
 import type { ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
 import type { ChaseDebt, ChaseDebtEvent } from "@/lib/novel/novel-session-status"
@@ -209,5 +211,66 @@ describe("W3 / R16 / TASK-302: DebtBoardView 债务看板", () => {
   it("三类数据全空时（含 chase_debt 缺失）不渲染", () => {
     const html = renderToStaticMarkup(<DebtBoardView />)
     expect(html).toBe("")
+  })
+
+  it("55 W1-5: 传 onSettleDebt → active 债务渲染结清/核销按钮, 点击回调携带 (debtId, status)", () => {
+    const onSettleDebt = vi.fn()
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={sampleChaseDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={2}
+        onSettleDebt={onSettleDebt}
+      />,
+    )
+    expect(html).toContain("settle-debt-debt-1")
+    expect(html).toContain("writeoff-debt-debt-1")
+    expect(html).toContain("dashboard.section.chaseDebtSettle")
+    expect(html).toContain("dashboard.section.chaseDebtWriteOff")
+  })
+
+  it("55 W1-5: 点击结清/核销按钮 → onSettleDebt 携带 (debtId, status) (防空转: 回调契约)", () => {
+    const onSettleDebt = vi.fn()
+    render(
+      <DebtBoardView
+        chaseDebts={sampleChaseDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={2}
+        onSettleDebt={onSettleDebt}
+      />,
+    )
+    fireEvent.click(screen.getByTestId("settle-debt-debt-1"))
+    expect(onSettleDebt).toHaveBeenCalledWith("debt-1", "paid")
+    fireEvent.click(screen.getByTestId("writeoff-debt-debt-1"))
+    expect(onSettleDebt).toHaveBeenCalledWith("debt-1", "written_off")
+  })
+
+  it("55 W1-5: 不传 onSettleDebt → 不渲染操作按钮 (后向兼容, 现状只读行为)", () => {
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={sampleChaseDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={2}
+      />,
+    )
+    expect(html).not.toContain("settle-debt-")
+    expect(html).not.toContain("writeoff-debt-")
+  })
+
+  it("55 W1-5: paid/written_off 态债务不渲染操作按钮", () => {
+    const settledDebts: ChaseDebt[] = [
+      { ...sampleChaseDebts[0]!, status: "paid" },
+      { ...sampleChaseDebts[1]!, status: "written_off" },
+    ]
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={settledDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={2}
+        onSettleDebt={vi.fn()}
+      />,
+    )
+    expect(html).not.toContain("settle-debt-")
+    expect(html).not.toContain("writeoff-debt-")
   })
 })

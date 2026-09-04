@@ -218,7 +218,7 @@ describe("TASK-P2-19 (T19) 全量 analyze — 不阻塞主链", () => {
   it("人写文本全量分析, 不触发警告", () => {
     const humanText = "雨停在傍晚七点，地铁口还在滴水。林晚把折伞甩了两下，没甩干，索性夹在腋下。她迟到了二十分钟，餐厅靠窗那张桌子却还空着。"
     const report = pool.analyze(humanText)
-    expect(report.factors).toHaveLength(4)
+    expect(report.factors).toHaveLength(5)
     expect(report.hasWarnings).toBe(false)
     expect(report.warningCount).toBe(0)
     expect(report.calibrationSource).toBe("synthetic-degraded")
@@ -227,7 +227,7 @@ describe("TASK-P2-19 (T19) 全量 analyze — 不阻塞主链", () => {
   it("AI 腔文本可能触发警告, 但不阻塞", () => {
     const aiText = "清晨，阳光透过窗帘照进房间，显得十分温暖。苏念从床上醒来，发现手机上有一条未读消息。她心中充满了复杂的情绪，不知道该如何面对这一切。"
     const report = pool.analyze(aiText)
-    expect(report.factors).toHaveLength(4)
+    expect(report.factors).toHaveLength(5)
     // 可能触发 warn, 可能不触发, 但不能是 block 态
     // warn 态不阻塞主链
     expect(report.summary).toMatch(/\[warn\]|\[clean\]/)
@@ -352,7 +352,7 @@ describe("TASK-P2-19 (T19) analysisReportToText — 文本化输出", () => {
 describe("TASK-P2-19 (T19) quickAntiAiAnalysis — 便捷函数", () => {
   it("快速检测 (自动加载语料)", () => {
     const report = quickAntiAiAnalysis("雨停了，地铁口还在滴水。林晚把伞甩了两下。")
-    expect(report.factors).toHaveLength(4)
+    expect(report.factors).toHaveLength(5)
     expect(report.calibrationSource).toBe("synthetic-degraded")
   })
 })

@@ -29,6 +29,7 @@ import {
   shadowWriteCanon,
   replayPendingQueue,
   retireAfterT5,
+  loadDivergenceTrace,
   type CanonCanonPayload,
   type CanonDualWriteDeps,
   type CanonDualWriteOp,
@@ -756,5 +757,24 @@ describe("branch completeness（兜底分支覆盖）", () => {
     })
     expect(out.digest).toMatch(/^[0-9a-f]{64}$/)
     expect(out.consistent).toBe(true)
+  })
+})
+
+describe("loadDivergenceTrace（55 W2-2 读路径 invoke 契约）", () => {
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset()
+  })
+
+  it("invoke 名与参数契约: canon_load_divergence_trace + projectId (防空转: 命令名写错即红)", async () => {
+    vi.mocked(invoke).mockResolvedValue("{\"consistent\":false}")
+    const out = await loadDivergenceTrace("E:/Novel")
+    expect(invoke).toHaveBeenCalledWith("canon_load_divergence_trace", { projectId: "E:/Novel" })
+    expect(out).toBe("{\"consistent\":false}")
+  })
+
+  it("失败 → 返回空串 (non-fatal, 与 save 对称)", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("invoke failed"))
+    const out = await loadDivergenceTrace("E:/Novel")
+    expect(out).toBe("")
   })
 })

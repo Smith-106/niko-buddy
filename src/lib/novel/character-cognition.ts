@@ -1,4 +1,4 @@
-import { createDirectory, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
+import { createAtomicJsonStore } from "./projection-store"
 import { normalizePath } from "@/lib/path-utils"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { matchesAnyAlias } from "./book-analysis/alias-resolver"
@@ -101,8 +101,7 @@ export interface CognitionState {
   rewriteRateABuckets?: RewriteRateABSample[]
 }
 
-const COGNITION_DIR = ".novel"
-const COGNITION_FILENAME = "cognition-state.json"
+// E-03: 存储路径常量已由 createAtomicJsonStore 工厂接管 (cognition-state.json)。
 
 const NOT_KNOW_RE = /^(.+?)不知道(.+)$/
 const READER_KNOW_RE = /^读者知道[了了]?(.+)$/
@@ -224,28 +223,22 @@ export function mergeCognitionFromSnapshot(
   return next
 }
 
+// E-03 (run-execute-1, 双库架构蓝图): 直写迁移到 createAtomicJsonStore 工厂
+// (三模型共识 2026-09-04)。load 三段语义精确复刻 ISS-20260712-010:
+// missing/empty → null (no-data); non-empty corrupt JSON → throw (error vs
+// no-data) — 经 onMissing:"null" + onCorrupt:"throw" 选项实现, 零行为变化。
+const store = createAtomicJsonStore<CognitionState>(
+  "cognition-state.json",
+  () => null as unknown as CognitionState,
+  { onMissing: "null", onCorrupt: "throw" },
+)
+
 export async function saveCognitionState(projectPath: string, state: CognitionState): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const dir = `${pp}/${COGNITION_DIR}`
-  const filePath = `${dir}/${COGNITION_FILENAME}`
-  await createDirectory(dir)
-  await writeFileAtomic(filePath, JSON.stringify(state, null, 2))
+  await store.save(projectPath, state)
 }
 
 export async function loadCognitionState(projectPath: string): Promise<CognitionState | null> {
-  const pp = normalizePath(projectPath)
-  const filePath = `${pp}/${COGNITION_DIR}/${COGNITION_FILENAME}`
-  const exists = await fileExists(filePath)
-  // ISS-20260712-010: missing/empty → null (no-data); non-empty corrupt JSON → throw so UI can show error vs no-data.
-  if (!exists) return null
-  const raw = await readFile(filePath)
-  if (!raw || !raw.trim()) return null
-  try {
-    return JSON.parse(raw) as CognitionState
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err)
-    throw new Error(`Failed to parse cognition-state.json: ${detail}`)
-  }
+  return store.load(projectPath)
 }
 
 /**
