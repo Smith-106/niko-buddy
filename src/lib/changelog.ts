@@ -97,6 +97,21 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.7.7",
+  date: "2026-09-05",
+  highlights: {
+    en: [
+      "Fix: write_file_atomic smoke coverage (3 use-cases) in fs.rs; vite.config test thresholds 100→80/75/80/80; novel policy document de-AI coverage target 90%→80%.",
+      "Feature (60): Book Director pipeline wired end-to-end — director-orchestrator (stage-gate collection + gap hints), director-pipeline-store (.novel/director-pipeline.json atomic persistence + ideaInput), DirectorPanel (5-phase timeline, semantic tokens, completed banner), DirectorView (idea form + phase marks + explicit start gate) mounted as a first-class icon-sidebar view with sidebar summary.",
+    ],
+    zh: [
+      "修复：fs.rs write_file_atomic 冒烟 3 用例；vite.config 测试阈值 100→80/75/80/80；小说政策文档去 AI 味覆盖率目标 90%→80%。",
+      "功能（60 号）：开书导演全链接线——director-orchestrator（阶段门输入采集 + 缺口提示）、director-pipeline-store（.novel/director-pipeline.json 原子持久化 + 立意输入）、DirectorPanel（5 阶段时间线、语义 token、完成横幅）、DirectorView（立意表单 + 阶段门标记 + 显式开书启动门）挂载为一级 icon-sidebar 视图并带侧栏摘要。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_SIX_CHANGELOG: ChangelogEntry = {
   version: "2.7.6",
   date: "2026-09-02",
@@ -1349,6 +1364,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SEVEN_SIX_CHANGELOG.version) return [TWO_POINT_SEVEN_SIX_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FIVE_CHANGELOG.version) return [TWO_POINT_SEVEN_FIVE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FOUR_CHANGELOG.version) return [TWO_POINT_SEVEN_FOUR_CHANGELOG]

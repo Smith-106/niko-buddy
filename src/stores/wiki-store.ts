@@ -592,7 +592,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "canonEditor"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "canonEditor" | "director"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"

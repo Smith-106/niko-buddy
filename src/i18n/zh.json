@@ -1313,7 +1313,8 @@
       "settings": "模型与写作设置",
       "switchProject": "切换小说",
       "chat": "聊天",
-      "coverWorkbench": "封面工作台"
+      "coverWorkbench": "封面工作台",
+      "director": "开书导演"
     },
     "backupExport": {
       "cancelled": "已取消",
@@ -2546,5 +2547,37 @@
       "count": "共 {{count}} 个版本",
       "view": "查看"
     }
+  },
+  "directorPanel": {
+    "title": "开书导演",
+    "subtitle": "自动导演开书流程",
+    "phaseIdea": "创意立意",
+    "phaseWorld": "世界骨架",
+    "phaseCharacter": "角色账本",
+    "phaseOutline": "大纲规划",
+    "phaseChapters": "首章就绪",
+    "advance": "推进阶段",
+    "retry": "重试",
+    "retryCount": "重试 {{count}} 次",
+    "completed": "开书导演流程已完成",
+    "heroTitle": "开书导演",
+    "heroDesc": "从创意立意到首章就绪，五阶段自动开书流程。填写立意信息并逐阶段推进。",
+    "start": "开书启动",
+    "ideaTitle": "创意立意",
+    "ideaTitleField": "书名",
+    "ideaTitlePlaceholder": "输入书名",
+    "ideaGenreField": "题材",
+    "ideaGenrePlaceholder": "如：悬疑、都市、玄幻",
+    "ideaConflictField": "核心冲突",
+    "ideaConflictPlaceholder": "一句话描述故事核心冲突",
+    "ideaHint": "填写书名/题材/核心冲突后即可推进 idea 阶段",
+    "marksTitle": "阶段门标记（手动确认）",
+    "markWorld": "世界骨架已完备",
+    "markProtagonist": "主角已建立",
+    "markAntagonist": "对手已建立",
+    "markFramework": "情节框架已选型",
+    "markVolumes": "分卷已规划",
+    "nextStep": "流程完成后前往审查中心做整体评审",
+    "gotoReview": "前往审查中心"
   }
 }

@@ -21,6 +21,7 @@ import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from ".
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { SoulSidebarPanel } from "./soul-sidebar-panel"
+import { DirectorSidebarPanel } from "./director-sidebar-panel"
 import { UnifiedSkillLibrarySidebarPanel } from "@/components/skill-library/unified-skill-library-view"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
@@ -818,6 +819,10 @@ export function SidebarPanel() {
 
   if (activeView === "graph") {
     return <GraphSidebarPanel />
+  }
+
+  if (activeView === "director") {
+    return <DirectorSidebarPanel />
   }
 
   if (activeView === "soul") {

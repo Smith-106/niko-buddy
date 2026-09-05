@@ -1693,7 +1693,8 @@
       "backupExport": "Backup & Restore",
       "settings": "模型与写作设置",
       "switchProject": "Switch Project",
-      "coverWorkbench": "Cover Workbench"
+      "coverWorkbench": "Cover Workbench",
+      "director": "Director"
     },
     "backupExport": {
       "cancelled": "Cancelled",
@@ -2546,5 +2547,37 @@
       "count": "{{count}} versions",
       "view": "View"
     }
+  },
+  "directorPanel": {
+    "title": "Book Director",
+    "subtitle": "Auto-direct book pipeline",
+    "phaseIdea": "Idea",
+    "phaseWorld": "World Blueprint",
+    "phaseCharacter": "Characters",
+    "phaseOutline": "Outline",
+    "phaseChapters": "First Chapter",
+    "advance": "Advance",
+    "retry": "Retry",
+    "retryCount": "Retries: {{count}}",
+    "completed": "Director pipeline completed",
+    "heroTitle": "Book Director",
+    "heroDesc": "Five-stage auto-direct pipeline from idea to first chapter.",
+    "start": "Start Directing",
+    "ideaTitle": "Idea",
+    "ideaTitleField": "Title",
+    "ideaTitlePlaceholder": "Book title",
+    "ideaGenreField": "Genre",
+    "ideaGenrePlaceholder": "e.g. mystery, urban, fantasy",
+    "ideaConflictField": "Core Conflict",
+    "ideaConflictPlaceholder": "One-line core conflict",
+    "ideaHint": "Fill title/genre/conflict to advance the idea phase",
+    "marksTitle": "Phase Gate Marks",
+    "markWorld": "World blueprint complete",
+    "markProtagonist": "Protagonist set",
+    "markAntagonist": "Antagonist set",
+    "markFramework": "Framework chosen",
+    "markVolumes": "Volumes planned",
+    "nextStep": "After completion, head to Review Center",
+    "gotoReview": "Go to Review Center"
   }
 }

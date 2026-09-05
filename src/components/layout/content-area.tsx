@@ -63,6 +63,11 @@ const CanonEditor = lazy(async () => {
   return { default: mod.CanonEditor }
 })
 
+const DirectorView = lazy(async () => {
+  const mod = await import("@/components/novel/director-view")
+  return { default: mod.DirectorView }
+})
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -75,6 +80,7 @@ export function ContentArea() {
   const activeView = useWikiStore((s) => s.activeView)
   const novelMode = useWikiStore((s) => s.novelMode)
   const projectId = useWikiStore((s) => s.project?.id ?? "")
+  const projectPath = useWikiStore((s) => s.project?.path ?? "")
   const showWritingWorkspace = activeView === "wiki" || activeView === "trash"
 
   let content: React.ReactNode = null
@@ -162,6 +168,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <CanonEditor projectId={projectId} />
+          </Suspense>
+        )
+        break
+      case "director":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <DirectorView projectId={projectPath} />
           </Suspense>
         )
         break
