@@ -30,7 +30,7 @@ import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
 import { buildTrustGradeMap } from "./trust-grader"
-import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
+import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type KbReferenceEntry, type NovelSearchResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import { runVectorSearchShared } from "./vector-search-core"
 import { rerankCandidates } from "@/lib/rerank"
@@ -426,6 +426,11 @@ export interface ContextPack {
    * 零绑定字节级不变）。消费方按需读取 pack.referenceBindings。
    */
   referenceBindings?: string
+  /**
+   * P1-IMP-17: KB-VIEW 外部链条目（通道 B 双源之关键词/域匹配零 LLM 源）。
+   * additive 独立段；零命中 → undefined（字节级不变）。消费方按需读取 pack.kbReferences。
+   */
+  kbReferences?: import("./search-adapter").KbReferenceEntry[]
 }
 
 /** T25: 三源计时探针槽位（毫秒）。 */
@@ -804,6 +809,11 @@ async function buildContextPackUnlocked(
             retainedLength: 0,
           })
         }
+      }
+      // P1-IMP-17: KB-VIEW 条目关键词/域匹配零 LLM 检索结果——additive 独立段。
+      // 零命中 → undefined（字节级不变）；独立 referenceBudget 不复用 hardInject。
+      if (hardInjectResult.kbReferences && hardInjectResult.kbReferences.length > 0) {
+        pack.kbReferences = hardInjectResult.kbReferences
       }
     }
     // P1-IMP-13 (A1a): reference-binding 素材用途绑定注入 — additive 独立字段。

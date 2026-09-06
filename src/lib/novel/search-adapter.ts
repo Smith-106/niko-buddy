@@ -762,7 +762,20 @@ export interface DualTrackResult {
   hardInject: HardInjectItem[]
   ranked: NovelSearchResult[]
   gaps: KbGap[]
+  /** P1-IMP-17: KB-VIEW 条目关键词/域匹配零 LLM 检索结果（通道 B 双源）。 */
+  kbReferences?: KbReferenceEntry[]
   usage: { hardInjectChars: number; capChars: number; ratio: number; truncatedCount: number }
+}
+
+/** P1-IMP-17: KB-VIEW 外部链条目（通道 B 双源之关键词/域匹配零 LLM 源）。 */
+export interface KbReferenceEntry {
+  collection: string
+  name: string
+  title: string
+  summary?: string
+  path: string
+  trust: string
+  query_intent: string[]
 }
 
 /**
@@ -775,6 +788,14 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
   const hardInject: HardInjectItem[] = []
   let hardInjectChars = 0
   let truncatedCount = 0
+
+  // P1-IMP-17: 前置路由门 — 意图驱动 collection allowlist（routeByQueryIntent）。
+  // 空收藏 gap 进 gaps（首版透明化不过滤检索主体）；routed.gaps 镜像进最终 gaps。
+  const gaps: KbGap[] = []
+  if (params.intent) {
+    const routed = routeByQueryIntent(params.intent)
+    gaps.push(...routed.gaps)
+  }
 
   // 通道 A: 硬注入 (RRF 前物理隔离)
   const canonFacts: CanonFact[] = params.povCharacter
@@ -837,7 +858,6 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
     const base = k.split("/").pop() ?? k
     return params.trustGrades[base]
   }
-  const gaps: KbGap[] = []
   let filteredRanked = ranked
   if (params.trustFilterEnabled && params.trustGrades) {
     const blockedCount = ranked.filter((r) => trustLookup(r.path) === "blocked").length
@@ -863,10 +883,50 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
   // 字段 → 结构性 no-op 安全网）。
   assertNoTechLeak(filteredRanked)
 
+  // P1-IMP-17: 通道 B 双源 — KB-VIEW 条目关键词/域匹配零 LLM 检索。
+  // 对 routed.collections 允许的 KB-VIEW 非 tech 条目做 query 关键词命中。
+  // 零命中 → kbReferences=[] 字节级不变；独立预算不复用 hardInject（LightRAG 分通道）。
+  const kbReferences: KbReferenceEntry[] = []
+  if (params.intent) {
+    const routed = routeByQueryIntent(params.intent)
+    const queryLower = params.query.toLowerCase()
+    const referenceBudget = 2048
+    let refChars = 0
+    const cols = (kbRoutingView as { collections?: Record<string, Array<Record<string, unknown>>> }).collections ?? {}
+    for (const collection of routed.collections) {
+      if (collection === "tech") continue // K-11 安全不变量
+      const entries = cols[collection] ?? []
+      for (const entry of entries) {
+        const name = String(entry["name"] ?? "")
+        const title = String(entry["title"] ?? "")
+        const domain = Array.isArray(entry["domain"]) ? (entry["domain"] as string[]).join(" ") : ""
+        const hay = `${name} ${title} ${domain}`.toLowerCase()
+        // 关键词命中：query 任一 ≥2 字 token 出现在 name/title/domain
+        const tokens = queryLower.split(/\s+/).filter((t) => t.length >= 2)
+        const hit = tokens.some((t) => hay.includes(t))
+        if (!hit) continue
+        const summary = entry["purpose"] ? String(entry["purpose"]).slice(0, 200) : undefined
+        const entryText = `${title} ${summary ?? ""}`
+        if (refChars + entryText.length > referenceBudget) break
+        kbReferences.push({
+          collection,
+          name,
+          title,
+          summary,
+          path: `reference/${collection}/${name}`,
+          trust: String(entry["trust"] ?? "reference_only"),
+          query_intent: Array.isArray(entry["query_intent"]) ? (entry["query_intent"] as string[]) : [],
+        })
+        refChars += entryText.length
+      }
+    }
+  }
+
   return {
     hardInject,
     ranked: filteredRanked,
     gaps,
+    kbReferences,
     usage: {
       hardInjectChars,
       capChars,

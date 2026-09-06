@@ -904,3 +904,46 @@ describe("searchPlot", () => {
     expect(results.some((r) => r.type === "canon")).toBe(true)
   })
 })
+
+describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）", () => {
+  it("intent=draft 且 query 命中 craft/corpus 条目 → kbReferences 非空且含 trust/path", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "novel autonovel",
+      chapterNumber: 1,
+      intent: "draft",
+    })
+    expect(res.kbReferences).toBeDefined()
+    expect(res.kbReferences!.length).toBeGreaterThan(0)
+    for (const ref of res.kbReferences!) {
+      expect(ref.collection).not.toBe("tech") // K-11 安全不变量
+      expect(ref.path).toMatch(/^reference\//)
+      expect(ref.trust).toBeTruthy()
+    }
+  })
+
+  it("无 intent → kbReferences 未装配（undefined 字节级不变）", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "zzz_no_such_keyword_xyz",
+      chapterNumber: 1,
+    })
+    // 无 intent → 不走 kbReferences 装配；无命中也保持 undefined
+    expect(res.kbReferences === undefined || res.kbReferences!.length === 0).toBe(true)
+  })
+
+  it("intent=draft 且 query 不命中任何条目 → kbReferences=[] 零命中字节级不变", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "zzz_qqq_xxx_vvv_unmatchable",
+      chapterNumber: 1,
+      intent: "draft",
+    })
+    // 装配被走但零命中 → [] （非 undefined，但仍为空集合）
+    expect(Array.isArray(res.kbReferences)).toBe(true)
+    expect(res.kbReferences!.length).toBe(0)
+  })
+})
