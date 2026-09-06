@@ -323,31 +323,37 @@ export interface NovelConfig {
   /**
    * E-06 (run-execute-1, 双库架构蓝图 kb-governance): trust 过滤开关 (默认 false)。
    * 开启后检索侧剔除 blocked 条目 (GOV-TRUST-05); 关闭 = 字节级回退现状。
+   * [stage: awaiting-wiring-done] P1-IMP-15：接线完成后翻默认值。流程见 docs/kb-flag-promotion-flow.md
    */
   trustFilterEnabled: boolean
   /**
    * E-06: 能力库衰减开关 (默认 false)。衰减参数 [需校准] (G-3), 校准前不生效。
+   * [stage: DEFERRED] P1-IMP-15：衰减校准未完成，暂不翻默认值。
    */
   decayEnabled: boolean
   /**
    * E-06: 过程库 supersession 过滤开关 (默认 false)。开启后 superseded 条目不装配。
+   * [stage: DEFERRED] P1-IMP-15：supersession 语义未产品拍板，暂不翻默认值。
    */
   supersessionFilterEnabled: boolean
   /**
    * E-02 (run-execute-1, 双库架构蓝图 capability-kb-retrieval): 双轨检索编排开关 (默认 false)。
    * 开启后写作路径 searchRelevantContentUnified 经 retrieveDualTrack 编排
    * (canon 不参与 RRF 排名, C-3); 关闭 = 字节级回退现状。
+   * [stage: awaiting-eval-evidence] P1-IMP-15：离线评测 gate PASS 后翻默认值。流程见 docs/kb-flag-promotion-flow.md
    */
   dualKbRoutingEnabled: boolean
   /**
    * E-02: 硬注入通道开关 (默认 false)。开启后 buildContextPack 第四源装配
    * pack.hardInject (canon 认知轴 + visibleInfoFor POV 投影, 预算 cap 裁剪);
    * 关闭 = 不注入 (字节级回退现状)。
+   * [stage: awaiting-eval-evidence] P1-IMP-15：离线评测 gate PASS 后翻默认值。流程见 docs/kb-flag-promotion-flow.md
    */
   hardInjectEnabled: boolean
   /**
    * E-02: 写作特化 usefulness rerank 开关 (默认 false)。开启后检索候选经
    * reorderByUsefulness (canon_consistency 否决制) 重排; 关闭 = 现状排序。
+   * [stage: awaiting-eval-evidence] P1-IMP-15：离线评测 gate PASS 后翻默认值。流程见 docs/kb-flag-promotion-flow.md
    */
   usefulnessRerankEnabled: boolean
   /**

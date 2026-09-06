@@ -235,9 +235,30 @@ async function main() {
   ].join("\n")
   writeFileSync(reportPath, header + report + "\n", "utf8")
 
+  // P1-IMP-15: 判据包 schema 机读输出（可审计翻默认值授权）。与 markdown 报告同目录。
+  const judgmentPath = join(args.reportDir, `judgment-${stamp}.json`)
+  const judgment = {
+    schemaVersion: 1,
+    gateId: `eval-gov-gate:${args.seed}`,
+    timestamp: new Date().toISOString(),
+    arms: {
+      baseline: { flagValue: false, metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null } },
+      experiment: { flagValue: true, metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null } },
+    },
+    verdict: verdict.verdict, // PASS | FAIL | BLOCKED
+    criteria: {
+      consistencyNoRegression: verdict.verdict !== "FAIL",
+      qualityGain: verdict.verdict === "PASS",
+      reason: verdict.reason ?? `seed_status=${seedSet.status}`,
+    },
+    seedCaseCoverage: { baseline: seedSet.cases.length, experiment: seedSet.cases.length },
+  }
+  writeFileSync(judgmentPath, JSON.stringify(judgment, null, 2) + "\n", "utf8")
+
   process.stdout.write(header)
   process.stdout.write(report + "\n")
   process.stdout.write(`[eval-gov-gate] 报告已写入: ${reportPath}\n`)
+  process.stdout.write(`[eval-gov-gate] 判据包已写入: ${judgmentPath}\n`)
 
   // EXIT 语义：BLOCKED（未就绪）→ 0；ready 且 FAIL → 1；ready 且 PASS → 0
   if (verdict.verdict === "FAIL") return 1
