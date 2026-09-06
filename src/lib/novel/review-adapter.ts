@@ -315,6 +315,8 @@ export function buildReviewPrompt(
   chapterContent: string,
   characterOnly = false,
   genre?: string,
+  /** P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。 */
+  hardInjectEnabled?: boolean,
 ): string {
   const dimensions = characterOnly ? CHARACTER_REVIEW_DIMENSIONS : REVIEW_DIMENSIONS
   const modeTitle = characterOnly ? "角色一致性专项审查" : "阶段式深度审查工作流"
@@ -325,7 +327,7 @@ export function buildReviewPrompt(
   // belief/hypothesis/retconned 非 Assertive 模态；formerFacts 仅由 context-engine
   // 独立分块呈现（P0 护栏），不在此 spread。全 Assertive 或空 → 空串不注入。
   const canonModalityContext = buildCanonModalityContext(pack.temporalFacts ?? [])
-  return `${contextPackToPrompt(pack)}
+  return `${contextPackToPrompt(pack, undefined, { hardInjectEnabled })}
 
 ${canonModalityContext ? canonModalityContext + "\n\n" : ""}${modeTitle}：
 ${modeStages.map((stage) => `- ${stage}：必须使用高级 thinking，先分析证据，再给结论。`).join("\n")}
@@ -845,7 +847,7 @@ ${langReminder}`
       const chunkContent = chunks.length > 1
         ? `【第${i + 1}段/共${chunks.length}段】\n${chunk}`
         : chunk
-      const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly, options.genre)
+      const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly, options.genre, options.novelConfig?.hardInjectEnabled)
       const stageTitle = chunks.length > 1
         ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
         : (options.characterOnly ? "角色一致性审查" : "深度审查")

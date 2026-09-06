@@ -84,6 +84,11 @@ export interface PremiumExecutionInput {
   chapterContent: string
   /** 上下文包（已装配好的 context pack）。 */
   contextPack: ContextPack
+  /**
+   * P2-IMP-07: hardInject 渲染门穿参（可选 additive；缺省 undefined →
+   * flag 默认 false，渲染门依旧关闭，零行为变化）。
+   */
+  hardInjectEnabled?: boolean
   /** 精品模式配置。 */
   premiumConfig: PremiumConfig
   /** 项目模型配置（writingModel/reviewModel 字段）。 */
@@ -132,8 +137,8 @@ const CONSENSUS_DIMENSIONS: readonly ConsensusJudgmentType[] = [
  * 构建生成提案的 prompt。
  * 纯函数。
  */
-export function buildGeneratePrompt(contextPack: ContextPack): string {
-  return `${contextPackToPrompt(contextPack)}
+export function buildGeneratePrompt(contextPack: ContextPack, hardInjectEnabled?: boolean): string {
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 请根据以上上下文，生成本章正文。
 
@@ -151,8 +156,8 @@ export function buildGeneratePrompt(contextPack: ContextPack): string {
  * 挂 run_review 既有指令（复用 review-adapter 的审查维度），0 新 route 分支。
  * 纯函数。
  */
-export function buildCritiquePrompt(contextPack: ContextPack, proposal: string): string {
-  return `${contextPackToPrompt(contextPack)}
+export function buildCritiquePrompt(contextPack: ContextPack, proposal: string, hardInjectEnabled?: boolean): string {
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 以下是本章正文草稿：
 
@@ -188,8 +193,9 @@ export function buildRevisePrompt(
   contextPack: ContextPack,
   critique: string,
   currentText: string,
+  hardInjectEnabled?: boolean,
 ): string {
-  return `${contextPackToPrompt(contextPack)}
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 以下是本章正文草稿：
 
@@ -211,8 +217,9 @@ ${critique}
 export function buildConsensusJudgePrompt(
   contextPack: ContextPack,
   text: string,
+  hardInjectEnabled?: boolean,
 ): string {
-  return `${contextPackToPrompt(contextPack)}
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 以下是本章正文：
 
@@ -241,8 +248,9 @@ export function buildArbiterPrompt(
   contextPack: ContextPack,
   proposalA: string,
   proposalB: string,
+  hardInjectEnabled?: boolean,
 ): string {
-  return `${contextPackToPrompt(contextPack)}
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 以下是两份独立生成的本章正文草稿：
 
@@ -274,8 +282,9 @@ export function buildJudgeFusionPrompt(
   text: string,
   judgeAOutput: string,
   judgeBOutput: string,
+  hardInjectEnabled?: boolean,
 ): string {
-  return `${contextPackToPrompt(contextPack)}
+  return `${contextPackToPrompt(contextPack, undefined, { hardInjectEnabled })}
 
 以下是本章正文：
 
@@ -446,8 +455,9 @@ async function generateProposal(
         input.contextPack,
         "请对以下正文进行优化，提升语言质量和可读性。",
         previousText,
+        input.hardInjectEnabled,
       )
-    : buildGeneratePrompt(input.contextPack)
+    : buildGeneratePrompt(input.contextPack, input.hardInjectEnabled)
 
   return input.modelPort.execute({
     config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
@@ -475,7 +485,7 @@ async function critiqueProposal(
   model: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const prompt = buildCritiquePrompt(input.contextPack, proposal)
+  const prompt = buildCritiquePrompt(input.contextPack, proposal, input.hardInjectEnabled)
   return input.modelPort.execute({
     config: { model, provider: input.projectConfig.reviewModel } as LlmConfig,
     messages: [{ role: "user", content: prompt }],
@@ -500,7 +510,7 @@ async function reviseProposal(
   model: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const prompt = buildRevisePrompt(input.contextPack, critique, currentText)
+  const prompt = buildRevisePrompt(input.contextPack, critique, currentText, input.hardInjectEnabled)
   return input.modelPort.execute({
     config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
     messages: [{ role: "user", content: prompt }],
@@ -540,7 +550,7 @@ export async function runConsensusGate(
   const judgePool = resolveJudgePool(input.projectConfig, input.premiumConfig)
   const { judgeA: judgeModelA, judgeB: judgeModelB } = resolveJudgePair(judgePool)
 
-  const prompt = buildConsensusJudgePrompt(input.contextPack, text)
+  const prompt = buildConsensusJudgePrompt(input.contextPack, text, input.hardInjectEnabled)
 
   // 双判官并行独立判定
   const [judgeAResult, judgeBResult] = await Promise.all([
@@ -601,7 +611,7 @@ export async function runDualProposal(
   const modelA = resolveRoleModel("writer", input.projectConfig)
   const modelB = input.premiumConfig.fallbackChains.writer?.primary || modelA
 
-  const prompt = buildGeneratePrompt(input.contextPack)
+  const prompt = buildGeneratePrompt(input.contextPack, input.hardInjectEnabled)
 
   // 双 writer 并行独立生成
   const [proposalA, proposalB] = await Promise.all([
@@ -621,7 +631,7 @@ export async function runDualProposal(
 
   // Arbiter 仲裁选择
   const arbiterModel = resolveRoleModel("arbiter", input.projectConfig)
-  const arbiterPrompt = buildArbiterPrompt(input.contextPack, proposalA, proposalB)
+  const arbiterPrompt = buildArbiterPrompt(input.contextPack, proposalA, proposalB, input.hardInjectEnabled)
   const arbiterResult = await input.modelPort.execute({
     config: { model: arbiterModel, provider: input.projectConfig.reviewModel } as LlmConfig,
     messages: [{ role: "user", content: arbiterPrompt }],
@@ -660,7 +670,7 @@ export async function runDualJudge(
   const judgePool = resolveJudgePool(input.projectConfig, input.premiumConfig)
   const { judgeA: judgeModelA, judgeB: judgeModelB } = resolveJudgePair(judgePool)
 
-  const prompt = buildConsensusJudgePrompt(input.contextPack, text)
+  const prompt = buildConsensusJudgePrompt(input.contextPack, text, input.hardInjectEnabled)
 
   // 双判官并行独立判定
   const [judgeAResult, judgeBResult] = await Promise.all([
@@ -685,6 +695,7 @@ export async function runDualJudge(
     text,
     judgeAResult,
     judgeBResult,
+    input.hardInjectEnabled,
   )
   return input.modelPort.execute({
     config: { model: fusionModel, provider: input.projectConfig.reviewModel } as LlmConfig,

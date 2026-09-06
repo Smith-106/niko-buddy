@@ -39,8 +39,8 @@ const NOVEL_LINT_DIMENSIONS = [
   "是否缺少章节钩子",
 ]
 
-export function buildNovelLintPrompt(pack: ContextPack, chapterContent: string): string {
-  return `${contextPackToPrompt(pack)}
+export function buildNovelLintPrompt(pack: ContextPack, chapterContent: string, hardInjectEnabled?: boolean): string {
+  return `${contextPackToPrompt(pack, undefined, { hardInjectEnabled })}
 
 ${i18n.t("novel.lint.lintInstruction", { defaultValue: "请对以下章节进行连贯性检查，逐一核对以下维度：" })}
 ${NOVEL_LINT_DIMENSIONS.map((key, i) => `${i + 1}. ${key}`).join("\n")}
@@ -79,9 +79,10 @@ export async function runNovelLint(
    */
   options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean; /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */ signal?: AbortSignal; /** 64 号实施接线: 书规则（缺省 undefined=不启用机械预检） */ bookRules?: BookRules } = {},
 ): Promise<NovelLintResult[]> {
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   const llmConfig = resolveNovelModel(
     options.llmConfig ?? useWikiStore.getState().llmConfig,
-    options.novelConfig ?? useWikiStore.getState().novelConfig,
+    novelConfig,
     "lint",
   )
   if (!hasUsableLlm(llmConfig)) return []
@@ -102,7 +103,7 @@ export async function runNovelLint(
 请严格按照 JSON 数组格式输出检查结果，不要输出任何其他内容。
 ${langReminder}`
 
-  const userPrompt = buildNovelLintPrompt(contextPack, chapterContent)
+  const userPrompt = buildNovelLintPrompt(contextPack, chapterContent, novelConfig.hardInjectEnabled)
   const bookRulesFragment = buildBookRulesLintFragment(options.bookRules, chapterContent)
   const userPromptWithRules = bookRulesFragment
     ? `${userPrompt}\n\n${bookRulesFragment}`

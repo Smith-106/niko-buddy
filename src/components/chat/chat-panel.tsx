@@ -1546,6 +1546,7 @@ export function ChatPanel() {
             novelContextPreamble = contextPackToPrompt(contextPack, budget, {
               layeredRecall: "default",
               sectionCharBudget: 4000,
+              hardInjectEnabled: novelConfig.hardInjectEnabled,
             })
             if (goldenDirective) {
               novelContextPreamble = goldenDirective + "\n" + novelContextPreamble
@@ -2253,6 +2254,7 @@ export function ChatPanel() {
              contextPackToPrompt(contextPack, budget, {
                layeredRecall: "default",
                sectionCharBudget: 4000,
+               hardInjectEnabled: novelConfig.hardInjectEnabled,
              }),
              dismantlingDirective,
            ].filter(Boolean).join("\n")

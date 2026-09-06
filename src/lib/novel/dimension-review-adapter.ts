@@ -421,10 +421,12 @@ export function buildDimensionReviewPrompt(
     goldAnchors?: LiteraryGoldAnchor[]
     /** Precomputed readiness hint; if omitted and anchors provided, computed. */
     goldReadinessHint?: string
+    /** P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。 */
+    hardInjectEnabled?: boolean
   },
 ): string {
   const goldExtra = buildGoldScaleReviewBlock(dimension.key, options?.goldAnchors, options?.goldReadinessHint)
-  return `${contextPackToPrompt(pack)}
+  return `${contextPackToPrompt(pack, undefined, { hardInjectEnabled: options?.hardInjectEnabled })}
 
 六维独立审查维度：${dimension.label}
 审查目标：${dimension.objective}
@@ -542,6 +544,8 @@ export async function reviewChapterDimension({
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
     goldAnchors: goldAnchors,
     goldReadinessHint: goldReadinessHint,
+    // P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。
+    hardInjectEnabled: novelConfig?.hardInjectEnabled,
   })
   const analysis = await runDimensionStage(
     llmConfig,

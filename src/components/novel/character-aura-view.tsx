@@ -375,7 +375,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       }
       const contextPack = await buildContextPack(project.path, auraPreviewTask)
       const previewPack = { ...contextPack, characterAuras: characterAuraPreview }
-      const contextPrompt = contextPackToPrompt(previewPack, novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined)
+      const contextPrompt = contextPackToPrompt(previewPack, novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined, { hardInjectEnabled: novelConfig.hardInjectEnabled })
       const effectiveConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
       const messages: ChatMessage[] = [
         {

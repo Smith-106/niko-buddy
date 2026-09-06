@@ -182,6 +182,8 @@ async function buildSemanticNovelPrompt(
   projectPath: string,
   chapterContent: string,
   chapterNumber?: number,
+  /** P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。 */
+  hardInjectEnabled?: boolean,
 ): Promise<string> {
   const contextPack = await buildContextPack(
     projectPath,
@@ -192,7 +194,7 @@ async function buildSemanticNovelPrompt(
   return [
     "你是一个小说连贯性检查编辑。请根据小说上下文包检查本章是否存在连贯性和执行偏差问题。",
     "",
-    contextPackToPrompt(contextPack),
+    contextPackToPrompt(contextPack, undefined, { hardInjectEnabled }),
     "",
     "请重点检查：",
     "1. 本章必须完成：是否已完成，若未完成请指出缺失推进。",
@@ -269,8 +271,10 @@ export async function runSemanticLint(
   activity.updateItem(activityId, { detail: "正在进行语义分析..." })
 
   const novelMode = useWikiStore.getState().novelMode
+  // P2-IMP-07: hardInject 渲染门穿参（flag 默认 false → 缺省即关，零行为变化）。
+  const hardInjectEnabled = useWikiStore.getState().novelConfig.hardInjectEnabled
   const prompt = novelMode && options.chapterContent?.trim()
-    ? await buildSemanticNovelPrompt(pp, options.chapterContent, options.chapterNumber)
+    ? await buildSemanticNovelPrompt(pp, options.chapterContent, options.chapterNumber, hardInjectEnabled)
     : buildSemanticWikiPrompt(summaries)
 
   let raw = ""

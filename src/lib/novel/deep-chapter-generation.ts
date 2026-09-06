@@ -1942,6 +1942,7 @@ async function assembleContext(
       // U4: default layered recall (L2+L3 first; L0 bodies only on full)
       layeredRecall: "default",
       sectionCharBudget: 4000,
+      hardInjectEnabled: input.novelConfig.hardInjectEnabled,
     }),
     communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
     skillHookFragments,
