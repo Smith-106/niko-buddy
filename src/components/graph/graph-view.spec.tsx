@@ -292,6 +292,14 @@ function fireSigmaEvent(name: string, payload: unknown): void {
   })
 }
 
+/** graph 由异步数据加载后 loadGraph 写入——waitFor 容器出现不能保证已入图，统一等待 graph 就绪 */
+async function waitForGraph(): Promise<ReturnType<typeof sigma.getGraph>> {
+  await waitFor(() => {
+    expect(sigma.getGraph()).not.toBeNull()
+  })
+  return sigma.getGraph()
+}
+
 function resetBaseline(): void {
   mocks.buildWikiGraph.mockReset()
   mocks.readFile.mockReset()
@@ -461,7 +469,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
   it("加载图谱后渲染 Sigma 容器、注册刷新函数并写入统计", async () => {
     await renderLoadedGraph()
     expect(screen.getByTestId("sigma-container")).toBeTruthy()
-    const graph = sigma.getGraph()
+    const graph = await waitForGraph()
     expect(graph).not.toBeNull()
     // overview 预设 allowedNodeTypes 过滤掉 custom-type 节点 → 3 节点入图；
     // 4 条边中 1 条重复反向、1 条悬空被跳过 → 2 条边
@@ -540,7 +548,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
       rerender(<GraphView />)
     })
     expect(mocks.fa2.assign).toHaveBeenCalledTimes(1)
-    const graph = sigma.getGraph() as {
+    const graph = (await waitForGraph()) as {
       getNodeAttribute: (n: string, k: string) => unknown
     }
     // community 配色已生效
@@ -583,7 +591,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     setState({ project: PROJECT, graphMode: "foreshadowing" })
     const { unmount } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    const graph = sigma.getGraph() as { getNodeAttribute: (n: string, k: string) => unknown }
+    const graph = (await waitForGraph()) as { getNodeAttribute: (n: string, k: string) => unknown }
     await waitFor(() => {
       expect(graph.getNodeAttribute("fo:planted", "color")).toBe("#f59e0b")
       expect(graph.getNodeAttribute("fo:unknown", "color")).toBe("#fb923c")
@@ -645,7 +653,7 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   it("左键拖拽移动节点、释放后点击被抑制", async () => {
     await renderLoadedGraph()
-    const graph = sigma.getGraph() as {
+    const graph = (await waitForGraph()) as {
       getNodeAttribute: (n: string, k: string) => unknown
     }
     const preventDefault = vi.fn()
@@ -676,7 +684,7 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   it("非左键按下不触发拖拽；无拖拽节点时移动直接返回", async () => {
     await renderLoadedGraph()
-    const graph = sigma.getGraph() as { getNodeAttribute: (n: string, k: string) => unknown }
+    const graph = (await waitForGraph()) as { getNodeAttribute: (n: string, k: string) => unknown }
     const preventSigmaDefault = vi.fn()
     const rightDown = new MouseEvent("mousedown", { button: 2 })
     fireSigmaEvent("downNode", {
@@ -693,7 +701,7 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   it("触屏拖拽与 touchup 释放", async () => {
     await renderLoadedGraph()
-    const graph = sigma.getGraph() as { getNodeAttribute: (n: string, k: string) => unknown }
+    const graph = (await waitForGraph()) as { getNodeAttribute: (n: string, k: string) => unknown }
     const touch = { clientX: 30, clientY: 40 }
     fireSigmaEvent("downNode", {
       node: "n2",
@@ -731,7 +739,7 @@ describe("GraphView — Sigma 事件与交互", () => {
 
   it("节点悬停高亮邻居、离开恢复；拖拽中 leave 提前返回", async () => {
     await renderLoadedGraph()
-    const graph = sigma.getGraph() as {
+    const graph = (await waitForGraph()) as {
       getNodeAttribute: (n: string, k: string) => unknown
     }
     fireSigmaEvent("enterNode", { node: "n1" })
@@ -1524,7 +1532,7 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
     })
     await waitFor(() => expect((sigma.getSettings() as { defaultEdgeType: string }).defaultEdgeType).toBe("clamped"))
 
-    const graph = sigma.getGraph() as {
+    const graph = (await waitForGraph()) as {
       getNodeAttribute: (node: string, key: string) => unknown
       getEdgeAttribute: (edge: string, key: string) => unknown
     }
@@ -1569,7 +1577,7 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
     render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
 
-    const graph = sigma.getGraph() as {
+    const graph = (await waitForGraph()) as {
       dropNode: (node: string) => void
       hasNode: (node: string) => boolean
     }
@@ -1758,7 +1766,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       }
       expect(graph2.getNodeAttribute("n2", "label")).toBe("n2")
     })
-    const graph2 = sigma.getGraph() as {
+    const graph2 = (await waitForGraph()) as {
       getNodeAttribute: (node: string, key: string) => unknown
     }
     expect(graph2.getNodeAttribute("n1", "label")).toBe("Alpha")
@@ -2192,7 +2200,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     setState({ project: PROJECT, graphMode: "foreshadowing" })
     const { unmount } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    const graph = sigma.getGraph() as { getNodeAttribute: (node: string, key: string) => unknown }
+    const graph = (await waitForGraph()) as { getNodeAttribute: (node: string, key: string) => unknown }
     expect(graph.getNodeAttribute("fo:a", "color")).toBe("#22c55e")
     unmount()
   })

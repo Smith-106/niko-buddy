@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { buildRelatedChaptersContext } from "./context-engine"
 import {
   buildRelatedChapters,
   findOverdueForeshadowing,
@@ -310,7 +311,6 @@ describe("S2a buildAppearancesFromSnapshots (快照→出场索引)", () => {
 
 describe("S2a context-engine 融合 (buildRelatedChaptersContext)", () => {
   it("组合四维反查 + 伏笔逾期 finding → 注入文本", async () => {
-    const { buildRelatedChaptersContext } = await import("./context-engine")
     const input = makeInput()
     const result = buildRelatedChaptersContext({
       currentChapter: 20,
@@ -328,7 +328,6 @@ describe("S2a context-engine 融合 (buildRelatedChaptersContext)", () => {
   })
 
   it("无相关内容时 text 为空串", async () => {
-    const { buildRelatedChaptersContext } = await import("./context-engine")
     const emptyStore = { items: [], lastUpdated: "" }
     const result = buildRelatedChaptersContext({
       currentChapter: 20,
@@ -341,7 +340,6 @@ describe("S2a context-engine 融合 (buildRelatedChaptersContext)", () => {
   })
 
   it("snapshots 构造 appearances (融合路径)", async () => {
-    const { buildRelatedChaptersContext } = await import("./context-engine")
     const snapshots = [
       { chapterNumber: 8, characters: ["白砚"] },
       { chapterNumber: 6, characters: ["白砚"] },

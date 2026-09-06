@@ -21,6 +21,7 @@ import {
   readFileAsBase64,
   writeFile,
   writeFileAtomic,
+  writeFilesAtomic,
 } from "./fs"
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +69,7 @@ const simpleCases: SimpleCase[] = [
   { name: "openFileLocation", run: () => openFileLocation("/p"), invokeArgs: ["open_file_location", { path: "/p" }], resolved: undefined },
   { name: "getExecutableDir", run: () => getExecutableDir(), invokeArgs: ["get_executable_dir"], resolved: "/bin" },
   { name: "getResourceDir", run: () => getResourceDir(), invokeArgs: ["get_resource_dir"], resolved: "/res" },
+  { name: "writeFilesAtomic", run: () => writeFilesAtomic([["/p/a.md", "x"], ["/p/b.md", "y"]]), invokeArgs: ["write_files_atomic", { files: [["/p/a.md", "x"], ["/p/b.md", "y"]] }], resolved: undefined },
 ]
 
 

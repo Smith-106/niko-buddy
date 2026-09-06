@@ -1694,7 +1694,9 @@
       "settings": "模型与写作设置",
       "switchProject": "Switch Project",
       "coverWorkbench": "Cover Workbench",
-      "director": "Director"
+      "director": "Director",
+      "translationWorkbench": "Translation Workbench",
+      "fanficMerge": "Fanfic Canon Merge"
     },
     "backupExport": {
       "cancelled": "Cancelled",
@@ -2490,6 +2492,74 @@
         "canonFacts": "Canon Facts",
         "conflicts": "Conflicts"
       }
+    },
+    "play": {
+      "title": "Interactive Film Play",
+      "sourceProject": "project graph",
+      "sourceDemo": "demo graph",
+      "demoHint": ".novel/interactive-graph.json not found — using demo graph",
+      "noSession": "no saved session",
+      "resumed": "resumed",
+      "replayFailed": "replay path invalid, restarted",
+      "sessionSaved": "session saved (.novel/play-session.json)",
+      "exported": "exported",
+      "ended": "—— THE END ——",
+      "emotionPath": "emotion path",
+      "suspended": "circuit suspended",
+      "ok": "ok",
+      "empty": "no graph",
+      "restart": "Restart",
+      "resume": "Resume",
+      "saveSession": "Save",
+      "export": "Export"
+    },
+    "translation": {
+      "title": "Translation Workbench",
+      "dialogHint": "Glossary-driven segment translation (drafts only land in .novel/translation-drafts/)",
+      "noPort": "No translation port injected — connect an LLM adapter to use",
+      "sourcePh": "glossary source",
+      "targetPh": "glossary target",
+      "addEntry": "Add entry",
+      "glossarySaved": "Glossary saved",
+      "saveGlossary": "Save glossary",
+      "runCount": "Run {{count}} chapters",
+      "done": "Done",
+      "failed": "Translation run failed",
+      "budgetBlocked": "Budget pre-check blocked",
+      "glossaryWarn": "Glossary consistency warnings",
+      "emptyEntry": "Source and target cannot be empty"
+    },
+    "fanfic": {
+      "title": "Fanfic Canon Merge",
+      "hint": "Deterministic merge preview (duplicate→bind_existing / new→create_new / conflict→skip); saves as pending draft",
+      "preview": "Preview merge",
+      "savePending": "Save pending",
+      "loadPending": "Load pending",
+      "pendingSaved": "Saved pending artifact (.novel/fanfic-merge-pending.json); no formal writeback before accept",
+      "pendingLoaded": "Loaded existing pending proposal",
+      "noPending": "No pending proposal",
+      "previewFailed": "Preview failed"
+    },
+    "coverGen": {
+      "failed": "Cover generation failed",
+      "noPort": "No image port injected",
+      "generate": "Generate cover"
+    },
+    "webhook": {
+      "title": "Webhook Guard",
+      "urlRequired": "Callback URL required",
+      "ping": "Test ping",
+      "pingFailed": "ping failed (signature generated, verifiable)",
+      "verify": "Verify",
+      "sigOk": "Signature OK (sha256 match)",
+      "sigBad": "Signature mismatch",
+      "urlPh": "https://example.com/hook",
+      "secretPh": "HMAC secret"
+    },
+    "doctor": {
+      "title": "Project Doctor",
+      "failed": "Diagnostics failed",
+      "empty": "Run diagnostics automatically after opening a project"
     }
   },
   "canon": {

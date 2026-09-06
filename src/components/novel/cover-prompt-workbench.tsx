@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Check, Copy, Image } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { CoverGenerateCard } from "./cover-generate-card"
 import { Input } from "@/components/ui/input"
 import defaultTemplatesJson from "../../../config/cover-platform-templates.json"
 import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel/cover-brief"
@@ -215,6 +216,9 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
         )}
         <p className="mt-1.5 text-[11px] text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>
       </div>
+
+      {/* 65 号 G2: 封面生成（形态轴 F5 消费侧；Port 未注入时优雅降级） */}
+      <CoverGenerateCard meta={{ title, genre, protagonistBrief: keywords, tone: genre, keyImagery: keywords.split(/[,，、]/).filter(Boolean).slice(0, 4) }} promptOverride={prompt || undefined} />
     </div>
   )
 }

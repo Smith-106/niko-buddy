@@ -113,3 +113,12 @@ export async function getExecutableDir(): Promise<string> {
 export async function getResourceDir(): Promise<string> {
   return invoke<string>("get_resource_dir")
 }
+
+/**
+ * writeFilesAtomic — 多文件原子事务（64 号实施 M1，Rust `write_files_atomic`）。
+ * files 为 [路径, 内容] 对：temp 写入 + 统一 rename + 失败回滚零 rename。
+ * 空数组为 no-op 成功。
+ */
+export async function writeFilesAtomic(files: Array<[string, string]>): Promise<void> {
+  return invoke<void>("write_files_atomic", { files })
+}

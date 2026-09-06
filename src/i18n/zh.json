@@ -1314,7 +1314,9 @@
       "switchProject": "切换小说",
       "chat": "聊天",
       "coverWorkbench": "封面工作台",
-      "director": "开书导演"
+      "director": "开书导演",
+      "translationWorkbench": "翻译工作台",
+      "fanficMerge": "同人正典合并"
     },
     "backupExport": {
       "cancelled": "已取消",
@@ -2110,6 +2112,74 @@
       "entity": "实体",
       "wikiPage": "知识页",
       "ingest": "导入"
+    },
+    "play": {
+      "title": "互动影游 Play",
+      "sourceProject": "项目图",
+      "sourceDemo": "示例图",
+      "demoHint": "未找到 .novel/interactive-graph.json，使用示例图演示",
+      "noSession": "无续玩会话",
+      "resumed": "已续玩",
+      "replayFailed": "续玩路径失效，已回到开头",
+      "sessionSaved": "会话已保存（.novel/play-session.json）",
+      "exported": "已导出",
+      "ended": "—— 终局 ——",
+      "emotionPath": "情感路径",
+      "suspended": "情绪熔断",
+      "ok": "正常",
+      "empty": "无图可玩",
+      "restart": "重开",
+      "resume": "续玩",
+      "saveSession": "存档",
+      "export": "导出影游"
+    },
+    "translation": {
+      "title": "翻译工作台",
+      "dialogHint": "术语表驱动分段翻译（译文只落 .novel/translation-drafts/ 草稿区）",
+      "noPort": "未注入翻译端口——接入 LLM 适配器后可用",
+      "sourcePh": "术语原文",
+      "targetPh": "术语译文",
+      "addEntry": "添加术语",
+      "glossarySaved": "术语表已保存",
+      "saveGlossary": "保存术语表",
+      "runCount": "连写 {{count}} 章",
+      "done": "完成",
+      "failed": "翻译运行失败",
+      "budgetBlocked": "预算预扣被拦截",
+      "glossaryWarn": "术语一致性警告",
+      "emptyEntry": "术语原文与译文不能为空"
+    },
+    "fanfic": {
+      "title": "同人正典合并",
+      "hint": "确定性合并预览（重名→bind_existing / 新名→create_new / 冲突→skip），保存为 pending 草稿",
+      "preview": "生成合并预览",
+      "savePending": "保存 pending",
+      "loadPending": "加载 pending",
+      "pendingSaved": "已保存 pending 工件（.novel/fanfic-merge-pending.json），accept 前不回填正式正典",
+      "pendingLoaded": "已加载既有 pending 提案",
+      "noPending": "无 pending 提案",
+      "previewFailed": "预览失败"
+    },
+    "coverGen": {
+      "failed": "封面生成失败",
+      "noPort": "未注入图像端口",
+      "generate": "生成封面图"
+    },
+    "webhook": {
+      "title": "Webhook 守护",
+      "urlRequired": "请输入回调 URL",
+      "ping": "测试 ping",
+      "pingFailed": "ping 发送失败（签名已生成可验签）",
+      "verify": "验签",
+      "sigOk": "验签通过（sha256 一致）",
+      "sigBad": "验签失败",
+      "urlPh": "https://example.com/hook",
+      "secretPh": "HMAC 密钥"
+    },
+    "doctor": {
+      "title": "项目医生",
+      "failed": "诊断失败",
+      "empty": "打开项目后自动运行整链诊断"
     }
   },
   "storySimulation": {

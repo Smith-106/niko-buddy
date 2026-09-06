@@ -3,11 +3,13 @@
 
 import { useState } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image, ArchiveRestore, ScrollText, Clapperboard,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image, ArchiveRestore, ScrollText, Clapperboard, Languages, GitMerge,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
+import { TranslationWorkbenchView } from "@/components/novel/translation-workbench-view"
+import { FanficMergeDialog } from "@/components/novel/fanfic-merge-dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
@@ -57,6 +59,8 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
   // F-012: 封面 Prompt 工作台入口（独立 dialog，不新增 activeView，不进主链热路径）
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
+  const [translationViewOpen, setTranslationViewOpen] = useState(false)
+  const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
 
   const handleCycleTheme = () => {
     const themes: ("light" | "dark" | "deep-blue" | "system")[] = ["system", "light", "dark", "deep-blue"]
@@ -203,6 +207,28 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             </TooltipTrigger>
             <TooltipContent side="right">{t("novel.nav.coverWorkbench")}</TooltipContent>
           </Tooltip>
+          {/* 65 号 G2: 翻译工作台入口（独立 dialog，零 activeView） */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setTranslationViewOpen(true)}
+              data-translation-workbench-entry="true"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <Languages className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">{t("novel.nav.translationWorkbench")}</TooltipContent>
+          </Tooltip>
+          {/* 65 号 G2: 同人正典合并入口（Draft-first pending） */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setFanficMergeOpen(true)}
+              data-fanfic-merge-entry="true"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <GitMerge className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">{t("novel.nav.fanficMerge")}</TooltipContent>
+          </Tooltip>
           {/* Theme toggle */}
           <Tooltip>
             <TooltipTrigger
@@ -258,6 +284,18 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           <CoverPromptWorkbench />
         </DialogContent>
       </Dialog>
+      {/* 65 号 G2: 翻译工作台 dialog（Port 注入由上层组装；此处默认未注入 → 优雅降级） */}
+      <Dialog open={translationViewOpen} onOpenChange={setTranslationViewOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("novel.translation.title")}</DialogTitle>
+            <DialogDescription>{t("novel.translation.dialogHint")}</DialogDescription>
+          </DialogHeader>
+          <TranslationWorkbenchView />
+        </DialogContent>
+      </Dialog>
+      {/* 65 号 G2: 同人正典合并 dialog（Draft-first pending 工件） */}
+      <FanficMergeDialog open={fanficMergeOpen} onOpenChange={setFanficMergeOpen} />
     </TooltipProvider>
   )
 }

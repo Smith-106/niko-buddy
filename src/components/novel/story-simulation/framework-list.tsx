@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 
 import { FrameworkBindingDialog } from "./framework-binding-dialog"
+import { PlayRuntimePanel } from "./play-runtime-panel"
 
 interface FrameworkListProps {
   onSelectFramework: (framework: StoryFramework) => void
@@ -234,6 +235,9 @@ export function FrameworkList({
           onBound={() => setDialogFramework(null)}
         />
       )}
+
+      {/* 65 号 G2: 互动影游 Play 面板（形态轴 F1/F2 消费侧；零 LLM 纯状态机） */}
+      <PlayRuntimePanel />
     </div>
   )
 }

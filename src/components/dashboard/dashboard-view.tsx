@@ -23,6 +23,7 @@ import { loadForeshadowingTracker } from "@/lib/novel/foreshadowing-tracker"
 import { loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
 import { getTopEmotionalDebt, loadEmotionLedger, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
 import { DebtBoardView } from "./debt-board-view"
+import { DoctorPanel } from "./doctor-panel"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -910,6 +911,9 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             })()
           }}
         />
+
+        {/* 65 号 G2: 项目医生整链诊断（形态轴 F7 消费侧；只读） */}
+        <DoctorPanel />
 
         {extrasLoading && (
           <div className="border-t p-3">
