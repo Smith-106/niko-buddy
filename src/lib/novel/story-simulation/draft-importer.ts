@@ -88,6 +88,7 @@ export async function importDraftToChapters(
           chapterNumber: chapterNum,
           content: originalContent,
           now,
+          source: "template",
         })
         backedUpPaths.push(backupPath)
       } catch {

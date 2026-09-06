@@ -7,7 +7,10 @@
 
 import { createDirectory, deleteFile, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { chunkFingerprint } from "@/lib/chunk-fingerprint"
 import type {
+  BindingStaleness,
+  BranchCanonBinding,
   ChapterAllocation,
   FrameworkBinding,
   StoryFramework,
@@ -129,4 +132,132 @@ export function buildBindingContext(
   lines.push("- 请严格遵循上述故事框架推进剧情，按章节分配在对应节点完成相应情节。")
   lines.push("- 保持各节点核心冲突与预期结果的连贯性。")
   return lines.join("\n")
+}
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 缺口 14）：分支正史绑定 + stale 半环
+// ============================================================================
+
+const BRANCH_CANON_FILE = ".qmai/simulations/bindings/branch-canon.json"
+
+function branchCanonFilePath(projectPath: string): string {
+  return `${normalizePath(projectPath)}/${BRANCH_CANON_FILE}`
+}
+
+/**
+ * 计算框架确定性签名（内容级：id/title/premise/targetWords/sourceChapters/
+ * nodes 全量序列化 + SHA-256）。同框架同签名；内容变更 → 签名变更。
+ */
+export function computeFrameworkSignature(framework: StoryFramework): string {
+  const canonical = JSON.stringify({
+    id: framework.id,
+    title: framework.title,
+    premise: framework.premise,
+    targetWords: framework.targetWords,
+    sourceChapters: framework.sourceChapters,
+    nodes: framework.nodes.map((n) => ({
+      index: n.index,
+      phase: n.phase,
+      title: n.title,
+      coreConflict: n.coreConflict,
+      involvedCharacters: n.involvedCharacters,
+      goal: n.goal,
+      causeFromPrev: n.causeFromPrev,
+      expectedOutcome: n.expectedOutcome,
+    })),
+  })
+  return chunkFingerprint(canonical)
+}
+
+/**
+ * 生成分支正史绑定（纯函数；accept 动作的固化记录）。
+ * Draft-first：仅在用户 accept 分支时调用，不自动产生。
+ */
+export function createBranchCanonBinding(
+  framework: StoryFramework,
+  branchId: string,
+  opts: { acceptedAt?: string; canonStartChapter?: number } = {},
+): BranchCanonBinding {
+  return {
+    branchId,
+    frameworkId: framework.id,
+    frameworkSignature: computeFrameworkSignature(framework),
+    acceptedAt: opts.acceptedAt ?? new Date().toISOString(),
+    ...(opts.canonStartChapter !== undefined ? { canonStartChapter: opts.canonStartChapter } : {}),
+  }
+}
+
+/**
+ * stale 半环检测（纯函数确定性）：
+ * 1. 框架绑定 stale ⇔ 当前框架签名 ≠ 绑定记录的框架签名；
+ * 2. 分支绑定 stale ⇔ 框架绑定 stale 或 分支绑定引用的签名 ≠ 当前签名。
+ * 半环不闭环（无第二真源）：检测只读，绝不自动改写正式层。
+ */
+export function detectBindingStaleness(
+  binding: FrameworkBinding | null,
+  branchBindings: readonly BranchCanonBinding[],
+  framework: StoryFramework,
+): BindingStaleness {
+  const reasons: string[] = []
+  const currentSig = computeFrameworkSignature(framework)
+
+  let frameworkBindingStale = false
+  if (!binding) {
+    frameworkBindingStale = true
+    reasons.push("无激活框架绑定")
+  } else if (binding.frameworkId !== framework.id) {
+    frameworkBindingStale = true
+    reasons.push(`框架 ID 不匹配：绑定 ${binding.frameworkId} vs 当前 ${framework.id}`)
+  } else if (binding.boundAt && !binding.chapterAllocation.length) {
+    // 空分配视为异常，不计 stale（由上层处理）
+  }
+
+  let branchBindingStale = false
+  for (const b of branchBindings) {
+    if (b.frameworkId !== framework.id) {
+      branchBindingStale = true
+      reasons.push(`分支绑定框架不匹配：${b.branchId}`)
+    } else if (b.frameworkSignature !== currentSig) {
+      branchBindingStale = true
+      reasons.push(`框架签名变更（分支 ${b.branchId} 的引用 stale）`)
+    }
+  }
+
+  return { frameworkBindingStale, branchBindingStale, reasons }
+}
+
+/**
+ * 按半环结果修剪分支正史绑定（纯函数）：框架签名不匹配或框架 ID 不匹配的
+ * 绑定被剔除（保留与被修剪绑定同框架的其余绑定）。返回修剪后的列表。
+ */
+export function pruneStaleBranchBindings(
+  branchBindings: readonly BranchCanonBinding[],
+  framework: StoryFramework,
+): BranchCanonBinding[] {
+  const currentSig = computeFrameworkSignature(framework)
+  return branchBindings.filter(
+    (b) => b.frameworkId === framework.id && b.frameworkSignature === currentSig,
+  )
+}
+
+/** 读取分支正史绑定列表（缺失/损坏 → []）。 */
+export async function loadBranchCanonBindings(
+  projectPath: string,
+): Promise<BranchCanonBinding[]> {
+  try {
+    const raw = await readFile(branchCanonFilePath(projectPath))
+    const parsed = JSON.parse(raw) as BranchCanonBinding[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/** 保存分支正史绑定列表（原子写）。 */
+export async function saveBranchCanonBindings(
+  projectPath: string,
+  bindings: readonly BranchCanonBinding[],
+): Promise<void> {
+  await createDirectory(`${normalizePath(projectPath)}/.qmai/simulations/bindings`)
+  await writeFileAtomic(branchCanonFilePath(projectPath), JSON.stringify(bindings, null, 2))
 }

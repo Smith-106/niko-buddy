@@ -7,6 +7,7 @@ import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { rankByBm25 } from "./bm25-ranking"
+import { createRetrievalTrace } from "./retrieval-trace"
 
 export interface NovelSearchParams {
   projectPath: string
@@ -24,6 +25,11 @@ export interface NovelSearchParams {
   /** C3: RRF fusion constant (default 60), overridable per call — kept a param
    *  (rather than a global) so callers can tune fusion sharpness per query. */
   rrfK?: number
+  /** 64 号实施接线: 启用检索留痕（retrieval-trace 消费，flag 默认关——
+   *  不传则不产生任何 trace IO）。traceChannel 为通道名（如 hybrid/multi-query）。 */
+  traceChannel?: string
+  /** 64 号实施接线: trace 关联章节号（缺省 0 = 非章节上下文）。 */
+  traceChapter?: number
 }
 
 export interface NovelSearchResult {
@@ -168,7 +174,51 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       purpose: "用于小说剧情搜索，优先返回最能支撑当前剧情推进、设定一致性和记忆调用的结果。",
     },
   )
+
+  // 64 号实施接线（retrieval-trace 消费）：仅当调用方显式传 traceChannel
+  // 时留痕（flag 默认关，检索行为不变）。append 失败静默（ADR-45：检索
+  // 不得写崩 canon——trace 只是观测层）。
+  if (params.traceChannel) {
+    const trace = createRetrievalTrace({
+      traceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      chapter: params.traceChapter ?? 0,
+      query: params.query,
+      channel: params.traceChannel,
+      latencyMs: 0,
+      hits: reranked.slice(0, topK).map((r) => ({
+        sourceId: normalizeResultPath(r.path),
+        sourceType: "material" as const,
+        score: typeof r.relevance === "number" ? r.relevance : 0,
+      })),
+    })
+    void appendRetrievalTraceQuietly(pp, trace)
+  }
+
   return reranked
+}
+
+/**
+ * 64 号实施接线: 追加检索 trace 到 .qmai/retrieval-traces.jsonl（每行一条）。
+ * 静默失败（观测层不得影响主检索路径）。
+ */
+async function appendRetrievalTraceQuietly(
+  projectPath: string,
+  trace: import("./retrieval-trace").RetrievalTraceEntry,
+): Promise<void> {
+  try {
+    const { readFile, writeFileAtomic } = await import("@/commands/fs")
+    const filePath = `${projectPath}/.qmai/retrieval-traces.jsonl`
+    let existing = ""
+    try {
+      existing = await readFile(filePath)
+    } catch {
+      existing = ""
+    }
+    const line = JSON.stringify(trace)
+    await writeFileAtomic(filePath, existing ? `${existing.trimEnd()}\n${line}\n` : `${line}\n`)
+  } catch {
+    // 观测层失败静默
+  }
 }
 
 async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T> {
@@ -844,4 +894,87 @@ export function reorderByUsefulness<T extends UsefulnessCandidate>(
     .filter((s) => s.score !== -Infinity)
     .sort((a, b) => b.score - a.score)
     .map((s) => s.c)
+}
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 缺口 13）：rag-fusion multi-query 改写（机械层）
+// ============================================================================
+
+/**
+ * multi-query 发生器（零 LLM）：原查询 + verbatim-lift（引号字面量独立成
+ * 查询）+ 实体扩展（facets 拼查询）。确定性：同输入同输出（可被
+ * offline-replay 复算）；去重 + 封顶。
+ */
+export interface MultiQueryOptions {
+  /** 生成查询数上限（含原查询，缺省 3）。 */
+  maxQueries?: number
+  /** verbatim 字面量独立成查询（缺省 true）。 */
+  includeVerbatimLift?: boolean
+  /** 实体分面扩展查询（缺省 true）。 */
+  includeEntityExpand?: boolean
+}
+
+export function generateMultiQueries(
+  query: string,
+  decomposition: import("./bm25-ranking").QueryDecomposition,
+  opts?: MultiQueryOptions,
+): string[] {
+  const maxQueries = opts?.maxQueries ?? 3
+  const queries: string[] = [query.trim()]
+
+  if (opts?.includeVerbatimLift !== false) {
+    for (const v of decomposition.verbatim) {
+      if (v && !queries.includes(v)) queries.push(v)
+      if (queries.length >= maxQueries) break
+    }
+  }
+  if (queries.length < maxQueries && opts?.includeEntityExpand !== false) {
+    const { character, location, item } = decomposition.facets
+    const expanded = [character, location, item].filter((f): f is string => Boolean(f))
+    if (expanded.length > 0) {
+      const expandedQuery = `${expanded.join(" ")} ${decomposition.rest}`.trim()
+      if (expandedQuery && expandedQuery !== query && !queries.includes(expandedQuery)) {
+        queries.push(expandedQuery)
+      }
+    }
+  }
+
+  return queries.slice(0, maxQueries)
+}
+
+/**
+ * 跨子查询 RRF 融合（复用既有贡献公式 weight/(K+rank+1)）。
+ * 输入：每子查询已排名的结果数组；输出按归一 path 融合后的排名。
+ */
+export function fuseAcrossQueries(
+  branchResults: NovelSearchResult[][],
+  rrfK: number = SOURCE_RRF_K_DEFAULT,
+): NovelSearchResult[] {
+  const fused = new Map<
+    string,
+    { result: NovelSearchResult; fusionScore: number }
+  >()
+
+  for (const results of branchResults) {
+    for (let rank = 0; rank < results.length; rank++) {
+      const r = results[rank]
+      const key = normalizeResultPath(r.path)
+      const contribution = SOURCE_WEIGHTS[r.type] ?? 0.8
+      const score = contribution / (rrfK + rank + 1)
+      const clean = toPublicResult(r)
+      const existing = fused.get(key)
+      if (!existing) {
+        fused.set(key, { result: clean, fusionScore: score })
+      } else {
+        existing.fusionScore += score
+      }
+    }
+  }
+
+  return Array.from(fused.values())
+    .sort((a, b) => b.fusionScore - a.fusionScore)
+    .map((item) => ({
+      ...item.result,
+      relevance: Math.round(item.fusionScore * 1_000_000) / 1_000_000,
+    }))
 }

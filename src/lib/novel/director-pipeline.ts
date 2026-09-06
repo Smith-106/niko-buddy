@@ -145,3 +145,19 @@ export function directorPipelineSummary(state: DirectorPipelineState): string {
   })
   return [`导演管线 @ ${state.currentPhase}`, ...lines].join("\n")
 }
+
+/**
+ * 64 号实施接线（director volumeArc 消费）：渲染卷弧滚动状态摘要。
+ * 确定性：卷号/段/完成数直接渲染，无 IO。
+ */
+export function directorVolumeArcSummary(
+  arc: {
+    volumeNumber: number
+    segment: "起" | "承" | "转" | "合" | null
+    completedInVolume: number
+  },
+  totalChaptersInVolume: number,
+): string {
+  const segLabel = arc.segment ?? "未开始"
+  return `卷弧滚动：第${arc.volumeNumber}卷 [${segLabel}] ${arc.completedInVolume}/${totalChaptersInVolume} 章`
+}

@@ -1702,6 +1702,68 @@ pub fn do_write_file_atomic(path: &str, contents: &str) -> Result<(), String> {
     })
 }
 
+/// 文件集级原子事务：全部文件先写 temp + fsync，任一失败则清理全部 temp
+/// （零 rename），全部成功后才逐个 rename（提交）。提交阶段 rename 失败
+/// 时保留已提交文件并在错误里列出，由调用方决定回滚策略（机械层不静默）。
+pub fn do_write_files_atomic(files: &[(String, String)]) -> Result<(), String> {
+    run_guarded("write_files_atomic", || {
+        if files.is_empty() {
+            return Ok(());
+        }
+        let mut prepared: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+        for (raw_path, contents) in files {
+            let path = resolve_project_storage_path(raw_path)?;
+            let p = std::path::Path::new(&path);
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent dirs for '{}': {}", path, e))?;
+            }
+            let file_name = p
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| "llm-wiki-file".to_string());
+            let tmp_path = p.with_file_name(format!(
+                ".{file_name}.{}.tmp",
+                chrono::Utc::now()
+                    .timestamp_nanos_opt()
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+            ));
+            file_sync::mark_app_write_path(&tmp_path);
+            if let Err(e) = fs::write(&tmp_path, contents) {
+                let _ = cleanup_tmp_files(&prepared);
+                return Err(format!("Failed to write temp file '{}': {}", tmp_path.display(), e));
+            }
+            if let Ok(tmp_file) = fs::File::open(&tmp_path) {
+                let _ = tmp_file.sync_all();
+            }
+            prepared.push((tmp_path, p.to_path_buf()));
+        }
+        // 提交阶段：逐个 rename；失败即中止并清理剩余 temp，已提交文件保留。
+        for (i, (tmp_path, p)) in prepared.iter().enumerate() {
+            file_sync::mark_app_write_path(p);
+            if let Err(e) = fs::rename(tmp_path, p) {
+                let _ = fs::remove_file(tmp_path);
+                let _ = cleanup_tmp_files(&prepared[i + 1..]);
+                return Err(format!(
+                    "Failed to move temp file '{}' to '{}' (committed {} files): {}",
+                    tmp_path.display(),
+                    p.display(),
+                    i,
+                    e
+                ));
+            }
+            file_sync::mark_app_write_path(p);
+        }
+        Ok(())
+    })
+}
+
+fn cleanup_tmp_files(prepared: &[(std::path::PathBuf, std::path::PathBuf)]) {
+    for (tmp_path, _) in prepared {
+        let _ = fs::remove_file(tmp_path);
+    }
+}
+
 #[tauri::command]
 pub async fn write_file_atomic(path: String, contents: String) -> Result<(), String> {
     let p = path.clone();
@@ -1709,6 +1771,14 @@ pub async fn write_file_atomic(path: String, contents: String) -> Result<(), Str
     tauri::async_runtime::spawn_blocking(move || do_write_file_atomic(&p, &c))
         .await
         .map_err(|e| format!("write_file_atomic blocking task join error: {e}"))?
+}
+
+/// 文件集级原子写入：全部 temp 就绪后统一提交（任一失败回滚不落 rename）。
+#[tauri::command]
+pub async fn write_files_atomic(files: Vec<(String, String)>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || do_write_files_atomic(&files))
+        .await
+        .map_err(|e| format!("write_files_atomic blocking task join error: {e}"))?
 }
 
 /// Core logic for `list_directory`, callable from both Tauri commands and Axum handlers.

@@ -105,3 +105,30 @@ export function resetWatchdog(state: WatchdogState, now: number): void {
   state.lastTokenAtMs = null
   state.triggered = false
 }
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 P0-7）：通知边沿判定（watchdog 消费）
+// ============================================================================
+
+/**
+ * 通知边沿判定：对比前后 verdict（时钟由调用方注入），返回该不该通知以及
+ * 事件类型。run.stalled：continue→block_fallback 边沿只通知一次；completed
+ * 与 stalled 互斥（completed 优先）。
+ * 纯函数确定性：同输入同输出。
+ */
+export type NotifyEdge =
+  | { type: "run.stalled" }
+  | { type: "run.completed" }
+  | null
+
+export function shouldNotify(
+  prev: WatchdogVerdict,
+  next: WatchdogVerdict,
+): NotifyEdge {
+  if (next.action === "continue") return null
+  if (prev.action === next.action && prev.triggered === next.triggered) return null
+  if (next.action === "block_fallback") {
+    if (!prev.triggered && next.triggered) return { type: "run.stalled" }
+  }
+  return null
+}

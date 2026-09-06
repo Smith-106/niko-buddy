@@ -77,6 +77,7 @@ import {
   type ContinuityFinding,
   type ContinuityOverrideStore,
 } from "./deterministic-continuity-engine"
+import { forecastBranches } from "./plot-forecast"
 import { collectContinuityMetric } from "@/lib/llm-client"
 import { loadContinuityOverrides } from "./continuity-overrides-store"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
@@ -1142,11 +1143,12 @@ async function runContinuityPreCheck(
       gate: "consistency",
       timestamp: new Date().toISOString(),
     })
-    // REV-CE-003: 调 engine export formatContinuityFindingsForPrompt 消除内联 filter+bullet
-    // reimplementation。includeChapter=false 承载生成层省略章号的故意差异 (生成层已在章内
-    // 上下文无需重复章号; 审查层/默认 export 带 ` (章 ${f.chapter})` 后缀)。空守卫由 engine
-    // export :565 接管 (injected.length===0 返 "")。filter 逻辑与 engine export :559-564 等价。
-    return formatContinuityFindingsForPrompt(findings, { includeChapter: false })
+    // 64 号实施接线（plot-forecast 消费）：写章前对未回收支线做并发/逾期
+    // 预检（确定性零 LLM）。error 级风险追加到注入文本（仅提示，非阻断，
+    // 守 Draft-first）；无风险不产生输出。
+    const forecastText = buildPlotForecastHint(subplotStore, chapterNum)
+    const base = formatContinuityFindingsForPrompt(findings, { includeChapter: false })
+    return forecastText ? [base, forecastText].filter(Boolean).join("\n\n") : base
   } catch (err) {
     logger.warn("continuity-engine", "precheck degraded: " + (err as Error).message)
     collectContinuityMetric({
@@ -3391,4 +3393,33 @@ async function safeBuildChapterContextPack(
       revisionDirectives: "",
     }
   }
+}
+
+/**
+ * 64 号实施接线（plot-forecast 消费）：从 subplot board 构造候选分支并预检。
+ * 只取未回收/未废弃支线；projectedChapter 缺省目标回收章，无则当前章+2。
+ * error 级风险渲染为提示文本；无风险返回 ""（零 LLM 确定性）。
+ */
+function buildPlotForecastHint(
+  subplotStore: { items: { id: string; title: string; status: string; abandoned?: boolean; targetResolutionChapter?: number }[] },
+  currentChapter: number,
+): string {
+  if (!subplotStore.items || subplotStore.items.length === 0) return ""
+  const branches = subplotStore.items
+    .filter((s) => s.status !== "resolved" && s.status !== "done" && !s.abandoned)
+    .map((s) => ({
+      id: s.id,
+      subplotId: s.id,
+      direction: `推进支线「${s.title}」`,
+      projectedChapter: s.targetResolutionChapter ?? currentChapter + 2,
+    }))
+  if (branches.length === 0) return ""
+  const results = forecastBranches(
+    { items: subplotStore.items as never, lastUpdated: "" },
+    branches,
+  )
+  const errors = results.flatMap((r) =>
+    r.risks.filter((risk) => risk.severity === "error").map((risk) => `- [支线预检] ${risk.message}`),
+  )
+  return errors.length > 0 ? `## 支线推进预检\n${errors.join("\n")}` : ""
 }

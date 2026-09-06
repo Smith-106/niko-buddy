@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  advanceBudgetBatch,
   budgetRunSummary,
   completeBudgetTask,
   createBudgetRun,
@@ -81,5 +82,53 @@ describe("budget-resume（吸收累积残余：拆书预算断点续跑模式）
     const b = completeBudgetTask(createBudgetRun("r1", TASKS, 15), "outline")
     expect(a.accepted).toBe(b.accepted)
     expect(a.state.remainingBudget).toBe(b.state.remainingBudget)
+  })
+
+  it("advanceBudgetBatch：count 内连续完成（自动连写 --count 语义）", () => {
+    const r = createBudgetRun("r1", TASKS, 100)
+    const res = advanceBudgetBatch(r, 3)
+    expect(res.completed).toBe(3)
+    expect(res.state.status).toBe("done")
+    expect(res.state.remainingBudget).toBe(100 - 10 - 30 - 30)
+  })
+
+  it("advanceBudgetBatch：count 截断只完成 count 个", () => {
+    const r = createBudgetRun("r1", TASKS, 100)
+    const res = advanceBudgetBatch(r, 2)
+    expect(res.completed).toBe(2)
+    expect(nextPendingTask(res.state)?.taskId).toBe("ch2")
+  })
+
+  it("advanceBudgetBatch：预算不足立即挂起不跳任务", () => {
+    const r = createBudgetRun("r1", TASKS, 11) // 只够 outline(10) 后剩 1 < ch1(30)
+    const res = advanceBudgetBatch(r, 3)
+    expect(res.completed).toBe(1)
+    expect(res.stoppedBy).toBe("budget")
+    expect(res.state.status).toBe("suspended")
+    expect(res.state.completedTaskIds).toEqual(["outline"])
+  })
+
+  it("advanceBudgetBatch：无待办 → exhausted 零完成", () => {
+    const done = advanceBudgetBatch(createBudgetRun("r1", [], 10), 3)
+    expect(done.completed).toBe(0)
+    expect(done.stoppedBy).toBe("exhausted")
+  })
+
+  it("advanceBudgetBatch：suspended 状态直接推进（续跑语义）", () => {
+    let r = createBudgetRun("r1", TASKS, 11)
+    r = advanceBudgetBatch(r, 2).state // outline 完成 → ch1 预算不足 → suspended
+    expect(r.status).toBe("suspended")
+    r = resumeBudgetRun(r, 100) // 余 101
+    const res = advanceBudgetBatch(r, 3)
+    expect(res.completed).toBe(2) // ch1+ch2 完成（101 充足）
+    expect(res.state.status).toBe("done")
+  })
+
+  it("advanceBudgetBatch：确定性双跑全等", () => {
+    const a = advanceBudgetBatch(createBudgetRun("r1", TASKS, 100), 3)
+    const b = advanceBudgetBatch(createBudgetRun("r1", TASKS, 100), 3)
+    expect(a.completed).toBe(b.completed)
+    expect(a.state.remainingBudget).toBe(b.state.remainingBudget)
+    expect(a.stoppedBy).toBe(b.stoppedBy)
   })
 })

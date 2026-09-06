@@ -9,6 +9,10 @@
  *
  * 中文处理：无第三方分词依赖（桌面单机零外部服务纪律），采用字符 bigram +
  * ASCII 词元混合切分——中文信息检索的确定性基线做法。
+ *
+ * 64 号实施（63 号共识 §6 缺口 10）：zero-LLM 查询分解（fidelis 模式）——
+ * 查询分类/verbatim 前置闸门/子查询分解，全部确定性纯函数零 LLM，与既有
+ * BM25 评分拼成纯本地检索路径。
  */
 
 /** BM25 参数（标准默认：Okapi k1=1.5, b=0.75）。 */
@@ -97,4 +101,167 @@ export function rankByBm25(
   })
 
   return scored.sort((a, b2) => b2.score - a.score)
+}
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 缺口 10）：zero-LLM 查询分解（fidelis 模式吸收）
+// ============================================================================
+
+/**
+ * 查询分解结果：verbatim 字面量 / 实体提及 / 残查询。
+ * 纯函数零 LLM：引号提取 + 实体前缀识别 + 残查询裁剪。
+ */
+export interface QueryDecomposition {
+  original: string
+  /** 引号字面量（「」“”『』"" 提取，长度≥1 的非空白串）。 */
+  verbatim: string[]
+  /** 实体前缀提及（character:/location:/item: 前缀标记，或已知别名命中）。 */
+  entityMentions: string[]
+  /** 实体分面（最多各 1）。 */
+  facets: { character?: string; location?: string; item?: string }
+  /** 去除 verbatim/实体后的残查询（空白归一）。 */
+  rest: string
+}
+
+const QUOTE_PAIRS: Array<[string, string]> = [
+  ["「", "」"],
+  ["“", "”"],
+  ["『", "』"],
+  ['"', '"'],
+]
+
+const ENTITY_PREFIXES: Array<[keyof QueryDecomposition["facets"], string]> = [
+  ["character", "character:"],
+  ["location", "location:"],
+  ["item", "item:"],
+]
+
+/**
+ * 分解查询为 verbatim 字面量 + 实体提及 + 残查询。
+ * 确定性：同输入同输出；无引号/实体时 rest 为原始查询。
+ */
+export function decomposeNovelQuery(
+  query: string,
+  opts: { aliases?: ReadonlyMap<string, string> } = {},
+): QueryDecomposition {
+  const original = query
+  let work = query
+  const verbatim: string[] = []
+
+  // 引号字面量提取（支持四组引号；括号内不得含嵌套同组引号）
+  for (const [open, close] of QUOTE_PAIRS) {
+    for (;;) {
+      const start = work.indexOf(open)
+      if (start === -1) break
+      const end = work.indexOf(close, start + open.length)
+      if (end === -1) break
+      const literal = work.slice(start + open.length, end).trim()
+      if (literal) verbatim.push(literal)
+      work = work.slice(0, start) + " " + work.slice(end + close.length)
+    }
+  }
+
+  // 实体前缀提及 + 别名命中
+  const entityMentions: string[] = []
+  const facets: QueryDecomposition["facets"] = {}
+  for (const [facet, prefix] of ENTITY_PREFIXES) {
+    // 实体名：中文/字母数字/下划线，非贪婪；不跨连接词（和/与/及/在/的/和空白）
+    const re = new RegExp(prefix + "([^\\s和与及在的,，。！？、:：]{1,24})", "g")
+    let m: RegExpExecArray | null
+    while ((m = re.exec(work)) !== null) {
+      const name = m[1]
+      entityMentions.push(prefix + name)
+      if (!facets[facet]) facets[facet] = name
+      work = work.replace(m[0], " ")
+    }
+  }
+  if (opts.aliases) {
+    for (const [alias, canon] of opts.aliases) {
+      if (alias && work.includes(alias)) {
+        entityMentions.push(`character:${canon}`)
+        if (!facets.character) facets.character = canon
+        work = work.split(alias).join(" ")
+      }
+    }
+  }
+
+  const rest = work.replace(/\s+/g, " ").trim()
+  return { original, verbatim, entityMentions, facets, rest }
+}
+
+/**
+ * 查询意图分类（确定性规则表，零 LLM）：
+ * - verbatim_lookup：存在 verbatim 字面量 → 字面量精确查找优先
+ * - entity_fact：存在实体分面 → 实体事实查询
+ * - continuity_check：残查询含时序词 → 连续性核查
+ * - style_lookup：含风格/文风词 → 风格查询
+ * - scene_search：其余 → 场景/剧情搜索
+ */
+export type QueryIntent =
+  | "verbatim_lookup"
+  | "entity_fact"
+  | "continuity_check"
+  | "style_lookup"
+  | "scene_search"
+
+export function classifyNovelIntent(d: QueryDecomposition): QueryIntent {
+  if (d.verbatim.length > 0) return "verbatim_lookup"
+  if (d.facets.character || d.facets.location || d.facets.item) return "entity_fact"
+  const r = d.rest
+  if (/(之前|之后|后来|先|顺序|几天前|何时|哪一(chapter|章)|时序)/.test(r)) return "continuity_check"
+  if (/(文风|风格|写法|口吻|笔触|腔调)/.test(r)) return "style_lookup"
+  return "scene_search"
+}
+
+/**
+ * 查询计划：intent + 分解 + 分支路由剪枝 + verbatim 前置闸门结果。
+ * 纯函数零 LLM；verbatim 闸门：字面量逐条对 corpusTitles 做精确子串匹配，
+ * 全部命中 → pass（keyword 保底直出）；部分/未命中 → 普通路径。
+ */
+export interface QueryPlan {
+  intent: QueryIntent
+  decomposition: QueryDecomposition
+  /** 各分支是否参与检索（按 intent 剪枝）。 */
+  route: { keyword: boolean; vector: boolean; canon: boolean; graph: boolean; recentChapters: boolean }
+  verbatimGate: { pass: boolean; hits: string[]; missed: string[] }
+}
+
+export function buildQueryPlan(
+  query: string,
+  corpusTitles?: ReadonlySet<string>,
+): QueryPlan {
+  const decomposition = decomposeNovelQuery(query)
+  const intent = classifyNovelIntent(decomposition)
+
+  let route: QueryPlan["route"]
+  switch (intent) {
+    case "verbatim_lookup":
+      route = { keyword: true, vector: false, canon: true, graph: false, recentChapters: true }
+      break
+    case "entity_fact":
+      route = { keyword: true, vector: true, canon: true, graph: true, recentChapters: false }
+      break
+    case "continuity_check":
+      route = { keyword: true, vector: true, canon: true, graph: false, recentChapters: true }
+      break
+    case "style_lookup":
+      route = { keyword: true, vector: false, canon: false, graph: false, recentChapters: false }
+      break
+    default:
+      route = { keyword: true, vector: true, canon: true, graph: true, recentChapters: true }
+  }
+
+  // verbatim 前置闸门
+  const hits: string[] = []
+  const missed: string[] = []
+  if (corpusTitles) {
+    for (const v of decomposition.verbatim) {
+      const found = [...corpusTitles].some((t) => t.includes(v) || v.includes(t))
+      if (found) hits.push(v)
+      else missed.push(v)
+    }
+  }
+  const pass = decomposition.verbatim.length > 0 && hits.length === decomposition.verbatim.length
+
+  return { intent, decomposition, route, verbatimGate: { pass, hits, missed } }
 }

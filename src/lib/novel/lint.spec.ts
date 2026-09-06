@@ -56,7 +56,8 @@ vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: mocks.useWikiStore,
 }))
 
-import { buildNovelLintPrompt, runNovelLint } from "./lint"
+import { buildBookRulesLintFragment, buildNovelLintPrompt, runNovelLint } from "./lint"
+import { EMPTY_BOOK_RULES } from "./book-rules"
 
 const baseLlmConfig = { apiKey: "k", model: "m", baseUrl: "http://x" } as never
 
@@ -85,6 +86,27 @@ describe("lint", () => {
       expect(prompt).toContain("1. 是否违背总大纲")
       expect(prompt).toContain("SLICED:章节正文")
       expect(prompt).toContain("severity")
+    })
+  })
+
+  describe("buildBookRulesLintFragment (64 号实施接线：book-rules 机械预检)", () => {
+    it("无规则 → 空串", () => {
+      expect(buildBookRulesLintFragment(undefined, "正文")).toBe("")
+    })
+
+    it("全通过 → 空串", () => {
+      expect(buildBookRulesLintFragment(EMPTY_BOOK_RULES, "正文内容")).toBe("")
+    })
+
+    it("命中禁止项 → 渲染 error 行", () => {
+      const rules: typeof EMPTY_BOOK_RULES = {
+        ...EMPTY_BOOK_RULES,
+        prohibitions: ["金手指"],
+      }
+      const fragment = buildBookRulesLintFragment(rules, "主角获得金手指后一路碾压。")
+      expect(fragment).toContain("书规则机械预检")
+      expect(fragment).toContain("[error]")
+      expect(fragment).toContain("金手指")
     })
   })
 

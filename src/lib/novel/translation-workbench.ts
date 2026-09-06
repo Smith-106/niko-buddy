@@ -191,3 +191,154 @@ export function translationProgressSummary(progress: TranslationProgress): {
   for (const s of Object.values(progress.chapterStatuses)) counts[s]++
   return counts
 }
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 P0-4）：TranslationRunner — LLM 翻译执行链
+// ============================================================================
+// LLM 关在注入端口外（TranslationLlmPort）；引擎层保持零 LLM 导入。分段续跑
+// 复用 budget-resume 预算机（每章一个 BudgetTask，崩溃跳过已完成段）；
+// 幂等键 = 段 digest（computeCheckpointDigestOf）。Draft-first：译文写
+// `.novel/translation-drafts/{chapter}.md`，finalized 才可导出正式包。
+
+import { createDirectory, writeFileAtomic } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
+import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import type { BudgetRunState } from "./budget-resume"
+
+/** LLM 翻译端口（生产适配器由调用方包 ModelPort.execute，本文件不 import llm-client）。 */
+export interface TranslationLlmPort {
+  translate(input: { system: string; user: string; signal?: AbortSignal }): Promise<string>
+}
+
+export interface TranslationProject {
+  version: 1
+  sourceLang: string
+  targetLang: string
+  chapterNumbers: number[]
+  glossary: TranslationGlossary
+  progress: TranslationProgress
+  budgetRunId: string
+}
+
+export interface TranslationSegment {
+  chapter: number
+  sourceText: string
+  digest: string
+}
+
+export interface TranslationDraftArtifact {
+  chapter: number
+  targetText: string
+  violations: GlossaryViolation[]
+  status: TranslationChapterStatus
+}
+
+export interface TranslationRunResult {
+  project: TranslationProject
+  artifacts: TranslationDraftArtifact[]
+  budget: BudgetRunState
+  stopped: "done" | "suspended" | "aborted"
+}
+
+/** 构建翻译 prompt（system 语言指令 + user 术语表与原文）。确定性零 LLM。 */
+export function buildTranslationPrompt(
+  glossary: TranslationGlossary,
+  source: string,
+  langs: { source: string; target: string },
+): { system: string; user: string } {
+  const glossaryFragment = glossaryToPromptFragment(glossary)
+  return {
+    system: `你是一位资深小说翻译。将${langs.source}原文翻译为${langs.target}，保持文风、语气与人称。只输出译文正文，不要解释。`,
+    user: [glossaryFragment, `\n原文：\n${source}`].filter(Boolean).join("\n"),
+  }
+}
+
+/** 翻译单章（fake port 可测；violations 由 checkGlossaryConsistency 机械判定）。 */
+export async function runTranslationSegment(
+  port: TranslationLlmPort,
+  project: TranslationProject,
+  segment: TranslationSegment,
+  signal?: AbortSignal,
+): Promise<TranslationDraftArtifact> {
+  const { system, user } = buildTranslationPrompt(project.glossary, segment.sourceText, {
+    source: project.sourceLang,
+    target: project.targetLang,
+  })
+  const targetText = await port.translate({ system, user, signal })
+  const violations = checkGlossaryConsistency(project.glossary, targetText)
+  return {
+    chapter: segment.chapter,
+    targetText,
+    violations,
+    status: "drafted",
+  }
+}
+
+/** 翻译项目（分段续跑：completed 跳过；预算不足 suspended；abort 保留已完成）。 */
+export async function runTranslationProject(
+  port: TranslationLlmPort,
+  project: TranslationProject,
+  loadSource: (chapter: number) => Promise<string>,
+  budget: BudgetRunState,
+  signal?: AbortSignal,
+): Promise<TranslationRunResult> {
+  const artifacts: TranslationDraftArtifact[] = []
+  let currentBudget = budget
+  let stopped: TranslationRunResult["stopped"] = "done"
+
+  for (const chapter of project.chapterNumbers) {
+    if (currentBudget.completedTaskIds.includes(`translate-${chapter}`)) continue
+    if (currentBudget.status === "suspended") {
+      stopped = "suspended"
+      break
+    }
+    if (signal?.aborted) {
+      stopped = "aborted"
+      break
+    }
+    const task = currentBudget.tasks.find((t) => t.taskId === `translate-${chapter}`)
+    if (!task || currentBudget.remainingBudget < task.cost) {
+      stopped = "suspended"
+      break
+    }
+    try {
+      const sourceText = await loadSource(chapter)
+      const digest = await computeCheckpointDigestOf({
+        chapter,
+        source: sourceText,
+        glossaryStamp: project.glossary.lastUpdated,
+      })
+      const segment: TranslationSegment = { chapter, sourceText, digest }
+      const artifact = await runTranslationSegment(port, project, segment, signal)
+      artifacts.push(artifact)
+      const completedTaskIds = [...currentBudget.completedTaskIds, task.taskId]
+      const remainingBudget = currentBudget.remainingBudget - task.cost
+      currentBudget = {
+        ...currentBudget,
+        completedTaskIds,
+        remainingBudget,
+        status:
+          currentBudget.tasks.every((t) => completedTaskIds.includes(t.taskId))
+            ? "done"
+            : "in_progress",
+        lastUpdatedAt: new Date().toISOString(),
+      }
+      project.progress = advanceTranslationStatus(project.progress, chapter, "drafted") ?? project.progress
+    } catch {
+      stopped = "aborted"
+      break
+    }
+  }
+
+  return { project, artifacts, budget: currentBudget, stopped }
+}
+
+/** 落 draft 工件（Draft-first：.novel/translation-drafts/{chapter}.md，非 wiki/chapters）。 */
+export async function saveTranslationDraft(
+  projectPath: string,
+  artifact: TranslationDraftArtifact,
+): Promise<void> {
+  const dir = `${normalizePath(projectPath)}/.novel/translation-drafts`
+  await createDirectory(dir)
+  await writeFileAtomic(`${dir}/${artifact.chapter}.md`, artifact.targetText)
+}

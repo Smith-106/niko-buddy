@@ -8,6 +8,7 @@ import { contextPackToPrompt, buildContextPack, type ContextPack } from "./conte
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { sliceChapterForReview } from "./chapter-window"
+import { validateAgainstBookRules, type BookRules } from "./book-rules"
 
 export interface NovelLintResult {
   severity: "error" | "warning" | "info"
@@ -50,6 +51,24 @@ ${i18n.t("novel.lint.chapterContent", { defaultValue: "章节正文：" })}
 ${sliceChapterForReview(chapterContent)}`
 }
 
+/**
+ * 64 号实施接线（book-rules 消费）：书规则机械预检文本——禁止项/题材锁/
+ * 时代约束命中渲染为提示注入 lint 上下文（确定性零 LLM）。无规则或全通过
+ * → 空串。
+ */
+export function buildBookRulesLintFragment(
+  rules: BookRules | undefined,
+  chapterContent: string,
+): string {
+  if (!rules) return ""
+  const validation = validateAgainstBookRules(rules, chapterContent)
+  if (validation.findings.length === 0) return ""
+  const lines = validation.findings.map(
+    (f) => `- [${f.severity}] ${f.message}（术语「${f.term}」）`,
+  )
+  return `## 书规则机械预检\n${lines.join("\n")}`
+}
+
 export async function runNovelLint(
   projectPath: string,
   chapterContent: string,
@@ -58,7 +77,7 @@ export async function runNovelLint(
    * ISS-20260709-023 (DC-7) 渐进式 DI: store 字段注入。缺省回退 useWikiStore
    * 保持向后兼容。
    */
-  options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean; /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */ signal?: AbortSignal } = {},
+  options: { llmConfig?: LlmConfig; novelConfig?: NovelConfig; novelMode?: boolean; /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */ signal?: AbortSignal; /** 64 号实施接线: 书规则（缺省 undefined=不启用机械预检） */ bookRules?: BookRules } = {},
 ): Promise<NovelLintResult[]> {
   const llmConfig = resolveNovelModel(
     options.llmConfig ?? useWikiStore.getState().llmConfig,
@@ -84,11 +103,15 @@ export async function runNovelLint(
 ${langReminder}`
 
   const userPrompt = buildNovelLintPrompt(contextPack, chapterContent)
+  const bookRulesFragment = buildBookRulesLintFragment(options.bookRules, chapterContent)
+  const userPromptWithRules = bookRulesFragment
+    ? `${userPrompt}\n\n${bookRulesFragment}`
+    : userPrompt
 
   try {
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "user", content: userPromptWithRules },
     ]
 
     let result = ""

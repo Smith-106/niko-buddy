@@ -6,7 +6,22 @@ import { pad } from "@/lib/utils"
 import type { NovelReviewResult } from "./review-adapter"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 
-export type GenerationHistoryKind = "lint" | "review"
+/**
+ * 生成历史 kind（63 号共识 §6 缺口 18 扩展）：lint/review 之外增加跨形态
+ * snapshot——story（推演报告）、translation（翻译结果）、screenplay（剧本）、
+ * fanfic（同人）、cover（封面题图 brief）、film（影游流程）。snapshot 条目
+ * 只存「形态名 + 产物摘要引用」（results 空数组 + meta），不复制正文
+ * （Draft-first：正式正文仍由各自流水线文件系统真源持有）。
+ */
+export type GenerationHistoryKind =
+  | "lint"
+  | "review"
+  | "snapshot-story"
+  | "snapshot-translation"
+  | "snapshot-screenplay"
+  | "snapshot-fanfic"
+  | "snapshot-cover"
+  | "snapshot-film"
 
 export type GenerationHistoryResult = LintResult | NovelReviewResult
 
@@ -24,6 +39,15 @@ export interface GenerationHistoryEntry {
   chapterHash?: string
   /** 53 号报告 P1-3 additive: 完成门状态 (completed/incomplete/suspect)。 */
   gateStatus?: "completed" | "incomplete" | "suspect"
+  /** 64 号实施 additive: 跨形态 snapshot 元数据（snapshot-* kind 使用）。 */
+  snapshotMeta?: {
+    /** 形态标识（story/translation/screenplay/fanfic/cover/film）。 */
+    shape: string
+    /** 产物相对引用（文件路径或 store id，供溯源）。 */
+    artifactRef?: string
+    /** 快照时形态流水线状态摘要（不复制正文）。 */
+    summary?: string
+  }
 }
 
 export interface SaveGenerationHistoryInput {
@@ -37,6 +61,8 @@ export interface SaveGenerationHistoryInput {
   chapterHash?: string
   /** 53 号报告 P1-3 additive。 */
   gateStatus?: "completed" | "incomplete" | "suspect"
+  /** 64 号实施 additive: 跨形态 snapshot 元数据。 */
+  snapshotMeta?: GenerationHistoryEntry["snapshotMeta"]
 }
 
 function formatDateTime(value: number): string {
@@ -76,7 +102,14 @@ function isHistoryEntry(value: unknown): value is GenerationHistoryEntry {
   return Boolean(
     entry &&
       typeof entry.id === "string" &&
-      (entry.kind === "lint" || entry.kind === "review") &&
+      (entry.kind === "lint" ||
+        entry.kind === "review" ||
+        entry.kind === "snapshot-story" ||
+        entry.kind === "snapshot-translation" ||
+        entry.kind === "snapshot-screenplay" ||
+        entry.kind === "snapshot-fanfic" ||
+        entry.kind === "snapshot-cover" ||
+        entry.kind === "snapshot-film") &&
       typeof entry.title === "string" &&
       Array.isArray(entry.results) &&
       typeof entry.createdAt === "string" &&
@@ -100,6 +133,7 @@ export async function saveGenerationHistoryEntry(
     sourcePath: input.sourcePath ? normalizePath(input.sourcePath) : undefined,
     results: input.results,
     dimensionResults: input.dimensionResults,
+    snapshotMeta: input.snapshotMeta,
     createdAt: new Date(now).toISOString(),
     filePath,
   }

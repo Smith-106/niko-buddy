@@ -61,6 +61,7 @@ import {
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 import { isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult } from "@/lib/novel/chat-edit-mode"
 import { backupChapterFile } from "@/lib/novel/chapter-backup"
+import { appendChapterWorkspaceSnapshot } from "@/lib/novel/chapter-workspace"
 import { ContextPackReplayPanel } from "@/components/novel/context-pack-replay-panel"
 import { updateChapterStatus } from "@/lib/novel/chapter-meta"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
@@ -1039,7 +1040,10 @@ export function ChatPanel() {
             chapterPath: chapter.chapterPath,
             chapterNumber: chapter.chapterNumber,
             content: chapter.content,
+            source: "manual",
           })
+          // 64 号实施接线（chapter-workspace 消费）：保存后追加快照（静默失败）
+          await appendChapterWorkspaceSnapshot(pp, chapter.chapterNumber, normalizedResult.content)
           await writeFile(chapter.chapterPath, normalizedResult.content)
         }
         invalidateChapterCache(pp)

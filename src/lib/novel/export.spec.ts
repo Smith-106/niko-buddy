@@ -100,7 +100,7 @@ vi.mock("@/commands/fs", () => ({
   getFileSize: vi.fn(async (): Promise<number> => 0),
 }))
 
-import { exportProject, exportNovelDocx, exportNovelEpub } from "./export"
+import { exportProject, exportNovelDocx, exportNovelEpub, exportInteractiveStory } from "./export"
 import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
 
 afterEach(() => {
@@ -653,5 +653,34 @@ describe("exportNovelEpub（54 号设计 ⑥）", () => {
     })
     expect(result.success).toBe(false)
     expect(result.message).toBe("zip failed")
+  })
+})
+
+describe("exportInteractiveStory (64 号实施接线：P0-1 互动影游落盘)", () => {
+  const GRAPH = {
+    version: 1 as const,
+    startId: "k1",
+    nodes: [
+      { id: "k1", kind: "knot" as const, title: "雪夜", text: "风雪夜。" },
+      { id: "end1", kind: "end" as const, title: "终", text: "终。" },
+    ],
+    edges: [{ from: "k1", to: "end1" }],
+  }
+
+  it("合法图 → 写出 .ink + .html", async () => {
+    const before = fsState.writes.length
+    const result = await exportInteractiveStory({ projectPath: "/proj", exportPath: "/out", graph: GRAPH })
+    expect(result.success).toBe(true)
+    const paths = fsState.writes.slice(before).map((w) => w.path)
+    expect(paths.some((p) => p.endsWith("interactive.ink"))).toBe(true)
+    expect(paths.some((p) => p.endsWith("interactive.html"))).toBe(true)
+  })
+
+  it("缺 start 的图 → 不写脏文件", async () => {
+    const before = fsState.writes.length
+    const bad = { ...GRAPH, startId: "missing" }
+    const result = await exportInteractiveStory({ projectPath: "/proj", exportPath: "/out", graph: bad })
+    expect(result.success).toBe(false)
+    expect(fsState.writes.length).toBe(before)
   })
 })

@@ -94,3 +94,25 @@ export function coverBriefToPrompt(brief: CoverBrief, title: string): string {
     `约束：${brief.constraints.map((c, i) => `${i + 1}. ${c}`).join(" ")}`,
   ].join("\n")
 }
+
+/**
+ * 64 号实施接线（P0-2 Play 自动配图）：从互动节点意象生成配图 brief。
+ * 确定性：illustrationHint 进主体；无 hint 回退 title+text 截断；题材视觉
+ * 语言复用 GENRE_VISUAL 表。零 LLM 零 IO。
+ */
+export function buildNodeIllustrationBrief(
+  node: { title: string; text: string; illustrationHint?: string },
+  book: BookCoverMeta,
+): CoverBrief {
+  const hint = node.illustrationHint?.trim()
+  const subject = hint
+    ? `${hint}（${node.title}）`
+    : `${node.title}：${node.text.slice(0, 40)}`
+  return buildCoverBrief({
+    title: book.title,
+    genre: book.genre,
+    protagonistBrief: subject,
+    tone: book.tone,
+    keyImagery: book.keyImagery,
+  })
+}

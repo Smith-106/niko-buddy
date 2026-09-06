@@ -14,6 +14,54 @@ import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 import { loadCharacterStates } from "./character-state"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadCognitionState } from "./character-cognition"
+import { buildInteractiveExport, type InteractiveStoryGraph } from "./interactive-film-graph"
+
+export interface InteractiveExportOptions {
+  projectPath: string
+  exportPath: string
+  graph: InteractiveStoryGraph
+}
+
+/**
+ * 64 号实施接线（P0-1 互动影游落盘）：把图导出为 `.ink` + 单文件 HTML。
+ * 诊断 error 级（missing_start/dangling_edge/empty_choice）→ 不写脏文件；
+ * warn 级（cycle_warn）仍写出（ink 允许 divert 回跳）。
+ */
+export async function exportInteractiveStory(
+  options: InteractiveExportOptions,
+): Promise<ExportResult> {
+  const { exportPath, graph } = options
+  const result = buildInteractiveExport(graph)
+  const blocking = result.diagnostics.filter((d) =>
+    d.code === "missing_start" || d.code === "dangling_edge" || d.code === "empty_choice",
+  )
+  if (blocking.length > 0) {
+    return {
+      success: false,
+      exportedPath: exportPath,
+      chapterCount: 0,
+      message: `互动影游导出被诊断拦截：${blocking.map((b) => b.message).join("; ")}`,
+    }
+  }
+  try {
+    await createDirectory(exportPath)
+    await writeFile(`${exportPath}/interactive.ink`, result.ink)
+    await writeFile(`${exportPath}/interactive.html`, result.html)
+    return {
+      success: true,
+      exportedPath: exportPath,
+      chapterCount: graph.nodes.length,
+      message: `互动影游已导出（${graph.nodes.length} 节点）`,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      exportedPath: exportPath,
+      chapterCount: 0,
+      message: `互动影游导出失败：${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
 
 /**
  * 导出配置选项。

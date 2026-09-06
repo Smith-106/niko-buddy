@@ -48,6 +48,104 @@ export interface BookRules {
   fanficMode?: "canon" | "au" | "ooc" | "cp"
 }
 
+// ── 64 号实施（63 号共识 §6 P0-3）：同人四模式语义 ──
+
+/** 同人四模式（与 BookRules.fanficMode 同构）。 */
+export type FanficMode = "canon" | "au" | "ooc" | "cp"
+
+/**
+ * 同人写作策略（从 BookRules 派生，供 validateFanficChapter 与 prompt 注入）。
+ * - canon：禁止把 canonLockNames 写成新身份（正典名册锁）；
+ * - au：auDeviations 声明式并入 allowedDeviations（设定分叉白名单）；
+ * - ooc：撞 personalityLock 必须显式 oocMarkers 标记；
+ * - cp：pairing 双方必须都出现在文本（缺一方 → warn）。
+ */
+export interface FanficPolicy {
+  mode: FanficMode
+  canonLockNames: string[]
+  auDeviations: string[]
+  oocMarkers: string[]
+  pairing: [string, string] | null
+}
+
+export function fanficPolicyFromRules(rules: BookRules): FanficPolicy {
+  return {
+    mode: rules.fanficMode ?? "canon",
+    canonLockNames: [],
+    auDeviations: [],
+    oocMarkers: ["(OOC)", "（OOC）", "【OOC】", "(ooc)", "[OOC]"],
+    pairing: null,
+  }
+}
+
+/**
+ * 同人章节校验（四模式确定性规则；内部先跑词面校验，再叠加模式规则）。
+ * fanfic_canon_lock：canon 模式下文本含 personaLock 主语且改写否定锁词。
+ * fanfic_ooc_unmarked：ooc 模式下命中性格锁且全文无标记。
+ * fanfic_cp_missing_pair：cp 模式下配对缺一方（warn 不 violate）。
+ */
+export function validateFanficChapter(
+  rules: BookRules,
+  text: string,
+  appearingNames: string[],
+): BookRulesValidation {
+  const policy = fanficPolicyFromRules(rules)
+  const findings: RuleFinding[] = []
+
+  if (policy.mode === "canon" && rules.protagonist) {
+    for (const lock of rules.protagonist.personalityLock) {
+      if (text.includes(lock) && /(不再|不是|从未|并非|拒绝)/.test(text)) {
+        findings.push({
+          code: "fanfic_canon_lock",
+          term: lock,
+          severity: "error",
+          message: `canon 模式：正典人设锁「${lock}」被否定改写`,
+        })
+      }
+    }
+  }
+
+  if (policy.mode === "ooc" && rules.protagonist) {
+    const hasMarker = policy.oocMarkers.some((m) => text.includes(m))
+    for (const lock of rules.protagonist.personalityLock) {
+      if (text.includes(lock) && !hasMarker) {
+        findings.push({
+          code: "fanfic_ooc_unmarked",
+          term: lock,
+          severity: "error",
+          message: `ooc 模式：命中性格锁「${lock}」但无 OOC 标记`,
+        })
+        break
+      }
+    }
+  }
+
+  if (policy.mode === "cp") {
+    // 未配置配对时不判定（由 fanfic-canon-import 的 merge proposal 提供 pairing）
+    if (policy.pairing) {
+      const [a, b] = policy.pairing
+      const hasA = appearingNames.some((n) => n.includes(a) || a.includes(n))
+      const hasB = appearingNames.some((n) => n.includes(b) || b.includes(n))
+      if (!hasA || !hasB) {
+        findings.push({
+          code: "fanfic_cp_missing_pair",
+          term: `${a}/${b}`,
+          severity: "warn",
+          message: `cp 模式：本组未同时出现 ${a} 与 ${b}`,
+        })
+      }
+    }
+  }
+
+  const base = validateAgainstBookRules(rules, text)
+  return {
+    findings: [...base.findings, ...findings],
+    verdict: findings.some((f) => f.severity === "error") || base.verdict === "violate"
+      ? "violate"
+      : "comply",
+  }
+}
+
 export const EMPTY_BOOK_RULES: BookRules = {
   version: "1.0",
   prohibitions: [],
@@ -55,7 +153,13 @@ export const EMPTY_BOOK_RULES: BookRules = {
 }
 
 export interface RuleFinding {
-  code: "prohibition_hit" | "genre_forbidden_hit" | "era_anachronism_hit"
+  code:
+    | "prohibition_hit"
+    | "genre_forbidden_hit"
+    | "era_anachronism_hit"
+    | "fanfic_canon_lock"
+    | "fanfic_ooc_unmarked"
+    | "fanfic_cp_missing_pair"
   /** 命中的约束词。 */
   term: string
   severity: "error" | "warn"
@@ -66,6 +170,17 @@ export interface BookRulesValidation {
   findings: RuleFinding[]
   /** error 存在 → violate（需修改或显式豁免）；否则 comply。 */
   verdict: "comply" | "violate"
+}
+
+/**
+ * 64 号实施（P0-3）：AU 模式自动白名单并入——auDeviations 并入
+ * allowedDeviations 后再跑词面检测（人设锁仍生效）。纯函数不修改入参。
+ */
+export function bookRulesWithAuDeviations(rules: BookRules): BookRules {
+  if (rules.fanficMode !== "au") return rules
+  const policy = fanficPolicyFromRules(rules)
+  const merged = new Set([...rules.allowedDeviations, ...policy.auDeviations])
+  return { ...rules, allowedDeviations: [...merged] }
 }
 
 function countOccurrences(text: string, term: string): number {
@@ -162,7 +277,18 @@ export function bookRulesToPromptFragment(rules: BookRules): string {
     )
   }
   if (rules.fanficMode) {
+    const policy = fanficPolicyFromRules(rules)
     lines.push(`同人模式：${rules.fanficMode}`)
+    if (rules.fanficMode === "canon") {
+      lines.push(`正典名册锁：${policy.canonLockNames.length > 0 ? policy.canonLockNames.join("、") : "全部既有角色"}——禁止改写成新身份`)
+    } else if (rules.fanficMode === "au") {
+      const deviations = policy.auDeviations
+      lines.push(`AU 设定分叉（自动豁免）：${deviations.length > 0 ? deviations.join("、") : "需声明的分叉以【AU】标注"}`)
+    } else if (rules.fanficMode === "ooc") {
+      lines.push(`OOC 必须显式标注：${policy.oocMarkers.join(" 或 ")}`)
+    } else if (rules.fanficMode === "cp") {
+      lines.push(policy.pairing ? `CP 配对：${policy.pairing.join(" × ")}` : `CP 配对双方须同时出现（群像章不强制）`)
+    }
   }
   if (rules.allowedDeviations.length > 0) {
     lines.push(`允许偏差白名单：${rules.allowedDeviations.join("、")}`)

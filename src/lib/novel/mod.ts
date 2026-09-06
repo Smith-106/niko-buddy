@@ -1,6 +1,24 @@
 export { useNovelLabel, useNovelMode } from "./ui-labels"
 export { parseChapterMeta, isChapterPage, isOutlinePage, type ChapterMeta, type ChapterStatus, type OutlineType } from "./chapter-meta"
 export { parseVolumeMeta, isVolumePage, getChapterVolumes, type VolumeMeta } from "./volume"
+export {
+  allocateVolumeArc,
+  arcSegmentForChapter,
+  createVolumeArcState,
+  advanceVolumeArc,
+  type ArcSegment,
+  type VolumeArcState,
+} from "./volume"
+export {
+  runDoctorDiagnostics,
+  runProjectDoctor,
+  formatDoctorReport,
+  DOCTOR_CHECKS,
+  type DoctorContext,
+  type DoctorReport,
+  type DoctorFinding,
+  type DoctorSeverity,
+} from "./doctor"
 export { createChapterPipeline, type ChapterPipeline, type ChapterPipelineDeps } from "./chapter-pipeline"
 export {
   buildContextPack,

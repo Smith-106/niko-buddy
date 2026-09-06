@@ -101,3 +101,49 @@ export function budgetRunSummary(state: BudgetRunState): string {
     next ? `下一个待办：${next.taskId}（成本 ${next.cost}）` : "无待办",
   ].join("\n")
 }
+
+/**
+ * 64 号实施（63 号共识 §6 缺口 19）：批量连写推进（--count 自动连写）。
+ * 连续完成 count 个待办任务；任一任务预算不足 → 立即挂起并停止（不跳过
+ * 未完成任务、不超预算）。纯函数确定性：同输入同输出。
+ */
+export interface BudgetBatchResult {
+  state: BudgetRunState
+  /** 实际完成数（≤ count）。 */
+  completed: number
+  /** 停下的原因（"budget" | "exhausted" | "suspended"）。 */
+  stoppedBy: "budget" | "exhausted" | "suspended"
+}
+
+export function advanceBudgetBatch(
+  state: BudgetRunState,
+  count: number,
+): BudgetBatchResult {
+  let current = state
+  let completed = 0
+  let stoppedBy: BudgetBatchResult["stoppedBy"] = "exhausted"
+  for (let i = 0; i < count; i++) {
+    const next = nextPendingTask(current)
+    if (!next) {
+      stoppedBy = "exhausted"
+      break
+    }
+    const result = completeBudgetTask(current, next.taskId)
+    if (!result.accepted) {
+      if (result.reason?.includes("预算不足")) {
+        stoppedBy = "budget"
+      } else {
+        stoppedBy = "suspended"
+      }
+      current = result.state
+      break
+    }
+    current = result.state
+    completed++
+    if (current.status === "suspended") {
+      stoppedBy = "budget"
+      break
+    }
+  }
+  return { state: current, completed, stoppedBy }
+}

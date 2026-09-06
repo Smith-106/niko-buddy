@@ -66,8 +66,7 @@ export function calculateEmotionNetValue(entry: EmotionLedgerEntry): number {
 /**
  * 应用情绪 delta 并追加 history 记录 (纯函数, 不修改入参)。
  * 返回新 entry: 更新三轴快照 + netValue 重算 + history 追加本次 delta。
- */
-export function applyEmotionDelta(
+ */export function applyEmotionDelta(
   entry: EmotionLedgerEntry,
   delta: { valence?: number; arousal?: number; dominance?: number; reason: string },
   chapter: number,
@@ -404,4 +403,82 @@ export async function updateEmotionLedgerFromChapter(
   }
   ledger.lastUpdated = new Date().toISOString()
   await saveEmotionLedger(projectPath, ledger)
+}
+
+// ============================================================================
+// 64 号实施（63 号共识 §6 P0-1 情感评估器）：互动影游路径情感评估
+// ============================================================================
+
+/**
+ * 影游路径情感样本（节点情感标签 → 三轴映射，表驱动零 LLM）。
+ */
+export interface PlayableEmotionSample {
+  nodeId: string
+  /** 喜/怒/哀/惧/惊/惑/决意…未知标签 → 三轴 0。 */
+  tag: string
+  /** 可选三轴覆盖（显式给值时优先于表驱动）。 */
+  valence?: number
+  arousal?: number
+  dominance?: number
+}
+
+export interface PlayableEmotionBeat {
+  nodeId: string
+  netValue: number
+}
+
+export interface PlayableEmotionReport {
+  path: string[]
+  netValue: number
+  /** 复用账本 Circuit Breaker 语义：netValue 低于 -2 视为 suspend。 */
+  circuit: "ok" | "suspend"
+  beats: PlayableEmotionBeat[]
+}
+
+/** 标签 → 三轴映射表（确定性；未知 → 0,0,0）。 */
+const EMOTION_TAG_AXES: Record<string, { valence: number; arousal: number; dominance: number }> = {
+  喜: { valence: 0.8, arousal: 0.4, dominance: 0.3 },
+  怒: { valence: -0.6, arousal: 0.8, dominance: 0.6 },
+  哀: { valence: -0.8, arousal: 0.1, dominance: -0.5 },
+  惧: { valence: -0.7, arousal: 0.7, dominance: -0.6 },
+  惊: { valence: 0.2, arousal: 0.9, dominance: -0.2 },
+  惑: { valence: -0.1, arousal: 0.3, dominance: -0.4 },
+  决意: { valence: 0.5, arousal: 0.6, dominance: 0.8 },
+}
+
+/** 影游情绪评估：逐节点 applyEmotionDelta 累积；base 缺省为中性账本。 */
+export function evaluatePlayableEmotionPath(
+  samples: PlayableEmotionSample[],
+  base?: EmotionLedgerEntry,
+): PlayableEmotionReport {
+  let entry: EmotionLedgerEntry =
+    base ?? {
+      characterName: "player",
+      netValue: 0,
+      valence: 0,
+      arousal: 0,
+      dominance: 0,
+      lastUpdatedChapter: 0,
+      history: [],
+    }
+  const beats: PlayableEmotionBeat[] = []
+  const path: string[] = []
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i]
+    const axes = EMOTION_TAG_AXES[sample.tag] ?? { valence: 0, arousal: 0, dominance: 0 }
+    entry = applyEmotionDelta(
+      entry,
+      {
+        valence: sample.valence ?? axes.valence,
+        arousal: sample.arousal ?? axes.arousal,
+        dominance: sample.dominance ?? axes.dominance,
+        reason: `影游节点 ${sample.nodeId}`,
+      },
+      i + 1,
+    )
+    path.push(sample.nodeId)
+    beats.push({ nodeId: sample.nodeId, netValue: entry.netValue })
+  }
+  const circuit: PlayableEmotionReport["circuit"] = entry.netValue < -2 ? "suspend" : "ok"
+  return { path, netValue: entry.netValue, circuit, beats }
 }

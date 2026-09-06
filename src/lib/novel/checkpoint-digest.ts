@@ -99,3 +99,36 @@ export async function computeCheckpointDigest(input: string): Promise<string> {
 export async function computeCheckpointDigestOf(value: unknown): Promise<string> {
   return computeCheckpointDigest(stableStringify(value))
 }
+
+/**
+ * 64 号实施（63 号共识 §6 P0-7）：HMAC-SHA-256 十六进制签名。
+ * 纯密码学（ADR-19）：无 LLM 无 IO；同 secret 同 canonicalBody 同签名。
+ * Webhook/IM 通知载荷签名用 stableStringify 规范体（键序无关）。
+ */
+export async function hmacSha256Hex(secret: string, canonicalBody: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(canonicalBody))
+  return bufferToHex(signature)
+}
+
+/** 校验 HMAC-SHA-256 签名（常量时间比较不可得——用 hex 长度+内容双重校验的确定性语义）。 */
+export async function verifyHmacSha256Hex(
+  secret: string,
+  canonicalBody: string,
+  signatureHex: string,
+): Promise<boolean> {
+  if (!secret || !signatureHex) return false
+  const expected = await hmacSha256Hex(secret, canonicalBody)
+  if (expected.length !== signatureHex.length) return false
+  let diff = 0
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ signatureHex.charCodeAt(i)
+  }
+  return diff === 0
+}

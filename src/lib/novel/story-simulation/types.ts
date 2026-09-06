@@ -358,6 +358,37 @@ export interface FrameworkBinding {
   boundAt: string
 }
 
+// ── 64 号实施（63 号共识 §6 缺口 14）：分支正史绑定 + stale 半环 ──
+// Draft-first 硬边界：分支推演产物（StoryBranch）不落正式层；用户 accept
+// 后才生成 BranchCanonBinding（正史绑定），与 `.novel/status.json` 唯一会话
+// 真源并存（本记录仅存「分支→正史」引用，不复制正文）。
+
+/**
+ * 分支正史绑定：某分支被用户 accept 后固化，指向其来源框架的确定性签名。
+ * signature 由 computeFrameworkSignature 生成（框架内容变更 → 签名变更 → stale）。
+ */
+export interface BranchCanonBinding {
+  branchId: string
+  frameworkId: string
+  frameworkSignature: string
+  acceptedAt: string
+  /** 正史化后的章节起始号（1-based；未正史化时可省略）。 */
+  canonStartChapter?: number
+}
+
+/**
+ * stale 判定结果（半环检测输出）。
+ * 半环语义：框架签名变更 → 绑定 stale → 依赖绑定的分支绑定级联 stale。
+ */
+export interface BindingStaleness {
+  /** 框架绑定是否 stale（框架内容与绑定时不符）。 */
+  frameworkBindingStale: boolean
+  /** 分支正史绑定是否 stale（框架绑定 stale 或分支引用签名不匹配）。 */
+  branchBindingStale: boolean
+  /** 触发原因（可读，用于诊断日志）。 */
+  reasons: string[]
+}
+
 export interface ChapterAllocation {
   nodeIndex: number
   nodeTitle: string

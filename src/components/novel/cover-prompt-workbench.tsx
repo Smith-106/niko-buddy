@@ -4,6 +4,7 @@ import { Check, Copy, Image } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import defaultTemplatesJson from "../../../config/cover-platform-templates.json"
+import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel/cover-brief"
 
 /**
  * CoverPromptWorkbench — 封面 Prompt 工作台（F-012，净新独立视图）。
@@ -92,6 +93,28 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
     () => (active ? buildCoverPrompt(active, { title, genre, keywords }) : ""),
     [active, title, genre, keywords],
   )
+
+  // 64 号实施接线（cover-brief 消费）：结构化封面 brief（provider 无关契约）
+  // 与模板 prompt 并列预览——契约校验确定性，空输入不产出。
+  const briefText = useMemo(() => {
+    const titleTrim = title.trim()
+    const genreTrim = genre.trim()
+    if (!titleTrim && !genreTrim) return ""
+    const brief = buildCoverBrief({
+      title: titleTrim || "未命名",
+      genre: genreTrim || "未标注",
+      protagonistBrief: "",
+      tone: genreTrim || "中性",
+      keyImagery: keywords
+        .split(/[，,、\s]+/)
+        .map((k) => k.trim())
+        .filter(Boolean)
+        .slice(0, 6),
+    })
+    const validation = validateCoverBrief(brief)
+    const warning = validation.verdict === "valid" ? "" : `\n\n[契约提示] ${validation.errors.join("; ")}`
+    return `${coverBriefToPrompt(brief, titleTrim || "未命名")}${warning}`
+  }, [title, genre, keywords])
 
   // 空模板优雅降级：config 缺失/为空时给出可读提示，不崩溃。
   if (platforms.length === 0) {
@@ -184,6 +207,12 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
           rows={6}
           className="w-full resize-none rounded-md border bg-muted/20 p-2.5 text-xs leading-relaxed text-foreground outline-none"
         />
+        {briefText && (
+          <div className="mt-1.5 rounded-md border border-dashed bg-muted/10 p-2.5" data-cover-brief-preview="true">
+            <div className="mb-1 text-[11px] font-semibold text-muted-foreground">结构化封面契约（cover-brief）</div>
+            <pre className="whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-foreground/90">{briefText}</pre>
+          </div>
+        )}
         <p className="mt-1.5 text-[11px] text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>
       </div>
     </div>

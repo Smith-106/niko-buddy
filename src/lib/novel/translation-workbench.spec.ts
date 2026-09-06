@@ -1,16 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   advanceTranslationStatus,
+  buildTranslationPrompt,
   checkGlossaryConsistency,
   createEmptyTranslationGlossary,
   createEmptyTranslationProgress,
   glossaryToPromptFragment,
   loadTranslationGlossary,
   resetTranslationStatus,
+  runTranslationProject,
+  runTranslationSegment,
   saveTranslationGlossary,
   translationProgressSummary,
   upsertGlossaryEntry,
+  type TranslationLlmPort,
+  type TranslationProject,
 } from "./translation-workbench"
+import { createBudgetRun } from "./budget-resume"
 
 const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(async () => {}),
@@ -146,5 +152,93 @@ describe("translation-workbench（吸收自 inkos translation 术语一致性模
     fsMocks.readFile.mockImplementation(async () => captured as string)
     const loaded = await loadTranslationGlossary("/proj")
     expect(loaded.entries[0].source).toBe("林澈")
+  })
+})
+
+describe("translation-runner (64 号实施：P0-4 LLM 翻译 runner)", () => {
+  const glossary = createEmptyTranslationGlossary()
+  const project = (overrides: Partial<TranslationProject> = {}): TranslationProject => ({
+    version: 1,
+    sourceLang: "中文",
+    targetLang: "英文",
+    chapterNumbers: [1, 2],
+    glossary,
+    progress: createEmptyTranslationProgress(),
+    budgetRunId: "tr-1",
+    ...overrides,
+  })
+
+  it("buildTranslationPrompt：含术语表与原文；系统指令限定语言", () => {
+    const g = upsertGlossaryEntry(createEmptyTranslationGlossary(), {
+      source: "青云山",
+      target: "Azure Cloud Mountain",
+      kind: "place",
+    })
+    const { system, user } = buildTranslationPrompt(g, "他登上青云山。", { source: "中文", target: "英文" })
+    expect(system).toContain("中文")
+    expect(system).toContain("英文")
+    expect(user).toContain("青云山 → Azure Cloud Mountain")
+    expect(user).toContain("他登上青云山。")
+  })
+
+  it("runTranslationSegment：fake port 一章 → drafted + 残留检测", async () => {
+    const port: TranslationLlmPort = { translate: async () => "He climbed Azure Cloud Mountain." }
+    const artifact = await runTranslationSegment(port, project(), {
+      chapter: 1,
+      sourceText: "他登上青云山。",
+      digest: "d1",
+    })
+    expect(artifact.status).toBe("drafted")
+    expect(artifact.targetText).toContain("Azure Cloud")
+  })
+
+  it("runTranslationProject：预算足够跑完 → done + 状态 drafted", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const p = project()
+    const budget = createBudgetRun("b1", [
+      { taskId: "translate-1", cost: 5 },
+      { taskId: "translate-2", cost: 5 },
+    ], 100)
+    const result = await runTranslationProject(port, p, async () => "src", budget)
+    expect(result.stopped).toBe("done")
+    expect(result.artifacts).toHaveLength(2)
+    expect(result.project.progress.chapterStatuses[1]).toBe("drafted")
+  })
+
+  it("runTranslationProject：预算不足 → suspended 保留已完成", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const p = project()
+    const budget = createBudgetRun("b1", [
+      { taskId: "translate-1", cost: 5 },
+      { taskId: "translate-2", cost: 5 },
+    ], 6)
+    const result = await runTranslationProject(port, p, async () => "src", budget)
+    expect(result.stopped).toBe("suspended")
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.budget.completedTaskIds).toEqual(["translate-1"])
+  })
+
+  it("runTranslationProject：已完成段跳过（续跑幂等）", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const p = project()
+    let budget = createBudgetRun("b1", [
+      { taskId: "translate-1", cost: 5 },
+      { taskId: "translate-2", cost: 5 },
+    ], 100)
+    budget = { ...budget, completedTaskIds: ["translate-1"], remainingBudget: 95 }
+    const result = await runTranslationProject(port, p, async () => "src", budget)
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.artifacts[0].chapter).toBe(2)
+  })
+
+  it("runTranslationProject：abort 信号 → aborted 保留已完成", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const controller = new AbortController()
+    controller.abort()
+    const p = project()
+    const budget = createBudgetRun("b1", [{ taskId: "translate-1", cost: 5 }], 100)
+    const result = await runTranslationProject(port, p, async () => "src", budget, controller.signal)
+    expect(result.stopped).toBe("aborted")
+    expect(result.artifacts).toHaveLength(0)
   })
 })

@@ -36,7 +36,21 @@ export interface StructureBeat {
   thrilCheckpointId?: ThrillCheckpointId
 }
 
-export type ChapterStructurePlanSource = "manual" | "llm" | "campaign"
+/**
+ * 章节结构计划来源五标签（63 号共识 §6 缺口 17）：
+ * - manual    用户手写
+ * - llm       结构引擎 LLM 生成
+ * - campaign  战役/批量生成
+ * - template  模板套用（模板库 / 预制大纲）
+ * - migrated  旧格式迁移（无来源元数据的存量计划）
+ * 五标签为来源溯源（章节能追到生成路径），与章节版本回滚五标签不同域。
+ */
+export type ChapterStructurePlanSource =
+  | "manual"
+  | "llm"
+  | "campaign"
+  | "template"
+  | "migrated"
 
 export interface ChapterStructurePlan {
   schemaVersion: "chapter-structure-plan/1.0"

@@ -56,6 +56,24 @@ export async function loadChapterWorkspace(
   return workspaceStore.load(projectPath)
 }
 
+/**
+ * 64 号实施接线（chapter-workspace 消费）：章节保存后追加快照并持久化。
+ * 失败静默（观测层不阻断保存主链）；快照上限由 commitSnapshot 内部收缩。
+ */
+export async function appendChapterWorkspaceSnapshot(
+  projectPath: string,
+  chapter: number,
+  content: string,
+): Promise<void> {
+  try {
+    const store = await loadChapterWorkspace(projectPath)
+    const next = commitSnapshot(store, chapter, content)
+    await saveChapterWorkspace(projectPath, next)
+  } catch {
+    // 观测层失败静默：保存主链不受影响
+  }
+}
+
 function countWords(text: string): number {
   // 中文按字计数 + ASCII 词计数（与中文小说字数直觉一致的近似）
   const cjk = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) ?? []).length

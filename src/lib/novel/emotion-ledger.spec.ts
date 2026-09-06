@@ -13,6 +13,7 @@ import {
   getTopEmotionalDebt,
   resolveSceneCharacterNames,
   updateEmotionLedgerFromChapter,
+  evaluatePlayableEmotionPath,
   type EmotionLedgerEntry,
   type EmotionLedgerStore,
 } from "./emotion-ledger"
@@ -461,3 +462,51 @@ describe("A19 emotion-ledger 写入端 (B 方案双层机械层, TASK-001/002/00
   })
 })
 
+
+describe("evaluatePlayableEmotionPath (64 号实施：影游路径情感评估器)", () => {
+  it("空路径：netValue=base（中性 0）", () => {
+    const report = evaluatePlayableEmotionPath([])
+    expect(report.netValue).toBe(0)
+    expect(report.circuit).toBe("ok")
+    expect(report.beats).toEqual([])
+  })
+
+  it("已知标签映射：喜 → 正净值", () => {
+    const report = evaluatePlayableEmotionPath([{ nodeId: "n1", tag: "喜" }])
+    expect(report.netValue).toBeGreaterThan(0)
+    expect(report.circuit).toBe("ok")
+  })
+
+  it("未知标签 → 三轴 0，净值不变", () => {
+    const report = evaluatePlayableEmotionPath([{ nodeId: "n1", tag: "量子" }])
+    expect(report.netValue).toBe(0)
+  })
+
+  it("连续哀节点累积 → 债务超阈 suspend", () => {
+    const samples = Array.from({ length: 4 }, (_, i) => ({ nodeId: `n${i}`, tag: "哀" }))
+    const report = evaluatePlayableEmotionPath(samples)
+    expect(report.netValue).toBeLessThan(-2)
+    expect(report.circuit).toBe("suspend")
+  })
+
+  it("beats 记录逐节点净值轨迹", () => {
+    const report = evaluatePlayableEmotionPath([
+      { nodeId: "a", tag: "喜" },
+      { nodeId: "b", tag: "惧" },
+    ])
+    expect(report.beats).toHaveLength(2)
+    expect(report.beats[0].nodeId).toBe("a")
+    expect(report.path).toEqual(["a", "b"])
+  })
+
+  it("显式三轴覆盖优先于表驱动", () => {
+    const explicit = evaluatePlayableEmotionPath([{ nodeId: "n", tag: "喜", valence: -1, arousal: 0, dominance: 0 }])
+    const tabled = evaluatePlayableEmotionPath([{ nodeId: "n", tag: "喜" }])
+    expect(explicit.netValue).toBeLessThan(tabled.netValue)
+  })
+
+  it("确定性：同输入双跑全等", () => {
+    const samples = [{ nodeId: "a", tag: "喜" }, { nodeId: "b", tag: "哀" }]
+    expect(evaluatePlayableEmotionPath(samples)).toEqual(evaluatePlayableEmotionPath(samples))
+  })
+})
