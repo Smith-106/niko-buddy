@@ -229,3 +229,115 @@ describe("taskBriefHasPlanningBlock", () => {
     expect(taskBriefHasPlanningBlock("普通任务书")).toBe(false)
   })
 })
+
+// ==================== P2-IMP-11 四新维预填 ====================
+
+describe("buildPlanningPrefillBlock — P2-IMP-11 四新维", () => {
+  /** 带四新维源的输入（POV = 林动，第 8 章） */
+  function makePovPlanInput(): ChapterPlanInput {
+    return {
+      ...makePlanInput(),
+      povCharacter: "林动",
+      cognition: {
+        status: "ok",
+        data: {
+          characters: [{ character: "林动", knows: [], doesNotKnow: ["黑市入口在城西", "黑衣人是他父亲"] }],
+          readerKnows: [],
+          lastUpdatedChapter: 7,
+        },
+      },
+      encounterMatrix: {
+        status: "ok",
+        data: {
+          edges: [{ a: "林动", b: "应欢欢", chapter: 3, context: "", witnessedBy: [] }],
+          lastUpdated: "",
+        },
+      },
+      resources: { status: "ok", data: { entries: [], lastUpdated: "" } },
+      particles: {
+        status: "ok",
+        data: {
+          entries: [
+            { kind: "money", character: "林动", name: "灵石", chapter: 2, delta: 100, state: "余额 100", note: "" },
+          ],
+          lastUpdated: "",
+        },
+      },
+      chapterSummaries: {
+        status: "ok",
+        data: {
+          entries: [
+            {
+              chapter: 7,
+              happened: "第七章",
+              stateChanges: [{ kind: "item", entity: "青铜古戒", change: "归属 → 林动" }],
+              keyReveals: [],
+              endingHook: "",
+            },
+          ],
+          lastUpdated: "",
+        },
+      },
+    }
+  }
+
+  it("四新维各占一行并带 POV 标注（零 LLM、纯机械）", () => {
+    const block = buildPlanningPrefillBlock(buildChapterPlanView(makePovPlanInput()))
+    expect(block).toContain("认知盲区（POV 林动）：黑市入口在城西；黑衣人是他父亲")
+    expect(block).toContain("近章状态变更：第7章 [item] 青铜古戒：归属 → 林动")
+    expect(block).toContain("见面边界（POV 林动）：应欢欢")
+    expect(block).toContain("粒子持有（POV 林动）：[money] 灵石 → 余额 100")
+    // 既有三维仍在（新维 additive，不挤占核心段）
+    expect(block).toContain("伏笔债务")
+    expect(block).toContain("角色出场")
+    expect(block).toContain("支线推进")
+  })
+
+  it("degraded 新维渲染可见原因而非静默省略", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("认知盲区：数据源不可用（POV 未声明")
+    expect(block).toContain("近章状态变更：数据源不可用（章节摘要数据源不可用）")
+  })
+
+  it("合法空数据 → 渲染「无」而非「数据源不可用」", () => {
+    const plan = buildChapterPlanView({
+      ...makePovPlanInput(),
+      cognition: { status: "ok", data: { characters: [], readerKnows: [], lastUpdatedChapter: 0 } },
+      encounterMatrix: { status: "ok", data: { edges: [], lastUpdated: "" } },
+      particles: { status: "ok", data: { entries: [], lastUpdated: "" } },
+      chapterSummaries: { status: "ok", data: { entries: [], lastUpdated: "" } },
+    })
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("认知盲区（POV 林动）：无")
+    expect(block).toContain("粒子持有（POV 林动）：无")
+    expect(block).not.toContain("认知盲区（POV 林动）：数据源不可用")
+  })
+
+  it("逐维截断标记透传（预算封顶命中时预填块可见「已截断」）", () => {
+    const plan = buildChapterPlanView(makePovPlanInput(), { cognitionTopN: 1 })
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block).toContain("认知盲区（POV 林动）：黑市入口在城西（已截断）")
+  })
+
+  it("旧 plan 字面量（无四新维字段）→ 块体与改前一致（additive 零回归）", () => {
+    const legacy = buildChapterPlanView(makePlanInput())
+    delete legacy.povCharacter
+    delete legacy.cognition
+    delete legacy.recentStateDeltas
+    delete legacy.encounter
+    delete legacy.particles
+    const block = buildPlanningPrefillBlock(legacy)
+    expect(block).not.toContain("认知盲区")
+    expect(block).not.toContain("粒子持有")
+    expect(block).toContain("伏笔债务")
+  })
+
+  it("新维入块后仍受全局 PLANNING_BLOCK_CAP 封顶", () => {
+    const plan = buildChapterPlanView(makePovPlanInput(), { dimensionCharBudget: 4000 })
+    plan.characters.items[0]!.name = "林动".repeat(2000)
+    const block = buildPlanningPrefillBlock(plan)
+    expect(block.length).toBeLessThanOrEqual(1200 + 8)
+    expect(block).toContain("已截断")
+  })
+})

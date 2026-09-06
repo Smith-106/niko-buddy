@@ -4,7 +4,12 @@
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { ChapterPlanView } from "@/lib/novel/planning"
+import type {
+  ChapterPlanView,
+  ParticlePlanItem,
+  PlanDimensionSlice,
+  StateDeltaPlanItem,
+} from "@/lib/novel/planning"
 
 /**
  * Wave 3 计划模式 — 计划面板（受控纯展示组件）。
@@ -35,6 +40,54 @@ const ARC_STATE_STYLES: Record<string, string> = {
   Setup: "bg-muted text-muted-foreground",
   Resolved: "bg-success/10 text-success",
   Unresolved: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+}
+
+/**
+ * P2-IMP-11 四新维共用渲染块（受控纯展示）。
+ * 逐维 topN + 字符预算封顶已在 buildChapterPlanView 完成，
+ * 本组件只展示封顶后的 items（degraded / 空态 / 截断标记均可见）。
+ */
+function DimensionSection<TItem>({
+  title,
+  slice,
+  emptyText,
+  renderItem,
+}: {
+  title: string
+  slice: PlanDimensionSlice<TItem> | undefined
+  emptyText: string
+  renderItem: (item: TItem) => string
+}) {
+  const { t } = useTranslation()
+  if (!slice) return null
+  return (
+    <section>
+      <h4 className="mb-1 text-xs font-medium text-muted-foreground">{title}</h4>
+      {slice.status === "degraded" ? (
+        <p className="text-xs text-warning">
+          {t("novel.planning.degraded", { defaultValue: "数据源不可用" })}
+          {slice.reason ? `（${slice.reason}）` : ""}
+        </p>
+      ) : slice.items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{emptyText}</p>
+      ) : (
+        <>
+          <ul className="space-y-1">
+            {slice.items.map((item, index) => (
+              <li key={index} className="truncate">
+                {renderItem(item)}
+              </li>
+            ))}
+          </ul>
+          {slice.truncated && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("novel.planning.dimensionTruncated", { defaultValue: "已按逐维预算截断" })}
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  )
 }
 
 export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting, onClose }: PlanningPanelProps) {
@@ -152,6 +205,32 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
               <p className="text-xs text-muted-foreground">{t("novel.planning.empty", { defaultValue: "无支线数据" })}</p>
             )}
           </section>
+
+          {/* P2-IMP-11 四新维：认知盲区 / 近章状态变更 / 见面边界 / 粒子持有 */}
+          <DimensionSection
+            title={t("novel.planning.cognition", { defaultValue: "认知盲区" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            slice={plan.cognition}
+            emptyText={t("novel.planning.cognitionEmpty", { defaultValue: "无认知盲区记录" })}
+            renderItem={(fact) => `不知道：${fact}`}
+          />
+          <DimensionSection
+            title={t("novel.planning.stateDeltas", { defaultValue: "近章状态变更" })}
+            slice={plan.recentStateDeltas}
+            emptyText={t("novel.planning.stateDeltasEmpty", { defaultValue: "近章无状态变更" })}
+            renderItem={(d: StateDeltaPlanItem) => `第${d.chapter}章 [${d.kind}] ${d.entity}：${d.change}`}
+          />
+          <DimensionSection
+            title={t("novel.planning.encounter", { defaultValue: "见面边界" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            slice={plan.encounter}
+            emptyText={t("novel.planning.encounterEmpty", { defaultValue: "无已见面记录" })}
+            renderItem={(name) => `已见过：${name}`}
+          />
+          <DimensionSection
+            title={t("novel.planning.particles", { defaultValue: "粒子持有" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            slice={plan.particles}
+            emptyText={t("novel.planning.particlesEmpty", { defaultValue: "无粒子账本" })}
+            renderItem={(p: ParticlePlanItem) => `${p.kind}：${p.name} → ${p.state}`}
+          />
 
           <div className="flex items-center justify-between border-t pt-2">
             <p className="text-xs text-muted-foreground">

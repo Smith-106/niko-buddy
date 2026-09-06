@@ -7,7 +7,11 @@
 export {
   buildChapterPlanView,
   buildChapterPlan,
+  PLAN_DIMENSION_TOP_N,
+  PLAN_DIMENSION_CHAR_BUDGET,
+  PLAN_STATE_DELTA_CHAPTERS,
   type ChapterPlanInput,
+  type PlanSource,
 } from "./aggregate"
 export {
   buildPlanningPrefillBlock,
@@ -21,4 +25,8 @@ export type {
   ChapterPlanOptions,
   CharacterPlanItem,
   PlanDimensionStatus,
+  // P2-IMP-11 四新维类型面
+  PlanDimensionSlice,
+  StateDeltaPlanItem,
+  ParticlePlanItem,
 } from "./types"

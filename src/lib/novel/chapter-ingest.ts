@@ -1310,6 +1310,8 @@ export async function restoreSnapshotHistory(
   return restoredCurrent
 }
 
+// P2-IMP-08 登记：saveEditedSnapshot 为死导出（无调用方；仅 context-engine.ts:1307
+// 注释引用）。处置随 Q8 族产品裁决（与 syncSnapshotToMemory 的彻底层重建同族，pending）。
 export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<{ requireConfirmation: boolean }> {
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)

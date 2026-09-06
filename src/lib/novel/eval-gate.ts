@@ -42,7 +42,21 @@ export type GovSeedCategory = z.infer<typeof GOV_SEED_CATEGORY>
 export const GOV_SEED_INTENT = z.enum(["plan", "draft", "revise", "lookup", "style"])
 export type GovSeedIntent = z.infer<typeof GOV_SEED_INTENT>
 
-/** G-1 种子用例 schema（REQ-EVAL-001 契约）。 */
+/**
+ * G-1 种子用例 schema（REQ-EVAL-001 契约）。
+ *
+ * 种子文件与冷启动约定（P1-IMP-11，`docs/p0/gov-seed/gov-seed-v1.jsonl`，JSONL 每行一例）:
+ *   - 每行严格对齐本 schema（zod strip 语义：schema 外字段视为契约违反，spec 钉死）。
+ *   - schema 无溯源/复核字段 → 编码进 caseId：
+ *     `GOV-{OBL|PSN|VIO}-{TEL|CORPUS|CFX|CRAFT}-NNN[-P-N]-R<N>`
+ *     OBL/PSN/VIO=三类用例；TEL=50ch-telemetry 管线映射、CORPUS=anti-ai-calibrate 语料
+ *     管线映射、CFX=eval fixtures 迁移、CRAFT=craft 注册表；`-P-N` 仅 canon_violation_replay
+ *     （六类陷阱标识，validateGovSeedScale 按 caseId.includes 识别）；`-R<N>`=人工复核批次
+ *     （首批全量逐例复核，半自动冷启动 R6 缓解）。
+ *   - povMask 语义：不得向该 POV 注入的知识边界（P-1 认识论遮罩）。
+ *   - v1 首批 20-50 例 < GOV_SEED_MIN_SCALE（110）→ loadGovSeedSet 恒 insufficient →
+ *     gate 恒 BLOCKED；其余种子待 IMP-06/07/08 就位后补齐，不伪造就绪（E-06 共识 C-7/V5）。
+ */
 export const GOV_SEED_CASE_SCHEMA = z.object({
   caseId: z.string().min(1),
   category: GOV_SEED_CATEGORY,

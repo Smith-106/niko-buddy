@@ -4,15 +4,34 @@
  * 镜像 structure-plan 先例（appendStructurePlanToTaskBrief）：
  * fail-open（null → 原样返回）+ marker 防重复 + append-only（绝不重写既有字段）。
  * 逐节合并会扰动 countTaskBriefStructureHits 机械门控 — 从机制上排除。
+ *
+ * P2-IMP-11：追加 4 新维（认知盲区 / 近章状态变更 / 见面边界 / 粒子持有）。
+ * 逐维截断（topN + 字符预算）已在 buildChapterPlanView 完成 — 本层只负责
+ * 把同一份封顶结果压成单行，不重复实现截断口径（PAT-G2 零平行实现）。
+ * 新维排在既有三维之后：全局 PLANNING_BLOCK_CAP 命中时先牺牲新维（L0 优先）。
  */
 
-import type { ChapterPlanView } from "./types"
+import type { ChapterPlanView, PlanDimensionSlice } from "./types"
 
 /** 预填块 marker（防重复注入） */
 export const PLANNING_BLOCK_MARKER = "【本章确定性范围】"
 
 /** 预填块字符上限 */
 export const PLANNING_BLOCK_CAP = 1200
+
+/**
+ * 渲染单维（逐维封顶结果压成单行）。
+ * degraded → 可见原因；ok 空 → 「无」；ok 非空 → 条目 + 截断标记。
+ */
+function dimensionLine<TItem>(label: string, dim: PlanDimensionSlice<TItem> | undefined): string | null {
+  if (!dim) return null
+  if (dim.status === "degraded") {
+    return `- ${label}：数据源不可用${dim.reason ? `（${dim.reason}）` : ""}`
+  }
+  if (dim.items.length === 0) return `- ${label}：无`
+  const body = dim.text.split("\n").filter(Boolean).join("；") || dim.items.length + " 项"
+  return `- ${label}：${body}${dim.truncated ? "（已截断）" : ""}`
+}
 
 /**
  * 渲染【本章确定性范围】块（纯机械，零 LLM）。
@@ -63,6 +82,18 @@ export function buildPlanningPrefillBlock(plan: ChapterPlanView): string {
       const violation = t.transitionViolation ? `（${t.transitionViolation}）` : ""
       lines.push(`  - [${t.arcState}] ${t.title}${violation}`)
     }
+  }
+
+  // ---- P2-IMP-11 四新维（逐维封顶在 buildChapterPlanView 已完成，此处单行渲染） ----
+  const pov = plan.povCharacter ? `（POV ${plan.povCharacter}）` : ""
+  const extras = [
+    dimensionLine(`认知盲区${pov}`, plan.cognition),
+    dimensionLine("近章状态变更", plan.recentStateDeltas),
+    dimensionLine(`见面边界${pov}`, plan.encounter),
+    dimensionLine(`粒子持有${pov}`, plan.particles),
+  ]
+  for (const line of extras) {
+    if (line) lines.push(line)
   }
 
   const block = lines.join("\n")
