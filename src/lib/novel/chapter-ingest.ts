@@ -778,11 +778,11 @@ export async function ingestChapter(
         await saveSubplotBoard(pp, board)
       })
 
-      // E-03 (run-execute-1, 双库架构蓝图): 孤儿投影接线 — encounter-matrix /
-      // chapter-summaries / particle-ledger 三类的 fold 函数此前存在但无生产
-      // 调用者 (真相文件恒空)。三模型共识 (deepseek-v4-flash + GLM-5.3-flash
-      // + hy3): 接线是验收①「全部真相文件写路径」的实质前提。与 rebuild 共用
-      // 同一批 fold 函数 (fold_rebuildable 契约: ingest == rebuild)。
+      // E-03 / P2-IMP-02+03：encounter-matrix / chapter-summaries / particle-ledger
+      // 三投影接线（PROJECTION_CATEGORIES 已登记 fold_rebuildable，
+      // rebuildFromCommittedSnapshot 与 computeTruthFoldDrift 重放均覆盖）。
+      // 与 rebuild 共用同一批 fold 函数 (fold_rebuildable 契约: ingest == rebuild)。
+      // 三模型共识 (deepseek-v4-flash + GLM-5.3-flash + hy3)。
       await runProjection("encounter_matrix", async () => {
         const store = await loadEncounterMatrix(pp)
         let next = store
@@ -1296,6 +1296,8 @@ export async function restoreSnapshotHistory(
   const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
   await cleanupSupersededEntityFiles(pp, restoredCurrent, writtenEntityPaths)
   await rebuildDerivedMemoryFromSnapshots(pp, restoredCurrent)
+  // P2-IMP-06：restore 后采样 drift；drift>0 告警+telemetry（阻断逻辑留 arch 裁决）。
+  await emitTruthFoldDriftAlarm(pp, await sampleTruthFoldDrift(pp))
   // ARCH-006 (REG-001 sibling): restoring a history snapshot replaces the
   // current snapshot content, so the mtime-keyed temporalFactsCache may hold
   // pre-restore facts — clear it for this project (same root cause as the
@@ -2128,9 +2130,9 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   // subplot board. Re-folded from the committed snapshot sequence (same
   // shared apply* helpers as ingest → deterministic rebuild). Phase 3 (LE-1):
   // applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned.
-  const emotionalArcStore = createEmptyEmotionalArcStore()
+  const emotionalArcStore = createEmptyEmotionalArcStore(foldCtx.now)
   const resourceLedger = createEmptyResourceLedgerStore()
-  const subplotBoard = createEmptySubplotBoardStore()
+  const subplotBoard = createEmptySubplotBoardStore(foldCtx.now)
   for (const snapshot of snapshots) {
     const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
     applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps, foldCtx)
@@ -2140,6 +2142,34 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   await saveEmotionalArcs(projectPath, emotionalArcStore)
   await saveResourceLedger(projectPath, resourceLedger)
   await saveSubplotBoard(projectPath, subplotBoard)
+
+  // P2-IMP-03：补过程库三 fold（encounter_matrix / chapter_summaries / particle_ledger）
+  // —重放形态与 computeTruthFoldDrift 一致，保证 restore/delete 后三类 drift=0。
+  {
+    let encounterMatrix = createEmptyEncounterMatrixStore()
+    for (const snapshot of snapshots) {
+      for (const edge of foldMeetingEdges(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
+        encounterMatrix = appendMeetingEdge(encounterMatrix, edge, foldCtx)
+      }
+    }
+    await saveEncounterMatrix(projectPath, encounterMatrix)
+  }
+  {
+    let chapterSummaries = createEmptyChapterSummariesStore()
+    for (const snapshot of snapshots) {
+      chapterSummaries = upsertChapterSummary(chapterSummaries, foldChapterSummary(snapshot), foldCtx)
+    }
+    await saveChapterSummaries(projectPath, chapterSummaries)
+  }
+  {
+    let particleLedger = createEmptyParticleLedgerStore()
+    for (const snapshot of snapshots) {
+      for (const entry of foldParticleEntries(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
+        particleLedger = appendParticleEntry(particleLedger, entry, foldCtx)
+      }
+    }
+    await saveParticleLedger(projectPath, particleLedger)
+  }
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
 
@@ -2183,7 +2213,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
  * deleteChapterSnapshots) reference rebuildDerivedMemoryFromSnapshots; route
  * them to the extended rebuildFromCommittedSnapshot covering vector+graph.
  */
-async function rebuildDerivedMemoryFromSnapshots(
+export async function rebuildDerivedMemoryFromSnapshots(
   projectPath: string,
   latestSnapshot?: ChapterSnapshot,
   options: { embeddingConfig?: EmbeddingConfig } = {},
@@ -2287,7 +2317,7 @@ export async function computeTruthFoldDrift(
   // 6. subplot-board.json
   {
     const live = await loadSubplotBoard(projectPath)
-    const replay = createEmptySubplotBoardStore()
+    const replay = createEmptySubplotBoardStore(foldCtx.now)
     for (const snapshot of snapshots) {
       applySubplotChangesToStore(replay, snapshot, foldCtx)
     }
@@ -2297,7 +2327,7 @@ export async function computeTruthFoldDrift(
   // 7. emotional-arcs.json
   {
     const live = await loadEmotionalArcs(projectPath)
-    const replay = createEmptyEmotionalArcStore()
+    const replay = createEmptyEmotionalArcStore(foldCtx.now)
     for (const snapshot of snapshots) {
       applyEmotionalArcsToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
     }
@@ -2327,6 +2357,55 @@ export async function computeTruthFoldDrift(
   }
 
   return results
+}
+
+/**
+ * P2-IMP-06：sampleTruthFoldDrift — computeTruthFoldDrift 的安全采样包装。
+ * 失败债务记 trace 不阻断（restore/delete 尾部调用，不应因 drift 采样失败而回滚重建）。
+ * 返回 drifted 文件数（0=健康）；不可采集/异常 → null（N/A，不告警）。
+ */
+export async function sampleTruthFoldDrift(
+  projectPath: string,
+  now = "",
+): Promise<{ driftCount: number; driftedFiles: string[] } | null> {
+  try {
+    const results = await computeTruthFoldDrift(projectPath, now)
+    const driftedFiles = results.filter((r) => r.drifted).map((r) => r.file)
+    return { driftCount: driftedFiles.length, driftedFiles }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "sampleTruthFoldDrift 采样失败（债务记 trace，不阻断）", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return null
+  }
+}
+
+/**
+ * P2-IMP-06：drift 告警真实触发——drift>0 时 logger.warn + 写 .novel/telemetry/
+ * drift-<ts>.jsonl（GOV-OBS-01 不静默降级）。drift=0/N-A 零告警。阻断逻辑不写
+ * （留 arch 产品裁决）。返回是否告警。
+ */
+export async function emitTruthFoldDriftAlarm(
+  projectPath: string,
+  sample: { driftCount: number; driftedFiles: string[] } | null,
+): Promise<boolean> {
+  if (!sample || sample.driftCount === 0) return false
+  const detail = `truth_fold_drift=${sample.driftCount}（漂移文件：${sample.driftedFiles.join(", ")}）`
+  logger.warn("Chapter Ingest", `记忆漂移告警：${detail}（建议重建过程库）`)
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-")
+    const telemetryDir = `${projectPath}/.novel/telemetry`
+    await createDirectory(telemetryDir)
+    await writeFileAtomic(
+      `${telemetryDir}/drift-${ts}.jsonl`,
+      JSON.stringify({ ts: new Date().toISOString(), driftCount: sample.driftCount, driftedFiles: sample.driftedFiles }) + "\n",
+    )
+  } catch (err) {
+    logger.warn("Chapter Ingest", "drift telemetry 写入失败（债务记 trace，不阻断）", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+  return true
 }
 
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
@@ -2598,6 +2677,8 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch { /* ignore */ }
   try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch { /* ignore */ }
   await rebuildDerivedMemoryFromSnapshots(pp)
+  // P2-IMP-06：delete 后采样 drift；drift>0 告警+telemetry。
+  await emitTruthFoldDriftAlarm(pp, await sampleTruthFoldDrift(pp))
   clearGraphCache()
   clearTemporalFactsCache(pp)
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。

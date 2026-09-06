@@ -28,7 +28,7 @@ vi.mock("@/commands/fs", () => ({
   deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
 }))
 
-import { computeTruthFoldDrift } from "./chapter-ingest"
+import { computeTruthFoldDrift, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "./chapter-ingest"
 import {
   applyCharacterStateChangesToStore,
   applyForeshadowingChangesToStore,
@@ -200,5 +200,56 @@ describe("E-03 computeTruthFoldDrift（truth_fold_drift 可执行定义）", () 
     const results = await computeTruthFoldDrift("P", "")
     expect(results).toHaveLength(9)
     for (const r of results) expect(r.drifted).toBe(false)
+  })
+})
+
+describe("P2-IMP-06 sampleTruthFoldDrift + emitTruthFoldDriftAlarm", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.listDirectory.mockReset()
+  })
+
+  it("健康（drift=0）→ sample.driftCount=0；emit 不告警、零 telemetry 写入", async () => {
+    installFs(makeFileMap(buildReplayStores()))
+    const sample = await sampleTruthFoldDrift("P", NOW)
+    expect(sample).not.toBeNull()
+    expect(sample!.driftCount).toBe(0)
+    fsMocks.writeFileAtomic.mockClear()
+    const alarmed = await emitTruthFoldDriftAlarm("P", sample)
+    expect(alarmed).toBe(false)
+    // drift=0 → 不写任何 telemetry drift 文件
+    const telemetryCalls = fsMocks.writeFileAtomic.mock.calls.filter((c) =>
+      String(c[0]).includes("/.novel/telemetry/drift-"),
+    )
+    expect(telemetryCalls).toHaveLength(0)
+  })
+
+  it("篡改 store → sample.driftCount>0；emit 告警 + telemetry 追加 drift-<ts>.jsonl", async () => {
+    const stores = buildReplayStores()
+    const chars = (stores["character-states.json"] as { characters: unknown[] }).characters
+    chars.push({ characterName: "丙", currentLocation: "", status: "新", equipment: [], abilities: [], relationships: {}, lastUpdatedChapter: 1, lastSeenChapter: 1, lastUpdatedAt: "" })
+    installFs(makeFileMap(stores))
+    const sample = await sampleTruthFoldDrift("P", NOW)
+    expect(sample!.driftCount).toBeGreaterThan(0)
+    expect(sample!.driftedFiles).toContain("character-states.json")
+    fsMocks.writeFileAtomic.mockClear()
+    const alarmed = await emitTruthFoldDriftAlarm("P", sample)
+    expect(alarmed).toBe(true)
+    const telemetryCalls = fsMocks.writeFileAtomic.mock.calls.filter((c) =>
+      String(c[0]).includes("/.novel/telemetry/drift-"),
+    )
+    expect(telemetryCalls).toHaveLength(1)
+    expect(String(telemetryCalls[0][0])).toMatch(/drift-.*\.jsonl$/)
+  })
+
+  it("采样异常 → sample 返回 null（不阻断）；emit(null) → false（N/A 不告警）", async () => {
+    // 让 snapshot 读取失败 → computeTruthFoldDrift 抛错 → sample 吞掉返回 null
+    fsMocks.readFile.mockRejectedValue(new Error("boom"))
+    fsMocks.listDirectory.mockRejectedValue(new Error("boom"))
+    const sample = await sampleTruthFoldDrift("P", NOW)
+    expect(sample).toBeNull()
+    const alarmed = await emitTruthFoldDriftAlarm("P", null)
+    expect(alarmed).toBe(false)
   })
 })

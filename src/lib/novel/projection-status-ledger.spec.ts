@@ -52,6 +52,13 @@ describe("F-002 ProjectionStatusLedger (C-002 mixed_per_projection)", () => {
     expect(cats.character).toBe("fold_rebuildable")
     expect(cats.foreshadow).toBe("fold_rebuildable")
     expect(cats.summary_structured_memory).toBe("fold_rebuildable")
+    // P2-IMP-02：过程库三投影 + subplot_board 补登 fold_rebuildable
+    expect(cats.emotional_arc).toBe("fold_rebuildable")
+    expect(cats.resource_ledger).toBe("fold_rebuildable")
+    expect(cats.subplot_board).toBe("fold_rebuildable")
+    expect(cats.encounter_matrix).toBe("fold_rebuildable")
+    expect(cats.chapter_summaries).toBe("fold_rebuildable")
+    expect(cats.particle_ledger).toBe("fold_rebuildable")
     // mutates_existing_non_rebuildable
     expect(cats.graph_entity_pages).toBe("mutates_existing_non_rebuildable")
     expect(cats.graph_entity_patch_fields).toBe("mutates_existing_non_rebuildable")
@@ -72,12 +79,23 @@ describe("F-002 ProjectionStatusLedger (C-002 mixed_per_projection)", () => {
     expect(ledger.chapters).toEqual({})
   })
 
-  it("subplot_board is single_snapshot_idempotent (ARCH-002: empty-store commit, no snapshot field wired yet)", () => {
-    // ARCH-002 / ISS-20260708-006: chapter-ingest commits an empty store
-    // (no snapshot subplot field wired — LLM-extract extension out of scope),
-    // so the category is single_snapshot_idempotent, NOT fold_rebuildable.
-    // Re-classify to fold_rebuildable when a snapshot subplot field is added.
-    expect(PROJECTION_CATEGORIES.subplot_board).toBe("single_snapshot_idempotent")
+  it("subplot_board is fold_rebuildable (P2-IMP-02：applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned)", () => {
+    expect(PROJECTION_CATEGORIES.subplot_board).toBe("fold_rebuildable")
+  })
+
+  it("P2-IMP-02：PROJECTION_CATEGORIES 键集 ⊇ chapter-ingest runProjection 全部 projectionId", () => {
+    const runProjectionIds = [
+      "vector", "graph_entity_pages", "graph_entity_patch_fields",
+      "cognition", "character", "foreshadow",
+      "emotional_arc", "resource_ledger", "subplot_board",
+      "encounter_matrix", "chapter_summaries", "particle_ledger",
+      "summary_structured_memory", "sync_snapshot_to_memory",
+      "snapshot", "chapter_ingest_output",
+    ]
+    const catKeys = new Set(Object.keys(PROJECTION_CATEGORIES))
+    for (const id of runProjectionIds) {
+      expect(catKeys.has(id)).toBe(true)
+    }
   })
 
   it("recordProjectionStatus records a committed projection additively (failure is VISIBLE, not silent)", () => {
@@ -128,7 +146,7 @@ describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
     expect(ledger.projections.vector).toBe("single_snapshot_idempotent")
     expect(ledger.projections.community_summary).toBe("mutates_existing_non_rebuildable")
     expect(ledger.projections.character).toBe("fold_rebuildable")
-    expect(ledger.projections.subplot_board).toBe("single_snapshot_idempotent")
+    expect(ledger.projections.subplot_board).toBe("fold_rebuildable")
     expect(ledger.chapters["3"].cognition.status).toBe("committed")
   })
 

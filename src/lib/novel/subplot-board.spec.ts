@@ -36,15 +36,12 @@ describe("R4 SubplotBoard projection (S4 / ANL-013)", () => {
     expect(src).not.toMatch(/import\s*\{[^}]*\bwriteFile\b[^}]*\}/)
   })
 
-  it("registered as single_snapshot_idempotent in PROJECTION_CATEGORIES (ARCH-002)", () => {
-    // ARCH-002 / ISS-20260708-006: subplot_board commits an EMPTY store
-    // (no snapshot subplot field wired yet — LLM-extract extension out of
-    // scope), so it is single_snapshot_idempotent (re-run = same empty
-    // state), NOT fold_rebuildable (there is nothing to fold). Re-classify
-    // to fold_rebuildable when a snapshot subplot field is added.
+  it("registered as fold_rebuildable in PROJECTION_CATEGORIES (P2-IMP-02)", () => {
+    // P2-IMP-02：applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned，
+    // subplot_board 从 single_snapshot_idempotent 重分类为 fold_rebuildable（rebuild 与 drift 重放均覆盖）。
     const src = readSource("projection-status-ledger.ts")
-    expect(src).toMatch(/subplot_board:\s*"single_snapshot_idempotent"/)
-    expect(src).not.toMatch(/subplot_board:\s*"fold_rebuildable"/)
+    expect(src).toMatch(/subplot_board:\s*"fold_rebuildable"/)
+    expect(src).not.toMatch(/subplot_board:\s*"single_snapshot_idempotent"/)
   })
 
   it("is a character-state SAME-LAYER sibling, NOT a Truth Files module (ANL-013 C4)", () => {
@@ -61,10 +58,15 @@ describe("R4 SubplotBoard projection (S4 / ANL-013)", () => {
     expect(src).toMatch(/progress/)
   })
 
-  it("createEmptySubplotBoardStore seeds an empty store with ISO timestamp", () => {
+  it("createEmptySubplotBoardStore 默认 lastUpdated='' （P2-IMP-01 稳定序列化）", () => {
     const store = createEmptySubplotBoardStore()
     expect(store.items).toEqual([])
-    expect(store.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(store.lastUpdated).toBe("")
+  })
+
+  it("createEmptySubplotBoardStore(now) 回填显式时间戳 (P2-IMP-01)", () => {
+    const store = createEmptySubplotBoardStore("2026-09-06T00:00:00.000Z")
+    expect(store.lastUpdated).toBe("2026-09-06T00:00:00.000Z")
   })
 
   it("subplotBoardToContextText returns '' for an empty store (backward compatible)", () => {

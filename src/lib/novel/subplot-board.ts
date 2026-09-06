@@ -63,8 +63,10 @@ export interface SubplotBoardStore {
   lastUpdated: string
 }
 
-export function createEmptySubplotBoardStore(): SubplotBoardStore {
-  return { items: [], lastUpdated: new Date().toISOString() }
+export function createEmptySubplotBoardStore(now = ""): SubplotBoardStore {
+  // P2-IMP-01：显式 now 入参（默认 ''），rebuild/drift 重放传 foldCtx.now 保证
+  // KB-IDEMPOTENCY.md §4 稳定序列化（消除 new Date() 非确定性）。
+  return { items: [], lastUpdated: now }
 }
 
 // MAINT-002: shared atomic JSON store (createDirectory + writeFileAtomic /

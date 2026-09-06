@@ -148,10 +148,12 @@ export function metBefore(
   storeData: EncounterMatrixStore,
   character: string,
   chapter: number,
+  upTo: "past" | "inclusive" = "inclusive",
 ): string[] {
   const names = new Set<string>()
   for (const e of storeData.edges) {
-    if (e.chapter > chapter) continue
+    // P2-IMP-05：past 排除本章共现（本章见面≠已见面，堵信息泄漏）；inclusive 含本章。
+    if (upTo === "past" ? e.chapter >= chapter : e.chapter > chapter) continue
     if (e.a === character) names.add(e.b)
     else if (e.b === character) names.add(e.a)
   }

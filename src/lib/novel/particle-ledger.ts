@@ -35,7 +35,7 @@ export interface ParticleEntry {
   name: string
   /** Chapter at which the change occurred. */
   chapter: number
-  /** Signed delta: money ±amount; injury +1 受/-1 愈; technique +1 得/等级变化. */
+  /** delta: 结构性字段（money ±amount；injury +1 受/-1 愈；technique 等级变化）。text-heuristic 解析当前产出 delta=0，由 state 承载实际信息（增量提取超出当前解析口径）。 */
   delta: number
   /** Current state after this change (free text, e.g. 余额/伤势程度/修为阶). */
   state: string
@@ -118,10 +118,13 @@ export function foldParticleEntries(
   return entries
 }
 
+// P2-IMP-04：technique 前置（境界/修为 优先于 money 的裸 金），money 收紧为
+// 金[币石子两]|银两|铜钱|灵石（金丹期 不再误归 money）。
+const TECHNIQUE_CONTEXT = /境界|修为|功法|金丹|元婴|筑基|化神/i
 const PARTICLE_KIND_PATTERNS: Array<{ kind: ParticleKind; patterns: RegExp[] }> = [
-  { kind: "money", patterns: [/两|文|金|银|铜钱|灵石|币|钱/i] },
+  { kind: "technique", patterns: [/功法|修为|境界|层|阶|内力|灵力|真气|金丹|元婴|筑基/i] },
+  { kind: "money", patterns: [/金[币石子两]|银两|铜钱|灵石|文钱|铜板/i] },
   { kind: "injury", patterns: [/伤|创|断|裂|愈|血/i] },
-  { kind: "technique", patterns: [/功法|修为|境界|层|阶|内力|灵力|真气/i] },
 ]
 
 function parseParticleLine(
@@ -135,8 +138,11 @@ function parseParticleLine(
   if (!name) return null
   const rest = line.slice(Math.min(...colonIndexes) + 1).trim()
   if (!rest) return null
+  // P2-IMP-04：分类测全行（含 name 侧语义词如 境界），technique-first + money 负向护栏
+  // （境界上下文跳过 money，防 金丹 被 灵石/金币 误抢）。
   for (const { kind, patterns } of PARTICLE_KIND_PATTERNS) {
-    if (!patterns.some((p) => p.test(rest))) continue
+    if (kind === "money" && TECHNIQUE_CONTEXT.test(line)) continue
+    if (!patterns.some((p) => p.test(line))) continue
     const character = resolveParticleName(name, aliasMaps)
     if (!character) return null
     return {
@@ -201,8 +207,13 @@ export function particleLedgerToContextText(storeData: ParticleLedgerStore): str
     if (!list.length) continue
     lines.push(`【${kindLabel[kind]}账本】`)
     for (const e of list) {
-      const sign = e.delta > 0 ? "+" : ""
-      lines.push(`第${e.chapter}章 ${e.character} ${e.name} ${sign}${e.delta} → ${e.state}（${e.note}）`)
+      // P2-IMP-04：delta===0（heuristic 解析默认）不输出增量列，避免伪零 +0 噪声。
+      if (e.delta === 0) {
+        lines.push(`第${e.chapter}章 ${e.character} ${e.name} → ${e.state}（${e.note}）`)
+      } else {
+        const sign = e.delta > 0 ? "+" : ""
+        lines.push(`第${e.chapter}章 ${e.character} ${e.name} ${sign}${e.delta} → ${e.state}（${e.note}）`)
+      }
     }
   }
   return lines.join("\n")

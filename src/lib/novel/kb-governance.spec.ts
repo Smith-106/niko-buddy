@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest"
 import {
   SAFETY_INVARIANTS,
   assertInvariantsNotDisabled,
+  pickInvariantOverrides,
   GOV_INVARIANT_OVERRIDE_SCHEMA,
   coordIndex,
   coordFromIndex,
@@ -37,6 +38,22 @@ describe("E-06 三安全不变量（GOV-OBS-05 / GOV-EVAL-08：MUST NOT 运行�
     expect(() => assertInvariantsNotDisabled({ promotion_require_accept: false })).toThrow()
     expect(() => assertInvariantsNotDisabled({ unknown_key: 1 })).toThrow()
     expect(() => GOV_INVARIANT_OVERRIDE_SCHEMA.parse({ any: "key" })).toThrow()
+  })
+
+  it("pickInvariantOverrides 只投影命中三不变量的键（P1-IMP-01）", () => {
+    expect(pickInvariantOverrides(null)).toEqual({})
+    expect(pickInvariantOverrides(undefined)).toEqual({})
+    expect(pickInvariantOverrides("nope")).toEqual({})
+    expect(pickInvariantOverrides({})).toEqual({})
+    expect(pickInvariantOverrides({ contextTokenBudget: 8000 })).toEqual({})
+    expect(pickInvariantOverrides({ fold_atomic_fsync: false })).toEqual({ fold_atomic_fsync: false })
+    expect(pickInvariantOverrides({ fold_atomic_fsync: true, tech_visible_to_agent: false })).toEqual({
+      fold_atomic_fsync: true,
+      tech_visible_to_agent: false,
+    })
+    // 组合到断言：任何不变量键出现即 throw（运行时强制闭环）
+    expect(() => assertInvariantsNotDisabled(pickInvariantOverrides({ fold_atomic_fsync: false }))).toThrow()
+    expect(() => assertInvariantsNotDisabled(pickInvariantOverrides({ contextTokenBudget: 8000 }))).not.toThrow()
   })
 
   it("导出面无 setter/toggle/enable 前缀（无关闭 API）", () => {

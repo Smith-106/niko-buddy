@@ -41,8 +41,10 @@ export interface EmotionalArcStore {
   lastUpdated: string
 }
 
-export function createEmptyEmotionalArcStore(): EmotionalArcStore {
-  return { beats: [], lastUpdated: new Date().toISOString() }
+export function createEmptyEmotionalArcStore(now = ""): EmotionalArcStore {
+  // P2-IMP-01：显式 now 入参（默认 ''），rebuild/drift 重放传 foldCtx.now 保证
+  // KB-IDEMPOTENCY.md §4 稳定序列化（消除 new Date() 非确定性）。
+  return { beats: [], lastUpdated: now }
 }
 
 // MAINT-002: shared atomic JSON store (createDirectory + writeFileAtomic /

@@ -119,6 +119,7 @@ export function computeVisibility(
   pov: string,
   chapter: number,
   sources: VisibilitySources,
+  metBeforeUpTo: "past" | "inclusive" = "inclusive",
 ): {
   /** 该 POV 不知道的事实 (must not inject, 注入即为 knowledge_boundary)。 */
   doesNotKnow: string[]
@@ -132,7 +133,7 @@ export function computeVisibility(
   const canonicalPov = resolveCanonicalName(pov)
   const me = sources.cognition?.characters?.find((k) => k.character === canonicalPov)
   const doesNotKnow = me && (me.doesNotKnow ?? []).length > 0 ? [...(me.doesNotKnow ?? [])] : []
-  const met = metBefore(sources.matrix, canonicalPov, chapter)
+  const met = metBefore(sources.matrix, canonicalPov, chapter, metBeforeUpTo)
   const heldItems = sources.resources.entries
     .filter((e) => e.currentHolder === canonicalPov)
     .map((e) => e.item)
@@ -163,7 +164,8 @@ export async function visibleInfoFor(
     loadResourceLedger(projectPath),
   ])
 
-  const vis = computeVisibility(povCharacter, chapter, { cognition, matrix, resources, particles })
+  // P2-IMP-05：注入侧传 'past'（本章共现≠已见面，堵信息泄漏）。
+  const vis = computeVisibility(povCharacter, chapter, { cognition, matrix, resources, particles }, "past")
   const lines: string[] = []
   if (vis.doesNotKnow.length > 0) {
     lines.push(`【${povCharacter} 不知道】${vis.doesNotKnow.join("、")}`)

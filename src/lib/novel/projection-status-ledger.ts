@@ -122,15 +122,18 @@ export const PROJECTION_CATEGORIES: Record<string, ProjectionCategory> = {
   summary_structured_memory: "fold_rebuildable",
   // R4 (S4 / ANL-013): 3 new structured-field projections — same-layer
   // siblings of character/foreshadow (NOT a Truth Files module; ANL-013 C4).
-  // emotional_arc / resource_ledger are fold_rebuildable: re-derivable from
-  // the committed snapshot sequence (characterDetails.arcChange /
-  // itemDetails.holder). subplot_board is currently single_snapshot_idempotent:
-  // chapter-ingest commits an empty store (no snapshot subplot field wired yet
-  // — LLM-extract extension out of scope). Re-classify to fold_rebuildable when
-  // a snapshot subplot field is added.
+  // emotional_arc / resource_ledger / subplot_board 均 fold_rebuildable:
+  // re-derivable from the committed snapshot sequence (applySubplotChangesToStore
+  // 已从 snapshot 解析 targetResolutionChapter/abandoned)。
   emotional_arc: "fold_rebuildable",
-  subplot_board: "single_snapshot_idempotent",
+  subplot_board: "fold_rebuildable",
   resource_ledger: "fold_rebuildable",
+  // P2-IMP-02：补登过程库三投影为 fold_rebuildable（rebuildFromCommittedSnapshot
+  // 与 computeTruthFoldDrift 重放均已覆盖：foldMeetingEdges / foldChapterSummary /
+  // foldParticleEntries 从 committed snapshot 确定性重建）。
+  encounter_matrix: "fold_rebuildable",
+  chapter_summaries: "fold_rebuildable",
+  particle_ledger: "fold_rebuildable",
   graph_entity_pages: "mutates_existing_non_rebuildable",
   // CORR-009: distinct key for the wiki-patch-field write path (was shared
   // with graph_entity_pages, masking partial failures). Same category.

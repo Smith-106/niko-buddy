@@ -80,7 +80,7 @@ export {
 export {
   recordDeepChapterWallclockFromStageMetrics,
 } from "./deep-chapter-wallclock-bridge"
-export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason } from "./chapter-ingest"
+export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, rebuildDerivedMemoryFromSnapshots, sampleTruthFoldDrift, emitTruthFoldDriftAlarm, computeTruthFoldDrift, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason, type TruthFoldDrift } from "./chapter-ingest"
 export { reviewChapter, type NovelReviewResult } from "./review-adapter"
 export { runNovelLint, buildNovelLintPrompt, type NovelLintResult } from "./lint"
 export { resolveNovelModel, type NovelTaskType } from "./model-resolver"

@@ -50,10 +50,15 @@ describe("R4 EmotionalArcs projection (S4 / ANL-013)", () => {
     expect(src).toMatch(/C4|ADR-26|A23/)
   })
 
-  it("createEmptyEmotionalArcStore seeds an empty store with ISO timestamp", () => {
+  it("createEmptyEmotionalArcStore 默认 lastUpdated='' （P2-IMP-01 稳定序列化）", () => {
     const store = createEmptyEmotionalArcStore()
     expect(store.beats).toEqual([])
-    expect(store.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(store.lastUpdated).toBe("")
+  })
+
+  it("createEmptyEmotionalArcStore(now) 回填显式时间戳 (P2-IMP-01)", () => {
+    const store = createEmptyEmotionalArcStore("2026-09-06T00:00:00.000Z")
+    expect(store.lastUpdated).toBe("2026-09-06T00:00:00.000Z")
   })
 
   it("emotionalArcsToContextText returns '' for an empty store (backward compatible)", () => {

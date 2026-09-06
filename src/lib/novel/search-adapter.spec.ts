@@ -62,6 +62,7 @@ import {
   isAuthoritativeGenerationPath,
   isHistoricalProjectionSnippet,
   novelMixedSearch,
+  retrieveDualTrack,
   searchPlot,
 } from "./search-adapter"
 import type { NovelSearchResult } from "./search-adapter"
@@ -107,6 +108,35 @@ describe("search-adapter pure helpers", () => {
     expect(isHistoricalProjectionSnippet(`${pp}/wiki/history/x.md`, "")).toBe(true)
     expect(isHistoricalProjectionSnippet(`${pp}/wiki/entities/a.md`, "is_historical: true")).toBe(true)
     expect(isHistoricalProjectionSnippet(`${pp}/wiki/entities/a.md`, "普通内容")).toBe(false)
+  })
+})
+
+describe("retrieveDualTrack trust 报缺记账（P1-IMP-02）", () => {
+  it("trustFilterEnabled=true 且无 trustGrades → push trust_grades_missing gap（IC-02 绝不静默）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "剑",
+      chapterNumber: 1,
+      trustFilterEnabled: true,
+      intent: "draft",
+    })
+    expect(res.gaps.some((g) => g.collection === "trust" && g.message.includes("trust_grades_missing"))).toBe(true)
+    expect(res.gaps.some((g) => g.collection === "trust" && g.message.includes("trust_blocked"))).toBe(false)
+  })
+
+  it("trustFilterEnabled=false 或 grades 齐全时不报缺", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    const off = await retrieveDualTrack({ projectPath: pp, query: "剑", chapterNumber: 1, trustFilterEnabled: false })
+    expect(off.gaps.filter((g) => g.collection === "trust")).toHaveLength(0)
+    const withGrades = await retrieveDualTrack({
+      projectPath: pp,
+      query: "剑",
+      chapterNumber: 1,
+      trustFilterEnabled: true,
+      trustGrades: { [`${pp}/wiki/entities/剑.md`]: "full" },
+    })
+    expect(withGrades.gaps.filter((g) => g.collection === "trust" && g.message.includes("trust_grades_missing"))).toHaveLength(0)
   })
 })
 

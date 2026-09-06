@@ -28,7 +28,7 @@ import {
 import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-facts-audit"
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
-import { buildReferenceContext } from "@/lib/reference/search"
+import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { rerankCandidates } from "@/lib/rerank"
@@ -616,17 +616,17 @@ async function buildContextPackUnlocked(
     // → novelMixedSearch 三路融合检索 → 引用段（含用户记忆偏好原文，PR6 通道）。
     const referencesPromise =
       novelConfig.referenceEnabled
-        ? (async (): Promise<string> => {
+        ? (async (): Promise<ReferenceContextResult | null> => {
             try {
               return await buildReferenceContext(pp, task, {
                 chapterNumber: context.chapterNumber,
               })
             } catch (error) {
               logger.warn("ContextEngine", "reference context build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
-              return ""
+              return null
             }
           })()
-        : Promise.resolve("")
+        : Promise.resolve(null)
     // E-02 (C-5/C-9, run-execute-1 双库架构蓝图 capability-kb-retrieval): 硬注入第四源。
     // 单次 retrieveDualTrack 调用（通道 A 硬注入 + 通道 B 语义检索）；POV 真源未就绪
     // （resolveChapterPovCharacter 返回 null）→ 通道 A 空（不臆造 POV），通道 B 仍可用。
@@ -660,7 +660,7 @@ async function buildContextPackUnlocked(
             }
           })()
         : Promise.resolve(null)
-    const [pack, exemplars, activeEntities, relatedChaptersText, referencesText, hardInjectResult] = await Promise.all([
+    const [pack, exemplars, activeEntities, relatedChaptersText, referencesResult, hardInjectResult] = await Promise.all([
       buildContextPackFromRawData(rawData, context, temporalFactsPreloaded),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
@@ -698,7 +698,27 @@ async function buildContextPackUnlocked(
     // Wave 2 (v2.5.0): @引用段注入（additive 独立字段）。referenceEnabled=false
     // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
     // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
+    // P1-IMP-03: 结构化返回（截断/失败显式记账，IC-02 绝不静默）。
+    const referencesText = referencesResult?.text ?? ""
     pack.references = referencesText
+    if (referencesResult && referencesResult.truncated) {
+      pack.gaps.push({
+        type: "truncated",
+        ref: "references",
+        reason: "budget_exceeded",
+        originalLength: referencesText.length + 1,
+        retainedLength: referencesText.length,
+      })
+    }
+    if (referencesResult && referencesResult.cause === "load_failed") {
+      pack.gaps.push({
+        type: "load_failed",
+        ref: "references",
+        reason: "datasource_error",
+        originalLength: 0,
+        retainedLength: 0,
+      })
+    }
     // E-02 (C-9): 硬注入装配 — additive 独立字段。零条目 → undefined（不渲染该段）；
     // 超 cap 裁剪与路由缺口同步镜像进 pack.gaps（IC-02 主账，绝不静默）。
     if (hardInjectResult) {

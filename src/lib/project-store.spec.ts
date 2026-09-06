@@ -559,6 +559,17 @@ describe("novel config", () => {
     expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.qmai/novel-config.json", expect.any(String))
   })
 
+  it("rejects configs that try to disable safety invariants (P1-IMP-01)", async () => {
+    await saveNovelConfig({ fold_atomic_fsync: false } as never)
+    await expect(loadNovelConfig()).rejects.toThrow()
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify({ promotion_require_accept: false }))
+    await expect(loadNovelConfig("p1", "C:/p")).rejects.toThrow()
+    // 常规配置键不误伤
+    mocks.readFile.mockResolvedValue(JSON.stringify({ searchTopK: 12 }))
+    await expect(loadNovelConfig("p1", "C:/p")).resolves.toMatchObject({ searchTopK: 12 })
+  })
+
   it("clamps numeric fields and applies defaults", async () => {
     await mocks.store.set("novelConfig", {
       contextTokenBudget: -5,

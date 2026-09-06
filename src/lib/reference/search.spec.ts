@@ -136,44 +136,61 @@ describe("reference/search", () => {
   })
 
   it("buildReferenceContext full chain: parse → resolve → search → section", async () => {
-    const text = await buildReferenceContext("/p", "让@林墨，出场；@北境 是背景")
-    expect(text).toContain("【@林墨】")
-    expect(text).toContain("【@北境】")
-    expect(text).toContain("用户记忆")
+    const res = await buildReferenceContext("/p", "让@林墨，出场；@北境 是背景")
+    expect(res.text).toContain("【@林墨】")
+    expect(res.text).toContain("【@北境】")
+    expect(res.text).toContain("用户记忆")
+    expect(res.cause).toBe("ok")
+    expect(res.truncated).toBe(false)
+    expect(res.omittedSections).toBe(0)
   })
 
   it("buildReferenceContext returns empty for text without @", async () => {
-    expect(await buildReferenceContext("/p", "继续写正文")).toBe("")
+    const res = await buildReferenceContext("/p", "继续写正文")
+    expect(res.text).toBe("")
+    expect(res.cause).toBe("no_refs")
+    expect(res.truncated).toBe(false)
     expect(novelMixedSearch).not.toHaveBeenCalled()
   })
 
-  it("buildReferenceContext caps section length", async () => {
+  it("buildReferenceContext caps section length and records truncation (P1-IMP-03)", async () => {
     vi.mocked(novelMixedSearch).mockResolvedValue([
       { type: "keyword", path: "x.md", title: "x", snippet: "长".repeat(500), relevance: 0.9 },
     ])
-    const text = await buildReferenceContext("/p", "让@林墨出场", { sectionCap: 100 })
-    expect(text.length).toBeLessThanOrEqual(100)
+    const res = await buildReferenceContext("/p", "让@林墨，出场", { sectionCap: 100 })
+    // clipText 追加省略号 → cap+2 上界；内容确被截断（>100 字符原样则更长）
+    expect(res.text.length).toBeGreaterThanOrEqual(100)
+    expect(res.text.length).toBeLessThanOrEqual(102)
+    expect(res.truncated).toBe(true)
+    // 单 section 部分截断（clipText 语义）→ omittedSections 可不计；多 section 场景计入被完全裁掉的 section
+    expect(res.omittedSections).toBeGreaterThanOrEqual(0)
+    // 短输入：双 0
+    const short = await buildReferenceContext("/p", "让@林墨，出场", { sectionCap: 100000 })
+    expect(short.truncated).toBe(false)
+    expect(short.omittedSections).toBe(0)
   })
 
   it("buildReferenceContext respects includeUserMemory=false", async () => {
-    const text = await buildReferenceContext("/p", "让@林墨 出场", { includeUserMemory: false })
-    expect(text).toContain("【@林墨】")
-    expect(text).not.toContain("用户记忆")
+    const res = await buildReferenceContext("/p", "让@林墨 出场", { includeUserMemory: false })
+    expect(res.text).toContain("【@林墨】")
+    expect(res.text).not.toContain("用户记忆")
   })
 
   it("buildReferenceContext: 候选装载失败 → 空串（fail-open）", async () => {
     const providers = await import("./providers")
     vi.mocked(providers.loadAllReferenceCandidates).mockRejectedValueOnce(new Error("providers boom"))
-    const text = await buildReferenceContext("/p", "让@林墨出场")
-    expect(text).toBe("")
+    const res = await buildReferenceContext("/p", "让@林墨出场")
+    expect(res.text).toBe("")
+    expect(res.cause).toBe("no_refs")
   })
 
   it("buildReferenceContext: 用户记忆加载失败 → 无记忆行（fail-open）", async () => {
     const session = await import("@/lib/user-memory/session")
     vi.mocked(session.loadUserMemoryForProject).mockRejectedValue(new Error("memory boom"))
-    const text = await buildReferenceContext("/p", "让@林墨 出场")
-    expect(text).toContain("【@林墨】")
-    expect(text).not.toContain("用户记忆")
+    const res = await buildReferenceContext("/p", "让@林墨 出场")
+    expect(res.text).toContain("【@林墨】")
+    expect(res.text).not.toContain("用户记忆")
+    expect(res.cause).toBe("ok")
   })
 
   it("REFERENCE_SECTION_CAP is 2000", () => {

@@ -829,6 +829,13 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
         message: `trust_blocked: ${blockedCount} 条 blocked 条目被过滤（GOV-TRUST-05）`,
       })
     }
+  } else if (params.trustFilterEnabled && !params.trustGrades) {
+    // P1-IMP-02: trust 过滤开启但无 grades → 显式报缺（IC-02 绝不静默，GOV-TRUST-05 空转暴露）
+    gaps.push({
+      collection: "trust",
+      impactedIntents: [params.intent ?? "lookup"],
+      message: "trust_grades_missing: trustFilterEnabled=true 但 trustGrades 缺失，过滤空转（GOV-TRUST-05）",
+    })
   }
 
   return {

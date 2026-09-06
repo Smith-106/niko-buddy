@@ -5,6 +5,7 @@ import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { normalizePath } from "@/lib/path-utils"
+import { assertInvariantsNotDisabled, pickInvariantOverrides } from "@/lib/novel/kb-governance"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
 import { encryptApiKeysInObject, decryptApiKeysInObject, countApiKeyStatus } from "@/lib/crypto"
 
@@ -657,6 +658,8 @@ function normalizeNovelConfig(
   config?: Partial<NovelConfig> | null,
 ): NovelConfig | null {
   if (!config) return null
+  // P1-IMP-01: 三安全不变量运行时强制（GOV-OBS-05）——任何试图关闭不变量的配置 → fail-loud。
+  assertInvariantsNotDisabled(pickInvariantOverrides(config))
   return {
     contextTokenBudget: Math.max(0, config.contextTokenBudget ?? DEFAULT_NOVEL_CONFIG.contextTokenBudget),
     recentSummaryWindow: Math.max(1, Math.min(30, config.recentSummaryWindow ?? DEFAULT_NOVEL_CONFIG.recentSummaryWindow)),

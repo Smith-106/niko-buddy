@@ -55,6 +55,22 @@ export function assertInvariantsNotDisabled(config: unknown): void {
   GOV_INVARIANT_OVERRIDE_SCHEMA.parse(config)
 }
 
+/**
+ * 只投影命中 SAFETY_INVARIANTS 的键（P1-IMP-01 运行时强制接线）。
+ * 纯函数：不修改入参；未知键/无关键不投影（不误伤常规配置）。
+ * 返回值直接可喂 assertInvariantsNotDisabled：空对象通过，任何不变量键出现 → throw。
+ */
+export function pickInvariantOverrides(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== "object" || raw === null) return {}
+  const picked: Record<string, unknown> = {}
+  for (const name of Object.keys(SAFETY_INVARIANTS)) {
+    if (Object.prototype.hasOwnProperty.call(raw, name)) {
+      picked[name] = (raw as Record<string, unknown>)[name]
+    }
+  }
+  return picked
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // DimensionCoord 27 格坐标（GOV-REV-02/06，G-8）
 // ──────────────────────────────────────────────────────────────────────────

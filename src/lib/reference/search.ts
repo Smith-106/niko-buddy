@@ -166,20 +166,31 @@ export function formatReferenceSection(
 }
 
 /**
+ * 全链路结果（P1-IMP-03 结构化返回，LightRAG 截断原因归因口径）。
+ * text 恒为可注入字符串（失败/空时 ""）；truncated/omittedSections/cause 供 IC-02 记账。
+ */
+export interface ReferenceContextResult {
+  text: string
+  truncated: boolean
+  omittedSections: number
+  cause: "ok" | "no_refs" | "load_failed"
+}
+
+/**
  * 全链路：从任务文本解析 @ 引用 → 候选装载 → 检索 → 格式化引用段。
- * 失败降级返回空字符串（不阻断 pack 装配）。
+ * 失败降级返回空文本（不阻断 pack 装配），原因经 cause 显式归因。
  */
 export async function buildReferenceContext(
   projectPath: string,
   task: string,
   options: ReferenceContextOptions = {},
-): Promise<string> {
+): Promise<ReferenceContextResult> {
   const tokens = parseReferences(task)
-  if (tokens.length === 0) return ""
+  if (tokens.length === 0) return { text: "", truncated: false, omittedSections: 0, cause: "no_refs" }
 
   const candidates = await loadAllReferenceCandidates(projectPath).catch(() => [])
   const refs = resolveReferences(tokens, candidates)
-  if (refs.length === 0) return ""
+  if (refs.length === 0) return { text: "", truncated: false, omittedSections: 0, cause: "no_refs" }
 
   const hits = await searchReferences(projectPath, refs, {
     chapterNumber: options.chapterNumber,
@@ -208,5 +219,22 @@ export async function buildReferenceContext(
     ),
   )
   const joined = sections.join("\n\n")
-  return clipText(joined, sectionCap)
+  // 截断归因：逐 section 累加预算，统计被完全裁掉的 section 数（P1-IMP-03）。
+  // 首 section 超预算时部分截断（clipText 语义），omittedSections=0 不虚报。
+  let truncated = false
+  let omittedSections = 0
+  const normalized = joined.replace(/\s+/g, " ").trim()
+  if (normalized.length > sectionCap) {
+    truncated = true
+    let acc = 0
+    for (let i = 0; i < sections.length; i++) {
+      const len = sections[i].replace(/\s+/g, " ").trim().length
+      if (i > 0 && acc + len + 2 > sectionCap) {
+        omittedSections = sections.length - i
+        break
+      }
+      acc += len + 2
+    }
+  }
+  return { text: clipText(joined, sectionCap), truncated, omittedSections, cause: "ok" }
 }
