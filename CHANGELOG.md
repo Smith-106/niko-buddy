@@ -65,6 +65,10 @@ typecheck 0 错误 / vitest 11998 绿 / cargo 318 passed / 基线 0 漂移
 - **不变量**：P0>P1>P2 不变；stretch 可选不升硬门；ADR-19 零 LLM/IO。
 
 > 注（2026-08-31）：stretch gate 四项指标（维度收敛方差/跨模型 Δ/跨语言 F1）为自述目标，v2.7.4 无独立基准报告佐证——deferred（owner=质量门控模块，跟进见 docs/qmai-codex-delivery/16-final-acceptance-framework-20260829.md（stretch gate 证据 deferred 状态）），不阻塞纯应用发版。补证（维度收敛方差/跨模型 Δ/跨语言 F1 独立基准报告）随 L9 脉冲 κ Round-2 一并执行（65 号共识 G10，2026-09-06 挂账）。
+>
+> 注（2026-09-07 修订）：stretch gate **四项**指标——① 门控中位方差降 ≥15%（`dimension-converge.ts`）② 负向集召回 ≥基线−2%（`variance-regression.ts`）③ 跨模型 pairwise Δ中位 ≤0.5（`cross-model-bias.ts`）④ 跨语言 F1 ≥源域基线×95%（`cross-lang-f1.ts`）——为自述目标，v2.7.4 仅有合成数据 DoD 断言（`scripts/verify-dod-v274.js`，输入为公式合成，非真实测章窗），**无真实基准报告佐证 → 状态 UNVERIFIED（deferred）→ 现转显式披露**（67 号交付 `docs/qmai-codex-delivery/67-stretch-gate-disclosure-20260907.md`）。owner=质量门控模块。例外编号 **E8**（边界：仅 stretch 诊断面，不入 Track A 硬门；不阻塞纯应用发版；跟踪见 `.workflow/harvest-staging/split-acceptance-tracks.md` §v2.7.4 stretch 证据状态）。
+> 逐项状态：① 披露（归一化门数学缺陷，实际等效门槛 ≈57.5% raw 方差降，缺陷单 I-001 待修复；无 v2.7.3 基线臂；模块零生产调用点）；② 披露 + **B 轨实测闭环**（本波重跑 `scripts/anti-ai-calibrate.js`：FPR=0.0% 0/1035、召回=100.0% 139/139，基线 55d8f1dd（v2.7.3 祖先验证 OK）→ 当前 d7196e97，regression=0 ≤0.02，passed=true；产物 `.workflow/harvest-staging/stretch-gate-20260907/recall-double-gate.json`，in-sample 边界明示）；③ 待专项研究（`cross-model-bias.ts` 需 ≥5 模型，三模型结构性不过门；前置门禁 sub2 relay 模型枚举）；④ 披露（英文域零 AI 正样本，门控检测器按中文构造）。
+> 原挂账宿主「κ Round-2」已于 2026-09-07 降级为可选佐证（66 号 §5-6），本项**改绑可达触发**：① 缺陷单 I-001 修复后；③ 非 adversarial 真实语料批次（合规授权）入库后与判官池真实盲测同波执行。阈值不因补证结果下调（`blueprint-v274-20260828.md` §3 阈值定死）。
 
 ## [2.7.3] - 2026-08-28
 

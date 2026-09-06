@@ -3,6 +3,13 @@
  *
  * 三闭环断言：①维度收敛 ②跨模型泛化 ③跨语言泛化
  * 用法：node scripts/verify-dod-v274.js
+ *
+ * ⚠️ 证据性质声明（2026-09-07，67 号交付）：本脚本输入全部为硬编码/公式合成数据
+ * （base/current 由 5+3*(i%3)+(j%2) 生成、五模型分数硬编码、crossLang F1 写死），
+ * 仅证明四个纯函数（dimension-converge / variance-regression / cross-model-bias /
+ * cross-lang-f1）的代码契约未被改坏（防 ADR-19 机械层纯函数回归），
+ * **不是 v2.7.4 stretch 四指标的达成证据**。四指标实测状态见
+ * docs/qmai-codex-delivery/67-stretch-gate-disclosure-20260907.md。
  */
 import { evaluateConvergence } from "../src/lib/quality/dimension-converge.ts"
 import { evaluateRecallRegression } from "../src/lib/quality/variance-regression.ts"
