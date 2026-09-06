@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     watchSystemTheme: vi.fn(() => () => {}),
     stopScheduledImport: vi.fn(),
     getCurrentWindow: vi.fn(() => ({ setTitle: vi.fn() })),
+    claimProjectOwnership: vi.fn(async () => ({ ok: true, conflict: false, tookOver: false })),
     // project-owner 锁 (54 号设计隐患 1): 打开项目时读/写 .qmai/owner.json
     readFile: vi.fn(async () => {
       throw new Error("ENOENT: no owner.json")
@@ -81,6 +82,12 @@ vi.mock("@/stores/wiki-store", () => ({
 vi.mock("@/lib/platform", () => ({
   isTauri: mocks.isTauri,
   pickDirectory: mocks.pickDirectory,
+}))
+
+// project-owner 占用锁：并行环境下动态 import 真实模块有时序竞态，
+// 显式 mock 保证 openProject→claim→hydrate 链路确定性。
+vi.mock("@/lib/project-owner", () => ({
+  claimProjectOwnership: mocks.claimProjectOwnership,
 }))
 
 vi.mock("@/commands/fs", () => ({
