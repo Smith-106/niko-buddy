@@ -1,6 +1,8 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { withProjectLock } from "./novel-locks"
+import type { NameAliasMap } from "./book-analysis/types"
+import type { ChapterSnapshot } from "./chapter-ingest"
 
 /**
  * F-002 (S3 / ANL-010): ProjectionStatusLedger — records the per-projection
@@ -143,6 +145,146 @@ export const PROJECTION_CATEGORIES: Record<string, ProjectionCategory> = {
   // committed snapshots via rebuildFromCommittedSnapshot).
   sync_snapshot_to_memory: "fold_rebuildable",
   community_summary: "mutates_existing_non_rebuildable",
+}
+
+// ============================================================================
+// P2-IMP-14: PROJECTION_REGISTRY — 投影注册表（四路径同源遍历的单一事实源）。
+//
+// F5 类缺陷（某投影在 ingest/rebuild/drift 重放/sync 四条路径中的某条被漏接或
+// fold 实现分叉）的根因是四路径各自硬编码投影清单。注册表把「投影 id → 类别 →
+// store 读写 → 增量 fold」收敛为一个数据源：
+//   - ingest 增量路径：遍历带 applyToStore 的条目（runProjection 记账）；
+//   - rebuild 全量重放路径：遍历 rebuildable 条目（foldFromSnapshot = 由
+//     createEmpty + applyToStore 派生，与 ingest 同一 fold 函数）；
+//   - drift 重放路径（computeTruthFoldDrift）：遍历带 file 的条目，live=load、
+//     replay=foldFromSnapshot——比对双方与写盘双方天然同源；
+//   - syncSnapshotToMemory 路径：遍历 SYNC_FOLD_PROJECTION_IDS 子集（P2-IMP-08
+//     边界保留），未覆盖类的文件集合同样由注册表派生。
+// 新增 fold_rebuildable 投影只需入表一处，四路径自动覆盖——结构上绝迹。
+//
+// 条目实现在 chapter-ingest.ts 模块加载时经 registerProjections 填充（fold
+// helper 与 store 模块都聚合在那里，注册表容器放本文件避免 ledger ↔
+// chapter-ingest 运行时循环导入）。注册即校验（cognee fail-loud）：未知 id /
+// 类别与 PROJECTION_CATEGORIES 不一致 / 重复注册 / rebuildable 但类别非
+// fold_rebuildable —— 一律抛错，绝不静默降级。CI 三方等值（注册表键集 ==
+// PROJECTION_CATEGORIES 键集 == runProjection 实际调用 id 集）见
+// projection-registry.spec.ts。
+// ============================================================================
+
+/** fold 显式上下文（E-03 C-3 fold 纯性 + PERF-NEW-05 别名表复用）。 */
+export interface ProjectionFoldContext {
+  /** 显式时间戳（ISO 串）。缺省 → fold 不写时间戳（保留输入值，纯性优先）。 */
+  now?: string
+  /** 预计算别名表；缺省 → 各 fold 内部按 snapshot 自建（rebuild/drift 重放形态）。 */
+  aliasMaps?: readonly NameAliasMap[]
+}
+
+/**
+ * 单投影注册条目。9 个 store-backed fold_rebuildable 投影带全套
+ * {category, foldFromSnapshot, applyToStore, load, save}；graph/vector 等
+ * 非确定性/非 store 投影以 rebuildable:false 入表（键集三方等值的成员）。
+ */
+export interface ProjectionRegistryEntry {
+  /** C-002 类别 —— 必须与 PROJECTION_CATEGORIES 同键值（注册时 fail-loud 校验）。 */
+  readonly category: ProjectionCategory
+  /**
+   * 是否可经注册表从 committed snapshot 序列确定性重建。
+   * 只有 true 的投影参与 failed 自愈（IMP-14）与 drift 自动修复（IMP-15）；
+   * graph/vector/community 等非确定性或非同源可重放投影标 false。
+   */
+  readonly rebuildable: boolean
+  /** 单一真相文件名（.novel/ 下，drift 比对标识）；null = 无单文件真相 store。 */
+  readonly file: string | null
+  /** 读盘上 live store（原样返回，含 null 语义 —— cognition 缺文件 ≠ 空 store）。 */
+  readonly load?: (projectPath: string) => Promise<unknown>
+  /** 空 store（重放起点）。 */
+  readonly createEmpty?: (ctx: ProjectionFoldContext) => unknown
+  /** 增量 fold：把一个 snapshot 应用到 store（ingest / sync 路径）。 */
+  readonly applyToStore?: (store: unknown, snapshot: ChapterSnapshot, ctx: ProjectionFoldContext) => unknown
+  /** 全量重放：从空 store 沿 committed snapshot 序列 fold（rebuild / drift 重放路径）。 */
+  readonly foldFromSnapshot?: (snapshots: ChapterSnapshot[], ctx: ProjectionFoldContext) => unknown
+  /** 写盘。 */
+  readonly save?: (projectPath: string, store: unknown) => Promise<void>
+  /** 非 store 型投影的确定性重建钩子（如 summary_structured_memory → 结构化记忆文档）。 */
+  readonly rebuildFromSnapshots?: (
+    projectPath: string,
+    snapshots: ChapterSnapshot[],
+    ctx: ProjectionFoldContext,
+  ) => Promise<void>
+  /** ingest/sync 增量路径触发条件（保留既有条件接线语义）；缺省 = 无条件。 */
+  readonly shouldApply?: (snapshot: ChapterSnapshot) => boolean
+}
+
+/** 注册表容器（模块加载时由 chapter-ingest.ts 填充；填充前为空）。 */
+export const PROJECTION_REGISTRY: Record<string, ProjectionRegistryEntry> = {}
+
+/**
+ * 批量注册投影条目（幂等保护：重复注册抛错）。注册即校验，任何不一致
+ * 立即抛（cognee fail-loud），绝不静默接受分叉的类别/键集。
+ */
+export function registerProjections(entries: Record<string, ProjectionRegistryEntry>): void {
+  for (const [id, entry] of Object.entries(entries)) {
+    const canonical = PROJECTION_CATEGORIES[id]
+    if (canonical === undefined) {
+      throw new Error(
+        `[projection-registry] unknown projection "${id}" — not in PROJECTION_CATEGORIES (fail-loud)`,
+      )
+    }
+    if (entry.category !== canonical) {
+      throw new Error(
+        `[projection-registry] category mismatch for "${id}": registry=${entry.category} vs PROJECTION_CATEGORIES=${canonical} (fail-loud)`,
+      )
+    }
+    if (entry.rebuildable && canonical !== "fold_rebuildable") {
+      throw new Error(
+        `[projection-registry] "${id}" marked rebuildable but category is ${canonical} — only fold_rebuildable projections may auto-rebuild (fail-loud)`,
+      )
+    }
+    if (PROJECTION_REGISTRY[id] !== undefined) {
+      throw new Error(`[projection-registry] duplicate registration for "${id}" (fail-loud)`)
+    }
+    PROJECTION_REGISTRY[id] = entry
+  }
+}
+
+/** 带全套 store fold 能力的注册表条目（ingest/rebuild/drift/sync 四路径遍历的同一键集）。 */
+export function foldStoreRegistryEntries(): Array<[string, ProjectionRegistryEntry]> {
+  return Object.entries(PROJECTION_REGISTRY).filter(
+    ([, e]) =>
+      e.load !== undefined &&
+      e.save !== undefined &&
+      e.createEmpty !== undefined &&
+      e.applyToStore !== undefined &&
+      e.foldFromSnapshot !== undefined &&
+      e.file !== null,
+  )
+}
+
+/** 可确定性重建的注册表条目（failed 自愈 / drift 自动修复的遍历集）。 */
+export function rebuildableRegistryEntries(): Array<[string, ProjectionRegistryEntry]> {
+  return Object.entries(PROJECTION_REGISTRY).filter(([, e]) => e.rebuildable)
+}
+
+/** 该投影是否可经注册表自动重建（failed 自愈 / drift 修复的统一门槛查询）。 */
+export function isAutoRebuildableProjection(projection: string): boolean {
+  return PROJECTION_REGISTRY[projection]?.rebuildable === true
+}
+
+/**
+ * CI 三方等值校验之一：注册表键集 == PROJECTION_CATEGORIES 键集。
+ * 不一致直接抛（fail-loud）；projection-registry.spec.ts 另校验
+ * runProjection 实际调用 id 集 ⊆ 注册表键集 与 fold 条目键集 ⊆ runProjection id 集。
+ */
+export function assertProjectionRegistryComplete(): void {
+  const registryKeys = new Set(Object.keys(PROJECTION_REGISTRY))
+  const categoryKeys = Object.keys(PROJECTION_CATEGORIES)
+  const missing = categoryKeys.filter((k) => !registryKeys.has(k))
+  const extra = [...registryKeys].filter((k) => PROJECTION_CATEGORIES[k] === undefined)
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `[projection-registry] key-set mismatch — missing from registry: [${missing.join(", ")}]; unknown in registry: [${extra.join(", ")}] (fail-loud)`,
+    )
+  }
 }
 
 export function emptyLedger(): ProjectionStatusLedger {

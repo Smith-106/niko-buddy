@@ -30,7 +30,7 @@ export interface CoverGenerateCardProps {
 
 export function CoverGenerateCard({ port, meta, aspect = "portrait", promptOverride }: CoverGenerateCardProps) {
   const { t } = useTranslation()
-  const projectPath = useWikiStore((s) => s.projectPath)
+  const projectPath = useWikiStore((s) => s.project?.path)
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 

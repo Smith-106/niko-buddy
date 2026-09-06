@@ -36,7 +36,7 @@ export interface FanficMergeDialogProps {
 
 export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames = [], rules }: FanficMergeDialogProps) {
   const { t } = useTranslation()
-  const projectPath = useWikiStore((s) => s.projectPath)
+  const projectPath = useWikiStore((s) => s.project?.path)
   const [proposal, setProposal] = useState<CanonMergeProposal | null>(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)

@@ -43,7 +43,7 @@ export interface KbMetrics {
   obligation_coverage: MetricSample
   /** 硬注入预算占用（0~1，ratio）；源=P2-IMP-13 接线：pack.hardInjectUsage.ratio（E-02 :728 已装配） */
   hard_injection_budget_usage: MetricSample
-  /** 晋升重放成功率；源=promotion-bridge.promotionReplaySuccessRate（P2-IMP-15 后续接线） */
+  /** 晋升重放成功率；源=promotion-bridge.promotionReplaySuccessRate（P2-IMP-15：collectKbMetricsLive 接真实源） */
   promotion_replay_success: MetricSample
   /** 真相文件 fold 漂移（=0 健康）；源=P2-IMP-13 接线：IMP-06 sampleTruthFoldDrift 采样聚合值 */
   truth_fold_drift: MetricSample
@@ -87,11 +87,88 @@ export function collectKbMetrics(sources: KbMetricsSources): KbMetrics {
   }
 }
 
+/**
+ * P2-IMP-15：promotion_replay_success 接 promotion-bridge 凭证层真实源。
+ * collectKbMetrics 保持纯函数（注入式，单测友好）；本包装在生产侧动态读
+ * promotion-bridge.promotionReplaySuccessRate（凭证层 records 统计：重放成功 /
+ * 总晋升尝试），采集失败诚实降级 N/A（不伪造）。显式传入的
+ * sources.promotionReplaySuccess 优先（注入覆盖真实源）。
+ * 调用方：kb-health-view 宿主 / 未来 context-engine 接线点（本次 context-engine
+ * 禁改，包装先行）。
+ */
+export interface KbMetricsLiveInput {
+  projectPath: string
+  sources?: KbMetricsSources
+}
+
+export async function collectKbMetricsLive(input: KbMetricsLiveInput): Promise<KbMetrics> {
+  let promotionReplaySuccess: number | null = null
+  try {
+    const { promotionReplaySuccessRate } = await import("./promotion-bridge")
+    const rate = await promotionReplaySuccessRate(input.projectPath)
+    promotionReplaySuccess = rate.rate
+  } catch {
+    promotionReplaySuccess = null
+  }
+  return collectKbMetrics({
+    ...input.sources,
+    promotionReplaySuccess: input.sources?.promotionReplaySuccess ?? promotionReplaySuccess,
+  })
+}
+
 /** truth_fold_drift > 0 → 告警（GOV-OBS-01：不静默降级）。 */
 export function checkTruthFoldDrift(drift: number | null): { alarm: boolean; detail: string } {
   if (drift === null) return { alarm: false, detail: "truth_fold_drift 不可采集（N/A）" }
   if (drift > 0) return { alarm: true, detail: `truth_fold_drift=${drift} > 0（真相文件与快照重放不一致）` }
   return { alarm: false, detail: "truth_fold_drift=0（健康）" }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// P2-IMP-15：drift 自愈告警升级决策（纯函数，chapter-ingest.autoRepairTruthFoldDrift 调用）
+// ──────────────────────────────────────────────────────────────────────
+
+/** 自愈尝试的前后采样结果（null = 采样不可用 N/A，绝不伪造）。 */
+export interface DriftRepairOutcome {
+  driftBefore: number | null
+  driftAfter: number | null
+  repairedFiles: string[]
+}
+
+/**
+ * 自愈后的告警决策（P2-IMP-15 核心语义：只有复测仍>0 才告警升级）：
+ *   - driftBefore=null → N/A 不告警（诚实降级）；
+ *   - driftBefore=0 → 健康零动作不告警（误报护栏）；
+ *   - driftBefore>0 且复测=0 → 自愈成功，不升级（仅记自愈事件）；
+ *   - 复测仍>0（或复测不可用）→ 告警升级。
+ */
+export function decideDriftAlarmAfterRepair(
+  outcome: DriftRepairOutcome,
+): { alarm: boolean; escalated: boolean; detail: string } {
+  if (outcome.driftBefore === null) {
+    return { alarm: false, escalated: false, detail: "truth_fold_drift 不可采集（N/A，不自愈不告警）" }
+  }
+  if (outcome.driftBefore === 0) {
+    return { alarm: false, escalated: false, detail: "truth_fold_drift=0（健康，零动作）" }
+  }
+  if (outcome.driftAfter === null) {
+    return {
+      alarm: true,
+      escalated: true,
+      detail: `truth_fold_drift=${outcome.driftBefore} 自愈后复测不可用 → 告警升级（不静默降级）`,
+    }
+  }
+  if (outcome.driftAfter === 0) {
+    return {
+      alarm: false,
+      escalated: false,
+      detail: `truth_fold_drift=${outcome.driftBefore} → 自愈成功（${outcome.repairedFiles.length} 类经注册表重建），复测=0`,
+    }
+  }
+  return {
+    alarm: true,
+    escalated: true,
+    detail: `truth_fold_drift=${outcome.driftBefore} → 自愈后复测仍 ${outcome.driftAfter} > 0 → 告警升级`,
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -18,10 +18,10 @@ const graph: InteractiveStoryGraph = {
   version: 1,
   startId: "start",
   nodes: [
-    { id: "start", kind: "knot", text: "开场", edges: ["e1"] },
-    { id: "end", kind: "end", text: "终局", edges: [] },
+    { id: "start", kind: "knot", title: "开场", text: "开场" },
+    { id: "end", kind: "end", title: "终局", text: "终局" },
   ],
-  edges: [{ id: "e1", from: "start", to: "end", choiceLabel: "继续" }],
+  edges: [{ from: "start", to: "end", choiceLabel: "继续" }],
 }
 
 describe("interactive-io", () => {

@@ -38,11 +38,18 @@ import {
   recordProjectionAudit,
   recordProjectionStatus,
   saveProjectionStatusLedger,
+  registerProjections,
+  isAutoRebuildableProjection,
+  PROJECTION_CATEGORIES,
+  PROJECTION_REGISTRY,
   type ProjectionAuditEntry,
   type ProjectionAuditStatus,
+  type ProjectionFoldContext,
+  type ProjectionRegistryEntry,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
@@ -489,6 +496,25 @@ export async function ingestChapter(
   }
   const body = parsed.body
 
+  // P2-IMP-14: failed 自愈（落地 F-002 注释承诺，闭合 P2-N3）——账本中存在
+  // failed && fold_rebuildable && 注册表 rebuildable 的投影时，本次 ingest 入口
+  // 先经注册表从 committed 快照序列确定性重建这些类（只重建失败类，不碰
+  // 非确定性 graph/vector），再继续本章增量。自愈失败仅告警不阻断（原 failed
+  // 状态在账本保留可见）。
+  try {
+    const heal = await selfHealFailedProjections(pp, { now: options.now })
+    if (heal.healed.length > 0) {
+      logger.info(
+        "Chapter Ingest",
+        `failed 投影自愈：${heal.healed.length} 类已按注册表重建（${heal.healed.join(", ")}）`,
+      )
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "failed 投影自愈异常（非致命，继续本章摄取）", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
   const extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
   let snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
@@ -701,7 +727,11 @@ export async function ingestChapter(
       const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
       // E-03 (run-execute-1): fold 纯性 — 入口取一次显式时间戳, 全链下传
       // (fold 函数体内禁止隐式时钟; 传入固定 now 时 ingest 全链确定性可测)。
-      const foldCtx = { now: options.now ?? new Date().toISOString() }
+      // P2-IMP-14: aliasMaps 随注册表 fold 上下文下传（PERF-NEW-05 复用保留）。
+      const foldCtx: ProjectionFoldContext = {
+        now: options.now ?? new Date().toISOString(),
+        aliasMaps,
+      }
       // mutates_existing_non_rebuildable: graph entity pages (writeSnapshotToWiki).
       await runProjection("graph_entity_pages", async () => {
         const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
@@ -722,104 +752,20 @@ export async function ingestChapter(
         }
       })
 
-      // fold_rebuildable: cognition state.
-      if (snapshot.knowledgeChanges.length > 0) {
-        await runProjection("cognition", async () => {
-          const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-          const updated = mergeCognitionFromSnapshot(existing, snapshot, aliasMaps)
-          await saveCognitionState(pp, updated)
+      // P2-IMP-14: 9 个 store-backed fold_rebuildable 投影经注册表同源遍历
+      // （ingest 增量路径）——与 rebuild / drift 重放 / sync 路径共用同一
+      // applyToStore fold（新增投影只改注册表一处，四路径自动覆盖，F5 类
+      // 「某路径漏投影」缺陷结构上绝迹）。shouldApply 保留既有条件接线语义
+      // （cognition/character/foreshadow 仅在有变更时记账）。
+      for (const [projection, entry] of Object.entries(PROJECTION_REGISTRY)) {
+        if (!entry.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
+        if (entry.shouldApply && !entry.shouldApply(snapshot)) continue
+        await runProjection(projection, async () => {
+          const loaded = await entry.load!(pp)
+          const base = loaded ?? entry.createEmpty!(foldCtx)
+          await entry.save!(pp, entry.applyToStore!(base, snapshot, foldCtx))
         })
       }
-
-      // fold_rebuildable: character state.
-      if (snapshot.characterStateChanges.length > 0) {
-        await runProjection("character", async () => {
-          const existingChars = await loadCharacterStates(pp)
-          // PERF-NEW-05: reuse the aliasMaps computed once at the top of the
-          // projection block (was recomputed per-projection here).
-          // CORR-001/002 fix: the live ingest path now calls the same
-          // applyCharacterStateChangesToStore helper as rebuildFromCommittedSnapshot
-          // (matching the emotional-arcs/resource-ledger pattern at ~611-624),
-          // so fullwidth-colon "角色名：状态" lines parse identically on both
-          // paths. The shared parseCharacterStateChange helper guarantees the
-          // fold_rebuildable contract (ingest == rebuild).
-          applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)
-          await saveCharacterStates(pp, existingChars)
-        })
-      }
-
-      // fold_rebuildable: foreshadowing.
-      if (snapshot.foreshadowingChanges.length > 0) {
-        await runProjection("foreshadow", async () => {
-          const existingForeshadows = await loadForeshadowingTracker(pp)
-          // CORR-001/002 fix: the live ingest path now calls the same
-          // applyForeshadowingChangesToStore helper as rebuildFromCommittedSnapshot
-          // (matching the emotional-arcs/resource-ledger pattern at ~611-624),
-          // so fullwidth-colon "新增：/推进：/回收：" lines parse identically on
-          // both paths. The shared parseForeshadowingChange helper guarantees the
-          // fold_rebuildable contract (ingest == rebuild). applyForeshadowingChangesToStore
-          // takes no aliasMaps param (foreshadow matching is name-substring, not
-          // alias-resolved) — signature unchanged.
-          applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)
-          await saveForeshadowingTracker(pp, existingForeshadows)
-        })
-      }
-
-      // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs. Derived from
-      // snapshot.characterDetails[name].arcChange. No new LLM extract field
-      // (additive only); failure → ledger (IC-02: no silent degrade).
-      await runProjection("emotional_arc", async () => {
-        const arcStore = await loadEmotionalArcs(pp)
-        applyEmotionalArcsToStore(arcStore, snapshot, aliasMaps, foldCtx)
-        await saveEmotionalArcs(pp, arcStore)
-      })
-
-      // R4 (S4 / ANL-013): fold_rebuildable — resource ledger. Derived from
-      // snapshot.itemDetails[name].holder + previousHolders. No new LLM
-      // extract field (additive only); failure → ledger (IC-02).
-      await runProjection("resource_ledger", async () => {
-        const ledger = await loadResourceLedger(pp)
-        applyResourceLedgerToStore(ledger, snapshot, aliasMaps, foldCtx)
-        await saveResourceLedger(pp, ledger)
-      })
-
-      // R4 (S4 / ANL-013): fold_rebuildable — subplot board. Phase 3 (LE-1):
-      // 从 snapshot foreshadowingChanges/events 解析 subplot 解决/废弃事件,
-      // 写入 targetResolutionChapter/abandoned 结构化字段。
-      await runProjection("subplot_board", async () => {
-        const board = await loadSubplotBoard(pp)
-        applySubplotChangesToStore(board, snapshot, foldCtx)
-        await saveSubplotBoard(pp, board)
-      })
-
-      // E-03 / P2-IMP-02+03：encounter-matrix / chapter-summaries / particle-ledger
-      // 三投影接线（PROJECTION_CATEGORIES 已登记 fold_rebuildable，
-      // rebuildFromCommittedSnapshot 与 computeTruthFoldDrift 重放均覆盖）。
-      // 与 rebuild 共用同一批 fold 函数 (fold_rebuildable 契约: ingest == rebuild)。
-      // 三模型共识 (deepseek-v4-flash + GLM-5.3-flash + hy3)。
-      await runProjection("encounter_matrix", async () => {
-        const store = await loadEncounterMatrix(pp)
-        let next = store
-        for (const edge of foldMeetingEdges(snapshot, aliasMaps)) {
-          next = appendMeetingEdge(next, edge, foldCtx)
-        }
-        await saveEncounterMatrix(pp, next)
-      })
-
-      await runProjection("chapter_summaries", async () => {
-        const store = await loadChapterSummaries(pp)
-        const next = upsertChapterSummary(store, foldChapterSummary(snapshot), foldCtx)
-        await saveChapterSummaries(pp, next)
-      })
-
-      await runProjection("particle_ledger", async () => {
-        const store = await loadParticleLedger(pp)
-        let next = store
-        for (const entry of foldParticleEntries(snapshot, aliasMaps)) {
-          next = appendParticleEntry(next, entry, foldCtx)
-        }
-        await saveParticleLedger(pp, next)
-      })
 
       // fold_rebuildable: summary_structured_memory.
       await runProjection("summary_structured_memory", async () => {
@@ -1310,8 +1256,9 @@ export async function restoreSnapshotHistory(
   const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
   await cleanupSupersededEntityFiles(pp, restoredCurrent, writtenEntityPaths)
   await rebuildDerivedMemoryFromSnapshots(pp, restoredCurrent)
-  // P2-IMP-06：restore 后采样 drift；drift>0 告警+telemetry（阻断逻辑留 arch 裁决）。
-  await emitTruthFoldDriftAlarm(pp, await sampleTruthFoldDrift(pp))
+  // P2-IMP-15：restore 后 drift>0 → 自动经注册表 rebuild 漂移类 → 复测仍>0 才
+  // 告警升级（IMP-06 通道）；drift=0 零动作（误报护栏）。
+  await autoRepairTruthFoldDrift(pp, { trigger: "restore" })
   // ARCH-006 (REG-001 sibling): restoring a history snapshot replaces the
   // current snapshot content, so the mtime-keyed temporalFactsCache may hold
   // pre-restore facts — clear it for this project (same root cause as the
@@ -1522,21 +1469,26 @@ async function writeStructuredMemoryDocuments(projectPath: string, snapshots: Ch
 // 做定向 drift 采样（复用 computeTruthFoldDrift 单类比较逻辑：live 盘上 store vs
 // committed 快照重放 canonical 哈希比对），结果并入返回值 driftSuspected:string[]，
 // 供 UI 提示「N 类记忆未同步，建议执行全量重建」。采样失败（mock/缺文件）债务记
-// trace、返回 []，绝不阻断 sync（彻底层——sync 尾部全量 rebuild——不在本条，产品裁决 pending）。
-const UNFOLDED_DRIFT_CLASSES = new Set([
-  "encounter-matrix.json",
-  "chapter-summaries.json",
-  "subplot-board.json",
-  "emotional-arcs.json",
-  "particle-ledger.json",
-  "resource-ledger.json",
-])
+// trace、返回 []，绝不阻断 sync。P2-IMP-14：sync 直写类清单（SYNC_FOLD_PROJECTION_IDS）
+// 与未 fold 文件集合同源注册表派生；P2-IMP-15：采样到漂移后经注册表自动重建漂移类，
+// 复测仍漂移才保留 driftSuspected（告警升级）。
+const SYNC_FOLD_PROJECTION_IDS: readonly string[] = ["cognition", "character", "foreshadow"]
+
+/** P2-IMP-14：sync 路径不 fold 的 drift 文件集合由注册表派生（全部 store 文件 − sync 直写 3 类）。 */
+function unfoldedDriftClasses(): Set<string> {
+  return new Set(
+    Object.entries(PROJECTION_REGISTRY)
+      .filter(([id, entry]) => entry.file !== null && !SYNC_FOLD_PROJECTION_IDS.includes(id))
+      .map(([, entry]) => entry.file as string),
+  )
+}
 
 async function sampleUnfoldedMemoryDriftSuspected(projectPath: string): Promise<string[]> {
   try {
     const results = await computeTruthFoldDrift(projectPath, "")
+    const unfolded = unfoldedDriftClasses()
     return results
-      .filter((r) => r.drifted && UNFOLDED_DRIFT_CLASSES.has(r.file))
+      .filter((r) => r.drifted && unfolded.has(r.file))
       .map((r) => r.file)
   } catch (err) {
     logger.warn("Chapter Ingest", "syncSnapshotToMemory 6 类 drift 采样失败（债务记 trace，不阻断）", {
@@ -1591,18 +1543,17 @@ export async function syncSnapshotToMemory(
   // still calls sync*Changes directly rather than via runProjection) stands
   // as a larger separate refactor.
 
-  if (syncedSnapshot.knowledgeChanges.length > 0) {
-    const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-    const updated = mergeCognitionFromSnapshot(existing, syncedSnapshot, buildAliasMapsFromSnapshot(syncedSnapshot))
-    await saveCognitionState(pp, updated)
-  }
-
-  if (syncedSnapshot.characterStateChanges.length > 0) {
-    await syncCharacterStateChanges(pp, syncedSnapshot)
-  }
-
-  if (syncedSnapshot.foreshadowingChanges.length > 0) {
-    await syncForeshadowingChanges(pp, syncedSnapshot)
+  // P2-IMP-14: sync 路径同源遍历注册表（cognition/character/foreshadow 三类增量
+  // fold，P2-IMP-08 边界保留：其余 6 类不经本路径，由 drift 采样 + IMP-15 自愈
+  // 兜底）。ctx 传空对象——保留既有 sync 语义（无 now → 保留输入时间戳；
+  // aliasMaps 按快照自建）；shouldApply 保留三类条件接线语义。
+  for (const id of SYNC_FOLD_PROJECTION_IDS) {
+    const entry = PROJECTION_REGISTRY[id]
+    if (!entry?.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
+    if (entry.shouldApply && !entry.shouldApply(syncedSnapshot)) continue
+    const loaded = await entry.load(pp)
+    const base = loaded ?? entry.createEmpty({})
+    await entry.save(pp, entry.applyToStore(base, syncedSnapshot, {}))
   }
 
   await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
@@ -1624,7 +1575,15 @@ export async function syncSnapshotToMemory(
 
   // P2-IMP-08：返回前对未 fold 的 6 类做定向 drift 采样（复用 computeTruthFoldDrift
   // 单类比较逻辑）；结果并入返回值 driftSuspected，UI 据此提示全量重建。
-  const driftSuspected = await sampleUnfoldedMemoryDriftSuspected(pp)
+  let driftSuspected = await sampleUnfoldedMemoryDriftSuspected(pp)
+  // P2-IMP-15：sync 后 drift>0 → 自动经注册表 rebuild 漂移类（确定性 fold 安全，
+  // 非确定性投影不自动）→ 复测仍>0 才保留 driftSuspected（告警升级由
+  // autoRepairTruthFoldDrift 内部完成）。
+  if (driftSuspected.length > 0) {
+    const repair = await autoRepairTruthFoldDrift(pp, { trigger: "sync" })
+    const unfolded = unfoldedDriftClasses()
+    driftSuspected = repair.stillDriftedFiles.filter((f) => unfolded.has(f))
+  }
 
   return { writtenEntityPaths, memoryPagePaths, memorySyncedAt, driftSuspected }
 }
@@ -1876,12 +1835,6 @@ export function applyCharacterStateChangesToStore(
   return existingChars
 }
 
-async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
-  const existingChars = await loadCharacterStates(projectPath)
-  applyCharacterStateChangesToStore(existingChars, snapshot, buildAliasMapsFromSnapshot(snapshot))
-  await saveCharacterStates(projectPath, existingChars)
-}
-
 /**
  * P2-IMP-09：伏笔名归一——trim + 连续空白折叠（「归一全等」的归一）。
  */
@@ -1971,12 +1924,6 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
   // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
   existingForeshadows.lastUpdated = ctx?.now ?? existingForeshadows.lastUpdated
   return existingForeshadows
-}
-
-async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
-  const existingForeshadows = await loadForeshadowingTracker(projectPath)
-  applyForeshadowingChangesToStore(existingForeshadows, snapshot)
-  await saveForeshadowingTracker(projectPath, existingForeshadows)
 }
 
 /**
@@ -2156,6 +2103,179 @@ export function applySubplotChangesToStore(
   return board
 }
 
+// ============================================================================
+// P2-IMP-14: PROJECTION_REGISTRY 填充（容器/类型/注册校验在
+// projection-status-ledger.ts；实现在本文件 — fold helper 与 store 模块都
+// 聚合于此，避免 ledger ↔ chapter-ingest 运行时循环导入）。
+//
+// 关键结构约束：storeEntry() 把 foldFromSnapshot（全量重放）定义为
+// createEmpty + 逐快照 applyToStore（增量 fold）的 reduce — 即 ingest 增量 /
+// rebuild 重放 / drift 比对重放三条路径用的是同一个 applyToStore 函数引用，
+// F5 类「某路径 fold 实现分叉」缺陷结构上不可能发生。graph/vector/community
+// 等非确定性投影以 rebuildable:false 入表（三方键集等值成员，不参与自动
+// 自愈）；snapshot / chapter_ingest_output 是提交点本体，同样标 false。
+// ============================================================================
+
+/** 别名表解析：ingest 传入预计算表（PERF-NEW-05）；rebuild/drift 按快照自建。 */
+function registryAliasMaps(ctx: ProjectionFoldContext, snapshot: ChapterSnapshot) {
+  return ctx.aliasMaps ?? buildAliasMapsFromSnapshot(snapshot)
+}
+
+/**
+ * store-backed fold_rebuildable 投影的注册条目工厂：load/save/createEmpty/
+ * applyToStore 由调用方提供，foldFromSnapshot 自动派生（同源保证）。
+ */
+function storeEntry<S>(
+  file: string,
+  impl: {
+    load: (projectPath: string) => Promise<S | null>
+    createEmpty: (ctx: ProjectionFoldContext) => S
+    applyToStore: (store: S, snapshot: ChapterSnapshot, ctx: ProjectionFoldContext) => S
+    save: (projectPath: string, store: S) => Promise<void>
+    shouldApply?: (snapshot: ChapterSnapshot) => boolean
+  },
+): ProjectionRegistryEntry {
+  return {
+    category: "fold_rebuildable",
+    rebuildable: true,
+    file,
+    load: (projectPath) => impl.load(projectPath),
+    createEmpty: (ctx) => impl.createEmpty(ctx),
+    applyToStore: (store, snapshot, ctx) => impl.applyToStore(store as S, snapshot, ctx),
+    foldFromSnapshot: (snapshots, ctx) =>
+      snapshots.reduce((acc, snapshot) => impl.applyToStore(acc, snapshot, ctx), impl.createEmpty(ctx)),
+    save: (projectPath, store) => impl.save(projectPath, store as S),
+    ...(impl.shouldApply ? { shouldApply: impl.shouldApply } : {}),
+  }
+}
+
+registerProjections({
+  // —— 9 个 store-backed fold_rebuildable 投影（drift 9 类同源）——
+  cognition: storeEntry("cognition-state.json", {
+    load: loadCognitionState,
+    createEmpty: () => emptyCognitionState(),
+    applyToStore: (store, snapshot, ctx) =>
+      mergeCognitionFromSnapshot(store, snapshot, registryAliasMaps(ctx, snapshot)),
+    save: saveCognitionState,
+    shouldApply: (snapshot) => snapshot.knowledgeChanges.length > 0,
+  }),
+  character: storeEntry("character-states.json", {
+    load: loadCharacterStates,
+    createEmpty: () => createEmptyCharacterStateStore(),
+    applyToStore: (store, snapshot, ctx) =>
+      applyCharacterStateChangesToStore(store, snapshot, registryAliasMaps(ctx, snapshot), ctx),
+    save: saveCharacterStates,
+    shouldApply: (snapshot) => snapshot.characterStateChanges.length > 0,
+  }),
+  foreshadow: storeEntry("foreshadowing-tracker.json", {
+    load: loadForeshadowingTracker,
+    createEmpty: () => createEmptyForeshadowingStore(),
+    applyToStore: (store, snapshot, ctx) => applyForeshadowingChangesToStore(store, snapshot, ctx),
+    save: saveForeshadowingTracker,
+    shouldApply: (snapshot) => snapshot.foreshadowingChanges.length > 0,
+  }),
+  emotional_arc: storeEntry("emotional-arcs.json", {
+    load: loadEmotionalArcs,
+    createEmpty: (ctx) => createEmptyEmotionalArcStore(ctx.now),
+    applyToStore: (store, snapshot, ctx) =>
+      applyEmotionalArcsToStore(store, snapshot, registryAliasMaps(ctx, snapshot), ctx),
+    save: saveEmotionalArcs,
+  }),
+  resource_ledger: storeEntry("resource-ledger.json", {
+    load: loadResourceLedger,
+    createEmpty: () => createEmptyResourceLedgerStore(),
+    applyToStore: (store, snapshot, ctx) =>
+      applyResourceLedgerToStore(store, snapshot, registryAliasMaps(ctx, snapshot), ctx),
+    save: saveResourceLedger,
+  }),
+  subplot_board: storeEntry("subplot-board.json", {
+    load: loadSubplotBoard,
+    createEmpty: (ctx) => createEmptySubplotBoardStore(ctx.now),
+    applyToStore: (store, snapshot, ctx) => applySubplotChangesToStore(store, snapshot, ctx),
+    save: saveSubplotBoard,
+  }),
+  encounter_matrix: storeEntry("encounter-matrix.json", {
+    load: loadEncounterMatrix,
+    createEmpty: () => createEmptyEncounterMatrixStore(),
+    applyToStore: (store, snapshot, ctx) => {
+      let next = store
+      for (const edge of foldMeetingEdges(snapshot, registryAliasMaps(ctx, snapshot))) {
+        next = appendMeetingEdge(next, edge, ctx)
+      }
+      return next
+    },
+    save: saveEncounterMatrix,
+  }),
+  chapter_summaries: storeEntry("chapter-summaries.json", {
+    load: loadChapterSummaries,
+    createEmpty: () => createEmptyChapterSummariesStore(),
+    applyToStore: (store, snapshot, ctx) =>
+      upsertChapterSummary(store, foldChapterSummary(snapshot), ctx),
+    save: saveChapterSummaries,
+  }),
+  particle_ledger: storeEntry("particle-ledger.json", {
+    load: loadParticleLedger,
+    createEmpty: () => createEmptyParticleLedgerStore(),
+    applyToStore: (store, snapshot, ctx) => {
+      let next = store
+      for (const entry of foldParticleEntries(snapshot, registryAliasMaps(ctx, snapshot))) {
+        next = appendParticleEntry(next, entry, ctx)
+      }
+      return next
+    },
+    save: saveParticleLedger,
+  }),
+  // —— 非 store 型投影入表（三方键集等值成员；rebuildable 标记驱动自愈门槛）——
+  // 结构化记忆文档：rebuild 经 writeStructuredMemoryDocuments 确定性重建。
+  summary_structured_memory: {
+    category: "fold_rebuildable",
+    rebuildable: true,
+    file: null,
+    rebuildFromSnapshots: async (projectPath, snapshots) => {
+      await writeStructuredMemoryDocuments(projectPath, snapshots)
+    },
+  },
+  // sync 是复合用户路径（实体页 + 快照物化 + 3 类 store），rebuild 不等价于
+  // 重放该路径 → 不自动自愈（failed 保留可见）。
+  sync_snapshot_to_memory: { category: "fold_rebuildable", rebuildable: false, file: null },
+  // 非确定性 / 提交点投影：标 non-rebuildable（不入自动重建遍历）。
+  vector: { category: "single_snapshot_idempotent", rebuildable: false, file: null },
+  snapshot: { category: "single_snapshot_idempotent", rebuildable: false, file: null },
+  chapter_ingest_output: { category: "single_snapshot_idempotent", rebuildable: false, file: null },
+  graph_entity_pages: { category: "mutates_existing_non_rebuildable", rebuildable: false, file: null },
+  graph_entity_patch_fields: { category: "mutates_existing_non_rebuildable", rebuildable: false, file: null },
+  community_summary: { category: "mutates_existing_non_rebuildable", rebuildable: false, file: null },
+})
+
+/**
+ * P2-IMP-14：经注册表重建可确定性重建的投影（rebuild / failed 自愈 / drift
+ * 自动修复三条遍历共用同一函数）。onlyIds 缺省 = 全部 rebuildable 条目；
+ * 传入子集 = 只重建该子集（failed 自愈只重建 failed 类，drift 修复只重建
+ * 漂移类）。返回实际重建的投影 id。
+ */
+export async function rebuildRegistryProjections(
+  projectPath: string,
+  snapshots: ChapterSnapshot[],
+  ctx: ProjectionFoldContext = { now: "" },
+  onlyIds?: ReadonlySet<string>,
+): Promise<string[]> {
+  const pp = normalizePath(projectPath)
+  const rebuilt: string[] = []
+  for (const [id, entry] of Object.entries(PROJECTION_REGISTRY)) {
+    if (!entry.rebuildable) continue
+    if (onlyIds && !onlyIds.has(id)) continue
+    if (entry.foldFromSnapshot && entry.save) {
+      await entry.save(pp, entry.foldFromSnapshot(snapshots, ctx))
+    } else if (entry.rebuildFromSnapshots) {
+      await entry.rebuildFromSnapshots(pp, snapshots, ctx)
+    } else {
+      /* v8 ignore next */ continue
+    }
+    rebuilt.push(id)
+  }
+  return rebuilt
+}
+
 /**
  * F-002 (ANL-010 R4 / C-002): rebuild ALL derived projections from the
  * committed snapshot sequence. Previously `rebuildDerivedMemoryFromSnapshots`
@@ -2184,73 +2304,14 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
   // E-03 (C-3): rebuild 也是 fold 路径 — 入口取一次显式时间戳全链下传,
   // 缺省 "" (不引入隐式时钟; drift 检查传固定值保证可重放)。
-  const foldCtx: FoldContext = { now: options.now ?? "" }
+  const foldCtx: ProjectionFoldContext = { now: options.now ?? "" }
 
-  // fold_rebuildable: cognition / character / foreshadow / structured-memory
-  const cognitionState = snapshots.reduce(
-    (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot, buildAliasMapsFromSnapshot(snapshot)),
-    emptyCognitionState(),
-  )
-  await saveCognitionState(projectPath, cognitionState)
-
-  const characterStateStore = createEmptyCharacterStateStore()
-  for (const snapshot of snapshots) {
-    applyCharacterStateChangesToStore(characterStateStore, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
-  }
-  await saveCharacterStates(projectPath, characterStateStore)
-
-  const foreshadowingStore = createEmptyForeshadowingStore()
-  for (const snapshot of snapshots) {
-    applyForeshadowingChangesToStore(foreshadowingStore, snapshot, foldCtx)
-  }
-  await saveForeshadowingTracker(projectPath, foreshadowingStore)
-
-  // R4 (S4 / ANL-013): fold_rebuildable — emotional arcs / resource ledger /
-  // subplot board. Re-folded from the committed snapshot sequence (same
-  // shared apply* helpers as ingest → deterministic rebuild). Phase 3 (LE-1):
-  // applySubplotChangesToStore 从 snapshot 解析 targetResolutionChapter/abandoned.
-  const emotionalArcStore = createEmptyEmotionalArcStore(foldCtx.now)
-  const resourceLedger = createEmptyResourceLedgerStore()
-  const subplotBoard = createEmptySubplotBoardStore(foldCtx.now)
-  for (const snapshot of snapshots) {
-    const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
-    applyEmotionalArcsToStore(emotionalArcStore, snapshot, aliasMaps, foldCtx)
-    applyResourceLedgerToStore(resourceLedger, snapshot, aliasMaps, foldCtx)
-    applySubplotChangesToStore(subplotBoard, snapshot, foldCtx)
-  }
-  await saveEmotionalArcs(projectPath, emotionalArcStore)
-  await saveResourceLedger(projectPath, resourceLedger)
-  await saveSubplotBoard(projectPath, subplotBoard)
-
-  // P2-IMP-03：补过程库三 fold（encounter_matrix / chapter_summaries / particle_ledger）
-  // —重放形态与 computeTruthFoldDrift 一致，保证 restore/delete 后三类 drift=0。
-  {
-    let encounterMatrix = createEmptyEncounterMatrixStore()
-    for (const snapshot of snapshots) {
-      for (const edge of foldMeetingEdges(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
-        encounterMatrix = appendMeetingEdge(encounterMatrix, edge, foldCtx)
-      }
-    }
-    await saveEncounterMatrix(projectPath, encounterMatrix)
-  }
-  {
-    let chapterSummaries = createEmptyChapterSummariesStore()
-    for (const snapshot of snapshots) {
-      chapterSummaries = upsertChapterSummary(chapterSummaries, foldChapterSummary(snapshot), foldCtx)
-    }
-    await saveChapterSummaries(projectPath, chapterSummaries)
-  }
-  {
-    let particleLedger = createEmptyParticleLedgerStore()
-    for (const snapshot of snapshots) {
-      for (const entry of foldParticleEntries(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
-        particleLedger = appendParticleEntry(particleLedger, entry, foldCtx)
-      }
-    }
-    await saveParticleLedger(projectPath, particleLedger)
-  }
-
-  await writeStructuredMemoryDocuments(projectPath, snapshots)
+  // P2-IMP-14: rebuild 全量重放路径经注册表同源遍历——foldFromSnapshot 由
+  // createEmpty + 逐快照 applyToStore 派生（与 ingest 增量路径同一 fold 函数
+  // 引用），summary_structured_memory 经 rebuildFromSnapshots 钩子重建结构化
+  // 记忆文档（原 9 段硬编码 + writeStructuredMemoryDocuments 直调收敛于此）。
+  // 新增 fold_rebuildable 投影只需入表，rebuild 自动覆盖（F5 绝迹）。
+  await rebuildRegistryProjections(projectPath, snapshots, foldCtx)
 
   // mutates_existing_non_rebuildable: graph entity pages — delete+re-fold.
   // Re-write every snapshot's entity pages from scratch; stale pages not
@@ -2311,6 +2372,76 @@ export async function rebuildDerivedMemoryFromSnapshots(
 }
 
 // ============================================================================
+// P2-IMP-14: failed 自愈（ingest 入口）——账本 failed && fold_rebuildable &&
+// 注册表 rebuildable → 经注册表从 committed 快照序列确定性重建。
+// ============================================================================
+
+export interface ProjectionSelfHealResult {
+  /** 是否实际尝试了重建（false = 账本无可自愈的 failed 投影，误报护栏零动作）。 */
+  attempted: boolean
+  /** 自愈成功重建的投影 id（账本对应 cell 已改记 committed + rebuild 审计）。 */
+  healed: string[]
+  /** 自愈重建失败时的错误信息（failed 状态在账本保留可见，不静默降级）。 */
+  error?: string
+}
+
+/**
+ * 扫描投影账本：存在 failed && fold_rebuildable && 注册表 rebuildable 的投影时，
+ * 只重建这些失败类（非确定性 graph/vector/community 不参与，注册表
+ * rebuildable:false 的 fold_rebuildable 条目如 sync_snapshot_to_memory 也不参与）。
+ * 成功 → 对应 cell 改记 committed 并追加 "rebuild" 审计事件；失败 → 保留 failed
+ * 可见，仅告警。由 ingestChapter 入口自动调用，也可单测直调。
+ */
+export async function selfHealFailedProjections(
+  projectPath: string,
+  options: { now?: string } = {},
+): Promise<ProjectionSelfHealResult> {
+  const pp = normalizePath(projectPath)
+  let ledger: ProjectionStatusLedger = await loadProjectionStatusLedger(pp)
+  const failed: Array<{ chapter: number; projection: string }> = []
+  for (const [chapterKey, entries] of Object.entries(ledger.chapters)) {
+    for (const [projection, entry] of Object.entries(entries)) {
+      if (entry.status !== "failed") continue
+      if (PROJECTION_CATEGORIES[projection] !== "fold_rebuildable") continue
+      if (!isAutoRebuildableProjection(projection)) continue
+      failed.push({ chapter: Number(chapterKey), projection })
+    }
+  }
+  if (failed.length === 0) return { attempted: false, healed: [] }
+  const startedAt = Date.now()
+  try {
+    const snapshots = await loadValidMemorySnapshots(pp)
+    const only = new Set(failed.map((f) => f.projection))
+    const rebuilt = await rebuildRegistryProjections(pp, snapshots, { now: options.now ?? "" }, only)
+    const healed = failed.filter((f) => rebuilt.includes(f.projection))
+    for (const f of healed) {
+      ledger = recordProjectionStatus(ledger, f.chapter, f.projection, "committed")
+      // F-005 纪律：先追加持久审计，再同步内存 trail（末尾 save 不会把
+      // 已落盘事件覆盖回去）；审计失败非致命，不阻断自愈。
+      const auditEntry: ProjectionAuditEntry = {
+        projection: f.projection,
+        chapter: f.chapter,
+        status: "rebuild",
+        durationMs: Date.now() - startedAt,
+        timestamp: new Date().toISOString(),
+      }
+      ledger = recordProjectionAudit(ledger, auditEntry)
+      try {
+        await appendProjectionAuditEntry(pp, auditEntry)
+      } catch {
+        /* 审计追加非致命（audit 永不阻断主链） */
+      }
+    }
+    await saveProjectionStatusLedger(pp, ledger)
+    return { attempted: true, healed: healed.map((f) => f.projection) }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.warn("Chapter Ingest", "failed 投影自愈失败（非致命，账本保留 failed 状态）", { error: message })
+    return { attempted: true, healed: [], error: message }
+  }
+}
+
+// ============================================================================
 // E-03 (run-execute-1, 双库架构蓝图): truth_fold_drift 可执行定义
 // ============================================================================
 
@@ -2343,7 +2474,7 @@ export async function computeTruthFoldDrift(
   now = "",
 ): Promise<TruthFoldDrift[]> {
   const snapshots = await loadValidMemorySnapshots(projectPath)
-  const foldCtx: FoldContext = { now }
+  const foldCtx: ProjectionFoldContext = { now }
   const results: TruthFoldDrift[] = []
 
   const compare = async (file: string, live: unknown, replay: unknown): Promise<void> => {
@@ -2351,98 +2482,15 @@ export async function computeTruthFoldDrift(
     results.push({ file, liveHash, replayHash, drifted: liveHash !== replayHash })
   }
 
-  // 1. character-states.json
-  {
-    const live = await loadCharacterStates(projectPath)
-    const replay = createEmptyCharacterStateStore()
-    for (const snapshot of snapshots) {
-      applyCharacterStateChangesToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
-    }
-    await compare("character-states.json", live, replay)
-  }
-
-  // 2. cognition-state.json
-  {
-    const live = await loadCognitionState(projectPath)
-    const replay = snapshots.reduce(
-      (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot, buildAliasMapsFromSnapshot(snapshot)),
-      emptyCognitionState(),
-    )
-    await compare("cognition-state.json", live, replay)
-  }
-
-  // 3. encounter-matrix.json
-  {
-    const live = await loadEncounterMatrix(projectPath)
-    let replay = createEmptyEncounterMatrixStore()
-    for (const snapshot of snapshots) {
-      for (const edge of foldMeetingEdges(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
-        replay = appendMeetingEdge(replay, edge, foldCtx)
-      }
-    }
-    await compare("encounter-matrix.json", live, replay)
-  }
-
-  // 4. foreshadowing-tracker.json
-  {
-    const live = await loadForeshadowingTracker(projectPath)
-    const replay = createEmptyForeshadowingStore()
-    for (const snapshot of snapshots) {
-      applyForeshadowingChangesToStore(replay, snapshot, foldCtx)
-    }
-    await compare("foreshadowing-tracker.json", live, replay)
-  }
-
-  // 5. chapter-summaries.json
-  {
-    const live = await loadChapterSummaries(projectPath)
-    let replay = createEmptyChapterSummariesStore()
-    for (const snapshot of snapshots) {
-      replay = upsertChapterSummary(replay, foldChapterSummary(snapshot), foldCtx)
-    }
-    await compare("chapter-summaries.json", live, replay)
-  }
-
-  // 6. subplot-board.json
-  {
-    const live = await loadSubplotBoard(projectPath)
-    const replay = createEmptySubplotBoardStore(foldCtx.now)
-    for (const snapshot of snapshots) {
-      applySubplotChangesToStore(replay, snapshot, foldCtx)
-    }
-    await compare("subplot-board.json", live, replay)
-  }
-
-  // 7. emotional-arcs.json
-  {
-    const live = await loadEmotionalArcs(projectPath)
-    const replay = createEmptyEmotionalArcStore(foldCtx.now)
-    for (const snapshot of snapshots) {
-      applyEmotionalArcsToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
-    }
-    await compare("emotional-arcs.json", live, replay)
-  }
-
-  // 8. particle-ledger.json
-  {
-    const live = await loadParticleLedger(projectPath)
-    let replay = createEmptyParticleLedgerStore()
-    for (const snapshot of snapshots) {
-      for (const entry of foldParticleEntries(snapshot, buildAliasMapsFromSnapshot(snapshot))) {
-        replay = appendParticleEntry(replay, entry, foldCtx)
-      }
-    }
-    await compare("particle-ledger.json", live, replay)
-  }
-
-  // 9. resource-ledger.json
-  {
-    const live = await loadResourceLedger(projectPath)
-    const replay = createEmptyResourceLedgerStore()
-    for (const snapshot of snapshots) {
-      applyResourceLedgerToStore(replay, snapshot, buildAliasMapsFromSnapshot(snapshot), foldCtx)
-    }
-    await compare("resource-ledger.json", live, replay)
+  // P2-IMP-14: drift 重放路径经注册表同源遍历——live = entry.load（盘上原值，
+  // 含 cognition 缺文件 null 语义），replay = entry.foldFromSnapshot（与
+  // rebuild/ingest 同一 fold）。比对文件集合 = 注册表带 file 的 store 条目集
+  // （9 类），与写盘路径结构上同源（原 9 段硬编码收敛于此）。
+  for (const [, entry] of Object.entries(PROJECTION_REGISTRY)) {
+    if (!entry.file || !entry.load || !entry.foldFromSnapshot) continue
+    const live = await entry.load(projectPath)
+    const replay = entry.foldFromSnapshot(snapshots, foldCtx)
+    await compare(entry.file, live, replay)
   }
 
   return results
@@ -2495,6 +2543,122 @@ export async function emitTruthFoldDriftAlarm(
     })
   }
   return true
+}
+
+// ============================================================================
+// P2-IMP-15: drift 自动修复（启动/restore/delete/sync 后自愈闭环）。
+// 漂移类 → 经注册表确定性重建（只重建注册表 rebuildable 条目；非确定性投影
+// 不自动）→ 复测仍>0 才告警升级（IMP-06 通道）；自愈事件写 telemetry。
+// ============================================================================
+
+export interface DriftAutoRepairResult {
+  /** 是否实际尝试了修复（drift=0 / 采样 N-A → false，误报护栏零动作）。 */
+  attempted: boolean
+  /** 修复前漂移类数；null = 采样不可用（N/A，不伪造）。 */
+  driftBefore: number | null
+  /** 复测漂移类数；null = 复测不可用（按升级告警处理）。 */
+  driftAfter: number | null
+  /** 修复后不再漂移的文件。 */
+  repairedFiles: string[]
+  /** 复测仍漂移的文件（告警升级对象）。 */
+  stillDriftedFiles: string[]
+  /** 复测仍>0 → 已告警升级（emitTruthFoldDriftAlarm 内部已触发）。 */
+  escalated: boolean
+  /** 重建失败时的错误信息。 */
+  error?: string
+}
+
+/** 自愈事件 telemetry（.novel/telemetry/selfheal-<ts>.jsonl；GOV-OBS-01 可审计）。 */
+async function writeDriftSelfHealTelemetry(
+  projectPath: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-")
+    const telemetryDir = `${projectPath}/.novel/telemetry`
+    await createDirectory(telemetryDir)
+    await writeFileAtomic(`${telemetryDir}/selfheal-${ts}.jsonl`, JSON.stringify(event) + "\n")
+  } catch (err) {
+    logger.warn("Chapter Ingest", "selfheal telemetry 写入失败（债务记 trace，不阻断）", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+/**
+ * drift 自动修复主入口（P2-IMP-15）：
+ *   1. 采样（IMP-06 sampleTruthFoldDrift）；N/A → 零动作不告警（诚实降级）；
+ *   2. drift=0 → 零动作（误报护栏：健康态绝不碰盘、绝不写 telemetry）；
+ *   3. drift>0 → 漂移文件经注册表映射到确定性 fold 类，只重建这些类
+ *      （rebuildRegistryProjections 子集模式；非确定性投影不入映射集 → 不自动）；
+ *   4. 复测：仍>0 → emitTruthFoldDriftAlarm 告警升级；=0 → 记自愈成功日志；
+ *   5. 自愈事件（含升级/失败）一律写 selfheal telemetry。
+ */
+export async function autoRepairTruthFoldDrift(
+  projectPath: string,
+  options: { now?: string; trigger?: string } = {},
+): Promise<DriftAutoRepairResult> {
+  const pp = normalizePath(projectPath)
+  const now = options.now ?? ""
+  const trigger = options.trigger ?? "unknown"
+  const before = await sampleTruthFoldDrift(pp, now)
+  if (!before) {
+    return { attempted: false, driftBefore: null, driftAfter: null, repairedFiles: [], stillDriftedFiles: [], escalated: false }
+  }
+  if (before.driftCount === 0) {
+    return { attempted: false, driftBefore: 0, driftAfter: 0, repairedFiles: [], stillDriftedFiles: [], escalated: false }
+  }
+  // 漂移文件 → 注册表确定性 fold 投影（仅 rebuildable 条目；非确定性投影不自动）。
+  const fileToProjection = new Map<string, string>()
+  for (const [id, entry] of Object.entries(PROJECTION_REGISTRY)) {
+    if (entry.file !== null && entry.rebuildable) fileToProjection.set(entry.file, id)
+  }
+  const driftedIds = new Set<string>()
+  for (const file of before.driftedFiles) {
+    const id = fileToProjection.get(file)
+    if (id) driftedIds.add(id)
+  }
+  let error: string | undefined
+  if (driftedIds.size > 0) {
+    try {
+      const snapshots = await loadValidMemorySnapshots(pp)
+      await rebuildRegistryProjections(pp, snapshots, { now }, driftedIds)
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+      logger.warn("Chapter Ingest", "drift 自动修复重建失败（转告警升级）", { error })
+    }
+  }
+  const after = await sampleTruthFoldDrift(pp, now)
+  const driftAfter = after ? after.driftCount : before.driftCount
+  const stillDriftedFiles = after ? after.driftedFiles : before.driftedFiles
+  const repairedFiles = before.driftedFiles.filter((f) => !stillDriftedFiles.includes(f))
+  const decision = decideDriftAlarmAfterRepair({ driftBefore: before.driftCount, driftAfter, repairedFiles })
+  const escalated = decision.alarm
+  await writeDriftSelfHealTelemetry(pp, {
+    ts: new Date().toISOString(),
+    trigger,
+    driftBefore: before.driftCount,
+    driftedFiles: before.driftedFiles,
+    repairedFiles,
+    driftAfter,
+    escalated,
+    ...(error !== undefined ? { error } : {}),
+  })
+  if (escalated) {
+    // 复测仍>0 才告警升级（IMP-06 通道：logger.warn + drift-<ts>.jsonl）。
+    await emitTruthFoldDriftAlarm(pp, { driftCount: driftAfter ?? before.driftCount, driftedFiles: stillDriftedFiles })
+  } else {
+    logger.info("Chapter Ingest", `drift 自动修复成功：${decision.detail}（trigger=${trigger}）`)
+  }
+  return {
+    attempted: true,
+    driftBefore: before.driftCount,
+    driftAfter,
+    repairedFiles,
+    stillDriftedFiles,
+    escalated,
+    ...(error !== undefined ? { error } : {}),
+  }
 }
 
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
@@ -2766,8 +2930,8 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch { /* ignore */ }
   try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch { /* ignore */ }
   await rebuildDerivedMemoryFromSnapshots(pp)
-  // P2-IMP-06：delete 后采样 drift；drift>0 告警+telemetry。
-  await emitTruthFoldDriftAlarm(pp, await sampleTruthFoldDrift(pp))
+  // P2-IMP-15：delete 后 drift>0 → 自动经注册表 rebuild 漂移类 → 复测仍>0 才告警升级。
+  await autoRepairTruthFoldDrift(pp, { trigger: "delete" })
   clearGraphCache()
   clearTemporalFactsCache(pp)
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。

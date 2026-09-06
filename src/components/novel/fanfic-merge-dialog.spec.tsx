@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
 vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { projectPath: string | null }) => unknown) => selector({ projectPath: mocks.projectPath }),
+  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+    selector({ project: { path: mocks.projectPath } }),
 }))
 vi.mock("@/lib/novel/fanfic-canon-import", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/fanfic-canon-import")>()
@@ -35,7 +36,7 @@ const sourceBook: BookAnalysisLibraryBook = {
     { id: "c2", name: "新角色", aliases: [] },
   ] as never,
   skills: [],
-  styleStatus: "ready",
+  styleStatus: "missing",
   boundAurasCount: 0,
   addedAuraCharacterIds: [],
 }

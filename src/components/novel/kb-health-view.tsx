@@ -10,8 +10,11 @@
  * ## 边界与纪律
  *   - 纯展示组件（props 驱动）：metrics 由调用方注入（生产源 =
  *     buildContextPackUnlocked 尾部装配的 pack.kbMetrics，或独立 collectKbMetrics
- *     采样）；本组件不做任何 IO、零新真源。
- *   - onRebuild 可选：缺省时按钮禁用（重建动作属调用方接线，P2-IMP-15 自愈段后续）。
+ *     采样；promotion_replay_success 真实源 = kb-observability.collectKbMetricsLive
+ *     接 promotion-bridge 凭证层，P2-IMP-15）；本组件不做任何 IO、零新真源。
+ *   - onRebuild 可选：缺省时按钮禁用（重建动作属调用方接线）。P2-IMP-15 自愈段：
+ *     drift 自动修复（autoRepairTruthFoldDrift）成功时告警不升级，宿主传入
+ *     selfHealedFiles → 展示「漂移已自动修复」信息横幅（与告警横幅互斥）。
  *
  * 遵循 QMAI/CLAUDE.md 锚点：新增组件落 `src/components/novel/`（与 snapshot-viewer
  * 同目录约定），中文标签直书（与 snapshot-viewer 历史版本/POV 区块同款约定）。
@@ -25,6 +28,12 @@ export interface KbHealthViewProps {
   onRebuild?: () => void
   /** 重建进行中标记（按钮转 spinner 文案并禁用，防重复触发）。 */
   rebuilding?: boolean
+  /**
+   * P2-IMP-15：drift 自愈成功的文件列表（宿主从 autoRepairTruthFoldDrift 结果
+   * 注入）。非空且当前无漂移告警 → 展示「漂移已自动修复」信息横幅；
+   * 缺省/空 → 零渲染变化（向后兼容）。
+   */
+  selfHealedFiles?: string[]
 }
 
 /** 6 行指标渲染配置（kind：rate=0~1 比例按百分比渲染；count=计数直读）。 */
@@ -50,9 +59,10 @@ function isDriftAlarm(sample: MetricSample): boolean {
   return sample.value !== null && sample.value > 0
 }
 
-export function KbHealthView({ metrics, onRebuild, rebuilding = false }: KbHealthViewProps) {
+export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHealedFiles }: KbHealthViewProps) {
   const drift = metrics.truth_fold_drift
   const driftAlarmed = isDriftAlarm(drift)
+  const selfHealed = !driftAlarmed && Array.isArray(selfHealedFiles) && selfHealedFiles.length > 0
   return (
     <div data-testid="kb-health-view" className="rounded-md border border-border bg-background px-3 py-2">
       <div className="mb-2 flex items-center justify-between">
@@ -117,6 +127,16 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false }: KbHealt
           >
             {rebuilding ? "重建中…" : "建议重建"}
           </button>
+        </div>
+      ) : null}
+      {selfHealed ? (
+        <div
+          data-testid="kb-health-drift-selfhealed"
+          className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/40"
+        >
+          <p className="text-sm text-emerald-900 dark:text-emerald-200">
+            漂移已自动修复：{selfHealedFiles!.length} 类真相文件经投影注册表重建，复测 drift=0。
+          </p>
         </div>
       ) : null}
     </div>

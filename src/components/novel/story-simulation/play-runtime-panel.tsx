@@ -29,22 +29,22 @@ const DEMO_GRAPH: InteractiveStoryGraph = {
   version: 1,
   startId: "demo-start",
   nodes: [
-    { id: "demo-start", kind: "knot", text: "示例开场：你站在故事岔路口。", edges: ["demo-e1", "demo-e2"] },
-    { id: "demo-a", kind: "choice", text: "你选择了光亮的小径。", edges: ["demo-e3"] },
-    { id: "demo-b", kind: "choice", text: "你选择了幽暗的密林。", edges: ["demo-e4"] },
-    { id: "demo-end", kind: "end", text: "旅途告一段落（示例图演示）。", edges: [] },
+    { id: "demo-start", kind: "knot", title: "开场", text: "示例开场：你站在故事岔路口。" },
+    { id: "demo-a", kind: "choice", title: "光亮小径", text: "你选择了光亮的小径。" },
+    { id: "demo-b", kind: "choice", title: "幽暗密林", text: "你选择了幽暗的密林。" },
+    { id: "demo-end", kind: "end", title: "终章", text: "旅途告一段落（示例图演示）。" },
   ],
   edges: [
-    { id: "demo-e1", from: "demo-start", to: "demo-a", choiceLabel: "走光亮的小径" },
-    { id: "demo-e2", from: "demo-start", to: "demo-b", choiceLabel: "走幽暗的密林" },
-    { id: "demo-e3", from: "demo-a", to: "demo-end", choiceLabel: "继续" },
-    { id: "demo-e4", from: "demo-b", to: "demo-end", choiceLabel: "继续" },
+    { from: "demo-start", to: "demo-a", choiceLabel: "走光亮的小径" },
+    { from: "demo-start", to: "demo-b", choiceLabel: "走幽暗的密林" },
+    { from: "demo-a", to: "demo-end", choiceLabel: "继续" },
+    { from: "demo-b", to: "demo-end", choiceLabel: "继续" },
   ],
 }
 
 export function PlayRuntimePanel() {
   const { t } = useTranslation()
-  const projectPath = useWikiStore((s) => s.projectPath)
+  const projectPath = useWikiStore((s) => s.project?.path)
   const [graph, setGraph] = useState<InteractiveStoryGraph | null>(null)
   const [graphSource, setGraphSource] = useState<"project" | "demo" | "none">("none")
   const [state, setState] = useState<PlayState | null>(null)
@@ -124,7 +124,7 @@ export function PlayRuntimePanel() {
   const exportStory = useCallback(async () => {
     if (!graph || !projectPath) return
     const exportPath = `${normalizePath(projectPath)}/.novel/play-graph`
-    const result = await exportInteractiveStory({ exportPath, graph })
+    const result = await exportInteractiveStory({ projectPath, exportPath, graph })
     if (result.success) {
       await saveGenerationHistoryEntry(normalizePath(projectPath), {
         kind: "snapshot-film",

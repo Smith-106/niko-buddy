@@ -14,7 +14,7 @@ import { formatDoctorReport, runProjectDoctor, type DoctorReport } from "@/lib/n
  */
 export function DoctorPanel() {
   const { t } = useTranslation()
-  const projectPath = useWikiStore((s) => s.projectPath)
+  const projectPath = useWikiStore((s) => s.project?.path)
   const [report, setReport] = useState<DoctorReport | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)

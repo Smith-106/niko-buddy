@@ -92,15 +92,29 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     expect(src).toMatch(/applyForeshadowingChangesToStore[\s\S]*?parseForeshadowingChange\(change\)/)
   })
 
-  it("live ingest character fold calls applyCharacterStateChangesToStore (no inline fold)", () => {
-    // The live ingest path must delegate to the shared helper instead of inlining.
-    // E-03 (C-3): fold 纯性 — 调用点注入 foldCtx (显式时间戳全链下传)。
-    expect(src).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)")
+  it("live ingest character fold calls applyCharacterStateChangesToStore (no inline fold)", async () => {
+    // P2-IMP-14: 四路径同源遍历注册表后，ingest 增量路径经 character 条目的
+    // applyToStore 委派到共享 helper（与 rebuild 同一函数引用）——旧版内联
+    // 硬编码调用点已收敛到注册表填充处。行为等价断言改扫注册表条目。
+    const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
+    await import("./chapter-ingest") // 确保注册表已填充
+    const entry = PROJECTION_REGISTRY.character
+    expect(entry).toBeTruthy()
+    expect(entry.applyToStore).toBeTypeOf("function")
+    // 注册表内 character 条目的 applyToStore 实现仍委派共享 helper（grep 可验）。
+    expect(src).toMatch(/applyCharacterStateChangesToStore\(store, snapshot, registryAliasMaps\(ctx, snapshot\), ctx\)/)
+    // E-03 (C-3): fold 纯性 — 调用点注入 foldCtx（显式时间戳全链下传）。
+    expect(src).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\n      \}/)
   })
 
-  it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", () => {
-    // E-03 (C-3): 同上, 调用点注入 foldCtx。
-    expect(src).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)")
+  it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", async () => {
+    const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
+    await import("./chapter-ingest")
+    const entry = PROJECTION_REGISTRY.foreshadow
+    expect(entry).toBeTruthy()
+    expect(entry.applyToStore).toBeTypeOf("function")
+    // E-03 (C-3): 同上, 注册表条目 applyToStore 委派共享 helper 并注入 foldCtx。
+    expect(src).toMatch(/applyForeshadowingChangesToStore\(store, snapshot, ctx\)/)
   })
 
   it("removes the ASCII-only double-indexOf from applyCharacterStateChangesToStore", () => {
@@ -213,23 +227,26 @@ describe("CORR-001/002: fold_rebuildable contract — ingest path delegates to s
   // /[:：]/ regex, ingest == rebuild for fullwidth-colon lines by construction.
   // The parser parity tests above (fullwidth == ASCII) + the structural tests
   // (live ingest calls helper) together prove the contract is restored.
-  it("structural: live ingest no longer inlines a divergent fold (grep verifiable)", () => {
+  it("structural: live ingest no longer inlines a divergent fold (grep verifiable)", async () => {
     const src = readSource()
-    // The live ingest character fold region must NOT contain the old inline
-    // change.search(/[:：]/) inside a for-loop (it now delegates to the helper).
-    // Find the live ingest character fold block and assert it calls the helper.
-    const charFoldIdx = src.indexOf('if (snapshot.characterStateChanges.length > 0)')
-    expect(charFoldIdx).toBeGreaterThan(-1)
-    const charFoldBlock = src.slice(charFoldIdx, charFoldIdx + 1100)
-    expect(charFoldBlock).toContain("applyCharacterStateChangesToStore(existingChars, snapshot, aliasMaps, foldCtx)")
+    const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
+    await import("./chapter-ingest")
+    // P2-IMP-14: 旧版扫描 ingest 内联块 → 改扫注册表：ingest/rebuild/drift 三路径
+    // 共用同一 applyToStore 函数引用（storeEntry 把 foldFromSnapshot 定义为
+    // createEmpty + 逐快照 applyToStore 的 reduce）——「某路径内联分叉 fold」
+    // 结构上不可能发生，CORR-001/002 契约由注册表同源保证。
+    expect(PROJECTION_REGISTRY.character.applyToStore).toBeTypeOf("function")
+    expect(PROJECTION_REGISTRY.foreshadow.applyToStore).toBeTypeOf("function")
+    // The live ingest region must NOT contain the old inline
+    // change.search(/[:：]/) inside a for-loop (it now delegates via the registry).
+    const ingestIdx = src.indexOf("const runProjection = async")
+    expect(ingestIdx).toBeGreaterThan(-1)
+    const ingestBlock = src.slice(ingestIdx, src.indexOf("finally {", ingestIdx))
     // No inline for-loop with change.search in the live ingest block
-    expect(charFoldBlock).not.toMatch(/for \(const change of snapshot\.characterStateChanges\)[\s\S]*?change\.search\(\/\[:：\]\/\)/)
-
-    const foreshadowFoldIdx = src.indexOf('if (snapshot.foreshadowingChanges.length > 0)')
-    expect(foreshadowFoldIdx).toBeGreaterThan(-1)
-    const foreshadowFoldBlock = src.slice(foreshadowFoldIdx, foreshadowFoldIdx + 1100)
-    expect(foreshadowFoldBlock).toContain("applyForeshadowingChangesToStore(existingForeshadows, snapshot, foldCtx)")
+    expect(ingestBlock).not.toMatch(/for \(const change of snapshot\.characterStateChanges\)[\s\S]*?change\.search\(\/\[:：\]\/\)/)
     // No inline for-loop with /^(新增伏笔|新增)[:：]/.test in the live ingest block
-    expect(foreshadowFoldBlock).not.toMatch(/for \(const change of snapshot\.foreshadowingChanges\)[\s\S]*?\^\(新增伏笔\|新增\)\[:：\]\.test/)
+    expect(ingestBlock).not.toMatch(/for \(const change of snapshot\.foreshadowingChanges\)[\s\S]*?\^\(新增伏笔\|新增\)\[:：\]\.test/)
+    // 四路径同源：ingest 遍历块存在且引用注册表
+    expect(ingestBlock).toMatch(/Object\.entries\(PROJECTION_REGISTRY\)/)
   })
 })

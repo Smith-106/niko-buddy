@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
-  advanceTranslationStatus,
-  checkGlossaryConsistency,
   createEmptyTranslationGlossary,
   createEmptyTranslationProgress,
   loadTranslationGlossary,
@@ -37,7 +35,7 @@ export interface TranslationWorkbenchViewProps {
 
 export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5] }: TranslationWorkbenchViewProps) {
   const { t } = useTranslation()
-  const projectPath = useWikiStore((s) => s.projectPath)
+  const projectPath = useWikiStore((s) => s.project?.path)
   const [source, setSource] = useState("")
   const [target, setTarget] = useState("")
   const [entries, setEntries] = useState(() => createEmptyTranslationGlossary())
@@ -67,7 +65,7 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
       kind: "term",
       source: source.trim(),
       target: target.trim(),
-      notes: "",
+      note: "",
     })
     setEntries(next)
     if (projectPath) {
@@ -91,10 +89,6 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
         if (batch.stoppedBy !== "exhausted" && batch.state.completedTaskIds.length === 0) {
           setNotice(t("novel.translation.budgetBlocked") ?? `预算预扣被拦截（${batch.stoppedBy}）`)
           return
-        }
-        const violations = checkGlossaryConsistency(entries)
-        if (violations.length > 0) {
-          setNotice(t("novel.translation.glossaryWarn") ?? `术语一致性警告 ${violations.length} 条`)
         }
         const project = {
           version: 1 as const,
@@ -127,9 +121,13 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
             summary: `${result.artifacts.length} drafts, stopped=${result.stopped}`,
           },
         })
+        // 术语一致性核查由 runTranslationProject 逐段机械判定（artifacts[].violations）
+        const violations = result.artifacts.flatMap((a) => a.violations)
         setNotice(
-          t("novel.translation.done") ??
-            `完成 ${result.artifacts.length} 段（stopped=${result.stopped}，预算剩余 ${result.budget.remainingBudget}）`,
+          violations.length > 0
+            ? t("novel.translation.glossaryWarn") ?? `术语一致性警告 ${violations.length} 条`
+            : t("novel.translation.done") ??
+                `完成 ${result.artifacts.length} 段（stopped=${result.stopped}，预算剩余 ${result.budget.remainingBudget}）`,
         )
       } catch (err) {
         setNotice(`${t("novel.translation.failed") ?? "翻译运行失败"}：${err instanceof Error ? err.message : String(err)}`)
@@ -140,7 +138,11 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
     [projectPath, port, chapterNumbers, entries, progress, t],
   )
 
-  const summary = useMemo(() => (progress ? translationProgressSummary(progress) : null), [progress])
+  const summary = useMemo(() => {
+    if (!progress) return null
+    const counts = translationProgressSummary(progress)
+    return { ...counts, total: counts.pending + counts.drafted + counts.reviewed + counts.finalized }
+  }, [progress])
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 p-4 translation-workbench-view" data-testid="translation-workbench-view">

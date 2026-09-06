@@ -6,7 +6,7 @@ import { DoctorPanel } from "./doctor-panel"
 
 const mocks = vi.hoisted(() => ({
   t: vi.fn((k: string) => k),
-  projectPath: "/p/book",
+  projectPath: "/p/book" as string | null,
   runDoctor: vi.fn(async () => ({
     verdict: "ok",
     findings: [
@@ -18,7 +18,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
 vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { projectPath: string | null }) => unknown) => selector({ projectPath: mocks.projectPath }),
+  useWikiStore: (selector: (s: { project: { path: string | null } | null }) => unknown) =>
+    selector({ project: { path: mocks.projectPath } }),
 }))
 vi.mock("@/lib/novel/doctor", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/doctor")>()

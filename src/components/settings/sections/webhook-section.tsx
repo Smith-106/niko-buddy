@@ -7,6 +7,7 @@ import {
   buildSignedWebhookRequest,
   dispatchNotify,
   verifyWebhookSignature,
+  type NotifyEvent,
   type NotifyEventType,
 } from "@/lib/novel/webhook-notifier"
 
@@ -36,11 +37,16 @@ export function WebhookSection() {
       return
     }
     const secretValue = secret.trim() || "test-secret"
-    const event: { type: NotifyEventType; projectPath: string; chapterNumber: number; message: string } = {
+    const event: NotifyEvent = {
       type: eventType,
-      projectPath: "",
-      chapterNumber: 0,
-      message: "webhook-section test ping",
+      // NotifyEvent 契约：调用方注入 ISO 时间（纯函数禁隐式取时）
+      occurredAt: new Date().toISOString(),
+      // 项目短 id（禁绝对路径）；设置面板测试 ping 无项目上下文，用固定占位
+      projectId: "webhook-section-ping",
+      payload: {
+        chapterNumber: 0,
+        message: "webhook-section test ping",
+      },
     }
     const request = await buildSignedWebhookRequest(event, secretValue, url.trim())
     setLastSigned({ body: request.body, signatureHeader: request.headers["X-Niko-Signature"] })
