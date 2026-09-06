@@ -81,8 +81,6 @@ coverage-baseline/
 .tmp-w3nb-*/
 
 # Temporary work dirs & scratch
-.tmp-*/
-.tmp-*/
 .tmp/
 scratch/
 

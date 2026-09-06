@@ -25,6 +25,12 @@ description: 关键词、向量、图谱等多维全局搜索
 - 结果按 RRF（倒数排名融合）降序排列
 - 正文标题与摘要中的命中词经 `HighlightedText` 高亮
 
+### 查询分解与多路检索（v2.7.8，64 号实施）
+
+- `classifyNovelIntent` 判定查询意图（角色/地点/事件/主题…），`decomposeNovelQuery` 拆出子查询，`buildQueryPlan` 生成检索计划
+- `generateMultiQueries` 生成多路查询（同义/近义/拆分），`fuseAcrossQueries` 以 RRF 融合多路结果，召回互补
+- FTS 持久索引（bigram 倒排 + BM25）可离线重建：`rebuildWikiFtsIndex`
+
 ## 主路径
 
 - 输入查询后按回车触发搜索，结果分为**图片区**与**页面区**两部分

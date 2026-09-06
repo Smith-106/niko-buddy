@@ -53,8 +53,12 @@ niko-hub 是桌面优先、中文优先的长篇写作工作台。架构分 8 �
 
 ## 关键技术亮点
 
-- **混合检索引擎**：关键词 + 向量 + 图谱三路融合，RRF 排序
+- **混合检索引擎**：关键词 + 向量 + 图谱三路融合，RRF 排序；v2.7.8 起叠加查询分解（意图分类 → 子查询计划）与 multi-query 多路融合
 - **Token 预算控制**：上下文包自动裁剪，发送前按模型真实输入上限二次裁剪并重试
+- **多文件原子事务（v2.7.8）**：Rust `write_files_atomic`（fs.rs）——文件集 temp 写入 + 统一 rename，任一步失败零 rename 回滚；配套 `write_file_atomic` 冒烟用例
+- **FTS5 bigram 持久索引（v2.7.8）**：中文 bigram 倒排 + BM25，`rebuildWikiFtsIndex` 可重建
+- **RAG 注入审计（v2.7.8）**：`prompt-injection-auditor` 9 规则零 LLM 机械扫描，注入审计矩阵 12/12 层全覆盖（layer-8 回注）
+- **零接线收口（v2.7.8）**：retrieval-trace→search-adapter / chapter-backup→chat-panel+draft-importer / plot-forecast→deep-chapter-generation / book-rules→lint / chapter-workspace→chat-panel / cover-brief→workbench
 - **增量式图谱构建**：每次摄取只更新变化部分
 - **本地优先架构**：所有数据存储在本地，无需联网（LLM 调用除外）
 - **草稿隔离机制**：未确认内容不会污染正式记忆库

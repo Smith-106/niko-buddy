@@ -97,6 +97,23 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "2.7.8",
+  date: "2026-09-06",
+  highlights: {
+    en: [
+      "64 implementation: 63-consensus 20 gaps 100% landed — Mechanism axis 7 (multi-file atomic write_files_atomic, chapter source 5-tag, 8 run kinds, advanceBudgetBatch auto-writing, volume arc 2:3:3:2, project doctor full-chain, 8-module zero-wiring closure); Retrieval axis 6 (chunk annotation, RAG layer-8 injection auditor 12/12 coverage, query decomposition, multi-query RRF fusion, FTS5 bigram index rebuildable, branch-canon binding + stale prune); Form axis 7 (interactive film graph + ink/html export + emotion evaluation, Play runtime crash-resume, fanfic 4-mode + canon merge importer, translation runner with budget resume, cover image provider idempotent, webhook notifier HMAC + watchdog edge, form diagnostics mount).",
+      "Skills: 5 form SKILL.md added (SkillHub/XingshiSkill 8th category: story-cover / interactive-film / play-world / translation / storyboard) with engine-contract alignment sections.",
+      "Fix: Cargo.toml version lag (2.7.6 vs 2.7.7) settled — versions unified at 2.7.8 across package.json / tauri.conf.json / Cargo.toml.",
+    ],
+    zh: [
+      "64 号实施：63 号共识 20 缺口 100% 落地——机制轴 7（多文件原子写 write_files_atomic、章节 source 五标签、run kind 8 种、advanceBudgetBatch 自动连写、卷弧 2:3:3:2、项目医生整链诊断、8 模块零接线收口）；检索轴 6（chunk 标注、RAG layer-8 注入审计 12/12 全层覆盖、查询分解、multi-query RRF 融合、FTS5 bigram 索引可重建、分支正史绑定 + stale 清理）；形态轴 7（互动影游图 + ink/html 导出 + 情感评估、Play 运行崩溃续玩、同人四模式 + 正典合并导入器、翻译 runner 分段续跑复用预算机、封面 provider 幂等生成、webhook HMAC 签名 + watchdog 边沿、形态诊断挂载）。",
+      "技能：新增 5 个形态 SKILL.md（SkillHub/XingshiSkill 第 8 类：story-cover / interactive-film / play-world / translation / storyboard），均含引擎契约对齐节。",
+      "修复：Cargo.toml 版本滞后（2.7.6 vs 2.7.7）清偿——package.json / tauri.conf.json / Cargo.toml 三处统一 2.7.8。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.7.7",
   date: "2026-09-05",
@@ -1364,6 +1381,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_EIGHT_CHANGELOG.version) return [TWO_POINT_SEVEN_EIGHT_CHANGELOG]
   if (version === TWO_POINT_SEVEN_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SEVEN_SIX_CHANGELOG.version) return [TWO_POINT_SEVEN_SIX_CHANGELOG]
   if (version === TWO_POINT_SEVEN_FIVE_CHANGELOG.version) return [TWO_POINT_SEVEN_FIVE_CHANGELOG]

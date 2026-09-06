@@ -54,3 +54,11 @@ description: 章节摄取与上下文引擎
 :::caution[草稿隔离]
 草稿状态的内容不会触发记忆摄取。只有用户确认保存为正式章节后才进入记忆库——这防止 AI 幻觉污染知识库。
 :::
+
+## 检索增强与信任审计（v2.7.8，64 号实施）
+
+- **chunk 标注入库**：`chunk-annotation` 为摄取 chunk 打结构化标注（来源/位置/指纹），检索可溯源
+- **RAG 注入审计 12/12 全层覆盖**：`prompt-injection-auditor` 9 规则零 LLM 机械扫描，layer-8（LLM Security Auditor）回注后注入审计矩阵全覆盖
+- **FTS5 持久 bigram 索引**：`rebuildWikiFtsIndex` 可重建（索引 schema 变更 / 恢复后触发），中文按 bigram 倒排 + BM25 打分
+- **查询分解**：`decomposeNovelQuery` 按意图（`classifyNovelIntent`）生成子查询计划（`buildQueryPlan`），复杂查询拆解后分别检索
+- **multi-query RRF 融合**：`generateMultiQueries` 生成多路查询，`fuseAcrossQueries` 按 RRF 融合结果，多维度证据互补

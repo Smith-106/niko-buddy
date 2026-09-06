@@ -55,3 +55,17 @@ description: status.json 真源、Draft-first、门控优先级
 3. **摄取**：accept 触发 ChapterSnapshot 提取，记忆入正式库，图谱增量更新
 
 草稿机制将"写"和"记"解耦——AI 尽可以自由生成，记忆库只接受人工确认的内容。
+
+## 章节 source 五标签（v2.7.8，64 号实施）
+
+正式章节的 provenance 分五类：`manual`（手写）/ `llm`（AI 生成）/ `campaign`（批量连写）/ `template`（模板导入）/ `migrated`（迁移），旧三标签无损兼容。备份按标签分类存档，审计可溯源。
+
+## run 快照 8 种（v2.7.8，64 号实施）
+
+run kind 扩展至 8 种：既有（生成/修订）+ `lint` / `review` / `snapshot-summary` / `snapshot-emotion` / `snapshot-characters` / `snapshot-foreshadowing`（快照类 meta 不含正文，体积可控）。
+
+## Draft-first 工件路径（v2.7.8 扩展）
+
+- `.novel/translation-drafts/` — 翻译草稿（finalized 前不进正式层）
+- `.novel/covers/` — 封面产物（accept 移动由调用方执行）
+- `.novel/fanfic-merge-pending.json` — 同人正典合并提案（accept 前不写正式 wiki）

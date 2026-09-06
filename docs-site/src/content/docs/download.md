@@ -7,9 +7,25 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.7.7**（2026-09-04 发布，参考池覆盖 v2：55 号设计全链 + 覆盖度 L1-L3 100%）
+**v2.7.8**（2026-09-06 发布，notes-only 语义：安装包资产沿用 v2.7.7，源码 tip 已含 64 号实施全部能力）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.7.8 更新亮点（2026-09-06，64 号实施：三轴 20 缺口）
+
+- ✅ **多文件原子事务** — write_files_atomic（temp 写入 + 统一 rename + 失败回滚零 rename）
+- ✅ **章节 source 五标签** — manual/llm/campaign/template/migrated（三标签无损扩展）
+- ✅ **RAG 注入审计 12/12 全层覆盖** — prompt-injection-auditor 9 规则零 LLM 机械扫描（layer-8 回注）
+- ✅ **FTS5 bigram 持久索引** — rebuildWikiFtsIndex 可重建（含中文切分）
+- ✅ **查询分解 + multi-query RRF 融合** — 意图分类 → 子查询计划 → 结果融合
+- ✅ **分支正史绑定** — 框架签名 + staleness 检测 + 过期清理
+- ✅ **互动影游** — 节点图 + 情感评估 + ink/HTML 导出 + Play 崩溃续玩
+- ✅ **同人四模式 + 正典合并** — canon/au/ooc/cp 机械校验 + Draft-first pending 工件
+- ✅ **翻译执行链** — 术语表驱动 + 分段续跑复用预算机
+- ✅ **封面生成** — aspect 表驱动任务组装 + provider 端口注入 + 幂等 skip
+- ✅ **Webhook 守护** — HMAC 签名 + 回调验签（密钥仅函数参数）
+- ✅ **项目医生** — 6 基础 + 3 形态挂载诊断（只读）
+- ✅ **自动连写 + 卷弧滚动** — advanceBudgetBatch（--count）+ 起承转合 2:3:3:2
 
 ### v2.7.7 更新亮点（2026-09-04，参考池覆盖 v2）
 

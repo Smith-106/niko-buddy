@@ -42,6 +42,11 @@ export default defineConfig({
             { label: '故事推演', link: '/features/story-simulation/' },
             { label: '备份与导出', link: '/features/backup-export/' },
             { label: 'Canon 编辑器', link: '/features/canon-editor/' },
+            { label: '互动影游', link: '/features/interactive-film/' },
+            { label: '同人模式', link: '/features/fanfic-mode/' },
+            { label: '翻译工作台', link: '/features/translation/' },
+            { label: '封面生成', link: '/features/cover/' },
+            { label: '项目医生', link: '/features/project-doctor/' },
           ],
         },
         {

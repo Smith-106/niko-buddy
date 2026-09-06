@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.7.7-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.7.8-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -50,7 +50,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
-## v2.7 系列五波能力速览
+## v2.7 系列能力速览
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
@@ -60,6 +60,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 4 | v2.7.3 | 写作产能 | 风格模板自动套用（一致率≥90% P95<2s）/ 回溯显影（命中≥90% 误报≤10%）/ 记忆自动改写（diff=0 闸门） |
 | 5 | v2.7.4 | 收敛泛化（stretch） | 维度收敛（核心维≤3 方差降≥15%）/ 跨模型偏差≤0.5 / 跨语言 F1≥基线×95% |
 | 6 | v2.7.7 | 参考池覆盖 v2 | 55 号设计全链：genre 单真源 / EPUB-DOCX reveal / 数值事实检查 / 自重复率激活 / CJK 切分增强 / mojibake 修复默认开启 / RAG 注入审计 / humanizer 115 条模式矩阵 / 覆盖度 L1-L3 100% |
+| 7 | v2.7.8 | 三轴 20 缺口落地（64 号实施） | 机制 7（多文件原子事务 / source 五标签 / run kind 8 种 / 批量自动连写 / 卷弧滚动 / 项目医生 / 8 模块零接线收口）+ 检索 6（chunk 标注 / RAG layer-8 注入审计 12/12 覆盖 / 查询分解 / multi-query RRF / FTS5 bigram 索引可重建 / 分支正史绑定）+ 形态 7（互动影游 + Play / 同人四模式 + 正典合并 / 翻译执行链 / 封面 provider / Webhook 守护 / 形态诊断）+ 形态 Skill 5 个（XingshiSkill） |
 
 > 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
@@ -337,6 +338,12 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 - **界面调节**：全局界面字号调节（85%-130%），中文 / 英文双语界面
 - **自动更新**：内置 Tauri Updater，启动时自动检测 GitHub Releases 新版本；Windows 更新前等待主程序释放文件句柄
 - **使用说明入口**：章节、大纲、图谱、记忆中心、灵魂、审查、设置等核心功能图标悬停可查看使用说明
+- **互动影游**（v2.7.8）：节点图（knot/stitch/choice/end）+ 情感路径评估（喜/怒/哀/惧/惊/惑/决意 → 三轴净值）+ ink/HTML 单文件导出；Play 试玩 `stepPlay` 崩溃续玩幂等
+- **同人模式**（v2.7.8）：canon/au/ooc/cp 四模式机械校验 + 正典合并导入器（`proposeCanonMerge` 确定性匹配，`.novel/fanfic-merge-pending.json` Draft-first）
+- **翻译工作台**（v2.7.8）：术语表驱动 + 残留检测 + 章节状态机（pending→drafted→reviewed→finalized），分段续跑复用预算机，草稿落 `.novel/translation-drafts/`
+- **封面生成**（v2.7.8）：封面 brief 契约 → aspect 表驱动任务组装（竖版 2:3 / 方形 / 横版），provider 端口注入 + 幂等 skip
+- **Webhook 守护**（v2.7.8）：run.stalled / run.completed 边沿通知，HMAC 签名请求 + 回调验签（密钥仅函数参数，不入 status.json）
+- **自动连写**（v2.7.8）：`advanceBudgetBatch` 批量续写（--count 语义）；卷弧滚动（起承转合 2:3:3:2）；项目医生整链诊断（6 机械项 + 3 形态项，只读）
 
 ---
 
@@ -459,9 +466,9 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：当前源码 tip 为 **v2.7.7**（v2.7 系列六波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化 → 参考池覆盖 v2；安装包资产随 v2.7.7 发布；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
+> 注：当前源码 tip 为 **v2.7.8**（v2.7 系列七波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化 → 参考池覆盖 v2 → 三轴 20 缺口 64 号实施；v2.7.8 为 notes-only 发版，安装包资产沿用 v2.7.7，源码 tip 语义；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
 > 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.7）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.8，v2.7.8 起三处一致）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
@@ -520,6 +527,15 @@ QMAI/
 │   │   │   ├── review-adapter.ts # 审查适配器（含角色一致性）
 │   │   │   ├── model-resolver.ts # 默认模型解析
 │   │   │   ├── de-ai-adapter.ts  # 去AI化
+│   │   │   ├── interactive-film-graph.ts # 互动影游图+ink/HTML 导出（v2.7.8）
+│   │   │   ├── play-runtime.ts  # Play 试玩状态机（v2.7.8）
+│   │   │   ├── translation-workbench.ts # 翻译术语表+runner（v2.7.8）
+│   │   │   ├── fanfic-canon-import.ts # 同人正典合并导入器（v2.7.8）
+│   │   │   ├── cover-image-provider.ts # 封面生成执行器（v2.7.8）
+│   │   │   ├── webhook-notifier.ts # Webhook 守护+HMAC 签名（v2.7.8）
+│   │   │   ├── fts-index.ts    # FTS5 bigram 检索索引（v2.7.8）
+│   │   │   ├── prompt-injection-auditor.ts # RAG 注入审计 layer-8（v2.7.8）
+│   │   │   ├── doctor.ts       # 项目医生整链诊断（v2.7.8）
 │   │   │   └── ...
 │   │   ├── llm-client.ts         # LLM 客户端
 │   │   ├── embedding.ts          # 嵌入向量

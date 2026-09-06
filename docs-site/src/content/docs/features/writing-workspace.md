@@ -24,6 +24,11 @@ description: 编辑器、预览与聊天面板一体的主创作界面
 - 其余 Markdown 走只读的 `WikiReader`
 - 非 Markdown 文件走 `FilePreview`（图片、PDF 等二进制预览）
 
+## 自动连写与批量续写（v2.7.8，64 号实施）
+
+- `advanceBudgetBatch`：预算账本批量推进（--count 语义），一次连写 N 章，每章一个预算任务
+- 中断/崩溃后 `budget-resume` 自动跳过已完成段（续跑幂等）；与章节备份（chapter-backup）联动
+
 ## 主路径
 
 - 打开任意文件后，预览区按文件类型渲染对应视图

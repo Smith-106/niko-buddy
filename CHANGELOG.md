@@ -7,6 +7,24 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.8] - 2026-09-06
+
+### 64 号实施：63 号共识 20 缺口 100% 落地（三轴）
+
+- **机制轴（7）**：多文件原子写 `write_files_atomic`（fs.rs：temp 写入 + 统一 rename + 失败回滚零 rename）；章节 source 五标签（manual/llm/campaign/template/migrated，三标签无损扩展）；run kind 8 种（lint/review/snapshot-*6，snapshotMeta 不含正文）；`advanceBudgetBatch` 自动连写（--count 语义）；卷弧滚动（起承转合 2:3:3:2 + `advanceVolumeArc` + director 接线）；项目医生整链诊断（6 机械项 + 3 形态挂载项，`runProjectDoctor` 只读）；8 模块零接线收口（retrieval-trace/chapter-backup/plot-forecast/book-rules/chapter-workspace/cover-brief 等）
+- **检索轴（6）**：chunk 标注入库；RAG 注入审计 layer-8 回注（`prompt-injection-auditor` 9 规则零 LLM 机械扫描，12/12 层全覆盖断言）；查询分解（`decomposeNovelQuery/classifyNovelIntent/buildQueryPlan`）；multi-query RRF 融合（`generateMultiQueries/fuseAcrossQueries`）；FTS5 持久 bigram 索引（`rebuildWikiFtsIndex` 可重建）；分支正史绑定 + stale 半环清理（`computeFrameworkSignature/createBranchCanonBinding/detectBindingStaleness/pruneStaleBranchBindings`）
+- **形态轴（7）**：互动影游图（`interactive-film-graph`：knot/stitch/choice/end 六节点 + 阻断诊断 + ink/HTML 导出 + `exportInteractiveStory` 接线）；Play 可玩面（`play-runtime`：stepPlay/renderPlayFrame/replayPlay 崩溃续玩幂等）；同人四模式 + 正典合并导入器（`validateFanficChapter` + `proposeCanonMerge`，`.novel/fanfic-merge-pending.json` Draft-first）；翻译执行链（`buildTranslationPrompt/runTranslationProject` 分段续跑复用预算机，草稿落 `.novel/translation-drafts/`）；封面 provider（`buildCoverImageTask` aspect 表驱动 + 幂等 skip）；Webhook 守护（HMAC 签名 `buildSignedWebhookRequest` + `shouldNotify` 边沿判定）；形态诊断挂载（fanfic-merge-pending/translation-drafts/play-graph）
+- **形态 Skill 补缺（P1-10）**：SkillHub 第 8 类 `XingshiSkill/` 5 个 SKILL.md（story-cover/interactive-film/play-world/translation/storyboard），均含引擎契约对齐节
+
+### 版本与治理
+
+- 清偿 v2.7.7 漏改债：Cargo.toml 版本滞后 2.7.6 → 三处统一 **2.7.8**（package.json / tauri.conf.json / Cargo.toml）
+- 发布语义：**notes-only**（安装包资产沿用 v2.7.7，源码 tip 语义，未附书稿 overall≥9 宣称）
+
+### 验证
+
+typecheck 0 错误 / vitest 12206 绿 / cargo 全绿 / 文档站构建通过
+
 ## [2.7.7] - 2026-09-04
 
 ### 参考池覆盖 v2（55 号设计全链）

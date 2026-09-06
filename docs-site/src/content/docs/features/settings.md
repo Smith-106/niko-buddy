@@ -21,6 +21,13 @@ description: 模型、网络、界面与项目级配置的统一管理中心
 - 修改表单项（草稿态，底部会提示尚有未保存的更改）。
 - 点击底部「保存」：全部分类草稿一次性落盘，按钮短暂显示「已保存」。
 
+## Webhook 通知（v2.7.8，64 号实施）
+
+- 事件：run.stalled（守护边沿一次）/ run.completed / chapter.accepted / translation.finalized
+- `buildSignedWebhookRequest`：HMAC-SHA256 签名（`sha256=<hex>`）+ 事件头；回调验签 `verifyWebhookSignature`
+- 密钥仅函数参数，不入 status.json / telemetry / 日志（CWE-532 纪律）；payload 禁正文/绝对路径/token
+- 通知派发走注入式 `NotifyTransport`（引擎层零 HTTP 依赖）；`shouldNotify` 边沿判定保证 stalled 只通知一次
+
 ## 常用配置说明
 
 - LLM 分类内置常用云端提供商预设，也支持本地 Ollama 与自定义端点（可切换 API 模式）；Azure 提供商可配置 API 版本与模型家族。

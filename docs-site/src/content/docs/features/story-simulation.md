@@ -16,6 +16,11 @@ description: 基于章节内容推演剧情走向、生成叙事框架与角色�
 - 报告阶段可弹出 Agent 采访面板与角色对话（InterviewHistoryView / RumorPropagationPanel / ClueTimelinePanel），深入单点调查
 - 草稿阶段（StoryDraftView）由生成结果落稿；分支的新建与管理可由 BranchManagerPanel 处理
 
+## 分支正史绑定（v2.7.8，64 号实施）
+
+- 分支与正史通过**框架签名**绑定：`computeFrameworkSignature` 计算框架指纹，`createBranchCanonBinding` 创建绑定
+- `detectBindingStaleness` 检测绑定过期（框架/正史变更后），`pruneStaleBranchBindings` 清理过期绑定——分支与主线长期对齐不漂移
+
 ## 能力构成
 
 - 单栏全宽布局：框架列表已迁移到左侧 SidebarPanel，主区域按 phase 切换

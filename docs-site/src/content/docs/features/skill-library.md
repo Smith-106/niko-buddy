@@ -31,6 +31,16 @@ description: 去AI味技能、写作 Skill 与收藏的统一管理与检索
 - 写作 Skill：JSON 文件按标准 Skill 结构解析（格式不正确会提示导入失败）；md/txt 文件以文件名作为技能名导入。
 - 文件内容无效时会提示不是有效的技能文件，不会写入损坏数据。
 
+## 内置形态 Skill（v2.7.8，64 号实施）
+
+SkillHub 第 8 类 `XingshiSkill/`（内容形态）5 个 SKILL.md，均含「与引擎契约对齐」节：
+
+- **story-cover**：封面 brief 契约 → 图像任务组装（对齐 cover-brief / cover-image-provider）
+- **interactive-film**：互动影游节点图 + 校验 + ink/HTML 导出 + 情感评估（对齐 interactive-film-graph / emotion-ledger）
+- **play-world**：Play 试玩 / 回放 / 断点续玩调试（对齐 play-runtime）
+- **translation**：术语表驱动翻译执行链（对齐 translation-workbench runner）
+- **storyboard**：剧本分镜（slug/场景/对白机械规则，对齐 screenplay-format）
+
 ## 状态与限制
 
 - 空态：去AI味列表显示「暂无技能。」；写作 Skill 列表提示可新建「三翻四抖」「章节计划」「伏笔检查」等规则；收藏页显示「暂无收藏的技能」并引导点击星标收藏；搜索无结果时显示「没有匹配的技能」/「没有匹配的收藏」。

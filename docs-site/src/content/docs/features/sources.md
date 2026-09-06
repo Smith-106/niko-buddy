@@ -23,6 +23,11 @@ description: 资料来源与大纲的预览、批量摄入与大纲聊天
 - 小说模式：打开 `OutlineChatPanel`，围绕大纲与资料进行对话
 - 大纲聊天面板支持与主面板一致的可拖拽 resize（宽 360px / 高 300px，经 `clampChatWidth`/`clampChatHeight` 约束）
 
+## 卷弧滚动（v2.7.8，64 号实施）
+
+- `allocateVolumeArc`：把卷的章节区间按比例映射到起/承/转/合四段（2:3:3:2，区间 <4 章时压缩）
+- `advanceVolumeArc`：随章节推进自动滚动卷弧段位，与开书导演（director-pipeline）接线展示
+
 ## 批量摄入
 
 批量摄入用于将多份资料一次性解析入库：
