@@ -503,6 +503,98 @@ describe("contextPackToPrompt E-02 hardInject 段（双库架构蓝图 capabilit
   })
 })
 
+describe("P2-IMP-10 stateDelta additive（近 N 章状态变更段）", () => {
+  const deltaText =
+    "【近 2 章摘要】\n第2章：雨夜\n  - [character] 林晚: 受伤\n  - [item] 轩辕剑: 归属 → 林晚"
+
+  it("非空 recentStateDeltas → 渲染 stateDelta 段（独立分块，含键控子表行）", () => {
+    const prompt = contextPackToPrompt({ ...basePack, recentStateDeltas: deltaText })
+    expect(prompt).toContain("最近章节状态变更")
+    expect(prompt).toContain("【近 2 章摘要】")
+    expect(prompt).toContain("- [character] 林晚: 受伤")
+    expect(prompt).toContain("- [item] 轩辕剑: 归属 → 林晚")
+    expect(prompt).toContain(deltaText)
+  })
+
+  it("空 store（undefined / 空串）→ 不渲染该段，整包零 diff（recentSummaries 现路径不动）", () => {
+    const baseline = contextPackToPrompt(basePack)
+    expect(contextPackToPrompt({ ...basePack, recentStateDeltas: undefined })).toBe(baseline)
+    expect(contextPackToPrompt({ ...basePack, recentStateDeltas: "" })).toBe(baseline)
+    expect(baseline).not.toContain("最近章节状态变更")
+  })
+
+  it("stateDelta 段存在时 recentSummaries 逐字节一致（纯追加，不改现路径）", () => {
+    const withSummaries: ContextPack = {
+      ...basePack,
+      recentSummaries: ["第1章：雨夜遭遇", "第2章：剑出鞘"],
+    }
+    const before = contextPackToPrompt(withSummaries)
+    const after = contextPackToPrompt({
+      ...withSummaries,
+      recentStateDeltas: "【近 2 章摘要】\n第2章：剑出鞘\n  - [character] 林晚: 受伤",
+    })
+    expect(after.startsWith(before)).toBe(true)
+  })
+
+  it("buildContextPack wiring：snapshots.recentStateDeltas 非空 → pack 字段透传；recentSummaries 不变", async () => {
+    hoisted.loadAllImpl = async () => ({
+      ...fixtureRawData(),
+      snapshots: {
+        ...fixtureRawData().snapshots,
+        recentStateDeltas: "【近 1 章摘要】\n第2章：摘要\n  - [character] 林晚: 受伤",
+      },
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.recentStateDeltas).toContain("【近 1 章摘要】")
+    expect(pack.recentStateDeltas).toContain("- [character] 林晚: 受伤")
+    expect(pack.recentSummaries).toEqual(["第1章摘要", "第2章摘要"])
+    // 非空 stateDelta → 渲染该段（wiring 闭环：rawData → pack → prompt）
+    expect(contextPackToPrompt(pack)).toContain("最近章节状态变更")
+    expect(pack.recentStateDeltas).toBe("【近 1 章摘要】\n第2章：摘要\n  - [character] 林晚: 受伤")
+  })
+
+  it("buildContextPack wiring：无 recentStateDeltas → pack 字段 undefined（零 diff）", async () => {
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.recentStateDeltas).toBeUndefined()
+    expect(contextPackToPrompt(pack)).not.toContain("最近章节状态变更")
+  })
+})
+
+describe("P1-IMP-13 referenceBindings additive wiring", () => {
+  it("非空 store → pack.referenceBindings 渲染本章绑定（canon 护栏优先行）", async () => {
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.novel/reference-bindings.json")) {
+        return JSON.stringify({
+          bindings: [
+            { materialId: "m1", chapter: 3, uses: ["人物动机依据"], canonGuardrail: true, note: "不可违背事实" },
+            { materialId: "m2", chapter: 3, uses: ["场景道具"], canonGuardrail: false },
+          ],
+          lastUpdated: "2026-09-06T00:00:00.000Z",
+        })
+      }
+      return ""
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.referenceBindings).toBeDefined()
+    expect(pack.referenceBindings).toContain("素材 m1")
+    expect(pack.referenceBindings).toContain("[canon护栏]")
+    expect(pack.referenceBindings).toContain("不可违背事实")
+    expect(pack.referenceBindings).toContain("素材 m2")
+    // wiring 渲染：非空绑定段进 prompt（renderIf 非空才渲染）
+    const prompt = contextPackToPrompt(pack)
+    expect(prompt).toContain("素材引用绑定")
+    expect(prompt).toContain("素材 m1")
+  })
+
+  it("零绑定 / 加载失败 → undefined，prompt 字节级回归（零绑定字节级不变）", async () => {
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.referenceBindings).toBeUndefined()
+    const baseline = contextPackToPrompt({ ...basePack })
+    expect(contextPackToPrompt({ ...basePack, referenceBindings: undefined })).toBe(baseline)
+    expect(contextPackToPrompt(pack)).not.toContain("素材引用绑定")
+  })
+})
+
 describe("rerankActiveEntitiesByTemporalFacts", () => {
   const mkFact = (subject: string, validFrom: number): TemporalFact => ({
     id: `fact-${subject}`,

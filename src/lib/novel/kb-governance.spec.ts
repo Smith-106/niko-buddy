@@ -121,6 +121,20 @@ describe("E-06 DimensionCoord 27 格（GOV-REV-02/06，G-8）", () => {
     expect(registryKeys.size).toBe(E06_FEATURE_IDS.length)
   })
 
+  // P1-IMP-13 (A1a): E06_FEATURE_IDS 对账弱校验 — 不强求双向完备（新增特性可先占
+  // registry 键后补声明），仅校验已声明 id 自洽：非空唯一 + 注册表 featureId 与键一致
+  // （防复制粘贴错键导致的对账盲区）。
+  it("E06_FEATURE_IDS 对账弱校验：id 非空唯一 + 注册表 featureId 与键一致", () => {
+    expect(new Set(E06_FEATURE_IDS).size).toBe(E06_FEATURE_IDS.length)
+    for (const id of E06_FEATURE_IDS) {
+      expect(typeof id).toBe("string")
+      expect(id.length).toBeGreaterThan(0)
+    }
+    for (const [key, coord] of Object.entries(DIMENSION_COORD_REGISTRY)) {
+      expect(coord.featureId).toBe(key)
+    }
+  })
+
   it("每坐标 reversibility.rollbackPath 非空（验收 7 强制）", () => {
     for (const id of E06_FEATURE_IDS) {
       const coord = DIMENSION_COORD_REGISTRY[id]

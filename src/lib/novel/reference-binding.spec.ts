@@ -92,4 +92,23 @@ describe("reference-binding（吸收自 inkos book-references 用途绑定模式
     expect(loaded.bindings[0].materialId).toBe("m1")
     expect(loaded.bindings[0].canonGuardrail).toBe(false)
   })
+
+  // P1-IMP-13 (A1a): wiring 形状断言 — bindingsToContextText 输出可直接作为
+  // ContextPack.referenceBindings 注入文本（context-engine 装配消费）。
+  describe("P1-IMP-13 referenceBindings wiring 形状", () => {
+    it("零绑定 → 空串（pack.referenceBindings 不渲染，零绑定字节级不变前提）", () => {
+      expect(bindingsToContextText(createEmptyReferenceBindingStore(), 3)).toBe("")
+      expect(bindingsToContextText(createEmptyReferenceBindingStore(), 0)).toBe("")
+    })
+
+    it("非空绑定 → 行文本可直接注入 pack.referenceBindings（canon 护栏前缀 + 用途）", () => {
+      let store = createEmptyReferenceBindingStore()
+      store = bindReference(
+        store,
+        binding({ materialId: "m1", chapter: 3, uses: ["人物动机依据"], canonGuardrail: true, note: "不可违背事实" }),
+      )
+      const text = bindingsToContextText(store, 3)
+      expect(text).toContain("- [canon护栏] 素材 m1：用途 人物动机依据（不可违背事实）")
+    })
+  })
 })

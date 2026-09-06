@@ -9,6 +9,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { normalizePath } from "@/lib/path-utils"
 import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
+import { loadChapterSummaries, chapterSummariesToContextText } from "./chapter-summaries"
 import { loadRevisionFeedbackForContext } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { getChapterVolumes } from "./volume"
@@ -148,6 +149,12 @@ export const snapshotDataSource: DataSource<{
   characterStates: string
   foreshadowingSignals: string[]
   timeline: string
+  /**
+   * P2-IMP-10 (M2): stateDelta additive 字段 — chapter_summaries 投影键控子表文本。
+   * 由 chapterSummariesToContextText 渲染（近 N 章摘要 + 状态变更行）；空 store / 无快照
+   * 降级路径缺失（undefined）→ 消费方不渲染该段（字节级不变）。
+   */
+  recentStateDeltas?: string
 }> = {
   name: "snapshots",
   priority: 4,
@@ -183,6 +190,14 @@ export const snapshotDataSource: DataSource<{
 
     const previousSnapshot = validLookback[0]
     const recentSummaries = validSummarySnapshots.map((snapshot) => `第${snapshot.chapterNumber}章：${snapshot.summary}`)
+    // P2-IMP-10 (M2): stateDelta additive — chapter_summaries 投影 store 渲染。
+    // chapterSummariesToContextText 近 N 章键控子表（空 store → ''）；加载失败
+    // 降级空 store（投影 fold_rebuildable，缺失不阻断主链）。窗口与
+    // recentSummaryWindow 对齐（无效/缺省回退函数默认 3）。
+    const summariesStore = await loadChapterSummaries(projectPath).catch(() => null)
+    const recentStateDeltas = summariesStore
+      ? chapterSummariesToContextText(summariesStore, config.recentSummaryWindow > 0 ? config.recentSummaryWindow : 3)
+      : ""
     const characterStates = joinNonEmpty(
       validLookback
         .flatMap((snapshot) => snapshot.characterStateChanges.map((change) => `第${snapshot.chapterNumber}章：${change}`)),
@@ -201,6 +216,7 @@ export const snapshotDataSource: DataSource<{
       characterStates,
       foreshadowingSignals,
       timeline,
+      recentStateDeltas,
     }
   },
 }

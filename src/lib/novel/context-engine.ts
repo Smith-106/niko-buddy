@@ -52,7 +52,7 @@ import { appendRoutingROISample, resolveChapterPovCharacter, type RoutingROISamp
 // P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配
 // （truth_fold_drift ← IMP-06 采样 / hard_injection_budget_usage ← pack.hardInjectUsage /
 // gap_report_rate ← pack.gaps 计数；两评测 gate 项显式 N/A 保留，不伪造）。
-import { collectKbMetrics, type KbMetrics } from "./kb-observability"
+import { collectKbMetrics, classifyKbError, recoveryPlanFor, type KbMetrics } from "./kb-observability"
 // S2a (roadmap): 四维反查组合导入 — related-chapters 是独立纯函数模块,
 // context-engine 负责组合进 ContextPack (不平行实现, 与 searchRelevantContentUnified 互补)。
 import {
@@ -65,6 +65,9 @@ import {
 } from "./related-chapters"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
+// P1-IMP-13 (A1a): reference-binding 素材用途绑定进 ContextPack（additive
+// pack.referenceBindings，零绑定字节级不变）。
+import { loadReferenceBindings, bindingsToContextText } from "./reference-binding"
 // T25 (A-04.4/F-13): canon 三源并行 — 源2 走 T14 投影读出口（canon_migration ≥ dual
 // 时启用；默认仍走折叠路径），源3 走 T27b 技法离线编译（runtime 唯一合法入口）。
 import { queryCanonEdges } from "./canon-graph-client"
@@ -100,6 +103,10 @@ const SECTION_PRIORITY: Record<string, number> = {
   "写作风格": 17,
   "语音风格指南": 17.5,
   "曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）": 18,
+  // P2-IMP-10 (M2): stateDelta 键控子表紧随「最近剧情摘要」呈现（6 → 6.1）。
+  "最近章节状态变更": 6.1,
+  // P1-IMP-13 (A1a): 素材引用绑定紧随「引用检索」呈现（14.5 → 14.6）。
+  "素材引用绑定": 14.6,
 }
 
 /**
@@ -405,6 +412,20 @@ export interface ContextPack {
    * emptyPack 不注入时 undefined。
    */
   kbMetrics?: KbMetrics
+  /**
+   * P2-IMP-10 (M2): stateDelta additive 字段 — chapter_summaries 投影键控子表文本
+   * （近 N 章摘要 + 状态变更行）。由 snapshotDataSource 经 chapterSummariesToContextText
+   * 渲染；空 store / 无快照时缺失（undefined）。FIELD_CONFIGS 条目 renderIf 非空才渲染
+   * （空数据不渲染，recentSummaries 现路径字节级不动）。
+   */
+  recentStateDeltas?: string
+  /**
+   * P1-IMP-13 (A1a): reference-binding 素材用途绑定文本（additive 独立字段）。
+   * 由 buildContextPackUnlocked 装配：loadReferenceBindings → bindingsToContextText
+   * 渲染本章绑定；零绑定 / 加载失败 → undefined（FIELD_CONFIGS renderIf 非空才渲染，
+   * 零绑定字节级不变）。消费方按需读取 pack.referenceBindings。
+   */
+  referenceBindings?: string
 }
 
 /** T25: 三源计时探针槽位（毫秒）。 */
@@ -532,6 +553,29 @@ export function truncateActiveEntitiesByBudget(
     : null
   return { entities: kept, gap }
 }
+/**
+ * P1-IMP-13 (A1a 前移子集): 检索/注入降级路径统一分级记录 —
+ * 裸 logger.warn 升级为 classifyKbError + recoveryPlanFor 分级日志
+ * （GOV-OBS-04：DISASTER / DEGRADED / RECOVERABLE / CONTROLLED）。
+ * 降级不改变既有恢复语义（各 catch 块原本的降级动作一字不动），
+ * 仅在日志侧补充分级字段（class / eventType / recovery / terminal）供观测消费。
+ */
+function logDegradation(
+  message: string,
+  error: unknown,
+  ctx: Parameters<typeof classifyKbError>[1] = {},
+): void {
+  const cls = classifyKbError(error, ctx)
+  const plan = recoveryPlanFor(cls)
+  logger.warn("ContextEngine", message, {
+    error: error instanceof Error ? error.message : String(error),
+    class: cls,
+    eventType: plan.eventType,
+    recovery: plan.action,
+    terminal: plan.terminal,
+  })
+}
+
 async function buildContextPackUnlocked(
   projectPath: string,
   task: string,
@@ -622,7 +666,8 @@ async function buildContextPackUnlocked(
                 snapshots,
               }).text
             } catch (error) {
-              logger.warn("ContextEngine", "related-chapters context build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+              logDegradation("related-chapters context build failed, skipping injection", error, { sourceFailed: true })
               return ""
             }
           })()
@@ -639,7 +684,8 @@ async function buildContextPackUnlocked(
                 chapterNumber: context.chapterNumber,
               })
             } catch (error) {
-              logger.warn("ContextEngine", "reference context build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+              logDegradation("reference context build failed, skipping injection", error, { sourceFailed: true })
               return null
             }
           })()
@@ -674,7 +720,8 @@ async function buildContextPackUnlocked(
                 trustGrades: novelConfig.trustFilterEnabled ? buildTrustGradeMap(kbRoutingView as Parameters<typeof buildTrustGradeMap>[0]) : undefined,
               })
             } catch (error) {
-              logger.warn("ContextEngine", "hard-inject build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+              // P1-IMP-13: 分级记录（DEGRADED — 检索路径失败，降级不注入，不终止写作）
+              logDegradation("hard-inject build failed, skipping injection", error, { retrievalFailed: true })
               return null
             }
           })()
@@ -684,7 +731,8 @@ async function buildContextPackUnlocked(
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
         ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
-            logger.warn("ContextEngine", "style exemplars load failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+            // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+            logDegradation("style exemplars load failed, skipping injection", error, { sourceFailed: true })
             return [] as StyleExemplar[]
           })
         : Promise.resolve([] as StyleExemplar[]),
@@ -696,7 +744,8 @@ async function buildContextPackUnlocked(
             outline: joinNonEmpty([rawData.outline, rawData.chapterOutline], "\n\n"),
             sceneCharacters: extractSceneCharacters(rawData),
           }).catch((error) => {
-            logger.warn("ContextEngine", "conditional entity routing failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+            // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+            logDegradation("conditional entity routing failed, skipping injection", error, { sourceFailed: true })
             return [] as ContextEntity[]
           })
         : Promise.resolve([] as ContextEntity[]),
@@ -757,6 +806,20 @@ async function buildContextPackUnlocked(
         }
       }
     }
+    // P1-IMP-13 (A1a): reference-binding 素材用途绑定注入 — additive 独立字段。
+    // loadReferenceBindings 读 reference-bindings.json（原子存储，缺失/损坏降级空 store）；
+    // bindingsToContextText 渲染本章绑定（零绑定 → ""）。空文本 → undefined（renderIf
+    // 非空才渲染，零绑定字节级不变）。失败降级 undefined，不阻断 pack 装配。
+    let referenceBindingsText = ""
+    try {
+      const bindingStore = await loadReferenceBindings(pp).catch(() => null)
+      if (bindingStore) {
+        referenceBindingsText = bindingsToContextText(bindingStore, context.chapterNumber ?? 0)
+      }
+    } catch {
+      referenceBindingsText = ""
+    }
+    pack.referenceBindings = referenceBindingsText || undefined
     // C（方案 X 全做 M+）：已失效（曾成立）事实独立分块注入。former 为空时设 undefined
     // → 不渲染该段（flag=false 字节级不变）。绝不并入 canonRules/有效 temporal 块。
     pack.formerFacts = canonSource.former.length > 0 ? canonSource.former : undefined
@@ -947,6 +1010,15 @@ async function buildContextPackFromRawData(
   const recentChapterContents = Array.isArray(rawData.recentChapterContents)
     ? rawData.recentChapterContents
     : []
+  // P2-IMP-10 (M2): stateDelta additive 透传 — snapshotDataSource 经
+  // chapterSummariesToContextText 渲染的键控子表文本。空 store / 无快照时
+  // rawData.snapshots.recentStateDeltas 缺失 → undefined（renderIf 非空才渲染，
+  // recentSummaries 现路径字节级不动）。
+  const recentStateDeltas =
+    typeof rawData.snapshots?.recentStateDeltas === "string" &&
+    rawData.snapshots.recentStateDeltas.length > 0
+      ? rawData.snapshots.recentStateDeltas
+      : undefined
   
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
@@ -1109,6 +1181,7 @@ async function buildContextPackFromRawData(
     revisionDirectives,
     gaps: [],
     temporalFacts,
+    recentStateDeltas,
   }
 }
 
@@ -1174,7 +1247,8 @@ async function loadCanonSourceFacts(
       ).filter((f) => f.former === true)
       return { current, former }
     } catch (error) {
-      logger.warn("ContextEngine", "canon-graph load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
+      // P1-IMP-13: 分级记录（DEGRADED — canon 检索失败降级回退，不终止写作）
+      logDegradation("canon-graph load failed, falling back to raw canonRules", error, { retrievalFailed: true })
       return { current: null, former: [] }
     }
   }
@@ -1182,7 +1256,8 @@ async function loadCanonSourceFacts(
   try {
     return { current: await loadTemporalFactsCached(pp), former: [] }
   } catch (error) {
-    logger.warn("ContextEngine", "temporal-memory load failed, falling back to raw canonRules", { error: error instanceof Error ? error.message : String(error) })
+    // P1-IMP-13: 分级记录（DEGRADED — 时序记忆检索失败降级回退，不终止写作）
+    logDegradation("temporal-memory load failed, falling back to raw canonRules", error, { retrievalFailed: true })
     return { current: null, former: [] }
   }
 }
@@ -1205,7 +1280,8 @@ async function loadTechniqueBlocks(): Promise<string> {
     if (blocks.length === 0) return ""
     return blocks.map((b) => `【${b.title}】${b.body}`).join("\n")
   } catch (error) {
-    logger.warn("ContextEngine", "technique compile failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })
+    // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+    logDegradation("technique compile failed, skipping injection", error, { sourceFailed: true })
     return ""
   }
 }
@@ -1849,7 +1925,8 @@ export async function selectActiveEntities(
 
   // 零 entity 优雅降级：双源匹配为空时回退全量（加性原则，不减少上下文）+ warning。
   if (matched.length === 0) {
-    logger.warn("ContextEngine", "conditional routing matched zero entities, falling back to all entities (additive — no context reduced)")
+    // P1-IMP-13: 分级记录（RECOVERABLE — 路由采源零命中，回退全量）
+    logDegradation("conditional routing matched zero entities, falling back to all entities (additive — no context reduced)", undefined, { sourceFailed: true })
     return contents.filter(Boolean).map((entry) => {
       const fm = parseFrontmatter(entry!.content).frontmatter
       const name = typeof fm?.title === "string" ? fm.title : ""
@@ -2417,6 +2494,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
     renderIf: (_pack, flags) => flags.layeredRecall === "full",
   },
   { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries", layer: "L2" },
+  {
+    // P2-IMP-10 (M2): stateDelta 键控子表段 — additive 独立分块，renderIf 非空才渲染
+    // （空 store / 无快照时不渲染，recentSummaries 现路径字节级不动）。
+    titleKey: "novel.contextPack.recentStateDeltas",
+    fieldKey: "recentStateDeltas",
+    layer: "L2",
+    renderIf: (pack) => Boolean(pack.recentStateDeltas),
+  },
   { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding", layer: "L2" },
   { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates", layer: "L3" },
   { titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras", layer: "L3" },
@@ -2443,6 +2528,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
   // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）
   { titleKey: "novel.contextPack.references", fieldKey: "references", layer: "aux" },
+  {
+    // P1-IMP-13 (A1a): 素材引用绑定段 — additive 独立字段；renderIf 非空才渲染
+    // （零绑定 / 加载失败 → undefined → 不渲染，字节级不变）。
+    titleKey: "novel.contextPack.referenceBindings",
+    fieldKey: "referenceBindings",
+    layer: "aux",
+    renderIf: (pack) => Boolean(pack.referenceBindings),
+  },
   {
     // E-02 (C-9/D6): 硬注入段 — 独立 additive 分块（绝不并入 canonRules / searchResults）。
     // renderIf 双门控：hardInjectEnabled flag（可逆上线）+ 条目非空（空数据不渲染，字节级不变）。

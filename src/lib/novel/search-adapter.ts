@@ -197,6 +197,11 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
     void appendRetrievalTraceQuietly(pp, trace)
   }
 
+  // P1-IMP-13 (A1a / P1-N2 缺口修复): assertNoTechLeak 常驻调用 — 主检索出口
+  // 兜底断言（tech/blocked 元数据若经任何分支漏入结果即 fail-loud；当前
+  // NovelSearchResult 无 collection/trust 字段 → 结构性 no-op 安全网）。
+  assertNoTechLeak(reranked)
+
   return reranked
 }
 
@@ -676,6 +681,10 @@ export function routeByQueryIntent(intent: string): {
   loadKbRoutingViewBuiltFrom()
   const counts = loadKbCollectionCounts()
   const allowlist = matrix.agent[intent] ?? []
+  // P1-IMP-13 (A1a / P1-N2 缺口修复): assertNoTechLeak 常驻调用 — routing 面
+  // tech 零出现（K-11 安全不变量：routing.agent 不得路由到 tech 收藏）。
+  // 命中即 fail-loud，不静默按旧视图检索。
+  assertNoTechLeak(allowlist.map((collection) => ({ collection })))
   const collections: string[] = []
   const gaps: KbGap[] = []
   const blocked: string[] = []
@@ -812,6 +821,10 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
     includeCanon: false,
   })
 
+  // P1-IMP-13 (A1a / P1-N2 缺口修复): assertNoTechLeak 常驻调用 — 硬注入条目
+  // source 面断言（canon / process_library 恒非 tech；未来新增来源即被拦截）。
+  assertNoTechLeak(hardInject.map((item) => ({ collection: item.source })))
+
   // E-06 (C-2): trust 后置过滤 (GOV-TRUST-05: blocked 条目不进检索视图)。
   // flag 门控 (trustFilterEnabled 默认 false → 字节级回退); 过滤掉的条目进 gaps
   // (IC-02 绝不静默: type=filtered, ref=trust_blocked)。
@@ -843,6 +856,11 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
       message: "trust_grades_missing: trustFilterEnabled=true 但 trustGrades 缺失，过滤空转（GOV-TRUST-05）",
     })
   }
+
+  // P1-IMP-13 (A1a / P1-N2 缺口修复): assertNoTechLeak 常驻调用 — 双轨检索出口
+  // 兜底断言（trust 过滤后仍拦截 tech/blocked 泄漏；当前结果无 collection/trust
+  // 字段 → 结构性 no-op 安全网）。
+  assertNoTechLeak(filteredRanked)
 
   return {
     hardInject,
