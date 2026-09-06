@@ -236,6 +236,13 @@ function materializeRestoredCurrentSnapshot(
 
 export type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapter_number" | "extract_failed" | "cancelled"
 
+/**
+ * P1-IMP-12：rebuild 重嵌契约常量（LightRAG chunk_schema 单真源模式）。
+ * 向量重建的唯一源文本来自 snapshot.summary——非原始正文。
+ * summary 缺失即跳过 + 告警（不伪造嵌入源）；全量重嵌另立显式函数（与 IMP-10 共用 expected-set）。
+ */
+export const REBUILD_REEMBED_SOURCE = "snapshot.summary" as const
+
 export interface IngestResult {
   snapshot: ChapterSnapshot | null
   failReason?: IngestFailReason
@@ -2255,17 +2262,27 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
   // single_snapshot_idempotent: vector — re-embed each chapter from its
   // snapshot summary. Idempotent: re-embedding the same content is safe.
   // (Snapshots carry `summary` + structured fields, not raw chapter content;
-  // the summary is the canonical re-embeddable text.)
+  // the summary is the canonical re-embeddable text — P1-IMP-12 契约常量
+  // REBUILD_REEMBED_SOURCE.)
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
   if (embCfg.enabled && embCfg.model) {
     try {
       const { embedPage } = await import("@/lib/embedding")
+      let skippedNoSummary = 0
       for (const snapshot of snapshots) {
+        if (!snapshot.summary || snapshot.summary.trim() === "") {
+          // P1-IMP-12: summary 缺失 → 告警 + 跳过计数（不伪造嵌入源）
+          skippedNoSummary++
+          continue
+        }
         const pageId = String(snapshot.chapterNumber).padStart(3, "0")
         const title = snapshot.chapterTitle || pageId
         // Re-embed from the snapshot's summary (idempotent rebuild).
         await embedPage(projectPath, pageId, title, snapshot.summary ?? "", embCfg)
+      }
+      if (skippedNoSummary > 0) {
+        logger.warn("Chapter Ingest", `rebuild: ${skippedNoSummary} snapshot(s) skipped (summary empty — REBUILD_REEMBED_SOURCE unavailable)`, { skipped: skippedNoSummary })
       }
     } catch (err) {
       logger.warn("Chapter Ingest", "Vector projection rebuild failed", { error: err instanceof Error ? err.message : String(err) })
