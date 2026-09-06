@@ -30,7 +30,7 @@ import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
 import { buildTrustGradeMap } from "./trust-grader"
-import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type KbReferenceEntry, type NovelSearchResult } from "./search-adapter"
+import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import { runVectorSearchShared } from "./vector-search-core"
 import { rerankCandidates } from "@/lib/rerank"

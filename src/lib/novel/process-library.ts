@@ -5,7 +5,7 @@ import { loadSubplotBoard } from "./subplot-board"
 import { loadEmotionalArcs } from "./emotional-arcs"
 import { loadResourceLedger, type ResourceLedgerStore } from "./resource-ledger"
 import { loadEncounterMatrix, metBefore, type EncounterMatrixStore } from "./encounter-matrix"
-import { loadChapterSummaries, recentChapterSummaries } from "./chapter-summaries"
+import { loadChapterSummaries, recentChapterSummaries, chapterSummariesToContextText } from "./chapter-summaries"
 import { loadParticleLedger, currentParticleState, type ParticleKind, type ParticleLedgerStore } from "./particle-ledger"
 import {
   detectKnowledgeLeak,
@@ -146,6 +146,61 @@ export function computeVisibility(
 }
 
 /**
+ * P2-IMP-16: 过程库装配核心六维只读视图（三面共享）。
+ * 一次装载 doesNotKnow/metBefore/heldItems/particles（前四维复用 computeVisibility）
+ * + stateDelta/recentSummaries（后二维从 summariesStore 渲染）。
+ *
+ * 三面（起草硬注入 / 规划 / 审计）消费同一装配核心，消除口径分叉。
+ * 纯函数（除 computeVisibility 本身纯函数外，summaries 传入已加载的 store）。
+ */
+export interface ProcessView {
+  doesNotKnow: string[]
+  metBefore: string[]
+  heldItems: string[]
+  particles: Array<{ kind: ParticleKind; name: string; state: string }>
+  /** 近 N 章状态增量文本（chapter_summaries 投影键控子表）。 */
+  stateDelta: string
+  /** 近 N 章摘要文本（happened 行）。 */
+  recentSummaries: string
+}
+
+export function assembleProcessView(
+  pov: string,
+  chapter: number,
+  sources: VisibilitySources,
+  metBeforeUpTo: "past" | "inclusive" = "inclusive",
+  summariesStore?: Awaited<ReturnType<typeof loadChapterSummaries>> | null,
+  recentWindow = 3,
+): ProcessView {
+  const base = computeVisibility(pov, chapter, sources, metBeforeUpTo)
+  const stateDelta = summariesStore
+    ? chapterSummariesToContextText(summariesStore, recentWindow > 0 ? recentWindow : 3)
+    : ""
+  const recentSummaries = summariesStore
+    ? recentChapterSummariesText(summariesStore, recentWindow > 0 ? recentWindow : 3)
+    : ""
+  return {
+    doesNotKnow: base.doesNotKnow,
+    metBefore: base.metBefore,
+    heldItems: base.heldItems,
+    particles: base.particles,
+    stateDelta,
+    recentSummaries,
+  }
+}
+
+/** 近 N 章 happened 行文本（IMP-16 辅助，纯函数）。 */
+function recentChapterSummariesText(
+  store: Awaited<ReturnType<typeof loadChapterSummaries>>,
+  n: number,
+): string {
+  const recent = recentChapterSummaries(store, n)
+  if (recent.length === 0) return ""
+  const lines = recent.map((e) => `第${e.chapter}章：${e.happened}`)
+  return `【近 ${recent.length} 章摘要】\n${lines.join("\n")}`
+}
+
+/**
  * 起草阶段可见信息装配：仅注入 POV 角色可见信息（Grok 调用规则 2）。
  * 过滤依据：cognition.doesNotKnow（角色不知道的事实不注入）+ encounter-matrix
  * metBefore（未共场角色不互通信息）+ particle 仅 POV 持有项。只读。
@@ -157,27 +212,42 @@ export async function visibleInfoFor(
   povCharacter: string,
   chapter: number,
 ): Promise<string> {
-  const [cognition, matrix, particles, resources] = await Promise.all([
+  const [cognition, matrix, particles, resources, summariesStore] = await Promise.all([
     loadCognitionState(projectPath),
     loadEncounterMatrix(projectPath),
     loadParticleLedger(projectPath),
     loadResourceLedger(projectPath),
+    loadChapterSummaries(projectPath).catch(() => null),
   ])
 
+  // P2-IMP-16: 起草面消费 assembleProcessView 装配核心（六维只读视图）。
   // P2-IMP-05：注入侧传 'past'（本章共现≠已见面，堵信息泄漏）。
-  const vis = computeVisibility(povCharacter, chapter, { cognition, matrix, resources, particles }, "past")
+  const view = assembleProcessView(
+    povCharacter,
+    chapter,
+    { cognition, matrix, resources, particles },
+    "past",
+    summariesStore,
+  )
   const lines: string[] = []
-  if (vis.doesNotKnow.length > 0) {
-    lines.push(`【${povCharacter} 不知道】${vis.doesNotKnow.join("、")}`)
+  if (view.doesNotKnow.length > 0) {
+    lines.push(`【${povCharacter} 不知道】${view.doesNotKnow.join("、")}`)
   }
-  if (vis.metBefore.length > 0) {
-    lines.push(`【${povCharacter} 已见过】${vis.metBefore.join("、")}`)
+  if (view.metBefore.length > 0) {
+    lines.push(`【${povCharacter} 已见过】${view.metBefore.join("、")}`)
   }
-  if (vis.heldItems.length > 0) {
-    lines.push(`【${povCharacter} 持有】${vis.heldItems.join("、")}`)
+  if (view.heldItems.length > 0) {
+    lines.push(`【${povCharacter} 持有】${view.heldItems.join("、")}`)
   }
-  for (const p of vis.particles) {
+  for (const p of view.particles) {
     lines.push(`【${povCharacter} ${p.kind}】${p.name} → ${p.state}`)
+  }
+  // P2-IMP-16: stateDelta + recentSummaries additive（空则不渲染，字节级不变）
+  if (view.stateDelta) {
+    lines.push(view.stateDelta)
+  }
+  if (view.recentSummaries) {
+    lines.push(view.recentSummaries)
   }
   return lines.join("\n")
 }
@@ -291,12 +361,20 @@ export async function auditChapter(
 
   const doesNotKnow: Record<string, string[]> = {}
   const metMap: Record<string, string[]> = {}
-  // E-03 (C-7): knowledge-leak 装配复用 computeVisibility 契约函数 — 对每个
-  // 在场角色求值 (join key 经 resolveCanonicalName 归一), 替换手写 map 构造。
+  // E-03 (C-7) / P2-IMP-16: knowledge-leak 装配复用 assembleProcessView 装配核心
+  // （三面同源——起草/规划/审计均走 assembleProcessView）。对每个在场角色求值
+  // (join key 经 resolveCanonicalName 归一), 替换手写 map 构造。
+  // 审计面仅需 doesNotKnow/metBefore，但走同一装配核心保证口径一致。
+  let summariesStore: Awaited<ReturnType<typeof loadChapterSummaries>> | null = null
+  try {
+    summariesStore = await loadChapterSummaries(projectPath)
+  } catch {
+    summariesStore = null
+  }
   for (const c of presentCharacters) {
-    const vis = computeVisibility(c, chapter, { cognition, matrix, resources, particles })
-    if (vis.doesNotKnow.length > 0) doesNotKnow[c] = vis.doesNotKnow
-    if (vis.metBefore.length > 0) metMap[c] = vis.metBefore
+    const view = assembleProcessView(c, chapter, { cognition, matrix, resources, particles }, "inclusive", summariesStore)
+    if (view.doesNotKnow.length > 0) doesNotKnow[c] = view.doesNotKnow
+    if (view.metBefore.length > 0) metMap[c] = view.metBefore
   }
 
   const knowledgeInput: KnowledgeLeakInput = {

@@ -44,7 +44,7 @@ import { loadCharacterStates } from "../character-state"
 import { loadSubplotBoard } from "../subplot-board"
 import { listSnapshots, loadSnapshot } from "../chapter-ingest"
 // P2-IMP-11：四新维源 —— 全部只读复用既有投影 loader 与单一可见性契约。
-import { computeVisibility } from "../process-library"
+import { assembleProcessView } from "../process-library"
 import { loadCognitionState, resolveChapterPovCharacter, type CognitionState } from "../character-cognition"
 import {
   createEmptyEncounterMatrixStore,
@@ -233,8 +233,10 @@ export function buildChapterPlanView(
   const charBudget = Math.max(0, options.dimensionCharBudget ?? PLAN_DIMENSION_CHAR_BUDGET)
   const pov = (input.povCharacter ?? "").trim()
   // 单一可见性契约：缺失源以空 store 中性兜底（各维状态另按自身源可用性标注）。
+  // P2-IMP-16: 规划面消费 assembleProcessView 装配核心（三面同源）。
+  const summariesStore = sourceOk(input.chapterSummaries) ? input.chapterSummaries.data : null
   const visibility = pov
-    ? computeVisibility(
+    ? assembleProcessView(
         pov,
         input.currentChapter,
         {
@@ -245,6 +247,7 @@ export function buildChapterPlanView(
         },
         // P2-IMP-05 口径：'past' — 本章共现 ≠ 已见面（堵注入侧信息泄漏）。
         "past",
+        summariesStore,
       )
     : null
 
