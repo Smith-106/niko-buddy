@@ -129,3 +129,26 @@ describe("buildTaskDirective", () => {
     expect(buildTaskDirective({ intent: "general_chat", confidence: 1, extractedParams: {} })).toBe("")
   })
 })
+
+describe("P1-IMP-07 KbIntent 穷举映射", () => {
+  it("KB_INTENT_ALIASES 覆盖全部 NovelTaskIntent（无 undefined）", async () => {
+    const { KB_INTENT_ALIASES, KB_INTENTS } = await import("./task-router")
+    const intentKeys = Object.keys(KB_INTENT_ALIASES)
+    // 每个 NovelTaskIntent 都有映射，且落在五值域内
+    for (const k of intentKeys) {
+      const v = (KB_INTENT_ALIASES as Record<string, string>)[k]
+      expect(v, `${k} 映射`).toBeTruthy()
+      expect(KB_INTENTS).toContain(v)
+    }
+    // 映射值仅来自五值域
+    expect(new Set(Object.values(KB_INTENT_ALIASES)).size).toBeLessThanOrEqual(KB_INTENTS.length)
+  })
+
+  it("toKbIntent 样例：「写第三章」→draft、「查伏笔」→lookup", async () => {
+    const { routeTask, toKbIntent } = await import("./task-router")
+    const writeRes = routeTask("写第三章")
+    expect(toKbIntent(writeRes.intent)).toBe("draft")
+    const lookupRes = routeTask("查一下前面埋的伏笔")
+    expect(toKbIntent(lookupRes.intent)).toBe("lookup")
+  })
+})

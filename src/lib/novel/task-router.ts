@@ -19,6 +19,40 @@ export type NovelTaskIntent =
   | "setting_query"        // 设定查询
   | "general_chat"         // 一般对话
 
+/**
+ * P1-IMP-07：KbIntent 五值——与 reference/REFERENCE-KB-VIEW.json 的
+ * routing.agent intent 值域对齐（plan/draft/revise/lookup/style）。
+ * 由 NovelTaskIntent 穷举映射（KB_INTENT_ALIASES），供检索路由门消费。
+ */
+export type KbIntent = "plan" | "draft" | "revise" | "lookup" | "style"
+
+export const KB_INTENTS: readonly KbIntent[] = ["plan", "draft", "revise", "lookup", "style"]
+
+/**
+ * P1-IMP-07：NovelTaskIntent → KbIntent 穷举映射（Record<NovelTaskIntent,KbIntent>
+ * 编译期防漏——新增 intent 未映射即 TS 报错）。三模型共识（qwen D2 方案）。
+ */
+export const KB_INTENT_ALIASES: Record<NovelTaskIntent, KbIntent> = {
+  write_chapter: "draft",
+  continue_chapter: "draft",
+  rewrite_chapter: "revise",
+  polish_chapter: "style",
+  review_chapter: "revise",
+  lint_chapter: "lookup",
+  generate_outline: "plan",
+  search_plot: "lookup",
+  extract_memory: "plan",
+  character_query: "lookup",
+  foreshadowing_query: "lookup",
+  timeline_query: "lookup",
+  setting_query: "lookup",
+  general_chat: "lookup",
+}
+
+export function toKbIntent(intent: NovelTaskIntent): KbIntent {
+  return KB_INTENT_ALIASES[intent]
+}
+
 export interface TaskRouteResult {
   intent: NovelTaskIntent
   confidence: number
