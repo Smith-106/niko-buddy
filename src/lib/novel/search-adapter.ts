@@ -709,11 +709,12 @@ export function routeByQueryIntent(intent: string): {
  * 对齐 assertNoHandleLeak 模式)。Fixed 轴: tech_visible_to_agent MUST NOT
  * 运行时关闭 (ARC-06 三不变量)。
  */
-export function assertNoTechLeak(items: readonly { collection?: string; trust?: string }[]): void {
+export function assertNoTechLeak(items: readonly unknown[]): void {
   for (const item of items) {
-    if (item.collection === "tech" || item.trust === "blocked") {
+    const obj = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>
+    if (obj["collection"] === "tech" || obj["trust"] === "blocked") {
       throw new Error(
-        `tech 隔离断言失败: 检索结果含 ${item.collection ?? "?"} (trust=${item.trust ?? "?"}) — ` +
+        `tech 隔离断言失败: 检索结果含 ${obj["collection"] ?? "?"} (trust=${obj["trust"] ?? "?"}) — ` +
         `写作 Agent 检索面 tech 零出现是安全不变量 (K-11)`,
       )
     }
