@@ -385,7 +385,7 @@ describe("CharacterAuraView", () => {
     expect(await screen.findByText("预览正文")).toBeInTheDocument()
     // 上下文装配 + 模型解析 + 流式调用
     expect(contextEngine.buildContextPack).toHaveBeenCalledWith("E:/Novel", "写林烬进入皇城")
-    expect(contextEngine.contextPackToPrompt).toHaveBeenCalledWith(expect.objectContaining({ context: "pack" }), undefined)
+    expect(contextEngine.contextPackToPrompt).toHaveBeenCalledWith(expect.objectContaining({ context: "pack" }), undefined, expect.objectContaining({ hardInjectEnabled: undefined }))
     expect(modelResolver.resolveNovelModel).toHaveBeenCalledWith(wiki.state.llmConfig, wiki.state.novelConfig, "writing")
     expect(llm.streamChat).toHaveBeenCalledWith(
       expect.anything(),
@@ -405,7 +405,7 @@ describe("CharacterAuraView", () => {
     })
     fireEvent.click(screen.getByText("预览本次注入"))
     await screen.findByText("预览正文")
-    expect(contextEngine.contextPackToPrompt).toHaveBeenCalledWith(expect.anything(), 8000)
+    expect(contextEngine.contextPackToPrompt).toHaveBeenCalledWith(expect.anything(), 8000, expect.objectContaining({ hardInjectEnabled: undefined }))
   })
 
   it("previews without a fallback aura when nothing is selected", async () => {
