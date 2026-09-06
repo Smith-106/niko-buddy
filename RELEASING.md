@@ -53,3 +53,5 @@ latest.json
 2. latest.json 指向最新版本且签名匹配
 3. 本机 updater 检测到新版本（真机验证）
 4. 历史 release 无 QMaiWrite_* 残留（`gh release list` 抽查）
+5. **节奏审计（硬检，65 号共识 G5）**：`gh release list` + CHANGELOG 日期链核对——同周 stable ≤1、同日重复 tag = 0、近 30 天 stable ≤4；违反则本次发布作废重排期
+6. **主干校验（硬检，65 号共识 G5）**：`git merge-base --is-ancestor <tag> smith/master` 必须为真（tag 不得悬在 side 分支）；不通过则先完成 master 回流再确认

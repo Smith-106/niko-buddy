@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/version-2.7.8-blue?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
+  <img src="https://img.shields.io/badge/coverage-80%2F75%2F80%2F80-yellow?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
@@ -330,6 +330,8 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 
 ## 其他功能
 
+> 以下为**引擎层**交付（lib + 测试可达，UI 消费面挂载中，65 号共识 G2 收口中）：
+
 - **大纲管理**：总大纲 → 分卷大纲 → 章节细纲，三级大纲体系；支持 AI 大纲、细化生成、一键提取
 - **章节生成**：续写、扩写、改写、润色，多种生成模式；支持章节移动到卷、右键重命名/删除
 - **剧情搜索**：关键词 + 语义 + 图谱混合搜索
@@ -608,7 +610,7 @@ npm run build:github-release
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
   - `src/lib/novel/step0-ab-calibration.real-llm.spec.ts` — 需 `STEP0_REAL_LLM_KEY` + `STEP0_REAL_LLM_BASE`（可选 `STEP0_REAL_LLM_MODEL`）；注意 `.env.test.local` 若含 STEP0 凭证则默认跑批中实际运行
   - 设置对应 env 即可激活该块（烧真实 LLM token / 真实 fs 写盘，CI 默认不触发）
-- **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）已达 **100%**，由 `vite.config.ts` 阈值门控（100/100/100/100）持续保障；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
+- **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）分层阈值 **80/75/80/80**，由 `vite.config.ts` 阈值门控持续保障（58 号共识：100/100/100/100 结构性不可达——57A 实测 lines 82%，核心写作主链高保护在政策文档以定向测量命令执行）；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
 - **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
 - **无 lint 门（有意决策）**：本仓库不设独立 lint script / lint CI 门——以 `typecheck`（tsc 严格模式）+ `test:mocks`（vitest 全量 + 覆盖率 100% 阈值）作为质量门；如需静态风格检查，`tsc --noEmit` 已覆盖大部分可静态发现的问题；已配置 eslint.config.js（eslint ^9.39.5 在 devDependencies），但无独立 lint script/CI 门，静态检查以 tsc --noEmit 为主
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。

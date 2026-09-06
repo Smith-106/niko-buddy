@@ -64,7 +64,7 @@ typecheck 0 错误 / vitest 11998 绿 / cargo 318 passed / 基线 0 漂移
 - **跨语言泛化**：F1 ≥ 源域锁定基线×95%（相对阈值，每语言独立，基线版本钉死）。
 - **不变量**：P0>P1>P2 不变；stretch 可选不升硬门；ADR-19 零 LLM/IO。
 
-> 注（2026-08-31）：stretch gate 四项指标（维度收敛方差/跨模型 Δ/跨语言 F1）为自述目标，v2.7.4 无独立基准报告佐证——deferred（owner=质量门控模块，跟进见 docs/qmai-codex-delivery/16-final-acceptance-framework-20260829.md（stretch gate 证据 deferred 状态）），不阻塞纯应用发版。
+> 注（2026-08-31）：stretch gate 四项指标（维度收敛方差/跨模型 Δ/跨语言 F1）为自述目标，v2.7.4 无独立基准报告佐证——deferred（owner=质量门控模块，跟进见 docs/qmai-codex-delivery/16-final-acceptance-framework-20260829.md（stretch gate 证据 deferred 状态）），不阻塞纯应用发版。补证（维度收敛方差/跨模型 Δ/跨语言 F1 独立基准报告）随 L9 脉冲 κ Round-2 一并执行（65 号共识 G10，2026-09-06 挂账）。
 
 ## [2.7.3] - 2026-08-28
 
