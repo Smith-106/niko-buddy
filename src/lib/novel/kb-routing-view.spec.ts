@@ -118,12 +118,13 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
     expect(view.collectionCounts.craft).toBeGreaterThan(0)
   })
 
-  it("真实产物下 draft 路由：craft 放行 + 其余空收藏阻断（部分阻断语义）", async () => {
+  it("真实产物下 draft 路由：craft + corpus 放行 + 空收藏阻断（部分阻断语义）", async () => {
     vi.resetModules()
     const mod = await import("./search-adapter")
     const res = mod.routeByQueryIntent("draft")
-    expect(res.collections).toEqual(["craft"])
-    expect(res.blocked).toEqual(["corpus", "lexicon", "world_ref"])
+    // P1-IMP-09: corpus 采源后 corpus 也被放行（0→6 条目）
+    expect(res.collections).toEqual(["craft", "corpus"])
+    expect(res.blocked).toEqual(["lexicon", "world_ref"])
   })
 
   it("K-11 不变量：消费面 routing.agent 与 byQueryIntent 均无 tech 面", () => {
