@@ -26,6 +26,8 @@ const ingest = vi.hoisted(() => ({
   loadSnapshot: vi.fn(),
   restoreSnapshotHistory: vi.fn(),
   syncSnapshotToMemory: vi.fn(),
+  sampleTruthFoldDrift: vi.fn(),
+  emitTruthFoldDriftAlarm: vi.fn(),
 }))
 
 vi.mock("@/lib/novel/chapter-ingest", () => ({
@@ -33,6 +35,8 @@ vi.mock("@/lib/novel/chapter-ingest", () => ({
   loadSnapshot: ingest.loadSnapshot,
   restoreSnapshotHistory: ingest.restoreSnapshotHistory,
   syncSnapshotToMemory: ingest.syncSnapshotToMemory,
+  sampleTruthFoldDrift: ingest.sampleTruthFoldDrift,
+  emitTruthFoldDriftAlarm: ingest.emitTruthFoldDriftAlarm,
 }))
 
 const diffProps = vi.hoisted(() => ({
@@ -86,7 +90,11 @@ beforeEach(() => {
   ingest.syncSnapshotToMemory.mockResolvedValue({
     memorySyncedAt: "2026-07-25T11:00:00.000Z",
     writtenEntityPaths: ["character-states.md", "canon-facts.md"],
+    memoryPagePaths: [],
+    driftSuspected: [],
   })
+  ingest.sampleTruthFoldDrift.mockResolvedValue({ driftCount: 1, driftedFiles: ["encounter-matrix.json"] })
+  ingest.emitTruthFoldDriftAlarm.mockResolvedValue(true)
   ingest.restoreSnapshotHistory.mockResolvedValue(makeSnapshot({ memorySyncedAt: undefined }))
 })
 
@@ -270,6 +278,41 @@ describe("SnapshotViewer", () => {
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.click(screen.getByText("保存"))
     expect(await screen.findByText("保存失败：字符串错误")).toBeInTheDocument()
+  })
+
+  it("P2-IMP-08：保存后 driftSuspected 非空 → 文案追加「N 类记忆未同步」+ 触发 IMP-06 告警通道", async () => {
+    ingest.syncSnapshotToMemory.mockResolvedValue({
+      memorySyncedAt: "2026-07-25T11:00:00.000Z",
+      writtenEntityPaths: ["character-states.md", "canon-facts.md"],
+      memoryPagePaths: [],
+      driftSuspected: ["encounter-matrix.json", "particle-ledger.json"],
+    })
+    render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
+    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    fireEvent.click(screen.getByText("编辑"))
+    fireEvent.click(screen.getByText("保存"))
+    // 保存成功文案 + P2-IMP-08 追加「N 类记忆未同步，建议执行全量重建」
+    expect(await screen.findByText(/novel.snapshot.syncMemorySuccess/)).toBeInTheDocument()
+    expect(screen.getByText(/2 类记忆未同步，建议执行全量重建/)).toBeInTheDocument()
+    // 触发 IMP-06 告警通道：sampleTruthFoldDrift → emitTruthFoldDriftAlarm
+    await waitFor(() => {
+      expect(ingest.sampleTruthFoldDrift).toHaveBeenCalledWith("/project")
+    })
+    await waitFor(() => {
+      expect(ingest.emitTruthFoldDriftAlarm).toHaveBeenCalled()
+    })
+    expect(ingest.emitTruthFoldDriftAlarm.mock.calls[0][0]).toBe("/project")
+  })
+
+  it("P2-IMP-08：无 drift → 不追加警告文案、不触发告警通道", async () => {
+    render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
+    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    fireEvent.click(screen.getByText("编辑"))
+    fireEvent.click(screen.getByText("保存"))
+    expect(await screen.findByText(/novel.snapshot.syncMemorySuccess/)).toBeInTheDocument()
+    expect(screen.queryByText(/类记忆未同步，建议执行全量重建/)).not.toBeInTheDocument()
+    expect(ingest.sampleTruthFoldDrift).not.toHaveBeenCalled()
+    expect(ingest.emitTruthFoldDriftAlarm).not.toHaveBeenCalled()
   })
 
   it("cancels editing and restores the original draft", async () => {

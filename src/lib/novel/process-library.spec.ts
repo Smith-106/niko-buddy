@@ -121,13 +121,17 @@ describe("particle-ledger（particle_ledger 金钱/伤势/功法）", () => {
     expect(s.entries).toHaveLength(1)
   })
 
-  it("E-03 幂等键修复：同 (kind,character,name,chapter) 跳过并保留首条", () => {
+  it("P2-IMP-09 同键 upsert：同 (kind,character,name,chapter) 末条胜覆盖内容，键字段保留", () => {
     let s = createEmptyParticleLedgerStore()
     const e1 = { kind: "money" as const, character: "甲", name: "银两", chapter: 2, delta: -50, state: "余 100", note: "买药" }
     s = appendParticleEntry(s, e1)
     s = appendParticleEntry(s, { ...e1, delta: -30, state: "余 120" })
     expect(s.entries).toHaveLength(1)
-    expect(s.entries[0].delta).toBe(-50)
+    // P2-IMP-09（TencentDB skill-versioning）：同键内容修订 → 末条胜覆盖（不再保留首条）
+    expect(s.entries[0].delta).toBe(-30)
+    expect(s.entries[0].state).toBe("余 120")
+    expect(s.entries[0].character).toBe("甲")
+    expect(s.entries[0].name).toBe("银两")
   })
 
   it("currentParticleState 取最后一条 + history 全时序", () => {

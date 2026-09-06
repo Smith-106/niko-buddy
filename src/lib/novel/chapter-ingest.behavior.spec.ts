@@ -1124,7 +1124,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
     expect(store.characters[0].status).toBe("旧")
   })
 
-  it("matches advance lines against partial foreshadow names", async () => {
+  it("matches advance lines against boundary-anchored partial foreshadow names (P2-IMP-09 词界)", async () => {
     fsMocks.readFile.mockResolvedValueOnce(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：黑剑", "推进伏笔：碎片"],
@@ -1149,8 +1149,41 @@ describe("chapter-ingest residual branches (L2A)", () => {
     const store = JSON.parse(String(write![1]))
     const hei = store.items.find((i: { name: string }) => i.name === "黑")
     const suiPian = store.items.find((i: { name: string }) => i.name === "黑剑碎片")
-    expect(hei.status).toBe("advanced")
+    // P2-IMP-09 禁裸互含：单字名「黑」不再被「黑剑」命中（最短名≥2 护栏）
+    expect(hei.status).toBe("planted")
+    // 词界前缀/后缀命中的部分名仍有效：「黑剑」⊂「黑剑碎片」（前缀）、「碎片」（后缀）
     expect(suiPian.status).toBe("advanced")
+  })
+
+  it("P2-IMP-09 伏笔短名反例：单字「剑」不命中「剑意」，中缀「剑法」不命中「九剑法门」", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({
+      foreshadowingChanges: ["推进伏笔：剑", "推进伏笔：九剑法门"],
+    }))
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const p = String(path)
+      if (p.endsWith(".novel/foreshadowing-tracker.json")) {
+        return JSON.stringify({
+          items: [
+            { id: "fs-1-1", name: "剑意", description: "", status: "planted", plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+            { id: "fs-1-2", name: "剑法", description: "", status: "planted", plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+          ],
+          lastUpdated: "",
+        })
+      }
+      if (p.endsWith(".wiki-patch.json")) return JSON.stringify({ sharedWiki: true, entries: [] })
+      throw new Error("ENOENT: no such file or directory")
+    })
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result.snapshot).not.toBeNull()
+    const write = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/foreshadowing-tracker.json"))
+    const store = JSON.parse(String(write![1]))
+    const jianYi = store.items.find((i: { name: string }) => i.name === "剑意")
+    const jianFa = store.items.find((i: { name: string }) => i.name === "剑法")
+    // 「剑」⊂「剑意」反例：单字名不再命中（最短名≥2 护栏）
+    expect(jianYi.status).toBe("planted")
+    // 中缀「剑法」⊂「九剑法门」：非前缀/后缀 → 禁裸互含，不命中
+    expect(jianFa.status).toBe("planted")
   })
 
   it("skips advance/resolve lines with no matching foreshadow", async () => {

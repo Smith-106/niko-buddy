@@ -29,7 +29,8 @@ import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-fa
 import { loadProjectionStatusLedger } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
-import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
+import { buildTrustGradeMap } from "./trust-grader"
+import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
@@ -651,8 +652,9 @@ async function buildContextPackUnlocked(
                 topK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
                 hardInjectCapChars: currentBuildBudget?.hardInjectionBudget.capChars,
                 trustFilterEnabled: novelConfig.trustFilterEnabled,
-                // trustGrades 由消费方提供（path→trust 映射）；本层无映射表 → 不传
-                // （trustFilterEnabled=true 且无 grades 时过滤不生效，见 retrieveDualTrack）。
+                // P1-IMP-06: 由 buildTrustGradeMap 从 KB-VIEW 非 tech 条目构建 path→trust 映射。
+                // flag 默认 false → 字节级回退；开启时 blocked 条目被归一查找剔除。
+                trustGrades: novelConfig.trustFilterEnabled ? buildTrustGradeMap(kbRoutingView as Parameters<typeof buildTrustGradeMap>[0]) : undefined,
               })
             } catch (error) {
               logger.warn("ContextEngine", "hard-inject build failed, skipping injection", { error: error instanceof Error ? error.message : String(error) })

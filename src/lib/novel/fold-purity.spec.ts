@@ -151,13 +151,17 @@ describe("E-03 幂等键（fold-rebuildable 前提）", () => {
     expect(s.edges[1].chapter).toBe(7)
   })
 
-  it("appendParticleEntry: 同 (kind,character,name,chapter) 跳过并保留首条", () => {
+  it("appendParticleEntry: 同 (kind,character,name,chapter) 末条胜覆盖（P2-IMP-09），键保留首条身份", () => {
     let s = createEmptyParticleLedgerStore()
     const e1 = { kind: "money" as const, character: "甲", name: "银两", chapter: 2, delta: -50, state: "余 100", note: "买药" }
     const e2 = { ...e1, delta: -30, state: "余 120" }
     s = appendParticleEntry(s, e1)
     s = appendParticleEntry(s, e2)
     expect(s.entries).toHaveLength(1)
-    expect(s.entries[0].delta).toBe(-50)
+    // P2-IMP-09：同键 upsert 末条胜（TencentDB skill-versioning）——内容覆盖，键字段保留
+    expect(s.entries[0].delta).toBe(-30)
+    expect(s.entries[0].state).toBe("余 120")
+    expect(s.entries[0].kind).toBe("money")
+    expect(s.entries[0].character).toBe("甲")
   })
 })

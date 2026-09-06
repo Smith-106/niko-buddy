@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { useTranslation } from "react-i18next"
 import { readFile } from "@/commands/fs"
-import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, sampleTruthFoldDrift, emitTruthFoldDriftAlarm, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
 import { MonacoDiffEditor } from "./monaco-diff-editor"
 
 interface SnapshotViewerProps {
@@ -36,6 +36,14 @@ function formatSyncTime(value: string | undefined): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString("zh-CN", { hour12: false })
+}
+
+// P2-IMP-08：保存成功且采样到未同步记忆类时，触发 IMP-06 告警通道（logger.warn +
+// .novel/telemetry/drift-<ts>.jsonl，GOV-OBS-01 不静默降级）。fire-and-forget：
+// 采样/告警失败由通道内部兜底，不阻断 UI。
+async function triggerTruthFoldDriftAlarm(projectPath: string): Promise<void> {
+  const sample = await sampleTruthFoldDrift(projectPath)
+  await emitTruthFoldDriftAlarm(projectPath, sample)
 }
 
 function Section({ title, items }: { title: string; items: string[] }) {
@@ -277,12 +285,23 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
     setSaveMessage("")
     try {
       const result = await syncSnapshotToMemory(projectPath, draft)
+      // P2-IMP-08：driftSuspected 非空 → 保存成功文案追加「N 类记忆未同步，建议执行全量重建」
+      // + 触发 IMP-06 告警通道（正常无漂移不追加、不告警）。
+      const driftSuspected = result.driftSuspected ?? []
       const updatedSnapshot = { ...draft, memorySyncedAt: result.memorySyncedAt }
       await refreshHistory()
       setSnapshot(updatedSnapshot)
       setDraft(updatedSnapshot)
       setEditing(false)
-      setSaveMessage(t("novel.snapshot.syncMemorySuccess", { count: result.writtenEntityPaths.length }))
+      const successMessage = t("novel.snapshot.syncMemorySuccess", { count: result.writtenEntityPaths.length })
+      setSaveMessage(
+        driftSuspected.length > 0
+          ? `${successMessage} ${driftSuspected.length} 类记忆未同步，建议执行全量重建`
+          : successMessage,
+      )
+      if (driftSuspected.length > 0) {
+        void triggerTruthFoldDriftAlarm(projectPath)
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSaveMessage(`保存失败：${message}`)

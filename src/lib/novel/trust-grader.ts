@@ -146,3 +146,36 @@ export function dispositionOf(grade: TrustGrade): "quarantine" | "normal" {
 export function validateTrustThresholds(config: unknown): TrustThresholds {
   return TRUST_THRESHOLDS_SCHEMA.parse(config)
 }
+
+/**
+ * P1-IMP-06：归一化检索路径为 trust 映射查找键。
+ * 小写 + 反斜杠归正斜杠，去前导「./」。用于在 buildTrustGradeMap() 产物中查找档位。
+ */
+export function trustKeyOfPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase()
+}
+
+/**
+ * P1-IMP-06：从 KB-VIEW 非 tech 条目构建 path → trust 映射表。
+ * 键双写「{collection}/{name}」与「{name}」（lowercased）；K-11 tech 零入表（安全不变量）。
+ * 消费点：retrieveDualTrack trust 后置过滤、context-engine 硬注入档位门。
+ */
+export function buildTrustGradeMap(kbView: {
+  collections?: Record<string, Array<{ collection?: string; name?: string; trust?: TrustGrade }>>
+}): Record<string, TrustGrade> {
+  const map: Record<string, TrustGrade> = {}
+  const cols = kbView.collections ?? {}
+  for (const [collection, entries] of Object.entries(cols)) {
+    // K-11 安全不变量：tech 结构性缺席，绝不入 trust 映射（防 tech 经信任面渗透）
+    if (collection === "tech") continue
+    for (const e of entries ?? []) {
+      if (!e.name || !e.trust) continue
+      const nameKey = e.name.toLowerCase()
+      const fullKey = `${collection.toLowerCase()}/${nameKey}`
+      map[fullKey] = e.trust
+      // name 单键仅当无歧义（同名跨集合撞档时保留首遇，避免静默覆盖）
+      if (!(nameKey in map)) map[nameKey] = e.trust
+    }
+  }
+  return map
+}

@@ -1499,10 +1499,46 @@ async function writeStructuredMemoryDocuments(projectPath: string, snapshots: Ch
   return writtenPaths
 }
 
+// P2-IMP-08（CORR-2 修正落点，三模型共识）：syncSnapshotToMemory 直写 3 类
+// （character-states / cognition-state / foreshadowing-tracker），其余 6 类
+// （encounter-matrix / chapter-summaries / subplot-board / emotional-arcs /
+// particle-ledger / resource-ledger）不经本条路径 fold。返回前对未 fold 的 6 类
+// 做定向 drift 采样（复用 computeTruthFoldDrift 单类比较逻辑：live 盘上 store vs
+// committed 快照重放 canonical 哈希比对），结果并入返回值 driftSuspected:string[]，
+// 供 UI 提示「N 类记忆未同步，建议执行全量重建」。采样失败（mock/缺文件）债务记
+// trace、返回 []，绝不阻断 sync（彻底层——sync 尾部全量 rebuild——不在本条，产品裁决 pending）。
+const UNFOLDED_DRIFT_CLASSES = new Set([
+  "encounter-matrix.json",
+  "chapter-summaries.json",
+  "subplot-board.json",
+  "emotional-arcs.json",
+  "particle-ledger.json",
+  "resource-ledger.json",
+])
+
+async function sampleUnfoldedMemoryDriftSuspected(projectPath: string): Promise<string[]> {
+  try {
+    const results = await computeTruthFoldDrift(projectPath, "")
+    return results
+      .filter((r) => r.drifted && UNFOLDED_DRIFT_CLASSES.has(r.file))
+      .map((r) => r.file)
+  } catch (err) {
+    logger.warn("Chapter Ingest", "syncSnapshotToMemory 6 类 drift 采样失败（债务记 trace，不阻断）", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return []
+  }
+}
+
 export interface SyncSnapshotToMemoryResult {
   writtenEntityPaths: string[]
   memoryPagePaths: string[]
   memorySyncedAt: string
+  /**
+   * P2-IMP-08：未 fold 的 6 类定向 drift 采样（live vs 快照重放）中被判定漂移的
+   * 文件名；空数组 = 健康（正常无漂移不误报）。
+   */
+  driftSuspected: string[]
 }
 
 export async function syncSnapshotToMemory(
@@ -1570,7 +1606,11 @@ export async function syncSnapshotToMemory(
   const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
   bump()
 
-  return { writtenEntityPaths, memoryPagePaths, memorySyncedAt }
+  // P2-IMP-08：返回前对未 fold 的 6 类做定向 drift 采样（复用 computeTruthFoldDrift
+  // 单类比较逻辑）；结果并入返回值 driftSuspected，UI 据此提示全量重建。
+  const driftSuspected = await sampleUnfoldedMemoryDriftSuspected(pp)
+
+  return { writtenEntityPaths, memoryPagePaths, memorySyncedAt, driftSuspected }
 }
 
 function snapshotSourceFileNameCandidates(chapterNumber: number): string[] {
@@ -1826,6 +1866,29 @@ async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterS
   await saveCharacterStates(projectPath, existingChars)
 }
 
+/**
+ * P2-IMP-09：伏笔名归一——trim + 连续空白折叠（「归一全等」的归一）。
+ */
+function normalizeForeshadowName(name: string): string {
+  return name.trim().replace(/\s+/g, " ")
+}
+
+/**
+ * P2-IMP-09：伏笔名匹配——双向裸 includes 改「归一全等 ∥ (最短名≥2 且词界判定)」，
+ * 禁裸互含（「剑」⊂「剑意」反例：单字名不再命中有词边的长名）。
+ * 词界判定：最短名≥2 且为长名的前缀或后缀（词界锚定；长名中缀包含不再视为匹配，
+ * 「九剑法门」不命中「剑法」），keep 既有部分名推进/回收的合理场景（「黑剑」↔「黑剑碎片」）。
+ */
+function foreshadowNamesMatch(a: string, b: string): boolean {
+  const na = normalizeForeshadowName(a)
+  const nb = normalizeForeshadowName(b)
+  if (na === nb) return true
+  const shorter = na.length <= nb.length ? na : nb
+  const longer = na.length <= nb.length ? nb : na
+  if (shorter.length < 2) return false
+  return longer.startsWith(shorter) || longer.endsWith(shorter)
+}
+
 export function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot, ctx?: FoldContext): ForeshadowingStore {
   for (const change of snapshot.foreshadowingChanges) {
     const parsed = parseForeshadowingChange(change)
@@ -1858,7 +1921,7 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
       }
     } else if (parsed.kind === "advance") {
       const matched = existingForeshadows.items.find(
-        f => f.name === parsed.name || parsed.name.includes(f.name) || f.name.includes(parsed.name)
+        f => foreshadowNamesMatch(f.name, parsed.name)
       )
       if (matched) {
         matched.status = "advanced"
@@ -1876,7 +1939,7 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
     /* v8 ignore next */
     } else if (parsed.kind === "resolve") { /* v8 ignore start */ /* v8 ignore stop */
       const matched = existingForeshadows.items.find(
-        f => f.name === parsed.name || parsed.name.includes(f.name) || f.name.includes(parsed.name)
+        f => foreshadowNamesMatch(f.name, parsed.name)
       )
       if (matched) {
         matched.status = "resolved"

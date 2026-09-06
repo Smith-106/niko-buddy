@@ -1,4 +1,4 @@
-import { createAtomicJsonStore, type FoldContext } from "./projection-store"
+import { canonicalizeForHash, createAtomicJsonStore, type FoldContext } from "./projection-store"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
 /**
@@ -41,6 +41,12 @@ export interface ParticleEntry {
   state: string
   /** Free-text note (来源/去向/触发事件). */
   note: string
+  /**
+   * P2-IMP-09：同键内容修订留痕（TencentDB skill-versioning 模式，对齐快照 revision
+   * 链语义——覆盖即记修订）。易变元数据：canonicalizeForHash 按 `*At` 约定剔除，
+   * 不参与 live==replay 内容哈希 → 修订不影响 truth_fold_drift 判定。
+   */
+  revisedAt?: string
 }
 
 export interface ParticleLedgerStore {
@@ -71,10 +77,20 @@ export async function loadParticleLedger(
 }
 
 /**
+ * P2-IMP-09：内容 canonical 签名（易变元数据剔除，与 truthStoreHash/truth_fold_drift
+ * 哈希口径一致）。仅用于幂等判定（相等 → no-op），不持久化。
+ */
+function contentSignature(entry: ParticleEntry): string {
+  return JSON.stringify(canonicalizeForHash(entry))
+}
+
+/**
  * 追加一条粒子账目（强不变量：必有归属角色 + 章号，否则拒绝返回原 store）。
+ * P2-IMP-09 起为同键 upsert 末条胜（TencentDB skill-versioning 模式）：
  * E-03 (run-execute-1, 三模型共识): 幂等键 (kind, character, name, chapter) —
- * 已存在则跳过并保留首条 (append-only 时序账本, 首条优先符合「最早成因」语义),
- * 防 re-ingest 重复账目与 rebuild 漂移。
+ * 无同键 → 追加；同键且内容 canonical hash 相等 → 显式 no-op（防 re-ingest
+ * 重复账目与 rebuild 漂移）；同键且内容不等 → 覆盖内容字段（末条胜）并记修订
+ * （revisedAt），对齐 chapter-summaries 按章 upsert 反例。
  * fold 纯性: 无隐式时钟, 时间戳只经显式 ctx.now 写入。
  * 供 chapter-ingest 投影循环在 accept 后调用；模型不得直接覆写。
  */
@@ -86,16 +102,26 @@ export function appendParticleEntry(
   if (!entry.character || !entry.name || !entry.chapter || entry.chapter < 1) {
     return storeData
   }
-  const exists = storeData.entries.some(
+  const idx = storeData.entries.findIndex(
     (e) =>
       e.kind === entry.kind &&
       e.character === entry.character &&
       e.name === entry.name &&
       e.chapter === entry.chapter,
   )
-  if (exists) return storeData
+  if (idx === -1) {
+    return {
+      entries: [...storeData.entries, entry],
+      lastUpdated: ctx?.now ?? storeData.lastUpdated,
+    }
+  }
+  const existing = storeData.entries[idx]
+  if (contentSignature(existing) === contentSignature(entry)) {
+    return storeData
+  }
+  const replacement: ParticleEntry = ctx?.now ? { ...entry, revisedAt: ctx.now } : entry
   return {
-    entries: [...storeData.entries, entry],
+    entries: storeData.entries.map((e, i) => (i === idx ? replacement : e)),
     lastUpdated: ctx?.now ?? storeData.lastUpdated,
   }
 }

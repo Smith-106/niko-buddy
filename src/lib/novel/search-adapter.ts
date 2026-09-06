@@ -629,11 +629,14 @@ export async function searchPlot(
 // E-02 (run-execute-1, 双库架构蓝图 EPIC-02): 检索双轨不对称 — 硬注入物理隔离
 // ============================================================================
 
-import kbRoutingView from "../../../../reference/REFERENCE-KB-VIEW.json"
+import kbRoutingViewRaw from "../../../../reference/REFERENCE-KB-VIEW.json"
+
+/** P1-IMP-06: 共享 KB-VIEW（trust 映射 / 路由矩阵读取）*/
+export const kbRoutingView = kbRoutingViewRaw as unknown
 import { z } from "zod"
 import { getFactsKnownBy, type CanonFact } from "./canon-graph-client"
 import { visibleInfoFor } from "./process-library"
-import type { TrustGrade } from "./trust-grader"
+import { trustKeyOfPath, type TrustGrade } from "./trust-grader"
 
 /**
  * E-02 (C-6, DA-09): 路由矩阵消费 — MUST 从 JSON 读路由, 不得硬编码。
@@ -817,11 +820,19 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
   // E-06 (C-2): trust 后置过滤 (GOV-TRUST-05: blocked 条目不进检索视图)。
   // flag 门控 (trustFilterEnabled 默认 false → 字节级回退); 过滤掉的条目进 gaps
   // (IC-02 绝不静默: type=filtered, ref=trust_blocked)。
+  // P1-IMP-06: 过滤改归一键查找（直连 r.path 必 miss → normalize 后按 collection/name 与 name 双查找）。
+  const trustLookup = (path: string): TrustGrade | undefined => {
+    if (!params.trustGrades) return undefined
+    const k = trustKeyOfPath(path)
+    if (params.trustGrades[k] !== undefined) return params.trustGrades[k]
+    const base = k.split("/").pop() ?? k
+    return params.trustGrades[base]
+  }
   const gaps: KbGap[] = []
   let filteredRanked = ranked
   if (params.trustFilterEnabled && params.trustGrades) {
-    const blockedCount = ranked.filter((r) => params.trustGrades?.[r.path] === "blocked").length
-    filteredRanked = ranked.filter((r) => params.trustGrades?.[r.path] !== "blocked")
+    const blockedCount = ranked.filter((r) => trustLookup(r.path) === "blocked").length
+    filteredRanked = ranked.filter((r) => trustLookup(r.path) !== "blocked")
     if (blockedCount > 0) {
       gaps.push({
         collection: "trust",

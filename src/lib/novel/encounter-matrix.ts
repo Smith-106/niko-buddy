@@ -1,4 +1,4 @@
-import { createAtomicJsonStore, type FoldContext } from "./projection-store"
+import { canonicalizeForHash, createAtomicJsonStore, type FoldContext } from "./projection-store"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { matchesAnyAlias } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
@@ -34,6 +34,12 @@ export interface MeetingEdge {
   context: string
   /** Other characters who witnessed the meeting (canonical names). */
   witnessedBy: string[]
+  /**
+   * P2-IMP-09：同键内容修订留痕（TencentDB skill-versioning 模式，对齐快照 revision
+   * 链语义——覆盖即记修订）。易变元数据：canonicalizeForHash 按 `*At` 约定剔除，
+   * 不参与 live==replay 内容哈希 → 修订不影响 truth_fold_drift 判定。
+   */
+  revisedAt?: string
 }
 
 export interface EncounterMatrixStore {
@@ -65,10 +71,21 @@ export async function loadEncounterMatrix(
 }
 
 /**
- * 追加一条见面边（幂等：同 a/b/chapter 三元组已存在则跳过）。
+ * P2-IMP-09：内容 canonical 签名（易变元数据剔除，与 truthStoreHash/truth_fold_drift
+ * 哈希口径一致）。仅用于幂等判定（相等 → no-op），不持久化。
+ */
+function contentSignature(edge: MeetingEdge): string {
+  return JSON.stringify(canonicalizeForHash(edge))
+}
+
+/**
+ * 追加一条见面边（P2-IMP-09 起为同键 upsert 末条胜，TencentDB skill-versioning 模式）。
  * E-03 (run-execute-1, 三模型共识): 幂等键修复 — 原实现只查 (a,b) 无序对、
  * 忽略 chapter, 导致同对角色跨章再见面被跳过, live ingest 与 rebuild 漂移。
- * 键改为 (a,b,chapter) 三元组: 同章同对跳过, 跨章允许追加。
+ * 键为 (a,b,chapter) 三元组（a/b 无序）: 无同键 → 追加；
+ * 同键且内容 canonical hash 相等 → 显式 no-op（防重复 ingest 抖动）；
+ * 同键且内容不等 → 覆盖内容字段（末条胜）并记修订（revisedAt）。
+ * 保留语义: 键字段即 id（a/b/chapter 不变），覆盖只动内容字段。
  * fold 纯性: 无隐式时钟, 时间戳只经显式 ctx.now 写入。
  * 供 chapter-ingest 投影循环在 accept 后调用；模型不得直接覆写。
  */
@@ -77,14 +94,24 @@ export function appendMeetingEdge(
   edge: MeetingEdge,
   ctx?: FoldContext,
 ): EncounterMatrixStore {
-  const exists = storeData.edges.some(
+  const idx = storeData.edges.findIndex(
     (e) =>
       e.chapter === edge.chapter &&
       ((e.a === edge.a && e.b === edge.b) || (e.a === edge.b && e.b === edge.a)),
   )
-  if (exists) return storeData
+  if (idx === -1) {
+    return {
+      edges: [...storeData.edges, edge],
+      lastUpdated: ctx?.now ?? storeData.lastUpdated,
+    }
+  }
+  const existing = storeData.edges[idx]
+  if (contentSignature(existing) === contentSignature(edge)) {
+    return storeData
+  }
+  const replacement: MeetingEdge = ctx?.now ? { ...edge, revisedAt: ctx.now } : edge
   return {
-    edges: [...storeData.edges, edge],
+    edges: storeData.edges.map((e, i) => (i === idx ? replacement : e)),
     lastUpdated: ctx?.now ?? storeData.lastUpdated,
   }
 }

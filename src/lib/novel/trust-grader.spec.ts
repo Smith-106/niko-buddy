@@ -117,3 +117,38 @@ describe("E-06 filterByTrust（blocked 不进检索视图）", () => {
     expect(filtered.map((i) => i.path)).toEqual(["a", "c", "d"])
   })
 })
+
+describe("P1-IMP-06 buildTrustGradeMap + trustKeyOfPath", () => {
+  it("tech 条目零入表（K-11 安全不变量）", async () => {
+    const { buildTrustGradeMap } = await import("./trust-grader")
+    const map = buildTrustGradeMap({
+      collections: {
+        tech: [{ collection: "tech", name: "leak", trust: "full" }],
+        craft: [{ collection: "craft", name: "ok", trust: "reference_only" }],
+      },
+    })
+    expect(map["tech/leak"]).toBeUndefined()
+    expect(map["leak"]).toBeUndefined()
+    expect(map["craft/ok"]).toBe("reference_only")
+  })
+
+  it("键双写 collection/name 与 name；歧义保留首遇不静默覆盖", async () => {
+    const { buildTrustGradeMap } = await import("./trust-grader")
+    const map = buildTrustGradeMap({
+      collections: {
+        craft: [{ collection: "craft", name: "X", trust: "full" }],
+        lexicon: [{ collection: "lexicon", name: "X", trust: "reference_only" }],
+      },
+    })
+    expect(map["craft/x"]).toBe("full")
+    expect(map["lexicon/x"]).toBe("reference_only")
+    // name 单键保留首遇
+    expect(map["x"]).toBe("full")
+  })
+
+  it("trustKeyOfPath 归一化（反斜杠/前导点/大小写）", async () => {
+    const { trustKeyOfPath } = await import("./trust-grader")
+    expect(trustKeyOfPath(".\\Craft\\X.md")).toBe("craft/x.md")
+    expect(trustKeyOfPath("./Lexicon/Y.json")).toBe("lexicon/y.json")
+  })
+})
