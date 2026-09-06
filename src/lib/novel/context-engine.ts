@@ -5,7 +5,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
+import { listSnapshots, loadSnapshot, sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives } from "./revision-feedback"
 // ISS-20260712-ARCH-1 (Wave 1): 派生 store 文本读取群拆到 context-derived-stores.ts
 // (load* + *ToContextText import 随移)。context-engine 调用点 (buildLoadContext)
@@ -31,7 +31,8 @@ import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
 import { buildTrustGradeMap } from "./trust-grader"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
-import { sanitizeEntitySlug } from "./graph-adapter"
+// P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
+import { runVectorSearchShared } from "./vector-search-core"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
@@ -48,6 +49,10 @@ import { loadUserMemoryForProject } from "@/lib/user-memory/session"
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
 // EPIC-003 / TASK-008: ROI 埋点写入 cognition-state.json（现有 key，HARD-1 守恒）。
 import { appendRoutingROISample, resolveChapterPovCharacter, type RoutingROISample } from "./character-cognition"
+// P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配
+// （truth_fold_drift ← IMP-06 采样 / hard_injection_budget_usage ← pack.hardInjectUsage /
+// gap_report_rate ← pack.gaps 计数；两评测 gate 项显式 N/A 保留，不伪造）。
+import { collectKbMetrics, type KbMetrics } from "./kb-observability"
 // S2a (roadmap): 四维反查组合导入 — related-chapters 是独立纯函数模块,
 // context-engine 负责组合进 ContextPack (不平行实现, 与 searchRelevantContentUnified 互补)。
 import {
@@ -390,6 +395,16 @@ export interface ContextPack {
    * emptyPack / build 失败降级时 undefined。同时经 logger.info 输出一次遥测事件。
    */
   sourceTimingsMs?: SourceTimingsMs
+  /**
+   * P2-IMP-13 (P2-M4): KB 可观测性 6 指标快照（GOV-OBS-01，缺源显式 N/A 不伪造）。
+   * buildContextPackUnlocked 尾部装配：truth_fold_drift ← IMP-06 sampleTruthFoldDrift
+   * 采样聚合值；hard_injection_budget_usage ← pack.hardInjectUsage.ratio；
+   * gap_report_rate ← pack.gaps 计数；canon_violation_rate / obligation_coverage
+   * 显式 N/A（评测 gate P1 轨道）。消费方按需读取 pack.kbMetrics（KB 健康面板）。
+   * additive 独立字段 — 不渲染进 prompt（无 FIELD_CONFIGS 条目）；legacy 构造器 /
+   * emptyPack 不注入时 undefined。
+   */
+  kbMetrics?: KbMetrics
 }
 
 /** T25: 三源计时探针槽位（毫秒）。 */
@@ -428,8 +443,9 @@ export interface BuildContextOptions {
   entityNames?: string[]
   /**
    * E-02 (C-5): 主 POV 角色 id（硬注入通道 A 的 POV 过滤输入）。
-   * 缺省回退 resolveChapterPovCharacter（当前 POV 真源未就绪 → null → 通道 A 空，
-   * 不臆造 POV）。调用方显式传入时激活 POV 过滤注入。
+   * 缺省回退 resolveChapterPovCharacter：P2-IMP-12 起读 ChapterSnapshot.povCharacter
+   * （快照编辑面板人工声明）解析；无声明 → null → 通道 A 空，不臆造 POV。
+   * 调用方显式传入时优先，激活 POV 过滤注入。
    */
   povCharacter?: string
 }
@@ -629,8 +645,9 @@ async function buildContextPackUnlocked(
           })()
         : Promise.resolve(null)
     // E-02 (C-5/C-9, run-execute-1 双库架构蓝图 capability-kb-retrieval): 硬注入第四源。
-    // 单次 retrieveDualTrack 调用（通道 A 硬注入 + 通道 B 语义检索）；POV 真源未就绪
-    // （resolveChapterPovCharacter 返回 null）→ 通道 A 空（不臆造 POV），通道 B 仍可用。
+    // 单次 retrieveDualTrack 调用（通道 A 硬注入 + 通道 B 语义检索）；POV 真源：
+    // P2-IMP-12 起由 resolveChapterPovCharacter 读快照 povCharacter 人工声明解析，
+    // 无声明 → null → 通道 A 空（不臆造 POV），通道 B 仍可用。
     // 失败降级 null（不阻断 pack 装配，与 relatedChapters/references 同款模式）。
     // 注：D5「复用 loadCanonSourceFacts 结果」未采纳——retrieveDualTrack 通道 A 走
     // getFactsKnownBy（known_by 认知轴 POV 过滤，C-5 要求），与 loadCanonSourceFacts
@@ -811,6 +828,29 @@ async function buildContextPackUnlocked(
     if (currentBuildBudget) {
       pack.contextUsage = buildContextUsage(currentBuildBudget, userMemoryStore)
     }
+    // P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配。
+    //   truth_fold_drift ← IMP-06 sampleTruthFoldDrift 采样聚合值（内部失败吞掉 →
+    //     null → N/A，不阻断主链）；
+    //   hard_injection_budget_usage ← pack.hardInjectUsage.ratio（:728 已装配；
+    //     hardInjectEnabled=false / 装配降级时缺失 → N/A 诚实降级）；
+    //   gap_report_rate ← pack.gaps 计数（IC-02 缺口透明化）。
+    //   canon_violation_rate / obligation_coverage 显式 N/A 保留（评测 gate P1 轨道，
+    //   不伪造 —— agentmemory 诚实降级模式）。
+    // 注：部分测试环境以子集 mock chapter-ingest 模块（仅 listSnapshots/loadSnapshot），
+    //   静态导入的 sampleTruthFoldDrift 绑定在 mock 缺席时经模块 namespace 抛错 ——
+    //   此处 try/catch 守卫：mock 缺席/采样异常一律诚实降级 N/A（null），不阻断主链。
+    //   （生产路径 sampleTruthFoldDrift 内部已自吞失败返回 null。）
+    let driftSample: { driftCount: number; driftedFiles: string[] } | null = null
+    try {
+      driftSample = await sampleTruthFoldDrift(pp)
+    } catch {
+      driftSample = null
+    }
+    pack.kbMetrics = collectKbMetrics({
+      truthFoldDrift: driftSample ? driftSample.driftCount : null,
+      hardInjectionBudgetUsage: pack.hardInjectUsage ? pack.hardInjectUsage.ratio : null,
+      gapReportRate: pack.gaps?.length ?? null,
+    })
     return pack
   } finally {
     // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.
@@ -2110,94 +2150,50 @@ export async function searchRelevantContentUnified(
   return merged.slice(0, Math.max(limit * 2, limit)).join("\n")
 }
 
-async function runVectorSearchForContext(
+/**
+ * P1-IMP-14: 薄包装（签名零变化，调用点 :1932/:2018 字节级不变）。
+ *
+ * 公共流程（fetch / sanitize / 并行 probe / 标题与 snippet 口径 / 外层降级 []）
+ * 已收一到 vector-search-core.runVectorSearchShared。本侧保留两处真实差异：
+ *   1. IC-02 相关性门控 + ContextGap 记账 —— 经 selectCandidates 回调在调用侧完成
+ *      （vector-relevance / contextGaps 不下沉到共享核心），位置与改前一致：
+ *      fetch 空判之后、probe 循环之前。
+ *   2. 无逐条异常守卫（perItemGuard 缺省 false）—— 单条 throw 仍冒泡外层 catch → 整批 []。
+ * P1-IMP-14: 导出仅供 vector-search-parity.spec 与检索侧孪生对拍；
+ * 既有调用点（:1972 / :2058）一字未动，签名零变化。
+ */
+export async function runVectorSearchForContext(
   pp: string,
   query: string,
   limit: number,
   options: BuildContextOptions = {},
 ): Promise<{ title: string; snippet: string; path: string }[]> {
-  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
-  const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
-  if (!embCfg.enabled || !embCfg.model) return []
-
-  try {
-    const { searchByEmbedding } = await import("@/lib/embedding")
-    const vectorResults = await searchByEmbedding(pp, query, embCfg, Math.max(limit * 2, 10))
-    if (vectorResults.length === 0) return []
-
-    // IC-02: 向量结果按 0.45 相关性门控，低于阈值的视为噪音不进入包装/候选池。
-    // 取 matchedChunks 真实命中分（fallback result.score）。被过滤结果记 ContextGap
-    // （type=truncated / reason=tier_compressible），不静默降级。
-    // (backport from Mochocyang/QMAI v3.0.1 xiangliangzaoyinzhili)
-    const gatedVectorResults = selectRelevantNovelVectorResults(vectorResults, limit)
-    if (contextGapsActive && vectorResults.length - gatedVectorResults.length > 0) {
-      contextGaps.push({
-        type: "truncated",
-        ref: "vector-context",
-        reason: "tier_compressible",
-        originalLength: vectorResults.length,
-        retainedLength: gatedVectorResults.length,
-      })
-    }
-    const relevantVectorResults = gatedVectorResults
-
-    const items: { title: string; snippet: string; path: string }[] = []
-    const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
-
-    // PERF-NEW-06 (odyssey-improve DC-4): parallelize the per-vr path probe.
-    // Previously this was a serial `for (dir of dirs) await readFile(...)` —
-    // up to 6 serial IPC round-trips per vector result (N×M = limit×7 worst
-    // case), all on the searchRelevantContentUnified hot path. Now each vr
-    // probes all 7 candidate paths (6 dirs + 1 root) concurrently via
-    // Promise.allSettled, preserving first-success semantics (dirs order
-    // wins over root) by scanning settled results in priority order.
-    //
-    // F-002 (odyssey-review): probePath takes an explicit `vrId` param rather
-    // than closing over the loop variable `vr`. Defining probePath outside the
-    // `for (const vr ...)` loop (for object reuse) while reading `vr.id` via
-    // closure is a scope error (TS2304) and a contract smell (signature
-    // implies only tryPath matters, but vr.id decided the title fallback).
-    // Passing vrId explicitly fixes both.
-    const probePath = async (
-      tryPath: string,
-      vrId: string,
-    ): Promise<{ title: string; snippet: string; path: string } | null> => {
-      try {
-        const content = await readFile(tryPath)
-        const title = content.match(/^#\s+(.+)/m)?.[1]?.trim()
-          ?? content.match(/^---\ntitle:\s*(.+)/m)?.[1]?.trim()
-          ?? vrId
-        return { title, snippet: content.slice(0, 300).replace(/\n/g, " "), path: tryPath }
-      } catch {
-        return null
+  const hits = await runVectorSearchShared({
+    pp,
+    query,
+    limit,
+    // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（解析在共享核心内）。
+    embCfg: options.embeddingConfig,
+    selectCandidates: (results, n) => {
+      // IC-02: 向量结果按 0.45 相关性门控，低于阈值的视为噪音不进入包装/候选池。
+      // 取 matchedChunks 真实命中分（fallback result.score）。被过滤结果记 ContextGap
+      // （type=truncated / reason=tier_compressible），不静默降级。
+      // (backport from Mochocyang/QMAI v3.0.1 xiangliangzaoyinzhili)
+      const gatedVectorResults = selectRelevantNovelVectorResults(results, n)
+      if (contextGapsActive && results.length - gatedVectorResults.length > 0) {
+        contextGaps.push({
+          type: "truncated",
+          ref: "vector-context",
+          reason: "tier_compressible",
+          originalLength: results.length,
+          retainedLength: gatedVectorResults.length,
+        })
       }
-    }
-
-    for (const vr of relevantVectorResults) {
-      // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
-      // before path construction. vr.id is external stored state in LanceDB
-      // and could be polluted (manual DB edit, non-entity write path, future
-      // embedPage callers). The write path (chapter-ingest.ts:1798) already
-      // sanitizes via sanitizeEntitySlug, but the read path must be self-
-      // sufficient — Rust readFile (file_reader.rs) has no project-root
-      // containment, so this TS path join is the only traversal boundary.
-      // Symmetric with the write path; defense-in-depth.
-      const safeId = sanitizeEntitySlug(vr.id)
-      const candidatePaths = [
-        ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
-        `${pp}/wiki/${safeId}.md`,
-      ]
-      const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p, safeId)))
-      // Priority order: dirs first (in declared order), then root fallback.
-      const hit = settled
-        .map((r) => (r.status === "fulfilled" ? r.value : null))
-        .find((v): v is { title: string; snippet: string; path: string } => v !== null)
-      if (hit) items.push(hit)
-    }
-    return items
-  } catch {
-    return []
-  }
+      return gatedVectorResults
+    },
+  })
+  // 投影顺序与改前 probePath 返回对象一致（title, snippet, path）。
+  return hits.map((hit) => ({ title: hit.title, snippet: hit.snippet, path: hit.path }))
 }
 
 export async function searchGraphRelevantContent(

@@ -97,6 +97,26 @@ function EditableListSection({ title, value, onChange }: { title: string; value:
   )
 }
 
+// P2-IMP-12 (M3a)：POV 人工声明输入（零新增 LLM 提取——用户显式声明本章视角角色，
+// 保存进 ChapterSnapshot.povCharacter，供 resolveChapterPovCharacter 解析）。
+function EditablePovSection({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="mb-3">
+      <h4 className="mb-1 text-sm font-semibold text-foreground">本章 POV 角色（可选）</h4>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="填写本章视角角色的主名（如：白砚）；留空表示无 POV 声明"
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-ring"
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        声明后，上下文装配与正史审查将按该角色的已知信息过滤；请使用角色页主名以便正确匹配。留空则保持世界层视角。
+      </p>
+    </div>
+  )
+}
+
 // TASK-303 历史版本对比：单行历史版本条目，含「对比当前版本」与「恢复」操作。
 export interface HistoryEntryRowProps {
   entry: SnapshotHistoryEntry
@@ -359,6 +379,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const renderReadOnly = (data: ChapterSnapshot) => (
     <div className="space-y-2">
       <TextSection title={t("novel.snapshot.summary")} content={data.summary} />
+      {data.povCharacter ? <TextSection title="本章 POV 角色" content={data.povCharacter} /> : null}
       <Section title={t("novel.snapshot.characters")} items={data.characters} />
       <Section title={t("novel.snapshot.locations")} items={data.locations} />
       <Section title={t("novel.snapshot.organizations")} items={data.organizations} />
@@ -380,6 +401,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const renderEditor = (data: ChapterSnapshot) => (
     <div className="space-y-2">
       <EditableTextSection title={t("novel.snapshot.summary")} value={data.summary} onChange={(value) => editText("summary", value)} />
+      <EditablePovSection value={data.povCharacter ?? ""} onChange={(value) => editText("povCharacter", value)} />
       <EditableListSection title={t("novel.snapshot.characters")} value={data.characters} onChange={(value) => editList("characters", value)} />
       <EditableListSection title={t("novel.snapshot.locations")} value={data.locations} onChange={(value) => editList("locations", value)} />
       <EditableListSection title={t("novel.snapshot.organizations")} value={data.organizations} onChange={(value) => editList("organizations", value)} />

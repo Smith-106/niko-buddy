@@ -135,6 +135,29 @@ pub fn run() {
             app.manage(commands::file_sync::FileSyncState::default());
             // 架构-1：{project}/.novel/status.json 独立监听器（novel-status-changed 事件）。
             app.manage(status_watcher::StatusWatcherState::default());
+            // P1-IMP-10：启动向量对账在后台执行，绝不阻塞窗口创建（tokio::spawn
+            // 同一运行时；setup 完成后即返回）。setup 阶段 Rust 侧没有任何项目
+            // 清单 —— 项目路径与 expected chunk 清单均由前端驱动 —— 因此后台
+            // pass 以空清单调用 run_startup_reconcile：其空清单契约是安全
+            // no-op（skipped=true，永不读删库），保证该入口在真实清单到达前
+            // 始终可用且无害。全量对账（scan → reconcile_chunks 产计划 →
+            // to_upsert 按 page_id 归组原子执行 → to_delete_pages）由前端在
+            // 重建/重索引流程尾部经 vector_run_startup_reconcile 同步调用
+            // （重建命令尾部同步调用；reconcile-pending.jsonl 优先消费）。
+            tauri::async_runtime::spawn(async move {
+                // 先让 setup 完成，避免与窗口初始化争抢（纯卫生性延迟）。
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                match commands::vectorstore::run_startup_reconcile(String::new(), Vec::new()).await
+                {
+                    Ok(report) => log::debug!(
+                        "[vectorstore] startup reconcile primed (skipped={})",
+                        report.skipped
+                    ),
+                    Err(e) => {
+                        log::debug!("[vectorstore] startup reconcile prime failed (non-fatal): {e}")
+                    }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -166,6 +189,7 @@ pub fn run() {
             commands::vectorstore::vector_count_chunks,
             commands::vectorstore::vector_legacy_row_count,
             commands::vectorstore::vector_drop_legacy,
+            commands::vectorstore::vector_run_startup_reconcile,
             commands::claude_cli::claude_cli_detect,
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,

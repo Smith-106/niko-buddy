@@ -1,5 +1,6 @@
 import { createAtomicJsonStore } from "./projection-store"
 import { normalizePath } from "@/lib/path-utils"
+import { readFile } from "@/commands/fs"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { matchesAnyAlias } from "./book-analysis/alias-resolver"
 import type { NameAliasMap } from "./book-analysis/types"
@@ -519,22 +520,38 @@ export function fromCanonGraph(
 }
 
 /**
- * T25 (F-13) POV 路由设施 —— 本章 POV 角色身份解析（接入点 / 扩展锚）。
+ * T25 (F-13) + P2-IMP-12 (M3a): POV 路由设施 —— 本章 POV 角色身份解析（真源已落地）。
  *
- * 主链今天无结构化 per-chapter POV 字段（ChapterSnapshot / NovelConfig / 章节 frontmatter /
- * session-status 均无 POV；POV 路由属路线图级新设施，见 C 任务书硬约束「停下报告而非硬塞」）。
- * 故本函数当前返回 null —— 优雅降级为世界层投影（行为不变），绝不臆造 POV（避免误归因）。
- *
- * 未来 per-chapter POV 真源落地（章节元数据 / cognition-state POV 字段 / 大纲 POV 标注）时，
- * 在此解析并返回角色 id，下游 `buildPovCognition` 与 loadCanonSourceFacts 第二查询的
- * `known_by` 过滤即自动激活「角色 X 曾以为」精确归因（剥离世界层限制）。
+ * P2-IMP-12：ChapterSnapshot 增可选 povCharacter 字段（快照编辑面板人工声明，
+ * 零新增 LLM 提取语义）。本函数读该字段解析返回角色 id：
+ *   - 快照存在且 povCharacter 非空 → NFKC/中点折叠为规范形后返回（resolveCanonicalName）；
+ *   - 无声明 / 快照缺失 / 读取异常 → return null（保持世界层投影降级契约，绝不臆造 POV）。
+ * 下游 `buildPovCognition`、loadCanonSourceFacts 第二查询的 `known_by` 过滤与硬注入
+ * 通道 A（context-engine resolveChapterPovCharacter 调用点）随之自动激活。
+ * hardInjectEnabled 默认 false 不动（翻转归 M3b）。
  */
 export async function resolveChapterPovCharacter(
-  _projectPath: string,
-  _chapter: number,
+  projectPath: string,
+  chapter: number,
 ): Promise<string | null> {
-  // EXTENSION POINT: per-chapter POV 真源就绪时在此解析并返回角色 id。
-  return null
+  try {
+    const pp = normalizePath(projectPath)
+    // 快照路径与 chapter-ingest.snapshotJsonPath 同形（该函数未导出，且本模块已被
+    // chapter-ingest 运行时 import——直读 JSON 避免 character-cognition ↔
+    // chapter-ingest 运行时循环依赖）。
+    const prefix = chapter < 0
+      ? `outline-${String(Math.abs(chapter)).padStart(3, "0")}`
+      : String(chapter).padStart(3, "0")
+    const raw = await readFile(`${pp}/.novel/snapshots/${prefix}.snapshot.json`)
+    const parsed = JSON.parse(raw) as { povCharacter?: unknown }
+    const declared = typeof parsed.povCharacter === "string" ? parsed.povCharacter.trim() : ""
+    if (!declared) return null
+    // 解析：NFKC + 中点折叠为规范形（无 aliasMap 回退路径；别名折叠可后续叠加）。
+    return resolveCanonicalName(declared) || null
+  } catch {
+    // 快照缺失/损坏 → null（优雅降级为世界层投影，不阻断主链）。
+    return null
+  }
 }
 
 /**

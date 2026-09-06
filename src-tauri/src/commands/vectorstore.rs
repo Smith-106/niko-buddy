@@ -197,31 +197,32 @@ async fn maybe_trigger_after_write(project_path: &str, delta: u64) {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Startup reconciliation (pure function)
+// Startup reconciliation
 //
 // reconcile_chunks is deliberately PURE — it compares an expected chunk
 // set against the actual table contents and returns an UPSERT / DELETE
 // plan without touching the DB. This keeps the decision logic unit-
 // testable and independent of LanceDB IO.
 //
-// UPSTREAM WIRING PATH (cross-layer, NOT wired here):
-//   A future startup/reindex check that owns the per-project LanceDB
-//   connection can: 1) derive the expected chunk set (page_id → indexes)
-//   from the source-of-truth doc inventory, 2) read the actual set via a
-//   v2 table scan (page_id + chunk_index), 3) feed both into
-//   reconcile_chunks, and 4) execute the returned plan by re-provisioning
-//   each page_id in to_reupsert_pages (and to_upsert) via
-//   do_vector_upsert_chunks with its full expected set, and deleting each
-//   page_id in to_delete_pages via do_vector_delete_page. The plan
-//   grouping is designed so each action maps 1:1 onto the existing
-//   page-scoped mutators. Wiring requires that new module (or the existing
-//   search/upsert host) to own the connection lifetime, hence it is left
-//   out of this pure-function delivery.
+// WIRED (P1-IMP-10):
+//   1. scan_actual_chunks reads the actual (page_id, chunk_index) set.
+//   2. run_startup_reconcile executes the plan produced by
+//      reconcile_chunks: under-provisioned pages (to_upsert /
+//      to_reupsert_pages) are re-provisioned GROUPED BY page_id — each
+//      page's full expected set is applied atomically through
+//      do_vector_upsert_chunks (delete + add in one page-scoped
+//      transaction, ApeRAG DocumentIndexReconciler grouping semantics) —
+//      and stale pages (to_delete_pages) are removed via
+//      do_vector_delete_page.
+//   3. When a page upsert fails mid-flight (delete succeeded, add
+//      failed), do_vector_upsert_chunks records the page in
+//      .novel/vector-index/reconcile-pending.jsonl (digest-idempotent);
+//      run_startup_reconcile consumes the queue with priority once the
+//      page is re-provisioned.
 // ──────────────────────────────────────────────────────────────────────
 
 /// Identity of one expected chunk.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ExpectedChunk {
     pub page_id: String,
     pub chunk_index: u32,
@@ -229,7 +230,6 @@ pub struct ExpectedChunk {
 
 /// Identity of one chunk currently present in the table.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ActualChunk {
     pub page_id: String,
     pub chunk_index: u32,
@@ -237,7 +237,6 @@ pub struct ActualChunk {
 
 /// Reconciliation plan (pure output; nothing is executed here).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[allow(dead_code)] // used by future startup-reconcile wiring
 pub struct ReconcilePlan {
     /// Chunk refs expected in the table but missing → these pages should be
     /// upserted (grouped by page_id before execution).
@@ -267,7 +266,6 @@ pub struct ReconcilePlan {
 ///     of truth).
 ///   - A page whose expected chunk set matches the actual chunk set exactly
 ///     lands in `unchanged_pages`.
-#[allow(dead_code)] // used by future startup-reconcile wiring
 pub fn reconcile_chunks(
     expected: &[ExpectedChunk],
     actual: &[ActualChunk],
@@ -332,6 +330,360 @@ pub fn reconcile_chunks(
     }
 
     plan
+}
+
+/// Scan the current v2 table and return the actual chunk identities
+/// (page_id, chunk_index) present on disk. Missing table → empty set
+/// (lenient, matching the other v2 readers).
+pub async fn scan_actual_chunks(project_path: &str) -> Result<Vec<ActualChunk>, String> {
+    use futures::TryStreamExt;
+
+    let db = connect(&db_path(project_path))
+        .execute()
+        .await
+        .map_err(|e| format!("DB connect error: {e}"))?;
+
+    let tables = db
+        .table_names()
+        .execute()
+        .await
+        .map_err(|e| format!("List tables error: {e}"))?;
+    if !tables.contains(&TABLE_V2.to_string()) {
+        return Ok(vec![]);
+    }
+
+    let table = db
+        .open_table(TABLE_V2)
+        .execute()
+        .await
+        .map_err(|e| format!("Open table error: {e}"))?;
+
+    let batches = table
+        .query()
+        .execute()
+        .await
+        .map_err(|e| format!("Scan error: {e}"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|e| format!("Collect scan error: {e}"))?;
+
+    let mut out: Vec<ActualChunk> = Vec::new();
+    for batch in &batches {
+        let page_ids = batch
+            .column_by_name("page_id")
+            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            .ok_or("Missing page_id column")?;
+        let indexes = batch
+            .column_by_name("chunk_index")
+            .and_then(|c| c.as_any().downcast_ref::<UInt32Array>())
+            .ok_or("Missing chunk_index column")?;
+        for i in 0..batch.num_rows() {
+            out.push(ActualChunk {
+                page_id: page_ids.value(i).to_string(),
+                chunk_index: indexes.value(i),
+            });
+        }
+    }
+
+    Ok(out)
+}
+
+/// Full expected chunk payload for the startup reconcile executor. The pure
+/// `reconcile_chunks` decides on identities; `run_startup_reconcile` needs
+/// the payload (text / heading / embedding) to re-provision pages.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExpectedChunkInput {
+    pub page_id: String,
+    pub chunk_index: u32,
+    pub chunk_text: String,
+    pub heading_path: String,
+    pub embedding: Vec<f32>,
+}
+
+fn chunk_input_to_upsert(c: &ExpectedChunkInput) -> ChunkUpsertInput {
+    ChunkUpsertInput {
+        chunk_index: c.chunk_index,
+        chunk_text: c.chunk_text.clone(),
+        heading_path: c.heading_path.clone(),
+        embedding: c.embedding.clone(),
+    }
+}
+
+/// Result of one `run_startup_reconcile` execution. Serialized back to the
+/// frontend so the rebuild command's tail call can surface the outcome.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ReconcileReport {
+    /// Pages re-provisioned atomically (grouped by page_id: delete + add of
+    /// the full expected set in one page-scoped transaction).
+    pub upserted_pages: Vec<String>,
+    /// Stale pages deleted (present in the table, absent from the expected
+    /// inventory).
+    pub deleted_pages: Vec<String>,
+    /// Pages whose expected set already matched the table (no action).
+    pub unchanged_pages: Vec<String>,
+    /// Pages whose re-provision / delete failed (still drifted; their
+    /// reconcile-pending entries are retained for the next run).
+    pub failed_pages: Vec<String>,
+    /// Pages still diverged after execution (final re-scan).
+    pub drifted: usize,
+    /// reconcile-pending.jsonl entries consumed by this run (pages now
+    /// consistent with the expected inventory).
+    pub pending_consumed: usize,
+    /// True when no expected inventory was supplied → safe no-op (nothing
+    /// was read, written or deleted). Background startup passes rely on this.
+    pub skipped: bool,
+}
+
+/// Relative path (project-rooted) of the durable pending queue.
+const RECONCILE_PENDING_REL_PATH: &str = ".novel/vector-index/reconcile-pending.jsonl";
+
+/// One durable pending entry: a page whose last upsert failed mid-flight
+/// (delete succeeded, add failed) and therefore still needs re-provisioning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReconcilePendingEntry {
+    pub page_id: String,
+    /// sha256 (hex) over the page's chunk descriptors (index/text/heading);
+    /// used to keep the queue idempotent — the same (page_id, digest) is
+    /// never enqueued twice.
+    pub digest: String,
+    /// ISO-8601 UTC timestamp of the failed write (diagnostics only).
+    pub ts: String,
+}
+
+fn reconcile_pending_path(project_path: &str) -> String {
+    let p = project_path.replace('\\', "/");
+    format!("{}/{}", p.trim_end_matches('/'), RECONCILE_PENDING_REL_PATH)
+}
+
+fn to_hex(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+    let bytes = bytes.as_ref();
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
+/// Content digest of one page's chunk set. Excludes embeddings — they are
+/// derived from the text, so the digest identity stays stable across
+/// re-embedding (KbGap / OpenKB atomic-write discipline, vector-layer
+/// equivalent).
+fn chunk_set_digest(page_id: &str, chunks: &[ChunkUpsertInput]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(page_id.as_bytes());
+    hasher.update(b"\n");
+    let mut sorted: Vec<&ChunkUpsertInput> = chunks.iter().collect();
+    sorted.sort_by_key(|c| c.chunk_index);
+    for c in sorted {
+        hasher.update(c.chunk_index.to_string().as_bytes());
+        hasher.update(b"\t");
+        hasher.update(c.chunk_text.as_bytes());
+        hasher.update(b"\t");
+        hasher.update(c.heading_path.as_bytes());
+        hasher.update(b"\n");
+    }
+    to_hex(hasher.finalize())
+}
+
+/// Read the pending queue. Malformed / stale lines are skipped (the queue
+/// must never block or poison the reconcile).
+fn read_reconcile_pending(project_path: &str) -> Vec<ReconcilePendingEntry> {
+    let path = reconcile_pending_path(project_path);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<ReconcilePendingEntry>(l).ok())
+        .collect()
+}
+
+/// Rewrite the pending queue; an empty queue removes the file (absence
+/// signals "nothing pending").
+fn write_reconcile_pending(
+    project_path: &str,
+    entries: &[ReconcilePendingEntry],
+) -> Result<(), String> {
+    let path = reconcile_pending_path(project_path);
+    if entries.is_empty() {
+        match std::fs::remove_file(&path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("remove pending file: {e}")),
+        }
+    } else {
+        if let Some(dir) = std::path::Path::new(&path).parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("create pending dir: {e}"))?;
+        }
+        let mut text = String::new();
+        for e in entries {
+            text.push_str(
+                &serde_json::to_string(e).map_err(|e| format!("serialize pending: {e}"))?,
+            );
+            text.push('\n');
+        }
+        std::fs::write(&path, text).map_err(|e| format!("write pending file: {e}"))?;
+        Ok(())
+    }
+}
+
+/// Best-effort append of a pending entry. Idempotent by (page_id, digest): an
+/// entry with the same identity already on the queue is not duplicated. Never
+/// fails the caller — the original write error stays the only error surfaced.
+fn append_reconcile_pending(project_path: &str, page_id: &str, digest: &str) {
+    let result = (|| -> Result<(), String> {
+        let mut entries = read_reconcile_pending(project_path);
+        if entries
+            .iter()
+            .any(|e| e.page_id == page_id && e.digest == digest)
+        {
+            return Ok(()); // digest 幂等：同一 (page_id, digest) 不重复入队
+        }
+        entries.push(ReconcilePendingEntry {
+            page_id: page_id.to_string(),
+            digest: digest.to_string(),
+            ts: chrono::Utc::now().to_rfc3339(),
+        });
+        write_reconcile_pending(project_path, &entries)
+    })();
+    if let Err(e) = result {
+        // Best-effort queueing: a queue hiccup must never mask the original
+        // upsert error or fail the host write path.
+        #[cfg(debug_assertions)]
+        eprintln!("[vectorstore] reconcile-pending append failed (non-fatal): {e}");
+        #[cfg(not(debug_assertions))]
+        let _ = e;
+    }
+}
+
+/// Execute the startup reconcile for a project.
+///
+/// Pipeline (ApeRAG DocumentIndexReconciler semantics — claim / group-by-
+/// document atomic / status):
+///   1. scan_actual_chunks → actual identities;
+///   2. reconcile_chunks → plan (pure decision);
+///   3. to_upsert / to_reupsert_pages grouped by page_id → per-page atomic
+///      re-provision via do_vector_upsert_chunks (delete + add of the FULL
+///      expected set; a page is never left half-written — this is the
+///      ApeRAG 按文档分组原子语义);
+///   4. to_delete_pages → do_vector_delete_page per page;
+///   5. reconcile-pending.jsonl consumed with priority: entries whose page is
+///      now consistent are removed, entries for still-failed pages retained;
+///   6. final re-scan → drifted count.
+///
+/// Safety: an empty `expected` inventory is a no-op (skipped=true) — the
+/// executor never deletes when there is no source of truth to reconcile
+/// against. This is the invariant that lets lib.rs setup spawn this in the
+/// background without blocking startup (no project inventory exists there).
+pub async fn run_startup_reconcile(
+    project_path: String,
+    expected: Vec<ExpectedChunkInput>,
+) -> Result<ReconcileReport, String> {
+    if expected.is_empty() {
+        return Ok(ReconcileReport {
+            skipped: true,
+            ..Default::default()
+        });
+    }
+
+    // Group full payloads by page (ApeRAG: document-scoped atomicity).
+    let mut expected_by_page: HashMap<String, Vec<ExpectedChunkInput>> = HashMap::new();
+    for e in expected {
+        expected_by_page
+            .entry(e.page_id.clone())
+            .or_default()
+            .push(e);
+    }
+    let expected_ids: Vec<ExpectedChunk> = expected_by_page
+        .values()
+        .flatten()
+        .map(|e| ExpectedChunk {
+            page_id: e.page_id.clone(),
+            chunk_index: e.chunk_index,
+        })
+        .collect();
+
+    let actual = scan_actual_chunks(&project_path).await?;
+    let plan = reconcile_chunks(&expected_ids, &actual);
+
+    // Pages needing re-provision: the plan's to_upsert refs are a subset view
+    // of to_reupsert_pages; union them so the grouped execution covers both.
+    let mut re_provision_pages: HashSet<String> = plan.to_reupsert_pages.iter().cloned().collect();
+    for c in &plan.to_upsert {
+        re_provision_pages.insert(c.page_id.clone());
+    }
+
+    let mut report = ReconcileReport {
+        unchanged_pages: plan.unchanged_pages.clone(),
+        ..Default::default()
+    };
+
+    // Upsert phase (grouped by page_id, atomic per page).
+    let mut pages: Vec<&String> = re_provision_pages.iter().collect();
+    pages.sort_unstable();
+    for page_id in pages {
+        let chunks = expected_by_page.get(page_id).cloned().unwrap_or_default();
+        let upserts: Vec<ChunkUpsertInput> = chunks.iter().map(chunk_input_to_upsert).collect();
+        match do_vector_upsert_chunks(project_path.clone(), page_id.clone(), upserts).await {
+            Ok(()) => report.upserted_pages.push(page_id.clone()),
+            Err(e) => {
+                report.failed_pages.push(page_id.clone());
+                log::warn!(
+                    "[vectorstore] startup reconcile re-provision failed for '{page_id}': {e}"
+                );
+            }
+        }
+    }
+
+    // Delete phase (stale pages absent from the expected inventory).
+    let mut deletes: Vec<String> = plan.to_delete_pages.clone();
+    deletes.sort_unstable();
+    for page_id in deletes {
+        match do_vector_delete_page(project_path.clone(), page_id.clone()).await {
+            Ok(()) => report.deleted_pages.push(page_id.clone()),
+            Err(e) => {
+                report.failed_pages.push(page_id.clone());
+                log::warn!("[vectorstore] startup reconcile delete failed for '{page_id}': {e}");
+            }
+        }
+    }
+
+    // Final drift measurement + pending-queue consumption (with priority:
+    // entries for pages now consistent are drained so the next reconcile
+    // starts from an empty queue; entries for still-failed pages survive).
+    let actual_after = scan_actual_chunks(&project_path).await?;
+    let final_plan = reconcile_chunks(&expected_ids, &actual_after);
+    let mut drifted_pages: HashSet<String> = final_plan.to_reupsert_pages.iter().cloned().collect();
+    drifted_pages.extend(final_plan.to_delete_pages.iter().cloned());
+
+    let mut kept: Vec<ReconcilePendingEntry> = Vec::new();
+    for entry in read_reconcile_pending(&project_path) {
+        if drifted_pages.contains(&entry.page_id) {
+            kept.push(entry);
+        } else {
+            report.pending_consumed += 1;
+        }
+    }
+    if let Err(e) = write_reconcile_pending(&project_path, &kept) {
+        log::warn!("[vectorstore] rewrite reconcile-pending failed (non-fatal): {e}");
+    }
+
+    report.drifted = drifted_pages.len();
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn vector_run_startup_reconcile(
+    project_path: String,
+    expected: Vec<ExpectedChunkInput>,
+) -> Result<ReconcileReport, String> {
+    run_guarded_async(
+        "vector_run_startup_reconcile",
+        run_startup_reconcile(project_path, expected),
+    )
+    .await
 }
 
 /// v2 per-chunk search result. Surfaces the matching chunk's text + heading path
@@ -492,6 +844,12 @@ fn make_batch_v2(
 /// An empty `chunks` argument is a no-op — it does NOT clear the page's
 /// existing index (for that, call `vector_delete_page` explicitly), so
 /// transient ingest failures don't nuke previously-good embeddings.
+///
+/// Mid-flight failure discipline (P1-IMP-10): if the delete succeeds but
+/// the add fails, the page is left with no rows — a reconcile-pending entry
+/// is queued to `.novel/vector-index/reconcile-pending.jsonl`
+/// (digest-idempotent) so the startup reconcile re-provisions the page with
+/// priority. Queueing is best-effort and never masks the original error.
 pub async fn do_vector_upsert_chunks(
     project_path: String,
     page_id: String,
@@ -539,11 +897,19 @@ pub async fn do_vector_upsert_chunks(
             .await
             .map_err(|e| format!("Delete error for page '{}': {e}", page_id))?;
 
-        table
-            .add(data)
-            .execute()
-            .await
-            .map_err(|e| format!("Add error: {e}"))?;
+        if let Err(e) = table.add(data).execute().await {
+            // P1-IMP-10: delete succeeded but add failed → the page's rows
+            // are gone with no replacement. Queue the page in
+            // .novel/vector-index/reconcile-pending.jsonl (digest-idempotent)
+            // so the next startup reconcile re-provisions it with priority.
+            // Best-effort: queueing never masks the original add error.
+            append_reconcile_pending(
+                &project_path,
+                &page_id,
+                &chunk_set_digest(&page_id, &chunks),
+            );
+            return Err(format!("Add error: {e}"));
+        }
     } else {
         db.create_table(TABLE_V2, data)
             .execute()
@@ -1232,6 +1598,242 @@ mod tests_v2 {
             assert_eq!(r.page_id, "page-a");
             assert!(r.chunk_id.starts_with("page-a#"));
         }
+    }
+
+    // ── P1-IMP-10: startup reconcile executor (scan + run) ──
+
+    fn expected_inputs(page_id: &str, n: u32, dim: usize) -> Vec<ExpectedChunkInput> {
+        make_chunks(page_id, n, dim)
+            .into_iter()
+            .map(|c| ExpectedChunkInput {
+                page_id: page_id.to_string(),
+                chunk_index: c.chunk_index,
+                chunk_text: c.chunk_text,
+                heading_path: c.heading_path,
+                embedding: c.embedding,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn reconcile_idempotent_second_run_is_empty() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        let expected = [
+            expected_inputs("page-a", 3, 16),
+            expected_inputs("page-b", 2, 16),
+        ]
+        .concat();
+
+        let first = run_startup_reconcile(pp.clone(), expected.clone())
+            .await
+            .unwrap();
+        assert_eq!(first.upserted_pages.len(), 2);
+        assert!(first.deleted_pages.is_empty());
+        assert_eq!(
+            first.drifted, 0,
+            "one pass must fully reconcile seeded pages"
+        );
+
+        // 幂等：第二次跑同一清单 → 计划全空（无 upsert / 无 delete / 无 drift）。
+        let second = run_startup_reconcile(pp.clone(), expected).await.unwrap();
+        assert!(
+            second.upserted_pages.is_empty(),
+            "second run must not re-upsert"
+        );
+        assert!(
+            second.deleted_pages.is_empty(),
+            "second run must not delete"
+        );
+        assert!(second.failed_pages.is_empty());
+        assert_eq!(second.drifted, 0, "second run must observe zero drift");
+
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 5);
+    }
+
+    #[tokio::test]
+    async fn reconcile_repairs_injected_hole_in_one_pass() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+        let expected = expected_inputs("page-a", 3, 16);
+
+        // Seed the full page, then inject a hole: delete chunk_index=1 directly.
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        let db = connect(&db_path(&pp)).execute().await.unwrap();
+        let table = db.open_table(TABLE_V2).execute().await.unwrap();
+        table
+            .delete("page_id = 'page-a' AND chunk_index = 1")
+            .await
+            .unwrap();
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 2);
+
+        // 空洞注入 → 一次对账 drifted==0（缺的 chunk 被整页原子补回）。
+        let report = run_startup_reconcile(pp.clone(), expected.clone())
+            .await
+            .unwrap();
+        assert_eq!(report.upserted_pages, vec!["page-a".to_string()]);
+        assert!(report.failed_pages.is_empty());
+        assert_eq!(
+            report.drifted, 0,
+            "one reconcile must close the injected hole"
+        );
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
+
+        // And the state is stable afterwards.
+        let again = run_startup_reconcile(pp, expected).await.unwrap();
+        assert!(again.upserted_pages.is_empty());
+        assert_eq!(again.drifted, 0);
+    }
+
+    #[tokio::test]
+    async fn reconcile_deletes_stale_pages() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        vector_upsert_chunks(pp.clone(), "page-b".into(), make_chunks("page-b", 2, 16))
+            .await
+            .unwrap();
+
+        // The expected inventory only knows page-a → page-b is stale and must go.
+        let report = run_startup_reconcile(pp.clone(), expected_inputs("page-a", 3, 16))
+            .await
+            .unwrap();
+        assert_eq!(report.deleted_pages, vec!["page-b".to_string()]);
+        assert!(report.upserted_pages.is_empty());
+        assert_eq!(report.drifted, 0);
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn reconcile_empty_expected_is_safe_noop() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+
+        // 空清单契约：绝不动库（setup 后台 pass 依赖此安全不变量）。
+        let report = run_startup_reconcile(pp.clone(), vec![]).await.unwrap();
+        assert!(report.skipped);
+        assert!(report.deleted_pages.is_empty());
+        assert!(report.upserted_pages.is_empty());
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn reconcile_midflight_failure_writes_pending() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Seed a dim=16 page; then attempt a dim=8 upsert: the delete succeeds
+        // but the add fails (vector-dim schema mismatch) — the exact
+        // delete-成功-add-失败 scenario.
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        let result =
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 2, 8)).await;
+        assert!(result.is_err(), "add must fail after the delete succeeded");
+
+        let pending = read_reconcile_pending(&pp);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].page_id, "page-a");
+        assert!(!pending[0].digest.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reconcile_pending_is_digest_idempotent() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        // Two identical failing attempts → exactly ONE pending entry.
+        assert!(
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 2, 8))
+                .await
+                .is_err()
+        );
+        assert!(
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 2, 8))
+                .await
+                .is_err()
+        );
+
+        let pending = read_reconcile_pending(&pp);
+        assert_eq!(
+            pending.len(),
+            1,
+            "same (page_id, digest) must not be enqueued twice"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_consumes_pending_after_reprovision() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Mid-flight failure queues page-a; then a full reconcile with a
+        // compatible expected inventory re-provisions it and drains the entry.
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        assert!(
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 1, 8))
+                .await
+                .is_err()
+        );
+        assert_eq!(read_reconcile_pending(&pp).len(), 1);
+
+        let report = run_startup_reconcile(pp.clone(), expected_inputs("page-a", 1, 16))
+            .await
+            .unwrap();
+        assert!(report.failed_pages.is_empty());
+        assert_eq!(
+            report.pending_consumed, 1,
+            "startup reconcile consumes pending entries with priority"
+        );
+        assert!(
+            read_reconcile_pending(&pp).is_empty(),
+            "pending queue must be drained"
+        );
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn reconcile_keeps_pending_for_failed_reprovision() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        assert!(
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 1, 8))
+                .await
+                .is_err()
+        );
+
+        // Reconcile with an INCOMPATIBLE inventory (dim 8 vs table dim 16) →
+        // re-provision fails → the pending entry must survive for the next run.
+        let report = run_startup_reconcile(pp.clone(), expected_inputs("page-a", 1, 8))
+            .await
+            .unwrap();
+        assert_eq!(report.failed_pages, vec!["page-a".to_string()]);
+        assert!(report.drifted >= 1);
+        assert_eq!(
+            read_reconcile_pending(&pp).len(),
+            1,
+            "failed re-provision keeps the pending entry"
+        );
     }
 }
 

@@ -35,23 +35,27 @@ export interface MetricSample {
   unavailableReason?: string
 }
 
-/** 6 项核心指标（GOV-OBS-01）。 */
+/** 6 项核心指标（GOV-OBS-01）。P2-IMP-13：三项真实采集已在 buildContextPackUnlocked 尾部接线。 */
 export interface KbMetrics {
-  /** canon 违反率（<1% 健康）；源=评测 gate，种子未就绪 → N/A */
+  /** canon 违反率（<1% 健康）；源=评测 gate，种子未就绪 → N/A（不伪造，agentmemory 诚实降级模式） */
   canon_violation_rate: MetricSample
-  /** 义务覆盖率（>95% 健康）；源=评测 gate，种子未就绪 → N/A */
+  /** 义务覆盖率（>95% 健康）；源=评测 gate，种子未就绪 → N/A（不伪造） */
   obligation_coverage: MetricSample
-  /** 硬注入预算占用（chars/capChars）；源=E-02 ContextPack hardInjectUsage */
+  /** 硬注入预算占用（0~1，ratio）；源=P2-IMP-13 接线：pack.hardInjectUsage.ratio（E-02 :728 已装配） */
   hard_injection_budget_usage: MetricSample
-  /** 晋升重放成功率；源=promotion-bridge.promotionReplaySuccessRate */
+  /** 晋升重放成功率；源=promotion-bridge.promotionReplaySuccessRate（P2-IMP-15 后续接线） */
   promotion_replay_success: MetricSample
-  /** 真相文件 fold 漂移（=0 健康）；源=chapter-ingest.computeTruthFoldDrift */
+  /** 真相文件 fold 漂移（=0 健康）；源=P2-IMP-13 接线：IMP-06 sampleTruthFoldDrift 采样聚合值 */
   truth_fold_drift: MetricSample
-  /** 检索缺口报告率；源=pack.gaps */
+  /** 检索缺口报告率；源=P2-IMP-13 接线：pack.gaps 计数（IC-02 缺口透明化） */
   gap_report_rate: MetricSample
 }
 
-/** 指标来源注入（单测可 mock；生产接线点见各来源函数）。 */
+/**
+ * 指标来源注入（单测可 mock）。P2-IMP-13 生产接线点：buildContextPackUnlocked 尾部
+ * （context-engine）装配 truthFoldDrift（IMP-06 采样）/ hardInjectionBudgetUsage
+ * （pack.hardInjectUsage.ratio）/ gapReportRate（pack.gaps.length）三真实源。
+ */
 export interface KbMetricsSources {
   canonViolationRate?: number | null
   obligationCoverage?: number | null
@@ -61,17 +65,25 @@ export interface KbMetricsSources {
   gapReportRate?: number | null
 }
 
-/** 聚合 6 指标（缺源显式 N/A，不伪造数值）。 */
+/**
+ * 聚合 6 指标（缺源显式 N/A，不伪造数值）。P2-IMP-13：truth_fold_drift /
+ * hard_injection_budget_usage / gap_report_rate 三项已真实采集；
+ * canon_violation_rate / obligation_coverage 显式 N/A 保留（评测 gate 依赖 P1 轨道，
+ * unavailableReason 精确为 seed-missing —— agentmemory 诚实降级模式，绝不伪造）。
+ */
 export function collectKbMetrics(sources: KbMetricsSources): KbMetrics {
   const sample = (value: number | null | undefined, reason: string): MetricSample =>
     value === null || value === undefined ? { value: null, unavailableReason: reason } : { value }
   return {
     canon_violation_rate: sample(sources.canonViolationRate, "seed-missing（评测集种子未就绪）"),
     obligation_coverage: sample(sources.obligationCoverage, "seed-missing（评测集种子未就绪）"),
-    hard_injection_budget_usage: sample(sources.hardInjectionBudgetUsage, "E-02 hardInjectUsage 未接线"),
+    hard_injection_budget_usage: sample(
+      sources.hardInjectionBudgetUsage,
+      "hardInjectUsage 缺失（hardInjectEnabled=false 或硬注入装配降级）",
+    ),
     promotion_replay_success: sample(sources.promotionReplaySuccess, "promotionReplaySuccessRate 不可采集"),
-    truth_fold_drift: sample(sources.truthFoldDrift, "computeTruthFoldDrift 不可采集"),
-    gap_report_rate: sample(sources.gapReportRate, "pack.gaps 未接线"),
+    truth_fold_drift: sample(sources.truthFoldDrift, "IMP-06 drift 采样不可用（sampleTruthFoldDrift 返回 null）"),
+    gap_report_rate: sample(sources.gapReportRate, "pack.gaps 缺失（legacy 构造器未装配）"),
   }
 }
 

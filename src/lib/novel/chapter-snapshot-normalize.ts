@@ -174,6 +174,10 @@ export function normalizeChapterSnapshot(
     organizationDetails: normalizeSnapshotDetailRecord<OrganizationDetail>(raw.organizationDetails),
     itemDetails: normalizeSnapshotDetailRecord<ItemDetail>(raw.itemDetails),
     eventDetails: normalizeSnapshotDetailRecord<EventDetail>(raw.eventDetails),
+    // P2-IMP-12 (M3a): POV 人工声明穿透 normalize（编辑面板声明 → 保存/加载
+    // 不丢失；空/非字符串 → undefined，旧快照向后兼容）。与 chapter-ingest
+    // ChapterSnapshot.povCharacter 同步维护。
+    povCharacter: normalizeSnapshotText(raw.povCharacter) || undefined,
   }
 }
 

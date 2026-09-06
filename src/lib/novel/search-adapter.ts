@@ -3,11 +3,14 @@ import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 import { rerankCandidates } from "@/lib/rerank"
-import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
+import { type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
-import { sanitizeEntitySlug } from "./graph-adapter"
 import { rankByBm25 } from "./bm25-ranking"
 import { createRetrievalTrace } from "./retrieval-trace"
+// P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
+// 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
+// context-pack-freeze.spec 的 vi.mock("./search-adapter") 整体替换后拿到 undefined。
+import { runVectorSearchShared } from "./vector-search-core"
 
 export interface NovelSearchParams {
   projectPath: string
@@ -257,74 +260,25 @@ function rankSourceResults(items: NovelSearchResult[]): RankedNovelSearchResult[
   return items.map((item, sourceRank) => ({ ...item, sourceRank }))
 }
 
-async function runVectorSearch(
+/**
+ * P1-IMP-14: 薄包装（签名零变化）—— 通道 B 向量分支，无相关性门控 + 逐条守卫。
+ * 调用点 novelMixedSearch 一字未动；导出仅供 vector-search-parity.spec 与
+ * context-engine 孪生对拍（生产调用方无需改用）。
+ */
+export async function runVectorSearch(
   pp: string,
   query: string,
   topK: number,
   embCfg?: EmbeddingConfig,
 ): Promise<NovelSearchResult[]> {
-  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
-  if (!embCfgResolved.enabled || !embCfgResolved.model) return []
-
-  try {
-    const { searchByEmbedding } = await import("@/lib/embedding")
-    const vectorResults = await searchByEmbedding(pp, query, embCfgResolved, Math.max(topK * 2, 10))
-    if (vectorResults.length === 0) return []
-
-    const items: NovelSearchResult[] = []
-    // PERF-NEW-06/PAT-G2 (odyssey-improve): parallelize the per-vr path probe.
-    // This function is the same-shape sibling of context-engine.ts
-    // runVectorSearchForContext — previously a serial `for (dir of dirs) await
-    // readFile(...)` (up to 7 serial IPC round-trips per vr, N×7 worst case).
-    // Now each vr probes all 7 candidate paths concurrently via
-    // Promise.allSettled, preserving first-success semantics (dirs order wins
-    // over root) by scanning settled results in priority order.
-    const probePath = async (
-      tryPath: string,
-    ): Promise<{ path: string; content: string } | null> => {
-      try {
-        const content = await readFile(tryPath)
-        return { path: tryPath, content }
-      } catch {
-        return null
-      }
-    }
-    for (const vr of vectorResults.slice(0, topK)) {
-      try {
-        // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
-        // before path construction — symmetric with context-engine.ts
-        // runVectorSearchForContent. vr.id is external stored state in LanceDB;
-        // Rust readFile has no project-root containment, so this TS path join
-        // is the only traversal boundary. PAT-G2 twin: this function is the
-        // same-shape sibling of runVectorSearchForContent and must mirror its
-        // sanitize defense.
-        const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
-        const safeId = sanitizeEntitySlug(vr.id)
-        const candidatePaths = [
-          ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
-          `${pp}/wiki/${safeId}.md`,
-        ]
-        const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p)))
-        // Priority order: dirs first (in declared order), then root fallback.
-        const hit = settled
-          .map((r) => (r.status === "fulfilled" ? r.value : null)) /* v8 ignore start */ /* v8 ignore stop */
-          .find((v): v is { path: string; content: string } => v !== null)
-        if (hit) {
-          const title = extractTitle(hit.content, safeId)
-          items.push({
-            type: "vector",
-            path: hit.path,
-            title,
-            snippet: hit.content.slice(0, 300).replace(/\n/g, " "),
-            relevance: vr.score,
-          })
-        }
-      } catch {}
-    }
-    return items
-  } catch {
-    return []
-  }
+  const hits = await runVectorSearchShared({ pp, query, limit: topK, embCfg, perItemGuard: true })
+  return hits.map((hit) => ({
+    type: "vector" as const,
+    path: hit.path,
+    title: hit.title,
+    snippet: hit.snippet,
+    relevance: hit.vr.score,
+  }))
 }
 
 async function runGraphSearch(
@@ -590,14 +544,6 @@ function shouldReplaceRepresentative(
   return (SOURCE_TIE_PRIORITY[candidate.type] ?? 9) < existing.bestTypePriority
 }
 
-function extractTitle(content: string, fallback: string): string {
-  const match = content.match(/^#\s+(.+)/m)
-  if (match) return match[1].trim()
-  const fmMatch = content.match(/^---\ntitle:\s*(.+)/m)
-  if (fmMatch) return fmMatch[1].trim()
-  return fallback
-}
-
 export interface SearchPlotOptions {
   scene?: string
   topK?: number
@@ -629,7 +575,20 @@ export async function searchPlot(
 // E-02 (run-execute-1, 双库架构蓝图 EPIC-02): 检索双轨不对称 — 硬注入物理隔离
 // ============================================================================
 
-import kbRoutingViewRaw from "../../../../reference/REFERENCE-KB-VIEW.json"
+/**
+ * P1-IMP-08: KB-VIEW 消费面切仓内 generated JSON —— QMAI 单仓自带数据可构建。
+ *
+ * 切换点（回退说明，务必保留本注释）：
+ *   现状（IMP-08 后）：读 ./kb/kb-routing-view.generated.json（入 git，由
+ *     scripts/sync-kb-view-to-qmai.mjs 从 hub reference/REFERENCE-KB-VIEW.json 抽取）。
+ *   回退（仅本地联调，单仓 checkout 下该路径不存在 → 构建即碎）：
+ *     import kbRoutingViewRaw from "../../../../reference/REFERENCE-KB-VIEW.json"
+ *
+ * 消费面 = schemaVersion / builtFrom / routing.agent / collectionCounts / byQueryIntent
+ * + collections 的 {collection,name,trust} 投影（P1-IMP-06 buildTrustGradeMap 需要，
+ * 键序与数组序守恒 → trust 映射与源视图逐键一致）。content 类大字段永不入包。
+ */
+import kbRoutingViewRaw from "./kb/kb-routing-view.generated.json"
 
 /** P1-IMP-06: 共享 KB-VIEW（trust 映射 / 路由矩阵读取）*/
 export const kbRoutingView = kbRoutingViewRaw as unknown
@@ -648,6 +607,9 @@ const KB_ROUTING_AGENT_SCHEMA = z.record(
   z.array(z.string()),
 )
 
+/** P1-IMP-08: collection → 条目数（空收藏判定唯一口径，替代数组长度）。 */
+const KB_COLLECTION_COUNTS_SCHEMA = z.record(z.string(), z.number())
+
 export interface KbRoutingMatrix {
   /** intent → collection allowlist (routing.agent, 写作 Agent 面零 tech)。 */
   agent: Record<string, string[]>
@@ -662,6 +624,36 @@ export function loadKbRoutingMatrix(): KbRoutingMatrix {
   return { agent: parsed }
 }
 
+/**
+ * P1-IMP-08: 新鲜度断言 — 消费面 MUST 自带 builtFrom（源视图 sha256 指纹）。
+ * 缺 builtFrom = 产物被手改或同步脚本旧版本写出，路由面不可信 → fail-loud，
+ * 不静默按旧视图检索（对齐 assertNoTechLeak 模式）。
+ */
+export function loadKbRoutingViewBuiltFrom(): string {
+  const raw = (kbRoutingView as { builtFrom?: unknown }).builtFrom
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new Error(
+      "kb-routing-view.generated.json 缺少 builtFrom (P1-IMP-08 新鲜度断言失败 — " +
+        "重跑 node scripts/sync-kb-view-to-qmai.mjs 并重新入 git)",
+    )
+  }
+  return raw
+}
+
+/**
+ * P1-IMP-08 (V7/N-b): 空收藏判定改读 collectionCounts —— generated 消费面不再携带
+ * collections 全量数组，`collections[c].length` 在缺字段时会恒为 0 而误阻断全部路由。
+ */
+export function loadKbCollectionCounts(): Record<string, number> {
+  const raw = (kbRoutingView as { collectionCounts?: unknown }).collectionCounts
+  if (raw === undefined) {
+    throw new Error(
+      "kb-routing-view.generated.json 缺少 collectionCounts (P1-IMP-08 消费面 schema 变更)",
+    )
+  }
+  return KB_COLLECTION_COUNTS_SCHEMA.parse(raw)
+}
+
 /** E-02 (C-6): 空收藏显式报缺 — 不静默、不用 tech 冒充 (DA-06)。 */
 export interface KbGap {
   collection: string
@@ -671,7 +663,7 @@ export interface KbGap {
 
 /**
  * E-02 (C-6): 意图路由前置门 — 消费 routing.agent 矩阵。
- * 空收藏 (collections[c].length===0) → 显式 KbGap + 阻断该 collection 路由
+ * 空收藏 (P1-IMP-08: collectionCounts[c] ?? 0 === 0) → 显式 KbGap + 阻断该 collection 路由
  * (其余收藏继续, 部分阻断语义); tech 结构性缺席由数据面保证 + assertNoTechLeak 兜底。
  */
 export function routeByQueryIntent(intent: string): {
@@ -680,13 +672,16 @@ export function routeByQueryIntent(intent: string): {
   blocked: string[]
 } {
   const matrix = loadKbRoutingMatrix()
+  // P1-IMP-08: 新鲜度断言前置（缺 builtFrom 即抛，不带着旧视图继续路由）。
+  loadKbRoutingViewBuiltFrom()
+  const counts = loadKbCollectionCounts()
   const allowlist = matrix.agent[intent] ?? []
   const collections: string[] = []
   const gaps: KbGap[] = []
   const blocked: string[] = []
   for (const collection of allowlist) {
-    const entries = (kbRoutingView as { collections?: Record<string, unknown[]> }).collections?.[collection] ?? []
-    if (entries.length === 0) {
+    const count = counts[collection] ?? 0
+    if (count === 0) {
       gaps.push({
         collection,
         impactedIntents: [intent],

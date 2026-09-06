@@ -138,6 +138,13 @@ export interface ChapterSnapshot {
   organizationDetails?: Record<string, OrganizationDetail>
   itemDetails?: Record<string, ItemDetail>
   eventDetails?: Record<string, EventDetail>
+  /**
+   * P2-IMP-12 (M3a): 本章 POV 角色声明（快照人工真源）。由快照编辑面板人工填写，
+   * 零新增 LLM 提取语义；旧数据无此字段（optional 向后兼容，normalize 缺省 undefined）。
+   * 消费方 resolveChapterPovCharacter 读此字段解析 POV 角色 id；无值 → null
+   * （保持世界层投影降级契约，绝不臆造 POV）。hardInjectEnabled 默认 false 不动（翻转归 M3b）。
+   */
+  povCharacter?: string
 }
 
 function extractFirstBalancedJsonObject(text: string): string | null {

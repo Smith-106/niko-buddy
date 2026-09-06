@@ -40,6 +40,35 @@ describe("E-06 6 指标聚合（GOV-OBS-01：缺源显式 N/A 不伪造）", () 
     expect(m.hard_injection_budget_usage.value).toBeNull()
     expect(m.truth_fold_drift.value).toBeNull()
   })
+
+  // P2-IMP-13 (P2-M4)：三项真实采集接线后验收 —— 三源真实值非 null；
+  // 两评测 gate 项 unavailableReason 精确匹配（agentmemory 诚实降级模式）。
+  it("P2-IMP-13 三真实源非 null：drift/预算占用/缺口计数", () => {
+    const m = collectKbMetrics({
+      truthFoldDrift: 0,
+      hardInjectionBudgetUsage: 0.42,
+      gapReportRate: 3,
+    })
+    expect(m.truth_fold_drift.value).not.toBeNull()
+    expect(m.truth_fold_drift.value).toBe(0)
+    expect(m.hard_injection_budget_usage.value).not.toBeNull()
+    expect(m.hard_injection_budget_usage.value).toBe(0.42)
+    expect(m.gap_report_rate.value).not.toBeNull()
+    expect(m.gap_report_rate.value).toBe(3)
+    // 两评测 gate 项显式 N/A：unavailableReason 精确匹配（不伪造，诚实降级）
+    expect(m.canon_violation_rate.value).toBeNull()
+    expect(m.canon_violation_rate.unavailableReason).toBe("seed-missing（评测集种子未就绪）")
+    expect(m.obligation_coverage.value).toBeNull()
+    expect(m.obligation_coverage.unavailableReason).toBe("seed-missing（评测集种子未就绪）")
+    expect(m.promotion_replay_success.value).toBeNull()
+  })
+
+  it("P2-IMP-13 缺源语义：三真实源缺席 → 新 N/A 原因（诚实降级）", () => {
+    const m = collectKbMetrics({})
+    expect(m.hard_injection_budget_usage.unavailableReason).toContain("hardInjectUsage 缺失")
+    expect(m.truth_fold_drift.unavailableReason).toContain("IMP-06 drift 采样不可用")
+    expect(m.gap_report_rate.unavailableReason).toContain("pack.gaps 缺失")
+  })
 })
 
 describe("E-06 truth_fold_drift 告警（GOV-OBS-01：不静默降级）", () => {

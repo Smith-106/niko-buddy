@@ -10,6 +10,7 @@ import {
   loadCognitionState,
   mergeCognitionFromSnapshot,
   resolveCanonicalName,
+  resolveChapterPovCharacter,
   resolveMatchingMap,
   rewriteRateABStats,
   saveCognitionState,
@@ -619,5 +620,48 @@ describe("fromCanonGraph (T25 认知轴)", () => {
     const leaked = makeCanonEdge({ id: "e1" }) as unknown as CanonFact & { known_by?: string[] }
     leaked.known_by = ["乙"]
     expect(() => fromCanonGraph([{ character: "乙", facts: [leaked] }])).toThrow(/禁句柄外泄/)
+  })
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// P2-IMP-12 (M3a): resolveChapterPovCharacter — POV 真源落地（快照 povCharacter
+// 人工声明 → 解析角色 id；无值 return null 保持降级契约）
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("resolveChapterPovCharacter (P2-IMP-12 POV 真源)", () => {
+  const seedSnapshot = (projectPath: string, chapterNumber: number, payload: Record<string, unknown>) => {
+    const prefix = chapterNumber < 0
+      ? `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}`
+      : String(chapterNumber).padStart(3, "0")
+    fsMocks.files.set(`${projectPath}/.novel/snapshots/${prefix}.snapshot.json`, JSON.stringify(payload))
+  }
+
+  it("povCharacter 存在 → 解析出规范角色 id（NFKC + 中点折叠）", async () => {
+    seedSnapshot("/pov-proj", 1, { chapterNumber: 1, povCharacter: "菜月・昴" })
+    await expect(resolveChapterPovCharacter("/pov-proj", 1)).resolves.toBe("菜月昴")
+  })
+
+  it("缺 povCharacter 声明 → null（世界层投影降级契约，绝不臆造 POV）", async () => {
+    seedSnapshot("/pov-none", 2, { chapterNumber: 2, summary: "无声明" })
+    await expect(resolveChapterPovCharacter("/pov-none", 2)).resolves.toBeNull()
+  })
+
+  it("空白声明 → null（trim 后为空视为未声明）", async () => {
+    seedSnapshot("/pov-blank", 3, { chapterNumber: 3, povCharacter: "   " })
+    await expect(resolveChapterPovCharacter("/pov-blank", 3)).resolves.toBeNull()
+  })
+
+  it("快照文件缺失 → null（不抛错，不阻断主链）", async () => {
+    await expect(resolveChapterPovCharacter("/missing-pov-proj", 9)).resolves.toBeNull()
+  })
+
+  it("outline 章号（负数）→ outline-XXX 快照路径前缀同形解析", async () => {
+    seedSnapshot("/pov-outline", -1, { chapterNumber: -1, povCharacter: "白砚" })
+    await expect(resolveChapterPovCharacter("/pov-outline", -1)).resolves.toBe("白砚")
+  })
+
+  it("非字符串 povCharacter（脏数据）→ null（不臆造）", async () => {
+    seedSnapshot("/pov-dirty", 4, { chapterNumber: 4, povCharacter: 42 })
+    await expect(resolveChapterPovCharacter("/pov-dirty", 4)).resolves.toBeNull()
   })
 })

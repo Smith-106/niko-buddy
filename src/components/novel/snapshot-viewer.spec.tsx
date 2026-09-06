@@ -193,9 +193,9 @@ describe("SnapshotViewer", () => {
     fireEvent.click(screen.getByText("编辑"))
     const editor = screen.getByRole("dialog")
     const textareas = within(editor).getAllByRole("textbox")
-    // 顺序：summary, characters, locations, organizations, items, events, characterStateChanges,
-    // relationshipChanges, knowledgeChanges, foreshadowingChanges, newCanonFacts, timelineEvents,
-    // conflicts, endingHook, graphNodes, graphEdges
+    // 顺序：summary, povCharacter（P2-IMP-12 POV 人工声明），characters, locations, organizations, items, events,
+    // characterStateChanges, relationshipChanges, knowledgeChanges, foreshadowingChanges, newCanonFacts,
+    // timelineEvents, conflicts, endingHook, graphNodes, graphEdges
     textareas.forEach((box, i) => {
       fireEvent.change(box, { target: { value: `条目${i}` } })
     })
@@ -203,21 +203,22 @@ describe("SnapshotViewer", () => {
     await screen.findByText(/novel.snapshot.syncMemorySuccess/)
     const saved = ingest.syncSnapshotToMemory.mock.calls[0][1]
     expect(saved.summary).toBe("条目0")
-    expect(saved.characters).toEqual(["条目1"])
-    expect(saved.locations).toEqual(["条目2"])
-    expect(saved.organizations).toEqual(["条目3"])
-    expect(saved.items).toEqual(["条目4"])
-    expect(saved.events).toEqual(["条目5"])
-    expect(saved.characterStateChanges).toEqual(["条目6"])
-    expect(saved.relationshipChanges).toEqual(["条目7"])
-    expect(saved.knowledgeChanges).toEqual(["条目8"])
-    expect(saved.foreshadowingChanges).toEqual(["条目9"])
-    expect(saved.newCanonFacts).toEqual(["条目10"])
-    expect(saved.timelineEvents).toEqual(["条目11"])
-    expect(saved.conflicts).toEqual(["条目12"])
-    expect(saved.endingHook).toBe("条目13")
-    expect(saved.graphNodes).toEqual(["条目14"])
-    expect(saved.graphEdges).toEqual(["条目15"])
+    expect(saved.povCharacter).toBe("条目1")
+    expect(saved.characters).toEqual(["条目2"])
+    expect(saved.locations).toEqual(["条目3"])
+    expect(saved.organizations).toEqual(["条目4"])
+    expect(saved.items).toEqual(["条目5"])
+    expect(saved.events).toEqual(["条目6"])
+    expect(saved.characterStateChanges).toEqual(["条目7"])
+    expect(saved.relationshipChanges).toEqual(["条目8"])
+    expect(saved.knowledgeChanges).toEqual(["条目9"])
+    expect(saved.foreshadowingChanges).toEqual(["条目10"])
+    expect(saved.newCanonFacts).toEqual(["条目11"])
+    expect(saved.timelineEvents).toEqual(["条目12"])
+    expect(saved.conflicts).toEqual(["条目13"])
+    expect(saved.endingHook).toBe("条目14")
+    expect(saved.graphNodes).toEqual(["条目15"])
+    expect(saved.graphEdges).toEqual(["条目16"])
   })
 
   it("normalizes list input via textToList when editing a list section", async () => {
