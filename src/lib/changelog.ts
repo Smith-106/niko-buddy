@@ -97,6 +97,27 @@ const TWO_POINT_FOUR_TEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_SEVEN_NINE_CHANGELOG: ChangelogEntry = {
+  version: "2.7.9",
+  date: "2026-09-07",
+  highlights: {
+    en: [
+      "68 evaluation fully closed (14 items): P0-1/2/3/4 (typecheck single-source-of-truth + contract fixes + in-flight closure + CI 3-platform green run 34092520163), P1-5/6/7/8/9 (errata/index/I-001 same-dim denominator/exception ledger 8→4/caliber pinned), P2-12 docs batch, P2-14 master backflow (ff-only, master=smith/master).",
+      "Release semantics: v2.7.8 was notes-only (0 assets, CI gate red skipped build, body annotated) — this release is the fix-forward asset completion (stable channel, RELEASING.md fix-forward exemption: link-repair purpose + user approval + no stable before 10/2).",
+      "A2 disposition: v2.7.5 wrong-version assets (niko-buddy_2.7.4_windows_X64.exe, FileVersion=2.7.4 ≠ tag 2.7.5, caused 12h update loop) 4 assets deleted (backup .workflow/backup/v2.7.5-assets/ + SHA256.manifest), v2.7.5 back to notes-only 0-asset semantics.",
+      "A3 compliance: prepare-github-release.mjs portable naming normalized (niko-buddy_<version>_windows_X64_portable.exe, RELEASING.md single spec).",
+      "RELEASING.md: fix-forward exemption clause added to release cadence (2026-09-07 round-2 9-vote consensus decision 3).",
+    ],
+    zh: [
+      "68 号评估全量完成（14 项）：P0-1/2/3/4（typecheck 唯一口径 + 契约修复 + 在途结案 + CI 三平台全绿 run 34092520163）、P1-5/6/7/8/9（勘误/索引/I-001 同维分母/例外台账 8→4/口径钉死）、P2-12 文档批、P2-14 master 回流（ff-only，master=smith/master）。",
+      "发布语义：v2.7.8 为 notes-only（0 资产，CI gate 红跳过构建，body 已追加说明）——本版为 fix-forward 资产补齐（stable 渠道，RELEASING.md fix-forward 豁免登记：链路修复目的 + 用户批准 + 10/2 前不再发 stable）。",
+      "A2 处置：v2.7.5 错版本资产（niko-buddy_2.7.4_windows_X64.exe，FileVersion=2.7.4 ≠ 标签 2.7.5，曾致 12h 无限更新循环）4 资产已删除（备份 .workflow/backup/v2.7.5-assets/ + SHA256.manifest），v2.7.5 回归 notes-only 0 资产语义。",
+      "A3 合规：prepare-github-release.mjs portable 命名合规化（niko-buddy_<version>_windows_X64_portable.exe，RELEASING.md 唯一规范）。",
+      "RELEASING.md：发布节奏加 fix-forward 豁免条款（2026-09-07 第二轮 9 票共识决策 3）。",
+    ],
+  },
+}
+
 const TWO_POINT_SEVEN_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "2.7.8",
   date: "2026-09-06",
@@ -1381,6 +1402,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_SEVEN_NINE_CHANGELOG.version) return [TWO_POINT_SEVEN_NINE_CHANGELOG]
   if (version === TWO_POINT_SEVEN_EIGHT_CHANGELOG.version) return [TWO_POINT_SEVEN_EIGHT_CHANGELOG]
   if (version === TWO_POINT_SEVEN_SEVEN_CHANGELOG.version) return [TWO_POINT_SEVEN_SEVEN_CHANGELOG]
   if (version === TWO_POINT_SEVEN_SIX_CHANGELOG.version) return [TWO_POINT_SEVEN_SIX_CHANGELOG]
