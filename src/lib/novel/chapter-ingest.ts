@@ -43,6 +43,7 @@ import {
   PROJECTION_CATEGORIES,
   PROJECTION_REGISTRY,
   syncDirectWriteProjectionIds,
+  emptyLedger,
   type ProjectionAuditEntry,
   type ProjectionAuditStatus,
   type ProjectionFoldContext,
@@ -642,7 +643,9 @@ export async function ingestChapter(
   try {
     projectionLedger = await loadProjectionStatusLedger(pp)
   } /* v8 ignore start */ catch {
-    projectionLedger = { projections: {}, chapters: {} }
+    // #4（账本 v2）：load 抛错（损坏/缺失）→ 空账本必须带 schemaVersion，否则违反接口契约。
+    // 用 emptyLedger() 保持与其余路径同构（schemaVersion/projections/chapters/auditTrail）。
+    projectionLedger = emptyLedger()
   } /* v8 ignore stop */
   // CORR-111 fix: derive chapterNo from the frontmatter-validated chapter
   // number (line ~392, available regardless of snapshot extraction outcome),

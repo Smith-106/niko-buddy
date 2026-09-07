@@ -313,6 +313,7 @@ describe("factsFromCommittedSnapshots", () => {
       makeSnapshot(2, ["主角：失踪"]),
     ]
     const ledger: ProjectionStatusLedger = {
+      schemaVersion: "2",
       projections: { snapshot: "single_snapshot_idempotent" },
       chapters: {
         "2": {

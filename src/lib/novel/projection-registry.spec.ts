@@ -361,7 +361,7 @@ describe("P2-IMP-14 四路径同源遍历注册表（行为等值）", () => {
   it("sync 直写子集由注册表 syncDirectWrite 标志派生（键集等值，消除硬编码）", () => {
     // chapter-ingest 模块加载即填充注册表；派生函数返回注册表标注 syncDirectWrite 的键。
     const derived = syncDirectWriteProjectionIds()
-    expect(derived.sort()).toEqual(["character", "cognition", "foreshadow"])
+    expect([...derived].sort()).toEqual(["character", "cognition", "foreshadow"])
     // 反向保证：未标 syncDirectWrite 的 store 投影（如 emotional_arc/resource_ledger）不在直写子集。
     expect(derived).not.toContain("emotional_arc")
     expect(derived).not.toContain("resource_ledger")
