@@ -42,6 +42,7 @@ import {
   isAutoRebuildableProjection,
   PROJECTION_CATEGORIES,
   PROJECTION_REGISTRY,
+  syncDirectWriteProjectionIds,
   type ProjectionAuditEntry,
   type ProjectionAuditStatus,
   type ProjectionFoldContext,
@@ -1472,13 +1473,21 @@ async function writeStructuredMemoryDocuments(projectPath: string, snapshots: Ch
 // trace、返回 []，绝不阻断 sync。P2-IMP-14：sync 直写类清单（SYNC_FOLD_PROJECTION_IDS）
 // 与未 fold 文件集合同源注册表派生；P2-IMP-15：采样到漂移后经注册表自动重建漂移类，
 // 复测仍漂移才保留 driftSuspected（告警升级）。
-const SYNC_FOLD_PROJECTION_IDS: readonly string[] = ["cognition", "character", "foreshadow"]
+// P2-IMP-14：sync 直写类清单（原 SYNC_FOLD_PROJECTION_IDS 硬编码 3 元已删除）
+// 与未 fold 文件集合同源注册表派生（syncFoldProjectionIds/unfoldedDriftClasses）。
+// P2-IMP-15：采样到漂移后经注册表自动重建漂移类，
+// 复测仍漂移才保留 driftSuspected（告警升级）。
+
+/** P2-IMP-14：sync 直写类清单由注册表 syncDirectWrite 标志派生（消除硬编码 3 元）。 */
+function syncFoldProjectionIds(): readonly string[] {
+  return syncDirectWriteProjectionIds()
+}
 
 /** P2-IMP-14：sync 路径不 fold 的 drift 文件集合由注册表派生（全部 store 文件 − sync 直写 3 类）。 */
 function unfoldedDriftClasses(): Set<string> {
   return new Set(
     Object.entries(PROJECTION_REGISTRY)
-      .filter(([id, entry]) => entry.file !== null && !SYNC_FOLD_PROJECTION_IDS.includes(id))
+      .filter(([id, entry]) => entry.file !== null && !syncFoldProjectionIds().includes(id))
       .map(([, entry]) => entry.file as string),
   )
 }
@@ -1547,7 +1556,7 @@ export async function syncSnapshotToMemory(
   // fold，P2-IMP-08 边界保留：其余 6 类不经本路径，由 drift 采样 + IMP-15 自愈
   // 兜底）。ctx 传空对象——保留既有 sync 语义（无 now → 保留输入时间戳；
   // aliasMaps 按快照自建）；shouldApply 保留三类条件接线语义。
-  for (const id of SYNC_FOLD_PROJECTION_IDS) {
+  for (const id of syncFoldProjectionIds()) {
     const entry = PROJECTION_REGISTRY[id]
     if (!entry?.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
     if (entry.shouldApply && !entry.shouldApply(syncedSnapshot)) continue
@@ -2133,6 +2142,8 @@ function storeEntry<S>(
     applyToStore: (store: S, snapshot: ChapterSnapshot, ctx: ProjectionFoldContext) => S
     save: (projectPath: string, store: S) => Promise<void>
     shouldApply?: (snapshot: ChapterSnapshot) => boolean
+    /** sync 直写标记（P2-IMP-14）：注册表派生 sync 直写子集的唯一真源。 */
+    syncDirectWrite?: boolean
   },
 ): ProjectionRegistryEntry {
   return {
@@ -2146,6 +2157,7 @@ function storeEntry<S>(
       snapshots.reduce((acc, snapshot) => impl.applyToStore(acc, snapshot, ctx), impl.createEmpty(ctx)),
     save: (projectPath, store) => impl.save(projectPath, store as S),
     ...(impl.shouldApply ? { shouldApply: impl.shouldApply } : {}),
+    ...(impl.syncDirectWrite ? { syncDirectWrite: true as const } : {}),
   }
 }
 
@@ -2158,6 +2170,7 @@ registerProjections({
       mergeCognitionFromSnapshot(store, snapshot, registryAliasMaps(ctx, snapshot)),
     save: saveCognitionState,
     shouldApply: (snapshot) => snapshot.knowledgeChanges.length > 0,
+    syncDirectWrite: true,
   }),
   character: storeEntry("character-states.json", {
     load: loadCharacterStates,
@@ -2166,6 +2179,7 @@ registerProjections({
       applyCharacterStateChangesToStore(store, snapshot, registryAliasMaps(ctx, snapshot), ctx),
     save: saveCharacterStates,
     shouldApply: (snapshot) => snapshot.characterStateChanges.length > 0,
+    syncDirectWrite: true,
   }),
   foreshadow: storeEntry("foreshadowing-tracker.json", {
     load: loadForeshadowingTracker,
@@ -2173,6 +2187,7 @@ registerProjections({
     applyToStore: (store, snapshot, ctx) => applyForeshadowingChangesToStore(store, snapshot, ctx),
     save: saveForeshadowingTracker,
     shouldApply: (snapshot) => snapshot.foreshadowingChanges.length > 0,
+    syncDirectWrite: true,
   }),
   emotional_arc: storeEntry("emotional-arcs.json", {
     load: loadEmotionalArcs,

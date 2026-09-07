@@ -101,6 +101,12 @@ export interface ProjectionAuditEntry {
 }
 
 export interface ProjectionStatusLedger {
+  /**
+   * 账本 schema 版本（#4 清偿，2026-09-07）：v1 文件无此字段，load 时按
+   * 兼容迁移补写 "2"，下次 save 自然升版；v2 = projections 键集与
+   * PROJECTION_REGISTRY 对齐 + auditTrail 滚动窗。
+   */
+  schemaVersion: string
   /** Static category mapping per C-002 mixed_per_projection. */
   projections: Record<string, ProjectionCategory>
   /** Per-chapter projection status: chapters[chapterNumber][projection] = entry. */
@@ -213,6 +219,11 @@ export interface ProjectionRegistryEntry {
   ) => Promise<void>
   /** ingest/sync 增量路径触发条件（保留既有条件接线语义）；缺省 = 无条件。 */
   readonly shouldApply?: (snapshot: ChapterSnapshot) => boolean
+  /**
+   * sync 直写标记（P2-IMP-08 边界，P2-IMP-14 派生源）：true 的投影参与
+   * syncSnapshotToMemory 直写路径；false/缺省 = 不经 sync 直写（由 drift 采样 + 自愈兑底）。
+   */
+  readonly syncDirectWrite?: boolean
 }
 
 /** 注册表容器（模块加载时由 chapter-ingest.ts 填充；填充前为空）。 */
@@ -245,6 +256,17 @@ export function registerProjections(entries: Record<string, ProjectionRegistryEn
     }
     PROJECTION_REGISTRY[id] = entry
   }
+}
+
+/**
+ * sync 直写子集（P2-IMP-14）：由注册表 syncDirectWrite 标志派生，消除硬编码清单。
+ * 新增投影若应走 sync 直写，只需注册时标 syncDirectWrite:true——四路径与
+ * 键集等值断言自动覆盖，不再需要同步手工维护第二份清单。
+ */
+export function syncDirectWriteProjectionIds(): readonly string[] {
+  return Object.entries(PROJECTION_REGISTRY)
+    .filter(([, entry]) => entry.syncDirectWrite === true)
+    .map(([id]) => id)
 }
 
 /** 带全套 store fold 能力的注册表条目（ingest/rebuild/drift/sync 四路径遍历的同一键集）。 */
@@ -289,6 +311,7 @@ export function assertProjectionRegistryComplete(): void {
 
 export function emptyLedger(): ProjectionStatusLedger {
   return {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
     projections: { ...PROJECTION_CATEGORIES },
     chapters: {},
     // F-005: initial state — an empty (present, not undefined) trail so
@@ -296,6 +319,9 @@ export function emptyLedger(): ProjectionStatusLedger {
     auditTrail: [],
   }
 }
+
+/** 账本 schema 版本（#4 清偿：v1 文件 load 时 lazy 迁移至 v2）。 */
+export const LEDGER_SCHEMA_VERSION = "2"
 
 function ledgerPath(projectPath: string): string {
   const pp = normalizePath(projectPath)
@@ -316,6 +342,9 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
     // Merge with canonical categories so new projections added in code are
     // reflected even in ledgers written by older versions.
     return {
+      // #4: v1 legacy files lack schemaVersion — lazy migrate to "2" on load
+      // (next save writes it back); v2 files keep their version.
+      schemaVersion: LEDGER_SCHEMA_VERSION,
       projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
       chapters: parsed.chapters,
       // F-005: preserve the append-only trail across loads (legacy files → []).

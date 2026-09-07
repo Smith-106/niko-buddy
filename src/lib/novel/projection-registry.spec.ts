@@ -47,6 +47,7 @@ import {
   isAutoRebuildableProjection,
   rebuildableRegistryEntries,
   registerProjections,
+  syncDirectWriteProjectionIds,
 } from "./projection-status-ledger"
 // 导入 chapter-ingest 即触发注册表填充（registerProjections 在模块加载时执行）。
 import {
@@ -346,12 +347,28 @@ describe("P2-IMP-14 四路径同源遍历注册表（行为等值）", () => {
 
   it("sync 路径遍历注册表 + 未 fold 文件集合由注册表派生（源码扫描）", () => {
     const src = readSource()
-    expect(src).toMatch(/for \(const id of SYNC_FOLD_PROJECTION_IDS\)/)
+    expect(src).toMatch(/for \(const id of syncFoldProjectionIds\(\)\)/)
     expect(src).toMatch(/function unfoldedDriftClasses\(\): Set<string>/)
     // 旧版硬编码 UNFOLDED_DRIFT_CLASSES 字面量集合已删除。
     expect(src).not.toMatch(/const UNFOLDED_DRIFT_CLASSES = new Set\(\[/)
+    // 旧版硬编码 SYNC_FOLD_PROJECTION_IDS 3 元字面量已删除（注册表派生）。
+    expect(src).not.toMatch(/SYNC_FOLD_PROJECTION_IDS: readonly string\[\] = \["/)
     // sync 不再直调已删除的 syncCharacterStateChanges/syncForeshadowingChanges。
     expect(src).not.toMatch(/await syncCharacterStateChanges\(/)
     expect(src).not.toMatch(/await syncForeshadowingChanges\(/)
+  })
+
+  it("sync 直写子集由注册表 syncDirectWrite 标志派生（键集等值，消除硬编码）", () => {
+    // chapter-ingest 模块加载即填充注册表；派生函数返回注册表标注 syncDirectWrite 的键。
+    const derived = syncDirectWriteProjectionIds()
+    expect(derived.sort()).toEqual(["character", "cognition", "foreshadow"])
+    // 反向保证：未标 syncDirectWrite 的 store 投影（如 emotional_arc/resource_ledger）不在直写子集。
+    expect(derived).not.toContain("emotional_arc")
+    expect(derived).not.toContain("resource_ledger")
+    expect(derived).not.toContain("encounter_matrix")
+    // 注册条目同步携带标志（注册表为派生函数唯一真源）。
+    for (const id of derived) {
+      expect(PROJECTION_REGISTRY[id].syncDirectWrite).toBe(true)
+    }
   })
 })
