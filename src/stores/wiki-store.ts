@@ -344,10 +344,12 @@ export interface NovelConfig {
    */
   dualKbRoutingEnabled: boolean
   /**
-   * E-02: 硬注入通道开关 (默认 false)。开启后 buildContextPack 第四源装配
-   * pack.hardInject (canon 认知轴 + visibleInfoFor POV 投影, 预算 cap 裁剪);
-   * 关闭 = 不注入 (字节级回退现状)。
-   * [stage: awaiting-eval-evidence] P1-IMP-15：离线评测 gate PASS 后翻默认值。流程见 docs/kb-flag-promotion-flow.md
+   * E-02 #5 M3b（三模型共识 2026-09-07 已翻转，等效证据替代）：硬注入通道开关 (默认 true)。
+   * 开启后 buildContextPack 第四源装配 pack.hardInject (canon 认知轴 + visibleInfoFor POV 投影,
+   * 预算 cap 裁剪)；renderIf 双门控（flag ∧ 条目非空）保证空数据/无 POV 字节级不变
+   * （context-engine.spec E-02 渲染/字节级断言）；POV 真源 resolveChapterPovCharacter 已落地；
+   * 硬注入预算探针 pack.hardInjectUsage 激活（context-engine.ts:799/:924）。
+   * 回滚：本 flag 单点可逆（改回 false 即恢复不注入现状）。流程见 docs/kb-flag-promotion-flow.md
    */
   hardInjectEnabled: boolean
   /**
@@ -414,7 +416,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   dualKbRoutingEnabled: false,
   // #5 M3b 翻转（三模型共识 2026-09-07，等效证据替代）：hardInjectEnabled 默认 true。
   // 等效证据=renderIf 双门控（flag ∧ 条目非空）结构性保证空数据/无 POV 字节级不变
-  // （context-engine.spec:477/485）+ POV 真源已落地（resolveChapterPovCharacter）+ 单点可逆。
+  // （context-engine.spec E-02 渲染/字节级断言区）+ POV 真源已落地（resolveChapterPovCharacter）+ 单点可逆。
   // 硬注入预算探针同时激活（hard_injection_budget_usage ← pack.hardInjectUsage.ratio）。
   hardInjectEnabled: true,
   usefulnessRerankEnabled: false,

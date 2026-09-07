@@ -16,6 +16,7 @@
 - **#6① sync per-class 审计记账**：sync 直写循环 per-iteration committed/failed 审计（保留 sync_snapshot_to_memory 总事件；失败不阻断）
 - **#7 community_summary 确定性兜底**：生成前现版摘要复制 `.last-good` 快照，整体失败时恢复（防静默空档）+ failed 审计留痕
 - **#5 M3b 翻转（等效证据替代）**：`hardInjectEnabled` 默认 true（renderIf 双门控结构性保证空数据/无 POV 字节级不变；POV 真源已落地；硬注入预算探针激活；单点 flag 可回滚）
+- **recentWindow=3 口径固化（ADR-46）**：sanctioned 时间窗近似升格正式口径（非缺口），三模型 seal；预算分层锚点（context-budget.ts:68-75 三态 / tieredSlice protected|compressible / hardInject 独立保护槽 / usage 探针）；仓库内副本见 docs/decision-log/2026-09-07-adr46-recentwindow-repo-copy.md（含 v3.2.6 治理出处登记）
 - **syncDirectWrite 双向静态守卫**：正向三类必标 + 负向 6 类非直写显式断言（防新增投影漏标）
 
 ### 验证
