@@ -206,6 +206,11 @@ describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
     expect(ledger.projections.character).toBe("fold_rebuildable")
   })
 
+  it("rejects unknown newer schema versions fail-loud（拒绝静默降级）", async () => {
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ schemaVersion: "3", projections: {}, chapters: {} }))
+    await expect(loadProjectionStatusLedger("E:/Novel")).rejects.toThrow(/unsupported ledger schemaVersion "3"/)
+  })
+
   it("recordProjectionStatus falls back to fold_rebuildable for unknown projections", () => {
     const ledger = recordProjectionStatus(emptyLedger(), 1, "unknown_projection", "failed", "boom")
     expect(ledger.chapters["1"].unknown_projection.category).toBe("fold_rebuildable")

@@ -333,24 +333,14 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
   // parse failure we can preserve the original file to a .corrupt-* sibling
   // instead of silently zeroing history on the next save.
   let raw: string | undefined
+  let parsed: Partial<ProjectionStatusLedger> | undefined
   try {
     raw = await readFile(ledgerPath(projectPath))
-    const parsed = JSON.parse(raw) as Partial<ProjectionStatusLedger>
-    if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
+    const candidate = JSON.parse(raw) as Partial<ProjectionStatusLedger>
+    if (!candidate || typeof candidate !== "object" || !candidate.chapters) {
       return emptyLedger()
     }
-    // Merge with canonical categories so new projections added in code are
-    // reflected even in ledgers written by older versions.
-    return {
-      // #4: v1 legacy files lack schemaVersion — lazy migrate to "2" on load
-      // (next save writes it back); v2 files keep their version.
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
-      chapters: parsed.chapters,
-      // F-005: preserve the append-only trail across loads (legacy files → []).
-      // C5: legacy files may exceed the cap — trim once on load.
-      auditTrail: Array.isArray(parsed.auditTrail) ? trimAuditTrail(parsed.auditTrail) : [],
-    }
+    parsed = candidate
   } catch {
     // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
     // NOT silently reset the ledger. When we actually held file contents that
@@ -369,6 +359,26 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
     }
     return emptyLedger()
   }
+  // 未知新版 schemaVersion 不在 corrupt 语义内：fail-loud（拒绝静默降级），
+  // 抛给调用方决策——绝不能像解析失败那样吞掉降级。
+  if (parsed.schemaVersion !== undefined && parsed.schemaVersion !== LEDGER_SCHEMA_VERSION) {
+    throw new Error(
+      `[projection-status-ledger] unsupported ledger schemaVersion "${parsed.schemaVersion}" (expected "${LEDGER_SCHEMA_VERSION}") — fail-loud, refusing silent downgrade`,
+    )
+  }
+  // Merge with canonical categories so new projections added in code are
+  // reflected even in ledgers written by older versions.
+  const chapters = parsed.chapters as Record<string, Record<string, ProjectionStatusEntry>>
+  return {
+      // #4: v1 legacy files lack schemaVersion — lazy migrate to "2" on load
+      // (next save writes it back); v2 files keep their version.
+      schemaVersion: LEDGER_SCHEMA_VERSION,
+      projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
+      chapters,
+      // F-005: preserve the append-only trail across loads (legacy files → []).
+      // C5: legacy files may exceed the cap — trim once on load.
+      auditTrail: Array.isArray(parsed.auditTrail) ? trimAuditTrail(parsed.auditTrail) : [],
+    }
 }
 
 /**

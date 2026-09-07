@@ -1551,9 +1551,9 @@ export async function syncSnapshotToMemory(
   // to find them already deleted by the call above (readFile fails → catch
   // skip). Removed the duplicate; cleanupSupersededEntityFiles (now
   // parallelized via PERF-NEW-08) is the single source of truth for
-  // superseded-entity cleanup. The ARCH-005 SoC note (syncSnapshotToMemory
-  // still calls sync*Changes directly rather than via runProjection) stands
-  // as a larger separate refactor.
+  // superseded-entity cleanup. ARCH-005（#3 清偿 2026-09-07）：sync 路径已改
+  // 注册表遍历 applyToStore（下方 P2-IMP-14 块），不再直调 sync*Changes 助手；
+  // 残余 SoC 债（per-class 审计记账）见 projection-status-ledger 注释与 project.md 顺延登记。
 
   // P2-IMP-14: sync 路径同源遍历注册表（cognition/character/foreshadow 三类增量
   // fold，P2-IMP-08 边界保留：其余 6 类不经本路径，由 drift 采样 + IMP-15 自愈
@@ -1575,10 +1575,9 @@ export async function syncSnapshotToMemory(
   // current snapshot + entity pages + cognition/character/foreshadow stores,
   // so the mtime-keyed temporalFactsCache may hold pre-sync facts. clearGraphCache
   // alone is insufficient (temporalFactsCache is a separate module-level cache).
-  // Note (ARCH-005 SoC, recorded decision): this path still calls sync*Changes
-  // helpers directly rather than via runProjection — wrapping it in the
-  // ProjectionStatusLedger is a larger SoC refactor tracked separately; the
-  // concrete cache-invalidation gap (the REG-001 sibling) is fixed here.
+  // ARCH-005 SoC（#3 清偿 2026-09-07 刷新）：本路径已走注册表遍历 applyToStore
+  //（P2-IMP-14 块），不再直调 sync*Changes 助手；残余账本记账债见 project.md 顺延登记。
+  // 具体缓存失效缺口（REG-001 sibling）已在此修复。
   clearTemporalFactsCache(pp)
   clearGraphCache()
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
