@@ -58,6 +58,7 @@ vi.mock("@/stores/review-store", () => ({
 
 vi.mock("@/lib/novel/character-cognition", () => ({
   loadCognitionState: vi.fn(),
+  saveCognitionState: vi.fn(),
 }))
 
 vi.mock("@/lib/novel/generation-history", () => ({
