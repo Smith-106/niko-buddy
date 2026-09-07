@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.9] - 2026-09-07
+
+### 68 号评估全量完成（fix-forward 资产补齐）
+
+- **68 号完整性评估 14 项全量闭环**：P0-1/2/3/4（typecheck 唯一口径钉死 + 契约修复 + 在途结案 + CI 三平台全绿 run 34092520163）、P1-5/6/7/8/9（勘误/索引/I-001 同维分母/例外台账 8→4/口径钉死）、P2-12 文档批、P2-14 master 回流（ff-only，master=smith/master）
+- **发布语义**：v2.7.8 为 notes-only（0 资产，CI gate 红导致 build 跳过，body 已追加资产说明）——本版为 **fix-forward 资产补齐**（stable 渠道，RELEASING.md fix-forward 豁免登记：链路修复目的 + 用户批准 + 10/2 前不再发 stable）
+- **A2 处置**：v2.7.5 错版本资产（`niko-buddy_2.7.4_windows_X64.exe`，FileVersion=2.7.4 ≠ 标签 2.7.5，曾致 12h 无限更新循环）4 资产已删除（备份 `.workflow/backup/v2.7.5-assets/` + SHA256.manifest），v2.7.5 回归 notes-only 0 资产语义
+- **A3 合规**：prepare-github-release.mjs portable 命名合规化（`niko-buddy_<version>_windows_X64_portable.exe`，RELEASING.md 唯一规范）
+- **RELEASING.md**：发布节奏加 fix-forward 豁免条款（2026-09-07 第二轮 9 票共识决策 3）
+
+### 验证
+
+typecheck 0 错误 / CI 三平台全绿（typecheck+lint+vitest+E2E+cargo test+build）/ verify-update-chain 3/3 PASS
+
 ## [2.7.8] - 2026-09-06
 
 ### 64 号实施：63 号共识 20 缺口 100% 落地（三轴）
