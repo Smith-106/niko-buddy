@@ -199,7 +199,7 @@ describe("TASK-P2-19 (T19) 四统计因子检测器 — paragraphLengthDist", ()
   })
 })
 
-describe("TASK-P2-19 (T19) 全量 analyze — 不阻塞主链", () => {
+describe.skipIf(!CORPUS_AVAILABLE)("TASK-P2-19 (T19) 全量 analyze — 不阻塞主链", () => {
   let pool: AntiAiCandidatePool
 
   beforeAll(() => {

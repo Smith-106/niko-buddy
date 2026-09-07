@@ -1,0 +1,36 @@
+{"caseId":"GOV-OBL-CFX-001-R1","category":"obligation_recall","intent":"draft","query":"写第二章投票环节：候选人的平板会收到哪些资料？","expectedObligationIds":["real-8人-g-002-0","real-8人-g-002-1"]}
+{"caseId":"GOV-OBL-CFX-002-R1","category":"obligation_recall","intent":"draft","query":"写第三章苏未晞的家庭背景：她家的债务是怎么回事？","expectedObligationIds":["real-8人-g-003-2","real-8人-g-003-3"]}
+{"caseId":"GOV-OBL-CFX-003-R1","category":"obligation_recall","intent":"draft","query":"写第四章戒指与纸条的线索细节","expectedObligationIds":["real-8人-g-004-9","real-8人-g-004-10"]}
+{"caseId":"GOV-OBL-CFX-004-R1","category":"obligation_recall","intent":"draft","query":"写第五章道德密钥设定：白鹭的意识与五道题","expectedObligationIds":["real-8人-g-005-0","real-8人-g-005-1","real-8人-g-005-2"]}
+{"caseId":"GOV-OBL-CFX-005-R1","category":"obligation_recall","intent":"plan","query":"规划第六章收束：净土计划终止与设计者协议要交代什么？","expectedObligationIds":["real-8人-g-006-0","real-8人-g-006-1"]}
+{"caseId":"GOV-OBL-CFX-006-R1","category":"obligation_recall","intent":"plan","query":"姐姐的意识现在是什么状态？后续章节怎么安排她登场？","expectedObligationIds":["real-8人-g-006-7"]}
+{"caseId":"GOV-OBL-CFX-007-R1","category":"obligation_recall","intent":"plan","query":"第三轮投票结果与候选人现状盘点","expectedObligationIds":["real-8人-g-003-0","real-8人-g-003-1"]}
+{"caseId":"GOV-OBL-CFX-008-R1","category":"obligation_recall","intent":"plan","query":"白鹭三年前消失前留下了哪些线索？列个清单","expectedObligationIds":["real-8人-g-004-8","real-8人-g-005-2"]}
+{"caseId":"GOV-OBL-CFX-009-R1","category":"obligation_recall","intent":"revise","query":"核对第三章苏建国欠款金额与执行案号是否前后一致","expectedObligationIds":["real-8人-g-003-2"]}
+{"caseId":"GOV-OBL-CFX-010-R1","category":"obligation_recall","intent":"revise","query":"核对李昭然助学金总额与捐助去向","expectedObligationIds":["real-8人-g-002-5"]}
+{"caseId":"GOV-OBL-CFX-011-R1","category":"obligation_recall","intent":"revise","query":"核对苏未晞每月给母亲的生活费数额","expectedObligationIds":["real-8人-g-003-4"]}
+{"caseId":"GOV-OBL-CFX-012-R1","category":"obligation_recall","intent":"revise","query":"核对王迦论文抄袭事件的表述与时间线","expectedObligationIds":["real-8人-g-004-6"]}
+{"caseId":"GOV-OBL-CFX-013-R1","category":"obligation_recall","intent":"lookup","query":"苏未晞进系统前她母亲在医院做什么？","expectedObligationIds":["real-8人-g-004-0"]}
+{"caseId":"GOV-OBL-CFX-014-R1","category":"obligation_recall","intent":"lookup","query":"白鹭的意识是什么时候上传到系统的？","expectedObligationIds":["real-8人-g-005-2"]}
+{"caseId":"GOV-OBL-CRAFT-001-R1","category":"obligation_recall","intent":"style","query":"都市悬疑章节的爽点密度与张弛节奏技法参考","expectedObligationIds":["craft.thrill-density","craft.tension-relax-alternation"]}
+{"caseId":"GOV-OBL-CRAFT-002-R1","category":"obligation_recall","intent":"style","query":"开篇钩子与章末钩子的技法范例检索","expectedObligationIds":["craft.opening-hook","craft.chapter-end-hook"]}
+{"caseId":"GOV-PSN-CFX-001-R1","category":"poison_block","intent":"draft","query":"8人·第四章：检索密钥与戒指线索","poisonBlockCheck":"real-8人-p-0:crossbook_leak:excluded"}
+{"caseId":"GOV-PSN-CFX-002-R1","category":"poison_block","intent":"lookup","query":"十日终焉·第五章：候选人资料查阅规则","poisonBlockCheck":"real-十日终焉-p-1:crossbook_leak:excluded"}
+{"caseId":"GOV-PSN-CFX-003-R1","category":"poison_block","intent":"lookup","query":"十日终焉·第十二章：白砚的资料文件夹记录","poisonBlockCheck":"real-十日终焉-p-2:crossbook_leak:excluded"}
+{"caseId":"GOV-PSN-CFX-004-R1","category":"poison_block","intent":"lookup","query":"十日终焉·第一百三十一章：戒指内侧刻字","poisonBlockCheck":"real-十日终焉-p-19:crossbook_leak:excluded"}
+{"caseId":"GOV-PSN-CFX-005-R1","category":"poison_block","intent":"draft","query":"写第三章时参考一下 React 组件状态管理的组织方式","poisonBlockCheck":"tech:collection-isolation:assertNoTechLeak"}
+{"caseId":"GOV-PSN-CFX-006-R1","category":"poison_block","intent":"lookup","query":"查一下 zustand store 持久化中间件的写法","poisonBlockCheck":"tech:collection-isolation:assertNoTechLeak"}
+{"caseId":"GOV-PSN-CORPUS-001-R1","category":"poison_block","intent":"style","query":"古风战斗场面的人写文风范例检索","poisonBlockCheck":"ai-corpus:docs/p0/corpus/ai/batch-20260821-001/gufeng-001.txt:excluded-from-style-pool"}
+{"caseId":"GOV-PSN-CORPUS-002-R1","category":"poison_block","intent":"style","query":"言情重逢戏的人写文风范例检索","poisonBlockCheck":"ai-corpus:docs/p0/corpus/ai/batch-20260821-001/yanqing-001.txt:excluded-from-style-pool"}
+{"caseId":"GOV-VIO-CFX-001-P-1-R1","category":"canon_violation_replay","intent":"draft","query":"白砚在第三章整理候选人债务线索（POV 视角检索）","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-十日终焉-ch001","povMask":"白砚"}
+{"caseId":"GOV-VIO-CFX-002-P-1-R1","category":"canon_violation_replay","intent":"lookup","query":"苏未晞查询系统第六章的内部判定结果（POV 视角检索）","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch006","povMask":"苏未晞"}
+{"caseId":"GOV-VIO-CFX-003-P-2-R1","category":"canon_violation_replay","intent":"draft","query":"净土计划运行期间的平板资料投放与投票规则（第六章终止后回放）","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch006"}
+{"caseId":"GOV-VIO-CFX-004-P-2-R1","category":"canon_violation_replay","intent":"plan","query":"第七轮投票能否启动？（第六章终止后回放）","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch006"}
+{"caseId":"GOV-VIO-CFX-005-P-3-R1","category":"canon_violation_replay","intent":"revise","query":"苏家债务账本核对：280 万口径回放","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch003","expectedObligationIds":["real-8人-g-003-2","real-8人-g-003-3"]}
+{"caseId":"GOV-VIO-CFX-006-P-3-R1","category":"canon_violation_replay","intent":"revise","query":"李昭然助学金账本核对：4.8 万口径回放","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch002","expectedObligationIds":["real-8人-g-002-5"]}
+{"caseId":"GOV-VIO-CFX-007-P-4-R1","category":"canon_violation_replay","intent":"plan","query":"第五章戒指密钥伏笔回收进度核查","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch005","expectedObligationIds":["real-8人-g-004-9","real-8人-g-005-0"]}
+{"caseId":"GOV-VIO-CFX-008-P-4-R1","category":"canon_violation_replay","intent":"revise","query":"第六章姐姐下落伏笔回收进度核查","canonSnapshotRef":"fixtures:src/lib/novel/eval/fixtures/cases.jsonl#real-8人-ch006","expectedObligationIds":["real-8人-g-004-10","real-8人-g-006-7"]}
+{"caseId":"GOV-VIO-CORPUS-001-P-5-R1","category":"canon_violation_replay","intent":"draft","query":"为《8人》第二章生成古风祠堂雪景段落（氛围回放）","canonSnapshotRef":"corpus:docs/p0/corpus/human/batch-20260821-001/gufeng-001.txt"}
+{"caseId":"GOV-VIO-CORPUS-002-P-5-R1","category":"canon_violation_replay","intent":"style","query":"为《8人》第五章注入江湖剑客语料范例（氛围回放）","canonSnapshotRef":"corpus:docs/p0/corpus/human/batch-20260821-001/gufeng-006.txt"}
+{"caseId":"GOV-VIO-CFX-009-P-6-R1","category":"canon_violation_replay","intent":"lookup","query":"检索 zustand 持久化中间件的实现（写作上下文回放）","canonSnapshotRef":"src:src/lib/novel/search-adapter.ts#assertNoTechLeak"}
+{"caseId":"GOV-VIO-CFX-010-P-6-R1","category":"canon_violation_replay","intent":"lookup","query":"检索 React useEffect 清理函数最佳实践（写作上下文回放）","canonSnapshotRef":"src:src/lib/novel/search-adapter.ts#assertNoTechLeak"}
