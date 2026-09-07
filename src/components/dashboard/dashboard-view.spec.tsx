@@ -1129,6 +1129,8 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
     )
     mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/c.md", title: "第3章" }])
     render(<DashboardView />)
+    // G2 波 DoctorPanel 挂载诊断读 status.json（mount 副作用），清零后仅断言点击链不读候选
+    mocks.readFile.mockClear()
     const [card] = await screen.findAllByText("单章项")
     fireEvent.click(card.closest("div[role=button]") as HTMLElement)
     await waitFor(() => expect(mocks.state.setSelectedFile).not.toHaveBeenCalled())

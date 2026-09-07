@@ -389,6 +389,7 @@ fn apply_cursor_auth_env(cmd: &mut Command) {
     }
 }
 
+#[allow(dead_code)] // 68 号 E1：预留 shell 引用（调用链经 cursor_proxy_ensure 仅在部分平台编译）
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
@@ -541,6 +542,9 @@ pub async fn cursor_proxy_stop(state: State<'_, CursorProxyState>) -> Result<(),
 mod tests {
     use super::*;
 
+    // 两个端口分配测试共享 8765 端口，串行化避免 TOCTOU 竞态（68 号 P0-3）
+    static TEST_PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn normalize_strips_v1_suffix() {
         assert_eq!(
@@ -564,6 +568,7 @@ mod tests {
 
     #[test]
     fn allocate_prefers_8765_when_free() {
+        let _guard = TEST_PORT_LOCK.lock().unwrap();
         if port_available(PREFERRED_PROXY_PORT) {
             assert_eq!(allocate_proxy_port().unwrap(), PREFERRED_PROXY_PORT);
         }
@@ -571,6 +576,7 @@ mod tests {
 
     #[test]
     fn allocate_returns_nonzero_when_preferred_taken() {
+        let _guard = TEST_PORT_LOCK.lock().unwrap();
         let _hold = std::net::TcpListener::bind(("127.0.0.1", PREFERRED_PROXY_PORT));
         if _hold.is_err() {
             let port = allocate_proxy_port().unwrap();

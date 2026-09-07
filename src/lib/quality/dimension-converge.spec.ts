@@ -31,4 +31,27 @@ describe("维度收敛 — 核心维/方差降/归一化", () => {
     const r = evaluateConvergence(base(3).slice(0, 3), tight(1).slice(0, 3), "v2.7.3-7006868f")
     expect(r.passed).toBe(false)
   })
+
+  it("I-001 回归：同维数分母下归一化降幅与方差降幅恒等", () => {
+    const r = evaluateConvergence(base(3), tight(1), "v2.7.3-7006868f")
+    expect(r.normalizedReduction).toBeCloseTo(r.varianceReduction, 10)
+  })
+
+  it("I-001 回归：中等降幅（raw≈0.4）修复后达标（修复前等效门槛 57.5% 会拒）", () => {
+    // base(3) 与 tight(2.32) —— 中位方差降幅 ≈0.4，≥ 标称 15% 门槛
+    const r = evaluateConvergence(base(3), tight(2.32), "v2.7.3-7006868f")
+    expect(r.varianceReduction).toBeGreaterThanOrEqual(VARIANCE_REDUCTION)
+    expect(r.passed).toBe(true)
+  })
+
+  it("I-001 回归：空维度守卫（scores={} → 不达标且无 NaN）", () => {
+    const r = evaluateConvergence(
+      Array.from({ length: 6 }, (_, i) => ch(`b${i}`, {})),
+      Array.from({ length: 6 }, (_, i) => ch(`c${i}`, {})),
+      "v2.7.3-7006868f",
+    )
+    expect(r.passed).toBe(false)
+    expect(Number.isNaN(r.varianceReduction)).toBe(false)
+    expect(Number.isNaN(r.normalizedReduction)).toBe(false)
+  })
 })

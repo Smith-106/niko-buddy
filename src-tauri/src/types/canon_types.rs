@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 68 号 E1 处置（16 号框架例外台账）：预留领域模型/算法——有类型引用、生产未构造（搜索/召回/迁移/压缩/衰减链），保留骨架防 API 破坏；警告清零见 68 号 P1-8
+#![allow(dead_code)]
 // Copyright (c) 2026 Niko Buddy Contributors
 
 //! Canon 三表数据模型（T11，蓝图 §3 终版 + §6 T11）。
@@ -1554,7 +1556,7 @@ mod tests {
         e_old.recorded_revision = Some(3);
         let mut e_new = CanonEdge::new("e-new", "s", "t", "rel", EdgeKind::WorldFact);
         e_new.recorded_revision = Some(9);
-        let mut e_none = CanonEdge::new("e-none", "s", "t", "rel", EdgeKind::WorldFact);
+        let e_none = CanonEdge::new("e-none", "s", "t", "rel", EdgeKind::WorldFact);
         // recorded_revision 默认 None（旧数据无戳）
         let all = vec![e_old.clone(), e_new.clone(), e_none.clone()];
 

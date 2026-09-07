@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
 vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { projectPath: string | null }) => unknown) => selector({ projectPath: mocks.projectPath }),
+  useWikiStore: (selector: (s: { project: { id: string; name: string; path: string | null } | null }) => unknown) =>
+    selector({ project: { id: "book", name: "book", path: mocks.projectPath } }),
 }))
 vi.mock("@/lib/novel/interactive-io", () => ({
   loadInteractiveGraph: vi.fn(async () => null),

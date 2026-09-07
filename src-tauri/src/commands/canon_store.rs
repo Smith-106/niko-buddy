@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 68 号 E1 处置（16 号框架例外台账）：预留领域模型/算法——有类型引用、生产未构造（搜索/召回/迁移/压缩/衰减链），保留骨架防 API 破坏；警告清零见 68 号 P1-8
+#![allow(dead_code)]
 // Copyright (c) 2026 Niko Buddy Contributors
 
 //! Canon 三表存储（T11，蓝图 §6 T11 / §3 终版）。
@@ -46,10 +48,12 @@ use lancedb::Table;
 
 use crate::types::canon_types::{
     self, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
-    ConflictClass, EdgeKind, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
+    ConflictClass, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
     SupersedeRequest, SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES,
     CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
 };
+#[cfg(test)]
+use crate::types::canon_types::EdgeKind;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 53 号报告 P0-2: 确定性冲突语义分类 (graphiti dedupe/contradiction 语义,
@@ -1589,7 +1593,7 @@ async fn ensure_table(
 mod tests {
     use super::*;
     use crate::types::canon_types::{
-        validate_edges_temporal, LanceType, Migration, TemporalInvariantError, MIGRATIONS,
+        validate_edges_temporal, LanceType, TemporalInvariantError, MIGRATIONS,
     };
     use std::path::PathBuf;
 

@@ -49,9 +49,11 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::commands::canon_store::CanonStore;
 use crate::types::canon_types::{
-    CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, EdgeKind, SupersedeRequest,
+    CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, SupersedeRequest,
     SupersedeResult,
 };
+#[cfg(test)]
+use crate::types::canon_types::EdgeKind;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 多项目契约状态（managed by lib.rs）

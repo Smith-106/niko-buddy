@@ -78,8 +78,10 @@ export function evaluateConvergence(baseline: ChapterScores[], current: ChapterS
   if (baseline.length < MIN_SAMPLES || current.length < MIN_SAMPLES) {
     return { coreDims: [], trackBDims: TRACK_B_DIMS.length, varianceReduction: 0, normalizedReduction: 0, baselineVersion, passed: false }
   }
-  // 核心维=各维跨章方差贡献前 ≤3
   const dims = Object.keys(current[0].scores)
+  if (dims.length === 0) {
+    return { coreDims: [], trackBDims: TRACK_B_DIMS.length, varianceReduction: 0, normalizedReduction: 0, baselineVersion, passed: false }
+  }
   const dimVariance = dims.map((d) => {
     const vals = current.map((c) => c.scores[d] ?? 0)
     const m = median(vals)
@@ -89,9 +91,9 @@ export function evaluateConvergence(baseline: ChapterScores[], current: ChapterS
   const baseVar = medianVariance(baseline)
   const curVar = medianVariance(current)
   const varianceReduction = baseVar === 0 ? 0 : (baseVar - curVar) / baseVar
-  // 维度数归一化对照（方差/维数）
-  const baseNorm = baseVar / dims.length
-  const curNorm = curVar / coreDims.length
+  // 维度数归一化对照（同维数分母——I-001 修复：基线/当前统一除以 dims.length）
+  const baseNorm = dims.length === 0 ? 0 : baseVar / dims.length
+  const curNorm = dims.length === 0 ? 0 : curVar / dims.length
   const normalizedReduction = baseNorm === 0 ? 0 : (baseNorm - curNorm) / baseNorm
   return {
     coreDims,

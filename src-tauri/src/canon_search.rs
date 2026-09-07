@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 68 号 E1 处置（16 号框架例外台账）：预留领域模型/算法——有类型引用、生产未构造（搜索/召回/迁移/压缩/衰减链），保留骨架防 API 破坏；警告清零见 68 号 P1-8
+#![allow(dead_code)]
 // Copyright (c) 2026 Niko Buddy Contributors
 
 //! Canon 混合检索 + RRF 融合 + 窗口衰减 + 查询缓存 + 读侧图遍历（T12）。
