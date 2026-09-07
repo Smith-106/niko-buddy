@@ -41,8 +41,11 @@ const DEFAULT_SOURCE_CANDIDATES = [
 
 const DEFAULT_OUT = resolve(REPO_ROOT, "src/lib/novel/kb/kb-routing-view.generated.json")
 
-/** collections / byQueryIntent 条目投影字段（content 类大字段永不入包）。 */
+/** collections / byQueryIntent 条目投影字段（content 类大字段永不入包）。
+ * F4（2026-09-07）：collections 面补 title/domain/query_intent —— 通道 B
+ * hay=name+title+domain 中文匹配依赖这些字段（F1 分词后无 hay 即零命中）。 */
 const TRUST_ENTRY_FIELDS = ["collection", "name", "trust"]
+const COLLECTION_ENTRY_FIELDS = ["collection", "name", "title", "domain", "trust", "query_intent"]
 const INTENT_ENTRY_FIELDS = ["collection", "name", "title", "trust", "query_intent"]
 
 const GENERATED_NOTE =
@@ -109,7 +112,7 @@ export function extractConsumerSurface(source, sourceLabel = "REFERENCE-KB-VIEW.
   // trust 映射投影：键序 + 数组序守恒 → buildTrustGradeMap 首遇规则逐键一致。
   const collections = {}
   for (const [name, entries] of Object.entries(collectionsIn)) {
-    collections[name] = (entries ?? []).map((e) => pickFields(e, TRUST_ENTRY_FIELDS))
+    collections[name] = (entries ?? []).map((e) => pickFields(e, COLLECTION_ENTRY_FIELDS))
   }
 
   const byQueryIntent = {}

@@ -118,13 +118,14 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
     expect(view.collectionCounts.craft).toBeGreaterThan(0)
   })
 
-  it("真实产物下 draft 路由：craft + corpus 放行 + 空收藏阻断（部分阻断语义）", async () => {
+  it("真实产物下 draft 路由：craft + corpus + lexicon + world_ref 放行（F3 补料后非空）", async () => {
     vi.resetModules()
     const mod = await import("./search-adapter")
     const res = mod.routeByQueryIntent("draft")
     // P1-IMP-09: corpus 采源后 corpus 也被放行（0→6 条目）
-    expect(res.collections).toEqual(["craft", "corpus"])
-    expect(res.blocked).toEqual(["lexicon", "world_ref"])
+    // F3（2026-09-07）：lexicon 38 / world_ref 8 补料后不再被空收藏阻断
+    expect(res.collections).toEqual(["craft", "corpus", "lexicon", "world_ref"])
+    expect(res.blocked).toEqual([])
   })
 
   it("K-11 不变量：消费面 routing.agent 与 byQueryIntent 均无 tech 面", () => {
@@ -153,10 +154,14 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
     const entries = Object.values(view.collections as CollectionMap).flat()
     expect(entries.length).toBeGreaterThan(0)
     for (const e of entries) {
-      expect(Object.keys(e).sort()).toEqual(["collection", "name", "trust"])
+      // F4（2026-09-07）：collections 面补 title/domain/query_intent —— 通道 B
+      // hay=name+title+domain 中文匹配依赖（F1 分词后无 hay 即零命中）；
+      // content 类大字段（purpose/content/text/body）仍永不入包。
+      expect(Object.keys(e).sort()).toEqual(["collection", "domain", "name", "query_intent", "title", "trust"])
       expect(e).not.toHaveProperty("content")
       expect(e).not.toHaveProperty("text")
       expect(e).not.toHaveProperty("body")
+      expect(e).not.toHaveProperty("purpose")
     }
     expect(JSON.stringify(view).length).toBeLessThan(40_000)
   })

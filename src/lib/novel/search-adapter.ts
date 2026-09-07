@@ -5,7 +5,7 @@ import { logger } from "@/lib/utils"
 import { rerankCandidates } from "@/lib/rerank"
 import { type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
-import { rankByBm25 } from "./bm25-ranking"
+import { rankByBm25, tokenizeForBm25 } from "./bm25-ranking"
 import { createRetrievalTrace } from "./retrieval-trace"
 // P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
 // 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
@@ -779,6 +779,25 @@ export interface KbReferenceEntry {
 }
 
 /**
+ * P1-IMP-17 通道 B 关键词 token 化（三模型共识 F1）：复用 tokenizeForBm25
+ * （零依赖 CJK bigram + ASCII 词元）替代 split(/\s+/)——中文无空格 query
+ * 不再成单巨型 token。去重后丢弃单字符 token（CJK unigram 防单字误命中
+ * hay，与既有 ≥2 过滤同语义），超 cap 截断控预算。纯函数零 LLM。
+ */
+export function tokensForKbMatch(query: string, cap = 32): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const t of tokenizeForBm25(query)) {
+    if (t.length < 2) continue
+    if (seen.has(t)) continue
+    seen.add(t)
+    out.push(t)
+    if (out.length >= cap) break
+  }
+  return out
+}
+
+/**
  * E-02 (C-1/C-4): 双轨装配 — 通道 A 硬注入 (canon 恒真事实 + 过程库 POV 投影,
  * 预算 cap 条目级裁剪, 超限记 truncatedCount 不静默); 通道 B novelMixedSearch
  * (includeCanon:false, 既有 RRF 主体零改动)。硬注入项从不 push 进 RRF results。
@@ -889,7 +908,6 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
   const kbReferences: KbReferenceEntry[] = []
   if (params.intent) {
     const routed = routeByQueryIntent(params.intent)
-    const queryLower = params.query.toLowerCase()
     const referenceBudget = 2048
     let refChars = 0
     const cols = (kbRoutingView as { collections?: Record<string, Array<Record<string, unknown>>> }).collections ?? {}
@@ -902,7 +920,9 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
         const domain = Array.isArray(entry["domain"]) ? (entry["domain"] as string[]).join(" ") : ""
         const hay = `${name} ${title} ${domain}`.toLowerCase()
         // 关键词命中：query 任一 ≥2 字 token 出现在 name/title/domain
-        const tokens = queryLower.split(/\s+/).filter((t) => t.length >= 2)
+        // P1-IMP-17 修复（三模型共识 F1）：复用 tokenizeForBm25（零依赖 CJK
+        // bigram + ASCII 词元）替代 split(/\s+/)——中文无空格 query 不再成单巨型 token。
+        const tokens = tokensForKbMatch(params.query)
         const hit = tokens.some((t) => hay.includes(t))
         if (!hit) continue
         const summary = entry["purpose"] ? String(entry["purpose"]).slice(0, 200) : undefined
