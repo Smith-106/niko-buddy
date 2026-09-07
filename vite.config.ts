@@ -79,10 +79,13 @@ export default defineConfig(async () => ({
     },
   },
   // 2. tauri expects a fixed port, fail if that port is not available
+  // 显式绑 127.0.0.1：Chromium（playwright/WebView2）把 localhost 硬编码解析为
+  // 127.0.0.1，而 Node verbatim DNS 在 macOS 上优先 ::1——CI E2E 曾因 vite 只绑
+  // ::1 导致页面空白（root 空 → playwright 判 hidden）。绑 IPv4 loopback 三平台通。
   server: {
     port: 2420,
     strictPort: true,
-    host: host || false,
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

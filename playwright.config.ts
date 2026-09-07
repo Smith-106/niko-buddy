@@ -1,7 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 // 与 vite.config.ts 的 server.port 保持一致（strictPort: true）。
-// 注意：本机 vite 只绑定 IPv6 localhost（::1），用 localhost 而非 127.0.0.1。
+// 注意：vite 显式绑 127.0.0.1（Chromium 将 localhost 硬编码解析为 IPv4 loopback），
+// baseURL 用 localhost 即可（三平台一致）。
 const PORT = 2420;
 const BASE_URL = `http://localhost:${PORT}`;
 
