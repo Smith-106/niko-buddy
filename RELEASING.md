@@ -19,7 +19,10 @@
 
 - **stable：每周 ≤1 个**。候选版一律走 `prerelease` 标记（内测渠道），验证通过后再提升为 stable。
 - 同日重复 tag：无 CI 自动门禁，靠人工纪律执行（重复 tag 一律拒绝；候选版如需走 `prerelease`，由发布者手动加 `--prerelease` 标记）。
-- 发布前检查：`npm run typecheck` 0 错误 + `npx vitest run` 全绿 + 真机冒烟（安装/更新/重启）。
+- 发布前检查：
+  - **typecheck 唯一口径（硬检，68 号 P1-9）**：`npm run typecheck`（= `tsc --build --pretty`）必须 0 错误；**禁止裸 `npx tsc --noEmit`**——根 tsconfig `files:[]` 纯 references 结构下为空操作假阴性（66 号 §3 实锤）。typecheck 红主干禁止发版（v2.7.5/2.7.7/2.7.8 门失败仍发布先例不得重演）。
+  - `npm run lint`（硬检，eslint 0 error；warning 容忍）
+  - `npx vitest run` 全绿 + 真机冒烟（安装/更新/重启）。
 
 ## 资产命名（唯一规范）
 

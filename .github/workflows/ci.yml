@@ -75,6 +75,9 @@ jobs:
       - name: Typecheck (tsc)
         run: npm run typecheck
 
+      - name: Lint (eslint, 68 号 P1-9 接入)
+        run: npm run lint
+
       - name: Run unit tests (vitest)
         run: npm run test:mocks
 

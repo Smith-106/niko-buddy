@@ -46,6 +46,6 @@ See `.workflow/outputs/licensing/ISS-006-PERFORMANCE-BASELINE.md` for detailed a
 
 ---
 
-**Generated**: 2026-08-01  
+**Generated**: 生成日期：2026-09-07（68 号 P2-12 版本字段统一 v2.7.8）  
 **Total Metrics**: 21 operations across 6 baseline files  
 **Status**: ✅ Complete

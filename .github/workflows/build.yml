@@ -34,6 +34,9 @@ jobs:
       - name: Typecheck (tsc)
         run: npm run typecheck
 
+      - name: Lint (eslint, 68 号 P1-9 接入)
+        run: npm run lint
+
       - name: Run unit tests (vitest)
         run: npm run test:mocks
 
@@ -181,7 +184,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           notes_path="release-assets/release-notes.txt"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "Niko Buddy $tag" --notes-file "$notes_path" --verify-tag || true
+            gh release create "$tag" --title "Niko Buddy $tag" --notes-file "$notes_path" --verify-tag
           fi
           gh release edit "$tag" --notes-file "$notes_path"
 
