@@ -1,12 +1,18 @@
 {
   "_meta": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "generatedAt": "2026-09-07",
-    "purpose": "P1 通道 B 检索质量 golden queries（F4 三模型共识）：注入命中率/截断率回归基线",
+    "purpose": "P1 通道 B 检索质量 golden queries（F4 三模型共识）：注入命中率/截断率回归基线；F5（2026-09-07）加 rank 分档——rerank 触发从「事后察觉」变「可测阈值」",
     "baseline": {
       "minHitRate": 0.9,
       "minHitsPerQuery": 1,
-      "note": "命中率 = 命中数 ≥ minHits 的 query 占比；基线调整须附理由（diff 可审）"
+      "minTop20Rate": 0.9,
+      "minTop3Rate": 0.7,
+      "note": "命中率 = 命中数 ≥ minHits 的 query 占比；top20/top3 率 = 正确项 rank 分档占比（F5 新增）；基线调整须附理由（diff 可审）"
+    },
+    "rerankTrigger": {
+      "rule": "top20 守住（≥minTop20Rate）而 top3 掉档（<minTop3Rate）即产出 rerank 采纳证据（语料破千 + 正确项在 top20 未进 top3 实证）",
+      "status": "armed"
     }
   },
   "queries": [
