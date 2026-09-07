@@ -55,7 +55,7 @@ if (result.status !== 0) {
 }
 
 if (existsSync(portableExe)) {
-  cpSync(portableExe, resolve(outDir, "niko-buddy-portable.exe"))
+  cpSync(portableExe, resolve(outDir, `niko-buddy_${pkg.version}_windows_X64_portable.exe`))
 }
 
 const signature = readFileSync(releaseSignaturePath, "utf8").trim()

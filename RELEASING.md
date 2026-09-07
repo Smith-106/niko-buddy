@@ -18,6 +18,7 @@
 ## 发布节奏
 
 - **stable：每周 ≤1 个**。候选版一律走 `prerelease` 标记（内测渠道），验证通过后再提升为 stable。
+- **fix-forward 豁免（2026-09-07 第二轮 9 票共识，decision-record-20260907b 决策 3）**：资产补齐/断链修复类补救性发布（如 v2.7.9 补 v2.7.8 的 0 资产缺口）可豁免「每周 ≤1」与「近 30 天 ≤4」硬检，条件：① 发布目的为修复更新链路（notes-only 资产补齐/错版本资产处置）；② 用户明确批准（含渠道=stable 决策记录）；③ 发布后承诺窗口内（至 10/2）不再发 stable；④ 豁免登记写入 release body。豁免不改变「同日重复 tag = 0」与「主干校验」硬检。
 - 同日重复 tag：无 CI 自动门禁，靠人工纪律执行（重复 tag 一律拒绝；候选版如需走 `prerelease`，由发布者手动加 `--prerelease` 标记）。
 - 发布前检查：
   - **typecheck 唯一口径（硬检，68 号 P1-9）**：`npm run typecheck`（= `tsc --build --pretty`）必须 0 错误；**禁止裸 `npx tsc --noEmit`**——根 tsconfig `files:[]` 纯 references 结构下为空操作假阴性（66 号 §3 实锤）。typecheck 红主干禁止发版（v2.7.5/2.7.7/2.7.8 门失败仍发布先例不得重演）。
