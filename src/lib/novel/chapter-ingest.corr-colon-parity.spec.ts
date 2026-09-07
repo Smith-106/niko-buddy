@@ -104,7 +104,7 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     // 注册表内 character 条目的 applyToStore 实现仍委派共享 helper（grep 可验）。
     expect(src).toMatch(/applyCharacterStateChangesToStore\(store, snapshot, registryAliasMaps\(ctx, snapshot\), ctx\)/)
     // E-03 (C-3): fold 纯性 — 调用点注入 foldCtx（显式时间戳全链下传）。
-    expect(src).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\n      \}/)
+    expect(src).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\r?\n      \}/)
   })
 
   it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", async () => {
