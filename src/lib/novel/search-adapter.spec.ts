@@ -64,6 +64,7 @@ import {
   novelMixedSearch,
   retrieveDualTrack,
   searchPlot,
+  tokensForKbMatch,
 } from "./search-adapter"
 import type { NovelSearchResult } from "./search-adapter"
 
@@ -902,6 +903,38 @@ describe("searchPlot", () => {
     })
     expect(results.length).toBeGreaterThan(0)
     expect(results.some((r) => r.type === "canon")).toBe(true)
+  })
+})
+
+describe("P1-IMP-17 修复 F1 tokensForKbMatch（复用 tokenizeForBm25 中文分词）", () => {
+  it("中文无空格 query 产出多 token（bigram），不再成单巨型 token", () => {
+    const tokens = tokensForKbMatch("克苏鲁神话")
+    expect(tokens.length).toBeGreaterThan(1)
+    expect(tokens).toContain("克苏")
+    expect(tokens).toContain("苏鲁")
+    expect(tokens).toContain("神话")
+  })
+
+  it("ASCII/数字 token 与 split(/\\s+/) 行为一致（零 diff 硬门）", () => {
+    expect(tokensForKbMatch("novel autonovel")).toEqual(["novel", "autonovel"])
+    expect(tokensForKbMatch("san100 Lv.9")).toEqual(["san100", "lv"])
+  })
+
+  it("丢弃单字符 token（CJK unigram 防误命中）", () => {
+    const tokens = tokensForKbMatch("剑")
+    expect(tokens.every((t) => t.length >= 2)).toBe(true)
+  })
+
+  it("去重且超 cap 截断", () => {
+    const tokens = tokensForKbMatch("克苏鲁克苏鲁克苏鲁", 4)
+    expect(new Set(tokens).size).toBe(tokens.length)
+    expect(tokens.length).toBeLessThanOrEqual(4)
+  })
+
+  it("混合中英文 query 同时产出 ASCII 词元与 CJK bigram", () => {
+    const tokens = tokensForKbMatch("Cthulhu 克苏鲁")
+    expect(tokens).toContain("cthulhu")
+    expect(tokens.some((t) => /[\u4e00-\u9fff]/.test(t))).toBe(true)
   })
 })
 

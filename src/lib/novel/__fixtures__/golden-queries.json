@@ -1,0 +1,286 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "generatedAt": "2026-09-07",
+    "purpose": "P1 通道 B 检索质量 golden queries（F4 三模型共识）：注入命中率/截断率回归基线",
+    "baseline": {
+      "minHitRate": 0.9,
+      "minHitsPerQuery": 1,
+      "note": "命中率 = 命中数 ≥ minHits 的 query 占比；基线调整须附理由（diff 可审）"
+    }
+  },
+  "queries": [
+    {
+      "query": "克苏鲁神祇",
+      "intent": "draft",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙境界",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 3
+    },
+    {
+      "query": "筑基丹",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "御剑术",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "青云门",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "灵石",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁眷族",
+      "intent": "draft",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "novel autonovel",
+      "intent": "draft",
+      "expectCollections": [
+        "corpus"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁地点",
+      "intent": "lookup",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "渡劫",
+      "intent": "lookup",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "灵草",
+      "intent": "lookup",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁典籍",
+      "intent": "lookup",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "法宝",
+      "intent": "lookup",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁教团",
+      "intent": "lookup",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "丹道",
+      "intent": "lookup",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "魔道宗门",
+      "intent": "lookup",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁文风",
+      "intent": "plan",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙功法",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 2
+    },
+    {
+      "query": "克苏鲁人物",
+      "intent": "plan",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "故事结构",
+      "intent": "plan",
+      "expectCollections": [
+        "craft"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙门派",
+      "intent": "draft",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 2
+    },
+    {
+      "query": "克苏鲁时代",
+      "intent": "plan",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙丹药",
+      "intent": "revise",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 2
+    },
+    {
+      "query": "克苏鲁教团",
+      "intent": "lookup",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "一致性",
+      "intent": "revise",
+      "expectCollections": [
+        "craft"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙灵物",
+      "intent": "revise",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 2
+    },
+    {
+      "query": "克苏鲁典籍",
+      "intent": "lookup",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁文风",
+      "intent": "plan",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙境界",
+      "intent": "style",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 2
+    },
+    {
+      "query": "去 AI 痕迹",
+      "intent": "style",
+      "expectCollections": [
+        "craft"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁恐怖",
+      "intent": "plan",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "修仙",
+      "intent": "style",
+      "expectCollections": [
+        "lexicon"
+      ],
+      "minHits": 5
+    },
+    {
+      "query": "anti-AI",
+      "intent": "style",
+      "expectCollections": [
+        "craft"
+      ],
+      "minHits": 1
+    },
+    {
+      "query": "克苏鲁",
+      "intent": "draft",
+      "expectCollections": [
+        "world_ref"
+      ],
+      "minHits": 3
+    }
+  ]
+}
