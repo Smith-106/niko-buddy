@@ -811,11 +811,13 @@ export async function ingestChapter(
       // and audit calls stay OUTSIDE the summary try/catch so an audit hiccup
       // could never be misreported as a summary failure.
       const rebuildStartedAt = Date.now()
+      await backupCommunitySummariesLastGood(pp)
       try {
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
+        await restoreCommunitySummariesLastGood(pp)
         await recordProjectionAuditEvent("community_summary", "failed", Date.now() - rebuildStartedAt, message)
         // 弹窗提示（通过 store 触发 UI 通知）
         // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
@@ -1521,6 +1523,54 @@ export interface SyncSnapshotToMemoryResult {
   driftSuspected: string[]
 }
 
+/**
+ * #7（三模型共识 2026-09-07）：community_summary 确定性兜底。
+ * backupCommunitySummariesLastGood：generate 前把现版摘要复制为 <file>.last-good
+ * 快照（首次生成无现版则跳过）；restoreCommunitySummariesLastGood：整体生成失败
+ * 时把 last-good 快照复制回原位（防静默空档）。读取端按 `*.json` 过滤，
+ * `.json.last-good` 后缀文件不会混入正常读取。均尽力而为，绝不阻断主流程。
+ */
+
+export async function backupCommunitySummariesLastGood(ppRaw: string): Promise<void> {
+  const pp = normalizePath(ppRaw)
+  const summaryDir = `${pp}/.novel/community-summaries`
+  let nodes: Array<{ name: string; path: string; is_dir: boolean }>
+  try {
+    nodes = await listDirectory(summaryDir)
+  } catch {
+    return // 首次生成，无现版可备份
+  }
+  for (const node of nodes) {
+    if (node.is_dir || !node.name.endsWith(".json")) continue
+    try {
+      const raw = await readFile(node.path)
+      await writeFileAtomic(`${node.path}.last-good`, raw)
+    } catch {
+      // 备份失败不阻断生成主流程
+    }
+  }
+}
+
+export async function restoreCommunitySummariesLastGood(ppRaw: string): Promise<void> {
+  const pp = normalizePath(ppRaw)
+  const summaryDir = `${pp}/.novel/community-summaries`
+  let nodes: Array<{ name: string; path: string; is_dir: boolean }>
+  try {
+    nodes = await listDirectory(summaryDir)
+  } catch {
+    return
+  }
+  for (const node of nodes) {
+    if (node.is_dir || !node.name.endsWith(".json.last-good")) continue
+    try {
+      const raw = await readFile(node.path)
+      await writeFileAtomic(node.path.replace(/\.last-good$/, ""), raw)
+    } catch {
+      // 尽力恢复，失败仍保留 failed 审计留痕
+    }
+  }
+}
+
 export async function syncSnapshotToMemory(
   projectPath: string,
   snapshot: ChapterSnapshot,
@@ -1563,9 +1613,35 @@ export async function syncSnapshotToMemory(
     const entry = PROJECTION_REGISTRY[id]
     if (!entry?.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
     if (entry.shouldApply && !entry.shouldApply(syncedSnapshot)) continue
-    const loaded = await entry.load(pp)
-    const base = loaded ?? entry.createEmpty({})
-    await entry.save(pp, entry.applyToStore(base, syncedSnapshot, {}))
+    // #6①（三模型共识 2026-09-07）：per-class 审计记账——成功写 committed、
+    // 失败写 failed+error（失败不阻断循环，审计 append 自身 non-fatal）。
+    // 统一 sync_snapshot_to_memory 总事件由 runProjection 路径保留。
+    const startedAt = Date.now()
+    try {
+      const loaded = await entry.load(pp)
+      const base = loaded ?? entry.createEmpty({})
+      await entry.save(pp, entry.applyToStore(base, syncedSnapshot, {}))
+      await appendProjectionAuditEntry(pp, {
+        projection: id,
+        chapter: syncedSnapshot.chapterNumber,
+        status: "committed",
+        durationMs: Date.now() - startedAt,
+        timestamp: new Date().toISOString(),
+      })
+    } catch (err) {
+      try {
+        await appendProjectionAuditEntry(pp, {
+          projection: id,
+          chapter: syncedSnapshot.chapterNumber,
+          status: "failed",
+          durationMs: Date.now() - startedAt,
+          error: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        })
+      } catch {
+        // 审计 append 失败绝不断 sync 主流程
+      }
+    }
   }
 
   await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)

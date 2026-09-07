@@ -211,6 +211,39 @@ describe("F-002 loadProjectionStatusLedger 持久化读路径", () => {
     await expect(loadProjectionStatusLedger("E:/Novel")).rejects.toThrow(/unsupported ledger schemaVersion "3"/)
   })
 
+  it("v1→v2 迁移写回往返：load(no version)→save→磁盘含 v2→reload 稳定（数据语义证据）", async () => {
+    // 步骤1：盘上是 v1 文件（无 schemaVersion，旧投影键集）
+    const v1Payload = {
+      projections: { vector: "single_snapshot_idempotent", cognition: "fold_rebuildable" },
+      chapters: {
+        "3": { cognition: { projection: "cognition", category: "fold_rebuildable", status: "committed", updated_at: "2026-07-10T00:00:00Z", last_error: "" } },
+      },
+      auditTrail: [{ ts: "2026-09-01T00:00:00Z", id: "legacy-1", projection: "character", status: "ok", message: "" }],
+    }
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(v1Payload))
+    const loaded = await loadProjectionStatusLedger("E:/Novel")
+    expect(loaded.schemaVersion).toBe("2") // lazy 迁移
+
+    // 步骤2：save 写回 → 磁盘内容必须含 schemaVersion "2"（迁移持久化）
+    await saveProjectionStatusLedger("E:/Novel", loaded)
+    const writtenRaw = fsMocks.writeFileAtomic.mock.calls[fsMocks.writeFileAtomic.mock.calls.length - 1]?.[1] ?? ""
+    const written = JSON.parse(writtenRaw)
+    expect(written.schemaVersion).toBe("2")
+    // 旧 chapter 数据与 auditTrail 写回后保持（无丢失）
+    expect(written.chapters["3"].cognition.status).toBe("committed")
+    expect(written.auditTrail).toHaveLength(1)
+
+    // 步骤3：二次 load——schemaVersion/键集/chapters/auditTrail 全部稳定（迁移幂等）
+    fsMocks.readFile.mockResolvedValue(writtenRaw)
+    const reloaded = await loadProjectionStatusLedger("E:/Novel")
+    expect(reloaded.schemaVersion).toBe("2")
+    expect(reloaded.projections.character).toBe("fold_rebuildable")
+    expect(reloaded.projections.emotional_arc).toBe("fold_rebuildable")
+    expect(reloaded.chapters["3"].cognition.status).toBe("committed")
+    expect(reloaded.auditTrail).toHaveLength(1)
+    expect(reloaded.chapters).toEqual(loaded.chapters)
+  })
+
   it("recordProjectionStatus falls back to fold_rebuildable for unknown projections", () => {
     const ledger = recordProjectionStatus(emptyLedger(), 1, "unknown_projection", "failed", "boom")
     expect(ledger.chapters["1"].unknown_projection.category).toBe("fold_rebuildable")

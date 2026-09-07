@@ -371,4 +371,31 @@ describe("P2-IMP-14 四路径同源遍历注册表（行为等值）", () => {
       expect(PROJECTION_REGISTRY[id].syncDirectWrite).toBe(true)
     }
   })
+
+  it("syncDirectWrite 双向静态守卫：正向量必标 + 负向 6 类非直写显式断言（防新增投影忘标）", () => {
+    const derived = new Set(syncDirectWriteProjectionIds())
+    // 正向量：P2-IMP-08 边界三类必须标 flag（漏标 → 负向断言立即红）
+    for (const id of ["cognition", "character", "foreshadow"]) {
+      expect(derived.has(id), `sync 直写边界 ${id} 漏标 syncDirectWrite`).toBe(true)
+    }
+    // 负向：其余 store-backed fold_rebuildable 投影（drift 采样+自愈路径）必须显式不在直写子集
+    for (const id of [
+      "emotional_arc",
+      "resource_ledger",
+      "subplot_board",
+      "encounter_matrix",
+      "chapter_summaries",
+      "particle_ledger",
+    ]) {
+      const entry = PROJECTION_REGISTRY[id]
+      expect(entry?.syncDirectWrite !== true, `非直写投影 ${id} 误标 syncDirectWrite`).toBe(true)
+      expect(entry?.file).toBeTruthy() // 均为 store-backed（file 非空），必须注册表兜底
+    }
+    // 兜底可见性：新增 store 投影若无 flag，既不会进 sync 直写也不应悄悄丢失——
+    // 注册表 store 键集 == 派生直写 ∪ 负向非直写（合计键集可枚举）
+    const storeIds = new Set(foldStoreRegistryEntries().map(([id]) => id))
+    for (const id of storeIds) {
+      expect(derived.has(id) || PROJECTION_REGISTRY[id].syncDirectWrite !== true).toBe(true)
+    }
+  })
 })

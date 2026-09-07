@@ -467,6 +467,18 @@ describe("contextPackToPrompt E-02 hardInject 段（双库架构蓝图 capabilit
     hardInjectUsage: { hardInjectChars: 40, capChars: 3072, ratio: 0.013, truncatedCount: 0 },
   }
 
+  it("novelConfig 默认已翻转：hardInjectEnabled=true（#5 M3b 三模型共识，可回滚）", async () => {
+    const { DEFAULT_NOVEL_CONFIG } = await import("@/stores/wiki-store")
+    expect(DEFAULT_NOVEL_CONFIG.hardInjectEnabled).toBe(true)
+  })
+
+  it("注入体不超预算：usage.hardInjectChars≤capChars 且 truncatedCount=0 语义", () => {
+    // 装配端 cap 先于渲染（context-engine.ts:799 pack.hardInjectUsage = hardInjectResult.usage）
+    expect(hardInjectPack.hardInjectUsage!.hardInjectChars).toBeLessThanOrEqual(hardInjectPack.hardInjectUsage!.capChars)
+    expect(hardInjectPack.hardInjectUsage!.ratio).toBeLessThanOrEqual(1)
+    expect(hardInjectPack.hardInjectUsage!.truncatedCount).toBeGreaterThanOrEqual(0)
+  })
+
   it("hardInjectEnabled=true 且条目非空 → 渲染硬注入段（独立分块，不并入 canonRules）", () => {
     const prompt = contextPackToPrompt(hardInjectPack, undefined, { hardInjectEnabled: true })
     expect(prompt).toContain("硬注入事实")

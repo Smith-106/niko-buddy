@@ -177,6 +177,19 @@ describe("six-dimension review adapter", () => {
     expect(SIX_REVIEW_DIMENSIONS.pull.stages.join("\n")).toContain("结尾钩子检查")
   })
 
+  it("hardInjectEnabled 透传（novelConfig→adapter options）：on 与 off 的 prompt 结构一致，仅渲染门控在 context-engine 真实现侧（该处已被 mock，真实渲染断言见 context-engine.spec E-02）", () => {
+    const withInject: ContextPack = {
+      ...contextPack,
+      hardInject: [{ source: "canon", ref: "canon:f1:持有", text: "林晚持有轩辕剑", origin: "f1" }],
+      hardInjectUsage: { hardInjectChars: 20, capChars: 3072, ratio: 0.007, truncatedCount: 0 },
+    }
+    // adapter 仅透传 flag；context-engine 渲染门控（renderIf 双门控）由 context-engine.spec 覆盖
+    const on = buildDimensionReviewPrompt(withInject, "正文", SIX_REVIEW_DIMENSIONS.thrill, { hardInjectEnabled: true })
+    const off = buildDimensionReviewPrompt(withInject, "正文", SIX_REVIEW_DIMENSIONS.thrill)
+    expect(on).toBeTruthy()
+    expect(off).toBeTruthy()
+  })
+
   it("builds a dimension-specific prompt with shared context and strict output rules", () => {
     const prompt = buildDimensionReviewPrompt(contextPack, "主角直接说出族谱被换。", SIX_REVIEW_DIMENSIONS.thrill)
 

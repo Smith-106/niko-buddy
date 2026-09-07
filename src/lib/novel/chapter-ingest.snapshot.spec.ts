@@ -138,11 +138,13 @@ vi.mock("@/lib/embedding", () => ({
 }))
 
 import {
+  backupCommunitySummariesLastGood,
   deleteChapterSnapshots,
   exportStructuredMemoryToWiki,
   listSnapshotHistory,
   listSnapshots,
   loadSnapshot,
+  restoreCommunitySummariesLastGood,
   restoreSnapshotHistory,
   saveEditedSnapshot,
   snapshotMarkdownPath,
@@ -464,6 +466,110 @@ describe("syncSnapshotToMemory", () => {
     await syncSnapshotToMemory(PROJECT, baseSnapshot(1), bump)
     expect(bump).toHaveBeenCalled()
     expect(storeState.bumpDataVersion).not.toHaveBeenCalled()
+  })
+
+  it("sync 直写 3 类各记 committed 审计事件（#6① per-class 记账）", async () => {
+    // 透传 ledger 写入：appendProjectionAuditEntry 的 RMW 需读到自身写入
+    let ledgerContent = ""
+    fsMocks.writeFileAtomic.mockImplementation(async (p: string, c: string) => {
+      if (String(p).endsWith(".novel/projection-status.json")) {
+        ledgerContent = typeof c === "string" ? c : ""
+      }
+    })
+    fsMocks.readFile.mockImplementation((p: string) =>
+      String(p).endsWith(".novel/projection-status.json") && ledgerContent
+        ? Promise.resolve(ledgerContent)
+        : Promise.resolve(defaultReadFile(p)),
+    )
+    const snapshot = baseSnapshot(1, {
+      knowledgeChanges: ["阿宁知道秘密"],
+      characterStateChanges: ["阿宁：受伤"],
+      foreshadowingChanges: ["新增伏笔：黑剑"],
+    })
+    await syncSnapshotToMemory(PROJECT, snapshot)
+    const ledgerWrites = fsMocks.writeFileAtomic.mock.calls
+      .map(([p, c]) => ({ p: String(p), c: typeof c === "string" ? c : "" }))
+      .filter(({ p }) => p.endsWith(".novel/projection-status.json"))
+    const ledgerWrite = ledgerWrites[ledgerWrites.length - 1]
+    expect(ledgerWrite).toBeTruthy()
+    const trail = JSON.parse(ledgerWrite.c).auditTrail as Array<{ projection: string; status: string }>
+    const syncEvents = trail.filter((e) => ["cognition", "character", "foreshadow"].includes(e.projection))
+    expect(syncEvents.map((e) => e.projection).sort()).toEqual(["character", "cognition", "foreshadow"])
+    for (const e of syncEvents) {
+      expect(e.status).toBe("committed")
+    }
+  })
+
+  it("单类 fold 失败记 failed 事件且不阻断其余类（#6①）", async () => {
+    // 透传 ledger 写入 + 只让 character-states.json 写盘失败
+    let ledgerContent = ""
+    fsMocks.writeFileAtomic.mockImplementation(async (p: string, c: string) => {
+      const path = String(p)
+      if (path.endsWith(".novel/projection-status.json")) {
+        ledgerContent = typeof c === "string" ? c : ""
+      } else if (path.endsWith(".novel/character-states.json")) {
+        throw new Error("disk full")
+      }
+    })
+    fsMocks.readFile.mockImplementation((p: string) =>
+      String(p).endsWith(".novel/projection-status.json") && ledgerContent
+        ? Promise.resolve(ledgerContent)
+        : Promise.resolve(defaultReadFile(p)),
+    )
+    const snapshot = baseSnapshot(1, {
+      knowledgeChanges: ["阿宁知道秘密"],
+      characterStateChanges: ["阿宁：受伤"],
+      foreshadowingChanges: ["新增伏笔：黑剑"],
+    })
+    await expect(syncSnapshotToMemory(PROJECT, snapshot)).resolves.toBeTruthy() // 不阻断
+    const ledgerWrites = fsMocks.writeFileAtomic.mock.calls
+      .map(([p, c]) => ({ p: String(p), c: typeof c === "string" ? c : "" }))
+      .filter(({ p }) => p.endsWith(".novel/projection-status.json"))
+    const ledgerWrite = ledgerWrites[ledgerWrites.length - 1]
+    const trail = JSON.parse(ledgerWrite.c).auditTrail as Array<{ projection: string; status: string; error?: string }>
+    const characterEvent = trail.find((e) => e.projection === "character")
+    expect(characterEvent?.status).toBe("failed")
+    expect(characterEvent?.error).toContain("disk full")
+    expect(trail.find((e) => e.projection === "cognition")?.status).toBe("committed")
+    expect(trail.find((e) => e.projection === "foreshadow")?.status).toBe("committed")
+  })
+
+  it("#7 last-good 兜底：backup 把现版摘要复制为 .last-good 快照", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "3.json", path: "E:/Novel/.novel/community-summaries/3.json", is_dir: false },
+      { name: "7.json", path: "E:/Novel/.novel/community-summaries/7.json", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (String(p).endsWith("community-summaries/3.json")) return "{\"communityId\":3,\"summary\":\"老三版\"}"
+      if (String(p).endsWith("community-summaries/7.json")) return "{\"communityId\":7,\"summary\":\"老七版\"}"
+      return defaultReadFile(p)
+    })
+    await backupCommunitySummariesLastGood(PROJECT)
+    const backupWrites = fsMocks.writeFileAtomic.mock.calls
+      .map(([p, c]) => [String(p), String(c)])
+      .filter(([p]) => String(p).endsWith(".last-good"))
+    expect(backupWrites).toHaveLength(2)
+    expect(backupWrites.some(([p, c]) => p.endsWith("3.json.last-good") && c.includes("老三版"))).toBe(true)
+    expect(backupWrites.some(([p, c]) => p.endsWith("7.json.last-good") && c.includes("老七版"))).toBe(true)
+  })
+
+  it("#7 last-good 兜底：restore 把 .last-good 快照复制回原位（整体失败恢复）", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "3.json.last-good", path: "E:/Novel/.novel/community-summaries/3.json.last-good", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (String(p).endsWith("3.json.last-good")) return "{\"communityId\":3,\"summary\":\"老三版\"}"
+      return defaultReadFile(p)
+    })
+    await restoreCommunitySummariesLastGood(PROJECT)
+    const restores = fsMocks.writeFileAtomic.mock.calls
+      .map(([p, c]) => [String(p), String(c)])
+      .filter(([p]) => String(p).endsWith("community-summaries/3.json"))
+    expect(restores).toHaveLength(1)
+    expect(restores[0][1]).toContain("老三版")
+    // 目录不存在/无 last-good → 幂等跳过不抛
+    fsMocks.listDirectory.mockRejectedValue(new Error("ENOENT"))
+    await expect(restoreCommunitySummariesLastGood(PROJECT)).resolves.toBeUndefined()
   })
 })
 

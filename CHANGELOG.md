@@ -7,6 +7,21 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.7.10] - 2026-09-07
+
+### P2 过程/项目记忆库清偿批次（三模型共识 2026-09-07）
+
+- **#3 sync 直写注册表派生**：`SYNC_FOLD_PROJECTION_IDS` 硬编码 3 元删除，改由 `syncDirectWriteProjectionIds()` 从 `PROJECTION_REGISTRY.syncDirectWrite` 标志惰性派生（新增投影标 flag 即自动入 sync 路径）
+- **#4 账本 v2**：`ProjectionStatusLedger.schemaVersion="2"`（emptyLedger 产 v2；load v1 文件 lazy 迁移 + save 写回升版，往返幂等测试）；未知 v3+ fail-loud 拒绝静默降级
+- **#6① sync per-class 审计记账**：sync 直写循环 per-iteration committed/failed 审计（保留 sync_snapshot_to_memory 总事件；失败不阻断）
+- **#7 community_summary 确定性兜底**：生成前现版摘要复制 `.last-good` 快照，整体失败时恢复（防静默空档）+ failed 审计留痕
+- **#5 M3b 翻转（等效证据替代）**：`hardInjectEnabled` 默认 true（renderIf 双门控结构性保证空数据/无 POV 字节级不变；POV 真源已落地；硬注入预算探针激活；单点 flag 可回滚）
+- **syncDirectWrite 双向静态守卫**：正向三类必标 + 负向 6 类非直写显式断言（防新增投影漏标）
+
+### 验证
+
+typecheck 0 错误 / vitest 全量绿（相关 spec：48+29+14+266 等）/ 生成器 --check 0
+
 ## [2.7.9] - 2026-09-07
 
 ### 68 号评估全量完成（fix-forward 资产补齐）

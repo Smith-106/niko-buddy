@@ -410,9 +410,13 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   trustFilterEnabled: false,
   decayEnabled: false,
   supersessionFilterEnabled: false,
-  // E-02 (capability-kb-retrieval): 三 flag 默认 false（接线前零行为变更，可逆上线）
+  // E-02 (capability-kb-retrieval): dualKbRouting/usefulnessRerank 默认 false（接线前零行为变更，可逆上线）
   dualKbRoutingEnabled: false,
-  hardInjectEnabled: false,
+  // #5 M3b 翻转（三模型共识 2026-09-07，等效证据替代）：hardInjectEnabled 默认 true。
+  // 等效证据=renderIf 双门控（flag ∧ 条目非空）结构性保证空数据/无 POV 字节级不变
+  // （context-engine.spec:477/485）+ POV 真源已落地（resolveChapterPovCharacter）+ 单点可逆。
+  // 硬注入预算探针同时激活（hard_injection_budget_usage ← pack.hardInjectUsage.ratio）。
+  hardInjectEnabled: true,
   usefulnessRerankEnabled: false,
   // F-011: Voice Preservation 第一层 — spelling convention 默认值
   dialoguePunctuationStyle: "",
