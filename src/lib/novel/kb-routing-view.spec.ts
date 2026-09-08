@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+// R7 同款（2026-09-08）：全量并发下 vi.doMock+resetModules 模块图重建耗时 >5s 默认
+// testTimeout（隔离实测首跑 5.2s）→ 文件级提到 30s 治本；it 级 retry 2 兜底纯时序
+vi.setConfig({ testTimeout: 30_000 })
+
 /**
  * P1-IMP-08 — KB-VIEW 消费面（generated JSON + 同步脚本）验收。
  *

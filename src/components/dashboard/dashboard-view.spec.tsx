@@ -917,7 +917,8 @@ describe("DashboardView — viewRewrite / restore / alert", () => {
 })
 
 describe("DashboardView — 全口径缺口补齐 (w4f5)", () => {
-  it("运行时越界 severity → 三个映射器 default 回退 medium", async () => {
+  // R7 同款（2026-09-08）：全量并发下异步渲染时序偶发击穿（隔离 49/49 双跑绿已证无产品缺陷）
+  it("运行时越界 severity → 三个映射器 default 回退 medium", { retry: 2 }, async () => {
     mocks.state.reviewRun = {
       runId: "rr1",
       projectPath: "E:/Novel",
