@@ -46,6 +46,7 @@ src/test-helpers/*
 !/docs/decision-log/
 !/docs/p2/
 !/docs/p5/
+!/docs/generated/
 !/docs/.gitkeep
 /AGENTS.md
 /PDD.MD
