@@ -20,7 +20,7 @@
  * 生成时间行（含日期）先规范化再比较，其余字节必须一致。
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
 
@@ -78,6 +78,9 @@ const walk = (dir, acc = []) => {
 }
 const rsFiles = []
 for (const d of cmdFiles) walk(join(root, d), rsFiles)
+// Repo-relative forward-slash path: join() emits backslashes on Windows, and the
+// raw absolute path leaks the local machine layout into the committed doc (M0 CI fix).
+const rel = (p) => relative(root, p).replaceAll("\\", "/")
 const attrRe = /#\[tauri::command\s*\(?([^)\]]*)\)?\]\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/g
 const dead = []
 for (const f of rsFiles) {
@@ -88,8 +91,8 @@ for (const f of rsFiles) {
     const name = m[2]
     if (src.slice(m.index - 400, m.index).includes("cfg(test)") || src.slice(m.index - 200, m.index).includes("#[cfg(test)]")) continue
     if (declared.has(name)) continue
-    declared.set(name, f.replace(root + "/", ""))
-    if (!registered.has(name)) dead.push({ name, file: f.replace(root + "/", "") })
+    declared.set(name, rel(f))
+    if (!registered.has(name)) dead.push({ name, file: rel(f) })
   }
 }
 

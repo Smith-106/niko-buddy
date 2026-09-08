@@ -86,7 +86,7 @@
 
 ## 死命令审计（声明未注册，1）
 
-- `set_proxy_env` — C:\Users\niko\Desktop\工作目录\niko-hub\QMAI\src-tauri\src\lib.rs
+- `set_proxy_env` — src-tauri/src/lib.rs
 
 ## 再生成
 
