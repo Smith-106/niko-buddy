@@ -15,6 +15,31 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.7.10",
+    date: "2026-09-07",
+    highlights: {
+      en: [
+        "#3 sync direct-write registry derivation: hardcoded 3-element SYNC_FOLD_PROJECTION_IDS removed, now derived lazily by syncDirectWriteProjectionIds() from the PROJECTION_REGISTRY.syncDirectWrite flags (new projections marked for sync join the sync path automatically).",
+        "#4 ledger v2: ProjectionStatusLedger.schemaVersion=\"2\" (emptyLedger emits v2; v1 files lazy-migrated on load + save upgrades back, round-trip idempotency tested); unknown v3+ fails loud instead of silent downgrade.",
+        "#6 part 1 sync per-class audit bookkeeping: per-iteration committed/failed audit in the sync direct-write loop (sync_snapshot_to_memory total event preserved; failures do not block).",
+        "#7 community_summary deterministic fallback: current summary copied to a .last-good snapshot before generation and restored on overall failure (prevents silent gaps) + failed audit trail.",
+        "#5 M3b flip (equivalent-evidence substitution): hardInjectEnabled defaults true (renderIf dual gating structurally guarantees byte-identical output for empty data / no POV; POV source of truth landed; hard-inject budget probe active; single-point flag rollback).",
+        "recentWindow=3 normalization (ADR-46): sanctioned time-window approximation promoted to official semantics (not a gap), sealed by three models; budget layering anchors (context-budget.ts:68-75 three states / tieredSlice protected|compressible / hardInject independent protection slot / usage probe); in-repo copy at docs/decision-log/2026-09-07-adr46-recentwindow-repo-copy.md (incl. v3.2.6 governance provenance).",
+        "syncDirectWrite bidirectional static guard: three positive categories must be flagged + six negative non-direct-write categories explicitly asserted (prevents new projections missing flags).",
+      ],
+      zh: [
+        "#3 sync 直写注册表派生：SYNC_FOLD_PROJECTION_IDS 硬编码 3 元删除，改由 syncDirectWriteProjectionIds() 从 PROJECTION_REGISTRY.syncDirectWrite 标志惰性派生（新增投影标 flag 即自动入 sync 路径）。",
+        "#4 账本 v2：ProjectionStatusLedger.schemaVersion=\"2\"（emptyLedger 产 v2；load v1 文件 lazy 迁移 + save 写回升版，往返幂等测试）；未知 v3+ fail-loud 拒绝静默降级。",
+        "#6① sync per-class 审计记账：sync 直写循环 per-iteration committed/failed 审计（保留 sync_snapshot_to_memory 总事件；失败不阻断）。",
+        "#7 community_summary 确定性兜底：生成前现版摘要复制 .last-good 快照，整体失败时恢复（防静默空档）+ failed 审计留痕。",
+        "#5 M3b 翻转（等效证据替代）：hardInjectEnabled 默认 true（renderIf 双门控结构性保证空数据/无 POV 字节级不变；POV 真源已落地；硬注入预算探针激活；单点 flag 可回滚）。",
+        "recentWindow=3 口径固化（ADR-46）：sanctioned 时间窗近似升格正式口径（非缺口），三模型 seal；预算分层锚点（context-budget.ts:68-75 三态 / tieredSlice protected|compressible / hardInject 独立保护槽 / usage 探针）；仓库内副本见 docs/decision-log/2026-09-07-adr46-recentwindow-repo-copy.md（含 v3.2.6 治理出处登记）。",
+        "syncDirectWrite 双向静态守卫：正向三类必标 + 负向 6 类非直写显式断言（防新增投影漏标）。",
+      ],
+    },
+  },
+
+  {
     version: "2.7.9",
     date: "2026-09-07",
     highlights: {
