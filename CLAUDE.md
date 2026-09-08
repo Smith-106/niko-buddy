@@ -14,6 +14,8 @@
 2. **Draft-first 是写作安全边界** — 所有 AI 输出先进 pending/ready 草稿，accept 后才回填正式正文与正式记忆。accept 前禁止污染正式层。
 3. **门控优先级固定** — `Consistency(P0) > Anti-AI(P1) > Quality(P2)`。Quality 不得覆盖 Consistency 的失败；机械层检测先于语义层。
 
+> **版本/CHANGELOG/generated 单写者红线（P0-2f）与 commit 纪律（P0-2g）**：以 `.workflow/PARALLEL-PACT.md` 会话地盘表「单写者红线」与 P16 为准。
+
 ## 主链文件锚点（现行）
 
 修改前先确认目标落在哪个锚点。**只改下列已存在的文件**：

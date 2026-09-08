@@ -13,6 +13,7 @@
 | 修复 / 小改进 | patch | 2.7.5 |
 
 - 版本号三处一致：`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`。
+- **单写者红线（P0-2f）与 commit 纪律（P0-2g）**：版本号/CHANGELOG/generated 写入权限与 commit 拆分规则以 `.workflow/PARALLEL-PACT.md` 地盘表「单写者红线」+ P16 为准。
 - **禁止跳号**：每个 tag 必须对应一次真实构建；构建失败不发布（删除失败 tag 后重发）。
 
 ## 发布节奏
