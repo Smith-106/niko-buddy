@@ -34,7 +34,7 @@
  *   node scripts/eval-gov-gate.mjs --report-dir <d>  # 报告落盘目录（默认 docs/p0/gov-seed/reports）
  *   node scripts/eval-gov-gate.mjs --help
  */
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs"
 import { join, resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { registerHooks } from "node:module"
@@ -66,7 +66,7 @@ const DEFAULT_SEED = join(QMAI_ROOT, "docs", "p0", "gov-seed", "gov-seed-v1.json
 const DEFAULT_REPORT_DIR = join(QMAI_ROOT, "docs", "p0", "gov-seed")
 
 /** 影子双臂三 flag（wiki-store 六 flag 中 awaiting-eval-evidence 三者；仅对照采集，不翻转）。 */
-const SHADOW_FLAGS = ["dualKbRoutingEnabled", "hardInject", "usefulnessRerank"]
+const SHADOW_FLAGS = ["dualKbRoutingEnabled", "hardInjectEnabled", "usefulnessRerank"]
 
 const ACCEPTANCE_NOTE =
   "本报告不含 MRR/NDCG 验收语义（GOV-EVAL-05 / SA-06）：检索精度验收仅三重判据。"
@@ -78,18 +78,20 @@ function usage() {
   npm run eval:gov                              读默认种子 docs/p0/gov-seed/gov-seed-v1.jsonl
   node scripts/eval-gov-gate.mjs --seed <path>   指定种子 jsonl
   node scripts/eval-gov-gate.mjs --report-dir <d> 报告目录（默认 docs/p0/gov-seed/reports）
+  node scripts/eval-gov-gate.mjs --shadow-input <dir> 影子期双臂 JSONL 目录（有数据填实测 arms；无则维持 pending）
   node scripts/eval-gov-gate.mjs --help
 
 EXIT: 0 = PASS 或 BLOCKED(未就绪，110 底线)；1 = ready 但判据 FAIL；2 = 用法/IO/schema 错误`
 }
 
 function parseArgs(argv) {
-  const args = { seed: DEFAULT_SEED, reportDir: DEFAULT_REPORT_DIR, help: false, badArg: false }
+  const args = { seed: DEFAULT_SEED, reportDir: DEFAULT_REPORT_DIR, shadowInput: undefined, help: false, badArg: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "--help" || a === "-h") args.help = true
     else if (a === "--seed") args.seed = resolve(process.cwd(), argv[++i] ?? args.seed)
     else if (a === "--report-dir") args.reportDir = resolve(process.cwd(), argv[++i] ?? args.reportDir)
+    else if (a === "--shadow-input") args.shadowInput = resolve(process.cwd(), argv[++i] ?? undefined)
     else {
       process.stderr.write(`[eval-gov-gate] unknown arg: ${a}\n`)
       args.help = true
@@ -108,6 +110,58 @@ function readSeedLines(path) {
   return readFileSync(path, "utf8")
     .split(/\r?\n/)
     .filter((l) => l.trim() !== "")
+}
+
+
+/**
+ * loadShadowArms(dir) — R5 影子期双臂 JSONL 消费。
+ * 读 .novel/telemetry/kb-shadow/dual-arm-*.jsonl（或任意目录下同构文件），按 caseId×arm
+ * 归组；每组聚合：coverage = 非 null obligationCoverage 均值、retrievalError 计数。
+ * 状态机：无目录/无文件 → "none"（维持 pending）；有文件但无双臂配对 → "insufficient"（不伪称）；
+ * 达标 → "collected"（judgment arms 填实测）。绝不「缺数据即通过」（E-06 C-7）。
+ */
+function loadShadowArms(dir) {
+  const empty = { state: "none", totalLines: 0, missing: 0, reason: "", perArm: { baseline: [], experiment: [] }, agg: { baseline: { coverage: null, retrievalError: 0 }, experiment: { coverage: null, retrievalError: 0 } } }
+  if (!dir) return empty
+  let files = []
+  try {
+    files = readdirSync(dir).filter((f) => f.startsWith("dual-arm-") && f.endsWith(".jsonl"))
+  } catch {
+    return empty // 目录不存在 → none，维持 pending
+  }
+  if (files.length === 0) return { ...empty, reason: "no dual-arm files" }
+  const lines = []
+  let malformed = 0
+  for (const f of files) {
+    const raw = readFileSync(join(dir, f), "utf8").split(/[\r\n]+/).filter((l) => l.trim() !== "")
+    for (const l of raw) {
+      try {
+        const o = JSON.parse(l)
+        if (o.arm !== "baseline" && o.arm !== "experiment") { malformed += 1; continue }
+        lines.push(o)
+      } catch { malformed += 1 }
+    }
+  }
+  const perArm = { baseline: [], experiment: [] }
+  for (const o of lines) perArm[o.arm].push(o)
+  if (perArm.baseline.length === 0 || perArm.experiment.length === 0) {
+    return { ...empty, state: "insufficient", reason: `baseline=${perArm.baseline.length} experiment=${perArm.experiment.length}`, totalLines: lines.length, malformed }
+  }
+  const aggOf = (arm) => {
+    const rows = perArm[arm]
+    const covs = rows.filter((r) => typeof r.obligationCoverage === "number")
+    return {
+      coverage: covs.length > 0 ? covs.reduce((a, b) => a + b.obligationCoverage, 0) / covs.length : null,
+      retrievalError: rows.filter((r) => r.status === "retrieval_error").length,
+    }
+  }
+  return {
+    state: "collected",
+    totalLines: lines.length,
+    missing: malformed,
+    perArm,
+    agg: { baseline: aggOf("baseline"), experiment: aggOf("experiment") },
+  }
 }
 
 /**
@@ -207,6 +261,15 @@ async function main() {
     }
   }
 
+  // R5 影子期双臂（--shadow-input）：有 dual-arm-*.jsonl → 按 caseId×arm 归组填实测 arms；无 → 维持 pending
+  const shadowArms = loadShadowArms(args.shadowInput)
+  const shadowNote =
+    shadowArms.state === "collected"
+      ? `shadow_arms: 已消费 ${shadowArms.totalLines} 行（baseline ${shadowArms.perArm.baseline.length} / experiment ${shadowArms.perArm.experiment.length}，缺失 ${shadowArms.missing}）`
+      : shadowArms.state === "insufficient"
+        ? `shadow_arms: --shadow-input 目录存在但样本不足（${shadowArms.reason}），判定维持 pending`
+        : `shadow_arms: 三 flag（${SHADOW_FLAGS.join(" / ")}）开/关对照；进程内 store 不可用 → pending（真实双臂待 Tauri 运行时影子期采集，SOP 见 docs/p0/gov-seed/README.md；ADR-47 判定式挂钩：回归防线常驻 ∧ 双臂对照不引入新确定缺陷 → 检索维实测解锁，不达标降回字面口径重议 95）`
+
   const report = renderEvalGateReport({
     seedStatus: seedSet.status,
     criteria,
@@ -226,7 +289,7 @@ async function main() {
     `- seed_case_count: ${seedSet.cases.length}（110 底线 = 60/30/20+六陷阱各≥2；未达即 BLOCKED 不伪造就绪）`,
     `- scale_violations: ${seedSet.scaleViolations.map((v) => `${v.category}=${v.actual}/${v.expected}${v.detail ? `(${v.detail})` : ""}`).join("; ") || "无"}`,
     `- retrieval_adapter_available: ${adapter.available}（不可用时逐例记 retrieval_adapter_unavailable，绝不静默合成）`,
-    `- shadow_arms: 三 flag（${SHADOW_FLAGS.join(" / ")}）开/关对照；进程内 store 不可用 → pending（真实双臂待 Tauri 运行时影子期采集，SOP 见 docs/p0/gov-seed/README.md；ADR-47 判定式挂钩：回归防线常驻 ∧ 双臂对照不引入新确定缺陷 → 检索维实测解锁，不达标降回字面口径重议 95）`,
+    `- ${shadowNote}`,
     `- trap_interception 注记: -1 = 种子未就绪或检索 adapter 不可用，逐例未采集，非拦截失败`,
     `- pending_after_IMP06_07_08: 种子 110 例齐备依赖 IMP-06（trust 接线）/IMP-07（intent 路由）/IMP-08（kb-view 就位）后补齐`,
     "",
@@ -242,8 +305,16 @@ async function main() {
     gateId: `eval-gov-gate:${args.seed}`,
     timestamp: new Date().toISOString(),
     arms: {
-      baseline: { flagValue: false, metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null } },
-      experiment: { flagValue: true, metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null } },
+      baseline: {
+        flagValue: false,
+        metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null },
+        shadow: shadowArms.state === "collected" ? { lines: shadowArms.perArm.baseline.length, coverage: shadowArms.agg.baseline.coverage, retrievalError: shadowArms.agg.baseline.retrievalError } : "pending",
+      },
+      experiment: {
+        flagValue: true,
+        metrics: { consistency: criteria.consistencyScore ?? null, quality: criteria.qualityScore ?? null },
+        shadow: shadowArms.state === "collected" ? { lines: shadowArms.perArm.experiment.length, coverage: shadowArms.agg.experiment.coverage, retrievalError: shadowArms.agg.experiment.retrievalError } : "pending",
+      },
     },
     verdict: verdict.verdict, // PASS | FAIL | BLOCKED
     criteria: {
@@ -251,7 +322,10 @@ async function main() {
       qualityGain: verdict.verdict === "PASS",
       reason: verdict.reason ?? `seed_status=${seedSet.status}`,
     },
-    seedCaseCoverage: { baseline: seedSet.cases.length, experiment: seedSet.cases.length },
+    seedCaseCoverage:
+      shadowArms.state === "collected"
+        ? { baseline: shadowArms.perArm.baseline.length, experiment: shadowArms.perArm.experiment.length }
+        : { baseline: seedSet.cases.length, experiment: seedSet.cases.length },
   }
   writeFileSync(judgmentPath, JSON.stringify(judgment, null, 2) + "\n", "utf8")
 
