@@ -16,7 +16,7 @@
 //   语义：外部只能经 novel-public barrel 导入 novel 能力，不得直接 import 内部模块。
 //
 //   严重级别定为 warn（而非 error）：
-//     现状 75 个外部导入直连 novel-internal、顶层 barrel 缺失，T18 的窄接口重构尚未完成。
+//     lint 棘轮：以 package.json 的 --max-warnings 为准（2026-09-08 冻结 162）。
 //     蓝图 §9.8 第 5 项明文「预留 eslint-boundaries 位（T18 依赖方向门禁前置）」——
 //     本配置落地位、Taxonomy、resolver 全部就位；T18 完成 barrel 重构后将级别由 warn 升至
 //     error 即可转为硬门（一行改动）。任务约束「0 error，warning 可接受」即此口径。
