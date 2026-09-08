@@ -7,6 +7,12 @@ on:
     branches: [master]
 
 jobs:
+  ci-gate:
+    # Node-side gates (typecheck:force / lint / test:mocks) live in
+    # checks.yml - single gate definition source (R17 B1).
+    uses: ./.github/workflows/checks.yml
+    with:
+      node-version: 20
   check:
     strategy:
       fail-fast: false
@@ -72,10 +78,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Typecheck (tsc, force)
-        # ADR-47 回归防线：--force 禁增量缓存假绿（e2522af6 教训）
-        run: npm run typecheck:force
-
       - name: KB view artifact self-consistency
         # ADR-47 回归防线：产物存在 + builtFrom 非空（源同步漂移即红；上游源在 hub，
         # sync --check 归 hub 侧等价门禁：node scripts/build-reference-kb-view.js --check
@@ -85,12 +87,6 @@ jobs:
       - name: Governance anchors check
         # ADR-47 回归防线：治理文档（arch-decisions/project.md）声称的文件:行锚点可解析
         run: node scripts/verify-governance-anchors.mjs
-
-      - name: Lint (eslint, 68 号 P1-9 接入)
-        run: npm run lint
-
-      - name: Run unit tests (vitest)
-        run: npm run test:mocks
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

@@ -1,0 +1,77 @@
+# checks.yml - reusable Node-side gate definitions (R17 B1 extraction)
+#
+# Single source of truth for the Node gate run definitions. Callers
+# (ci.yml, build.yml ci-gate) call this workflow via workflow_call `uses:`
+# and must NOT re-declare the same gate runs elsewhere (uniqueness
+# assertions, R17 section 4.3).
+#
+# Batch notes:
+# - B1: verbatim extraction from ci.yml / build.yml ci-gate. Every run string
+#   is byte-level conserved (only positions move; npm install kept for this
+#   batch - npm ci migration = B2). The bare typecheck that used to live at
+#   build.yml:35 is PROMOTED to the forced form below (R17 section 4.4; the
+#   forced form must never be downgraded back to bare typecheck).
+# - B1: KB view self-consistency + governance anchors REMAIN in ci.yml
+#   (R17 section 4.4 final decision - they stay with the caller; B5 merges
+#   them into gen:check and deletes them from ci.yml).
+# - B5: gen:check real step lands in node-gates (see placeholder comment).
+# - run-e2e input is declared in B1 but not consumed yet: E2E stays in the
+#   caller in B1 (exec-plan P0-3); later batches wire it.
+
+name: Node Gates (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version for setup-node
+        required: true
+        type: string
+      run-e2e:
+        description: Run E2E steps (declared in B1, wired by later batches)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm install
+
+  node-gates:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Typecheck (tsc, force)
+        # ADR-47 回归防线：--force 禁增量缓存假绿（e2522af6 教训）
+        run: npm run typecheck:force
+
+      # NOTE (R17 4.4): the bare typecheck that used to live at build.yml:35
+      # (release ci-gate) is deliberately NOT re-created anywhere - it is
+      # promoted to the forced form in the step above. Each caller invokes
+      # this workflow once, so exactly one definition exists. The forced form
+      # is pinned by F3 criteria and must never be downgraded.
+
+      - name: Lint (eslint, 68 号 P1-9 接入)
+        run: npm run lint
+
+      - name: Run unit tests (vitest)
+        run: npm run test:mocks
+
+      # [B5 wiring point] gen:check real body lands here as a new step
+      # (run: node scripts/check-generated.mjs, ubuntu second-level).
+      # B1 intentionally defines NO run for it: an added run string would
+      # break the run-string set conservation assertion (the before-set has
+      # no such string). When B5 lands, also delete the KB view
+      # self-consistency step from ci.yml (R17 4.4) - no double-write.

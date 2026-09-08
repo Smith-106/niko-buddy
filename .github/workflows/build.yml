@@ -14,31 +14,16 @@ permissions:
 # 不支持跨 workflow 的 needs 链或可靠的 workflow_run 成功条件（workflow_run 只能
 # 监听默认分支上的已完成 run，无法绑定到 tag 指向的具体 commit）。因此在此处
 # 显式跑 typecheck + vitest 作为发布硬门，build 依赖 ci-gate 全绿后才启动。
+# B1：ci-gate 改委托 checks.yml workflow_call（门定义单份化），裸 typecheck 升格为
+# :force 形态（定义仅存于 checks.yml）。
 jobs:
   ci-gate:
     name: Release CI Gate (typecheck + vitest)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Typecheck (tsc)
-        run: npm run typecheck
-
-      - name: Lint (eslint, 68 号 P1-9 接入)
-        run: npm run lint
-
-      - name: Run unit tests (vitest)
-        run: npm run test:mocks
+    # B1: delegate to checks.yml; gate run definitions are single-sourced
+    # there (bare typecheck from :35 promoted to forced form in checks.yml).
+    uses: ./.github/workflows/checks.yml
+    with:
+      node-version: 20
 
   build:
     needs: ci-gate
