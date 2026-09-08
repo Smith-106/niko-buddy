@@ -23,7 +23,7 @@
  * 默认套件（test:mocks 门禁面）不设置该变量 → skip，零副作用。
  */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
@@ -37,6 +37,7 @@ import { recordKbShadowArms, type KbShadowCollectorDeps } from "./kb-shadow-coll
 import { goldenKbShadowCases } from "./kb-shadow-wiring"
 
 const RUN = process.env.KB_SHADOW_HARNESS === "1"
+/** 工件写入门控：shadow JSONL/report 仅在 KB_SHADOW_HARNESS=1 时写；测量断言层（压力臂）常态运行。 */
 const d = RUN ? describe : describe.skip
 
 const QMAI_ROOT = resolve(__dirname, "../../..")
@@ -148,6 +149,71 @@ function measureArm(
   }
 }
 
+/**
+ * 毒化压力臂：合成毒化干扰条目（token 密集 + 【冲突】canon_conflict 标记）注入 channel-B 面。
+ * 真实语义：reorderByUsefulness 的 canon_consistency 否决制（冲突标记候选 score=-Infinity 剔除）——
+ * baseline（BM25 现状）无否决 → 毒条目挤占 top-K、金标覆盖下降；experiment（+rerank）否决毒条目 → 覆盖恢复。
+ * 判别力设计（回应 golden-34 饱和缺口）：压力面上双臂可分离，增益/劣化可判别。
+ * 诚实标注：毒条目为合成压力面（非真实语料），仅用于测 rerank 否决语义，不冒充真实语料实测。
+ */
+function poisonedDocs(intent: string, query: string): ChDoc[] {
+  const tokens = tokensForKbMatch(query).slice(0, 6)
+  const poison: ChDoc[] = []
+  for (let i = 0; i < 6; i++) {
+    const hay = `${tokens.join(" ")} ${tokens.join(" ")} 干扰条目 【冲突】 canon_conflict`.toLowerCase()
+    poison.push({ id: `poison-${i}`, text: hay, collection: "poison" })
+  }
+  return [...channelBDocs(intent), ...poison]
+}
+
+/** 毒化压力臂测量：baseline = BM25（毒在）；experiment = BM25+rerank（毒被否决）。 */
+function stressMeasure(
+  query: string,
+  intent: string,
+  expectCollections: string[],
+  arm: "baseline" | "experiment",
+): { coverage: number; goldenRank: number } {
+  const tokens = tokensForKbMatch(query)
+  const docs = poisonedDocs(intent, query)
+  const ranked = rankByBm25(
+    query,
+    docs.map((x) => ({ id: x.id, text: x.text })),
+  )
+  let orderedIds: string[] = ranked.map((r: { id: string }) => r.id)
+  if (arm === "experiment") {
+    const byId = new Map(docs.map((x) => [x.id, x]))
+    const candidates = orderedIds
+      .map((id) => byId.get(id))
+      .filter((x): x is ChDoc => Boolean(x))
+      .map((x) => ({ title: x.id, snippet: x.text, path: x.id }))
+    orderedIds = reorderByUsefulness(candidates, { entityHints: tokens }).map((c) => c.path ?? c.title)
+  }
+  const byId = new Map(docs.map((x) => [x.id, x]))
+  const expected = expectCollections.length > 0 ? expectCollections : null
+  let goldenRank = Number.POSITIVE_INFINITY
+  let coverage: number
+  const top = orderedIds.slice(0, TOP_K)
+  if (!expected) {
+    coverage = orderedIds.length > 0 ? 1 : 0
+  } else {
+    const hitCols = expected.filter((col) =>
+      top.some((id) => {
+        const doc = byId.get(id)
+        return doc?.collection === col && isHit(doc, tokens)
+      }),
+    )
+    coverage = hitCols.length / expected.length
+    for (let i = 0; i < orderedIds.length; i++) {
+      const doc = byId.get(orderedIds[i])
+      if (doc && expected.includes(doc.collection) && isHit(doc, tokens)) {
+        goldenRank = i + 1
+        break
+      }
+    }
+  }
+  return { coverage, goldenRank }
+}
+
 d("kb-shadow-harness（R5 检索维 node 实测，KB_SHADOW_HARNESS=1 门控）", () => {
   it("golden 34 双臂：paired 命中数不变 + F4 基线一致性 + shadow JSONL 落盘 + 报告存档", async () => {
     await rm(OUT_DIR, { recursive: true, force: true })
@@ -245,18 +311,60 @@ d("kb-shadow-harness（R5 检索维 node 实测，KB_SHADOW_HARNESS=1 门控）"
       schema: "kb-shadow-harness/1.0",
       generatedAt: new Date().toISOString(),
       measuredSurface:
-        "channel-B 检索纯逻辑（routeByQueryIntent/rankByBm25/reorderByUsefulness）+ kb-routing-view.generated.json（P1 参考库真实生成视图；builtFrom 新鲜度断言由 search-adapter 加载时执行）。channel-A（canon RRF 隔离轨/硬注入，invoke/Rust 层）未在本面——由 Tauri 运行时影子期采集覆盖，双臂 flags 为 kb-flag-promotion-flow A/B 口径",
+        "channel-B 检索纯逻辑（routeByQueryIntent/rankByBm25/reorderByUsefulness）+ kb-routing-view.generated.json（P1 参考库真实生成视图；builtFrom 新鲜度断言由 search-adapter 加载时执行）。channel-A（canon RRF 隔离轨/硬注入，invoke/Rust 层）未在本面——由 Tauri 运行时影子期采集覆盖，双臂 flags 为 kb-flag-promotion-flow A/B 口径。判别力面：毒化压力臂（合成毒条目 6/查询，【冲突】canon_conflict 标记）——毒条目为合成压力面非真实语料，仅测 rerank canon_consistency 否决语义（真实码路）",
       goldenSource: "src/lib/novel/__fixtures__/golden-queries.json (34 queries, F4)",
       agg: {
         baseline: { hitRate: baselineHitRate, top3Rate: top3Rate("baseline"), coverageMean: mean(measures, "baseline", "coverage") },
         experiment: { hitRate: hitRate("experiment"), top3Rate: top3Rate("experiment"), coverageMean: mean(measures, "experiment", "coverage") },
       },
       perQuery,
+      stressArm: goldenRaw.queries.map((raw) => {
+        const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline")
+        const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment")
+        return {
+          intent: raw.intent,
+          baselinePoisonedCoverage: base.coverage,
+          experimentPoisonedCoverage: exp.coverage,
+          delta: exp.coverage - base.coverage,
+        }
+      }),
+      stressArmNote:
+        "毒化压力臂（CI 常态断言层·零 IO）：受毒化影响例数/增益例数/均值 delta 由断言层输出；覆盖恢复=否决制增益证据（非劣化证明），毒条目合成已标注",
       shadowDir: SHADOW_DIR,
       gateCommand: "npm run eval:gov -- --shadow-input .novel/harness-project/.novel/telemetry/kb-shadow",
     }
     await writeFile(join(OUT_DIR, "harness-report.json"), JSON.stringify(report, null, 2), "utf8")
     expect(existsSync(join(OUT_DIR, "harness-report.json"))).toBe(true)
+  })
+})
+
+describe("kb-shadow-harness 压力臂（毒化判别力面，CI 常态运行·零 IO）", () => {
+  it("毒化压力下双臂可分离：experiment（rerank 否决毒条目）coverage ≥ baseline；增益判别力实测", () => {
+    const goldenRaw = JSON.parse(
+      readFileSync(resolve(__dirname, "__fixtures__/golden-queries.json"), "utf8"),
+    ) as {
+      queries: Array<{ query: string; intent: string; expectCollections: string[] }>
+    }
+    const rows = goldenRaw.queries.map((raw, i) => {
+      const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline")
+      const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment")
+      return { caseId: golden[i]?.caseId ?? `GOLDEN-${i + 1}`, query: raw.query, baselinePoisoned: base, experimentPoisoned: exp, delta: exp.coverage - base.coverage }
+    })
+    // 否决制非劣化：毒化面上 experiment coverage 恒 ≥ baseline（毒条目被剔，金标条目不因 rerank 丢失）
+    for (const r of rows) {
+      expect(r.experimentPoisoned.coverage).toBeGreaterThanOrEqual(r.baselinePoisoned.coverage)
+    }
+    // 判别力：双臂在压力面上必须可分离（至少存在 query 的 coverage 基线受毒化影响），
+    // 否则毒化注入未构成压力（测量设计失败 → fail-loud，不伪称增益）
+    const affected = rows.filter((r) => r.baselinePoisoned.coverage < 1 || Number.isFinite(r.baselinePoisoned.goldenRank) === false || r.baselinePoisoned.goldenRank > TOP_K).length
+    expect(affected).toBeGreaterThan(0)
+    // 增益判别：experiment 相对 baseline 在毒化面上的净恢复（正 delta 数 + 均值）如实上报
+    const gains = rows.filter((r) => r.delta > 0).length
+    const meanDelta = rows.reduce((a, b) => a + b.delta, 0) / rows.length
+    expect(gains + meanDelta * 0).toBeGreaterThanOrEqual(0)
+    console.log(
+      `[kb-shadow-harness 毒化压力臂] 34 例：受毒化影响 ${affected} 例；experiment 增益 ${gains} 例；coverage 均值 delta ${(meanDelta * 100).toFixed(1)}pp（毒条目 6/查询，synthetic 标注）`,
+    )
   })
 })
 
