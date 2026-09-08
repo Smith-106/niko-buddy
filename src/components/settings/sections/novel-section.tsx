@@ -17,6 +17,11 @@ import {
   loadAntiAiTelemetryConsent,
   saveAntiAiTelemetryConsent,
 } from "@/lib/novel/anti-ai-telemetry-wiring"
+import {
+  goldenCoverageOf,
+  goldenKbShadowCases,
+  runKbShadowArmsIfConsented,
+} from "@/lib/novel/kb-shadow-wiring"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { OUTLINE_GENRE_CODES } from "@/lib/novel/genre-codes"
 import { WritingPreferenceSection } from "./writing-preference-section"
@@ -80,6 +85,13 @@ export function NovelSection({ draft, setDraft }: Props) {
   // F-34: 反 AI 遥测同意（app 级 store，不走 draft.novelConfig；null = 加载中）
   const [antiAiTelemetryConsent, setAntiAiTelemetryConsent] = useState<boolean | null>(null)
   const [consentError, setConsentError] = useState<string | null>(null)
+  const [kbShadowRun, setKbShadowRun] = useState<{
+    running: boolean
+    written: number | null
+    failed: number
+    skipped: boolean
+    error: string | null
+  }>({ running: false, written: null, failed: 0, skipped: false, error: null })
 
   useEffect(() => {
     let cancelled = false
@@ -108,6 +120,40 @@ export function NovelSection({ draft, setDraft }: Props) {
     } catch (error) {
       // store 已写入 next，UI 保持 next；sink 半态由下次项目打开自愈
       setConsentError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const runKbShadowCollection = async () => {
+    const projectPath = project?.path
+    if (!projectPath) {
+      setKbShadowRun({ running: false, written: null, failed: 0, skipped: false, error: t("novel.settings.kbShadowNoProject") })
+      return
+    }
+    setKbShadowRun({ running: true, written: null, failed: 0, skipped: false, error: null })
+    try {
+      const result = await runKbShadowArmsIfConsented(
+        projectPath,
+        "golden34",
+        goldenKbShadowCases(),
+        undefined,
+        undefined,
+        goldenCoverageOf,
+      )
+      setKbShadowRun({
+        running: false,
+        written: result.written,
+        failed: result.failed,
+        skipped: result.skipped,
+        error: null,
+      })
+    } catch (error) {
+      setKbShadowRun({
+        running: false,
+        written: null,
+        failed: 0,
+        skipped: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -478,6 +524,106 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
           </div>
 
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium">{t("novel.settings.retrievalRoutingSection")}</p>
+              {settingTooltip("retrievalRoutingSectionHint")}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
+                <Label>{t("novel.settings.dualKbRoutingEnabled")}</Label>
+                {settingTooltip("dualKbRoutingEnabledHint")}
+              </div>
+              <NovelToggle
+                checked={draft.novelConfig.dualKbRoutingEnabled === true}
+                onChange={() => updateNovelConfig({ dualKbRoutingEnabled: !(draft.novelConfig.dualKbRoutingEnabled === true) })}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
+                <Label>{t("novel.settings.usefulnessRerankEnabled")}</Label>
+                {settingTooltip("usefulnessRerankEnabledHint")}
+              </div>
+              <NovelToggle
+                checked={draft.novelConfig.usefulnessRerankEnabled === true}
+                onChange={() => updateNovelConfig({ usefulnessRerankEnabled: !(draft.novelConfig.usefulnessRerankEnabled === true) })}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
+                <Label>{t("novel.settings.hardInjectEnabled")}</Label>
+                {settingTooltip("hardInjectEnabledHint")}
+              </div>
+              <NovelToggle
+                checked={draft.novelConfig.hardInjectEnabled !== false}
+                onChange={() => updateNovelConfig({ hardInjectEnabled: !(draft.novelConfig.hardInjectEnabled !== false) })}
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Label>{t("novel.settings.entityBoostWeight")}</Label>
+                {settingTooltip("entityBoostWeightHint")}
+              </div>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={draft.novelConfig.entityBoostWeight}
+                onChange={(e) => updateNovelConfig({
+                  entityBoostWeight: Math.max(0, Math.min(1, Number(e.target.value) || 0)),
+                })}
+                className="w-24"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">{t("novel.settings.contentAssemblySection")}</p>
+            {([
+              ["exemplarEnabled", "exemplarEnabled"],
+              ["relatedChaptersEnabled", "relatedChaptersEnabled"],
+              ["referenceEnabled", "referenceEnabled"],
+              ["sceneBreakdownEnabled", "sceneBreakdownEnabled"],
+              ["conditionalRoutingEnabled", "conditionalRoutingEnabled"],
+              ["inspectorEnabled", "inspectorEnabled"],
+              ["stateDeltaBlocksTrackA", "stateDeltaBlocksTrackA"],
+            ] as const).map(([configKey, i18nKey]) => (
+              <div key={configKey} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <Label>{t(`novel.settings.${i18nKey}`)}</Label>
+                  {settingTooltip(`${i18nKey}Hint`)}
+                </div>
+                <NovelToggle
+                  checked={draft.novelConfig[configKey] !== false}
+                  onChange={() => updateNovelConfig({ [configKey]: !(draft.novelConfig[configKey] !== false) } as Partial<NovelConfig>)}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium">{t("novel.settings.governanceSection")}</p>
+              {settingTooltip("governanceSectionHint")}
+            </div>
+            {([
+              ["trustFilterEnabledReadonly", "trustFilterEnabledReadonlyHint"],
+              ["decayEnabledReadonly", "decayEnabledReadonlyHint"],
+              ["supersessionFilterEnabledReadonly", "supersessionFilterEnabledReadonlyHint"],
+            ] as const).map(([labelKey, hintKey]) => (
+              <div key={labelKey} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <Label>{t(`novel.settings.${labelKey}`)}</Label>
+                  {settingTooltip(hintKey)}
+                </div>
+                <span className="rounded border px-2 py-0.5 text-xs text-muted-foreground">
+                  {t("novel.settings.governanceBadgeNotWired")}
+                </span>
+              </div>
+            ))}
+          </div>
+
           {draft.novelConfig.communitySummaryEnabled && (
             <>
               <div className="space-y-2">
@@ -791,6 +937,39 @@ export function NovelSection({ draft, setDraft }: Props) {
               {t("novel.settings.antiAiTelemetryConsentError", { message: consentError })}
             </p>
           ) : null}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.kbShadowCollectionSection")}</Label>
+              {settingTooltip("kbShadowCollectionHint")}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={kbShadowRun.running}
+                onClick={() => { void runKbShadowCollection() }}
+              >
+                {t("novel.settings.kbShadowRunButton")}
+              </Button>
+              {kbShadowRun.running ? (
+                <span className="text-xs text-muted-foreground">{t("novel.settings.kbShadowRunning")}</span>
+              ) : null}
+            </div>
+            {kbShadowRun.skipped ? (
+              <p className="text-xs text-muted-foreground">{t("novel.settings.kbShadowSkipped")}</p>
+            ) : null}
+            {kbShadowRun.written !== null && !kbShadowRun.skipped ? (
+              <p className="text-xs text-muted-foreground">
+                {t("novel.settings.kbShadowDone", { written: kbShadowRun.written, failed: kbShadowRun.failed })}
+              </p>
+            ) : null}
+            {kbShadowRun.error ? (
+              <p className="text-xs text-destructive">
+                {t("novel.settings.kbShadowError", { message: kbShadowRun.error })}
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
 

@@ -135,6 +135,40 @@ describe("kb-shadow-collector（R5 影子期双臂采集 · 纯函数面）", ()
     expect(errLine.obligationCoverage).toBeNull()
   })
 
+  it("coverageOf 逐臂回调：按臂从 hitIds 现算覆盖（baseline≠experiment）", async () => {
+    const deps = fakeDeps()
+    const { written } = await recordKbShadowArms(
+      deps,
+      "/proj",
+      "SID12345",
+      [{ caseId: "A", query: "q1", obligationCoverage: null, scaleViolation: false }],
+      async (_query, flags) => ({ hitIds: flags.usefulnessRerank ? ["h1", "h2"] : ["h1"] }),
+      (_c, _arm, hitIds) => Math.min(1, hitIds.length / 2),
+    )
+    expect(written).toBe(2)
+    const files = await deps.listFiles("/proj")
+    const seg = files.find((f) => f.includes(KB_SHADOW_DIR_REL))!
+    const lines = (await deps.readFile(seg)).trim().split("\n").map((l) => JSON.parse(l))
+    const byArm = new Map(lines.map((l) => [l.arm, l]))
+    expect(byArm.get("baseline")!.obligationCoverage).toBe(0.5)
+    expect(byArm.get("experiment")!.obligationCoverage).toBe(1)
+  })
+
+  it("缺省 coverageOf：沿用案例自带 obligationCoverage（既有调用方零变更）", async () => {
+    const deps = fakeDeps()
+    await recordKbShadowArms(
+      deps,
+      "/proj",
+      "SID12345",
+      [{ caseId: "A", query: "q1", obligationCoverage: 0.75, scaleViolation: false }],
+      async () => ({ hitIds: ["h1"] }),
+    )
+    const files = await deps.listFiles("/proj")
+    const seg = files.find((f) => f.includes(KB_SHADOW_DIR_REL))!
+    const lines = (await deps.readFile(seg)).trim().split("\n").map((l) => JSON.parse(l))
+    expect(lines.every((l) => l.obligationCoverage === 0.75)).toBe(true)
+  })
+
   it("写盘失败丢尾不抛（fire-and-forget 契约）", async () => {
     const deps = fakeDeps({
       writeFile: async () => {

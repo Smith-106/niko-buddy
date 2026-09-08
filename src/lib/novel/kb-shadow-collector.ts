@@ -125,13 +125,18 @@ export async function appendShadowLine(
 /**
  * 双臂记录入口（Tauri 运行时采集调用点；本轮交付模块本体，真实驱动由挂接层接
  * composition-root：同意开（antiAiTelemetryConsent）+ 显式触发，逐案双跑）。
+ *
+ * @param coverageOf 可选逐臂覆盖回调：按臂从 runRetrieval 的 hitIds 计算该臂
+ *   obligationCoverage（baseline/experiment 检索面不同 → 覆盖可分臂）。缺省 = 沿用
+ *   案例自带 obligationCoverage（调用方预计算，双臂同值）——既有调用方零变更。
  */
-export async function recordKbShadowArms(
+export async function recordKbShadowArms<TCase extends { caseId: string; query: string; obligationCoverage: number | null; scaleViolation: boolean }>(
   deps: KbShadowCollectorDeps,
   projectPath: string,
   sid8: string,
-  cases: ReadonlyArray<{ caseId: string; query: string; obligationCoverage: number | null; scaleViolation: boolean }>,
+  cases: ReadonlyArray<TCase>,
   runRetrieval: (query: string, flags: KbShadowFlags) => Promise<{ hitIds: string[] }>,
+  coverageOf?: (c: TCase, arm: KbShadowArm, hitIds: string[]) => number | null,
 ): Promise<{ written: number; failed: number }> {
   let written = 0
   let failed = 0
@@ -148,7 +153,7 @@ export async function recordKbShadowArms(
           query: c.query,
           hitIds,
           scaleViolation: c.scaleViolation,
-          obligationCoverage: c.obligationCoverage,
+          obligationCoverage: coverageOf ? coverageOf(c, arm, hitIds) : c.obligationCoverage,
         })
         written += 1
       } catch {

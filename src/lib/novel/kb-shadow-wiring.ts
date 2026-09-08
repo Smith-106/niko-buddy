@@ -25,10 +25,12 @@ import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 import { loadAntiAiTelemetryConsent } from "./anti-ai-telemetry-wiring"
 import {
   recordKbShadowArms,
+  type KbShadowArm,
   type KbShadowCollectorDeps,
   type KbShadowFlags,
 } from "./kb-shadow-collector"
 import { novelMixedSearch } from "./search-adapter"
+import goldenQueriesRaw from "./__fixtures__/golden-queries.json"
 
 /** KbShadowFlags（collector/gate 命名）→ store NovelConfig 键名映射。 */
 const SHADOW_FLAG_TO_STORE_KEY: ReadonlyArray<readonly [keyof KbShadowFlags, keyof NovelConfig]> = [
@@ -89,6 +91,39 @@ export function defaultKbShadowRetrieve(
   }
 }
 
+/**
+ * golden 34 查询作为影子采集案例集（F4 基线回归集，参考库检索面）。
+ * caseId = GOLDEN-<序号>（gate loadShadowArms 按臂归组，不 join seed caseId——
+ * 参考库 golden 面与 gov-seed 项目面分属两个测量面，各自报告不混淆）。
+ * obligationCoverage = null 占位：由 coverageOf 按臂从 hitIds 现算（runtime 命中
+ * 数对 minHits 比例），避免双臂同值假覆盖。
+ */
+export interface GoldenKbShadowCase {
+  caseId: string
+  query: string
+  obligationCoverage: number | null
+  scaleViolation: boolean
+  minHits: number
+}
+
+export function goldenKbShadowCases(): GoldenKbShadowCase[] {
+  const queries = (goldenQueriesRaw as { queries?: Array<{ query?: string; minHits?: number }> }).queries ?? []
+  return queries
+    .filter((q): q is { query: string; minHits: number } => typeof q.query === "string" && q.query.trim() !== "")
+    .map((q, i) => ({
+      caseId: `GOLDEN-${String(i + 1).padStart(2, "0")}`,
+      query: q.query,
+      obligationCoverage: null,
+      scaleViolation: false,
+      minHits: typeof q.minHits === "number" && q.minHits > 0 ? q.minHits : 1,
+    }))
+}
+
+/** 逐臂覆盖：runtime 命中 path 数对 minHits（截到 1）。null minHits → 命中即 1。 */
+export function goldenCoverageOf(c: { minHits: number }, _arm: KbShadowArm, hitIds: string[]): number | null {
+  return Math.min(1, hitIds.length / (c.minHits > 0 ? c.minHits : 1))
+}
+
 // 常驻串行队列：进行中采集完成前，后续触发排队（flag 翻转期间不被并发检索串扰）。
 // 链节 settle 后即无引用，内存恒量；无需清理。
 let queue: Promise<void> = Promise.resolve()
@@ -96,19 +131,16 @@ let queue: Promise<void> = Promise.resolve()
 /**
  * 同意门 + 串行互斥 + 双臂采集（fire-and-forget 语义：永不抛，失败记 retrieval_error 行）。
  * @param retrieve 可选注入（测试或自定义路由）；缺省 = defaultKbShadowRetrieve(projectPath)。
+ * @param coverageOf 可选逐臂覆盖回调（透传 recordKbShadowArms；缺省 = 案例自带 obligationCoverage）。
  * @returns { written, failed, skipped } skipped=true 表示同意未开（零 IO，无采集）。
  */
-export async function runKbShadowArmsIfConsented(
+export async function runKbShadowArmsIfConsented<TCase extends { caseId: string; query: string; obligationCoverage: number | null; scaleViolation: boolean }>(
   projectPath: string,
   sid8: string,
-  cases: ReadonlyArray<{
-    caseId: string
-    query: string
-    obligationCoverage: number | null
-    scaleViolation: boolean
-  }>,
+  cases: ReadonlyArray<TCase>,
   deps: KbShadowCollectorDeps = defaultKbShadowDeps(),
   retrieve?: (query: string, flags: KbShadowFlags) => Promise<{ hitIds: string[] }> | { hitIds: string[] },
+  coverageOf?: (c: TCase, arm: KbShadowArm, hitIds: string[]) => number | null,
 ): Promise<{ written: number; failed: number; skipped: boolean }> {
   const consent = await loadAntiAiTelemetryConsent()
   if (!consent) return { written: 0, failed: 0, skipped: true }
@@ -116,6 +148,7 @@ export async function runKbShadowArmsIfConsented(
   const run = (): Promise<{ written: number; failed: number }> =>
     recordKbShadowArms(deps, projectPath, sid8, cases, (query, flags) =>
       runKbShadowArmRetrieval(query, flags, innerRetrieve),
+      coverageOf,
     )
   const task = queue.then(run, run)
   queue = task.then(

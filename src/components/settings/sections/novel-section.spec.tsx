@@ -44,6 +44,11 @@ const mocks = vi.hoisted(() => {
     saveAntiAiTelemetryConsent: vi.fn(async () => {}),
     applyAntiAiTelemetryConsentOnProjectOpen: vi.fn(async () => {}),
     selectModelChanged: vi.fn(),
+    runKbShadowArmsIfConsented: vi.fn(async () => ({ written: 68, failed: 0, skipped: true })),
+    goldenKbShadowCases: vi.fn(() => [
+      { caseId: "GOLDEN-01", query: "q1", obligationCoverage: null, scaleViolation: false, minHits: 1 },
+    ]),
+    goldenCoverageOf: vi.fn(() => 1),
   }
 })
 
@@ -70,6 +75,12 @@ vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({
 
 vi.mock("@/lib/novel/novel-model-test", () => ({
   testNovelModel: mocks.testNovelModel,
+}))
+
+vi.mock("@/lib/novel/kb-shadow-wiring", () => ({
+  runKbShadowArmsIfConsented: mocks.runKbShadowArmsIfConsented,
+  goldenKbShadowCases: mocks.goldenKbShadowCases,
+  goldenCoverageOf: mocks.goldenCoverageOf,
 }))
 
 vi.mock("@/components/chat/chat-model-selector", () => ({
@@ -286,6 +297,28 @@ describe("NovelSection", () => {
     expect(screen.getByText("包含当前章节改进建议")).toBeInTheDocument()
     expect(screen.getByText("读取上一章延续事项")).toBeInTheDocument()
     expect(screen.getByText("回溯章节仅保留必须修复项")).toBeInTheDocument()
+    // KB 路由区（三 flag + 实体加权）+ 内容装配区 + 治理只读区
+    expect(screen.getByText("novel.settings.retrievalRoutingSection")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.dualKbRoutingEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.usefulnessRerankEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.hardInjectEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.entityBoostWeight")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.contentAssemblySection")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.exemplarEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.relatedChaptersEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.referenceEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.sceneBreakdownEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.conditionalRoutingEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.inspectorEnabled")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.stateDeltaBlocksTrackA")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.governanceSection")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.trustFilterEnabledReadonly")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.decayEnabledReadonly")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.supersessionFilterEnabledReadonly")).toBeInTheDocument()
+    expect(screen.getAllByText("novel.settings.governanceBadgeNotWired").length).toBe(3)
+    // R5 影子采集区
+    expect(screen.getByText("novel.settings.kbShadowCollectionSection")).toBeInTheDocument()
+    expect(screen.getByText("novel.settings.kbShadowRunButton")).toBeInTheDocument()
   })
 
   it("recentSummaryWindow 输入：上限钳制与 || 1 回退", async () => {
@@ -636,6 +669,46 @@ describe("NovelSection", () => {
         expect(screen.getByText("novel.settings.antiAiTelemetryConsentError:apply-boom")).toBeInTheDocument()
       })
       expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-primary")
+    })
+  })
+
+  describe("R5 KB 影子采集触发", () => {
+    it("未同意（skipped=true）→ 显示未采集文案；点击调 runKbShadowArmsIfConsented（golden cases + coverageOf）", async () => {
+      mocks.runKbShadowArmsIfConsented.mockResolvedValueOnce({ written: 0, failed: 0, skipped: true })
+      renderSection()
+      fireEvent.click(screen.getByText("novel.settings.kbShadowRunButton"))
+      await waitFor(() =>
+        expect(mocks.runKbShadowArmsIfConsented).toHaveBeenCalledWith(
+          "/p1",
+          "golden34",
+          mocks.goldenKbShadowCases(),
+          undefined,
+          undefined,
+          mocks.goldenCoverageOf,
+        ),
+      )
+      await waitFor(() => expect(screen.getByText("novel.settings.kbShadowSkipped")).toBeInTheDocument())
+    })
+
+    it("同意开 → 显示写入行数（kbShadowDone）", async () => {
+      mocks.runKbShadowArmsIfConsented.mockResolvedValueOnce({ written: 68, failed: 0, skipped: false })
+      renderSection()
+      fireEvent.click(screen.getByText("novel.settings.kbShadowRunButton"))
+      await waitFor(() => expect(screen.getByText("novel.settings.kbShadowDone")).toBeInTheDocument())
+    })
+
+    it("采集中 → 按钮禁用 + running 文案", async () => {
+      let resolveRun: (v: { written: number; failed: number; skipped: boolean }) => void = () => {}
+      mocks.runKbShadowArmsIfConsented.mockImplementationOnce(
+        () => new Promise((res) => { resolveRun = res as typeof resolveRun }),
+      )
+      renderSection()
+      const button = screen.getByText("novel.settings.kbShadowRunButton")
+      fireEvent.click(button)
+      await waitFor(() => expect(screen.getByText("novel.settings.kbShadowRunning")).toBeInTheDocument())
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+      resolveRun({ written: 68, failed: 0, skipped: false })
+      await waitFor(() => expect(screen.getByText("novel.settings.kbShadowDone")).toBeInTheDocument())
     })
   })
 })

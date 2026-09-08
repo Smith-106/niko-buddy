@@ -7,6 +7,8 @@ import {
   runKbShadowArmRetrieval,
   runKbShadowArmsIfConsented,
   defaultKbShadowDeps,
+  goldenKbShadowCases,
+  goldenCoverageOf,
 } from "./kb-shadow-wiring"
 import type { KbShadowFlags } from "./kb-shadow-collector"
 
@@ -219,5 +221,23 @@ describe("defaultKbShadowDeps", () => {
     expect(typeof deps.writeFile).toBe("function")
     expect(typeof deps.createDirectory).toBe("function")
     expect(typeof deps.now).toBe("function")
+  })
+})
+
+describe("goldenKbShadowCases（F4 golden 34 → 影子案例集）", () => {
+  it("34 案例：caseId GOLDEN-01..34 递增 + minHits ≥1 + coverage 占位 null", () => {
+    const cases = goldenKbShadowCases()
+    expect(cases.length).toBe(34)
+    expect(cases[0].caseId).toBe("GOLDEN-01")
+    expect(cases[33].caseId).toBe("GOLDEN-34")
+    expect(cases.every((c) => c.obligationCoverage === null && c.scaleViolation === false)).toBe(true)
+    expect(cases.every((c) => c.minHits >= 1 && typeof c.query === "string" && c.query.trim() !== "")).toBe(true)
+  })
+
+  it("goldenCoverageOf：命中数对 minHits 截到 1", () => {
+    expect(goldenCoverageOf({ minHits: 2 }, "baseline", ["a", "b"])).toBe(1)
+    expect(goldenCoverageOf({ minHits: 2 }, "experiment", ["a"])).toBe(0.5)
+    expect(goldenCoverageOf({ minHits: 0 }, "baseline", [])).toBe(0)
+    expect(goldenCoverageOf({ minHits: 0 }, "baseline", ["a"])).toBe(1)
   })
 })
