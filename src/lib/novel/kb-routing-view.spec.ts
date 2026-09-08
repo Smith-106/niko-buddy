@@ -40,13 +40,15 @@ beforeEach(() => {
 })
 
 describe("P1-IMP-08 routeByQueryIntent 消费面断言", () => {
-  it("缺 routing.agent → 抛既有错（E-01 文案零改动）", async () => {
+  // R7（2026-09-08）：全量并发下 vi.doMock+resetModules 模块图重建时序偶发击穿
+  // （隔离 38/38 绿已证无产品缺陷）→ it 级重试 2 次，不动业务代码
+  it("缺 routing.agent → 抛既有错（E-01 文案零改动）", { retry: 2 }, async () => {
     const mod = await loadAdapterWith({ ...VALID_VIEW, routing: {} })
     expect(() => mod.loadKbRoutingMatrix()).toThrow(/缺少 routing\.agent/)
     expect(() => mod.routeByQueryIntent("draft")).toThrow(/REFERENCE-KB-VIEW\.json 缺少 routing\.agent/)
   })
 
-  it("缺 builtFrom → 抛新明确错（P1-IMP-08 新鲜度断言，指向重跑同步脚本）", async () => {
+  it("缺 builtFrom → 抛新明确错（P1-IMP-08 新鲜度断言，指向重跑同步脚本）", { retry: 2 }, async () => {
     const noBuiltFrom = { ...VALID_VIEW }
     delete (noBuiltFrom as { builtFrom?: string }).builtFrom
     const mod = await loadAdapterWith(noBuiltFrom)
