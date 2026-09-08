@@ -28,13 +28,13 @@
 //!     契约（ADR-16）。读路径不加锁（只读，可并发）。
 //!
 //! ## 依赖边界（QMAI 执行纪律）
-//!   - 仅包装 T11 [`crate::commands::canon_store::CanonStore`]（结构化时态/认知
+//!   - 仅包装 T11 [`crate::canon::store::CanonStore`]（结构化时态/认知
 //!     过滤查询 + 幂等摄取 + 批量 supersede）。**不修改 T11/T12 源码**。
-//!   - T12 [`crate::canon_search`] 为混合检索（FTS+RRF+图遍历）增强层：
+//!   - T12 [`crate::canon::search`] 为混合检索（FTS+RRF+图遍历）增强层：
 //!     `canon_query` 走结构化过滤（§4 契约）；T14/T25 投影客户端与 ContextPack
 //!     在 packaging 层叠加 T12 语义召回，不在本 IPC 层混入向量通道。
-//!   - 本文件位于 `src-tauri/src/` 顶层（与 `canon_search.rs` 同层），由
-//!     `lib.rs` 注册 `mod canon_commands;` + `invoke_handler` 加 8 命令：
+//!   - 本文件位于 `src-tauri/src/canon/` 目录（与 `search.rs` 同层），由
+//!     `lib.rs` 注册 `mod canon;`（其内 `pub mod commands`）+ `invoke_handler` 加 8 命令：
 //!     `canon_query` / `canon_query_batch` / `canon_facts_known_by` /
 //!     `canon_ingest_episode` / `canon_supersede_edges` /
 //!     `canon_query_episodes` / `canon_get_revision` /
@@ -47,13 +47,13 @@ use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::commands::canon_store::CanonStore;
-use crate::types::canon_types::{
+use crate::canon::store::CanonStore;
+use crate::canon::types::{
     CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, SupersedeRequest,
     SupersedeResult,
 };
 #[cfg(test)]
-use crate::types::canon_types::EdgeKind;
+use crate::canon::types::EdgeKind;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 多项目契约状态（managed by lib.rs）
@@ -81,7 +81,7 @@ use crate::types::canon_types::EdgeKind;
 ///    不存在回环。
 ///
 /// DEBT-20260820-13 偿还：revision 持久化。bump_revision 后自动持久化到
-/// canon_store 的 meta 表；current_revision 在首次访问时从 store 延迟加载。
+/// store 的 meta 表；current_revision 在首次访问时从 store 延迟加载。
 /// 进程重启后，TS 侧缓存从持久化 revision 预热。
 pub struct CanonCommandState {
     /// 每项目 canon revision（ingest/supersede 自增）。
@@ -159,7 +159,7 @@ impl CanonCommandState {
         *e
     }
 
-    /// 将当前 revision 持久化到 canon_store 的 meta 表。
+    /// 将当前 revision 持久化到 store 的 meta 表。
     /// 应在 bump_revision 后、_impl 函数返回前调用。
     pub async fn persist_revision(
         &self,
@@ -353,7 +353,7 @@ pub async fn canon_facts_known_by_impl(
 
 /// 幂等摄取 episode（写路径：串行化 + revision 自增）。
 ///
-/// DEBT-20260820-13 偿还：写后 revision 持久化到 canon_store meta 表。
+/// DEBT-20260820-13 偿还：写后 revision 持久化到 store meta 表。
 pub async fn canon_ingest_episode_impl(
     state: &CanonCommandState,
     project_id: String,
@@ -373,7 +373,7 @@ pub async fn canon_ingest_episode_impl(
 
 /// 批量 supersede（写路径：串行化 + revision 自增）。
 ///
-/// DEBT-20260820-13 偿还：写后 revision 持久化到 canon_store meta 表。
+/// DEBT-20260820-13 偿还：写后 revision 持久化到 store meta 表。
 /// §B 写放大 guard 硬上限：单次 supersede 触达的旧边 + 新边总边数。
 /// 早于 write_lock 早拒（零锁开销），防止超大批量 supersede 触发海量
 /// 边变更 + 审计事件写入的写放大（P2 护栏，防爆半径）。
@@ -420,7 +420,7 @@ pub async fn canon_supersede_edges_impl(
 
 /// 按章节号查询 episodes（读路径，DEBT-20260621-30b supersede 分歧检测）。
 ///
-/// 返回该章全部 episode 行（含 ingest_log 去重语义；复用在 canon_store 中
+/// 返回该章全部 episode 行（含 ingest_log 去重语义；复用在 store 中
 /// 纯读操作，不触发 revision 自增）。
 pub async fn canon_query_episodes_impl(
     state: &CanonCommandState,
@@ -548,9 +548,9 @@ pub async fn canon_get_revision(
 
 // ── DEBT-20260820-15b：divergence trace 持久化 ──
 
-/// 将 divergence trace JSON 持久化写入 canon_store meta 表。
+/// 将 divergence trace JSON 持久化写入 store meta 表。
 /// DEBT-20260820-15b 偿还：twoPhaseReconcile 告警后调用，
-/// 将差异留痕写入 canon_store，供后续审计/诊断查询。
+/// 将差异留痕写入 store，供后续审计/诊断查询。
 pub async fn canon_save_divergence_trace_impl(
     project_id: String,
     trace_json: String,
@@ -588,7 +588,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// 唯一临时项目目录（每测试一个；不清理——沿用 canon_store 模式）。
+    /// 唯一临时项目目录（每测试一个；不清理——沿用 store 模式）。
     fn tmp_project() -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);

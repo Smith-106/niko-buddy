@@ -65,9 +65,9 @@
 | 控制内核 route()（720k 纯函数） | `src/lib/novel/control-kernel.ts` + `control-sentinels.ts`（T08，13 分支互斥优先级链，零 IO/LLM，720k ≤5s 批断言） |
 | deep-chapter 薄编排化 | `src/lib/novel/deep-chapter-generation.ts`（T10，主循环接入 route() 薄编排 seam + T09 字段 + T33 解析点预留） + `deep-chapter-generation-route-shell.spec.ts` |
 | 会话状态 additive 4 字段 | `src/lib/novel/novel-session-status.ts`（T09，additive `step_digest?`/`route_shell_mode?`/`canon_migration?`/`anti_ai_mode?` + zod passthrough 护栏） |
-| Canon 三表存储（Rust） | `src-tauri/src/types/canon_types.rs` + `src/commands/canon_store.rs`（T11，三表 DDL + upsert/invalidate/supersede/query + schema_version 迁移链 + ingest_digest 去重 + proptest） |
-| Canon 搜索（FTS+RRF+图遍历） | `src-tauri/src/canon_search.rs`（T12，FTS 召回 + rrf_fuse rank_const=1 + 窗口衰减 decay + 查询缓存 revision 失效 + petgraph BFS/连通分量/拓扑序，petgraph 0.8 dep） |
-| Canon IPC 命令 | `src-tauri/src/canon_commands.rs`（T13，5+2 #[tauri::command]：canon_query/query_batch/facts_known_by/ingest/supersede + max_revision + projectId 签名，核心逻辑与 command 分离可测） |
+| Canon 三表存储（Rust） | `src-tauri/src/canon/types.rs` + `src/commands/canon_store.rs`（T11，三表 DDL + upsert/invalidate/supersede/query + schema_version 迁移链 + ingest_digest 去重 + proptest） |
+| Canon 搜索（FTS+RRF+图遍历） | `src-tauri/src/canon/search.rs`（T12，FTS 召回 + rrf_fuse rank_const=1 + 窗口衰减 decay + 查询缓存 revision 失效 + petgraph BFS/连通分量/拓扑序，petgraph 0.8 dep） |
+| Canon IPC 命令 | `src-tauri/src/canon/commands.rs`（T13，5+2 #[tauri::command]：canon_query/query_batch/facts_known_by/ingest/supersede + max_revision + projectId 签名，核心逻辑与 command 分离可测） |
 | Canon 投影薄客户端 | `src/lib/novel/canon-graph-client.ts`（T14，封装 T13 IPC，getFactsKnownBy 等，禁句柄外泄断言 POV 防泄密） |
 | Canon 编辑器只读前端 | `src/components/canon-editor/`（T18a，canon_query_batch 渲染事实表 + known_by/valid_at_chapter 过滤 + max_revision 展示） |
 | Canon 影子双写 + 持久队列 | `src/lib/novel/canon-dual-write.ts`（T15，影子双写旧/新并行 + reconcile + T+5 退役检查 + 写失败→.novel/canon-pending.jsonl 持久队列 digest 幂等+退避封顶+重放） |
@@ -101,8 +101,8 @@
 | craft 类型模型 | `src/lib/novel/craft/canon-craft-fields.ts` + `craft/beat-model.ts`（T26，ArcStage/ConflictCaliber/NarrativeMode/ClosureState 注册表 + Snyder 15-beat + 三段式） |
 | Route 语言裁决 | `docs/p4/route-language-verdict.md`（T29，不触发 Rust 移植：720k 穷举 491ms/5000ms 余量 90.18%，TS 续用 + v2 契约修订注记） |
 | canon 历史回填 | `src/lib/novel/canon-backfill.ts`（T30b，1..N-1 章离线摄取回填，复用 T15 影子双写 + T07 digest 幂等） |
-| LanceDB compaction | `src-tauri/src/commands/canon_store.rs`（T32b additive，ingest 计数阈值 100 触发 + 保留 5 个 manifest 版本 + DiskUsage/CompactionReport 指标） |
-| 备份/恢复/导出 | `src-tauri/src/canon_export.rs` + `src/components/novel/backup-export-view.tsx`（T34c，zip+sha2 校验和原子替换，零新依赖） |
+| LanceDB compaction | `src-tauri/src/canon/store.rs`（T32b additive，ingest 计数阈值 100 触发 + 保留 5 个 manifest 版本 + DiskUsage/CompactionReport 指标） |
+| 备份/恢复/导出 | `src-tauri/src/canon/export.rs` + `src/components/novel/backup-export-view.tsx`（T34c，zip+sha2 校验和原子替换，零新依赖） |
 | 反 AI 语料库 | `docs/p0/corpus/{human,ai,gold}/batch-*/` + `MANIFEST.md`（T01b 受控降级轨，synthetic-degraded 种子 30+30+6，解锁 P2-19；真实采集后台继续） |
 | Radix Dialog 模式 | `@radix-ui/react-dialog@1.1.19`；新模态一律 DialogRoot+DialogOverlay(asChild)+DialogContent(asChild)，禁止手写 overlay/overflow 管理（LE-5；scroll lock=body[data-scroll-locked]） |
 | 上下文三态策略 | `src/lib/context-budget.ts`（F-008，selectContextStrategy full≤50/sliding 50-200/summary>200，adaptiveScale 曲线上层选择器） |
@@ -126,7 +126,7 @@
 | ContextPack 冻结不变量 | `src/lib/novel/context-pack-freeze.spec.ts` + deep-chapter-task-brief.ts canonHash 参数（T25b：同章共享 pack digest 断言/canon 事实集哈希入 task_brief/前缀字节稳定三不变量） |
 | ★T31 P4 硬门 driver | `scripts/offline-replay.js`（可重跑，EXIT=0 纪律）+ offline-replay-t31-vertical-slice.spec.ts + `docs/p4/t31-vertical-slice-report.md`（T31 PASS：authoritative/回放评分 1.0≥0.9/崩溃注入×5/重放×2 一致/迁移前事实可查询；warn 态放行不计 FAIL） |
 | L9 回放+爽点有效性 | `scripts/thrill-retention-correlate.js` + `docs/p4/{l9-replay,thrill-validity}-report.md`（T31b，真实多模型不可达子项标 PENDING 不粉饰） |
-| canon_search 重调参 | `src-tauri/src/commands/canon_search.rs`（T32，α/β 参数扫 + 邻接物化 + 窗口衰减纯函数 spec） |
+| canon_search 重调参 | `src-tauri/src/canon/search.rs`（T32，α/β 参数扫 + 邻接物化 + 窗口衰减纯函数 spec） |
 | 模型角色化层 | `src/lib/llm/{provider-registry,model-resolver,model-port}.ts`（T33，五角色 writer/critic/reviser/arbiter/judge 默认单模型向后兼容，fallback 链+TaskTier 路由） |
 | 哨兵硬化 | `src/lib/novel/{budget-counters,watchdog,status-write-merge}.ts` + `scripts/50ch-telemetry.js`（T34，wallclock 全角色计入 + 分角色 token 软警告/硬封顶 + 无 token 卡死回落 + per-stage 预算表恰 45min） |
 | 精品模式 | `src/lib/novel/premium-config.ts`（T33b 默认 off+一键回退+前缀缓存开关+硬前置检查）+ `premium-execution.ts`（T33c GCR 两轮封顶+交叉共识门分歧落 manual_review 仅 P2 additive 永不覆盖 P0/P1） |
@@ -148,7 +148,7 @@
 |------|------|
 | G1 确定性检测器扩展 | `src/lib/novel/deterministic-continuity-engine.ts`（新增 4 类检测器 barrier_state critical / presence_path / container_state / set_count_drift warning，additive 可选切片 barrierEvents/presenceEvents/containerEvents/setCountSnapshots 缺失返回 []，注册入 detectors 数组；SUGGESTION_BY_TYPE 补 4 键） + `deterministic-continuity-engine-g1.spec.ts`（7 绿） |
 | G2 声纹对齐闭环 | `src/lib/novel/voiceprint-alignment.ts`（G2，纯函数 checkVoiceprintConvergence 双向测量 driftVsBaseline + driftVsBefore，阈值 0.3，recommendation accept/revise/manual） + `voiceprint-alignment.spec.ts`（7 绿） |
-| G3 bi-temporal 事务时间轴 | `src-tauri/src/types/canon_types.rs`（CanonEdge + created_at/expired_at serde(default) + effective_created_at/effective_expired_at/is_effective_at 回退 + MIGRATION_V4_BITEMPORAL + CURRENT_SCHEMA_VERSION→4）+ `src-tauri/src/commands/canon_store.rs`（edges_schema/edges_batch + Int64 列）+ TS 镜像 `src/components/canon-editor/canon-types.ts`（created_at/expired_at + effectiveCanonCreatedAt/effectiveCanonExpiredAt/isCanonEdgeEffectiveAt）；双命令验收：cargo 5 测试 + vitest 6 契约 |
+| G3 bi-temporal 事务时间轴 | `src-tauri/src/canon/types.rs`（CanonEdge + created_at/expired_at serde(default) + effective_created_at/effective_expired_at/is_effective_at 回退 + MIGRATION_V4_BITEMPORAL + CURRENT_SCHEMA_VERSION→4）+ `src-tauri/src/canon/store.rs`（edges_schema/edges_batch + Int64 列）+ TS 镜像 `src/components/canon-editor/canon-types.ts`（created_at/expired_at + effectiveCanonCreatedAt/effectiveCanonExpiredAt/isCanonEdgeEffectiveAt）；双命令验收：cargo 5 测试 + vitest 6 契约 |
 | 编辑影响分析（事前冲击面预测） | `src/lib/novel/edit-impact-analyzer.ts`（G4，纯函数 analyzeEditImpact：before/after 文本 diff 预测受影响实体集 + riskLevel high/medium/low；接线 `chapter-ingest.ts` saveEditedSnapshot 内，非阻断 trace logger.info，异常吞掉绝不阻断保存） + `edit-impact-analyzer.spec.ts`（7 绿） |
 | Plateau 停止准则 | `src/lib/novel/plateau-stop.ts`（G6，纯函数 detectPlateau：window=2/epsilon=0.5，滑动窗近 N 轮评分增益 ≤ epsilon 判 plateau） + `plateau-stop.spec.ts`（7 绿）；接线 `deep-chapter-generation.ts`（import + tracker + plateau break，早退 break 不置 manualReviewRequired） |
 

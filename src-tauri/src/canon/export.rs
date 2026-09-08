@@ -40,7 +40,7 @@
 //!
 //! ## 快照语义注记
 //!   LanceDB「checkout 快照」按**目录级文件快照**实现：写路径已由
-//!   `canon_commands.rs` 的每项目写锁串行化，桌面单用户场景下目录拷贝即为一致
+//!   `canon/commands.rs` 的每项目写锁串行化，桌面单用户场景下目录拷贝即为一致
 //!   性快照；目录内含全部 lance 版本历史，恢复即回滚到快照时点。运行期若 canon
 //!   store 句柄未关闭，Windows 上目录 swap 可能因占用失败——错误会如实上抛，
 //!   由 UI 提示重试（残余风险已文档化）。
@@ -83,7 +83,7 @@ const LANCEDB_PREFIX: &str = "canon-lancedb/";
 const STATUS_REL: &str = ".novel/status.json";
 /// 草稿工件目录。
 const DRAFTS_REL: &str = ".novel/drafts";
-/// Canon LanceDB 库目录（与 canon_store::db_path 同源）。
+/// Canon LanceDB 库目录（与 `canon::store::db_path` 同源）。
 const LANCEDB_REL: &str = ".qmai/lancedb";
 
 /// 自动备份落点：`{project}/backups/auto/`。
@@ -1198,7 +1198,7 @@ mod tests {
         hex(&h.finalize())
     }
 
-    /// 唯一临时目录（沿用 canon_commands 测试模式：计数器 + 时间戳，不主动清理）。
+    /// 唯一临时目录（沿用 `canon::commands` 测试模式：计数器 + 时间戳，不主动清理）。
     fn tmp_dir(tag: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);

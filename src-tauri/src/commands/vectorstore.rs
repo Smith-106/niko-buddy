@@ -15,7 +15,7 @@ use crate::panic_guard::run_guarded_async;
 
 // ──────────────────────────────────────────────────────────────────────
 // Chunk-table compaction (wiki_chunks_v2)
-// Pattern mirrors canon_store.rs compact_if_needed / compact_tables /
+// Pattern mirrors canon/store.rs compact_if_needed / compact_tables /
 // optimize. vectorstore keeps no long-lived cross-call state, so the host
 // write path (upsert / delete) bumps a cumulative change counter and hands
 // it to maybe_compact_chunks; below the threshold this is a no-op.
@@ -104,7 +104,7 @@ pub async fn compact_chunks(project_path: &str) -> Result<ChunkCompactionReport,
 }
 
 /// Prune old manifest versions, keeping the newest K. Returns
-/// (pruned_bytes, pruned_versions). Mirrors canon_store prune_table_versions.
+/// (pruned_bytes, pruned_versions). Mirrors canon/store.rs prune_table_versions.
 async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String> {
     let versions = table
         .list_versions()
@@ -122,7 +122,7 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
 
     let now = chrono::Utc::now();
     let age = now - oldest_to_keep.timestamp;
-    // +1s buffer to avoid boundary races (same as canon_store.rs).
+    // +1s buffer to avoid boundary races (same as canon/store.rs).
     let age = age + chrono::Duration::seconds(1);
 
     let stats = table

@@ -1,5 +1,4 @@
 pub mod backup;
-pub mod canon_store;
 pub mod claude_cli;
 pub mod cursor_cli;
 mod cli_resolver;

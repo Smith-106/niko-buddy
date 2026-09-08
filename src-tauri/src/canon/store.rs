@@ -17,7 +17,7 @@
 //!
 //! ## IPC 边界
 //!   T11 仅交付存储层（库函数，无 `#[tauri::command]`）。IPC 命令注册在
-//!   T13 `canon_commands.rs`。本模块暴露 async 函数供 T13 包装。
+//!   T13 `canon/commands.rs`。本模块暴露 async 函数供 T13 包装。
 //!
 //! ## LanceDB schema 演化预案（T04 spike A-01.5 + 蓝图 §9①）
 //!   - **主路径（additive）**：`Table::add_columns(NewColumnTransform::SqlExpressions,
@@ -46,14 +46,14 @@ use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::table::{CompactionOptions, NewColumnTransform, OptimizeAction};
 use lancedb::Table;
 
-use crate::types::canon_types::{
-    self, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
+use crate::canon::types::{
+    self as canon_types, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
     ConflictClass, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
     SupersedeRequest, SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES,
     CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
 };
 #[cfg(test)]
-use crate::types::canon_types::EdgeKind;
+use crate::canon::types::EdgeKind;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 53 号报告 P0-2: 确定性冲突语义分类 (graphiti dedupe/contradiction 语义,
@@ -1592,7 +1592,7 @@ async fn ensure_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::canon_types::{
+    use crate::canon::types::{
         validate_edges_temporal, LanceType, TemporalInvariantError, MIGRATIONS,
     };
     use std::path::PathBuf;
@@ -2741,7 +2741,7 @@ mod tests {
 #[cfg(test)]
 mod proptest_tests {
     use super::*;
-    use crate::types::canon_types::{validate_edge_temporal, EdgeKind};
+    use crate::canon::types::{validate_edge_temporal, EdgeKind};
     use proptest::prelude::*;
 
     /// 任意 [0, 200] 章节号。

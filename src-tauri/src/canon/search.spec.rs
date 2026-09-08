@@ -3,7 +3,7 @@
 
 //! T32 spec — 窗口衰减表纯函数规格验证（任务要求：入 spec 验证）。
 //!
-//! 本文件经 [`super::canon_search`] 内 `#[path = "canon_search.spec.rs"]`
+//! 本文件经 [`super`] 内 `#[path = "search.spec.rs"]`
 //! 注册为其 `cfg(test)` 子模块，不新增 `mod.rs` 注册行（改动面收敛在
 //! T32 允许的两个文件内）。只承载 [`WindowDecayTable`] 与窗口衰减纯函数
 //! 的规格级验证：

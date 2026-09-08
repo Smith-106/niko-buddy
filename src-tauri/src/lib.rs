@@ -1,13 +1,11 @@
-mod canon_commands;
-mod canon_export;
-mod canon_search;
+mod canon;
 mod commands;
 mod panic_guard;
 mod proxy;
 mod status_watcher;
 mod types;
 
-use crate::canon_commands::CanonCommandState;
+use crate::canon::commands::CanonCommandState;
 
 #[cfg(target_os = "windows")]
 fn reinforce_window_focus(window: &tauri::WebviewWindow) {
@@ -220,10 +218,10 @@ pub fn run() {
             commands::backup::cancel_backup,
             set_proxy_env,
             // T34c：项目级备份/恢复/导出（status.json + drafts + canon LanceDB 快照）
-            canon_export::canon_export_project,
-            canon_export::canon_restore_project,
-            canon_export::canon_verify_export,
-            canon_export::canon_auto_backup,
+            canon::export::canon_export_project,
+            canon::export::canon_restore_project,
+            canon::export::canon_verify_export,
+            canon::export::canon_auto_backup,
             commands::crypto::get_device_fingerprint_cmd,
             commands::power::acquire_wake_lock,
             commands::power::release_wake_lock,
@@ -231,15 +229,15 @@ pub fn run() {
             commands::epub_export::export_novel_epub,
             commands::log_diagnostic::log_diagnostic,
             // T13 canon 数据面 IPC 命令（TASK-P1-08 / T13 增强）
-            canon_commands::canon_query,
-            canon_commands::canon_query_batch,
-            canon_commands::canon_facts_known_by,
-            canon_commands::canon_ingest_episode,
-            canon_commands::canon_supersede_edges,
-            canon_commands::canon_query_episodes,
-            canon_commands::canon_get_revision,
-            canon_commands::canon_save_divergence_trace,
-            canon_commands::canon_load_divergence_trace,
+            canon::commands::canon_query,
+            canon::commands::canon_query_batch,
+            canon::commands::canon_facts_known_by,
+            canon::commands::canon_ingest_episode,
+            canon::commands::canon_supersede_edges,
+            canon::commands::canon_query_episodes,
+            canon::commands::canon_get_revision,
+            canon::commands::canon_save_divergence_trace,
+            canon::commands::canon_load_divergence_trace,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

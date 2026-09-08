@@ -3,5 +3,4 @@
 
 //! Type definitions used across the Tauri IPC boundary.
 
-pub mod canon_types;
 pub mod wiki;

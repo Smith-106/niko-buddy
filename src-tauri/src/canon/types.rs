@@ -877,15 +877,15 @@ impl CanonEvent {
 //   - `plan_migration(from, to)` 纯函数：返回有序迁移计划（不触碰 IO）。
 //   - `apply_to_manifest` / `rollback_manifest` 纯函数：在 SchemaManifest 上
 //     演化版本标记 + applied_columns，幂等（重复 apply 同一 plan ≡ 一次）。
-//   - LanceDB IO 层（canon_store.rs）按 plan 调 `table.add_columns(...)`；
-//     rollback 的数据层走 LanceDB `checkout(prev).restore()`（见 canon_store 注记）。
+//   - LanceDB IO 层（store.rs）按 plan 调 `table.add_columns(...)`；
+//     rollback 的数据层走 LanceDB `checkout(prev).restore()`（见 store 注记）。
 //
 // LanceDB 0.27 schema 演化能力（已核实 lancedb-0.27.2/src/table.rs）：
 //   - `Table::add_columns(NewColumnTransform::SqlExpressions, None)` ✓ 支持
 //   - `Table::alter_columns` / `drop_columns` ✓ 支持
 //   - `Table::version` / `checkout` / `restore` / `list_versions` ✓ 支持
 //   故 T11 采用 add_columns 为迁移主路径；表重建预案仅作非 additive 变更的
-//   文档化兜底（见 canon_store.rs `migrate_up` 注记）。
+//   文档化兜底（见 store.rs `migrate_up` 注记）。
 
 /// 应用层 schema 版本（newtype，可比较）。
 #[derive(
@@ -1112,7 +1112,7 @@ pub fn plan_migration(from: SchemaVersion, to: SchemaVersion) -> MigrationPlan {
 /// 应用层 schema 清单（版本标记 + 已应用列名）。
 ///
 /// 持久化形态：canon_schema_meta 表的 `{"version":N,"applied_columns":[...]}`
-/// JSON 值（见 canon_store.rs）。本结构是纯逻辑载体，所有演化操作可被
+/// JSON 值（见 store.rs）。本结构是纯逻辑载体，所有演化操作可被
 /// proptest 覆盖（迁移幂等等）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SchemaManifest {
@@ -1154,7 +1154,7 @@ impl SchemaManifest {
     ///
     /// 语义：rollback 仅回退应用层版本标记（不物理删列——additive 列保留
     /// 无害）。数据层回退由 LanceDB `checkout(prev_lance_version).restore()`
-    /// 承担（见 canon_store.rs `migrate_rollback` 注记）。`to > current` 视为
+    /// 承担（见 store.rs `migrate_rollback` 注记）。`to > current` 视为
     /// no-op。
     pub fn rollback_to(&mut self, to: SchemaVersion) {
         if to < self.version {
@@ -1253,7 +1253,7 @@ pub fn validate_edges_temporal(edges: &[CanonEdge]) -> Result<(), TemporalInvari
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// 单元测试（纯逻辑，无 IO；proptest 见 canon_store.rs）
+// 单元测试（纯逻辑，无 IO；proptest 见 store.rs）
 // ──────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

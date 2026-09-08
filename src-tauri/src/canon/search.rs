@@ -6,8 +6,8 @@
 //! Canon 混合检索 + RRF 融合 + 窗口衰减 + 查询缓存 + 读侧图遍历（T12）。
 //!
 //! 蓝图 §6 T12 / §9 信号因子 ⑤ / F-18 / A-06。本模块依赖 T11
-//! [`crate::commands::canon_store`] 与 [`crate::types::canon_types`]，沿用其
-//! **纯逻辑层 + LanceDB IO 层** 二分（与 `canon_store.rs` 同构）。
+//! [`crate::canon::store`] 与 [`crate::canon::types`]，沿用其
+//! **纯逻辑层 + LanceDB IO 层** 二分（与 `store.rs` 同构）。
 //!
 //! ## 职责分层
 //!   1. **纯逻辑层**（无 IO，`cargo test` + proptest 全覆盖）：
@@ -26,7 +26,7 @@
 //!   2. **LanceDB IO 层** [`CanonSearch`]：包装 [`CanonStore`]，对外提供
 //!      `fts_query`（SQL 谓词召回 + Rust 精细过滤）与 `vector_query`
 //!      （`Table::vector_search`，与 `vectorstore.rs` 同源 API）。
-//!      IPC 命令注册在 T13 `canon_commands.rs`。
+//!      IPC 命令注册在 T13 `commands.rs`（canon/ 目录）。
 //!
 //! ## RRF 常量对照（入 decision-log）
 //!   - **TS 侧**（`src/lib/novel/search-adapter.ts`）多源 wiki 检索：
@@ -46,10 +46,10 @@
 //!   [`tokenizer_verdict`] 纯函数落档该规则，首日验证复用 T04 结论。
 //!
 //! ## 设计约束（QMAI 执行纪律）
-//!   - 不修改 T11 已落地文件（`canon_store.rs` / `canon_types.rs`）；只新增 +
-//!     `lib.rs` 注册一行（`mod canon_search;`）。本文件位于 `src-tauri/src/`
-//!     与 `types/` 同层（非 IPC 命令模块）；T13 `canon_commands.rs` 才进
-//!     `commands/` 并包装本模块的 async 函数。
+//!   - 不修改 T11 已落地文件（`store.rs` / `types.rs`）；只新增 +
+//!     `lib.rs` 注册一行（`mod canon;`）。本文件位于 `src-tauri/src/canon/`
+//!     与 `store.rs` / `types.rs` 同层（非 IPC 命令模块）；T13 `commands.rs`
+//!     同域并包装本模块的 async 函数。
 //!   - 不引入第二份会话状态文件；canon_revision 复用 `CanonStore` 的写入计数
 //!     语义（ingest/supersede 触发自增），缓存层只持有内存计数副本。
 
@@ -59,7 +59,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 
-use crate::types::canon_types::{CanonEdge, CanonEdgeFilter};
+use crate::canon::types::{CanonEdge, CanonEdgeFilter};
 
 // ──────────────────────────────────────────────────────────────────────────
 // 配置（纯数据，蓝图 §9 因子 ⑤：α/β 入 config）
@@ -818,14 +818,14 @@ impl CanonGraph {
 // LanceDB IO 层：CanonSearch（包装 CanonStore）
 // ──────────────────────────────────────────────────────────────────────────
 //
-// 设计说明（与 canon_store.rs 同构）：
+// 设计说明（与 store.rs 同构）：
 //   - IO 层只负责「召回」（FTS / 向量），融合/衰减/缓存由纯逻辑层承担。
 //   - FTS：LanceDB 0.27 内置 tantivy FTS 索引（T04 spike §5 裁决：FTS 与
 //     向量列同表共存可行）。[`CanonSearch::ensure_fts_index`] 幂等建索引
 //     （`list_indices` 查重），[`CanonSearch::fts_query`] 走
 //     `Query::full_text_search`（BM25，`_score` 入 raw_score）；建索引失败/
 //     表不存在的运行态降级 [`CanonSearch::fts_query_like`]（SQL `data LIKE`
-//     子串召回，与 canon_store.query_edges 的「推 down + 精细过滤」一致）。
+//     子串召回，与 store.query_edges 的「推 down + 精细过滤」一致）。
 //     中文分词通道按 T04 §4 裁决（[`tokenizer_verdict`]）：默认内置 tokenizer
 //     对中文退化（空格分词），T32 调参期按裁决接入 jieba 自定义 tokenizer
 //     （函数形式不变）。
@@ -836,7 +836,7 @@ impl CanonGraph {
 //   - 本任务 convergence = `cargo test canon_search 全绿`：纯逻辑层 proptest
 //     全覆盖 + LanceDB 集成测试（FTS 索引路径 / 向量召回）在本文件内。
 
-use crate::types::canon_types::{
+use crate::canon::types::{
     CANON_TABLE_EDGES, CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES,
 };
 use arrow_array::{Array, Float32Array, StringArray};
@@ -846,7 +846,7 @@ use lancedb::index::scalar::{FtsIndexBuilder, FullTextSearchQuery};
 use lancedb::index::{Index, IndexType};
 use lancedb::query::{ExecutableQuery, QueryBase};
 
-/// canon LanceDB 库路径（与 canon_store.rs 同源约定：<project>/.qmai/lancedb）。
+/// canon LanceDB 库路径（与 store.rs 同源约定：<project>/.qmai/lancedb）。
 fn db_path(project_path: &str) -> String {
     format!("{}/.qmai/lancedb", project_path.replace('\\', "/"))
 }
@@ -970,7 +970,7 @@ impl CanonSearch {
     /// FTS 兼容退化：SQL `LOWER(data) LIKE` 子串召回（无 FTS 索引/建索引失败时）。
     ///
     /// `raw_score` 固定 1.0（命中计数语义；BM25 由索引路径 [`Self::fts_query`]
-    /// 提供）。与 canon_store.query_edges 的「推 down + 精细过滤」一致。
+    /// 提供）。与 store.query_edges 的「推 down + 精细过滤」一致。
     pub async fn fts_query_like(
         &self,
         table: CanonFtsTable,
@@ -1131,7 +1131,7 @@ fn sql_like(term: &str) -> String {
 }
 
 // （本任务 IO 层为「契约存在 + 编译通过」，自包含 Connection，不依赖
-// CanonStore 私有字段；T13 IPC 包装在 canon_commands.rs 统一落地。）
+// CanonStore 私有字段；T13 IPC 包装在 canon/commands.rs 统一落地。）
 
 // ──────────────────────────────────────────────────────────────────────────
 // 单元测试（纯逻辑层：RRF / 衰减 / 缓存 / 分词器 / 图遍历）
@@ -1139,18 +1139,18 @@ fn sql_like(term: &str) -> String {
 
 // ────────────────────────────────────────────────────────────────────────
 // Spec 子模块（T32）：窗口衰减表纯函数规格验证，见同目录
-// `canon_search.spec.rs`（经 #[path] 注册为本文件 cfg(test) 子模块，
+// `search.spec.rs`（经 #[path] 注册为本文件 cfg(test) 子模块，
 // 不新增 mod.rs 注册行——改动面收敛在本任务允许的两个文件内）。
 // ────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[path = "canon_search.spec.rs"]
+#[path = "search.spec.rs"]
 mod canon_search_spec;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::canon_types::EdgeKind;
+    use crate::canon::types::EdgeKind;
     use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
     use std::sync::Arc;
@@ -1468,7 +1468,7 @@ mod tests {
 
     // ── LanceDB 集成：FTS 索引路径 + 向量召回 ──
 
-    /// 唯一临时项目目录（每测试一个；不清理——沿用 canon_store 模式）。
+    /// 唯一临时项目目录（每测试一个；不清理——沿用 store 模式）。
     fn tmp_project() -> std::path::PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1752,7 +1752,7 @@ mod proptest_tests {
                 0..12
             )
         ) {
-            use crate::types::canon_types::EdgeKind;
+            use crate::canon::types::EdgeKind;
             let canon_edges: Vec<CanonEdge> = edges.iter().enumerate()
                 .map(|(i, (s, t))| CanonEdge::new(format!("e{i}"), s, t, "rel", EdgeKind::WorldFact))
                 .collect();
@@ -1775,7 +1775,7 @@ mod proptest_tests {
             len in 1usize..=8,
             depth in 0u32..=5
         ) {
-            use crate::types::canon_types::EdgeKind;
+            use crate::canon::types::EdgeKind;
             let canon_edges: Vec<CanonEdge> = (0..len)
                 .map(|i| {
                     CanonEdge::new(
@@ -1804,7 +1804,7 @@ mod proptest_tests {
 #[cfg(test)]
 mod t32_retune_tests {
     use super::*;
-    use crate::types::canon_types::EdgeKind;
+    use crate::canon::types::EdgeKind;
 
     /// QMAI 召回池代理（确定性 fixture，零随机源，跨平台位稳定）。
     ///
@@ -2069,7 +2069,7 @@ mod t32_retune_tests {
 #[cfg(test)]
 mod perf_tests {
     use super::*;
-    use crate::types::canon_types::EdgeKind;
+    use crate::canon::types::EdgeKind;
     use std::time::Instant;
 
     fn synthetic_fts(n: usize, seed: usize) -> Vec<RecallItem> {
