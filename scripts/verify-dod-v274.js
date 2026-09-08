@@ -1,62 +1,36 @@
 /**
- * verify-dod-v274.js — v2.7.4 DoD 断言（蓝图 blueprint-v274 §5）
+ * verify-dod-v274.js — DoD v2.7.4 断言薄壳（vitest 转发）
  *
- * 三闭环断言：①维度收敛 ②跨模型泛化 ③跨语言泛化
- * 用法：node scripts/verify-dod-v274.js
+ * P1-3 迁 vitest：原 check 断言已逐条迁移至
+ *   src/lib/quality/__tests__/v274.dod.spec.ts（11 个 it 块，1:1 对应原 11 条 check）。
+ * 本文件保留 node scripts/verify-dod-v274.js 可执行入口：spawn vitest 跑对应 spec，
+ * 透传 exit code（spec 全绿 → 0；任一 it 失败 → 1）。
  *
- * ⚠️ 证据性质声明（2026-09-07，67 号交付）：本脚本输入全部为硬编码/公式合成数据
- * （base/current 由 5+3*(i%3)+(j%2) 生成、五模型分数硬编码、crossLang F1 写死），
- * 仅证明四个纯函数（dimension-converge / variance-regression / cross-model-bias /
- * cross-lang-f1）的代码契约未被改坏（防 ADR-19 机械层纯函数回归），
- * **不是 v2.7.4 stretch 四指标的达成证据**。四指标实测状态见
- * docs/qmai-codex-delivery/67-stretch-gate-disclosure-20260907.md。
+ * 用法：
+ *   node scripts/verify-dod-v274.js           # 跑 DoD v2.7.4 断言
+ *   node scripts/verify-dod-v274.js --help    # 打印本帮助（退出 0）
+ *
+ * node scripts/verify-dod-v2611.js 同批已归档（结构性坏死，见
+ * scripts/archive/verify-dod/verify-dod-v2611.js 头部注记）。
  */
-import { evaluateConvergence } from "../src/lib/quality/dimension-converge.ts"
-import { evaluateRecallRegression } from "../src/lib/quality/variance-regression.ts"
-import { evaluateCrossModel } from "../src/lib/quality/cross-model-bias.ts"
-import { evaluateCrossLang } from "../src/lib/quality/cross-lang-f1.ts"
+import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 
-let failures = 0
-const check = (name, cond) => {
-  if (cond) console.log(`[PASS] ${name}`)
-  else { console.log(`[FAIL] ${name}`); failures++ }
+const HELP = `verify-dod-v274.js — DoD v2.7.4 断言（vitest 转发薄壳）
+用法：node scripts/verify-dod-v274.js [--help|-h]
+行为：spawn vitest run src/lib/quality/__tests__/v274.dod.spec.ts 并透传 exit code
+说明：原 11 条 check 断言已转为 11 个 it 块（console.log PASS 计数已移除，
+测试数 = 原 PASS 数）
+证据性质：输入为硬编码/公式合成数据，仅防纯函数契约回归（非 stretch 达标证据，
+详见 spec 头部声明与 docs/qmai-codex-delivery/67-stretch-gate-disclosure-20260907.md）`
+
+if (process.argv.slice(2).some((a) => a === "--help" || a === "-h")) {
+  console.log(HELP)
+  process.exit(0)
 }
 
-const dims = ["thril", "pacing", "pull", "consistency", "antiAi", "quality"]
-const ch = (id, scores) => ({ chapterId: id, scores })
-const base = Array.from({ length: 6 }, (_, i) => ch(`b${i}`, Object.fromEntries(dims.map((d, j) => [d, 5 + 3 * (i % 3) + (j % 2)]))))
-const current = Array.from({ length: 6 }, (_, i) => ch(`c${i}`, Object.fromEntries(dims.map((d, j) => [d, 5 + 1 * (i % 3) + (j % 2)]))))
-
-// ① 维度收敛：中位方差降 ≥15% 且核心维 ≤3 且 Track B 保留（归一化对照 + 双门互锁）
-const conv = evaluateConvergence(base, current, "v2.7.3-7006868f")
-check("① 维度收敛：中位方差降 ≥15%", conv.varianceReduction >= 0.15)
-check("① 归一化对照：维度数归一化降幅 ≥15%（防裁剪伪影）", conv.normalizedReduction >= 0.15)
-check("① 核心维 ≤3 且 Track B 六维保留", conv.coreDims.length <= 3 && conv.trackBDims === 6)
-check("① 基线版本锁定（v2.7.3-7006868f）", conv.baselineVersion.length > 0)
-check("① 收敛达标判定", conv.passed === true)
-const recall = evaluateRecallRegression(19, 20, 19, 20, "v2.7.3-7006868f")
-check("① 双门互锁：负向集召回 ≥ 基线−2%（不掩检测退化）", recall.regression <= 0.02 && recall.passed === true)
-check("① 召回基线版本锁定", recall.baselineVersion.length > 0)
-
-// ② 跨模型泛化：同文同窗 pairwise Δ中位 ≤0.5 且无单维 >0.7
-const models = [
-  { modelId: "a", scores: { thril: 8, pacing: 7, pull: 8 } },
-  { modelId: "b", scores: { thril: 8.3, pacing: 7.2, pull: 8.1 } },
-  { modelId: "c", scores: { thril: 7.8, pacing: 7.1, pull: 8.2 } },
-  { modelId: "d", scores: { thril: 8.1, pacing: 6.9, pull: 7.9 } },
-  { modelId: "e", scores: { thril: 8.2, pacing: 7.0, pull: 8.0 } },
-]
-const cm = evaluateCrossModel(models)
-check("② 跨模型：pairwise Δ中位 ≤0.5（N≥5 同窗）", cm.medianDelta <= 0.5 && cm.passed === true)
-check("② 跨模型：无单维偏差 >0.7", cm.maxDimDelta <= 0.7)
-
-// ③ 跨语言泛化：F1 ≥ 源域锁定基线×95%；P0>P1>P2 不变量
-const cl = evaluateCrossLang(0.9, "v2.7.3-7006868f", [
-  { lang: "en", f1: 0.88 },
-  { lang: "ja", f1: 0.9 },
-])
-check("③ 跨语言：F1 ≥ 源域锁定基线×95%（每语言独立）", cl.passed === true && cl.langs.every((l) => l.passed))
-check("③ 基线版本锁定（git commit 快照）", cl.baselineVersion.length > 0)
-
-console.log(failures === 0 ? "\nDoD v2.7.4: ALL PASS" : `\nDoD v2.7.4: ${failures} FAILURES`)
-process.exit(failures === 0 ? 0 : 1)
+const repoRoot = fileURLToPath(new URL("..", import.meta.url))
+const vitestCli = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url))
+const specPath = fileURLToPath(new URL("../src/lib/quality/__tests__/v274.dod.spec.ts", import.meta.url))
+const r = spawnSync(process.execPath, [vitestCli, "run", specPath], { cwd: repoRoot, stdio: "inherit" })
+process.exit(r.status ?? 1)
