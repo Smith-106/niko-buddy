@@ -15,8 +15,8 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
-    version: "2.7.10",
-    date: "2026-09-07",
+    version: "2.8.0",
+    date: "2026-09-09",
     highlights: {
       en: [
         "#3 sync direct-write registry derivation: hardcoded 3-element SYNC_FOLD_PROJECTION_IDS removed, now derived lazily by syncDirectWriteProjectionIds() from the PROJECTION_REGISTRY.syncDirectWrite flags (new projections marked for sync join the sync path automatically).",
@@ -26,6 +26,9 @@ export const ENTRIES: ChangelogEntry[] = [
         "#5 M3b flip (equivalent-evidence substitution): hardInjectEnabled defaults true (renderIf dual gating structurally guarantees byte-identical output for empty data / no POV; POV source of truth landed; hard-inject budget probe active; single-point flag rollback).",
         "recentWindow=3 normalization (ADR-46): sanctioned time-window approximation promoted to official semantics (not a gap), sealed by three models; budget layering anchors (context-budget.ts:68-75 three states / tieredSlice protected|compressible / hardInject independent protection slot / usage probe); in-repo copy at docs/decision-log/2026-09-07-adr46-recentwindow-repo-copy.md (incl. v3.2.6 governance provenance).",
         "syncDirectWrite bidirectional static guard: three positive categories must be flagged + six negative non-direct-write categories explicitly asserted (prevents new projections missing flags).",
+        "KB shadow dual-arm retrieval harness (R5, real code path, zero mirror): golden 34 baseline hitRate/top3/coverage 1.000 + paired-invariant; discriminative poison-stress arm v2 (treatment-control): veto arm +64.7pp coverage recovery (22/34, honestly labeled veto-rule self-consistency face) vs markless fit control arm 0.0pp — gain attribution pinned to the canon veto signal itself; per-arm a-priori pressure thresholds fail-loud, both assertions in test:mocks constant suite (commit 80c7c03d).",
+        "Settings UI completion: KB routing section (dualKbRoutingEnabled / usefulnessRerankEnabled / hardInjectEnabled switches + entityBoostWeight 0-1 input) + content assembly section (7 switches) + governance E-06 three read-only badges (DEFERRED, no switch) + R5 collection trigger UI (consent gate + serial mutex + status text); i18n zh/en ~30 new keys; novel-section.spec 33/33.",
+        "Data isolation hardening: isolation audit 10 faces verified (LanceDB per-project / novelConfig projectPath / kb-shadow telemetry per-project dir + harness isolated root / three cache keyings / consent app-level + data per-project / single-instance / writeFileAtomic / Draft-first); consent scope explicit decision docs/decision-log/20260909-consent-scope.md (app-level consent key + per-project data files + upgrade trigger).",
       ],
       zh: [
         "#3 sync 直写注册表派生：SYNC_FOLD_PROJECTION_IDS 硬编码 3 元删除，改由 syncDirectWriteProjectionIds() 从 PROJECTION_REGISTRY.syncDirectWrite 标志惰性派生（新增投影标 flag 即自动入 sync 路径）。",
@@ -35,6 +38,9 @@ export const ENTRIES: ChangelogEntry[] = [
         "#5 M3b 翻转（等效证据替代）：hardInjectEnabled 默认 true（renderIf 双门控结构性保证空数据/无 POV 字节级不变；POV 真源已落地；硬注入预算探针激活；单点 flag 可回滚）。",
         "recentWindow=3 口径固化（ADR-46）：sanctioned 时间窗近似升格正式口径（非缺口），三模型 seal；预算分层锚点（context-budget.ts:68-75 三态 / tieredSlice protected|compressible / hardInject 独立保护槽 / usage 探针）；仓库内副本见 docs/decision-log/2026-09-07-adr46-recentwindow-repo-copy.md（含 v3.2.6 治理出处登记）。",
         "syncDirectWrite 双向静态守卫：正向三类必标 + 负向 6 类非直写显式断言（防新增投影漏标）。",
+        "KB 影子双臂检索实测 harness（R5，真实码路零镜像）：golden 34 baseline hitRate/top3/coverage 1.000 + paired 不变式；判别力毒化压力臂 v2（治疗-对照设计）：veto 臂覆盖恢复 +64.7pp（22/34，如实标注否决规则自洽面）vs 无标记 fit 对照臂 0.0pp——增益归属锚定否决信号本身；差异化先验阈值 fail-loud，双断言入 test:mocks 常态套件（commit 80c7c03d）。",
+        "设置页 UI 补全：KB 路由区（dualKbRoutingEnabled / usefulnessRerankEnabled / hardInjectEnabled 三 Switch + entityBoostWeight 0-1 输入）+ 内容装配区（七 Switch）+ 治理 E-06 三只读徽章（DEFERRED 不开 Switch）+ R5 采集触发 UI（同意门 + 串行互斥 + 状态文案）；i18n zh/en 约 30 新键；novel-section.spec 33/33。",
+        "数据隔离加固：隔离审计 10 面核验全 ✓（LanceDB 项目级 / novelConfig projectPath / kb-shadow 遥测项目目录 + harness 独立根 / 三缓存键控 / consent 应用级 + 数据项目级 / single-instance / writeFileAtomic / Draft-first）；consent 作用域显式裁决 docs/decision-log/20260909-consent-scope.md（应用级同意键 + 项目级数据文件 + 升级触发器）。",
       ],
     },
   },

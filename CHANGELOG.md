@@ -7,7 +7,7 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
-## [2.7.10] - 2026-09-07
+## [2.8.0] - 2026-09-09
 
 ### P2 过程/项目记忆库清偿批次（三模型共识 2026-09-07）
 
@@ -22,6 +22,17 @@
 ### 验证
 
 typecheck 0 错误 / vitest 全量绿（相关 spec：48+29+14+266 等）/ 生成器 --check 0
+
+### R5 检索实测与 UI/隔离线（三模型 P1 复评 9.58 收敛，2026-09-09）
+
+- **KB 影子双臂检索实测 harness（真实码路零镜像）**：golden 34 baseline hitRate/top3/coverage 1.000 + paired 不变式；eval-gov-gate `--shadow-input` 实测消费 68 行（34/34 缺失 0）
+- **判别力毒化压力臂 v2（治疗-对照设计）**：veto 臂（带标记）覆盖恢复 +64.7pp（22/34，如实标注否决规则自洽面）vs fit 对照臂（无标记）0.0pp——去标记增益归零，归属锚定否决信号本身；差异化先验阈值 fail-loud（veto≥17 实测 22 / fit≥12 实测 13）双断言入 test:mocks 常态套件（零 IO）
+- **设置页 UI 补全**：KB 路由区（dualKbRoutingEnabled / usefulnessRerankEnabled / hardInjectEnabled 三 Switch + entityBoostWeight 0-1 输入）+ 内容装配区（七 Switch）+ 治理 E-06 三只读徽章（DEFERRED 不开 Switch）+ R5 采集触发 UI（同意门 + 串行互斥 + 状态文案）；i18n zh/en 约 30 新键；novel-section.spec 33/33
+- **数据隔离加固**：隔离审计 10 面核验全 ✓（LanceDB 项目级 / novelConfig projectPath / kb-shadow 遥测项目目录 + harness 独立根 / 三缓存键控 / consent 应用级 + 数据项目级 / single-instance / writeFileAtomic / Draft-first）；consent 作用域显式裁决 `docs/decision-log/20260909-consent-scope.md`（应用级同意键 + 项目级数据文件 + 升级触发器）
+
+### 验证（R5 线）
+
+typecheck 0 / test:mocks 12420 passed | 11 skipped | 0 failed（含压力臂常态断言层）/ gen:check 5/5；三模型 P1 五维复评综合 9.58 ≥9.5（95 三条件式三席全票 TRUE）
 
 ## [2.7.9] - 2026-09-07
 
