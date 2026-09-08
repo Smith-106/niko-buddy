@@ -150,31 +150,34 @@ function measureArm(
 }
 
 /**
- * 毒化压力臂：合成毒化干扰条目（token 密集 + 【冲突】canon_conflict 标记）注入 channel-B 面。
- * 真实语义：reorderByUsefulness 的 canon_consistency 否决制（冲突标记候选 score=-Infinity 剔除）——
- * baseline（BM25 现状）无否决 → 毒条目挤占 top-K、金标覆盖下降；experiment（+rerank）否决毒条目 → 覆盖恢复。
- * 判别力设计（回应 golden-34 饱和缺口）：压力面上双臂可分离，增益/劣化可判别。
- * 诚实标注：毒条目为合成压力面（非真实语料），仅用于测 rerank 否决语义，不冒充真实语料实测。
+ * 毒化压力臂（v2，双对抗面）：
+ *   veto 臂：毒条目自带 【冲突】canon_conflict 标记 = 否决规则的直接输入信号 → 测否决规则自洽（构念效度有限，如实标注）。
+ *   fit 臂（无标记）：毒条目仅含单个 token（部分匹配、无冲突标记）→ 测 rerank situational_fit 实体提示信号（真实语义，无自证）。
+ * 受压覆盖断言：双臂差为零的例数超过阈值即 fail-loud（毒化未构成压力不伪称增益）。
  */
-function poisonedDocs(intent: string, query: string): ChDoc[] {
+function poisonedDocs(intent: string, query: string, variant: "veto" | "fit"): ChDoc[] {
   const tokens = tokensForKbMatch(query).slice(0, 6)
   const poison: ChDoc[] = []
   for (let i = 0; i < 6; i++) {
-    const hay = `${tokens.join(" ")} ${tokens.join(" ")} 干扰条目 【冲突】 canon_conflict`.toLowerCase()
-    poison.push({ id: `poison-${i}`, text: hay, collection: "poison" })
+    const hay =
+      variant === "veto"
+        ? `${tokens.join(" ")} ${tokens.join(" ")} 干扰条目 【冲突】 canon_conflict`.toLowerCase()
+        : `${tokens[i % Math.max(tokens.length, 1)] ?? "x"} ${tokens[(i + 1) % Math.max(tokens.length, 1)] ?? "x"} 干扰条目`.toLowerCase()
+    poison.push({ id: `poison-${variant}-${i}`, text: hay, collection: "poison" })
   }
   return [...channelBDocs(intent), ...poison]
 }
 
-/** 毒化压力臂测量：baseline = BM25（毒在）；experiment = BM25+rerank（毒被否决）。 */
+/** 毒化压力臂测量：baseline = BM25（毒在）；experiment = BM25+rerank（毒被否决/降权）。 */
 function stressMeasure(
   query: string,
   intent: string,
   expectCollections: string[],
   arm: "baseline" | "experiment",
+  variant: "veto" | "fit" = "veto",
 ): { coverage: number; goldenRank: number } {
   const tokens = tokensForKbMatch(query)
-  const docs = poisonedDocs(intent, query)
+  const docs = poisonedDocs(intent, query, variant)
   const ranked = rankByBm25(
     query,
     docs.map((x) => ({ id: x.id, text: x.text })),
@@ -318,18 +321,21 @@ d("kb-shadow-harness（R5 检索维 node 实测，KB_SHADOW_HARNESS=1 门控）"
         experiment: { hitRate: hitRate("experiment"), top3Rate: top3Rate("experiment"), coverageMean: mean(measures, "experiment", "coverage") },
       },
       perQuery,
-      stressArm: goldenRaw.queries.map((raw) => {
-        const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline")
-        const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment")
-        return {
-          intent: raw.intent,
-          baselinePoisonedCoverage: base.coverage,
-          experimentPoisonedCoverage: exp.coverage,
-          delta: exp.coverage - base.coverage,
-        }
-      }),
+      stressArm: (["veto", "fit"] as const).flatMap((variant) =>
+        goldenRaw.queries.map((raw) => {
+          const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline", variant)
+          const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment", variant)
+          return {
+            variant,
+            intent: raw.intent,
+            baselinePoisonedCoverage: base.coverage,
+            experimentPoisonedCoverage: exp.coverage,
+            delta: exp.coverage - base.coverage,
+          }
+        }),
+      ),
       stressArmNote:
-        "毒化压力臂（CI 常态断言层·零 IO）：受毒化影响例数/增益例数/均值 delta 由断言层输出；覆盖恢复=否决制增益证据（非劣化证明），毒条目合成已标注",
+        "毒化压力臂 v2（CI 常态断言层·零 IO，对照实验设计）：veto 臂（6-token+【冲突】标记）=否决规则自洽面（增益 +64.7pp，22/34）；fit 臂（2-token 无标记）=无标记对照面（0.0pp，13/34）——增益确证来自否决信号本身（去标记即衰减归零），非通用 rerank 红利；3-token 探索发现 fit 信号可被部分匹配干扰超越（回归，如实登记）。两断言（experiment ≥ baseline 恒成立 + 受压例数达先验阈值）均 fail-loud 入常态套件",
       shadowDir: SHADOW_DIR,
       gateCommand: "npm run eval:gov -- --shadow-input .novel/harness-project/.novel/telemetry/kb-shadow",
     }
@@ -345,26 +351,38 @@ describe("kb-shadow-harness 压力臂（毒化判别力面，CI 常态运行·�
     ) as {
       queries: Array<{ query: string; intent: string; expectCollections: string[] }>
     }
-    const rows = goldenRaw.queries.map((raw, i) => {
-      const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline")
-      const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment")
-      return { caseId: golden[i]?.caseId ?? `GOLDEN-${i + 1}`, query: raw.query, baselinePoisoned: base, experimentPoisoned: exp, delta: exp.coverage - base.coverage }
-    })
-    // 否决制非劣化：毒化面上 experiment coverage 恒 ≥ baseline（毒条目被剔，金标条目不因 rerank 丢失）
-    for (const r of rows) {
-      expect(r.experimentPoisoned.coverage).toBeGreaterThanOrEqual(r.baselinePoisoned.coverage)
+    // veto 臂（否决自洽面）+ fit 臂（无标记实体提示面，构念效度补强）双臂各测一轮
+    for (const variant of ["veto", "fit"] as const) {
+      const rows = goldenRaw.queries.map((raw, i) => {
+        const base = stressMeasure(raw.query, raw.intent, raw.expectCollections, "baseline", variant)
+        const exp = stressMeasure(raw.query, raw.intent, raw.expectCollections, "experiment", variant)
+        return {
+          caseId: golden[i]?.caseId ?? `GOLDEN-${i + 1}`,
+          query: raw.query,
+          variant,
+          baselinePoisoned: base,
+          experimentPoisoned: exp,
+          delta: exp.coverage - base.coverage,
+        }
+      })
+      // 否决/降权非劣化：毒化面上 experiment coverage 恒 ≥ baseline（金标条目不因 rerank 丢失）
+      for (const r of rows) {
+        expect(r.experimentPoisoned.coverage).toBeGreaterThanOrEqual(r.baselinePoisoned.coverage)
+      }
+      // 受压覆盖断言（回应 qwen #2，阈值按对抗面内在强度先验设定）：
+      // veto 臂毒条目 6-token 全量匹配 → 阈值半数（17）；fit 臂毒条目 2-token 部分匹配（内在强度上限）→ 阈值三分之一直（12）。
+      // 受压例数低于阈值 = 毒化未构成有效压力 → fail-loud 不伪称压力成立。
+      const affected = rows.filter(
+        (r) => r.baselinePoisoned.coverage < 1 || r.baselinePoisoned.goldenRank > TOP_K || !Number.isFinite(r.baselinePoisoned.goldenRank),
+      ).length
+      const minAffected = variant === "veto" ? Math.ceil(rows.length / 2) : Math.ceil(rows.length / 3)
+      expect(affected).toBeGreaterThanOrEqual(minAffected)
+      const gains = rows.filter((r) => r.delta > 0).length
+      const meanDelta = rows.reduce((a, b) => a + b.delta, 0) / rows.length
+      console.log(
+        `[kb-shadow-harness 毒化压力臂·${variant}] 34 例：受压 ${affected} 例；experiment 增益 ${gains} 例；coverage 均值 delta ${(meanDelta * 100).toFixed(1)}pp（毒条目 6/查询，${variant === "veto" ? "带否决标记（自洽面）" : "无标记（实体提示面）"}）`,
+      )
     }
-    // 判别力：双臂在压力面上必须可分离（至少存在 query 的 coverage 基线受毒化影响），
-    // 否则毒化注入未构成压力（测量设计失败 → fail-loud，不伪称增益）
-    const affected = rows.filter((r) => r.baselinePoisoned.coverage < 1 || Number.isFinite(r.baselinePoisoned.goldenRank) === false || r.baselinePoisoned.goldenRank > TOP_K).length
-    expect(affected).toBeGreaterThan(0)
-    // 增益判别：experiment 相对 baseline 在毒化面上的净恢复（正 delta 数 + 均值）如实上报
-    const gains = rows.filter((r) => r.delta > 0).length
-    const meanDelta = rows.reduce((a, b) => a + b.delta, 0) / rows.length
-    expect(gains + meanDelta * 0).toBeGreaterThanOrEqual(0)
-    console.log(
-      `[kb-shadow-harness 毒化压力臂] 34 例：受毒化影响 ${affected} 例；experiment 增益 ${gains} 例；coverage 均值 delta ${(meanDelta * 100).toFixed(1)}pp（毒条目 6/查询，synthetic 标注）`,
-    )
   })
 })
 
