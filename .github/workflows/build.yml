@@ -23,7 +23,7 @@ jobs:
     # there (bare typecheck from :35 promoted to forced form in checks.yml).
     uses: ./.github/workflows/checks.yml
     with:
-      node-version: 20
+      node-version: 24
 
   build:
     needs: ci-gate
@@ -144,7 +144,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install frontend dependencies

@@ -3,6 +3,7 @@
   "private": true,
   "version": "2.7.9",
   "type": "module",
+  "engines": { "node": ">=22.18" },
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --build --pretty",

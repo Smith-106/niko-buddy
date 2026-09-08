@@ -12,7 +12,7 @@ jobs:
     # checks.yml - single gate definition source (R17 B1).
     uses: ./.github/workflows/checks.yml
     with:
-      node-version: 20
+      node-version: 24
   check:
     strategy:
       fail-fast: false
@@ -72,11 +72,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: KB view artifact self-consistency
         # ADR-47 回归防线：产物存在 + builtFrom 非空（源同步漂移即红；上游源在 hub，
