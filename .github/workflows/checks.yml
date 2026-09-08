@@ -13,8 +13,11 @@
 #   forced form must never be downgraded back to bare typecheck).
 # - B1: KB view self-consistency + governance anchors REMAIN in ci.yml
 #   (R17 section 4.4 final decision - they stay with the caller; B5 merges
-#   them into gen:check and deletes them from ci.yml).
-# - B5: gen:check real step lands in node-gates (see placeholder comment).
+#   the KB view check into the generated-artifacts gate and deletes the
+#   inline step from ci.yml).
+# - B5: generated-artifacts gate step (5 checks incl. commands-doc) lands in
+#   node-gates below; the KB view self-consistency check is covered by that
+#   gate (B3 checkKbRoutingView), so ci.yml carries no duplicate.
 # - run-e2e input is declared in B1 but not consumed yet: E2E stays in the
 #   caller in B1 (exec-plan P0-3); later batches wire it.
 
@@ -69,9 +72,8 @@ jobs:
       - name: Run unit tests (vitest)
         run: npm run test:mocks
 
-      # [B5 wiring point] gen:check real body lands here as a new step
-      # (run: node scripts/check-generated.mjs, ubuntu second-level).
-      # B1 intentionally defines NO run for it: an added run string would
-      # break the run-string set conservation assertion (the before-set has
-      # no such string). When B5 lands, also delete the KB view
-      # self-consistency step from ci.yml (R17 4.4) - no double-write.
+      - name: Generated artifacts check
+        # P0 B5: 5 项生成物闭环门禁（t2s-map / thresholds / kb-routing-view /
+        # seeds / commands-doc）。KB view 自洽检查自 B3 起并入本步（原 ci.yml
+        # 内联 step 已删除，R17 4.4 无双重定义）。
+        run: npm run gen:check

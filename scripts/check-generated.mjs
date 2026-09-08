@@ -2,7 +2,7 @@
 /**
  * check-generated.mjs — 生成物闭环门禁 (P0 B3)
  *
- * 校验 QMAI 仓内 4 个 generated 产物的一致性，纯 Node stdlib，零依赖：
+ * 校验 QMAI 仓内 5 个 generated 产物的一致性，纯 Node stdlib，零依赖：
  *
  *   1. t2s-map.generated.ts            幂等可再生 → 临时路径重生成 + 字节比对（禁止全局 git diff）
  *   2. anti-ai-thresholds.generated.ts 与 docs/p2/anti-ai-thresholds.json 仓内源断言
@@ -11,6 +11,8 @@
  *   3. kb-routing-view.generated.json  合法 JSON + builtFrom 存在性 + schemaVersion 期望集
  *                                      （独立判定，不依赖 hub reference/ 源）
  *   4. anti-ai-seeds.generated.json    合法 JSON + 顶层字段集 + samples 最小条数 + 条目字段集
+ *   5. tauri-commands-reference.md     生成器 --check 模式（临时路径重生成 + 字节比对，
+ *                                      时间戳行规范化；仅校验仓内文件，hub 镜像仓外不可门禁）
  *
  * 实现纪律（R11 防御）：所有比较走「临时路径 + 字节比对」，禁止 git diff --exit-code。
  *
@@ -405,6 +407,33 @@ function checkSeeds() {
 }
 
 // ---------------------------------------------------------------------------
+// 检查 5：tauri-commands-reference.md — 生成器 --check 模式（P0 B4/B5）
+// ---------------------------------------------------------------------------
+
+function checkCommandsDoc() {
+  const genScript = join(ROOT, "scripts/gen-tauri-commands-doc.mjs")
+  if (!existsSync(genScript)) {
+    record("tauri-commands-reference.md", false, `generator missing: ${rel(genScript)}`)
+    return
+  }
+  // --check 语义（P0 B4）：生成到 os.tmpdir() 临时路径，与仓内输出字节比对
+  // （时间戳行规范化），不写盘、无副作用。仅校验仓内文件；hub 镜像副本
+  // （docs/qmai-codex-delivery/）仓外不可门禁，可接受。
+  const r = spawnSync(process.execPath, [genScript, "--check"], { encoding: "utf8", timeout: 120000 })
+  const out = toAscii(r.stdout).trim()
+  const err = toAscii(r.stderr).trim()
+  if (r.status === 0) {
+    record("tauri-commands-reference.md", true, out || "up to date (generator --check exit 0)")
+  } else {
+    record(
+      "tauri-commands-reference.md",
+      false,
+      `generator --check failed status=${r.status} stdout=${out.slice(0, 300)} stderr=${err.slice(0, 300)}`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
@@ -413,6 +442,7 @@ function main() {
   checkThresholds()
   checkKbRoutingView()
   checkSeeds()
+  checkCommandsDoc()
 
   for (const r of RESULTS) {
     const tag = r.pass ? "PASS" : "FAIL"

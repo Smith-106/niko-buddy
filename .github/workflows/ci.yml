@@ -78,12 +78,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: KB view artifact self-consistency
-        # ADR-47 回归防线：产物存在 + builtFrom 非空（源同步漂移即红；上游源在 hub，
-        # sync --check 归 hub 侧等价门禁：node scripts/build-reference-kb-view.js --check
-        # + node QMAI/scripts/sync-kb-view-to-qmai.mjs --check）
-        run: node -e "const v=require('./src/lib/novel/kb/kb-routing-view.generated.json');if(!v.builtFrom||!String(v.builtFrom).startsWith('sha256:'))throw new Error('builtFrom broken');console.log('kb routing view OK:',v.builtFrom)"
-
       - name: Governance anchors check
         # ADR-47 回归防线：治理文档（arch-decisions/project.md）声称的文件:行锚点可解析
         run: node scripts/verify-governance-anchors.mjs
