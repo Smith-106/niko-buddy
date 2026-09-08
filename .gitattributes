@@ -1,0 +1,21 @@
+# QMAI/.gitattributes - line-ending + generated-artifact policy (P0 B7)
+#
+# Repo state (verified 2026-09): 100% LF-native. All tracked text blobs and the
+# working tree use LF; core.autocrlf=input is set globally (commit-time CRLF->LF).
+# Policy: normalize every text file to LF in the index and force LF in the working
+# tree on all platforms (eol=lf), so CRLF can never enter or drift. No tracked
+# file is rewritten by this file: renormalize is a no-op (verified).
+
+# --- LF policy: all text files (binary files auto-detected, left untouched) ---
+* text=auto eol=lf
+
+# --- CI-critical files: explicit LF for stable reads on Linux runners ---
+.nvmrc text eol=lf
+.github/workflows/*.yml text eol=lf
+
+# --- Generated artifacts: hide from GitHub diffs and language stats ---
+# NOTE: the B3 gate (gen:check) is byte-comparison based; -diff only affects
+# diff display, never the gate.
+src/lib/novel/*.generated.* linguist-generated=true -diff
+src/lib/novel/**/*.generated.* linguist-generated=true -diff
+docs/generated/* linguist-generated=true -diff
