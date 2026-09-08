@@ -51,7 +51,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 自动生成小说工具（批量草稿流水线）"
       },
       {
         "collection": "corpus",
@@ -62,7 +63,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 小说 CLI 生成链"
       },
       {
         "collection": "world_ref",
@@ -72,7 +74,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）"
       },
       {
         "collection": "world_ref",
@@ -82,7 +85,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）"
       },
       {
         "collection": "world_ref",
@@ -92,7 +96,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）"
       },
       {
         "collection": "world_ref",
@@ -102,7 +107,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）"
       },
       {
         "collection": "world_ref",
@@ -112,7 +118,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）"
       },
       {
         "collection": "world_ref",
@@ -122,7 +129,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）"
       },
       {
         "collection": "world_ref",
@@ -132,7 +140,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）"
       },
       {
         "collection": "world_ref",
@@ -142,7 +151,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）"
       },
       {
         "collection": "corpus",
@@ -153,7 +163,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "分层规划长篇故事 Agent，20部中篇零监督生成"
       },
       {
         "collection": "craft",
@@ -163,7 +174,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "inkle 互动叙事脚本语言+引擎（Ink）"
       },
       {
         "collection": "craft",
@@ -173,7 +185,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "AI 小说写作助手"
       },
       {
         "collection": "corpus",
@@ -184,7 +197,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）"
       },
       {
         "collection": "corpus",
@@ -195,7 +209,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge × cognee 记忆集成变体"
       },
       {
         "collection": "corpus",
@@ -206,7 +221,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge v5 写作引擎"
       },
       {
         "collection": "lexicon",
@@ -216,7 +232,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：丹道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -226,7 +243,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：炼体诀（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -236,7 +254,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：五行遁术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -246,7 +265,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：阵法之道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -256,7 +276,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：傀儡术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -266,7 +287,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：神识功法（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -276,7 +298,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：御剑术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -286,7 +309,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：符箓之术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -296,7 +320,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：洞府（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -306,7 +331,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：秘境（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -316,7 +342,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵兽（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -326,7 +353,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵草（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -336,7 +364,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵石（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -346,7 +375,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：法宝（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -356,7 +386,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：驻颜丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -366,7 +397,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：破境丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -376,7 +408,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：筑基丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -386,7 +419,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：洗髓丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -396,7 +430,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：凝神丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -406,7 +441,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：聚气丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -416,7 +452,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：九转还魂丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -426,7 +463,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：培元丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -436,7 +474,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：飞升（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -446,7 +485,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：合体（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -456,7 +496,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：筑基（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -466,7 +507,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：金丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -476,7 +518,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：大乘（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -486,7 +529,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：元婴（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -496,7 +540,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼气（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -506,7 +551,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：化神（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -516,7 +562,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：渡劫（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -526,7 +573,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼虚（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -536,7 +584,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：魔道宗门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -546,7 +595,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：昆仑（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -556,7 +606,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蓬莱（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -566,7 +617,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：青云门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -576,7 +628,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：散修联盟（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -586,7 +639,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蜀山剑派（自建 CC0）"
       }
     ],
     "lookup": [
@@ -599,7 +653,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 自动生成小说工具（批量草稿流水线）"
       },
       {
         "collection": "corpus",
@@ -610,7 +665,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 小说 CLI 生成链"
       },
       {
         "collection": "world_ref",
@@ -620,7 +676,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）"
       },
       {
         "collection": "world_ref",
@@ -630,7 +687,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）"
       },
       {
         "collection": "world_ref",
@@ -640,7 +698,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）"
       },
       {
         "collection": "world_ref",
@@ -650,7 +709,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）"
       },
       {
         "collection": "world_ref",
@@ -660,7 +720,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）"
       },
       {
         "collection": "world_ref",
@@ -670,7 +731,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）"
       },
       {
         "collection": "world_ref",
@@ -680,7 +742,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）"
       },
       {
         "collection": "world_ref",
@@ -690,7 +753,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）"
       },
       {
         "collection": "corpus",
@@ -701,7 +765,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "分层规划长篇故事 Agent，20部中篇零监督生成"
       },
       {
         "collection": "corpus",
@@ -712,7 +777,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）"
       },
       {
         "collection": "corpus",
@@ -723,7 +789,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge × cognee 记忆集成变体"
       },
       {
         "collection": "corpus",
@@ -734,7 +801,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge v5 写作引擎"
       },
       {
         "collection": "lexicon",
@@ -744,7 +812,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：丹道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -754,7 +823,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：炼体诀（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -764,7 +834,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：五行遁术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -774,7 +845,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：阵法之道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -784,7 +856,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：傀儡术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -794,7 +867,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：神识功法（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -804,7 +878,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：御剑术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -814,7 +889,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：符箓之术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -824,7 +900,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：洞府（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -834,7 +911,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：秘境（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -844,7 +922,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵兽（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -854,7 +933,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵草（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -864,7 +944,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵石（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -874,7 +955,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：法宝（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -884,7 +966,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：驻颜丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -894,7 +977,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：破境丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -904,7 +988,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：筑基丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -914,7 +999,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：洗髓丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -924,7 +1010,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：凝神丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -934,7 +1021,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：聚气丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -944,7 +1032,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：九转还魂丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -954,7 +1043,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：培元丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -964,7 +1054,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：飞升（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -974,7 +1065,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：合体（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -984,7 +1076,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：筑基（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -994,7 +1087,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：金丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1004,7 +1098,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：大乘（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1014,7 +1109,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：元婴（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1024,7 +1120,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼气（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1034,7 +1131,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：化神（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1044,7 +1142,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：渡劫（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1054,7 +1153,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼虚（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1064,7 +1164,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：魔道宗门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1074,7 +1175,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：昆仑（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1084,7 +1186,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蓬莱（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1094,7 +1197,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：青云门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1104,7 +1208,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：散修联盟（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1114,7 +1219,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蜀山剑派（自建 CC0）"
       }
     ],
     "plan": [
@@ -1126,7 +1232,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "DeepMind 交互式剧作家（分层剧本生成）"
       },
       {
         "collection": "craft",
@@ -1136,7 +1243,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "章节→故事圣经图谱+伏笔追踪"
       },
       {
         "collection": "craft",
@@ -1146,7 +1254,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "inkle 互动叙事脚本语言+引擎（Ink）"
       },
       {
         "collection": "craft",
@@ -1156,7 +1265,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "AI 小说写作助手"
       },
       {
         "collection": "craft",
@@ -1166,7 +1276,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "单二进制逐章自动连写+伏笔系统+全书优化"
       }
     ],
     "revise": [
@@ -1178,7 +1289,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "去 AI 味写作检查"
       },
       {
         "collection": "craft",
@@ -1188,7 +1300,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "中文文案排版规范（空格/标点/中英混排指南）"
       },
       {
         "collection": "craft",
@@ -1198,7 +1311,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "DeepMind 交互式剧作家（分层剧本生成）"
       },
       {
         "collection": "craft",
@@ -1208,7 +1322,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "24 种 AI 写作指纹扫描+冷读验证协议"
       },
       {
         "collection": "craft",
@@ -1217,7 +1332,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "从小说中抽取数值事实供人工一致性复核"
       },
       {
         "collection": "craft",
@@ -1227,7 +1343,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "章节→故事圣经图谱+伏笔追踪"
       },
       {
         "collection": "craft",
@@ -1236,7 +1353,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "约束驱动验证长篇小说角色背景一致性（claim 分解+证据检索+因果推理）"
       },
       {
         "collection": "craft",
@@ -1245,7 +1363,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐"
       },
       {
         "collection": "craft",
@@ -1255,7 +1374,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "单二进制逐章自动连写+伏笔系统+全书优化"
       }
     ],
     "style": [
@@ -1268,7 +1388,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 自动生成小说工具（批量草稿流水线）"
       },
       {
         "collection": "corpus",
@@ -1279,7 +1400,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 小说 CLI 生成链"
       },
       {
         "collection": "craft",
@@ -1289,7 +1411,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "去 AI 味写作检查"
       },
       {
         "collection": "craft",
@@ -1299,7 +1422,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "中文文案排版规范（空格/标点/中英混排指南）"
       },
       {
         "collection": "craft",
@@ -1309,7 +1433,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "24 种 AI 写作指纹扫描+冷读验证协议"
       },
       {
         "collection": "craft",
@@ -1318,7 +1443,8 @@
         "trust": "reference_only",
         "query_intent": [
           "style"
-        ]
+        ],
+        "purpose": "24 维法医级文风逆向工程与复现"
       },
       {
         "collection": "corpus",
@@ -1329,7 +1455,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "分层规划长篇故事 Agent，20部中篇零监督生成"
       },
       {
         "collection": "corpus",
@@ -1340,7 +1467,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）"
       },
       {
         "collection": "corpus",
@@ -1351,7 +1479,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge × cognee 记忆集成变体"
       },
       {
         "collection": "corpus",
@@ -1362,7 +1491,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge v5 写作引擎"
       }
     ]
   },
@@ -1380,7 +1510,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 自动生成小说工具（批量草稿流水线）"
       },
       {
         "collection": "corpus",
@@ -1394,7 +1525,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 小说 CLI 生成链"
       },
       {
         "collection": "corpus",
@@ -1409,7 +1541,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "分层规划长篇故事 Agent，20部中篇零监督生成"
       },
       {
         "collection": "corpus",
@@ -1423,7 +1556,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）"
       },
       {
         "collection": "corpus",
@@ -1437,7 +1571,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge × cognee 记忆集成变体"
       },
       {
         "collection": "corpus",
@@ -1451,7 +1586,8 @@
           "draft",
           "style",
           "lookup"
-        ]
+        ],
+        "purpose": "NovelForge v5 写作引擎"
       }
     ],
     "craft": [
@@ -1466,7 +1602,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "去 AI 味写作检查"
       },
       {
         "collection": "craft",
@@ -1480,7 +1617,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "中文文案排版规范（空格/标点/中英混排指南）"
       },
       {
         "collection": "craft",
@@ -1494,7 +1632,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "DeepMind 交互式剧作家（分层剧本生成）"
       },
       {
         "collection": "craft",
@@ -1508,7 +1647,8 @@
         "query_intent": [
           "revise",
           "style"
-        ]
+        ],
+        "purpose": "24 种 AI 写作指纹扫描+冷读验证协议"
       },
       {
         "collection": "craft",
@@ -1521,7 +1661,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "从小说中抽取数值事实供人工一致性复核"
       },
       {
         "collection": "craft",
@@ -1533,7 +1674,8 @@
         "trust": "reference_only",
         "query_intent": [
           "style"
-        ]
+        ],
+        "purpose": "24 维法医级文风逆向工程与复现"
       },
       {
         "collection": "craft",
@@ -1547,7 +1689,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "章节→故事圣经图谱+伏笔追踪"
       },
       {
         "collection": "craft",
@@ -1560,7 +1703,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "inkle 互动叙事脚本语言+引擎（Ink）"
       },
       {
         "collection": "craft",
@@ -1573,7 +1717,8 @@
         "query_intent": [
           "plan",
           "draft"
-        ]
+        ],
+        "purpose": "AI 小说写作助手"
       },
       {
         "collection": "craft",
@@ -1585,7 +1730,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "约束驱动验证长篇小说角色背景一致性（claim 分解+证据检索+因果推理）"
       },
       {
         "collection": "craft",
@@ -1597,7 +1743,8 @@
         "trust": "reference_only",
         "query_intent": [
           "revise"
-        ]
+        ],
+        "purpose": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐"
       },
       {
         "collection": "craft",
@@ -1610,7 +1757,8 @@
         "query_intent": [
           "plan",
           "revise"
-        ]
+        ],
+        "purpose": "单二进制逐章自动连写+伏笔系统+全书优化"
       }
     ],
     "lexicon": [
@@ -1626,7 +1774,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：丹道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1640,7 +1789,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：炼体诀（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1654,7 +1804,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：五行遁术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1668,7 +1819,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：阵法之道（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1682,7 +1834,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：傀儡术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1696,7 +1849,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：神识功法（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1710,7 +1864,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：御剑术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1724,7 +1879,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙功法：符箓之术（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1738,7 +1894,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：洞府（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1752,7 +1909,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：秘境（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1766,7 +1924,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵兽（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1780,7 +1939,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵草（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1794,7 +1954,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：灵石（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1808,7 +1969,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙灵物：法宝（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1822,7 +1984,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：驻颜丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1836,7 +1999,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：破境丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1850,7 +2014,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：筑基丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1864,7 +2029,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：洗髓丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1878,7 +2044,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：凝神丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1892,7 +2059,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：聚气丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1906,7 +2074,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：九转还魂丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1920,7 +2089,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙丹药：培元丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1934,7 +2104,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：飞升（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1948,7 +2119,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：合体（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1962,7 +2134,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：筑基（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1976,7 +2149,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：金丹（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -1990,7 +2164,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：大乘（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2004,7 +2179,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：元婴（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2018,7 +2194,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼气（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2032,7 +2209,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：化神（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2046,7 +2224,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：渡劫（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2060,7 +2239,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙境界：炼虚（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2074,7 +2254,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：魔道宗门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2088,7 +2269,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：昆仑（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2102,7 +2284,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蓬莱（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2116,7 +2299,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：青云门（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2130,7 +2314,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：散修联盟（自建 CC0）"
       },
       {
         "collection": "lexicon",
@@ -2144,7 +2329,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "修仙门派：蜀山剑派（自建 CC0）"
       }
     ],
     "tech": [
@@ -2159,7 +2345,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Agent 记忆库（SDK+检索）"
       },
       {
         "collection": "tech",
@@ -2172,7 +2359,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "纸研社·本地优先 AI 学术写作助手平台"
       },
       {
         "collection": "tech",
@@ -2185,7 +2373,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Anthropic 官方 TS SDK"
       },
       {
         "collection": "tech",
@@ -2198,7 +2387,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "图谱+向量混合 RAG 平台"
       },
       {
         "collection": "tech",
@@ -2211,7 +2401,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "中文/英文文本自动纠错（空格/标点/拼写，Go）"
       },
       {
         "collection": "tech",
@@ -2224,7 +2415,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 记忆研究清单仓（无代码）"
       },
       {
         "collection": "tech",
@@ -2237,7 +2429,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "网易有道双语 embedding/重排"
       },
       {
         "collection": "tech",
@@ -2250,7 +2443,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "桌面工作台：项目中心+三栏编辑+AI侧边栏，SQLite 本地优先，无自主生产链"
       },
       {
         "collection": "tech",
@@ -2263,7 +2457,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Claude 驱动书籍写作"
       },
       {
         "collection": "tech",
@@ -2276,7 +2471,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "图优先记忆管道（Kuzu/LanceDB）"
       },
       {
         "collection": "tech",
@@ -2289,7 +2485,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "DeepSeek 模型调用封装"
       },
       {
         "collection": "tech",
@@ -2302,7 +2499,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "IBM 文档解析（EPUB/DOCX/PDF→结构化）"
       },
       {
         "collection": "tech",
@@ -2315,7 +2513,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "嵌入式 OLAP（本地分析查询）"
       },
       {
         "collection": "tech",
@@ -2328,7 +2527,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Markdown 为真源的记忆运行时（cascade 对账模式）"
       },
       {
         "collection": "tech",
@@ -2341,7 +2541,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "JS/TS 属性测试库（随机测试+收缩）"
       },
       {
         "collection": "tech",
@@ -2354,7 +2555,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "知识库问答平台（可视化编排）"
       },
       {
         "collection": "tech",
@@ -2367,7 +2569,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "本地优先零 LLM agent 记忆系统（LongMemEval-S 73%）"
       },
       {
         "collection": "tech",
@@ -2380,7 +2583,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "书籍结构级清洗规则集"
       },
       {
         "collection": "tech",
@@ -2393,7 +2597,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "拖拽式 LLM 流程编排"
       },
       {
         "collection": "tech",
@@ -2406,7 +2611,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "乱码修复/Unicode 归一（mojibake 管线）"
       },
       {
         "collection": "tech",
@@ -2419,7 +2625,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "生成式 Agent 模拟（斯坦福 Smallville 记忆架构）"
       },
       {
         "collection": "tech",
@@ -2432,7 +2639,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "bi-temporal 时序知识图谱记忆引擎"
       },
       {
         "collection": "tech",
@@ -2445,7 +2653,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "微软图谱化 RAG（实体图+社区摘要）"
       },
       {
         "collection": "tech",
@@ -2458,7 +2667,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "数据质量断言框架"
       },
       {
         "collection": "tech",
@@ -2471,7 +2681,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "LLM 结构化生成控制框架（约束解码+模板）"
       },
       {
         "collection": "tech",
@@ -2484,7 +2695,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "会学习的 Agent 记忆（基准领先）"
       },
       {
         "collection": "tech",
@@ -2497,7 +2709,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "HIT-RAG：Human-in-the-Loop 检索增强生成——人标与检索注入闭环"
       },
       {
         "collection": "tech",
@@ -2510,7 +2723,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 文本人性化改写工具（模式库对照）"
       },
       {
         "collection": "tech",
@@ -2523,7 +2737,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 文本人性化改写工具变体"
       },
       {
         "collection": "tech",
@@ -2536,7 +2751,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 长篇小说平台（RAG+Style Profiling+故事上下文引擎）"
       },
       {
         "collection": "tech",
@@ -2549,7 +2765,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "无限画布开放文件格式规范"
       },
       {
         "collection": "tech",
@@ -2562,7 +2779,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "LLM 应用编排框架（链/检索器抽象）"
       },
       {
         "collection": "tech",
@@ -2575,7 +2793,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "生产级状态图 Agent 编排"
       },
       {
         "collection": "tech",
@@ -2588,7 +2807,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "轻量图谱 RAG"
       },
       {
         "collection": "tech",
@@ -2601,7 +2821,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "100+ 模型统一路由网关"
       },
       {
         "collection": "tech",
@@ -2614,7 +2835,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "LLM 数据框架（索引/检索范式全集）"
       },
       {
         "collection": "tech",
@@ -2627,7 +2849,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "PDF→Markdown（跨页页眉页脚去重思路）"
       },
       {
         "collection": "tech",
@@ -2640,7 +2863,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "微软万能格式→Markdown 转换"
       },
       {
         "collection": "tech",
@@ -2653,7 +2877,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Agent 长期记忆层（事实抽取+向量检索）"
       },
       {
         "collection": "tech",
@@ -2666,7 +2891,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "跨 agent 持久记忆层（md 真源+Milvus 影子索引）"
       },
       {
         "collection": "tech",
@@ -2679,7 +2905,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "TS 多模型抽象层"
       },
       {
         "collection": "tech",
@@ -2692,7 +2919,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "15 作者 persona 自动草稿循环+编辑合成（Claude Code 技能）"
       },
       {
         "collection": "tech",
@@ -2705,7 +2933,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Obsidian 插件 API 类型定义（导出兼容契约）"
       },
       {
         "collection": "tech",
@@ -2718,7 +2947,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Obsidian 小说角色管理社区插件"
       },
       {
         "collection": "tech",
@@ -2731,7 +2961,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "本地大模型运行时"
       },
       {
         "collection": "tech",
@@ -2744,7 +2975,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "工位制写作（Architect/Writer/Critics 分离）"
       },
       {
         "collection": "tech",
@@ -2757,7 +2989,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "OpenAI 官方 TS SDK"
       },
       {
         "collection": "tech",
@@ -2770,7 +3003,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "LLM 编译文档→互联 Markdown Wiki（无向量库）"
       },
       {
         "collection": "tech",
@@ -2783,7 +3017,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "四 Agent 单命令整本生成（Writer/Critic/Manager/Director）"
       },
       {
         "collection": "tech",
@@ -2796,7 +3031,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "中文 OCR+版面恢复（扫描书正交象限）"
       },
       {
         "collection": "tech",
@@ -2809,7 +3045,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "Python 数据分析标准库"
       },
       {
         "collection": "tech",
@@ -2822,7 +3059,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "中文排版自动加空格（JS 版）"
       },
       {
         "collection": "tech",
@@ -2835,7 +3073,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "pi coding agent 上游（与本地运行环境同源）"
       },
       {
         "collection": "tech",
@@ -2848,7 +3087,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "pandas 清洗链式扩展"
       },
       {
         "collection": "tech",
@@ -2861,7 +3101,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "知识图谱嵌入库（Python，KGE 模型全集）"
       },
       {
         "collection": "tech",
@@ -2874,7 +3115,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "RAG-Fusion 多路检索融合范式"
       },
       {
         "collection": "tech",
@@ -2887,7 +3129,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "开源 RAG 完整平台（检索+引用+Agent 编排）"
       },
       {
         "collection": "tech",
@@ -2900,7 +3143,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "重排序器统一接口"
       },
       {
         "collection": "tech",
@@ -2913,7 +3157,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "长篇故事生成引擎"
       },
       {
         "collection": "tech",
@@ -2926,7 +3171,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "故事写作 CLI 助手"
       },
       {
         "collection": "tech",
@@ -2939,7 +3185,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "腾讯云 Agent Memory（记忆存取 API 服务）"
       },
       {
         "collection": "tech",
@@ -2952,7 +3199,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "文本分块 TS 库"
       },
       {
         "collection": "tech",
@@ -2965,7 +3213,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "⚠ 图形渲染引擎——营销概念误入，域外留档"
       },
       {
         "collection": "tech",
@@ -2978,7 +3227,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 文本人性化改写工具变体"
       },
       {
         "collection": "tech",
@@ -2991,7 +3241,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "万能文档分区解析"
       },
       {
         "collection": "tech",
@@ -3004,7 +3255,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI 文本人性化改写工具变体"
       },
       {
         "collection": "tech",
@@ -3017,7 +3269,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "AI SDK 统一多模型流式接口"
       },
       {
         "collection": "tech",
@@ -3030,7 +3283,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "腾讯企业级 RAG+知识图谱+Wiki Mode"
       },
       {
         "collection": "tech",
@@ -3043,7 +3297,8 @@
         "query_intent": [
           "plan",
           "lookup"
-        ]
+        ],
+        "purpose": "多 agent 长篇生成系统（图谱记忆反馈循环 Write→Update→Query）"
       }
     ],
     "world_ref": [
@@ -3060,7 +3315,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）"
       },
       {
         "collection": "world_ref",
@@ -3075,7 +3331,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）"
       },
       {
         "collection": "world_ref",
@@ -3090,7 +3347,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）"
       },
       {
         "collection": "world_ref",
@@ -3105,7 +3363,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）"
       },
       {
         "collection": "world_ref",
@@ -3120,7 +3379,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）"
       },
       {
         "collection": "world_ref",
@@ -3135,7 +3395,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）"
       },
       {
         "collection": "world_ref",
@@ -3150,7 +3411,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）"
       },
       {
         "collection": "world_ref",
@@ -3165,7 +3427,8 @@
         "query_intent": [
           "lookup",
           "draft"
-        ]
+        ],
+        "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）"
       }
     ]
   }

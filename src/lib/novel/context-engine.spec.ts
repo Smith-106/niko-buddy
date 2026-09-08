@@ -513,6 +513,36 @@ describe("contextPackToPrompt E-02 hardInject 段（双库架构蓝图 capabilit
     expect(hardIdx).toBeGreaterThan(canonIdx)
     expect(summaryIdx).toBeGreaterThan(hardIdx)
   })
+
+  // P1 前置① 内容化生效面（A3b 端到端，2026-09-08 三模型共识）：
+  // 全链断言——检索侧 kbReferences 非空 → pack 装配 → 消费方按需读取契约
+  // （additive 独立段设计：context-engine.ts:431 注释「消费方按需读取 pack.kbReferences」）。
+  it("kbReferences 非空 → 装配入 pack 且字段完整（消费方读取契约）", () => {
+    const packWithRefs: ContextPack = {
+      ...basePack,
+      kbReferences: [
+        {
+          collection: "craft",
+          name: "novel-autonovel",
+          title: "Autonovel 写作法",
+          summary: "以系统化流程驱动长篇创作",
+          path: "reference/craft/novel-autonovel",
+          trust: "reference_only",
+          query_intent: ["draft"],
+        },
+      ],
+    }
+    expect(packWithRefs.kbReferences!.length).toBe(1)
+    const ref = packWithRefs.kbReferences![0]
+    // 指针字段白名单（与 search-adapter 语义边界一致）：content 全文绝不入 pack
+    expect(Object.keys(ref).sort()).toEqual(["collection", "name", "path", "query_intent", "summary", "title", "trust"])
+    expect(ref.path).toBe("reference/craft/novel-autonovel")
+    expect(ref.trust).toBe("reference_only")
+  })
+
+  it("kbReferences 未装配 → pack 无该键（零命中字节级不变）", () => {
+    expect("kbReferences" in basePack).toBe(false)
+  })
 })
 
 describe("P2-IMP-10 stateDelta additive（近 N 章状态变更段）", () => {

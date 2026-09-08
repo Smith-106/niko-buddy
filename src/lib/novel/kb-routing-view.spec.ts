@@ -156,14 +156,26 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
     for (const e of entries) {
       // F4（2026-09-07）：collections 面补 title/domain/query_intent —— 通道 B
       // hay=name+title+domain 中文匹配依赖（F1 分词后无 hay 即零命中）；
-      // content 类大字段（purpose/content/text/body）仍永不入包。
-      expect(Object.keys(e).sort()).toEqual(["collection", "domain", "name", "query_intent", "title", "trust"])
+      // P1 前置①（2026-09-08）：补 purpose 指针字段（消费端 summary≤200 截断，
+      // 消除 title-only 退化）；content 类大字段（content/text/body）仍永不入包。
+      expect(Object.keys(e).sort()).toEqual([
+        "collection",
+        "domain",
+        "name",
+        "purpose",
+        "query_intent",
+        "title",
+        "trust",
+      ])
       expect(e).not.toHaveProperty("content")
       expect(e).not.toHaveProperty("text")
       expect(e).not.toHaveProperty("body")
-      expect(e).not.toHaveProperty("purpose")
+      // purpose 为指针字段：长度受限（消费端 slice(0,200)），非 content 全文
+      expect(String(e.purpose ?? "").length).toBeLessThanOrEqual(200)
     }
-    expect(JSON.stringify(view).length).toBeLessThan(40_000)
+    // purpose 指针入包后体积预算上调（133 条 × ≤200 字符指针 ≈ 26KB 上限）；
+    // content 类大字段仍不入包（体积守恒语义不变）
+    expect(JSON.stringify(view).length).toBeLessThan(60_000)
   })
 })
 

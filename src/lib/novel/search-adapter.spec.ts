@@ -979,4 +979,44 @@ describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）
     expect(Array.isArray(res.kbReferences)).toBe(true)
     expect(res.kbReferences!.length).toBe(0)
   })
+
+  // P1 前置① 内容化生效面（A3b 端到端，2026-09-08 三模型共识）：
+  // 语义边界——kbReferences 只携带指针字段（title/summary≤200/path/trust），
+  // content 全文绝不入 pack（防「元数据指针冒充知识内容」粉饰）。
+  it("命中条目 → summary 来自 purpose 指针（≤200 截断）且无 content 全文泄漏", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "novel autonovel",
+      chapterNumber: 1,
+      intent: "draft",
+    })
+    expect(res.kbReferences!.length).toBeGreaterThan(0)
+    for (const ref of res.kbReferences!) {
+      // 指针字段白名单：仅 collection/name/title/summary/path/trust/query_intent
+      const keys = Object.keys(ref).sort()
+      expect(keys).toEqual(["collection", "name", "path", "query_intent", "summary", "title", "trust"])
+      // summary 若存在必为 purpose 截断指针（≤200），绝不携带 content 全文
+      if (ref.summary !== undefined) {
+        expect(ref.summary.length).toBeLessThanOrEqual(200)
+      }
+      // 任何字段不得出现 content 全文特征（长文本/换行块）
+      const serialized = JSON.stringify(ref)
+      expect(serialized.length).toBeLessThan(2048)
+      expect(serialized).not.toMatch(/\n{2,}/)
+    }
+  })
+
+  it("命中条目 → summary 非空（purpose 投影已贯通，非 title-only 退化）", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "novel autonovel",
+      chapterNumber: 1,
+      intent: "draft",
+    })
+    const withSummary = res.kbReferences!.filter((r) => r.summary !== undefined && r.summary.length > 0)
+    // 投影修复后 purpose 入包 → 命中条目应携带 summary 指针（title-only 退化已消除）
+    expect(withSummary.length).toBeGreaterThan(0)
+  })
 })
