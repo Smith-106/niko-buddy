@@ -7,9 +7,19 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.7.8**（2026-09-06 发布，notes-only 语义：安装包资产沿用 v2.7.7，源码 tip 已含 64 号实施全部能力）
+**v2.8.0**（2026-09-09 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.8.0 更新亮点（2026-09-09，R5 检索实测 + UI 补全 + 隔离加固）
+
+- ✅ **KB 影子双臂检索实测 harness** — 真实码路零镜像（routeByQueryIntent/tokensForKbMatch/rankByBm25/reorderByUsefulness），golden 34 双臂 baseline hitRate/top3/coverage 1.000 + paired 不变式；eval-gov-gate 实测消费 68 行（34/34 缺失 0）
+- ✅ **判别力毒化压力臂 v2（治疗-对照设计）** — veto 臂（带标记）覆盖恢复 +64.7pp（22/34，如实标注否决规则自洽面）vs fit 对照臂（无标记）0.0pp——增益归属锚定否决信号本身；差异化先验阈值 fail-loud，双断言入 test:mocks 常态套件（零 IO）
+- ✅ **设置页 KB 路由区** — dualKbRoutingEnabled / usefulnessRerankEnabled / hardInjectEnabled 三开关 + entityBoostWeight 0-1 权重输入
+- ✅ **设置页内容装配区** — exemplar / relatedChapters / reference / sceneBreakdown / conditionalRouting / inspector / stateDeltaBlocksTrackA 七开关
+- ✅ **治理 E-06 只读徽章** — 三项 DEFERRED 项徽章化呈现（不开 Switch，如实标注未接线）
+- ✅ **R5 采集触发 UI** — 同意门 + 按钮触发 + 串行互斥 + 状态文案（设置页内完成影子采集全流程）
+- ✅ **数据隔离加固** — 隔离审计 10 面核验全 ✓（LanceDB 项目级 / kb-shadow 遥测项目目录 + harness 独立根 / 三缓存键控 / consent 应用级 + 数据项目级 / single-instance / 原子写 / Draft-first）+ consent 作用域显式裁决（升级触发器已定）
 
 ### v2.7.8 更新亮点（2026-09-06，64 号实施：三轴 20 缺口）
 
