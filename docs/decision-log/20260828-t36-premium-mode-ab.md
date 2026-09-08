@@ -64,10 +64,10 @@
 
 ```powershell
 cd QMAI
-node scripts/ab-prepare-evidence.cjs          # 准备盲评材料
-node scripts/ab-prepare-judge-pool.cjs        # 生成评审模板
+node scripts/ab-prepare-evidence.mjs          # 准备盲评材料
+node scripts/ab-prepare-judge-pool.mjs        # 生成评审模板
 # 评审 J1, J2 独立完成评分
-node scripts/ab-score-aggregate.cjs           # 统计计算
+node scripts/ab-score-aggregate.mjs           # 统计计算
 ```
 
 ## 五、引用
@@ -78,4 +78,4 @@ node scripts/ab-score-aggregate.cjs           # 统计计算
 - `scripts/offline-replay.js`（`--ab` 模式）
 - `src/lib/novel/offline-replay-t36-ab-pair.spec.ts`
 - `src/lib/novel/offline-replay-config.ts`
-- `scripts/ab-score-aggregate.cjs`
+- `scripts/ab-score-aggregate.mjs`

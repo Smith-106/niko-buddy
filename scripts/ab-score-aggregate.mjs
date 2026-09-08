@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ab-score-aggregate.js — T36 真实补验轮统计计算
+ * ab-score-aggregate.mjs — T36 真实补验轮统计计算
  * 
  * 计算：
  *   1. 门槛①：六维 overall 中位差（精品−基线）+ bootstrap 95% CI（10000 次重采样）
@@ -17,8 +17,12 @@
  * 输出：stdout (统计报告)
  */
 
-const fs = require('fs')
-const path = require('path')
+import fs from 'fs'
+import path from 'path'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const EVIDENCE_DIR = path.join(__dirname, '..', 'docs', 'p6', 'ab-evidence')
 

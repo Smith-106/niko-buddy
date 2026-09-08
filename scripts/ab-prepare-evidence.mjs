@@ -1,5 +1,5 @@
 /**
- * ab-prepare-evidence.js — T36 真实补验轮：提取正文、随机化、生成盲评材料
+ * ab-prepare-evidence.mjs — T36 真实补验轮：提取正文、随机化、生成盲评材料
  * 
  * 输出：
  *   docs/p6/ab-evidence/evidence-pool.json   — 40 条随机化记录（供评审用）
@@ -7,9 +7,13 @@
  *   docs/p6/ab-evidence/pair-index.json       — 配对关系（评二元偏好用）
  */
 
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const ARMS_DIR = path.join(__dirname, '..', 'docs', 'p6', 'ab-evidence', 'arms')
 const OUTPUT_DIR = path.join(__dirname, '..', 'docs', 'p6', 'ab-evidence')

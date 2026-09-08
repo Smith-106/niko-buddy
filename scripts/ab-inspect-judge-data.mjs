@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// ab-inspect-judge-data.cjs — 检查评审数据质量
-const fs = require('fs')
+// ab-inspect-judge-data.mjs — 检查评审数据质量
+import fs from 'fs'
 
 const secret = JSON.parse(fs.readFileSync('docs/p6/ab-evidence/secret-mapping.json','utf-8'))
 const j1 = JSON.parse(fs.readFileSync('docs/p6/ab-evidence/judges/judge-1-scores.json','utf-8'))
