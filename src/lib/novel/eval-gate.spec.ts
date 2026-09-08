@@ -166,7 +166,7 @@ describe("P1-IMP-11 真实种子文件契约（docs/p0/gov-seed/gov-seed-v1.json
   it("文件存在且每行严格对齐 GOV_SEED_CASE_SCHEMA（schema 外字段即违反）", () => {
     const lines = readGovSeedFileLines()
     expect(lines.length).toBeGreaterThanOrEqual(20)
-    expect(lines.length).toBeLessThanOrEqual(50)
+    expect(lines.length).toBeLessThanOrEqual(120)
     for (const line of lines) {
       const raw = JSON.parse(line) as Record<string, unknown>
       const parsed = GOV_SEED_CASE_SCHEMA.parse(raw)
@@ -204,42 +204,25 @@ describe("P1-IMP-11 真实种子文件契约（docs/p0/gov-seed/gov-seed-v1.json
     }
   })
 
-  it("「未达 110 显式钉死」：v1 冷启动批 < GOV_SEED_MIN_SCALE → status=insufficient + violation 列表与实测规模一致（防误判就绪）", () => {
+  it("「110 达标显式钉死」：v1 全量（v1 36 + R2 74）≥ GOV_SEED_MIN_SCALE → status=ready + 0 scaleViolations（2026-09-08 R4 复核合入）", () => {
     const lines = readGovSeedFileLines()
     const set = loadGovSeedSet(lines)
-    // v1 首批 20-50 例 < 110 底线 → 恒 insufficient，绝不 ready（V5 不伪造就绪）
-    expect(lines.length).toBeLessThan(
+    // R4 复核合入后 110 例 ≥ 60/30/20 底线 → ready（V5 不伪造就绪：复核通过才合入）
+    expect(lines.length).toBeGreaterThanOrEqual(
       GOV_SEED_MIN_SCALE.obligationRecall + GOV_SEED_MIN_SCALE.poisonBlock + GOV_SEED_MIN_SCALE.canonViolationReplay,
     )
-    expect(set.status).toBe("insufficient")
-    // violation 列表与实测规模一致（六陷阱 ≥2 已达标 → trap 子校验零 violation）
-    const actual = {
-      obligation_recall: set.cases.filter((c) => c.category === "obligation_recall").length,
-      poison_block: set.cases.filter((c) => c.category === "poison_block").length,
-      canon_violation_replay: set.cases.filter((c) => c.category === "canon_violation_replay").length,
-    }
-    for (const v of set.scaleViolations) {
-      expect(v.actual).toBe(actual[v.category])
-      expect(v.expected).toBe(
-        v.category === "obligation_recall"
-          ? GOV_SEED_MIN_SCALE.obligationRecall
-          : v.category === "poison_block"
-            ? GOV_SEED_MIN_SCALE.poisonBlock
-            : GOV_SEED_MIN_SCALE.canonViolationReplay,
-      )
-    }
-    expect(set.scaleViolations.length).toBe(3) // 三类均未达（20-50 例冷启动）
+    expect(set.status).toBe("ready")
+    expect(set.scaleViolations.length).toBe(0)
   })
 
-  it("gate 语义：真实 v1 种子 → 恒 BLOCKED（绝无 PASS），剩余例待 IMP-06/07/08 就位后补齐", () => {
+  it("gate 语义：真实 v1 种子（110 例 ready）→ verdict=PASS（R4 复核合入后）", () => {
     const set = loadGovSeedSet(readGovSeedFileLines())
     const verdict = evaluateRetrievalGate({
       criteria: { canonViolationRate: 0, obligationCoverage: 1, atmosphereScore: 1 },
       seedStatus: set.status,
       scaleViolations: set.scaleViolations,
     })
-    expect(verdict.verdict).toBe("BLOCKED")
-    if (verdict.verdict === "BLOCKED") expect(verdict.reason).toBe("seed-insufficient")
+    expect(verdict.verdict).toBe("PASS")
   })
 })
 
