@@ -226,7 +226,7 @@ async function main() {
     `- seed_case_count: ${seedSet.cases.length}（110 底线 = 60/30/20+六陷阱各≥2；未达即 BLOCKED 不伪造就绪）`,
     `- scale_violations: ${seedSet.scaleViolations.map((v) => `${v.category}=${v.actual}/${v.expected}${v.detail ? `(${v.detail})` : ""}`).join("; ") || "无"}`,
     `- retrieval_adapter_available: ${adapter.available}（不可用时逐例记 retrieval_adapter_unavailable，绝不静默合成）`,
-    `- shadow_arms: 三 flag（${SHADOW_FLAGS.join(" / ")}）开/关对照；进程内 store 不可用 → pending（真实双臂待 Tauri 运行时影子期采集）`,
+    `- shadow_arms: 三 flag（${SHADOW_FLAGS.join(" / ")}）开/关对照；进程内 store 不可用 → pending（真实双臂待 Tauri 运行时影子期采集，SOP 见 docs/p0/gov-seed/README.md；ADR-47 判定式挂钩：回归防线常驻 ∧ 双臂对照不引入新确定缺陷 → 检索维实测解锁，不达标降回字面口径重议 95）`,
     `- trap_interception 注记: -1 = 种子未就绪或检索 adapter 不可用，逐例未采集，非拦截失败`,
     `- pending_after_IMP06_07_08: 种子 110 例齐备依赖 IMP-06（trust 接线）/IMP-07（intent 路由）/IMP-08（kb-view 就位）后补齐`,
     "",

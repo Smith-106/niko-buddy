@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --build --pretty",
+    "typecheck:force": "tsc --build --force --pretty",
     "lint": "eslint .",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",

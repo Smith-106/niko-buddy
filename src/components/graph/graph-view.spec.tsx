@@ -15,10 +15,11 @@ import { GraphView } from "./graph-view"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
 
 // 覆盖率负载下 sigma 渲染较慢：放宽 waitFor 默认超时，避免时序偶发
-configure({ asyncUtilTimeout: 10000 })
+configure({ asyncUtilTimeout: 30000 })
 // T5 flaky 治理（2026-08-23）：全量并发下 fork worker 启动/渲染易击穿默认 5s
-// testTimeout（实测 source-sidebar 类场景 5486ms 超时）。文件级放宽到 15s。
-vi.setConfig({ testTimeout: 15_000 })
+// testTimeout（实测 source-sidebar 类场景 5486ms 超时）。R7（2026-09-08）提至 30s
+// 消除全量并发下剩余 10s 击穿（隔离 74/74 绿已证无产品缺陷）。
+vi.setConfig({ testTimeout: 30_000 })
 
 interface WikiStateLike {
   project: { id: string; name: string; path: string } | null
