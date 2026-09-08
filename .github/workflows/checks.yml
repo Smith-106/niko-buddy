@@ -20,6 +20,11 @@
 #   gate (B3 checkKbRoutingView), so ci.yml carries no duplicate.
 # - run-e2e input is declared in B1 but not consumed yet: E2E stays in the
 #   caller in B1 (exec-plan P0-3); later batches wire it.
+# - M0 fix (2026-09-09): B1's install/node-gates split silently dropped the
+#   checkout from node-gates (job workspaces do not persist across jobs),
+#   so CI ran npm in an empty workspace (ENOENT package.json, run 34261789514).
+#   Merged back into a single self-sufficient job: checkout + setup + npm ci
+#   + gates. Gate run strings are unchanged (uniqueness assertions hold).
 
 name: Node Gates (reusable)
 
@@ -37,7 +42,7 @@ on:
         type: boolean
 
 jobs:
-  install:
+  node-gates:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,10 +57,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-  node-gates:
-    needs: install
-    runs-on: ubuntu-latest
-    steps:
       - name: Typecheck (tsc, force)
         # ADR-47 回归防线：--force 禁增量缓存假绿（e2522af6 教训）
         run: npm run typecheck:force
