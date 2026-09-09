@@ -15,6 +15,9 @@
 /** 灰区误判率对区间外的最大倍数（共识定死）。 */
 export const GRAY_MISJUDGE_RATIO_CAP = 1.5
 
+/** 灰区人工复核的 Kappa 达标线（与 T01b 黄金集 κ≥0.7 对齐，Landis-Koch substantial）。 */
+export const GRAY_KAPPA_QUALIFIED = 0.7
+
 /** 灰区复审结果。 */
 export interface GrayZoneReviewResult {
   /** 灰区样本总数。 */
@@ -49,4 +52,29 @@ export function evaluateGrayZone(
     outsideMisjudgeRate,
     boundaryStable: ratio <= GRAY_MISJUDGE_RATIO_CAP,
   }
+}
+
+/**
+ * 两评审二元判定向量的 Cohen's κ 一致性（纯函数——确定性）。
+ * 输入：评审 A 与评审 B 对同批样本的 accept/reject 向量；输出：κ ∈ [-1,1]。
+ * 语义：κ = (Po - Pe) / (1 - Pe)；完美一致 = 1；κ ≥ 0.7 substantial。
+ * 注：数学与 novel 域 corpus-kappa.ts 同族（Cohen 1960），quality 域内联实现避免跨域反向依赖。
+ */
+export function kappaAgreement(raterA: boolean[], raterB: boolean[]): number {
+  const n = Math.min(raterA.length, raterB.length)
+  if (n === 0) return 0
+  // 混淆矩阵：n11=同真 n00=同假 n10/n01=分歧
+  let n11 = 0
+  let n00 = 0
+  let aTrue = 0
+  let bTrue = 0
+  for (let i = 0; i < n; i++) {
+    if (raterA[i]) aTrue++
+    if (raterB[i]) bTrue++
+    if (raterA[i] && raterB[i]) n11++
+    else if (!raterA[i] && !raterB[i]) n00++
+  }
+  const po = (n11 + n00) / n
+  const pe = (aTrue * bTrue + (n - aTrue) * (n - bTrue)) / (n * n)
+  return pe === 1 ? 1 : (po - pe) / (1 - pe)
 }

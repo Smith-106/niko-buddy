@@ -4,12 +4,15 @@
  * 三闭环断言：①D6 漂移→灰区复核 ②D7 P0 失败→锁死 ③D8 漂移门→Q0 重审计
  * 用法：node scripts/verify-dod-v2611.js
  *
- * !!! 坏死事实（2026-09-09 归档注记）：本脚本结构性坏死——第 12 行
+ * !!! 坏死事实（2026-09-09 归档注记；同日已修复）：本脚本曾结构性坏死——第 12 行
  * import { kappaAgreement } from gray-zone-review.ts，但该函数从未导出
  * （gray-zone-review.ts 仅导出 GRAY_MISJUDGE_RATIO_CAP / GrayZoneReviewResult /
  * evaluateGrayZone），加载即 SyntaxError（The requested module does not provide
  * an export named 'kappaAgreement'），全部断言永不执行。取证见
- * .workflow/harvest-staging/forensics-20260909/eng-view2.md。归档不修复。
+ * .workflow/harvest-staging/forensics-20260909/eng-view2.md。
+ * 2026-09-09 处置：kappaAgreement 已在 gray-zone-review.ts 实现并导出（内联
+ * Cohen κ）；本脚本断言已迁移至 src/lib/quality/__tests__/v2611.dod.spec.ts
+ * （①组 2 个愿景 API 断言按真实 3 参 API 语义适配）。本文件保留历史记录不删。
  */
 import { buildFingerprint, detectDrift, verifyAnchorKey } from "../src/lib/quality/domain-drift-baseline.ts"
 import { evaluateCrossDimension } from "../src/lib/quality/cross-dimension-gate.ts"
