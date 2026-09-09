@@ -38,6 +38,21 @@ afterEach(() => {
 })
 
 describe("getHttpFetch (node runtime)", () => {
+  it("uses native fetch in a plain browser without Tauri internals (P2-4 absorb)", async () => {
+    vi.stubGlobal("window", {})
+    vi.resetModules()
+    const nativeFetchStub = vi.fn(async () => new Response("ok"))
+    vi.stubGlobal("fetch", nativeFetchStub)
+
+    const mod = await import("./tauri-fetch")
+    mod.resetHttpFetchForTests()
+    const httpFetch = await mod.getHttpFetch()
+
+    await expect(httpFetch("https://example.com")).resolves.toBeInstanceOf(Response)
+    // withUrlGuard always forwards (input, init); init is undefined when omitted.
+    expect(nativeFetchStub).toHaveBeenCalledWith("https://example.com", undefined)
+  })
+
   it("wraps platform fetch and passes safe HTTPS requests through with init", async () => {
     const fetchStub = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response("ok"))
     vi.stubGlobal("fetch", fetchStub)

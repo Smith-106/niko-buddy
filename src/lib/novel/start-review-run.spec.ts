@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
-import { startNovelReviewRun } from "./start-review-run"
+import { resolveReviewChapterTarget, startNovelReviewRun } from "./start-review-run"
 
 const mocks = vi.hoisted(() => ({
   reviewChapter: vi.fn(),
@@ -21,6 +21,26 @@ vi.mock("./revision-feedback", () => ({
   persistRevisionFeedbackForChapter: mocks.persistRevisionFeedbackForChapter,
   pickRevisionFeedbackFromReviewResults: mocks.pickRevisionFeedbackFromReviewResults,
 }))
+
+describe("resolveReviewChapterTarget (pure fn, P2-4 absorb)", () => {
+  it("prefers selected chapter file name over stale frontmatter", () => {
+    const content = [
+      "---",
+      "type: chapter",
+      "chapter_number: 3",
+      'title: "Chapter 3"',
+      "---",
+      "",
+      "# Chapter 2",
+      "",
+      "Body.",
+    ].join("\n")
+
+    const target = resolveReviewChapterTarget(content, "/project/wiki/chapters/chapter-002.md")
+
+    expect(target.chapterNumber).toBe(2)
+  })
+})
 
 describe("startNovelReviewRun", () => {
   beforeEach(() => {

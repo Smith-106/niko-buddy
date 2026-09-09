@@ -79,6 +79,22 @@ jobs:
         # 内联 step 已删除，R17 4.4 无双重定义）。
         run: npm run gen:check
 
+      - name: Test file naming gate (P2-4)
+        # 白名单收敛断言：仓内不得再出现 tracked / ignored-漏网的 *.test.*
+        # （vitest 收集面统一 .spec/.test 双宽，但 git 面只收 .spec；.
+        # .novel/.workflow 忽略行是保险丝，不在此断言范围）。
+        run: |
+          set -e
+          TRACKED=$(git ls-files | grep -E '\.test\.(ts|tsx)$' | wc -l)
+          LEAKED=$(git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.(ts|tsx)$' | wc -l)
+          if [ "$TRACKED" -ne 0 ] || [ "$LEAKED" -ne 0 ]; then
+            echo "::error::P2-4 gate: tracked=$TRACKED leaked=$LEAKED (src 内 .test.* 必须为 .spec.*)"
+            git ls-files | grep -E '\.test\.(ts|tsx)$' || true
+            git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.(ts|tsx)$' || true
+            exit 1
+          fi
+          echo "P2-4 naming gate OK (tracked=0 leaked=0)"
+
   analytics-worker:
     # exec-plan P1-1 + 登记簿 v2 glm-ADD-1 过渡编译门（transitional gate）。
     # 撤除触发器（removal trigger）= worker CI 正式化记录（独立的 worker 仓/

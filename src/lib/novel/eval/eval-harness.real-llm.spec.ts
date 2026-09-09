@@ -1,7 +1,7 @@
 /**
- * eval-harness.real-llm.test.ts — F1 G1 骨架 C 门：真实基线回放。
+ * eval-harness.real-llm.spec.ts — F1 G1 骨架 C 门：真实基线回放。
  *
- * 命名 .test.ts（非 .spec.ts）：test:mocks 排除表仅含 *.real-llm.test.ts，
+ * 命名 .spec.ts（P2-4 收敛）：test:mocks 排除表含 *.real-llm.spec.ts，
  * 由 eval:l3（cross-env REAL_LLM=1）显式运行。
  *
  * F3 真实接线（eval-real-baseline-path.md §2）：

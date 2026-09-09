@@ -27,7 +27,7 @@
     "bench": "vitest run bench --reporter=verbose",
     "bench:llm": "cross-env REAL_LLM=1 vitest run src/lib/novel/llm-latency.bench.ts",
     "eval:baseline": "node scripts/eval-baseline.mjs",
-    "eval:l3": "cross-env REAL_LLM=1 vitest run src/lib/novel/eval/eval-harness.real-llm.test.ts --no-file-parallelism --reporter=verbose",
+    "eval:l3": "cross-env REAL_LLM=1 vitest run src/lib/novel/eval/eval-harness.real-llm.spec.ts --no-file-parallelism --reporter=verbose",
     "eval:gov": "node scripts/eval-gov-gate.mjs",
     "bench:startup": "vitest run src/test-helpers/startup.bench.ts",
     "test:coverage": "vitest run --exclude=\"**/*.real-llm.test.ts\" --exclude=\"**/*.real-llm.spec.ts\" --exclude=\"**/*.bench.ts\" --exclude=\"**/.worktrees/**\" --exclude=\"**/.codex-temp/**\" --exclude=\"**/superpowers-main/**\" --exclude=\"**/SKILL/**\" --exclude=\"**/superpowers/**\" --coverage"
