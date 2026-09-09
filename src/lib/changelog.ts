@@ -15,6 +15,21 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.8.1",
+    date: "2026-09-09",
+    highlights: {
+      en: [
+        "Post-tag settlement batch backfill: P1-3 DoD migration to vitest specs + v26x archive (1d6858bf); P2-1 ab-* scripts cjs-to-mjs ESM normalization (a2a463a7); P2-5 canon domain grouping into canon/ module dir, pure move (694312b1); R1 kappaAgreement revival as inline Cohen kappa diagnostic metric (608f6070); R3 repo-wide cargo fmt normalization + CI rust-fmt gate (c3d2476b).",
+        "Process debt governance: eslint warning ratchet tightened 163 to 162 (--max-warnings cap reset to measured value; T18 barrel refactor continues downward).",
+      ],
+      zh: [
+        "Post-tag 清偿批次补录：P1-3 DoD 迁移 vitest specs + v26x 归档（1d6858bf）；P2-1 ab-* 脚本 cjs→mjs ESM 规范化（a2a463a7）；P2-5 canon 域分组入 canon/ 模块目录，纯移动（694312b1）；R1 kappaAgreement 复活为内联 Cohen kappa 诊断面指标（608f6070）；R3 全仓 cargo fmt 规范化 + CI rust-fmt 门（c3d2476b）。",
+        "过程债务治理：eslint 棘轮回紧 163→162（--max-warnings cap 回紧至实测值；T18 barrel 重构继续下行）。",
+      ],
+    },
+  },
+
+  {
     version: "2.8.0",
     date: "2026-09-09",
     highlights: {

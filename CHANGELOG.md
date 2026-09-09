@@ -7,6 +7,26 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.8.1] - 2026-09-09
+
+### Post-tag 清偿批次补录（exec-plan-20260908 蓝本清偿，2026-09-09）
+
+> 补录 v2.8.0 tag 后 5 个清偿 commits（B1 债，登记簿 consensus-todo-register-20260909 建议批次）。
+
+- **P1-3 DoD 迁移（1d6858bf）**：verify-dod v27x 迁移 vitest specs + v26x 归档（v2611 坏死标注）
+- **P2-1 cjs→mjs（a2a463a7）**：ab-* 脚本 ESM 规范化 + 归档 tmp-split-check2 + 拆聚合 shim
+- **P2-5 canon 纯移（694312b1）**：canon 域分组入 canon/ 模块目录（纯移动零签名变更）
+- **R1 kappaAgreement 复活（608f6070）**：kappaAgreement（内联 Cohen kappa，诊断面指标）+ v2611 DoD 断言迁移 vitest spec
+- **R3 cargo fmt（c3d2476b）**：全仓 cargo fmt 规范化（210 个存量 hunks）+ CI rust-fmt 门
+
+### 过程债务治理（B2）
+
+- **eslint 棘轮回紧 163→162**：--max-warnings cap 回紧至实测值（c3d2476b 树型五门 CI 绿实测 162），T18 barrel 重构继续下行
+
+### 验证
+
+typecheck 0 错误 / vitest 全量绿 / eslint 162 warnings 0 error（cap 162）/ cargo fmt 门绿
+
 ## [2.8.0] - 2026-09-09
 
 ### P2 过程/项目记忆库清偿批次（三模型共识 2026-09-07）
