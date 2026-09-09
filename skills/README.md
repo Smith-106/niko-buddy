@@ -103,3 +103,5 @@ description: |
 ---
 
 **注意**：本目录的内容是应用运行时必需的资源，请勿删除或重命名。
+
+**Python 文件口径**：`skills/soulskill/mrbeast-perspective/scripts/*.py`（3 个）为上游 skill 打包资产，不参与 QMAI 构建链（应用侧 scripts/*.py 已归零，exec-plan P2-2 残量规则 ADD-A2 例外）。
