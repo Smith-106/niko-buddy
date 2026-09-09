@@ -63,7 +63,10 @@ fn spec_decay_table_d0_identity_for_all_params() {
 fn spec_decay_table_alpha_zero_constant_one() {
     let table = WindowDecayTable::new(0.0, 1.7, 64);
     for d in [0, 1, 17, 63, 64, 65, 10_000] {
-        assert!((table.weight(d) - 1.0).abs() < 1e-12, "α=0 → weight 1.0 at d={d}");
+        assert!(
+            (table.weight(d) - 1.0).abs() < 1e-12,
+            "α=0 → weight 1.0 at d={d}"
+        );
     }
 }
 

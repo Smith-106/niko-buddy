@@ -32,13 +32,11 @@
 //!     物理回退 schema（已核实 0.27 支持 checkout/restore）。
 
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
-use arrow_array::{
-    Array, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray,
-};
+use arrow_array::{Array, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
 use lancedb::connect;
@@ -46,14 +44,14 @@ use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::table::{CompactionOptions, NewColumnTransform, OptimizeAction};
 use lancedb::Table;
 
-use crate::canon::types::{
-    self as canon_types, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode, CanonEvent,
-    ConflictClass, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
-    SupersedeRequest, SupersedeResult, CURRENT_SCHEMA_VERSION, CANON_TABLE_EDGES,
-    CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META,
-};
 #[cfg(test)]
 use crate::canon::types::EdgeKind;
+use crate::canon::types::{
+    self as canon_types, plan_migration, CanonEdge, CanonEdgeFilter, CanonEntity, CanonEpisode,
+    CanonEvent, ConflictClass, IngestKey, MigrationPlan, SchemaManifest, SchemaVersion,
+    SupersedeRequest, SupersedeResult, CANON_TABLE_EDGES, CANON_TABLE_ENTITIES,
+    CANON_TABLE_EPISODES, CANON_TABLE_EVENTS, CANON_TABLE_META, CURRENT_SCHEMA_VERSION,
+};
 
 // ──────────────────────────────────────────────────────────────────────────
 // 53 号报告 P0-2: 确定性冲突语义分类 (graphiti dedupe/contradiction 语义,
@@ -277,9 +275,7 @@ fn meta_batch(key: &str, value: &str) -> Result<RecordBatch, String> {
 // ──────────────────────────────────────────────────────────────────────────
 
 fn read_data_column(batch: &RecordBatch) -> Result<Vec<String>, String> {
-    let col = batch
-        .column_by_name("data")
-        .ok_or("missing data column")?;
+    let col = batch.column_by_name("data").ok_or("missing data column")?;
     let arr = col
         .as_any()
         .downcast_ref::<StringArray>()
@@ -566,11 +562,7 @@ impl CanonState {
             return false;
         }
         // 同 id 替换（防御性），但 (chapter,digest) 不同则追加。
-        if let Some(slot) = self
-            .episodes
-            .iter_mut()
-            .find(|x| x.id == ep.id)
-        {
+        if let Some(slot) = self.episodes.iter_mut().find(|x| x.id == ep.id) {
             *slot = ep;
         } else {
             self.episodes.push(ep);
@@ -686,7 +678,9 @@ impl CanonStore {
 
         // manifest：新库（表刚建）= CURRENT；遗留库无 meta 行 = v1（触发迁移）
         let manifest = if entities_existed {
-            Self::load_manifest(&db).await?.unwrap_or_else(|| SchemaManifest::new(SchemaVersion(1)))
+            Self::load_manifest(&db)
+                .await?
+                .unwrap_or_else(|| SchemaManifest::new(SchemaVersion(1)))
         } else {
             let m = SchemaManifest::new(CURRENT_SCHEMA_VERSION);
             Self::save_manifest(&db, &m).await?;
@@ -825,9 +819,7 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open entities: {x}"))?;
-        let _ = table
-            .delete(&format!("id = {}", sql_str(&e.id)))
-            .await;
+        let _ = table.delete(&format!("id = {}", sql_str(&e.id))).await;
         let batch = entities_batch(&e)?;
         table
             .add(vec![batch])
@@ -846,9 +838,7 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open edges: {x}"))?;
-        let _ = table
-            .delete(&format!("id = {}", sql_str(&e.id)))
-            .await;
+        let _ = table.delete(&format!("id = {}", sql_str(&e.id))).await;
         let batch = edges_batch(&e)?;
         table
             .add(vec![batch])
@@ -890,9 +880,7 @@ impl CanonStore {
         }
         e.invalid_at = Some(cap_chapter);
         // delete 旧行 + add 封顶后行
-        let _ = table
-            .delete(&format!("id = {}", sql_str(edge_id)))
-            .await;
+        let _ = table.delete(&format!("id = {}", sql_str(edge_id))).await;
         let batch = edges_batch(&e)?;
         table
             .add(vec![batch])
@@ -1086,9 +1074,7 @@ impl CanonStore {
             return Ok(false);
         }
         // 同 id 先 delete（防御性幂等）
-        let _ = table
-            .delete(&format!("id = {}", sql_str(&ep.id)))
-            .await;
+        let _ = table.delete(&format!("id = {}", sql_str(&ep.id))).await;
         let batch = episodes_batch(&ep)?;
         table
             .add(vec![batch])
@@ -1116,7 +1102,9 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open episodes: {x}"))?;
-        let mut q = table.query().only_if(format!("chapter_number = {}", chapter_number));
+        let mut q = table
+            .query()
+            .only_if(format!("chapter_number = {}", chapter_number));
         if let Some(off) = offset {
             q = q.offset(off);
         }
@@ -1290,18 +1278,29 @@ impl CanonStore {
 
         // 捕获各表迁移前 LanceDB 版本（rollback 数据层用）
         let mut pre_versions: HashMap<String, u64> = HashMap::new();
-        for tname in [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES] {
+        for tname in [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+        ] {
             let t = self
                 .db
                 .open_table(tname)
                 .execute()
                 .await
                 .map_err(|e| format!("open {tname}: {e}"))?;
-            pre_versions.insert(tname.to_string(), t.version().await.map_err(|e| format!("version: {e}"))?);
+            pre_versions.insert(
+                tname.to_string(),
+                t.version().await.map_err(|e| format!("version: {e}"))?,
+            );
         }
 
         // 按表分组 additive 列，跳过已存在列（幂等）
-        for tname in [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES] {
+        for tname in [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+        ] {
             let cols: Vec<_> = plan
                 .added_columns
                 .iter()
@@ -1353,7 +1352,11 @@ impl CanonStore {
             return Ok(());
         }
         let pre = Self::load_lance_pre_migrate(&self.db).await?;
-        for tname in [CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES] {
+        for tname in [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+        ] {
             if let Some(&v) = pre.get(tname) {
                 let table = self
                     .db
@@ -1680,7 +1683,10 @@ mod tests {
         assert_eq!(r.inserted, 1);
         assert_eq!(r.missing, vec!["ghost".to_string()]);
         assert_eq!(r.duplicate_skipped, 0);
-        assert!(r.conflict_notes.iter().any(|n| n.contains("new_edge_id=new1:contradicted")));
+        assert!(r
+            .conflict_notes
+            .iter()
+            .any(|n| n.contains("new_edge_id=new1:contradicted")));
         // old1 封顶
         assert_eq!(
             s.edges.iter().find(|e| e.id == "old1").unwrap().invalid_at,
@@ -1698,7 +1704,10 @@ mod tests {
         existing.digest = "abc".into();
         let mut new_e = edge("new1", Some(2), None);
         new_e.digest = "abc".into();
-        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Duplicate);
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Duplicate
+        );
     }
 
     #[test]
@@ -1707,7 +1716,10 @@ mod tests {
         // 幂等键不自动判 duplical (宁漏勿误, 不误拦合法同事实更正)
         let existing = edge("e1", Some(1), None);
         let new_e = edge("new1", Some(2), None);
-        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Independent
+        );
     }
 
     #[test]
@@ -1715,7 +1727,10 @@ mod tests {
         // 全等键但区间不重叠 (旧边已封顶) → 非重复, 正常插入
         let existing = edge("e1", Some(1), Some(3));
         let new_e = edge("new1", Some(5), None);
-        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Independent
+        );
     }
 
     #[test]
@@ -1737,7 +1752,10 @@ mod tests {
         existing.digest = "abc".into();
         let mut new_e = edge("new1", Some(5), None);
         new_e.digest = "abc".into();
-        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Independent
+        );
     }
 
     #[test]
@@ -1748,7 +1766,10 @@ mod tests {
         let mut new_e = edge("new1", Some(2), None);
         new_e.source_id = "srcB".into();
         new_e.predicate = "hates".into();
-        assert_eq!(classify_conflict(&new_e, &[existing]), ConflictClass::Independent);
+        assert_eq!(
+            classify_conflict(&new_e, &[existing]),
+            ConflictClass::Independent
+        );
     }
 
     #[test]
@@ -1815,7 +1836,11 @@ mod tests {
         // dry-run：不演化
         let dry = s.migrate_dry_run(CURRENT_SCHEMA_VERSION);
         assert!(!dry.is_empty());
-        assert_eq!(s.manifest.version, SchemaVersion(1), "dry-run no side effect");
+        assert_eq!(
+            s.manifest.version,
+            SchemaVersion(1),
+            "dry-run no side effect"
+        );
         // up
         let plan = s.migrate_up(CURRENT_SCHEMA_VERSION);
         assert_eq!(s.manifest.version, CURRENT_SCHEMA_VERSION);
@@ -1997,8 +2022,14 @@ mod tests {
     async fn canon_lancedb_supersede_batch() {
         let p = tmp_project();
         let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
-        store.upsert_edge(edge("old1", Some(1), None)).await.unwrap();
-        store.upsert_edge(edge("old2", Some(1), None)).await.unwrap();
+        store
+            .upsert_edge(edge("old1", Some(1), None))
+            .await
+            .unwrap();
+        store
+            .upsert_edge(edge("old2", Some(1), None))
+            .await
+            .unwrap();
         let new1 = edge("new1", Some(5), None);
         let res = store
             .supersede_edges(SupersedeRequest {
@@ -2129,7 +2160,10 @@ mod tests {
         // add_columns 后表对象需重开（schema 缓存）
         let t2 = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
         let after = t2.schema().await.unwrap().fields().len();
-        assert_eq!(after, 10, "v1(7) + archived + embedding_model + embedding_version");
+        assert_eq!(
+            after, 10,
+            "v1(7) + archived + embedding_model + embedding_version"
+        );
 
         // rollback → 物理回退到迁移前版本
         store.migrate_rollback(SchemaVersion(1)).await.unwrap();
@@ -2144,12 +2178,7 @@ mod tests {
     async fn canon_lancedb_open_creates_all_tables() {
         let p = tmp_project();
         let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
-        let names = store
-            .db
-            .table_names()
-            .execute()
-            .await
-            .unwrap();
+        let names = store.db.table_names().execute().await.unwrap();
         for t in [
             CANON_TABLE_ENTITIES,
             CANON_TABLE_EDGES,
@@ -2197,9 +2226,15 @@ mod tests {
         let report = store.compact_tables().await.unwrap();
         // 报告应包含所有三表（使用常量表名）
         assert_eq!(report.tables_compacted.len(), 4);
-        assert!(report.tables_compacted.contains(&CANON_TABLE_ENTITIES.to_string()));
-        assert!(report.tables_compacted.contains(&CANON_TABLE_EDGES.to_string()));
-        assert!(report.tables_compacted.contains(&CANON_TABLE_EPISODES.to_string()));
+        assert!(report
+            .tables_compacted
+            .contains(&CANON_TABLE_ENTITIES.to_string()));
+        assert!(report
+            .tables_compacted
+            .contains(&CANON_TABLE_EDGES.to_string()));
+        assert!(report
+            .tables_compacted
+            .contains(&CANON_TABLE_EPISODES.to_string()));
 
         // compaction 后查询正确性：仍可查到写的数据
         let all = store
@@ -2233,9 +2268,13 @@ mod tests {
             .supersede_edges(SupersedeRequest {
                 old_edge_ids: vec!["old-c1".into()],
                 cap_chapter: 5,
-                new_edges: vec![
-                    CanonEdge::new("new-c1", "alice", "bob", "knows", EdgeKind::WorldFact),
-                ],
+                new_edges: vec![CanonEdge::new(
+                    "new-c1",
+                    "alice",
+                    "bob",
+                    "knows",
+                    EdgeKind::WorldFact,
+                )],
                 caused_by: None,
             })
             .await
@@ -2332,10 +2371,18 @@ mod tests {
         assert_eq!(s.edges[0].invalid_at, Some(5));
         // 再次封顶在 ch10（更晚）：幂等跳过（已有 ch5 更早，更严格）
         assert!(s.invalidate_edge("ed1", 10));
-        assert_eq!(s.edges[0].invalid_at, Some(5), "monotonic: existing ch5 <= ch10, skip");
+        assert_eq!(
+            s.edges[0].invalid_at,
+            Some(5),
+            "monotonic: existing ch5 <= ch10, skip"
+        );
         // 第三次封顶在 ch3（更早）：应更新（ch3 比 ch5 更严格）
         assert!(s.invalidate_edge("ed1", 3));
-        assert_eq!(s.edges[0].invalid_at, Some(3), "monotonic: ch3 < ch5, update to stricter cap");
+        assert_eq!(
+            s.edges[0].invalid_at,
+            Some(3),
+            "monotonic: ch3 < ch5, update to stricter cap"
+        );
         // 同值幂等
         assert!(s.invalidate_edge("ed1", 3));
         assert_eq!(s.edges[0].invalid_at, Some(3), "same value: skip");
@@ -2390,22 +2437,34 @@ mod tests {
         store.ingest_episode(ep3).await.unwrap();
 
         // 按 chapter=1 查询（无分页 = 旧语义全量）
-        let (eps, total) = store.query_episodes_by_chapter(1, None, None).await.unwrap();
+        let (eps, total) = store
+            .query_episodes_by_chapter(1, None, None)
+            .await
+            .unwrap();
         assert_eq!(eps.len(), 2);
         assert_eq!(total, 2);
         assert!(eps.iter().any(|e| e.digest == "digest-a"));
         assert!(eps.iter().any(|e| e.digest == "digest-b"));
 
         // 按 chapter=3（无数据）
-        let (empty, total0) = store.query_episodes_by_chapter(3, None, None).await.unwrap();
+        let (empty, total0) = store
+            .query_episodes_by_chapter(3, None, None)
+            .await
+            .unwrap();
         assert_eq!(empty.len(), 0);
         assert_eq!(total0, 0);
 
         // v2.8 P1-2：分页（offset/limit）——total 保持全量计数
-        let (page, total_page) = store.query_episodes_by_chapter(1, Some(0), Some(1)).await.unwrap();
+        let (page, total_page) = store
+            .query_episodes_by_chapter(1, Some(0), Some(1))
+            .await
+            .unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(total_page, 2);
-        let (page2, _) = store.query_episodes_by_chapter(1, Some(1), Some(1)).await.unwrap();
+        let (page2, _) = store
+            .query_episodes_by_chapter(1, Some(1), Some(1))
+            .await
+            .unwrap();
         assert_eq!(page2.len(), 1);
         assert_ne!(page[0].digest, page2[0].digest);
     }
@@ -2438,8 +2497,8 @@ mod tests {
     // §B canon_events 审计表（选项 Z + ox-alpha 升级）
     // ──────────────────────────────────────────────────────────────────────
 
-    use std::sync::Arc;
     use arrow_array::{Int32Array, Int64Array, RecordBatch, StringArray};
+    use std::sync::Arc;
 
     fn make_supersede_request(
         old: &[&str],
@@ -2474,7 +2533,11 @@ mod tests {
         store.append_canon_event(&mut ev2).await.unwrap();
 
         let events = store.query_canon_events().await.unwrap();
-        assert_eq!(events.len(), 1, "重复 supersede 不复制事件（query-before-add）");
+        assert_eq!(
+            events.len(),
+            1,
+            "重复 supersede 不复制事件（query-before-add）"
+        );
         assert_eq!(events[0].event_id, ev1.event_id, "幂等：同 event_id");
     }
 
@@ -2528,7 +2591,10 @@ mod tests {
         let p = tmp_project();
         let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
         // 预置旧边
-        store.upsert_edge(edge("old1", Some(1), None)).await.unwrap();
+        store
+            .upsert_edge(edge("old1", Some(1), None))
+            .await
+            .unwrap();
         // 预置新边（尚未插入，用于后续对比）
         let new1 = edge("new1", Some(5), None);
 
@@ -2541,13 +2607,18 @@ mod tests {
 
         // impl 语义：append Err ⇒ `?` 早退，supersede_edges 绝不执行 → 零边变更。
         // 此处直接验证「未调用 supersede 时的边状态」：旧边未封顶、新边未插入。
-        let edges = store.query_edges(&CanonEdgeFilter::default()).await.unwrap();
+        let edges = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
         assert!(
             edges.iter().all(|e| e.id != "new1"),
             "新边未插入（零边变更）"
         );
         assert!(
-            edges.iter().any(|e| e.id == "old1" && e.invalid_at.is_none()),
+            edges
+                .iter()
+                .any(|e| e.id == "old1" && e.invalid_at.is_none()),
             "旧边未封顶（零边变更）"
         );
     }
@@ -2571,7 +2642,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].caused_by, Some("backfill-by-digest".to_string()));
         // event_id 含 project_id + revision + payload-hash（服务端派生）
-        assert!(events[0].event_id.starts_with("evt:"), "event_id 服务端派生");
+        assert!(
+            events[0].event_id.starts_with("evt:"),
+            "event_id 服务端派生"
+        );
     }
 
     // ── 写放大 guard 三层 · 层1：结构不变量（每次 supersede 审计追加恰好 1 条）──

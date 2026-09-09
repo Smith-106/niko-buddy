@@ -124,8 +124,7 @@ pub fn do_mark_style_exemplar(
 
     // 创建 .novel/ 目录（若不存在）。
     if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create .novel dir: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create .novel dir: {}", e))?;
     }
 
     let contents = serde_json::to_string_pretty(&existing)
@@ -133,8 +132,7 @@ pub fn do_mark_style_exemplar(
 
     // 标记 app 写路径（file_sync 热重载协调）+ 写盘。
     file_sync::mark_app_write_path(p);
-    fs::write(p, &contents)
-        .map_err(|e| format!("Failed to write style exemplars file: {}", e))?;
+    fs::write(p, &contents).map_err(|e| format!("Failed to write style exemplars file: {}", e))?;
     file_sync::mark_app_write_path(p);
 
     Ok(())
@@ -170,7 +168,8 @@ pub fn do_load_style_exemplars(project_path: &str) -> Result<Vec<StyleExemplarRe
         return Ok(Vec::new());
     }
 
-    let raw = fs::read_to_string(p).map_err(|e| format!("style exemplars file read error: {}", e))?;
+    let raw =
+        fs::read_to_string(p).map_err(|e| format!("style exemplars file read error: {}", e))?;
     // FIX-2/EC-1：双格式兼容——裸数组优先，{$schema, exemplars:[...]} 包装次之，
     // 两者都不是才判 corrupt（PAT-DC1 脱敏，不暴露 raw JSON / 路径）。
     let parsed: Vec<StyleExemplarRecord> =
@@ -209,8 +208,8 @@ pub fn do_delete_style_exemplar(project_path: &str, exemplar_id: &str) -> Result
         return Ok(()); // 无可删文件，幂等成功。
     }
 
-    let raw = fs::read_to_string(p)
-        .map_err(|e| format!("style exemplars file read error: {}", e))?;
+    let raw =
+        fs::read_to_string(p).map_err(|e| format!("style exemplars file read error: {}", e))?;
     // FIX-2/EC-1：双格式兼容——裸数组优先，{$schema, exemplars:[...]} 包装次之。
     let parsed: Vec<StyleExemplarRecord> =
         match serde_json::from_str::<Vec<StyleExemplarRecord>>(&raw) {
@@ -234,8 +233,7 @@ pub fn do_delete_style_exemplar(project_path: &str, exemplar_id: &str) -> Result
     file_sync::mark_app_write_path(p);
     let contents = serde_json::to_string_pretty(&filtered)
         .map_err(|e| format!("Failed to serialize exemplars: {}", e))?;
-    fs::write(p, &contents)
-        .map_err(|e| format!("Failed to write style exemplars file: {}", e))?;
+    fs::write(p, &contents).map_err(|e| format!("Failed to write style exemplars file: {}", e))?;
     file_sync::mark_app_write_path(p);
 
     Ok(())
@@ -486,7 +484,9 @@ mod tests {
         // 删除后再次删除同一 id → 仍然 Ok（目标已不存在）。
         do_delete_style_exemplar(dir.to_str().unwrap(), &id).unwrap();
         assert!(do_delete_style_exemplar(dir.to_str().unwrap(), &id).is_ok());
-        assert!(do_load_style_exemplars(dir.to_str().unwrap()).unwrap().is_empty());
+        assert!(do_load_style_exemplars(dir.to_str().unwrap())
+            .unwrap()
+            .is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

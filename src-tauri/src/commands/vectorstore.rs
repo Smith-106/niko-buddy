@@ -266,18 +266,16 @@ pub struct ReconcilePlan {
 ///     of truth).
 ///   - A page whose expected chunk set matches the actual chunk set exactly
 ///     lands in `unchanged_pages`.
-pub fn reconcile_chunks(
-    expected: &[ExpectedChunk],
-    actual: &[ActualChunk],
-) -> ReconcilePlan {
+pub fn reconcile_chunks(expected: &[ExpectedChunk], actual: &[ActualChunk]) -> ReconcilePlan {
     let mut plan = ReconcilePlan::default();
 
     // Indexes of actual chunks by page, plus the full page set seen in actual.
     let actual_by_page: std::collections::HashMap<&str, HashSet<u32>> = {
-        let mut m: std::collections::HashMap<&str, HashSet<u32>> =
-            std::collections::HashMap::new();
+        let mut m: std::collections::HashMap<&str, HashSet<u32>> = std::collections::HashMap::new();
         for a in actual {
-            m.entry(a.page_id.as_str()).or_default().insert(a.chunk_index);
+            m.entry(a.page_id.as_str())
+                .or_default()
+                .insert(a.chunk_index);
         }
         m
     };
@@ -1450,8 +1448,6 @@ mod tests_v2 {
         assert_eq!(vector_legacy_row_count(pp).await.unwrap(), 0);
     }
 
-
-
     #[tokio::test]
     async fn drop_legacy_is_noop_when_v1_missing() {
         let p = tmp_project();
@@ -1474,13 +1470,34 @@ mod tests_v2 {
             chunk_index: 0,
         }];
         let actual = vec![
-            ActualChunk { page_id: "page-a".into(), chunk_index: 0 },
-            ActualChunk { page_id: "page-a".into(), chunk_index: 1 },
-            ActualChunk { page_id: "page-a".into(), chunk_index: 2 },
-            ActualChunk { page_id: "page-b".into(), chunk_index: 0 },
-            ActualChunk { page_id: "page-b".into(), chunk_index: 1 },
-            ActualChunk { page_id: "page-b".into(), chunk_index: 2 },
-            ActualChunk { page_id: "page-b".into(), chunk_index: 3 },
+            ActualChunk {
+                page_id: "page-a".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "page-a".into(),
+                chunk_index: 1,
+            },
+            ActualChunk {
+                page_id: "page-a".into(),
+                chunk_index: 2,
+            },
+            ActualChunk {
+                page_id: "page-b".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "page-b".into(),
+                chunk_index: 1,
+            },
+            ActualChunk {
+                page_id: "page-b".into(),
+                chunk_index: 2,
+            },
+            ActualChunk {
+                page_id: "page-b".into(),
+                chunk_index: 3,
+            },
         ];
         let plan = reconcile_chunks(&expected, &actual);
 
@@ -1494,12 +1511,24 @@ mod tests_v2 {
     #[test]
     fn reconcile_exact_match_is_unchanged() {
         let expected = vec![
-            ExpectedChunk { page_id: "p".into(), chunk_index: 0 },
-            ExpectedChunk { page_id: "p".into(), chunk_index: 1 },
+            ExpectedChunk {
+                page_id: "p".into(),
+                chunk_index: 0,
+            },
+            ExpectedChunk {
+                page_id: "p".into(),
+                chunk_index: 1,
+            },
         ];
         let actual = vec![
-            ActualChunk { page_id: "p".into(), chunk_index: 0 },
-            ActualChunk { page_id: "p".into(), chunk_index: 1 },
+            ActualChunk {
+                page_id: "p".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "p".into(),
+                chunk_index: 1,
+            },
         ];
         let plan = reconcile_chunks(&expected, &actual);
         assert!(plan.to_upsert.is_empty());
@@ -1510,10 +1539,19 @@ mod tests_v2 {
     #[test]
     fn reconcile_all_actual_stale_is_deletable() {
         // Nothing expected; table has two pages -> both deleted, nothing upserted.
-        let plan = reconcile_chunks(&[], &[
-            ActualChunk { page_id: "a".into(), chunk_index: 0 },
-            ActualChunk { page_id: "b".into(), chunk_index: 0 },
-        ]);
+        let plan = reconcile_chunks(
+            &[],
+            &[
+                ActualChunk {
+                    page_id: "a".into(),
+                    chunk_index: 0,
+                },
+                ActualChunk {
+                    page_id: "b".into(),
+                    chunk_index: 0,
+                },
+            ],
+        );
         assert!(plan.to_upsert.is_empty());
         assert_eq!(plan.to_delete_pages, vec!["a", "b"]);
         assert!(plan.unchanged_pages.is_empty());
@@ -1575,17 +1613,24 @@ mod tests_v2 {
             .unwrap()
             .insert(pp.clone(), CHUNK_COMPACTION_THRESHOLD - 2);
 
-        let result = vector_upsert_chunks(
-            pp.clone(),
-            "page-a".into(),
-            make_chunks("page-a", 2, 16),
-        )
-        .await;
-        assert!(result.is_ok(), "write must not fail even if compaction runs");
+        let result =
+            vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 2, 16)).await;
+        assert!(
+            result.is_ok(),
+            "write must not fail even if compaction runs"
+        );
 
         // Compaction dispatched ⇒ the project's counter reset to 0.
-        let remaining = CHUNK_WRITE_MUTATIONS.lock().unwrap().get(&pp).copied().unwrap_or(0);
-        assert_eq!(remaining, 0, "crossing the threshold resets the project's cumulative counter");
+        let remaining = CHUNK_WRITE_MUTATIONS
+            .lock()
+            .unwrap()
+            .get(&pp)
+            .copied()
+            .unwrap_or(0);
+        assert_eq!(
+            remaining, 0,
+            "crossing the threshold resets the project's cumulative counter"
+        );
 
         // Data integrity survives compaction: count + search still work and
         // return exactly the 2 re-upserted chunks (page-a was fully replaced).
@@ -1593,7 +1638,10 @@ mod tests_v2 {
         let results = vector_search_chunks(pp.clone(), fake_embedding(1, 16), 10)
             .await
             .unwrap();
-        assert!(!results.is_empty(), "post-compaction search should return rows");
+        assert!(
+            !results.is_empty(),
+            "post-compaction search should return rows"
+        );
         for r in &results {
             assert_eq!(r.page_id, "page-a");
             assert!(r.chunk_id.starts_with("page-a#"));
@@ -1848,4 +1896,3 @@ mod tests_v2 {
 // vector_search_chunks 执行, BM25 分数由 TS 侧 (或后续 lexical 层) 提供 —
 // Rust 侧只做融合裁决, 不改现有 vector_search/vector_search_chunks。
 // ============================================================================
-

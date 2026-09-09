@@ -98,23 +98,35 @@ fn reject_unsafe_storage_path(path: &str) -> Result<(), String> {
             return Err(format!("path contains '..' segment: {path}"));
         }
         // Windows drive letter (e.g. `C:`) is legal for absolute paths.
-        if seg.is_empty() || (seg.len() == 2 && seg.ends_with(':') && seg.chars().next().unwrap().is_ascii_alphabetic()) {
+        if seg.is_empty()
+            || (seg.len() == 2
+                && seg.ends_with(':')
+                && seg.chars().next().unwrap().is_ascii_alphabetic())
+        {
             continue;
         }
         if seg.contains(['<', '>', ':', '"', '|', '?', '*']) {
-            return Err(format!("path segment '{seg}' contains Windows-illegal chars: {path}"));
+            return Err(format!(
+                "path segment '{seg}' contains Windows-illegal chars: {path}"
+            ));
         }
         if seg.ends_with(' ') || seg.ends_with('.') {
             return Err(format!("path segment '{seg}' ends with space/dot: {path}"));
         }
-        let stem = seg.split('.').next().unwrap_or_default().to_ascii_uppercase();
+        let stem = seg
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
         let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
             || (stem.len() == 4
                 && (stem.starts_with("COM") || stem.starts_with("LPT"))
                 && stem.as_bytes()[3].is_ascii_digit()
                 && stem.as_bytes()[3] != b'0');
         if reserved {
-            return Err(format!("path segment '{seg}' uses Windows reserved name: {path}"));
+            return Err(format!(
+                "path segment '{seg}' uses Windows reserved name: {path}"
+            ));
         }
     }
     Ok(())
@@ -1268,8 +1280,8 @@ fn extract_odf_text(archive: &mut zip::ZipArchive<fs::File>) -> Result<String, S
 /// block-level break preservation (reusing the XHTML path), then common
 /// HTML/XML entities are decoded.
 fn extract_html_file(path: &str) -> Result<String, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read HTML file '{path}': {e}"))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read HTML file '{path}': {e}"))?;
     let stripped = strip_html_script_style(&content);
     Ok(decode_html_entities(&extract_xhtml_text(&stripped)))
 }
@@ -1435,8 +1447,7 @@ fn epub_sorted_content_paths(archive: &mut zip::ZipArchive<fs::File>) -> Vec<Str
         .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
         .filter(|n| {
             let lower = n.to_lowercase();
-            !n.starts_with("META-INF/")
-                && (lower.ends_with(".xhtml") || lower.ends_with(".html"))
+            !n.starts_with("META-INF/") && (lower.ends_with(".xhtml") || lower.ends_with(".html"))
         })
         .collect();
     names.sort();
@@ -1731,7 +1742,11 @@ pub fn do_write_files_atomic(files: &[(String, String)]) -> Result<(), String> {
             file_sync::mark_app_write_path(&tmp_path);
             if let Err(e) = fs::write(&tmp_path, contents) {
                 let _ = cleanup_tmp_files(&prepared);
-                return Err(format!("Failed to write temp file '{}': {}", tmp_path.display(), e));
+                return Err(format!(
+                    "Failed to write temp file '{}': {}",
+                    tmp_path.display(),
+                    e
+                ));
             }
             if let Ok(tmp_file) = fs::File::open(&tmp_path) {
                 let _ = tmp_file.sync_all();
@@ -2420,13 +2435,16 @@ mod tests {
     /// B3: 注册表分派路由冒烟 —— html 走提取器而非兑底 (错误文案可区分)
     #[test]
     fn read_dispatch_routes_registered_ext_via_registry() {
-    let missing = std::env::temp_dir()
-        .join(format!("b3-registry-smoke-{}.html", std::process::id()))
-        .to_string_lossy()
-        .to_string();
+        let missing = std::env::temp_dir()
+            .join(format!("b3-registry-smoke-{}.html", std::process::id()))
+            .to_string_lossy()
+            .to_string();
         let err = do_read_file(&missing).unwrap_err();
         // 兑底文案含 "as text"; 提取器路径的错误不含该短语
-        assert!(!err.contains("as text"), "html 应走注册表提取器而非兜底: {err}");
+        assert!(
+            !err.contains("as text"),
+            "html 应走注册表提取器而非兜底: {err}"
+        );
     }
 
     /// Write `bytes` to a fresh tmp path with `.pdf` suffix and return
@@ -3053,7 +3071,8 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         {
             let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-            let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
             for (name, content) in files {
                 w.start_file(*name, options).unwrap();
                 w.write_all(content.as_bytes()).unwrap();
@@ -3095,9 +3114,7 @@ mod tests {
         }
         man.push_str("</manifest>\n");
         spin.push_str("</spine>\n");
-        format!(
-            "<?xml version=\"1.0\"?><package version=\"3.0\">{man}{spin}</package>"
-        )
+        format!("<?xml version=\"1.0\"?><package version=\"3.0\">{man}{spin}</package>")
     }
 
     #[test]
@@ -3161,7 +3178,10 @@ mod tests {
 
         let alpha = out.find("Alpha body").unwrap();
         let beta = out.find("Beta body").unwrap();
-        assert!(alpha < beta, "fallback should sort a.xhtml before b.xhtml: {out}");
+        assert!(
+            alpha < beta,
+            "fallback should sort a.xhtml before b.xhtml: {out}"
+        );
     }
 
     #[test]
@@ -3272,11 +3292,7 @@ mod tests {
         assert_eq!(out, "");
         // Truncated / unbalanced tags must not panic; degrade gracefully.
         let p2 = dir.join("bad.html");
-        std::fs::write(
-            &p2,
-            "<p>unclosed <script>oops</script><style>css",
-        )
-        .unwrap();
+        std::fs::write(&p2, "<p>unclosed <script>oops</script><style>css").unwrap();
         let p2_str = p2.to_string_lossy().into_owned();
         let out2 = extract_html_file(&p2_str).unwrap();
         assert!(out2.contains("unclosed"), "{out2}");

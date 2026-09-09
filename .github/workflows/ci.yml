@@ -13,6 +13,23 @@ jobs:
     uses: ./.github/workflows/checks.yml
     with:
       node-version: 24
+  rust-fmt:
+    # Self-sufficient rustfmt gate (P2-5 CI fmt门, mirrors node-gates
+    # single-job pattern): rust toolchain + fmt --check only, no frontend
+    # deps, no protoc, no build cache.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check cargo fmt
+        working-directory: src-tauri
+        run: cargo fmt --check
   check:
     strategy:
       fail-fast: false

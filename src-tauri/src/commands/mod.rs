@@ -1,13 +1,13 @@
 pub mod backup;
 pub mod claude_cli;
-pub mod cursor_cli;
 mod cli_resolver;
 pub mod codex_cli;
 pub mod crypto;
-pub mod extract_images;
+pub mod cursor_cli;
 pub mod docx_export;
 pub mod epub_export;
 pub mod exemplar_commands;
+pub mod extract_images;
 pub mod file_sync;
 pub mod fs;
 pub mod local_cli_config;

@@ -84,10 +84,7 @@ async fn find_proxy_launcher() -> Result<(std::path::PathBuf, Vec<String>), Stri
         })?;
     Ok((
         npx,
-        vec![
-            "--yes".to_string(),
-            "cursor-api-proxy".to_string(),
-        ],
+        vec!["--yes".to_string(), "cursor-api-proxy".to_string()],
     ))
 }
 
@@ -98,7 +95,9 @@ fn normalize_proxy_base(base_url: Option<String>) -> String {
         .to_string();
     let trimmed = raw.trim_end_matches('/').to_string();
     if trimmed.to_lowercase().ends_with("/v1") {
-        trimmed[..trimmed.len() - 3].trim_end_matches('/').to_string()
+        trimmed[..trimmed.len() - 3]
+            .trim_end_matches('/')
+            .to_string()
     } else {
         trimmed
     }
@@ -109,7 +108,9 @@ fn parse_http_url(base: &str) -> Result<(String, u16, String), String> {
     let without_scheme = if let Some(rest) = url.strip_prefix("http://") {
         rest
     } else if url.starts_with("https://") {
-        return Err("cursor-api-proxy health check only supports http:// localhost URLs".to_string());
+        return Err(
+            "cursor-api-proxy health check only supports http:// localhost URLs".to_string(),
+        );
     } else {
         return Err(format!("Invalid proxy base URL: {base}"));
     };
@@ -170,9 +171,8 @@ async fn http_get_status(base: &str, path: &str) -> Result<u16, String> {
     .map_err(|_| "health check timed out connecting".to_string())?
     .map_err(|e| format!("health check connect failed: {e}"))?;
 
-    let req = format!(
-        "GET {request_path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let req =
+        format!("GET {request_path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
     stream
         .write_all(req.as_bytes())
         .await
@@ -279,7 +279,9 @@ pub async fn cursor_cli_detect() -> Result<DetectResult, String> {
 }
 
 #[tauri::command]
-pub async fn cursor_proxy_status(state: State<'_, CursorProxyState>) -> Result<ProxyStatus, String> {
+pub async fn cursor_proxy_status(
+    state: State<'_, CursorProxyState>,
+) -> Result<ProxyStatus, String> {
     let (base, managed) = {
         let guard = state.managed.lock().await;
         (
@@ -335,7 +337,13 @@ fn read_export_from_rc(rc_path: &std::path::Path, name: &str) -> Option<String> 
 
 fn read_cursor_api_key_from_user_files() -> Option<String> {
     let home = resolve_home_dir()?;
-    for rel in [".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile"] {
+    for rel in [
+        ".zshrc",
+        ".zprofile",
+        ".bashrc",
+        ".bash_profile",
+        ".profile",
+    ] {
         if let Some(v) = read_export_from_rc(&home.join(rel), "CURSOR_API_KEY") {
             return Some(v);
         }
@@ -352,7 +360,13 @@ fn read_cursor_api_key_from_user_files() -> Option<String> {
 
 fn read_agent_credential_store_from_user_files() -> Option<String> {
     let home = resolve_home_dir()?;
-    for rel in [".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile"] {
+    for rel in [
+        ".zshrc",
+        ".zprofile",
+        ".bashrc",
+        ".bash_profile",
+        ".profile",
+    ] {
         if let Some(v) = read_export_from_rc(&home.join(rel), "AGENT_CLI_CREDENTIAL_STORE") {
             return Some(v);
         }
@@ -363,7 +377,8 @@ fn read_agent_credential_store_from_user_files() -> Option<String> {
 /// GUI apps do not load ~/.zshrc. Inject the same Cursor CLI auth the user
 /// exports in shell: CURSOR_API_KEY + AGENT_CLI_CREDENTIAL_STORE.
 fn apply_cursor_auth_env(cmd: &mut Command) {
-    let api_key = read_nonempty_env(&["CURSOR_API_KEY"]).or_else(read_cursor_api_key_from_user_files);
+    let api_key =
+        read_nonempty_env(&["CURSOR_API_KEY"]).or_else(read_cursor_api_key_from_user_files);
     if let Some(api_key) = api_key {
         cmd.env("CURSOR_API_KEY", api_key);
     }

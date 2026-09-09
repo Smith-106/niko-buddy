@@ -50,7 +50,12 @@ fn resolve_startup_output_timeout_secs() -> u64 {
     const DEFAULT: u64 = 30;
     const MIN: u64 = 5;
     match std::env::var("QMAI_CLAUDE_STARTUP_TIMEOUT_SECS") {
-        Ok(v) => v.trim().parse::<u64>().ok().filter(|n| *n >= MIN).unwrap_or(DEFAULT),
+        Ok(v) => v
+            .trim()
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n >= MIN)
+            .unwrap_or(DEFAULT),
         Err(_) => DEFAULT,
     }
 }
@@ -624,13 +629,13 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     cmd.args(&launch_config.args);
 
     cmd.stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| append_launch_debug_context(format!("Failed to spawn claude: {e}"), &launch_debug))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        append_launch_debug_context(format!("Failed to spawn claude: {e}"), &launch_debug)
+    })?;
 
     let mut stdin = child
         .stdin
@@ -658,19 +663,25 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                 });
                 let line = format!("{}\n", event);
                 if let Err(error) = stdin.write_all(line.as_bytes()).await {
-                    return Err(
-                        collect_startup_io_failure(child, "write to claude stdin", error, &launch_debug)
-                            .await,
-                    );
+                    return Err(collect_startup_io_failure(
+                        child,
+                        "write to claude stdin",
+                        error,
+                        &launch_debug,
+                    )
+                    .await);
                 }
             }
         }
         ClaudeCliInputMode::TextStdin(prompt) => {
             if let Err(error) = stdin.write_all(prompt.as_bytes()).await {
-                return Err(
-                    collect_startup_io_failure(child, "write to claude stdin", error, &launch_debug)
-                        .await,
-                );
+                return Err(collect_startup_io_failure(
+                    child,
+                    "write to claude stdin",
+                    error,
+                    &launch_debug,
+                )
+                .await);
             }
         }
     }
@@ -989,7 +1000,10 @@ pub async fn claude_cli_kill(
 /// back to start_kill (TerminateProcess); the TS grace window still gives
 /// the stdout-drain task time to flush buffered output before the hard
 /// kill path runs.
-pub async fn do_claude_cli_terminate(state: &ClaudeCliState, stream_id: &str) -> Result<(), String> {
+pub async fn do_claude_cli_terminate(
+    state: &ClaudeCliState,
+    stream_id: &str,
+) -> Result<(), String> {
     // BP-001 (from quality-review): named constant, not a magic number.
     // SIGTERM = 15 on every Unix target we ship (Linux, macOS).
     #[cfg(unix)]
@@ -1016,7 +1030,11 @@ pub async fn do_claude_cli_terminate(state: &ClaudeCliState, stream_id: &str) ->
             // pidfd_send_signal which is Linux-only and a new dependency).
             // We hold the registry mutex, so no concurrent Rust code can drop
             // this ChildHandle while we inspect it.
-            let already_exited = running.child.try_wait().map(|s| s.is_some()).unwrap_or(false);
+            let already_exited = running
+                .child
+                .try_wait()
+                .map(|s| s.is_some())
+                .unwrap_or(false);
             if !already_exited {
                 if let Some(pid) = running.child.id() {
                     // Child::id() 返回 u32；libc::kill 形参为 pid_t(i32)。
@@ -1121,7 +1139,8 @@ mod tests {
             Some(std::path::Path::new("ignored")),
             &ClaudeCliInputMode::StreamJson,
         );
-        let plain = build_claude_cli_args("sonnet", false, None, None, &ClaudeCliInputMode::StreamJson);
+        let plain =
+            build_claude_cli_args("sonnet", false, None, None, &ClaudeCliInputMode::StreamJson);
         let text_stdin = build_claude_cli_args(
             "sonnet",
             false,
@@ -1129,7 +1148,11 @@ mod tests {
             None,
             &ClaudeCliInputMode::TextStdin("hi".to_string()),
         );
-        for (label, args) in [("isolated", &isolated), ("plain", &plain), ("text-stdin", &text_stdin)] {
+        for (label, args) in [
+            ("isolated", &isolated),
+            ("plain", &plain),
+            ("text-stdin", &text_stdin),
+        ] {
             assert!(
                 args.contains(&"--include-partial-messages".to_string()),
                 "{label} args must include --include-partial-messages, got {args:?}"

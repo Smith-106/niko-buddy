@@ -356,8 +356,8 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     let mut zip = ZipWriter::new(file);
     let mut file_count: usize = 0;
     let mut warnings: Vec<String> = Vec::new();
-    let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated);
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
     // ── 1. manifest.json ────────────────────────────────────────────────────
     let manifest = BackupManifest {
@@ -385,8 +385,8 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     zip.start_file("global/app-state.json", opts)
         .map_err(|e| format!("创建 app-state zip 条目失败: {e}"))?;
     if app_state_path.exists() {
-        let state_bytes = fs::read(app_state_path)
-            .map_err(|e| format!("读取 app-state.json 失败: {e}"))?;
+        let state_bytes =
+            fs::read(app_state_path).map_err(|e| format!("读取 app-state.json 失败: {e}"))?;
         zip.write_all(&state_bytes)
             .map_err(|e| format!("写入 app-state 到 zip 失败: {e}"))?;
         file_count += 1;
@@ -582,22 +582,21 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     let mut project_results: Vec<ProjectRestoreResult> = Vec::new();
 
     // ── Read manifest ───────────────────────────────────────────────────────
-    let manifest_projects = if let Some(manifest_bytes) =
-        extract_file_from_zip(&mut archive, "manifest.json")?
-    {
-        let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
-            .map_err(|e| format!("解析 manifest.json 失败: {e}"))?;
-        if manifest.backup_version > 1 {
-            warnings.push(format!(
-                "备份版本 {} 可能不兼容当前版本",
-                manifest.backup_version
-            ));
-        }
-        manifest.projects
-    } else {
-        warnings.push("备份文件缺少 manifest.json".into());
-        vec![]
-    };
+    let manifest_projects =
+        if let Some(manifest_bytes) = extract_file_from_zip(&mut archive, "manifest.json")? {
+            let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
+                .map_err(|e| format!("解析 manifest.json 失败: {e}"))?;
+            if manifest.backup_version > 1 {
+                warnings.push(format!(
+                    "备份版本 {} 可能不兼容当前版本",
+                    manifest.backup_version
+                ));
+            }
+            manifest.projects
+        } else {
+            warnings.push("备份文件缺少 manifest.json".into());
+            vec![]
+        };
 
     // ── Global restore ──────────────────────────────────────────────────────
     let need_global = matches!(
@@ -615,14 +614,11 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
         });
 
         // app-state.json
-        if let Some(state_bytes) =
-            extract_file_from_zip(&mut archive, "global/app-state.json")?
-        {
+        if let Some(state_bytes) = extract_file_from_zip(&mut archive, "global/app-state.json")? {
             let state_json: serde_json::Value = serde_json::from_slice(&state_bytes)
                 .map_err(|e| format!("解析 app-state.json 失败: {e}"))?;
 
-            fs::create_dir_all(app_state_dir)
-                .map_err(|e| format!("创建数据目录失败: {e}"))?;
+            fs::create_dir_all(app_state_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
             let state_path = app_state_dir.join("app-state.json");
             let state_str = serde_json::to_string_pretty(&state_json)
                 .map_err(|e| format!("序列化 app-state 失败: {e}"))?;
@@ -633,9 +629,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
         }
 
         // local-storage.json
-        if let Some(ls_bytes) =
-            extract_file_from_zip(&mut archive, "global/local-storage.json")?
-        {
+        if let Some(ls_bytes) = extract_file_from_zip(&mut archive, "global/local-storage.json")? {
             let ls_json: serde_json::Value = serde_json::from_slice(&ls_bytes)
                 .map_err(|e| format!("解析 local-storage.json 失败: {e}"))?;
             local_storage_data = Some(ls_json);
@@ -675,9 +669,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 
         let total = restore_targets.len();
 
-        for (idx, (project_id, target_path, project_name)) in
-            restore_targets.iter().enumerate()
-        {
+        for (idx, (project_id, target_path, project_name)) in restore_targets.iter().enumerate() {
             on_progress(&BackupProgressPayload {
                 operation: "import".into(),
                 stage: "restoring".into(),
@@ -848,8 +840,7 @@ mod tests {
 
         let target = tmp.join("target");
         std::fs::create_dir_all(&target).unwrap();
-        let mut archive =
-            zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
 
         let result = extract_dir_from_zip(&mut archive, "prefix/", &target);
         assert!(result.is_err(), "应拒绝路径遍历条目");
@@ -887,8 +878,7 @@ mod tests {
 
         let target = tmp.join("target");
         std::fs::create_dir_all(&target).unwrap();
-        let mut archive =
-            zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
 
         let count = extract_dir_from_zip(&mut archive, "prefix/", &target).unwrap();
         assert_eq!(count, 2);

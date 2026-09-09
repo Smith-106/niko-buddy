@@ -206,7 +206,9 @@ pub fn extract_pdf_markdown(
     }
 
     if media_dest_dir.is_some() {
-        log::info!("[extract_pdf_markdown] '{path}' DONE — pages={page_count}, saved={total_saved}");
+        log::info!(
+            "[extract_pdf_markdown] '{path}' DONE — pages={page_count}, saved={total_saved}"
+        );
     }
 
     Ok(out)
@@ -433,7 +435,10 @@ pub fn extract_and_save_pdf_images(
     let page_count = doc.pages().len();
     log::info!(
         "[extract_and_save_pdf_images] '{path}': {} page(s), filter=({}x{}) min, max={}",
-        page_count, options.min_width, options.min_height, options.max_images
+        page_count,
+        options.min_width,
+        options.min_height,
+        options.max_images
     );
 
     'pages: for (page_idx, page) in doc.pages().iter().enumerate() {
@@ -652,8 +657,6 @@ pub fn extract_and_save_office_images(
 // pool's contract. (Combined with the PDFium mutex inside
 // `extract_pdf_images`, this also prevents the segfault that hit
 // when two PDF extractions raced on different workers.)
-
-
 
 #[tauri::command]
 pub async fn extract_and_save_pdf_images_cmd(

@@ -26,18 +26,26 @@ pub struct EpubExportResult {
 }
 
 /// 构建并写出 EPUB3 包。
-pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Result<EpubExportResult, String> {
+pub fn build_and_write_epub(
+    chapters: &[NovelChapter],
+    export_path: &str,
+) -> Result<EpubExportResult, String> {
     if chapters.is_empty() {
         return Err("EPUB 导出失败：章节列表为空".to_string());
     }
-    let file = std::fs::File::create(export_path).map_err(|e| format!("EPUB 导出失败：无法创建文件 {export_path}: {e}"))?;
+    let file = std::fs::File::create(export_path)
+        .map_err(|e| format!("EPUB 导出失败：无法创建文件 {export_path}: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default();
 
     // 1) mimetype 必须 stored（EPUB3 规范硬性要求）
-    zip.start_file("mimetype", options.compression_method(zip::CompressionMethod::Stored))
+    zip.start_file(
+        "mimetype",
+        options.compression_method(zip::CompressionMethod::Stored),
+    )
+    .map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
+    zip.write_all(b"application/epub+zip")
         .map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
-    zip.write_all(b"application/epub+zip").map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
 
     // 2) container.xml
     zip.start_file("META-INF/container.xml", options)
@@ -93,7 +101,8 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     );
     zip.start_file("OEBPS/content.opf", options)
         .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
-    zip.write_all(opf.as_bytes()).map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
+    zip.write_all(opf.as_bytes())
+        .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
 
     // 3b) nav.xhtml（EPUB3 规范要求 manifest 含 nav 文档，epubcheck 否则报 ERROR）
     let nav = format!(
@@ -113,7 +122,8 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
     );
     zip.start_file("OEBPS/nav.xhtml", options)
         .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
-    zip.write_all(nav.as_bytes()).map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
+    zip.write_all(nav.as_bytes())
+        .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
 
     // 4) 章节 XHTML（标题转义 + 空行切段）
     for (i, chapter) in chapters.iter().enumerate() {
@@ -138,10 +148,12 @@ pub fn build_and_write_epub(chapters: &[NovelChapter], export_path: &str) -> Res
         );
         zip.start_file(format!("OEBPS/chapters/ch{i}.xhtml"), options)
             .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
-        zip.write_all(xhtml.as_bytes()).map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
+        zip.write_all(xhtml.as_bytes())
+            .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
     }
 
-    zip.finish().map_err(|e| format!("EPUB 导出失败：ZIP 收尾错误: {e}"))?;
+    zip.finish()
+        .map_err(|e| format!("EPUB 导出失败：ZIP 收尾错误: {e}"))?;
     Ok(EpubExportResult {
         success: true,
         exported_path: export_path.to_string(),
@@ -211,32 +223,53 @@ mod tests {
         assert_eq!(zip.len(), 6); // mimetype + container + opf + nav + 2 章
         let mut names: Vec<String> = zip.file_names().map(|s| s.to_string()).collect();
         assert_eq!(names[0], "mimetype");
-        assert_eq!(zip.by_index(0).unwrap().compression(), zip::CompressionMethod::Stored);
+        assert_eq!(
+            zip.by_index(0).unwrap().compression(),
+            zip::CompressionMethod::Stored
+        );
         let mut mt = String::new();
-        zip.by_name("mimetype").unwrap().read_to_string(&mut mt).unwrap();
+        zip.by_name("mimetype")
+            .unwrap()
+            .read_to_string(&mut mt)
+            .unwrap();
         assert_eq!(mt, "application/epub+zip");
 
         // container.xml 指向 content.opf
         let mut container = String::new();
-        zip.by_name("META-INF/container.xml").unwrap().read_to_string(&mut container).unwrap();
+        zip.by_name("META-INF/container.xml")
+            .unwrap()
+            .read_to_string(&mut container)
+            .unwrap();
         assert!(container.contains("OEBPS/content.opf"));
 
         // nav.xhtml 存在且 manifest 声明 properties="nav"（EPUB3 规范）
         let mut nav = String::new();
-        zip.by_name("OEBPS/nav.xhtml").unwrap().read_to_string(&mut nav).unwrap();
+        zip.by_name("OEBPS/nav.xhtml")
+            .unwrap()
+            .read_to_string(&mut nav)
+            .unwrap();
         assert!(nav.contains("epub:type=\"toc\""));
         assert!(nav.contains("chapters/ch0.xhtml"));
         let mut opf = String::new();
-        zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+        zip.by_name("OEBPS/content.opf")
+            .unwrap()
+            .read_to_string(&mut opf)
+            .unwrap();
         assert!(opf.contains("properties=\"nav\""));
 
         // 章节 XHTML：标题转义 + 段落切分
         let mut ch1 = String::new();
-        zip.by_name("OEBPS/chapters/ch0.xhtml").unwrap().read_to_string(&mut ch1).unwrap();
+        zip.by_name("OEBPS/chapters/ch0.xhtml")
+            .unwrap()
+            .read_to_string(&mut ch1)
+            .unwrap();
         assert!(ch1.contains("<h1>第一章 开端</h1>"));
         assert!(ch1.contains("<p>雨停了。</p>"));
         let mut ch2 = String::new();
-        zip.by_name("OEBPS/chapters/ch1.xhtml").unwrap().read_to_string(&mut ch2).unwrap();
+        zip.by_name("OEBPS/chapters/ch1.xhtml")
+            .unwrap()
+            .read_to_string(&mut ch2)
+            .unwrap();
         assert!(ch2.contains("&lt;真相&gt; &amp; 秘密"));
         names.clear();
         let _ = std::fs::remove_dir_all(&dir);

@@ -100,9 +100,7 @@ pub async fn mcp_stdio_spawn(
         }
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("MCP 启动失败：{e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("MCP 启动失败：{e}"))?;
     let pid = child
         .id()
         .ok_or_else(|| "MCP 启动失败：无法获取进程 ID".to_string())?;
@@ -180,10 +178,7 @@ pub async fn mcp_stdio_read(
 }
 
 #[tauri::command]
-pub async fn mcp_stdio_kill(
-    state: State<'_, McpStdioState>,
-    pid: u32,
-) -> Result<(), String> {
+pub async fn mcp_stdio_kill(state: State<'_, McpStdioState>, pid: u32) -> Result<(), String> {
     let mut children = state.children.lock().await;
     let Some(mut child) = children.remove(&pid) else {
         return Ok(());
@@ -203,10 +198,13 @@ mod tests {
 
     #[test]
     fn test_build_windows_command_npx_is_wrapped() {
-        let _cmd = build_windows_command("npx", Some(&[
-            "-y".to_string(),
-            "@modelcontextprotocol/server-memory".to_string(),
-        ]));
+        let _cmd = build_windows_command(
+            "npx",
+            Some(&[
+                "-y".to_string(),
+                "@modelcontextprotocol/server-memory".to_string(),
+            ]),
+        );
         // builds without panic — the returned Command is ready for spawn.
     }
 

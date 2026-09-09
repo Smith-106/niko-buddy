@@ -127,9 +127,10 @@ pub fn start_status_watcher(app: &AppHandle, project_path: &str) -> Result<(), S
                 log::warn!("[status-watcher] notify error: {result:?}");
                 return;
             };
-            let relevant = event.paths.iter().any(|p| {
-                *p == status_for_handler || *p == novel_for_handler
-            });
+            let relevant = event
+                .paths
+                .iter()
+                .any(|p| *p == status_for_handler || *p == novel_for_handler);
             if !relevant {
                 return;
             }
@@ -142,14 +143,18 @@ pub fn start_status_watcher(app: &AppHandle, project_path: &str) -> Result<(), S
     .map_err(|e| format!("Failed to create status watcher: {e}"))?;
 
     {
-        let mut guard = holder.lock().map_err(|_| "status watcher holder poisoned")?;
+        let mut guard = holder
+            .lock()
+            .map_err(|_| "status watcher holder poisoned")?;
         *guard = Some(watcher);
     }
 
     // ── watch 路径：`.novel` 存在则单文件目录 NonRecursive；根目录 NonRecursive
     //    兜底捕获 `.novel` 惰性创建（worker 动态补挂）。 ──
     let watch_root_result = {
-        let mut guard = holder.lock().map_err(|_| "status watcher holder poisoned")?;
+        let mut guard = holder
+            .lock()
+            .map_err(|_| "status watcher holder poisoned")?;
         let w = guard.as_mut().ok_or("status watcher not initialized")?;
         if novel_dir.is_dir() {
             w.watch(&novel_dir, RecursiveMode::NonRecursive)

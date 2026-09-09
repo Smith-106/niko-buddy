@@ -277,8 +277,12 @@ pub fn start_project_file_watcher(
                         }));
                         match result {
                             Ok(Ok(())) => {}
-                            Ok(Err(err)) => log::error!("[file-sync] change handling failed: {err}"),
-                            Err(_) => log::error!("[file-sync] watcher worker recovered from panic"),
+                            Ok(Err(err)) => {
+                                log::error!("[file-sync] change handling failed: {err}")
+                            }
+                            Err(_) => {
+                                log::error!("[file-sync] watcher worker recovered from panic")
+                            }
                         }
                         maybe_periodic_rescan(
                             &app_for_thread,
@@ -379,7 +383,6 @@ pub fn rescan_project_files(
         })
     })
 }
-
 
 #[tauri::command]
 pub fn retry_file_change_task(
@@ -1497,8 +1500,12 @@ pub(crate) fn do_start_project_file_watcher(
                         }));
                         match result {
                             Ok(Ok(())) => {}
-                            Ok(Err(err)) => log::error!("[file-sync] change handling failed: {err}"),
-                            Err(_) => log::error!("[file-sync] watcher worker recovered from panic"),
+                            Ok(Err(err)) => {
+                                log::error!("[file-sync] change handling failed: {err}")
+                            }
+                            Err(_) => {
+                                log::error!("[file-sync] watcher worker recovered from panic")
+                            }
                         }
                         maybe_periodic_rescan_with_emit(
                             &emit_for_thread,
@@ -1589,7 +1596,6 @@ pub(crate) fn do_rescan_project_files(
         })
     })
 }
-
 
 #[allow(dead_code)]
 pub(crate) fn do_retry_file_change_task(

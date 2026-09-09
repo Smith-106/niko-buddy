@@ -82,8 +82,7 @@ fn build_and_write_docx(
         }
     }
 
-    let file = File::create(export_path)
-        .map_err(|e| format!("failed to create docx file: {e}"))?;
+    let file = File::create(export_path).map_err(|e| format!("failed to create docx file: {e}"))?;
     let mut writer = BufWriter::new(file);
     docx.build()
         .pack(&mut writer)
@@ -153,8 +152,8 @@ mod tests {
         let path = dir.join("niko_buddy_docx_test.docx");
         let path_str = path.to_string_lossy().to_string();
 
-        let result = build_and_write_docx(&chapters_fixture(), &path_str)
-            .expect("export should succeed");
+        let result =
+            build_and_write_docx(&chapters_fixture(), &path_str).expect("export should succeed");
         assert!(result.success);
         assert_eq!(result.chapter_count, 2);
         assert_eq!(result.export_path, path_str);
@@ -170,8 +169,8 @@ mod tests {
 
     #[tokio::test]
     async fn export_novel_docx_rejects_empty_path() {
-        let err = build_and_write_docx(&chapters_fixture(), "")
-            .expect_err("empty path should error");
+        let err =
+            build_and_write_docx(&chapters_fixture(), "").expect_err("empty path should error");
         assert!(err.contains("export_path"));
     }
 

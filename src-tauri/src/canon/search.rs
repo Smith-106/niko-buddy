@@ -183,7 +183,11 @@ pub fn rrf_contribution(rank_const: f64, rank: usize) -> f64 {
 /// 同一 id 在两源均出现 → 贡献相加（RRF 标准做法）。返回 `HashMap<id,
 /// (fusion_score, fts_rank, vector_rank)>`。纯函数：融合结果只依赖每个 id
 /// 在各源的 rank，与处理顺序无关（proptest 覆盖）。
-pub fn rrf_fuse(rank_const: f64, fts: &[RecallItem], vector: &[RecallItem]) -> HashMap<String, FusedAccum> {
+pub fn rrf_fuse(
+    rank_const: f64,
+    fts: &[RecallItem],
+    vector: &[RecallItem],
+) -> HashMap<String, FusedAccum> {
     let mut acc: HashMap<String, FusedAccum> = HashMap::new();
     let push = |acc: &mut HashMap<String, FusedAccum>, item: &RecallItem| {
         let contrib = rrf_contribution(rank_const, item.rank);
@@ -461,8 +465,7 @@ pub fn sweep_decay_params(
             let total: f64 = pool
                 .iter()
                 .map(|case| {
-                    let ranked =
-                        engine.search(&case.fts, &case.vector, case.at_chapter, top_k);
+                    let ranked = engine.search(&case.fts, &case.vector, case.at_chapter, top_k);
                     ndcg_at_k(&ranked, &case.relevant, top_k)
                 })
                 .sum();
@@ -792,12 +795,18 @@ impl CanonGraph {
         let mut groups: HashMap<NodeIndex, Vec<String>> = HashMap::new();
         for idx in self.graph.node_indices() {
             let root = find(&mut parent, idx);
-            groups.entry(root).or_default().push(self.graph[idx].clone());
+            groups
+                .entry(root)
+                .or_default()
+                .push(self.graph[idx].clone());
         }
-        let mut out: Vec<Vec<String>> = groups.into_values().map(|mut g| {
-            g.sort();
-            g
-        }).collect();
+        let mut out: Vec<Vec<String>> = groups
+            .into_values()
+            .map(|mut g| {
+                g.sort();
+                g
+            })
+            .collect();
         out.sort_by(|a, b| a.first().cmp(&b.first()));
         out
     }
@@ -836,9 +845,7 @@ impl CanonGraph {
 //   - 本任务 convergence = `cargo test canon_search 全绿`：纯逻辑层 proptest
 //     全覆盖 + LanceDB 集成测试（FTS 索引路径 / 向量召回）在本文件内。
 
-use crate::canon::types::{
-    CANON_TABLE_EDGES, CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES,
-};
+use crate::canon::types::{CANON_TABLE_EDGES, CANON_TABLE_ENTITIES, CANON_TABLE_EPISODES};
 use arrow_array::{Array, Float32Array, StringArray};
 use futures::TryStreamExt;
 use lancedb::connect;
@@ -961,7 +968,13 @@ impl CanonSearch {
                     Some(s) if !s.is_null(i) => s.value(i) as f64,
                     _ => 1.0,
                 };
-                out.push(RecallItem::new(id, RecallSource::Fts, out.len(), raw, ref_ch));
+                out.push(RecallItem::new(
+                    id,
+                    RecallSource::Fts,
+                    out.len(),
+                    raw,
+                    ref_ch,
+                ));
             }
         }
         Ok(out)
@@ -1009,7 +1022,13 @@ impl CanonSearch {
                 }
                 let json = arr.value(i);
                 let (id, ref_ch) = extract_id_and_chapter(table, json);
-                out.push(RecallItem::new(id, RecallSource::Fts, out.len(), 1.0, ref_ch));
+                out.push(RecallItem::new(
+                    id,
+                    RecallSource::Fts,
+                    out.len(),
+                    1.0,
+                    ref_ch,
+                ));
             }
         }
         Ok(out)
@@ -1029,7 +1048,11 @@ impl CanonSearch {
         _vector_column: &str,
     ) -> Result<Vec<RecallItem>, String> {
         let table_name = table.table_name();
-        let db_table = self.db.open_table(table_name).execute().await
+        let db_table = self
+            .db
+            .open_table(table_name)
+            .execute()
+            .await
             .map_err(|e| format!("open {table_name}: {e}"))?;
         // LanceDB 0.27 vector_search 默认探测向量列（与 vectorstore.rs 同源
         // API；多向量列场景在 T13/T32 接入具体 embedding 通道时通过
@@ -1068,7 +1091,13 @@ impl CanonSearch {
                     Some(d) if !d.is_null(i) => 1.0 / (1.0 + d.value(i) as f64),
                     _ => 1.0,
                 };
-                out.push(RecallItem::new(id, RecallSource::Vector, out.len(), raw, ref_ch));
+                out.push(RecallItem::new(
+                    id,
+                    RecallSource::Vector,
+                    out.len(),
+                    raw,
+                    ref_ch,
+                ));
             }
         }
         Ok(out)
@@ -1340,7 +1369,10 @@ mod tests {
     #[test]
     fn tokenizer_verdict_built_in_when_within_tolerance() {
         // custom=0.90, jieba=0.92, tol=0.05 → threshold=0.874 → 0.90≥0.874 → BuiltIn
-        assert_eq!(tokenizer_verdict(0.90, 0.92, 0.05), TokenizerChoice::BuiltIn);
+        assert_eq!(
+            tokenizer_verdict(0.90, 0.92, 0.05),
+            TokenizerChoice::BuiltIn
+        );
     }
 
     #[test]
@@ -1352,7 +1384,10 @@ mod tests {
     #[test]
     fn tokenizer_verdict_exact_boundary() {
         // custom == threshold → BuiltIn (>=)
-        assert_eq!(tokenizer_verdict(0.874, 0.92, 0.05), TokenizerChoice::BuiltIn);
+        assert_eq!(
+            tokenizer_verdict(0.874, 0.92, 0.05),
+            TokenizerChoice::BuiltIn
+        );
         assert_eq!(tokenizer_verdict(0.873, 0.92, 0.05), TokenizerChoice::Jieba);
     }
 
@@ -1374,7 +1409,10 @@ mod tests {
         let g = CanonGraph::from_edges(&edges);
         // depth=3 from a: a(0), b(1), c(2), d(3)；e(4) 超出
         let reach = g.bfs_depth("a", 3);
-        assert_eq!(reach, vec!["a".to_string(), "b".into(), "c".into(), "d".into()]);
+        assert_eq!(
+            reach,
+            vec!["a".to_string(), "b".into(), "c".into(), "d".into()]
+        );
     }
 
     #[test]
@@ -1405,8 +1443,12 @@ mod tests {
         let g = CanonGraph::from_edges(&edges);
         let comps = g.connected_components();
         assert_eq!(comps.len(), 2);
-        assert!(comps.iter().any(|c| c == &vec!["a".to_string(), "b".to_string(), "c".to_string()]));
-        assert!(comps.iter().any(|c| c == &vec!["x".to_string(), "y".to_string()]));
+        assert!(comps
+            .iter()
+            .any(|c| c == &vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert!(comps
+            .iter()
+            .any(|c| c == &vec!["x".to_string(), "y".to_string()]));
     }
 
     #[test]
@@ -1489,10 +1531,13 @@ mod tests {
         let db = search.connection();
         // 建 canon_entities 表（fts_query 只读 data 列）
         let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::Utf8, false)]));
-        db.create_table(CANON_TABLE_ENTITIES, vec![RecordBatch::new_empty(schema.clone())])
-            .execute()
-            .await
-            .unwrap();
+        db.create_table(
+            CANON_TABLE_ENTITIES,
+            vec![RecordBatch::new_empty(schema.clone())],
+        )
+        .execute()
+        .await
+        .unwrap();
         let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
         let rows = RecordBatch::try_new(
             schema,
@@ -1517,7 +1562,8 @@ mod tests {
         assert!(hits.iter().all(|h| h.raw_score > 0.0), "BM25 _score > 0");
         assert!(hits.iter().all(|h| h.source == RecallSource::Fts));
         assert!(
-            hits.iter().any(|h| h.id == "e1" && h.reference_chapter == Some(1)),
+            hits.iter()
+                .any(|h| h.id == "e1" && h.reference_chapter == Some(1)),
             "reference_chapter from data JSON"
         );
     }
@@ -1557,17 +1603,17 @@ mod tests {
             Field::new("data", DataType::Utf8, false),
             Field::new(
                 "embedding",
-                DataType::FixedSizeList(
-                    Arc::new(Field::new("item", DataType::Float32, true)),
-                    dim,
-                ),
+                DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), dim),
                 false,
             ),
         ]));
-        db.create_table(CANON_TABLE_ENTITIES, vec![RecordBatch::new_empty(schema.clone())])
-            .execute()
-            .await
-            .unwrap();
+        db.create_table(
+            CANON_TABLE_ENTITIES,
+            vec![RecordBatch::new_empty(schema.clone())],
+        )
+        .execute()
+        .await
+        .unwrap();
         let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
         let emb = |vals: &[f32]| -> ArrayRef {
             Arc::new(FixedSizeListArray::new(
@@ -1592,7 +1638,12 @@ mod tests {
         table.add(vec![rows]).execute().await.unwrap();
 
         let hits = search
-            .vector_query(CanonFtsTable::Entities, vec![1.0, 0.0, 0.0, 0.0], 10, "embedding")
+            .vector_query(
+                CanonFtsTable::Entities,
+                vec![1.0, 0.0, 0.0, 0.0],
+                10,
+                "embedding",
+            )
             .await
             .unwrap();
         assert_eq!(hits.len(), 2);
@@ -1619,9 +1670,8 @@ mod proptest_tests {
     }
 
     fn arb_recall(source: RecallSource) -> impl Strategy<Value = RecallItem> {
-        (arb_id(), 0usize..6, 0i32..50i32).prop_map(move |(id, rank, ch)| {
-            RecallItem::new(id, source, rank, 1.0, Some(ch))
-        })
+        (arb_id(), 0usize..6, 0i32..50i32)
+            .prop_map(move |(id, rank, ch)| RecallItem::new(id, source, rank, 1.0, Some(ch)))
     }
 
     proptest! {
@@ -1869,9 +1919,7 @@ mod t32_retune_tests {
             let fts: Vec<RecallItem> = fts_order
                 .into_iter()
                 .enumerate()
-                .map(|(rank, (id, ch))| {
-                    RecallItem::new(id, RecallSource::Fts, rank, 1.0, Some(ch))
-                })
+                .map(|(rank, (id, ch))| RecallItem::new(id, RecallSource::Fts, rank, 1.0, Some(ch)))
                 .collect();
 
             // 向量通道顺序：
@@ -2044,7 +2092,10 @@ mod t32_retune_tests {
             adj.get("b").map(|v| v.as_slice()),
             Some(&["a".to_string(), "c".to_string()][..])
         );
-        assert!(adj.contains_key("a"), "isolated target keeps an (empty) key");
+        assert!(
+            adj.contains_key("a"),
+            "isolated target keeps an (empty) key"
+        );
         assert!(adj.get("a").unwrap().is_empty());
         // BFS 结果与邻接表一致（物化不改变遍历语义）
         assert_eq!(

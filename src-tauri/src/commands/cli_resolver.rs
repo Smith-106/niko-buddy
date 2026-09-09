@@ -170,12 +170,13 @@ fn find_windows_cli_command_with_env(
 }
 
 #[cfg(windows)]
-fn windows_user_npm_bin_dir(app_data: Option<&Path>, user_profile: Option<&Path>) -> Option<PathBuf> {
+fn windows_user_npm_bin_dir(
+    app_data: Option<&Path>,
+    user_profile: Option<&Path>,
+) -> Option<PathBuf> {
     app_data
         .map(|path| path.join("npm"))
-        .or_else(|| {
-            user_profile.map(|path| path.join("AppData").join("Roaming").join("npm"))
-        })
+        .or_else(|| user_profile.map(|path| path.join("AppData").join("Roaming").join("npm")))
         .filter(|path| path.is_dir())
 }
 

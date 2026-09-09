@@ -202,7 +202,9 @@ mod tests {
     /// proxy env vars, clears them, executes `f`, then restores
     /// the originals — preventing test cross-contamination.
     fn with_isolated_env<F: FnOnce()>(f: F) {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let snapshot: Vec<Option<String>> = PROXY_ENV_NAMES
             .iter()
             .map(|name| std::env::var(name).ok())
@@ -231,8 +233,14 @@ mod tests {
                 bypass_local: true,
             });
             assert!(summary.contains("disabled"));
-            for name in &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-                          "http_proxy", "https_proxy", "all_proxy"] {
+            for name in &[
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+            ] {
                 assert!(std::env::var(name).is_err(), "{name} should be unset");
             }
         });
@@ -246,8 +254,14 @@ mod tests {
                 url: "http://127.0.0.1:7890".into(),
                 bypass_local: true,
             });
-            for name in &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-                          "http_proxy", "https_proxy", "all_proxy"] {
+            for name in &[
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+            ] {
                 assert_eq!(
                     std::env::var(name).unwrap(),
                     "http://127.0.0.1:7890",

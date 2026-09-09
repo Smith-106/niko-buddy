@@ -292,10 +292,20 @@ fn unique_suffix() -> String {
 fn sanitize_reason(reason: &str) -> String {
     let cleaned: String = reason
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let trimmed = cleaned.trim_matches('-').to_string();
-    if trimmed.is_empty() { "unspecified".into() } else { trimmed }
+    if trimmed.is_empty() {
+        "unspecified".into()
+    } else {
+        trimmed
+    }
 }
 
 /// 规范化为 zip 内正斜杠路径。
@@ -374,17 +384,23 @@ fn enumerate_entries(roots: &ComponentRoots) -> Vec<(String, PathBuf)> {
 /// 流式读取文件：同时喂给 zip writer 和 per-file hasher，返回 (len, hex)。
 ///
 /// 单遍完成「写入 + 摘要」，大文件不驻留内存。
-fn copy_and_hash(file: &mut fs::File, sink: &mut ZipWriter<fs::File>) -> Result<(u64, String), String> {
+fn copy_and_hash(
+    file: &mut fs::File,
+    sink: &mut ZipWriter<fs::File>,
+) -> Result<(u64, String), String> {
     let mut hasher = Sha256::new();
     let mut len: u64 = 0;
     let mut buf = vec![0u8; 128 * 1024];
     loop {
-        let n = file.read(&mut buf).map_err(|e| err_ctx("读取源文件失败", e))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| err_ctx("读取源文件失败", e))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
-        sink.write_all(&buf[..n]).map_err(|e| err_ctx("写入 zip 失败", e))?;
+        sink.write_all(&buf[..n])
+            .map_err(|e| err_ctx("写入 zip 失败", e))?;
         len += n as u64;
     }
     Ok((len, hex(&hasher.finalize())))
@@ -457,7 +473,9 @@ fn pack_project(
     let has_drafts = roots.drafts.is_some();
     let has_lancedb = roots.lancedb.is_some();
     if !has_status {
-        warnings.push(format!("缺少 {STATUS_REL}（尚未生成会话状态？），包内将不含 status"));
+        warnings.push(format!(
+            "缺少 {STATUS_REL}（尚未生成会话状态？），包内将不含 status"
+        ));
     }
     if !has_drafts {
         warnings.push(format!("缺少 {DRAFTS_REL}，包内不含草稿目录"));
@@ -467,8 +485,12 @@ fn pack_project(
     }
 
     let entries = enumerate_entries(&roots);
-    let file = fs::File::create(output_zip)
-        .map_err(|e| err_ctx(format!("无法创建备份文件 {}", output_zip.display()).as_str(), e))?;
+    let file = fs::File::create(output_zip).map_err(|e| {
+        err_ctx(
+            format!("无法创建备份文件 {}", output_zip.display()).as_str(),
+            e,
+        )
+    })?;
     let mut zip = ZipWriter::new(file);
 
     // 有口令 → 所有条目 AES-256；无口令 → Deflated 明文。
@@ -484,8 +506,8 @@ fn pack_project(
     let mut digest = Sha256::new();
     let mut packed: u64 = 0;
     for (name, path) in &entries {
-        let mut src =
-            fs::File::open(path).map_err(|e| err_ctx(format!("打开 {} 失败", path.display()).as_str(), e))?;
+        let mut src = fs::File::open(path)
+            .map_err(|e| err_ctx(format!("打开 {} 失败", path.display()).as_str(), e))?;
         zip.start_file(name, opts)
             .map_err(|e| err_ctx(format!("创建 zip 条目 {name} 失败").as_str(), e))?;
         let (len, file_hex) = copy_and_hash(&mut src, &mut zip)?;
@@ -498,14 +520,7 @@ fn pack_project(
         digest.update(b"\n");
         packed += 1;
         // ③-3：打包进度（current=已打包条目数, total=条目总数, message=条目名）。
-        emit_canon_progress(
-            app,
-            operation,
-            "pack",
-            packed as usize,
-            entries.len(),
-            name,
-        );
+        emit_canon_progress(app, operation, "pack", packed as usize, entries.len(), name);
     }
 
     // 2) manifest 最后写入（content digest 此时才齐备；zip 读端随机访问不受顺序影响）
@@ -523,7 +538,8 @@ fn pack_project(
         file_count: packed,
         content_sha256: hex(&digest.finalize()),
     };
-    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| err_ctx("序列化 manifest 失败", e))?;
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest).map_err(|e| err_ctx("序列化 manifest 失败", e))?;
     zip.start_file(MANIFEST_ENTRY, opts)
         .map_err(|e| err_ctx("写入 manifest 失败", e))?;
     zip.write_all(manifest_json.as_bytes())
@@ -550,7 +566,9 @@ fn stream_file_sha256(path: &Path) -> Result<String, String> {
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 128 * 1024];
     loop {
-        let n = f.read(&mut buf).map_err(|e| err_ctx("读取文件计算 SHA-256 失败", e))?;
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| err_ctx("读取文件计算 SHA-256 失败", e))?;
         if n == 0 {
             break;
         }
@@ -643,7 +661,10 @@ fn staged_roots(staging: &Path) -> ComponentRoots {
 
 /// Zip-Slip 防护的安全目标路径拼接（逐 component 走，拒绝逃逸）。
 /// 返回 None 表示该条目应跳过（不属于任何已知组件前缀）。
-fn safe_staging_target(staging_canonical: &Path, entry_name: &str) -> Result<Option<PathBuf>, String> {
+fn safe_staging_target(
+    staging_canonical: &Path,
+    entry_name: &str,
+) -> Result<Option<PathBuf>, String> {
     let (prefix, component) = if entry_name.starts_with(STATUS_PREFIX) {
         (STATUS_PREFIX, "status")
     } else if entry_name.starts_with(DRAFTS_PREFIX) {
@@ -711,19 +732,24 @@ fn stage_verified_archive(
         Some(false) => {
             return Err("SHA-256 校验和不匹配：备份文件可能已被篡改或损坏，已中止恢复".to_string())
         }
-        None => warnings
-            .push("无法找到 .sha256 校验和文件且未提供期望值，将仅依赖包内内容摘要校验".to_string()),
+        None => warnings.push(
+            "无法找到 .sha256 校验和文件且未提供期望值，将仅依赖包内内容摘要校验".to_string(),
+        ),
     }
 
     // ── 开包 + manifest ──
     let file = fs::File::open(zip_path).map_err(|e| err_ctx("打开备份文件失败", e))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| err_ctx("读取备份文件失败，可能已损坏", e))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| err_ctx("读取备份文件失败，可能已损坏", e))?;
 
     let names: Vec<String> = archive.file_names().map(str::to_string).collect();
     let manifest_index = names
         .iter()
         .position(|n| n == MANIFEST_ENTRY)
-        .ok_or_else(|| "缺少 manifest.json：不是有效的项目备份包（注意：全局备份请走设置页数据管理）".to_string())?;
+        .ok_or_else(|| {
+            "缺少 manifest.json：不是有效的项目备份包（注意：全局备份请走设置页数据管理）"
+                .to_string()
+        })?;
 
     let manifest_bytes = read_entry_bytes(&mut archive, manifest_index, passphrase)?;
     let manifest: ProjectBackupManifest = serde_json::from_slice(&manifest_bytes)
@@ -743,7 +769,9 @@ fn stage_verified_archive(
 
     // ── 全量解压到 staging（Zip-Slip 防护；未知前缀跳过并警告）──
     fs::create_dir_all(staging_root).map_err(|e| err_ctx("创建暂存目录失败", e))?;
-    let staging_canonical = staging_root.canonicalize().map_err(|e| err_ctx("解析暂存目录失败", e))?;
+    let staging_canonical = staging_root
+        .canonicalize()
+        .map_err(|e| err_ctx("解析暂存目录失败", e))?;
 
     let mut staged_files: u64 = 0;
     for (index, name) in names.iter().enumerate() {
@@ -758,11 +786,16 @@ fn stage_verified_archive(
             }
         };
         if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|e| err_ctx(format!("创建目录 {} 失败", parent.display()).as_str(), e))?;
+            fs::create_dir_all(parent)
+                .map_err(|e| err_ctx(format!("创建目录 {} 失败", parent.display()).as_str(), e))?;
         }
         let data = read_entry_bytes(&mut archive, index, passphrase)?;
-        fs::write(&target, &data)
-            .map_err(|e| err_ctx(format!("写入暂存文件 {} 失败", target.display()).as_str(), e))?;
+        fs::write(&target, &data).map_err(|e| {
+            err_ctx(
+                format!("写入暂存文件 {} 失败", target.display()).as_str(),
+                e,
+            )
+        })?;
         staged_files += 1;
         // ③-3：解压进度（current=已解压文件数, total=包内条目数, message=条目名）。
         emit_canon_progress(
@@ -803,7 +836,11 @@ fn swap_directory(staged: &Path, current: &Path, aside: &Path) -> Result<bool, S
     if existed {
         fs::rename(current, aside).map_err(|e| {
             err_ctx(
-                format!("移开现有目录 {} 失败（可能被其他进程占用）", current.display()).as_str(),
+                format!(
+                    "移开现有目录 {} 失败（可能被其他进程占用）",
+                    current.display()
+                )
+                .as_str(),
                 e,
             )
         })?;
@@ -841,7 +878,10 @@ pub fn export_project_impl_with_progress(
 ) -> Result<CanonExportResult, String> {
     let project = Path::new(&request.project_path);
     if !project.is_dir() {
-        return Ok(failed_export(format!("项目目录不存在: {}", request.project_path)));
+        return Ok(failed_export(format!(
+            "项目目录不存在: {}",
+            request.project_path
+        )));
     }
     let output = Path::new(&request.output_zip_path);
     if let Some(parent) = output.parent() {
@@ -853,7 +893,14 @@ pub fn export_project_impl_with_progress(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
 
-    let outcome = pack_project(app, "canon_export", project, output, pass.as_deref(), &project_name)?;
+    let outcome = pack_project(
+        app,
+        "canon_export",
+        project,
+        output,
+        pass.as_deref(),
+        &project_name,
+    )?;
 
     Ok(CanonExportResult {
         success: true,
@@ -982,8 +1029,9 @@ pub fn restore_project_impl_with_progress(
     // ── 2. 替换前自动备份（supersede 保护）──
     let auto_dir = project.join(AUTO_BACKUP_DIR);
     let mut auto_backup_path: Option<String> = None;
-    let has_current_state =
-        project.join(STATUS_REL).is_file() || project.join(DRAFTS_REL).exists() || project.join(LANCEDB_REL).exists();
+    let has_current_state = project.join(STATUS_REL).is_file()
+        || project.join(DRAFTS_REL).exists()
+        || project.join(LANCEDB_REL).exists();
     if has_current_state {
         fs::create_dir_all(&auto_dir).map_err(|e| err_ctx("创建自动备份目录失败", e))?;
         let auto_zip = auto_dir.join(format!("pre-restore-{}.zip", stamp));
@@ -991,10 +1039,22 @@ pub fn restore_project_impl_with_progress(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "project".to_string());
-        match pack_project(app, "canon_restore", project, &auto_zip, None, &current_name) {
+        match pack_project(
+            app,
+            "canon_restore",
+            project,
+            &auto_zip,
+            None,
+            &current_name,
+        ) {
             Ok(outcome) => {
                 auto_backup_path = Some(auto_zip.to_string_lossy().to_string());
-                warnings.extend(outcome.warnings.into_iter().map(|w| format!("[自动备份] {w}")));
+                warnings.extend(
+                    outcome
+                        .warnings
+                        .into_iter()
+                        .map(|w| format!("[自动备份] {w}")),
+                );
             }
             Err(e) => {
                 // 数据安全原则：有现存状态但备份失败 → 不允许破坏性替换
@@ -1128,7 +1188,14 @@ pub fn auto_backup_impl_with_progress(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
 
-    let outcome = pack_project(app, "canon_auto_backup", project, &output, None, &project_name)?;
+    let outcome = pack_project(
+        app,
+        "canon_auto_backup",
+        project,
+        &output,
+        None,
+        &project_name,
+    )?;
     Ok(CanonAutoBackupResult {
         success: true,
         backup_path: Some(output.to_string_lossy().to_string()),
@@ -1217,13 +1284,29 @@ mod tests {
         let p = tmp_dir(tag);
         fs::create_dir_all(p.join(".novel/drafts")).unwrap();
         fs::create_dir_all(p.join(".qmai/lancedb")).unwrap();
-        fs::write(p.join(".novel/status.json"), r#"{"step":"ch-3","chapter":3}"#).unwrap();
+        fs::write(
+            p.join(".novel/status.json"),
+            r#"{"step":"ch-3","chapter":3}"#,
+        )
+        .unwrap();
         fs::write(p.join(".novel/drafts/conv_1.json"), r#"{"draft":1}"#).unwrap();
-        fs::write(p.join(".novel/drafts/conv_2.superseded.1.json"), r#"{"draft":2-old}"#).unwrap();
+        fs::write(
+            p.join(".novel/drafts/conv_2.superseded.1.json"),
+            r#"{"draft":2-old}"#,
+        )
+        .unwrap();
         fs::create_dir_all(p.join(".qmai/lancedb/entities.lance")).unwrap();
         fs::create_dir_all(p.join(".qmai/lancedb/_versions")).unwrap();
-        fs::write(p.join(".qmai/lancedb/entities.lance/data.lance"), b"lance-bytes-1").unwrap();
-        fs::write(p.join(".qmai/lancedb/_versions/manifest-0"), b"lance-manifest").unwrap();
+        fs::write(
+            p.join(".qmai/lancedb/entities.lance/data.lance"),
+            b"lance-bytes-1",
+        )
+        .unwrap();
+        fs::write(
+            p.join(".qmai/lancedb/_versions/manifest-0"),
+            b"lance-manifest",
+        )
+        .unwrap();
         p
     }
 
@@ -1243,7 +1326,10 @@ mod tests {
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        assert_eq!(sha256_hex(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     // ── 导出 → 篡改现场 → 恢复：内容还原 + 自动备份存在 ──
@@ -1257,27 +1343,50 @@ mod tests {
         let result = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
         assert!(result.success, "导出应成功: {:?}", result.error);
         assert_eq!(result.file_count, 5, "status+2drafts+2lance 文件");
-        assert!(result.checksum_sha256.as_ref().is_some_and(|c| c.len() == 64));
+        assert!(result
+            .checksum_sha256
+            .as_ref()
+            .is_some_and(|c| c.len() == 64));
         assert!(sidecar_path(&zip).is_file(), "sidecar 应存在");
 
         // 破坏现场：改 status、删一个 draft、污染 lancedb
-        fs::write(project.join(".novel/status.json"), r#"{"step":"corrupted"}"#).unwrap();
+        fs::write(
+            project.join(".novel/status.json"),
+            r#"{"step":"corrupted"}"#,
+        )
+        .unwrap();
         fs::remove_file(project.join(".novel/drafts/conv_1.json")).unwrap();
-        fs::write(project.join(".qmai/lancedb/_versions/manifest-0"), b"tampered").unwrap();
+        fs::write(
+            project.join(".qmai/lancedb/_versions/manifest-0"),
+            b"tampered",
+        )
+        .unwrap();
 
-        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
-            project_path: project.to_string_lossy().to_string(),
-            zip_path: zip.to_string_lossy().to_string(),
-            expected_checksum: None,
-            passphrase: None,
-        }, None)
+        let restore = restore_project_impl_with_progress(
+            &CanonRestoreRequest {
+                project_path: project.to_string_lossy().to_string(),
+                zip_path: zip.to_string_lossy().to_string(),
+                expected_checksum: None,
+                passphrase: None,
+            },
+            None,
+        )
         .unwrap();
         assert!(restore.success, "恢复应成功: {:?}", restore.error);
-        assert!(restore.restored_status && restore.restored_drafts && restore.restored_canon_lancedb);
-        assert_eq!(restore.restored_files, 5);
-        assert_eq!(restore.checksum_verified, Some(true), "sidecar 存在时应通过容器校验");
         assert!(
-            restore.auto_backup_path.as_ref().is_some_and(|p| Path::new(p).is_file()),
+            restore.restored_status && restore.restored_drafts && restore.restored_canon_lancedb
+        );
+        assert_eq!(restore.restored_files, 5);
+        assert_eq!(
+            restore.checksum_verified,
+            Some(true),
+            "sidecar 存在时应通过容器校验"
+        );
+        assert!(
+            restore
+                .auto_backup_path
+                .as_ref()
+                .is_some_and(|p| Path::new(p).is_file()),
             "替换前应有自动备份"
         );
 
@@ -1338,7 +1447,8 @@ mod tests {
     fn expected_checksum_mismatch_rejects_restore() {
         let project = seed_project("mismatch");
         let zip = tmp_dir("mismatch-out").join("t.zip");
-        let exported = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
+        let exported =
+            export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
 
         let v = verify_export_impl(&CanonVerifyRequest {
             zip_path: zip.to_string_lossy().to_string(),
@@ -1390,11 +1500,14 @@ mod tests {
         let out = tmp_dir("passphrase-out");
         let zip = out.join("enc.zip");
 
-        let exported = export_project_impl_with_progress(&CanonExportRequest {
-            project_path: project.to_string_lossy().to_string(),
-            output_zip_path: zip.to_string_lossy().to_string(),
-            passphrase: Some("本地口令-local-pass".to_string()),
-        }, None)
+        let exported = export_project_impl_with_progress(
+            &CanonExportRequest {
+                project_path: project.to_string_lossy().to_string(),
+                output_zip_path: zip.to_string_lossy().to_string(),
+                passphrase: Some("本地口令-local-pass".to_string()),
+            },
+            None,
+        )
         .unwrap();
         assert!(exported.success);
 
@@ -1437,11 +1550,14 @@ mod tests {
     fn blank_passphrase_means_plain() {
         let project = seed_project("blankpass");
         let zip = tmp_dir("blankpass-out").join("t.zip");
-        let exported = export_project_impl_with_progress(&CanonExportRequest {
-            project_path: project.to_string_lossy().to_string(),
-            output_zip_path: zip.to_string_lossy().to_string(),
-            passphrase: Some("   ".to_string()),
-        }, None)
+        let exported = export_project_impl_with_progress(
+            &CanonExportRequest {
+                project_path: project.to_string_lossy().to_string(),
+                output_zip_path: zip.to_string_lossy().to_string(),
+                passphrase: Some("   ".to_string()),
+            },
+            None,
+        )
         .unwrap();
         assert!(exported.success);
 
@@ -1483,12 +1599,15 @@ mod tests {
         zw.write_all(b"malicious").unwrap();
         zw.finish().unwrap();
 
-        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
-            project_path: project.to_string_lossy().to_string(),
-            zip_path: evil_zip.to_string_lossy().to_string(),
-            expected_checksum: None,
-            passphrase: None,
-        }, None)
+        let restore = restore_project_impl_with_progress(
+            &CanonRestoreRequest {
+                project_path: project.to_string_lossy().to_string(),
+                zip_path: evil_zip.to_string_lossy().to_string(),
+                expected_checksum: None,
+                passphrase: None,
+            },
+            None,
+        )
         .unwrap();
         assert!(!restore.success, "traversal 条目应被拒");
         assert!(restore.error.unwrap().contains("安全拦截"));
@@ -1500,16 +1619,22 @@ mod tests {
     #[test]
     fn auto_backup_creates_timestamped_zip_with_sidecar() {
         let project = seed_project("autobackup");
-        let r = auto_backup_impl_with_progress(&CanonAutoBackupRequest {
-            project_path: project.to_string_lossy().to_string(),
-            reason: "pre supersede/迁移!".to_string(),
-        }, None)
+        let r = auto_backup_impl_with_progress(
+            &CanonAutoBackupRequest {
+                project_path: project.to_string_lossy().to_string(),
+                reason: "pre supersede/迁移!".to_string(),
+            },
+            None,
+        )
         .unwrap();
         assert!(r.success, "{:?}", r.error);
         let path = Path::new(r.backup_path.as_ref().unwrap());
         assert!(path.is_file());
         assert!(
-            path.file_name().unwrap().to_string_lossy().contains("pre-supersede"),
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains("pre-supersede"),
             "reason 应被清洗进文件名: {}",
             path.display()
         );
@@ -1518,10 +1643,13 @@ mod tests {
 
         // 空项目 → 报无可备份
         let empty = tmp_dir("autobackup-empty");
-        let r2 = auto_backup_impl_with_progress(&CanonAutoBackupRequest {
-            project_path: empty.to_string_lossy().to_string(),
-            reason: "pre-migration".to_string(),
-        }, None)
+        let r2 = auto_backup_impl_with_progress(
+            &CanonAutoBackupRequest {
+                project_path: empty.to_string_lossy().to_string(),
+                reason: "pre-migration".to_string(),
+            },
+            None,
+        )
         .unwrap();
         assert!(!r2.success);
         assert!(r2.error.unwrap().contains("没有"));
@@ -1537,23 +1665,30 @@ mod tests {
 
         let out = tmp_dir("partial-out");
         let zip = out.join("t.zip");
-        let exported = export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
+        let exported =
+            export_project_impl_with_progress(&export_req(&project, &zip), None).unwrap();
         assert!(exported.success, "{:?}", exported.error);
         assert_eq!(exported.file_count, 1);
         assert!(
-            exported.warnings.iter().any(|w| w.contains("drafts") || w.contains("lancedb")),
+            exported
+                .warnings
+                .iter()
+                .any(|w| w.contains("drafts") || w.contains("lancedb")),
             "缺失组件应产生 warning: {:?}",
             exported.warnings
         );
 
         // 恢复到全新目录：只建 status
         let target = tmp_dir("partial-target");
-        let restore = restore_project_impl_with_progress(&CanonRestoreRequest {
-            project_path: target.to_string_lossy().to_string(),
-            zip_path: zip.to_string_lossy().to_string(),
-            expected_checksum: None,
-            passphrase: None,
-        }, None)
+        let restore = restore_project_impl_with_progress(
+            &CanonRestoreRequest {
+                project_path: target.to_string_lossy().to_string(),
+                zip_path: zip.to_string_lossy().to_string(),
+                expected_checksum: None,
+                passphrase: None,
+            },
+            None,
+        )
         .unwrap();
         assert!(restore.success, "{:?}", restore.error);
         assert!(restore.restored_status);

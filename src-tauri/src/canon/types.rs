@@ -329,7 +329,12 @@ pub struct CanonEntity {
 
 impl CanonEntity {
     /// 技法列默认值构造（仅基础字段必填）。
-    pub fn new(id: impl Into<String>, entity_type: impl Into<String>, canonical_name: impl Into<String>, first_seen_chapter: i32) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        entity_type: impl Into<String>,
+        canonical_name: impl Into<String>,
+        first_seen_chapter: i32,
+    ) -> Self {
         Self {
             id: id.into(),
             entity_type: entity_type.into(),
@@ -715,7 +720,10 @@ impl CanonEdgeFilter {
             }
             // 端点
             if let Some(ref ids) = self.entity_ids {
-                if !ids.iter().any(|id| id == &e.source_id || id == &e.target_id) {
+                if !ids
+                    .iter()
+                    .any(|id| id == &e.source_id || id == &e.target_id)
+                {
                     return false;
                 }
             }
@@ -847,10 +855,7 @@ pub struct CanonEvent {
 impl CanonEvent {
     /// 构造一条 supersede 审计事件（event_id / occurred_at 由服务端
     /// `append_canon_event` 派生/填充，此处留空）。
-    pub fn new_supersede(
-        revision: u64,
-        req: &SupersedeRequest,
-    ) -> Self {
+    pub fn new_supersede(revision: u64, req: &SupersedeRequest) -> Self {
         CanonEvent {
             event_id: String::new(),
             event_type: "supersede".to_string(),
@@ -1017,7 +1022,8 @@ pub static MIGRATION_V4_BITEMPORAL: &[ColumnSpec] = &[
         table: CANON_TABLE_EDGES,
         name: "created_at",
         lance_type: LanceType::Int64,
-        description: "事务开始时间（记录创建/生效的真实时间戳 unix seconds；bi-temporal 系统时间轴）",
+        description:
+            "事务开始时间（记录创建/生效的真实时间戳 unix seconds；bi-temporal 系统时间轴）",
     },
     ColumnSpec {
         table: CANON_TABLE_EDGES,
@@ -1066,10 +1072,7 @@ impl MigrationPlan {
     /// dry-run 人类可读摘要（不触碰 IO）。
     pub fn dry_run_summary(&self) -> String {
         if self.is_empty() {
-            return format!(
-                "no migration needed: already at v{}",
-                self.to.get()
-            );
+            return format!("no migration needed: already at v{}", self.to.get());
         }
         let cols: Vec<String> = self
             .added_columns
@@ -1097,10 +1100,8 @@ pub fn plan_migration(from: SchemaVersion, to: SchemaVersion) -> MigrationPlan {
         .filter(|m| m.version > from && m.version <= to)
         .collect();
     steps.sort_by_key(|m| m.version);
-    let added_columns: Vec<&'static ColumnSpec> = steps
-        .iter()
-        .flat_map(|m| m.columns.iter())
-        .collect();
+    let added_columns: Vec<&'static ColumnSpec> =
+        steps.iter().flat_map(|m| m.columns.iter()).collect();
     MigrationPlan {
         from,
         to,
@@ -1194,19 +1195,35 @@ pub fn ingest_digest_exists(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemporalInvariantError {
     /// valid_at > invalid_at（世界时态倒置）。
-    ValidAfterInvalid { edge_id: String, valid_at: i32, invalid_at: i32 },
+    ValidAfterInvalid {
+        edge_id: String,
+        valid_at: i32,
+        invalid_at: i32,
+    },
     /// revealed_at 早于 valid_at（认知揭示早于事实生效）。
-    RevealedBeforeValid { edge_id: String, revealed_at: i32, valid_at: i32 },
+    RevealedBeforeValid {
+        edge_id: String,
+        revealed_at: i32,
+        valid_at: i32,
+    },
 }
 
 impl std::fmt::Display for TemporalInvariantError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ValidAfterInvalid { edge_id, valid_at, invalid_at } => write!(
+            Self::ValidAfterInvalid {
+                edge_id,
+                valid_at,
+                invalid_at,
+            } => write!(
                 f,
                 "edge {edge_id}: valid_at {valid_at} > invalid_at {invalid_at}"
             ),
-            Self::RevealedBeforeValid { edge_id, revealed_at, valid_at } => write!(
+            Self::RevealedBeforeValid {
+                edge_id,
+                revealed_at,
+                valid_at,
+            } => write!(
                 f,
                 "edge {edge_id}: revealed_at {revealed_at} < valid_at {valid_at}"
             ),
@@ -1482,21 +1499,15 @@ mod tests {
     #[test]
     fn canon_ingest_digest_dedup() {
         let existing = vec![(1, "d1".into()), (2, "d2".into())];
-        assert!(ingest_digest_exists(
-            existing.iter().cloned(),
-            1,
-            "d1"
-        ));
-        assert!(!ingest_digest_exists(
-            existing.iter().cloned(),
-            1,
-            "d2"
-        ), "same chapter different digest → not dup");
-        assert!(!ingest_digest_exists(
-            existing.iter().cloned(),
-            3,
-            "d1"
-        ), "different chapter same digest → not dup");
+        assert!(ingest_digest_exists(existing.iter().cloned(), 1, "d1"));
+        assert!(
+            !ingest_digest_exists(existing.iter().cloned(), 1, "d2"),
+            "same chapter different digest → not dup"
+        );
+        assert!(
+            !ingest_digest_exists(existing.iter().cloned(), 3, "d1"),
+            "different chapter same digest → not dup"
+        );
     }
 
     #[test]
@@ -1535,8 +1546,15 @@ mod tests {
             "edge_kind":"world_fact"
         }"#;
         let e: CanonEdge = serde_json::from_str(old_json).unwrap();
-        assert_eq!(e.recorded_revision, None, "旧数据 recorded_revision 回填 None");
-        assert_eq!(e.modality, Modality::Assertive, "旧数据 modality 回填 Assertive");
+        assert_eq!(
+            e.recorded_revision, None,
+            "旧数据 recorded_revision 回填 None"
+        );
+        assert_eq!(
+            e.modality,
+            Modality::Assertive,
+            "旧数据 modality 回填 Assertive"
+        );
     }
 
     #[test]
@@ -1567,8 +1585,14 @@ mod tests {
         }
         .select(&all);
         let ids: Vec<&str> = sel.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, vec!["e-old", "e-none"], "max_recorded_revision as-of-revision 过滤");
-        assert!(sel.iter().all(|e| e.recorded_revision.map_or(true, |r| r <= 5)));
+        assert_eq!(
+            ids,
+            vec!["e-old", "e-none"],
+            "max_recorded_revision as-of-revision 过滤"
+        );
+        assert!(sel
+            .iter()
+            .all(|e| e.recorded_revision.map_or(true, |r| r <= 5)));
 
         // None 过滤：全部保留（不过滤）。
         assert_eq!(CanonEdgeFilter::default().select(&all).len(), 3);

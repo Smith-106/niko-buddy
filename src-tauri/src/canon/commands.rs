@@ -48,12 +48,11 @@ use tauri::State;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::canon::store::CanonStore;
-use crate::canon::types::{
-    CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, SupersedeRequest,
-    SupersedeResult,
-};
 #[cfg(test)]
 use crate::canon::types::EdgeKind;
+use crate::canon::types::{
+    CanonEdge, CanonEdgeFilter, CanonEpisode, CanonEvent, SupersedeRequest, SupersedeResult,
+};
 
 // ──────────────────────────────────────────────────────────────────────────
 // 多项目契约状态（managed by lib.rs）
@@ -779,7 +778,10 @@ mod tests {
         assert_eq!(r.results[0].len(), 2, "分页 filter → 当前页 2 条");
         assert_eq!(r.totals[0], 5, "分页 filter → total 为全量计数");
         assert_eq!(r.results[1].len(), 5);
-        assert_eq!(r.totals[1], 5, "无分页 filter → total = results[i].len()（旧行为）");
+        assert_eq!(
+            r.totals[1], 5,
+            "无分页 filter → total = results[i].len()（旧行为）"
+        );
     }
 
     // ── canon_facts_known_by：POV 认知轴封装 ──
@@ -799,9 +801,17 @@ mod tests {
             .await
             .unwrap();
 
-        let r = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(5), None, None, None)
-            .await
-            .unwrap();
+        let r = canon_facts_known_by_impl(
+            &state,
+            pid.clone(),
+            "alice".into(),
+            Some(5),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(r.edges.len(), 1);
         assert_eq!(r.edges[0].id, "e1");
 
@@ -830,15 +840,24 @@ mod tests {
             .unwrap();
 
         // 旧行为（None）：第 7 章不再有效 → 0 条。
-        let old = canon_facts_known_by_impl(&state, pid.clone(), "alice".into(), Some(7), None, None, None)
-            .await
-            .unwrap();
+        let old = canon_facts_known_by_impl(
+            &state,
+            pid.clone(),
+            "alice".into(),
+            Some(7),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(old.edges.len(), 0);
 
         // include_invalidated=true：保留已失效窗口边 → 1 条。
-        let inc = canon_facts_known_by_impl(&state, pid, "alice".into(), Some(7), Some(true), None, None)
-            .await
-            .unwrap();
+        let inc =
+            canon_facts_known_by_impl(&state, pid, "alice".into(), Some(7), Some(true), None, None)
+                .await
+                .unwrap();
         assert_eq!(inc.edges.len(), 1);
         assert_eq!(inc.edges[0].id, "e1");
     }
@@ -889,17 +908,9 @@ mod tests {
         assert_eq!(page2.total, 3);
 
         // offset=None, limit=None → 全量，total=3（旧行为，向后兼容）
-        let all = canon_facts_known_by_impl(
-            &state,
-            pid,
-            "alice".into(),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        let all = canon_facts_known_by_impl(&state, pid, "alice".into(), None, None, None, None)
+            .await
+            .unwrap();
         assert_eq!(all.edges.len(), 3);
         assert_eq!(all.total, 3);
     }
@@ -927,13 +938,9 @@ mod tests {
         assert_eq!(r2.max_revision, 2, "仍走写路径，revision 再自增");
 
         // 读路径返回最新 revision（未再 bump）
-        let q = canon_query_impl(
-            &state,
-            pid,
-            CanonEdgeFilter::default(),
-        )
-        .await
-        .unwrap();
+        let q = canon_query_impl(&state, pid, CanonEdgeFilter::default())
+            .await
+            .unwrap();
         assert_eq!(q.max_revision, 2);
     }
 
@@ -993,30 +1000,21 @@ mod tests {
         let state = CanonCommandState::default();
 
         // 项目 A 写两次
-        let _ = canon_ingest_episode_impl(
-            &state,
-            pid_a.clone(),
-            CanonEpisode::new("a1", 1, "x", "da"),
-        )
-        .await
-        .unwrap();
-        let ra2 = canon_ingest_episode_impl(
-            &state,
-            pid_a.clone(),
-            CanonEpisode::new("a2", 2, "x", "db"),
-        )
-        .await
-        .unwrap();
+        let _ =
+            canon_ingest_episode_impl(&state, pid_a.clone(), CanonEpisode::new("a1", 1, "x", "da"))
+                .await
+                .unwrap();
+        let ra2 =
+            canon_ingest_episode_impl(&state, pid_a.clone(), CanonEpisode::new("a2", 2, "x", "db"))
+                .await
+                .unwrap();
         assert_eq!(ra2.max_revision, 2);
 
         // 项目 B 仅写一次 → 独立计数，不受 A 影响
-        let rb = canon_ingest_episode_impl(
-            &state,
-            pid_b.clone(),
-            CanonEpisode::new("b1", 1, "y", "dc"),
-        )
-        .await
-        .unwrap();
+        let rb =
+            canon_ingest_episode_impl(&state, pid_b.clone(), CanonEpisode::new("b1", 1, "y", "dc"))
+                .await
+                .unwrap();
         assert_eq!(rb.max_revision, 1, "B 独立 revision 计数");
 
         // A 的读仍反映 A 的 revision
@@ -1152,15 +1150,13 @@ mod tests {
         let by_id = |id: &str| q.edges.iter().find(|e| e.id == id).cloned();
         let new1_back = by_id("new1").expect("new1 应存在");
         assert_eq!(
-            new1_back.recorded_revision, Some(1),
+            new1_back.recorded_revision,
+            Some(1),
             "new_edges 戳 == max_revision"
         );
         // A3：封顶旧边 old1 原戳 (7) 在 supersede 后仍保留（invalidate_edge 不动 recorded_revision）
         let old1_back = by_id("old1").expect("old1 应仍封顶存在");
-        assert_eq!(
-            old1_back.recorded_revision, Some(7),
-            "封顶边原戳保留（A3）"
-        );
+        assert_eq!(old1_back.recorded_revision, Some(7), "封顶边原戳保留（A3）");
         assert_eq!(old1_back.invalid_at, Some(5), "封顶 invalid_at 写入");
         // old2（未列入 old_edge_ids）应为 None 戳且仍有效
         let old2_back = by_id("old2").expect("old2 应存在");
@@ -1204,14 +1200,8 @@ mod tests {
         assert_eq!(events[0].new_edge_ids, vec!["new1".to_string()]);
         assert_eq!(events[0].cap_chapter, Some(5));
         assert_eq!(events[0].caused_by, Some("manual-correction".to_string()));
-        assert!(
-            !events[0].event_id.is_empty(),
-            "event_id 服务端派生非空"
-        );
-        assert!(
-            !events[0].occurred_at.is_empty(),
-            "occurred_at 服务端填充"
-        );
+        assert!(!events[0].event_id.is_empty(), "event_id 服务端派生非空");
+        assert!(!events[0].occurred_at.is_empty(), "occurred_at 服务端填充");
 
         // 状态已改：old1 封顶、new1 可见
         let q = canon_query_impl(&state, pid, CanonEdgeFilter::default())

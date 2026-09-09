@@ -101,8 +101,7 @@ fn read_env_nonempty(key: &str) -> Option<String> {
 
 /// Try a list of keys in order and return the first non-empty value found.
 fn read_env_first_nonempty(keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| read_env_nonempty(key))
+    keys.iter().find_map(|key| read_env_nonempty(key))
 }
 
 // ── Home directory resolution ───────────────────────────────────────────────

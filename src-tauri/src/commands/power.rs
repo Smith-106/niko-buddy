@@ -36,9 +36,8 @@ pub async fn acquire_wake_lock() -> Result<bool, String> {
         // SAFETY: SetThreadExecutionState is a thread-local kernel32 call
         // with no memory-unsafe inputs; the flags are compile-time constants.
         unsafe {
-            let prev = SetThreadExecutionState(
-                ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED,
-            );
+            let prev =
+                SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED);
             Ok(prev.0 != 0)
         }
     }

@@ -38,13 +38,17 @@ pub fn open_project(app: AppHandle, path: String) -> Result<WikiProject, String>
 
 #[tauri::command]
 pub fn open_project_folder(app: AppHandle, path: String) -> Result<(), String> {
-    run_guarded("open_project_folder", || open_project_folder_impl(&app, &path))
+    run_guarded("open_project_folder", || {
+        open_project_folder_impl(&app, &path)
+    })
 }
 
 #[tauri::command]
 pub async fn open_file_location(app: AppHandle, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        run_guarded("open_file_location", || open_file_location_impl(&app, &path))
+        run_guarded("open_file_location", || {
+            open_file_location_impl(&app, &path)
+        })
     })
     .await
     .map_err(|e| format!("open_file_location blocking task join error: {e}"))?
@@ -82,10 +86,7 @@ pub fn create_project_impl(name: String, path: String) -> Result<WikiProject, St
     let today = Local::now().format("%Y-%m-%d").to_string();
 
     // schema.md — project page-type reference and frontmatter contract
-    write_project_file(
-        root.join("schema.md"),
-        schema_markdown_content(),
-    )?;
+    write_project_file(root.join("schema.md"), schema_markdown_content())?;
 
     // purpose.md — editable template for the author's goals
     write_project_file(root.join("purpose.md"), purpose_markdown_content())?;
@@ -194,8 +195,7 @@ pub fn validate_wiki_project_root(root: &Path) -> Result<(), String> {
     }
 
     let has_schema = root.join("schema.md").exists();
-    let has_wiki =
-        root.join(KNOWLEDGE_DIR).is_dir() || root.join(LEGACY_KNOWLEDGE_DIR).is_dir();
+    let has_wiki = root.join(KNOWLEDGE_DIR).is_dir() || root.join(LEGACY_KNOWLEDGE_DIR).is_dir();
     let has_novel = root.join(".novel").is_dir();
     let has_md_files = fs::read_dir(root)
         .map(|mut entries| {
