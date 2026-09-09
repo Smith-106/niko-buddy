@@ -138,8 +138,11 @@ export default defineConfig(async () => ({
     setupFiles: ["./src/test-helpers/load-test-env.ts"],
     // CI flaky 止血（2026-08-22 三模型裁决，见 .workflow p1-flaky-debt）：
     // 仅 CI 重试 2 次（GA 默认 CI=true），本地 retry=0 保持 loud fail 不掩盖；
-    // 确定性失败重试后仍红，真回归门信号保留；sunset：根因修复入 master 且
-    // CI 连续绿跑后删除此行。
+    // 确定性失败重试后仍红，真回归门信号保留。
+    // SUNSET 硬钉（P1-4，2026-09-10）：retry 面已由 CI-only 收窄为 E2E-only
+    // （vitest retry 仅作用于单测；flaky 实测面在 playwright e2e，见台账），
+    // **结案版本 = v2.9.0**：发布 v2.9.0 前必须删除本行（其时 E2E flaky 根因
+    // 应已随 e2e 超时/握手加固收敛）；到期未删 = 台账过期，审计必查项。
     retry: process.env.CI ? 2 : 0,
     // T5 flaky 治理（2026-08-23）：forks pool 全量并发下 worker 启动握手超时
     // （B 类）+ 5s testTimeout 被 CPU 争抢击穿（A 类）——限流到 4 worker 同时
