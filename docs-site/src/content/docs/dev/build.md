@@ -49,7 +49,9 @@ GitHub Release 产物包含：
 
 ## 签名密钥
 
-GitHub 发布版构建需要 Tauri 签名私钥，默认路径 `~/.tauri/qmai-updater.key`。也可通过环境变量 `TAURI_SIGNING_PRIVATE_KEY_PATH` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 指定。
+GitHub 发布版构建需要 Tauri 签名私钥，默认路径 `~/.tauri/qmai-updater.key`（唯一回退定义在 `scripts/prepare-github-release.mjs`，P2-3 起双写清偿）。也可通过环境变量 `TAURI_SIGNING_PRIVATE_KEY_PATH` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 指定。
+
+构建脚本 `build:portable` / `build:github-release` 由 `scripts/build-release-env.mjs` 编排（P2-3：原 package.json 内联 PowerShell 块已下沉 Node 侧，退出码经 spawnSync 传播）。
 
 ## 代码规范
 

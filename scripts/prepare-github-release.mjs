@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process"
 import { dirname, extname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { buildCurrentReleaseNotes } from "./release-notes.mjs"
+import { assertSigningKeyExists } from "./signing-key.mjs"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
@@ -36,10 +37,7 @@ rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 cpSync(updaterAssetPath, releaseAssetPath)
 
-const privateKeyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || resolve(process.env.USERPROFILE ?? "", ".tauri/qmai-updater.key")
-if (!existsSync(privateKeyPath)) {
-  throw new Error(`未找到 updater 签名私钥：${privateKeyPath}`)
-}
+const privateKeyPath = assertSigningKeyExists()
 const tauriCli = resolve(root, "node_modules/@tauri-apps/cli/tauri.js")
 const result = spawnSync(process.execPath, [
   tauriCli,
