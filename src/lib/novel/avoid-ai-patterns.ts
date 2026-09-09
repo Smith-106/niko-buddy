@@ -1,15 +1,16 @@
 /**
- * Track B wrapper around vendored avoid-ai-writing detector (patterns.cjs).
+ * Track B wrapper around vendored avoid-ai-writing detector (patterns.mjs).
  *
  * Full port of reference/avoid-ai-writing/detector/patterns.js (English-heavy).
  * Product hard gates are NEVER set from this score — skill hooks / soft notes only.
  * Chinese novel path still pairs with mechanical-slop-detector (de-ai-rules).
  *
- * Source: src/lib/novel/vendor/avoid-ai-writing/patterns.cjs
- * Load: Vite `?raw` + Function sandbox (works in renderer + vitest; no createRequire).
+ * Source: src/lib/novel/vendor/avoid-ai-writing/patterns.mjs (ESM; P1-2 — the
+ * former ?raw + new Function eval sandbox was removed; patterns.cjs stays as
+ * the frozen vendor reference snapshot for diffing on upstream refreshes).
+ * Load: direct ESM import (works in renderer + vitest + plain node).
  */
-// Vite/vitest raw string of the CommonJS detector (IIFE + module.exports = AIDetector)
-import patternsSource from "./vendor/avoid-ai-writing/patterns.cjs?raw"
+import AIDetector from "./vendor/avoid-ai-writing/patterns.mjs"
 
 export const AVOID_AI_PATTERNS_SCHEMA = "avoid-ai-patterns/1.0" as const
 
@@ -54,19 +55,14 @@ type RawDetector = {
   }
 }
 
-let cached: RawDetector | null = null
+// Frozen import — the module itself is the singleton (IIFE evaluates once).
+const detector = AIDetector as RawDetector
 
 function loadDetector(): RawDetector {
-  if (cached) return cached
-  const module = { exports: {} as RawDetector }
-  // patterns.cjs ends with: module.exports = AIDetector
-  const runner = new Function("module", "exports", String(patternsSource))
-  runner(module, module.exports)
-  if (!module.exports || typeof module.exports.analyzeText !== "function") {
-    throw new Error("avoid-ai patterns.cjs missing analyzeText after eval")
+  if (!detector || typeof detector.analyzeText !== "function") {
+    throw new Error("avoid-ai patterns.mjs missing analyzeText export")
   }
-  cached = module.exports
-  return cached
+  return detector
 }
 
 /**

@@ -60,21 +60,21 @@ describe("avoid-ai-patterns full port", () => {
 
   it("rejects a vendor module without analyzeText", async () => {
     vi.resetModules()
-    vi.doMock("./vendor/avoid-ai-writing/patterns.cjs?raw", () => ({
-      default: "module.exports = {}",
+    vi.doMock("./vendor/avoid-ai-writing/patterns.mjs", () => ({
+      default: {},
     }))
 
     const isolated = await import("./avoid-ai-patterns")
     expect(() => isolated.analyzeAvoidAiPatterns("text")).toThrow("missing analyzeText")
 
-    vi.doUnmock("./vendor/avoid-ai-writing/patterns.cjs?raw")
+    vi.doUnmock("./vendor/avoid-ai-writing/patterns.mjs")
     vi.resetModules()
   })
 
   it("normalizes a sparse vendor result to public defaults", async () => {
     vi.resetModules()
-    vi.doMock("./vendor/avoid-ai-writing/patterns.cjs?raw", () => ({
-      default: "module.exports = { analyzeText: () => ({}) }",
+    vi.doMock("./vendor/avoid-ai-writing/patterns.mjs", () => ({
+      default: { analyzeText: () => ({}) },
     }))
 
     const isolated = await import("./avoid-ai-patterns")
@@ -84,7 +84,7 @@ describe("avoid-ai-patterns full port", () => {
       issues: [],
     })
 
-    vi.doUnmock("./vendor/avoid-ai-writing/patterns.cjs?raw")
+    vi.doUnmock("./vendor/avoid-ai-writing/patterns.mjs")
     vi.resetModules()
   })
 })
