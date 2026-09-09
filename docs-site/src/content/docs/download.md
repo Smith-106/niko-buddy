@@ -7,9 +7,15 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.8.0**（2026-09-09 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+**v2.8.1**（2026-09-09 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.8.1 更新亮点（2026-09-09，过程债务清偿批次）
+
+- ✅ **B1 补录 5 个 post-tag 清偿 commits** — P1-3 DoD 迁移 vitest specs + v26x 归档 / P2-1 ab-* 脚本 cjs→mjs ESM 规范化 / P2-5 canon 域分组入 canon/ 模块目录（纯移动零签名变更）/ R1 kappaAgreement 复活（内联 Cohen kappa，诊断面指标）/ R3 全仓 cargo fmt 规范化 + CI rust-fmt 门
+- ✅ **B2 eslint 棘轮回紧 163→162** — --max-warnings cap 回紧至实测值，T18 barrel 重构继续下行
+- 发布语义：prerelease（v2.7.9 豁免承诺至 10/2 不发 stable；验证通过后提升 stable）
 
 ### v2.8.0 更新亮点（2026-09-09，R5 检索实测 + UI 补全 + 隔离加固）
 

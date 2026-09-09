@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.8.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-80%2F75%2F80%2F80-yellow?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -62,6 +62,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 6 | v2.7.7 | 参考池覆盖 v2 | 55 号设计全链：genre 单真源 / EPUB-DOCX reveal / 数值事实检查 / 自重复率激活 / CJK 切分增强 / mojibake 修复默认开启 / RAG 注入审计 / humanizer 115 条模式矩阵 / 覆盖度 L1-L3 100% |
 | 7 | v2.7.8 | 三轴 20 缺口落地（64 号实施） | 机制 7（多文件原子事务 / source 五标签 / run kind 8 种 / 批量自动连写 / 卷弧滚动 / 项目医生 / 8 模块零接线收口）+ 检索 6（chunk 标注 / RAG layer-8 注入审计 12/12 覆盖 / 查询分解 / multi-query RRF / FTS5 bigram 索引可重建 / 分支正史绑定）+ 形态 7（互动影游 + Play / 同人四模式 + 正典合并 / 翻译执行链 / 封面 provider / Webhook 守护 / 形态诊断）+ 形态 Skill 5 个（XingshiSkill） |
 | 8 | v2.8.0 | 检索实测 + UI 补全 + 隔离加固（R5 线） | KB 影子双臂检索实测 harness（真实码路零镜像，golden 34 双臂 1.000 + paired 不变式）+ 判别力毒化压力臂 v2（治疗-对照：veto +64.7pp vs 无标记对照 0.0pp，先验阈值 fail-loud 入常态套件）+ 设置页 KB 路由/内容装配三区块 + R5 采集触发 UI + 隔离审计 10 面 + consent 显式裁决（三模型 P1 复评综合 9.58，95 三条件式全票 TRUE） |
+| 9 | v2.8.1 | 过程债务清偿（post-tag 批次） | B1 补录 5 post-tag 清偿 commits（P1-3 DoD 迁移 vitest / P2-1 cjs→mjs / P2-5 canon 纯移 / R1 kappaAgreement 复活诊断面 / R3 cargo fmt+CI 门）+ B2 eslint 棘轮回紧 163→162（prerelease，10/2 承诺窗口内不发 stable） |
 
 > 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
