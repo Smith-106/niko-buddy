@@ -29,12 +29,18 @@ npx vitest run src/lib/ipc-latency.bench.ts
 The benchmark framework automatically compares current results with saved baselines
 and reports regressions (>20% threshold).
 
+## Write contract (P2-6, 2026-09-10)
+
+- **Read source（冻结基线）**: `src/test-helpers/baselines/*.json`（tracked，仅发布会话刷新）
+- **Write target（测量落盘）**: `node_modules/.cache/qmai-baselines/*.json`（untracked，每次 bench 自动写入）
+- **刷新冻结基线**: `QMAI_BASELINE_DIR=src/test-helpers/baselines npm run bench` 后走 review/commit（P16 单写者纪律）
+- 目的：普通 bench 运行不再污染工作树（R11 清偿；原 skip-worktree workaround 已删）
+
 ## Regeneration
 
-Baselines are automatically regenerated when running benchmarks:
-```bash
-npx vitest run src/lib/*.bench.ts src/test-helpers/*.bench.ts
-```
+Baselines are NOT auto-regenerated into the repo anymore: regular runs write to
+the untracked scratch dir (see Write contract above). Refresh the frozen
+baselines only via the documented release-wave flow.
 
 ## Cross-Project Comparison
 
