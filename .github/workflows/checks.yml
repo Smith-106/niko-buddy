@@ -78,3 +78,32 @@ jobs:
         # seeds / commands-doc）。KB view 自洽检查自 B3 起并入本步（原 ci.yml
         # 内联 step 已删除，R17 4.4 无双重定义）。
         run: npm run gen:check
+
+  analytics-worker:
+    # exec-plan P1-1 + 登记簿 v2 glm-ADD-1 过渡编译门（transitional gate）。
+    # 撤除触发器（removal trigger）= worker CI 正式化记录（独立的 worker 仓/
+    # 专属 workflow 建立时，本门标注 transitional 的条款即解除并迁移）。
+    # 降级路径（R16）：wrangler dry-run 若因凭据形态不可用，退 tsc-only。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analytics-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install worker dependencies (independent lockfile)
+        run: npm ci
+
+      - name: Typecheck worker (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Wrangler deploy dry-run (no credentials required)
+        # R16 预演结论（2026-09-10 本地）：wrangler 3.x --dry-run 不校验凭据，
+        # 无需 dummy vars；失败时降级 tsc-only（后续批次按需补 continue-on-error）
+        run: npx wrangler deploy --dry-run --outdir /tmp/wrangler-dryrun

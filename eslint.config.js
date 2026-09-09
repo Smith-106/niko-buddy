@@ -39,6 +39,8 @@ export default tseslint.config(
       'src-tauri/**',
       'public/**',
       'docs/**',
+      'docs-site/**',
+      'analytics-worker/**',
       'scripts/**',
       'e2e/**',
       'extension/**',
