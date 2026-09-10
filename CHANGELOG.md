@@ -27,6 +27,25 @@
 
 typecheck 0 错误 / vitest 全量绿 / eslint 162 warnings 0 error（cap 162）/ cargo fmt 门绿
 
+### 工程收敛批次补录（exec-plan-20260908 工程批次，2026-09-10）
+
+> 补录 v2.8.1 tag 后 15 个工程/CI commits（登记簿 consensus-todo-register-20260909 A/B 节批次 + 残量 R 系列）。
+
+- **P1-1 analytics-worker 过渡门（0c8f7a25）**：analytics-worker CI job 接线（原零保护 → 受门禁保护）
+- **P1-2 patterns.cjs 去 eval（02036e2e）**：eval 沙箱 → 直接 ESM 导入；`new Function` 机械门禁归零
+- **P1-6 T18 barrel 收口（55aab6b7 + a39be4f3）**：`src/lib/novel/index.ts` 单一公共导入面（145 模块 / 371 value / 187 type 显式具名 re-export，458 处 app 导入改走 barrel）；eslint 棘轮 162→100
+- **T18-G boundaries 门禁迁移（82085c72）**：elements 退目录粒度 + 新增 boundaries/files 类别（novel-barrel / novel-deferred 19 项受控延迟叶子）→ **硬门**；正负 fixture 4/4（后两条兼作熔断器防「分类失效→静默假绿」）；**eslint 棘轮终局 100→0**（162→100→0），`--max-warnings` 棘轮删除，lint 0 problems
+- **P2 过程债批次（fecc618f / 5a852d3e / f3c921fc / 60e3ca81 / ce942222）**：app 侧 Python 归零；PS1 内联块下沉 Node + 签名键单源化；`.test.ts` 白名单收敛至 0；bench 基线写盘与受控源解耦；retry sunset 钉到 v2.9.0
+- **B4 Node-20 EOL 清偿（5d46d2aa）**：checkout v5 / setup-node v5 / upload-artifact v6 / deploy-pages v5；`arduino/setup-protoc@v3`（无 node24 版）改 choco；全仓 `uses:` 0 个 node20 运行时
+- **CI 真实缺陷修复（9bf01382）**：llm-provider-section 未清理定时器致 node-gates exit 1
+- **M1 门禁口径修正（be2b9415）**：`avoid-ai-patterns` 文档注释去掉字面 `new Function`（机械门禁读到 0；实现语义未变）
+- **R4 e2e 冷启动根治（e690bbf3）**：e2e 服务由 `vite dev`（首个请求按需 transform 整图）改 `vite build && vite preview`；删除两处 `setTimeout(120000)` 特例，套件超时收回常规 45s。CI 实测 e2e 步骤 ubuntu 4.25min→0.25min、windows failure 6.21min→success 1.91min
+- **R2 发版链自检（f0a4a5fa）**：`build.yml` 三平台统一 `Verify protoc` 步骤（Windows choco 路径的失败面显式化）
+
+### 验证（工程收敛批次）
+
+typecheck 0 错误 / lint **0 problems**（棘轮 162→100→0，`--max-warnings` 已删）/ test:mocks 801 files、12476 tests passed（11 skipped）/ boundaries fixture 4/4 / `cargo check` exit 0 / `git status --porcelain` 0 / CI 三平台 **6/6 全绿**（run 34440953377）
+
 ## [2.8.0] - 2026-09-09
 
 ### P2 过程/项目记忆库清偿批次（三模型共识 2026-09-07）
