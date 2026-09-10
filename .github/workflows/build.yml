@@ -132,6 +132,14 @@ jobs:
           choco install protoc --no-progress -y
           "$env:ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      # R2 残量（B4 清偿面）：Windows 的 choco 路径是本次新换的 protoc 来源，
+      # 而 build.yml 仅 tag / workflow_dispatch 触发，本地无法预热验证——三平台在
+      # 此统一断言，让工具链缺失以显式一步失败，而非在 cargo 构建里以晦涩错误暴露。
+      # 首次 tag 发布必须确认本步骤绿（登记：product-release-acceptance-checklist E9）。
+      - name: Verify protoc
+        shell: bash
+        run: protoc --version
+
       - name: Install PDFium binary
         if: matrix.pdfium_asset != ''
         shell: bash
