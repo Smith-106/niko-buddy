@@ -18,6 +18,7 @@
     "lint:character-aura": "node scripts/lint-character-aura.mjs",
     "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose",
     "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
+    "e2e:serve": "vite build && npm run preview",
     "test:e2e": "playwright test",
     "tauri": "tauri",
     "build:portable": "node scripts/build-release-env.mjs --portable",

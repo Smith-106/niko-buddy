@@ -110,6 +110,16 @@ export default defineConfig(async () => ({
     },
   },
 
+  // E2E 服务端口与 server 一致（R4）：playwright 在本端口上跑 `vite preview`（构建
+  // 产物），而非 `vite dev`。dev 形态下首个请求要按需 transform 整图（barrel 后 145
+  // 模块），CI runner 上曾反复撞穿 beforeEach 的 `#root` 等待从而被 120s 超时硬扛；
+  // 预构建产物把冷启动从「按需 transform」降为「读一份 JS」，同端口对齐使 baseURL 不变。
+  preview: {
+    port: 2420,
+    strictPort: true,
+    host: host || "127.0.0.1",
+  },
+
   test: {
     environment: "node",
     // Include bench files alongside test/spec so `npm run bench` works.
