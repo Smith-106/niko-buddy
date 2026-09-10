@@ -430,6 +430,15 @@ describe("openai-compatible body adapters", () => {
     expect(buildFor("qwen3-235b", { reasoning: { mode: "auto" } }).chat_template_kwargs).toBeUndefined()
   })
 
+  it("glm: top-level enable_thinking flag only", () => {
+    expect(buildFor("glm-5.3-flash", { reasoning: { mode: "off" } }).enable_thinking).toBe(false)
+    expect(buildFor("GLM-5.2", { reasoning: { mode: "off" } }).enable_thinking).toBe(false)
+    expect(buildFor("zai-org/GLM-4.5V", { reasoning: { mode: "high" } }).enable_thinking).toBe(true)
+    expect(buildFor("glm-5.3-flash", { reasoning: { mode: "auto" } }).enable_thinking).toBeUndefined()
+    expect(buildFor("glm-5.3-flash", { reasoning: { mode: "off" } }).chat_template_kwargs).toBeUndefined()
+    expect(buildFor("gemma-4-31b", { reasoning: { mode: "off" } }).enable_thinking).toBeUndefined()
+  })
+
   it("effort is only attached for openai/azure/custom providers", () => {
     expect(buildFor("llama3", { reasoning: { mode: "high" } }).reasoning_effort).toBe("high")
     const ollama = getProviderConfig({ ...customConfig(), provider: "ollama", ollamaUrl: "http://localhost:11434", reasoning: { mode: "high" } }).buildBody([{ role: "user", content: "x" }]) as Record<string, unknown>

@@ -330,6 +330,10 @@ function isQwenThinkingModel(model: string): boolean {
   return /qwen[-_]?3/i.test(model)
 }
 
+function isGlmThinkingModel(model: string): boolean {
+  return /glm[-_.]?\d/i.test(model)
+}
+
 function isKimiEndpoint(config: LlmConfig): boolean {
   return /(^|[/:.-])kimi([/:.-]|$)/i.test(config.model)
     || /moonshot/i.test(config.model)
@@ -395,6 +399,15 @@ function buildOpenAiCompatibleBody(
       body.chat_template_kwargs = { enable_thinking: false }
     } else if (reasoning.mode !== "auto") {
       body.chat_template_kwargs = { enable_thinking: true }
+    }
+  }
+
+  // GLM 系走顶层 enable_thinking（relay 实测：chat_template_kwargs 与 thinking 均无法关闭其思考）
+  if (isGlmThinkingModel(config.model)) {
+    if (reasoning.mode === "off") {
+      body.enable_thinking = false
+    } else if (reasoning.mode !== "auto") {
+      body.enable_thinking = true
     }
   }
 
