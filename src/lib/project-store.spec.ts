@@ -72,9 +72,14 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/web-store", () => ({
-  getStore: async () => mocks.store,
-}))
+vi.mock("@/lib/web-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-store")>()
+  return {
+    ...actual,
+      getStore: async () => mocks.store,
+    
+  }
+})
 
 // Provide a deterministic localStorage polyfill + platform mock so the real AES-GCM
 // crypto module (imported via project-store) works in the node test environment.
@@ -87,18 +92,33 @@ vi.stubGlobal("localStorage", {
   key: (i: number) => Array.from(lsMap.keys())[i] ?? null,
   get length() { return lsMap.size },
 })
-vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: () => false 
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
-vi.mock("@/lib/novel/project-meta", () => ({
-  loadNovelProjectMeta: mocks.loadNovelProjectMeta,
-  saveNovelProjectMeta: mocks.saveNovelProjectMeta,
-}))
+vi.mock("@/lib/novel/project-meta", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/project-meta")>()
+  return {
+    ...actual,
+      loadNovelProjectMeta: mocks.loadNovelProjectMeta,
+      saveNovelProjectMeta: mocks.saveNovelProjectMeta,
+    
+  }
+})
 
 const project: WikiProject = { id: "p1", name: "P", path: "C:/p" }
 

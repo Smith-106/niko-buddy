@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createBuildSystemPromptPlugin } from "./build-system-prompt-plugin"
-import { normalizeUserSkill } from "@/lib/novel/skill-library"
-import { buildOutlineFindProtocol } from "@/lib/novel/outline-find-protocol"
+import { normalizeUserSkill, buildOutlineFindProtocol } from "@/lib/novel"
 
 describe("BuildSystemPromptPlugin selected skills", () => {
   it("injects selected skill prompt before final model execution", async () => {

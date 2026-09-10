@@ -15,10 +15,15 @@ const fsMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 import {
   ChunkFingerprintIndex,

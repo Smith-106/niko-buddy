@@ -11,19 +11,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useWikiStore } from "@/stores/wiki-store"
 import { saveNovelConfig } from "@/lib/project-store"
 
-import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
-import {
-  applyAntiAiTelemetryConsentOnProjectOpen,
-  loadAntiAiTelemetryConsent,
-  saveAntiAiTelemetryConsent,
-} from "@/lib/novel/anti-ai-telemetry-wiring"
-import {
-  goldenCoverageOf,
-  goldenKbShadowCases,
-  runKbShadowArmsIfConsented,
-} from "@/lib/novel/kb-shadow-wiring"
+import { testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent, goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented, OUTLINE_GENRE_CODES } from "@/lib/novel"
+import type { TestableNovelModelTask } from "@/lib/novel"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
-import { OUTLINE_GENRE_CODES } from "@/lib/novel/genre-codes"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"

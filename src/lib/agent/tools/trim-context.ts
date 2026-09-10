@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
-import { contextPackToPrompt } from "@/lib/novel/context-engine"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import { contextPackToPrompt } from "@/lib/novel"
+import type { ContextPack } from "@/lib/novel"
 
 /**
  * @param tokenBudget ContextPack token budget (not characters).

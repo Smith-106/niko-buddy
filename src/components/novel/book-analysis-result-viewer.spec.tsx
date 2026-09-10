@@ -79,68 +79,123 @@ function setupDefaults(): void {
   mocks.joinPath.mockImplementation((...s: string[]) => s.join("/"))
 }
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: any) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: any) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: Object.assign(
-    (selector: any) => selector(mocks.bookState),
-    {
-      getState: () => mocks.bookState,
-      setState: (updater: any) => {
-        const next = updater(mocks.bookState)
-        Object.assign(mocks.bookState, next)
-      },
-    },
-  ),
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: Object.assign(
+        (selector: any) => selector(mocks.bookState),
+        {
+          getState: () => mocks.bookState,
+          setState: (updater: any) => {
+            const next = updater(mocks.bookState)
+            Object.assign(mocks.bookState, next)
+          },
+        },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  bindCharacterAura: mocks.bindCharacterAura,
-  listBindableNovelCharacters: mocks.listBindableNovelCharacters,
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      bindCharacterAura: mocks.bindCharacterAura,
+      listBindableNovelCharacters: mocks.listBindableNovelCharacters,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/aura-adapter", () => ({
-  importBookAnalysisSkillsAsAuras: mocks.importBookAnalysisSkillsAsAuras,
-}))
+vi.mock("@/lib/novel/book-analysis/aura-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/aura-adapter")>()
+  return {
+    ...actual,
+      importBookAnalysisSkillsAsAuras: mocks.importBookAnalysisSkillsAsAuras,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/character-extraction-engine", () => ({
-  extractSingleCharacter: mocks.extractSingleCharacter,
-}))
+vi.mock("@/lib/novel/book-analysis/character-extraction-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/character-extraction-engine")>()
+  return {
+    ...actual,
+      extractSingleCharacter: mocks.extractSingleCharacter,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/style-extraction-engine", () => ({
-  analyzeWritingStyle: mocks.analyzeWritingStyle,
-}))
+vi.mock("@/lib/novel/book-analysis/style-extraction-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/style-extraction-engine")>()
+  return {
+    ...actual,
+      analyzeWritingStyle: mocks.analyzeWritingStyle,
+    
+  }
+})
 
 // 与 style-prompts.ts:11-21 的真实 9 维对齐；画像中留空的维度 → UI 渲染「—」兜底
-vi.mock("@/lib/novel/book-analysis/style-prompts", () => ({
-  STYLE_DIMENSIONS: [
-    { key: "narrativeDensity", label: "叙事密度 / 节奏" },
-    { key: "descriptionWeight", label: "环境描写比重（具体 vs 抒情）" },
-    { key: "emotionRendering", label: "情绪呈现（动作外显 vs 内心独白；克制度）" },
-    { key: "sentenceStyle", label: "句式与句长 / 口语化程度" },
-    { key: "rhetoricDensity", label: "比喻 / 通感密度" },
-    { key: "transitionStyle", label: "场景与时间过渡方式" },
-    { key: "narrativeVoice", label: "叙述视角与声音" },
-    { key: "dialogueStyle", label: "对白风格（口语 / 毛边 / 潜台词）" },
-    { key: "thematicHabits", label: "点题 / 总结 / 抒情习惯" },
-  ],
-}))
+vi.mock("@/lib/novel/book-analysis/style-prompts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/style-prompts")>()
+  return {
+    ...actual,
+      STYLE_DIMENSIONS: [
+        { key: "narrativeDensity", label: "叙事密度 / 节奏" },
+        { key: "descriptionWeight", label: "环境描写比重（具体 vs 抒情）" },
+        { key: "emotionRendering", label: "情绪呈现（动作外显 vs 内心独白；克制度）" },
+        { key: "sentenceStyle", label: "句式与句长 / 口语化程度" },
+        { key: "rhetoricDensity", label: "比喻 / 通感密度" },
+        { key: "transitionStyle", label: "场景与时间过渡方式" },
+        { key: "narrativeVoice", label: "叙述视角与声音" },
+        { key: "dialogueStyle", label: "对白风格（口语 / 毛边 / 潜台词）" },
+        { key: "thematicHabits", label: "点题 / 总结 / 抒情习惯" },
+      ],
+    
+  }
+})
 
-vi.mock("@/lib/novel/writing-style-store", () => ({
-  upsertWritingStylePreset: mocks.upsertWritingStylePreset,
-  setEnabledWritingStyle: mocks.setEnabledWritingStyle,
-  getEnabledWritingStyle: mocks.getEnabledWritingStyle,
-}))
+vi.mock("@/lib/novel/writing-style-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/writing-style-store")>()
+  return {
+    ...actual,
+      upsertWritingStylePreset: mocks.upsertWritingStylePreset,
+      setEnabledWritingStyle: mocks.setEnabledWritingStyle,
+      getEnabledWritingStyle: mocks.getEnabledWritingStyle,
+    
+  }
+})
 
 vi.mock("@/lib/toast", () => ({ toast: mocks.toast }))
-vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProjectState }))
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveModelConfig: mocks.resolveModelConfig }))
-vi.mock("@/lib/path-utils", () => ({ joinPath: mocks.joinPath }))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual, refreshProjectState: mocks.refreshProjectState 
+  }
+})
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveModelConfig: mocks.resolveModelConfig 
+  }
+})
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual, joinPath: mocks.joinPath 
+  }
+})
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, onClick, disabled }: any) => (

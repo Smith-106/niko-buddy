@@ -4,7 +4,7 @@
 
 import { create } from "zustand"
 import { normalizeReviewTitle } from "@/lib/review-utils"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult } from "@/lib/novel"
 
 /**
  * A persisted review entry tied to a specific chapter number.

@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
-import { writeDraft } from "@/lib/novel/draft-manager"
+import { writeDraft } from "@/lib/novel"
 
 interface WriteChapterOptions {
   draftMode?: boolean

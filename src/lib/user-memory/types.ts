@@ -6,7 +6,7 @@
  * 喂入 de-ai-rules.ts + review-scoring.ts。
  */
 
-import type { DeAiSeverity } from "../novel/de-ai-rules"
+import type { DeAiSeverity } from "@/lib/novel"
 
 // ── 偏好条目 ──
 

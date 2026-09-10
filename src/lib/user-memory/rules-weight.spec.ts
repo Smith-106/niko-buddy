@@ -9,11 +9,8 @@ import {
 } from "./rules-weight"
 import { createDefaultStore, createPreference } from "./types"
 import type { UserMemoryStore, DeAiWeights } from "./types"
-import {
-  DE_AI_STRUCTURED_RULES,
-  filterRulesBySeverity,
-} from "../novel/de-ai-rules"
-import type { DeAiSeverity } from "../novel/de-ai-rules"
+import { DE_AI_STRUCTURED_RULES, filterRulesBySeverity } from "@/lib/novel"
+import type { DeAiSeverity } from "@/lib/novel"
 
 function makeStoreWithPrefs(prefs: Array<{ key: string; value: string; category?: string }>): UserMemoryStore {
   const store = createDefaultStore()

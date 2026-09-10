@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createBuildContextPackPlugin } from "./build-context-pack-plugin"
 import { createSoulDialogPlugin } from "./soul-dialog-plugin"
 import { createPrePluginChain } from "../pipeline"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { ContextPack } from "@/lib/novel"
 
 const mockContextPack: ContextPack = {
   task: "写第5章",

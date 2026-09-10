@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { CoverGenerateCard } from "./cover-generate-card"
 import { Input } from "@/components/ui/input"
 import defaultTemplatesJson from "../../../config/cover-platform-templates.json"
-import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel/cover-brief"
+import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel"
 
 /**
  * CoverPromptWorkbench — 封面 Prompt 工作台（F-012，净新独立视图）。

@@ -5,10 +5,15 @@ const mocks = vi.hoisted(() => ({
   isFetchNetworkError: vi.fn(),
 }))
 
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: mocks.getHttpFetch,
-  isFetchNetworkError: mocks.isFetchNetworkError,
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: mocks.getHttpFetch,
+      isFetchNetworkError: mocks.isFetchNetworkError,
+    
+  }
+})
 
 import { isDirectRerankEndpoint, requestDirectRerank } from "./rerank-api"
 

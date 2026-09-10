@@ -13,12 +13,8 @@ import {
   type ReviewRewriteEdit,
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
-import {
-  acceptFindingRewriteDraft,
-  rejectFindingRewriteDraft,
-  writeFindingRewriteDraft,
-} from "@/lib/novel/novel-session-status"
-import { reviewChapter, type NovelReviewResult } from "@/lib/novel/review-adapter"
+import { acceptFindingRewriteDraft, rejectFindingRewriteDraft, writeFindingRewriteDraft, reviewChapter } from "@/lib/novel"
+import type { NovelReviewResult } from "@/lib/novel"
 import { applyReviewRewriteEditsToMarkdown } from "@/lib/review-rewrite-plan"
 import { writeFileAtomic, readFile } from "@/commands/fs"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"

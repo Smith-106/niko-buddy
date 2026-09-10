@@ -5,10 +5,15 @@ const fsMocks = vi.hoisted(() => ({
   writeFileAtomic: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 import { readSoulDoc, writeSoulDoc, SOUL_DOC_FILENAME } from "./soul-doc"
 

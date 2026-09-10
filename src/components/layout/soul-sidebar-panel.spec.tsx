@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import type { CharacterAura, CharacterAuraBinding, CharacterAuraStore } from "@/lib/novel/character-aura-types"
+import type { CharacterAura, CharacterAuraBinding, CharacterAuraStore } from "@/lib/novel"
 import {
   render,
   screen,
@@ -62,26 +62,37 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  BUILT_IN_CHARACTER_AURAS: [
-    { id: "builtin-a1", builtIn: true, name: "秦始皇", category: "历史帝王" },
-    { id: "builtin-a2", builtIn: true, name: "李白" },
-  ],
-  listCharacterAuras: mocks.listCharacterAuras,
-  getCharacterAuraBindings: mocks.getCharacterAuraBindings,
-  bindCharacterAura: mocks.bindCharacterAura,
-  unbindCharacterAura: mocks.unbindCharacterAura,
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      BUILT_IN_CHARACTER_AURAS: [
+        { id: "builtin-a1", builtIn: true, name: "秦始皇", category: "历史帝王" },
+        { id: "builtin-a2", builtIn: true, name: "李白" },
+      ],
+      listCharacterAuras: mocks.listCharacterAuras,
+      getCharacterAuraBindings: mocks.getCharacterAuraBindings,
+      bindCharacterAura: mocks.bindCharacterAura,
+      unbindCharacterAura: mocks.unbindCharacterAura,
+    
+  }
+})
 
 vi.mock("@/components/layout/panel-header-with-help", () => ({
   PanelHeaderWithHelp: ({ title }: { title: string }) => <span>{title}</span>,

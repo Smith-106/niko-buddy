@@ -10,18 +10,28 @@ import { parseReferences, resolveReferences } from "./resolve"
 import type { ResolvedReference } from "./types"
 
 // Mock novelMixedSearch
-vi.mock("@/lib/novel/search-adapter", () => ({
-  novelMixedSearch: vi.fn(),
-}))
+vi.mock("@/lib/novel/search-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/search-adapter")>()
+  return {
+    ...actual,
+      novelMixedSearch: vi.fn(),
+    
+  }
+})
 
 // Mock user-memory（PR6 通道）
 vi.mock("@/lib/user-memory/store", () => ({
   getUserPreferenceText: vi.fn(() => "避用词: 仿佛、不禁"),
 }))
 
-vi.mock("@/lib/user-memory/session", () => ({
-  loadUserMemoryForProject: vi.fn(async () => ({})),
-}))
+vi.mock("@/lib/user-memory/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/user-memory/session")>()
+  return {
+    ...actual,
+      loadUserMemoryForProject: vi.fn(async () => ({})),
+    
+  }
+})
 
 // Mock providers（候选装载）
 vi.mock("./providers", () => ({
@@ -31,7 +41,7 @@ vi.mock("./providers", () => ({
   ]),
 }))
 
-import { novelMixedSearch } from "@/lib/novel/search-adapter"
+import { novelMixedSearch } from "@/lib/novel"
 
 function makeRef(name: string, kind: "character" | "setting" | "chapter" = "character"): ResolvedReference {
   return {

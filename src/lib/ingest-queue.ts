@@ -4,7 +4,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel"
 
 // ── Types ─────────────────────────────────────────────────────────────────
 

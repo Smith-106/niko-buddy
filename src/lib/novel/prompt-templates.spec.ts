@@ -3,9 +3,14 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("./chapter-window", () => ({
   sliceChapterForReview: vi.fn((c: string) => `SLICED:${c}`),
 }))
-vi.mock("@/lib/output-language", () => ({
-  buildLanguageDirective: vi.fn((text: string) => `[LANG:${text}]`),
-}))
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual,
+      buildLanguageDirective: vi.fn((text: string) => `[LANG:${text}]`),
+    
+  }
+})
 
 import { PROMPTS } from "./prompt-templates"
 

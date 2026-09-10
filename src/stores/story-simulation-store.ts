@@ -1,25 +1,5 @@
 import { create } from "zustand";
-import type {
-  AgentChatMessage,
-  SimulationMode,
-  StoryFramework,
-  SimulationReport,
-  SimulationResultStatus,
-  SimulationResumePoint,
-  StoryDraft,
-  ExtractionResult,
-  FrameworkBinding,
-  SimulationDebugTrace,
-  TimelineEvent,
-  StagedEventPool,
-  RumorEvent,
-  NovelAgent,
-  SimulationBranch,
-  DirectorEvaluation,
-  SimulationHistoryEntry,
-} from "@/lib/novel/story-simulation/types";
-import type { SerializedSimulationSnapshot } from "@/lib/novel/story-simulation/simulation-serializer";
-import type { SavedInterview } from "@/lib/novel/story-simulation/interview-store";
+import type { AgentChatMessage, SimulationMode, StoryFramework, SimulationReport, SimulationResultStatus, SimulationResumePoint, StoryDraft, ExtractionResult, FrameworkBinding, SimulationDebugTrace, TimelineEvent, StagedEventPool, RumorEvent, NovelAgent, SimulationBranch, DirectorEvaluation, SimulationHistoryEntry, SerializedSimulationSnapshot, SavedInterview } from "@/lib/novel"
 
 export interface SavedSimulationResult {
   id: string;

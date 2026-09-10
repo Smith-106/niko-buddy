@@ -9,13 +9,23 @@ const mocks = vi.hoisted(() => ({
   loadDismantlingLibrary: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (p: string) => mocks.normalizePath(p),
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: (p: string) => mocks.normalizePath(p),
+    
+  }
+})
 
 vi.mock("./chapter-ingest", () => ({
   listSnapshots: (...args: Parameters<typeof mocks.listSnapshots>) => mocks.listSnapshots(...args),

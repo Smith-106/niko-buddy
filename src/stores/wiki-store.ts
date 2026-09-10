@@ -7,9 +7,7 @@ import type { McpConfig } from "@/lib/mcp/config"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import type { LintResult } from "@/lib/lint"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
-import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
-import type { MeasurementFingerprint } from "@/lib/novel/measurement-fingerprint"
+import type { NovelReviewResult, DimensionReviewResult, SixReviewDimensionKey, MeasurementFingerprint } from "@/lib/novel"
 import type { TrashItem } from "@/lib/trash"
 
 // ── localStorage persistence keys ─────────────────────────────────────────────

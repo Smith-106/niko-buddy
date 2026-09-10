@@ -4,7 +4,12 @@ import { isTauri } from "@/lib/platform"
 import { check } from "@tauri-apps/plugin-updater"
 import { confirm, message } from "@tauri-apps/plugin-dialog"
 
-vi.mock("@/lib/platform", () => ({ isTauri: vi.fn() }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: vi.fn() 
+  }
+})
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(), message: vi.fn() }))
 

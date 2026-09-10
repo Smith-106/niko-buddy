@@ -11,14 +11,19 @@ const fsMocks = vi.hoisted(() => ({
   getFileModifiedTime: vi.fn(async (_path: string): Promise<number> => 0),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  fileExists: fsMocks.fileExists,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  listDirectory: fsMocks.listDirectory,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      fileExists: fsMocks.fileExists,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      listDirectory: fsMocks.listDirectory,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+    
+  }
+})
 
 import {
   computeIrrelevantRatio,

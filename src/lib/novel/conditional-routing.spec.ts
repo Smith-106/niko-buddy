@@ -7,15 +7,20 @@ const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(async (_path: string): Promise<string> => ""),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  listDirectory: fsMocks.listDirectory,
-  // context-engine import chain 引用 writeFileAtomic/createDirectory 等，
-  // 但 selectActiveEntities 路径不调用它们 — 给空 stub 避免未模拟告警。
-  writeFileAtomic: vi.fn(async (_path: string, _contents: string): Promise<void> => {}),
-  createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
-  getFileModifiedTime: vi.fn(async (_path: string): Promise<number> => 0),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      listDirectory: fsMocks.listDirectory,
+      // context-engine import chain 引用 writeFileAtomic/createDirectory 等，
+      // 但 selectActiveEntities 路径不调用它们 — 给空 stub 避免未模拟告警。
+      writeFileAtomic: vi.fn(async (_path: string, _contents: string): Promise<void> => {}),
+      createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
+      getFileModifiedTime: vi.fn(async (_path: string): Promise<number> => 0),
+    
+  }
+})
 
 import { selectActiveEntities } from "./context-engine"
 

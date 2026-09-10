@@ -5,7 +5,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { buildWikiGraph, type GraphNode, type GraphEdge, type CommunityInfo } from "@/lib/wiki-graph"
 import { findSurprisingConnections, detectKnowledgeGaps, type SurprisingConnection, type KnowledgeGap } from "@/lib/graph-insights"
 import { normalizePath } from "@/lib/path-utils"
-import { loadForeshadowingTracker, type ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
+import { loadForeshadowingTracker } from "@/lib/novel"
+import type { ForeshadowingStore } from "@/lib/novel"
 
 /**
  * Manages graph data loading, versioning, and derived state.

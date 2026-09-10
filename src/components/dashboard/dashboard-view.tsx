@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel, runFactCheck, analyzeForeshadowingDebt, loadSnapshot, listSnapshots, loadForeshadowingTracker, loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, getTopEmotionalDebt, loadEmotionLedger } from "@/lib/novel"
+import type { NovelReviewResult, FactCheckResult, FactCheckReport, ForeshadowingDebtReport, ChapterSnapshot, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
 import { readFile, writeFile } from "@/commands/fs"
 import {
   AlertTriangle,
@@ -12,16 +13,9 @@ import {
   ChevronRight,
   Loader2,
 } from "lucide-react"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 import type { LintResult } from "@/lib/lint"
 import { searchWiki } from "@/lib/search"
 import { getFileStem, normalizePath } from "@/lib/path-utils"
-import { runFactCheck, type FactCheckResult, type FactCheckReport } from "@/lib/novel/fact-snapshot"
-import { analyzeForeshadowingDebt, type ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
-import { loadSnapshot, listSnapshots, type ChapterSnapshot } from "@/lib/novel/chapter-ingest"
-import { loadForeshadowingTracker } from "@/lib/novel/foreshadowing-tracker"
-import { loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
-import { getTopEmotionalDebt, loadEmotionLedger, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
 import { DebtBoardView } from "./debt-board-view"
 import { DoctorPanel } from "./doctor-panel"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"

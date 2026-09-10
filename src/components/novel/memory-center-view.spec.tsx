@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { MemoryCenterView } from "./memory-center-view"
-import type { MemoryCenterData, MemoryCenterSnapshotCard } from "@/lib/novel/memory-center"
+import type { MemoryCenterData, MemoryCenterSnapshotCard } from "@/lib/novel"
 import type { FrontmatterParseResult } from "@/lib/frontmatter"
 
 const tMock = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const tMock = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -26,9 +27,14 @@ const wiki = vi.hoisted(() => {
   return { state }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const fsMock = vi.hoisted(() => ({
   readFile: vi.fn(async () => "---\ntitle: 记忆\n---\n正文内容\n"),
@@ -36,19 +42,29 @@ const fsMock = vi.hoisted(() => ({
   deleteFile: vi.fn(async () => {}),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMock.readFile,
-  writeFile: fsMock.writeFile,
-  deleteFile: fsMock.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMock.readFile,
+      writeFile: fsMock.writeFile,
+      deleteFile: fsMock.deleteFile,
+    
+  }
+})
 
 const frontmatter = vi.hoisted(() => ({
   parseFrontmatter: vi.fn<() => FrontmatterParseResult>(() => ({ frontmatter: { title: "记忆" }, body: "正文内容\n", rawBlock: "---\ntitle: 记忆\n---\n" })),
 }))
 
-vi.mock("@/lib/frontmatter", () => ({
-  parseFrontmatter: frontmatter.parseFrontmatter,
-}))
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+      parseFrontmatter: frontmatter.parseFrontmatter,
+    
+  }
+})
 
 vi.mock("@/components/editor/wiki-reader", () => ({
   WikiReader: ({ body }: { body: string }) => <div data-testid="wiki-reader">{body}</div>,
@@ -58,9 +74,14 @@ const ingestMock = vi.hoisted(() => ({
   deleteChapterSnapshots: vi.fn(async () => {}),
 }))
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  deleteChapterSnapshots: ingestMock.deleteChapterSnapshots,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      deleteChapterSnapshots: ingestMock.deleteChapterSnapshots,
+    
+  }
+})
 
 const snapshotViewerMock = vi.hoisted(() => ({
   onCloseRef: { current: (() => {}) as () => void },
@@ -108,9 +129,14 @@ const memoryCenter = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/novel/memory-center", () => ({
-  loadMemoryCenterData: memoryCenter.loadMemoryCenterData,
-}))
+vi.mock("@/lib/novel/memory-center", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/memory-center")>()
+  return {
+    ...actual,
+      loadMemoryCenterData: memoryCenter.loadMemoryCenterData,
+    
+  }
+})
 
 function makeCard(overrides: Partial<MemoryCenterSnapshotCard>): MemoryCenterSnapshotCard {
   return {

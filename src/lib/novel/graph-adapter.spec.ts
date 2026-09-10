@@ -24,12 +24,17 @@ const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  fileExists: fsMocks.fileExists,
-  createDirectory: fsMocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      fileExists: fsMocks.fileExists,
+      createDirectory: fsMocks.createDirectory,
+    
+  }
+})
 
 function mkSnapshot(overrides: Partial<ChapterSnapshot> = {}): ChapterSnapshot {
   return {

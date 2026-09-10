@@ -1,10 +1,15 @@
 import { beforeEach, expect, test, vi } from "vitest"
 import type { FileNode } from "@/types/wiki"
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(),
-  readFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: vi.fn(),
+      readFile: vi.fn(),
+    
+  }
+})
 
 import { listDirectory, readFile } from "@/commands/fs"
 import {

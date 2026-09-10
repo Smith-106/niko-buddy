@@ -23,11 +23,8 @@ import { createRouteTaskTool } from "./route-task"
 import { createLoadContextTool } from "./load-context"
 import { createTrimContextTool } from "./trim-context"
 import { createRunChapterWorkflowTool, type RunDeepChapterGeneration } from "./run-chapter-workflow"
-import type { DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
-import type { UserSkill } from "@/lib/novel/skill-library"
+import type { DeAiSkillConfig, UserSkill, TaskRouteResult, ContextPack } from "@/lib/novel"
 import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
-import type { TaskRouteResult } from "@/lib/novel/task-router"
-import type { ContextPack } from "@/lib/novel/context-engine"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 
 export interface VirtualToolContext {

@@ -1,8 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { AlertOctagon, Coins, HeartCrack } from "lucide-react"
-import { computeChaseDebtState, type ChaseDebt, type ChaseDebtEvent } from "@/lib/novel/novel-session-status"
-import type { ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
-import { calculateEmotionNetValue, type EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
+import { computeChaseDebtState, calculateEmotionNetValue } from "@/lib/novel"
+import type { ChaseDebt, ChaseDebtEvent, ForeshadowingDebtReport, EmotionLedgerEntry } from "@/lib/novel"
 
 /**
  * 债务看板（roadmap W3 / R16, TASK-302）：聚合三类债务的只读分区视图。

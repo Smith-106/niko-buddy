@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
-import type { Foreshadowing } from "@/lib/novel/foreshadowing-tracker"
+import type { Foreshadowing } from "@/lib/novel"
 import { derivePlotlineParticipation, derivePlotlineRows } from "./plotgrid-view"
 
 const tMock = vi.hoisted(() => ({
@@ -15,6 +15,7 @@ const tMock = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -25,25 +26,40 @@ const wiki = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const ingest = vi.hoisted(() => ({
   listSnapshots: vi.fn<(projectPath: string) => Promise<number[]>>(async () => []),
 }))
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshots: ingest.listSnapshots,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshots: ingest.listSnapshots,
+    
+  }
+})
 
 const tracker = vi.hoisted(() => ({
   loadForeshadowingTracker: vi.fn<(projectPath: string) => Promise<{ items: Foreshadowing[]; lastUpdated: string }>>(async () => ({ items: [], lastUpdated: "" })),
 }))
 
-vi.mock("@/lib/novel/foreshadowing-tracker", () => ({
-  loadForeshadowingTracker: tracker.loadForeshadowingTracker,
-}))
+vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
+  return {
+    ...actual,
+      loadForeshadowingTracker: tracker.loadForeshadowingTracker,
+    
+  }
+})
 
 import { PlotgridView } from "./plotgrid-view"
 

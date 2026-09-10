@@ -9,14 +9,14 @@ import { act } from "react"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { CharacterAuraView } from "./character-aura-view"
-import type { CharacterAura, CharacterAuraGenerationProgress } from "@/lib/novel/character-aura"
-import type { CharacterAuraBinding, CharacterAuraInput } from "@/lib/novel/character-aura-types"
+import type { CharacterAura, CharacterAuraGenerationProgress, CharacterAuraBinding, CharacterAuraInput } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -38,9 +38,14 @@ const wiki = vi.hoisted(() => {
   return { state }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const auraLib = vi.hoisted(() => {
   const builtInAuras: CharacterAura[] = [
@@ -92,28 +97,33 @@ const auraLib = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  BUILT_IN_CHARACTER_AURAS: auraLib.builtInAuras,
-  CHARACTER_AURA_RESEARCH_FILES: [
-    { fileName: "01-writings.md", label: "01 公开资料" },
-    { fileName: "02-conversations.md", label: "02 对话方式" },
-    { fileName: "03-expression-dna.md", label: "03 表达特征" },
-    { fileName: "04-external-views.md", label: "04 外部评价" },
-    { fileName: "05-decisions.md", label: "05 决策记录" },
-    { fileName: "06-timeline.md", label: "06 时间线" },
-  ],
-  listCharacterAuras: auraLib.listCharacterAuras,
-  listBindableNovelCharacters: auraLib.listBindableNovelCharacters,
-  getCharacterAuraBindings: auraLib.getCharacterAuraBindings,
-  createCustomCharacterAuraSkill: auraLib.createCustomCharacterAuraSkill,
-  updateCustomCharacterAura: auraLib.updateCustomCharacterAura,
-  deleteCustomCharacterAura: auraLib.deleteCustomCharacterAura,
-  bindCharacterAura: auraLib.bindCharacterAura,
-  unbindCharacterAura: auraLib.unbindCharacterAura,
-  buildCharacterAuraContext: auraLib.buildCharacterAuraContext,
-  loadCharacterAuraSkillDocument: auraLib.loadCharacterAuraSkillDocument,
-  loadCharacterAuraResearchDocument: auraLib.loadCharacterAuraResearchDocument,
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      BUILT_IN_CHARACTER_AURAS: auraLib.builtInAuras,
+      CHARACTER_AURA_RESEARCH_FILES: [
+        { fileName: "01-writings.md", label: "01 公开资料" },
+        { fileName: "02-conversations.md", label: "02 对话方式" },
+        { fileName: "03-expression-dna.md", label: "03 表达特征" },
+        { fileName: "04-external-views.md", label: "04 外部评价" },
+        { fileName: "05-decisions.md", label: "05 决策记录" },
+        { fileName: "06-timeline.md", label: "06 时间线" },
+      ],
+      listCharacterAuras: auraLib.listCharacterAuras,
+      listBindableNovelCharacters: auraLib.listBindableNovelCharacters,
+      getCharacterAuraBindings: auraLib.getCharacterAuraBindings,
+      createCustomCharacterAuraSkill: auraLib.createCustomCharacterAuraSkill,
+      updateCustomCharacterAura: auraLib.updateCustomCharacterAura,
+      deleteCustomCharacterAura: auraLib.deleteCustomCharacterAura,
+      bindCharacterAura: auraLib.bindCharacterAura,
+      unbindCharacterAura: auraLib.unbindCharacterAura,
+      buildCharacterAuraContext: auraLib.buildCharacterAuraContext,
+      loadCharacterAuraSkillDocument: auraLib.loadCharacterAuraSkillDocument,
+      loadCharacterAuraResearchDocument: auraLib.loadCharacterAuraResearchDocument,
+    
+  }
+})
 
 const llm = vi.hoisted(() => ({
   streamChat: vi.fn(async (_config: unknown, _messages: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void; onError: (e: Error) => void }) => {
@@ -122,35 +132,55 @@ const llm = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: llm.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: llm.streamChat,
+    
+  }
+})
 
 const contextEngine = vi.hoisted(() => ({
   buildContextPack: vi.fn(async () => ({ context: "pack" })),
   contextPackToPrompt: vi.fn(() => "CONTEXT PROMPT"),
 }))
 
-vi.mock("@/lib/novel/context-engine", () => ({
-  buildContextPack: contextEngine.buildContextPack,
-  contextPackToPrompt: contextEngine.contextPackToPrompt,
-}))
+vi.mock("@/lib/novel/context-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/context-engine")>()
+  return {
+    ...actual,
+      buildContextPack: contextEngine.buildContextPack,
+      contextPackToPrompt: contextEngine.contextPackToPrompt,
+    
+  }
+})
 
 const modelResolver = vi.hoisted(() => ({
   resolveNovelModel: vi.fn(() => ({ provider: "custom" as const, apiKey: "k", model: "m" })),
 }))
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveNovelModel: modelResolver.resolveNovelModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveNovelModel: modelResolver.resolveNovelModel,
+    
+  }
+})
 
 const projectRefresh = vi.hoisted(() => ({
   refreshProjectState: vi.fn(async () => {}),
 }))
 
-vi.mock("@/lib/project-refresh", () => ({
-  refreshProjectState: projectRefresh.refreshProjectState,
-}))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual,
+      refreshProjectState: projectRefresh.refreshProjectState,
+    
+  }
+})
 
 vi.mock("@/components/novel/soul-doc-editor", () => ({
   SoulDocEditor: () => <div data-testid="soul-doc-editor" />,

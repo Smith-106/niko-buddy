@@ -59,20 +59,31 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
+    
+  }
+})
 
-vi.mock("@/lib/embedding", () => ({
-  dropLegacyVectorTable: mocks.dropLegacyVectorTable,
-  embedAllPages: mocks.embedAllPages,
-  getEmbeddingCount: mocks.getEmbeddingCount,
-  getLastEmbeddingError: mocks.getLastEmbeddingError,
-  legacyVectorRowCount: mocks.legacyVectorRowCount,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      dropLegacyVectorTable: mocks.dropLegacyVectorTable,
+      embedAllPages: mocks.embedAllPages,
+      getEmbeddingCount: mocks.getEmbeddingCount,
+      getLastEmbeddingError: mocks.getLastEmbeddingError,
+      legacyVectorRowCount: mocks.legacyVectorRowCount,
+    
+  }
+})
 
 vi.mock("@/lib/settings-model-list", () => ({
   fetchEmbeddingModelList: mocks.fetchEmbeddingModelList,

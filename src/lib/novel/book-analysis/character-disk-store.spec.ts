@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { persistCharacterToDisk } from "./character-disk-store"
 
-vi.mock("@/commands/fs", () => ({
-  writeFile: vi.fn(),
-  createDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      writeFile: vi.fn(),
+      createDirectory: vi.fn(),
+    
+  }
+})
 
 import { writeFile, createDirectory } from "@/commands/fs"
 

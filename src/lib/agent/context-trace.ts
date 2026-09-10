@@ -1,8 +1,6 @@
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
-import type { DataSourceCategory, RouteSource } from "@/lib/novel/classification"
+import type { NovelTaskIntent, DataSourceCategory, RouteSource, SkillKind, SkillMode, SkillStage } from "@/lib/novel"
 import type { RequiredToolRunDiagnostics, ToolCallStatus } from "./types"
 import type { AiWorkflowMode } from "./workflow-mode"
-import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
 import type { CapabilityKind, CapabilityPermission } from "./capabilities/types"
 import type { ContextHubStats } from "@/lib/context-hub/types"
 

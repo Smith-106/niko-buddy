@@ -3,13 +3,23 @@ import { createWriteChapterTool } from "./write-chapter"
 import { createWriteMemoryTool } from "./write-memory"
 import { createApplySkillTool } from "./apply-skill"
 
-vi.mock("@/commands/fs", () => ({ readFile: vi.fn(), writeFile: vi.fn(), fileExists: vi.fn(), createDirectory: vi.fn() }))
-vi.mock("@/lib/novel/de-ai-skill-library", () => ({
-  getAllDeAiSkills: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual, readFile: vi.fn(), writeFile: vi.fn(), fileExists: vi.fn(), createDirectory: vi.fn() 
+  }
+})
+vi.mock("@/lib/novel/de-ai-skill-library", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/de-ai-skill-library")>()
+  return {
+    ...actual,
+      getAllDeAiSkills: vi.fn(),
+    
+  }
+})
 
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
-import { getAllDeAiSkills } from "@/lib/novel/de-ai-skill-library"
+import { getAllDeAiSkills } from "@/lib/novel"
 
 describe("write tools", () => {
   beforeEach(() => {

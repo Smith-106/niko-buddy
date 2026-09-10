@@ -10,7 +10,7 @@
 import { useMemo, useState, useId } from "react"
 import { useTranslation } from "react-i18next"
 import { BookOpen, ChevronDown, ChevronRight, Puzzle, Table2 } from "lucide-react"
-import type { CompiledTechniqueRegistry, TechniqueRulePack, HookTypeEntry } from "@/lib/novel/craft/technique-compiler"
+import type { CompiledTechniqueRegistry, TechniqueRulePack, HookTypeEntry } from "@/lib/novel"
 
 // ============================================================================
 // 单包展开折叠卡片

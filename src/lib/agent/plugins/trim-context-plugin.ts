@@ -1,5 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import type { ContextPack, TrimResult } from "@/lib/novel/context-engine"
+import type { ContextPack, TrimResult } from "@/lib/novel"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within } from "@/test-helpers/component-test-utils"
 import { DismantlingView } from "./dismantling-view"
-import type { DismantlingChapter, DismantlingLibrary } from "@/lib/novel/dismantling"
+import type { DismantlingChapter, DismantlingLibrary } from "@/lib/novel"
 
 const wiki = vi.hoisted(() => {
   const state: Record<string, unknown> = {
@@ -22,12 +22,17 @@ const wiki = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
-    { getState: () => wiki.getStateSnapshot },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: Record<string, unknown>) => unknown) => selector(wiki.state),
+        { getState: () => wiki.getStateSnapshot },
+      ),
+    
+  }
+})
 
 const dismantling = vi.hoisted(() => {
   const chapters: DismantlingChapter[] = [
@@ -65,14 +70,19 @@ const dismantling = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/novel/dismantling", () => ({
-  loadDismantlingLibrary: dismantling.loadDismantlingLibrary,
-  saveDismantlingLibrary: dismantling.saveDismantlingLibrary,
-  selectNextDismantlingBatch: dismantling.selectNextDismantlingBatch,
-  buildDismantlingAnalysisPrompt: dismantling.buildDismantlingAnalysisPrompt,
-  buildDismantlingWebResearchPrompt: dismantling.buildDismantlingWebResearchPrompt,
-  extractStructureMemoryFromAnalysis: dismantling.extractStructureMemoryFromAnalysis,
-}))
+vi.mock("@/lib/novel/dismantling", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/dismantling")>()
+  return {
+    ...actual,
+      loadDismantlingLibrary: dismantling.loadDismantlingLibrary,
+      saveDismantlingLibrary: dismantling.saveDismantlingLibrary,
+      selectNextDismantlingBatch: dismantling.selectNextDismantlingBatch,
+      buildDismantlingAnalysisPrompt: dismantling.buildDismantlingAnalysisPrompt,
+      buildDismantlingWebResearchPrompt: dismantling.buildDismantlingWebResearchPrompt,
+      extractStructureMemoryFromAnalysis: dismantling.extractStructureMemoryFromAnalysis,
+    
+  }
+})
 
 const llm = vi.hoisted(() => ({
   streamChat: vi.fn(async (_config: unknown, _messages: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void; onError: (e: Error) => void }) => {
@@ -81,17 +91,27 @@ const llm = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: llm.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: llm.streamChat,
+    
+  }
+})
 
 const model = vi.hoisted(() => ({
   resolveNovelModel: vi.fn(() => ({ provider: "custom", apiKey: "k", model: "m" })),
 }))
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveNovelModel: model.resolveNovelModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveNovelModel: model.resolveNovelModel,
+    
+  }
+})
 
 const web = vi.hoisted(() => ({
   collectWebResearch: vi.fn(async () => ({ items: [], sources: [] })),

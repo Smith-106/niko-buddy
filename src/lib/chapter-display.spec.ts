@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   t: vi.fn((key: string) => `label:${key}`),
 }))
-vi.mock("@/i18n", () => ({ default: { t: mocks.t } }))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual, default: { t: mocks.t } 
+  }
+})
 const tMock = mocks.t
 
 import {

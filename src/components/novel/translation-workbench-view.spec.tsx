@@ -11,11 +11,16 @@ const mocks = vi.hoisted(() => ({
   loadGlossary: vi.fn(async () => ({ entries: [], lastUpdated: "" })),
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
-    selector({ project: { path: mocks.projectPath } }),
-}))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+        selector({ project: { path: mocks.projectPath } }),
+    
+  }
+})
 vi.mock("@/lib/novel/translation-workbench", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/translation-workbench")>()
   return {
@@ -24,10 +29,20 @@ vi.mock("@/lib/novel/translation-workbench", async (importOriginal) => {
     loadTranslationGlossary: mocks.loadGlossary,
   }
 })
-vi.mock("@/lib/novel/generation-history", () => ({
-  saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
-}))
-vi.mock("@/commands/fs", () => ({}))
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
+    
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+  }
+})
 
 describe("TranslationWorkbenchView", () => {
   beforeEach(() => {

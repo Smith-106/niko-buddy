@@ -10,10 +10,9 @@ import { BookOpen, Trash2, RefreshCw, Loader2, Square, CheckCircle2, AlertTriang
 import { listDirectory, readFile, deleteFile } from "@/commands/fs"
 import { joinPath, normalizePath, getFileName } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
-import { deleteOrphanAurasForBook } from "@/lib/novel/book-analysis/aura-cleanup"
-import { listCharacterAuras } from "@/lib/novel/character-aura"
+import { deleteOrphanAurasForBook, listCharacterAuras } from "@/lib/novel"
+import type { BookAnalysisMetadata } from "@/lib/novel"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
-import type { BookAnalysisMetadata } from "@/lib/novel/book-analysis/types"
 
 interface BookItem {
   id: string

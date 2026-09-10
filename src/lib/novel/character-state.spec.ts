@@ -6,11 +6,16 @@ const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+    
+  }
+})
 
 import {
   characterStatesToContextText,

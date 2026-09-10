@@ -4,15 +4,25 @@ const listDirectory = vi.fn()
 const setFileTree = vi.fn()
 const bumpDataVersion = vi.fn()
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: (...args: unknown[]) => listDirectory(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: (...args: unknown[]) => listDirectory(...args),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({ setFileTree, bumpDataVersion }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({ setFileTree, bumpDataVersion }),
+      },
+    
+  }
+})
 
 import { refreshProjectState } from "./project-refresh"
 

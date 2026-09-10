@@ -1,41 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { readFile, writeFile } from "@/commands/fs"
-import {
-  createBlankWritingSkill,
-  createSkillCategory,
-  deleteWritingSkill,
-  deleteSkillCategory,
-  exportSkillToJson,
-  importSkillFromJson,
-  importWritingSkill,
-  loadAllLinkedSkillsContent,
-  loadLinkedSkillContent,
-  loadUserSkillConfig,
-  moveSkillToCategory,
-  normalizeUserSkillConfig,
-  renameSkillCategory,
-  reorderSkillCategories,
-  resolveEnabledWritingSkills,
-  saveUserSkillConfig,
-  setWritingSkillEnabled,
-  touchSkillUsage,
-  updateWritingSkill,
-  WRITING_SKILL_KIND_OPTIONS,
-  WRITING_SKILL_MODE_OPTIONS,
-  WRITING_SKILL_STAGE_OPTIONS,
-  type UserSkillConfig,
-} from "@/lib/novel/user-skill-store"
-import {
-  SKILL_KIND_LABELS,
-  SKILL_MODE_LABELS,
-  SKILL_STAGE_LABELS,
-  type SkillCategory,
-  type SkillKind,
-  type SkillMode,
-  type SkillStage,
-  type UserSkill,
-} from "@/lib/novel/skill-library"
+import { createBlankWritingSkill, createSkillCategory, deleteWritingSkill, deleteSkillCategory, exportSkillToJson, importSkillFromJson, importWritingSkill, loadAllLinkedSkillsContent, loadLinkedSkillContent, loadUserSkillConfig, moveSkillToCategory, normalizeUserSkillConfig, renameSkillCategory, reorderSkillCategories, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, touchSkillUsage, updateWritingSkill, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
+import type { UserSkillConfig, SkillCategory, SkillKind, SkillMode, SkillStage, UserSkill } from "@/lib/novel"
 import { confirmDiscardSkillLibraryDraft, useWikiStore } from "@/stores/wiki-store"
 import { GripVertical, Pencil, Trash2 } from "lucide-react"
 import {

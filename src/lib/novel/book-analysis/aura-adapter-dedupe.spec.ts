@@ -5,11 +5,16 @@ import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter } from ".
 const createCustomCharacterAuraFromGeneratedSkillMock = vi.fn()
 const loadCharacterAuraStoreMock = vi.fn()
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  loadCharacterAuraStore: (projectPath: string) => loadCharacterAuraStoreMock(projectPath),
-  createCustomCharacterAuraFromGeneratedSkill: (projectPath: string, input: unknown) =>
-    createCustomCharacterAuraFromGeneratedSkillMock(projectPath, input),
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      loadCharacterAuraStore: (projectPath: string) => loadCharacterAuraStoreMock(projectPath),
+      createCustomCharacterAuraFromGeneratedSkill: (projectPath: string, input: unknown) =>
+        createCustomCharacterAuraFromGeneratedSkillMock(projectPath, input),
+    
+  }
+})
 
 const metadata: BookAnalysisMetadata = {
   title: "长夜书",

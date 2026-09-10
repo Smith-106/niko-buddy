@@ -4,7 +4,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { FileEditAction } from "@/lib/novel/agent-parser"
+import type { FileEditAction } from "@/lib/novel"
 import { FileEditPreview } from "./file-edit-preview"
 
 const editA: FileEditAction = { filePath: "src/a.ts", search: "old line", replace: "new line" }

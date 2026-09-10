@@ -144,6 +144,11 @@ export default defineConfig(async () => ({
     // **结案版本 = v2.9.0**：发布 v2.9.0 前必须删除本行（其时 E2E flaky 根因
     // 应已随 e2e 超时/握手加固收敛）；到期未删 = 台账过期，审计必查项。
     retry: process.env.CI ? 2 : 0,
+    // T18 barrel 收口（2026-09-08）：单入口 barrel 使「首个动态 import」的冷加载
+    // 面显著变大（实测 chapter-ingest / reset-project-state 冷加载 ~7.2s，
+    // 击穿默认 5s → 假红；见 docs 报告 P1-6 与 flaky 台账）。默认提升到 15s
+    // （≈2× 实测量），让超时报警仍对真回归敏感，不用 retry 掩盖。
+    testTimeout: 15000,
     // T5 flaky 治理（2026-08-23）：forks pool 全量并发下 worker 启动握手超时
     // （B 类）+ 5s testTimeout 被 CPU 争抢击穿（A 类）——限流到 4 worker 同时
     // 缓解两类；代价是全量跑更慢（263-344s → ~400-500s）。

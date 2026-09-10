@@ -3,14 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Image, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  buildCoverImageTask,
-  runCoverImageGeneration,
-  type CoverAspect,
-  type CoverImagePort,
-} from "@/lib/novel/cover-image-provider"
-import type { BookCoverMeta } from "@/lib/novel/cover-brief"
-import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
+import { buildCoverImageTask, runCoverImageGeneration, saveGenerationHistoryEntry } from "@/lib/novel"
+import type { CoverAspect, CoverImagePort, BookCoverMeta } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
 
 /**

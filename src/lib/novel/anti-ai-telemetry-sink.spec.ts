@@ -37,13 +37,18 @@ import {
 } from "@/commands/fs"
 import type { AntiAiAnalysisReport } from "./anti-ai-candidate-pool"
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-  createDirectory: vi.fn(async () => {}),
-  listDirectory: vi.fn(async () => []),
-  deleteFile: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+      createDirectory: vi.fn(async () => {}),
+      listDirectory: vi.fn(async () => []),
+      deleteFile: vi.fn(async () => {}),
+    
+  }
+})
 
 function fakeReport(over: Partial<AntiAiAnalysisReport> = {}): AntiAiAnalysisReport {
   return {

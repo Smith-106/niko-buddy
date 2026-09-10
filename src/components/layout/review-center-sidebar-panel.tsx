@@ -6,19 +6,10 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { ClipboardCheck, Sparkles, Users } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { listDirectory, readFile } from "@/commands/fs"
-import { flattenMdFiles } from "@/lib/novel/chapter-utils"
+import { flattenMdFiles, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, getOutlineThrillSoftGateRuntimeStatus, isThrillSoftGateAcknowledged, thrilAckChapterKey, THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER } from "@/lib/novel"
+import type { ThrillCheckStatus } from "@/lib/novel"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
-import { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel/dimension-review-adapter"
-import { formatMeasurementFingerprintSummary } from "@/lib/novel/measurement-fingerprint"
-import {
-  getOutlineThrillSoftGateRuntimeStatus,
-  isThrillSoftGateAcknowledged,
-  thrilAckChapterKey,
-  THRILL_CHECKPOINT_LABELS,
-  THRILL_CHECKPOINT_ORDER,
-  type ThrillCheckStatus,
-} from "@/lib/novel/outline-thrill-checkpoints"
 
 const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
   key,

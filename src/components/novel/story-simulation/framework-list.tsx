@@ -6,10 +6,9 @@ import { useWikiStore } from "@/stores/wiki-store"
 import {
   useStorySimulationStore,
 } from "@/stores/story-simulation-store"
-import { deleteFramework, loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
-import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
+import { deleteFramework, loadFrameworks, loadBinding } from "@/lib/novel"
+import type { StoryFramework } from "@/lib/novel"
 import { Button } from "@/components/ui/button"
-import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 
 import { FrameworkBindingDialog } from "./framework-binding-dialog"
 import { PlayRuntimePanel } from "./play-runtime-panel"

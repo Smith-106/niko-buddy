@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, act } from "@/test-helpers/component-test-utils"
 import { HistoryEntryRow, SnapshotDiffModal, SnapshotViewer } from "./snapshot-viewer"
-import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -17,9 +18,14 @@ const fsMock = vi.hoisted(() => ({
   readFile: vi.fn(async () => JSON.stringify({ summary: "历史摘要", chapterNumber: 1 }, null, 2)),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMock.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMock.readFile,
+    
+  }
+})
 
 const ingest = vi.hoisted(() => ({
   listSnapshotHistory: vi.fn(),
@@ -30,14 +36,19 @@ const ingest = vi.hoisted(() => ({
   emitTruthFoldDriftAlarm: vi.fn(),
 }))
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshotHistory: ingest.listSnapshotHistory,
-  loadSnapshot: ingest.loadSnapshot,
-  restoreSnapshotHistory: ingest.restoreSnapshotHistory,
-  syncSnapshotToMemory: ingest.syncSnapshotToMemory,
-  sampleTruthFoldDrift: ingest.sampleTruthFoldDrift,
-  emitTruthFoldDriftAlarm: ingest.emitTruthFoldDriftAlarm,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshotHistory: ingest.listSnapshotHistory,
+      loadSnapshot: ingest.loadSnapshot,
+      restoreSnapshotHistory: ingest.restoreSnapshotHistory,
+      syncSnapshotToMemory: ingest.syncSnapshotToMemory,
+      sampleTruthFoldDrift: ingest.sampleTruthFoldDrift,
+      emitTruthFoldDriftAlarm: ingest.emitTruthFoldDriftAlarm,
+    
+  }
+})
 
 const diffProps = vi.hoisted(() => ({
   captured: [] as Record<string, unknown>[],

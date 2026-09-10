@@ -9,11 +9,8 @@
  */
 
 import type { UserMemoryStore, ReviewCalibration } from "./types"
-import type { ReviewScoringOptions } from "../novel/review-scoring"
-import {
-  CALIBRATED_DIMENSION_WEIGHTS,
-  CALIBRATED_SEVERITY_DEDUCTION,
-} from "../novel/review-scoring"
+import { CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_DEDUCTION } from "@/lib/novel"
+import type { ReviewScoringOptions } from "@/lib/novel"
 import { getPreferences } from "./store"
 
 /** 审查维度 key 集合（与 review-scoring DIMENSION_WEIGHTS 同步） */

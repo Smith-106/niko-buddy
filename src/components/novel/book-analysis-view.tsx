@@ -7,19 +7,10 @@ import { BookAnalysisVersionHistory } from "./book-analysis-version-history"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
-import {
-  toBookAnalysisResult,
-  type BookAnalysisLibraryState,
-} from "@/lib/novel/book-analysis/library-state"
+import { resolveModelConfig, toBookAnalysisResult } from "@/lib/novel"
+import type { BookAnalysisLibraryState, AnalysisDepth, SixDimensionProgressItem, SixDimensionStatus, RecognizedCharacter } from "@/lib/novel"
 import { toast } from "@/lib/toast"
 import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
-import type {
-  AnalysisDepth,
-  SixDimensionProgressItem,
-  SixDimensionStatus,
-  RecognizedCharacter,
-} from "@/lib/novel/book-analysis/types"
 import { useCharacterExtraction, type ChapterSelectionData } from "./hooks/use-character-extraction"
 import { useCharacterRecognition } from "./hooks/use-character-recognition"
 import { useLibraryOperations } from "./hooks/use-library-operations"

@@ -12,9 +12,14 @@ const wiki = vi.hoisted(() => ({
   state: { selectedSoulId: null as string | null, selectedSoulTab: "character" as string },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 vi.mock("./de-ai-skill-editor", () => ({
   DeAiSkillEditor: () => <div data-testid="de-ai-skill-editor" />,

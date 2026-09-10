@@ -14,11 +14,16 @@ import { createDefaultStore, createPreference } from "./types"
 import type { UserMemoryStore } from "./types"
 
 // Mock fs module
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  writeFile: vi.fn(),
-  writeFileAtomic: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      writeFileAtomic: vi.fn(),
+    
+  }
+})
 
 import { readFile, writeFile, writeFileAtomic } from "@/commands/fs"
 

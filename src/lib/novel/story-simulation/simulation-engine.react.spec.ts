@@ -8,19 +8,24 @@ import { ModelDoesNotSupportToolsError } from "@/lib/agent/runner"
 
 let mockRun: any
 
-vi.mock("@/lib/agent/runner", () => ({
-  AgentRunner: class {
-    run(...args: any[]) {
-      return mockRun(...args)
-    }
-  },
-  ModelDoesNotSupportToolsError: class extends Error {
-    constructor() {
-      super("当前模型不支持工具调用")
-      this.name = "ModelDoesNotSupportToolsError"
-    }
-  },
-}))
+vi.mock("@/lib/agent/runner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/runner")>()
+  return {
+    ...actual,
+      AgentRunner: class {
+        run(...args: any[]) {
+          return mockRun(...args)
+        }
+      },
+      ModelDoesNotSupportToolsError: class extends Error {
+        constructor() {
+          super("当前模型不支持工具调用")
+          this.name = "ModelDoesNotSupportToolsError"
+        }
+      },
+    
+  }
+})
 
 function makeAgent(id: string, name: string): NovelAgent {
   return {

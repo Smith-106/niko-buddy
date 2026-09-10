@@ -12,13 +12,14 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { PlanningPanel, type PlanningPanelProps } from "./planning-panel"
-import type { ChapterPlanView } from "@/lib/novel/planning"
+import type { ChapterPlanView, PlanDimensionSlice, ParticlePlanItem, StateDeltaPlanItem } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
@@ -191,7 +192,6 @@ describe("PlanningPanel", () => {
 
 // ==================== P2-IMP-11 计划面板四新维 ====================
 
-import type { PlanDimensionSlice, ParticlePlanItem, StateDeltaPlanItem } from "@/lib/novel/planning"
 
 function slice<T>(overrides: Partial<PlanDimensionSlice<T>> = {}): PlanDimensionSlice<T> {
   return { status: "ok", items: [] as unknown as T[], text: "", truncated: false, ...overrides }

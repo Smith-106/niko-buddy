@@ -6,8 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen } from "@/test-helpers/component-test-utils"
-import type { BookAnalysisAuraBindingSummary } from "@/lib/novel/book-analysis/library-state"
-import type { WritingStylePreset } from "@/lib/novel/writing-style-store"
+import type { BookAnalysisAuraBindingSummary, WritingStylePreset } from "@/lib/novel"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 
 const profile = {

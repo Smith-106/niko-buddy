@@ -5,19 +5,7 @@
  */
 import { renderHook, act } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
-import type {
-  AnalysisDepth,
-  BookAnalysisConfig,
-  BookAnalysisMetadata,
-  BookAnalysisProgress,
-  BookAnalysisTask,
-  BookStyleProfile,
-  CharacterSkill,
-  ExtractedCharacter,
-  RecognizedCharacter,
-} from "@/lib/novel/book-analysis/types"
-import type { CharacterExtractionInput } from "@/lib/novel/book-analysis/character-extraction-engine"
-import type { SingleProfileInput } from "@/lib/novel/book-analysis/simple-extraction-engine"
+import type { AnalysisDepth, BookAnalysisConfig, BookAnalysisMetadata, BookAnalysisProgress, BookAnalysisTask, BookStyleProfile, CharacterSkill, ExtractedCharacter, RecognizedCharacter, CharacterExtractionInput, SingleProfileInput } from "@/lib/novel"
 import { useCharacterExtraction, type ChapterSelectionData } from "./use-character-extraction"
 
 interface TaskLike {
@@ -119,55 +107,105 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.wiki),
-    { getState: () => mocks.wiki },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.wiki),
+        { getState: () => mocks.wiki },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: {
-    getState: () => mocks.bookAnalysis,
-    setState: (updater: unknown) => mocks.bookAnalysis.setState(updater),
-  },
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: {
+        getState: () => mocks.bookAnalysis,
+        setState: (updater: unknown) => mocks.bookAnalysis.setState(updater),
+      },
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveModelConfig: mocks.resolveModelConfig,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveModelConfig: mocks.resolveModelConfig,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  joinPath: mocks.joinPath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      joinPath: mocks.joinPath,
+    
+  }
+})
 
 vi.mock("@/lib/toast", () => ({
   toast: mocks.toast,
 }))
 
-vi.mock("@/lib/novel/book-analysis/character-extraction-engine", () => ({
-  extractCharactersFromChapters: mocks.extractCharactersFromChapters,
-}))
+vi.mock("@/lib/novel/book-analysis/character-extraction-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/character-extraction-engine")>()
+  return {
+    ...actual,
+      extractCharactersFromChapters: mocks.extractCharactersFromChapters,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/character-disk-store", () => ({
-  persistCharacterToDisk: mocks.persistCharacterToDisk,
-}))
+vi.mock("@/lib/novel/book-analysis/character-disk-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/character-disk-store")>()
+  return {
+    ...actual,
+      persistCharacterToDisk: mocks.persistCharacterToDisk,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/skill-generator", () => ({
-  generateSkillsForCharacters: mocks.generateSkillsForCharacters,
-}))
+vi.mock("@/lib/novel/book-analysis/skill-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/skill-generator")>()
+  return {
+    ...actual,
+      generateSkillsForCharacters: mocks.generateSkillsForCharacters,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/simple-extraction-engine", () => ({
-  extractSingleProfile: mocks.extractSingleProfile,
-}))
+vi.mock("@/lib/novel/book-analysis/simple-extraction-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/simple-extraction-engine")>()
+  return {
+    ...actual,
+      extractSingleProfile: mocks.extractSingleProfile,
+    
+  }
+})
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 

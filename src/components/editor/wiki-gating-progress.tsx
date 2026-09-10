@@ -8,7 +8,7 @@ import { useEffect, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { listDirectory } from "@/commands/fs"
 import { useTranslation } from "react-i18next"
-import { flattenMdFiles } from "@/lib/novel/chapter-utils"
+import { flattenMdFiles } from "@/lib/novel"
 
 export interface ChapterGatingProgressProps {
   /** 总章节数（受控；不传则从 wiki/chapters 目录读取）。 */

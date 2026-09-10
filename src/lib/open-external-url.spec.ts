@@ -5,7 +5,12 @@ const mocks = vi.hoisted(() => ({
   isTauri: vi.fn(),
 }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }))
-vi.mock("@/lib/platform", () => ({ isTauri: mocks.isTauri }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: mocks.isTauri 
+  }
+})
 
 const openUrlMock = mocks.openUrl
 const isTauriMock = mocks.isTauri

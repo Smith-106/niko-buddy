@@ -1,13 +1,23 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: vi.fn(),
-  combineAbortSignals: vi.fn(),
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => ({ llmConfig: {}, searchApiConfig: {} }) },
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: vi.fn(),
+      combineAbortSignals: vi.fn(),
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => ({ llmConfig: {}, searchApiConfig: {} }) },
+    
+  }
+})
 
 import type { CharacterAura, CharacterAuraResearchFileName, CustomCharacterAuraGenerationInput } from "./character-aura-types"
 import {

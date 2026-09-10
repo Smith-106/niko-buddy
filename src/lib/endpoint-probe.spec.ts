@@ -6,15 +6,25 @@ const mocks = vi.hoisted(() => ({
   proxyConfig: { enabled: false, url: "" },
 }))
 
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: (...a: unknown[]) => mocks.getHttpFetch(...a),
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: (...a: unknown[]) => mocks.getHttpFetch(...a),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({ proxyConfig: mocks.proxyConfig }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({ proxyConfig: mocks.proxyConfig }),
+      },
+    
+  }
+})
 
 import {
   DEFAULT_ENDPOINT_PROBE_CONNECT_TIMEOUT_MS,

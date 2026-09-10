@@ -7,12 +7,17 @@ const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  listDirectory: fsMocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      listDirectory: fsMocks.listDirectory,
+    
+  }
+})
 
 import { buildChapterPlan } from "./aggregate"
 

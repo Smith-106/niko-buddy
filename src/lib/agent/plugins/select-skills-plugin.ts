@@ -1,15 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { resolveAiWorkflowMode, type AiWorkflowMode } from "../workflow-mode"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
-import type { SkillKind, SkillStage, UserSkill } from "@/lib/novel/skill-library"
-import { filterSkillsForSkillRoute, filterSkillsForSkillRoutes, inferSkillRoute, type SkillRoute } from "@/lib/novel/skill-route"
-import {
-  collectExplicitSkills,
-  getOutlineSkillNames,
-  getWritingSkillNames,
-  resolveAvailableSkillsByNames,
-  uniqueSkillsById,
-} from "@/lib/novel/skill-route-registry"
+import { filterSkillsForSkillRoute, filterSkillsForSkillRoutes, inferSkillRoute, collectExplicitSkills, getOutlineSkillNames, getWritingSkillNames, resolveAvailableSkillsByNames, uniqueSkillsById } from "@/lib/novel"
+import type { NovelTaskIntent, SkillKind, SkillStage, UserSkill, SkillRoute } from "@/lib/novel"
 
 const WRITING_INTENTS = new Set<NovelTaskIntent>([
   "write_chapter",

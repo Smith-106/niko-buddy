@@ -10,8 +10,18 @@ const streamChatMock = vi.hoisted(() => vi.fn())
 const modelResolverMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/commands/fs", () => fsState)
-vi.mock("@/lib/llm-client", () => ({ streamChat: streamChatMock }))
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: modelResolverMock }))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: streamChatMock 
+  }
+})
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveDefaultModel: modelResolverMock 
+  }
+})
 
 import { useReviewStore } from "@/stores/review-store"
 import { useActivityStore } from "@/stores/activity-store"

@@ -55,34 +55,50 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createProject: mocks.createProject,
-  writeFile: mocks.writeFile,
-  createDirectory: mocks.createDirectory,
-  getExecutableDir: mocks.getExecutableDir,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createProject: mocks.createProject,
+      writeFile: mocks.writeFile,
+      createDirectory: mocks.createDirectory,
+      getExecutableDir: mocks.getExecutableDir,
+    
+  }
+})
 
 vi.mock("@/lib/templates", () => ({
   getTemplate: mocks.getTemplate,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   saveOutputLanguage: mocks.saveOutputLanguage,
 }))
 
-vi.mock("@/lib/platform", () => ({
-  pickDirectory: mocks.pickDirectory,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      pickDirectory: mocks.pickDirectory,
+    
+  }
+})
 
 vi.mock("@/lib/default-paths", () => ({
   buildDefaultNovelDir: mocks.buildDefaultNovelDir,

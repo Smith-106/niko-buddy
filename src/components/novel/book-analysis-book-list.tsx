@@ -1,5 +1,5 @@
 import { BookOpen, CheckCircle2, Feather, Trash2 } from "lucide-react"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 
 interface BookAnalysisBookListProps {
   books: BookAnalysisLibraryBook[]

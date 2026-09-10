@@ -2,9 +2,8 @@
  * U1 — review_job status strip (presentation only; never blocks write).
  */
 import { useEffect, useState } from "react"
-import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
-import { formatReviewJobStatusLine, getReviewJobUiModel } from "@/lib/novel/review-job-ui"
-import type { ReviewJobUiModel } from "@/lib/novel/review-job-ui"
+import { loadNovelSessionStatus, formatReviewJobStatusLine, getReviewJobUiModel } from "@/lib/novel"
+import type { ReviewJobUiModel } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { cn } from "@/lib/utils"
 

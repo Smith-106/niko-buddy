@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Stethoscope, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import { formatDoctorReport, runProjectDoctor, type DoctorReport } from "@/lib/novel/doctor"
+import { formatDoctorReport, runProjectDoctor } from "@/lib/novel"
+import type { DoctorReport } from "@/lib/novel"
 
 /**
  * DoctorPanel — 项目医生整链诊断面板（65 号共识 G2 挂载：形态轴 F7 消费侧）。

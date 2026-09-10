@@ -32,11 +32,16 @@ const fsMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+    
+  }
+})
 
 const NOVEL_DIR = resolve(__dirname)
 

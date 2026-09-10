@@ -12,10 +12,15 @@ import { useDeAiSkillOptions } from "./use-de-ai-skill-options"
 const readFileMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: readFileMock,
-  writeFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: readFileMock,
+      writeFile: vi.fn(),
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/path", () => ({
   join: joinMock,

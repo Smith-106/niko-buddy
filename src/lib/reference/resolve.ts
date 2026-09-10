@@ -6,7 +6,7 @@
 
 import type { ReferenceCandidate, ReferenceToken, ResolvedReference } from "./types"
 // 复用 character-aura-utils 的匹配基建（不平行实现）
-import { normalizeCharacterText, toPinyin, toSimplified } from "@/lib/novel/character-aura-utils"
+import { normalizeCharacterText, toPinyin, toSimplified } from "@/lib/novel"
 
 /**
  * @ 引用语法：`@` + 名称，终止符为空白/标点/行尾。

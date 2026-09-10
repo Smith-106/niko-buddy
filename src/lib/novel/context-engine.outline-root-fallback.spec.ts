@@ -20,20 +20,30 @@ const fsMocks = vi.hoisted(() => ({
   fileExists: vi.fn(async (path: string) => existsSync(path)),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  listDirectory: fsMocks.listDirectory,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-  fileExists: fsMocks.fileExists,
-  writeFile: vi.fn(),
-  writeFileAtomic: vi.fn(),
-  createDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      listDirectory: fsMocks.listDirectory,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+      fileExists: fsMocks.fileExists,
+      writeFile: vi.fn(),
+      writeFileAtomic: vi.fn(),
+      createDirectory: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/lib/search", () => ({
-  searchWiki: vi.fn(async () => []),
-  tokenizeQuery: (q: string) => q.split(/\s+/),
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: vi.fn(async () => []),
+      tokenizeQuery: (q: string) => q.split(/\s+/),
+    
+  }
+})
 
 describe("M1 readChapterOutlineContent project-root FILLED fallback", () => {
   beforeEach(() => {

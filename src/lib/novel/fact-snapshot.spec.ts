@@ -18,19 +18,34 @@ vi.mock("./model-resolver", () => ({
   resolveNovelModel: (...args: unknown[]) => llmMocks.resolveNovelModel(...args),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => llmMocks.streamChat(...args),
-  combineAbortSignals: (...args: unknown[]) => llmMocks.combineAbortSignals(...args),
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => llmMocks.streamChat(...args),
+      combineAbortSignals: (...args: unknown[]) => llmMocks.combineAbortSignals(...args),
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: (...args: unknown[]) => llmMocks.hasUsableLlm(...args),
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: (...args: unknown[]) => llmMocks.hasUsableLlm(...args),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => llmMocks.wikiStoreGetState() },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => llmMocks.wikiStoreGetState() },
+    
+  }
+})
 
 const fakeLlmConfig: LlmConfig = {
   provider: "openai",

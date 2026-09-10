@@ -54,11 +54,21 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
 
 vi.mock("@/lib/dedup-runner", () => ({ runDuplicateDetection: mocks.runDuplicateDetection }))
 

@@ -42,13 +42,18 @@ vi.mock("./anti-ai-candidate-pool", () => {
   return { AntiAiCandidatePool: FakePool }
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-  createDirectory: vi.fn(async () => {}),
-  listDirectory: vi.fn(async () => []),
-  deleteFile: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+      createDirectory: vi.fn(async () => {}),
+      listDirectory: vi.fn(async () => []),
+      deleteFile: vi.fn(async () => {}),
+    
+  }
+})
 
 function memDeps(over: Partial<TelemetrySinkDeps> = {}): TelemetrySinkDeps {
   const files = new Map<string, string>()

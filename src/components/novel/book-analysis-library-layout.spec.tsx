@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import type { BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryState } from "@/lib/novel"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 
 const state: BookAnalysisLibraryState = {

@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { routeTask } from "@/lib/novel/task-router"
+import { routeTask } from "@/lib/novel"
 
 export function createRouteTaskTool(userMessage: string): Tool {
   return {

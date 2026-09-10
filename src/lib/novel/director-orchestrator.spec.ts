@@ -13,11 +13,16 @@ import {
 import { createDirectorPipeline } from "./director-pipeline"
 import { createEmptyWorldBlueprint } from "./world-blueprint"
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async () => {
-    throw new Error("ENOENT")
-  }),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async () => {
+        throw new Error("ENOENT")
+      }),
+    
+  }
+})
 
 const FULL_SNAPSHOT: DirectorSnapshot = {
   idea: { title: "雾都侦探", genre: "悬疑", coreConflict: "连环失踪案与旧案关联" },

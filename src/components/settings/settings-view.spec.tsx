@@ -190,19 +190,30 @@ const mocks = vi.hoisted(() => {
 
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { language: "zh", changeLanguage: mocks.changeLanguage },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { language: "zh", changeLanguage: mocks.changeLanguage },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
 vi.mock("@/stores/chat-store", () => ({
   useChatStore: Object.assign(
@@ -211,9 +222,14 @@ vi.mock("@/stores/chat-store", () => ({
   ),
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   loadSourceWatchConfig: mocks.loadSourceWatchConfig,
@@ -234,9 +250,14 @@ vi.mock("@/lib/project-store", () => ({
   saveUiFontSizeScale: mocks.saveUiFontSizeScale,
 }))
 
-vi.mock("@/lib/source-watch-config", () => ({
-  normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
-}))
+vi.mock("@/lib/source-watch-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/source-watch-config")>()
+  return {
+    ...actual,
+      normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
+    
+  }
+})
 
 vi.mock("@/lib/project-file-sync", () => ({
   startProjectFileSync: mocks.startProjectFileSync,

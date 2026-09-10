@@ -1,9 +1,6 @@
 import type { Conversation, DisplayMessage } from "@/stores/chat-store"
-import type { DeepChapterGenerationResumeCheckpoint } from "@/lib/novel/deep-chapter-generation"
-import {
-  resolveStatusResumeCheckpoint,
-  type NovelSessionStatus,
-} from "@/lib/novel/novel-session-status"
+import { resolveStatusResumeCheckpoint } from "@/lib/novel"
+import type { DeepChapterGenerationResumeCheckpoint, NovelSessionStatus } from "@/lib/novel"
 
 const DEEP_CHAPTER_FAILURE_RE = /深度生成章节失败|继续未完成失败|已停止生成|deep chapter generation failed|continue unfinished failed|stopped generating/i
 const THINK_BLOCK_RE = /<think(?:ing)?>[\s\S]*?(?:<\/think(?:ing)?>|$)/i

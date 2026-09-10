@@ -90,12 +90,17 @@ const mocks = vi.hoisted(() => {
 
 // ── Module mocks ────────────────────────────────────────────────────
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
@@ -103,16 +108,26 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
-vi.mock("@/lib/wiki-graph", () => ({
-  buildWikiGraph: mocks.buildWikiGraph,
-}))
+vi.mock("@/lib/wiki-graph", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/wiki-graph")>()
+  return {
+    ...actual,
+      buildWikiGraph: mocks.buildWikiGraph,
+    
+  }
+})
 
 vi.mock("@/lib/graph-insights", () => ({
   findSurprisingConnections: mocks.findSurprisingConnections,
@@ -123,13 +138,23 @@ vi.mock("@/lib/graph-node-page", () => ({
   buildEditableGraphNodePage: mocks.buildEditableGraphNodePage,
 }))
 
-vi.mock("@/lib/novel/foreshadowing-tracker", () => ({
-  loadForeshadowingTracker: mocks.loadForeshadowingTracker,
-}))
+vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
+  return {
+    ...actual,
+      loadForeshadowingTracker: mocks.loadForeshadowingTracker,
+    
+  }
+})
 
-vi.mock("@/lib/embedding", () => ({
-  embedPage: mocks.embedPage,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      embedPage: mocks.embedPage,
+    
+  }
+})
 
 vi.mock("graphology-layout-forceatlas2", () => ({
   default: mocks.fa2,

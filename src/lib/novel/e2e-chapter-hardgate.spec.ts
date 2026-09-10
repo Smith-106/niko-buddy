@@ -55,11 +55,16 @@ import {
 // Module mock（不依赖 Tauri 运行时，与 T15/T17/T18 spec 同契约）
 // ──────────────────────────────────────────────────────────────────────────
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: vi.fn(async () => {}),
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: vi.fn(async () => {}),
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+    
+  }
+})
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
 
 const createDirectoryMock = vi.mocked(createDirectory)

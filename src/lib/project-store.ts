@@ -5,6 +5,9 @@ import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { normalizePath } from "@/lib/path-utils"
+// Leaf import on purpose: this module is loaded through a deferred
+// `await import("@/lib/project-store")` from UI, so routing it through the
+// @/lib/novel barrel would pull the whole 145-module surface into that path.
 import { assertInvariantsNotDisabled, pickInvariantOverrides } from "@/lib/novel/kb-governance"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
 import { encryptApiKeysInObject, decryptApiKeysInObject, countApiKeyStatus } from "@/lib/crypto"

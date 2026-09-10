@@ -9,24 +9,34 @@ import { runSimulation } from "@/lib/novel/story-simulation/simulation-engine"
 
 let mockRun: any
 
-vi.mock("@/lib/agent/runner", () => ({
-  AgentRunner: class {
-    run(...args: unknown[]) {
-      return mockRun(...args)
-    }
-  },
-  ModelDoesNotSupportToolsError: class extends Error {
-    constructor() {
-      super("当前模型不支持工具调用")
-      this.name = "ModelDoesNotSupportToolsError"
-    }
-  },
-}))
+vi.mock("@/lib/agent/runner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/runner")>()
+  return {
+    ...actual,
+      AgentRunner: class {
+        run(...args: unknown[]) {
+          return mockRun(...args)
+        }
+      },
+      ModelDoesNotSupportToolsError: class extends Error {
+        constructor() {
+          super("当前模型不支持工具调用")
+          this.name = "ModelDoesNotSupportToolsError"
+        }
+      },
+    
+  }
+})
 
-vi.mock("@/lib/embedding-client", () => ({
-  embed: vi.fn().mockResolvedValue([1, 0, 0]),
-  cosineSimilarity: vi.fn().mockReturnValue(0),
-}))
+vi.mock("@/lib/embedding-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding-client")>()
+  return {
+    ...actual,
+      embed: vi.fn().mockResolvedValue([1, 0, 0]),
+      cosineSimilarity: vi.fn().mockReturnValue(0),
+    
+  }
+})
 
 function makeAgent(): NovelAgent {
   return {

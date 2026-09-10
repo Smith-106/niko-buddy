@@ -5,7 +5,7 @@ import { cleanup } from "@testing-library/react"
 
 afterEach(cleanup)
 import userEvent from "@testing-library/user-event"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { ContextPack } from "@/lib/novel"
 import { buildPackReplay, ContextPackReplayPanel } from "./context-pack-replay-panel"
 
 function pack(o: Partial<ContextPack> = {}): ContextPack {

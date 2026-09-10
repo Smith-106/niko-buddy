@@ -1,5 +1,5 @@
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
-import { OUTLINE_FIND_CHAPTER_INTENTS } from "@/lib/novel/outline-find-protocol"
+import { OUTLINE_FIND_CHAPTER_INTENTS } from "@/lib/novel"
+import type { NovelTaskIntent } from "@/lib/novel"
 import type { AiWorkflowMode } from "./workflow-mode"
 
 interface RequiredToolsGateInput {

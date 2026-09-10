@@ -46,12 +46,17 @@ const fsMocks = vi.hoisted(() => {
 })
 
 // PAT-G2 mock mirror: factory 须 mirror 全 export (readFile/writeFileAtomic/createDirectory/fileExists)
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  fileExists: fsMocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      fileExists: fsMocks.fileExists,
+    
+  }
+})
 
 const PROJECT_PATH = resolve(__dirname, "test-project")
 

@@ -12,49 +12,64 @@ const graphRelMocks = vi.hoisted(() => ({
 const wikiStoreMock = vi.hoisted(() => ({ getState: vi.fn() }))
 
 vi.mock("@/commands/fs", () => fsMocks)
-vi.mock("@/lib/graph-relevance", () => ({
-  buildRetrievalGraph: graphRelMocks.buildRetrievalGraph,
-  calculateRelevance: graphRelMocks.calculateRelevance,
-}))
-vi.mock("@/lib/novel/graph-adapter", () => ({
-  NOVEL_NODE_TYPE_LABELS: {
-    character: "人物",
-    location: "地点",
-    organization: "组织",
-    item: "物品",
-    event: "事件",
-    chapter: "章节",
-    outline: "大纲",
-    foreshadowing: "伏笔",
-    secret: "秘密",
-    conflict: "冲突",
-    "timeline-point": "时间点",
-    "canon-rule": "正史规则",
-    concept: "概念",
-  },
-  NOVEL_RELATION_LABELS: {
-    APPEARS_IN: "出场于",
-    HAPPENS_IN: "发生于",
-    BELONGS_TO: "属于",
-    HAS_ITEM: "持有",
-    ENEMY_OF: "敌对",
-    ALLY_OF: "合作",
-    SUSPECTS: "怀疑",
-    HIDES_FROM: "隐瞒",
-    KNOWS: "知道",
-    DOES_NOT_KNOW: "不知道",
-    ADVANCES_FORESHADOWING: "推进伏笔",
-    RESOLVES_FORESHADOWING: "回收伏笔",
-    CREATES_FORESHADOWING: "新增伏笔",
-    CAUSES: "导致",
-    REVEALS: "揭示",
-    AFFECTS: "影响",
-    LOCATED_AT: "位于",
-  },
-}))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: wikiStoreMock.getState },
-}))
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      buildRetrievalGraph: graphRelMocks.buildRetrievalGraph,
+      calculateRelevance: graphRelMocks.calculateRelevance,
+    
+  }
+})
+vi.mock("@/lib/novel/graph-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/graph-adapter")>()
+  return {
+    ...actual,
+      NOVEL_NODE_TYPE_LABELS: {
+        character: "人物",
+        location: "地点",
+        organization: "组织",
+        item: "物品",
+        event: "事件",
+        chapter: "章节",
+        outline: "大纲",
+        foreshadowing: "伏笔",
+        secret: "秘密",
+        conflict: "冲突",
+        "timeline-point": "时间点",
+        "canon-rule": "正史规则",
+        concept: "概念",
+      },
+      NOVEL_RELATION_LABELS: {
+        APPEARS_IN: "出场于",
+        HAPPENS_IN: "发生于",
+        BELONGS_TO: "属于",
+        HAS_ITEM: "持有",
+        ENEMY_OF: "敌对",
+        ALLY_OF: "合作",
+        SUSPECTS: "怀疑",
+        HIDES_FROM: "隐瞒",
+        KNOWS: "知道",
+        DOES_NOT_KNOW: "不知道",
+        ADVANCES_FORESHADOWING: "推进伏笔",
+        RESOLVES_FORESHADOWING: "回收伏笔",
+        CREATES_FORESHADOWING: "新增伏笔",
+        CAUSES: "导致",
+        REVEALS: "揭示",
+        AFFECTS: "影响",
+        LOCATED_AT: "位于",
+      },
+    
+  }
+})
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: wikiStoreMock.getState },
+    
+  }
+})
 
 import { listDirectory, readFile } from "@/commands/fs"
 import { buildWikiGraph, type GraphEdge } from "./wiki-graph"

@@ -4,20 +4,8 @@ import { Languages, Play, Plus, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  createEmptyTranslationGlossary,
-  createEmptyTranslationProgress,
-  loadTranslationGlossary,
-  runTranslationProject,
-  saveTranslationDraft,
-  saveTranslationGlossary,
-  translationProgressSummary,
-  upsertGlossaryEntry,
-  type TranslationLlmPort,
-  type TranslationProgress,
-} from "@/lib/novel/translation-workbench"
-import { createBudgetRun, advanceBudgetBatch } from "@/lib/novel/budget-resume"
-import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
+import { createEmptyTranslationGlossary, createEmptyTranslationProgress, loadTranslationGlossary, runTranslationProject, saveTranslationDraft, saveTranslationGlossary, translationProgressSummary, upsertGlossaryEntry, createBudgetRun, advanceBudgetBatch, saveGenerationHistoryEntry } from "@/lib/novel"
+import type { TranslationLlmPort, TranslationProgress } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
 
 /**

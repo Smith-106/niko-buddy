@@ -1,16 +1,11 @@
 import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveModelConfig } from "@/lib/novel"
+import type { AnalysisDepth, ExtractedCharacter, RecognizedCharacter, BookAnalysisMetadata } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
-import type {
-  AnalysisDepth,
-  ExtractedCharacter,
-  RecognizedCharacter,
-} from "@/lib/novel/book-analysis/types"
-import type { BookAnalysisMetadata } from "@/lib/novel/book-analysis/types"
 
 export interface ChapterSelectionData {
   taskId: string

@@ -25,11 +25,16 @@ const fsState = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsState.createDirectory,
-  readFile: fsState.readFile,
-  writeFileAtomic: fsState.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsState.createDirectory,
+      readFile: fsState.readFile,
+      writeFileAtomic: fsState.writeFileAtomic,
+    
+  }
+})
 
 import {
   acceptDeepChapterDraft,

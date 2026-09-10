@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: vi.fn(),
-  isFetchNetworkError: vi.fn(),
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: vi.fn(),
+      isFetchNetworkError: vi.fn(),
+    
+  }
+})
 
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import {

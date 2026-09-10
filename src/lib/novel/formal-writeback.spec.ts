@@ -15,11 +15,16 @@ const ledgerMocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  deleteFile: fsMocks.deleteFile,
-  fileExists: fsMocks.fileExists,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      deleteFile: fsMocks.deleteFile,
+      fileExists: fsMocks.fileExists,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 vi.mock("./novel-session-status", () => ({
   acceptDeepChapterDraft: statusMocks.acceptDeepChapterDraft,
@@ -29,10 +34,15 @@ vi.mock("./emotion-ledger", () => ({
   updateEmotionLedgerFromChapter: ledgerMocks.updateEmotionLedgerFromChapter,
 }))
 
-vi.mock("@/lib/utils", () => ({
-  toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-  logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
+    
+  }
+})
 
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
 

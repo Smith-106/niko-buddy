@@ -2,11 +2,9 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Check, FileText, LayoutGrid, Plus, Trash2, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { listSnapshots, loadSnapshot } from "@/lib/novel/chapter-ingest"
-import { loadEmotionalArcs } from "@/lib/novel/emotional-arcs"
+import { listSnapshots, loadSnapshot, loadEmotionalArcs, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
-import { findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel/chapter-utils"
 
 /**
  * CorkboardView — 场景卡片墙（F-010，审查/记忆面板可选可视化子面板）。

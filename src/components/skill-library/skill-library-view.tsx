@@ -1,22 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import {
-  createBlankProjectDeAiSkill,
-  deleteProjectDeAiSkill,
-  getAllDeAiSkills,
-  isDeAiSkillConfigCorruptError,
-  loadDeAiSkillConfig,
-  recreateDeAiSkillConfig,
-  resetBuiltInDeAiSkill,
-  restoreDeAiSkillConfigFromBackup,
-  saveDeAiSkillConfig,
-  setDeAiSkillEnabled,
-  setDefaultDeAiSkill,
-  updateDeAiSkill,
-  deAiSkillToUserSkill,
-  type DeAiSkill,
-  type DeAiSkillConfig,
-} from "@/lib/novel/de-ai-skill-library"
-import { SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel/skill-library"
+import { createBlankProjectDeAiSkill, deleteProjectDeAiSkill, getAllDeAiSkills, isDeAiSkillConfigCorruptError, loadDeAiSkillConfig, recreateDeAiSkillConfig, resetBuiltInDeAiSkill, restoreDeAiSkillConfigFromBackup, saveDeAiSkillConfig, setDeAiSkillEnabled, setDefaultDeAiSkill, updateDeAiSkill, deAiSkillToUserSkill, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
+import type { DeAiSkill, DeAiSkillConfig } from "@/lib/novel"
 import { confirmDiscardSkillLibraryDraft, useWikiStore } from "@/stores/wiki-store"
 
 function sourceLabel(skill: DeAiSkill): string {

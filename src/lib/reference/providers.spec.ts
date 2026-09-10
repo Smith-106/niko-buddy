@@ -6,21 +6,35 @@ import {
   loadAllReferenceCandidates,
 } from "./providers"
 
-vi.mock("@/lib/novel/bindable-characters", () => ({
-  listBindableNovelCharacters: vi.fn(),
-}))
+vi.mock("@/lib/novel/bindable-characters", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/bindable-characters")>()
+  return {
+    ...actual,
+      listBindableNovelCharacters: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshots: vi.fn(),
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshots: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(),
-  readFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: vi.fn(),
+      readFile: vi.fn(),
+    
+  }
+})
 
-import { listBindableNovelCharacters } from "@/lib/novel/bindable-characters"
-import { listSnapshots } from "@/lib/novel/chapter-ingest"
+import { listBindableNovelCharacters, listSnapshots } from "@/lib/novel"
 import { listDirectory, readFile } from "@/commands/fs"
 
 beforeEach(() => {

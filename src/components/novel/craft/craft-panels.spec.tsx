@@ -28,6 +28,7 @@ const tMock = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -38,9 +39,7 @@ vi.mock("react-i18next", () => ({
 import { ArcWorkbench } from "./arc-workbench"
 import { ThrillDashboard } from "./thrill-dashboard"
 import { TechniquePanel } from "./technique-panel"
-import type { ArcProgressionInput, ArcProgressionResult } from "@/lib/novel/craft/arc-tracker"
-import type { ThrillQuantifierResult } from "@/lib/novel/craft/thrill-quantifier"
-import type { CompiledTechniqueRegistry } from "@/lib/novel/craft/technique-compiler"
+import type { ArcProgressionInput, ArcProgressionResult, ThrillQuantifierResult, CompiledTechniqueRegistry } from "@/lib/novel"
 
 // ============================================================================
 // Mock 数据

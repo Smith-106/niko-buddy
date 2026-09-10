@@ -181,23 +181,53 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 })
 
 // IO module mocks
-vi.mock("@/commands/fs", () => ({
-  listDirectory: hoisted.listDirectory,
-  readFile: hoisted.readFile,
-  getFileModifiedTime: hoisted.getFileModifiedTime,
-  fileExists: hoisted.fileExists,
-}))
-vi.mock("@/lib/search", () => ({
-  searchWiki: hoisted.searchWiki,
-  tokenizeQuery: hoisted.tokenizeQuery,
-}))
-vi.mock("@/lib/frontmatter", () => ({ parseFrontmatter: hoisted.parseFrontmatter }))
-vi.mock("@/lib/rerank", () => ({ rerankCandidates: hoisted.rerankCandidates }))
-vi.mock("@/lib/embedding", () => ({ searchByEmbedding: hoisted.searchByEmbedding }))
-vi.mock("@/lib/graph-relevance", () => ({
-  buildRetrievalGraph: hoisted.buildRetrievalGraph,
-  getRelatedNodes: hoisted.getRelatedNodes,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: hoisted.listDirectory,
+      readFile: hoisted.readFile,
+      getFileModifiedTime: hoisted.getFileModifiedTime,
+      fileExists: hoisted.fileExists,
+    
+  }
+})
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: hoisted.searchWiki,
+      tokenizeQuery: hoisted.tokenizeQuery,
+    
+  }
+})
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual, parseFrontmatter: hoisted.parseFrontmatter 
+  }
+})
+vi.mock("@/lib/rerank", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rerank")>()
+  return {
+    ...actual, rerankCandidates: hoisted.rerankCandidates 
+  }
+})
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual, searchByEmbedding: hoisted.searchByEmbedding 
+  }
+})
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      buildRetrievalGraph: hoisted.buildRetrievalGraph,
+      getRelatedNodes: hoisted.getRelatedNodes,
+    
+  }
+})
 vi.mock("./chapter-ingest", () => ({
   listSnapshots: hoisted.listSnapshots,
   loadSnapshot: hoisted.loadSnapshot,

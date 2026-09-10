@@ -42,28 +42,44 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.wiki),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.wiki),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
 vi.mock("@/lib/graph-node-page", () => ({
   buildEditableGraphNodePage: mocks.buildEditableGraphNodePage,
 }))
 
-vi.mock("@/lib/embedding", () => ({
-  embedPage: mocks.embedPage,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      embedPage: mocks.embedPage,
+    
+  }
+})
 
 const node: GraphNode = {
   id: "n1",

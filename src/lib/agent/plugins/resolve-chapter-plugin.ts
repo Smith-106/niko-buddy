@@ -1,5 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import { resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
+import { resolveTargetChapterNumberForChat } from "@/lib/novel"
 
 interface ResolveChapterPluginDeps {
   selectedFile?: string | null

@@ -3,7 +3,7 @@ import { Star, Copy, Trash2, Search } from "lucide-react"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { toast } from "@/lib/toast"
-import type { FavoriteSkillEntry } from "@/lib/novel/skill-favorite"
+import type { FavoriteSkillEntry } from "@/lib/novel"
 
 export function FavoriteListView() {
   const favorites = useFavoriteSkillStore((s) => s.favorites)

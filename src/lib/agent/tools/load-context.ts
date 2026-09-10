@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
-import { buildContextPack } from "@/lib/novel/context-engine"
-import type { TaskRouteResult } from "@/lib/novel/task-router"
+import { buildContextPack } from "@/lib/novel"
+import type { TaskRouteResult } from "@/lib/novel"
 
 export function createLoadContextTool(
   projectPath: string,

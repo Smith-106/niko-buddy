@@ -2,20 +2,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const memStore = new Map<string, string>();
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async (path: string) => {
-    if (!memStore.has(path)) throw new Error(`ENOENT: ${path}`);
-    return memStore.get(path)!;
-  }),
-  writeFile: vi.fn(async (path: string, content: string) => {
-    memStore.set(path, content);
-  }),
-  writeFileAtomic: vi.fn(async (path: string, content: string) => {
-    memStore.set(path, content);
-  }),
-  createDirectory: vi.fn(async () => undefined),
-  fileExists: vi.fn(async (path: string) => memStore.has(path)),
-}));
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async (path: string) => {
+        if (!memStore.has(path)) throw new Error(`ENOENT: ${path}`);
+        return memStore.get(path)!;
+      }),
+      writeFile: vi.fn(async (path: string, content: string) => {
+        memStore.set(path, content);
+      }),
+      writeFileAtomic: vi.fn(async (path: string, content: string) => {
+        memStore.set(path, content);
+      }),
+      createDirectory: vi.fn(async () => undefined),
+      fileExists: vi.fn(async (path: string) => memStore.has(path)),
+    
+  }
+});
 
 import {
   getPlotFrameworkLibraryPath,

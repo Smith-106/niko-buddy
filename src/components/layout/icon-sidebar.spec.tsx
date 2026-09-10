@@ -51,15 +51,21 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
 vi.mock("@/stores/review-store", () => ({
   useReviewStore: Object.assign(

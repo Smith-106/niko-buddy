@@ -35,16 +35,26 @@ vi.mock("./anti-ai-telemetry-wiring", () => ({
   loadAntiAiTelemetryConsent: () => h.mockConsent(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  writeFileAtomic: vi.fn(),
-  createDirectory: vi.fn(),
-  listDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      writeFileAtomic: vi.fn(),
+      createDirectory: vi.fn(),
+      listDirectory: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: h.state,
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: h.state,
+    
+  }
+})
 
 const fakeDeps = () => ({
   readFile: async (p: string) => {

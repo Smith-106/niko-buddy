@@ -4,8 +4,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
-import { saveRecognizedCharacters } from "@/lib/novel/book-analysis/recognized-character-store"
-import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import { saveRecognizedCharacters } from "@/lib/novel"
+import type { RecognizedCharacter } from "@/lib/novel"
 import type { ChapterSelectionData } from "./use-character-extraction"
 
 export interface UseCharacterRecognitionParams {

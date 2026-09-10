@@ -19,7 +19,7 @@
  * 遵循 QMAI/CLAUDE.md 锚点：新增组件落 `src/components/novel/`（与 snapshot-viewer
  * 同目录约定），中文标签直书（与 snapshot-viewer 历史版本/POV 区块同款约定）。
  */
-import type { KbMetrics, MetricSample } from "@/lib/novel/kb-observability"
+import type { KbMetrics, MetricSample } from "@/lib/novel"
 
 export interface KbHealthViewProps {
   /** 6 指标快照（生产源 = pack.kbMetrics；缺源项 value=null + unavailableReason）。 */

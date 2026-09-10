@@ -5,10 +5,7 @@
 import { renderHook, act } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Dispatch, SetStateAction } from "react"
-import type { BookAnalysisLibraryBook, BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
-import type { BookStyleProfile } from "@/lib/novel/book-analysis/types"
-import type { ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
-import type { AnalyzeWritingStyleOptions } from "@/lib/novel/book-analysis/style-extraction-engine"
+import type { BookAnalysisLibraryBook, BookAnalysisLibraryState, BookStyleProfile, ImportedBookAnalysisAura, AnalyzeWritingStyleOptions } from "@/lib/novel"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChapterSelectionData } from "./use-character-extraction"
 import { useLibraryOperations } from "./use-library-operations"
@@ -65,53 +62,108 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: { getState: () => mocks.bookAnalysis },
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: { getState: () => mocks.bookAnalysis },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign((s: (x: unknown) => unknown) => s({}), { getState: () => ({ llmConfig: mocks.llmConfig }) }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign((s: (x: unknown) => unknown) => s({}), { getState: () => ({ llmConfig: mocks.llmConfig }) }),
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/library-state", () => ({
-  loadBookAnalysisLibraryState: mocks.loadBookAnalysisLibraryState,
-}))
+vi.mock("@/lib/novel/book-analysis/library-state", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/library-state")>()
+  return {
+    ...actual,
+      loadBookAnalysisLibraryState: mocks.loadBookAnalysisLibraryState,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/style-extraction-engine", () => ({
-  analyzeWritingStyle: mocks.analyzeWritingStyle,
-}))
+vi.mock("@/lib/novel/book-analysis/style-extraction-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/style-extraction-engine")>()
+  return {
+    ...actual,
+      analyzeWritingStyle: mocks.analyzeWritingStyle,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/aura-adapter", () => ({
-  importBookAnalysisSkillsAsAuras: mocks.importBookAnalysisSkillsAsAuras,
-}))
+vi.mock("@/lib/novel/book-analysis/aura-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/aura-adapter")>()
+  return {
+    ...actual,
+      importBookAnalysisSkillsAsAuras: mocks.importBookAnalysisSkillsAsAuras,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/aura-cleanup", () => ({
-  deleteOrphanAurasForBook: mocks.deleteOrphanAurasForBook,
-}))
+vi.mock("@/lib/novel/book-analysis/aura-cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/aura-cleanup")>()
+  return {
+    ...actual,
+      deleteOrphanAurasForBook: mocks.deleteOrphanAurasForBook,
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  bindCharacterAura: mocks.bindCharacterAura,
-  listBindableNovelCharacters: mocks.listBindableNovelCharacters,
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      bindCharacterAura: mocks.bindCharacterAura,
+      listBindableNovelCharacters: mocks.listBindableNovelCharacters,
+    
+  }
+})
 
-vi.mock("@/lib/novel/writing-style-store", () => ({
-  setEnabledWritingStyle: mocks.setEnabledWritingStyle,
-  upsertWritingStylePreset: mocks.upsertWritingStylePreset,
-}))
+vi.mock("@/lib/novel/writing-style-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/writing-style-store")>()
+  return {
+    ...actual,
+      setEnabledWritingStyle: mocks.setEnabledWritingStyle,
+      upsertWritingStylePreset: mocks.upsertWritingStylePreset,
+    
+  }
+})
 
-vi.mock("@/lib/project-refresh", () => ({
-  refreshProjectState: mocks.refreshProjectState,
-}))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual,
+      refreshProjectState: mocks.refreshProjectState,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  listDirectory: mocks.listDirectory,
-  deleteFile: mocks.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      listDirectory: mocks.listDirectory,
+      deleteFile: mocks.deleteFile,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  joinPath: mocks.joinPath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      joinPath: mocks.joinPath,
+    
+  }
+})
 
 vi.mock("@/lib/toast", () => ({
   toast: mocks.toast,

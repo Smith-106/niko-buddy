@@ -6,9 +6,14 @@ import {
   directorEvaluate,
 } from "./director-agent"
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: vi.fn(),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: vi.fn(),
+    
+  }
+})
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",

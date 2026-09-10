@@ -6,8 +6,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { Check, X, FileText, AlertCircle, Pencil, ChevronDown, ChevronRight } from "lucide-react"
-import type { FileEditAction } from "@/lib/novel/agent-parser"
-import type { FileEditResult } from "@/lib/novel/agent-tools"
+import type { FileEditAction, FileEditResult } from "@/lib/novel"
 
 interface FileEditPreviewProps {
   edits: FileEditAction[]

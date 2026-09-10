@@ -7,10 +7,15 @@ import { createReadChatHistoryTool } from "./read-chat-history"
 import { createReadOutlineHistoryTool } from "./read-outline-history"
 import { createSearchChaptersTool } from "./search-chapters"
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  listDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      listDirectory: vi.fn(),
+    
+  }
+})
 
 import { listDirectory, readFile } from "@/commands/fs"
 

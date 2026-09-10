@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { DirectorView } from "./director-view"
-import { createDirectorPipeline, type DirectorPipelineState } from "@/lib/novel/director-pipeline"
-import type { DirectorPersistedFile } from "@/lib/novel/director-pipeline-store"
+import { createDirectorPipeline } from "@/lib/novel"
+import type { DirectorPipelineState, DirectorPersistedFile } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
@@ -15,20 +15,31 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (k: string) => k }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  fileExists: mocks.fileExists,
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  createDirectory: mocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists: mocks.fileExists,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ setActiveView: mocks.setActiveView }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (sel: (s: Record<string, unknown>) => unknown) =>
+        sel({ setActiveView: mocks.setActiveView }),
+    
+  }
+})
 
 function makeFile(partial?: Partial<DirectorPersistedFile>): DirectorPersistedFile {
   return {

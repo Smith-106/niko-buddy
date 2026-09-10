@@ -9,12 +9,17 @@ const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(async () => {}),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  readFile: fsMocks.readFile,
-  deleteFile: fsMocks.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      readFile: fsMocks.readFile,
+      deleteFile: fsMocks.deleteFile,
+    
+  }
+})
 
 import {
   computeFrameworkSignature,

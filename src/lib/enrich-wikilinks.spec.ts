@@ -8,23 +8,33 @@ const mocks = vi.hoisted(() => ({
   bumpDataVersion: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+    
+  }
+})
 
 vi.mock("./llm-client", () => ({
   streamChat: mocks.streamChat,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({
-      outputLanguage: "auto",
-      bumpDataVersion: mocks.bumpDataVersion,
-    }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({
+          outputLanguage: "auto",
+          bumpDataVersion: mocks.bumpDataVersion,
+        }),
+      },
+    
+  }
+})
 
 import { enrichWithWikilinks } from "./enrich-wikilinks"
 

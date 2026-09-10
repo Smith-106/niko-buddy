@@ -2,9 +2,14 @@ import { describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { generateDynamicEventPool, stringArrayToStagedPool } from "./event-pool-generator"
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: vi.fn(),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: vi.fn(),
+    
+  }
+})
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",

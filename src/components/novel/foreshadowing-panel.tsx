@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Lightbulb } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { loadForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
-import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
+import { loadForeshadowingTracker, findChapterFileByNumber } from "@/lib/novel"
+import type { Foreshadowing, ForeshadowingStore } from "@/lib/novel"
 
 const STATUS_LABEL_KEY: Record<string, string> = {
   planted: "novel.foreshadowing.planted",

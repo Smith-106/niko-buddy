@@ -25,9 +25,14 @@ const mocks = vi.hoisted(() => {
   return { wikiState }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: WikiStateLike) => unknown) => selector(mocks.wikiState),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: WikiStateLike) => unknown) => selector(mocks.wikiState),
+    
+  }
+})
 
 vi.mock("@/components/chat/chat-panel", async () => {
   const React = await import("react")

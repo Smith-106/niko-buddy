@@ -11,11 +11,16 @@ const fetchMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/commands/fs", () => fsState)
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: async () => fetchMock,
-  isFetchNetworkError: (err: unknown) =>
-    err instanceof Error && /network|failed to fetch|load failed/i.test(err.message),
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: async () => fetchMock,
+      isFetchNetworkError: (err: unknown) =>
+        err instanceof Error && /network|failed to fetch|load failed/i.test(err.message),
+    
+  }
+})
 
 import {
   dropLegacyVectorTable,

@@ -2,7 +2,7 @@ import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { MessageCircle, Users, Eye, CheckCircle, GitBranch, Filter } from "lucide-react"
-import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel/story-simulation/types"
+import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel"
 
 type RumorFilter = "all" | "unverified" | "verified" | "falsified"
 

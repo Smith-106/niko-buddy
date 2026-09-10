@@ -65,40 +65,45 @@ const fsState = vi.hoisted(() => {
   return state
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async (path: string): Promise<string> => {
-    fsState.inFlight += 1
-    if (fsState.inFlight > fsState.peak) fsState.peak = fsState.inFlight
-    const key = String(path).replace(/\\/g, "/")
-    try {
-      if (!fsState.bypassGates) {
-        // 门闩：未 release 前保持 in-flight，用于观测并发峰值与乱序完成。
-        await new Promise<void>((resolve) => {
-          const waiters = fsState.gateWaiters.get(key) ?? []
-          waiters.push(resolve)
-          fsState.gateWaiters.set(key, waiters)
-        })
-      }
-      const content = fsState.files.get(key)
-      if (content === undefined) throw new Error(`ENOENT: ${key}`)
-      return content
-    } finally {
-      fsState.inFlight -= 1
-    }
-  }),
-  writeFile: vi.fn(async (path: string, content: string): Promise<void> => {
-    fsState.writes.push({ path: String(path).replace(/\\/g, "/"), content })
-  }),
-  writeFileAtomic: vi.fn(async (): Promise<void> => {}),
-  listDirectory: vi.fn(async (path: string) => {
-    return fsState.directories.get(String(path).replace(/\\/g, "/")) ?? []
-  }),
-  createDirectory: vi.fn(async (): Promise<void> => {}),
-  fileExists: vi.fn(async (): Promise<boolean> => true),
-  deleteFile: vi.fn(async (): Promise<void> => {}),
-  getFileModifiedTime: vi.fn(async (): Promise<number> => 0),
-  getFileSize: vi.fn(async (): Promise<number> => 0),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async (path: string): Promise<string> => {
+        fsState.inFlight += 1
+        if (fsState.inFlight > fsState.peak) fsState.peak = fsState.inFlight
+        const key = String(path).replace(/\\/g, "/")
+        try {
+          if (!fsState.bypassGates) {
+            // 门闩：未 release 前保持 in-flight，用于观测并发峰值与乱序完成。
+            await new Promise<void>((resolve) => {
+              const waiters = fsState.gateWaiters.get(key) ?? []
+              waiters.push(resolve)
+              fsState.gateWaiters.set(key, waiters)
+            })
+          }
+          const content = fsState.files.get(key)
+          if (content === undefined) throw new Error(`ENOENT: ${key}`)
+          return content
+        } finally {
+          fsState.inFlight -= 1
+        }
+      }),
+      writeFile: vi.fn(async (path: string, content: string): Promise<void> => {
+        fsState.writes.push({ path: String(path).replace(/\\/g, "/"), content })
+      }),
+      writeFileAtomic: vi.fn(async (): Promise<void> => {}),
+      listDirectory: vi.fn(async (path: string) => {
+        return fsState.directories.get(String(path).replace(/\\/g, "/")) ?? []
+      }),
+      createDirectory: vi.fn(async (): Promise<void> => {}),
+      fileExists: vi.fn(async (): Promise<boolean> => true),
+      deleteFile: vi.fn(async (): Promise<void> => {}),
+      getFileModifiedTime: vi.fn(async (): Promise<number> => 0),
+      getFileSize: vi.fn(async (): Promise<number> => 0),
+    
+  }
+})
 
 import { exportProject, exportNovelDocx, exportNovelEpub, exportInteractiveStory } from "./export"
 import { createDirectory, fileExists, listDirectory } from "@/commands/fs"

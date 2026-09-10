@@ -11,9 +11,14 @@ const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const deps = vi.hoisted(() => ({
   loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<NovelSessionStatus | null>>(async () => null),
@@ -30,17 +35,27 @@ const deps = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/novel/novel-session-status", () => ({
-  loadNovelSessionStatus: deps.loadNovelSessionStatus,
-}))
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual,
+      loadNovelSessionStatus: deps.loadNovelSessionStatus,
+    
+  }
+})
 
-vi.mock("@/lib/novel/review-job-ui", () => ({
-  getReviewJobUiModel: deps.getReviewJobUiModel,
-  formatReviewJobStatusLine: deps.formatReviewJobStatusLine,
-}))
+vi.mock("@/lib/novel/review-job-ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-job-ui")>()
+  return {
+    ...actual,
+      getReviewJobUiModel: deps.getReviewJobUiModel,
+      formatReviewJobStatusLine: deps.formatReviewJobStatusLine,
+    
+  }
+})
 
 import { ReviewJobStatusStrip } from "./review-job-status-strip"
-import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
+import type { NovelSessionStatus } from "@/lib/novel"
 
 beforeEach(() => {
   vi.clearAllMocks()

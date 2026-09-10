@@ -16,7 +16,7 @@ import {
 import { useFileSyncStore } from "@/stores/file-sync-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getFileStem, normalizePath } from "@/lib/path-utils"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel"
 import type { WikiProject } from "@/types/wiki"
 import type { SourceWatchConfig } from "@/stores/wiki-store"
 import type { FileChangeTask } from "@/commands/file-sync"

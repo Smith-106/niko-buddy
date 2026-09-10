@@ -1,6 +1,5 @@
 import type { AgentMessage } from "@/lib/agent/types"
-import type { DataSourceCategory } from "@/lib/novel/classification"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { DataSourceCategory, ContextPack } from "@/lib/novel"
 import {
   copyLlmRequestCacheTrace,
   isLlmRequestCacheTrace,

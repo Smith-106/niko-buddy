@@ -19,19 +19,29 @@ import {
   waitFor,
 } from "@/test-helpers/component-test-utils"
 import { CanonRevisionViewer, groupByRecordedRevision } from "./canon-revision-viewer"
-import type { CanonFact } from "@/lib/novel/canon-graph-client"
+import type { CanonFact } from "@/lib/novel"
 
 // ── module mocks ──────────────────────────────────────────────────
 const getCanonRevisionMock = vi.hoisted(() => vi.fn())
 const queryCanonEdgesMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/novel/canon-dual-write", () => ({
-  getCanonRevision: getCanonRevisionMock,
-}))
+vi.mock("@/lib/novel/canon-dual-write", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/canon-dual-write")>()
+  return {
+    ...actual,
+      getCanonRevision: getCanonRevisionMock,
+    
+  }
+})
 
-vi.mock("@/lib/novel/canon-graph-client", () => ({
-  queryCanonEdges: queryCanonEdgesMock,
-}))
+vi.mock("@/lib/novel/canon-graph-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/canon-graph-client")>()
+  return {
+    ...actual,
+      queryCanonEdges: queryCanonEdgesMock,
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),

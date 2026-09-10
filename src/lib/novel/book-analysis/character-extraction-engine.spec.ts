@@ -30,33 +30,43 @@ const { readFileMock, writeFileMock, streamChatMock, analyzeSixDimensionsMock, e
   }),
 )
 
-vi.mock("@/commands/fs", () => ({
-  readFile: readFileMock,
-  writeFile: writeFileMock,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: readFileMock,
+      writeFile: writeFileMock,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => streamChatMock(...args),
-  // mirror real combineAbortSignals
-  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
-    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
-    if (signals.length === 0) return undefined
-    if (signals.length === 1) return signals[0]
-    const controller = new AbortController()
-    for (const s of signals) {
-      if (s.aborted) {
-        controller.abort()
-        break
-      }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
-  defaultLlmCall: async (_prompt: string): Promise<string> => {
-    throw new Error("defaultLlmCall not implemented in this context")
-  },
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => streamChatMock(...args),
+      // mirror real combineAbortSignals
+      combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+        const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+        if (signals.length === 0) return undefined
+        if (signals.length === 1) return signals[0]
+        const controller = new AbortController()
+        for (const s of signals) {
+          if (s.aborted) {
+            controller.abort()
+            break
+          }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+      defaultLlmCall: async (_prompt: string): Promise<string> => {
+        throw new Error("defaultLlmCall not implemented in this context")
+      },
+    
+  }
+})
 
 vi.mock("./six-dimension-engine", () => ({
   analyzeSixDimensions: analyzeSixDimensionsMock,

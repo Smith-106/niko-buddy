@@ -24,9 +24,23 @@ vi.mock("@/stores/activity-store", () => ({
 vi.mock("@/lib/ingest-queue", () => ({
   pauseQueue: mocks.pauseIngestQueue,
 }))
-vi.mock("@/lib/novel/context-engine", () => ({
-  clearTemporalFactsCache: mocks.clearTemporalFactsCache,
-}))
+// The "background modules fail to load" case installs doMock factories that
+// throw (e.g. @/lib/graph-relevance). The real context-engine imports those
+// transitively, so importOriginal() legitimately rejects there — degrade to the
+// overrides instead of failing the whole mock.
+vi.mock("@/lib/novel/context-engine", async (importOriginal) => {
+  let actual: Record<string, unknown> = {}
+  try {
+    actual = await importOriginal<typeof import("@/lib/novel/context-engine")>()
+  } catch {
+    /* dependency intentionally fails to load in one test case */
+  }
+  return {
+    ...actual,
+      clearTemporalFactsCache: mocks.clearTemporalFactsCache,
+    
+  }
+})
 
 const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 

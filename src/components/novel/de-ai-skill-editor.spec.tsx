@@ -12,19 +12,29 @@ const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const fsMock = vi.hoisted(() => ({
   readFile: vi.fn(async () => "自定义去AI规则"),
   writeFile: vi.fn(async () => {}),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMock.readFile,
-  writeFile: fsMock.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMock.readFile,
+      writeFile: fsMock.writeFile,
+    
+  }
+})
 
 const pathMock = vi.hoisted(() => ({
   join: vi.fn(async (...parts: string[]) => parts.join("/")),

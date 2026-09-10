@@ -10,9 +10,8 @@ import { cleanup as rtlCleanup, configure } from "@testing-library/react"
 // 全量负载下持久化链变慢：放宽 waitFor 默认超时，避免时序偶发
 configure({ asyncUtilTimeout: 5000 })
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult, DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel"
 import type { ChapterBodySelection } from "@/lib/chapter-selection"
-import type { DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel/de-ai-batch"
 
 const CHAPTER_PATH = "/proj/wiki/chapters/第1章.md"
 const OUTLINE_PATH = "/proj/wiki/outlines/大纲.md"
@@ -140,16 +139,26 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/outline-generation-store", () => ({
-  useOutlineGenerationStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.outlineState),
-}))
+vi.mock("@/stores/outline-generation-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/outline-generation-store")>()
+  return {
+    ...actual,
+      useOutlineGenerationStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.outlineState),
+    
+  }
+})
 
 vi.mock("@/stores/review-store", () => ({
   useReviewStore: Object.assign(
@@ -158,71 +167,136 @@ vi.mock("@/stores/review-store", () => ({
   ),
 }))
 
-vi.mock("@/stores/import-progress-store", () => ({
-  useImportProgressStore: Object.assign(
-    (selector: (s: Record<string, any>) => unknown) => selector(mocks.importState),
-    { getState: () => mocks.importState },
-  ),
-}))
+vi.mock("@/stores/import-progress-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/import-progress-store")>()
+  return {
+    ...actual,
+      useImportProgressStore: Object.assign(
+        (selector: (s: Record<string, any>) => unknown) => selector(mocks.importState),
+        { getState: () => mocks.importState },
+      ),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: vi.fn() },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { t: mocks.t, exists: vi.fn(() => true) },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: mocks.t, exists: vi.fn(() => true) },
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  listDirectory: mocks.listDirectory,
-  copyFile: mocks.copyFile,
-  copyDirectory: mocks.copyDirectory,
-  preprocessFile: mocks.preprocessFile,
-  deleteFile: mocks.deleteFile,
-  findRelatedWikiPages: mocks.findRelatedWikiPages,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-  getFileModifiedTime: mocks.getFileModifiedTime,
-  getFileSize: mocks.getFileSize,
-  getFileMd5: mocks.getFileMd5,
-  readFileAsBase64: mocks.readFileAsBase64,
-  createProject: mocks.createProject,
-  openProject: mocks.openProject,
-  openProjectFolder: mocks.openProjectFolder,
-  openFileLocation: mocks.openFileLocation,
-  getExecutableDir: mocks.getExecutableDir,
-  getResourceDir: mocks.getResourceDir,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      listDirectory: mocks.listDirectory,
+      copyFile: mocks.copyFile,
+      copyDirectory: mocks.copyDirectory,
+      preprocessFile: mocks.preprocessFile,
+      deleteFile: mocks.deleteFile,
+      findRelatedWikiPages: mocks.findRelatedWikiPages,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+      getFileModifiedTime: mocks.getFileModifiedTime,
+      getFileSize: mocks.getFileSize,
+      getFileMd5: mocks.getFileMd5,
+      readFileAsBase64: mocks.readFileAsBase64,
+      createProject: mocks.createProject,
+      openProject: mocks.openProject,
+      openProjectFolder: mocks.openProjectFolder,
+      openFileLocation: mocks.openFileLocation,
+      getExecutableDir: mocks.getExecutableDir,
+      getResourceDir: mocks.getResourceDir,
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: mocks.resolveDefaultModel }))
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
-vi.mock("@/lib/novel/review-model", () => ({ resolveReviewModel: mocks.resolveReviewModel }))
-vi.mock("@/lib/novel/de-ai-adapter", () => ({
-  buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
-  loadSmartDeAiSkill: mocks.loadSmartDeAiSkill,
-}))
-vi.mock("@/lib/novel/de-ai-batch", () => ({
-  runDeAiBatch: mocks.runDeAiBatch,
-  acceptAllDeAiBatchDrafts: mocks.acceptAllDeAiBatchDrafts,
-  acceptDeAiBatchDraft: mocks.acceptDeAiBatchDraft,
-  rejectDeAiBatchDraft: mocks.rejectDeAiBatchDraft,
-  loadDeAiBatchState: mocks.loadDeAiBatchState,
-}))
-vi.mock("@/lib/novel/outline-generation", () => ({ startOutlineIngestTask: mocks.startOutlineIngestTask }))
-vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
-vi.mock("@/lib/chapter-selection", () => ({
-  buildPolishSelectionMessages: mocks.buildPolishSelectionMessages,
-  rebuildChapterBody: mocks.rebuildChapterBody,
-  replaceChapterBodySelection: mocks.replaceChapterBodySelection,
-  replaceWholeChapterBody: mocks.replaceWholeChapterBody,
-  splitChapterHeading: mocks.splitChapterHeading,
-}))
-vi.mock("@/lib/novel/review-adapter", () => ({ reviewChapter: mocks.reviewChapter }))
-vi.mock("@/lib/novel/chapter-ingest", () => ({ ingestChapter: mocks.ingestChapter }))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveDefaultModel: mocks.resolveDefaultModel 
+  }
+})
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
+vi.mock("@/lib/novel/review-model", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-model")>()
+  return {
+    ...actual, resolveReviewModel: mocks.resolveReviewModel 
+  }
+})
+vi.mock("@/lib/novel/de-ai-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/de-ai-adapter")>()
+  return {
+    ...actual,
+      buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
+      loadSmartDeAiSkill: mocks.loadSmartDeAiSkill,
+    
+  }
+})
+vi.mock("@/lib/novel/de-ai-batch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/de-ai-batch")>()
+  return {
+    ...actual,
+      runDeAiBatch: mocks.runDeAiBatch,
+      acceptAllDeAiBatchDrafts: mocks.acceptAllDeAiBatchDrafts,
+      acceptDeAiBatchDraft: mocks.acceptDeAiBatchDraft,
+      rejectDeAiBatchDraft: mocks.rejectDeAiBatchDraft,
+      loadDeAiBatchState: mocks.loadDeAiBatchState,
+    
+  }
+})
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual, startOutlineIngestTask: mocks.startOutlineIngestTask 
+  }
+})
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: mocks.streamChat 
+  }
+})
+vi.mock("@/lib/chapter-selection", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chapter-selection")>()
+  return {
+    ...actual,
+      buildPolishSelectionMessages: mocks.buildPolishSelectionMessages,
+      rebuildChapterBody: mocks.rebuildChapterBody,
+      replaceChapterBodySelection: mocks.replaceChapterBodySelection,
+      replaceWholeChapterBody: mocks.replaceWholeChapterBody,
+      splitChapterHeading: mocks.splitChapterHeading,
+    
+  }
+})
+vi.mock("@/lib/novel/review-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-adapter")>()
+  return {
+    ...actual, reviewChapter: mocks.reviewChapter 
+  }
+})
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual, ingestChapter: mocks.ingestChapter 
+  }
+})
 vi.mock("@/lib/workspace-layout", () => ({
   shouldUseCompactChapterToolbar: mocks.shouldUseCompactChapterToolbar,
   getPreviewContentContainerClass: mocks.getPreviewContentContainerClass,

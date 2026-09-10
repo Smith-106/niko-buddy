@@ -27,29 +27,15 @@ import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 
 import { useWikiStore } from "@/stores/wiki-store"
-import { createOutlineIngestTask, runOutlineIngestTask } from "@/lib/novel/outline-generation"
+import { createOutlineIngestTask, runOutlineIngestTask, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, importOutlineCandidates, importOutlineFiles, CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, runImportedChapterMemoryExtraction } from "@/lib/novel"
+import type { MemoryCenterData, MemoryCenterFilePreview, ImportedChapter } from "@/lib/novel"
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { buildChapterTotalWordCountLabel } from "@/lib/chapter-display"
 import { getFileName, normalizePath } from "@/lib/path-utils"
-import { flattenMdFiles, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import type { MemoryCenterData, MemoryCenterFilePreview } from "@/lib/novel/memory-center"
-import {
-  OUTLINE_IMPORT_EXTENSIONS,
-  collectOutlineImportCandidatesFromFolder,
-  importOutlineCandidates,
-  importOutlineFiles,
-} from "@/lib/novel/outline-import"
-import {
-  CHAPTER_IMPORT_EXTENSIONS,
-  collectChapterImportCandidatesFromFolder,
-  importChapterFiles,
-  runImportedChapterMemoryExtraction,
-  type ImportedChapter,
-} from "@/lib/novel/chapter-import"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"

@@ -21,11 +21,16 @@ const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => fsMocks.readFile(...args),
-  writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
-  createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+      writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
+    
+  }
+})
 
 import {
   computePromotionReplayKey,

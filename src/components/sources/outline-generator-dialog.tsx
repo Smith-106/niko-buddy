@@ -12,18 +12,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import {
-  addOutlineTaskToSourceList,
-  buildOutlineGenerationPrompt,
-  hasOutlineForRefinement,
-  openGeneratedOutline,
-  OUTLINE_SECTION_GENERATION_CONFIGS,
-  runOutlineGenerationTask,
-  runOutlineRefinementTask,
-  runOutlineIngestTask,
-  type OutlineRefinementWriteMode,
-  type OutlineSectionGenerationKey,
-} from "@/lib/novel/outline-generation"
+import { addOutlineTaskToSourceList, buildOutlineGenerationPrompt, hasOutlineForRefinement, openGeneratedOutline, OUTLINE_SECTION_GENERATION_CONFIGS, runOutlineGenerationTask, runOutlineRefinementTask, runOutlineIngestTask } from "@/lib/novel"
+import type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "@/lib/novel"
 import { useOutlineGenerationStore, type OutlineGenerationState, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 

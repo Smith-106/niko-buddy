@@ -5,12 +5,22 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
 
-vi.mock("@/lib/search", () => ({
-  searchWiki: mocks.searchWiki,
-}))
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: mocks.searchWiki,
+    
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+    
+  }
+})
 
 import { getChapterVolumes, isVolumePage, parseVolumeMeta } from "./volume"
 

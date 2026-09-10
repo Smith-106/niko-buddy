@@ -4,20 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { DirectorPanel } from "@/components/novel/director-panel"
-import {
-  tryAdvanceDirector,
-  retryDirector,
-  type DirectorSnapshot,
-} from "@/lib/novel/director-orchestrator"
-import {
-  hasPersistedDirectorState,
-  loadDirectorPersisted,
-  saveDirectorPersisted,
-  saveDirectorIdeaInput,
-  type DirectorIdeaInput,
-  type DirectorPersistedFile,
-} from "@/lib/novel/director-pipeline-store"
-import { createDirectorPipeline } from "@/lib/novel/director-pipeline"
+import { tryAdvanceDirector, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline } from "@/lib/novel"
+import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Play, Rocket } from "lucide-react"
 

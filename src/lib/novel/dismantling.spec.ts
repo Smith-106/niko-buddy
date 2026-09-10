@@ -21,12 +21,17 @@ const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
   createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
 }))
-vi.mock("@/commands/fs", () => ({
-  fileExists: (path: string) => fsMocks.fileExists(path),
-  readFile: (path: string) => fsMocks.readFile(path),
-  writeFile: (path: string, contents: string) => fsMocks.writeFile(path, contents),
-  createDirectory: (path: string) => fsMocks.createDirectory(path),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists: (path: string) => fsMocks.fileExists(path),
+      readFile: (path: string) => fsMocks.readFile(path),
+      writeFile: (path: string, contents: string) => fsMocks.writeFile(path, contents),
+      createDirectory: (path: string) => fsMocks.createDirectory(path),
+    
+  }
+})
 
 describe("dismantling library", () => {
   it("stores dismantling data in an isolated project cache path", () => {

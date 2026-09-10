@@ -24,15 +24,25 @@ const mocks = vi.hoisted(() => ({
   presetList: [] as PresetLike[],
 }))
 
-vi.mock("@/components/settings/preset-resolver", () => ({
-  resolveConfig: mocks.resolveConfig,
-}))
+vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+  return {
+    ...actual,
+      resolveConfig: mocks.resolveConfig,
+    
+  }
+})
 
-vi.mock("@/components/settings/llm-presets", () => ({
-  get LLM_PRESETS() {
-    return mocks.presetList
-  },
-}))
+vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+  return {
+    ...actual,
+      get LLM_PRESETS() {
+        return mocks.presetList
+      },
+    
+  }
+})
 
 const BASE_CONFIG: LlmConfig = {
   provider: "custom",

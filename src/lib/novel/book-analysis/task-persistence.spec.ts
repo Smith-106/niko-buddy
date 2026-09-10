@@ -8,18 +8,28 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn<() => { tasks: BookAnalysisTask[] }>(() => ({ tasks: [] })),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: {
-    subscribe: mocks.subscribe,
-    getState: mocks.getState,
-  },
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: {
+        subscribe: mocks.subscribe,
+        getState: mocks.getState,
+      },
+    
+  }
+})
 
 import { loadTaskSummaries, attachTaskPersistence } from "./task-persistence"
 import type { BookAnalysisTask } from "./types"

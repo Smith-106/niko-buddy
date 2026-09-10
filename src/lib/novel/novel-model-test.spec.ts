@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const streamChatMock = vi.fn()
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => streamChatMock(...args),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => streamChatMock(...args),
+    
+  }
+})
 
 const resolveNovelModelMock = vi.fn()
 vi.mock("./model-resolver", () => ({

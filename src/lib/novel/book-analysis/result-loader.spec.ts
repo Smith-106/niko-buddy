@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { loadBookAnalysisResult } from "./result-loader"
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  listDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      listDirectory: vi.fn(),
+    
+  }
+})
 
 import { readFile, listDirectory } from "@/commands/fs"
 

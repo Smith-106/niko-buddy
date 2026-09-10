@@ -5,10 +5,15 @@ const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: fsMocks.listDirectory,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: fsMocks.listDirectory,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 import { listBindableNovelCharacters } from "./bindable-characters"
 

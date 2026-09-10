@@ -5,36 +5,51 @@ const mockFs = vi.hoisted(() => ({
   directories: new Map<string, Array<{ name: string; path: string; is_dir: boolean }>>(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(async (path: string) => mockFs.directories.get(path.replace(/\\/g, "/")) ?? []),
-  readFile: vi.fn(async (path: string) => {
-    const key = path.replace(/\\/g, "/")
-    if (!mockFs.files.has(key)) throw new Error(`missing ${key}`)
-    return mockFs.files.get(key)!
-  }),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: vi.fn(async (path: string) => mockFs.directories.get(path.replace(/\\/g, "/")) ?? []),
+      readFile: vi.fn(async (path: string) => {
+        const key = path.replace(/\\/g, "/")
+        if (!mockFs.files.has(key)) throw new Error(`missing ${key}`)
+        return mockFs.files.get(key)!
+      }),
+    
+  }
+})
 
-vi.mock("@/lib/novel/writing-style-store", () => ({
-  loadWritingStyleStore: vi.fn(async () => ({ version: 1, enabledStyleId: null, styles: [] })),
-}))
+vi.mock("@/lib/novel/writing-style-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/writing-style-store")>()
+  return {
+    ...actual,
+      loadWritingStyleStore: vi.fn(async () => ({ version: 1, enabledStyleId: null, styles: [] })),
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  loadCharacterAuraStore: vi.fn(async () => ({
-    customAuras: [{
-      id: "aura-linjing",
-      builtIn: false,
-      name: "林烬",
-      category: "拆书角色",
-      sourceNote: "来自拆书作品《长夜书》的角色分析。",
-      corpus: "",
-      styleDescription: "",
-      behaviorRules: "",
-      boundaries: "",
-      notes: "",
-    }],
-    bindings: [],
-  })),
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      loadCharacterAuraStore: vi.fn(async () => ({
+        customAuras: [{
+          id: "aura-linjing",
+          builtIn: false,
+          name: "林烬",
+          category: "拆书角色",
+          sourceNote: "来自拆书作品《长夜书》的角色分析。",
+          corpus: "",
+          styleDescription: "",
+          behaviorRules: "",
+          boundaries: "",
+          notes: "",
+        }],
+        bindings: [],
+      })),
+    
+  }
+})
 
 import { loadBookAnalysisLibraryState } from "./library-state"
 

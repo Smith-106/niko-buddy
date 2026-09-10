@@ -3,9 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 // 隔离 Monaco worker / loader（复用 monaco-diff-editor.spec 的 mock 模式）：
 // node 测试环境下不初始化真实 monaco，仅验证 props 透传契约。
-vi.mock("@/lib/novel/monaco-loader", () => ({
-  configureMonaco: vi.fn(),
-}))
+vi.mock("@/lib/novel/monaco-loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/monaco-loader")>()
+  return {
+    ...actual,
+      configureMonaco: vi.fn(),
+    
+  }
+})
 vi.mock("@monaco-editor/react", () => ({
   DiffEditor: () => null,
   loader: { config: vi.fn() },
@@ -19,24 +24,35 @@ vi.mock("./monaco-diff-editor", () => ({
 
 // i18n：t 返回 key 即可（快照查看器以中文字面量为主）。
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 // fs：@/commands/fs 基于 Tauri invoke，node 环境下必须 mock；readFile 用于按 entry.path 读历史 JSON。
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async () => JSON.stringify({ summary: "历史摘要", chapterNumber: 1 }, null, 2)),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async () => JSON.stringify({ summary: "历史摘要", chapterNumber: 1 }, null, 2)),
+    
+  }
+})
 
 // chapter-ingest：SSR（renderToStaticMarkup）不执行 useEffect，异步加载不触发；mock 保持可导入。
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshotHistory: vi.fn(),
-  loadSnapshot: vi.fn(),
-  restoreSnapshotHistory: vi.fn(),
-  syncSnapshotToMemory: vi.fn(),
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshotHistory: vi.fn(),
+      loadSnapshot: vi.fn(),
+      restoreSnapshotHistory: vi.fn(),
+      syncSnapshotToMemory: vi.fn(),
+    
+  }
+})
 
 import { HistoryEntryRow, SnapshotDiffModal, SnapshotViewer } from "./snapshot-viewer"
-import type { SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import type { SnapshotHistoryEntry } from "@/lib/novel"
 
 const entry: SnapshotHistoryEntry = {
   fileName: "2026-01-01T00-00-00.000Z.snapshot.json",

@@ -24,10 +24,8 @@
  */
 
 import { useMemo } from "react"
-import {
-  isArcStage,
-  type ArcStage,
-} from "@/lib/novel/craft/canon-craft-fields"
+import { isArcStage } from "@/lib/novel"
+import type { ArcStage } from "@/lib/novel"
 
 // ============================================================================
 // 输入画像（T26 canon-craft-fields entities 技法字段的卡文场景投影）

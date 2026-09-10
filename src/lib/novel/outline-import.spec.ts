@@ -8,16 +8,26 @@ const mocks = vi.hoisted(() => ({
   logger: { error: vi.fn() },
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
-  listDirectory: (...args: unknown[]) => mocks.listDirectory(...args),
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  writeFile: (...args: unknown[]) => mocks.writeFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
+      listDirectory: (...args: unknown[]) => mocks.listDirectory(...args),
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    
+  }
+})
 
-vi.mock("@/lib/utils", () => ({
-  logger: mocks.logger,
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      logger: mocks.logger,
+    
+  }
+})
 
 vi.mock("@/lib/path-utils", () => ({
   normalizePath: (p: string) => p.replace(/\\/g, "/"),

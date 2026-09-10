@@ -3,18 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Play, RotateCcw, Save, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  createPlayState,
-  replayPlay,
-  renderPlayFrame,
-  stepPlay,
-  type PlayState,
-} from "@/lib/novel/play-runtime"
-import type { InteractiveStoryGraph } from "@/lib/novel/interactive-film-graph"
-import { evaluatePlayableEmotionPath } from "@/lib/novel/emotion-ledger"
-import { loadInteractiveGraph, loadPlaySession, savePlaySession } from "@/lib/novel/interactive-io"
-import { exportInteractiveStory } from "@/lib/novel/export"
-import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
+import { createPlayState, replayPlay, renderPlayFrame, stepPlay, evaluatePlayableEmotionPath, loadInteractiveGraph, loadPlaySession, savePlaySession, exportInteractiveStory, saveGenerationHistoryEntry } from "@/lib/novel"
+import type { PlayState, InteractiveStoryGraph } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
 
 /**

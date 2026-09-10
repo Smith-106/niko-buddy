@@ -1,6 +1,5 @@
 import { Link2, Sparkles } from "lucide-react"
-import type { BookAnalysisAuraBindingSummary } from "@/lib/novel/book-analysis/library-state"
-import type { WritingStylePreset } from "@/lib/novel/writing-style-store"
+import type { BookAnalysisAuraBindingSummary, WritingStylePreset } from "@/lib/novel"
 
 interface BookAnalysisActiveContextProps {
   enabledStyle: WritingStylePreset | null

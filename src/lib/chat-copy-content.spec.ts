@@ -5,13 +5,23 @@ const mocks = vi.hoisted(() => ({
   cleanGeneratedChapterContentForSave: vi.fn((s: string) => s.trim()),
 }))
 
-vi.mock("@/lib/novel/agent-parser", () => ({
-  parseAgentResponse: mocks.parseAgentResponse,
-}))
+vi.mock("@/lib/novel/agent-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-parser")>()
+  return {
+    ...actual,
+      parseAgentResponse: mocks.parseAgentResponse,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-content-cleanup", () => ({
-  cleanGeneratedChapterContentForSave: mocks.cleanGeneratedChapterContentForSave,
-}))
+vi.mock("@/lib/novel/chapter-content-cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-content-cleanup")>()
+  return {
+    ...actual,
+      cleanGeneratedChapterContentForSave: mocks.cleanGeneratedChapterContentForSave,
+    
+  }
+})
 
 import { getCopyableAssistantContent } from "./chat-copy-content"
 

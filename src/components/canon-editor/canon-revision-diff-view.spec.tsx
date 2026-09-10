@@ -9,8 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { CanonRevisionDiffView } from "./canon-revision-diff-view"
-import type { CanonFact } from "@/lib/novel/canon-graph-client"
-import type { CanonRevisionDiff } from "@/lib/novel/canon-revision-diff"
+import type { CanonFact, CanonRevisionDiff } from "@/lib/novel"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),

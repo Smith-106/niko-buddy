@@ -16,12 +16,17 @@ const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  fileExists: mocks.fileExists,
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  createDirectory: mocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists: mocks.fileExists,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
+    
+  }
+})
 
 describe("director-pipeline-store（60 号设计 D3/D4 持久化补件）", () => {
   beforeEach(() => {

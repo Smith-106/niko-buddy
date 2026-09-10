@@ -18,7 +18,7 @@ import {
 import type { FileNode, WikiProject } from "@/types/wiki"
 import { isAbsolutePath, normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel"
 import type { ScheduledImportConfig } from "@/stores/wiki-store"
 import {
   loadScheduledImportConfig,

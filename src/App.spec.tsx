@@ -68,21 +68,36 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/i18n", () => ({
-  default: { t: mocks.t },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: mocks.t },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiState) => unknown) => selector(mocks.state),
-    { getState: () => mocks.getStateSnapshot },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiState) => unknown) => selector(mocks.state),
+        { getState: () => mocks.getStateSnapshot },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-  pickDirectory: mocks.pickDirectory,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+      pickDirectory: mocks.pickDirectory,
+    
+  }
+})
 
 // project-owner 占用锁：并行环境下动态 import 真实模块有时序竞态，
 // 显式 mock 保证 openProject→claim→hydrate 链路确定性。
@@ -90,11 +105,16 @@ vi.mock("@/lib/project-owner", () => ({
   claimProjectOwnership: mocks.claimProjectOwnership,
 }))
 
-vi.mock("@/commands/fs", () => ({
-  openProject: mocks.openProject,
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      openProject: mocks.openProject,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   saveScheduledImportConfig: mocks.saveScheduledImportConfig,

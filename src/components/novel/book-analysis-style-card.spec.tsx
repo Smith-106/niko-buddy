@@ -3,7 +3,7 @@
 import type { ComponentProps } from "react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { describe, expect, it, vi } from "vitest"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 
 vi.mock("@/components/ui/button", () => ({

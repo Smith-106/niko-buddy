@@ -14,10 +14,9 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
+import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
-import { routeTask, buildTaskDirective } from "@/lib/novel/task-router"
 import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   markStyleExemplarViaRust,
@@ -26,11 +25,7 @@ import {
   type StyleExemplarMarkType,
   type StyleExemplarRecord,
 } from "@/commands/exemplar"
-import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel/character-cognition"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
-import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
-import { buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
-import { cleanGeneratedChapterContentWithTitle } from "@/lib/novel/chapter-content-cleanup"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
@@ -40,16 +35,10 @@ import { getConversationTabTitle, sortConversationsByUpdatedAt } from "@/lib/wor
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveNovelModel } from "@/lib/novel/model-resolver"
-import { resolveReviewModel } from "@/lib/novel/review-model"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { saveAiChatModel } from "@/lib/project-store"
 import { isTauri } from "@/lib/platform"
-import {
-  buildGoldenThreeChapterDirective,
-  detectGoldenThreeChapterRequest,
-} from "@/lib/novel/golden-three-chapters"
 import { createStreamSessionGuard } from "./stream-session"
 import {
   appendContinueUnfinishedDeepChapterContext,
@@ -59,27 +48,7 @@ import {
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
-import { isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult } from "@/lib/novel/chat-edit-mode"
-import { backupChapterFile } from "@/lib/novel/chapter-backup"
-import { appendChapterWorkspaceSnapshot } from "@/lib/novel/chapter-workspace"
 import { ContextPackReplayPanel } from "@/components/novel/context-pack-replay-panel"
-import { updateChapterStatus } from "@/lib/novel/chapter-meta"
-import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
-import { normalizeChapterEditFile } from "@/lib/novel/chapter-edit-file"
-import { commitAcceptedDeepChapterDraft } from "@/lib/novel/formal-writeback"
-import {
-  blockDeepChapterSession,
-  completeDeepChapterSession,
-  createNovelSessionId,
-  loadNovelSessionStatus,
-  novelSessionStatusPath,
-  pauseDeepChapterSession,
-  persistDeepChapterCheckpoint,
-  rejectDeepChapterDraft,
-  resolveInterruptedSessionResumeCheckpoint,
-  startDeepChapterSession,
-  subscribeStatusJson,
-} from "@/lib/novel/novel-session-status"
 
 function formatDate(timestamp: number): string {
   const d = new Date(timestamp)

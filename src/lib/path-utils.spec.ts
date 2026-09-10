@@ -4,9 +4,14 @@ const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
 import {
   getFileName,

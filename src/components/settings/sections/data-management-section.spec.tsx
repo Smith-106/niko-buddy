@@ -36,7 +36,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
-  initReactI18next: { init: vi.fn() },
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
 }))
 
 vi.mock("@/lib/backup/export", () => ({
@@ -48,30 +48,45 @@ vi.mock("@/lib/backup/import", () => ({
   importBackup: mocks.importBackup,
 }))
 
-vi.mock("@/lib/novel/export", () => ({
-  exportNovelDocx: mocks.exportNovelDocx,
-  exportNovelEpub: mocks.exportNovelEpub,
-  countFinalChapters: mocks.countFinalChapters,
-}))
+vi.mock("@/lib/novel/export", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/export")>()
+  return {
+    ...actual,
+      exportNovelDocx: mocks.exportNovelDocx,
+      exportNovelEpub: mocks.exportNovelEpub,
+      countFinalChapters: mocks.countFinalChapters,
+    
+  }
+})
 
 vi.mock("@/lib/reveal-in-file-manager", () => ({
   revealInFileManager: mocks.revealInFileManager,
 }))
 
-vi.mock("@/lib/embedding", () => ({
-  countVectorChunks: mocks.countVectorChunks,
-  legacyVectorRowCount: mocks.legacyVectorRowCount,
-  dropLegacyVectorTable: mocks.dropLegacyVectorTable,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      countVectorChunks: mocks.countVectorChunks,
+      legacyVectorRowCount: mocks.legacyVectorRowCount,
+      dropLegacyVectorTable: mocks.dropLegacyVectorTable,
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
-    selector({ project: mocks.project }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+        selector({ project: mocks.project }),
+    
+  }
+})
 
 function exportResult(overrides: Partial<Parameters<typeof mocks.exportBackup>[0]> & object = {}) {
   return {

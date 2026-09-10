@@ -11,9 +11,14 @@ const deps = vi.hoisted(() => ({
 }))
 
 // 隔离 Monaco worker / loader：configureMonaco 在 jsdom 下无需真实初始化
-vi.mock("@/lib/novel/monaco-loader", () => ({
-  configureMonaco: deps.configureMonaco,
-}))
+vi.mock("@/lib/novel/monaco-loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/monaco-loader")>()
+  return {
+    ...actual,
+      configureMonaco: deps.configureMonaco,
+    
+  }
+})
 
 // mock @monaco-editor/react：DiffEditor 捕获 props，loader 提供 no-op config
 const mockDiffEditor = vi.fn((_props: Record<string, unknown>) => null)

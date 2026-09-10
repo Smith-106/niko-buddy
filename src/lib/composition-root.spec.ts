@@ -101,16 +101,36 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/i18n", () => ({ default: { changeLanguage: mocks.changeLanguage } }))
-vi.mock("@/stores/wiki-store", () => ({ useWikiStore: { getState: () => mocks.wikiState } }))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual, default: { changeLanguage: mocks.changeLanguage } 
+  }
+})
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual, useWikiStore: { getState: () => mocks.wikiState } 
+  }
+})
 vi.mock("@/stores/review-store", () => ({ useReviewStore: { getState: () => mocks.reviewState } }))
 vi.mock("@/stores/chat-store", () => ({ useChatStore: { getState: () => mocks.chatState } }))
-vi.mock("@/lib/platform", () => ({ isTauri: mocks.isTauri }))
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-  openProject: mocks.openProject,
-  createDirectory: mocks.createDirectory,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: mocks.isTauri 
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+      openProject: mocks.openProject,
+      createDirectory: mocks.createDirectory,
+    
+  }
+})
 vi.mock("@/lib/project-store", () => ({
   getLastProject: mocks.getLastProject,
   saveLastProject: mocks.saveLastProject,
@@ -145,19 +165,49 @@ vi.mock("@/components/chat/chat-resume", () => ({
   hydrateChatHistoryWithInterruptedDeepChapter: mocks.hydrateChat,
 }))
 vi.mock("@/lib/reset-project-state", () => ({ resetProjectState: mocks.resetProjectState }))
-vi.mock("@/components/settings/llm-presets", () => ({ LLM_PRESETS: mocks.LLM_PRESETS }))
-vi.mock("@/components/settings/preset-resolver", () => ({
-  resolveConfig: mocks.resolveConfig,
-  hasAnthropicApiKey: () => false,
-}))
+vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+  return {
+    ...actual, LLM_PRESETS: mocks.LLM_PRESETS 
+  }
+})
+vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+  return {
+    ...actual,
+      resolveConfig: mocks.resolveConfig,
+      hasAnthropicApiKey: () => false,
+    
+  }
+})
 vi.mock("@/lib/env-llm-defaults", () => ({ loadEnvLlmDefault: mocks.loadEnvLlmDefault }))
-vi.mock("@/lib/novel/novel-session-status", () => ({ loadNovelSessionStatus: mocks.loadNovelSessionStatus }))
-vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({ applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen }))
-vi.mock("@/lib/novel/anti-ai-telemetry-sink", () => ({ shutdownAntiAiTelemetrySink: mocks.shutdownAntiAiTelemetrySink }))
-vi.mock("@/lib/llm-client", () => ({
-  setMetricsFilePath: mocks.setMetricsFilePath,
-  flushMetrics: mocks.flushMetrics,
-}))
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual, loadNovelSessionStatus: mocks.loadNovelSessionStatus 
+  }
+})
+vi.mock("@/lib/novel/anti-ai-telemetry-wiring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/anti-ai-telemetry-wiring")>()
+  return {
+    ...actual, applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen 
+  }
+})
+vi.mock("@/lib/novel/anti-ai-telemetry-sink", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/anti-ai-telemetry-sink")>()
+  return {
+    ...actual, shutdownAntiAiTelemetrySink: mocks.shutdownAntiAiTelemetrySink 
+  }
+})
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      setMetricsFilePath: mocks.setMetricsFilePath,
+      flushMetrics: mocks.flushMetrics,
+    
+  }
+})
 vi.mock("@/lib/theme-utils", () => ({ applyTheme: mocks.applyTheme }))
 vi.mock("@/lib/dedup-queue", () => ({ restoreQueue: mocks.restoreDedupQueue }))
 vi.mock("@/lib/scheduled-import", () => ({ startScheduledImport: mocks.startScheduledImport }))
@@ -165,13 +215,23 @@ vi.mock("@/lib/project-file-sync", () => ({
   startProjectFileSync: mocks.startProjectFileSync,
   stopProjectFileSync: mocks.stopProjectFileSync,
 }))
-vi.mock("@/lib/novel/book-analysis/task-persistence", () => ({
-  loadTaskSummaries: mocks.loadTaskSummaries,
-  attachTaskPersistence: mocks.attachTaskPersistence,
-}))
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: { getState: () => mocks.bookAnalysisState },
-}))
+vi.mock("@/lib/novel/book-analysis/task-persistence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/task-persistence")>()
+  return {
+    ...actual,
+      loadTaskSummaries: mocks.loadTaskSummaries,
+      attachTaskPersistence: mocks.attachTaskPersistence,
+    
+  }
+})
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: { getState: () => mocks.bookAnalysisState },
+    
+  }
+})
 
 import { hydrateProjectOnOpen, initializeApp } from "./composition-root"
 

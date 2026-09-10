@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { ChevronDown, ChevronUp, Feather, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
-import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
+import { STYLE_DIMENSIONS } from "@/lib/novel"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 
 interface BookAnalysisStyleCardProps {
   book: BookAnalysisLibraryBook

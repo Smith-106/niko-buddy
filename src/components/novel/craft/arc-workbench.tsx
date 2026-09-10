@@ -10,10 +10,8 @@
 import { useMemo, useId } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, Circle, ArrowRight, AlertTriangle } from "lucide-react"
-import type { ArcProgressionResult, ArcProgressionInput } from "@/lib/novel/craft/arc-tracker"
-import { detectArcProgression } from "@/lib/novel/craft/arc-tracker"
-import { ARC_STAGE_VALUES } from "@/lib/novel/craft/canon-craft-fields"
-import type { ArcStage } from "@/lib/novel/craft/canon-craft-fields"
+import { detectArcProgression, ARC_STAGE_VALUES } from "@/lib/novel"
+import type { ArcProgressionResult, ArcProgressionInput, ArcStage } from "@/lib/novel"
 
 // ============================================================================
 // 中文化映射

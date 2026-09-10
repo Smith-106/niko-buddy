@@ -67,39 +67,54 @@ const buildContextPackMock = mocks.buildContextPackMock
 const llmConfig = mocks.llmConfig as LlmConfig
 const contextPack = mocks.contextPack satisfies ContextPack
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChatMock,
-  // ISS-20260709-049: runDimensionStage now calls combineAbortSignals to merge
-  // the external signal with the internal 120s timeout. Mirror the real
-  // implementation so the mock module exports it (spec-mock must mirror new
-  // exports — see memory maint3-same-name-helper-consolidation).
-  combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
-    const active = signals.filter(Boolean) as AbortSignal[]
-    if (active.length === 0) return undefined
-    if (active.length === 1) return active[0]
-    const controller = new AbortController()
-    const abort = () => controller.abort()
-    for (const s of active) {
-      if (s.aborted) { controller.abort(); break }
-      s.addEventListener("abort", abort, { once: true })
-    }
-    return controller.signal
-  },
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChatMock,
+      // ISS-20260709-049: runDimensionStage now calls combineAbortSignals to merge
+      // the external signal with the internal 120s timeout. Mirror the real
+      // implementation so the mock module exports it (spec-mock must mirror new
+      // exports — see memory maint3-same-name-helper-consolidation).
+      combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
+        const active = signals.filter(Boolean) as AbortSignal[]
+        if (active.length === 0) return undefined
+        if (active.length === 1) return active[0]
+        const controller = new AbortController()
+        const abort = () => controller.abort()
+        for (const s of active) {
+          if (s.aborted) { controller.abort(); break }
+          s.addEventListener("abort", abort, { once: true })
+        }
+        return controller.signal
+      },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({
-      llmConfig,
-      novelConfig: { reviewModel: "" },
-      novelMode: mocks.novelModeValue,
-    }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({
+          llmConfig,
+          novelConfig: { reviewModel: "" },
+          novelMode: mocks.novelModeValue,
+        }),
+      },
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: (cfg: UsableLlmConfig) => mocks.hasUsableLlmMock(cfg),
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: (cfg: UsableLlmConfig) => mocks.hasUsableLlmMock(cfg),
+    
+  }
+})
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,

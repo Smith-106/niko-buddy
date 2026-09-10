@@ -5,23 +5,8 @@ import { readFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
-import {
-  createBlankProjectDeAiSkill,
-  getAllDeAiSkills,
-  loadDeAiSkillConfig,
-  normalizeDeAiSkillConfig,
-  saveDeAiSkillConfig,
-  type DeAiSkill,
-} from "@/lib/novel/de-ai-skill-library"
-import {
-  createBlankWritingSkill,
-  importSkillFromJson,
-  importWritingSkill,
-  loadUserSkillConfig,
-  normalizeUserSkillConfig,
-  saveUserSkillConfig,
-} from "@/lib/novel/user-skill-store"
-import type { SkillKind, UserSkill } from "@/lib/novel/skill-library"
+import { createBlankProjectDeAiSkill, getAllDeAiSkills, loadDeAiSkillConfig, normalizeDeAiSkillConfig, saveDeAiSkillConfig, createBlankWritingSkill, importSkillFromJson, importWritingSkill, loadUserSkillConfig, normalizeUserSkillConfig, saveUserSkillConfig } from "@/lib/novel"
+import type { DeAiSkill, SkillKind, UserSkill } from "@/lib/novel"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"

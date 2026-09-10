@@ -6,14 +6,14 @@ import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
-import type { CognitionState } from "@/lib/novel/character-cognition"
-import type { CharacterStateStore } from "@/lib/novel/character-state"
+import type { CognitionState, CharacterStateStore } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -21,22 +21,37 @@ const wiki = vi.hoisted(() => ({
   state: { dataVersion: 0 },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const cognition = vi.hoisted(() => ({
   loadCognitionState: vi.fn<(path: string) => Promise<CognitionState | null>>(async () => null),
   loadCharacterStates: vi.fn<(path: string) => Promise<CharacterStateStore>>(async () => ({ characters: [], lastUpdated: "" })),
 }))
 
-vi.mock("@/lib/novel/character-cognition", () => ({
-  loadCognitionState: cognition.loadCognitionState,
-}))
+vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-cognition")>()
+  return {
+    ...actual,
+      loadCognitionState: cognition.loadCognitionState,
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-state", () => ({
-  loadCharacterStates: cognition.loadCharacterStates,
-}))
+vi.mock("@/lib/novel/character-state", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-state")>()
+  return {
+    ...actual,
+      loadCharacterStates: cognition.loadCharacterStates,
+    
+  }
+})
 
 import { CognitionPanel } from "./cognition-panel"
 

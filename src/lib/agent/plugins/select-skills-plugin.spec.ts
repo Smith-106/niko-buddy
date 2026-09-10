@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createSelectSkillsPlugin, buildSelectedSkillsPrompt, selectSkillsForRoute } from "./select-skills-plugin"
-import { normalizeUserSkill, type UserSkill } from "@/lib/novel/skill-library"
-import { SKILL_ROUTE_CATEGORY_IDS } from "@/lib/novel/skill-route"
+import { normalizeUserSkill, SKILL_ROUTE_CATEGORY_IDS } from "@/lib/novel"
+import type { UserSkill } from "@/lib/novel"
 
 function skill(partial: Partial<UserSkill>): UserSkill {
   return normalizeUserSkill({

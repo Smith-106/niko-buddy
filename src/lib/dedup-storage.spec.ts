@@ -16,11 +16,16 @@ const fsMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  fileExists: fsMocks.fileExists,
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists: fsMocks.fileExists,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+    
+  }
+})
 
 import { addNotDuplicate, loadNotDuplicates, saveNotDuplicates } from "./dedup-storage"
 

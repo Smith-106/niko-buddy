@@ -95,45 +95,60 @@ vi.mock("@/commands/fs", async () => {
   }
 })
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChatMock,
-  // TASK-010: collectContinuityMetric mirror — 薄包装层调, 测试不验证 metric 持久化,
-  // no-op mock 即可 (PAT-G2 spec-mock 须镜像新 export 否则 runContinuityMechanicalPreflight
-  // catch 块调用抛 "No export defined")。
-  collectContinuityMetric: () => {},
-  extractJsonArraySpan: (text: string): string | null => {
-    // Mirror real implementation for test use.
-    const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
-    const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
-    const end = cleaned.lastIndexOf("]")
-    if (end === -1) return null
-    let depth = 0
-    for (let i = end; i >= 0; i -= 1) {
-      const ch = cleaned[i]
-      if (ch === "]") depth += 1
-      else if (ch === "[") {
-        depth -= 1
-        if (depth === 0) return cleaned.slice(i, end + 1)
-      }
-    }
-    const greedy = cleaned.match(/\[[\s\S]*\]/)
-    return greedy ? greedy[0] : null
-  },
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChatMock,
+      // TASK-010: collectContinuityMetric mirror — 薄包装层调, 测试不验证 metric 持久化,
+      // no-op mock 即可 (PAT-G2 spec-mock 须镜像新 export 否则 runContinuityMechanicalPreflight
+      // catch 块调用抛 "No export defined")。
+      collectContinuityMetric: () => {},
+      extractJsonArraySpan: (text: string): string | null => {
+        // Mirror real implementation for test use.
+        const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
+        const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
+        const end = cleaned.lastIndexOf("]")
+        if (end === -1) return null
+        let depth = 0
+        for (let i = end; i >= 0; i -= 1) {
+          const ch = cleaned[i]
+          if (ch === "]") depth += 1
+          else if (ch === "[") {
+            depth -= 1
+            if (depth === 0) return cleaned.slice(i, end + 1)
+          }
+        }
+        const greedy = cleaned.match(/\[[\s\S]*\]/)
+        return greedy ? greedy[0] : null
+      },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({
-      llmConfig,
-      novelConfig: mocks.novelConfig,
-      novelMode: true,
-    }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({
+          llmConfig,
+          novelConfig: mocks.novelConfig,
+          novelMode: true,
+        }),
+      },
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: () => mocks.llmUsable,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: () => mocks.llmUsable,
+    
+  }
+})
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,

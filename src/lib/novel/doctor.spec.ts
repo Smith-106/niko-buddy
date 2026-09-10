@@ -7,10 +7,15 @@ const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(async () => []),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  listDirectory: fsMocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      listDirectory: fsMocks.listDirectory,
+    
+  }
+})
 
 import {
   DOCTOR_CHECKS,

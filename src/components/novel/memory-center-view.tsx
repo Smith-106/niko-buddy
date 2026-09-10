@@ -15,10 +15,8 @@ import { deleteFile, readFile, writeFile } from "@/commands/fs"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  loadMemoryCenterData,
-  type MemoryCenterSnapshotCard,
-} from "@/lib/novel/memory-center"
+import { loadMemoryCenterData } from "@/lib/novel"
+import type { MemoryCenterSnapshotCard } from "@/lib/novel"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")

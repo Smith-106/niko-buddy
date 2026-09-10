@@ -3,9 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const listDirectory = vi.fn()
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: (...args: unknown[]) => listDirectory(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: (...args: unknown[]) => listDirectory(...args),
+    
+  }
+})
 
 import { findRawSourceForImage, imageUrlToAbsolute } from "./raw-source-resolver"
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createTrimContextPlugin } from "./trim-context-plugin"
 import { createBuildSystemPromptPlugin } from "./build-system-prompt-plugin"
 import { createPrePluginChain } from "../pipeline"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { ContextPack } from "@/lib/novel"
 
 const mockContextPack: ContextPack = {
   task: "写第5章",

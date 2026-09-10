@@ -24,21 +24,37 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: Record<string, any>) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  openProjectFolder: mocks.openProjectFolder,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      openProjectFolder: mocks.openProjectFolder,
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: () => mocks.tauri.value,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: () => mocks.tauri.value,
+    
+  }
+})
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: mocks.dialogMessage,

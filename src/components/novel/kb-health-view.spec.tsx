@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { KbHealthView } from "./kb-health-view"
-import { collectKbMetrics } from "@/lib/novel/kb-observability"
+import { collectKbMetrics } from "@/lib/novel"
 
 const METRIC_KEYS = [
   "canon_violation_rate",

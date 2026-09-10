@@ -1,21 +1,12 @@
 import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { analyzeWritingStyle } from "@/lib/novel/book-analysis/style-extraction-engine"
-import { importBookAnalysisSkillsAsAuras } from "@/lib/novel/book-analysis/aura-adapter"
-import { deleteOrphanAurasForBook } from "@/lib/novel/book-analysis/aura-cleanup"
-import {
-  loadBookAnalysisLibraryState,
-  type BookAnalysisLibraryState,
-  type BookAnalysisLibraryBook,
-} from "@/lib/novel/book-analysis/library-state"
-import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
-import { setEnabledWritingStyle, upsertWritingStylePreset } from "@/lib/novel/writing-style-store"
+import { analyzeWritingStyle, importBookAnalysisSkillsAsAuras, deleteOrphanAurasForBook, loadBookAnalysisLibraryState, bindCharacterAura, listBindableNovelCharacters, setEnabledWritingStyle, upsertWritingStylePreset } from "@/lib/novel"
+import type { BookAnalysisLibraryState, BookAnalysisLibraryBook, AnalysisDepth } from "@/lib/novel"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
-import type { AnalysisDepth } from "@/lib/novel/book-analysis/types"
 import type { ChapterSelectionData } from "./use-character-extraction"
 
 export interface UseLibraryOperationsParams {

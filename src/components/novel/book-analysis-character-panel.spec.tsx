@@ -3,7 +3,7 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true

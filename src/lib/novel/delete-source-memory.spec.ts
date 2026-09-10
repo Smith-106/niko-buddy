@@ -7,20 +7,30 @@ const fsMocks = vi.hoisted(() => ({
   writeFileAtomic: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  deleteFile: fsMocks.deleteFile,
-  listDirectory: fsMocks.listDirectory,
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      deleteFile: fsMocks.deleteFile,
+      listDirectory: fsMocks.listDirectory,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 const loggerMocks = vi.hoisted(() => ({
   error: vi.fn(),
 }))
 
-vi.mock("@/lib/utils", () => ({
-  logger: loggerMocks,
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      logger: loggerMocks,
+    
+  }
+})
 
 import {
   deleteNovelSourceMemory,
@@ -28,9 +38,14 @@ import {
 } from "./delete-source-memory"
 import { deleteChapterSnapshots } from "@/lib/novel/chapter-ingest"
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  deleteChapterSnapshots: vi.fn(),
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      deleteChapterSnapshots: vi.fn(),
+    
+  }
+})
 
 describe("deleteNovelSourceMemory", () => {
   beforeEach(() => {

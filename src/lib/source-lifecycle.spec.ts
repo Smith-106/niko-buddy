@@ -23,7 +23,12 @@ const cascadeDeleteWikiPagesWithRefsMock = vi.hoisted(() => vi.fn())
 vi.mock("@/commands/fs", () => fsState)
 vi.mock("@/lib/ingest-queue", () => ({ enqueueBatch: enqueueBatchMock }))
 vi.mock("@/lib/ingest-cache", () => ({ removeFromIngestCache: removeFromIngestCacheMock }))
-vi.mock("@/lib/embedding", () => ({ removePageEmbedding: removePageEmbeddingMock }))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual, removePageEmbedding: removePageEmbeddingMock 
+  }
+})
 vi.mock("@/lib/wiki-page-delete", () => ({
   cascadeDeleteWikiPagesWithRefs: cascadeDeleteWikiPagesWithRefsMock,
 }))

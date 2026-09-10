@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/web-search", () => ({
-  webSearch: vi.fn(),
-}))
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: vi.fn(),
-}))
+vi.mock("@/lib/web-search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-search")>()
+  return {
+    ...actual,
+      webSearch: vi.fn(),
+    
+  }
+})
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: vi.fn(),
+    
+  }
+})
 
 import { webSearch } from "@/lib/web-search"
 import { getHttpFetch } from "@/lib/tauri-fetch"

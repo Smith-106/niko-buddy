@@ -8,7 +8,7 @@ import {
   hydrateChatHistoryWithInterruptedDeepChapter,
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
-import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
+import type { NovelSessionStatus } from "@/lib/novel"
 
 describe("chat deep chapter resume", () => {
   it("only allows continuation for failed deep chapter messages with thinking content", () => {

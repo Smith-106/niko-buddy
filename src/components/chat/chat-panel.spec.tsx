@@ -30,37 +30,14 @@ import type { LlmConfig, NovelConfig, ProviderOverride, ReasoningConfig } from "
 import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { SearchResult, SearchWikiOptions } from "@/lib/search"
 import type { RetrievalGraph, RetrievalNode } from "@/lib/graph-relevance"
-import type { TaskRouteResult } from "@/lib/novel/task-router"
+import type { TaskRouteResult, CognitionState, ExemplarABSample, CleanedChapterContent, GoldenThreeChapterRequest, ChatEditTarget, ParsedChapterEditFile, ChapterSaveStrategy, NovelSessionStatus, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResumeCheckpoint, DeepChapterGenerationResult, DeepChapterDecisionGates, ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields, BuildContextOptions, ContextPack, ContextPackToPromptOptions, IngestChapterOptions, IngestResult, ChapterLengthSpec, ResolveTargetChapterNumberForChatInput, NovelReviewResult, ModelResolverStoreSnapshot, NovelTaskType, ChapterStatus, CommitAcceptedDeepChapterDraftInput } from "@/lib/novel"
 import type { MarkStyleExemplarInput, StyleExemplarRecord } from "@/commands/exemplar"
-import type { CognitionState, ExemplarABSample } from "@/lib/novel/character-cognition"
-import type { CleanedChapterContent } from "@/lib/novel/chapter-content-cleanup"
-import type { GoldenThreeChapterRequest } from "@/lib/novel/golden-three-chapters"
-import type { ChatEditTarget, ParsedChapterEditFile } from "@/lib/novel/chat-edit-mode"
-import type { ChapterSaveStrategy } from "@/lib/novel/chapter-save-strategy"
-import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
 import type { ContinueUnfinishedDeepChapterContext } from "./chat-resume"
 import type { QueryPageReference } from "./chat-shared"
-import type {
-  DeepChapterGenerationCallbacks,
-  DeepChapterGenerationDeps,
-  DeepChapterGenerationInput,
-  DeepChapterGenerationResumeCheckpoint,
-  DeepChapterGenerationResult,
-  DeepChapterDecisionGates,
-} from "@/lib/novel/deep-chapter-generation"
-import type { ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields } from "@/lib/novel/residual-campaign"
-import type { BuildContextOptions, ContextPack, ContextPackToPromptOptions } from "@/lib/novel/context-engine"
-import type { IngestChapterOptions, IngestResult } from "@/lib/novel/chapter-ingest"
-import type { ChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
-import type { ResolveTargetChapterNumberForChatInput } from "@/lib/novel/chapter-utils"
 import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import type { StreamSessionGuard } from "./stream-session"
 import type { ContextBudget } from "@/lib/context-budget"
 import type { LlmPreset } from "@/components/settings/llm-presets"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
-import type { ModelResolverStoreSnapshot, NovelTaskType } from "@/lib/novel/model-resolver"
-import type { ChapterStatus } from "@/lib/novel/chapter-meta"
-import type { CommitAcceptedDeepChapterDraftInput } from "@/lib/novel/formal-writeback"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -930,7 +907,7 @@ vi.mock("./chat-model-selector", () => ({
 }))
 
 // ── lib 层 mock ────────────────────────────────────────────────────────────────
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
 
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: mocks.useVirtualizer }))
 
@@ -939,71 +916,141 @@ vi.mock("@/stores/chat-store", () => ({
   chatMessagesToLLM: mocks.chatMessagesToLLM,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({ useWikiStore: mocks.useWikiStore }))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual, useWikiStore: mocks.useWikiStore 
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: mocks.streamChat 
+  }
+})
 
-vi.mock("@/lib/ingest", () => ({ executeIngestWrites: mocks.executeIngestWrites }))
+vi.mock("@/lib/ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ingest")>()
+  return {
+    ...actual, executeIngestWrites: mocks.executeIngestWrites 
+  }
+})
 
-vi.mock("@/lib/novel/task-router", () => ({
-  routeTask: mocks.routeTask,
-  buildTaskDirective: mocks.buildTaskDirective,
-}))
+vi.mock("@/lib/novel/task-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/task-router")>()
+  return {
+    ...actual,
+      routeTask: mocks.routeTask,
+      buildTaskDirective: mocks.buildTaskDirective,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  createDirectory: mocks.createDirectory,
-  deleteFile: mocks.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      createDirectory: mocks.createDirectory,
+      deleteFile: mocks.deleteFile,
+    
+  }
+})
 
 vi.mock("@/commands/exemplar", () => ({
   markStyleExemplarViaRust: mocks.markStyleExemplarViaRust,
   loadStyleExemplarsViaRust: mocks.loadStyleExemplarsViaRust,
 }))
 
-vi.mock("@/lib/novel/character-cognition", () => ({
-  appendExemplarABSample: mocks.appendExemplarABSample,
-  exemplarABStats: mocks.exemplarABStats,
-  loadCognitionState: mocks.loadCognitionState,
-}))
+vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-cognition")>()
+  return {
+    ...actual,
+      appendExemplarABSample: mocks.appendExemplarABSample,
+      exemplarABStats: mocks.exemplarABStats,
+      loadCognitionState: mocks.loadCognitionState,
+    
+  }
+})
 
-vi.mock("@/lib/search", () => ({ searchWiki: mocks.searchWiki, tokenizeQuery: mocks.tokenizeQuery }))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual, searchWiki: mocks.searchWiki, tokenizeQuery: mocks.tokenizeQuery 
+  }
+})
 
-vi.mock("@/lib/novel/chapter-utils", () => ({
-  detectLastGeneratedChapterNumber: mocks.detectLastGeneratedChapterNumber,
-  findChapterFileByNumber: mocks.findChapterFileByNumber,
-  getNextChapterNumber: mocks.getNextChapterNumber,
-  invalidateChapterCache: mocks.invalidateChapterCache,
-  readSelectedChapterNumberForFile: mocks.readSelectedChapterNumberForFile,
-  resolveTargetChapterNumberForChat: mocks.resolveTargetChapterNumberForChat,
-}))
+vi.mock("@/lib/novel/chapter-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-utils")>()
+  return {
+    ...actual,
+      detectLastGeneratedChapterNumber: mocks.detectLastGeneratedChapterNumber,
+      findChapterFileByNumber: mocks.findChapterFileByNumber,
+      getNextChapterNumber: mocks.getNextChapterNumber,
+      invalidateChapterCache: mocks.invalidateChapterCache,
+      readSelectedChapterNumberForFile: mocks.readSelectedChapterNumberForFile,
+      resolveTargetChapterNumberForChat: mocks.resolveTargetChapterNumberForChat,
+    
+  }
+})
 
-vi.mock("@/lib/novel/de-ai-adapter", () => ({
-  buildQmQuaiSystemPrompt: mocks.buildQmQuaiSystemPrompt,
-  injectDeAiDirective: mocks.injectDeAiDirective,
-}))
+vi.mock("@/lib/novel/de-ai-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/de-ai-adapter")>()
+  return {
+    ...actual,
+      buildQmQuaiSystemPrompt: mocks.buildQmQuaiSystemPrompt,
+      injectDeAiDirective: mocks.injectDeAiDirective,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-content-cleanup", () => ({
-  cleanGeneratedChapterContentWithTitle: mocks.cleanGeneratedChapterContentWithTitle,
-}))
+vi.mock("@/lib/novel/chapter-content-cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-content-cleanup")>()
+  return {
+    ...actual,
+      cleanGeneratedChapterContentWithTitle: mocks.cleanGeneratedChapterContentWithTitle,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-  getFileName: mocks.getFileName,
-  getRelativePath: mocks.getRelativePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+      getFileName: mocks.getFileName,
+      getRelativePath: mocks.getRelativePath,
+    
+  }
+})
 
-vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProjectState }))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual, refreshProjectState: mocks.refreshProjectState 
+  }
+})
 
-vi.mock("@/lib/output-language", () => ({
-  getOutputLanguage: mocks.getOutputLanguage,
-  buildLanguageReminder: mocks.buildLanguageReminder,
-}))
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual,
+      getOutputLanguage: mocks.getOutputLanguage,
+      buildLanguageReminder: mocks.buildLanguageReminder,
+    
+  }
+})
 
 vi.mock("@/lib/greeting-detector", () => ({ isGreeting: mocks.isGreeting }))
 
-vi.mock("@/lib/context-budget", () => ({ computeContextBudget: mocks.computeContextBudget }))
+vi.mock("@/lib/context-budget", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/context-budget")>()
+  return {
+    ...actual, computeContextBudget: mocks.computeContextBudget 
+  }
+})
 
 vi.mock("@/lib/workspace-layout", () => ({
   getConversationTabTitle: mocks.getConversationTabTitle,
@@ -1016,27 +1063,57 @@ vi.mock("@/lib/deep-thinking-stream", () => ({
   createDeepThinkingStreamRenderer: mocks.createDeepThinkingStreamRenderer,
 }))
 
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveNovelModel: mocks.resolveNovelModel }))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveNovelModel: mocks.resolveNovelModel 
+  }
+})
 
-vi.mock("@/lib/novel/review-model", () => ({ resolveReviewModel: mocks.resolveReviewModel }))
+vi.mock("@/lib/novel/review-model", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-model")>()
+  return {
+    ...actual, resolveReviewModel: mocks.resolveReviewModel 
+  }
+})
 
-vi.mock("@/components/settings/preset-resolver", () => ({ resolveConfig: mocks.resolveConfig }))
+vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+  return {
+    ...actual, resolveConfig: mocks.resolveConfig 
+  }
+})
 
-vi.mock("@/components/settings/llm-presets", () => ({
-  LLM_PRESETS: [
-    { id: "providerA", name: "A", baseUrl: "https://a.example" },
-    { id: "custom", name: "Custom", baseUrl: "" },
-  ],
-}))
+vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+  return {
+    ...actual,
+      LLM_PRESETS: [
+        { id: "providerA", name: "A", baseUrl: "https://a.example" },
+        { id: "custom", name: "Custom", baseUrl: "" },
+      ],
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({ saveAiChatModel: mocks.saveAiChatModel }))
 
-vi.mock("@/lib/novel/golden-three-chapters", () => ({
-  buildGoldenThreeChapterDirective: mocks.buildGoldenThreeChapterDirective,
-  detectGoldenThreeChapterRequest: mocks.detectGoldenThreeChapterRequest,
-}))
+vi.mock("@/lib/novel/golden-three-chapters", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/golden-three-chapters")>()
+  return {
+    ...actual,
+      buildGoldenThreeChapterDirective: mocks.buildGoldenThreeChapterDirective,
+      detectGoldenThreeChapterRequest: mocks.detectGoldenThreeChapterRequest,
+    
+  }
+})
 
 vi.mock("./stream-session", () => ({ createStreamSessionGuard: mocks.createStreamSessionGuard }))
 
@@ -1056,58 +1133,138 @@ vi.mock("./chat-shared", () => ({
 
 vi.mock("@/lib/chat-copy-content", () => ({ getCopyableAssistantContent: mocks.getCopyableAssistantContent }))
 
-vi.mock("@/lib/novel/chat-edit-mode", () => ({
-  isChatEditRequest: mocks.isChatEditRequest,
-  resolveChatEditTarget: mocks.resolveChatEditTarget,
-  validateStructuredChapterEditResult: mocks.validateStructuredChapterEditResult,
-}))
+vi.mock("@/lib/novel/chat-edit-mode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chat-edit-mode")>()
+  return {
+    ...actual,
+      isChatEditRequest: mocks.isChatEditRequest,
+      resolveChatEditTarget: mocks.resolveChatEditTarget,
+      validateStructuredChapterEditResult: mocks.validateStructuredChapterEditResult,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-backup", () => ({ backupChapterFile: mocks.backupChapterFile }))
+vi.mock("@/lib/novel/chapter-backup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-backup")>()
+  return {
+    ...actual, backupChapterFile: mocks.backupChapterFile 
+  }
+})
 
-vi.mock("@/lib/novel/chapter-meta", () => ({ updateChapterStatus: mocks.updateChapterStatus }))
+vi.mock("@/lib/novel/chapter-meta", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-meta")>()
+  return {
+    ...actual, updateChapterStatus: mocks.updateChapterStatus 
+  }
+})
 
-vi.mock("@/lib/novel/chapter-save-strategy", () => ({
-  decideChapterSaveStrategy: mocks.decideChapterSaveStrategy,
-  detectGeneratedTargetChapterNumber: mocks.detectGeneratedTargetChapterNumber,
-}))
+vi.mock("@/lib/novel/chapter-save-strategy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-save-strategy")>()
+  return {
+    ...actual,
+      decideChapterSaveStrategy: mocks.decideChapterSaveStrategy,
+      detectGeneratedTargetChapterNumber: mocks.detectGeneratedTargetChapterNumber,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-edit-file", () => ({ normalizeChapterEditFile: mocks.normalizeChapterEditFile }))
+vi.mock("@/lib/novel/chapter-edit-file", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-edit-file")>()
+  return {
+    ...actual, normalizeChapterEditFile: mocks.normalizeChapterEditFile 
+  }
+})
 
-vi.mock("@/lib/novel/formal-writeback", () => ({ commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft }))
+vi.mock("@/lib/novel/formal-writeback", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/formal-writeback")>()
+  return {
+    ...actual, commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft 
+  }
+})
 
-vi.mock("@/lib/novel/novel-session-status", () => ({
-  blockDeepChapterSession: mocks.blockDeepChapterSession,
-  completeDeepChapterSession: mocks.completeDeepChapterSession,
-  createNovelSessionId: mocks.createNovelSessionId,
-  loadNovelSessionStatus: mocks.loadNovelSessionStatus,
-  novelSessionStatusPath: mocks.novelSessionStatusPath,
-  pauseDeepChapterSession: mocks.pauseDeepChapterSession,
-  persistDeepChapterCheckpoint: mocks.persistDeepChapterCheckpoint,
-  rejectDeepChapterDraft: mocks.rejectDeepChapterDraft,
-  resolveInterruptedSessionResumeCheckpoint: mocks.resolveInterruptedSessionResumeCheckpoint,
-  startDeepChapterSession: mocks.startDeepChapterSession,
-  subscribeStatusJson: mocks.subscribeStatusJson,
-}))
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual,
+      blockDeepChapterSession: mocks.blockDeepChapterSession,
+      completeDeepChapterSession: mocks.completeDeepChapterSession,
+      createNovelSessionId: mocks.createNovelSessionId,
+      loadNovelSessionStatus: mocks.loadNovelSessionStatus,
+      novelSessionStatusPath: mocks.novelSessionStatusPath,
+      pauseDeepChapterSession: mocks.pauseDeepChapterSession,
+      persistDeepChapterCheckpoint: mocks.persistDeepChapterCheckpoint,
+      rejectDeepChapterDraft: mocks.rejectDeepChapterDraft,
+      resolveInterruptedSessionResumeCheckpoint: mocks.resolveInterruptedSessionResumeCheckpoint,
+      startDeepChapterSession: mocks.startDeepChapterSession,
+      subscribeStatusJson: mocks.subscribeStatusJson,
+    
+  }
+})
 
 // 动态 import 模块
-vi.mock("@/lib/novel/deep-chapter-generation", () => ({ runDeepChapterGeneration: mocks.runDeepChapterGeneration }))
-vi.mock("@/lib/novel/planning", () => ({ buildChapterPlan: mocks.buildChapterPlan }))
-vi.mock("@/lib/novel/residual-campaign", () => ({ resolveResidualCampaignFields: mocks.resolveResidualCampaignFields }))
-vi.mock("@/lib/novel/context-engine", () => ({
-  buildContextPack: mocks.buildContextPack,
-  contextPackToPrompt: mocks.contextPackToPrompt,
-}))
-vi.mock("@/lib/graph-relevance", () => ({
-  buildRetrievalGraph: mocks.buildRetrievalGraph,
-  getRelatedNodes: mocks.getRelatedNodes,
-}))
-vi.mock("@/lib/novel/agent-parser", () => ({
-  detectEditIntent: mocks.detectEditIntent,
-  buildAgentSystemSuffix: mocks.buildAgentSystemSuffix,
-}))
-vi.mock("@/lib/novel/agent-tools", () => ({ readScopeFileContents: mocks.readScopeFileContents }))
-vi.mock("@/lib/novel/chapter-ingest", () => ({ ingestChapter: mocks.ingestChapter }))
-vi.mock("@/lib/novel/deep-chapter-prompts", () => ({ resolveChapterLengthSpec: mocks.resolveChapterLengthSpec }))
+vi.mock("@/lib/novel/deep-chapter-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/deep-chapter-generation")>()
+  return {
+    ...actual, runDeepChapterGeneration: mocks.runDeepChapterGeneration 
+  }
+})
+vi.mock("@/lib/novel/planning", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/planning")>()
+  return {
+    ...actual, buildChapterPlan: mocks.buildChapterPlan 
+  }
+})
+vi.mock("@/lib/novel/residual-campaign", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/residual-campaign")>()
+  return {
+    ...actual, resolveResidualCampaignFields: mocks.resolveResidualCampaignFields 
+  }
+})
+vi.mock("@/lib/novel/context-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/context-engine")>()
+  return {
+    ...actual,
+      buildContextPack: mocks.buildContextPack,
+      contextPackToPrompt: mocks.contextPackToPrompt,
+    
+  }
+})
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      buildRetrievalGraph: mocks.buildRetrievalGraph,
+      getRelatedNodes: mocks.getRelatedNodes,
+    
+  }
+})
+vi.mock("@/lib/novel/agent-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-parser")>()
+  return {
+    ...actual,
+      detectEditIntent: mocks.detectEditIntent,
+      buildAgentSystemSuffix: mocks.buildAgentSystemSuffix,
+    
+  }
+})
+vi.mock("@/lib/novel/agent-tools", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-tools")>()
+  return {
+    ...actual, readScopeFileContents: mocks.readScopeFileContents 
+  }
+})
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual, ingestChapter: mocks.ingestChapter 
+  }
+})
+vi.mock("@/lib/novel/deep-chapter-prompts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/deep-chapter-prompts")>()
+  return {
+    ...actual, resolveChapterLengthSpec: mocks.resolveChapterLengthSpec 
+  }
+})
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
@@ -40,9 +41,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: mocks.ask,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: unknown }) => unknown) => selector({ project: mocks.project }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: unknown }) => unknown) => selector({ project: mocks.project }),
+    
+  }
+})
 
 function exportResult(overrides: Partial<CanonExportResult> = {}): CanonExportResult {
   return {

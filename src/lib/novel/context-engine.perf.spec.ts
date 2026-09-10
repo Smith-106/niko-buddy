@@ -23,12 +23,17 @@ const chapterIngestMocks = vi.hoisted(() => ({
   listSnapshots: vi.fn(),
 }))
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  loadSnapshot: chapterIngestMocks.loadSnapshot,
-  listSnapshots: chapterIngestMocks.listSnapshots,
-  // type-only import in context-engine — provide a dummy for module shape.
-  __esModule: true,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      loadSnapshot: chapterIngestMocks.loadSnapshot,
+      listSnapshots: chapterIngestMocks.listSnapshots,
+      // type-only import in context-engine — provide a dummy for module shape.
+      __esModule: true,
+    
+  }
+})
 
 const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
@@ -36,11 +41,16 @@ const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: fsMocks.listDirectory,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: fsMocks.listDirectory,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 // graph-relevance is dynamically imported inside searchGraphRelevantContent.
 const graphMocks = vi.hoisted(() => ({
@@ -48,15 +58,25 @@ const graphMocks = vi.hoisted(() => ({
   getRelatedNodes: vi.fn(),
 }))
 
-vi.mock("@/lib/graph-relevance", () => ({
-  buildRetrievalGraph: graphMocks.buildRetrievalGraph,
-  getRelatedNodes: graphMocks.getRelatedNodes,
-}))
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      buildRetrievalGraph: graphMocks.buildRetrievalGraph,
+      getRelatedNodes: graphMocks.getRelatedNodes,
+    
+  }
+})
 
 // rerankCandidates may call an LLM; stub it to passthrough (top 10).
-vi.mock("@/lib/rerank", () => ({
-  rerankCandidates: vi.fn(async (_q: string, candidates: unknown[]) => candidates),
-}))
+vi.mock("@/lib/rerank", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rerank")>()
+  return {
+    ...actual,
+      rerankCandidates: vi.fn(async (_q: string, candidates: unknown[]) => candidates),
+    
+  }
+})
 
 // community-summary is dynamically imported; stub to "" to avoid vector store.
 vi.mock("./community-summary", () => ({

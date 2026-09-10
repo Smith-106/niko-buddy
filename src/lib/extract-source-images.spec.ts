@@ -5,7 +5,12 @@ const invokeMock = vi.hoisted(() => vi.fn())
 const isTauriMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
-vi.mock("@/lib/platform", () => ({ isTauri: isTauriMock }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: isTauriMock 
+  }
+})
 
 import {
   buildImageMarkdownSection,

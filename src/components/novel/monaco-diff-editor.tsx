@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react"
-import { configureMonaco } from "@/lib/novel/monaco-loader"
+import { configureMonaco } from "@/lib/novel"
 
 export interface MonacoDiffEditorProps {
   original: string

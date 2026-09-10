@@ -1,6 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import type { ContextPack } from "@/lib/novel/context-engine"
-import type { DataSourceCategory, RouteSource } from "@/lib/novel/classification"
+import type { ContextPack, DataSourceCategory, RouteSource } from "@/lib/novel"
 
 export interface BuildContextPackPluginDeps {
   buildContextPack?: (

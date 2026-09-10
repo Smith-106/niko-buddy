@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createConfidenceGatePlugin, DEFAULT_CONFIDENCE_THRESHOLD, intentToLabel } from "./confidence-gate-plugin"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
+import type { NovelTaskIntent } from "@/lib/novel"
 
 describe("confidence-gate-plugin", () => {
   it("passes through when confidence >= threshold", async () => {

@@ -15,13 +15,33 @@ const buildContextPackMock = vi.hoisted(() => vi.fn())
 const contextPackToPromptMock = vi.hoisted(() => vi.fn((p: unknown) => `CP:${JSON.stringify(p)}`))
 
 vi.mock("@/commands/fs", () => fsState)
-vi.mock("@/lib/llm-client", () => ({ streamChat: streamChatMock }))
-vi.mock("@/i18n", () => ({ default: { t: tMock } }))
-vi.mock("@/lib/output-language", () => ({ buildLanguageDirective: buildLanguageDirectiveMock }))
-vi.mock("@/lib/novel/context-engine", () => ({
-  buildContextPack: buildContextPackMock,
-  contextPackToPrompt: contextPackToPromptMock,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: streamChatMock 
+  }
+})
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual, default: { t: tMock } 
+  }
+})
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual, buildLanguageDirective: buildLanguageDirectiveMock 
+  }
+})
+vi.mock("@/lib/novel/context-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/context-engine")>()
+  return {
+    ...actual,
+      buildContextPack: buildContextPackMock,
+      contextPackToPrompt: contextPackToPromptMock,
+    
+  }
+})
 
 import { useActivityStore } from "@/stores/activity-store"
 import { useWikiStore } from "@/stores/wiki-store"

@@ -34,20 +34,35 @@ vi.mock("@/lib/review-rewrite-plan", () => ({
   applyReviewRewriteEditsToMarkdown: mocks.applyReviewRewriteEditsToMarkdown,
 }))
 
-vi.mock("@/lib/novel/novel-session-status", () => ({
-  writeFindingRewriteDraft: mocks.writeFindingRewriteDraft,
-  acceptFindingRewriteDraft: mocks.acceptFindingRewriteDraft,
-  rejectFindingRewriteDraft: mocks.rejectFindingRewriteDraft,
-}))
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual,
+      writeFindingRewriteDraft: mocks.writeFindingRewriteDraft,
+      acceptFindingRewriteDraft: mocks.acceptFindingRewriteDraft,
+      rejectFindingRewriteDraft: mocks.rejectFindingRewriteDraft,
+    
+  }
+})
 
-vi.mock("@/lib/novel/review-adapter", () => ({
-  reviewChapter: mocks.reviewChapter,
-}))
+vi.mock("@/lib/novel/review-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-adapter")>()
+  return {
+    ...actual,
+      reviewChapter: mocks.reviewChapter,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  writeFileAtomic: mocks.writeFileAtomic,
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      writeFileAtomic: mocks.writeFileAtomic,
+      readFile: mocks.readFile,
+    
+  }
+})
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children, onOpenChange }: any) => (

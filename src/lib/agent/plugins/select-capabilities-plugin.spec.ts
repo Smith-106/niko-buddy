@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(async () => []),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: vi.fn(async () => []),
+    
+  }
+})
 
 import { createSelectCapabilitiesPlugin } from "./select-capabilities-plugin"
 import { buildAvailableCapabilities } from "../capabilities/registry"
-import { normalizeUserSkill } from "@/lib/novel/skill-library"
+import { normalizeUserSkill } from "@/lib/novel"
 
 describe("SelectCapabilitiesPlugin", () => {
   it("selects capabilities for routed novel tasks after skills are selected", async () => {

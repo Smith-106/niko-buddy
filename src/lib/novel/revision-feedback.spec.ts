@@ -11,20 +11,35 @@ const mocks = vi.hoisted(() => ({
   t: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
-  fileExists: (...args: unknown[]) => mocks.fileExists(...args),
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  writeFile: (...args: unknown[]) => mocks.writeFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
+      fileExists: (...args: unknown[]) => mocks.fileExists(...args),
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    
+  }
+})
 
-vi.mock("@/i18n", () => ({
-  default: { t: (...args: unknown[]) => mocks.t(...args) },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: (...args: unknown[]) => mocks.t(...args) },
+    
+  }
+})
 
-vi.mock("@/lib/utils", () => ({
-  uniqueNonEmpty: (...args: unknown[]) => mocks.uniqueNonEmpty(...args),
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      uniqueNonEmpty: (...args: unknown[]) => mocks.uniqueNonEmpty(...args),
+    
+  }
+})
 
 import {
   buildRevisionDirectives,

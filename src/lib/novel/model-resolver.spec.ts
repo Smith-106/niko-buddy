@@ -6,20 +6,35 @@ const mocks = vi.hoisted(() => ({
   resolveConfig: vi.fn(),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.getState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.getState },
+    
+  }
+})
 
-vi.mock("@/components/settings/llm-presets", () => ({
-  LLM_PRESETS: [
-    { id: "anthropic", provider: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet" },
-    { id: "custom", provider: "custom", label: "Custom", defaultModel: "custom-default" },
-  ],
-}))
+vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+  return {
+    ...actual,
+      LLM_PRESETS: [
+        { id: "anthropic", provider: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet" },
+        { id: "custom", provider: "custom", label: "Custom", defaultModel: "custom-default" },
+      ],
+    
+  }
+})
 
-vi.mock("@/components/settings/preset-resolver", () => ({
-  resolveConfig: (...args: unknown[]) => mocks.resolveConfig(...args),
-}))
+vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+  return {
+    ...actual,
+      resolveConfig: (...args: unknown[]) => mocks.resolveConfig(...args),
+    
+  }
+})
 
 import { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
 

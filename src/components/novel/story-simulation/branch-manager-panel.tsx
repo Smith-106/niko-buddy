@@ -9,8 +9,8 @@ import {
   GitCompare,
   GitBranchPlus,
 } from "lucide-react";
-import type { SimulationBranch } from "@/lib/novel/story-simulation/types";
-import { MODE_VISUAL_INFO } from "@/lib/novel/story-simulation/types";
+import { MODE_VISUAL_INFO } from "@/lib/novel"
+import type { SimulationBranch } from "@/lib/novel"
 import { Button } from "@/components/ui/button";
 
 interface BranchManagerPanelProps {

@@ -6,7 +6,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel/de-ai-batch"
+import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
 
 export interface DeAiBatchChapterRow {
   chapterNumber: number

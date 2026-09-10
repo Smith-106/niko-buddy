@@ -30,14 +30,19 @@ const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => fsMocks.readFile(...args),
-  writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
-  listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
-  fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
-  createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
-  deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+      writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
+      fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
+      createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
+      deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
+    
+  }
+})
 
 import {
   PROJECTION_CATEGORIES,

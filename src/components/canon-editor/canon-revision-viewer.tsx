@@ -9,13 +9,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { getCanonRevision } from "@/lib/novel/canon-dual-write"
-import { queryCanonEdges, type CanonFact } from "@/lib/novel/canon-graph-client"
-import {
-  asOfSnapshot,
-  diffCanonRevisions,
-  distinctRecordedRevisions,
-} from "@/lib/novel/canon-revision-diff"
+import { getCanonRevision, queryCanonEdges, asOfSnapshot, diffCanonRevisions, distinctRecordedRevisions } from "@/lib/novel"
+import type { CanonFact } from "@/lib/novel"
 import { CanonRevisionDiffView } from "./canon-revision-diff-view"
 
 /** 时间线边拉取上限（倒序分组只读列表，无需 offset/total）。 */

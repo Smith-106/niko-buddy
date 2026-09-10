@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult, DimensionReviewResult } from "@/lib/novel"
 import {
   buildNovelReviewActionItem,
   buildVisibleNovelReviewActionItemsForDimensionResults,
@@ -7,7 +7,6 @@ import {
   buildVisibleNovelReviewActionItems,
   mapNovelReviewActionSeverity,
 } from "./novel-review-action-items"
-import type { DimensionReviewResult } from "@/lib/novel/dimension-review-adapter"
 import { createDefaultStore, createPreference } from "@/lib/user-memory/types"
 import type { UserMemoryStore } from "@/lib/user-memory/types"
 

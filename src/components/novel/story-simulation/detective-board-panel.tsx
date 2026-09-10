@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { Eye, EyeOff, Filter, MessageSquare, Zap, Clock } from "lucide-react"
-import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel/story-simulation/types"
-import { actionTypeShortLabel } from "@/lib/novel/story-simulation/action-type-utils"
+import { actionTypeShortLabel } from "@/lib/novel"
+import type { RumorEvent, NovelAgent, TimelineEvent } from "@/lib/novel"
 
 interface ClueTimelinePanelProps {
   agents: Map<string, NovelAgent>

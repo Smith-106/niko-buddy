@@ -3,17 +3,7 @@
 // Book analysis task lifecycle store — manages ingestion, character extraction and recognition.
 
 import { create } from "zustand"
-import type {
-  BookAnalysisTask,
-  BookAnalysisConfig,
-  BookAnalysisProgress,
-  BookAnalysisMetadata,
-  BookAnalysisResult,
-  ExtractedCharacter,
-  CharacterSkill,
-  RecognizedCharacter,
-  BookStyleProfile,
-} from "@/lib/novel/book-analysis/types"
+import type { BookAnalysisTask, BookAnalysisConfig, BookAnalysisProgress, BookAnalysisMetadata, BookAnalysisResult, ExtractedCharacter, CharacterSkill, RecognizedCharacter, BookStyleProfile } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
 
 type BookAnalysisChapterSummary = NonNullable<BookAnalysisTask["chapters"]>[number]

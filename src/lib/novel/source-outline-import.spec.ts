@@ -6,21 +6,31 @@ const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  writeFile: (...args: unknown[]) => mocks.writeFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (p: string) => p.replace(/\\/g, "/"),
-  getFileName: (p: string) => p.split("/").pop() ?? "",
-  getRelativePath: (fullPath: string, basePath: string) => {
-    const rel = fullPath.replace(basePath, "")
-    return rel.startsWith("/") ? rel.slice(1) : rel
-  },
-  getUniqueOutlinePath: async (dir: string, fileName: string) => `${dir}/${fileName}`,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: (p: string) => p.replace(/\\/g, "/"),
+      getFileName: (p: string) => p.split("/").pop() ?? "",
+      getRelativePath: (fullPath: string, basePath: string) => {
+        const rel = fullPath.replace(basePath, "")
+        return rel.startsWith("/") ? rel.slice(1) : rel
+      },
+      getUniqueOutlinePath: async (dir: string, fileName: string) => `${dir}/${fileName}`,
+    
+  }
+})
 
 vi.mock("@/lib/wiki-filename", () => ({
   makeSafeFileSlug: (title: string) => title,

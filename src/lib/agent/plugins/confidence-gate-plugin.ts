@@ -1,5 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
+import type { NovelTaskIntent } from "@/lib/novel"
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 

@@ -19,9 +19,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   transformCallback: mocks.transformCallback,
 }))
 
-vi.mock("@/lib/source-watch-config", () => ({
-  normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
-}))
+vi.mock("@/lib/source-watch-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/source-watch-config")>()
+  return {
+    ...actual,
+      normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
+    
+  }
+})
 
 const QUEUE = { version: 1, tasks: [] }
 const CONFIG: SourceWatchConfig = {

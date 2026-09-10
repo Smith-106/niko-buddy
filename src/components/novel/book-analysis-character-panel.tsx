@@ -1,6 +1,6 @@
 import { Plus, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 
 interface BookAnalysisCharacterPanelProps {
   book: BookAnalysisLibraryBook

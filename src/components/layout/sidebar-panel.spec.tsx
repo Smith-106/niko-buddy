@@ -15,14 +15,7 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { SidebarPanel } from "./sidebar-panel"
 import type { FileNode } from "@/types/wiki"
-import type {
-  ChapterImportCandidate,
-  ImportedChapter,
-  ImportedChapterMemoryProgress,
-  ImportedChapterMemoryResult,
-} from "@/lib/novel/chapter-import"
-import type { OutlineImportCandidate } from "@/lib/novel/outline-import"
-import type { MemoryCenterData } from "@/lib/novel/memory-center"
+import type { ChapterImportCandidate, ImportedChapter, ImportedChapterMemoryProgress, ImportedChapterMemoryResult, OutlineImportCandidate, MemoryCenterData } from "@/lib/novel"
 
 interface ProjectLike {
   id: string
@@ -133,31 +126,47 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
-    { getState: () => mocks.getStateSnapshot },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
+        { getState: () => mocks.getStateSnapshot },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/import-progress-store", () => ({
-  useImportProgressStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector({}),
-    { getState: () => mocks.importProgressActions },
-  ),
-}))
+vi.mock("@/stores/import-progress-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/import-progress-store")>()
+  return {
+    ...actual,
+      useImportProgressStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector({}),
+        { getState: () => mocks.importProgressActions },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-  listDirectory: mocks.listDirectory,
-  preprocessFile: mocks.preprocessFile,
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+      listDirectory: mocks.listDirectory,
+      preprocessFile: mocks.preprocessFile,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+    
+  }
+})
 
 vi.mock("@/lib/chapter-word-count", () => ({
   countChapterBodyWords: mocks.countChapterBodyWords,
@@ -167,55 +176,95 @@ vi.mock("@/lib/chapter-display", () => ({
   buildChapterTotalWordCountLabel: mocks.buildChapterTotalWordCountLabel,
 }))
 
-vi.mock("@/lib/path-utils", () => ({
-  getFileName: mocks.getFileName,
-  getFileStem: mocks.getFileStem,
-  normalizePath: mocks.normalizePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      getFileName: mocks.getFileName,
+      getFileStem: mocks.getFileStem,
+      normalizePath: mocks.normalizePath,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-utils", () => ({
-  flattenMdFiles: mocks.flattenMdFiles,
-  getNextChapterNumber: mocks.getNextChapterNumber,
-  invalidateChapterCache: mocks.invalidateChapterCache,
-}))
+vi.mock("@/lib/novel/chapter-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-utils")>()
+  return {
+    ...actual,
+      flattenMdFiles: mocks.flattenMdFiles,
+      getNextChapterNumber: mocks.getNextChapterNumber,
+      invalidateChapterCache: mocks.invalidateChapterCache,
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-import", () => ({
-  OUTLINE_IMPORT_EXTENSIONS: mocks.OUTLINE_IMPORT_EXTENSIONS,
-  collectOutlineImportCandidatesFromFolder: mocks.collectOutlineImportCandidatesFromFolder,
-  importOutlineCandidates: mocks.importOutlineCandidates,
-  importOutlineFiles: mocks.importOutlineFiles,
-}))
+vi.mock("@/lib/novel/outline-import", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-import")>()
+  return {
+    ...actual,
+      OUTLINE_IMPORT_EXTENSIONS: mocks.OUTLINE_IMPORT_EXTENSIONS,
+      collectOutlineImportCandidatesFromFolder: mocks.collectOutlineImportCandidatesFromFolder,
+      importOutlineCandidates: mocks.importOutlineCandidates,
+      importOutlineFiles: mocks.importOutlineFiles,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-import", () => ({
-  CHAPTER_IMPORT_EXTENSIONS: mocks.CHAPTER_IMPORT_EXTENSIONS,
-  collectChapterImportCandidatesFromFolder: mocks.collectChapterImportCandidatesFromFolder,
-  importChapterFiles: mocks.importChapterFiles,
-  runImportedChapterMemoryExtraction: mocks.runImportedChapterMemoryExtraction,
-  sortChapterImportCandidates: mocks.sortChapterImportCandidates,
-}))
+vi.mock("@/lib/novel/chapter-import", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-import")>()
+  return {
+    ...actual,
+      CHAPTER_IMPORT_EXTENSIONS: mocks.CHAPTER_IMPORT_EXTENSIONS,
+      collectChapterImportCandidatesFromFolder: mocks.collectChapterImportCandidatesFromFolder,
+      importChapterFiles: mocks.importChapterFiles,
+      runImportedChapterMemoryExtraction: mocks.runImportedChapterMemoryExtraction,
+      sortChapterImportCandidates: mocks.sortChapterImportCandidates,
+    
+  }
+})
 
-vi.mock("@/lib/wiki-filename", () => ({
-  makeChapterFileName: mocks.makeChapterFileName,
-  makeDefaultChapterTitle: mocks.makeDefaultChapterTitle,
-  makeSafeFileSlug: mocks.makeSafeFileSlug,
-}))
+vi.mock("@/lib/wiki-filename", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/wiki-filename")>()
+  return {
+    ...actual,
+      makeChapterFileName: mocks.makeChapterFileName,
+      makeDefaultChapterTitle: mocks.makeDefaultChapterTitle,
+      makeSafeFileSlug: mocks.makeSafeFileSlug,
+    
+  }
+})
 
 vi.mock("@/lib/open-external-url", () => ({
   openExternalUrl: mocks.openExternalUrl,
 }))
 
-vi.mock("@/lib/novel/memory-center", () => ({
-  loadMemoryCenterData: mocks.loadMemoryCenterData,
-}))
+vi.mock("@/lib/novel/memory-center", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/memory-center")>()
+  return {
+    ...actual,
+      loadMemoryCenterData: mocks.loadMemoryCenterData,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  ingestChapter: mocks.ingestChapter,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      ingestChapter: mocks.ingestChapter,
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-generation", () => ({
-  createOutlineIngestTask: mocks.createOutlineIngestTask,
-  runOutlineIngestTask: mocks.runOutlineIngestTask,
-}))
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual,
+      createOutlineIngestTask: mocks.createOutlineIngestTask,
+      runOutlineIngestTask: mocks.runOutlineIngestTask,
+    
+  }
+})
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: mocks.dialogOpen,

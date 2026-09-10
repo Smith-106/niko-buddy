@@ -34,14 +34,24 @@ vi.mock("@/stores/chat-store", () => ({
     getState: () => ({ maxHistoryMessages: 50 }),
   },
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => ({ project: mocks.getProject() }) },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => ({ project: mocks.getProject() }) },
+    
+  }
+})
 vi.mock("./persist", () => ({
   saveReviewItems: mocks.saveReviewItems,
   saveChatHistory: mocks.saveChatHistory,
 }))
-vi.mock("@/lib/platform", () => ({ isTauri: () => mocks.isTauri() }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: () => mocks.isTauri() 
+  }
+})
 
 import { setupAutoSave } from "./auto-save"
 

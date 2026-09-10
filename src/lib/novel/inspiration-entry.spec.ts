@@ -12,13 +12,18 @@ const cryptoMocks = vi.hoisted(() => ({
   randomUUID: vi.fn(() => "mock-uuid"),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  fileExists: fsMocks.fileExists,
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      fileExists: fsMocks.fileExists,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 vi.mock("node:crypto", () => ({
   randomUUID: cryptoMocks.randomUUID,

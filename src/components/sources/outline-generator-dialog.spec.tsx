@@ -140,45 +140,66 @@ function setupDefaults(): void {
 }
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+      readFile: mocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-generation", () => ({
-  OUTLINE_SECTION_GENERATION_CONFIGS: [
-    { key: "chapterOutlines", title: "章节细纲", englishTitle: "Chapter Outlines", englishFileName: "chapter-outlines.md", requestHint: "hint" },
-    { key: "characterBriefs", title: "人物小传", englishTitle: "Character Briefs", englishFileName: "character-briefs.md", requestHint: "hint" },
-    { key: "organizationsOutline", title: "组织势力设定", englishTitle: "Faction Notes", englishFileName: "organizations.md", requestHint: "hint" },
-    { key: "powerSystem", title: "金手指与能力体系", englishTitle: "Power System", englishFileName: "power-system.md", requestHint: "hint" },
-    { key: "foreshadowingPlan", title: "伏笔计划", englishTitle: "Foreshadowing Plan", englishFileName: "foreshadowing-plan.md", requestHint: "hint" },
-    { key: "locationsOutline", title: "地点设定", englishTitle: "Location Notes", englishFileName: "locations.md", requestHint: "hint" },
-  ],
-  buildOutlineGenerationPrompt: mocks.buildOutlineGenerationPrompt,
-  hasOutlineForRefinement: mocks.hasOutlineForRefinement,
-  runOutlineGenerationTask: mocks.runOutlineGenerationTask,
-  runOutlineRefinementTask: mocks.runOutlineRefinementTask,
-  runOutlineIngestTask: mocks.runOutlineIngestTask,
-  openGeneratedOutline: mocks.openGeneratedOutline,
-  addOutlineTaskToSourceList: mocks.addOutlineTaskToSourceList,
-}))
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual,
+      OUTLINE_SECTION_GENERATION_CONFIGS: [
+        { key: "chapterOutlines", title: "章节细纲", englishTitle: "Chapter Outlines", englishFileName: "chapter-outlines.md", requestHint: "hint" },
+        { key: "characterBriefs", title: "人物小传", englishTitle: "Character Briefs", englishFileName: "character-briefs.md", requestHint: "hint" },
+        { key: "organizationsOutline", title: "组织势力设定", englishTitle: "Faction Notes", englishFileName: "organizations.md", requestHint: "hint" },
+        { key: "powerSystem", title: "金手指与能力体系", englishTitle: "Power System", englishFileName: "power-system.md", requestHint: "hint" },
+        { key: "foreshadowingPlan", title: "伏笔计划", englishTitle: "Foreshadowing Plan", englishFileName: "foreshadowing-plan.md", requestHint: "hint" },
+        { key: "locationsOutline", title: "地点设定", englishTitle: "Location Notes", englishFileName: "locations.md", requestHint: "hint" },
+      ],
+      buildOutlineGenerationPrompt: mocks.buildOutlineGenerationPrompt,
+      hasOutlineForRefinement: mocks.hasOutlineForRefinement,
+      runOutlineGenerationTask: mocks.runOutlineGenerationTask,
+      runOutlineRefinementTask: mocks.runOutlineRefinementTask,
+      runOutlineIngestTask: mocks.runOutlineIngestTask,
+      openGeneratedOutline: mocks.openGeneratedOutline,
+      addOutlineTaskToSourceList: mocks.addOutlineTaskToSourceList,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: any) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: any) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/outline-generation-store", () => ({
-  useOutlineGenerationStore: Object.assign(
-    (selector: any) => selector(mocks.outlineState),
-    { getState: () => mocks.outlineState },
-  ),
-}))
+vi.mock("@/stores/outline-generation-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/outline-generation-store")>()
+  return {
+    ...actual,
+      useOutlineGenerationStore: Object.assign(
+        (selector: any) => selector(mocks.outlineState),
+        { getState: () => mocks.outlineState },
+      ),
+    
+  }
+})
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: any) => (open ? <div data-testid="dialog">{children}</div> : null),

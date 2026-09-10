@@ -66,16 +66,21 @@ const fsMocks = vi.hoisted(() => ({
   getFileSize: vi.fn(async () => 0),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  fileExists: fsMocks.fileExists,
-  listDirectory: fsMocks.listDirectory,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-  getFileSize: fsMocks.getFileSize,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      fileExists: fsMocks.fileExists,
+      listDirectory: fsMocks.listDirectory,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+      getFileSize: fsMocks.getFileSize,
+    
+  }
+})
 
 // Soft-stub embedding / vector to avoid native deps in headless export
 vi.mock("@/lib/embedding", async (importOriginal) => {

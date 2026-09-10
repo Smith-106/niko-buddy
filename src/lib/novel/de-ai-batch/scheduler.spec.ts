@@ -10,23 +10,33 @@ const fsMocks = vi.hoisted(() => ({
   writeFileAtomic: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  deleteFile: fsMocks.deleteFile,
-  fileExists: fsMocks.fileExists,
-  listDirectory: fsMocks.listDirectory,
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      deleteFile: fsMocks.deleteFile,
+      fileExists: fsMocks.fileExists,
+      listDirectory: fsMocks.listDirectory,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+    
+  }
+})
 
 const llmMocks = vi.hoisted(() => ({
   streamChat: vi.fn(),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: llmMocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: llmMocks.streamChat,
+    
+  }
+})
 
 const chapterUtilsMocks = vi.hoisted(() => ({
   extractChapterNumber: vi.fn(),
@@ -55,12 +65,17 @@ const userMemoryMocks = vi.hoisted(() => ({
   loadUserMemoryForProject: vi.fn(),
 }))
 
-vi.mock("@/lib/user-memory", () => ({
-  buildUserAwareDeAiPrompt: userMemoryMocks.buildUserAwareDeAiPrompt,
-  getAvoidWords: userMemoryMocks.getAvoidWords,
-  hasUserDeAiWeights: userMemoryMocks.hasUserDeAiWeights,
-  loadUserMemoryForProject: userMemoryMocks.loadUserMemoryForProject,
-}))
+vi.mock("@/lib/user-memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/user-memory")>()
+  return {
+    ...actual,
+      buildUserAwareDeAiPrompt: userMemoryMocks.buildUserAwareDeAiPrompt,
+      getAvoidWords: userMemoryMocks.getAvoidWords,
+      hasUserDeAiWeights: userMemoryMocks.hasUserDeAiWeights,
+      loadUserMemoryForProject: userMemoryMocks.loadUserMemoryForProject,
+    
+  }
+})
 
 const statusMocks = vi.hoisted(() => ({
   buildNextStatus: vi.fn(),

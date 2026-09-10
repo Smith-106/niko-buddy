@@ -53,53 +53,103 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
-  fileExists: (...args: unknown[]) => mocks.fileExists(...args),
-  listDirectory: (...args: unknown[]) => mocks.listDirectory(...args),
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  writeFile: (...args: unknown[]) => mocks.writeFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: (...args: unknown[]) => mocks.createDirectory(...args),
+      fileExists: (...args: unknown[]) => mocks.fileExists(...args),
+      listDirectory: (...args: unknown[]) => mocks.listDirectory(...args),
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => mocks.streamChat(...args),
-  combineAbortSignals: (a?: AbortSignal, b?: AbortSignal) => a ?? b,
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => mocks.streamChat(...args),
+      combineAbortSignals: (a?: AbortSignal, b?: AbortSignal) => a ?? b,
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
-vi.mock("@/lib/output-language", () => ({
-  getOutputLanguage: (...args: unknown[]) => mocks.getOutputLanguage(...args),
-}))
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual,
+      getOutputLanguage: (...args: unknown[]) => mocks.getOutputLanguage(...args),
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (...args: unknown[]) => mocks.normalizePath(...args),
-  getFileName: (...args: unknown[]) => mocks.getFileName(...args),
-  getUniqueOutlinePath: (...args: unknown[]) => mocks.getUniqueOutlinePath(...args),
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: (...args: unknown[]) => mocks.normalizePath(...args),
+      getFileName: (...args: unknown[]) => mocks.getFileName(...args),
+      getUniqueOutlinePath: (...args: unknown[]) => mocks.getUniqueOutlinePath(...args),
+    
+  }
+})
 
-vi.mock("@/lib/project-refresh", () => ({
-  refreshProjectState: (...args: unknown[]) => mocks.refreshProjectState(...args),
-}))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual,
+      refreshProjectState: (...args: unknown[]) => mocks.refreshProjectState(...args),
+    
+  }
+})
 
-vi.mock("@/i18n", () => ({
-  default: { t: (...args: unknown[]) => mocks.i18nT(...args) },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: (...args: unknown[]) => mocks.i18nT(...args) },
+    
+  }
+})
 
-vi.mock("@/lib/novel/prompt-templates", () => ({
-  PROMPTS: { outlineGeneration: (...args: unknown[]) => mocks.outlineGenerationPrompt(...args) },
-}))
+vi.mock("@/lib/novel/prompt-templates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/prompt-templates")>()
+  return {
+    ...actual,
+      PROMPTS: { outlineGeneration: (...args: unknown[]) => mocks.outlineGenerationPrompt(...args) },
+    
+  }
+})
 
-vi.mock("@/stores/outline-generation-store", () => ({
-  useOutlineGenerationStore: { getState: () => mocks.outlineStore },
-}))
+vi.mock("@/stores/outline-generation-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/outline-generation-store")>()
+  return {
+    ...actual,
+      useOutlineGenerationStore: { getState: () => mocks.outlineStore },
+    
+  }
+})
 
-vi.mock("@/stores/import-progress-store", () => ({
-  useImportProgressStore: { getState: () => mocks.progress },
-}))
+vi.mock("@/stores/import-progress-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/import-progress-store")>()
+  return {
+    ...actual,
+      useImportProgressStore: { getState: () => mocks.progress },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => mocks.wiki },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => mocks.wiki },
+    
+  }
+})
 
 vi.mock("./chapter-ingest", () => ({
   ingestOutline: (...args: unknown[]) => mocks.ingestOutline(...args),

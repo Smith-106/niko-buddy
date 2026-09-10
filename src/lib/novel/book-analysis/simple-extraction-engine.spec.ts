@@ -7,9 +7,14 @@ const defaultLlmCallMock = vi.hoisted(() =>
   vi.fn(async () => JSON.stringify([]))
 )
 
-vi.mock("@/lib/llm-client", () => ({
-  defaultLlmCall: (...args: Parameters<typeof defaultLlmCallMock>) => defaultLlmCallMock(...args),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      defaultLlmCall: (...args: Parameters<typeof defaultLlmCallMock>) => defaultLlmCallMock(...args),
+    
+  }
+})
 
 const stubLlmConfig: LlmConfig = {
   provider: "openai",

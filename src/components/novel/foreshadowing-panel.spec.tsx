@@ -8,13 +8,14 @@ import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
-import type { ForeshadowingStore } from "@/lib/novel/foreshadowing-tracker"
+import type { ForeshadowingStore } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -22,17 +23,27 @@ const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null, dataVersion: 0 },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const tracker = vi.hoisted(() => ({
   loadForeshadowingTracker: vi.fn<(path: string) => Promise<ForeshadowingStore>>(async () => ({ items: [], lastUpdated: "" })),
 }))
 
-vi.mock("@/lib/novel/foreshadowing-tracker", () => ({
-  loadForeshadowingTracker: tracker.loadForeshadowingTracker,
-}))
+vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
+  return {
+    ...actual,
+      loadForeshadowingTracker: tracker.loadForeshadowingTracker,
+    
+  }
+})
 
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 

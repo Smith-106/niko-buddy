@@ -1,8 +1,6 @@
 import type { Tool } from "../types"
-import { getAllDeAiSkills } from "@/lib/novel/de-ai-skill-library"
-import type { DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
-import type { UserSkill } from "@/lib/novel/skill-library"
-import { resolveSkillReference } from "@/lib/novel/skill-route-registry"
+import { getAllDeAiSkills, resolveSkillReference } from "@/lib/novel"
+import type { DeAiSkillConfig, UserSkill } from "@/lib/novel"
 
 export function createApplySkillTool(
   getConfig: () => DeAiSkillConfig | null,

@@ -3,21 +3,31 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const listDirectory = vi.fn()
 const readFile = vi.fn()
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: (...args: unknown[]) => listDirectory(...args),
-  readFile: (...args: unknown[]) => readFile(...args),
-  writeFile: vi.fn(),
-  createDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: (...args: unknown[]) => listDirectory(...args),
+      readFile: (...args: unknown[]) => readFile(...args),
+      writeFile: vi.fn(),
+      createDirectory: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({
-      embeddingConfig: { enabled: false, model: "" },
-      novelConfig: { communitySummaryEnabled: true, communitySummaryInterval: 5 },
-    }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({
+          embeddingConfig: { enabled: false, model: "" },
+          novelConfig: { communitySummaryEnabled: true, communitySummaryInterval: 5 },
+        }),
+      },
+    
+  }
+})
 
 describe("loadPersistedCommunitySummaries", () => {
   beforeEach(() => {

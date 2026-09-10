@@ -24,17 +24,32 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: mocks.useWikiStore,
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: mocks.useWikiStore,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+    
+  }
+})
 
 const TREE: FileNode[] = [
   { name: "dir-a", path: "dir-a", is_dir: true, children: [

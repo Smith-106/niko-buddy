@@ -15,9 +15,14 @@ const mocks = vi.hoisted(() => {
   return { state }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { activeView: string; novelMode: boolean }) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { activeView: string; novelMode: boolean }) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 vi.mock("@/components/layout/writing-workspace", () => ({
   WritingWorkspace: () => <div>mock-writing-workspace</div>,

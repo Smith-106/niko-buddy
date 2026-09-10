@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
-import { isLikelyChapterOutline, summarizeChapterOutlineQuality } from "@/lib/novel/outline-quality-check"
+import { isLikelyChapterOutline, summarizeChapterOutlineQuality } from "@/lib/novel"
 
 function isJsonContent(text: string): boolean {
   const trimmed = text.trim()

@@ -4,17 +4,27 @@ import { invoke } from "@tauri-apps/api/core"
 
 const fetchMock = vi.fn()
 
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: async () => fetchMock,
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: async () => fetchMock,
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: () => true,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: () => true,
+    
+  }
+})
 
 function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
   return {

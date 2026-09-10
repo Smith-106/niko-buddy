@@ -5,9 +5,14 @@ const mocks = vi.hoisted(() => ({
   convertFileSrc: vi.fn((p: string) => `asset://${p}`),
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: mocks.convertFileSrc,

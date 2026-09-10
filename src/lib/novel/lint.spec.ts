@@ -23,22 +23,42 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-  combineAbortSignals: mocks.combineAbortSignals,
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: mocks.DEFAULT_LLM_REQUEST_TIMEOUT_MS,
-}))
-vi.mock("@/i18n", () => ({
-  default: { t: mocks.t },
-}))
-vi.mock("@/lib/output-language", () => ({
-  getOutputLanguage: mocks.getOutputLanguage,
-  buildLanguageReminder: mocks.buildLanguageReminder,
-}))
-vi.mock("@/lib/utils", () => ({
-  validateSeverity: mocks.validateSeverity,
-  logger: { error: mocks.loggerError },
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+      combineAbortSignals: mocks.combineAbortSignals,
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: mocks.DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+    
+  }
+})
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: mocks.t },
+    
+  }
+})
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual,
+      getOutputLanguage: mocks.getOutputLanguage,
+      buildLanguageReminder: mocks.buildLanguageReminder,
+    
+  }
+})
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      validateSeverity: mocks.validateSeverity,
+      logger: { error: mocks.loggerError },
+    
+  }
+})
 vi.mock("./context-engine", () => ({
   contextPackToPrompt: mocks.contextPackToPrompt,
   buildContextPack: mocks.buildContextPack,
@@ -46,15 +66,25 @@ vi.mock("./context-engine", () => ({
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: mocks.resolveNovelModel,
 }))
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: mocks.hasUsableLlm,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: mocks.hasUsableLlm,
+    
+  }
+})
 vi.mock("./chapter-window", () => ({
   sliceChapterForReview: mocks.sliceChapterForReview,
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: mocks.useWikiStore,
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: mocks.useWikiStore,
+    
+  }
+})
 
 import { buildBookRulesLintFragment, buildNovelLintPrompt, runNovelLint } from "./lint"
 import { EMPTY_BOOK_RULES } from "./book-rules"

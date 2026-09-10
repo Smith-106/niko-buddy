@@ -8,14 +8,24 @@ const mocks = vi.hoisted(() => ({
   getCachedDimensionResults: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  getFileModifiedTime: (...args: unknown[]) => mocks.getFileModifiedTime(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      getFileModifiedTime: (...args: unknown[]) => mocks.getFileModifiedTime(...args),
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (p: string) => p.replace(/\\/g, "/"),
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: (p: string) => p.replace(/\\/g, "/"),
+    
+  }
+})
 
 vi.mock("./novel-session-status", () => ({
   loadNovelSessionStatus: (...args: unknown[]) => mocks.loadNovelSessionStatus(...args),

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Clock } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { getTimelineEvents, type TimelineEntry } from "@/lib/novel/timeline"
-import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
+import { getTimelineEvents, findChapterFileByNumber } from "@/lib/novel"
+import type { TimelineEntry } from "@/lib/novel"
 
 export function TimelineView() {
   const { t } = useTranslation()

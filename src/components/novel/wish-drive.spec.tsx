@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen } from "@/test-helpers/component-test-utils"
-import type { ArcStage } from "@/lib/novel/craft/canon-craft-fields"
+import type { ArcStage } from "@/lib/novel"
 import {
   ACTION_EVIDENCE_STAGES,
   WishDrive,

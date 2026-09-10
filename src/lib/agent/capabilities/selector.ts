@@ -1,5 +1,4 @@
-import type { DataSourceCategory } from "@/lib/novel/classification"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
+import type { DataSourceCategory, NovelTaskIntent } from "@/lib/novel"
 import { resolveAiWorkflowMode, type AiWorkflowMode } from "../workflow-mode"
 import type { AiCapability, SelectedCapabilityTrace } from "./types"
 

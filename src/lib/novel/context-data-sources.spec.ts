@@ -84,13 +84,23 @@ vi.mock("./context-engine", () => ({
   joinNonEmpty: mocks.joinNonEmpty,
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/search", () => ({
-  searchWiki: mocks.searchWiki,
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: mocks.searchWiki,
+    
+  }
+})
 
 const context: ContextLoadContext = {
   projectPath: "E:/Novel",

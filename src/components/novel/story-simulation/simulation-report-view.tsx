@@ -5,9 +5,9 @@ import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, 
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore, type SavedSimulationResult } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { exportReport } from "@/lib/novel/story-simulation/report-export"
+import { exportReport } from "@/lib/novel"
+import type { StoryBranch, TimelineEvent, StoryFramework, SimulationReport } from "@/lib/novel"
 import { cn } from "@/lib/utils"
-import type { StoryBranch, TimelineEvent, StoryFramework, SimulationReport } from "@/lib/novel/story-simulation/types"
 
 const PROBABILITY_COLORS: Record<string, string> = {
   high: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",

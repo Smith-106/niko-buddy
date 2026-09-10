@@ -25,15 +25,25 @@ const mocks = vi.hoisted(() => ({
   searchByEmbedding: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-  listDirectory: vi.fn(async () => []),
-  getFileModifiedTime: vi.fn(async () => 0),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+      listDirectory: vi.fn(async () => []),
+      getFileModifiedTime: vi.fn(async () => 0),
+    
+  }
+})
 
-vi.mock("@/lib/embedding", () => ({
-  searchByEmbedding: (...args: unknown[]) => mocks.searchByEmbedding(...args),
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      searchByEmbedding: (...args: unknown[]) => mocks.searchByEmbedding(...args),
+    
+  }
+})
 
 import { runVectorSearch } from "./search-adapter"
 import { runVectorSearchForContext } from "./context-engine"

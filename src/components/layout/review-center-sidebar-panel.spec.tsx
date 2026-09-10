@@ -44,62 +44,98 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+      readFile: mocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-utils", () => ({
-  flattenMdFiles: mocks.flattenMdFiles,
-}))
+vi.mock("@/lib/novel/chapter-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-utils")>()
+  return {
+    ...actual,
+      flattenMdFiles: mocks.flattenMdFiles,
+    
+  }
+})
 
-vi.mock("@/lib/frontmatter", () => ({
-  parseFrontmatter: mocks.parseFrontmatter,
-}))
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+      parseFrontmatter: mocks.parseFrontmatter,
+    
+  }
+})
 
 vi.mock("@/components/layout/panel-header-with-help", () => ({
   PanelHeaderWithHelp: ({ title }: { title: string }) => <span>{title}</span>,
 }))
 
-vi.mock("@/lib/novel/dimension-review-adapter", () => ({
-  SIX_REVIEW_DIMENSION_ORDER: ["consistency", "character", "continuity", "thrill", "pacing", "pull"],
-  SIX_REVIEW_DIMENSIONS: {
-    consistency: { key: "consistency", label: "一致性" },
-    character: { key: "character", label: "人物" },
-    continuity: { key: "continuity", label: "连续性" },
-    thrill: { key: "thrill", label: "张力" },
-    pacing: { key: "pacing", label: "节奏" },
-    pull: { key: "pull", label: "吸引力" },
-  },
-}))
+vi.mock("@/lib/novel/dimension-review-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/dimension-review-adapter")>()
+  return {
+    ...actual,
+      SIX_REVIEW_DIMENSION_ORDER: ["consistency", "character", "continuity", "thrill", "pacing", "pull"],
+      SIX_REVIEW_DIMENSIONS: {
+        consistency: { key: "consistency", label: "一致性" },
+        character: { key: "character", label: "人物" },
+        continuity: { key: "continuity", label: "连续性" },
+        thrill: { key: "thrill", label: "张力" },
+        pacing: { key: "pacing", label: "节奏" },
+        pull: { key: "pull", label: "吸引力" },
+      },
+    
+  }
+})
 
-vi.mock("@/lib/novel/measurement-fingerprint", () => ({
-  formatMeasurementFingerprintSummary: mocks.formatMeasurementFingerprintSummary,
-}))
+vi.mock("@/lib/novel/measurement-fingerprint", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/measurement-fingerprint")>()
+  return {
+    ...actual,
+      formatMeasurementFingerprintSummary: mocks.formatMeasurementFingerprintSummary,
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-thrill-checkpoints", () => ({
-  THRILL_CHECKPOINT_ORDER: ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook", "fix1_no_conflict"],
-  THRILL_CHECKPOINT_LABELS: {
-    crisis_info_early: "危机信息",
-    pressure_release: "压抑释放",
-    protagonist_agency: "主角能动",
-    chapter_end_hook: "章末钩",
-    fix1_no_conflict: "FIX-1 无冲突",
-  },
-  getOutlineThrillSoftGateRuntimeStatus: mocks.getOutlineThrillSoftGateRuntimeStatus,
-  isThrillSoftGateAcknowledged: mocks.isThrillSoftGateAcknowledged,
-  thrilAckChapterKey: mocks.thrilAckChapterKey,
-}))
+vi.mock("@/lib/novel/outline-thrill-checkpoints", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-thrill-checkpoints")>()
+  return {
+    ...actual,
+      THRILL_CHECKPOINT_ORDER: ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook", "fix1_no_conflict"],
+      THRILL_CHECKPOINT_LABELS: {
+        crisis_info_early: "危机信息",
+        pressure_release: "压抑释放",
+        protagonist_agency: "主角能动",
+        chapter_end_hook: "章末钩",
+        fix1_no_conflict: "FIX-1 无冲突",
+      },
+      getOutlineThrillSoftGateRuntimeStatus: mocks.getOutlineThrillSoftGateRuntimeStatus,
+      isThrillSoftGateAcknowledged: mocks.isThrillSoftGateAcknowledged,
+      thrilAckChapterKey: mocks.thrilAckChapterKey,
+    
+  }
+})
 
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 

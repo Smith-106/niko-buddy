@@ -4,8 +4,7 @@
 // modality），绝不含内部句柄 `knownBy` / `digest`——与投影层 allowlist 对齐。
 
 import { useTranslation } from "react-i18next"
-import type { CanonFact } from "@/lib/novel/canon-graph-client"
-import type { CanonRevisionDiff } from "@/lib/novel/canon-revision-diff"
+import type { CanonFact, CanonRevisionDiff } from "@/lib/novel"
 
 export interface CanonRevisionDiffViewProps {
   diff: CanonRevisionDiff

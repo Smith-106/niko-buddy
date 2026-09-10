@@ -11,11 +11,16 @@ const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
 const cachePath = "/proj/.qmai/ingest-cache.json"
 

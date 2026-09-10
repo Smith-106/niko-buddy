@@ -37,13 +37,23 @@ vi.mock("@/lib/project-identity", () => ({
   upsertProjectInfo: mocks.upsertProjectInfo,
 }))
 
-vi.mock("@/lib/project-refresh", () => ({
-  refreshProjectState: mocks.refreshProjectState,
-}))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual,
+      refreshProjectState: mocks.refreshProjectState,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => ({ project: mocks.getProject() }) },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => ({ project: mocks.getProject() }) },
+    
+  }
+})
 
 import { importBackup } from "./import"
 import type { ImportResult } from "./types"

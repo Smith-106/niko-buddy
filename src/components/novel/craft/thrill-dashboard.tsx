@@ -15,8 +15,7 @@ import { useMemo, useState, Suspense, lazy, useId } from "react"
 import { useTranslation } from "react-i18next"
 // @tanstack/react-table v9 API 不兼容 v8 行/列模型，此处使用原生 HTML 表格
 import { BarChart3, RefreshCw } from "lucide-react"
-import type { ThrillQuantifierResult, TensionSample, QuantifiedHit } from "@/lib/novel/craft/thrill-quantifier"
-import type { SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import type { ThrillQuantifierResult, TensionSample, QuantifiedHit, SixReviewDimensionKey } from "@/lib/novel"
 
 // 懒加载 ECharts 图表组件——首次渲染 thrill-dashboard 时才加载 echarts bundle
 const ThrillECharts = lazy(() =>

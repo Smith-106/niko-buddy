@@ -2,35 +2,50 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 
 const streamChatMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: streamChatMock,
-  combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
-    const active = signals.filter(Boolean) as AbortSignal[]
-    if (active.length === 0) return undefined
-    if (active.length === 1) return active[0]
-    const controller = new AbortController()
-    for (const s of active) {
-      if (s.aborted) {
-        controller.abort()
-        break
-      }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: streamChatMock,
+      combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
+        const active = signals.filter(Boolean) as AbortSignal[]
+        if (active.length === 0) return undefined
+        if (active.length === 1) return active[0]
+        const controller = new AbortController()
+        for (const s of active) {
+          if (s.aborted) {
+            controller.abort()
+            break
+          }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
 const storeState = vi.hoisted(() => ({
   llmConfig: { provider: "custom", model: "m", customEndpoint: "http://x" } as LlmConfig,
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => storeState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => storeState },
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: (cfg: unknown) => cfg,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: (cfg: unknown) => cfg,
+    
+  }
+})
 
 import {
   AURA_WORKFLOW_STAGES,

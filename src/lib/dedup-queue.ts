@@ -17,7 +17,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel"
 import { executeMerge } from "@/lib/dedup-runner"
 import type { DuplicateGroup } from "@/lib/dedup"
 

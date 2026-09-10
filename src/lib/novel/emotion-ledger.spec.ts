@@ -36,11 +36,16 @@ const fsMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+    
+  }
+})
 
 // 写入 character-states.json (供 loadCharacterStates 读取) + 清空 emotion-ledger.json。
 function seedCharacterStates(projectPath: string, names: string[]) {

@@ -3,16 +3,21 @@ import type { BookStyleProfile } from "./book-analysis/types"
 
 const mem = new Map<string, string>()
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async (path: string) => {
-    if (!mem.has(path)) throw new Error("ENOENT")
-    return mem.get(path)!
-  }),
-  writeFileAtomic: vi.fn(async (path: string, content: string) => {
-    mem.set(path, content)
-  }),
-  createDirectory: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async (path: string) => {
+        if (!mem.has(path)) throw new Error("ENOENT")
+        return mem.get(path)!
+      }),
+      writeFileAtomic: vi.fn(async (path: string, content: string) => {
+        mem.set(path, content)
+      }),
+      createDirectory: vi.fn(async () => {}),
+    
+  }
+})
 
 import {
   loadWritingStyleStore,

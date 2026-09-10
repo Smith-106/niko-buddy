@@ -8,14 +8,19 @@ const fsMocks = vi.hoisted(() => ({
   getFileModifiedTime: vi.fn(async (_path: string): Promise<number> => 0),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-  listDirectory: vi.fn(async (_path: string): Promise<any[]> => []),
-  createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
-  fileExists: vi.fn(async (_path: string): Promise<boolean> => false),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+      listDirectory: vi.fn(async (_path: string): Promise<any[]> => []),
+      createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
+      fileExists: vi.fn(async (_path: string): Promise<boolean> => false),
+    
+  }
+})
 
 import { queryInspectorState } from "./inspector-query"
 import { getCachedDimensionResults } from "./dimension-review-adapter"

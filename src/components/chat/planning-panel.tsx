@@ -4,12 +4,7 @@
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type {
-  ChapterPlanView,
-  ParticlePlanItem,
-  PlanDimensionSlice,
-  StateDeltaPlanItem,
-} from "@/lib/novel/planning"
+import type { ChapterPlanView, ParticlePlanItem, PlanDimensionSlice, StateDeltaPlanItem } from "@/lib/novel"
 
 /**
  * Wave 3 计划模式 — 计划面板（受控纯展示组件）。

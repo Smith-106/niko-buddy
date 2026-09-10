@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup as rtlCleanup, render, screen, fireEvent } from "@testing-library/react"
 import { DeAiBatchDialog } from "./de-ai-batch-dialog"
-import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel/de-ai-batch"
+import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
 
 const progress: DeAiBatchProgress = {
   phase: "running",

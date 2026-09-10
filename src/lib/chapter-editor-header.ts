@@ -1,7 +1,8 @@
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { buildChapterWordCountLabel, getChapterStatusLabel } from "@/lib/chapter-display"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
+import { normalizeChapterStatus } from "@/lib/novel"
+import type { ChapterStatus } from "@/lib/novel"
 
 function getChapterTitleInputWidth(heading: string): number {
   const visualWidth = Array.from(heading).reduce((total, char) => {

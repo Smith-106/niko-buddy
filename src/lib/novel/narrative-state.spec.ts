@@ -197,11 +197,16 @@ describe("narrative-state 激活增量（27 号评估 V5 共识：持久化门�
         throw new Error("ENOENT")
       }),
     }))
-    vi.mock("@/commands/fs", () => ({
-      createDirectory: fsMocks.createDirectory,
-      writeFileAtomic: fsMocks.writeFileAtomic,
-      readFile: fsMocks.readFile,
-    }))
+    vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+          createDirectory: fsMocks.createDirectory,
+          writeFileAtomic: fsMocks.writeFileAtomic,
+          readFile: fsMocks.readFile,
+        
+  }
+})
     const { saveNarrativeState: save, loadNarrativeState: load } = await import("./narrative-state")
     let captured: string | null = null
     fsMocks.writeFileAtomic.mockImplementation(async (_p: string, content: string) => {

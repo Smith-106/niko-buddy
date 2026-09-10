@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, RefreshCw, MapPin, Swords, Package } from "lucide-react"
-import { loadCognitionState, type CognitionState } from "@/lib/novel/character-cognition"
-import { loadCharacterStates, type CharacterState } from "@/lib/novel/character-state"
+import { loadCognitionState, loadCharacterStates } from "@/lib/novel"
+import type { CognitionState, CharacterState } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface Props {

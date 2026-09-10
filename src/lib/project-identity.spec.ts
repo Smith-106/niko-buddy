@@ -9,18 +9,33 @@ const mocks = vi.hoisted(() => ({
   isTauri: vi.fn(),
 }))
 
-vi.mock("@/lib/web-store", () => ({
-  getStore: mocks.getStore,
-}))
+vi.mock("@/lib/web-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-store")>()
+  return {
+    ...actual,
+      getStore: mocks.getStore,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
 import {
   ensureProjectId,

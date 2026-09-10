@@ -74,30 +74,51 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+    
+  }
+})
 
-vi.mock("@/lib/trash", () => ({
-  cleanupExpiredTrashItems: mocks.cleanupExpiredTrashItems,
-  getTrashDaysRemaining: mocks.getTrashDaysRemaining,
-  listTrashItems: mocks.listTrashItems,
-  permanentlyDeleteAllTrashItems: mocks.permanentlyDeleteAllTrashItems,
-  permanentlyDeleteTrashItem: mocks.permanentlyDeleteTrashItem,
-  restoreTrashItem: mocks.restoreTrashItem,
-  readTrashItemContent: mocks.readTrashItemContent,
-}))
+vi.mock("@/lib/trash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/trash")>()
+  return {
+    ...actual,
+      cleanupExpiredTrashItems: mocks.cleanupExpiredTrashItems,
+      getTrashDaysRemaining: mocks.getTrashDaysRemaining,
+      listTrashItems: mocks.listTrashItems,
+      permanentlyDeleteAllTrashItems: mocks.permanentlyDeleteAllTrashItems,
+      permanentlyDeleteTrashItem: mocks.permanentlyDeleteTrashItem,
+      restoreTrashItem: mocks.restoreTrashItem,
+      readTrashItemContent: mocks.readTrashItemContent,
+    
+  }
+})
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({

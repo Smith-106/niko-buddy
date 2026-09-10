@@ -4,12 +4,8 @@ import { X, MessageCircle, Trash2, Clock, User, ChevronRight, Download } from "l
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { loadInterviews, deleteInterview } from "@/lib/novel/story-simulation/interview-store"
-import { exportInterview } from "@/lib/novel/story-simulation/interview-export"
-import { deserializeSimulationSnapshot } from "@/lib/novel/story-simulation/simulation-serializer"
-import { loadSimulationResults } from "@/lib/novel/story-simulation/framework-store"
-import type { SavedInterview } from "@/lib/novel/story-simulation/interview-store"
-import type { NovelAgent } from "@/lib/novel/story-simulation/types"
+import { loadInterviews, deleteInterview, exportInterview, deserializeSimulationSnapshot, loadSimulationResults } from "@/lib/novel"
+import type { SavedInterview, NovelAgent } from "@/lib/novel"
 
 export function InterviewHistoryView() {
   const { t } = useTranslation()

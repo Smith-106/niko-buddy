@@ -4,22 +4,27 @@ import { isNodeGoalReachedWithEmbedding } from "@/lib/novel/story-simulation/sim
 import type { StoryNode, TimelineEvent } from "@/lib/novel/story-simulation/types"
 import type { LlmConfig } from "@/stores/wiki-store"
 
-vi.mock("@/lib/embedding-client", () => ({
-  cosineSimilarity: vi.fn((a: number[], b: number[]) => {
-    if (a.length === 0 || b.length === 0) return 0
-    let dot = 0
-    let normA = 0
-    let normB = 0
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
-    }
-    if (normA === 0 || normB === 0) return 0
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB))
-  }),
-  embed: vi.fn(),
-}))
+vi.mock("@/lib/embedding-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding-client")>()
+  return {
+    ...actual,
+      cosineSimilarity: vi.fn((a: number[], b: number[]) => {
+        if (a.length === 0 || b.length === 0) return 0
+        let dot = 0
+        let normA = 0
+        let normB = 0
+        for (let i = 0; i < a.length; i++) {
+          dot += a[i] * b[i]
+          normA += a[i] * a[i]
+          normB += b[i] * b[i]
+        }
+        if (normA === 0 || normB === 0) return 0
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+      }),
+      embed: vi.fn(),
+    
+  }
+})
 
 import { embed } from "@/lib/embedding-client"
 

@@ -12,12 +12,17 @@ const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFile: fsMocks.writeFile,
-  readFile: fsMocks.readFile,
-  listDirectory: fsMocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFile: fsMocks.writeFile,
+      readFile: fsMocks.readFile,
+      listDirectory: fsMocks.listDirectory,
+    
+  }
+})
 
 vi.mock("./library-store", () => ({
   findBookLibraryEntry: vi.fn(async () => null),

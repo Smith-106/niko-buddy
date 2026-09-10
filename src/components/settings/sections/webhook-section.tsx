@@ -3,13 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Webhook, Send, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  buildSignedWebhookRequest,
-  dispatchNotify,
-  verifyWebhookSignature,
-  type NotifyEvent,
-  type NotifyEventType,
-} from "@/lib/novel/webhook-notifier"
+import { buildSignedWebhookRequest, dispatchNotify, verifyWebhookSignature } from "@/lib/novel"
+import type { NotifyEvent, NotifyEventType } from "@/lib/novel"
 
 /**
  * WebhookSection — Webhook 守护配置卡（65 号共识 G2 挂载：形态轴 F6 消费侧）。

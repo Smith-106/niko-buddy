@@ -6,13 +6,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
-import type { TimelineEntry } from "@/lib/novel/timeline"
+import type { TimelineEntry } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -20,17 +21,27 @@ const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null, dataVersion: 0 },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const timeline = vi.hoisted(() => ({
   getTimelineEvents: vi.fn<(projectPath: string) => Promise<TimelineEntry[]>>(async () => []),
 }))
 
-vi.mock("@/lib/novel/timeline", () => ({
-  getTimelineEvents: timeline.getTimelineEvents,
-}))
+vi.mock("@/lib/novel/timeline", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/timeline")>()
+  return {
+    ...actual,
+      getTimelineEvents: timeline.getTimelineEvents,
+    
+  }
+})
 
 import { TimelineView } from "./timeline-view"
 

@@ -1,5 +1,5 @@
 import i18n from "@/i18n"
-import { normalizeChapterStatus } from "@/lib/novel/chapter-meta"
+import { normalizeChapterStatus } from "@/lib/novel"
 
 export function getChapterStatusLabel(status: unknown): string {
   const normalized = normalizeChapterStatus(status)

@@ -1,6 +1,6 @@
 import { Plus, RefreshCw, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryState } from "@/lib/novel"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"

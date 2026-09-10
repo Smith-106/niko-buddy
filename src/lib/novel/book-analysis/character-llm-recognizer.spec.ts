@@ -24,22 +24,27 @@ const extractJsonArraySpanMock = vi.hoisted(() => {
   })
   return fn
 })
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => streamChatMock(...args),
-  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
-    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
-    if (signals.length === 0) return undefined
-    if (signals.length === 1) return signals[0]
-    const controller = new AbortController()
-    for (const s of signals) {
-      if (s.aborted) { controller.abort(); break }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
-  extractJsonArraySpan: (...args: unknown[]) => extractJsonArraySpanMock(...args),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => streamChatMock(...args),
+      combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+        const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+        if (signals.length === 0) return undefined
+        if (signals.length === 1) return signals[0]
+        const controller = new AbortController()
+        for (const s of signals) {
+          if (s.aborted) { controller.abort(); break }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+      extractJsonArraySpan: (...args: unknown[]) => extractJsonArraySpanMock(...args),
+    
+  }
+})
 
 const llmConfig: LlmConfig = {
   provider: "custom",

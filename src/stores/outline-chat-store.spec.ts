@@ -8,17 +8,27 @@ const mockWiki = vi.hoisted(() => ({
   project: null as { path: string } | null,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => mockWiki,
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => mockWiki,
+      },
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  writeFile: vi.fn(),
-  createDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      createDirectory: vi.fn(),
+    
+  }
+})
 
 import { useOutlineChatStore } from "./outline-chat-store"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"

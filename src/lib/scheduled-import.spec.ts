@@ -31,24 +31,39 @@ const mocks = vi.hoisted(() => ({
   setScheduledImportConfig: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  copyFile: mocks.copyFile,
-  fileExists: mocks.fileExists,
-  getFileMd5: mocks.getFileMd5,
-  getFileSize: mocks.getFileSize,
-  listDirectory: mocks.listDirectory,
-  preprocessFile: mocks.preprocessFile,
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      copyFile: mocks.copyFile,
+      fileExists: mocks.fileExists,
+      getFileMd5: mocks.getFileMd5,
+      getFileSize: mocks.getFileSize,
+      listDirectory: mocks.listDirectory,
+      preprocessFile: mocks.preprocessFile,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.wikiGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.wikiGetState },
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: mocks.resolveDefaultModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: mocks.resolveDefaultModel,
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   loadScheduledImportConfig: mocks.loadScheduledImportConfig,

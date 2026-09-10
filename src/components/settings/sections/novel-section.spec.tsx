@@ -53,35 +53,56 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   saveNovelConfig: mocks.saveNovelConfig,
 }))
 
-vi.mock("@/lib/novel/anti-ai-telemetry-wiring", () => ({
-  loadAntiAiTelemetryConsent: mocks.loadAntiAiTelemetryConsent,
-  saveAntiAiTelemetryConsent: mocks.saveAntiAiTelemetryConsent,
-  applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen,
-}))
+vi.mock("@/lib/novel/anti-ai-telemetry-wiring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/anti-ai-telemetry-wiring")>()
+  return {
+    ...actual,
+      loadAntiAiTelemetryConsent: mocks.loadAntiAiTelemetryConsent,
+      saveAntiAiTelemetryConsent: mocks.saveAntiAiTelemetryConsent,
+      applyAntiAiTelemetryConsentOnProjectOpen: mocks.applyAntiAiTelemetryConsentOnProjectOpen,
+    
+  }
+})
 
-vi.mock("@/lib/novel/novel-model-test", () => ({
-  testNovelModel: mocks.testNovelModel,
-}))
+vi.mock("@/lib/novel/novel-model-test", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-model-test")>()
+  return {
+    ...actual,
+      testNovelModel: mocks.testNovelModel,
+    
+  }
+})
 
-vi.mock("@/lib/novel/kb-shadow-wiring", () => ({
-  runKbShadowArmsIfConsented: mocks.runKbShadowArmsIfConsented,
-  goldenKbShadowCases: mocks.goldenKbShadowCases,
-  goldenCoverageOf: mocks.goldenCoverageOf,
-}))
+vi.mock("@/lib/novel/kb-shadow-wiring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/kb-shadow-wiring")>()
+  return {
+    ...actual,
+      runKbShadowArmsIfConsented: mocks.runKbShadowArmsIfConsented,
+      goldenKbShadowCases: mocks.goldenKbShadowCases,
+      goldenCoverageOf: mocks.goldenCoverageOf,
+    
+  }
+})
 
 vi.mock("@/components/chat/chat-model-selector", () => ({
   ChatModelSelector: (props: { value: string; onChange: (m: string) => void; disabled?: boolean }) => {

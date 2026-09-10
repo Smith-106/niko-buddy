@@ -72,9 +72,14 @@ vi.mock("@/components/editor/wiki-reader", () => ({
   WikiReader: ({ body }: { body: string }) => <div data-testid="wiki-reader">{body}</div>,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector({ project: null }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector({ project: null }),
+    
+  }
+})
 
 async function flushAsync(): Promise<void> {
   await act(async () => {

@@ -51,9 +51,14 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 vi.mock("./review-view", () => ({
   ReviewView: (props: {
@@ -78,13 +83,23 @@ vi.mock("@/components/dashboard/dashboard-view", () => ({
   ),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/novel/start-six-dimension-review-run", () => ({
-  startSixDimensionReviewRun: mocks.startSixDimensionReviewRun,
-}))
+vi.mock("@/lib/novel/start-six-dimension-review-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/start-six-dimension-review-run")>()
+  return {
+    ...actual,
+      startSixDimensionReviewRun: mocks.startSixDimensionReviewRun,
+    
+  }
+})
 
 // F-010: storyboard 子面板的三个可视化视图用占位 mock（入口逻辑测试不测内部渲染）
 vi.mock("@/components/novel/corkboard-view", () => ({

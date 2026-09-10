@@ -47,27 +47,47 @@ const mocks = vi.hoisted(() => ({
 
 let failEmbeddingModule = false
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.wikiGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.wikiGetState },
+    
+  }
+})
 
 vi.mock("@/stores/chat-store", () => ({
   useChatStore: { getState: mocks.chatGetState },
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { t: mocks.t },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: mocks.t },
+    
+  }
+})
 
 vi.mock("@/stores/activity-store", () => ({
   useActivityStore: { getState: mocks.activityGetState },
@@ -100,9 +120,14 @@ vi.mock("@/lib/image-caption-pipeline", () => ({
   loadCaptionCache: mocks.loadCaptionCache,
 }))
 
-vi.mock("@/lib/output-language", () => ({
-  buildLanguageDirective: mocks.buildLanguageDirective,
-}))
+vi.mock("@/lib/output-language", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/output-language")>()
+  return {
+    ...actual,
+      buildLanguageDirective: mocks.buildLanguageDirective,
+    
+  }
+})
 
 vi.mock("@/lib/detect-language", () => ({
   detectLanguage: mocks.detectLanguage,

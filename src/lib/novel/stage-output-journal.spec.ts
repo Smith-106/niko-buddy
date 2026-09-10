@@ -31,11 +31,16 @@ import {
   type StageOutputRecord,
 } from "./stage-output-journal"
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: vi.fn(async () => {}),
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: vi.fn(async () => {}),
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+    
+  }
+})
 
 const createDirectoryMock = vi.mocked(createDirectory)
 const readFileMock = vi.mocked(readFile)

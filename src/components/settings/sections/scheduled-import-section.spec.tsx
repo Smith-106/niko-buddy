@@ -39,20 +39,31 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 vi.mock("@/lib/scheduled-import", () => ({
   scanAndImport: mocks.scanAndImport,
 }))
 
-vi.mock("@/lib/platform", () => ({
-  pickDirectory: mocks.pickDirectory,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      pickDirectory: mocks.pickDirectory,
+    
+  }
+})
 
 function makeDraft(overrides: Partial<SettingsDraft> = {}): SettingsDraft {
   return {

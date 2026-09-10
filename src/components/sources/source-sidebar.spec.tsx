@@ -63,23 +63,38 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiStateMock) => unknown) => selector(mocks.state),
-    { getState: () => mocks.getState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiStateMock) => unknown) => selector(mocks.state),
+        { getState: () => mocks.getState },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-  copyFile: mocks.copyFile,
-  deleteFile: mocks.deleteFile,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+      copyFile: mocks.copyFile,
+      deleteFile: mocks.deleteFile,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 
 vi.mock("@/lib/project-store", () => ({
   saveNovelConfig: mocks.saveNovelConfig,
@@ -102,6 +117,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 

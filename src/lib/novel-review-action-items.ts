@@ -1,7 +1,6 @@
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
-import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import { scoreReviewResults } from "@/lib/novel"
+import type { NovelReviewResult, DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel"
 import { buildDashboardIssueId } from "@/lib/dashboard-issue-actions"
-import { scoreReviewResults } from "@/lib/novel/review-scoring"
 import { buildReviewScoringOptions } from "@/lib/user-memory/injector"
 import type { UserMemoryStore } from "@/lib/user-memory/types"
 

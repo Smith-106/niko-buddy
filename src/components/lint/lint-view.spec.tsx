@@ -129,60 +129,111 @@ const mocks = vi.hoisted(() => {
 // Resolved from the hoisted mocks (project object lives inside vi.hoisted).
 const PROJECT = mocks.project
 
-vi.mock("@/i18n", () => ({ default: { t: mocks.t } }))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual, default: { t: mocks.t } 
+  }
+})
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
 vi.mock("@/stores/review-store", () => ({
   useReviewStore: Object.assign(() => ({}), { getState: () => mocks.reviewState }),
 }))
 
-vi.mock("@/lib/lint", () => ({
-  runStructuralLint: mocks.runStructuralLint,
-  runSemanticLint: mocks.runSemanticLint,
-}))
+vi.mock("@/lib/lint", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/lint")>()
+  return {
+    ...actual,
+      runStructuralLint: mocks.runStructuralLint,
+      runSemanticLint: mocks.runSemanticLint,
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: mocks.hasUsableLlm,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: mocks.hasUsableLlm,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+    
+  }
+})
 
-vi.mock("@/lib/frontmatter", () => ({
-  parseFrontmatter: mocks.parseFrontmatter,
-}))
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+      parseFrontmatter: mocks.parseFrontmatter,
+    
+  }
+})
 
-vi.mock("@/lib/novel/chapter-meta", () => ({
-  parseChapterMeta: mocks.parseChapterMeta,
-}))
+vi.mock("@/lib/novel/chapter-meta", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-meta")>()
+  return {
+    ...actual,
+      parseChapterMeta: mocks.parseChapterMeta,
+    
+  }
+})
 
-vi.mock("@/lib/novel/revision-feedback", () => ({
-  persistRevisionFeedbackForChapter: mocks.persistRevisionFeedbackForChapter,
-  pickRevisionFeedbackFromLintResults: mocks.pickRevisionFeedbackFromLintResults,
-}))
+vi.mock("@/lib/novel/revision-feedback", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/revision-feedback")>()
+  return {
+    ...actual,
+      persistRevisionFeedbackForChapter: mocks.persistRevisionFeedbackForChapter,
+      pickRevisionFeedbackFromLintResults: mocks.pickRevisionFeedbackFromLintResults,
+    
+  }
+})
 
-vi.mock("@/lib/novel/generation-history", () => ({
-  deleteGenerationHistoryEntry: mocks.deleteGenerationHistoryEntry,
-  listGenerationHistory: mocks.listGenerationHistory,
-  saveGenerationHistoryEntry: mocks.saveGenerationHistoryEntry,
-}))
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      deleteGenerationHistoryEntry: mocks.deleteGenerationHistoryEntry,
+      listGenerationHistory: mocks.listGenerationHistory,
+      saveGenerationHistoryEntry: mocks.saveGenerationHistoryEntry,
+    
+  }
+})
 
 // The dynamic import inside handleDeleteOrphan is intercepted by vitest too.
 vi.mock("@/lib/wiki-page-delete", () => ({

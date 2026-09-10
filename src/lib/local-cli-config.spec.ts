@@ -4,9 +4,14 @@ import { invoke } from "@tauri-apps/api/core"
 
 const isTauriMock = vi.fn()
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: () => isTauriMock(),
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: () => isTauriMock(),
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),

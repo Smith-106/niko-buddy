@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo, useId } from "react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
+import type { NovelReviewResult, CognitionState, GenerationHistoryEntry, SixReviewDimensionKey, ContinuityOverrideReasonCode } from "@/lib/novel"
 import {
   AlertTriangle,
   Copy,
@@ -27,24 +28,10 @@ import {
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getUserMemoryStore } from "@/lib/user-memory/session"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { writeFile, readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { loadCognitionState, type CognitionState } from "@/lib/novel/character-cognition"
-import {
-  deleteGenerationHistoryEntry,
-  listGenerationHistory,
-  type GenerationHistoryEntry,
-} from "@/lib/novel/generation-history"
-import { startNovelReviewRun } from "@/lib/novel/start-review-run"
-import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
-import { SIX_REVIEW_DIMENSIONS, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
-import { formatMeasurementFingerprintSummary } from "@/lib/novel/measurement-fingerprint"
-import { exportEvidenceChainForReview } from "@/lib/novel/evidence-chain-export"
 import { ReviewJobStatusStrip } from "@/components/novel/review-job-status-strip"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { dismissFinding } from "@/lib/novel/continuity-overrides-store"
-import type { ContinuityOverrideReasonCode } from "@/lib/novel/deterministic-continuity-engine"
 import {
   createEmptyDashboardIssueState,
   loadDashboardIssueState,
@@ -66,7 +53,6 @@ import {
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
 import { FindingCompareDialog } from "./finding-compare-dialog"
-import { loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel/emotion-ledger"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },

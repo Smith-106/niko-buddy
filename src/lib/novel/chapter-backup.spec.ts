@@ -6,10 +6,15 @@ const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => {}),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFile: fsMocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFile: fsMocks.writeFile,
+    
+  }
+})
 
 describe("backupChapterFile", () => {
   beforeEach(() => {

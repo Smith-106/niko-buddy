@@ -10,14 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  loadFanficMergeProposal,
-  proposeCanonMerge,
-  saveFanficMergeProposal,
-  type CanonMergeProposal,
-} from "@/lib/novel/fanfic-canon-import"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
-import type { BookRules } from "@/lib/novel/book-rules"
+import { loadFanficMergeProposal, proposeCanonMerge, saveFanficMergeProposal } from "@/lib/novel"
+import type { CanonMergeProposal, BookAnalysisLibraryBook, BookRules } from "@/lib/novel"
 
 /**
  * FanficMergeDialog — 同人正典合并导入器（65 号共识 G2 挂载：形态轴 F3 消费侧）。

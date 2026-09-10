@@ -25,32 +25,42 @@ const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => fsMocks.readFile(...args),
-  writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
-  listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
-  fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
-  createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
-  deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+      writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
+      fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
+      createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
+      deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
+    
+  }
+})
 
 const streamChatMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: unknown[]) => streamChatMock(...args),
-  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
-    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
-    if (signals.length === 0) return undefined
-    if (signals.length === 1) return signals[0]
-    const controller = new AbortController()
-    for (const s of signals) {
-      if (s.aborted) { controller.abort(); break }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: unknown[]) => streamChatMock(...args),
+      combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+        const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+        if (signals.length === 0) return undefined
+        if (signals.length === 1) return signals[0]
+        const controller = new AbortController()
+        for (const s of signals) {
+          if (s.aborted) { controller.abort(); break }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
 const storeState = vi.hoisted(() => ({
   novelMode: true,
@@ -119,28 +129,43 @@ vi.mock("./timeline", () => ({
   mergeSnapshotTimeline: (...args: unknown[]) => moduleMocks.mergeSnapshotTimeline(...args),
 }))
 
-vi.mock("@/lib/graph-relevance", () => ({
-  clearGraphCache: (...args: unknown[]) => moduleMocks.clearGraphCache(...args),
-}))
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      clearGraphCache: (...args: unknown[]) => moduleMocks.clearGraphCache(...args),
+    
+  }
+})
 
 vi.mock("./context-engine", () => ({
   clearTemporalFactsCache: (...args: unknown[]) => moduleMocks.clearTemporalFactsCache(...args),
 }))
 
-vi.mock("@/lib/dedup", () => ({
-  buildEntityLinkIndex: (...args: unknown[]) => moduleMocks.buildEntityLinkIndex(...args),
-  resolveEntityLink: (...args: unknown[]) => moduleMocks.resolveEntityLink(...args),
-  extractEntitySummary: (...args: unknown[]) => moduleMocks.extractEntitySummary(...args),
-}))
+vi.mock("@/lib/dedup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/dedup")>()
+  return {
+    ...actual,
+      buildEntityLinkIndex: (...args: unknown[]) => moduleMocks.buildEntityLinkIndex(...args),
+      resolveEntityLink: (...args: unknown[]) => moduleMocks.resolveEntityLink(...args),
+      extractEntitySummary: (...args: unknown[]) => moduleMocks.extractEntitySummary(...args),
+    
+  }
+})
 
 vi.mock("./memory-op", () => ({
   planAddOpsFromCanonFacts: (...args: unknown[]) => moduleMocks.planAddOpsFromCanonFacts(...args),
   applyMemoryOps: (...args: unknown[]) => moduleMocks.applyMemoryOps(...args),
 }))
 
-vi.mock("@/lib/embedding", () => ({
-  embedPage: (...args: unknown[]) => moduleMocks.embedPage(...args),
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      embedPage: (...args: unknown[]) => moduleMocks.embedPage(...args),
+    
+  }
+})
 
 import {
   buildCanonDualWriteOps,

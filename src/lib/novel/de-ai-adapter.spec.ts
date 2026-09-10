@@ -18,9 +18,14 @@ const mocks = vi.hoisted(() => ({
   resourceDir: vi.fn(async () => "/resources"),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/path", () => ({
   join: mocks.join,

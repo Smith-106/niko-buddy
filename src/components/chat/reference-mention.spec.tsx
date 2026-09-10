@@ -31,34 +31,45 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/reference", () => ({
-  parseReferences: vi.fn((text: string) => {
-    const tokens: Array<{ raw: string; full: string; kind?: string }> = []
-    const re = /@([^\s@，。！？、；：]+)/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      const raw = m[1]!
-      tokens.push({
-        raw,
-        full: m[0]!,
-        kind: /^第\d+章$/.test(raw) ? "chapter" : undefined,
-      })
-    }
-    return tokens
-  }),
-  resolveReferences: vi.fn(),
-  loadAllReferenceCandidates: mocks.loadAllReferenceCandidates,
-}))
+vi.mock("@/lib/reference", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reference")>()
+  return {
+    ...actual,
+      parseReferences: vi.fn((text: string) => {
+        const tokens: Array<{ raw: string; full: string; kind?: string }> = []
+        const re = /@([^\s@，。！？、；：]+)/g
+        let m: RegExpExecArray | null
+        while ((m = re.exec(text)) !== null) {
+          const raw = m[1]!
+          tokens.push({
+            raw,
+            full: m[0]!,
+            kind: /^第\d+章$/.test(raw) ? "chapter" : undefined,
+          })
+        }
+        return tokens
+      }),
+      resolveReferences: vi.fn(),
+      loadAllReferenceCandidates: mocks.loadAllReferenceCandidates,
+    
+  }
+})
 
 beforeEach(() => {
   setupDomGlobals()

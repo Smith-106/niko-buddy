@@ -3,10 +3,8 @@ import { useTranslation } from "react-i18next"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
-import {
-  saveBinding,
-  clearBinding,
-} from "@/lib/novel/story-simulation/framework-binding"
+import { saveBinding, clearBinding } from "@/lib/novel"
+import type { StoryFramework } from "@/lib/novel"
 import {
   Dialog,
   DialogContent,
@@ -16,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 
 const CHAPTER_OPTIONS = [5, 10, 20, 30, 50]
 

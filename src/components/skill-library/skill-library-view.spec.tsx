@@ -14,11 +14,16 @@ const writeFileAtomicMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
 let savedConfigContent = ""
 
-vi.mock("@/commands/fs", () => ({
-  readFile: readFileMock,
-  writeFile: writeFileMock,
-  writeFileAtomic: writeFileAtomicMock,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: readFileMock,
+      writeFile: writeFileMock,
+      writeFileAtomic: writeFileAtomicMock,
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/path", () => ({
   join: joinMock,

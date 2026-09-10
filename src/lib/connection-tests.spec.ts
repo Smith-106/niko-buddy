@@ -14,14 +14,24 @@ const mocks = vi.hoisted(() => ({
   streamChat: vi.fn(),
 }))
 
-vi.mock("@/lib/embedding", () => ({
-  fetchEmbedding: mocks.fetchEmbedding,
-  getLastEmbeddingError: mocks.getLastEmbeddingError,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      fetchEmbedding: mocks.fetchEmbedding,
+      getLastEmbeddingError: mocks.getLastEmbeddingError,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
 function embeddingConfig(overrides: Partial<EmbeddingConfig> = {}): EmbeddingConfig {
   return {

@@ -7,10 +7,15 @@ const fsMocks = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 import {
   annotateChunk,

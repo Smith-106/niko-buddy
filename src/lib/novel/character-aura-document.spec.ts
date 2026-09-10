@@ -4,27 +4,47 @@ import type { SearchApiConfig } from "@/stores/wiki-store"
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 const getHttpFetchMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: getHttpFetchMock,
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: getHttpFetchMock,
+    
+  }
+})
 
 const webSearchMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/web-search", () => ({
-  webSearch: webSearchMock,
-}))
+vi.mock("@/lib/web-search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-search")>()
+  return {
+    ...actual,
+      webSearch: webSearchMock,
+    
+  }
+})
 
 const storeState = vi.hoisted(() => ({
   llmConfig: { provider: "openai", apiKey: "k", model: "m" },
   searchApiConfig: { provider: "tavily", apiKey: "tk" } as SearchApiConfig,
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => storeState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => storeState },
+    
+  }
+})
 
 import {
   collectCustomAuraWebSearch,

@@ -19,7 +19,7 @@ import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { normalizeReviewTitle } from "@/lib/review-utils"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel"
 
 // ── Types ─────────────────────────────────────────────────────────────────
 

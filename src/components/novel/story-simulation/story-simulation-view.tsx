@@ -12,46 +12,8 @@ import {
 
 import { useWikiStore } from "@/stores/wiki-store";
 import { useStorySimulationStore } from "@/stores/story-simulation-store";
-import { extractStoryContent } from "@/lib/novel/story-simulation/story-extractor";
-import { generateStoryFramework } from "@/lib/novel/story-simulation/story-framework-generator";
-import { buildAgents } from "@/lib/novel/story-simulation/agent-profile-builder";
-import {
-  runSimulation,
-  type SimulationCallbacks,
-} from "@/lib/novel/story-simulation/simulation-engine";
-import { generateDynamicEventPool } from "@/lib/novel/story-simulation/event-pool-generator";
-import { generateSimulationReport } from "@/lib/novel/story-simulation/simulation-report-agent";
-import { generateStoryDraft } from "@/lib/novel/story-simulation/story-draft-generator";
-import {
-  saveFramework,
-  saveSimulationResult,
-  loadSimulationResults,
-} from "@/lib/novel/story-simulation/framework-store";
-import { resolveDefaultModel } from "@/lib/novel/model-resolver";
-import { interviewAgent } from "@/lib/novel/story-simulation/agent-interview";
-import {
-  saveInterview,
-  loadInterviews,
-} from "@/lib/novel/story-simulation/interview-store";
-import { exportInterview } from "@/lib/novel/story-simulation/interview-export";
-import {
-  serializeSimulationState,
-  deserializeSimulationSnapshot,
-} from "@/lib/novel/story-simulation/simulation-serializer";
-import type {
-  AgentChatMessage,
-  ExtractionResult,
-  NovelAgent,
-  RumorEvent,
-  SimulationDebugTrace,
-  SimulationHistoryEntry,
-  SimulationReport,
-  SimulationResumePoint,
-  SimulationState,
-  StoryBranch,
-  StoryFramework,
-  TimelineEvent,
-} from "@/lib/novel/story-simulation/types";
+import { extractStoryContent, generateStoryFramework, buildAgents, runSimulation, generateDynamicEventPool, generateSimulationReport, generateStoryDraft, saveFramework, saveSimulationResult, loadSimulationResults, resolveDefaultModel, interviewAgent, saveInterview, loadInterviews, exportInterview, serializeSimulationState, deserializeSimulationSnapshot, actionTypeShortLabel, actionTypePhraseOnly, actionTypePhrase, actionTypeIcon } from "@/lib/novel"
+import type { SimulationCallbacks, AgentChatMessage, ExtractionResult, NovelAgent, RumorEvent, SimulationDebugTrace, SimulationHistoryEntry, SimulationReport, SimulationResumePoint, SimulationState, StoryBranch, StoryFramework, TimelineEvent } from "@/lib/novel"
 
 import { SimulationConfigPanel } from "./simulation-config-panel";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
@@ -63,12 +25,6 @@ import { ClueTimelinePanel } from "./detective-board-panel";
 import { BranchManagerPanel } from "./branch-manager-panel";
 import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
-import {
-  actionTypeShortLabel,
-  actionTypePhraseOnly,
-  actionTypePhrase,
-  actionTypeIcon,
-} from "@/lib/novel/story-simulation/action-type-utils";
 import { Button } from "@/components/ui/button";
 
 const PROGRESS_PHASES = [

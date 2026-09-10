@@ -8,22 +8,37 @@ const mocks = vi.hoisted(() => ({
   requestDirectRerank: vi.fn(),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.getState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.getState },
+    
+  }
+})
 
 vi.mock("@/lib/rerank-api", () => ({
   isDirectRerankEndpoint: mocks.isDirectRerankEndpoint,
   requestDirectRerank: mocks.requestDirectRerank,
 }))
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: mocks.resolveDefaultModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: mocks.resolveDefaultModel,
+    
+  }
+})
 
 import { isRerankEnabled, rerankCandidates, invalidateRerankCache } from "./rerank"
 import type { RerankCandidate } from "./rerank"

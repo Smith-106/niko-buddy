@@ -1,11 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
-import type {
-  DeepChapterGenerationCallbacks,
-  DeepChapterGenerationDeps,
-  DeepChapterGenerationInput,
-  DeepChapterGenerationResult,
-} from "@/lib/novel/deep-chapter-generation"
+import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult } from "@/lib/novel"
 import type { AgentActivityEvent, AgentToolEvent, Tool, ToolExecutionContext } from "../types"
 
 export type RunDeepChapterGeneration = (

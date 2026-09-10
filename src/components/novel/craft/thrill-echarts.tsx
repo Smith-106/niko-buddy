@@ -11,8 +11,7 @@
  */
 import { useRef, useEffect, useMemo, useId } from "react"
 import * as echarts from "echarts"
-import type { TensionSample, QuantifiedHit } from "@/lib/novel/craft/thrill-quantifier"
-import type { SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import type { TensionSample, QuantifiedHit, SixReviewDimensionKey } from "@/lib/novel"
 
 // ============================================================================
 // 辅助：初始化/销毁 ECharts 实例

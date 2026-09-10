@@ -4,7 +4,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, it, expect, vi } from "vitest"
 import { CharacterSelectionPanel } from "./character-selection-panel"
-import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import type { RecognizedCharacter } from "@/lib/novel"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

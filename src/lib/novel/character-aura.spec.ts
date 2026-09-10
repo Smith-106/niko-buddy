@@ -15,62 +15,102 @@ const fsMocks = vi.hoisted(() => ({
   getExecutableDir: vi.fn<() => Promise<string>>(),
   getResourceDir: vi.fn<() => Promise<string>>(),
 }))
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  listDirectory: fsMocks.listDirectory,
-  getExecutableDir: fsMocks.getExecutableDir,
-  getResourceDir: fsMocks.getResourceDir,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      listDirectory: fsMocks.listDirectory,
+      getExecutableDir: fsMocks.getExecutableDir,
+      getResourceDir: fsMocks.getResourceDir,
+    
+  }
+})
 
 const streamChatMock = vi.hoisted(() => vi.fn<typeof import("@/lib/llm-client").streamChat>())
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: streamChatMock,
-  combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
-    const active = signals.filter(Boolean) as AbortSignal[]
-    if (active.length === 0) return undefined
-    if (active.length === 1) return active[0]
-    const controller = new AbortController()
-    for (const s of active) {
-      if (s.aborted) {
-        controller.abort()
-        break
-      }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: streamChatMock,
+      combineAbortSignals: (...signals: Array<AbortSignal | undefined>): AbortSignal | undefined => {
+        const active = signals.filter(Boolean) as AbortSignal[]
+        if (active.length === 0) return undefined
+        if (active.length === 1) return active[0]
+        const controller = new AbortController()
+        for (const s of active) {
+          if (s.aborted) {
+            controller.abort()
+            break
+          }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: (cfg: unknown) => cfg,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: (cfg: unknown) => cfg,
+    
+  }
+})
 
 const loggerWarnMock = vi.hoisted(() => vi.fn<(message?: unknown, ...optionalParams: unknown[]) => void>())
-vi.mock("@/lib/utils", () => ({
-  logger: { warn: loggerWarnMock },
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      logger: { warn: loggerWarnMock },
+    
+  }
+})
 
 const searchWikiMock = vi.hoisted(() => vi.fn<typeof import("@/lib/search").searchWiki>())
-vi.mock("@/lib/search", () => ({
-  searchWiki: searchWikiMock,
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: searchWikiMock,
+    
+  }
+})
 
 const getHttpFetchMock = vi.hoisted(() => vi.fn<typeof import("@/lib/tauri-fetch").getHttpFetch>())
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: getHttpFetchMock,
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: getHttpFetchMock,
+    
+  }
+})
 
 const webSearchMock = vi.hoisted(() => vi.fn<typeof import("@/lib/web-search").webSearch>())
-vi.mock("@/lib/web-search", () => ({
-  webSearch: webSearchMock,
-}))
+vi.mock("@/lib/web-search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-search")>()
+  return {
+    ...actual,
+      webSearch: webSearchMock,
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: vi.fn(() => false),
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: vi.fn(() => false),
+    
+  }
+})
 import { isTauri } from "@/lib/platform"
 
 vi.mock("@tauri-apps/api/path", () => ({
@@ -82,9 +122,14 @@ const storeState = vi.hoisted(() => ({
   llmConfig: { provider: "custom", model: "m", customEndpoint: "http://x" } as LlmConfig,
   searchApiConfig: { provider: "tavily", apiKey: "tk" } as SearchApiConfig,
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => storeState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: () => storeState },
+    
+  }
+})
 
 const pinyinMock = vi.hoisted(() => vi.fn<(text: string) => string[]>())
 vi.mock("pinyin-pro", () => ({

@@ -1,10 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import { buildTaskDirective } from "@/lib/novel/task-router"
-import {
-  buildOutlineFindProtocol,
-  shouldIncludeOutlineFindProtocol,
-  stripOutlineFindProtocol,
-} from "@/lib/novel/outline-find-protocol"
+import { buildTaskDirective, buildOutlineFindProtocol, shouldIncludeOutlineFindProtocol, stripOutlineFindProtocol } from "@/lib/novel"
 import { buildSelectedSkillsPrompt } from "./select-skills-plugin"
 import { getWorkflowModeLabel, type AiWorkflowMode } from "../workflow-mode"
 

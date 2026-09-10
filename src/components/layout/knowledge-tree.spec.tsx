@@ -68,44 +68,75 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { t: mocks.t },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: mocks.t },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/import-progress-store", () => ({
-  useImportProgressStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.importState),
-    { getState: () => mocks.importState },
-  ),
-}))
+vi.mock("@/stores/import-progress-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/import-progress-store")>()
+  return {
+    ...actual,
+      useImportProgressStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.importState),
+        { getState: () => mocks.importState },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  listDirectory: mocks.listDirectory,
-  deleteFile: mocks.deleteFile,
-  fileExists: mocks.fileExists,
-  copyFile: mocks.copyFile,
-  openFileLocation: mocks.openFileLocation,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      listDirectory: mocks.listDirectory,
+      deleteFile: mocks.deleteFile,
+      fileExists: mocks.fileExists,
+      copyFile: mocks.copyFile,
+      openFileLocation: mocks.openFileLocation,
+    
+  }
+})
 
-vi.mock("@/lib/trash", () => ({
-  moveFileToTrash: mocks.moveFileToTrash,
-}))
+vi.mock("@/lib/trash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/trash")>()
+  return {
+    ...actual,
+      moveFileToTrash: mocks.moveFileToTrash,
+    
+  }
+})
 
-vi.mock("@/lib/novel/delete-source-memory", () => ({
-  deleteNovelSourceMemory: mocks.deleteNovelSourceMemory,
-}))
+vi.mock("@/lib/novel/delete-source-memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/delete-source-memory")>()
+  return {
+    ...actual,
+      deleteNovelSourceMemory: mocks.deleteNovelSourceMemory,
+    
+  }
+})
 
 import { KnowledgeTree, RawSourcesSection } from "./knowledge-tree"
 

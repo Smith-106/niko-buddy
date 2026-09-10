@@ -13,6 +13,7 @@ const tMock = vi.hoisted(() => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: tMock.t }),
 }))
 
@@ -23,27 +24,42 @@ const wiki = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const ingest = vi.hoisted(() => ({
   listSnapshots: vi.fn<(projectPath: string) => Promise<number[]>>(async () => []),
   loadSnapshot: vi.fn<(projectPath: string, n: number) => Promise<unknown>>(async () => null),
 }))
 
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshots: ingest.listSnapshots,
-  loadSnapshot: ingest.loadSnapshot,
-}))
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshots: ingest.listSnapshots,
+      loadSnapshot: ingest.loadSnapshot,
+    
+  }
+})
 
 const arcs = vi.hoisted(() => ({
   loadEmotionalArcs: vi.fn<(projectPath: string) => Promise<{ beats: Array<{ character: string; chapterNumber: number; emotion: string; intensity: number; trigger: string; notes: string }> }>>(async () => ({ beats: [] })),
 }))
 
-vi.mock("@/lib/novel/emotional-arcs", () => ({
-  loadEmotionalArcs: arcs.loadEmotionalArcs,
-}))
+vi.mock("@/lib/novel/emotional-arcs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/emotional-arcs")>()
+  return {
+    ...actual,
+      loadEmotionalArcs: arcs.loadEmotionalArcs,
+    
+  }
+})
 
 // countChapterBodyWords 为纯函数，用真实实现（输入章节 markdown 控制结果）
 const fs = vi.hoisted(() => ({
@@ -51,10 +67,15 @@ const fs = vi.hoisted(() => ({
   readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: fs.listDirectory,
-  readFile: fs.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: fs.listDirectory,
+      readFile: fs.readFile,
+    
+  }
+})
 
 import { CorkboardView, loadCorkboardCards } from "./corkboard-view"
 

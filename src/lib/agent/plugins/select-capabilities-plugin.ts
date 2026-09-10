@@ -2,8 +2,7 @@ import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { buildAvailableCapabilities } from "../capabilities/registry"
 import { selectCapabilities } from "../capabilities/selector"
 import { resolveAiWorkflowMode } from "../workflow-mode"
-import { detectLocalEntityMiss } from "@/lib/novel/local-entity-names"
-import { getOutlineSkillNames, getWritingSkillNames } from "@/lib/novel/skill-route-registry"
+import { detectLocalEntityMiss, getOutlineSkillNames, getWritingSkillNames } from "@/lib/novel"
 
 const PLAN_PHASE_ALLOWED_TOOLS = new Set([
   "read_chapter",

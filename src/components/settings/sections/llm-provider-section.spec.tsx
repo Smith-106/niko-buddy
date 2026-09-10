@@ -108,17 +108,23 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-  DEFAULT_NOVEL_CONFIG: {},
-  DEFAULT_RERANK_CONFIG: {},
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+      DEFAULT_NOVEL_CONFIG: {},
+      DEFAULT_RERANK_CONFIG: {},
+    
+  }
+})
 
 vi.mock("../llm-presets", () => ({
   LLM_PRESETS: mocks.LLM_PRESETS,
@@ -132,9 +138,14 @@ vi.mock("@/lib/endpoint-normalizer", () => ({
   normalizeEndpoint: mocks.normalizeEndpoint,
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
 vi.mock("@/lib/cursor-cli-proxy", () => ({
   getCursorProxyStatus: mocks.getCursorProxyStatus,
@@ -204,9 +215,14 @@ vi.mock("./custom-provider-cards", () => ({
   CustomProviderCards: () => <div data-testid="custom-provider-cards">cards</div>,
 }))
 
-vi.mock("@/lib/web-store", () => ({
-  getStore: async () => mocks.store,
-}))
+vi.mock("@/lib/web-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-store")>()
+  return {
+    ...actual,
+      getStore: async () => mocks.store,
+    
+  }
+})
 
 // ── default preset set (provider-branch coverage) ────────────────────────────
 

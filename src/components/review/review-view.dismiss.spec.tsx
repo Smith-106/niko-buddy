@@ -1,34 +1,44 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { ReviewView } from "./review-view"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult } from "@/lib/novel"
 
 // PAT-G2 mock mirror: vi.mock @/commands/fs factory 须 mirror 全 export
 // (readFile/writeFileAtomic/createDirectory/fileExists)。漏 export →
 // createAtomicJsonStore 内部调时 runtime TypeError。本测试虽 SSR 不触发
 // dismissFinding store 写入闭环 (plan TASK-003 risk 2 接受此边界), 但守
 // PAT-G2 规范 mirror 全 4 export 防活体孪生。
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  writeFileAtomic: vi.fn(),
-  createDirectory: vi.fn(),
-  fileExists: vi.fn(),
-  writeFile: vi.fn(),
-  listDirectory: vi.fn(),
-  deleteFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      writeFileAtomic: vi.fn(),
+      createDirectory: vi.fn(),
+      fileExists: vi.fn(),
+      writeFile: vi.fn(),
+      listDirectory: vi.fn(),
+      deleteFile: vi.fn(),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: vi.fn() },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: {
-    exists: () => true,
-    t: (key: string) => key,
-  },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: {
+        exists: () => true,
+        t: (key: string) => key,
+      },
+    
+  }
+})
 
 const wikiState = {
   novelMode: true,
@@ -47,30 +57,70 @@ const wikiState = {
   llmConfig: null,
 }
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (state: typeof wikiState) => unknown) => selector(wikiState),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (state: typeof wikiState) => unknown) => selector(wikiState),
+    
+  }
+})
 
 vi.mock("@/stores/review-store", () => ({
   useReviewStore: (selector: (state: { items: unknown[]; resolveItem: () => void; dismissItem: () => void; clearResolved: () => void }) => unknown) =>
     selector({ items: [], resolveItem: () => {}, dismissItem: () => {}, clearResolved: () => {} }),
 }))
 
-vi.mock("@/lib/novel/character-cognition", () => ({
-  loadCognitionState: vi.fn(),
-  saveCognitionState: vi.fn(),
-}))
+vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-cognition")>()
+  return {
+    ...actual,
+      loadCognitionState: vi.fn(),
+      saveCognitionState: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/lib/novel/generation-history", () => ({
-  listGenerationHistory: vi.fn(),
-  deleteGenerationHistoryEntry: vi.fn(),
-}))
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      listGenerationHistory: vi.fn(),
+      deleteGenerationHistoryEntry: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: vi.fn() }))
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => false }))
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: () => null }))
-vi.mock("@/lib/novel/start-review-run", () => ({ startNovelReviewRun: vi.fn() }))
-vi.mock("@/lib/novel/start-six-dimension-review-run", () => ({ startSixDimensionReviewRun: vi.fn() }))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: vi.fn() 
+  }
+})
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: () => false 
+  }
+})
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveDefaultModel: () => null 
+  }
+})
+vi.mock("@/lib/novel/start-review-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/start-review-run")>()
+  return {
+    ...actual, startNovelReviewRun: vi.fn() 
+  }
+})
+vi.mock("@/lib/novel/start-six-dimension-review-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/start-six-dimension-review-run")>()
+  return {
+    ...actual, startSixDimensionReviewRun: vi.fn() 
+  }
+})
 vi.mock("@/lib/dashboard-issue-actions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/dashboard-issue-actions")>()
   return {
@@ -81,7 +131,12 @@ vi.mock("@/lib/dashboard-issue-actions", async (importOriginal) => {
     restoreDashboardRewriteInMarkdown: vi.fn(),
   }
 })
-vi.mock("@/lib/novel/review-scoring", () => ({ scoreReviewResults: () => ({ dimensions: [], total: 0 }) }))
+vi.mock("@/lib/novel/review-scoring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-scoring")>()
+  return {
+    ...actual, scoreReviewResults: () => ({ dimensions: [], total: 0 }) 
+  }
+})
 vi.mock("@/lib/review-rewrite-plan", () => ({
   findReviewRewriteAnchors: () => [],
   parseReviewRewritePlan: () => ({ edits: [] }),

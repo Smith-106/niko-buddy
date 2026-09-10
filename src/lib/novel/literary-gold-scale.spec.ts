@@ -10,9 +10,14 @@ import {
   type LiteraryGoldAnchor,
 } from "./literary-gold-scale"
 
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+    
+  }
+})
 
 vi.mock("./style-exemplars-loader", () => ({
   loadStyleExemplars: vi.fn(),

@@ -14,9 +14,9 @@ import { Label } from "@/components/ui/label"
 import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat } from "@/lib/llm-client"
 import { writeFile, listDirectory, createDirectory } from "@/commands/fs"
-import { PROMPTS } from "@/lib/novel/prompt-templates"
+import { PROMPTS } from "@/lib/novel"
+import type { OutlineType } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
-import type { OutlineType } from "@/lib/novel/chapter-meta"
 
 const OUTLINE_TYPES: { value: OutlineType; labelKey: string }[] = [
   { value: "story-outline", labelKey: "novel.outline.type.story" },

@@ -9,12 +9,17 @@ const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  fileExists: fsMocks.fileExists,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      fileExists: fsMocks.fileExists,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+    
+  }
+})
 
 import {
   appendExemplarABSample,

@@ -74,61 +74,76 @@ const mocks = vi.hoisted(() => ({
   ): Promise<void> => {}),
 }))
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChatMock,
-  combineAbortSignals: (...signals: Array<AbortSignal | undefined>) => {
-    // Mirror real implementation for test use.
-    const active = signals.filter(Boolean) as AbortSignal[]
-    if (active.length === 0) return undefined
-    if (active.length === 1) return active[0]
-    const controller = new AbortController()
-    const abort = () => controller.abort()
-    for (const s of active) {
-      if (s.aborted) { controller.abort(); break }
-      s.addEventListener("abort", abort, { once: true })
-    }
-    return controller.signal
-  },
-  extractJsonArraySpan: (text: string): string | null => {
-    // Mirror real implementation for test use.
-    const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
-    const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
-    const end = cleaned.lastIndexOf("]")
-    if (end === -1) return null
-    let depth = 0
-    for (let i = end; i >= 0; i -= 1) {
-      const ch = cleaned[i]
-      if (ch === "]") depth += 1
-      else if (ch === "[") {
-        depth -= 1
-        if (depth === 0) return cleaned.slice(i, end + 1)
-      }
-    }
-    const greedy = cleaned.match(/\[[\s\S]*\]/)
-    return greedy ? greedy[0] : null
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
-  // Mirror real transport error classifiers (ISS-20260712-MAINT-3: now
-  // exported from @/lib/llm-client). Regex byte-for-byte with the host impl
-  // so the partial-preserve path in scene-breakdown behaves like production.
-  isRequestCancelledError: (error: Error): boolean =>
-    /request cancelled|request canceled|aborted|aborterror/i.test(error.message),
-  isTransportInactivityError: (error: Error): boolean =>
-    /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(error.message),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChatMock,
+      combineAbortSignals: (...signals: Array<AbortSignal | undefined>) => {
+        // Mirror real implementation for test use.
+        const active = signals.filter(Boolean) as AbortSignal[]
+        if (active.length === 0) return undefined
+        if (active.length === 1) return active[0]
+        const controller = new AbortController()
+        const abort = () => controller.abort()
+        for (const s of active) {
+          if (s.aborted) { controller.abort(); break }
+          s.addEventListener("abort", abort, { once: true })
+        }
+        return controller.signal
+      },
+      extractJsonArraySpan: (text: string): string | null => {
+        // Mirror real implementation for test use.
+        const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
+        const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
+        const end = cleaned.lastIndexOf("]")
+        if (end === -1) return null
+        let depth = 0
+        for (let i = end; i >= 0; i -= 1) {
+          const ch = cleaned[i]
+          if (ch === "]") depth += 1
+          else if (ch === "[") {
+            depth -= 1
+            if (depth === 0) return cleaned.slice(i, end + 1)
+          }
+        }
+        const greedy = cleaned.match(/\[[\s\S]*\]/)
+        return greedy ? greedy[0] : null
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+      // Mirror real transport error classifiers (ISS-20260712-MAINT-3: now
+      // exported from @/lib/llm-client). Regex byte-for-byte with the host impl
+      // so the partial-preserve path in scene-breakdown behaves like production.
+      isRequestCancelledError: (error: Error): boolean =>
+        /request cancelled|request canceled|aborted|aborterror/i.test(error.message),
+      isTransportInactivityError: (error: Error): boolean =>
+        /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(error.message),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: {
-    getState: () => ({
-      llmConfig,
-      novelConfig: { reviewReasoningEffort: "high" },
-    }),
-  },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: {
+        getState: () => ({
+          llmConfig,
+          novelConfig: { reviewReasoningEffort: "high" },
+        }),
+      },
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: () => true,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: () => true,
+    
+  }
+})
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: typeof llmConfig) => config,
@@ -136,12 +151,17 @@ vi.mock("./model-resolver", () => ({
 
 // fs mocks — scene-breakdown + novel-session-status import chain both reach
 // writeFileAtomic/createDirectory/readFile/deleteFile (Tauri invoke).
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  createDirectory: mocks.createDirectory,
-  deleteFile: mocks.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
+      deleteFile: mocks.deleteFile,
+    
+  }
+})
 
 // ADR-31 factory persistence: mock loadNovelSessionStatus + persistCheckpointBase
 // to assert factory invocation without hitting Tauri fs. buildNextStatus is a

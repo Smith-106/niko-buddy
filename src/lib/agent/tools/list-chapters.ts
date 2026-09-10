@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
 import { listDirectory } from "@/commands/fs"
-import { flattenMdFiles } from "@/lib/novel/chapter-utils"
+import { flattenMdFiles } from "@/lib/novel"
 
 /** 仅匹配「第N章/节/回」，避免 backup-2024 等文件名污染最新章号 */
 function extractStrictChapterNumber(text: string): number | null {

@@ -21,7 +21,7 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { CanonEditor } from "./canon-editor"
 import type { CanonEdge, CanonQueryBatchResponse } from "./canon-types"
-import type { RawCanonEdge } from "@/lib/novel/canon-graph-client"
+import type { RawCanonEdge } from "@/lib/novel"
 import {
   buildSupersedeRequestForCorrection,
   computeCorrectionDigest,
@@ -51,9 +51,14 @@ vi.mock("@/lib/novel/canon-graph-client", async (importOriginal) => {
   }
 })
 
-vi.mock("@/lib/novel/canon-dual-write", () => ({
-  getCanonRevision: vi.fn().mockResolvedValue(0),
-}))
+vi.mock("@/lib/novel/canon-dual-write", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/canon-dual-write")>()
+  return {
+    ...actual,
+      getCanonRevision: vi.fn().mockResolvedValue(0),
+    
+  }
+})
 
 // i18next v26 use() 校验 module.type 必须存在，否则抛 "wrong module"（spec 环境修复）。
 // t 为 identity：面板文案渲染 key 字符串，既有中文硬编码断言不受影响；

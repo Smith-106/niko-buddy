@@ -1,10 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import {
-  DIRECTOR_PHASES,
-  type DirectorPhase,
-  type DirectorPipelineState,
-} from "@/lib/novel/director-pipeline"
+import { DIRECTOR_PHASES } from "@/lib/novel"
+import type { DirectorPhase, DirectorPipelineState } from "@/lib/novel"
 import { cn } from "@/lib/utils"
 import { CircleCheck, Circle, Loader2, RotateCcw, CircleX, Play, PartyPopper } from "lucide-react"
 

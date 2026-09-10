@@ -11,27 +11,42 @@ const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof wiki.state) => unknown) => selector(wiki.state),
+    
+  }
+})
 
 const soulDoc = vi.hoisted(() => ({
   readSoulDoc: vi.fn(async () => "初始灵魂文档内容"),
   writeSoulDoc: vi.fn(async () => {}),
 }))
 
-vi.mock("@/lib/novel/soul-doc", () => ({
-  readSoulDoc: soulDoc.readSoulDoc,
-  writeSoulDoc: soulDoc.writeSoulDoc,
-}))
+vi.mock("@/lib/novel/soul-doc", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/soul-doc")>()
+  return {
+    ...actual,
+      readSoulDoc: soulDoc.readSoulDoc,
+      writeSoulDoc: soulDoc.writeSoulDoc,
+    
+  }
+})
 
 const i18nMock = vi.hoisted(() => ({
   t: vi.fn((key: string) => (key === "novel.soul.saveProjectSoul" ? "保存项目灵魂" : key)),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { t: i18nMock.t },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { t: i18nMock.t },
+    
+  }
+})
 
 import { SoulDocEditor } from "./soul-doc-editor"
 

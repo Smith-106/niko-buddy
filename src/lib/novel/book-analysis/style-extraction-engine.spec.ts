@@ -12,16 +12,26 @@ const mocks = vi.hoisted(() => ({
   parseStyleProfileResult: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-  combineAbortSignals: mocks.combineAbortSignals,
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+      combineAbortSignals: mocks.combineAbortSignals,
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30,
+    
+  }
+})
 
 vi.mock("./analysis-engine", () => ({
   loadChapterList: mocks.loadChapterList,

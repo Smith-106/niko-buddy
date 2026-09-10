@@ -41,38 +41,64 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/outline-generation-store", () => ({
-  useOutlineGenerationStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.outlineState),
-    { getState: () => mocks.outlineState },
-  ),
-}))
+vi.mock("@/stores/outline-generation-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/outline-generation-store")>()
+  return {
+    ...actual,
+      useOutlineGenerationStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.outlineState),
+        { getState: () => mocks.outlineState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.bookState),
-    { getState: () => mocks.bookState },
-  ),
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.bookState),
+        { getState: () => mocks.bookState },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-generation", () => ({
-  openGeneratedOutline: mocks.openGeneratedOutline,
-  runOutlineIngestTask: mocks.runOutlineIngestTask,
-}))
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual,
+      openGeneratedOutline: mocks.openGeneratedOutline,
+      runOutlineIngestTask: mocks.runOutlineIngestTask,
+    
+  }
+})
 
 vi.mock("@/components/layout/icon-sidebar", () => ({
   IconSidebar: (props: {

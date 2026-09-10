@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import type { RecognizedCharacter } from "@/lib/novel"
 import { Search } from "lucide-react"
 
 export interface CharacterSelectionPanelProps {

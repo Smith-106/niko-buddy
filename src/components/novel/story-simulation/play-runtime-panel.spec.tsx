@@ -9,22 +9,42 @@ const mocks = vi.hoisted(() => ({
   projectPath: "/p/book",
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { id: string; name: string; path: string | null } | null }) => unknown) =>
-    selector({ project: { id: "book", name: "book", path: mocks.projectPath } }),
-}))
-vi.mock("@/lib/novel/interactive-io", () => ({
-  loadInteractiveGraph: vi.fn(async () => null),
-  loadPlaySession: vi.fn(async () => null),
-  savePlaySession: vi.fn(async () => undefined),
-}))
-vi.mock("@/lib/novel/export", () => ({
-  exportInteractiveStory: vi.fn(async () => ({ success: true, exportedPath: "/p/.novel/play-graph", chapterCount: 4, message: "ok" })),
-}))
-vi.mock("@/lib/novel/generation-history", () => ({
-  saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
-}))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { id: string; name: string; path: string | null } | null }) => unknown) =>
+        selector({ project: { id: "book", name: "book", path: mocks.projectPath } }),
+    
+  }
+})
+vi.mock("@/lib/novel/interactive-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/interactive-io")>()
+  return {
+    ...actual,
+      loadInteractiveGraph: vi.fn(async () => null),
+      loadPlaySession: vi.fn(async () => null),
+      savePlaySession: vi.fn(async () => undefined),
+    
+  }
+})
+vi.mock("@/lib/novel/export", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/export")>()
+  return {
+    ...actual,
+      exportInteractiveStory: vi.fn(async () => ({ success: true, exportedPath: "/p/.novel/play-graph", chapterCount: 4, message: "ok" })),
+    
+  }
+})
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
+    
+  }
+})
 
 describe("PlayRuntimePanel", () => {
   beforeEach(() => {

@@ -140,12 +140,17 @@ const mocks = vi.hoisted(() => {
 })
 
 // ── store mocks ────────────────────────────────────────────────────────────────
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: mocks.getWikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: mocks.getWikiState },
+      ),
+    
+  }
+})
 
 vi.mock("@/stores/outline-chat-store", () => ({
   useOutlineChatStore: Object.assign(
@@ -172,13 +177,38 @@ vi.mock("@/stores/outline-chat-store", () => ({
   ),
 }))
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveNovelModel: mocks.resolveNovelModel }))
-vi.mock("@/lib/novel/markdown-quality-finalizer", () => ({
-  finalizeStructuredMarkdownMessage: mocks.finalizeStructuredMarkdownMessage,
-}))
-vi.mock("@/lib/novel/deep-outline-generation", () => ({ runDeepOutlineGeneration: mocks.runDeepOutlineGeneration }))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: mocks.streamChat 
+  }
+})
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveNovelModel: mocks.resolveNovelModel 
+  }
+})
+vi.mock("@/lib/novel/markdown-quality-finalizer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/markdown-quality-finalizer")>()
+  return {
+    ...actual,
+      finalizeStructuredMarkdownMessage: mocks.finalizeStructuredMarkdownMessage,
+    
+  }
+})
+vi.mock("@/lib/novel/deep-outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/deep-outline-generation")>()
+  return {
+    ...actual, runDeepOutlineGeneration: mocks.runDeepOutlineGeneration 
+  }
+})
 vi.mock("@/lib/deep-thinking-stream", () => ({ createDeepThinkingStreamRenderer: mocks.createDeepThinkingStreamRenderer }))
 vi.mock("@/lib/user-visible-reasoning", () => ({ resolveUserVisibleReasoning: mocks.resolveUserVisibleReasoning }))
 vi.mock("@/lib/web-research", () => ({
@@ -186,31 +216,61 @@ vi.mock("@/lib/web-research", () => ({
   collectWebResearch: mocks.collectWebResearch,
   buildWebResearchContext: mocks.buildWebResearchContext,
 }))
-vi.mock("@/lib/novel/agent-parser", () => ({
-  parseAgentResponse: mocks.parseAgentResponse,
-  detectEditIntent: mocks.detectEditIntent,
-  buildAgentSystemSuffix: mocks.buildAgentSystemSuffix,
-}))
-vi.mock("@/lib/novel/agent-tools", () => ({
-  readScopeFileContents: mocks.readScopeFileContents,
-  applyFileEdits: mocks.applyFileEdits,
-}))
+vi.mock("@/lib/novel/agent-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-parser")>()
+  return {
+    ...actual,
+      parseAgentResponse: mocks.parseAgentResponse,
+      detectEditIntent: mocks.detectEditIntent,
+      buildAgentSystemSuffix: mocks.buildAgentSystemSuffix,
+    
+  }
+})
+vi.mock("@/lib/novel/agent-tools", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-tools")>()
+  return {
+    ...actual,
+      readScopeFileContents: mocks.readScopeFileContents,
+      applyFileEdits: mocks.applyFileEdits,
+    
+  }
+})
 vi.mock("@/lib/outline-save", () => ({ prepareOutlineSaveDraft: mocks.prepareOutlineSaveDraft }))
-vi.mock("@/lib/novel/outline-generation", () => ({
-  OUTLINE_SECTION_GENERATION_CONFIGS: [
-    { key: "chapterOutlines", title: "章节细纲", englishTitle: "", englishFileName: "", requestHint: "提示词A" },
-    { key: "characterBriefs", title: "人物小传", englishTitle: "", englishFileName: "", requestHint: "提示词B" },
-  ],
-}))
-vi.mock("@/lib/path-utils", () => ({ normalizePath: mocks.normalizePath }))
-vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProjectState }))
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  listDirectory: mocks.listDirectory,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-}))
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual,
+      OUTLINE_SECTION_GENERATION_CONFIGS: [
+        { key: "chapterOutlines", title: "章节细纲", englishTitle: "", englishFileName: "", requestHint: "提示词A" },
+        { key: "characterBriefs", title: "人物小传", englishTitle: "", englishFileName: "", requestHint: "提示词B" },
+      ],
+    
+  }
+})
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual, normalizePath: mocks.normalizePath 
+  }
+})
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual, refreshProjectState: mocks.refreshProjectState 
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      listDirectory: mocks.listDirectory,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+    
+  }
+})
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }))

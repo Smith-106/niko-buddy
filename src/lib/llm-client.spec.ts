@@ -26,19 +26,29 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/tauri-fetch", () => ({
-  getHttpFetch: (...a: unknown[]) => mocks.getHttpFetch(...a),
-  isFetchNetworkError: (e: unknown) => mocks.isFetchNetworkError(e),
-}))
+vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-fetch")>()
+  return {
+    ...actual,
+      getHttpFetch: (...a: unknown[]) => mocks.getHttpFetch(...a),
+      isFetchNetworkError: (e: unknown) => mocks.isFetchNetworkError(e),
+    
+  }
+})
 
 vi.mock("./endpoint-probe", () => ({
   probeEndpointReachability: (...a: unknown[]) => mocks.probeEndpointReachability(...a),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...a: unknown[]) => mocks.fsReadFile(...a),
-  writeFileAtomic: (...a: unknown[]) => mocks.fsWriteFileAtomic(...a),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...a: unknown[]) => mocks.fsReadFile(...a),
+      writeFileAtomic: (...a: unknown[]) => mocks.fsWriteFileAtomic(...a),
+    
+  }
+})
 
 vi.mock("./claude-cli-transport", () => ({
   streamClaudeCodeCli: (...a: unknown[]) => mocks.streamClaudeCodeCli(...a),

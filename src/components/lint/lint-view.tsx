@@ -21,14 +21,8 @@ import { readFile, writeFile, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useTranslation } from "react-i18next"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { parseChapterMeta } from "@/lib/novel/chapter-meta"
-import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromLintResults } from "@/lib/novel/revision-feedback"
-import {
-  deleteGenerationHistoryEntry,
-  listGenerationHistory,
-  saveGenerationHistoryEntry,
-  type GenerationHistoryEntry,
-} from "@/lib/novel/generation-history"
+import { parseChapterMeta, persistRevisionFeedbackForChapter, pickRevisionFeedbackFromLintResults, deleteGenerationHistoryEntry, listGenerationHistory, saveGenerationHistoryEntry } from "@/lib/novel"
+import type { GenerationHistoryEntry } from "@/lib/novel"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 
 export function LintView() {

@@ -3,11 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within, setupDomGlobals } from
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DashboardView } from "./dashboard-view"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult, FactCheckReport, FactCheckResult, ForeshadowingDebtReport, ChapterSnapshot } from "@/lib/novel"
 import type { LintResult } from "@/lib/lint"
-import type { FactCheckReport, FactCheckResult } from "@/lib/novel/fact-snapshot"
-import type { ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
-import type { ChapterSnapshot } from "@/lib/novel/chapter-ingest"
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -74,57 +71,118 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  listDirectory: mocks.listDirectory,
-  deleteFile: mocks.deleteFile,
-  copyFile: mocks.copyFile,
-  copyDirectory: mocks.copyDirectory,
-  preprocessFile: mocks.preprocessFile,
-  findRelatedWikiPages: mocks.findRelatedWikiPages,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-  getFileModifiedTime: mocks.getFileModifiedTime,
-  getFileSize: mocks.getFileSize,
-  getFileMd5: mocks.getFileMd5,
-  readFileAsBase64: mocks.readFileAsBase64,
-  createProject: mocks.createProject,
-  openProject: mocks.openProject,
-  openProjectFolder: mocks.openProjectFolder,
-  openFileLocation: mocks.openFileLocation,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      listDirectory: mocks.listDirectory,
+      deleteFile: mocks.deleteFile,
+      copyFile: mocks.copyFile,
+      copyDirectory: mocks.copyDirectory,
+      preprocessFile: mocks.preprocessFile,
+      findRelatedWikiPages: mocks.findRelatedWikiPages,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+      getFileModifiedTime: mocks.getFileModifiedTime,
+      getFileSize: mocks.getFileSize,
+      getFileMd5: mocks.getFileMd5,
+      readFileAsBase64: mocks.readFileAsBase64,
+      createProject: mocks.createProject,
+      openProject: mocks.openProject,
+      openProjectFolder: mocks.openProjectFolder,
+      openFileLocation: mocks.openFileLocation,
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: mocks.resolveDefaultModel }))
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
-vi.mock("@/lib/search", () => ({ searchWiki: mocks.searchWiki }))
-vi.mock("@/lib/novel/fact-snapshot", () => ({ runFactCheck: mocks.runFactCheck }))
-vi.mock("@/lib/novel/foreshadowing-debt", () => ({ analyzeForeshadowingDebt: mocks.analyzeForeshadowingDebt }))
-vi.mock("@/lib/novel/chapter-ingest", () => ({
-  listSnapshots: mocks.listSnapshots,
-  loadSnapshot: mocks.loadSnapshot,
-}))
-vi.mock("@/lib/novel/foreshadowing-tracker", () => ({ loadForeshadowingTracker: mocks.loadForeshadowingTracker }))
-vi.mock("@/lib/novel/novel-session-status", () => ({
-  loadNovelSessionStatus: mocks.loadNovelSessionStatus,
-  subscribeStatusJson: mocks.subscribeStatusJson,
-}))
-vi.mock("@/lib/novel/emotion-ledger", () => ({
-  loadEmotionLedger: mocks.loadEmotionLedger,
-  getTopEmotionalDebt: mocks.getTopEmotionalDebt,
-}))
-vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveDefaultModel: mocks.resolveDefaultModel 
+  }
+})
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual, searchWiki: mocks.searchWiki 
+  }
+})
+vi.mock("@/lib/novel/fact-snapshot", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/fact-snapshot")>()
+  return {
+    ...actual, runFactCheck: mocks.runFactCheck 
+  }
+})
+vi.mock("@/lib/novel/foreshadowing-debt", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-debt")>()
+  return {
+    ...actual, analyzeForeshadowingDebt: mocks.analyzeForeshadowingDebt 
+  }
+})
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-ingest")>()
+  return {
+    ...actual,
+      listSnapshots: mocks.listSnapshots,
+      loadSnapshot: mocks.loadSnapshot,
+    
+  }
+})
+vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
+  return {
+    ...actual, loadForeshadowingTracker: mocks.loadForeshadowingTracker 
+  }
+})
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual,
+      loadNovelSessionStatus: mocks.loadNovelSessionStatus,
+      subscribeStatusJson: mocks.subscribeStatusJson,
+    
+  }
+})
+vi.mock("@/lib/novel/emotion-ledger", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/emotion-ledger")>()
+  return {
+    ...actual,
+      loadEmotionLedger: mocks.loadEmotionLedger,
+      getTopEmotionalDebt: mocks.getTopEmotionalDebt,
+    
+  }
+})
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: mocks.streamChat 
+  }
+})
 vi.mock("@/lib/dashboard-issue-actions", () => ({
   createEmptyDashboardIssueState: () => ({ ignored: {}, rewrites: {} }),
   buildDashboardIssueId: (parts: Array<string | number | null | undefined>) =>

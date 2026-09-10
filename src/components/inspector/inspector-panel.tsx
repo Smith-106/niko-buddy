@@ -16,7 +16,8 @@ import { useTranslation } from "react-i18next"
 import { ChevronDown, PanelRightOpen, RefreshCw, Wrench } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import { queryInspectorState, type InspectorSnapshot } from "@/lib/novel/inspector-query"
+import { queryInspectorState } from "@/lib/novel"
+import type { InspectorSnapshot } from "@/lib/novel"
 
 /** PAT-DC2 防抖阈值（≥500ms，防 O(N²) onUpdate 放大）。 */
 const INSPECTOR_DEBOUNCE_MS = 500

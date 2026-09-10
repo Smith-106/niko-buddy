@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useBookAnalysisStore } from "./book-analysis-store"
-import type { RecognizedCharacter, ExtractedCharacter, CharacterSkill, BookStyleProfile, BookAnalysisResult } from "@/lib/novel/book-analysis/types"
+import type { RecognizedCharacter, ExtractedCharacter, CharacterSkill, BookStyleProfile, BookAnalysisResult } from "@/lib/novel"
 
 describe("book analysis store", () => {
   beforeEach(() => {

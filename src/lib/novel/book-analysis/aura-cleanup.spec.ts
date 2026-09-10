@@ -13,12 +13,17 @@ const listCharacterAurasMock = vi.fn()
 const loadCharacterAuraStoreMock = vi.fn()
 const deleteCustomCharacterAuraMock = vi.fn()
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  listCharacterAuras: (projectPath: string) => listCharacterAurasMock(projectPath),
-  loadCharacterAuraStore: (projectPath: string) => loadCharacterAuraStoreMock(projectPath),
-  deleteCustomCharacterAura: (projectPath: string, auraId: string) =>
-    deleteCustomCharacterAuraMock(projectPath, auraId),
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      listCharacterAuras: (projectPath: string) => listCharacterAurasMock(projectPath),
+      loadCharacterAuraStore: (projectPath: string) => loadCharacterAuraStoreMock(projectPath),
+      deleteCustomCharacterAura: (projectPath: string, auraId: string) =>
+        deleteCustomCharacterAuraMock(projectPath, auraId),
+    
+  }
+})
 
 import {
   deleteOrphanAurasForBook,

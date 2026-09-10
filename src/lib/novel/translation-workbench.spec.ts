@@ -26,11 +26,16 @@ const fsMocks = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 describe("translation-workbench（吸收自 inkos translation 术语一致性模式）", () => {
   beforeEach(() => {

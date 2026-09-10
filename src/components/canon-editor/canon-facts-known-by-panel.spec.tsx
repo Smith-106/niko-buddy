@@ -22,14 +22,19 @@ import {
   waitFor,
 } from "@/test-helpers/component-test-utils"
 import { CanonFactsKnownByPanel } from "./canon-facts-known-by-panel"
-import type { CanonFact } from "@/lib/novel/canon-graph-client"
+import type { CanonFact } from "@/lib/novel"
 
 // ── module mocks ──────────────────────────────────────────────────
 const getFactsKnownByPagedMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/novel/canon-graph-client", () => ({
-  getFactsKnownByPaged: getFactsKnownByPagedMock,
-}))
+vi.mock("@/lib/novel/canon-graph-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/canon-graph-client")>()
+  return {
+    ...actual,
+      getFactsKnownByPaged: getFactsKnownByPagedMock,
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),

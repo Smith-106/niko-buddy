@@ -16,13 +16,18 @@ const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(async (_p: string) => []),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: [string]) => fsMocks.readFile(...args),
-  writeFileAtomic: (...args: [string, string]) => fsMocks.writeFileAtomic(...args),
-  createDirectory: (...args: [string]) => fsMocks.createDirectory(...args),
-  fileExists: (...args: [string]) => fsMocks.fileExists(...args),
-  listDirectory: (...args: [string]) => fsMocks.listDirectory(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: [string]) => fsMocks.readFile(...args),
+      writeFileAtomic: (...args: [string, string]) => fsMocks.writeFileAtomic(...args),
+      createDirectory: (...args: [string]) => fsMocks.createDirectory(...args),
+      fileExists: (...args: [string]) => fsMocks.fileExists(...args),
+      listDirectory: (...args: [string]) => fsMocks.listDirectory(...args),
+    
+  }
+})
 
 import {
   checkConsistency,

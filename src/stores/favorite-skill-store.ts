@@ -2,29 +2,8 @@ import { create } from "zustand"
 import { normalizePath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  loadUserSkillConfig,
-  saveUserSkillConfig,
-  loadLinkedSkillContent,
-} from "@/lib/novel/user-skill-store"
-import {
-  loadDeAiSkillConfig,
-  saveDeAiSkillConfig,
-  BUILT_IN_DE_AI_SKILLS,
-} from "@/lib/novel/de-ai-skill-library"
-import { DEFAULT_SKILL_PRIORITY, type UserSkill, type SkillCategory } from "@/lib/novel/skill-library"
-import type { DeAiSkill } from "@/lib/novel/de-ai-skill-library"
-import {
-  type FavoriteSkillEntry,
-  type FavoriteSkillLibrary,
-  type FavoriteSkillConfig,
-  type FavoriteSkillSnapshot,
-  type FavoriteSkillSource,
-  loadFavorites,
-  saveFavorites,
-  buildWritingSnapshot,
-  buildDeAiSnapshot,
-} from "@/lib/novel/skill-favorite"
+import { loadUserSkillConfig, saveUserSkillConfig, loadLinkedSkillContent, loadDeAiSkillConfig, saveDeAiSkillConfig, BUILT_IN_DE_AI_SKILLS, DEFAULT_SKILL_PRIORITY, loadFavorites, saveFavorites, buildWritingSnapshot, buildDeAiSnapshot } from "@/lib/novel"
+import type { UserSkill, SkillCategory, DeAiSkill, FavoriteSkillEntry, FavoriteSkillLibrary, FavoriteSkillConfig, FavoriteSkillSnapshot, FavoriteSkillSource } from "@/lib/novel"
 
 interface ToggleFavoriteParams {
   library: FavoriteSkillLibrary

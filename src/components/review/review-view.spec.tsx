@@ -5,10 +5,8 @@ import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewView } from "./review-view"
 import type { ReviewItem } from "@/stores/review-store"
-import type { NovelReviewResult } from "@/lib/novel/review-adapter"
+import type { NovelReviewResult, GenerationHistoryEntry, CognitionState } from "@/lib/novel"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"
-import type { GenerationHistoryEntry } from "@/lib/novel/generation-history"
-import type { CognitionState } from "@/lib/novel/character-cognition"
 import type { DashboardIssueState, DashboardIssueRewriteBackup } from "@/lib/dashboard-issue-actions"
 import type { ReviewRewriteEdit, ReviewRewriteApplyResult } from "@/lib/review-rewrite-plan"
 interface FileEntry {
@@ -92,19 +90,30 @@ const mocks = vi.hoisted(() => {
 
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/i18n", () => ({
-  default: { exists: mocks.i18nExists, t: mocks.t },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: { exists: mocks.i18nExists, t: mocks.t },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: unknown) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
 vi.mock("@/stores/review-store", () => ({
   useReviewStore: (selector: (s: unknown) => unknown) =>
@@ -116,54 +125,114 @@ vi.mock("@/stores/review-store", () => ({
     }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-  listDirectory: mocks.listDirectory,
-  deleteFile: mocks.deleteFile,
-  copyFile: mocks.copyFile,
-  copyDirectory: mocks.copyDirectory,
-  preprocessFile: mocks.preprocessFile,
-  findRelatedWikiPages: mocks.findRelatedWikiPages,
-  createDirectory: mocks.createDirectory,
-  fileExists: mocks.fileExists,
-  getFileModifiedTime: mocks.getFileModifiedTime,
-  getFileSize: mocks.getFileSize,
-  getFileMd5: mocks.getFileMd5,
-  readFileAsBase64: mocks.readFileAsBase64,
-  createProject: mocks.createProject,
-  openProject: mocks.openProject,
-  openProjectFolder: mocks.openProjectFolder,
-  openFileLocation: mocks.openFileLocation,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      listDirectory: mocks.listDirectory,
+      deleteFile: mocks.deleteFile,
+      copyFile: mocks.copyFile,
+      copyDirectory: mocks.copyDirectory,
+      preprocessFile: mocks.preprocessFile,
+      findRelatedWikiPages: mocks.findRelatedWikiPages,
+      createDirectory: mocks.createDirectory,
+      fileExists: mocks.fileExists,
+      getFileModifiedTime: mocks.getFileModifiedTime,
+      getFileSize: mocks.getFileSize,
+      getFileMd5: mocks.getFileMd5,
+      readFileAsBase64: mocks.readFileAsBase64,
+      createProject: mocks.createProject,
+      openProject: mocks.openProject,
+      openProjectFolder: mocks.openProjectFolder,
+      openFileLocation: mocks.openFileLocation,
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: mocks.resolveDefaultModel }))
-vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: mocks.hasUsableLlm }))
-vi.mock("@/lib/novel/character-cognition", () => ({ loadCognitionState: mocks.loadCognitionState }))
-vi.mock("@/lib/novel/emotion-ledger", () => ({
-  loadEmotionLedger: mocks.loadEmotionLedger,
-  getCircuitBreakerStatus: mocks.getCircuitBreakerStatus,
-}))
-vi.mock("@/lib/novel/generation-history", () => ({
-  listGenerationHistory: mocks.listGenerationHistory,
-  deleteGenerationHistoryEntry: mocks.deleteGenerationHistoryEntry,
-}))
-vi.mock("@/lib/novel/start-review-run", () => ({ startNovelReviewRun: mocks.startNovelReviewRun }))
-vi.mock("@/lib/novel/start-six-dimension-review-run", () => ({ startSixDimensionReviewRun: mocks.startSixDimensionReviewRun }))
-vi.mock("@/lib/novel/continuity-overrides-store", () => ({ dismissFinding: mocks.dismissFinding }))
-vi.mock("@/lib/novel/evidence-chain-export", () => ({ exportEvidenceChainForReview: mocks.exportEvidenceChainForReview }))
-vi.mock("@/lib/novel/measurement-fingerprint", () => ({ formatMeasurementFingerprintSummary: mocks.formatMeasurementFingerprintSummary }))
-vi.mock("@/lib/novel/dimension-review-adapter", () => ({
-  SIX_REVIEW_DIMENSIONS: {
-    thrill: { label: "惊悚" },
-    consistency: { label: "一致性" },
-    pacing: { label: "节奏" },
-    character: { label: "人物" },
-    continuity: { label: "连续性" },
-    pull: { label: "拉力" },
-  },
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual, resolveDefaultModel: mocks.resolveDefaultModel 
+  }
+})
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual, hasUsableLlm: mocks.hasUsableLlm 
+  }
+})
+vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-cognition")>()
+  return {
+    ...actual, loadCognitionState: mocks.loadCognitionState 
+  }
+})
+vi.mock("@/lib/novel/emotion-ledger", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/emotion-ledger")>()
+  return {
+    ...actual,
+      loadEmotionLedger: mocks.loadEmotionLedger,
+      getCircuitBreakerStatus: mocks.getCircuitBreakerStatus,
+    
+  }
+})
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      listGenerationHistory: mocks.listGenerationHistory,
+      deleteGenerationHistoryEntry: mocks.deleteGenerationHistoryEntry,
+    
+  }
+})
+vi.mock("@/lib/novel/start-review-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/start-review-run")>()
+  return {
+    ...actual, startNovelReviewRun: mocks.startNovelReviewRun 
+  }
+})
+vi.mock("@/lib/novel/start-six-dimension-review-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/start-six-dimension-review-run")>()
+  return {
+    ...actual, startSixDimensionReviewRun: mocks.startSixDimensionReviewRun 
+  }
+})
+vi.mock("@/lib/novel/continuity-overrides-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/continuity-overrides-store")>()
+  return {
+    ...actual, dismissFinding: mocks.dismissFinding 
+  }
+})
+vi.mock("@/lib/novel/evidence-chain-export", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/evidence-chain-export")>()
+  return {
+    ...actual, exportEvidenceChainForReview: mocks.exportEvidenceChainForReview 
+  }
+})
+vi.mock("@/lib/novel/measurement-fingerprint", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/measurement-fingerprint")>()
+  return {
+    ...actual, formatMeasurementFingerprintSummary: mocks.formatMeasurementFingerprintSummary 
+  }
+})
+vi.mock("@/lib/novel/dimension-review-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/dimension-review-adapter")>()
+  return {
+    ...actual,
+      SIX_REVIEW_DIMENSIONS: {
+        thrill: { label: "惊悚" },
+        consistency: { label: "一致性" },
+        pacing: { label: "节奏" },
+        character: { label: "人物" },
+        continuity: { label: "连续性" },
+        pull: { label: "拉力" },
+      },
+    
+  }
+})
 vi.mock("@/lib/novel-review-action-items", () => ({
   buildVisibleNovelReviewActionItems: mocks.buildVisibleNovelReviewActionItems,
   buildVisibleNovelReviewActionItemsForScoreDimensions: mocks.buildVisibleNovelReviewActionItemsForScoreDimensions,

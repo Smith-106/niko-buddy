@@ -7,29 +7,49 @@ const fsMocks = vi.hoisted(() => ({
   getExecutableDir: vi.fn(),
   getResourceDir: vi.fn(),
 }))
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  createDirectory: fsMocks.createDirectory,
-  getExecutableDir: fsMocks.getExecutableDir,
-  getResourceDir: fsMocks.getResourceDir,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      createDirectory: fsMocks.createDirectory,
+      getExecutableDir: fsMocks.getExecutableDir,
+      getResourceDir: fsMocks.getResourceDir,
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: vi.fn(() => false),
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: vi.fn(() => false),
+    
+  }
+})
 
 import { isTauri } from "@/lib/platform"
 
 const searchWikiMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/search", () => ({
-  searchWiki: searchWikiMock,
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: searchWikiMock,
+    
+  }
+})
 
 const loggerWarnMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/utils", () => ({
-  logger: { warn: loggerWarnMock },
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      logger: { warn: loggerWarnMock },
+    
+  }
+})
 
 vi.mock("@tauri-apps/api/path", () => ({
   resourceDir: vi.fn(async () => "/resources"),

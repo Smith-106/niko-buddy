@@ -3,18 +3,8 @@ import { BookOpenCheck, CheckCircle2, Loader2, Play, RefreshCw } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
-import { resolveNovelModel } from "@/lib/novel/model-resolver"
-import {
-  buildDismantlingAnalysisPrompt,
-  buildDismantlingWebResearchPrompt,
-  extractStructureMemoryFromAnalysis,
-  loadDismantlingLibrary,
-  saveDismantlingLibrary,
-  selectNextDismantlingBatch,
-  type DismantlingAnalysis,
-  type DismantlingChapter,
-  type DismantlingProject,
-} from "@/lib/novel/dismantling"
+import { resolveNovelModel, buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "@/lib/novel"
+import type { DismantlingAnalysis, DismantlingChapter, DismantlingProject } from "@/lib/novel"
 import { buildWebResearchContext, collectWebResearch } from "@/lib/web-research"
 
 const DEFAULT_BATCH_SIZE = 3

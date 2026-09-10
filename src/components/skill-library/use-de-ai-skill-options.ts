@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  isDeAiSkillConfigCorruptError,
-  loadDeAiSkillConfig,
-  resolveAvailableDeAiSkills,
-  resolveEffectiveDeAiSkill,
-  type DeAiSkill,
-} from "@/lib/novel/de-ai-skill-library"
+import { isDeAiSkillConfigCorruptError, loadDeAiSkillConfig, resolveAvailableDeAiSkills, resolveEffectiveDeAiSkill } from "@/lib/novel"
+import type { DeAiSkill } from "@/lib/novel"
 import { getDeAiSkillLoadErrorMessage } from "./de-ai-skill-errors"
 
 interface UseDeAiSkillOptionsParams {

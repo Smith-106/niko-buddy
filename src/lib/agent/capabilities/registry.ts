@@ -1,4 +1,4 @@
-import type { UserSkill } from "@/lib/novel/skill-library"
+import type { UserSkill } from "@/lib/novel"
 import type { AiCapability, CapabilityIntent, CapabilityKind, CapabilityPermission } from "./types"
 import type { AiWorkflowMode } from "../workflow-mode"
 

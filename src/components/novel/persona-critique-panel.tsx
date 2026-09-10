@@ -6,14 +6,8 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, Loader2, Sparkles, X } from "lucide-react"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import {
-  DEFAULT_PERSONA_IDS,
-  PERSONA_CATALOG,
-  runPersonaCritique,
-  type PersonaCritiqueResult,
-  type PersonaId,
-} from "@/lib/novel/persona-sidecar-runner"
-import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { DEFAULT_PERSONA_IDS, PERSONA_CATALOG, runPersonaCritique, loadNovelSessionStatus } from "@/lib/novel"
+import type { PersonaCritiqueResult, PersonaId } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface Props {

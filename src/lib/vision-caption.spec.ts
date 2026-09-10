@@ -3,7 +3,12 @@ import type { LlmConfig } from "@/stores/wiki-store"
 
 const streamChatMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: streamChatMock }))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual, streamChat: streamChatMock 
+  }
+})
 
 import {
   buildCaptionPromptWithContext,

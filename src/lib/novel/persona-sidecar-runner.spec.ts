@@ -10,33 +10,43 @@ const fsMocks = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: vi.fn(async (_cfg: unknown, _msgs: unknown, callbacks: { onToken?: (t: string) => void; onDone?: () => void; onError?: (e: unknown) => void }) => {
-    callbacks.onToken?.('{"summary":"默认 streamChat 路径","findings":["f1"]}')
-    callbacks.onDone?.()
-  }),
-  combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
-    const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
-    if (signals.length === 0) return undefined
-    if (signals.length === 1) return signals[0]
-    const controller = new AbortController()
-    for (const s of signals) {
-      if (s.aborted) {
-        controller.abort()
-        break
-      }
-      s.addEventListener("abort", () => controller.abort(), { once: true })
-    }
-    return controller.signal
-  },
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: vi.fn(async (_cfg: unknown, _msgs: unknown, callbacks: { onToken?: (t: string) => void; onDone?: () => void; onError?: (e: unknown) => void }) => {
+        callbacks.onToken?.('{"summary":"默认 streamChat 路径","findings":["f1"]}')
+        callbacks.onDone?.()
+      }),
+      combineAbortSignals: (signal?: AbortSignal, timeoutSignal?: AbortSignal): AbortSignal | undefined => {
+        const signals = [signal, timeoutSignal].filter(Boolean) as AbortSignal[]
+        if (signals.length === 0) return undefined
+        if (signals.length === 1) return signals[0]
+        const controller = new AbortController()
+        for (const s of signals) {
+          if (s.aborted) {
+            controller.abort()
+            break
+          }
+          s.addEventListener("abort", () => controller.abort(), { once: true })
+        }
+        return controller.signal
+      },
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30 * 60 * 1000,
+    
+  }
+})
 
 import {
   isDraftEligibleForPersona,

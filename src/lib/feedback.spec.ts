@@ -5,7 +5,12 @@ const mocks = vi.hoisted(() => ({
   tauriFetch: vi.fn(),
 }))
 
-vi.mock("@/lib/platform", () => ({ isTauri: () => mocks.isTauri() }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: () => mocks.isTauri() 
+  }
+})
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: mocks.tauriFetch }))
 
 import { submitFeedback, type FeedbackInput } from "./feedback"

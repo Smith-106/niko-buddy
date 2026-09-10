@@ -12,8 +12,8 @@ import { ArcWorkbench } from "@/components/novel/craft/arc-workbench"
 import { ThrillDashboard } from "@/components/novel/craft/thrill-dashboard"
 import { TechniquePanel } from "@/components/novel/craft/technique-panel"
 import { readFile } from "@/commands/fs"
-import { startSixDimensionReviewRun } from "@/lib/novel/start-six-dimension-review-run"
-import { SIX_REVIEW_DIMENSION_ORDER, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
+import { startSixDimensionReviewRun, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel"
+import type { SixReviewDimensionKey } from "@/lib/novel"
 
 function isSixReviewDimensionKey(value: string | null): value is SixReviewDimensionKey {
   return SIX_REVIEW_DIMENSION_ORDER.includes(value as SixReviewDimensionKey)

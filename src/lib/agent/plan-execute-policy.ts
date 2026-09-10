@@ -1,5 +1,5 @@
 import type { AiWorkflowMode } from "./workflow-mode"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
+import type { NovelTaskIntent } from "@/lib/novel"
 
 const WRITING_INTENT_LIST: readonly NovelTaskIntent[] = [
   "write_chapter",

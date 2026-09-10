@@ -31,21 +31,32 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/user-memory/session", () => ({
-  listPreferences: mocks.listPreferences,
-  addPreferenceForProject: mocks.addPreferenceForProject,
-  deletePreferenceForProject: mocks.deletePreferenceForProject,
-}))
+vi.mock("@/lib/user-memory/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/user-memory/session")>()
+  return {
+    ...actual,
+      listPreferences: mocks.listPreferences,
+      addPreferenceForProject: mocks.addPreferenceForProject,
+      deletePreferenceForProject: mocks.deletePreferenceForProject,
+    
+  }
+})
 
 beforeEach(() => {
   setupDomGlobals()

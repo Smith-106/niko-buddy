@@ -5,7 +5,7 @@ import {
   loadStyleExemplarsViaRust,
   type StyleExemplarMarkType,
 } from "@/commands/exemplar"
-import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel/character-cognition"
+import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel"
 import { normalizePath, getFileName } from "@/lib/path-utils"
 
 /**

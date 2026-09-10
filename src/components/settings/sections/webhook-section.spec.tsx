@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   t: vi.fn((k: string) => k),
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
 
 describe("WebhookSection", () => {
   beforeEach(() => vi.clearAllMocks())

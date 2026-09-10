@@ -7,12 +7,17 @@ const fsMocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-  createDirectory: fsMocks.createDirectory,
-  fileExists: fsMocks.fileExists,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+      createDirectory: fsMocks.createDirectory,
+      fileExists: fsMocks.fileExists,
+    
+  }
+})
 
 import {
   createDefaultNovelProjectMeta,

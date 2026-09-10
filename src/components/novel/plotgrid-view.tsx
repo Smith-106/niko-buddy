@@ -2,12 +2,8 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Table } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { listSnapshots } from "@/lib/novel/chapter-ingest"
-import {
-  loadForeshadowingTracker,
-  type Foreshadowing,
-} from "@/lib/novel/foreshadowing-tracker"
-import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
+import { listSnapshots, loadForeshadowingTracker, findChapterFileByNumber } from "@/lib/novel"
+import type { Foreshadowing } from "@/lib/novel"
 
 /**
  * PlotgridView — 情节线×章节矩阵（F-010，审查/记忆面板可选可视化子面板）。

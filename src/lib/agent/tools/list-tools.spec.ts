@@ -3,10 +3,15 @@ import { createListChaptersTool } from "./list-chapters"
 import { createListOutlinesTool } from "./list-outlines"
 import { createListMemoriesTool } from "./list-memories"
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(),
-  readFile: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: vi.fn(),
+      readFile: vi.fn(),
+    
+  }
+})
 import { listDirectory, readFile } from "@/commands/fs"
 
 describe("list tools", () => {

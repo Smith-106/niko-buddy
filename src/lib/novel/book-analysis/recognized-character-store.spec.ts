@@ -5,10 +5,15 @@ const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFile: fsMocks.writeFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFile: fsMocks.writeFile,
+    
+  }
+})
 
 import {
   loadRecognizedCharacters,

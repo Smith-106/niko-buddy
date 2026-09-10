@@ -9,12 +9,8 @@ import { join } from "@tauri-apps/api/path"
 
 // 从新的skill文件导入默认规则
 import defaultDeAiSkill from "../../../skills/de-ai-writing/SKILL.md?raw"
-import {
-  TIERED_DEAI_TABLE,
-  computeTieredDeAiStats,
-  type TieredDeAiEntry,
-  type TieredDeAiTier,
-} from "@/lib/novel/de-ai-tiered-table"
+import { TIERED_DEAI_TABLE, computeTieredDeAiStats } from "@/lib/novel"
+import type { TieredDeAiEntry, TieredDeAiTier } from "@/lib/novel"
 
 const DEFAULT_DE_AI_SKILL = defaultDeAiSkill.trim()
 

@@ -5,14 +5,19 @@
 import { describe, expect, it, beforeEach, vi } from "vitest"
 
 // Mock i18n — chat-store 使用 i18n.t("chat.newConversation") 生成新会话标题
-vi.mock("@/i18n", () => ({
-  default: {
-    t: (key: string) => {
-      if (key === "chat.newConversation") return "新对话"
-      return key
-    },
-  },
-}))
+vi.mock("@/i18n", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/i18n")>()
+  return {
+    ...actual,
+      default: {
+        t: (key: string) => {
+          if (key === "chat.newConversation") return "新对话"
+          return key
+        },
+      },
+    
+  }
+})
 
 // 每个测试前重置 store，防止跨测试状态污染
 import { useChatStore } from "../chat-store"

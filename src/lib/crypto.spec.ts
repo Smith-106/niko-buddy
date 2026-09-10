@@ -6,9 +6,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: vi.fn(),
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: vi.fn(),
+    
+  }
+})
 
 // localStorage polyfill for the Node test environment
 function makeLocalStorage(): Storage {

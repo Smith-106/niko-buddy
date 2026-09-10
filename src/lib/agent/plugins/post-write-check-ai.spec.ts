@@ -1,22 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { runPostWriteCheckAI } from "./post-write-check-ai"
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: vi.fn(),
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: vi.fn(),
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveNovelModel: vi.fn(() => ({
-    provider: "custom",
-    apiKey: "test-key",
-    model: "test-model",
-    customEndpoint: "http://test",
-  })),
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveNovelModel: vi.fn(() => ({
+        provider: "custom",
+        apiKey: "test-key",
+        model: "test-model",
+        customEndpoint: "http://test",
+      })),
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: vi.fn(() => true),
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: vi.fn(() => true),
+    
+  }
+})
 
 vi.mock("@/stores/wiki-store", async () => {
   const actual = await vi.importActual("@/stores/wiki-store")

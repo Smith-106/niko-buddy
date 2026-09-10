@@ -7,15 +7,8 @@ import { Sparkles, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
-import {
-  bindCharacterAura,
-  BUILT_IN_CHARACTER_AURAS,
-  getCharacterAuraBindings,
-  listCharacterAuras,
-  type CharacterAura,
-  type CharacterAuraBinding,
-  unbindCharacterAura,
-} from "@/lib/novel/character-aura"
+import { bindCharacterAura, BUILT_IN_CHARACTER_AURAS, getCharacterAuraBindings, listCharacterAuras, unbindCharacterAura } from "@/lib/novel"
+import type { CharacterAura, CharacterAuraBinding } from "@/lib/novel"
 import { useEffect, useMemo, useState } from "react"
 
 export function SoulSidebarPanel() {

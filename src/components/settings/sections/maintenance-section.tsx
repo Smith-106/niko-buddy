@@ -32,7 +32,7 @@ import {
   type DedupTask,
 } from "@/lib/dedup-queue"
 import type { DuplicateGroup } from "@/lib/dedup"
-import { loadDivergenceTrace } from "@/lib/novel/canon-dual-write"
+import { loadDivergenceTrace } from "@/lib/novel"
 
 interface GroupUiEntry {
   group: DuplicateGroup

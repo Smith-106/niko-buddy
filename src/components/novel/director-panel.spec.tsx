@@ -3,10 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { DirectorPanel } from "./director-panel"
-import { createDirectorPipeline, advanceDirectorPhase } from "@/lib/novel/director-pipeline"
-import type { PhaseGateInput } from "@/lib/novel/director-pipeline"
+import { createDirectorPipeline, advanceDirectorPhase } from "@/lib/novel"
+import type { PhaseGateInput } from "@/lib/novel"
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (k: string, opts?: Record<string, unknown>) => {
     if (k === "directorPanel.retryCount") return `重试 ${opts?.count ?? 0} 次`
     return k

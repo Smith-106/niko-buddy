@@ -44,11 +44,16 @@ import {
 // ──────────────────────────────────────────────────────────────────────────
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
-vi.mock("@/commands/fs", () => ({
-  createDirectory: vi.fn(async () => {}),
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: vi.fn(async () => {}),
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+    
+  }
+})
 
 const invokeMock = vi.mocked(invoke)
 const createDirectoryMock = vi.mocked(createDirectory)

@@ -11,9 +11,14 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 describe("ChatDockControls", () => {
   beforeEach(() => {

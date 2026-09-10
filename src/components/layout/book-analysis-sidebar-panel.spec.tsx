@@ -8,7 +8,7 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import type { BookAnalysisTask } from "@/lib/novel/book-analysis/types"
+import type { BookAnalysisTask } from "@/lib/novel"
 
 const bookAnalysis = vi.hoisted(() => {
   const state = {
@@ -51,19 +51,34 @@ const toastMock = vi.hoisted(() => ({
 }))
 
 // === mocks 必须在 import 之前 ===
-vi.mock("@/commands/fs", () => ({
-  listDirectory: fsMock.listDirectory,
-  readFile: fsMock.readFile,
-  deleteFile: fsMock.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: fsMock.listDirectory,
+      readFile: fsMock.readFile,
+      deleteFile: fsMock.deleteFile,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/aura-cleanup", () => ({
-  deleteOrphanAurasForBook: cleanupMock.deleteOrphanAurasForBook,
-}))
+vi.mock("@/lib/novel/book-analysis/aura-cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/aura-cleanup")>()
+  return {
+    ...actual,
+      deleteOrphanAurasForBook: cleanupMock.deleteOrphanAurasForBook,
+    
+  }
+})
 
-vi.mock("@/lib/novel/character-aura", () => ({
-  listCharacterAuras: auraLib.listCharacterAuras,
-}))
+vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-aura")>()
+  return {
+    ...actual,
+      listCharacterAuras: auraLib.listCharacterAuras,
+    
+  }
+})
 
 vi.mock("@/lib/toast", () => ({
   toast: toastMock,
@@ -74,17 +89,28 @@ vi.mock("@/components/layout/panel-header-with-help", () => ({
 }))
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (state: Record<string, unknown>) => unknown) => selector(wiki.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (state: Record<string, unknown>) => unknown) => selector(wiki.state),
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: (selector?: (state: unknown) => unknown) =>
-    selector ? selector(bookAnalysis.state) : bookAnalysis.state,
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: (selector?: (state: unknown) => unknown) =>
+        selector ? selector(bookAnalysis.state) : bookAnalysis.state,
+    
+  }
+})
 
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 

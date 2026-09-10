@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, waitFor, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
-import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import type { RecognizedCharacter } from "@/lib/novel"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

@@ -28,14 +28,19 @@ const fsMocks = vi.hoisted(() => ({
   fileExists: vi.fn(async (_path: string): Promise<boolean> => false),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: fsMocks.readFile,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  getFileModifiedTime: fsMocks.getFileModifiedTime,
-  fileExists: fsMocks.fileExists,
-  listDirectory: vi.fn(async (_path: string): Promise<any[]> => []),
-  createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: fsMocks.readFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      getFileModifiedTime: fsMocks.getFileModifiedTime,
+      fileExists: fsMocks.fileExists,
+      listDirectory: vi.fn(async (_path: string): Promise<any[]> => []),
+      createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
+    
+  }
+})
 
 import { queryInspectorState } from "./inspector-query"
 

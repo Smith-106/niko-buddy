@@ -5,12 +5,17 @@ const { fileExists, readFile } = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  fileExists,
-  readFile,
-  writeFileAtomic: vi.fn(),
-  createDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      fileExists,
+      readFile,
+      writeFileAtomic: vi.fn(),
+      createDirectory: vi.fn(),
+    
+  }
+})
 
 import { loadCognitionState } from "./character-cognition"
 import { loadCharacterStates } from "./character-state"

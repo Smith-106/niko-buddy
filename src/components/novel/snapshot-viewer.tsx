@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { useTranslation } from "react-i18next"
 import { readFile } from "@/commands/fs"
-import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, sampleTruthFoldDrift, emitTruthFoldDriftAlarm, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "@/lib/novel"
+import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel"
 import { MonacoDiffEditor } from "./monaco-diff-editor"
 
 interface SnapshotViewerProps {

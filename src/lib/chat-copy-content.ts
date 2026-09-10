@@ -6,8 +6,7 @@
  * MIT License — independently implemented.
  */
 
-import { parseAgentResponse } from "@/lib/novel/agent-parser"
-import { cleanGeneratedChapterContentForSave } from "@/lib/novel/chapter-content-cleanup"
+import { parseAgentResponse, cleanGeneratedChapterContentForSave } from "@/lib/novel"
 
 /**
  * Remove hidden assistant metadata from raw text:

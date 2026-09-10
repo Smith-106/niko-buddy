@@ -49,9 +49,14 @@ vi.mock("@/lib/file-types", () => ({
   getCodeLanguage: mocks.getCodeLanguage,
 }))
 
-vi.mock("@/lib/path-utils", () => ({
-  getFileName: mocks.getFileName,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      getFileName: mocks.getFileName,
+    
+  }
+})
 
 vi.mock("@/lib/markdown-image-resolver", () => ({
   resolveMarkdownImageSrc: mocks.resolveMarkdownImageSrc,
@@ -66,17 +71,32 @@ vi.mock("@/lib/language-metadata", () => ({
   getTextDirection: mocks.getTextDirection,
 }))
 
-vi.mock("@/lib/frontmatter", () => ({
-  parseFrontmatter: mocks.parseFrontmatter,
-}))
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+      parseFrontmatter: mocks.parseFrontmatter,
+    
+  }
+})
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: unknown) => unknown) => selector(mocks.state),
+    
+  }
+})
 
 vi.mock("@/components/editor/frontmatter-panel", () => ({
   FrontmatterPanel: () => <div data-testid="frontmatter-panel" />,

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { hasPersistedDirectorState, loadDirectorPersisted } from "@/lib/novel/director-pipeline-store"
-import { DIRECTOR_PHASES } from "@/lib/novel/director-pipeline"
+import { hasPersistedDirectorState, loadDirectorPersisted, DIRECTOR_PHASES } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Clapperboard } from "lucide-react"
 

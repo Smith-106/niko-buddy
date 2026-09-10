@@ -26,30 +26,50 @@ const mocks = vi.hoisted(() => ({
   sweepResolvedReviews: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFileAtomic: mocks.writeFileAtomic,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+    
+  }
+})
 
 vi.mock("./ingest", () => ({
   autoIngest: mocks.autoIngest,
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.wikiGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.wikiGetState },
+    
+  }
+})
 
 vi.mock("@/lib/project-identity", () => ({
   getProjectPathById: mocks.getProjectPathById,
 }))
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: mocks.hasUsableLlm,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: mocks.hasUsableLlm,
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: mocks.resolveDefaultModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: mocks.resolveDefaultModel,
+    
+  }
+})
 
 vi.mock("@/lib/wiki-page-delete", () => ({
   cascadeDeleteWikiPage: mocks.cascadeDeleteWikiPage,

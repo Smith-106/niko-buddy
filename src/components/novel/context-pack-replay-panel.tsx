@@ -25,7 +25,7 @@
  *
  * MIT License — independently implemented.
  */
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { ContextPack } from "@/lib/novel"
 import type { ContextUsage } from "@/lib/context-usage"
 import { FileText } from "lucide-react"
 

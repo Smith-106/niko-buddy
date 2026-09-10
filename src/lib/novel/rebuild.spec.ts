@@ -17,13 +17,23 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  listDirectory: mocks.listDirectory,
-}))
-vi.mock("@/lib/frontmatter", () => ({
-  parseFrontmatter: mocks.parseFrontmatter,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+      parseFrontmatter: mocks.parseFrontmatter,
+    
+  }
+})
 vi.mock("./chapter-meta", () => ({
   isChapterPage: mocks.isChapterPage,
   isFinalChapter: mocks.isFinalChapter,
@@ -34,12 +44,22 @@ vi.mock("./chapter-ingest", () => ({
 vi.mock("./chapter-utils", () => ({
   flattenMdFilesBase: mocks.flattenMdFilesBase,
 }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: mocks.useWikiStore,
-}))
-vi.mock("@/lib/embedding", () => ({
-  embedPage: mocks.embedPage,
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: mocks.useWikiStore,
+    
+  }
+})
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      embedPage: mocks.embedPage,
+    
+  }
+})
 
 import { rebuildAllSnapshots, rebuildVectorIndex } from "./rebuild"
 

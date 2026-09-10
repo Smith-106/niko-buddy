@@ -1,8 +1,6 @@
 import type { AgentConfig } from "./types"
-import type { TaskRouteResult } from "@/lib/novel/task-router"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { TaskRouteResult, ContextPack, UserSkill } from "@/lib/novel"
 import type { AiWorkflowMode } from "./workflow-mode"
-import type { UserSkill } from "@/lib/novel/skill-library"
 import type { AiCapability, SelectedCapabilityTrace } from "./capabilities/types"
 
 export interface PrePluginInput {

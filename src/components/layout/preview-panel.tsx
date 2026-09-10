@@ -2,7 +2,8 @@ import { Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useL
 import { useTranslation } from "react-i18next"
 import { Check, MoreHorizontal, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask } from "@/lib/novel"
+import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
@@ -14,8 +15,6 @@ import { FilePreview } from "@/components/editor/file-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
-import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus } from "@/lib/novel/chapter-meta"
-import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { PersonaCritiquePanel } from "@/components/novel/persona-critique-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -23,17 +22,6 @@ import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
 import { DeAiBatchDialog } from "@/components/novel/de-ai-batch-dialog"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
-import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
-import {
-  acceptAllDeAiBatchDrafts,
-  acceptDeAiBatchDraft,
-  loadDeAiBatchState,
-  rejectDeAiBatchDraft,
-  runDeAiBatch,
-  type DeAiBatchProgress,
-  type DeAiBatchSummary,
-} from "@/lib/novel/de-ai-batch"
-import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"

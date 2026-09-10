@@ -26,19 +26,24 @@ vi.mock("./tauri-fetch", async (importOriginal) => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  readFile: async (path: string): Promise<string> => {
-    try {
-      return readFileSync(path, "utf8")
-    } catch {
-      return ""
-    }
-  },
-  writeFileAtomic: async (path: string, contents: string): Promise<void> => {
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, contents, "utf8")
-  },
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: async (path: string): Promise<string> => {
+        try {
+          return readFileSync(path, "utf8")
+        } catch {
+          return ""
+        }
+      },
+      writeFileAtomic: async (path: string, contents: string): Promise<void> => {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, contents, "utf8")
+      },
+    
+  }
+})
 
 async function reservePort(): Promise<number> {
   return await new Promise((resolve, reject) => {

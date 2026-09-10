@@ -3,13 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { DebtBoardView } from "./debt-board-view"
-import type { ForeshadowingDebtReport } from "@/lib/novel/foreshadowing-debt"
-import type { ChaseDebt, ChaseDebtEvent } from "@/lib/novel/novel-session-status"
-import type { EmotionLedgerEntry } from "@/lib/novel/emotion-ledger"
+import type { ForeshadowingDebtReport, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
 
 // useTranslation mock — 返回 key fallback（i18n 在 SSR 下需要 mock，
 // 与 inspector-panel.spec.tsx / review-view.dismiss.spec.tsx 同款模式）。
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({
     t: (key: string) => key,
   }),

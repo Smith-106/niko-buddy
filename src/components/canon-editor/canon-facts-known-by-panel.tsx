@@ -11,7 +11,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { getFactsKnownByPaged, type CanonFact } from "@/lib/novel/canon-graph-client"
+import { getFactsKnownByPaged } from "@/lib/novel"
+import type { CanonFact } from "@/lib/novel"
 
 /** 服务端分页页大小（limit）。 */
 const FACTS_PAGE_SIZE = 200

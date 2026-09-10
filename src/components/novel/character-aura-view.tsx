@@ -6,28 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
-import { buildContextPack, contextPackToPrompt } from "@/lib/novel/context-engine"
-import { resolveNovelModel } from "@/lib/novel/model-resolver"
+import { buildContextPack, contextPackToPrompt, resolveNovelModel, bindCharacterAura, buildCharacterAuraContext, BUILT_IN_CHARACTER_AURAS, CHARACTER_AURA_RESEARCH_FILES, createCustomCharacterAuraSkill, deleteCustomCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument, unbindCharacterAura, updateCustomCharacterAura } from "@/lib/novel"
+import type { CharacterAura, CharacterAuraBinding, CharacterAuraGenerationProgress, CharacterAuraResearchFileName } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
-import {
-  bindCharacterAura,
-  buildCharacterAuraContext,
-  BUILT_IN_CHARACTER_AURAS,
-  CHARACTER_AURA_RESEARCH_FILES,
-  createCustomCharacterAuraSkill,
-  deleteCustomCharacterAura,
-  getCharacterAuraBindings,
-  listBindableNovelCharacters,
-  listCharacterAuras,
-  loadCharacterAuraResearchDocument,
-  loadCharacterAuraSkillDocument,
-  unbindCharacterAura,
-  updateCustomCharacterAura,
-  type CharacterAura,
-  type CharacterAuraBinding,
-  type CharacterAuraGenerationProgress,
-  type CharacterAuraResearchFileName,
-} from "@/lib/novel/character-aura"
 import { SoulDocEditor } from "./soul-doc-editor"
 import { refreshProjectState } from "@/lib/project-refresh"
 

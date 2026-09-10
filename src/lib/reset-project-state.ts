@@ -12,6 +12,9 @@ import { pauseQueue as pauseIngestQueue } from "@/lib/ingest-queue"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useReviewStore } from "@/stores/review-store"
+// Leaf import on purpose: this module is a background subsystem loaded through
+// deferred `await import("@/lib/reset-project-state")` calls, and the barrel
+// would pull novel's whole internal graph (and its app-level deps) into it.
 import { clearTemporalFactsCache } from "@/lib/novel/context-engine"
 
 export function resetProjectStores(): void {

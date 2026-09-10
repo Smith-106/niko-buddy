@@ -2,11 +2,16 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 
 const streamChatMock = vi.fn()
 const combineAbortSignalsMock = vi.fn((...signals: AbortSignal[]) => signals[0])
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: (...args: Parameters<typeof streamChatMock>) => streamChatMock(...args),
-  combineAbortSignals: (...args: Parameters<typeof combineAbortSignalsMock>) => combineAbortSignalsMock(...args),
-  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: (...args: Parameters<typeof streamChatMock>) => streamChatMock(...args),
+      combineAbortSignals: (...args: Parameters<typeof combineAbortSignalsMock>) => combineAbortSignalsMock(...args),
+      DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+    
+  }
+})
 
 import { generateChapterTitle } from "./chapter-title-generator"
 

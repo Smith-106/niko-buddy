@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useWikiStore } from "@/stores/wiki-store"
-import { readSoulDoc, writeSoulDoc } from "@/lib/novel/soul-doc"
+import { readSoulDoc, writeSoulDoc } from "@/lib/novel"
 import i18n from "@/i18n"
 
 export function SoulDocEditor() {

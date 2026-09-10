@@ -15,16 +15,26 @@ const mocks = vi.hoisted(() => ({
   loadNotDuplicates: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: mocks.listDirectory,
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  deleteFile: mocks.deleteFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      listDirectory: mocks.listDirectory,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      deleteFile: mocks.deleteFile,
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
 vi.mock("./dedup", () => ({
   extractEntitySummary: mocks.extractEntitySummary,

@@ -39,25 +39,35 @@ vi.mock("@/stores/chat-store", () => ({
   useChatStore: (selector: (s: ChatStateLike) => unknown) => selector(mocks.chatState),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { id: string; path: string } | null }) => unknown) =>
-    selector({ project: { id: "p1", path: "/p" } }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { id: string; path: string } | null }) => unknown) =>
+        selector({ project: { id: "p1", path: "/p" } }),
+    
+  }
+})
 
-vi.mock("@/lib/reference", () => ({
-  parseReferences: vi.fn(() => [{ index: 1, query: "林墨", full: "@林墨", kind: "character" }]),
-  resolveReferences: vi.fn(() => [
-    {
-      id: "c1",
-      name: "林墨",
-      kind: "character",
-      token: { index: 1, query: "林墨", full: "@林墨", kind: "character" },
-    },
-  ]),
-  loadAllReferenceCandidates: vi.fn(async () => [
-    { id: "c1", name: "林墨", kind: "character", aliases: [], description: "" },
-  ]),
-}))
+vi.mock("@/lib/reference", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reference")>()
+  return {
+    ...actual,
+      parseReferences: vi.fn(() => [{ index: 1, query: "林墨", full: "@林墨", kind: "character" }]),
+      resolveReferences: vi.fn(() => [
+        {
+          id: "c1",
+          name: "林墨",
+          kind: "character",
+          token: { index: 1, query: "林墨", full: "@林墨", kind: "character" },
+        },
+      ]),
+      loadAllReferenceCandidates: vi.fn(async () => [
+        { id: "c1", name: "林墨", kind: "character", aliases: [], description: "" },
+      ]),
+    
+  }
+})
 
 function renderChatInput(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
   const onSend = props.onSend ?? vi.fn<(text: string) => void>()

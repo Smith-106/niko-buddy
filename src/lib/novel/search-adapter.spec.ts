@@ -15,29 +15,59 @@ const mocks = vi.hoisted(() => ({
   getRelatedNodes: vi.fn(),
 }))
 
-vi.mock("@/lib/search", () => ({
-  searchWiki: (...args: unknown[]) => mocks.searchWiki(...args),
-}))
+vi.mock("@/lib/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/search")>()
+  return {
+    ...actual,
+      searchWiki: (...args: unknown[]) => mocks.searchWiki(...args),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  readFile: (...args: unknown[]) => mocks.readFile(...args),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: (...args: unknown[]) => mocks.readFile(...args),
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: (p: string) => p.replace(/\\/g, "/"),
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: (p: string) => p.replace(/\\/g, "/"),
+    
+  }
+})
 
-vi.mock("@/lib/utils", () => ({
-  logger: mocks.logger,
-}))
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>()
+  return {
+    ...actual,
+      logger: mocks.logger,
+    
+  }
+})
 
-vi.mock("@/lib/rerank", () => ({
-  rerankCandidates: (...args: unknown[]) => mocks.rerankCandidates(...args),
-}))
+vi.mock("@/lib/rerank", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rerank")>()
+  return {
+    ...actual,
+      rerankCandidates: (...args: unknown[]) => mocks.rerankCandidates(...args),
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.useWikiStoreGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.useWikiStoreGetState },
+    
+  }
+})
 
 vi.mock("./chapter-ingest", () => ({
   loadSnapshot: (...args: unknown[]) => mocks.loadSnapshot(...args),
@@ -48,14 +78,24 @@ vi.mock("./graph-adapter", () => ({
   sanitizeEntitySlug: (...args: unknown[]) => mocks.sanitizeEntitySlug(...args),
 }))
 
-vi.mock("@/lib/embedding", () => ({
-  searchByEmbedding: (...args: unknown[]) => mocks.searchByEmbedding(...args),
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      searchByEmbedding: (...args: unknown[]) => mocks.searchByEmbedding(...args),
+    
+  }
+})
 
-vi.mock("@/lib/graph-relevance", () => ({
-  buildRetrievalGraph: (...args: unknown[]) => mocks.buildRetrievalGraph(...args),
-  getRelatedNodes: (...args: unknown[]) => mocks.getRelatedNodes(...args),
-}))
+vi.mock("@/lib/graph-relevance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
+  return {
+    ...actual,
+      buildRetrievalGraph: (...args: unknown[]) => mocks.buildRetrievalGraph(...args),
+      getRelatedNodes: (...args: unknown[]) => mocks.getRelatedNodes(...args),
+    
+  }
+})
 
 import {
   filterAuthoritative,

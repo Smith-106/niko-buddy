@@ -18,11 +18,16 @@ const fsMocks = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
-  writeFileAtomic: fsMocks.writeFileAtomic,
-  readFile: fsMocks.readFile,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      createDirectory: fsMocks.createDirectory,
+      writeFileAtomic: fsMocks.writeFileAtomic,
+      readFile: fsMocks.readFile,
+    
+  }
+})
 
 function card(overrides: Partial<MaterialCard> & { id: string }): MaterialCard {
   return {

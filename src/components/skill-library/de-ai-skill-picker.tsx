@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { WandSparkles, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { type DeAiSkill } from "@/lib/novel/de-ai-skill-library"
+import type { DeAiSkill } from "@/lib/novel"
 import { useDeAiSkillOptions } from "./use-de-ai-skill-options"
 
 interface DeAiSkillPickerProps {

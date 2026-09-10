@@ -4,16 +4,21 @@ import { createWebSearchTool } from "./web-search"
 
 const webSearchMock = vi.fn()
 
-vi.mock("@/lib/web-search", () => ({
-  resolveSearchConfig: (config: SearchApiConfig) => config,
-  providerRequiresApiKey: (provider: string) =>
-    provider === "bocha" ||
-    provider === "qiniu" ||
-    provider === "metaso" ||
-    provider === "tavily" ||
-    provider === "serpapi",
-  webSearch: (...args: unknown[]) => webSearchMock(...args),
-}))
+vi.mock("@/lib/web-search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-search")>()
+  return {
+    ...actual,
+      resolveSearchConfig: (config: SearchApiConfig) => config,
+      providerRequiresApiKey: (provider: string) =>
+        provider === "bocha" ||
+        provider === "qiniu" ||
+        provider === "metaso" ||
+        provider === "tavily" ||
+        provider === "serpapi",
+      webSearch: (...args: unknown[]) => webSearchMock(...args),
+    
+  }
+})
 
 const notConfigured: SearchApiConfig = {
   provider: "none",

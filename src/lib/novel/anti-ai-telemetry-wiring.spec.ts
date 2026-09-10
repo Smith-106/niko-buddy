@@ -21,16 +21,26 @@ const fakeStore = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/web-store", () => ({
-  getStore: vi.fn(async () => fakeStore),
-}))
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(async () => ""),
-  writeFileAtomic: vi.fn(async () => {}),
-  createDirectory: vi.fn(async () => {}),
-  listDirectory: vi.fn(async () => []),
-  deleteFile: vi.fn(async () => {}),
-}))
+vi.mock("@/lib/web-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-store")>()
+  return {
+    ...actual,
+      getStore: vi.fn(async () => fakeStore),
+    
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(async () => ""),
+      writeFileAtomic: vi.fn(async () => {}),
+      createDirectory: vi.fn(async () => {}),
+      listDirectory: vi.fn(async () => []),
+      deleteFile: vi.fn(async () => {}),
+    
+  }
+})
 
 import {
   loadAntiAiTelemetryConsent,

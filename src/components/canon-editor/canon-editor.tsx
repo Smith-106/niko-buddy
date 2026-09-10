@@ -29,11 +29,8 @@ import {
   type CanonEdgeFilter,
   type EdgeKind,
 } from "./canon-types"
-import {
-  buildCanonEdgeFilter,
-  type CanonQueryBatchResponseRaw,
-  type RawCanonEdge,
-} from "@/lib/novel/canon-graph-client"
+import { buildCanonEdgeFilter } from "@/lib/novel"
+import type { CanonQueryBatchResponseRaw, RawCanonEdge } from "@/lib/novel"
 
 const EDGE_KIND_OPTIONS = Object.entries(EDGE_KIND_LABELS) as Array<[EdgeKind, string]>
 

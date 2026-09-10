@@ -3,11 +3,16 @@ import { applyFileEdit } from "./agent-tools"
 import type { FileEditAction } from "./agent-parser"
 
 // Mock fs commands
-vi.mock("@/commands/fs", () => ({
-  readFile: vi.fn(),
-  writeFile: vi.fn(),
-  listDirectory: vi.fn(),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      listDirectory: vi.fn(),
+    
+  }
+})
 
 describe("agent-tools applyFileEdit security", () => {
   it("should block path traversal with .. segments (ISS-20260731-001)", async () => {

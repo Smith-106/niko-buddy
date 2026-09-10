@@ -4,7 +4,8 @@ import { ArrowLeft, Check, Copy, Download, FileText, BookOpen, Pencil, Save } fr
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import type { StoryDraft } from "@/lib/novel/story-simulation/types"
+import { exportDraft, importDraftToChapters, getNextChapterNumber } from "@/lib/novel"
+import type { StoryDraft } from "@/lib/novel"
 import {
   Dialog,
   DialogContent,
@@ -15,9 +16,6 @@ import {
 } from "@/components/ui/dialog"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { exportDraft } from "@/lib/novel/story-simulation/draft-export"
-import { importDraftToChapters } from "@/lib/novel/story-simulation/draft-importer"
-import { getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 
 interface StoryDraftViewProps {

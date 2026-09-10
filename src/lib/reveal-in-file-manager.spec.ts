@@ -8,7 +8,12 @@ const openerMocks = vi.hoisted(() => ({
   openPath: vi.fn(async () => undefined),
 }))
 
-vi.mock("@/lib/platform", () => ({ isTauri: () => isTauriMock() }))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual, isTauri: () => isTauriMock() 
+  }
+})
 
 vi.mock("@tauri-apps/plugin-opener", () => openerMocks)
 

@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 import { BookAnalysisBookList } from "./book-analysis-book-list"
 
 function makeBook(overrides: Partial<BookAnalysisLibraryBook>): BookAnalysisLibraryBook {

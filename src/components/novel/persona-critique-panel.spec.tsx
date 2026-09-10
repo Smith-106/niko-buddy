@@ -7,8 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, setupDomGlobals, waitFor } from "@/test-helpers/component-test-utils"
 import { PersonaCritiquePanel } from "./persona-critique-panel"
-import type { PersonaCritiqueResult } from "@/lib/novel/persona-sidecar-runner"
-import type { NovelSessionStatus } from "@/lib/novel/novel-session-status"
+import type { PersonaCritiqueResult, NovelSessionStatus } from "@/lib/novel"
 
 interface CritiqueResultLike {
   ok: boolean
@@ -29,31 +28,52 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { llmConfig: unknown }) => unknown) => selector(mocks.wiki),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { llmConfig: unknown }) => unknown) => selector(mocks.wiki),
+    
+  }
+})
 
-vi.mock("@/lib/has-usable-llm", () => ({
-  hasUsableLlm: mocks.hasUsableLlm,
-}))
+vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/has-usable-llm")>()
+  return {
+    ...actual,
+      hasUsableLlm: mocks.hasUsableLlm,
+    
+  }
+})
 
-vi.mock("@/lib/novel/persona-sidecar-runner", () => ({
-  DEFAULT_PERSONA_IDS: ["critic", "empath", "devil", "reader"],
-  PERSONA_CATALOG: {
-    critic: { id: "critic", label: "挑剔者", systemPrompt: "" },
-    empath: { id: "empath", label: "共情者", systemPrompt: "" },
-    devil: { id: "devil", label: "魔鬼设师", systemPrompt: "" },
-    reader: { id: "reader", label: "读者代表", systemPrompt: "" },
-  },
-  runPersonaCritique: mocks.runPersonaCritique,
-}))
+vi.mock("@/lib/novel/persona-sidecar-runner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/persona-sidecar-runner")>()
+  return {
+    ...actual,
+      DEFAULT_PERSONA_IDS: ["critic", "empath", "devil", "reader"],
+      PERSONA_CATALOG: {
+        critic: { id: "critic", label: "挑剔者", systemPrompt: "" },
+        empath: { id: "empath", label: "共情者", systemPrompt: "" },
+        devil: { id: "devil", label: "魔鬼设师", systemPrompt: "" },
+        reader: { id: "reader", label: "读者代表", systemPrompt: "" },
+      },
+      runPersonaCritique: mocks.runPersonaCritique,
+    
+  }
+})
 
-vi.mock("@/lib/novel/novel-session-status", () => ({
-  loadNovelSessionStatus: mocks.loadNovelSessionStatus,
-}))
+vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
+  return {
+    ...actual,
+      loadNovelSessionStatus: mocks.loadNovelSessionStatus,
+    
+  }
+})
 
 const okResults: PersonaCritiqueResult[] = [
   {

@@ -10,7 +10,12 @@ const fsMocks = vi.hoisted(() => ({
 const removePageEmbeddingMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/commands/fs", () => fsMocks)
-vi.mock("@/lib/embedding", () => ({ removePageEmbedding: removePageEmbeddingMock }))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual, removePageEmbedding: removePageEmbeddingMock 
+  }
+})
 
 import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
 import {

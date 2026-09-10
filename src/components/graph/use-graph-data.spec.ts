@@ -27,29 +27,45 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiStateLike) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/lib/wiki-graph", () => ({
-  buildWikiGraph: mocks.buildWikiGraph,
-}))
+vi.mock("@/lib/wiki-graph", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/wiki-graph")>()
+  return {
+    ...actual,
+      buildWikiGraph: mocks.buildWikiGraph,
+    
+  }
+})
 
 vi.mock("@/lib/graph-insights", () => ({
   findSurprisingConnections: mocks.findSurprisingConnections,
   detectKnowledgeGaps: mocks.detectKnowledgeGaps,
 }))
 
-vi.mock("@/lib/novel/foreshadowing-tracker", () => ({
-  loadForeshadowingTracker: mocks.loadForeshadowingTracker,
-}))
+vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
+  return {
+    ...actual,
+      loadForeshadowingTracker: mocks.loadForeshadowingTracker,
+    
+  }
+})
 
 const NODES: GraphNode[] = [
   { id: "n1", label: "甲", type: "character", path: "/p/wiki/甲.md", linkCount: 2, community: 0 },

@@ -47,33 +47,59 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
+        { getState: () => mocks.state },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: mocks.streamChat,
-}))
+vi.mock("@/lib/llm-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-client")>()
+  return {
+    ...actual,
+      streamChat: mocks.streamChat,
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({
-  writeFile: mocks.writeFile,
-  listDirectory: mocks.listDirectory,
-  createDirectory: mocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      writeFile: mocks.writeFile,
+      listDirectory: mocks.listDirectory,
+      createDirectory: mocks.createDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/novel/prompt-templates", () => ({
-  PROMPTS: { outlineGeneration: mocks.outlineGeneration },
-}))
+vi.mock("@/lib/novel/prompt-templates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/prompt-templates")>()
+  return {
+    ...actual,
+      PROMPTS: { outlineGeneration: mocks.outlineGeneration },
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+    
+  }
+})
 
 // Pass-through dialog so the form is always reachable in jsdom.
 vi.mock("@/components/ui/dialog", () => ({

@@ -6,11 +6,16 @@ const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  writeFile: mocks.writeFile,
-  createDirectory: mocks.createDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      writeFile: mocks.writeFile,
+      createDirectory: mocks.createDirectory,
+    
+  }
+})
 
 import {
   applyDashboardInsertBeforeToMarkdown,

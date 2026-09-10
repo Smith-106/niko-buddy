@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStorySimulationStore } from "@/stores/story-simulation-store";
-import type { StoryNode } from "@/lib/novel/story-simulation/types";
+import type { StoryNode } from "@/lib/novel"
 import { cn } from "@/lib/utils";
 
 interface FrameworkConfirmPanelProps {

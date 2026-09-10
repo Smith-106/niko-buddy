@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { FanficMergeDialog } from "./fanfic-merge-dialog"
-import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { BookAnalysisLibraryBook } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => ({
   t: vi.fn((k: string) => k),
@@ -12,11 +12,16 @@ const mocks = vi.hoisted(() => ({
   loadProposal: vi.fn(async () => null),
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
-    selector({ project: { path: mocks.projectPath } }),
-}))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+        selector({ project: { path: mocks.projectPath } }),
+    
+  }
+})
 vi.mock("@/lib/novel/fanfic-canon-import", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/fanfic-canon-import")>()
   return {

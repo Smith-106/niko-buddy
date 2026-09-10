@@ -103,12 +103,27 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({ useWikiStore: mocks.useWikiStore }))
-vi.mock("@/commands/fs", () => ({ readFile: mocks.readFile }))
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-  getFileName: mocks.getFileName,
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual, useWikiStore: mocks.useWikiStore 
+  }
+})
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual, readFile: mocks.readFile 
+  }
+})
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+      getFileName: mocks.getFileName,
+    
+  }
+})
 vi.mock("@/lib/markdown-image-resolver", () => ({
   resolveMarkdownImageSrc: mocks.resolveMarkdownImageSrc,
 }))
@@ -122,8 +137,18 @@ vi.mock("@/lib/language-metadata", () => ({
   getTextDirection: mocks.getTextDirection,
 }))
 vi.mock("@/lib/latex-to-unicode", () => ({ convertLatexToUnicode: mocks.convertLatexToUnicode }))
-vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProjectState }))
-vi.mock("@/lib/novel/agent-tools", () => ({ applyFileEdits: mocks.applyFileEdits }))
+vi.mock("@/lib/project-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-refresh")>()
+  return {
+    ...actual, refreshProjectState: mocks.refreshProjectState 
+  }
+})
+vi.mock("@/lib/novel/agent-tools", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/agent-tools")>()
+  return {
+    ...actual, applyFileEdits: mocks.applyFileEdits 
+  }
+})
 vi.mock("@/components/chat/chat-shared", () => ({ getLastQueryPages: mocks.getLastQueryPages }))
 vi.mock("./chat-resume", () => ({
   canContinueUnfinishedDeepChapter: mocks.canContinueUnfinishedDeepChapter,

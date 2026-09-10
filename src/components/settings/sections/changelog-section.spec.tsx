@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t, i18n: mocks.langState }),
 }))
 
@@ -51,9 +52,14 @@ vi.mock("@/lib/changelog", () => ({
   allChangelog: mocks.allChangelog,
 }))
 
-vi.mock("@/lib/platform", () => ({
-  isTauri: mocks.isTauri,
-}))
+vi.mock("@/lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform")>()
+  return {
+    ...actual,
+      isTauri: mocks.isTauri,
+    
+  }
+})
 
 vi.mock("@/lib/update-error-message", () => ({
   formatUpdateErrorMessage: mocks.formatUpdateErrorMessage,

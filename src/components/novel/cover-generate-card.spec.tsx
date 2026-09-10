@@ -10,14 +10,24 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }))
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }))
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
-    selector({ project: { path: mocks.projectPath } }),
-}))
-vi.mock("@/lib/novel/generation-history", () => ({
-  saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
-}))
+vi.mock("react-i18next", () => ({  initReactI18next: { type: "3rdParty", init: () => {} },  useTranslation: () => ({ t: mocks.t }) }))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+        selector({ project: { path: mocks.projectPath } }),
+    
+  }
+})
+vi.mock("@/lib/novel/generation-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/generation-history")>()
+  return {
+    ...actual,
+      saveGenerationHistoryEntry: vi.fn(async () => ({ id: "x" })),
+    
+  }
+})
 
 const meta = { title: "雾都", genre: "悬疑", protagonistBrief: "侦探", tone: "冷峻", keyImagery: ["雾", "巷"] }
 

@@ -15,15 +15,20 @@ import {
   waitFor,
 } from "@/test-helpers/component-test-utils"
 import { InspectorPanel } from "./inspector-panel"
-import type { InspectorSnapshot } from "@/lib/novel/inspector-query"
+import type { InspectorSnapshot } from "@/lib/novel"
 
 const queryMocks = vi.hoisted(() => ({
   queryInspectorState: vi.fn(async (): Promise<InspectorSnapshot | null> => null),
 }))
 
-vi.mock("@/lib/novel/inspector-query", () => ({
-  queryInspectorState: queryMocks.queryInspectorState,
-}))
+vi.mock("@/lib/novel/inspector-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/inspector-query")>()
+  return {
+    ...actual,
+      queryInspectorState: queryMocks.queryInspectorState,
+    
+  }
+})
 
 const storeMocks = vi.hoisted(() => ({
   state: {
@@ -31,11 +36,17 @@ const storeMocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (state: typeof storeMocks.state) => unknown) => selector(storeMocks.state),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (state: typeof storeMocks.state) => unknown) => selector(storeMocks.state),
+    
+  }
+})
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({
     t: (_key: string, fallback: string, opts?: Record<string, unknown>) =>
       fallback.replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(opts?.[k] ?? "")),

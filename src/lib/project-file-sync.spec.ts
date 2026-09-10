@@ -24,10 +24,15 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
 vi.mock("@/commands/file-sync", () => ({
   startProjectFileWatcher: mocks.startProjectFileWatcher,
@@ -39,13 +44,23 @@ vi.mock("@/stores/file-sync-store", () => ({
   useFileSyncStore: { getState: mocks.fsyncGetState },
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.wikiGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.wikiGetState },
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveDefaultModel: mocks.resolveDefaultModel,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveDefaultModel: mocks.resolveDefaultModel,
+    
+  }
+})
 
 vi.mock("@/lib/source-lifecycle", () => ({
   cleanupDeletedWikiPages: mocks.cleanupDeletedWikiPages,
@@ -54,10 +69,15 @@ vi.mock("@/lib/source-lifecycle", () => ({
   isIngestableSourcePath: mocks.isIngestableSourcePath,
 }))
 
-vi.mock("@/lib/source-watch-config", () => ({
-  isPathAllowedBySourceWatch: mocks.isPathAllowedBySourceWatch,
-  normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
-}))
+vi.mock("@/lib/source-watch-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/source-watch-config")>()
+  return {
+    ...actual,
+      isPathAllowedBySourceWatch: mocks.isPathAllowedBySourceWatch,
+      normalizeSourceWatchConfig: mocks.normalizeSourceWatchConfig,
+    
+  }
+})
 
 import {
   rescanProjectFileSync,

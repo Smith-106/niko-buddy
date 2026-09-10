@@ -8,14 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { BookAnalysisView } from "./book-analysis-view"
-import type {
-  BookAnalysisConfig,
-  BookAnalysisMetadata,
-  BookAnalysisProgress,
-  BookAnalysisResult,
-  RecognizedCharacter,
-} from "@/lib/novel/book-analysis/types"
-import type { SplitChaptersResult } from "@/lib/novel/book-analysis/analysis-engine"
+import type { BookAnalysisConfig, BookAnalysisMetadata, BookAnalysisProgress, BookAnalysisResult, RecognizedCharacter, SplitChaptersResult } from "@/lib/novel"
 import type { ChapterSelectionData, UseCharacterExtractionParams } from "./hooks/use-character-extraction"
 
 const CH1 = { id: "ch-1", title: "第一章", order: 1, wordCount: 1000, path: "/p/book-analysis/book-1/chapters/ch-1.md" }
@@ -168,35 +161,60 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.wikiState),
-    { getState: () => mocks.wikiState },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.wikiState),
+        { getState: () => mocks.wikiState },
+      ),
+    
+  }
+})
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: Object.assign(
-    (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.baState),
-    { getState: () => mocks.baState },
-  ),
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: Object.assign(
+        (selector: (s: Record<string, unknown>) => unknown) => selector(mocks.baState),
+        { getState: () => mocks.baState },
+      ),
+    
+  }
+})
 
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveModelConfig: mocks.resolveModelConfig,
-}))
+vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
+  return {
+    ...actual,
+      resolveModelConfig: mocks.resolveModelConfig,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/library-state", () => ({
-  toBookAnalysisResult: mocks.toBookAnalysisResult,
-}))
+vi.mock("@/lib/novel/book-analysis/library-state", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/library-state")>()
+  return {
+    ...actual,
+      toBookAnalysisResult: mocks.toBookAnalysisResult,
+    
+  }
+})
 
 vi.mock("@/lib/toast", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError, info: mocks.toastInfo },
 }))
 
-vi.mock("@/lib/novel/book-analysis/analysis-engine", () => ({
-  splitNovelIntoChapters: mocks.splitNovelIntoChapters,
-}))
+vi.mock("@/lib/novel/book-analysis/analysis-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/analysis-engine")>()
+  return {
+    ...actual,
+      splitNovelIntoChapters: mocks.splitNovelIntoChapters,
+    
+  }
+})
 
 vi.mock("./hooks/use-library-operations", () => ({
   useLibraryOperations: mocks.useLibraryOperations,

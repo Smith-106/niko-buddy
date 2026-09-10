@@ -7,7 +7,7 @@ import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useExemplarState } from "./use-exemplar-state"
 import type { StyleExemplarRecord } from "@/commands/exemplar"
-import type { CognitionState } from "@/lib/novel/character-cognition"
+import type { CognitionState } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => {
   const selected: { text: string | null } = { text: null }
@@ -32,16 +32,26 @@ vi.mock("@/commands/exemplar", () => ({
   loadStyleExemplarsViaRust: mocks.loadStyleExemplarsViaRust,
 }))
 
-vi.mock("@/lib/novel/character-cognition", () => ({
-  appendExemplarABSample: mocks.appendExemplarABSample,
-  exemplarABStats: mocks.exemplarABStats,
-  loadCognitionState: mocks.loadCognitionState,
-}))
+vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/character-cognition")>()
+  return {
+    ...actual,
+      appendExemplarABSample: mocks.appendExemplarABSample,
+      exemplarABStats: mocks.exemplarABStats,
+      loadCognitionState: mocks.loadCognitionState,
+    
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({
-  normalizePath: mocks.normalizePath,
-  getFileName: mocks.getFileName,
-}))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+      normalizePath: mocks.normalizePath,
+      getFileName: mocks.getFileName,
+    
+  }
+})
 
 const PROJECT = { path: "E:\\Novel\\proj" }
 const NORMALIZED = "E:/Novel/proj"

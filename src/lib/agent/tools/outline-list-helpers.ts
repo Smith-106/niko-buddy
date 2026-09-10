@@ -4,7 +4,7 @@
 
 import { listDirectory, readFile } from "@/commands/fs"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { DEFAULT_OUTLINE_FOLDERS } from "@/lib/novel/outline-workbench"
+import { DEFAULT_OUTLINE_FOLDERS } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 

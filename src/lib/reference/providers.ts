@@ -6,8 +6,7 @@
  */
 
 import type { ReferenceCandidate, ReferenceKind } from "./types"
-import { listBindableNovelCharacters } from "@/lib/novel/bindable-characters"
-import { listSnapshots } from "@/lib/novel/chapter-ingest"
+import { listBindableNovelCharacters, listSnapshots } from "@/lib/novel"
 import { listDirectory, readFile } from "@/commands/fs"
 
 /** 候选装载接口：每类 provider 提供 listCandidates(projectPath) */

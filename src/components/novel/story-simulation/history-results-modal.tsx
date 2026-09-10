@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next"
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
-import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
-import type { SimulationResultStatus } from "@/lib/novel/story-simulation/types"
+import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel"
+import type { SimulationResultStatus } from "@/lib/novel"
 
 interface HistoryResultsModalProps {
   open: boolean

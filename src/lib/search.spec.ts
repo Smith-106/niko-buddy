@@ -15,26 +15,51 @@ const mocks = vi.hoisted(() => ({
   sanitizeEntitySlug: vi.fn((raw: string) => raw),
 }))
 
-vi.mock("@/commands/fs", () => ({
-  readFile: mocks.readFile,
-  listDirectory: mocks.listDirectory,
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+      readFile: mocks.readFile,
+      listDirectory: mocks.listDirectory,
+    
+  }
+})
 
-vi.mock("@/lib/novel/graph-adapter", () => ({
-  sanitizeEntitySlug: mocks.sanitizeEntitySlug,
-}))
+vi.mock("@/lib/novel/graph-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/graph-adapter")>()
+  return {
+    ...actual,
+      sanitizeEntitySlug: mocks.sanitizeEntitySlug,
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: mocks.wikiGetState },
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: { getState: mocks.wikiGetState },
+    
+  }
+})
 
-vi.mock("@/lib/embedding", () => ({
-  searchByEmbedding: mocks.searchByEmbedding,
-}))
+vi.mock("@/lib/embedding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/embedding")>()
+  return {
+    ...actual,
+      searchByEmbedding: mocks.searchByEmbedding,
+    
+  }
+})
 
-vi.mock("@/lib/rerank", () => ({
-  rerankCandidates: mocks.rerankCandidates,
-}))
+vi.mock("@/lib/rerank", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rerank")>()
+  return {
+    ...actual,
+      rerankCandidates: mocks.rerankCandidates,
+    
+  }
+})
 
 const mdFile = (path: string, name: string): FileNode => ({
   path,

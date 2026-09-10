@@ -49,20 +49,36 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: mocks.t }),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof mocks.wikiState) => unknown) => selector(mocks.wikiState),
+    
+  }
+})
 
-vi.mock("@/stores/outline-generation-store", () => ({
-  useOutlineGenerationStore: (selector: (s: typeof mocks.ogState) => unknown) => selector(mocks.ogState),
-}))
+vi.mock("@/stores/outline-generation-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/outline-generation-store")>()
+  return {
+    ...actual,
+      useOutlineGenerationStore: (selector: (s: typeof mocks.ogState) => unknown) => selector(mocks.ogState),
+    
+  }
+})
 
-vi.mock("@/lib/novel/outline-generation", () => ({
-  runBulkOutlineIngest: mocks.runBulkOutlineIngest,
-}))
+vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/outline-generation")>()
+  return {
+    ...actual,
+      runBulkOutlineIngest: mocks.runBulkOutlineIngest,
+    
+  }
+})
 
 vi.mock("@/components/sources/outline-generator-dialog", () => ({
   OutlineGeneratorDialog: ({

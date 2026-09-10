@@ -4,13 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 const tMock = vi.fn((key: string) => `trans:${key}`)
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => tMock(key) }),
 }))
 
 const storeState = { novelMode: true }
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: typeof storeState) => unknown) => selector(storeState),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+    
+  }
+})
 
 import { useNovelLabel, useNovelMode } from "./ui-labels"
 

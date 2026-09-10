@@ -1,5 +1,5 @@
 import type { AiWorkflowMode } from "../workflow-mode"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
+import type { NovelTaskIntent } from "@/lib/novel"
 
 export type CapabilityKind =
   | "built_in_tool"

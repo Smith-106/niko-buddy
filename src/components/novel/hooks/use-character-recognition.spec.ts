@@ -5,7 +5,7 @@
  */
 import { renderHook, act } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AnalysisDepth, BookAnalysisMetadata, RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import type { AnalysisDepth, BookAnalysisMetadata, RecognizedCharacter } from "@/lib/novel"
 import type { ChapterSelectionData } from "./use-character-extraction"
 import { useCharacterRecognition, type UseCharacterRecognitionParams } from "./use-character-recognition"
 
@@ -37,30 +37,60 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/stores/book-analysis-store", () => ({
-  useBookAnalysisStore: { getState: () => mocks.bookAnalysis },
-}))
+vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/book-analysis-store")>()
+  return {
+    ...actual,
+      useBookAnalysisStore: { getState: () => mocks.bookAnalysis },
+    
+  }
+})
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: Object.assign(
-    (selector: (s: WikiLike) => unknown) => selector(mocks.wiki),
-    { getState: () => mocks.wiki },
-  ),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+      useWikiStore: Object.assign(
+        (selector: (s: WikiLike) => unknown) => selector(mocks.wiki),
+        { getState: () => mocks.wiki },
+      ),
+    
+  }
+})
 
-vi.mock("@/commands/fs", () => ({ readFile: mocks.readFile }))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual, readFile: mocks.readFile 
+  }
+})
 
-vi.mock("@/lib/path-utils", () => ({ joinPath: mocks.joinPath }))
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual, joinPath: mocks.joinPath 
+  }
+})
 
 vi.mock("@/lib/toast", () => ({ toast: mocks.toast }))
 
-vi.mock("@/lib/novel/book-analysis/recognized-character-store", () => ({
-  saveRecognizedCharacters: mocks.saveRecognizedCharacters,
-}))
+vi.mock("@/lib/novel/book-analysis/recognized-character-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/recognized-character-store")>()
+  return {
+    ...actual,
+      saveRecognizedCharacters: mocks.saveRecognizedCharacters,
+    
+  }
+})
 
-vi.mock("@/lib/novel/book-analysis/character-llm-recognizer", () => ({
-  llmRecognizeCharacters: mocks.llmRecognizeCharacters,
-}))
+vi.mock("@/lib/novel/book-analysis/character-llm-recognizer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/book-analysis/character-llm-recognizer")>()
+  return {
+    ...actual,
+      llmRecognizeCharacters: mocks.llmRecognizeCharacters,
+    
+  }
+})
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 

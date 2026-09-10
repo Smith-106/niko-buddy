@@ -7,10 +7,7 @@ import {
 } from "./injector"
 import { createDefaultStore, createPreference } from "./types"
 import type { UserMemoryStore } from "./types"
-import {
-  CALIBRATED_DIMENSION_WEIGHTS,
-  CALIBRATED_SEVERITY_DEDUCTION,
-} from "../novel/review-scoring"
+import { CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_DEDUCTION } from "@/lib/novel"
 
 function makeStoreWithReviewPrefs(prefs: Array<{ key: string; value: string }>): UserMemoryStore {
   const store = createDefaultStore()
