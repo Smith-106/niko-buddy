@@ -15,11 +15,10 @@
 //     from novel-*    允许 to = novel-internal + novel-public + app（域内自由组合）。
 //   语义：外部只能经 novel-public barrel 导入 novel 能力，不得直接 import 内部模块。
 //
-//   严重级别定为 warn（而非 error）：
-//     lint 棘轮：以 package.json 的 --max-warnings 为准（2026-09-08 冻结 162）。
-//     蓝图 §9.8 第 5 项明文「预留 eslint-boundaries 位（T18 依赖方向门禁前置）」——
-//     本配置落地位、Taxonomy、resolver 全部就位；T18 完成 barrel 重构后将级别由 warn 升至
-//     error 即可转为硬门（一行改动）。任务约束「0 error，warning 可接受」即此口径。
+//   严重级别：**error（硬门）**。2026-09-10 T18-G 迁移后实测 violations 归零，棘轮
+//     `--max-warnings` 已从 package.json 删除（棘轮史：162 → 100 → 0）。
+//     正/负 fixture 回归 `scripts/check-boundaries.mjs` 由 `npm run lint` 串联，
+//     防止「元素分类失效→静默假绿」重现。
 //
 // 不修改任何现有源码；仅新增本配置文件 + devDependencies。
 
@@ -88,58 +87,106 @@ export default tseslint.config(
       'import/resolver': {
         typescript: { alwaysTryTypes: true },
       },
+      // v7 语义（2026-09-10 T18-G 迁移）：elements 只匹配「目录」，无法用文件粒度描述
+      // 「barrel 公开、同目录其它文件私有」。因此元素退到目录粒度，公开面改由 file
+      // descriptors（boundaries/files）+ 依赖策略里的 file 选择器表达。
+      //   novel  = 领域本体（src/lib/novel）
+      //   shared = 共享基础层（src/lib 其余部分）——novel 自身反向依赖它（如
+      //            novel/chapter-ingest.ts 静态导入 @/lib/graph-relevance），故它属于
+      //            novel 的依赖闭包内部；若也强制走 barrel 会形成 barrel↔shared 循环导入。
+      //   app    = UI/IPC/编排层（src 其余）：唯一受「仅可经 barrel 进入 novel」约束的一层。
       'boundaries/elements': [
         {
-          type: 'novel-public',
-          pattern: ['src/lib/novel/index.ts', 'src/lib/novel/*/index.ts'],
-          partialMatch: false,
+          type: 'novel',
+          pattern: 'src/lib/novel',
           capture: ['element'],
         },
         {
-          type: 'novel-internal',
-          pattern: 'src/lib/novel/**/*',
-          partialMatch: false,
+          type: 'shared',
+          pattern: 'src/lib',
           capture: ['element'],
         },
         {
           type: 'app',
-          pattern: 'src/**/*',
-          partialMatch: false,
+          pattern: 'src',
           capture: ['element'],
+        },
+      ],
+      // 文件类别（仅文件粒度可用，与 elements 的目录粒度互补）：
+      //   novel-barrel   —— novel 的静态公开入口：顶层 barrel + 子目录 barrel。
+      //   novel-deferred —— 受控的「延迟公开面」：T18 决策明文「动态 await import() 保留
+      //     叶子模块」（走 barrel 会把 145 模块图拖进延迟路径，实测单次冷加载 8.4s），
+      //     故显式声明允许按需加载的叶子模块。本表来自实测的 app 侧动态导入清单，
+      //     新增深导入若不在表内即被拦下（新增项须在评审中给出理由）。
+      'boundaries/files': [
+        {
+          category: 'novel-barrel',
+          pattern: ['src/lib/novel/index.ts', 'src/lib/novel/*/index.ts'],
+        },
+        {
+          category: 'novel-deferred',
+          pattern: [
+            'src/lib/novel/agent-parser.ts',
+            'src/lib/novel/agent-tools.ts',
+            'src/lib/novel/canon-dual-write.ts',
+            'src/lib/novel/chapter-ingest.ts',
+            'src/lib/novel/context-engine.ts',
+            'src/lib/novel/de-ai-adapter.ts',
+            'src/lib/novel/deep-chapter-generation.ts',
+            'src/lib/novel/delete-source-memory.ts',
+            'src/lib/novel/memory-center.ts',
+            'src/lib/novel/project-meta.ts',
+            'src/lib/novel/residual-campaign.ts',
+            'src/lib/novel/review-adapter.ts',
+            'src/lib/novel/search-adapter.ts',
+            'src/lib/novel/book-analysis/analysis-engine.ts',
+            'src/lib/novel/book-analysis/character-disk-store.ts',
+            'src/lib/novel/book-analysis/character-extraction-engine.ts',
+            'src/lib/novel/book-analysis/character-llm-recognizer.ts',
+            'src/lib/novel/book-analysis/simple-extraction-engine.ts',
+            'src/lib/novel/book-analysis/skill-generator.ts',
+          ],
         },
       ],
       'boundaries/include': ['src/**/*.{ts,tsx,js,jsx}'],
     },
     rules: {
       'boundaries/dependencies': [
-        'warn',
+        'error',
         {
           default: 'disallow',
           policies: [
-            // 外部（UI/IPC/编排层）只能经 novel-public barrel 进入 novel 能力域——
-            // 这是蓝图明文的窄接口白名单门禁。
+            // app 层只能经 novel-barrel（静态公开入口）或 novel-deferred（受控延迟公开面）
+            // 进入 novel 领域；其余 novel 文件均为私有。
             {
               from: { element: { type: 'app' } },
               allow: [
-                { to: { element: { type: 'novel-public' } } },
                 { to: { element: { type: 'app' } } },
+                { to: { element: { type: 'shared' } } },
+                {
+                  to: {
+                    element: { type: 'novel' },
+                    file: { categories: ['novel-barrel', 'novel-deferred'] },
+                  },
+                },
+              ],
+            },
+            // shared 与 novel 同属领域依赖闭包（novel→shared 反向依赖已存在），互访全部放行。
+            {
+              from: { element: { type: 'shared' } },
+              allow: [
+                { to: { element: { type: 'app' } } },
+                { to: { element: { type: 'shared' } } },
+                { to: { element: { type: 'novel' } } },
               ],
             },
             // novel 域内自由组合；并暂允许 novel→app（现状 novel/ 反向依赖 stores/commands/i18n
             // 等共 353 处，属更深的单向化债务）。T18 收口时可收紧此项为仅 novel-* 以强制单向。
             {
-              from: { element: { type: 'novel-internal' } },
+              from: { element: { type: 'novel' } },
               allow: [
-                { to: { element: { type: 'novel-internal' } } },
-                { to: { element: { type: 'novel-public' } } },
-                { to: { element: { type: 'app' } } },
-              ],
-            },
-            {
-              from: { element: { type: 'novel-public' } },
-              allow: [
-                { to: { element: { type: 'novel-internal' } } },
-                { to: { element: { type: 'novel-public' } } },
+                { to: { element: { type: 'novel' } } },
+                { to: { element: { type: 'shared' } } },
                 { to: { element: { type: 'app' } } },
               ],
             },
