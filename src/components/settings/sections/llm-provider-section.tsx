@@ -30,6 +30,16 @@ export function LlmProviderSection() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
+  // savedId 徽标 1.5s 后自动清除。定时器必须在卸载时清理：否则回调会在组件树
+  // （及其 DOM 环境）拆除后才触发 setState，React 调度器会去访问 window 并抛
+  // ReferenceError: window is not defined（CI node 环境下表现为未处理错误 → 退出码 1）。
+  const savedIdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (savedIdTimer.current !== null) clearTimeout(savedIdTimer.current)
+    },
+    [],
+  )
 
   function toggleExpand(id: string) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -63,7 +73,8 @@ export function LlmProviderSection() {
       if (preset) setLlmConfig(resolveConfig(preset, merged, llmConfig))
     }
     setSavedId(id)
-    setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
+    if (savedIdTimer.current !== null) clearTimeout(savedIdTimer.current)
+    savedIdTimer.current = setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
   }
 
   /* v8 ignore start -- PresetRow intentionally does not expose active-preset toggling. */
