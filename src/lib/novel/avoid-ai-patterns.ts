@@ -6,7 +6,7 @@
  * Chinese novel path still pairs with mechanical-slop-detector (de-ai-rules).
  *
  * Source: src/lib/novel/vendor/avoid-ai-writing/patterns.mjs (ESM; P1-2 — the
- * former ?raw + new Function eval sandbox was removed; patterns.cjs stays as
+ * former ?raw + Function-constructor eval sandbox was removed; patterns.cjs stays as
  * the frozen vendor reference snapshot for diffing on upstream refreshes).
  * Load: direct ESM import (works in renderer + vitest + plain node).
  */
