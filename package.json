@@ -10,7 +10,7 @@
     "dev": "vite",
     "typecheck": "tsc --build --pretty",
     "typecheck:force": "tsc --build --force --pretty",
-    "lint": "eslint . --max-warnings=162",
+    "lint": "eslint . --max-warnings=100",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",
