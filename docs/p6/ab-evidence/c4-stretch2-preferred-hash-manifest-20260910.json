@@ -1,7 +1,7 @@
 {
  "_meta": {
   "purpose": "C4 stretch-2 重测（偏好面板版）证据耐久化：格文件/探针/运行器/日志的 sha256 清单，tracked 入库",
-  "generatedAt": "2026-09-11T20:51:15+0800",
+  "generatedAt": "2026-09-11T22:23:15+0800",
   "studyId": "rater-agreement-20260910-n5",
   "variant": "preferred-panel-20260910",
   "panel": [
@@ -53,7 +53,7 @@
   "note": "cells 为空样本维由 PASS2（0 样本维）与 PASS3（<5 样本维）补采样；每格样本数以 cells 内 results[*].new 为准"
  },
  "files": {
-  ".workflow/harvest-staging/stretch-gate-20260910/aggregate-preferred-panel.spec.ts.txt": "b8dbcafaaa0ff7f52c976acd332337ec63549929e40a510cfac1189384438f39",
+  ".workflow/harvest-staging/stretch-gate-20260910/aggregate-preferred-panel.spec.ts.txt": "7deeb496eb669b5a591726bd8fb7c971869cb4cd099072aae2c6d44a8a9db338",
   ".workflow/harvest-staging/stretch-gate-20260910/cell-deepseek-v4-flash-ch1-n5.json": "1bee1ac3919e2a68ac9cf010708b0444a21dc4f7aa05b7da0fd5f0bca83bf8a3",
   ".workflow/harvest-staging/stretch-gate-20260910/cell-deepseek-v4-flash-ch2-n5.json": "448a6f654736e51f566b9b53332ab61ffeee7f67615abab7985897e11d3207c3",
   ".workflow/harvest-staging/stretch-gate-20260910/make-c4-preferred-manifest.py": "32cb58c1f3c5e147278312afa6335bf935e100bcca3f95fc8434a0d79fc8c310",
@@ -131,7 +131,7 @@
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/cell-qwen3.8-flash-ch4-n5.json": "dd6d3fa2773744ef9ba907243ffa7ddf9cf6b7fa5325f515516bb413d94023a4",
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/cell-qwen3.8-flash-ch5-n5.json": "ff554c7b6e659ab4eb95dd15efb2b1fdd34fed871d78ddf6620e36d2ed82ccbd",
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/cell-qwen3.8-flash-ch6-n5.json": "0e3e2511305a0ed2af1210aae2ffb1fc96b20a10fc65f787ece26f40025b99a5",
-  ".workflow/harvest-staging/stretch-gate-20260910-preferred/cross-model-n5-20260910-preferred.json": "a8892b993d292212bd5539149064362ccba2418b940432173ce5b864208aedf0",
+  ".workflow/harvest-staging/stretch-gate-20260910-preferred/cross-model-n5-20260910-preferred.json": "a6da18ef081ec22845eee6176ee6d1052dcdf45969d39496c5a1f3bae240d7f6",
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/run-GLM-5.2-ch1-batch6-1.log": "a5a23bdb1f0e08d177888d606d6e2e38b4a936fcab4483ab0548576c0856e56e",
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/run-GLM-5.2-ch1-topup.log": "8db8c4a18f1323d51855c157e2462099bc958f26fd90c9708bdfd77083919dd8",
   ".workflow/harvest-staging/stretch-gate-20260910-preferred/run-GLM-5.2-ch1.log": "542a3002626c1f4fe29e26ce001dafa698b02cdf9e742cb4ba6e2c478bbc5cbf",

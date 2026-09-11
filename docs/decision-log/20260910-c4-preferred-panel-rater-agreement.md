@@ -52,6 +52,8 @@
 
 研究侧还放宽了单次调用上限（`STEP0_CALL_TIMEOUT_MS`，默认仍 300000，本次 GLM 补跑用 480000），仅延长允许等待时间，不改变成功调用的评分语义。
 
+上述两项均属**采集仪器参数变更**（非阈值/规则变更），已在三处显式落地：①主产物 `protocol.panelChangeFrom20260907.glmTokenHeadroom`（失败模式 + 3/3 对照探针结论 + 修复 commit）；② `protocol.panelChangeFrom20260907.cellCollectionVariant`（GLM 六格=v6-glm6000 + 480s；其余 4 模型=默认 2000/300s；弃用格 `invalid/pre-6000cap/` GLM ch1-ch5 有效样本 106 + 有效样本记账 983 vs 预承诺 900 次调用）；③ 本记录 + hash 清单 `_meta.harnessCommits`。**阈值与预承诺解释规则未动，无事后换锚**。
+
 ## 6. 执行与残量
 
 - **不做**：macos e2e（用户明示跳过）；不重跑其他模型以匹配 GLM 的 token 上限（面板内每模型独立通道，披露即可）。
