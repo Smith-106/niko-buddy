@@ -41,6 +41,8 @@ import {
 
 const REAL_KEY = process.env.STEP0_REAL_LLM_KEY ?? ""
 const REAL_BASE = process.env.STEP0_REAL_LLM_BASE ?? ""
+// 单次调用上限：默认不变；仅当上游模型延迟长（如非流式思考吃预算的 GLM）时由研究侧显式放宽。
+const REAL_CALL_TIMEOUT_MS = Number(process.env.STEP0_CALL_TIMEOUT_MS ?? 300000)
 // Default locked to literary-experiment protocol model (composer-2.5 often unavailable).
 const REAL_MODEL = process.env.STEP0_REAL_LLM_MODEL ?? LITERARY_EXPERIMENT_DEFAULT_MODEL
 // 里程碑/结案默认 N≥5 中位（FIX-3c 证实 N=3 偏乐观会翻判定）。
@@ -115,7 +117,7 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
                 throw e
               },
             } satisfies StreamCallbacks,
-            AbortSignal.timeout(300000),
+            AbortSignal.timeout(REAL_CALL_TIMEOUT_MS),
             { temperature: 0.4, max_tokens: 2000 },
           )
           const raw = extractScore(content)
