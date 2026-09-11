@@ -334,6 +334,11 @@ function isGlmThinkingModel(model: string): boolean {
   return /glm[-_.]?\d/i.test(model)
 }
 
+// GLM 系思考 tokens 不随流式 content 下发，小上限会被思考吃光：正文与结构化 JSON 一并被截断。
+// 实测（全文窗 prompt）：max_tokens=2000 → finish_reason=length 且流式 content 0 字节；
+// max_tokens=6000 → finish_reason=stop 且 score 可解析。
+const GLM_MIN_MAX_TOKENS = 6000
+
 function isKimiEndpoint(config: LlmConfig): boolean {
   return /(^|[/:.-])kimi([/:.-]|$)/i.test(config.model)
     || /moonshot/i.test(config.model)
@@ -408,6 +413,9 @@ function buildOpenAiCompatibleBody(
       body.enable_thinking = false
     } else if (reasoning.mode !== "auto") {
       body.enable_thinking = true
+    }
+    if (typeof body.max_tokens === "number" && body.max_tokens < GLM_MIN_MAX_TOKENS) {
+      body.max_tokens = GLM_MIN_MAX_TOKENS
     }
   }
 

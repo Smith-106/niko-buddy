@@ -437,6 +437,12 @@ describe("openai-compatible body adapters", () => {
     expect(buildFor("glm-5.3-flash", { reasoning: { mode: "auto" } }).enable_thinking).toBeUndefined()
     expect(buildFor("glm-5.3-flash", { reasoning: { mode: "off" } }).chat_template_kwargs).toBeUndefined()
     expect(buildFor("gemma-4-31b", { reasoning: { mode: "off" } }).enable_thinking).toBeUndefined()
+    const withCap = (model: string, max_tokens: number) =>
+      getProviderConfig(customConfig({ model })).buildBody([{ role: "user", content: "x" }], { max_tokens }) as Record<string, unknown>
+    expect(withCap("GLM-5.2", 2000).max_tokens).toBe(6000)
+    expect(withCap("glm-5.3-flash", 2000).max_tokens).toBe(6000)
+    expect(withCap("GLM-5.2", 8000).max_tokens).toBe(8000)
+    expect(withCap("gemma-4-31b", 2000).max_tokens).toBe(2000)
   })
 
   it("effort is only attached for openai/azure/custom providers", () => {
