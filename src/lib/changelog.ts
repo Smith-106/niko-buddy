@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.8.2",
+    date: "2026-09-12",
+    highlights: {
+      en: [
+        "GLM provider fixes (user-visible): thinking output is no longer requested through a streamed reasoning field - the top-level enable_thinking flag controls it instead (f06b5242), and thinking models get a 6000-token floor on max_tokens at the provider layer so chain-of-thought no longer consumes the whole budget (734a80c9). Before the fix, GLM cells could return 0 bytes with finish_reason=length and produce no score at all.",
+        "Single public import surface (T18) completed: 458 app-side imports moved onto one barrel (55aab6b7); the eslint warning ratchet stepped 162 to 100 (a39be4f3) and then to 0 - the boundaries gate now uses v7 file categories with positive and negative fixtures and is promoted to a hard gate, so --max-warnings is gone and lint reports 0 problems (82085c72).",
+        "Process-debt settlement batch: app-side Python zeroed (fecc618f); inline PowerShell blocks sunk into Node with a single-sourced signing key (5a852d3e); .test.ts whitelist converged to zero (f3c921fc); bench baseline writes decoupled from tracked source (60e3ca81); retry sunset pinned to v2.9.0 (ce942222); the patterns.cjs eval sandbox replaced by a direct ESM import so the new Function count is 0 (02036e2e); analytics-worker transitional CI gate wired (0c8f7a25).",
+        "CI and test stability: the e2e webServer serves the built app instead of vite dev, removing both 120s per-test overrides (ubuntu 4.25min to 0.25min; windows 6.21min failure to 1.91min success) (e690bbf3); build.yml asserts protoc on all three platforms before building (f0a4a5fa); Node-20 action runtimes cleared to zero (5d46d2aa); an uncleared timer in llm-provider-section fixed (9bf01382).",
+        "Evidence and documentation: C1/C2 corpus and hash manifests are now tracked in-repo (aa6a0a55); the engineering convergence batch is backfilled into this changelog (47521dfc); a literal new Function was removed from an avoid-ai-patterns comment (be2b9415); the C4 preferred-panel stretch-2 retest is recorded with its hash manifest, including full disclosure of the GLM token-floor instrument change (b6f1d0df, 43cd1dbe).",
+      ],
+      zh: [
+        "GLM provider 修复（用户可感知）：思考输出不再通过「流式 reasoning 字段」请求，改由顶层 enable_thinking 开关控制（f06b5242）；思考模型在 provider 层获得 6000 token 的 max_tokens 下限，思考链不再吃光预算（734a80c9）。修复前 GLM 格子可能返回 0 字节、finish_reason=length 且完全取不到评分。",
+        "公共导入面（T18）收束：458 处 app 侧导入迁移至单一 barrel（55aab6b7）；eslint 警告棘轮 162→100（a39be4f3）再到 0——boundaries 门禁迁移 v7 文件类别 + 正负 fixture 并升为硬门，`--max-warnings` 删除、lint 0 problems（82085c72）。",
+        "过程债务收敛批次：app 侧 Python 归零（fecc618f）；PS1 内联块下沉 Node + 签名键单源（5a852d3e）；`.test.ts` 白名单收敛至 0（f3c921fc）；bench 基线写盘与受控源解耦（60e3ca81）；retry sunset 钉 v2.9.0（ce942222）；patterns.cjs eval 沙箱改为直接 ESM 导入、new Function 归零（02036e2e）；analytics-worker 过渡期 CI 门接线（0c8f7a25）。",
+        "CI 与测试稳定性：e2e webServer 改服务构建产物（vite build + vite preview）替代 vite dev，两处 120s 单测超时特例删除（ubuntu 4.25min→0.25min；windows 失败 6.21min→成功 1.91min）（e690bbf3）；build.yml 三平台统一断言 protoc（f0a4a5fa）；Node-20 action 运行时归零（5d46d2aa）；llm-provider-section 未清理定时器修复（9bf01382）。",
+        "证据与文档：C1/C2 语料与 hash 清单入版本库（aa6a0a55）；工程收敛批次补录本 changelog（47521dfc）；avoid-ai-patterns 注释去字面 new Function（be2b9415）；C4 preferred-panel stretch-2 重测证据 + hash 清单落库，含 GLM token 下限仪器变更的完整披露（b6f1d0df、43cd1dbe）。",
+      ],
+    },
+  },
+
+  {
     version: "2.8.1",
     date: "2026-09-09",
     highlights: {

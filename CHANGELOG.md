@@ -7,6 +7,39 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.8.2] - 2026-09-12
+
+### LLM provider 修复（用户可感知）
+
+- **GLM 思考链下发修复（f06b5242）**：思考输出不再通过「流式 reasoning 字段」请求，改由顶层 `enable_thinking` 开关控制
+- **GLM max_tokens 下限（734a80c9）**：思考模型在 provider 层获得 6000 token 下限，思考 token 不再吃光预算；修复此前 GLM 格子返回 0 字节、`finish_reason=length`、取不到评分的失败
+
+### 公共导入面与 lint 棘轮终局（T18）
+
+- **单一 barrel（55aab6b7）**：458 处 app 侧导入迁移至统一公共导入面
+- **棘轮 162→100→0（a39be4f3、82085c72）**：boundaries 门禁迁移 v7 文件类别 + 正负 fixture 并升为硬门；`--max-warnings` 删除，lint 0 problems
+
+### 过程债务收敛批次
+
+- app 侧 Python 归零（fecc618f）；PS1 内联块下沉 Node + 签名键单源（5a852d3e）；`.test.ts` 白名单归零（f3c921fc）；bench 基线写盘与受控源解耦（60e3ca81）；retry sunset 钉 v2.9.0（ce942222）；`patterns.cjs` eval 沙箱改直接 ESM 导入、new Function 归零（02036e2e）；analytics-worker 过渡期 CI 门接线（0c8f7a25）
+
+### CI 与测试稳定性
+
+- **e2e 冷启动根治（e690bbf3）**：e2e 服务改构建产物（vite build + vite preview）替代 vite dev；两处 120s 单测超时特例删除。CI e2e：ubuntu 4.25min→0.25min、windows 失败 6.21min→成功 1.91min
+- build.yml 三平台统一断言 protoc（f0a4a5fa）；Node-20 action 运行时归零（5d46d2aa）；llm-provider-section 未清理定时器修复（9bf01382）
+
+### 证据与文档
+
+- C1/C2 语料与 hash 清单入版本库（aa6a0a55）；工程收敛批次补录本文件（47521dfc）；avoid-ai-patterns 注释去字面 `new Function`（be2b9415）；C4 preferred-panel stretch-2 重测证据 + hash 清单，含 GLM token 下限仪器变更披露（b6f1d0df、43cd1dbe）
+
+### 验证
+
+见发布验收清单 `product-release-acceptance-filled-20260912-v2.8.2-canon.md`（typecheck / eslint / vitest 全量；证据落 `.workflow/harvest-staging/release-20260912-v2.8.2/`）。
+
+### 发布形态
+
+纯应用发版（prerelease 内测语义；安装包资产由 tag 触发 CI 自动构建）；不宣称书稿 Track L9。
+
 ## [2.8.1] - 2026-09-09
 
 ### Post-tag 清偿批次补录（exec-plan-20260908 蓝本清偿，2026-09-09）
