@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.8.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.2-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-80%2F75%2F80%2F80-yellow?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -63,6 +63,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 7 | v2.7.8 | 三轴 20 缺口落地（64 号实施） | 机制 7（多文件原子事务 / source 五标签 / run kind 8 种 / 批量自动连写 / 卷弧滚动 / 项目医生 / 8 模块零接线收口）+ 检索 6（chunk 标注 / RAG layer-8 注入审计 12/12 覆盖 / 查询分解 / multi-query RRF / FTS5 bigram 索引可重建 / 分支正史绑定）+ 形态 7（互动影游 + Play / 同人四模式 + 正典合并 / 翻译执行链 / 封面 provider / Webhook 守护 / 形态诊断）+ 形态 Skill 5 个（XingshiSkill） |
 | 8 | v2.8.0 | 检索实测 + UI 补全 + 隔离加固（R5 线） | KB 影子双臂检索实测 harness（真实码路零镜像，golden 34 双臂 1.000 + paired 不变式）+ 判别力毒化压力臂 v2（治疗-对照：veto +64.7pp vs 无标记对照 0.0pp，先验阈值 fail-loud 入常态套件）+ 设置页 KB 路由/内容装配三区块 + R5 采集触发 UI + 隔离审计 10 面 + consent 显式裁决（三模型 P1 复评综合 9.58，95 三条件式全票 TRUE） |
 | 9 | v2.8.1 | 过程债务清偿（post-tag 批次） | B1 补录 5 post-tag 清偿 commits（P1-3 DoD 迁移 vitest / P2-1 cjs→mjs / P2-5 canon 纯移 / R1 kappaAgreement 复活诊断面 / R3 cargo fmt+CI 门）+ B2 eslint 棘轮回紧 163→162（prerelease，10/2 承诺窗口内不发 stable） |
+| 10 | v2.8.2 | provider 修复 + 过程债务收敛 | GLM 思考链下发修复（f06b5242）+ provider 层 max_tokens 6000 下限（734a80c9，修复 0 字节/`finish_reason=length`/无评分）；T18 公共导入面收束（458 处导入入单 barrel）+ eslint 棘轮 162→100→0 且 `--max-warnings` 删除；过程债务批次（Python 归零 / PS1 下沉 Node / `.test.ts` 白名单归零 / bench 解耦 / retry sunset 钉 v2.9.0 / eval 沙箱去 new Function / analytics-worker CI 门）；e2e 冷启动根治（ubuntu 4.25→0.25min、windows 失败 6.21min→成功 1.91min）；C1/C2 证据 hash 清单入库（prerelease） |
 
 > 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 

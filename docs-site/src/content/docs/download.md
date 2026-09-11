@@ -7,9 +7,18 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.8.1**（2026-09-09 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+**v2.8.2**（2026-09-12 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.8.2 更新亮点（2026-09-12，provider 修复 + 过程债务收敛）
+
+- ✅ **GLM provider 修复** — 思考链下发改用顶层 `enable_thinking` 开关（f06b5242）+ 思考模型在 provider 层获得 max_tokens 6000 下限，思考 token 不再吃光预算（734a80c9）；修复此前 GLM 格子返回 0 字节 / `finish_reason=length` / 取不到评分的失败
+- ✅ **公共导入面收束（T18）** — 458 处 app 侧导入迁移至单一 barrel（55aab6b7）；eslint 警告棘轮 162→100→0，boundaries 门禁迁移 v7 文件类别 + 正负 fixture 并升为硬门，`--max-warnings` 删除（a39be4f3、82085c72）
+- ✅ **过程债务收敛批次** — app 侧 Python 归零（fecc618f）/ PS1 内联块下沉 Node + 签名键单源（5a852d3e）/ `.test.ts` 白名单归零（f3c921fc）/ bench 基线写盘与受控源解耦（60e3ca81）/ retry sunset 钉 v2.9.0（ce942222）/ `patterns.cjs` eval 沙箱改直接 ESM 导入、new Function 归零（02036e2e）/ analytics-worker 过渡期 CI 门接线（0c8f7a25）
+- ✅ **CI 与测试稳定性** — e2e webServer 改服务构建产物（vite build + vite preview），两处 120s 超时特例删除（ubuntu 4.25min→0.25min、windows 失败 6.21min→成功 1.91min）（e690bbf3）/ build.yml 三平台统一断言 protoc（f0a4a5fa）/ Node-20 action 运行时归零（5d46d2aa）/ llm-provider-section 未清理定时器修复（9bf01382）
+- ✅ **证据入库** — C1/C2 语料与 hash 清单入版本库（aa6a0a55）；工程收敛批次补录 changelog（47521dfc）；C4 preferred-panel stretch-2 重测证据 + hash 清单，含 GLM token 下限仪器变更披露（b6f1d0df、43cd1dbe）
+- 发布语义：prerelease（10/2 承诺窗口内不发 stable；验证通过后提升 stable）
 
 ### v2.8.1 更新亮点（2026-09-09，过程债务清偿批次）
 
