@@ -5,14 +5,36 @@ import {
   NBSKILL_PACK_EXTENSION,
   TRUST_LEVELS,
   buildPack,
-  describeIssues,
   importNbskillPack,
   mayEnterCanonTruth,
   serializePack,
   type ImportResult,
+  type PackValidationCode,
   type TrustLevel,
   type UserSkill,
 } from "@/lib/novel";
+
+/**
+ * 展示层文案键。
+ *
+ * `untrusted/reviewed/trusted` 与 `schema_invalid` 等是**机器码**，直接渲染会在中文
+ * 界面里露出英文（实机回归：面板曾显示 `8 skills` / `3 imported · trustLevel: untrusted`）。
+ * 结论码由 lib 产出，文案只在本层。
+ */
+const TRUST_LABEL_KEY: Record<TrustLevel, string> = {
+  untrusted: "skillpack.trust.untrusted",
+  reviewed: "skillpack.trust.reviewed",
+  trusted: "skillpack.trust.trusted",
+};
+
+const ISSUE_LABEL_KEY: Record<PackValidationCode, string> = {
+  schema_version_unsupported: "skillpack.issue.schema_version_unsupported",
+  schema_invalid: "skillpack.issue.schema_invalid",
+  name_invalid: "skillpack.issue.name_invalid",
+  tool_category_not_allowed: "skillpack.issue.tool_category_not_allowed",
+  tool_name_invalid: "skillpack.issue.tool_name_invalid",
+  tool_name_forbidden: "skillpack.issue.tool_name_forbidden",
+};
 
 export interface SkillPackPanelProps {
   /** 既有 user-skill-store 里可导出的技能集合。 */
@@ -82,8 +104,10 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
   return (
     <section data-testid="skill-pack-panel" className="flex h-full flex-col gap-3 p-4">
       <header className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t("skillpack.export")}</h2>
-        <span className="text-xs opacity-70">{skills.length} skills</span>
+        <h2 className="text-lg font-semibold">{t("skillpack.title")}</h2>
+        <span className="text-xs opacity-70">
+          {t("skillpack.skillCount", { count: skills.length })}
+        </span>
       </header>
 
       <div className="flex gap-2">
@@ -122,7 +146,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
             className="rounded border px-2 py-0.5 text-xs"
             title={mayEnterCanonTruth(badge.level) ? "may enter truth surfaces" : "not truth-eligible"}
           >
-            {t("skillpack.trustLevel")}: {badge.level} ({badge.count})
+            {t("skillpack.trustLevel")}: {t(TRUST_LABEL_KEY[badge.level])} ({badge.count})
           </span>
         ))}
       </div>
@@ -137,15 +161,21 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
 
       {result && !result.ok ? (
         <ul role="alert" data-testid="skillpack-errors" className="text-xs text-red-500">
-          {describeIssues(result.issues).map((line) => (
-            <li key={line}>{line}</li>
+          {result.issues.map((issue) => (
+            <li key={`${issue.code}:${issue.at}`} title={issue.detail}>
+              {t(ISSUE_LABEL_KEY[issue.code])}
+              {issue.at ? `（${issue.at}）` : ""}
+            </li>
           ))}
         </ul>
       ) : null}
 
       {result?.ok ? (
         <p data-testid="skillpack-import-result" className="text-xs">
-          {result.skills.length} imported · {t("skillpack.trustLevel")}: {result.trustLevel}
+          {t("skillpack.imported", {
+            count: result.skills.length,
+            level: t(TRUST_LABEL_KEY[result.trustLevel]),
+          })}
         </p>
       ) : null}
     </section>

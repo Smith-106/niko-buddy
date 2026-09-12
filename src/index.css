@@ -210,25 +210,37 @@
 }
 
 /* Legend scrollbar - left side */
-.legend-scroll {
+/* 窄容器细滚动条：图例（graph 左面板）与图标侧栏（w-12）共用同一套规则。 */
+.legend-scroll,
+.nav-rail-scroll {
   scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
 
-.legend-scroll::-webkit-scrollbar {
+/* 滚动区内的导航项不得被 flex 压缩：overflow != visible 会把自动最小高度清零，
+   于是 14 个 h-10 项被挤到 ~24px（图标贴脸）而不产生滚动条——实时回归实测。 */
+.nav-rail-scroll > * {
+  flex-shrink: 0;
+}
+
+.legend-scroll::-webkit-scrollbar,
+.nav-rail-scroll::-webkit-scrollbar {
   width: 4px;
 }
 
-.legend-scroll::-webkit-scrollbar-track {
+.legend-scroll::-webkit-scrollbar-track,
+.nav-rail-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.legend-scroll::-webkit-scrollbar-thumb {
+.legend-scroll::-webkit-scrollbar-thumb,
+.nav-rail-scroll::-webkit-scrollbar-thumb {
   background: oklch(0.55 0 0);
   border-radius: 2px;
 }
 
-.legend-scroll::-webkit-scrollbar-corner {
+.legend-scroll::-webkit-scrollbar-corner,
+.nav-rail-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
 

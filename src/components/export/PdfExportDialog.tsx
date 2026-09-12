@@ -30,16 +30,20 @@ export function PdfExportDialog({ projectPath, title, paragraphs }: PdfExportDia
   const [target, setTarget] = useState("exports/book.pdf");
   const [report, setReport] = useState<PdfExportReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const targetIssue = useMemo(() => validateExportTarget(target), [target]);
 
   const run = async () => {
     setError(null);
+    setBusy(true);
     try {
       setReport(await exportPdf(projectPath, target, title, paragraphs));
     } catch (cause) {
       setReport(null);
       setError(isPathInsideDataSectionError(cause) ? t("pdfexport.path.outsideData") : String(cause));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -67,13 +71,20 @@ export function PdfExportDialog({ projectPath, title, paragraphs }: PdfExportDia
         </p>
       ) : null}
 
+      {/* 禁用态必须自述原因：正文为空时按钮从外观上和其它禁用原因一模一样。 */}
+      {paragraphs.length === 0 ? (
+        <p role="status" data-testid="pdfexport-empty-hint" className="text-xs text-amber-600">
+          {t("pdfexport.empty.body")}
+        </p>
+      ) : null}
+
       <button
         type="button"
         data-testid="pdfexport-submit"
-        disabled={targetIssue !== null || paragraphs.length === 0}
+        disabled={targetIssue !== null || paragraphs.length === 0 || busy}
         onClick={() => void run()}
       >
-        {t("pdfexport.submit")}
+        {busy ? t("pdfexport.submit.busy") : t("pdfexport.submit")}
       </button>
 
       <p data-testid="pdfexport-paragraphs" className="text-xs">

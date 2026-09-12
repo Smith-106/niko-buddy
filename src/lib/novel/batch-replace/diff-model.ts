@@ -30,7 +30,25 @@ export interface DiffSummary {
 
 export interface SafetyVerdict {
   ok: boolean;
-  reasons: string[];
+  issues: SafetyIssue[];
+}
+
+/**
+ * 安全判据结论码。**文案在 UI 层**：本层只产出 code（+ 必要 detail），
+ * 面板按 code 取 i18n 文案——否则中文界面会混进英文诊断串（实机回归：
+ * 空态曾直接渲染 `empty find text` / `no target files` / `nothing to replace`）。
+ */
+export type SafetyIssueCode =
+  | "empty_find_text"
+  | "no_target_files"
+  | "too_many_files"
+  | "unsafe_path"
+  | "nothing_to_replace";
+
+export interface SafetyIssue {
+  code: SafetyIssueCode;
+  /** 补充信息（文件数 / 路径），面板按 code 决定是否展示。 */
+  detail?: string;
 }
 
 /** 单批上限，与 Rust 侧 `MAX_FILES_PER_BATCH` 保持一致。 */
@@ -69,26 +87,20 @@ export function summarize(files: FileDiffModel[]): DiffSummary {
 
 /** 提交前的机械安全判据（不涉及门与审计，只挡明显误操作）。 */
 export function assessSafety(files: FileDiffModel[], findText: string): SafetyVerdict {
-  const reasons: string[] = [];
-  if (findText.length === 0) reasons.push("empty find text");
-  if (files.length === 0) reasons.push("no target files");
+  const issues: SafetyIssue[] = [];
+  if (findText.length === 0) issues.push({ code: "empty_find_text" });
+  if (files.length === 0) issues.push({ code: "no_target_files" });
   if (files.length > MAX_FILES_PER_BATCH) {
-    reasons.push(`too many files: ${files.length} > ${MAX_FILES_PER_BATCH}`);
+    issues.push({ code: "too_many_files", detail: `${files.length} > ${MAX_FILES_PER_BATCH}` });
   }
   for (const file of files) {
     if (file.path.startsWith("/") || file.path.includes("..")) {
-      reasons.push(`unsafe path: ${file.path}`);
+      issues.push({ code: "unsafe_path", detail: file.path });
     }
   }
   const summary = summarize(files);
-  if (summary.totalReplacements === 0) reasons.push("nothing to replace");
-  return { ok: reasons.length === 0, reasons };
-}
-
-/** 面板用的一行摘要文本（无 i18n 依赖，便于单测）。 */
-export function formatSummary(summary: DiffSummary): string {
-  if (summary.totalReplacements === 0) return "0 replacements";
-  return `${summary.totalReplacements} replacements in ${summary.changedFiles} file(s), ${summary.touchedLines} line(s)`;
+  if (summary.totalReplacements === 0) issues.push({ code: "nothing_to_replace" });
+  return { ok: issues.length === 0, issues };
 }
 
 /** 只保留有命中的文件（预览列表用）。 */

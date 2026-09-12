@@ -133,8 +133,11 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             className="h-6 w-6 rounded-[22%]"
           />
         </button>
-        {/* Top: main nav items */}
-        <div className="flex flex-1 flex-col items-center gap-1">
+        {/* Top: main nav items —— 本栏唯一可滚动组。14 个导航项在 720px 视口下就已
+            超出 w-12 窄栏高度，而 flex 项的 min-height:auto 会阻止收缩，溢出将逃出
+            本栏并撑高 document（整页可滚 = 底部按钮被推到视口外）。这里显式 min-h-0 +
+            overflow-y-auto 把溢出收进本栏，底部操作组保持 shrink-0 永不被挤走。 */}
+        <div className="nav-rail-scroll flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
           {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
             <Tooltip key={view}>
               <TooltipTrigger
@@ -195,7 +198,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           </Tooltip>
         </div>
         {/* Bottom: cover workbench + daemon status + theme toggle + settings + switch project */}
-        <div className="flex flex-col items-center gap-1 pb-1">
+        <div className="flex shrink-0 flex-col items-center gap-1 pb-1">
           {/* F-012: 封面 Prompt 工作台（独立 dialog） */}
           <Tooltip>
             <TooltipTrigger

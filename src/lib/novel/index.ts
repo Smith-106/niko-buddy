@@ -472,10 +472,16 @@ export {
   assessSafety,
   changedFilesOnly,
   diffLines,
-  formatSummary,
   summarize,
 } from "./batch-replace/diff-model"
-export type { DiffSummary, FileDiffModel, LineDiffEntry, SafetyVerdict } from "./batch-replace/diff-model"
+export type {
+  DiffSummary,
+  FileDiffModel,
+  LineDiffEntry,
+  SafetyIssue,
+  SafetyIssueCode,
+  SafetyVerdict,
+} from "./batch-replace/diff-model"
 export {
   BATCH_REPLACE_OP,
   applyBatchReplace,

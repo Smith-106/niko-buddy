@@ -5,7 +5,6 @@ import {
   assessSafety,
   changedFilesOnly,
   diffLines,
-  formatSummary,
   summarize,
   type FileDiffModel,
 } from "../diff-model";
@@ -44,26 +43,38 @@ describe("批量替换 diff 模型", () => {
     expect(summary.totalReplacements).toBe(3);
     expect(summary.touchedLines).toBe(3);
     expect(summary.maxLineDelta).toBe(3);
-    expect(formatSummary(summary)).toContain("3 replacements");
   });
 
-  it("安全判据给出原因", () => {
+  it("安全判据给出结构化结论码（文案在面板层）", () => {
     expect(assessSafety([], "林舟").ok).toBe(false);
-    expect(assessSafety([file("book/c1.md", [[1, "a", "b"]])], "").reasons).toContain(
-      "empty find text",
-    );
-    expect(assessSafety([file("book/c1.md", [])], "林舟").reasons).toContain("nothing to replace");
+    expect(
+      assessSafety([file("book/c1.md", [[1, "a", "b"]])], "").issues.map((i) => i.code),
+    ).toContain("empty_find_text");
+    expect(
+      assessSafety([file("book/c1.md", [])], "林舟").issues.map((i) => i.code),
+    ).toContain("nothing_to_replace");
+    // 空态三连：空查找词 + 无目标文件 + 无可替换内容（面板靠这三个码渲染中文空态）
+    expect(assessSafety([], "").issues.map((i) => i.code)).toEqual([
+      "empty_find_text",
+      "no_target_files",
+      "nothing_to_replace",
+    ]);
   });
 
   it("越界路径与超出单批上限都被拦", () => {
     const escape = assessSafety([file("../outside.md", [[1, "a", "b"]])], "a");
     expect(escape.ok).toBe(false);
-    expect(escape.reasons.some((r) => r.startsWith("unsafe path"))).toBe(true);
+    const escapeIssue = escape.issues.find((i) => i.code === "unsafe_path");
+    expect(escapeIssue).toBeDefined();
+    // 路径本身必须随结论码上行，供面板展示“哪一条不安全”
+    expect(escapeIssue!.detail).toBe("../outside.md");
 
     const many = Array.from({ length: MAX_FILES_PER_BATCH + 1 }, (_, i) =>
       file(`book/c${i}.md`, [[1, "a", "b"]]),
     );
-    expect(assessSafety(many, "a").reasons.some((r) => r.startsWith("too many files"))).toBe(true);
+    const manyIssue = assessSafety(many, "a").issues.find((i) => i.code === "too_many_files");
+    expect(manyIssue).toBeDefined();
+    expect(manyIssue!.detail).toBe(`${MAX_FILES_PER_BATCH + 1} > ${MAX_FILES_PER_BATCH}`);
   });
 
   it("只返回有命中的文件", () => {

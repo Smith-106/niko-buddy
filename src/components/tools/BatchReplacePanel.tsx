@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -13,9 +13,11 @@ import {
 import {
   assessSafety,
   changedFilesOnly,
-  formatSummary,
   summarize,
+  type DiffSummary,
   type FileDiffModel,
+  type SafetyIssue,
+  type SafetyIssueCode,
 } from "@/lib/novel";
 
 export interface BatchReplacePanelProps {
@@ -33,6 +35,20 @@ interface StatusState {
 }
 
 /**
+ * 安全结论码 → i18n 键。
+ *
+ * 文案只在面板层（本仓 UI 一律中文，英文诊断串会直接暴露给用户）；
+ * `diff-model.ts` 只产出结论码，两边各守自己那一层。
+ */
+const REASON_LABEL_KEY: Record<SafetyIssueCode, string> = {
+  empty_find_text: "batchreplace.reason.empty_find_text",
+  no_target_files: "batchreplace.reason.no_target_files",
+  too_many_files: "batchreplace.reason.too_many_files",
+  unsafe_path: "batchreplace.reason.unsafe_path",
+  nothing_to_replace: "batchreplace.reason.nothing_to_replace",
+};
+
+/**
  * 批量替换面板（F-007）。
  *
  * 流程固定为「预览 → 写前门预检 → 提交」：预览只读；提交前若既有 canon 事实与本次替换
@@ -45,6 +61,14 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
   const [replace, setReplace] = useState("");
   const [files, setFiles] = useState<FileDiffModel[]>([]);
   const [status, setStatus] = useState<StatusState>({ phase: "idle", text: "" });
+  /**
+   * 是否已跑过一次预览。
+   *
+   * 未跑之前 `files` 与 `find` 必然为空，此时展示 safety 结论（"empty find text" /
+   * "no target files" / "nothing to replace"）等于把「你还没填表」报成三个错误；
+   * 所以空态先给操作引导，结论只在用户真的点过预览后出现。
+   */
+  const [previewed, setPreviewed] = useState(false);
 
   const rule: ReplaceRule = useMemo(
     () => ({ find, replace, caseSensitive: false }),
@@ -58,11 +82,32 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
     [files, rule],
   );
 
+  const formatSummaryText = useCallback(
+    (value: DiffSummary) =>
+      value.totalReplacements === 0
+        ? t("batchreplace.summary.none")
+        : t("batchreplace.summary.count", {
+            replacements: value.totalReplacements,
+            files: value.changedFiles,
+            lines: value.touchedLines,
+          }),
+    [t],
+  );
+
+  const formatReason = useCallback(
+    (issue: SafetyIssue) =>
+      issue.detail
+        ? t(REASON_LABEL_KEY[issue.code], { detail: issue.detail })
+        : t(REASON_LABEL_KEY[issue.code]),
+    [t],
+  );
+
   const runPreview = async () => {
+    setPreviewed(true);
     try {
       const diffs = await previewBatchReplace({ projectPath, files: targets, rule });
       setFiles(diffs);
-      setStatus({ phase: "previewed", text: formatSummary(summarize(diffs)) });
+      setStatus({ phase: "previewed", text: formatSummaryText(summarize(diffs)) });
     } catch (error) {
       setStatus({ phase: "error", text: String(error) });
     }
@@ -73,7 +118,10 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       const report = await applyBatchReplace({ projectPath, files: targets, rule });
       setStatus({
         phase: "applied",
-        text: `${report.total_replacements} replacements · ${report.drafts.length} drafts`,
+        text: t("batchreplace.status.applied", {
+          replacements: report.total_replacements,
+          drafts: report.drafts.length,
+        }),
       });
     } catch (error) {
       if (isGateRequireConfirm(error)) {
@@ -120,14 +168,20 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
         </button>
       </div>
 
-      <p data-testid="batchreplace-summary" className="text-xs">
-        {formatSummary(summary)}
-      </p>
+      {previewed ? (
+        <p data-testid="batchreplace-summary" className="text-xs">
+          {formatSummaryText(summary)}
+        </p>
+      ) : (
+        <p data-testid="batchreplace-empty-hint" className="text-xs text-muted-foreground">
+          {t("batchreplace.empty.hint")}
+        </p>
+      )}
 
-      {!safety.ok ? (
+      {previewed && !safety.ok ? (
         <ul data-testid="batchreplace-safety" className="text-xs text-amber-600">
-          {safety.reasons.map((reason) => (
-            <li key={reason}>{reason}</li>
+          {safety.issues.map((issue) => (
+            <li key={`${issue.code}:${issue.detail ?? ""}`}>{formatReason(issue)}</li>
           ))}
         </ul>
       ) : null}

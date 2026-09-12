@@ -1174,9 +1174,15 @@ export function WritingSkillLibraryView() {
 
       {/* F-006 技能包交换（导入/导出均走本地文件）：此前无壳层入口。
           仅在宿主配置已加载时挂载——导入必须落到一个已知分类与已知库，
-          否则会静默丢弃导入结果（面板只产出 `UserSkill[]`，落盘是本视图的责任）。 */}
+          否则会静默丢弃导入结果（面板只产出 `UserSkill[]`，落盘是本视图的责任）。
+          高度上限是**必须的**：SkillPackPanel 声明 `h-full` + 内部 `flex-1 overflow-auto`，
+          父链无确定高度时 `h-full` 解析为 auto，技能列表把本区块撑到 2000px 以上，
+          再以 shrink-0 身份把上面 flex-1 的 <main> 挤到几十像素（实测 2023 vs 40）。 */}
       {config && project ? (
-        <div className="shrink-0 border-t px-5 py-4" data-testid="skill-pack-section">
+        <div
+          className="max-h-[38vh] shrink-0 overflow-y-auto border-t px-5 py-3"
+          data-testid="skill-pack-section"
+        >
           <div className="mx-auto max-w-5xl space-y-3">
             {/* A-F-002 / B-F-006 技能包（.zip）离线导入：此前同样无壳层入口。
                 选文件用 Tauri 原生对话框（动态 import，与 sidebar-panel 一致）；

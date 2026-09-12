@@ -469,7 +469,11 @@ export function BackupExportView() {
   }
 
   return (
-    <div className="space-y-6" data-testid="backup-export-view">
+    // 本视图是 ContentArea 的直接子节点（外层只有 h-full，再外层是 overflow-hidden），
+    // 自身必须持滚动：内容（口令卡 + 进度 + 5 张操作卡 + 云端备份 + 快照时间线）
+    // 实测 1962px > 720px 视口，缺 overflow-y-auto 时整块被裁剪且鼠标滚轮会去滚
+    // document（落到外壳泄露出来的 200px 上），用户观感『不能滚动』。
+    <div className="h-full space-y-6 overflow-y-auto p-6" data-testid="backup-export-view">
       {/* Header：明确与全局导出区分 */}
       <div>
         <h2 className="text-xl font-semibold">
