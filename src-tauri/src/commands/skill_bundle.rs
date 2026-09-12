@@ -38,7 +38,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -887,6 +887,7 @@ fn import_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     struct TempTree {
         root: PathBuf,

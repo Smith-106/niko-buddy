@@ -78,6 +78,8 @@ type BackendHandle = Arc<dyn VaultBackend>;
 
 static TEST_BACKEND: Mutex<Option<BackendHandle>> = Mutex::new(None);
 /// 匹配 `entry.path()` 用的数据区目录名（拼接构造，避免在源码里出现数据区路径字面量）。
+/// 仅被下方「凭据不落盘」测试使用，故限定在测试 cfg 内，避免非测试构建的 dead_code 告警。
+#[cfg(test)]
 fn data_section_names() -> [String; 3] {
     [
         ["QM", "/"].join(""),

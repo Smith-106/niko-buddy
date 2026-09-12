@@ -453,6 +453,8 @@ fn compute_content_digest_from_disk(entries: &[(String, PathBuf)]) -> Result<Str
 /// 使 F-002（技能包）与 F-004（远端块）复用**同一** manifest 定义（INV-7：
 /// 一次落地多处受益）。本函数不改变 `pack_project` / `canon_verify_export` /
 /// `.sha256` sidecar 的任何既有语义。
+/// 目前唯一调用点在测试内，故限定测试 cfg。
+#[cfg(test)]
 pub fn archive_manifest_for_project(
     project_path: &Path,
 ) -> Result<crate::canon::archive::ArchiveManifest, String> {

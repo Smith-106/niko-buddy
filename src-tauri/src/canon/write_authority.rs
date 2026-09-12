@@ -30,6 +30,13 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WriteSource {
     /// 用户显式编辑 / 显式 accept（唯一具备完整写权威的主体）。
+    ///
+    /// **接线状态：已定义、已裁决、尚未由生产路径构造**（因此非测试构建会报
+    /// `variant is never constructed` 告警，**该告警是如实标记，不得用 `#[allow(dead_code)]` 压掉**）。
+    /// 已接线的是反面：`SkillImport`（`commands/skill_bundle.rs` 导入路径）与
+    /// `SyncPull`（`commands/sync_target.rs` 拉取路径）；正面（草稿 accept → 真源回填）
+    /// 目前在 TypeScript 侧走 Draft-first 流程，没有 Rust 侧构造点。
+    /// 补齐时本变体即被构造，告警自动消失——告警消失即接线完成的验收信号。
     UserEdit,
     /// AI 生成管线（草稿域为主，永不直写真源）。
     AiSuggestion,

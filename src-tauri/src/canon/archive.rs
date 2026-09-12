@@ -260,6 +260,8 @@ pub fn pack_blocks(root: &Path, manifest: &ArchiveManifest, dest: &Path) -> Resu
 }
 
 /// 读回 `<dest>/manifest.json`（校验前的前置读）。
+/// 目前唯一调用点在测试内（`verify_archive` 走独立路径），故限定测试 cfg。
+#[cfg(test)]
 pub fn load_manifest(dest: &Path) -> Result<ArchiveManifest, String> {
     let path = dest.join(ARCHIVE_MANIFEST_FILE);
     let raw = fs::read_to_string(&path)
@@ -275,6 +277,8 @@ pub fn load_manifest(dest: &Path) -> Result<ArchiveManifest, String> {
 /// 返回**不匹配块 ID 列表**（缺失、长度不符、哈希不符均计入）；**空列表即通过**。
 /// 同时校验块集合指纹：指纹不符时以一个 `"content_digest:<期望>"` 形式的条目报告，
 /// 使调用方能区分「单块损坏」与「块集合被增删」。
+/// 目前唯一调用点在测试内，故限定测试 cfg。
+#[cfg(test)]
 pub fn verify_manifest(dest: &Path, manifest: &ArchiveManifest) -> Result<Vec<String>, String> {
     validate_manifest(manifest)?;
     let mut mismatched: Vec<String> = Vec::new();
