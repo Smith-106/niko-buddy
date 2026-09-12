@@ -72,4 +72,13 @@
 
   结论：字形/缺字/跨阅读器的**视觉**判定仍归用户；本轮只交付**像素级机械证据**（§2.1）与**可直接目视的素材**。
   不得以「自动化已跑」替代人工目视。
+- **第二次尝试（用户指定「再试一次自动化通路」，2026-09-12）**：
+  1. `describe_image`（对首行放大图 `f008-sample-p1-line1.png`，36,309 B 整页 / 7,975 B 裁剪，PNG 签名已校验 `PNG sig ok: true`）：
+     再次返回 **「未收到图片」** —— 与首次同因，非路径问题。
+  2. 视觉队友（`cpa-responses/glm-5.3-flash`，[vision]，`taskType=review`，要求用 `read` 读取两张 PNG）：
+     `read` 两次调用 + 一次重试全部 `Permission relay send-failed: write EPIPE`；结构化返回
+     `received_image=false`、`verdict="未收到图片。...错误原文：\"Permission relay send-failed: write EPIPE.\""`，
+     并**明确拒绝描述未看到的画面**。发布物 `agent://edbd5c0e-a2d0-47df-ae80-2ce3baaa499c`。
+  3. 结论（不变）：**自动化通路在本环境内不可用**（同一 EPIPE 故障已连续阻断三批子进程工具调用），
+     视觉判定仍归用户。素材与机械量测均已在库，用户只需打开文件目视一次。
 - **跨阅读器核对**：未在 Acrobat / 福昕 / 浏览器内置阅读器等第三方渲染器上逐一体检。
