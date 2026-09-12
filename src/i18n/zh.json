@@ -448,7 +448,8 @@
     "reference": {
       "expand": "点击预览引用内容",
       "remove": "移除引用"
-    }
+    },
+    "writeToWikiDone": "已写入 Wiki"
   },
   "search": {
     "title": "搜索",
@@ -552,7 +553,8 @@
       "errorAnchorFailed": "有 {{count}} 条原文片段没有定位到，已取消写入。请重新生成或编辑原文片段。",
       "errorNoActiveEdits": "没有可确认的修改项。",
       "errorSingleNoResult": "AI 没有返回可用的单条修改结果。",
-      "errorRegenerate": "重新生成失败，请稍后重试。"
+      "errorRegenerate": "重新生成失败，请稍后重试。",
+      "replacementLabel": "改写文本"
     },
     "historyTitle": "历史审稿记录",
     "chapterReviewTitle": "第{{chapter}}章审稿",
@@ -567,7 +569,8 @@
       "deleteFailed": "删除失败",
       "createdPage": "已创建页面：{{title}}",
       "openedPage": "已打开页面：{{page}}",
-      "createFailed": "创建失败"
+      "createFailed": "创建失败",
+      "openFailed": "打开失败：{{page}}"
     },
     "fallbacks": {
       "savedQueryTitle": "已保存查询",
@@ -612,7 +615,8 @@
           "posthumous_by_design": "死后设计",
           "false_positive": "误报",
           "state_layer_fix": "状态层已修复"
-        }
+        },
+        "reasonLabel": "驳回原因"
       }
     },
     "typeLabels": {
@@ -1402,7 +1406,10 @@
     "layout": {
       "force": "力导向布局",
       "reset": "重置布局"
-    }
+    },
+    "nodeTypeFilterLabel": "节点类型",
+    "riskStateFilterLabel": "状态",
+    "sortByLabel": "排序方式"
   },
   "time": {
     "justNow": "刚刚",
@@ -1715,7 +1722,8 @@
         "deleteFailed": "删除失败",
         "openedChapter": "已打开章节：{{page}}",
         "created": "已创建：{{title}}",
-        "createFailed": "创建失败"
+        "createFailed": "创建失败",
+        "openFailed": "打开章节失败：{{page}}"
       },
       "fallbacks": {
         "savedQueryTitle": "已保存查询",
@@ -2384,6 +2392,9 @@
     "range": {
       "from": "起",
       "to": "止"
+    },
+    "preview": {
+      "closePreview": "关闭预览"
     }
   },
   "storySimulation": {

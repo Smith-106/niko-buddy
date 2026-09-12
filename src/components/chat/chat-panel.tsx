@@ -1,6 +1,8 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { formatOperationError } from "@/lib/format-operation-error"
+import { logger } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -142,6 +144,9 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
   const setActiveConversation = useChatStore((s) => s.setActiveConversation)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // R4 共识（deepseek+qwen）: 会话文件的物理删除失败会被完全吞掉（`.catch(() => {})`），
+  // 而内存态已移除 ⇒ 用户以为已删除，重载后旧会话又出现且无任何解释。改为如实反馈。
+  const [deleteFileError, setDeleteFileError] = useState<string | null>(null)
   // MI-009 (odyssey-ui): delete is destructive — two-step confirm so a stray
   // click (or a touch tap meant to switch tabs) can't silently wipe a
   // conversation. Single shared state keyed by conv id keeps the map flat.
@@ -158,7 +163,10 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
     deleteConversation(convId)
     const proj = useWikiStore.getState().project
     if (proj) {
-      deleteFile(`${proj.path}/.qmai/chats/${convId}.json`).catch(() => {})
+      deleteFile(`${proj.path}/.qmai/chats/${convId}.json`).catch((err) => {
+        // 内存态已移除，但磁盘文件仍在：必须如实告知，否则重载后会话“复活”无法解释。
+        setDeleteFileError(formatOperationError(t, err))
+      })
     }
     setConfirmDeleteId(null)
   }
@@ -181,7 +189,8 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
             {t(novelMode ? "novel.chat.noConversationsYet" : "chat.noConversationsYet")}
           </span>
         ) : (
-          sorted.map((conv) => {
+          <div role="tablist" className="flex items-center gap-2">
+            {sorted.map((conv) => {
             const isActive = conv.id === activeConversationId
             const isThisStreaming = conv.id in streamingContents
             const msgCount = getMessageCount(conv.id)
@@ -262,9 +271,15 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 })()}
               </div>
             )
-          })
+            })}
+          </div>
         )}
       </div>
+      {deleteFileError ? (
+        <p role="alert" className="mt-1 text-xs text-destructive">
+          {deleteFileError}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -372,6 +387,9 @@ export function ChatPanel() {
   const [planningPlan, setPlanningPlan] = useState<import("@/lib/novel/planning").ChapterPlanView | null>(null)
   const [planningLoading, setPlanningLoading] = useState(false)
   const [planningError, setPlanningError] = useState<string | null>(null)
+  // R4 共识（deepseek+glm）: 「写入 Wiki」失败原先只 console.error，用户无任何失败反馈。
+  const [writeWikiError, setWriteWikiError] = useState<string | null>(null)
+  const [writeWikiOk, setWriteWikiOk] = useState(false)
   const planningChapterRef = useRef<number | undefined>(undefined)
   const loadPlanning = useCallback(async (chapterNumber?: number) => {
     if (!project) return
@@ -475,18 +493,23 @@ export function ChatPanel() {
   const submitExemplarABScore = useCallback(async (score: number, variant: "enabled" | "disabled") => {
     if (!project) return
     const pp = normalizePath(project.path)
-    await appendExemplarABSample(pp, {
-      variant,
-      score,
-      chapterId: selectedFile ? getFileName(selectedFile) : "chat",
-      timestamp: new Date().toISOString(),
-    })
-    const state = await loadCognitionState(pp)
-    const stats = exemplarABStats(state)
-    const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
-    const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
-    setExemplarFeedback(`已记录评分 ${score}★（${variant}）— enabled 均分 ${enabledStr} vs disabled ${disabledStr}`)
-  }, [project, selectedFile])
+    try {
+      await appendExemplarABSample(pp, {
+        variant,
+        score,
+        chapterId: selectedFile ? getFileName(selectedFile) : "chat",
+        timestamp: new Date().toISOString(),
+      })
+      const state = await loadCognitionState(pp)
+      const stats = exemplarABStats(state)
+      const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
+      const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
+      setExemplarFeedback(`已记录评分 ${score}★（${variant}）— enabled 均分 ${enabledStr} vs disabled ${disabledStr}`)
+    } catch (err) {
+      // R4 共识（deepseek+qwen）: 评分提交失败原本无 catch ⇒ 浮空 rejection + 界面无反馈。
+      setExemplarFeedback(formatOperationError(t, err))
+    }
+  }, [project, selectedFile, t])
 
   const getLatestAssistantDraftContext = useCallback(() => {
     /* v8 ignore next */
@@ -704,6 +727,11 @@ export function ChatPanel() {
     }).then((un) => {
       if (disposed) un?.()
       else unlisten = un
+    }).catch((err) => {
+      // R4 共识（deepseek+glm）: 原先只有 .then，订阅失败成为未处理 rejection。
+      logger.warn("ChatPanel", "subscribeStatusJson failed", {
+        error: err instanceof Error ? err.message : String(err),
+      })
     })
     return () => {
       disposed = true
@@ -1523,7 +1551,13 @@ export function ChatPanel() {
             if (taskDirective) {
               novelContextPreamble = taskDirective + "\n" + novelContextPreamble
             }
-          } catch {}
+          } catch (err) {
+            // R4 共识（deepseek+glm）: 原先空 catch —— 小说上下文装配完全失败时零诊断。
+            // 行为不变（仍继续生成），但降级必须留痕。
+            logger.warn("ChatPanel", "novel context preamble build failed, continuing without it", {
+              error: err instanceof Error ? err.message : String(err),
+            })
+          }
         }
 
         // 固定前缀：技能、角色定位、章节输出规则、规则、Markdown 格式要求。
@@ -1862,7 +1896,18 @@ export function ChatPanel() {
         messages: s.messages.filter((m) => m.id !== lastUser.id),
       }))
     }
-    handleSend(lastUserMsg.content)
+    // R4 共识（deepseek+glm）: 先把末条用户消息从 store 移除、再浮空调用 handleSend，
+    // 一旦失败消息永久丢失且成为未处理 rejection。改为捕获失败并恢复该消息。
+    try {
+      await handleSend(lastUserMsg.content)
+    } catch (err) {
+      useChatStore.setState((s) =>
+        s.messages.some((m) => m.id === lastUserMsg.id) ? {} : { messages: [...s.messages, lastUserMsg] }
+      )
+      logger.warn("ChatPanel", "regenerate failed; restored the removed user message", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }, [removeLastAssistantMessage, handleSend])
 
   const handleContinueNextChapter = useCallback(() => {
@@ -2376,17 +2421,21 @@ export function ChatPanel() {
   const handleWriteToWiki = useCallback(async () => {
     if (!project) return
     const pp = normalizePath(project.path)
+    setWriteWikiError(null)
+    setWriteWikiOk(false)
     try {
       await executeIngestWrites(pp, llmConfig, undefined, undefined)
+      setWriteWikiOk(true)
       try {
         await refreshProjectState(pp)
       } catch {
         // ignore
       }
     } catch (err) {
-      console.error("写入 wiki 失败:", err instanceof Error ? err.message : String(err))
+      // R4 共识（deepseek+glm）: 失败必须上屏（原先仅 console.error）。
+      setWriteWikiError(formatOperationError(t, err))
     }
-  }, [project, llmConfig])
+  }, [project, llmConfig, refreshProjectState, t])
 
   const hasAssistantMessages = activeMessages.some((m) => m.role === "assistant")
   const showWriteButton = mode === "ingest" && !isStreaming && hasAssistantMessages
@@ -2562,6 +2611,15 @@ export function ChatPanel() {
                   <BookOpen className="h-4 w-4" />
                   {t(novelMode ? "novel.chat.writeToWiki" : "chat.writeToWiki")}
                 </Button>
+                {writeWikiError ? (
+                  <p role="alert" data-testid="write-wiki-error" className="mt-1 text-xs text-destructive">
+                    {writeWikiError}
+                  </p>
+                ) : writeWikiOk ? (
+                  <p role="status" data-testid="write-wiki-ok" className="mt-1 text-xs text-muted-foreground">
+                    {t("chat.writeToWikiDone")}
+                  </p>
+                ) : null}
               </div>
             )}
           </>

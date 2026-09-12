@@ -27,6 +27,7 @@ import type { ForeshadowingStore } from "@/lib/novel"
 import { GRAPH_LAYOUT_ITERATIONS, GRAPH_LAYOUT_SETTINGS, getGraphVisualSettings, type GraphVisualTier } from "@/lib/graph-layout"
 import { GRAPH_MODE_LABELS, GRAPH_MODE_PRESETS, type GraphMode } from "@/lib/graph-mode"
 import { useTranslation } from "react-i18next"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 const NODE_TYPE_COLORS: Record<string, string> = {
   entity: "#60a5fa",    // blue-400
@@ -528,6 +529,8 @@ function DocumentGraphView({
   const [showOnlyIsolatedNodes, setShowOnlyIsolatedNodes] = useState(false)
   const [riskStateOverrides, setRiskStateOverrides] = useState<Record<string, string>>({})
   const [riskStateHistory, setRiskStateHistory] = useState<Array<{ nodeId: string; from: string; to: string; timestamp: number }>>([])
+  // R4 共识（glm+qwen）: 导出风险报告原先无任何可见反馈（浮空 Promise + 无状态展示）。
+  const [riskReportStatus, setRiskReportStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set())
   const [documentNodePage, setDocumentNodePage] = useState(0)
   const DOCUMENT_NODES_PAGE_SIZE = PAGINATION_PAGE_SIZE
@@ -636,14 +639,14 @@ function DocumentGraphView({
   }, [visibleNodes])
 
   const cycleRiskStateLabel = useCallback((node: GraphNode) => {
-    setRiskStateOverrides((current) => {
-      const currentLabel = current[node.id] ?? getGraphNodeRiskStateLabel(node.type)
-      const nextLabel = getNextGraphNodeRiskStateLabel(node.type, currentLabel)
-      /* v8 ignore next */
-      if (!nextLabel) return current
-      setRiskStateHistory((history) => [...history, { nodeId: node.id, from: currentLabel, to: nextLabel, timestamp: Date.now() }])
-      return { ...current, [node.id]: nextLabel }
-    })
+    const currentLabel = riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)
+    const nextLabel = getNextGraphNodeRiskStateLabel(node.type, currentLabel)
+    /* v8 ignore next */
+    if (!nextLabel) return
+    // R4 共识（deepseek+glm）: 不能在 setState updater 内部产生副作用——
+    // StrictMode/并发渲染下 updater 可能被调用多次，原先会重复推入 history。
+    setRiskStateHistory((history) => [...history, { nodeId: node.id, from: currentLabel, to: nextLabel, timestamp: Date.now() }])
+    setRiskStateOverrides((current) => ({ ...current, [node.id]: nextLabel }))
     if (editingNode?.id === node.id) {
       const currentLabel = riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)
       const nextLabel = getNextGraphNodeRiskStateLabel(node.type, currentLabel)
@@ -678,8 +681,15 @@ function DocumentGraphView({
     if (!projectPath) return
     const report = buildGraphRiskReport(nodes, riskStateOverrides)
     const reportPath = normalizePath(`${projectPath}/wiki/risk-report.md`)
-    await writeFileAtomic(reportPath, report)
-  }, [nodes, riskStateOverrides])
+    // R4 共识（glm+qwen）: 原先 await 无 try/catch，写盘失败成为未处理 rejection，
+    // 且成功/失败都没有任何用户反馈。
+    try {
+      await writeFileAtomic(reportPath, report)
+      setRiskReportStatus({ kind: "ok", text: `风险报告已导出：${reportPath}` })
+    } catch (err) {
+      setRiskReportStatus({ kind: "error", text: formatOperationError(t, err) })
+    }
+  }, [nodes, riskStateOverrides, t])
 
   return (
     <div className="h-full overflow-auto bg-background p-6">
@@ -714,6 +724,14 @@ function DocumentGraphView({
                 导出报告
               </button>
             </div>
+            {riskReportStatus ? (
+              <p
+                role={riskReportStatus.kind === "error" ? "alert" : "status"}
+                className={`mt-2 text-xs ${riskReportStatus.kind === "error" ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {riskReportStatus.text}
+              </p>
+            ) : null}
           </div>
           {filteredRiskSummaryItems.length === 0 ? (
             <div className="mt-3 text-sm text-muted-foreground">当前分类暂无待处理风险项。</div>
@@ -758,6 +776,7 @@ function DocumentGraphView({
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">节点类型</span>
             <select
+              aria-label={t("graph.nodeTypeFilterLabel")}
               className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={selectedNodeType}
               onChange={(event) => setSelectedNodeType(event.target.value)}
@@ -768,6 +787,7 @@ function DocumentGraphView({
             </select>
             <span className="text-muted-foreground">状态</span>
             <select
+              aria-label={t("graph.riskStateFilterLabel")}
               className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={selectedRiskState}
               onChange={(event) => setSelectedRiskState(event.target.value)}
@@ -778,6 +798,7 @@ function DocumentGraphView({
             </select>
             <span className="text-muted-foreground">排序方式</span>
             <select
+              aria-label={t("graph.sortByLabel")}
               className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={documentSortMode}
               onChange={(event) => setDocumentSortMode(event.target.value as "default" | "links-desc" | "links-asc" | "title")}
@@ -1185,13 +1206,17 @@ export function GraphView() {
   }, [edgeStyle])
 
   const lastLoadedVersion = useRef(-1)
+  // R4 共识（glm+qwen）: 并发重载时旧请求的响应可回填覆盖新图数据（缺请求代次守卫）。
+  const loadGraphGenRef = useRef(0)
 
   const loadGraph = useCallback(async () => {
     if (!project) return
+    const gen = ++loadGraphGenRef.current
     setLoading(true)
     setError(null)
     try {
       const result = await buildWikiGraph(normalizePath(project.path))
+      if (loadGraphGenRef.current !== gen) return
       setNodes(result.nodes)
       setEdges(result.edges)
       setCommunities(result.communities)
@@ -1199,10 +1224,11 @@ export function GraphView() {
       setKnowledgeGaps(detectKnowledgeGaps(result.nodes, result.edges, result.communities))
       lastLoadedVersion.current = useWikiStore.getState().dataVersion
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("graph.buildFailed")
-      setError(message)
+      if (loadGraphGenRef.current !== gen) return
+      // R4 共识（glm+qwen）: 原错误页直接渲染原始 err.message，未按「本地化引导 + 原始诊断」。
+      setError(`${t("graph.buildFailed")}：${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setLoading(false)
+      if (loadGraphGenRef.current === gen) setLoading(false)
     }
   }, [project])
 
@@ -1277,12 +1303,15 @@ export function GraphView() {
       if (!project) return
       const page = buildEditableGraphNodePage(project.path, node)
       let content = page.content
+      // R4 共识（deepseek+glm，high）: 原先 readFile 失败时回退模板内容，而 editingPath
+      // 仍是真实档案页 → 用户对着模板编辑并保存，会把真实档案页覆盖成模板（数据丢失）。
+      // 正确做法：读取失败如实上报并**不进入编辑态**；仅「文件不存在」才用模板新建。
       try {
-        if (await fileExists(page.path)) {
-          content = await readFile(page.path)
-        }
-      } catch {
-        content = page.content
+        if (await fileExists(page.path)) content = await readFile(page.path)
+      } catch (err) {
+        setError(formatOperationError(t, err))
+        setNodeMenu(null)
+        return
       }
       setEditingNode(node)
       setEditingPath(page.path)
@@ -1315,10 +1344,11 @@ export function GraphView() {
         setNodeMenu(null)
         if (created) bumpDataVersion()
       } catch (err) {
-        console.error("Failed to open graph node profile page:", err)
+        // R4 共识（glm+qwen）: 原先仅 console.error ⇒ 用户零反馈。
+        setError(formatOperationError(t, err))
       }
     },
-    [project, setSelectedFile, setFileContent, setActiveView, bumpDataVersion],
+    [project, setSelectedFile, setFileContent, setActiveView, bumpDataVersion, t],
   )
 
   const handleSaveNodeEdit = useCallback(async () => {
@@ -1341,12 +1371,12 @@ export function GraphView() {
       bumpDataVersion()
       setEditStatus(embCfg.enabled && embCfg.model ? t("graph.savedRealProfileWithEmbedding") : t("graph.savedRealProfile"))
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("graph.saveNodeFailed")
-      setEditStatus(message)
+      // R4 共识（glm+qwen）: 原直接展示原始 err.message。
+      setEditStatus(`${t("graph.saveNodeFailed")}：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setSavingNode(false)
     }
-  }, [project, editingNode, editingPath, editingContent, setSelectedFile, setFileContent, bumpDataVersion])
+  }, [project, editingNode, editingPath, editingContent, setSelectedFile, setFileContent, bumpDataVersion, t])
 
   const handleNodeContextMenu = useCallback((nodeId: string, x: number, y: number) => {
     if (!nodeId) {

@@ -3,7 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, type StreamCallbacks } from "@/lib/llm-client"
 import { logger } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
@@ -424,10 +424,11 @@ export async function runCanonDualWriteHook(
   if (!deps) return
   if (!isCanonDualWriteEligible(fm)) return
 
-  const ops = await buildCanonDualWriteOps(snapshot)
-  if (ops.length === 0) return
-
+  // R4 共识（deepseek+glm）: 原先在 try 外构建 ops，且调用方（ingestChapter）未包 try
+  // ⇒ 构建抛错会冲出「非致命钩子」契约，成为未处理 rejection。
   try {
+    const ops = await buildCanonDualWriteOps(snapshot)
+    if (ops.length === 0) return
     // E-05 (C-4/C-6): T16 钩子传 promoteChannel="canon-dual-write" ——
     // reconcile 一致时对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
     const report = await shadowWriteCanon(deps, projectPath, ops, now, "canon-dual-write")
@@ -518,7 +519,17 @@ export async function ingestChapter(
   }
 
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
-  const extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+  let extractedSnapshot
+  try {
+    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+  } catch (err) {
+    // R4 共识（qwen+glm）: 流中途取消/超时会抛出（而不是走上面的 signal.aborted 分支），
+    // 使取消变成 reject。取消是已建模的 failReason，应如实返回；其它错误继续抛出。
+    if (signal?.aborted || (err instanceof Error && isRequestCancelledError(err))) {
+      return { snapshot: null, failReason: "cancelled" as IngestFailReason }
+    }
+    throw err
+  }
   let snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
 
   if (!snapshot) {

@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect, useMemo, useId } from "react"
+import { useState, useCallback, useEffect, useMemo, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
+import { formatOperationError } from "@/lib/format-operation-error"
 import i18n from "@/i18n"
 import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
 import type { NovelReviewResult, CognitionState, GenerationHistoryEntry, SixReviewDimensionKey, ContinuityOverrideReasonCode } from "@/lib/novel"
@@ -143,6 +144,8 @@ export function ReviewView({
   const [rewriteDialog, setRewriteDialog] = useState<ReviewRewriteDialogState | null>(null)
   const [rewriteBusyId, setRewriteBusyId] = useState<string | null>(null)
   const [rewriteError, setRewriteError] = useState<string | null>(null)
+  // R4 共识（deepseek+glm）: 发起评审/读取评审文件的失败原先无任何可见出口。
+  const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
   const [findingCompareTarget, setFindingCompareTarget] = useState<NovelReviewActionItem | null>(null)
   // G3 dismiss 闭环 state: dismissTarget 是当前展开 dismiss 折叠面板的 continuity finding
@@ -226,14 +229,27 @@ export function ReviewView({
     return () => { cancelled = true }
   }, [project?.path])
 
+  // R4 共识（deepseek+qwen）: 项目切换后旧响应可覆盖新历史，且失败无捕获（浮空 rejection）。
+  const reviewHistoryPathRef = useRef<string | undefined>(undefined)
+  reviewHistoryPathRef.current = project?.path
+
   const loadReviewHistory = useCallback(async () => {
     /* v8 ignore next */
     if (!project) {
       setReviewHistory([])
       return
     }
-    setReviewHistory(await listGenerationHistory(project.path, "review"))
-  }, [project])
+    const requestPath = project.path
+    try {
+      const history = await listGenerationHistory(requestPath, "review")
+      if (reviewHistoryPathRef.current !== requestPath) return
+      setReviewHistory(history)
+    } catch (err) {
+      if (reviewHistoryPathRef.current !== requestPath) return
+      setReviewHistory([])
+      setRewriteError(formatOperationError(t, err))
+    }
+  }, [project, t])
 
   useEffect(() => {
     if (novelMode && project) {
@@ -436,7 +452,12 @@ export function ReviewView({
       return
     }
 
-    await writeFile(rewriteDialog.targetPath, applyResult.markdown)
+    try {
+      await writeFile(rewriteDialog.targetPath, applyResult.markdown)
+    } catch (err) {
+      setRewriteError(formatOperationError(t, err))
+      return
+    }
     bumpDataVersion()
     if (selectedFile === rewriteDialog.targetPath) {
       setFileContent(applyResult.markdown)
@@ -670,6 +691,7 @@ export function ReviewView({
           </div>
           <div className="mt-2 flex flex-col gap-2">
             <select
+              aria-label={t("review.results.dismiss.reasonLabel")}
               value={dismissReason}
               onChange={(event) => setDismissReason(event.target.value as ContinuityOverrideReasonCode)}
               className="rounded border border-border bg-background px-2 py-1 text-foreground"
@@ -766,7 +788,9 @@ export function ReviewView({
     if (!project) return
     const confirmed = window.confirm(t("novel.history.deleteConfirm"))
     if (!confirmed) return
-    await deleteGenerationHistoryEntry(project.path, entry.filePath)
+    await deleteGenerationHistoryEntry(project.path, entry.filePath).catch((err) => {
+      setRewriteError(formatOperationError(t, err))
+    })
     setExpandedHistoryId((current) => current === entry.id ? null : current)
     await loadReviewHistory()
   }, [project, loadReviewHistory, t])
@@ -774,26 +798,33 @@ export function ReviewView({
   const handleNovelReview = useCallback(async () => {
     const reviewFilePath = selectedReviewFilePath || selectedFile
     if (!project || !reviewFilePath) return
-    const reviewFileContent = reviewFilePath === selectedFile ? fileContent : await readFile(reviewFilePath)
-    if (!reviewFileContent.trim()) return
-    if (dimensionKey) {
-      await startSixDimensionReviewRun({
+    // R4 共识（deepseek+glm）: 原先 readFile 与启动评审均无 try/catch，
+    // 失败成为未处理 rejection 且用户零反馈。
+    setReviewActionError(null)
+    try {
+      const reviewFileContent = reviewFilePath === selectedFile ? fileContent : await readFile(reviewFilePath)
+      if (!reviewFileContent.trim()) return
+      if (dimensionKey) {
+        await startSixDimensionReviewRun({
+          fileContent: reviewFileContent,
+          projectPath: project.path,
+          selectedFile: reviewFilePath,
+          t,
+          onHistorySaved: loadReviewHistory,
+          dimensionKey,
+        })
+        return
+      }
+      await startNovelReviewRun({
         fileContent: reviewFileContent,
         projectPath: project.path,
         selectedFile: reviewFilePath,
         t,
         onHistorySaved: loadReviewHistory,
-        dimensionKey,
       })
-      return
+    } catch (err) {
+      setReviewActionError(formatOperationError(t, err))
     }
-    await startNovelReviewRun({
-      fileContent: reviewFileContent,
-      projectPath: project.path,
-      selectedFile: reviewFilePath,
-      t,
-      onHistorySaved: loadReviewHistory,
-    })
     /*
     return
     const parsed = parseFrontmatter(fileContent)
@@ -882,17 +913,23 @@ export function ReviewView({
         `${pp}/wiki/${page}`,
         `${pp}/wiki/${page}.md`,
       ]
+      let opened = false
       for (const path of candidates) {
         try {
           const content = await readFile(path)
           useWikiStore.getState().setSelectedFile(path)
           useWikiStore.getState().setFileContent(content)
           useWikiStore.getState().setActiveView("wiki")
+          opened = true
           break
         } catch {
+          // 候选路径不存在属预期：继续试下一个
         }
       }
-      resolveItem(id, novelMode ? i18n.t("novel.review.notifications.openedChapter", { page }) : i18n.t("review.notifications.openedPage", { page }))
+      // R4 共识（deepseek+qwen）: 原先无论是否读到内容都报“已打开” ⇒ 文件不存在时也谎报成功。
+      resolveItem(id, opened
+        ? (novelMode ? i18n.t("novel.review.notifications.openedChapter", { page }) : i18n.t("review.notifications.openedPage", { page }))
+        : (novelMode ? i18n.t("novel.review.notifications.openFailed", { page }) : i18n.t("review.notifications.openFailed", { page })))
     } else if (action.startsWith("delete:") && project) {
       const filePath = action.slice(7)
       try {
@@ -1052,6 +1089,16 @@ export function ReviewView({
       )}
 
       <div className="flex-1 overflow-y-auto">
+        {reviewActionError && (
+          <div
+            role="alert"
+            data-testid="review-action-error"
+            className="m-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>{reviewActionError}</span>
+          </div>
+        )}
         {reviewError && (
           <div className="m-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -1468,6 +1515,7 @@ function ReviewRewritePreviewDialog({
                     {edit.originalText}
                   </div>
                   <textarea
+                    aria-label={t("review.rewrite.replacementLabel")}
                     value={edit.replacementText}
                     onChange={(event) => onReplacementChange(edit.id, event.target.value)}
                     disabled={busy || ignored}

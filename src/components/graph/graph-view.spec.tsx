@@ -422,13 +422,21 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     unmount()
   })
 
+  it("文档视图筛选控件具备可访问名（aria-label）", async () => {
+    const { unmount } = await renderDocumentView()
+    expect(screen.getByLabelText("graph.nodeTypeFilterLabel")).toBeTruthy()
+    expect(screen.getByLabelText("graph.riskStateFilterLabel")).toBeTruthy()
+    expect(screen.getByLabelText("graph.sortByLabel")).toBeTruthy()
+    unmount()
+  })
+
   it("构建失败显示错误信息并可重试（Error 实例）", async () => {
     mocks.buildWikiGraph.mockRejectedValue(new Error("boom"))
     mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("boom")).toBeTruthy()
+      expect(screen.getByText("graph.buildFailed：boom")).toBeTruthy()
     })
     expect(screen.getByText("graph.retry")).toBeTruthy()
     mocks.buildWikiGraph.mockResolvedValue(BASIC_RESULT)
@@ -445,7 +453,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("graph.buildFailed")).toBeTruthy()
+      expect(screen.getByText("graph.buildFailed：plain-string")).toBeTruthy()
     })
     unmount()
   })
@@ -1152,7 +1160,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
     fireEvent.click(screen.getByText("graph.saveProfileInline"))
     await waitFor(() => {
-      expect(screen.getByText("disk full")).toBeTruthy()
+      expect(screen.getByText("graph.saveNodeFailed：disk full")).toBeTruthy()
     })
     unmount()
   })
@@ -1955,12 +1963,16 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
     fireEvent.click(screen.getByText("graph.saveProfileInline"))
     await waitFor(() => {
-      expect(screen.getByText("graph.saveNodeFailed")).toBeTruthy()
+      expect(screen.getByText("graph.saveNodeFailed：oops-string")).toBeTruthy()
     })
     unmount()
   })
 
-  it("文档视图：档案页读取失败回退模板内容", async () => {
+  // R4 共识（deepseek+glm，high）: 旧行为（读取失败回退模板内容）会把「模板正文」当成真实
+  // 档案页内容进入编辑，而保存目标是 /p/test/wiki/characters/Alpha.md ⇒ 保存即覆盖真实档案页。
+  // 旧测试把该缺陷写成了预期（断言 textarea 出现模板正文）——评审债，已反转：
+  // 现在断言「不进入编辑态 + 错误上屏」，阻断覆盖路径。
+  it("文档视图：档案页读取失败不得用模板内容进入编辑（防覆盖真实档案页）", async () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockRejectedValue(new Error("read failed"))
     mocks.buildEditableGraphNodePage.mockReturnValue({
@@ -1972,9 +1984,14 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
     fireEvent.click(screen.getByText("graph.editProfileInline"))
-    await waitFor(() => {
-      expect(currentTextarea().value).toBe("# Alpha\n\n模板正文")
+    // 先把异步 handler（fileExists → readFile）彻底放干净，否则断言会在编辑器挂载前 vacuously 通过。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
+    // 不得把模板正文带进任何可编辑控件（否则保存到真实档案页路径即覆盖）
+    const boxes = screen.queryAllByRole("textbox") as HTMLTextAreaElement[]
+    expect(boxes.some((el) => String(el.value).includes("模板正文"))).toBe(false)
+    expect(screen.getByText(/read failed/)).toBeTruthy()
     unmount()
   })
 

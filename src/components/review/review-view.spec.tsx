@@ -607,14 +607,30 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     expect(mocks.resolveItem).toHaveBeenCalledWith("op1", "novel.review.notifications.openedChapter")
   })
 
-  it("open: 两个候选都失败 → 仍 resolve openedChapter; 非 novelMode → openedPage", async () => {
+  // R4 共识（deepseek+qwen）: 两个候选路径都读不到时必须报失败，不能谎报“已打开”。
+  // 此前的断言把缺陷写成了预期（失败却 resolve openedPage）——评审债，已反转。
+  it("open: 两个候选都失败 → resolve openFailed（不得谎报已打开）", async () => {
     mocks.state.novelMode = false
     mocks.reviewItems = [makeReviewItem({ id: "op1", options: [{ label: "打开", action: "open:missing" }] })]
     mocks.readFile.mockRejectedValue(new Error("miss"))
     renderView()
     fireEvent.click(screen.getByText("打开"))
     await waitFor(() =>
-      expect(mocks.resolveItem).toHaveBeenCalledWith("op1", "review.notifications.openedPage"),
+      expect(mocks.resolveItem).toHaveBeenCalledWith("op1", "review.notifications.openFailed"),
+    )
+    expect(mocks.resolveItem).not.toHaveBeenCalledWith("op1", "review.notifications.openedPage")
+  })
+
+  it("open: 第二个候选存在 → resolve openedPage（回退路径仍工作）", async () => {
+    mocks.state.novelMode = false
+    mocks.reviewItems = [makeReviewItem({ id: "op2", options: [{ label: "打开", action: "open:found" }] })]
+    mocks.readFile
+      .mockRejectedValueOnce(new Error("miss"))
+      .mockResolvedValueOnce("# content")
+    renderView()
+    fireEvent.click(screen.getByText("打开"))
+    await waitFor(() =>
+      expect(mocks.resolveItem).toHaveBeenCalledWith("op2", "review.notifications.openedPage"),
     )
   })
 

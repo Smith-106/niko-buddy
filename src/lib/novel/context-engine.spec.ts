@@ -2291,10 +2291,19 @@ describe("contextPackToPrompt 补充分支", () => {
     const full = contextPackToPrompt(pack)
     const trimmed = contextPackToPrompt(pack, 100)
     expect(trimmed).toContain("[...上下文已按Token预算裁剪...]")
-    // tokenBudget=100 → targetChars=400 → head 160, tail 240
-    expect(trimmed).toBe(
-      full.slice(0, 160) + "\n\n[...上下文已按Token预算裁剪...]\n\n" + full.slice(-240),
-    )
+    // R4 口径修正（deepseek+glm 共识命中 context-engine.ts:2696）：
+    // 旧断言把 targetChars 固定写成 tokenBudget*4，与同函数上方的 CJK 加权估算
+    // （≈1.5 字符/token）自相矛盾；现已改为与估算器同源的混合比换算。
+    // 因此改为断言**行为不变量**（真的落回预算、头尾保留、中间被舍弃），
+    // 而不再锁定具体字符偏移。
+    const est = (t: string) => {
+      const cjk = (t.match(/[一-鿿]/g) ?? []).length
+      return Math.ceil((t.length - cjk) / 4 + cjk / 1.5)
+    }
+    expect(est(trimmed)).toBeLessThanOrEqual(100 * 1.2)
+    expect(trimmed.length).toBeLessThan(full.length)
+    expect(trimmed.startsWith(full.slice(0, 50))).toBe(true)
+    expect(trimmed.endsWith(full.slice(-50))).toBe(true)
   })
 
   it("recentChapterContents 默认模式跳过（仅 full 渲染）", () => {

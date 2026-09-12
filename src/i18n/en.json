@@ -828,7 +828,8 @@
     "reference": {
       "expand": "Click to preview referenced content",
       "remove": "Remove reference"
-    }
+    },
+    "writeToWikiDone": "Written to wiki"
   },
   "search": {
     "title": "Search",
@@ -934,7 +935,10 @@
     "layout": {
       "force": "Force layout",
       "reset": "Reset view"
-    }
+    },
+    "nodeTypeFilterLabel": "Node type",
+    "riskStateFilterLabel": "Risk state",
+    "sortByLabel": "Sort by"
   },
   "lint": {
     "title": "Check",
@@ -1087,7 +1091,8 @@
       "errorAnchorFailed": "{{count}} original text segments could not be located; the write was cancelled. Please regenerate or edit the original segments.",
       "errorNoActiveEdits": "No edits to confirm.",
       "errorSingleNoResult": "AI returned no usable single edit result.",
-      "errorRegenerate": "Regeneration failed, please try again later."
+      "errorRegenerate": "Regeneration failed, please try again later.",
+      "replacementLabel": "Replacement text"
     },
     "clearResolved": "Clear resolved",
     "clearAll": "Clear all",
@@ -1107,7 +1112,8 @@
       "deleteFailed": "Delete failed",
       "createdPage": "Created page: {{title}}",
       "openedPage": "Opened page: {{page}}",
-      "createFailed": "Create failed"
+      "createFailed": "Create failed",
+      "openFailed": "Open failed: {{page}}"
     },
     "fallbacks": {
       "savedQueryTitle": "Saved Query",
@@ -1152,7 +1158,8 @@
           "posthumous_by_design": "Posthumous by design",
           "false_positive": "False positive",
           "state_layer_fix": "State layer fixed"
-        }
+        },
+        "reasonLabel": "Dismiss reason"
       }
     },
     "typeLabels": {
@@ -2234,7 +2241,8 @@
         "deleteFailed": "Delete failed",
         "openedChapter": "Opened chapter: {{page}}",
         "created": "Created: {{title}}",
-        "createFailed": "Create failed"
+        "createFailed": "Create failed",
+        "openFailed": "Open chapter failed: {{page}}"
       },
       "fallbacks": {
         "savedQueryTitle": "Saved Query",
@@ -2764,6 +2772,9 @@
     "range": {
       "from": "From",
       "to": "To"
+    },
+    "preview": {
+      "closePreview": "Close preview"
     }
   },
   "canon": {

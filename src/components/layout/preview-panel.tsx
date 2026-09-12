@@ -8,6 +8,7 @@ import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { formatOperationError } from "@/lib/format-operation-error"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
@@ -342,8 +343,11 @@ export function PreviewPanel() {
       .catch((err) => {
         if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
         lastLoadedRef.current = ""
-        setFileContent(`Error loading file: ${err}`)
-        setSaveStatus("")
+        // R4 共识（deepseek+glm high；glm+qwen critical）: 原先把错误文本写进 fileContent，
+        // 编辑器再 emit → 1s 防抖自动保存会把 “Error loading file: …” 回写覆盖原文件（数据丢失）。
+        // 正确做法：内容置空（与 lastLoadedRef 一致 ⇒ 不触发保存）+ 失败如实上报。
+        setFileContent("")
+        setSaveStatus(formatOperationError(t, err))
         setLoadedFilePath(selectedFile)
       })
     return () => {
@@ -383,7 +387,10 @@ export function PreviewPanel() {
             lastLoadedRef.current = persistedMarkdown
             bumpDataVersion()
           })
-          .catch((err) => console.error("保存失败:", err))
+          .catch((err) => {
+            // R4 共识（deepseek+glm；glm+qwen）: 写盘失败原先仅 console.error，用户以为已保存。
+            setSaveStatus(formatOperationError(t, err))
+          })
       }, 1000)
     },
     [selectedFile, setFileContent, bumpDataVersion]
@@ -449,31 +456,31 @@ export function PreviewPanel() {
   const isFinalChapterSaving = currentFinalChapterSave?.saving ?? isSavingFinal
   const isOutlineIngesting = currentOutlineTask?.status === "ingesting"
 
+  // R4 共识（deepseek+glm）: 原 map 存的是**译文**，visibleSaveStatus 又对译文调 t(label, params)
+  // ⇒ 二次翻译且 params 永远无法插值。改为存**键**，统一在 visibleSaveStatus 解析一次。
+  // （末尾三条无对应键，保持硬编码中文；t(原文) 在键缺失时原样返回，行为不变。）
   const phaseLabelMap: Record<FinalChapterSavePhase, string> = {
-    saving: t("novel.chapter.savingAsFinal"),
-    reviewing: t("novel.chapter.reviewInProgress"),
-    saved: t("novel.chapter.savedAsFinal"),
-    reingesting: t("novel.chapter.savingAsFinal"),
-    ingested: t("novel.chapter.ingestSuccess"),
-    blocked_by_review: t("novel.chapter.reviewBlockedWithErrors"),
-    ingest_failed: t("novel.chapter.ingestFailedRetry"),
-    ingest_no_llm: t("novel.chapter.ingestNoLlmKey"),
+    saving: "novel.chapter.savingAsFinal",
+    reviewing: "novel.chapter.reviewInProgress",
+    saved: "novel.chapter.savedAsFinal",
+    reingesting: "novel.chapter.savingAsFinal",
+    ingested: "novel.chapter.ingestSuccess",
+    blocked_by_review: "novel.chapter.reviewBlockedWithErrors",
+    ingest_failed: "novel.chapter.ingestFailedRetry",
+    ingest_no_llm: "novel.chapter.ingestNoLlmKey",
     ingest_no_chapter_number: "章节已保存为正式章节，但快照生成失败：章节编号无效。请在章节2栏中重命名章节以修正编号。",
     ingest_not_final: "章节已保存为正式章节，但快照生成失败：章节状态异常，请检查章节是否正确标记为终稿。",
     ingest_extract_failed: "章节已保存为正式章节，但快照生成失败：LLM 生成超时或返回格式错误，请重试。",
-    review_warnings: t("novel.chapter.reviewWarningsButProceeding"),
-    review_failed_proceed: t("novel.chapter.reviewFailedProceeding"),
+    review_warnings: "novel.chapter.reviewWarningsButProceeding",
+    review_failed_proceed: "novel.chapter.reviewFailedProceeding",
   }
 
   const visibleSaveStatus = (() => {
     if (!currentFinalChapterSave?.phase) return saveStatus
     const label = phaseLabelMap[currentFinalChapterSave.phase]
     const params = currentFinalChapterSave.params
-    if (params) {
-      const result = t(label, params as never)
-      return typeof result === "string" ? result : saveStatus
-    }
-    return label
+    const result = t(label, (params ?? {}) as never)
+    return typeof result === "string" ? result : saveStatus
   })()
   const chapterHeader = useMemo(() => {
     if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return null
@@ -812,8 +819,18 @@ export function PreviewPanel() {
       return
     }
     const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
-    const customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
+    let customDeAiSkill: string | null = null
+    try {
+      customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
+    } catch (err) {
+      // R4 共识（deepseek+glm high）: 原 await 在 try 外 ⇒ 失败后 deAiProcessing 永久为 true
+      //（按钮卡在“处理中”）且形成未处理 rejection。
+      setSaveStatus(formatOperationError(t, err))
+      setDeAiProcessing(false)
+      return
+    }
     const source = fileContent
+    const sourceFile = selectedFileRef.current
     let result = ""
     try {
       await streamChat(
@@ -824,6 +841,11 @@ export function PreviewPanel() {
             result += token
           },
           onDone: () => {
+            // R4 共识（deepseek+qwen high）: 缺文件切换守卫 ⇒ 切章后旧流仍会打开预览对话框。
+            if (selectedFileRef.current !== sourceFile) {
+              setDeAiProcessing(false)
+              return
+            }
             setDeAiSourceContent(source)
             setDeAiCandidateContent(result)
             setDeAiPreviewOpen(true)
@@ -883,12 +905,12 @@ export function PreviewPanel() {
           : `批量去AI味完成：${summary.processed} 章成功，${summary.failed.length} 章失败，${summary.skipped} 章跳过`,
       )
     } catch (error) {
-      setSaveStatus(`批量去AI味失败：${error instanceof Error ? error.message : String(error)}`)
+      setSaveStatus(formatOperationError(t, error))
     } finally {
       setBatchRunning(false)
       batchAbortRef.current = null
     }
-  }, [project, refreshBatchChapters])
+  }, [project, refreshBatchChapters, t])
 
   const handleDeAiBatchCancel = useCallback(() => {
     batchAbortRef.current?.abort()
@@ -896,11 +918,17 @@ export function PreviewPanel() {
 
   const handleDeAiBatchAcceptAll = useCallback(async () => {
     if (!project) return
-    const result = await acceptAllDeAiBatchDrafts(project.path)
-    setSaveStatus(`批量回填完成：${result.accepted} 章已写回，${result.skipped} 章跳过`)
-    await refreshBatchChapters()
-    bumpDataVersion()
-  }, [project, refreshBatchChapters, bumpDataVersion])
+    // R4 共识（deepseek+glm；glm+qwen）: 原无 try/catch 且调用方以 void 丢弃 ⇒ 未处理 rejection、
+    // 失败时用户看不到任何反馈。
+    try {
+      const result = await acceptAllDeAiBatchDrafts(project.path)
+      setSaveStatus(`批量回填完成：${result.accepted} 章已写回，${result.skipped} 章跳过`)
+      await refreshBatchChapters()
+      bumpDataVersion()
+    } catch (err) {
+      setSaveStatus(formatOperationError(t, err))
+    }
+  }, [project, refreshBatchChapters, bumpDataVersion, t])
 
   const handleDeAiBatchAcceptChapter = useCallback(async (chapterNumber: number) => {
     if (!project) return
@@ -970,11 +998,21 @@ export function PreviewPanel() {
     setSaveStatus(`正在调用模型，${actionLabel}中…`)
 
     const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
-    const customDeAiSkill = await loadSmartDeAiSkill(
-      project?.path ?? null,
-      action === "de-ai" ? "去AI味" : "润色",
-      undefined
-    )
+    let customDeAiSkill: string | null = null
+    try {
+      customDeAiSkill = await loadSmartDeAiSkill(
+        project?.path ?? null,
+        action === "de-ai" ? "去AI味" : "润色",
+        undefined
+      )
+    } catch (err) {
+      // R4 共识（deepseek+glm high）: 原 await 在 try 外 ⇒ selectionActionPending 卡死 +
+      // 未处理 rejection。
+      setSaveStatus(formatOperationError(t, err))
+      selectionActionInFlightRef.current = false
+      setSelectionActionPending(false)
+      return
+    }
 
     const controller = new AbortController()
     selectionActionAbortRef.current = controller
@@ -1492,6 +1530,7 @@ export function PreviewPanel() {
             </button>
           ) : null}
           <button
+            aria-label={t("novel.preview.closePreview")}
             onClick={() => setSelectedFile(null)}
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent"
           >

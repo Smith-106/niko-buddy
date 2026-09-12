@@ -1030,7 +1030,7 @@ async function buildContextPackFromRawData(
       ? rawData.snapshots.recentStateDeltas
       : undefined
   
-  const previousChapterEnding = rawData.snapshots.previousChapterEnding 
+  const previousChapterEnding = rawData.snapshots?.previousChapterEnding 
     || rawData.fallbackPreviousEnding
   
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
@@ -1044,7 +1044,7 @@ async function buildContextPackFromRawData(
     readAuraEvolutionText(context.projectPath),
   ])
   const characterStates = joinNonEmpty([
-    rawData.snapshots.characterStates,
+    rawData.snapshots?.characterStates ?? "",
     rawData.fallbackCharacterStates,
     // R4 (S4 / ANL-013): emotional-arcs projection injected as protected-tier
     // canon — character emotion is part of character state. Loaded directly
@@ -1071,7 +1071,7 @@ async function buildContextPackFromRawData(
   ], "\n\n")
   
   const timeline = joinNonEmpty([
-    rawData.snapshots.timeline, 
+    rawData.snapshots?.timeline ?? "", 
     rawData.fallbackTimeline
   ], "\n\n")
   
@@ -2219,7 +2219,7 @@ export async function searchRelevantContentUnified(
           boostEntities,
           novelConfig.entityBoostWeight ?? 0.4,
         )
-      : reranked.map((r) => ({
+      : usefulnessOrdered.map((r) => ({
           title: r.title,
           snippet: r.snippet ?? "",
         }))
@@ -2693,7 +2693,15 @@ export function contextPackToPrompt(
     const nonCjk = fullPrompt.length - cjkCount
     const estimatedTokens = Math.ceil(nonCjk / 4 + cjkCount / 1.5)
     if (estimatedTokens <= tokenBudget) return fullPrompt
-    const targetChars = tokenBudget * 4
+    const targetChars = (() => {
+      // R4 共识（deepseek+glm）: 裁剪目标原先固定按 4 字符/token 换算，与上面刚用过的
+      // CJK 加权估算（≈1.5 字符/token）自相矛盾——中文正文裁完仍然远超预算。
+      // 改为用与估算器同源的混合比换算：纯 ASCII 仍为 4 字符/token（行为不变），
+      // 纯中文为 1.5 字符/token。
+      const cjkRatio = cjkCount / fullPrompt.length
+      const charsPerToken = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
+      return Math.max(1, Math.floor(tokenBudget * charsPerToken))
+    })()
     const headChars = Math.floor(targetChars * 0.4)
     const tailChars = targetChars - headChars
     return fullPrompt.slice(0, headChars) + "\n\n[...上下文已按Token预算裁剪...]\n\n" + fullPrompt.slice(-tailChars)
@@ -2810,10 +2818,12 @@ export function trimContextPack(
     const value = result[key]
     const anyResult = result as unknown as Record<string, unknown>
     if (Array.isArray(value) && value.length > 0) {
+      // R4 共识（deepseek+qwen）: 原实现 re-insert 了同一数组（`[value[0], ...dropped]`），
+      // “截断”是空操作，但 total 已被扣减 ⇒ 预算账目与实际内容分离，pack 依旧超限。
       const dropped = [...(value as unknown[])].slice(1)
       total -= JSON.stringify(dropped).length
       removed.push({ kind: "array-truncate", label, chars: dropped.length })
-      anyResult[key as string] = [value[0], ...dropped]
+      anyResult[key as string] = [value[0]]
     } else if (typeof value === "string" && value.length > 0) {
       const cut = Math.max(0, value.length - 2_000)
       anyResult[key as string] = value.slice(0, 2_000)

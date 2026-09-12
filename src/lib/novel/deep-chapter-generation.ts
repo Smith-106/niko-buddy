@@ -1578,9 +1578,9 @@ export async function runDeepChapterGeneration(
             updatedAt: new Date().toISOString(),
           },
         }
-        if (next !== status) {
-          await saveNovelSessionStatus(input.projectPath, next)
-        }
+        // R4 共识（deepseek+glm）: next 是新建对象，next !== status 对新对象恒为 true（死守卫），
+        // 原行为即「总是落盘」。去除恒真判断，行为不变、意图显式。
+        await saveNovelSessionStatus(input.projectPath, next)
       }
     } catch (err) {
       callbacks.onThinking?.(formatStageThinking(
@@ -1982,8 +1982,10 @@ async function runSceneBreakdownStage(
   if (
     !novelConfig.sceneBreakdownEnabled
     || resumeCheckpoint
-    || checkpointStageAtLeast(resumeCheckpoint, "after_scene_breakdown")
   ) {
+    // R4 共识（deepseek+glm）: 原先还写了 `|| checkpointStageAtLeast(resumeCheckpoint, ...)`，
+    // 但 resumeCheckpoint 为真时已短路、为假时 checkpointStageAtLeast 必为 false ⇒ 死条件。
+    // 删除死条件，语义不变（有 checkpoint 就跳过场景拆解）。
     return
   }
   callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
@@ -2555,7 +2557,7 @@ async function runReviewAndRepair(
     // review 即误触发; 首次 review 的 critical 已由 review-adapter 审查层处理)。零 LLM:
     // checkContinuityCritical 调 runContinuityEngine 纯函数。
     if (retryCount > 0) {
-      const continuityCritical = await checkContinuityCritical(input.projectPath, input.chapterNumber, draftContent)
+      const continuityCritical = await checkContinuityCritical(input.projectPath, input.chapterNumber, currentContent)
       if (continuityCritical.tripped) {
         logger.warn("continuity-engine", "critical continuity findings, manual handoff: " + continuityCritical.reason)
         manualReviewRequired = true
@@ -2638,10 +2640,11 @@ async function runReviewAndRepair(
     // (TS-01: warning dims reach stage-5) in the same pass. Dedup by message
     // to avoid double-listing an issue that is both blocking and warned.
     const repairIssues = collectRepairIssues(decisionGates)
-    const repairIssueMessages = new Set(repairIssues.map((i) => i.message))
     const revisionIssues = [
       ...blockingIssues,
-      ...repairIssues.filter((i) => !repairIssueMessages.has(i.message) || blockingIssues.every((b) => b.message !== i.message)),
+      // R4 共识（deepseek+glm）: 旧谓词首个条件 `!repairIssueMessages.has(i.message)` 恒为 false
+      // （repairIssueMessages 正是由 repairIssues 构建的），有效语义就是「不与 blockingIssues 重消息」。
+      ...repairIssues.filter((i) => blockingIssues.every((b) => b.message !== i.message)),
     ]
     const revisedContent = await collectModelText(
       writingConfig,
@@ -2765,7 +2768,7 @@ async function runReviewAndRepair(
     // re-evaluates from scratch. Changing the loop to no longer return at
     // MAX_GATE_RETRY would make this divergence a real bug — keep the early
     // return, or thread manualReviewRequired explicitly here too.
-    decisionGates = buildDecisionGates(reviewResults, retryCount)
+    decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
     blockingIssues = collectBlockingIssues(decisionGates)
     assertNotAborted(signal)
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {

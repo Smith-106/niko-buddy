@@ -1620,6 +1620,33 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
     await flushAsync()
   })
 
+  it("删除会话文件失败 → role=alert 如实上报（原先静默吞掉）", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.chatState.conversations = [
+      { id: "conv-1", title: "一", createdAt: 1, updatedAt: Date.now(), deAiMode: false },
+    ]
+    mocks.chatState.activeConversationId = "conv-1"
+    mocks.deleteFile.mockRejectedValueOnce(new Error("io-boom"))
+    renderPanel()
+    const tab = screen.getByRole("tab")
+    fireEvent.click(within(tab).getByLabelText("删除该会话"))
+    fireEvent.click(within(tab).getByLabelText("确认删除该会话"))
+    // R4 共识（deepseek+qwen）: 失败细节必须保留并上屏，不再只进 console。
+    expect(await screen.findByRole("alert")).toHaveTextContent(/io-boom/)
+    await flushAsync()
+  })
+
+  it("会话标签外层有 role=tablist 容器（ARIA 完整性）", () => {
+    mocks.chatState.conversations = [
+      { id: "conv-1", title: "一", createdAt: 1, updatedAt: Date.now(), deAiMode: false },
+      { id: "conv-2", title: "二", createdAt: 2, updatedAt: Date.now(), deAiMode: false },
+    ]
+    mocks.chatState.activeConversationId = "conv-1"
+    renderPanel()
+    const list = screen.getByRole("tablist")
+    expect(within(list).getAllByRole("tab")).toHaveLength(2)
+  })
+
   it("删除会话时 abortControllersRef 被清理（流进行中删除）", async () => {
     mocks.wikiState.project = PROJECT
     mocks.chatState.conversations = [
@@ -1631,7 +1658,7 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
       capturedSignal.current = signal ?? null
       return new Promise<void>(() => {}) // 挂起
     })
-    // deleteFile 失败被吞 —— 拒绝必须注册在删除点击之前，删除处理是同步触发的
+    // deleteFile 失败：仍清理 token，但不再静默（失败经 setDeleteFileError 上屏）
     mocks.deleteFile.mockRejectedValueOnce(new Error("io"))
     renderPanel()
     await sendText("hello")
@@ -1799,8 +1826,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     expect(screen.queryByText("chat.writeToWiki")).toBeNull() // ingest 但无助手消息
   })
 
-  it("写入 wiki：无项目直接返回；写入失败 console.error；刷新失败被吞", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  it("写入 wiki：无项目直接返回；失败上屏 role=alert；刷新失败被吞", async () => {
     mocks.chatState.mode = "ingest"
     setConversation("conv-1")
     setMessages([msg({ id: "a1", role: "assistant", content: "x" })])
@@ -1813,22 +1839,24 @@ describe("ChatPanel — 消息列表与流式状态", () => {
 
     mocks.wikiState.project = PROJECT
     rerenderPanel()
-    // 阶段2：写入成功但刷新失败 → 被吞（不 console.error）
+    // 阶段2：写入成功但刷新失败 → 被吞（不影响写入结果）
     mocks.executeIngestWrites.mockResolvedValueOnce([])
     mocks.refreshProjectState.mockRejectedValueOnce(new Error("refresh-boom"))
     await act(async () => {
       fireEvent.click(screen.getByText("chat.writeToWiki"))
     })
     await flushAsync()
-    expect(errSpy).not.toHaveBeenCalled()
-    // 阶段3：写入失败 → console.error
+    expect(screen.queryByTestId("write-wiki-error")).toBeNull()
+    expect(screen.getByTestId("write-wiki-ok")).toBeInTheDocument()
+    // 阶段3：写入失败 → 如实上屏（R4 共识 deepseek+glm：原先仅 console.error）
     mocks.executeIngestWrites.mockRejectedValueOnce(new Error("write-boom"))
     await act(async () => {
       fireEvent.click(screen.getByText("chat.writeToWiki"))
     })
     await flushAsync()
-    expect(errSpy).toHaveBeenCalledWith("写入 wiki 失败:", "write-boom")
-    errSpy.mockRestore()
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent(/write-boom/)
+    expect(screen.queryByTestId("write-wiki-ok")).toBeNull()
   })
 
   it("滚动 FAB：上滑显示，点击回底隐藏；回到底部自动隐藏", () => {
@@ -4619,8 +4647,7 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
     expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "novel.chat.ingestPlaceholder")
   })
 
-  it("写入 wiki 失败（非 Error）→ String 分支", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  it("写入 wiki 失败（非 Error）→ 上屏保留原始字符串诊断", async () => {
     mocks.wikiState.project = PROJECT
     mocks.chatState.mode = "ingest"
     mocks.executeIngestWrites.mockRejectedValueOnce("str-err")
@@ -4631,8 +4658,7 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
       fireEvent.click(screen.getByText("chat.writeToWiki"))
     })
     await flushAsync()
-    expect(errSpy).toHaveBeenCalledWith("写入 wiki 失败:", "str-err")
-    errSpy.mockRestore()
+    expect(screen.getByTestId("write-wiki-error")).toHaveTextContent("str-err")
   })
 
   it("重新生成：活跃会话已被清空（stale）→ ?? 兜底后早退", () => {

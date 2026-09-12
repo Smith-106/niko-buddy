@@ -70,7 +70,9 @@ const mocks = vi.hoisted(() => {
     chapterMetaFinalGate,
     saveText,
     selectionText,
-    t: vi.fn<(key: string, opts?: { defaultValue?: string }) => string | number>((key, opts) => opts?.defaultValue ?? key),
+    t: vi.fn<(key: string, opts?: { defaultValue?: string } | string) => string | number>((key, opts) =>
+      (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
+    ),
     readFile: vi.fn(),
     writeFile: vi.fn(),
     writeFileAtomic: vi.fn(),
@@ -492,6 +494,14 @@ describe("PreviewPanel 空态与加载态", () => {
     cleanup()
   })
 
+  it("预览头关闭按钮具备可访问名（aria-label）", async () => {
+    mocks.state.selectedFile = "/proj/wiki/notes.md"
+    mocks.readFile.mockResolvedValue("# 笔记\n\n内容")
+    const { cleanup } = await renderPanel()
+    expect(screen.getByLabelText("novel.preview.closePreview")).toBeInTheDocument()
+    cleanup()
+  })
+
   it("非章节 markdown 读取成功 → WikiEditor(read 模式) + 非章节保存走原样写入", async () => {
     mocks.state.selectedFile = "/proj/wiki/notes.md"
     mocks.readFile.mockResolvedValue("# 笔记\n\n内容")
@@ -505,12 +515,20 @@ describe("PreviewPanel 空态与加载态", () => {
     cleanup()
   })
 
-  it("读取失败 → 错误内容注入编辑器", async () => {
+  // R4 共识（deepseek+glm high；glm+qwen critical）: 原先把错误文本写进编辑器内容，
+  // 编辑器再 emit 会被 1s 防抖写回覆盖原文件（数据丢失）。
+  // 旧断言把该缺陷写成了预期（断言编辑器里出现 “Error loading file”）——评审债，已反转：
+  // 现在断言编辑器内容**未被污染**、失败如实上报，且在防抖窗口后确实没有发生回写。
+  it("读取失败 → 编辑器内容不被错误文本污染（杜绝回写覆盖）+ 如实上报", async () => {
     mocks.state.selectedFile = "/proj/wiki/notes.md"
     mocks.readFile.mockRejectedValue(new Error("boom"))
     const { cleanup } = await renderPanel()
     expect(screen.getByTestId("wiki-editor")).toBeInTheDocument()
-    expect(screen.getByText(/Error loading file: Error: boom/)).toBeInTheDocument()
+    expect(screen.getByTestId("editor-content").textContent).toBe("")
+    expect(screen.getByText(/操作失败：boom/)).toBeInTheDocument()
+    // 数据丢失证明：即便过了防抖窗口，也不得把任何内容写回磁盘
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     cleanup()
   })
 
@@ -1302,7 +1320,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     mocks.runDeAiBatch.mockRejectedValue(new Error("batch-boom"))
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("批量去AI味"))
-    await waitFor(() => expect(screen.getByText(/批量去AI味失败/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/操作失败：batch-boom/)).toBeTruthy())
     cleanup()
   })
 
@@ -1903,16 +1921,15 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     return { promise, resolve, reject }
   }
 
-  it("保存写盘失败 → console.error（handleSave 去抖 catch）", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  // R4 共识（deepseek+glm；glm+qwen）: 写盘失败原先仅 console.error，用户以为已保存。
+  // 旧断言把“只打日志”当作预期——评审债，已反转为断言错误如实上屏。
+  it("保存写盘失败 → 如实上报（不再静默 console.error）", async () => {
     mocks.state.selectedFile = "/proj/wiki/notes.md"
     mocks.readFile.mockResolvedValue("# 笔记\n\n内容")
     mocks.writeFileAtomic.mockRejectedValue(new Error("disk-fail"))
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByTestId("editor-save"))
-    await waitFor(() => expect(errSpy).toHaveBeenCalled(), { timeout: 3000 })
-    expect(String(errSpy.mock.calls[0][0])).toContain("保存失败")
-    errSpy.mockRestore()
+    await waitFor(() => expect(screen.getByText(/操作失败：disk-fail/)).toBeTruthy(), { timeout: 3000 })
     cleanup()
   })
 
@@ -2445,9 +2462,10 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
   })
 
   it("visibleSaveStatus：t 返回非字符串 → saveStatus 兜底", async () => {
-    mocks.t.mockImplementation((key: unknown, opts?: { defaultValue?: string }) => {
+    mocks.t.mockImplementation((key: string, opts?: { defaultValue?: string } | string) => {
       if (key === "novel.chapter.reviewBlockedWithErrors") return 123
-      return (opts && opts.defaultValue) ?? (key as string)
+      if (typeof opts === "string") return opts
+      return (opts && opts.defaultValue) ?? key
     })
     mocks.state.selectedFile = CHAPTER_PATH
     mocks.state.fileContent = CHAPTER_MD
@@ -2456,8 +2474,11 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     }
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
-    expect(mocks.t).toHaveBeenCalledWith(123, { count: 2, warnings: 1 })
-    mocks.t.mockImplementation((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key)
+    // R4: phaseLabelMap 改为存键（原先存译文 ⇒ 二次翻译且 params 无法插值）
+    expect(mocks.t).toHaveBeenCalledWith("novel.chapter.reviewBlockedWithErrors", { count: 2, warnings: 1 })
+    mocks.t.mockImplementation((key: string, opts?: { defaultValue?: string } | string) =>
+      (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
+    )
     cleanup()
   })
 
