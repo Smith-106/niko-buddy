@@ -21,7 +21,8 @@ pnpm-lock.yaml
 # === 测试文件 ===
 playwright-report/
 test-results/
-tests/
+# 仅忽略仓库根的一次性测试产物目录；src-tauri/tests/ 是 Rust 集成测试，必须入库。
+/tests/
 src/test-helpers/*
 !src/test-helpers/
 !src/test-helpers/load-test-env.ts
@@ -115,3 +116,6 @@ scratch/
 audit-screenshots/
 # F-008 PDF 导出的单测样本：由 `cargo test --lib pdfexport` 生成，内嵌完整 CJK 字体后约 20MB，不入库（重生成命令见 docs/p5/f008-verification.md）。
 docs/p5/f008-sample.pdf
+
+# F-005 真机冒烟的端点请求日志（本机取证产物，不入库）。
+smoke-*.jsonl

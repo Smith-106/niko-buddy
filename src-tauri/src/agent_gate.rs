@@ -517,13 +517,20 @@ fn sweep_timeouts(g: &mut GateState, now: u64) {
 }
 
 fn effective_decision(op: &str, target: &str, class: RebuildClass, actor: GateActor) -> (Decision, &'static str) {
+    if protected_prefix(target) {
+        if is_destructive_op(op) {
+            // 受保护区对破坏性操作硬拒绝，任何 actor 都不能绕过。
+            return (Decision::Denied, "target is a protected truth surface; not bypassable");
+        }
+        if actor != GateActor::User {
+            // 真源面的非破坏性写入：Agent/CLI/External 必须经人工确认，不得静默落地。
+            return (Decision::RequireConfirm, "protected truth surface requires human confirmation");
+        }
+        return (Decision::Allowed, "human actor may write a protected truth surface");
+    }
     if !is_destructive_op(op) {
         // 非破坏性操作不进入门的裁决面，门只拦真实副作用。
         return (Decision::Allowed, "op is not destructive; gate not engaged");
-    }
-    if protected_prefix(target) {
-        // 受保护区对破坏性操作硬拒绝，任何 actor 都不能绕过。
-        return (Decision::Denied, "target is a protected truth surface; not bypassable");
     }
     if op.eq_ignore_ascii_case("runCommand") || actor == GateActor::Cli {
         // 外部进程的逐次写入不在本进程可见范围内，可强制的人工边界是“不得指向保护区”。
@@ -573,8 +580,11 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
         );
     }
 
-    // 非破坏性操作不进门的裁决面，也不参与循环计数（否则正常写入会被误判为循环）。
-    if !is_destructive_op(op) {
+    // 非破坏性操作不进门裁决面，也不参与循环计数（否则正常写入会被误判为循环）。
+    // **例外**：非人类主体写受保护区——真源面绝不允许被 Agent/CLI/External 静默写入，
+    // 这类请求必须落到人工确认（见 `effective_decision`），并参与循环计数。
+    let protected_needs_human = protected_prefix(&effective) && actor != GateActor::User;
+    if !is_destructive_op(op) && !protected_needs_human {
         audit(&g, op, target, class, &hits, Decision::Allowed, actor);
         return outcome(
             Decision::Allowed,
@@ -1005,6 +1015,76 @@ mod tests {
         let log = std::fs::read_to_string(t.path(GATE_AUDIT_FILE)).expect("audit log");
         assert!(log.lines().count() >= 2, "allowed decisions must be audited");
         assert!(log.contains("rebuildable"));
+    }
+
+    #[test]
+    fn non_destructive_write_to_truth_surface_needs_human() {
+        let _serial = serial();
+        let _t = use_tree("protected-write");
+
+        // 真源面的**非破坏性**写入：Agent/CLI/External 必须人工确认，不得静默落地。
+        // （每个 actor 用不同目标，避开同指纹的循环计数互扰。）
+        for (i, actor) in [GateActor::Agent, GateActor::Cli, GateActor::External]
+            .into_iter()
+            .enumerate()
+        {
+            let target = format!("QM/memory/remote-{i}.md");
+            let out = gate_authorize("writeFile", &target, actor);
+            assert_eq!(
+                out.decision,
+                Decision::RequireConfirm,
+                "{actor:?} 写真源面必须人工确认，实际 {:?}（{}）",
+                out.decision,
+                out.reason
+            );
+            assert!(!out.may_proceed(), "确认前不得放行副作用");
+            let id = out.request_id.expect("应产出确认请求");
+            let resolved = resolve_impl(&id, Decision::Denied, "no").expect("resolve");
+            assert_eq!(resolved.decision, Decision::Denied);
+        }
+
+        // 人类主体写同一面：允许（用户显式编辑 canon/QM 是正当路径）。
+        let human = gate_authorize("writeFile", "QM/memory/human.md", GateActor::User);
+        assert_eq!(human.decision, Decision::Allowed, "人类编辑真源面不得被拦");
+
+        // 非保护区写入不得回归。
+        let normal = gate_authorize("writeFile", "book/chapter-2.md", GateActor::Agent);
+        assert_eq!(normal.decision, Decision::Allowed);
+
+        // 保护区的破坏性操作仍是硬拒（任何 actor）。
+        let destructive = gate_authorize("deleteFile", "QM/memory/remote-0.md", GateActor::User);
+        assert_eq!(destructive.decision, Decision::Denied);
+
+        // 反复尝试静默写真源面属循环信号：同指纹达阈值即熔断。
+        // 门的熔断态是**进程级单例**且会落盘，所以本用例结束前必须由人工解除，
+        // 否则会污染同进程其他用例（同 `loop_halts_without_auto_resume` 的收尾纪律）。
+        let loop_target = "QM/memory/loop.md";
+        let mut halted = false;
+        for _ in 0..LOOP_THRESHOLD {
+            let out = gate_authorize("writeFile", loop_target, GateActor::External);
+            if out.decision == Decision::Denied {
+                assert!(
+                    out.reason.contains("loop"),
+                    "阈值内应为确认请求，超出后应为熔断：{}",
+                    out.reason
+                );
+                halted = true;
+                break;
+            }
+            let id = out.request_id.expect("request id");
+            let _ = resolve_impl(&id, Decision::Denied, "no");
+        }
+        assert!(halted, "重复静默写真源面必须在阈值内触发熔断");
+        assert!(loop_state_impl().halted);
+
+        let halt_id = loop_state_impl().halt_request_id.expect("halt id");
+        assert_eq!(
+            resolve_impl(&halt_id, Decision::ResumeAfterHalt, "test cleanup")
+                .expect("resume")
+                .decision,
+            Decision::ResumeAfterHalt
+        );
+        assert!(!loop_state_impl().halted, "本用例必须清理熔断态，避免污染同进程其他用例");
     }
 
     #[test]
