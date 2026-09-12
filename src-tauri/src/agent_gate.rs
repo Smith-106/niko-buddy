@@ -20,6 +20,17 @@ pub const LOOP_WINDOW_MS: u64 = 60_000;
 pub const LOOP_THRESHOLD: u32 = 3;
 
 pub const GATE_AUDIT_DIR: &str = ".novel/audit";
+
+/// 门的运行时状态是**进程级单例**（授权/待确认/熔断/计数），而 `#[cfg(test)]` 用例会
+/// 重置它。任何读写门状态或依赖「授权必须存活到下一次调用」的用例，都必须持这把**跨模块共享**的锁，
+/// 否则会表现为「别的模块的用例随机失败」——这类串扰极易被误判成被测代码的缺陷。
+#[cfg(test)]
+pub(crate) static GATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn gate_test_serial() -> std::sync::MutexGuard<'static, ()> {
+    GATE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 /// 仅审计用途的追加日志，不构成第二真源。
 pub const GATE_AUDIT_FILE: &str = ".novel/audit/gate-audit.jsonl";
 /// 熔断标记；进程重启后据此恢复停机态，不自动放行。
@@ -595,6 +606,25 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
         );
     }
 
+    // 人工已授权的重试**不**计入循环信号（必须在计数之前判定）。
+    //
+    // 否则「多文件批量逐个确认」会被熔断误伤：每次重试都会从第一个文件重新探测，
+    // 于是第一个文件的指纹在第 3 次重试时达阈 → 整个批永久拒绝（而人刚刚逐个确认过）。
+    // 循环计数的语义是「**未获授权**的反复尝试」，不是「已授权后的重试」。
+    if let Some(exp) = g.grants.get(&key).copied() {
+        if exp > now {
+            audit(&g, op, target, class, &hits, Decision::Allowed, actor);
+            return outcome(
+                Decision::Allowed,
+                class,
+                hits,
+                None,
+                "allowed by an unexpired human grant",
+            );
+        }
+        g.grants.remove(&key);
+    }
+
     if record_event(&mut g, &key, now) {
         let request_id = g
             .halt
@@ -609,20 +639,6 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
             Some(request_id),
             "loop threshold reached; halted",
         );
-    }
-
-    if let Some(exp) = g.grants.get(&key).copied() {
-        if exp > now {
-            audit(&g, op, target, class, &hits, Decision::Allowed, actor);
-            return outcome(
-                Decision::Allowed,
-                class,
-                hits,
-                None,
-                "allowed by an unexpired human grant",
-            );
-        }
-        g.grants.remove(&key);
     }
 
     let (decision, reason) = effective_decision(op, target, class, actor);
@@ -853,11 +869,8 @@ pub async fn confirm_gate_loop_state() -> Result<LoopState, String> {
 mod tests {
     use super::*;
 
-    // 门的运行时状态是进程级单例，测试必须串行，否则彼此会看到对方的熔断态。
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn serial() -> std::sync::MutexGuard<'static, ()> {
-        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        gate_test_serial()
     }
 
     struct TempTree {
@@ -1085,6 +1098,58 @@ mod tests {
             Decision::ResumeAfterHalt
         );
         assert!(!loop_state_impl().halted, "本用例必须清理熔断态，避免污染同进程其他用例");
+    }
+
+    #[test]
+    fn granted_retries_do_not_trip_the_loop_breaker() {
+        let _serial = serial();
+        let _t = use_tree("grant-loop");
+        let target = "output/irreversible-draft.bin";
+
+        let first = gate_authorize("deleteFile", target, GateActor::Agent);
+        assert_eq!(first.decision, Decision::RequireConfirm);
+        let id = first.request_id.clone().expect("request id");
+        assert_eq!(
+            resolve_impl(&id, Decision::Allowed, "user confirmed")
+                .expect("resolve")
+                .decision,
+            Decision::Allowed
+        );
+
+        // 已授权的重试反复发生不得触发熔断——多文件批量会逐个确认并反复重跑整批。
+        for round in 0..(LOOP_THRESHOLD + 2) {
+            let retry = gate_authorize("deleteFile", target, GateActor::Agent);
+            assert_eq!(
+                retry.decision,
+                Decision::Allowed,
+                "第 {round} 次已授权重试被拦：{}",
+                retry.reason
+            );
+            assert!(retry.reason.contains("grant"));
+            assert!(!loop_state_impl().halted, "已授权重试不得把门停在熔断态");
+        }
+
+        // 但“未获授权”的反复尝试仍必须熔断（安全检查未被削弱）。
+        let other = "output/irreversible-draft-2.bin";
+        for _ in 0..(LOOP_THRESHOLD - 1) {
+            let out = gate_authorize("deleteFile", other, GateActor::Agent);
+            assert_eq!(out.decision, Decision::RequireConfirm);
+            let id = out.request_id.expect("request id");
+            let _ = resolve_impl(&id, Decision::Denied, "no");
+        }
+        let halting = gate_authorize("deleteFile", other, GateActor::Agent);
+        assert_eq!(halting.decision, Decision::Denied, "未授权反复尝试仍须熔断");
+        assert!(loop_state_impl().halted);
+
+        // 收尾：解除熔断，避免污染同进程其他用例。
+        let halt_id = loop_state_impl().halt_request_id.expect("halt id");
+        assert_eq!(
+            resolve_impl(&halt_id, Decision::ResumeAfterHalt, "test cleanup")
+                .expect("resume")
+                .decision,
+            Decision::ResumeAfterHalt
+        );
+        assert!(!loop_state_impl().halted);
     }
 
     #[test]

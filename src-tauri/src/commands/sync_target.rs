@@ -1565,3 +1565,241 @@ mod tests {
         assert_eq!(parse_remote_revision("no-revision-here"), None);
     }
 }
+
+/// A-F-004 真机冒烟（**默认忽略**）：真实 HTTP WebDAV 靶端上的 推送 / 拉取 / 冲突保留。
+///
+/// ```text
+/// cd QMAI
+/// node scripts/smoke-webdav-server.mjs 8792 .smoke-webdav smoke-webdav.jsonl smoke-user:smoke-pass &
+/// cd src-tauri
+/// cargo test --lib sync_target::webdav_smoke -- --ignored --nocapture
+/// ```
+///
+/// 与同文件 `tests` 模块的区别：那些用例用 `MemoryTarget` 验证**语义**；本模块用真实的
+/// [`WebDavTarget`]（真 reqwest HTTP）打本机靶端，凭据写**真实 OS 凭据库**，因此验证的是
+/// 「传输层真的在说 HTTP 且真的带上了授权头」。靶端把每个请求记进 JSONL，可事后核对。
+#[cfg(test)]
+mod webdav_smoke {
+    use super::*;
+    use crate::commands::secret_store;
+
+    const ENDPOINT: &str = "http://127.0.0.1:8792";
+    const ROOT: &str = "smoke-webdav";
+    const DOMAIN: &str = "webdav";
+    const ACCOUNT: &str = "smoke-af004";
+    /// `<user>:<password>` 形态 → 传输层编码为 `Basic`（见 [`encode_authorization`]）。
+    const SECRET: &str = "smoke-user:smoke-pass";
+    const DEVICE_A: &str = "smoke-device-a";
+
+    fn smoke_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".smoke-af004")
+    }
+
+    fn seed_project(root: &Path) {
+        std::fs::create_dir_all(root.join(".novel")).expect("mkdir .novel");
+        std::fs::write(root.join(".novel/status.json"), "{\"chapter\":1}\n").expect("status.json");
+        std::fs::write(root.join("book.md"), "林舟推开门，屋里的灯还亮着。\n").expect("book.md");
+    }
+
+    fn conflict_dirs(root: &Path) -> Vec<String> {
+        let novel = root.join(".novel");
+        let Ok(entries) = std::fs::read_dir(&novel) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with(".conflict-"))
+            .collect()
+    }
+
+    fn journal_entry(manifest_id: &str, revision: u64, hash: &str, ts: &str) -> SyncJournalEntry {
+        SyncJournalEntry {
+            manifest_id: manifest_id.to_string(),
+            revision,
+            device_id: "smoke-local".to_string(),
+            direction: "push".to_string(),
+            ts: ts.to_string(),
+            content_hash: hash.to_string(),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "真机冒烟：需要本机 WebDAV 靶端（scripts/smoke-webdav-server.mjs）与真实 OS 凭据库"]
+    async fn real_webdav_push_pull_and_conflict_keep_both() {
+        let root = smoke_root();
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("mkdir smoke root");
+
+        // [0] 凭据入真实 OS 凭据库：只持有 ref，不持有明文。
+        let credential_ref = secret_store::secret_put(DOMAIN.into(), ACCOUNT.into(), SECRET.into())
+            .await
+            .expect("写入真实凭据库");
+        println!("[0] credential_ref={credential_ref}");
+        assert!(
+            credential_ref.starts_with("nb:"),
+            "ref 形态应为 nb:<domain>:<account>，实际 {credential_ref}"
+        );
+        assert!(!credential_ref.contains("smoke-pass"), "ref 绝不能回带明文");
+
+        let artifact = root.join("smoke-artifact-1.zip");
+        let payload: String = (0..200)
+            .map(|i| format!("第{i}行：林舟推开门，屋里的灯还亮着。\n"))
+            .collect();
+        std::fs::write(&artifact, &payload).expect("写导出产物");
+
+        let project_a = root.join("proj-a");
+        seed_project(&project_a);
+        let target = WebDavTarget::new(ENDPOINT, ROOT, &credential_ref);
+
+        // [1] 推送：真实 HTTP PUT（块 + manifest，manifest 最后写）。
+        let pushed = push_impl(&target, &project_a, &artifact, DEVICE_A, "2026-09-12T10-00-00")
+            .await
+            .expect("push 应成功");
+        println!(
+            "[1] push manifest={} rev={} blocks={} bytes={} prefix={}",
+            pushed.manifest_id,
+            pushed.revision,
+            pushed.block_count,
+            pushed.total_bytes,
+            pushed.remote_prefix
+        );
+        assert_eq!(pushed.manifest_id, "smoke-artifact-1");
+        assert_eq!(pushed.revision, 1);
+        assert!(pushed.block_count >= 1);
+
+        // [2] PROPFIND 真列远端：对象确实存在于真实服务上。
+        let keys = target.list(&pushed.manifest_id).await.expect("list 远端");
+        println!("[2] 远端对象 {} 个：{:?}", keys.len(), keys);
+        assert!(keys.iter().any(|k| k.contains("manifest.json")));
+        assert!(keys.iter().any(|k| k.contains("/blocks/")));
+        // 同步对象白名单：真源面与 canon/status.json 绝不进入远端。
+        for key in &keys {
+            let lowered = key.to_lowercase();
+            for forbidden in ["/qm/", "canon", "status.json", "/.novel/"] {
+                assert!(!lowered.contains(forbidden), "远端出现了禁用键 {forbidden}：{key}");
+            }
+        }
+
+        // [3] 拉到全新项目 B：远端更新 → Apply，入库为快照（不做文件树替换）。
+        let project_b = root.join("proj-b");
+        seed_project(&project_b);
+        let pulled = pull_impl(
+            &target,
+            &project_b,
+            &pushed.manifest_id,
+            "smoke-device-b",
+            "2026-09-12T10-05-00",
+        )
+        .await
+        .expect("pull 应成功");
+        println!(
+            "[3] pull decision={} rev={} snapshot={:?}",
+            pulled.decision, pulled.remote_revision, pulled.snapshot_dir
+        );
+        assert_eq!(pulled.decision, "apply");
+        let snapshot = PathBuf::from(pulled.snapshot_dir.as_deref().expect("快照目录"));
+        assert!(snapshot.is_dir(), "快照目录应存在：{}", snapshot.display());
+        assert!(conflict_dirs(&project_b).is_empty(), "幂等 apply 不该产生冲突副本");
+
+        // [4] 再次拉取：同版本同指纹 → 幂等 Apply。
+        let again = pull_impl(
+            &target,
+            &project_b,
+            &pushed.manifest_id,
+            "smoke-device-b",
+            "2026-09-12T10-06-00",
+        )
+        .await
+        .expect("二次 pull 应成功");
+        println!("[4] 二次 pull decision={}", again.decision);
+        assert_eq!(again.decision, "apply");
+        assert!(conflict_dirs(&project_b).is_empty());
+
+        // [5] 同版本但本地内容不同 → KeepBoth：两边都留，绝不覆盖。
+        let local = local_state(&project_b, &pushed.manifest_id);
+        println!("[5] 本地状态 rev={} hash={}", local.revision, local.content_hash);
+        append_journal(
+            &project_b,
+            &journal_entry(
+                &pushed.manifest_id,
+                local.revision,
+                "divergent-local-hash",
+                "2026-09-12T10-07-00",
+            ),
+        )
+        .expect("写入分叉 journal");
+        let conflicted = pull_impl(
+            &target,
+            &project_b,
+            &pushed.manifest_id,
+            "smoke-device-b",
+            "2026-09-12T10-08-00",
+        )
+        .await
+        .expect("分歧 pull 应返回 KeepBoth 而非失败");
+        println!(
+            "[5] 分歧 decision={} conflict_path={:?} msg={}",
+            conflicted.decision, conflicted.conflict_path, conflicted.message
+        );
+        assert_eq!(conflicted.decision, "keep_both");
+        let conflict_path = PathBuf::from(conflicted.conflict_path.as_deref().expect("冲突副本路径"));
+        assert!(conflict_path.is_dir(), "冲突副本目录应存在：{}", conflict_path.display());
+        assert!(
+            conflict_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".conflict-"),
+            "冲突副本命名应带 .conflict- 前缀：{}",
+            conflict_path.display()
+        );
+
+        // [6] 远端更旧 → RefuseStale：拒绝用旧快照回退本地新态。
+        append_journal(
+            &project_b,
+            &journal_entry(
+                &pushed.manifest_id,
+                local.revision + 5,
+                "ahead-local-hash",
+                "2026-09-12T10-09-00",
+            ),
+        )
+        .expect("写入领先 journal");
+        let stale = pull_impl(
+            &target,
+            &project_b,
+            &pushed.manifest_id,
+            "smoke-device-b",
+            "2026-09-12T10-10-00",
+        )
+        .await
+        .expect("更旧远端应被拒绝而非报错");
+        println!("[6] 更旧远端 decision={} msg={}", stale.decision, stale.message);
+        assert_eq!(stale.decision, "refuse_stale");
+
+        // [7] 白名单是**传输前**的硬拦（不是事后过滤）。
+        for forbidden in ["qm/notes.md", "canon/entities.json", "status.json", ".novel/x"] {
+            assert!(
+                assert_remote_key_allowed(forbidden).is_err(),
+                "禁用远端键必须被拒：{forbidden}"
+            );
+        }
+        assert!(assert_remote_key_allowed("smoke-artifact-1/rev-1/manifest.json").is_ok());
+
+        // [8] 收尾：凭据从真实 OS 凭据库删除（不留残留）。
+        let removed = secret_store::secret_delete(DOMAIN.into(), ACCOUNT.into())
+            .await
+            .expect("删除凭据");
+        assert!(removed, "凭据应被真实删除");
+        let journal = read_journal(&project_b);
+        println!(
+            "[8] journal {} 条，方向={:?}",
+            journal.len(),
+            journal.iter().map(|e| e.direction.clone()).collect::<Vec<_>>()
+        );
+        println!("[9] A-F-004 真机冒烟 PASS：真实 HTTP 推送/拉取/幂等/冲突保留/防回退/白名单");
+    }
+}

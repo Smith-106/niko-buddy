@@ -632,6 +632,7 @@ pub mod snapshot {
 
         #[test]
         fn chain_lists_snapshots_and_pages() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("chain");
             let chain = snapshot_list_chain(&t.root, 0, 0);
             assert_eq!(chain.total, 1);
@@ -647,6 +648,7 @@ pub mod snapshot {
 
         #[test]
         fn preview_reports_field_level_diff() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("preview");
             let diff = snapshot_preview_point(&t.root, "ch-10-20");
             assert!(diff
@@ -664,6 +666,7 @@ pub mod snapshot {
 
         #[test]
         fn restore_is_atomic() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("restore");
             let out =
                 snapshot_restore_atomic(&t.root, "ch-10-20", "user-confirmed").expect("restore");
@@ -689,6 +692,7 @@ pub mod snapshot {
 
         #[test]
         fn restore_rolls_back_when_rename_fails() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("rollback");
             // 让其中一个目标无法被 rename 覆盖：把它变成目录。
             let poisoned = abs(&t.root, PROJECTION_STATUS_FILE);
@@ -710,6 +714,7 @@ pub mod snapshot {
 
         #[test]
         fn restore_requires_confirmation_token() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("token");
             let err = snapshot_restore_atomic(&t.root, "ch-10-20", "  ").expect_err("must refuse");
             assert!(err.contains("confirmation token"), "unexpected error: {}", err);
@@ -717,6 +722,7 @@ pub mod snapshot {
 
         #[test]
         fn restore_calls_canon_verify() {
+            let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("verify");
             // 放一个非法 zip，让既有 canon 校验命令**真实失败**，以此证明调用路径存在。
             t.write("backups/auto/broken.zip", "not a zip");

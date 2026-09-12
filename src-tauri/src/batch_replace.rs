@@ -445,6 +445,7 @@ mod batchreplace {
 
     #[test]
     fn preview_is_read_only_and_counts_hits() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("preview");
         seed(&root, "book/c1.md", "林舟走进屋。\n林舟看着窗外。\n");
         let before = std::fs::read_to_string(root.join("book/c1.md")).unwrap();
@@ -468,6 +469,7 @@ mod batchreplace {
 
     #[test]
     fn empty_find_and_traversal_are_rejected() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("rule");
         seed(&root, "book/c1.md", "abc\n");
         assert!(matches!(
@@ -485,6 +487,7 @@ mod batchreplace {
 
     #[test]
     fn gate_reject_rolls_back_all() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("gate");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "QM/raw/notes.md", "林舟在禁区里。\n");
@@ -512,6 +515,7 @@ mod batchreplace {
 
     #[test]
     fn unconfirmed_irreversible_target_needs_human() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("confirm");
         seed(&root, "book/c1.md", "林舟走进屋。
 ");
@@ -553,6 +557,7 @@ mod batchreplace {
 
     #[test]
     fn apply_creates_drafts_first() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("drafts");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "book/c2.md", "林舟看着窗外。\n");
@@ -588,6 +593,7 @@ mod batchreplace {
 
     #[test]
     fn commit_failure_restores_every_committed_file() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("rollback");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "book/c2.md", "林舟看着窗外。\n");
@@ -620,6 +626,7 @@ mod batchreplace {
 
     #[test]
     fn apply_marks_projection_status() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("projection");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         
@@ -639,6 +646,7 @@ mod batchreplace {
 
     #[test]
     fn unchanged_batch_is_a_no_op() {
+        let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("noop");
         seed(&root, "book/c1.md", "abc\n");
         let report = batch_replace_apply(
