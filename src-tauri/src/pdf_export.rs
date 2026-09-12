@@ -408,7 +408,6 @@ mod pdfexport {
 
         // 回读：页数与中文内容一致 → 文本对象确实带着 CJK 内容写入。
         {
-            use pdfium_render::prelude::*;
             let _guard = crate::commands::fs::lock_pdfium();
             let pdfium = crate::commands::fs::pdfium().expect("pdfium");
             let doc = pdfium
@@ -427,5 +426,223 @@ mod pdfexport {
                 "回读文本长度异常：{extracted}"
             );
         }
+    }
+
+    /// 渲染 PDF 第 1 页并量测文本行带：返回 (行带质心 px, 页高 pt, 图像高 px)。
+    /// 量测对象是**渲染像素**而非生成代码里的常量，因此能独立验证声明的行距。
+    fn render_and_measure(
+        pdf_path: &std::path::Path,
+        png_path: Option<&std::path::Path>,
+        scale: f32,
+    ) -> (Vec<(f64, u32)>, f64, u32) {
+        use pdfium_render::prelude::*;
+        let _guard = crate::commands::fs::lock_pdfium();
+        let pdfium = crate::commands::fs::pdfium().expect("pdfium");
+        let doc = pdfium
+            .load_pdf_from_file(pdf_path, None)
+            .expect("load pdf");
+        assert!(doc.pages().len() >= 1, "PDF 至少一页");
+        let page = doc.pages().get(0).expect("page 0");
+        let page_h_pt = page.height().value as f64;
+
+        let cfg = PdfRenderConfig::new().scale_page_by_factor(scale);
+        let img = page
+            .render_with_config(&cfg)
+            .expect("render page 0")
+            .as_image()
+            .expect("bitmap -> image")
+            .to_luma8();
+        if let Some(p) = png_path {
+            img.save_with_format(p, image::ImageFormat::Png)
+                .expect("save png");
+        }
+
+        let (w, h) = img.dimensions();
+        // 背景 = 出现次数最多的灰度（不假定页面色极性）。
+        let mut hist = [0u32; 256];
+        for p in img.pixels() {
+            hist[p.0[0] as usize] += 1;
+        }
+        let bg = hist
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, c)| **c)
+            .map(|(i, _)| i as i32)
+            .expect("histogram non-empty");
+
+        // 逐行墨迹量 → 文本行带 → 带质心（行位置的稳健代理）。
+        let mut rows = vec![0u32; h as usize];
+        for (i, p) in img.pixels().enumerate() {
+            if (p.0[0] as i32 - bg).abs() > 64 {
+                rows[i as usize / w as usize] += 1;
+            }
+        }
+        let mut bands: Vec<(f64, u32)> = Vec::new();
+        let mut cur: Option<(usize, u32, f64)> = None; // last_row, ink, weighted
+        for (y, ink) in rows.iter().enumerate() {
+            if *ink == 0 {
+                continue;
+            }
+            match cur.as_mut() {
+                Some((last, total, weighted)) if y - *last <= 2 => {
+                    *last = y;
+                    *total += ink;
+                    *weighted += (y as f64) * (*ink as f64);
+                }
+                Some((last, total, weighted)) => {
+                    bands.push((*weighted / *total as f64, *total));
+                    *last = y;
+                    *total = *ink;
+                    *weighted = (y as f64) * (*ink as f64);
+                }
+                None => cur = Some((y, *ink, (y as f64) * (*ink as f64))),
+            }
+        }
+        if let Some((_, total, weighted)) = cur {
+            bands.push((weighted / total as f64, total));
+        }
+        // 噪声带（几乎无墨迹）剔除。
+        let bands: Vec<(f64, u32)> = bands.into_iter().filter(|(_, t)| *t >= 50).collect();
+        (bands, page_h_pt, h)
+    }
+
+    fn deltas_pt(bands: &[(f64, u32)], page_h_pt: f64, px_h: u32) -> Vec<f64> {
+        let pt_per_px = page_h_pt / px_h as f64;
+        bands
+            .windows(2)
+            .map(|w| (w[1].0 - w[0].0) * pt_per_px)
+            .collect()
+    }
+
+    /// F-008 目视证据链：把交付样本第 1 页用 pdfium **渲染**成 PNG，并从渲染像素量测行距。
+    /// 边界声明：本用例产出的是客观渲染证据 + 机械量测，**不构成人工目视结论**；
+    /// 人工目视仍需用户用系统阅读器确认。
+    #[test]
+    fn renders_sample_page_and_measures_line_spacing() {
+        let root = repo_root();
+        let pdf_path = root.join("docs").join("p5").join("f008-sample.pdf");
+        assert!(
+            pdf_path.exists(),
+            "样本缺失，请先运行 exports_cjk_sample_with_embedded_font 生成：{}",
+            pdf_path.display()
+        );
+        let png_path = root.join("docs").join("p5").join("f008-sample-p1.png");
+
+        let (bands, page_h_pt, px_h) = render_and_measure(&pdf_path, Some(&png_path), 2.0);
+        let deltas = deltas_pt(&bands, page_h_pt, px_h);
+        let png_bytes = std::fs::metadata(&png_path).map(|m| m.len()).unwrap_or(0);
+
+        // 客观灰度统计 + 首行放大裁剪：给人工/多模态目视提供不需要缩放就能看清的素材。
+        let (min_luma, dark_px, bg_luma, crop_path, crop_size) = {
+            let img = image::open(&png_path).expect("open png").to_luma8();
+            let mut min_luma = 255u8;
+            let mut dark_px = 0usize;
+            let mut hist = [0u32; 256];
+            for p in img.pixels() {
+                let v = p.0[0];
+                hist[v as usize] += 1;
+                if v < min_luma {
+                    min_luma = v;
+                }
+                if v < 128 {
+                    dark_px += 1;
+                }
+            }
+            let bg_luma = hist
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, c)| **c)
+                .map(|(i, _)| i as u8)
+                .unwrap_or(255);
+            let (w, h) = img.dimensions();
+            let cy = bands[0].0.round() as u32;
+            let top = cy.saturating_sub(24).min(h.saturating_sub(1));
+            let bottom = (cy + 24).min(h);
+            let crop = image::imageops::crop_imm(&img, 0, top, w, bottom - top).to_image();
+            let crop_path = pdf_path.with_file_name("f008-sample-p1-line1.png");
+            crop.save_with_format(&crop_path, image::ImageFormat::Png)
+                .expect("save crop");
+            let crop_size = std::fs::metadata(&crop_path).map(|m| m.len()).unwrap_or(0);
+            (min_luma, dark_px, bg_luma, crop_path, crop_size)
+        };
+        println!(
+            "[F-008] 灰度：背景={bg_luma}, 最暗={min_luma}, 深色像素={dark_px}, 首行裁剪={} ({} bytes)",
+            crop_path.display(),
+            crop_size
+        );
+
+        println!(
+            "[F-008] PNG={} ({} bytes), 图像高 {} px, 页高 {:.0}pt",
+            png_path.display(),
+            png_bytes,
+            px_h,
+            page_h_pt
+        );
+        for (i, (y, ink)) in bands.iter().enumerate() {
+            println!("[F-008] 行带{i}: 质心 y={y:.1}px 墨迹={ink}");
+        }
+        let shown: Vec<String> = deltas.iter().map(|d| format!("{d:.2}")).collect();
+        println!("[F-008] 相邻行带间距(pt): {}", shown.join(", "));
+
+        assert!(png_bytes > 10_000, "PNG 过小，渲染可能失败：{png_bytes} bytes");
+        assert!(
+            dark_px > 5_000,
+            "渲染结果深色像素过少（{dark_px}），文字可能未真正绘制"
+        );
+        // 样本 = 3 个单行段落，无折行；因此能测到的是**段间距**（段间空一行 = 2 × 1.5 × 11 = 33pt）。
+        assert_eq!(bands.len(), 3, "样本应恰好 3 个文本行带（3 个单行段落）");
+        let expected_para = (DEFAULT_FONT_SIZE_PT * LINE_HEIGHT_RATIO * 2.0) as f64;
+        for d in &deltas {
+            assert!(
+                (*d - expected_para).abs() <= 0.8,
+                "段间距应为 {expected_para}pt（1.5 行距 + 段间空一行），实测 {d:.2}pt，全部：{deltas:?}"
+            );
+        }
+    }
+
+    /// 折行段落的**段内行距**硬判据：量测对象是临时生成的多行 PDF
+    /// （不入库，避免把测量用例污染到交付样本），确认 11pt 字号的行基线差 = 16.5pt。
+    #[test]
+    fn wrapped_lines_keep_one_point_five_leading() {
+        let root = repo_root();
+        let tmp = temp_dir("lead");
+        let target = tmp.join("wrap.pdf");
+        let font = resolve_cjk_font(&root, None).expect("字体资产");
+        // 130 字 -> 按 43 字/行折成 4 行，足以量测段内行距。
+        let long: String = "林舟推开门，屋里的灯还亮着。夜色从窗缝里渗进来，落在桌角的信纸上。".repeat(4);
+        let report = export_pdf(&PdfExportRequest {
+            project_root: tmp.clone(),
+            target: target.to_string_lossy().to_string(),
+            title: "折行量测".to_string(),
+            paragraphs: vec![long.clone()],
+            font_path: Some(font.clone()),
+        })
+        .expect("导出折行样本");
+        assert!(report.bytes_written > 10_000);
+
+        let (bands, page_h_pt, px_h) = render_and_measure(&target, None, 2.0);
+        let deltas = deltas_pt(&bands, page_h_pt, px_h);
+        println!(
+            "[F-008] 折行段落：{} 字 -> {} 行带，段内行距(pt) {:?}",
+            long.chars().count(),
+            bands.len(),
+            deltas
+                .iter()
+                .map(|d| format!("{d:.2}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            bands.len() >= 3,
+            "折行样本行带过少（{}），无法量测段内行距",
+            bands.len()
+        );
+        let expected = (DEFAULT_FONT_SIZE_PT * LINE_HEIGHT_RATIO) as f64;
+        for d in &deltas {
+            assert!(
+                (*d - expected).abs() <= 0.8,
+                "段内行距应为 {expected}pt（11pt × 1.5），实测 {d:.2}pt，全部：{deltas:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

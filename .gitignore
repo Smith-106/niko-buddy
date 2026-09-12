@@ -116,6 +116,7 @@ scratch/
 audit-screenshots/
 # F-008 PDF 导出的单测样本：由 `cargo test --lib pdfexport` 生成，内嵌完整 CJK 字体后约 20MB，不入库（重生成命令见 docs/p5/f008-verification.md）。
 docs/p5/f008-sample.pdf
+docs/p5/f008-sample*.png
 
 # F-005 真机冒烟的端点请求日志（本机取证产物，不入库）。
 smoke-*.jsonl

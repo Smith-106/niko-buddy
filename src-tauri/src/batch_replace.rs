@@ -443,13 +443,6 @@ mod batchreplace {
         Ok(())
     }
 
-    /// 拒绝一切的替身门。
-    fn deny_all(_target: &Path, _actor: GateActor) -> Result<(), BatchReplaceError> {
-        Err(BatchReplaceError::GateRejected(
-            "test gate denied".to_string(),
-        ))
-    }
-
     #[test]
     fn preview_is_read_only_and_counts_hits() {
         let root = temp_root("preview");
