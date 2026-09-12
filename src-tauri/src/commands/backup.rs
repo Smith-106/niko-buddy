@@ -99,6 +99,9 @@ pub struct ProjectRestoreResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupManifest {
     pub backup_version: u32,
+    /// 备份**从不**包含凭据：凭据只存 OS 凭据库（`credential_vault`），
+    /// 不落 `.qmai` 项目数据区任何文件。此字段恒为 false，用于恢复时的明示。
+    pub credentials_included: bool,
     pub created_at: String,
     pub app_version: String,
     pub projects: Vec<ProjectBackupInfo>,
@@ -362,6 +365,7 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     // ── 1. manifest.json ────────────────────────────────────────────────────
     let manifest = BackupManifest {
         backup_version: 1,
+        credentials_included: false,
         created_at: chrono::Utc::now().to_rfc3339(),
         app_version: env!("CARGO_PKG_VERSION").into(),
         projects: params.projects.clone(),

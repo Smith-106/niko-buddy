@@ -15,4 +15,7 @@ pub mod log_diagnostic;
 pub mod mcp_stdio;
 pub mod power;
 pub mod project;
+pub mod secret_store;
+pub mod skill_bundle;
+pub mod sync_target;
 pub mod vectorstore;

@@ -25,7 +25,7 @@ const SIDEBAR_VIEWS = [
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(MOCK_INIT)
   await page.goto("/")
-  await page.waitForSelector("#root")
+  await page.waitForSelector("#root", { state: "attached" })
   // 启动页 → 打开项目（mock open_project）→ 主界面（sidebar 出现）
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })

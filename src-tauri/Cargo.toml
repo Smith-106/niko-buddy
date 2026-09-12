@@ -44,6 +44,9 @@ petgraph = "0.8"
 arrow-array = "57"
 arrow-schema = "57"
 futures = "0.3"
+# F-005 远程 MCP 传输（HTTP/SSE）；版本与 tauri-plugin-http 已拉起的 0.12 保持一致，
+# 避免引入第二份 TLS 栈。
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
 # Claude Code CLI subprocess transport: spawn `claude` as a child process,
 # stream stdout line-by-line back to the frontend. tokio::process gives us
 # async io and clean cancellation; `which` locates the binary on PATH.
@@ -79,6 +82,7 @@ tauri-plugin-log = "2"
 # macros in commands layer, consumed by the tauri-plugin-log wiring in lib.rs.
 log = "0.4"
 tauri-plugin-window-state = "2"
+keyring = "4.2.0"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

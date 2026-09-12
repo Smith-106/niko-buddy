@@ -399,6 +399,7 @@ static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> = std::sync::O
 /// Called from Tauri's setup() with the resolved resource directory.
 /// No-op if already set.
 pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
+    crate::agent_gate::set_gate_project_root(dir.clone());
     let _ = RESOURCE_DIR_HINT.set(dir);
 }
 
@@ -412,6 +413,19 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
 ///   4. OS dynamic loader search path (last resort)
 fn pdfium_candidate_paths() -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
+
+    // 源码树内的自带副本（开发 / 测试 / 便携布局）：发布包里若不存在会被自然跳过。
+    const VENDORED: [&str; 2] = [
+        "pdfium/pdfium.dll",
+        "pdfium/libpdfium.dll",
+    ];
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for rel in VENDORED {
+        let candidate = manifest_dir.join(rel);
+        if candidate.is_file() {
+            v.push(candidate.to_string_lossy().into_owned());
+        }
+    }
 
     if let Ok(p) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
         v.push(p);
@@ -1970,6 +1984,14 @@ pub async fn copy_directory(source: String, destination: String) -> Result<Vec<S
 pub fn do_delete_file(path: &str) -> Result<(), String> {
     run_guarded("delete_file", || {
         let path = resolve_project_storage_path(path)?;
+        let gate = crate::agent_gate::gate_authorize(
+            "deleteFile",
+            &path,
+            crate::agent_gate::GateActor::Agent,
+        );
+        if !gate.may_proceed() {
+            return Err(crate::agent_gate::gate_error(&gate));
+        }
         let p = Path::new(&path);
         file_sync::mark_app_write_path(p);
         if p.is_dir() {

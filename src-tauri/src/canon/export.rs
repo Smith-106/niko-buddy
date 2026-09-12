@@ -440,6 +440,26 @@ fn compute_content_digest_from_disk(entries: &[(String, PathBuf)]) -> Result<Str
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// TASK-004 薄适配：向块寻址原语（canon::archive）暴露单项目根
+//
+// 本模块的容器层 / 内容层二层校验面向 **zip 容器**（.sha256 sidecar + 包内
+// manifest）；`canon::archive` 的块集合层指纹面向 **非 zip 场景**（F-002 技能包
+// 与 F-004 远端块）。两者层次不同、不互为替代。以下适配只做转发，**既有导出
+// 路径行为零改动**（向后兼容）。
+// ──────────────────────────────────────────────────────────────────────────
+
+/// 薄适配（TASK-004）：把单项目根映射到 [`crate::canon::archive`] 的块寻址原语。
+///
+/// 使 F-002（技能包）与 F-004（远端块）复用**同一** manifest 定义（INV-7：
+/// 一次落地多处受益）。本函数不改变 `pack_project` / `canon_verify_export` /
+/// `.sha256` sidecar 的任何既有语义。
+pub fn archive_manifest_for_project(
+    project_path: &Path,
+) -> Result<crate::canon::archive::ArchiveManifest, String> {
+    crate::canon::archive::build_manifest(project_path)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // 打包核心
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -584,7 +604,9 @@ fn sidecar_path(zip_path: &Path) -> PathBuf {
 }
 
 /// 写标准 `sha256sum` 行格式：`<hex>  <filename>`。
-fn write_checksum_sidecar(zip_path: &Path, checksum_hex: &str) -> Result<PathBuf, String> {
+///
+/// TASK-005 技能包复用同一 sidecar 范式（`<bundle>.sha256` 存 manifest sha256）。
+pub(crate) fn write_checksum_sidecar(zip_path: &Path, checksum_hex: &str) -> Result<PathBuf, String> {
     let sp = sidecar_path(zip_path);
     let file_name = zip_path
         .file_name()
@@ -596,7 +618,7 @@ fn write_checksum_sidecar(zip_path: &Path, checksum_hex: &str) -> Result<PathBuf
 }
 
 /// 解析 sidecar 首个空白前的 token 作为 hex；不存在/解析失败返回 None。
-fn parse_sidecar_checksum(zip_path: &Path) -> Option<String> {
+pub(crate) fn parse_sidecar_checksum(zip_path: &Path) -> Option<String> {
     let text = fs::read_to_string(sidecar_path(zip_path)).ok()?;
     text.split_whitespace().next().map(str::to_lowercase)
 }
@@ -1217,6 +1239,15 @@ pub async fn canon_export_project(
 ) -> Result<CanonExportResult, String> {
     let _guard = op_lock().lock().await;
     run_guarded("canon_export_project", || {
+        // F-001：canon 写入路径也过门；导出产物落盘前记录审计。
+        let gate = crate::agent_gate::gate_authorize(
+            "writeFile",
+            &request.output_zip_path,
+            crate::agent_gate::GateActor::Agent,
+        );
+        if !gate.may_proceed() {
+            return Err(crate::agent_gate::gate_error(&gate));
+        }
         export_project_impl_with_progress(&request, Some(&app))
     })
 }
@@ -1722,5 +1753,32 @@ mod tests {
         assert_eq!(sanitize_reason("pre-supersede"), "pre-supersede");
         assert_eq!(sanitize_reason("a b/c\\d:e*?"), "a-b-c-d-e");
         assert_eq!(sanitize_reason("///"), "unspecified");
+    }
+
+    // ── TASK-004 薄适配：块寻址原语（既有导出路径行为不变）──
+
+    #[test]
+    fn archive_adapter_forwards_to_block_addressing_primitives() {
+        let project = seed_project("archive-adapter");
+        let via_adapter = archive_manifest_for_project(&project).unwrap();
+        let direct = crate::canon::archive::build_manifest(&project).unwrap();
+
+        // 薄适配 = 纯转发（除 created_at 外逐字段一致）。
+        assert_eq!(via_adapter.blocks, direct.blocks);
+        assert_eq!(via_adapter.content_digest, direct.content_digest);
+        assert_eq!(via_adapter.id, direct.id);
+        assert_eq!(
+            via_adapter.schema_version,
+            crate::canon::archive::ARCHIVE_SCHEMA_VERSION
+        );
+
+        // 既有 zip 容器内容层摘要仍可用且行为不变（回归）。
+        let roots = ComponentRoots::from_project(&project);
+        let entries = enumerate_entries(&roots);
+        let legacy = compute_content_digest_from_disk(&entries).unwrap();
+        assert_eq!(legacy.len(), 64, "既有内容层摘要仍为 sha256 hex");
+
+        // 两层指纹层次不同（块集合层 vs zip 条目层），不互为替代。
+        assert_ne!(legacy, via_adapter.content_digest);
     }
 }

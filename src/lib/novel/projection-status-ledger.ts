@@ -33,6 +33,105 @@ export type ProjectionCategory =
   | "fold_rebuildable"
   | "mutates_existing_non_rebuildable"
 
+// ============================================================================
+// C-010（跨项目移植专项, 2026-09-12）: 双库四判据的属性维度扩展。
+//
+// 既有四判据（形态 / 消费者 / 生命周期 / 重建性）不足以给「外部不可重建数据」
+// 与「外部不可信输入」一个合法落位（guidance §12.3 C-010；cross-role-review A-2
+// 承认四判据不完备）。新增两个属性维度，与 ProjectionCategory（投影类别）**正交**：
+//
+//   - external_refetchable：外部时间事实（榜单 / 市场数据）。重抓 ≠ 重放——
+//     同一来源在不同时间返回不同内容，故 **禁入 fold 重算与 self-heal**（重放
+//     会写出与当下外部世界不一致的「事实」）。只可作建议层输入。
+//   - untrusted_input：外部不可信且不可执行（技能包 / 远程返回 / 抓取样本）。
+//     默认 trust_level=untrusted，只可作建议层输入；执行通道整体否决（C-007）。
+//
+// 二者**不是 projection category**——不入 PROJECTION_CATEGORIES / 注册表（那会
+// 触发 assertProjectionRegistryComplete 的三方等值断言）。它们描述的是**外部数据
+// 的落位属性**，由 resolveExternalDataClass 判定。
+// ============================================================================
+
+/** C-010：外部数据落位属性（与 ProjectionCategory 正交的第二根轴）。 */
+export type ExternalDataClass = "external_refetchable" | "untrusted_input"
+
+export interface ExternalDataClassAttributes {
+  /** 语义定义（决策日志 / UI 提示的一致性来源）。 */
+  readonly semantics: string
+  /** 是否可经 committed snapshot 确定性重放。二者均 false：重抓 ≠ 重放 / 不可执行输入无 fold 语义。 */
+  readonly foldRebuildable: boolean
+  /** 是否可进 failed 自愈与 drift 自动修复的遍历集。二者均 false（C-010 硬约束）。 */
+  readonly entersSelfHeal: boolean
+  /** 是否必须携带 provenance 三元组（来源 / 抓取时间 / 内容哈希）才可入库。 */
+  readonly provenanceRequired: boolean
+  /** 允许的信任级别（C-007：外部输入一律 untrusted，不得默认提升）。 */
+  readonly trustLevel: "untrusted"
+  /** 落位域（C-006 分层归置 / C-007 用户资产域）。 */
+  readonly domain:
+    | "qm_raw_source"
+    | "qm_book_analysis"
+    | "novel_procedure"
+    | "user_asset"
+    | "unclassified"
+}
+
+/** C-010：两个新属性维度的权威属性表。 */
+export const EXTERNAL_DATA_CLASS_ATTRIBUTES: Record<ExternalDataClass, ExternalDataClassAttributes> = {
+  external_refetchable: {
+    semantics:
+      "外部时间事实：同一来源在不同时间返回不同内容，重抓 ≠ 重放；只可作建议层输入，禁入 fold 重算与 self-heal",
+    foldRebuildable: false,
+    entersSelfHeal: false,
+    provenanceRequired: true,
+    trustLevel: "untrusted",
+    domain: "qm_raw_source",
+  },
+  untrusted_input: {
+    semantics:
+      "外部不可信且不可执行输入（技能包 / 远程返回 / 抓取样本）；只在建议层消费，无执行通道",
+    foldRebuildable: false,
+    entersSelfHeal: false,
+    provenanceRequired: true,
+    trustLevel: "untrusted",
+    domain: "user_asset",
+  },
+}
+
+/** C-010：属性维度的枚举（顺序即判定优先级：外部性优先于可重建性）。 */
+export const EXTERNAL_DATA_CLASSES: readonly ExternalDataClass[] = [
+  "external_refetchable",
+  "untrusted_input",
+]
+
+/** 类型守卫：字符串是否为一个已知的外部数据类。 */
+export function isExternalDataClass(value: unknown): value is ExternalDataClass {
+  return typeof value === "string" && (EXTERNAL_DATA_CLASSES as readonly string[]).includes(value)
+}
+
+/**
+ * C-010 判定器：把外部数据的三项事实映射到 external data class。
+ * 返回 null = 非外部来源（走既有双库四判据，不适用本轴）。
+ * 判定顺序固定（可执行 > 时间事实）——保证同一份数据在任何调用点得到同一类别。
+ */
+export function resolveExternalDataClass(input: {
+  /** 是否为项目外部来源（写入者不是本项目：厂商 API / 远端 / 第三方包）。 */
+  readonly externalOrigin: boolean
+  /** 是否为外部时间事实（同一来源重复抓取会得到不同内容）。 */
+  readonly timeVarying: boolean
+  /** 是否携带可执行内容（脚本 / 依赖安装 / 命令）。 */
+  readonly executable: boolean
+}): ExternalDataClass | null {
+  if (!input.externalOrigin) return null
+  if (input.executable) return "untrusted_input"
+  if (input.timeVarying) return "external_refetchable"
+  return "untrusted_input"
+}
+
+/** C-010：该类是否被排除出 fold 重算与 self-heal 遍历集（当前两类均被排除）。 */
+export function isFoldReplayExcluded(classId: ExternalDataClass): boolean {
+  const attrs = EXTERNAL_DATA_CLASS_ATTRIBUTES[classId]
+  return attrs.foldRebuildable === false || attrs.entersSelfHeal === false
+}
+
 export type ProjectionStatus = "pending" | "committed" | "failed"
 
 export interface ProjectionStatusEntry {

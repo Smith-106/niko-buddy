@@ -6,6 +6,10 @@
 //! The primary purpose of this module is to provide a stable, device-bound
 //! fingerprint that the frontend can use to derive AES-256 keys for
 //! encrypting sensitive data (e.g. stored API keys).
+//!
+//! The same fingerprint also backs the device binding of `commands::secret_store`
+//! (C-011 credential landing zone): the OS keyring account is namespaced by the
+//! fingerprint prefix so an entry written on one machine is invisible on another.
 
 use sha2::{Digest, Sha256};
 
@@ -20,7 +24,9 @@ use sha2::{Digest, Sha256};
 ///
 /// The raw material is hashed with SHA-256 to produce a 32-byte (64-hex-char)
 /// value suitable for use as AES-256 key material.
-fn get_device_fingerprint() -> String {
+///
+/// Shared with `commands::secret_store` for keyring account device binding.
+pub(crate) fn get_device_fingerprint() -> String {
     let hostname = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "unknown-host".to_string());

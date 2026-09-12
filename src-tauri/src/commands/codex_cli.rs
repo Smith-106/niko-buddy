@@ -222,6 +222,18 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
     isolate_local_config: bool,
     timeout_minutes: Option<u64>,
 ) -> Result<(), String> {
+    // F-001：与 claude CLI 同一条外部进程边界。
+    let cli_target = std::env::current_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "cli".to_string());
+    let gate = crate::agent_gate::gate_authorize(
+        "runCommand",
+        &cli_target,
+        crate::agent_gate::GateActor::Cli,
+    );
+    if !gate.may_proceed() {
+        return Err(crate::agent_gate::gate_error(&gate));
+    }
     if prompt.trim().is_empty() {
         return Err("No prompt to send to codex CLI".to_string());
     }

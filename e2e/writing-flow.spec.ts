@@ -45,7 +45,7 @@ test("备份导出：backupExport 视图 → 导出备份包 → 成功反馈", 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(MOCK_INIT)
   await page.goto("/")
-  await page.waitForSelector("#root")
+  await page.waitForSelector("#root", { state: "attached" })
 })
 
 test("新建小说项目：对话框填写 → 创建 → 进入主界面", async ({ page }) => {

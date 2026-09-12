@@ -5,8 +5,10 @@
 //! 项目备份/恢复导出与数据面 IPC 命令。
 //! 由 `lib.rs` 注册 `mod canon;`（P2-5 Rust 分域移动）。
 
+pub mod archive;
 pub mod commands;
 pub mod export;
 pub mod search;
 pub mod store;
 pub mod types;
+pub mod write_authority;

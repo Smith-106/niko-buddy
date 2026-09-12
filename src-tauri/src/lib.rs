@@ -1,7 +1,15 @@
+pub mod agent_gate;
+pub mod app_lock;
+pub mod batch_replace;
+pub mod pdf_export;
+pub mod credential_vault;
+pub mod mcp_remote;
+pub mod mcp_transport;
 mod canon;
 mod commands;
 mod panic_guard;
 mod proxy;
+pub mod snapshot_timemachine;
 mod status_watcher;
 mod types;
 
@@ -72,6 +80,11 @@ fn set_proxy_env(config: proxy::ProxyConfig) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // G-5 / TASK-002 fail-loud 自检：写入权限矩阵的硬规则必须在启动时成立。
+    // 真源边界错配属「静默数据损坏」级缺陷，不容降级运行。
+    if let Err(violation) = canon::write_authority::assert_hard_rules() {
+        panic!("[write_authority] hard rule violation at startup: {violation}");
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
@@ -159,6 +172,27 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            agent_gate::confirm_gate_classify,
+            agent_gate::confirm_gate_pending,
+            agent_gate::confirm_gate_resolve,
+            agent_gate::confirm_gate_loop_state,
+            app_lock::api::app_lock_set_passphrase,
+            app_lock::api::app_lock_verify,
+            app_lock::api::app_lock_state,
+            credential_vault::api::vault_put_secret,
+            batch_replace::api::batch_replace_preview,
+            pdf_export::api::export_pdf,
+            batch_replace::api::batch_replace_apply,
+            mcp_remote::api::mcp_transport_set_mode,
+            mcp_remote::api::mcp_remote_connect,
+            mcp_remote::api::mcp_remote_request,
+            mcp_remote::api::mcp_remote_close,
+            credential_vault::api::vault_get_secret,
+            credential_vault::api::vault_has_secret,
+            credential_vault::api::vault_delete_secret,
+            snapshot_timemachine::snapshot_list_chain,
+            snapshot_timemachine::snapshot_preview_point,
+            snapshot_timemachine::snapshot_restore_atomic,
             commands::fs::read_file,
             commands::fs::write_file,
             commands::fs::write_file_atomic,
@@ -177,6 +211,19 @@ pub fn run() {
             commands::fs::read_file_as_base64,
             commands::fs::get_executable_dir,
             commands::fs::get_resource_dir,
+            commands::secret_store::secret_put,
+            commands::secret_store::secret_get,
+            commands::secret_store::secret_delete,
+            commands::secret_store::secret_available,
+            commands::skill_bundle::skill_bundle_export,
+            commands::skill_bundle::skill_bundle_verify,
+            commands::skill_bundle::skill_bundle_import,
+            commands::sync_target::sync_configure,
+            commands::sync_target::sync_test,
+            commands::sync_target::sync_status,
+            commands::sync_target::sync_push,
+            commands::sync_target::sync_pull,
+            commands::sync_target::sync_conflicts,
             commands::project::create_project,
             commands::project::open_project,
             commands::project::open_project_folder,

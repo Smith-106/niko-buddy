@@ -564,6 +564,19 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     isolate_local_config: bool,
     json_schema: Option<serde_json::Value>,
 ) -> Result<(), String> {
+    // F-001：CLI 是外部进程，其逐次写入不在本进程可见范围内；可强制的人工边界是
+    // 不得被指向受保护区，且重复执行触发循环熔断。
+    let cli_target = std::env::current_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "cli".to_string());
+    let gate = crate::agent_gate::gate_authorize(
+        "runCommand",
+        &cli_target,
+        crate::agent_gate::GateActor::Cli,
+    );
+    if !gate.may_proceed() {
+        return Err(crate::agent_gate::gate_error(&gate));
+    }
     // Build the turn list: fold any system messages into a preamble on
     // the first user turn rather than using a CLI flag, because
     // --system-prompt / --append-system-prompt availability varies

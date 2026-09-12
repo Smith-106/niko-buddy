@@ -235,3 +235,260 @@ export { extractStoryContent } from "./story-simulation/story-extractor"
 export { generateStoryFramework } from "./story-simulation/story-framework-generator"
 export { MODE_VISUAL_INFO, WORD_BUDGET_PRESETS } from "./story-simulation/types"
 export type { AgentChatMessage, AgentRelation, DirectorEvaluation, DirectorScore, ExtractionResult, FrameworkBinding, NovelAgent, RumorEvent, SimulationBranch, SimulationDebugTrace, SimulationHistoryEntry, SimulationMode, SimulationReport, SimulationResultStatus, SimulationResumePoint, SimulationState, StagedEventPool, StoryBranch, StoryDraft, StoryFramework, StoryNode, TimelineEvent } from "./story-simulation/types"
+
+// F-002 技能包离线协议客户端（TASK-005/006）：app 层只能经 barrel 进入 novel 领域，
+// 故两个 UI 客户端在此公开。
+export {
+  SKILL_BUNDLE_ALLOWED_EXTENSIONS,
+  SKILL_BUNDLE_EXECUTABLE_EXTENSIONS,
+  SKILL_BUNDLE_MAX_BYTES,
+  SKILL_BUNDLE_MAX_ENTRIES,
+  SKILL_BUNDLE_SCHEMA,
+  SKILL_BUNDLE_SCHEMA_VERSION,
+  SKILL_BUNDLE_TRUST_UNTRUSTED,
+  exportSkillBundle,
+  hasExecutableExtension,
+  importSkillBundle,
+  isAllowedBundleEntry,
+  summarizeImportGate,
+  validateBundleEntryName,
+  validateManifestShape,
+  verifySkillBundle,
+} from "./skill-bundle-client"
+export type {
+  BundleEntryVerdict,
+  BundleFileRef,
+  SkillBundleAllowlist,
+  SkillBundleExportResult,
+  SkillBundleImportResult,
+  SkillBundleManifest,
+  SkillBundleVerifyResult,
+} from "./skill-bundle-client"
+
+// F-004 云端备份客户端（TASK-007/008）：同上，供 CloudBackupPanel 使用。
+export {
+  CONFLICT_DEFAULT_RESOLUTION,
+  CONFLICT_PREFIX,
+  CREDENTIAL_REF_PREFIX,
+  FORBIDDEN_REMOTE_SEGMENTS,
+  SYNC_CONFIG_FILE,
+  SYNC_CONFIG_KEYS,
+  SYNC_JOURNAL_FILE,
+  cloudBackupStatus,
+  configureCloudBackup,
+  conflictFileName,
+  decidePull,
+  isRemoteKeyAllowed,
+  listCloudConflicts,
+  pullCloudBackup,
+  pushCloudBackup,
+  summarizeConflict,
+  testCloudBackup,
+  validateSyncConfig,
+} from "./sync-client"
+export type {
+  PullDecision,
+  RevisionState,
+  SyncConfig,
+  SyncConflict,
+  SyncPullResult,
+  SyncPushResult,
+  SyncStatus,
+  SyncTestResult,
+} from "./sync-client"
+
+// ── 写入确认门（src-tauri/src/agent_gate.rs 的 TS 镜像）────────────────────
+export {
+  GATE_TIMEOUT_MS,
+  LOOP_WINDOW_MS,
+  LOOP_THRESHOLD,
+  PROTECTED_PREFIXES,
+  DESTRUCTIVE_OPS,
+  DERIVED_ROOTS,
+  GATE_CONFIRM_PREFIX,
+  GATE_DENIED_PREFIX,
+  DEFAULT_GATE_RESOLUTION,
+  classifyRebuildClass,
+  effectiveDecision,
+  hitCriteria,
+  isDestructiveOp,
+  isProtectedTarget,
+  normalizeGateTarget,
+  parseGateError,
+} from "./confirm-gate/gate-classify"
+export type {
+  GateActor,
+  GateDecision,
+  GateOutcome,
+  LoopState,
+  ParsedGateError,
+  PendingGate,
+  RebuildClass,
+} from "./confirm-gate/gate-classify"
+export {
+  classifyGate,
+  confirmGate,
+  fetchLoopState,
+  isExpired,
+  listPendingGates,
+  rejectGate,
+  remainingWindowMs,
+  resolveGate,
+  resumeAfterHalt,
+  timeoutSeconds,
+} from "./confirm-gate/gate-client"
+
+// ── 快照时间机器（src-tauri/src/snapshot_timemachine.rs 的 TS 镜像）─────────
+export {
+  PROJECTION_STATUS_FILE,
+  SNAPSHOT_DIR,
+  STATUS_FILE,
+  TIMELINE_PAGE_SIZE,
+  hasNextPage,
+  listSnapshotChain,
+  nextOffset,
+  previewSnapshotPoint,
+  restoreSnapshotAtomic,
+  restoreSucceeded,
+} from "./time-machine/timeline-client"
+export type {
+  CanonVerifyOutcome,
+  FieldDiff,
+  RestoreOutcome,
+  SnapshotChain,
+  SnapshotDiff,
+  SnapshotMeta,
+  StateDiff,
+} from "./time-machine/timeline-client"
+export {
+  TRUTH_SURFACE_FILES,
+  changedWorldStates,
+  diffTotals,
+  formatBytes,
+  formatFieldDiff,
+  isEmptyDiff,
+  touchesTruthSurface,
+  truncateValue,
+} from "./time-machine/snapshot-diff"
+export type { DiffTotals } from "./time-machine/snapshot-diff"
+
+// ── 续写简报（F-003：确定性聚合 + 溯源 + canon 优先）────────────────────────
+export {
+  BRIEFING_PATHS,
+  BRIEFING_SOURCE_KINDS,
+  assertSourced,
+  buildBriefingDigest,
+  currentChapterOf,
+  formatEmotionEntry,
+  openDebtsOf,
+} from "./briefing/digest-aggregator"
+export type {
+  BriefingAssertion,
+  BriefingBlockKind,
+  BriefingDigest,
+  BriefingSource,
+  BriefingSourceBundle,
+  BriefingSourceKind,
+  OpenDebt,
+} from "./briefing/digest-aggregator"
+export {
+  BRIEFING_RENDERER_VERSION,
+  buildMemoryPatch,
+  memoryPatchPath,
+  renderBriefing,
+  resolveAgainstCanon,
+  sortDebtsForDisplay,
+} from "./briefing/briefing-renderer"
+export type {
+  CanonClaim,
+  DivergenceEntry,
+  MemoryPatchDraft,
+  RenderedBlock,
+  RenderedBriefing,
+  RenderedLine,
+} from "./briefing/briefing-renderer"
+
+// ── 技能包交换（F-006：本地单文件 .nbskill.json，无市场/无账号/无网络）──────────
+export {
+  NBSKILL_PACK_EXTENSION,
+  NBSKILL_PACK_KIND,
+  NBSKILL_PACK_SCHEMA_VERSION,
+  PACK_NAME_PATTERN,
+  PACK_TOOL_CATEGORIES,
+  PACK_TOOL_NAME_PATTERN,
+  PACK_TRUST_LEVELS,
+  formatIssuePath,
+  isAllowedToolCategory,
+  packFileName,
+  nbskillPackSchema,
+  packPromptSpecSchema,
+  packToolSpecSchema,
+  parseNbskillPack,
+} from "./skill-pack/pack-format"
+export type {
+  NbskillPack,
+  PackPromptSpec,
+  PackToolCategory,
+  PackToolSpec,
+  PackTrustLevel,
+  PackValidationCode,
+  PackValidationIssue,
+  PackValidationResult,
+} from "./skill-pack/pack-format"
+export {
+  CREDENTIAL_KEY_PARTS,
+  buildPack,
+  isCredentialLikeKey,
+  serializePack,
+  stripCredentialKeys,
+  stripCredentialLines,
+} from "./skill-pack/pack-export"
+export type { ExportOptions, ExportResult } from "./skill-pack/pack-export"
+export {
+  describeIssues,
+  importNbskillPack,
+  importedSkillsOf,
+  importedSkillsTargetFile,
+} from "./skill-pack/pack-import"
+export type {
+  ImportContext,
+  ImportFailure,
+  ImportResult,
+  ImportSuccess,
+} from "./skill-pack/pack-import"
+export {
+  TRUST_LEVELS,
+  TRUST_ORIGINS,
+  classifyTrustLevel,
+  importEvidence,
+  isTrustLevel,
+  mayEnterCanonTruth,
+} from "./trust-authority"
+export type { TrustEvidence, TrustLevel, TrustOrigin } from "./trust-authority"
+
+// ── 事务式批量替换（F-007：确定性字面量替换 + 写前门预检 + 事务回滚）──────────
+export {
+  MAX_FILES_PER_BATCH,
+  assessSafety,
+  changedFilesOnly,
+  diffLines,
+  formatSummary,
+  summarize,
+} from "./batch-replace/diff-model"
+export type { DiffSummary, FileDiffModel, LineDiffEntry, SafetyVerdict } from "./batch-replace/diff-model"
+export {
+  BATCH_REPLACE_OP,
+  applyBatchReplace,
+  buildEdgesFromPlan,
+  isGateDenied,
+  isGateRequireConfirm,
+  isPlanBlockedByCanonGate,
+  isTransactionRolledBack,
+  preflightCanonEdgeGate,
+  previewBatchReplace,
+} from "./batch-replace/plan-client"
+export type {
+  ApplyReport as BatchReplaceApplyReport,
+  BatchReplaceRequest,
+  ReplaceRule,
+} from "./batch-replace/plan-client"

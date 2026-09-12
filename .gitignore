@@ -113,3 +113,5 @@ scratch/
 /tmp-*.txt
 /nul
 audit-screenshots/
+# F-008 PDF 导出的单测样本：由 `cargo test --lib pdfexport` 生成，内嵌完整 CJK 字体后约 20MB，不入库（重生成命令见 docs/p5/f008-verification.md）。
+docs/p5/f008-sample.pdf
