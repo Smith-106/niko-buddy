@@ -37,11 +37,23 @@ export interface ExportOptions {
   trustLevel?: TrustLevel;
 }
 
+/**
+ * 导出告警（**结构化结论码**）。
+ *
+ * lib 不得产出用户可见的自然语言：面板曾把 `stripped 2 credential-like
+ * line(s)` 这类英文串直接渲染进中文界面。文案统一由 UI 层按码映射。
+ */
+export type PackExportWarning =
+  | { code: "stripped_tool_fields"; fields: string[] }
+  | { code: "stripped_prompt_lines"; n: number }
+  | { code: "no_skills_selected" }
+  | { code: "stripped_pack_fields"; fields: string[] };
+
 export interface ExportResult {
   fileName: string;
   pack: NbskillPack;
-  /** 剔除告警（不静默）。 */
-  warnings: string[];
+  /** 剔除告警（结构化码，不静默）。 */
+  warnings: PackExportWarning[];
 }
 
 export function isCredentialLikeKey(key: string): boolean {
@@ -99,7 +111,7 @@ export function buildPack(
   skills: UserSkill[],
   options: ExportOptions,
 ): ExportResult {
-  const warnings: string[] = [];
+  const warnings: PackExportWarning[] = [];
   let strippedCount = 0;
 
   const prompts: PackPromptSpec[] = skills.map((skill, index) => {
@@ -114,17 +126,17 @@ export function buildPack(
   const tools = (options.tools ?? []).flatMap((tool) => {
     const cleaned = stripCredentialKeys(tool);
     if (cleaned.stripped.length > 0) {
-      warnings.push(`stripped credential-like fields from tool: ${cleaned.stripped.join(", ")}`);
+      warnings.push({ code: "stripped_tool_fields", fields: cleaned.stripped });
       return [];
     }
     return [tool];
   });
 
   if (strippedCount > 0) {
-    warnings.push(`stripped ${strippedCount} credential-like line(s) from prompt bodies`);
+    warnings.push({ code: "stripped_prompt_lines", n: strippedCount });
   }
   if (skills.length === 0) {
-    warnings.push("no skills selected; pack will contain no prompts");
+    warnings.push({ code: "no_skills_selected" });
   }
 
   const pack: NbskillPack = {
@@ -140,7 +152,7 @@ export function buildPack(
 
   const cleanedPack = stripCredentialKeys(pack);
   if (cleanedPack.stripped.length > 0) {
-    warnings.push(`stripped credential-like fields: ${cleanedPack.stripped.join(", ")}`);
+    warnings.push({ code: "stripped_pack_fields", fields: cleanedPack.stripped });
   }
 
   return {

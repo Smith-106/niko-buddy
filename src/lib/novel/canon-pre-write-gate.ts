@@ -16,6 +16,17 @@
 /** 写前门控四态。 */
 export type PreWriteGateState = "PASS" | "DUPLICATE" | "WARN" | "BLOCK"
 
+/**
+ * 写前门冲突结论码（结构化）。
+ *
+ * `reason` 保留为开发者诊断串；**用户可见文案由 UI 层按本码映射**，禁止把
+ * `reason` 直接渲染（它混有英文机器码与中文说明）。
+ */
+export type PreWriteGateCode =
+  | "block_endpoint_conflict"
+  | "warn_temporal_advance"
+  | "duplicate_digest_overlap"
+
 /** 写前 gate 输入 (new_edges 为待写新边, existingEdges 为现存边快照)。 */
 export interface PreWriteGateInput {
   newEdges: ReadonlyArray<{
@@ -45,6 +56,9 @@ export interface PreWriteGateResult {
   conflicts: Array<{
     newEdgeId: string
     existingEdgeId?: string
+    /** 结论码（UI 层按码出文案）。 */
+    code: PreWriteGateCode
+    /** 开发者诊断串（非用户可见文案）。 */
     reason: string
   }>
   /** 诊断备注。 */
@@ -100,6 +114,7 @@ export function checkCanonPreWrite(
         conflicts.push({
           newEdgeId: ne.id,
           existingEdgeId: dup.id,
+          code: "duplicate_digest_overlap",
           reason: "DUPLICATE：digest 相同且有效区间重叠（幂等重复写入）",
         })
         continue
@@ -117,6 +132,7 @@ export function checkCanonPreWrite(
       conflicts.push({
         newEdgeId: ne.id,
         existingEdgeId: contradict.id,
+        code: "block_endpoint_conflict",
         reason: "BLOCK：同端点同 predicate 异值且有效区间重叠（L1 硬冲突，需 supersede 而非平写）",
       })
       continue
@@ -133,6 +149,7 @@ export function checkCanonPreWrite(
       conflicts.push({
         newEdgeId: ne.id,
         existingEdgeId: soft.id,
+        code: "warn_temporal_advance",
         reason: "WARN：同端点同 predicate 异值但区间不重叠（时态递进，建议确认）",
       })
       continue

@@ -413,10 +413,20 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
   )
 }
 
+const FILE_CHANGE_KIND_DEFAULT: Record<FileChangeTask["kind"], string> = {
+  created: "新建",
+  modified: "修改",
+  deleted: "删除",
+}
+
 function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetry: (id: string) => void; onIgnore: (id: string) => void }) {
   const { t } = useTranslation()
   const fileName = getFileName(task.path)
-  const kindLabel = task.kind.charAt(0).toUpperCase() + task.kind.slice(1)
+  // 旧实现用 `kind.charAt(0).toUpperCase() + slice(1)` 渲染英文枚举（Created/Modified/Deleted），
+  // 中文界面里直接露英文；改走本地化键 + 中文兜底（键已入语料，兜底防回退）。
+  const kindLabel = t(`activity.fsKind.${task.kind}`, {
+    defaultValue: FILE_CHANGE_KIND_DEFAULT[task.kind],
+  })
   // v2.8 P1-3：冲突提示——处理中文件被外部修改（needsRerun）或任务被新变更取代（superseded）
   const isConflict = task.status === "superseded" || (task.status === "processing" && task.needsRerun)
 

@@ -9,6 +9,7 @@ import {
   mayEnterCanonTruth,
   serializePack,
   type ImportResult,
+  type PackExportWarning,
   type PackValidationCode,
   type TrustLevel,
   type UserSkill,
@@ -34,6 +35,14 @@ const ISSUE_LABEL_KEY: Record<PackValidationCode, string> = {
   tool_category_not_allowed: "skillpack.issue.tool_category_not_allowed",
   tool_name_invalid: "skillpack.issue.tool_name_invalid",
   tool_name_forbidden: "skillpack.issue.tool_name_forbidden",
+};
+
+/** 导出告警文案键（lib 只给结论码，文案只在本层）。 */
+const EXPORT_WARNING_KEY: Record<PackExportWarning["code"], string> = {
+  stripped_tool_fields: "skillpack.export.warn.strippedToolFields",
+  stripped_prompt_lines: "skillpack.export.warn.strippedPromptLines",
+  no_skills_selected: "skillpack.export.warn.noSkillsSelected",
+  stripped_pack_fields: "skillpack.export.warn.strippedPackFields",
 };
 
 export interface SkillPackPanelProps {
@@ -74,21 +83,57 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
     return TRUST_LEVELS.map((level) => ({ level, count: counts.get(level) ?? 0 }));
   }, [result]);
 
+  const exportWarningText = (warning: PackExportWarning): string => {
+    switch (warning.code) {
+      case "stripped_tool_fields":
+      case "stripped_pack_fields":
+        return t(EXPORT_WARNING_KEY[warning.code], { fields: warning.fields.join(", ") });
+      case "stripped_prompt_lines":
+        return t(EXPORT_WARNING_KEY[warning.code], { n: warning.n });
+      default:
+        return t(EXPORT_WARNING_KEY.no_skills_selected);
+    }
+  };
+
   const handleFile = async (file: File) => {
-    const text = await file.text();
+    // 读取也可能失败（权限/磁盘）；旧实现把它留在 try 之外，调用处的 void 会吞掉 rejection。
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setResult({
+        ok: false,
+        issues: [{ code: "schema_invalid", at: "", detail: t("skillpack.issueDetail.readFailed") }],
+      });
+      return;
+    }
     let parsed: unknown = null;
     try {
       parsed = JSON.parse(text);
     } catch {
       setResult({
         ok: false,
-        issues: [{ code: "schema_invalid", at: "", detail: "file is not valid JSON" }],
+        issues: [{ code: "schema_invalid", at: "", detail: t("skillpack.issueDetail.invalidJson") }],
       });
       return;
     }
     const imported = importNbskillPack(parsed, { categoryId });
     setResult(imported);
-    if (imported.ok) onImported?.(imported);
+    if (imported.ok) {
+      // 描述文案在 UI 层生成：lib 不得产出用户可见自然语言。
+      const level = t(TRUST_LABEL_KEY[imported.trustLevel]);
+      onImported?.({
+        ...imported,
+        skills: imported.skills.map((skill) => ({
+          ...skill,
+          description: t("skillpack.importedDescription", {
+            name: imported.packName,
+            version: imported.packVersion,
+            level,
+          }),
+        })),
+      });
+    }
   };
 
   const download = () => {
@@ -106,7 +151,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
       <header className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t("skillpack.title")}</h2>
         <span className="text-xs opacity-70">
-          {t("skillpack.skillCount", { count: skills.length })}
+          {t("skillpack.skillCount", { n: skills.length })}
         </span>
       </header>
 
@@ -132,8 +177,12 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
 
       {exportPreview.warnings.length > 0 ? (
         <ul className="text-xs text-amber-600" data-testid="skillpack-export-warnings">
-          {exportPreview.warnings.map((w) => (
-            <li key={w}>{w}</li>
+          {exportPreview.warnings.map((warning) => (
+            <li
+              key={`${warning.code}:${"fields" in warning ? warning.fields.join(",") : "n" in warning ? warning.n : ""}`}
+            >
+              {exportWarningText(warning)}
+            </li>
           ))}
         </ul>
       ) : null}
@@ -144,7 +193,11 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
             key={badge.level}
             data-testid={`skillpack-badge-${badge.level}`}
             className="rounded border px-2 py-0.5 text-xs"
-            title={mayEnterCanonTruth(badge.level) ? "may enter truth surfaces" : "not truth-eligible"}
+            title={t(
+              mayEnterCanonTruth(badge.level)
+                ? "skillpack.badge.mayEnterTruth"
+                : "skillpack.badge.notTruthEligible",
+            )}
           >
             {t("skillpack.trustLevel")}: {t(TRUST_LABEL_KEY[badge.level])} ({badge.count})
           </span>
@@ -171,12 +224,22 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
       ) : null}
 
       {result?.ok ? (
-        <p data-testid="skillpack-import-result" className="text-xs">
-          {t("skillpack.imported", {
-            count: result.skills.length,
-            level: t(TRUST_LABEL_KEY[result.trustLevel]),
-          })}
-        </p>
+        <>
+          <p data-testid="skillpack-import-result" className="text-xs">
+            {t("skillpack.imported", {
+              n: result.skills.length,
+              level: t(TRUST_LABEL_KEY[result.trustLevel]),
+            })}
+          </p>
+          {result.trustReclassified ? (
+            <p data-testid="skillpack-trust-reclassified" className="text-xs text-amber-600">
+              {t("skillpack.trustReclassified", {
+                declared: t(TRUST_LABEL_KEY[result.trustReclassified.declared]),
+                effective: t(TRUST_LABEL_KEY[result.trustReclassified.effective]),
+              })}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

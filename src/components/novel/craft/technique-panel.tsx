@@ -205,7 +205,6 @@ export interface TechniquePanelProps {
 export function TechniquePanel({ registry }: TechniquePanelProps) {
   const { t } = useTranslation()
   const headingId = useId()
-  const [selectedPackIndex] = useState<number | null>(null)
 
   // 按包名排序
   const sortedPacks = useMemo(() => {
@@ -259,12 +258,8 @@ export function TechniquePanel({ registry }: TechniquePanelProps) {
           规则包详情 ({sortedPacks.length} 包)
         </div>
         <div className="space-y-2">
-          {sortedPacks.map((pack, idx) => (
-            <PackCard
-              key={pack.packId}
-              pack={pack}
-              defaultExpanded={selectedPackIndex === idx}
-            />
+          {sortedPacks.map((pack) => (
+            <PackCard key={pack.packId} pack={pack} />
           ))}
         </div>
       </div>

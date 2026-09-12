@@ -443,9 +443,8 @@ export {
   stripCredentialKeys,
   stripCredentialLines,
 } from "./skill-pack/pack-export"
-export type { ExportOptions, ExportResult } from "./skill-pack/pack-export"
+export type { ExportOptions, ExportResult, PackExportWarning } from "./skill-pack/pack-export"
 export {
-  describeIssues,
   importNbskillPack,
   importedSkillsOf,
   importedSkillsTargetFile,
@@ -498,3 +497,4 @@ export type {
   BatchReplaceRequest,
   ReplaceRule,
 } from "./batch-replace/plan-client"
+export type { PreWriteGateCode, PreWriteGateState } from "./canon-pre-write-gate"

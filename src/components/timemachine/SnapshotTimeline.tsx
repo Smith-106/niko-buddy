@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -44,10 +44,18 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
   const [restoreResult, setRestoreResult] = useState<RestoreOutcome | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * 代数计数器：项目切换后旧分页响应不得覆盖新链。
+   * 旧实现直接 setChain，切换项目时旧请求回包会把上一个项目的快照链写回。
+   */
+  const loadRunRef = useRef(0);
+
   const load = useCallback(
     async (offset: number) => {
+      const runId = ++loadRunRef.current;
       try {
         const page = await listSnapshotChain(projectPath, offset, TIMELINE_PAGE_SIZE);
+        if (runId !== loadRunRef.current) return;
         setChain((prev) =>
           prev && offset > 0
             ? { ...page, offset: 0, points: [...prev.points, ...page.points] }
@@ -55,6 +63,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         );
         setError(null);
       } catch (e) {
+        if (runId !== loadRunRef.current) return;
         setError(e instanceof Error ? e.message : String(e));
       }
     },

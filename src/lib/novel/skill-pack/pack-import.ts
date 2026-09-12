@@ -33,6 +33,17 @@ export interface ImportSuccess {
   trustLevel: TrustLevel;
   /** 包自报级别；仅作记录，永不作为最终级别。 */
   declaredTrustLevel: TrustLevel;
+  /**
+   * 重分类差异（结构化结论码）。
+   *
+   * lib 不产出用户可见自然语言（面板曾把英文告警直接渲染进中文界面）；
+   * 文案由 UI 层按 `declared/effective` 映射。
+   */
+  trustReclassified: { declared: TrustLevel; effective: TrustLevel } | null;
+  /** 来源包标识（供 UI 层本地化描述文案）。 */
+  packName: string;
+  packVersion: string;
+  /** 解析器诊断（结构化码），非自然语言。 */
   warnings: string[];
   skills: UserSkill[];
 }
@@ -62,18 +73,17 @@ export function importNbskillPack(raw: unknown, context: ImportContext): ImportR
   });
 
   const warnings = [...parsed.warnings];
-  if (pack.trustLevel !== trustLevel) {
-    warnings.push(
-      `pack declared trustLevel=${pack.trustLevel}; import re-classified it as ${trustLevel}`,
-    );
-  }
+  const trustReclassified =
+    pack.trustLevel !== trustLevel
+      ? { declared: pack.trustLevel, effective: trustLevel }
+      : null;
 
   const now = context.now ?? Date.now();
   const skills: UserSkill[] = pack.prompts.map((prompt) =>
     normalizeUserSkill({
       id: prompt.id,
       name: `${pack.name} · ${prompt.id}`,
-      description: `imported from ${pack.name}@${pack.version} (trustLevel=${trustLevel})`,
+      description: "",
       content: prompt.body,
       source: "uploaded",
       categoryId: context.categoryId,
@@ -87,6 +97,9 @@ export function importNbskillPack(raw: unknown, context: ImportContext): ImportR
     ok: true,
     trustLevel,
     declaredTrustLevel: pack.trustLevel,
+    trustReclassified,
+    packName: pack.name,
+    packVersion: pack.version,
     warnings,
     skills,
   };
@@ -100,9 +113,4 @@ export function importedSkillsTargetFile(): string {
 /** 已导入技能在既有配置里的存放位置（只读视图，不修改传入配置）。 */
 export function importedSkillsOf(config: UserSkillConfig): UserSkill[] {
   return config.skills.filter((skill) => skill.source === "uploaded");
-}
-
-/** 导入失败时的可读错误列表（供面板逐条展示）。 */
-export function describeIssues(issues: PackValidationIssue[]): string[] {
-  return issues.map((issue) => (issue.at ? `${issue.at}: ${issue.detail}` : issue.detail));
 }

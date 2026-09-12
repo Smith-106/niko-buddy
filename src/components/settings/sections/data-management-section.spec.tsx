@@ -743,4 +743,32 @@ describe("DataManagementSection", () => {
     })
     expect(screen.getByText("settings.sections.dataManagement.vectorCleanButton")).toBeDisabled()
   })
+
+  it("vector store: 清理失败必须显式提示（旧实现只有 finally：无 catch、无 UI 反馈）", async () => {
+    window.confirm = vi.fn(() => true)
+    mocks.legacyVectorRowCount.mockResolvedValue(5)
+    mocks.dropLegacyVectorTable.mockRejectedValue(new Error("vault locked"))
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("5")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.vectorCleanButton"))
+    await waitFor(() => {
+      const alert = screen.getByTestId("vector-clean-error")
+      expect(alert).toHaveAttribute("role", "alert")
+      // 本地化引导（mock 的 t 返回 key）+ 原始诊断都必须可见
+      expect(alert.textContent).toContain("settings.sections.dataManagement.vectorCleanFailed")
+      expect(alert.textContent).toContain("vault locked")
+    })
+  })
+
+  it("vector store: countFinalChapters 失败不得变成未处理 rejection（计数回退为空）", async () => {
+    mocks.countFinalChapters.mockRejectedValue(new Error("db locked"))
+    render(<DataManagementSection />)
+    // 若缺 catch，这里会抛出未处理 rejection 并让用例失败
+    await waitFor(() => {
+      expect(mocks.countFinalChapters).toHaveBeenCalledWith("E:/Novel")
+    })
+    expect(screen.queryByTestId("vector-clean-error")).toBeNull()
+  })
 })

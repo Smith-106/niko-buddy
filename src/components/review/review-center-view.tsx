@@ -184,8 +184,11 @@ function ReviewStartButton() {
   const cancelReviewRun = useWikiStore((s) => s.cancelReviewRun)
   const isReviewing = reviewRun?.running ?? false
   const canReview = Boolean(project?.path && selectedReviewFilePath) && !isReviewing
+  /** 开始审查的前置读取失败（旧实现只 console.error，界面点下去没任何反应）。 */
+  const [reviewError, setReviewError] = useState("")
 
   const handleStartReview = useCallback(() => {
+    setReviewError("")
     /* v8 ignore next */
     if (!project?.path || !selectedReviewFilePath || isReviewing) return
     void readFile(selectedReviewFilePath)
@@ -196,7 +199,13 @@ function ReviewStartButton() {
         t,
       }))
       .catch((error) => {
+        // 只 console.error 时点「开始审查」毫无反应；失败必须让用户看到。
         console.error("[ReviewCenterView] 读取审查章节失败:", error)
+        setReviewError(
+          `${t("reviewCenter.readFailed", "读取章节失败，未开始审查")}：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
       })
   }, [isReviewing, project?.path, selectedReviewFilePath, t])
 
@@ -214,14 +223,21 @@ function ReviewStartButton() {
   }
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleStartReview}
-      disabled={!canReview}
-      title={selectedReviewFilePath ? undefined : "请先在左侧选择审查章节"}
-    >
-      {isReviewing ? t("reviewCenter.reviewingAction") : t("reviewCenter.startReview")}
-    </Button>
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleStartReview}
+        disabled={!canReview}
+        title={selectedReviewFilePath ? undefined : "请先在左侧选择审查章节"}
+      >
+        {isReviewing ? t("reviewCenter.reviewingAction") : t("reviewCenter.startReview")}
+      </Button>
+      {reviewError ? (
+        <p data-testid="review-start-error" role="alert" className="text-xs text-red-600">
+          {reviewError}
+        </p>
+      ) : null}
+    </div>
   )
 }

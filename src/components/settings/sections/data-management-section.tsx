@@ -63,6 +63,8 @@ export function DataManagementSection() {
   const [vectorStats, setVectorStats] = useState<{ chunks: number; legacyRows: number } | null>(null)
   const [vectorLoading, setVectorLoading] = useState(false)
   const [cleaningLegacy, setCleaningLegacy] = useState(false)
+  /** 清理遗留向量表的失败提示（旧实现失败静默）。 */
+  const [cleanLegacyError, setCleanLegacyError] = useState("")
 
   // DOCX export progress subscription (audit ③-4): the Rust side emits
   // "docx-export-progress" {current, total} per chapter while exporting.
@@ -97,9 +99,14 @@ export function DataManagementSection() {
       setFinalChapterCount(null)
       return
     }
-    void countFinalChapters(currentProject.path).then((count) => {
-      if (!cancelled) setFinalChapterCount(count)
-    })
+    void countFinalChapters(currentProject.path)
+      .then((count) => {
+        if (!cancelled) setFinalChapterCount(count)
+      })
+      // 统计失败不得变成未处理 rejection；计数回退到未计算态。
+      .catch(() => {
+        if (!cancelled) setFinalChapterCount(null)
+      })
     return () => {
       cancelled = true
     }
@@ -136,6 +143,12 @@ export function DataManagementSection() {
     try {
       await dropLegacyVectorTable(currentProject.path)
       await loadVectorStats()
+      setCleanLegacyError("")
+    } catch (reason) {
+      // 旧实现只有 finally：破坏性维护操作失败时既未处理 rejection 也无任何用户提示。
+      setCleanLegacyError(
+        `${t("settings.sections.dataManagement.vectorCleanFailed", "清理遗留向量表失败")}：${String(reason)}`,
+      )
     } finally {
       setCleaningLegacy(false)
     }
@@ -578,6 +591,11 @@ export function DataManagementSection() {
             {t("settings.sections.dataManagement.vectorRefresh", { defaultValue: "刷新" })}
           </Button>
         </div>
+        {cleanLegacyError ? (
+          <p data-testid="vector-clean-error" role="alert" className="text-xs text-red-600">
+            {cleanLegacyError}
+          </p>
+        ) : null}
       </div>
 
       {/* Import card */}

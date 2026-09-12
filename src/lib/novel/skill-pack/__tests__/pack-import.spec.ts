@@ -8,7 +8,7 @@ import {
   parseNbskillPack,
 } from "../pack-format";
 import { CREDENTIAL_KEY_PARTS, buildPack, serializePack, stripCredentialKeys, stripCredentialLines } from "../pack-export";
-import { describeIssues, importNbskillPack, importedSkillsTargetFile } from "../pack-import";
+import { importNbskillPack, importedSkillsTargetFile } from "../pack-import";
 import { classifyTrustLevel, isTrustLevel, mayEnterCanonTruth } from "../../trust-authority";
 import { normalizeUserSkill } from "../../skill-library";
 
@@ -91,7 +91,7 @@ describe("pack-import / 信任分级与落盘形态", () => {
     if (result.ok) {
       expect(result.trustLevel).toBe("untrusted");
       expect(result.declaredTrustLevel).toBe("trusted");
-      expect(result.warnings.some((w) => w.includes("re-classified"))).toBe(true);
+      expect(result.trustReclassified).toEqual({ declared: "trusted", effective: "untrusted" });
     }
   });
 
@@ -125,7 +125,7 @@ describe("pack-import / 信任分级与落盘形态", () => {
       normalizeUserSkill({
         id: "p1",
         name: "demo-pack · p1",
-        description: "imported from demo-pack@1.0.0 (trustLevel=untrusted)",
+        description: "",
         content: "写出下一章的开场。",
         source: "uploaded",
         categoryId: "c9",
@@ -142,8 +142,9 @@ describe("pack-import / 信任分级与落盘形态", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      const lines = describeIssues(result.issues);
-      expect(lines[0]).toContain("tools[0].category");
+      // 面板直接渲染结论码 + 定位；lib 不再提供拼好的自然语言行。
+      expect(result.issues[0].code).toBe("tool_category_not_allowed");
+      expect(result.issues[0].at).toContain("tools[0].category");
     }
   });
 
@@ -168,7 +169,9 @@ describe("pack-export / 剔除凭据字段", () => {
       categoryId: "c1",
     });
     const result = buildPack([skill], { name: "demo-pack", version: "1.0.0" });
-    expect(result.warnings.some((w) => w.includes("credential-like line"))).toBe(true);
+    // 告警为结构化结论码，不得携带用户可见自然语言（面板按码映射文案）。
+    expect(result.warnings).toContainEqual({ code: "stripped_prompt_lines", n: 1 });
+    expect(JSON.stringify(result.warnings)).not.toMatch(/[A-Za-z]{4,}\s+[A-Za-z]{4,}/);
     const text = serializePack(result);
     expect(text).not.toContain("abc123");
     expect(text).toContain("prefix");

@@ -342,9 +342,15 @@ describe("ActivityPanel", () => {
     expect(mocks.t).toHaveBeenCalledWith("activity.fileSyncPendingStatus", { count: 2 })
     expect(screen.getByText("目录扫描出错")).toBeInTheDocument()
     expect(screen.getByText("同步失败")).toBeInTheDocument()
-    expect(screen.getByText("Created - /proj/wiki/chapters/1.md")).toBeInTheDocument()
-    expect(screen.getByText("Modified - /proj/wiki/chapters/2.md")).toBeInTheDocument()
-    expect(screen.getByText("Deleted - /proj/wiki/chapters/3.md")).toBeInTheDocument()
+    // 旧实现用 kind.charAt(0).toUpperCase() 直接渲染英文枚举（Created/Modified/Deleted），
+    // 断言因此被固化成英文；现走 activity.fsKind.* 本地化键（mock 的 t 会把 key+opts 拼出来）。
+    expect(mocks.t).toHaveBeenCalledWith("activity.fsKind.created", { defaultValue: "新建" })
+    expect(mocks.t).toHaveBeenCalledWith("activity.fsKind.modified", { defaultValue: "修改" })
+    expect(mocks.t).toHaveBeenCalledWith("activity.fsKind.deleted", { defaultValue: "删除" })
+    expect(screen.queryByText("Created - /proj/wiki/chapters/1.md")).toBeNull()
+    expect(screen.getByText(/activity\.fsKind\.created::\{"defaultValue":"新建"\} - \/proj\/wiki\/chapters\/1\.md/)).toBeInTheDocument()
+    expect(screen.getByText(/activity\.fsKind\.modified::\{"defaultValue":"修改"\} - \/proj\/wiki\/chapters\/2\.md/)).toBeInTheDocument()
+    expect(screen.getByText(/activity\.fsKind\.deleted::\{"defaultValue":"删除"\} - \/proj\/wiki\/chapters\/3\.md/)).toBeInTheDocument()
     // rescan（异步 promise 需冲刷）
     fireEvent.click(screen.getByText("activity.rescan"))
     await act(async () => {})

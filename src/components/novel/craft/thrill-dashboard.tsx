@@ -11,7 +11,7 @@
  * 数据源：只读消费 T27 thrill-quantifier 纯算术输出，不修改上游模块。
  * 分组：与 review-center-view 子面板 tab 集成，不新增 activeView。
  */
-import { useMemo, useState, Suspense, lazy, useId } from "react"
+import { Component, useMemo, useState, Suspense, lazy, useId, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 // @tanstack/react-table v9 API 不兼容 v8 行/列模型，此处使用原生 HTML 表格
 import { BarChart3, RefreshCw } from "lucide-react"
@@ -186,10 +186,37 @@ export interface ThrillDashboardProps {
 // 主组件
 // ============================================================================
 
+/**
+ * 图表加载/渲染失败的错误边界。
+ *
+ * `React.lazy` 导入失败（例如 echarts 未安装）是 render 期抛错，`Suspense` 只能接住
+ * pending、接不住错误；旧实现只声明了 `const [echartsError] = useState(false)`（无 setter），
+ * 下方「图表加载失败」分支实际上是死代码，失败时用户只会看到一个空白区域。
+ */
+class ChartErrorBoundary extends Component<
+  { onError: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: unknown): void {
+    console.error("[ThrillDashboard] 图表渲染失败:", error)
+    this.props.onError()
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children
+  }
+}
+
 export function ThrillDashboard({ result, sixDimScores, chapterTitle }: ThrillDashboardProps) {
   const { t } = useTranslation()
   const headingId = useId()
-  const [echartsError] = useState(false)
+  const [echartsError, setEchartsError] = useState(false)
 
   if (!result) {
     return (
@@ -213,22 +240,24 @@ export function ThrillDashboard({ result, sixDimScores, chapterTitle }: ThrillDa
 
       {/* ECharts 图表（懒加载，带 Suspense fallback 和错误兜底） */}
       {!echartsError ? (
-        <Suspense
-          fallback={
-            <div className="flex h-48 items-center justify-center rounded-lg border bg-card">
-              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
-            </div>
-          }
-        >
-          <ThrillECharts
-            tensionCurve={result.tensionCurve}
-            hits={result.hits}
-            sixDimScores={sixDimScores}
-          />
-        </Suspense>
+        <ChartErrorBoundary onError={() => setEchartsError(true)}>
+          <Suspense
+            fallback={
+              <div className="flex h-48 items-center justify-center rounded-lg border bg-card">
+                <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+              </div>
+            }
+          >
+            <ThrillECharts
+              tensionCurve={result.tensionCurve}
+              hits={result.hits}
+              sixDimScores={sixDimScores}
+            />
+          </Suspense>
+        </ChartErrorBoundary>
       ) : (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-          图表加载失败，请确认 echarts 依赖已安装
+          {t("craft.thrillDashboard.chartFailed", "图表加载失败，请确认 echarts 依赖已安装")}
         </div>
       )}
 

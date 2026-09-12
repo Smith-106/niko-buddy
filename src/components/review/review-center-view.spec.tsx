@@ -256,7 +256,7 @@ describe("ReviewStartButton — 启动审查", () => {
     )
   })
 
-  it("readFile 失败 → console.error（不调 startSixDimensionReviewRun）", async () => {
+  it("readFile 失败 → console.error + 用户可见失败提示（不调 startSixDimensionReviewRun）", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.readFile.mockRejectedValue(new Error("read-boom"))
     renderDashboard()
@@ -264,6 +264,25 @@ describe("ReviewStartButton — 启动审查", () => {
     fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
     await waitFor(() => expect(errorSpy).toHaveBeenCalledWith("[ReviewCenterView] 读取审查章节失败:", expect.any(Error)))
     expect(mocks.startSixDimensionReviewRun).not.toHaveBeenCalled()
+    // 旧实现只 console.error：点「开始审查」界面无任何反应（静默失败）
+    const alert = await screen.findByTestId("review-start-error")
+    expect(alert.getAttribute("role")).toBe("alert")
+    expect(alert.textContent).toContain("reviewCenter.readFailed")
+    expect(alert.textContent).toContain("read-boom")
+    errorSpy.mockRestore()
+  })
+
+  it("重试成功后失败提示被清除", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.readFile.mockRejectedValueOnce(new Error("read-boom"))
+    renderDashboard()
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    await screen.findByTestId("review-start-error")
+    mocks.readFile.mockResolvedValue("# 正文")
+    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    await waitFor(() => expect(mocks.startSixDimensionReviewRun).toHaveBeenCalled())
+    expect(screen.queryByTestId("review-start-error")).toBeNull()
     errorSpy.mockRestore()
   })
 

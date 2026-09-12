@@ -30,6 +30,8 @@ export function McpSection() {
   const projectPath = useWikiStore((s) => s.project)?.path ?? ""
   const setMcpConfig = useWikiStore((s) => s.setMcpConfig)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  /** 落盘失败提示（保存是乐观写入：内存态先更新，失败必须可见）。 */
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
   const [toolJsonDrafts, setToolJsonDrafts] = useState<Record<string, string>>({})
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
@@ -39,9 +41,20 @@ export function McpSection() {
     const normalized = normalizeMcpConfig(next)
     const { saveMcpConfig } = await import("@/lib/project-store")
     setMcpConfig(normalized)
-    await saveMcpConfig(normalized)
-    setSavedAt(Date.now())
-    setTimeout(() => setSavedAt(null), 1500)
+    try {
+      await saveMcpConfig(normalized)
+      setSaveError(null)
+      setSavedAt(Date.now())
+      setTimeout(() => setSavedAt(null), 1500)
+    } catch (error) {
+      // 旧实现把 Promise 直接 void 掉：落盘失败时界面照常显示新配置，重启后才回退。
+      setSavedAt(null)
+      setSaveError(
+        t("settings.sections.mcp.saveFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    }
   }
 
   function updateServer(serverId: string, patch: Partial<McpServerConfig>) {
@@ -130,6 +143,19 @@ export function McpSection() {
             : result.message,
         },
       }))
+    } catch (error) {
+      // 连接器抛错时必须复位 loading：旧实现只有 finally，按钮会永远卡在「测试中」。
+      setTestStates((prev) => ({
+        ...prev,
+        [server.id]: {
+          loading: false,
+          status: "error",
+          toolCount: 0,
+          message: t("settings.sections.mcp.testFailed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        },
+      }))
     } finally {
       await connector.closeAll().catch(() => undefined)
     }
@@ -185,6 +211,11 @@ export function McpSection() {
           capabilities: runtime.mcpCapabilities.length,
         })}
         {savedAt ? <span className="ml-2 text-emerald-600">{t("settings.sections.mcp.saved")}</span> : null}
+        {saveError ? (
+          <span data-testid="mcp-save-error" role="alert" className="ml-2 text-red-600">
+            {saveError}
+          </span>
+        ) : null}
       </div>
 
       {runtime.warnings.length > 0 ? (

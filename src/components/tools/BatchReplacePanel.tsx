@@ -3,11 +3,14 @@ import { useTranslation } from "react-i18next";
 
 import {
   applyBatchReplace,
+  buildCanonEdgeFilter,
   isGateDenied,
   isGateRequireConfirm,
   isTransactionRolledBack,
   preflightCanonEdgeGate,
   previewBatchReplace,
+  queryCanonEdges,
+  type PreWriteGateCode,
   type ReplaceRule,
 } from "@/lib/novel";
 import {
@@ -48,12 +51,35 @@ const REASON_LABEL_KEY: Record<SafetyIssueCode, string> = {
   nothing_to_replace: "batchreplace.reason.nothing_to_replace",
 };
 
+/** 写前门结论码 → i18n 键（lib 只产出码 + 诊断串，文案在本层）。 */
+const CANON_GATE_LABEL_KEY: Record<PreWriteGateCode, string> = {
+  block_endpoint_conflict: "batchreplace.canonGate.block",
+  warn_temporal_advance: "batchreplace.canonGate.warn",
+  duplicate_digest_overlap: "batchreplace.canonGate.duplicate",
+};
+
+/** 既有 canon 事实快照（仅写前门需要的字段）。 */
+interface CanonEdgeSnapshot {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  predicate: string;
+  validAt?: number | null;
+  invalidAt?: number | null;
+}
+
 /**
  * 批量替换面板（F-007）。
  *
- * 流程固定为「预览 → 写前门预检 → 提交」：预览只读；提交前若既有 canon 事实与本次替换
- * 冲突（写前门 BLOCK）则不给提交；未确认的不可重建目标会走既有确认对话框（`GATE_REQUIRE_CONFIRM`）；
- * 事务失败并已回滚时展示回滚提示。本面板自己不做任何文件写入。
+ * 流程固定为「预览 → 写前门预检 → 提交」：预览只读；提交前拿**真实的既有 canon
+ * 事实**跑写前门（旧实现恒传空数组，门永远不会命中，UI 却在宣称已检查）。
+ *
+ * 诚实的边界（实机核实）：
+ *  - 写前门默认 `warn` 观察模式，BLOCK 级冲突会**降级为提示**；只有切到 `block`
+ *    模式才会真的禁用提交（`disabled` 分支保留以适配该模式）；
+ *  - 既有事实读不出来时门未评估，UI 显示“未评估（不等于通过）”，绝不显示为通过。
+ *
+ * 本面板自己不做任何文件写入。
  */
 export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelProps) {
   const { t } = useTranslation();
@@ -69,6 +95,14 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
    * 所以空态先给操作引导，结论只在用户真的点过预览后出现。
    */
   const [previewed, setPreviewed] = useState(false);
+  /**
+   * 既有 canon 事实快照。
+   * `null` = 未评估（未加载 / 加载失败）——此时门不得报 PASS。
+   */
+  const [existingEdges, setExistingEdges] = useState<CanonEdgeSnapshot[] | null>(null);
+  const [canonGateState, setCanonGateState] = useState<"idle" | "checking" | "ready" | "failed">(
+    "idle",
+  );
 
   const rule: ReplaceRule = useMemo(
     () => ({ find, replace, caseSensitive: false }),
@@ -78,9 +112,41 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
   const summary = useMemo(() => summarize(files), [files]);
   const safety = useMemo(() => assessSafety(files, find), [files, find]);
   const canonGate = useMemo(
-    () => (files.length > 0 ? preflightCanonEdgeGate(files, rule, []) : null),
-    [files, rule],
+    () =>
+      files.length > 0 && existingEdges !== null
+        ? preflightCanonEdgeGate(files, rule, existingEdges)
+        : null,
+    [files, rule, existingEdges],
   );
+
+  const loadExistingEdges = useCallback(async () => {
+    if (find.trim().length === 0) {
+      setExistingEdges([]);
+      setCanonGateState("ready");
+      return;
+    }
+    setCanonGateState("checking");
+    try {
+      const facts = await queryCanonEdges(
+        projectPath,
+        buildCanonEdgeFilter({ predicates: ["replaced_by"], entityIds: [find] }),
+      );
+      setExistingEdges(
+        facts.map((fact) => ({
+          id: fact.id,
+          sourceId: fact.sourceId,
+          targetId: fact.targetId,
+          predicate: fact.predicate,
+          validAt: fact.validAt ?? null,
+          invalidAt: fact.invalidAt ?? null,
+        })),
+      );
+      setCanonGateState("ready");
+    } catch {
+      setExistingEdges(null);
+      setCanonGateState("failed");
+    }
+  }, [find, projectPath]);
 
   const formatSummaryText = useCallback(
     (value: DiffSummary) =>
@@ -104,6 +170,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
 
   const runPreview = async () => {
     setPreviewed(true);
+    await loadExistingEdges();
     try {
       const diffs = await previewBatchReplace({ projectPath, files: targets, rule });
       setFiles(diffs);
@@ -186,12 +253,34 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
         </ul>
       ) : null}
 
+      {previewed && files.length > 0 ? (
+        <p
+          data-testid="batchreplace-canon-gate-state"
+          data-state={canonGateState === "failed" ? "unevaluated" : (canonGate?.state ?? "checking")}
+          className="text-xs opacity-70"
+        >
+          {canonGateState === "failed"
+            ? t("batchreplace.canonGate.unavailable")
+            : canonGateState === "checking"
+              ? t("batchreplace.canonGate.checking")
+              : `${t("batchreplace.canonGate.label")}：${canonGate?.state ?? "PASS"}`}
+        </p>
+      ) : null}
+
       {canonGate && canonGate.state !== "PASS" ? (
         <ul data-testid="batchreplace-canon-gate" className="text-xs text-amber-600">
           {canonGate.conflicts.map((conflict) => (
-            <li key={`${conflict.newEdgeId}-${conflict.reason}`}>{conflict.reason}</li>
+            <li key={`${conflict.newEdgeId}-${conflict.code}`} title={conflict.reason}>
+              {t(CANON_GATE_LABEL_KEY[conflict.code])}
+            </li>
           ))}
         </ul>
+      ) : null}
+
+      {canonGate && canonGate.state !== "PASS" ? (
+        <p data-testid="batchreplace-canon-gate-advisory" className="text-xs opacity-70">
+          {t("batchreplace.canonGate.advisory")}
+        </p>
       ) : null}
 
       <ul data-testid="batchreplace-files" className="flex-1 space-y-0.5 overflow-auto text-xs">

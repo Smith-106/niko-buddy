@@ -7,7 +7,7 @@
 //   - 冲突是**终止态**：默认裁决恒为「保留两者」，不存在静默覆盖的按钮。
 //   - 对外文案用「云端备份」而非「同步」（与既有持续性文件通道区分）。
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,10 +52,19 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  /**
+   * 代数计数器：项目切换时旧响应不得覆盖新状态。
+   * 旧实现在 `refresh` 里直接 setState，projectPath 切换后旧请求回包会把
+   * 上一个项目的 config/conflicts 写回界面。
+   */
+  const refreshRunRef = useRef(0)
 
   const refresh = useCallback(async () => {
+    const runId = ++refreshRunRef.current
     try {
       const next = await cloudBackupStatus(projectPath)
+      const nextConflicts = await listCloudConflicts(projectPath)
+      if (runId !== refreshRunRef.current) return
       setStatus(next)
       setConfig({
         endpoint: next.endpoint,
@@ -63,10 +72,12 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
         credentialRef: next.credentialRef,
         enabled: next.enabled,
       })
-      setConflicts(await listCloudConflicts(projectPath))
+      setConflicts(nextConflicts)
       setError("")
     } catch (reason) {
-      setError(String(reason))
+      if (runId !== refreshRunRef.current) return
+      // 原始错误串是英文诊断；用户可见部分在 UI 层拼本地化引导。
+      setError(`${t("backup.cloud.errorLead", "云备份操作失败")}：${String(reason)}`)
     }
   }, [projectPath])
 
@@ -81,7 +92,7 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
     try {
       setNotice(await action())
     } catch (reason) {
-      setError(String(reason))
+      setError(`${t("backup.cloud.errorLead", "云备份操作失败")}：${String(reason)}`)
     } finally {
       setBusy(false)
     }

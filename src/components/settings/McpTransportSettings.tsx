@@ -233,7 +233,13 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
         onChange={(e) => setServerId(e.target.value)}
       />
 
-      <p data-testid="mcp-transport-status" data-status={status.kind} className="text-xs">
+      <p
+        data-testid="mcp-transport-status"
+        data-status={status.kind}
+        role="status"
+        aria-live="polite"
+        className="text-xs"
+      >
         {status.text}
       </p>
     </section>

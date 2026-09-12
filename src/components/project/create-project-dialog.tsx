@@ -116,7 +116,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       setPath("")
       setSelectedTemplateId("general")
     } catch (err) {
-      setError(String(err))
+      // 本地化引导 + 原始诊断：引导语缺失时诊断不会丢。
+      setError(`${t("project.createFailed", "创建项目失败")}：${String(err)}`)
     } finally {
       setCreating(false)
     }
