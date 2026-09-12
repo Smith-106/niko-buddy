@@ -126,6 +126,121 @@ function toRaw(config: SyncConfig): RawSyncConfig {
   }
 }
 
+// ── 响应方向映射 ───────────────────────────────────────────────────────────
+// Rust 侧的 `SyncStatus` / `SyncTestResult` / `SyncPushResult` / `SyncPullResult` /
+// `SyncConflict` **没有** `#[serde(rename_all = "camelCase")]`（见
+// `src-tauri/src/commands/sync_target.rs`），故线上字段是 snake_case；本模块的域模型是
+// camelCase。请求方向早已有 `toRaw`，**响应方向此前漏了映射**，后果是 UI 读到 undefined：
+// `CloudBackupPanel` 把 `status.credentialRef` 交给 `validateSyncConfig` 时直接抛
+// `Cannot read properties of undefined (reading 'startsWith')`，整视图被错误边界拆掉
+// （挂载面板后才暴露）。新增字段时两侧必须同步。
+
+interface RawSyncTestResult {
+  ok: boolean
+  endpoint: string
+  root: string
+  credential_available: boolean
+  reachable: boolean
+  object_count: number
+  message: string
+}
+
+interface RawSyncStatus {
+  configured: boolean
+  enabled: boolean
+  endpoint: string
+  root: string
+  credential_ref: string
+  credential_available: boolean
+  journal_entries: number
+  last_direction?: string
+  last_manifest_id?: string
+  last_revision?: number
+}
+
+interface RawSyncPushResult {
+  manifest_id: string
+  revision: number
+  content_hash: string
+  block_count: number
+  total_bytes: number
+  remote_prefix: string
+}
+
+interface RawSyncPullResult {
+  manifest_id: string
+  remote_revision: number
+  decision: "apply" | "refuse_stale" | "keep_both"
+  snapshot_dir?: string
+  conflict_path?: string
+  message: string
+}
+
+interface RawSyncConflict {
+  name: string
+  path: string
+  size: number
+  default_resolution: "keep_both"
+}
+
+function fromRawTestResult(raw: RawSyncTestResult): SyncTestResult {
+  return {
+    ok: raw.ok,
+    endpoint: raw.endpoint,
+    root: raw.root,
+    credentialAvailable: raw.credential_available,
+    reachable: raw.reachable,
+    objectCount: raw.object_count,
+    message: raw.message,
+  }
+}
+
+function fromRawStatus(raw: RawSyncStatus): SyncStatus {
+  return {
+    configured: raw.configured,
+    enabled: raw.enabled,
+    endpoint: raw.endpoint,
+    root: raw.root,
+    credentialRef: raw.credential_ref,
+    credentialAvailable: raw.credential_available,
+    journalEntries: raw.journal_entries,
+    lastDirection: raw.last_direction,
+    lastManifestId: raw.last_manifest_id,
+    lastRevision: raw.last_revision,
+  }
+}
+
+function fromRawPushResult(raw: RawSyncPushResult): SyncPushResult {
+  return {
+    manifestId: raw.manifest_id,
+    revision: raw.revision,
+    contentHash: raw.content_hash,
+    blockCount: raw.block_count,
+    totalBytes: raw.total_bytes,
+    remotePrefix: raw.remote_prefix,
+  }
+}
+
+function fromRawPullResult(raw: RawSyncPullResult): SyncPullResult {
+  return {
+    manifestId: raw.manifest_id,
+    remoteRevision: raw.remote_revision,
+    decision: raw.decision,
+    snapshotDir: raw.snapshot_dir,
+    conflictPath: raw.conflict_path,
+    message: raw.message,
+  }
+}
+
+function fromRawConflict(raw: RawSyncConflict): SyncConflict {
+  return {
+    name: raw.name,
+    path: raw.path,
+    size: raw.size,
+    defaultResolution: raw.default_resolution,
+  }
+}
+
 /** 校验配置；返回逐条理由（空数组即通过）。 */
 export function validateSyncConfig(config: SyncConfig): string[] {
   const reasons: string[] = []
@@ -207,12 +322,12 @@ export async function configureCloudBackup(projectPath: string, config: SyncConf
 
 /** 连接测试（凭据不可用时 Rust 侧直接回报不可用，不降级）。 */
 export async function testCloudBackup(projectPath: string): Promise<SyncTestResult> {
-  return await invoke<SyncTestResult>("sync_test", { projectPath })
+  return fromRawTestResult(await invoke<RawSyncTestResult>("sync_test", { projectPath }))
 }
 
 /** 读取传输状态（不触网）。 */
 export async function cloudBackupStatus(projectPath: string): Promise<SyncStatus> {
-  return await invoke<SyncStatus>("sync_status", { projectPath })
+  return fromRawStatus(await invoke<RawSyncStatus>("sync_status", { projectPath }))
 }
 
 /** 推送导出产物（唯一同步对象 = 显式传入的导出文件）。 */
@@ -221,7 +336,9 @@ export async function pushCloudBackup(
   artifactPath: string,
   deviceId: string,
 ): Promise<SyncPushResult> {
-  return await invoke<SyncPushResult>("sync_push", { projectPath, artifactPath, deviceId })
+  return fromRawPushResult(
+    await invoke<RawSyncPushResult>("sync_push", { projectPath, artifactPath, deviceId }),
+  )
 }
 
 /** 拉取为快照入库（显式确认后的恢复动作）。 */
@@ -230,10 +347,13 @@ export async function pullCloudBackup(
   manifestId: string,
   deviceId: string,
 ): Promise<SyncPullResult> {
-  return await invoke<SyncPullResult>("sync_pull", { projectPath, manifestId, deviceId })
+  return fromRawPullResult(
+    await invoke<RawSyncPullResult>("sync_pull", { projectPath, manifestId, deviceId }),
+  )
 }
 
 /** 列出本地冲突副本。 */
 export async function listCloudConflicts(projectPath: string): Promise<SyncConflict[]> {
-  return await invoke<SyncConflict[]>("sync_conflicts", { projectPath })
+  const raw = await invoke<RawSyncConflict[]>("sync_conflicts", { projectPath })
+  return raw.map(fromRawConflict)
 }

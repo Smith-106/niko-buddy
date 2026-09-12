@@ -6,7 +6,8 @@ import { MOCK_INIT } from "./tauri-mock"
 /**
  * F-007 事务式批量替换的 e2e（TASK-007 verify 项三）。
  *
- * 范围声明：`BatchReplacePanel` 未挂进应用外壳（本任务不改路由），所以这里断言可观察边界：
+ * 范围声明：`BatchReplacePanel` 此前未挂进应用外壳；2026-09-12 已接线到写作工作区底部
+ * 工具条（壳层可达性见 `e2e/workspace-tools.spec.ts`）。以下断言可观察边界：
  *   1. 预览是只读 IPC，提交是独立 IPC，两者参数形状与 Rust 命令签名一致；
  *   2. 未确认的不可重建目标必须返回 GATE_REQUIRE_CONFIRM（走既有确认对话框），
  *      且**任何文件都没被改写**；

@@ -50,6 +50,19 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
+// 接线测试只需要面板的入参契约；面板自身的行为由其 e2e（cloud-backup / timemachine）覆盖。
+vi.mock("@/components/backup/CloudBackupPanel", () => ({
+  CloudBackupPanel: ({ projectPath, deviceId }: { projectPath: string; deviceId: string }) => (
+    <div data-testid="mock-cloud-backup">{`${projectPath}|${deviceId}`}</div>
+  ),
+}))
+
+vi.mock("@/components/timemachine/SnapshotTimeline", () => ({
+  SnapshotTimeline: ({ projectPath }: { projectPath: string }) => (
+    <div data-testid="mock-snapshot-timeline">{projectPath}</div>
+  ),
+}))
+
 function exportResult(overrides: Partial<CanonExportResult> = {}): CanonExportResult {
   return {
     success: true,
@@ -96,6 +109,7 @@ beforeEach(() => {
   mocks.open.mockReset()
   mocks.ask.mockReset()
   mocks.project = { path: "E:/Novel", name: "Novel" }
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -258,5 +272,36 @@ describe("BackupExportView", () => {
     await waitFor(() => {
       expect(screen.getByText("nope")).toBeInTheDocument()
     })
+  })
+})
+
+describe("接线：云端备份（F-004）与快照时间机器（F-002）", () => {
+  it("两个面板均被挂载，且拿到项目路径", () => {
+    render(<BackupExportView />)
+    expect(screen.getByTestId("mock-cloud-backup")).toHaveTextContent("E:/Novel")
+    expect(screen.getByTestId("mock-snapshot-timeline")).toHaveTextContent("E:/Novel")
+  })
+
+  it("deviceId 首次渲染即生成并持久化到 qmai.deviceId", () => {
+    render(<BackupExportView />)
+    const persisted = localStorage.getItem("qmai.deviceId")
+    expect(persisted).toMatch(/^dev-[A-Za-z0-9_-]+$/)
+    expect(screen.getByTestId("mock-cloud-backup")).toHaveTextContent(`E:/Novel|${persisted}`)
+  })
+
+  it("deviceId 可编辑：清洗非法字符并写回 localStorage，同时流向下游面板", () => {
+    render(<BackupExportView />)
+    const input = screen.getByLabelText("novel.backupExport.deviceIdLabel")
+    fireEvent.change(input, { target: { value: "desk top/01" } })
+    expect(localStorage.getItem("qmai.deviceId")).toBe("desktop01")
+    expect(screen.getByTestId("mock-cloud-backup")).toHaveTextContent("E:/Novel|desktop01")
+  })
+
+  it("无打开项目时不给面板，改为提示先打开项目（不伪造环境）", () => {
+    mocks.project = null
+    render(<BackupExportView />)
+    expect(screen.queryByTestId("mock-cloud-backup")).toBeNull()
+    expect(screen.queryByTestId("mock-snapshot-timeline")).toBeNull()
+    expect(screen.getByText("novel.backupExport.needsProject")).toBeInTheDocument()
   })
 })

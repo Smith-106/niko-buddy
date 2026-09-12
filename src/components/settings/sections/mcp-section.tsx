@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useWikiStore } from "@/stores/wiki-store"
+import { McpTransportSettings } from "@/components/settings/McpTransportSettings"
 import {
   createSampleGraphMcpServer,
   normalizeMcpConfig,
@@ -26,6 +27,7 @@ interface TestState {
 export function McpSection() {
   const { t } = useTranslation()
   const mcpConfig = useWikiStore((s) => s.mcpConfig ?? DEFAULT_MCP_CONFIG)
+  const projectPath = useWikiStore((s) => s.project)?.path ?? ""
   const setMcpConfig = useWikiStore((s) => s.setMcpConfig)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
@@ -329,6 +331,12 @@ export function McpSection() {
           ))}
         </div>
       )}
+
+      {/* 远程传输（F-005）：模式 + HTTP/SSE 显式 opt-in + 远端连接。
+          此前无壳层入口；面板自身不写库，远端取回内容先过审计门。 */}
+      <div className="rounded-md border" data-testid="mcp-remote-transport-section">
+        <McpTransportSettings projectPath={projectPath} />
+      </div>
     </div>
   )
 }

@@ -6,8 +6,9 @@ import { MOCK_INIT } from "./tauri-mock"
 /**
  * F-005 远程 MCP 传输的 e2e（TASK-005 verify 项三）。
  *
- * 范围声明：`McpTransportSettings` 目前没有挂进应用外壳（本任务未改路由/外壳），
- * 因此这里不伪造 UI 交互，而是断言**真正可观察的边界**：
+ * 范围声明：`McpTransportSettings` 此前没有挂进应用外壳；2026-09-12 已接线到
+ * 「设置 → MCP 工具」区块（见文件末 `F-005 远程 MCP 传输 / 壳层可达性`）。以下
+ * 断言**真正可观察的边界**（IPC 往返、门禁、i18n），不伪造 UI 交互：
  *   1. 默认值仍是 stdio，opt-in 是显式开关（源码级断言 + 运行时开关量对比）；
  *   2. IPC 参数名与 Rust 命令签名一致（camelCase ↔ snake_case 映射）；
  *   3. 远程内容在**入库前**被审计拦截（走 mock 的真实 IPC 往返，注入载荷必定被拦）；
@@ -147,5 +148,39 @@ test.describe("F-005 远程 MCP 传输", () => {
         "object",
     )
     expect(ready).toBe(true)
+  })
+})
+
+/**
+ * 壳层可达性（2026-09-12 接线后新增）：`McpTransportSettings` 此前无任何应用入口，
+ * 本组用例驱动**真实应用外壳**证明入口存在、且四个动作按钮文案各自独立
+ * （回归：接线前四个按钮全部复用 `mcp.transport.mode` 占位文案）。
+ */
+test.describe("F-005 远程 MCP 传输 / 壳层可达性", () => {
+  test("设置 → MCP 工具区块内可见远程传输面板与独立按钮文案", async ({ page }) => {
+    await boot(page)
+    await page.getByRole("button", { name: "小说目录" }).click()
+    await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+
+    await page.click('[data-view="settings"]')
+    await page.getByRole("button", { name: "MCP 工具", exact: true }).click()
+
+    await page.waitForSelector('[data-testid="mcp-remote-transport-section"]', { timeout: 10000 })
+    await expect(page.locator('[data-testid="mcp-transport-settings"]')).toBeVisible()
+    await expect(page.locator('[data-testid="mcp-transport-mode"]')).toBeVisible()
+
+    const labels = await Promise.all(
+      ["save", "connect", "request", "close"].map(async (name) => {
+        const btn = page.locator(`[data-testid="mcp-transport-${name}"]`)
+        await expect(btn).toBeVisible()
+        return (await btn.textContent())?.trim() ?? ""
+      }),
+    )
+    // 四个按钮必须是四条不同的中文文案，且不是 i18n 裸键
+    expect(new Set(labels).size).toBe(4)
+    for (const label of labels) {
+      expect(label.length).toBeGreaterThan(0)
+      expect(label).not.toMatch(/^[a-z][\w.]*\.[a-zA-Z]/)
+    }
   })
 })

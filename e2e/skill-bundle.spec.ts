@@ -6,9 +6,10 @@ import { MOCK_INIT, collectErrors } from "./tauri-mock"
  *
  * **范围声明（诚实边界）**：本 spec 覆盖的是**页面内 IPC 边界**——浏览器环境下的
  * `window.__TAURI_INTERNALS__.invoke` 信封形状与失败语义（confirmed 门 / 写入权威拒绝），
- * 以及应用启动契约。它**不**驱动导入对话框的 UI 走查：`SkillBundleImportDialog` 目前
- * 尚未被应用壳层挂载（无宿主调用方），因此没有可点击入口可走。该缺口已在波次记录中
- * 显式登记为待接线项，不以本 spec 冒充覆盖。
+ * 以及应用启动契约。**2026-09-12 更新**：`SkillBundleImportDialog` 此前未被应用壳层挂载
+ * （无宿主调用方），现已接线到「技能库 → 写作 Skill → 导入技能包（.zip）」；壳层可达性由
+ * 本文件末的 `技能包离线导入 / 壳层可达性` 用例覆盖（真实点击入口 → 弹窗出现），
+ * 不再以「无入口」为由省略。
  *
  * Rust 侧的安全语义（路径穿越 / 可执行扩展名 / 回滚）由
  * `src-tauri/src/commands/skill_bundle.rs` 的内联 `#[cfg(test)]` 用例覆盖。
@@ -104,4 +105,31 @@ test("skill bundle IPC envelope round-trips and enforces the import gate", async
   expect(imported.warnings.join("|")).toContain("untrusted")
 
   expect(errors, `unexpected console/page errors: ${errors.join(" || ")}`).toEqual([])
+})
+
+/**
+ * 壳层可达性（2026-09-12 接线后新增）：导入对话框此前无宿主入口。
+ * 走真实壳层：技能库 → 写作 Skill → 点「选择技能包…」→ mock 的 plugin-dialog 返回路径 →
+ * 弹窗出现（role="dialog"，标题为 i18n 的 skillbundle.import.title）。
+ */
+test.describe("技能包离线导入 / 壳层可达性", () => {
+  test("从壳层点开技能包导入入口并弹出对话框", async ({ page }) => {
+    await page.addInitScript(MOCK_INIT)
+    await page.goto("/")
+    await page.waitForSelector("#root", { state: "attached" })
+    await page.getByRole("button", { name: "小说目录" }).click()
+    await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+
+    await page.click('[data-view="skillLibrary"]')
+    await page.waitForSelector('[data-testid="unified-skill-library-view"]', { timeout: 10000 })
+    await page.getByRole("button", { name: "写作 Skill", exact: true }).click()
+
+    const entry = page.locator('[data-testid="skill-bundle-import-open"]')
+    await expect(entry).toBeVisible({ timeout: 10000 })
+    await entry.click()
+
+    // mock 的 plugin:dialog|open 返回 "C:/mock/proj"，宿主据此打开弹窗
+    await expect(page.locator('div[role="dialog"]')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('div[role="dialog"]')).toContainText("untrusted")
+  })
 })

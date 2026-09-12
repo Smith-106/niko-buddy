@@ -86,7 +86,9 @@ afterEach(() => {
 describe("McpSection — transport type selector (audit ①-6)", () => {
   it("renders a transport select defaulting to stdio with SSE reserved (disabled)", () => {
     render(<McpSection />)
-    const select = screen.getByRole("combobox") as HTMLSelectElement
+    // 服务卡内的传输选择器在 DOM 中先于远程传输面板（后者挂在区块末尾）；
+    // 用 getAllByRole 取第一个，避免与远程面板的 select 多匹配。
+    const select = screen.getAllByRole("combobox")[0] as HTMLSelectElement
     expect(select).toBeInTheDocument()
     expect(select.value).toBe("stdio")
     const sseOption = Array.from(select.options).find((o) => o.value === "sse")
@@ -101,7 +103,8 @@ describe("McpSection — transport type selector (audit ①-6)", () => {
 
   it("persists the config when the transport is changed to stdio", async () => {
     render(<McpSection />)
-    const select = screen.getByRole("combobox") as HTMLSelectElement
+    // 服务卡内的传输选择器 = 页面上第一个 combobox；远程面板的 select 在其后。
+    const select = screen.getAllByRole("combobox")[0] as HTMLSelectElement
     fireEvent.change(select, { target: { value: "stdio" } })
     await waitFor(() => {
       expect(mocks.setMcpConfig).toHaveBeenCalled()
@@ -111,5 +114,30 @@ describe("McpSection — transport type selector (audit ①-6)", () => {
         servers: expect.arrayContaining([expect.objectContaining({ transport: "stdio" })]),
       }),
     )
+  })
+})
+
+describe("远程传输接线（F-005）", () => {
+  it("MCP 设置区块内挂载远程传输面板", () => {
+    render(<McpSection />)
+    expect(screen.getByTestId("mcp-remote-transport-section")).toBeInTheDocument()
+    expect(screen.getByTestId("mcp-transport-settings")).toBeInTheDocument()
+    expect(screen.getByTestId("mcp-transport-mode")).toBeInTheDocument()
+  })
+
+  it("四个动作按钮各有真实文案（回归：曾全部复用 mcp.transport.mode 占位）", () => {
+    render(<McpSection />)
+    const labels = ["save", "connect", "request", "close"].map((name) =>
+      screen.getByTestId(`mcp-transport-${name}`).textContent?.trim() ?? "",
+    )
+    // 每次调用都必须命中自己的键（t 被 mock 成恒等函数，故断言键名本身）
+    expect(labels).toEqual([
+      "mcp.transport.save",
+      "mcp.transport.connect",
+      "mcp.transport.request",
+      "mcp.transport.close",
+    ])
+    expect(new Set(labels).size).toBe(4)
+    expect(labels).not.toContain("mcp.transport.mode")
   })
 })

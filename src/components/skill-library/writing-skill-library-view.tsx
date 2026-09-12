@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { readFile, writeFile } from "@/commands/fs"
 import { createBlankWritingSkill, createSkillCategory, deleteWritingSkill, deleteSkillCategory, exportSkillToJson, importSkillFromJson, importWritingSkill, loadAllLinkedSkillsContent, loadLinkedSkillContent, loadUserSkillConfig, moveSkillToCategory, normalizeUserSkillConfig, renameSkillCategory, reorderSkillCategories, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, touchSkillUsage, updateWritingSkill, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
-import type { UserSkillConfig, SkillCategory, SkillKind, SkillMode, SkillStage, UserSkill } from "@/lib/novel"
+import type { UserSkillConfig, SkillCategory, SkillKind, SkillMode, SkillStage, UserSkill, ImportResult } from "@/lib/novel"
+import { SkillPackPanel } from "@/components/skills/SkillPackPanel"
+import { SkillBundleImportDialog } from "@/components/skills/SkillBundleImportDialog"
 import { confirmDiscardSkillLibraryDraft, useWikiStore } from "@/stores/wiki-store"
 import { GripVertical, Pencil, Trash2 } from "lucide-react"
 import {
@@ -649,6 +651,24 @@ export function WritingSkillLibraryView() {
   const [draftKind, setDraftKind] = useState<SkillKind[]>([])
   const [draftStages, setDraftStages] = useState<SkillStage[]>([])
   const [draftModes, setDraftModes] = useState<SkillMode[]>([])
+  // A-F-002 / B-F-006 技能包（.zip）离线导入：选文件走 Tauri 原生对话框（动态 import，
+  // 与 sidebar-panel 的章节导入一致）；弹窗只拿路径与落点根，落点根由宿主给出。
+  const [bundlePath, setBundlePath] = useState<string | null>(null)
+  const [bundleDialogOpen, setBundleDialogOpen] = useState(false)
+
+  const handleOpenBundleImport = async () => {
+    if (!project) return
+    const { open } = await import("@tauri-apps/plugin-dialog")
+    const selected = await open({
+      multiple: false,
+      title: "选择技能包（.zip）",
+      filters: [{ name: "技能包", extensions: ["zip"] }],
+    })
+    if (!selected || typeof selected !== "string") return
+    setBundlePath(selected)
+    setBundleDialogOpen(true)
+  }
+
   const [draftPriority, setDraftPriority] = useState(50)
   const [draftTags, setDraftTags] = useState<string[]>([])
   const [draftCategoryId, setDraftCategoryId] = useState("")
@@ -755,6 +775,19 @@ export function WritingSkillLibraryView() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handlePackImported(result: ImportResult) {
+    if (!result.ok || !config) return
+    // 落盘职责在宿主：面板只产出 `UserSkill[]`＋信任级别，归一化与写盘走本视图既有的
+    // `persist`（内部即 `saveUserSkillConfig` + `bumpDataVersion`）；无项目时 `persist`
+    // 自行拒绝，不在此处伪造成功。
+    const merged = normalizeUserSkillConfig({
+      ...config,
+      skills: [...config.skills, ...result.skills],
+    })
+    const importedId = result.skills[result.skills.length - 1]?.id ?? selectedSkillId
+    await persist(merged, importedId)
   }
 
   async function handleSaveSkill() {
@@ -1138,6 +1171,49 @@ export function WritingSkillLibraryView() {
           </div>
         )}
       </main>
+
+      {/* F-006 技能包交换（导入/导出均走本地文件）：此前无壳层入口。
+          仅在宿主配置已加载时挂载——导入必须落到一个已知分类与已知库，
+          否则会静默丢弃导入结果（面板只产出 `UserSkill[]`，落盘是本视图的责任）。 */}
+      {config && project ? (
+        <div className="shrink-0 border-t px-5 py-4" data-testid="skill-pack-section">
+          <div className="mx-auto max-w-5xl space-y-3">
+            {/* A-F-002 / B-F-006 技能包（.zip）离线导入：此前同样无壳层入口。
+                选文件用 Tauri 原生对话框（动态 import，与 sidebar-panel 一致）；
+                落点根由宿主给出（用户不可在弹窗内改写）。 */}
+            <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">导入技能包（.zip）</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  导入落点：当前项目资产域（不可在弹窗内改写）
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="skill-bundle-import-open"
+                className="shrink-0 rounded border px-3 py-1.5 text-sm"
+                onClick={() => void handleOpenBundleImport()}
+              >
+                选择技能包…
+              </button>
+            </div>
+            <div className="rounded-md border">
+              <SkillPackPanel
+                skills={config.skills}
+                categoryId={draftCategoryId || config.categories[0]?.id || ""}
+                onImported={(result) => void handlePackImported(result)}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <SkillBundleImportDialog
+        open={bundleDialogOpen}
+        bundlePath={bundlePath}
+        destRoot={project?.path ?? null}
+        onClose={() => setBundleDialogOpen(false)}
+      />
     </div>
   )
 }

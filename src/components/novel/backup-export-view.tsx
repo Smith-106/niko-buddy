@@ -41,6 +41,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { listDirectory } from "@/commands/fs"
 import { cancelBackup } from "@/lib/backup/export"
+import { CloudBackupPanel } from "@/components/backup/CloudBackupPanel"
+import { SnapshotTimeline } from "@/components/timemachine/SnapshotTimeline"
+import { getDeviceId, setDeviceId } from "@/lib/device-id"
 import type { BackupProgressPayload } from "@/lib/backup/types"
 import { normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
@@ -183,6 +186,13 @@ export function BackupExportView() {
   const projectPath = currentProject?.path ?? ""
 
   const [passphrase, setPassphrase] = useState("")
+  /**
+   * 本机标识：`CloudBackupPanel` 的 `deviceId` 入参（Rust 侧仅作冲突副本命名）。
+   * 移植前前端无任何来源 ⇒ 由 `@/lib/device-id` 生成并持久化（**不是** `crypto.ts`
+   * 的 device fingerprint：那个是 AES-256 密钥材料，拿它当设备标识会把密钥写进
+   * 远端工件的冲突文件名）。
+   */
+  const [deviceId, setDeviceIdState] = useState(() => getDeviceId())
   const [isBusy, setIsBusy] = useState<"export" | "restore" | "verify" | "auto" | null>(null)
   const [exportResult, setExportResult] = useState<CanonExportResult | null>(null)
   const [restoreResult, setRestoreResult] = useState<CanonRestoreResult | null>(null)
@@ -797,6 +807,42 @@ export function BackupExportView() {
           </>
         )}
       </div>
+
+      {/* 云端备份（F-004）：本机标识 + CloudBackupPanel */}
+      <div className="space-y-3 rounded-lg border p-4" data-testid="cloud-backup-section">
+        <div className="space-y-1">
+          <Label htmlFor="backup-device-id">
+            {tOr("novel.backupExport.deviceIdLabel", "本机标识（冲突副本命名用）")}
+          </Label>
+          <Input
+            id="backup-device-id"
+            value={deviceId}
+            onChange={(e) => setDeviceIdState(setDeviceId(e.target.value))}
+            placeholder="dev-..."
+            disabled={isBusy !== null}
+          />
+          <p className="text-xs text-muted-foreground">
+            {tOr(
+              "novel.backupExport.deviceIdNote",
+              "仅用于区分同一份远端工件在不同机器上产生的冲突副本；本机生成、本地保存，不参与鉴权，也不写入云端身份。非法字符会被剔除；清空不会生效（保留上一次有效值）。",
+            )}
+          </p>
+        </div>
+        {projectPath ? (
+          <CloudBackupPanel projectPath={projectPath} deviceId={deviceId} />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {tOr("novel.backupExport.needsProject", "请先打开一个项目。")}
+          </p>
+        )}
+      </div>
+
+      {/* 快照时间机器（F-002/F-003）：只读回看与前后对照，恢复是原子写且要确认令牌 */}
+      {projectPath ? (
+        <div className="rounded-lg border" data-testid="snapshot-timeline-section">
+          <SnapshotTimeline projectPath={projectPath} />
+        </div>
+      ) : null}
     </div>
   )
 }

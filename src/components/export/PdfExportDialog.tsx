@@ -52,7 +52,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs }: PdfExportDia
       </p>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span>{t("pdfexport.dialog.title")}</span>
+        <span>{t("pdfexport.target.label")}</span>
         <input
           className="rounded border px-2 py-1 text-sm"
           data-testid="pdfexport-target"
@@ -73,16 +73,20 @@ export function PdfExportDialog({ projectPath, title, paragraphs }: PdfExportDia
         disabled={targetIssue !== null || paragraphs.length === 0}
         onClick={() => void run()}
       >
-        {t("pdfexport.dialog.title")}
+        {t("pdfexport.submit")}
       </button>
 
       <p data-testid="pdfexport-paragraphs" className="text-xs">
-        {paragraphs.length}
+        {t("pdfexport.paragraphs.label")}: {paragraphs.length}
       </p>
 
       {report ? (
         <p data-testid="pdfexport-report" className="text-xs">
-          {report.pages} page(s) · {report.bytes_written} bytes · {report.font}
+          {t("pdfexport.report", {
+            pages: report.pages,
+            bytes: report.bytes_written,
+            font: report.font,
+          })}
         </p>
       ) : null}
       {error ? (

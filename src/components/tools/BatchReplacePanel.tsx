@@ -96,19 +96,19 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
         <input
           className="rounded border px-2 py-1 text-sm"
           data-testid="batchreplace-find"
-          placeholder={t("batchreplace.preview.title")}
+          placeholder={t("batchreplace.find.label")}
           value={find}
           onChange={(e) => setFind(e.target.value)}
         />
         <input
           className="rounded border px-2 py-1 text-sm"
           data-testid="batchreplace-replace"
-          placeholder={t("batchreplace.preview.title")}
+          placeholder={t("batchreplace.replace.label")}
           value={replace}
           onChange={(e) => setReplace(e.target.value)}
         />
         <button type="button" data-testid="batchreplace-preview" onClick={() => void runPreview()}>
-          {t("batchreplace.preview.title")}
+          {t("batchreplace.preview.action")}
         </button>
         <button
           type="button"

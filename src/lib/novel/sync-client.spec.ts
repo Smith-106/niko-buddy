@@ -166,7 +166,52 @@ describe("invoke envelope", () => {
   })
 
   it("routes status/test/push/pull/conflicts to their commands", async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined)
+    // 返回值按真实契约给（Rust 侧恒返回对象/数组；响应映射已不再容忍 undefined）。
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case "sync_status":
+          return {
+            configured: false,
+            enabled: false,
+            endpoint: "",
+            root: "",
+            credential_ref: "",
+            credential_available: false,
+            journal_entries: 0,
+          }
+        case "sync_test":
+          return {
+            ok: true,
+            endpoint: "",
+            root: "",
+            credential_available: false,
+            reachable: false,
+            object_count: 0,
+            message: "",
+          }
+        case "sync_push":
+          return {
+            manifest_id: "m",
+            revision: 1,
+            content_hash: "a".repeat(64),
+            block_count: 1,
+            total_bytes: 1,
+            remote_prefix: "p",
+          }
+        case "sync_pull":
+          return {
+            manifest_id: "m",
+            remote_revision: 1,
+            decision: "apply",
+            snapshot_dir: "s",
+            message: "",
+          }
+        case "sync_conflicts":
+          return []
+        default:
+          return undefined
+      }
+    })
     await cloudBackupStatus("C:/proj")
     expect(invoke).toHaveBeenLastCalledWith("sync_status", { projectPath: "C:/proj" })
     await testCloudBackup("C:/proj")
@@ -198,5 +243,105 @@ describe("summarizeConflict", () => {
     } as const
     expect(summarizeConflict(conflict)).toBe(".conflict-device-b-20260912130000 (4096 B)")
     expect(conflict.defaultResolution).toBe("keep_both")
+  })
+})
+
+// ── 响应方向命名映射（回归：曾漏映射导致 CloudBackupPanel 渲染期崩溃） ──────────
+// Rust 侧 `SyncStatus` 等结构体没有 `#[serde(rename_all = "camelCase")]`，线上字段是
+// snake_case；域模型是 camelCase。此前只做了请求方向（toRaw），响应方向原样返回，
+// 于是 `status.credentialRef` 为 undefined → `validateSyncConfig` 读 `.startsWith`
+// 抛 TypeError，整视图被错误边界拆掉。以下用例锁定映射不再回退。
+describe("response wire→domain mapping", () => {
+  it("sync_status：snake_case 载荷映射为 camelCase 域模型", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      endpoint: "https://dav.example.com",
+      root: "niko-buddy/backups",
+      credential_ref: "nb:webdav:proj-42",
+      credential_available: true,
+      journal_entries: 3,
+      last_direction: "push",
+      last_manifest_id: "m-1",
+      last_revision: 7,
+    })
+    const status = await cloudBackupStatus("C:/proj")
+    expect(status.credentialRef).toBe("nb:webdav:proj-42")
+    expect(status.credentialAvailable).toBe(true)
+    expect(status.journalEntries).toBe(3)
+    expect(status.lastDirection).toBe("push")
+    expect(status.lastManifestId).toBe("m-1")
+    expect(status.lastRevision).toBe(7)
+    // 映射结果必须可直接喂给校验器（正是此前崩溃的那条路径）
+    expect(validateSyncConfig({
+      endpoint: status.endpoint,
+      root: status.root,
+      credentialRef: status.credentialRef,
+      enabled: status.enabled,
+    })).toEqual([])
+  })
+
+  it("sync_test：object_count 映射为 objectCount", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ok: true,
+      endpoint: "https://dav.example.com",
+      root: "niko-buddy/backups",
+      credential_available: false,
+      reachable: true,
+      object_count: 2,
+      message: "reachable",
+    })
+    const result = await testCloudBackup("C:/proj")
+    expect(result.objectCount).toBe(2)
+    expect(result.credentialAvailable).toBe(false)
+  })
+
+  it("sync_push：manifest_id/content_hash/block_count/total_bytes/remote_prefix 全映射", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      manifest_id: "m-2",
+      revision: 8,
+      content_hash: "a".repeat(64),
+      block_count: 5,
+      total_bytes: 8192,
+      remote_prefix: "demo/rev-8",
+    })
+    const result = await pushCloudBackup("C:/proj", "C:/proj/out.zip", "dev-1")
+    expect(result).toEqual({
+      manifestId: "m-2",
+      revision: 8,
+      contentHash: "a".repeat(64),
+      blockCount: 5,
+      totalBytes: 8192,
+      remotePrefix: "demo/rev-8",
+    })
+  })
+
+  it("sync_pull：remote_revision/snapshot_dir/conflict_path 映射（含可选字段）", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      manifest_id: "m-3",
+      remote_revision: 9,
+      decision: "keep_both",
+      conflict_path: "C:/proj/.novel/.conflict-dev-1-20260912130000",
+      message: "both copies preserved",
+    })
+    const result = await pullCloudBackup("C:/proj", "m-3", "dev-1")
+    expect(result.remoteRevision).toBe(9)
+    expect(result.conflictPath).toBe("C:/proj/.novel/.conflict-dev-1-20260912130000")
+    expect(result.snapshotDir).toBeUndefined()
+  })
+
+  it("sync_conflicts：default_resolution 映射为 defaultResolution", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([
+      {
+        name: ".conflict-dev-1-20260912130000",
+        path: "C:/proj/.novel/.conflict-dev-1-20260912130000",
+        size: 4096,
+        default_resolution: "keep_both",
+      },
+    ])
+    const conflicts = await listCloudConflicts("C:/proj")
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0].defaultResolution).toBe("keep_both")
+    expect(summarizeConflict(conflicts[0])).toBe(".conflict-dev-1-20260912130000 (4096 B)")
   })
 })

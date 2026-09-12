@@ -111,29 +111,29 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
 
       {optInRequired ? (
         <p role="alert" data-testid="mcp-transport-optin-required" className="text-xs text-amber-600">
-          {t("mcp.transport.optin.http")}
+          {t("mcp.transport.optin.required")}
         </p>
       ) : null}
 
       <div className="flex gap-2">
         <button type="button" data-testid="mcp-transport-save" disabled={!canSave} onClick={() => void save()}>
-          {t("mcp.transport.mode")}
+          {t("mcp.transport.save")}
         </button>
         <button type="button" data-testid="mcp-transport-connect" onClick={() => void connect()}>
-          {t("mcp.transport.mode")}
+          {t("mcp.transport.connect")}
         </button>
         <button type="button" data-testid="mcp-transport-request" onClick={() => void requestAndAudit()}>
-          {t("mcp.transport.mode")}
+          {t("mcp.transport.request")}
         </button>
         <button type="button" data-testid="mcp-transport-close" onClick={() => void closeRemote(serverId)}>
-          {t("mcp.transport.mode")}
+          {t("mcp.transport.close")}
         </button>
       </div>
 
       <input
         className="rounded border px-2 py-1 text-sm"
         data-testid="mcp-server-id"
-        placeholder="server id"
+        placeholder={t("mcp.transport.serverId")}
         value={serverId}
         onChange={(e) => setServerId(e.target.value)}
       />

@@ -19,9 +19,16 @@ const mocks = vi.hoisted(() => {
   const wikiState: {
     chatExpanded: boolean
     chatDockPosition: "bottom" | "right"
+    project: { path: string } | null
+    selectedFile: string | null
+    fileContent: string
   } = {
     chatExpanded: false,
     chatDockPosition: "bottom",
+    // 写作工具抽屉（PDF 导出 / 批量替换）读取这三项，mock 形状需与真实 store 一致
+    project: null,
+    selectedFile: null,
+    fileContent: "",
   }
   return {
     wikiState,
@@ -67,6 +74,9 @@ beforeEach(() => {
   setupDomGlobals()
   mocks.wikiState.chatExpanded = false
   mocks.wikiState.chatDockPosition = "bottom"
+  mocks.wikiState.project = null
+  mocks.wikiState.selectedFile = null
+  mocks.wikiState.fileContent = ""
   localStorage.clear()
 })
 
@@ -267,4 +277,45 @@ describe("WritingWorkspace", () => {
     expect(() => fireEvent.mouseMove(document.body, { clientY: 200 })).not.toThrow()
     expect(() => fireEvent.mouseUp(document.body)).not.toThrow()
   })
+})
+
+/** 写作工具接线（F-008 PDF 导出 / F-007 事务式批量替换）：两个面板此前无壳层入口。 */
+describe("WritingWorkspace — 写作工具抽屉接线", () => {
+  it("未打开项目时不渲染工具条（不伪造环境）", () => {
+    render(<WritingWorkspace />)
+    expect(screen.queryByTestId("workspace-tools-bar")).toBeNull()
+    expect(screen.queryByTestId("pdf-export-section")).toBeNull()
+    expect(screen.queryByTestId("batch-replace-section")).toBeNull()
+  })
+
+  it("打开项目后可展开 PDF 导出（标题/段落取当前章节）与批量替换（targets 相对化）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n第一段。\n\n第二段。"
+    render(<WritingWorkspace />)
+
+    const pdfToggle = screen.getByTestId("workspace-tools-toggle-pdf")
+    const batchToggle = screen.getByTestId("workspace-tools-toggle-batch")
+    // 展开前不渲染任何面板（不误触发 IPC）
+    expect(screen.queryByTestId("pdf-export-section")).toBeNull()
+    expect(screen.queryByTestId("batch-replace-section")).toBeNull()
+
+    fireEvent.click(pdfToggle)
+    expect(screen.getByTestId("pdf-export-dialog")).toBeInTheDocument()
+    await waitFor(() => {
+      // 段落 = 去掉标题后的非空段落数（2），标题 = 章节标题
+      expect(screen.getByTestId("pdfexport-paragraphs").textContent).toContain("2")
+    })
+    const title = screen.getByTestId("workspace-tools-target").textContent ?? ""
+    expect(title).toContain("第一章 起点")
+    expect(title).toContain("第01章.md")
+
+    fireEvent.click(batchToggle)
+    expect(screen.queryByTestId("pdf-export-section")).toBeNull()
+    expect(screen.getByTestId("batch-replace-section")).toBeInTheDocument()
+    expect(screen.getByTestId("batchreplace-find")).toBeInTheDocument()
+    // 面板已挂载但尚未预览/提交：不产生任何写入（submit 前置预览按钮存在且未点）
+    expect(screen.getByTestId("batchreplace-preview")).toBeInTheDocument()
+  })
+
 })

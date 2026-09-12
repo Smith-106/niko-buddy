@@ -6,7 +6,8 @@ import { MOCK_INIT } from "./tauri-mock"
 /**
  * F-008 PDF 导出的 e2e（TASK-008 verify 项二 + 项四的机械部分）。
  *
- * 范围声明：`PdfExportDialog` 未挂进应用外壳（本任务不改路由），因此断言可观察边界：
+ * 范围声明：`PdfExportDialog` 此前未挂进应用外壳；2026-09-12 已接线到写作工作区底部
+ * 工具条（壳层可达性见 `e2e/workspace-tools.spec.ts`）。以下断言可观察边界：
  *   1. 数据区路径在**本地**与**后端**各挡一次（`.novel` / `QM` / `.qmai` / `backups`）；
  *   2. IPC 参数名与 Rust 命令签名一致；
  *   3. 内嵌中文字体资产存在、且真产物里出现过字体名（verify 4 的机械证据，
