@@ -61,7 +61,10 @@ function TooltipContent({
           {...props}
         >
           {children}
-          <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground" />
+          {/* 箭头定位：Base UI/floating-ui 只给出**沿边轴**的居中坐标（side=right 时内联 top），
+              贴边方向（left/right/top/bottom）必须由使用方按 side 指定。此前写死了 top 方向专用
+              的 translate-y，导致 side="right"（左侧图标栏全部提示）的箭头落在弹层内部盖住文字。 */}
+          <TooltipPrimitive.Arrow className="z-50 size-2.5 rotate-45 rounded-[2px] bg-foreground fill-foreground data-[side=bottom]:top-[-5px] data-[side=left]:right-[-5px] data-[side=right]:left-[-5px] data-[side=top]:bottom-[-5px]" />
         </TooltipPrimitive.Popup>
       </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>

@@ -6,6 +6,13 @@ import tailwindcss from "@tailwindcss/vite"
 
 const host = process.env.TAURI_DEV_HOST
 
+// 端口可由环境变量覆盖（默认 2420，与 tauri devUrl / vite server 保持一致）。
+// 必要性：桌面端 `npm run tauri dev` 会长期占用 2420，而 playwright 的
+// `reuseExistingServer` 会**静默复用开发服务器**，使 e2e 退化为 dev 模式验证
+// （且 dev 的 watcher 忽略 `**/*.json`，i18n 改动看不到）。显式指定 QMAI_PORT
+// 可让 e2e 在空闲端口上跑真正的 `vite build` 产物。
+const port = Number(process.env.QMAI_PORT ?? 2420)
+
 // Read version from package.json at config-load time so the Settings
 // UI can show the running app version without duplicating the string.
 const pkgJson = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"))
@@ -83,7 +90,7 @@ export default defineConfig(async () => ({
   // 127.0.0.1，而 Node verbatim DNS 在 macOS 上优先 ::1——CI E2E 曾因 vite 只绑
   // ::1 导致页面空白（root 空 → playwright 判 hidden）。绑 IPv4 loopback 三平台通。
   server: {
-    port: 2420,
+    port,
     strictPort: true,
     host: host || "127.0.0.1",
     hmr: host
@@ -115,7 +122,7 @@ export default defineConfig(async () => ({
   // 模块），CI runner 上曾反复撞穿 beforeEach 的 `#root` 等待从而被 120s 超时硬扛；
   // 预构建产物把冷启动从「按需 transform」降为「读一份 JS」，同端口对齐使 baseURL 不变。
   preview: {
-    port: 2420,
+    port,
     strictPort: true,
     host: host || "127.0.0.1",
   },

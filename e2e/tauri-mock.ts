@@ -153,7 +153,10 @@ export const MOCK_INIT = `
           S.mcpTransport = null;
           return true;
         case "app_lock_state":
-          return (window.__MOCK_LOCK_STATE__) || "locked";
+          // 默认真实语义：新项目尚未设置口令 → not_configured（不遮挡）。
+          // 返回 "locked" 会让挂在 App 上的锁遮罩拦住整个壳层，任何未显式预置
+          // 锁状态的 spec 都会点不动欢迎屏；需要锁屏的用例请预置 __MOCK_LOCK_STATE__。
+          return (window.__MOCK_LOCK_STATE__) || "not_configured";
         case "app_lock_verify": {
           const phrase = (args && args.passphrase) || "";
           window.__MOCK_LAST_VERIFY__ = phrase;

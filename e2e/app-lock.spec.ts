@@ -16,8 +16,13 @@ import { MOCK_INIT } from "./tauri-mock"
 
 const REPO = process.cwd()
 
-async function boot(page: Page): Promise<void> {
+async function boot(page: Page, lock?: string): Promise<void> {
   await page.addInitScript(MOCK_INIT)
+  if (lock !== undefined) {
+    await page.addInitScript((s: string) => {
+      ;(window as unknown as Record<string, unknown>).__MOCK_LOCK_STATE__ = s
+    }, lock)
+  }
   await page.goto("/")
   await page.waitForLoadState("domcontentloaded")
 }
@@ -39,7 +44,7 @@ async function call(
 
 test.describe("F-004 应用锁与凭据库 / IPC 边界", () => {
   test("锁状态与验证：错误口令不放行", async ({ page }) => {
-    await boot(page)
+    await boot(page, "locked")
 
     expect(await call(page, "app_lock_state")).toBe("locked")
     expect(await call(page, "app_lock_verify", { passphrase: "wrong-horse" })).toBe(false)

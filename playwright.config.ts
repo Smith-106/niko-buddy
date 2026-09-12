@@ -1,9 +1,12 @@
 import { defineConfig } from "@playwright/test";
 
 // 与 vite.config.ts 的 server.port / preview.port 保持一致（strictPort: true）。
+// 可用 QMAI_PORT 覆盖：桌面端 `npm run tauri dev` 占用 2420 时，`reuseExistingServer`
+// 会静默复用那个**开发服务器**（dev 模式 + 忽略 JSON 变更），e2e 就不再验证构建产物；
+// 另起端口可保证跑的是 `vite build` 产物。
 // 注意：vite 显式绑 127.0.0.1（Chromium 将 localhost 硬编码解析为 IPv4 loopback），
 // baseURL 用 localhost 即可（三平台一致）。
-const PORT = 2420;
+const PORT = Number(process.env.QMAI_PORT ?? 2420);
 const BASE_URL = `http://localhost:${PORT}`;
 
 // R4（2026-09-10）冷启动根治：webServer 由 `vite dev` 改为 `vite build && vite preview`。
