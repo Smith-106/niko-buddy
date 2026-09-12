@@ -7,6 +7,8 @@ import { saveScheduledImportConfig } from "@/lib/project-store"
 import { setupAutoSave } from "@/lib/auto-save"
 import { hydrateProjectOnOpen, initializeApp } from "@/lib/composition-root"
 import { AppLayout } from "@/components/layout/app-layout"
+import { AppLockOverlay } from "@/components/lock/AppLockOverlay"
+import { GateHost } from "@/components/gate/GateHost"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { formatAppTitle } from "@/lib/app-title"
@@ -166,6 +168,9 @@ function App() {
           onOpenChange={setShowCreateDialog}
           onCreated={handleProjectCreated}
         />
+        {/* 门与锁最后挂载：欢迎屏与主布局都是 fixed inset-0，先挂会被遮住指针事件。 */}
+        <AppLockOverlay />
+        <GateHost />
       </>
     )
   }
@@ -178,6 +183,8 @@ function App() {
         onOpenChange={setShowCreateDialog}
         onCreated={handleProjectCreated}
       />
+      <AppLockOverlay />
+      <GateHost />
     </>
   )
 }

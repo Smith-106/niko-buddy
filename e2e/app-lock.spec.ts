@@ -6,10 +6,11 @@ import { MOCK_INIT } from "./tauri-mock"
 /**
  * F-004 应用锁 + 凭据库的 e2e（TASK-004 verify 项三）。
  *
- * **范围声明**：`AppLockOverlay` 尚未被应用壳层挂载（无宿主入口），本 spec 因此覆盖
- * 页面内的 IPC 边界（锁状态 / 验证 / 凭据四命令）与三条静态硬约束（manifest 恒
- * `credentials_included: false`、i18n 键双侧齐备、lib.rs 注册 7 条命令）。
- * Rust 侧的派生与不落盘性质由 `app_lock::applock::wrong_passphrase_rejects` 与
+ * **范围声明**：本 spec 覆盖页面内的 IPC 边界（锁状态 / 验证 / 凭据四命令）与三条
+ * 静态硬约束（manifest 恒 `credentials_included: false`、i18n 键双侧齐备、lib.rs 注册
+ * 7 条命令）。锁屏的**宿主与可点击走查**已由 `e2e/gate-host.spec.ts` 覆盖
+ * （`AppLockOverlay` 已挂载到 `App`）。Rust 侧的派生与不落盘性质由
+ * `app_lock::applock::wrong_passphrase_rejects` 与
  * `credential_vault::vault::secret_not_in_data_sections` 覆盖。
  */
 

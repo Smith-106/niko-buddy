@@ -6,9 +6,11 @@ import { MOCK_INIT, collectErrors } from "./tauri-mock"
  *
  * **范围声明（诚实边界）**：本 spec 覆盖的是**页面内 IPC 边界**——浏览器环境下的
  * `window.__TAURI_INTERNALS__.invoke` 信封与裁决语义（受保护区硬拒 / 不可重建要确认 /
- * 可重建放行），以及应用启动契约。它**不**驱动 `ConfirmGateDialog` 的 UI 走查：
- * 该对话框尚未被应用壳层挂载（无宿主调用方），因此没有可点击入口可走。该缺口已在
- * 波次记录中显式登记为待接线项，不以本 spec 冒充覆盖。
+ * 可重建放行），以及应用启动契约。
+ *
+ * 弹窗自身的可点击走查已由 `e2e/gate-host.spec.ts` 覆盖（`GateHost` 已挂载到 `App`，
+ * 轮询 `confirm_gate_pending` / `confirm_gate_loop_state` 后渲染 `ConfirmGateDialog` 与
+ * `GateHaltBanner`）；本 spec 不再承担该职责。
  *
  * Rust 侧的真实语义（超时即拒绝 / CLI 不可绕过 / 熔断不自动恢复）由
  * `src-tauri/src/agent_gate.rs` 的内联 `#[cfg(test)]` 用例覆盖。
