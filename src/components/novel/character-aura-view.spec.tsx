@@ -326,7 +326,8 @@ describe("CharacterAuraView", () => {
     await switchToCharacterTab()
     fireEvent.click(screen.getByText("自定义灵魂"))
     expect(await screen.findByText("灵魂文档读取失败：E:/Novel/skills/c1/SKILL.md")).toBeInTheDocument()
-    expect(await screen.findByText("研究文件读取失败：E:/Novel/skills/c1/references/research/01-writings.md")).toBeInTheDocument()
+    // 研究文件读取失败：本地化引导 + 原始诊断（不再拼接内部路径到面向用户的文案里）
+    expect(await screen.findByText(/boom2/)).toBeInTheDocument()
   })
 
   it("binds a character with aliases to the selected aura", async () => {
@@ -668,9 +669,12 @@ describe("CharacterAuraView", () => {
     fireEvent.click(await screen.findByText("编辑灵魂"))
     fireEvent.click(screen.getByText("删除"))
     expect(confirmSpy).toHaveBeenCalled()
+    // 修复前：表单删除按钮直接把事件对象当作 targetAura 传入，删除 id 为 undefined、
+    // 确认框文案为「删除「undefined」」。修复后按当前选中灵魂 c1 删除。
+    expect(confirmSpy).not.toHaveBeenCalledWith(expect.stringContaining("undefined"))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("自定义灵魂"))
     await waitFor(() => {
-      // 表单删除按钮把点击事件当作 targetAura 传入（既有行为），仍走删除流程
-      expect(auraLib.deleteCustomCharacterAura).toHaveBeenCalledWith("E:/Novel", undefined)
+      expect(auraLib.deleteCustomCharacterAura).toHaveBeenCalledWith("E:/Novel", "c1")
     })
     expect(projectRefresh.refreshProjectState).toHaveBeenCalledWith("E:/Novel")
     expect(screen.getByRole("status")).toHaveTextContent("自定义灵魂已删除")

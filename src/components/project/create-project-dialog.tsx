@@ -15,6 +15,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
 import { saveOutputLanguage } from "@/lib/project-store"
 import { pickDirectory } from "@/lib/platform"
+import { formatOperationError } from "@/lib/format-operation-error"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
 
 interface CreateProjectDialogProps {
@@ -29,7 +30,6 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const [path, setPath] = useState("")
   const [error, setError] = useState("")
   const [creating, setCreating] = useState(false)
-  const [hasInitializedPath, setHasInitializedPath] = useState(false)
   // ②-3：模板选择（TemplatePicker 接入）；默认空白 general 模板，提交时 getTemplate(selectedTemplateId)
   const [selectedTemplateId, setSelectedTemplateId] = useState("general")
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
@@ -47,16 +47,14 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
 
   useEffect(() => {
     if (!isOpen) {
-      setHasInitializedPath(false)
       setPath("")
       return
     }
-    if (hasInitializedPath || path.trim()) {
+    if (path.trim()) {
       return
     }
 
     let cancelled = false
-    setHasInitializedPath(true)
 
     const initializePath = async () => {
       const defaultPath = await resolveDefaultParentDir()
@@ -72,11 +70,16 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     return () => {
       cancelled = true
     }
-  }, [hasInitializedPath, isOpen, path])
+  }, [isOpen, path])
 
   async function handleBrowse() {
-    const dir = await pickDirectory()
-    if (dir) setPath(dir)
+    try {
+      const dir = await pickDirectory()
+      if (dir) setPath(dir)
+    } catch (err) {
+      // 本地化引导 + 原始诊断：目录选择失败不能静默无反馈。
+      setError(formatOperationError(t, err))
+    }
   }
 
   async function handleCreate() {
@@ -89,7 +92,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     try {
       const parentDir = normalizePath(path.trim() || await resolveDefaultParentDir())
       if (!parentDir.trim()) {
-        setError(t("project.errorNameRequired"))
+        setError(t("project.errorParentDirRequired", "请先选择项目父目录"))
         return
       }
 
@@ -150,7 +153,13 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
               <Label htmlFor="path">{t("project.parentDir")}</Label>
               <div className="flex gap-2">
                 <Input id="path" value={path} onChange={(e) => setPath(e.target.value)} placeholder={t("project.parentDirPlaceholder")} className="flex-1" />
-                <Button variant="outline" size="icon" onClick={handleBrowse} type="button">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleBrowse}
+                  type="button"
+                  aria-label={t("project.browseParentDir", "浏览目录")}
+                >
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               </div>

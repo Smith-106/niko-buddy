@@ -8,6 +8,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { exportReport } from "@/lib/novel"
 import type { StoryBranch, TimelineEvent, StoryFramework, SimulationReport } from "@/lib/novel"
 import { cn } from "@/lib/utils"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 const PROBABILITY_COLORS: Record<string, string> = {
   high: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
@@ -481,7 +482,7 @@ export function SimulationReportView({
       setInfoMessage(t("storySimulation.reportExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 5000)
     } finally {
       setExporting(false)

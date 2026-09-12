@@ -19,7 +19,8 @@
       "prev": "上一页",
       "next": "下一页",
       "info": "第 {{page}} / {{pageCount}} 页 · 共 {{total}} 条"
-    }
+    },
+    "operationFailed": "操作失败"
   },
   "app": {
     "title": "Niko Buddy",
@@ -328,7 +329,10 @@
       "open": "打开",
       "none": "暂无最近项目",
       "remove": "移除"
-    }
+    },
+    "templateLabel": "项目模板",
+    "errorParentDirRequired": "请先选择项目父目录",
+    "browseParentDir": "浏览目录"
   },
   "templates": {
     "research": {
@@ -440,7 +444,11 @@
     "retry": "重试",
     "references": "引用",
     "saveAsDraft": "保存为草稿",
-    "pageNotFound": "页面不存在: {{name}}"
+    "pageNotFound": "页面不存在: {{name}}",
+    "reference": {
+      "expand": "点击预览引用内容",
+      "remove": "移除引用"
+    }
   },
   "search": {
     "title": "搜索",
@@ -814,6 +822,17 @@
           "customEndpointHint": "留空则复用当前供应商的接口地址",
           "description": "备注说明",
           "descriptionPlaceholder": "例如：适合代码生成"
+        },
+        "cursorProxy": {
+          "checking": "正在检测代理状态…",
+          "errHint": "模型请求时会自动拉起托管代理；如需手动检查，请确认 cursor-api-proxy 可访问。",
+          "healthy": "代理运行正常（{{endpoint}}）",
+          "managedHint": "由应用托管，可随时停止",
+          "stop": "停止代理",
+          "stopTitle": "停止托管代理",
+          "stopping": "停止中…",
+          "title": "Cursor 代理状态",
+          "unavailable": "代理不可用"
         }
       },
       "embedding": {
@@ -1001,6 +1020,25 @@
         "antiAiTelemetry": {
           "title": "反 AI 遥测诊断",
           "description": "应用级设置：仅控制本机匿名诊断遥测，与项目级小说设置相互独立。"
+        },
+        "spellingConvention": {
+          "description": "全局拼写约定，作为 Voice Preservation 三层映射的第一层。",
+          "dialoguePunctuationPlaceholder": "例如：使用中文引号「」、对话后不加破折号",
+          "dialoguePunctuationStyle": "对话标点风格",
+          "paragraphIndent": "段落缩进",
+          "paragraphIndentPlaceholder": "例如：每段首行缩进两字符",
+          "quoteConvention": "引号规范",
+          "quoteConventionPlaceholder": "例如：对话用双引号，引用用单引号",
+          "title": "拼写约定（Voice Preservation）"
+        },
+        "writingPreference": {
+          "add": "添加",
+          "delete": "删除",
+          "description": "个性化审查打分与去 AI 味规则（v2.5.0 手动录入版，自动提炼将在 v2.6 提供）。",
+          "empty": "暂无写作偏好，添加一条开始个性化。",
+          "preset": "偏好类型",
+          "title": "写作偏好",
+          "value": "取值"
         }
       },
       "maintenance": {
@@ -1028,7 +1066,18 @@
           "queueDescription": "这里显示上一次扫描后仍未完成的任务。合并会逐个排队执行。",
           "notDuplicates": "不是重复",
           "merged": "已合并",
-          "skipped": "已标记为不重复"
+          "skipped": "已标记为不重复",
+          "novelHelpExample1": "比如 AI 一会儿叫「张三」、一会儿叫「张小三」、一会儿又叫「男主」，其实是同一个人。每出现一个新名字，就会多出一个角色页面。",
+          "novelHelpExample1Title": "角色重复（最常见）",
+          "novelHelpExample2": "比如「九阳神功」和「九阳真经」、「青云宗」和「青云派」，名字略有不同但说的是一回事，资料库会越攒越乱。",
+          "novelHelpExample2Title": "设定/功法/地名重复",
+          "novelHelpHow1": "两个页面的内容会合二为一，不会丢信息",
+          "novelHelpHow2": "所有章节里引用了旧名字的地方，会自动改成新名字，不会有死链",
+          "novelHelpHow3": "合并前会自动备份，合并错了也能恢复",
+          "novelHelpHowTitle": "合并之后会怎样？",
+          "novelHelpIntro": "简单说：当你的角色库、设定库里出现了「同一个人/同一个东西有好几个页面」的情况，这个工具能帮你找出来并合并成一个。",
+          "novelHelpTip": "💡 小提示：扫描结果只是 AI 的猜测，需要你确认后才会真正合并。觉得不是重复的可以点「不是重复」，下次扫描就不会再出现了。",
+          "novelHelpTitle": "写小说的话，这个功能有什么用？"
         },
         "divergenceTraceTitle": "双写一致性差异留痕 (divergence trace)",
         "divergenceTraceEmpty": "暂无差异留痕（未发生过双写不一致，或尚未生成）。"
@@ -1051,7 +1100,36 @@
         "importSuccess": "导入成功，请重启软件以使配置生效",
         "restoredProjects": "已恢复 {{count}} 个项目",
         "openFolder": "打开所在文件夹",
-        "securityWarning": "备份文件包含 API 密钥等敏感信息，请妥善保管，不要分享给他人。"
+        "securityWarning": "备份文件包含 API 密钥等敏感信息，请妥善保管，不要分享给他人。",
+        "cancelExport": "取消导出",
+        "docxEmptyChapters": "章节为空：没有 final 状态章节可导出",
+        "docxExportButton": "导出 Word 文档",
+        "docxExportCount": "共 {{count}} 个章节",
+        "docxExportDescription": "将当前项目的 final 状态章节导出为单个 .docx 文件（Word 可打开），用于投稿或离线阅读。",
+        "docxExportProgress": "{{current}} / {{total}}",
+        "docxExportSuccess": "导出成功",
+        "docxExportTitle": "导出小说 Word 文档",
+        "docxExporting": "导出中...",
+        "docxNoProject": "请先打开项目",
+        "epubEmptyChapters": "章节为空：没有 final 状态章节可导出",
+        "epubExportButton": "导出 EPUB 电子书",
+        "epubExportDescription": "将当前项目的 final 状态章节导出为单个 .epub 文件（EPUB3 最小合规），可用于阅读器 / 投稿渠道。",
+        "epubExportProgress": "{{current}} / {{total}}",
+        "epubExportSuccess": "导出成功",
+        "epubExportTitle": "导出小说 EPUB 电子书",
+        "epubExporting": "导出中...",
+        "epubNoProject": "请先打开项目",
+        "vectorChunksLabel": "已索引 chunk",
+        "vectorCleanButton": "清理 legacy 表",
+        "vectorCleanConfirm": "确定清理遗留（legacy）向量表？此操作不可恢复。",
+        "vectorCleanConfirm2": "再次确认：将删除 legacy 向量行并触发重建，继续吗？",
+        "vectorCleaning": "清理中...",
+        "vectorDescription": "统计当前项目已索引的向量 chunk 数与遗留（legacy）行数；可清理 legacy 表后重新索引。",
+        "vectorLegacyLabel": "legacy 行",
+        "vectorLoading": "加载中…",
+        "vectorNoProject": "请先打开项目",
+        "vectorRefresh": "刷新",
+        "vectorTitle": "向量库"
       },
       "changelog": {
         "title": "版本更新",
@@ -1134,7 +1212,9 @@
     "formatWritingTitle": "自动整理正文段落格式，并为段落添加首行缩进",
     "formatWriting": "一键排版",
     "snapshotTitle": "查看本章已提取的结构化记忆，包括摘要、人物、事件、伏笔、时间线等",
-    "cognitionTitle": "查看当前剧情进度下，各角色知道什么、不知道什么，防止信息穿帮"
+    "cognitionTitle": "查看当前剧情进度下，各角色知道什么、不知道什么，防止信息穿帮",
+    "close": "关闭预览",
+    "loading": "正在加载..."
   },
   "trash": {
     "title": "回收站",
@@ -1146,7 +1226,9 @@
     "kindOutline": "大纲",
     "kindPage": "页面",
     "kindHistory": "历史记录",
-    "restoreTitle": "恢复到原位置；如原位置已有同名文件，会自动改名恢复"
+    "restoreTitle": "恢复到原位置；如原位置已有同名文件，会自动改名恢复",
+    "deletedItem": "已删除项目",
+    "originalPath": "原路径"
   },
   "knowledgeTree": {
     "noProject": "未打开项目",
@@ -1212,7 +1294,22 @@
       "filesWrittenWithReview": "{{fileCount}} 个文件已写入，{{reviewCount}} 条审阅项目",
       "noFilesGenerated": "未生成任何文件",
       "analysisNotAvailable": "（分析结果不可用）"
-    }
+    },
+    "fileSyncConflict": "文件在同步期间被外部修改，将自动重新同步",
+    "fileSyncSuperseded": "文件在同步期间被外部修改，此任务已被新变更取代",
+    "filterAllKinds": "全部类型",
+    "filterAllStatus": "全部状态",
+    "filterKind": "按类型筛选",
+    "filterStatus": "按状态筛选",
+    "fsStatus": {
+      "done": "完成",
+      "failed": "失败",
+      "pending": "待处理",
+      "processing": "处理中",
+      "superseded": "已取代"
+    },
+    "nextPage": "下一页",
+    "prevPage": "上一页"
   },
   "fileTree": {
     "noProject": "未打开项目",
@@ -1556,7 +1653,8 @@
       "builtInSoul": "内置灵魂",
       "customSoul": "自定义灵魂",
       "newCustomSoul": "+ 新建角色灵魂",
-      "noCustomSoul": "暂无自定义灵魂"
+      "noCustomSoul": "暂无自定义灵魂",
+      "bindCharacterLabel": "绑定小说人物"
     },
     "app": {
       "title": "Niko Buddy",
@@ -1704,7 +1802,8 @@
         "organizations": "势力",
         "powerSystem": "能力体系",
         "foreshadowing": "伏笔"
-      }
+      },
+      "autoExtract": "自动提取"
     },
     "outline": {
       "createTitle": "新建大纲",
@@ -1928,7 +2027,13 @@
       "noDataHint": "每张卡片对应一章的场景摘要",
       "chapter": "第{{num}}章",
       "words": "{{count}}字",
-      "noSummary": "暂无摘要"
+      "noSummary": "暂无摘要",
+      "cancelDelete": "取消",
+      "confirmDelete": "确认删除",
+      "createFailed": "新建场景卡片失败",
+      "createScene": "新建场景卡片",
+      "deleteChapter": "删除",
+      "openChapter": "打开章节"
     },
     "plotgrid": {
       "title": "情节矩阵",
@@ -2242,6 +2347,43 @@
       "title": "项目医生",
       "failed": "诊断失败",
       "empty": "打开项目后自动运行整链诊断"
+    },
+    "outlineImport": {
+      "documentFilter": "文档",
+      "emptyResult": "没有找到可导入的大纲文档。",
+      "importFilesTitle": "导入大纲文件",
+      "importFolderTitle": "导入大纲文件夹"
+    },
+    "planning": {
+      "chaptersSince": "已 {{n}} 章未推进",
+      "characters": "角色出场",
+      "close": "关闭",
+      "cognition": "认知盲区",
+      "cognitionEmpty": "无认知盲区记录",
+      "dead": "已退场",
+      "degraded": "数据源不可用",
+      "dimensionTruncated": "已按逐维预算截断",
+      "dormant": "已 {{n}} 章未出场",
+      "emptyCharacters": "无角色数据",
+      "emptyForeshadow": "无未回收伏笔",
+      "emptySubplots": "无支线数据",
+      "encounter": "见面边界",
+      "encounterEmpty": "无已见面记录",
+      "foreshadowing": "伏笔债务",
+      "inOutline": "本章出场",
+      "particles": "粒子持有",
+      "particlesEmpty": "无粒子账本",
+      "refresh": "刷新",
+      "startWriting": "以此计划开写",
+      "stateDeltas": "近章状态变更",
+      "stateDeltasEmpty": "近章无状态变更",
+      "summary": "债务 {{debt}} · 开放支线 {{threads}} · 逾期角色 {{due}}",
+      "threads": "支线推进",
+      "title": "本章确定性范围"
+    },
+    "range": {
+      "from": "起",
+      "to": "止"
     }
   },
   "storySimulation": {
@@ -2885,5 +3027,32 @@
   "pdfexport.report": "{{pages}} 页 · {{bytes}} 字节 · {{font}}",
   "batchreplace.find.label": "查找",
   "batchreplace.replace.label": "替换为",
-  "batchreplace.preview.action": "预览（只读）"
+  "batchreplace.preview.action": "预览（只读）",
+  "craft": {
+    "arcWorkbench": {
+      "confidence": "置信度",
+      "current": "当前",
+      "currentStage": "当前阶段",
+      "noData": "暂无弧光数据，请先摄取实体技法字段",
+      "reason": "检测依据",
+      "title": "弧光工作台"
+    },
+    "techniquePanel": {
+      "noData": "暂无技法数据，请先编译技法规则包",
+      "title": "技法面板",
+      "statPacks": "规则包",
+      "statHookTypes": "钩子类型",
+      "statSnapshotVersion": "快照版本",
+      "hookRegistry": "钩子类型注册表",
+      "packDetails": "规则包详情 ({{n}} 包)"
+    },
+    "thrillDashboard": {
+      "chartFailed": "图表加载失败，请确认 echarts 依赖已安装",
+      "noData": "暂无爽点量化数据，请先运行爽点量化",
+      "title": "爽点仪表盘"
+    }
+  },
+  "mermaid": {
+    "syntaxError": "Mermaid 语法错误"
+  }
 }

@@ -168,7 +168,7 @@ describe("CognitionPanel", () => {
     cognition.loadCognitionState.mockRejectedValueOnce(new Error("文件损坏"))
     render(<CognitionPanel projectPath="E:/Novel" onClose={vi.fn()} />)
     expect(await screen.findByText("novel.cognition.loadError")).toBeInTheDocument()
-    expect(screen.getByText("文件损坏")).toBeInTheDocument()
+    expect(screen.getByText(/文件损坏/)).toBeInTheDocument()
     expect(screen.getByText("novel.cognition.retry")).toBeInTheDocument()
     // 重试成功后回到数据态
     fireEvent.click(screen.getByText("novel.cognition.retry"))
@@ -179,7 +179,7 @@ describe("CognitionPanel", () => {
   it("renders a non-Error load error as its string form", async () => {
     cognition.loadCognitionState.mockRejectedValueOnce("raw-string-error")
     render(<CognitionPanel projectPath="E:/Novel" onClose={vi.fn()} />)
-    expect(await screen.findByText("raw-string-error")).toBeInTheDocument()
+    expect(await screen.findByText(/raw-string-error/)).toBeInTheDocument()
   })
 
   it("refreshes via the header refresh button", async () => {
@@ -203,7 +203,7 @@ describe("CognitionPanel", () => {
     // load() try 块：loadCognitionState reject → setState(null)/setCharStates(空)/setError
     cognition.loadCognitionState.mockRejectedValueOnce(new Error("刷新失败"))
     fireEvent.click(screen.getByLabelText("novel.cognition.refresh"))
-    expect(await screen.findByText("刷新失败")).toBeInTheDocument()
+    expect(await screen.findByText(/刷新失败/)).toBeInTheDocument()
     expect(screen.queryByText("林烬")).not.toBeInTheDocument()
     expect(screen.getByText("novel.cognition.loadError")).toBeInTheDocument()
   })
@@ -214,7 +214,7 @@ describe("CognitionPanel", () => {
     // err instanceof Error 为 false 时走 String(err)（load 回调 catch 的另一分支）
     cognition.loadCognitionState.mockRejectedValueOnce("刷新-字符串失败")
     fireEvent.click(screen.getByLabelText("novel.cognition.refresh"))
-    expect(await screen.findByText("刷新-字符串失败")).toBeInTheDocument()
+    expect(await screen.findByText(/刷新-字符串失败/)).toBeInTheDocument()
   })
 
   it("ignores a stale failure after unmount (cancelled catch guard)", async () => {

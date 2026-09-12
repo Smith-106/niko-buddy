@@ -10,6 +10,8 @@ import {
   type LockState,
 } from "@/lib/app-lock/lock-client";
 
+import { formatOperationError } from "@/lib/format-operation-error";
+
 export interface AppLockOverlayProps {
   /** 已通过验证后的回调（宿主据此决定是否渲染主界面）。 */
   onUnlocked?: () => void;
@@ -64,7 +66,7 @@ export function AppLockOverlay({ onUnlocked, initialState }: AppLockOverlayProps
       setState("unlocked");
       onUnlocked?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatOperationError(t, e));
     } finally {
       setBusy(false);
     }

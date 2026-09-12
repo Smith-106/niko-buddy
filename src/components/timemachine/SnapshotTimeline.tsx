@@ -21,6 +21,8 @@ import {
   type SnapshotMeta,
 } from "@/lib/novel";
 
+import { formatOperationError } from "@/lib/format-operation-error";
+
 export interface SnapshotTimelineProps {
   projectPath: string;
   /** 恢复完成后通知宿主（例如刷新状态面板）。 */
@@ -64,7 +66,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         setError(null);
       } catch (e) {
         if (runId !== loadRunRef.current) return;
-        setError(e instanceof Error ? e.message : String(e));
+        setError(formatOperationError(t, e));
       }
     },
     [projectPath],
@@ -85,7 +87,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         const d = await previewSnapshotPoint(projectPath, leftId);
         if (alive) setDiff(d);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(formatOperationError(t, e));
       }
     })();
     return () => {
@@ -105,7 +107,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         setPendingConfirm(null);
         onRestored?.(outcome);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(formatOperationError(t, e));
       } finally {
         setBusy(false);
       }

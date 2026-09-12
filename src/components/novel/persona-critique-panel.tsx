@@ -9,6 +9,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { DEFAULT_PERSONA_IDS, PERSONA_CATALOG, runPersonaCritique, loadNovelSessionStatus } from "@/lib/novel"
 import type { PersonaCritiqueResult, PersonaId } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface Props {
   projectPath: string
@@ -83,7 +84,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
       setResults(res.results)
     } catch (err) {
       // PAT-DC1: message only
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatOperationError(t, err))
     } finally {
       setRunning(false)
     }

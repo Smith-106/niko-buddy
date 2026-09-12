@@ -224,20 +224,21 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
     expect(screen.getByText("暂无 Inspector 数据")).toBeTruthy()
   })
 
-  it("查询抛 Error → 显示 err.message + 重试按钮", async () => {
+  it("查询抛 Error → 显示「本地化引导：err.message」 + 重试按钮", async () => {
     queryMocks.queryInspectorState.mockRejectedValue(new Error("query-boom"))
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
     fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
-    await waitFor(() => expect(screen.getByText("query-boom")).toBeTruthy())
+    // 错误面约定：本地化引导 + 原始诊断（t mock 返回 fallback）
+    await waitFor(() => expect(screen.getByText("操作失败：query-boom")).toBeTruthy())
     expect(screen.getByRole("alert")).toBeTruthy()
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy()
   })
 
-  it("查询抛非 Error → 用 t fallback 文案", async () => {
+  it("查询抛非 Error → String(err) 仍作为原始诊断保留", async () => {
     queryMocks.queryInspectorState.mockRejectedValue("plain")
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
     fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
-    await waitFor(() => expect(screen.getByText("查询失败")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("操作失败：plain")).toBeTruthy())
   })
 
   it("刷新请求挂起时图标进入 animate-spin 状态", async () => {
@@ -263,9 +264,9 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
       .mockResolvedValueOnce(fullSnapshot())
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
     fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
-    await waitFor(() => expect(screen.getByText("once")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/once/)).toBeTruthy())
     fireEvent.click(screen.getByRole("button", { name: "重试" }))
-    await waitFor(() => expect(screen.queryByText("once")).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/once/)).toBeNull())
     expect(screen.getByText("认知状态")).toBeTruthy()
   })
 

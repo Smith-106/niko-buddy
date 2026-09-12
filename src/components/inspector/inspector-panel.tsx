@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { queryInspectorState } from "@/lib/novel"
 import type { InspectorSnapshot } from "@/lib/novel"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 /** PAT-DC2 防抖阈值（≥500ms，防 O(N²) onUpdate 放大）。 */
 const INSPECTOR_DEBOUNCE_MS = 500
@@ -108,7 +109,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
     } catch (err) {
       // PAT-DC1: queryInspectorState 已脱敏 message（防 provider detail 泄露），
       // 故可安全展示给用户。此前静默 catch{} 让 fetch 失败显示陈旧数据或误判无数据。
-      setError(err instanceof Error ? err.message : t("novel.inspector.queryFailed", "查询失败"))
+      setError(formatOperationError(t, err))
     } finally {
       setLoading(false)
     }

@@ -19,9 +19,16 @@ const tMock = vi.hoisted(() => ({
   t: vi.fn((key: string, opts?: unknown) => {
     // handle `t(key, "fallback string")` pattern
     if (typeof opts === "string") return opts
-    // handle `t(key, { defaultValue: "..." })` pattern
-    if (opts && typeof opts === "object" && "defaultValue" in (opts as Record<string, unknown>)) {
-      return String((opts as Record<string, unknown>).defaultValue)
+    // handle `t(key, { defaultValue: "...", ...params })` pattern：
+    // 像 i18next 一样对 {{n}} 插值（否则会把占位符原样当文案断言）。
+    if (opts && typeof opts === "object") {
+      const o = opts as Record<string, unknown>
+      let out = typeof o.defaultValue === "string" ? o.defaultValue : key
+      for (const [k, v] of Object.entries(o)) {
+        if (k === "defaultValue") continue
+        out = out.split(`{{${k}}}`).join(String(v))
+      }
+      return out
     }
     return key
   }),

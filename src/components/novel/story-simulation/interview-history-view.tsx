@@ -6,6 +6,7 @@ import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadInterviews, deleteInterview, exportInterview, deserializeSimulationSnapshot, loadSimulationResults } from "@/lib/novel"
 import type { SavedInterview, NovelAgent } from "@/lib/novel"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 export function InterviewHistoryView() {
   const { t } = useTranslation()
@@ -70,7 +71,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewDeleted"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.deleteFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 3000)
     } finally {
       setDeleting(null)
@@ -85,7 +86,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 3000)
     } finally {
       setExporting(null)
@@ -141,7 +142,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewResumed"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.restoreFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 3000)
     } finally {
       setResuming(false)

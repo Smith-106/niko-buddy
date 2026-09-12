@@ -1122,7 +1122,7 @@ describe("OutlineGeneratorDialog", () => {
       renderDialog("refine")
 
       await userEvent.click(screen.getByRole("button", { name: "novel.outlineGenerator.refineTitle" }))
-      expect(screen.getByText("refine-boom")).toBeInTheDocument()
+      expect(screen.getByText(/refine-boom/)).toBeInTheDocument()
     })
 
     it("supports select-all / clear / toggle on chapter files with counts", async () => {
@@ -1235,7 +1235,7 @@ describe("OutlineGeneratorDialog", () => {
       renderDialog("refine")
 
       await userEvent.click(screen.getByRole("button", { name: "novel.outlineGenerator.refineTitle" }))
-      expect(screen.getByText("refine-str-boom")).toBeInTheDocument()
+      expect(screen.getByText(/refine-str-boom/)).toBeInTheDocument()
     })
 
     it("guards refine generation when canRefine is false", async () => {

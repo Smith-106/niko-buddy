@@ -230,7 +230,7 @@ export function ActivityPanel() {
                   className="rounded border bg-background px-1 py-0.5"
                   title={t("activity.filterKind", { defaultValue: "按类型筛选" })}
                 >
-                  <option value="all">{t("activity.filterAll", { defaultValue: "全部类型" })}</option>
+                  <option value="all">{t("activity.filterAllKinds", { defaultValue: "全部类型" })}</option>
                   <option value="created">{t("activity.fsKind.created", { defaultValue: "新建" })}</option>
                   <option value="modified">{t("activity.fsKind.modified", { defaultValue: "修改" })}</option>
                   <option value="deleted">{t("activity.fsKind.deleted", { defaultValue: "删除" })}</option>
@@ -241,7 +241,7 @@ export function ActivityPanel() {
                   className="rounded border bg-background px-1 py-0.5"
                   title={t("activity.filterStatus", { defaultValue: "按状态筛选" })}
                 >
-                  <option value="all">{t("activity.filterAll", { defaultValue: "全部状态" })}</option>
+                  <option value="all">{t("activity.filterAllStatus", { defaultValue: "全部状态" })}</option>
                   <option value="pending">{t("activity.fsStatus.pending", { defaultValue: "待处理" })}</option>
                   <option value="processing">{t("activity.fsStatus.processing", { defaultValue: "处理中" })}</option>
                   <option value="done">{t("activity.fsStatus.done", { defaultValue: "完成" })}</option>

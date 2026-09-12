@@ -29,6 +29,7 @@ function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
       {/* 包头部 */}
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/30"
       >
@@ -231,15 +232,15 @@ export function TechniquePanel({ registry }: TechniquePanelProps) {
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-lg border bg-card p-2.5 text-center">
           <div className="text-lg font-bold text-foreground">{registry.packs.length}</div>
-          <div className="text-[10px] text-muted-foreground">规则包</div>
+          <div className="text-[10px] text-muted-foreground">{t("craft.techniquePanel.statPacks", "规则包")}</div>
         </div>
         <div className="rounded-lg border bg-card p-2.5 text-center">
           <div className="text-lg font-bold text-foreground">{registry.hookTypeRegistry.length}</div>
-          <div className="text-[10px] text-muted-foreground">钩子类型</div>
+          <div className="text-[10px] text-muted-foreground">{t("craft.techniquePanel.statHookTypes", "钩子类型")}</div>
         </div>
         <div className="rounded-lg border bg-card p-2.5 text-center">
           <div className="text-lg font-bold text-foreground">v{registry.snapshotVersion}</div>
-          <div className="text-[10px] text-muted-foreground">快照版本</div>
+          <div className="text-[10px] text-muted-foreground">{t("craft.techniquePanel.statSnapshotVersion", "快照版本")}</div>
         </div>
       </div>
 
@@ -247,7 +248,7 @@ export function TechniquePanel({ registry }: TechniquePanelProps) {
       <div className="rounded-lg border bg-card p-2.5">
         <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
-          钩子类型注册表
+          {t("craft.techniquePanel.hookRegistry", "钩子类型注册表")}
         </div>
         <HookTypeTable entries={registry.hookTypeRegistry} />
       </div>
@@ -255,7 +256,7 @@ export function TechniquePanel({ registry }: TechniquePanelProps) {
       {/* 规则包列表 */}
       <div>
         <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-          规则包详情 ({sortedPacks.length} 包)
+          {t("craft.techniquePanel.packDetails", { n: sortedPacks.length, defaultValue: "规则包详情 ({{n}} 包)" })}
         </div>
         <div className="space-y-2">
           {sortedPacks.map((pack) => (

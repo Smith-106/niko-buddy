@@ -26,6 +26,7 @@ import { BranchManagerPanel } from "./branch-manager-panel";
 import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
 import { Button } from "@/components/ui/button";
+import { formatOperationError } from "@/lib/format-operation-error"
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -408,7 +409,7 @@ export function StorySimulationView() {
       setCurrentFramework(framework);
       setPhase("framework-confirming");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatOperationError(t, err));
       setPhase("configuring");
     }
   };
@@ -420,7 +421,7 @@ export function StorySimulationView() {
       await saveFramework(projectPath, currentFramework);
       bumpListRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatOperationError(t, err));
     }
   };
 
@@ -733,7 +734,7 @@ export function StorySimulationView() {
         setError(t("storySimulation.simulationCancelled"));
         setTimeout(() => setError(null), 3000);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(formatOperationError(t, err));
         setPhase("framework-confirming");
       }
     } finally {
@@ -840,7 +841,7 @@ export function StorySimulationView() {
         setError(t("storySimulation.draftCancelled"));
         setTimeout(() => setError(null), 3000);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(formatOperationError(t, err));
         setPhase("report-viewing");
       }
     } finally {
@@ -886,7 +887,7 @@ export function StorySimulationView() {
       setInfoMessage(t("storySimulation.chatExported", { path: filePath }));
       setTimeout(() => setInfoMessage(null), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"));
+      setError(formatOperationError(t, err));
     } finally {
       setChatExporting(false);
     }
@@ -930,7 +931,7 @@ export function StorySimulationView() {
       setInfoMessage(t("storySimulation.interviewSaved", { count: agentChatMessages.length }));
       setTimeout(() => setInfoMessage(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.saveFailed"));
+      setError(formatOperationError(t, err));
       setTimeout(() => setError(null), 5000);
     } finally {
       setChatSaving(false);
@@ -1049,7 +1050,7 @@ export function StorySimulationView() {
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatOperationError(t, err));
     } finally {
       setChatSending(false);
     }

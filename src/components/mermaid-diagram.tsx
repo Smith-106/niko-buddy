@@ -1,11 +1,14 @@
 import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { X, ZoomIn } from "lucide-react"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface MermaidDiagramProps {
   code: string
 }
 
 export function MermaidDiagram({ code }: MermaidDiagramProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [svg, setSvg] = useState<string | null>(null)
@@ -53,7 +56,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err))
+          setError(formatOperationError(t, err))
           setSvg(null)
         }
       }
@@ -61,7 +64,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
     render()
     return () => { cancelled = true }
-  }, [visible, code])
+  }, [visible, code, t])
 
   // Prevent layout shift: compute a stable min-height from code line count
   const estimatedHeight = Math.max(80, code.split("\n").length * 20)
@@ -82,7 +85,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
   if (error) {
     return (
       <div className="my-2 rounded border border-red-300/60 bg-red-50/50 dark:bg-red-950/20 p-2 text-xs text-red-700 dark:text-red-400">
-        <p className="font-medium mb-1">Mermaid syntax error</p>
+        <p className="font-medium mb-1">{t("mermaid.syntaxError", "Mermaid 语法错误")}</p>
         <pre className="whitespace-pre-wrap text-[11px] opacity-70">{error}</pre>
       </div>
     )

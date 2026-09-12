@@ -16,6 +16,7 @@ import { addOutlineTaskToSourceList, buildOutlineGenerationPrompt, hasOutlineFor
 import type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "@/lib/novel"
 import { useOutlineGenerationStore, type OutlineGenerationState, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 const GENRE_KEYS = [
   "mystery",
@@ -389,7 +390,7 @@ export function OutlineGeneratorDialog({
       })
       void runOutlineRefinementTask(taskId, llmConfig)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatOperationError(t, err))
     }
   }
 

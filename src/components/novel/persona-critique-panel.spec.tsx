@@ -327,13 +327,13 @@ describe("PersonaCritiquePanel", () => {
     mocks.runPersonaCritique.mockRejectedValue(new Error("critique boom"))
     renderPanel({ draftId: "draft-1" })
     clickRun()
-    await waitFor(() => expect(screen.getByText("critique boom")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/critique boom/)).toBeTruthy())
   })
 
   it("runPersonaCritique 抛出非 Error：String(err) 兜底", async () => {
     mocks.runPersonaCritique.mockRejectedValue("raw-boom")
     renderPanel({ draftId: "draft-1" })
     clickRun()
-    await waitFor(() => expect(screen.getByText("raw-boom")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/raw-boom/)).toBeTruthy())
   })
 })

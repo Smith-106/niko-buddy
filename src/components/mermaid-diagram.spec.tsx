@@ -113,9 +113,9 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByText("Mermaid syntax error")).toBeInTheDocument()
+      expect(screen.getByText("Mermaid 语法错误")).toBeInTheDocument()
     })
-    expect(screen.getByText("syntax boom")).toBeInTheDocument()
+    expect(screen.getByText(/syntax boom/)).toBeInTheDocument()
   })
 
   it("错误状态下 code 变化 → observer effect 因无容器 ref 提前返回", async () => {
@@ -123,11 +123,11 @@ describe("MermaidDiagram", () => {
     const { rerender } = renderDiagram("graph TD; A-->B")
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByText("Mermaid syntax error")).toBeInTheDocument()
+      expect(screen.getByText("Mermaid 语法错误")).toBeInTheDocument()
     })
     // 错误分支不渲染 containerRef div；code 变化重新触发 observer effect，el 为 null
     rerender(<MermaidDiagram code="graph TD; C-->D" />)
-    expect(screen.getByText("Mermaid syntax error")).toBeInTheDocument()
+    expect(screen.getByText("Mermaid 语法错误")).toBeInTheDocument()
   })
 
   it("渲染失败（非 Error）→ String(err) 展示", async () => {
@@ -135,7 +135,7 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByText("plain-fail")).toBeInTheDocument()
+      expect(screen.getByText(/plain-fail/)).toBeInTheDocument()
     })
   })
 

@@ -307,7 +307,7 @@ describe("MemoryCenterView", () => {
     await screen.findByTestId("wiki-reader")
     fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
-    expect(await screen.findByText("只读文件")).toBeInTheDocument()
+    expect(await screen.findByText(/只读文件/)).toBeInTheDocument()
   })
 
   it("deletes a memory file directly", async () => {
@@ -566,7 +566,7 @@ describe("MemoryCenterView", () => {
     fireEvent.click(screen.getByText("novel.memoryCenter.delete"))
     await screen.findByText("novel.memoryCenter.deleteConfirmTitle")
     fireEvent.click(screen.getByText("novel.memoryCenter.deleteConfirmAction"))
-    expect(await screen.findByText("快照删除失败")).toBeInTheDocument()
+    expect(await screen.findByText(/快照删除失败/)).toBeInTheDocument()
   })
 
   it("reports delete failure", async () => {
@@ -577,7 +577,7 @@ describe("MemoryCenterView", () => {
     fireEvent.click(screen.getByText("novel.memoryCenter.delete"))
     await screen.findByText("novel.memoryCenter.deleteConfirmTitle")
     fireEvent.click(screen.getByText("novel.memoryCenter.deleteConfirmAction"))
-    expect(await screen.findByText("删除快照失败")).toBeInTheDocument()
+    expect(await screen.findByText(/删除快照失败/)).toBeInTheDocument()
   })
 
   it("traps Tab focus inside the delete dialog", async () => {
@@ -649,7 +649,7 @@ describe("MemoryCenterView", () => {
     await screen.findByTestId("wiki-reader")
     fireEvent.click(await screen.findByText("novel.memoryCenter.edit"))
     fireEvent.click(screen.getByText("novel.memoryCenter.save"))
-    expect(await screen.findByText("字符串保存错误")).toBeInTheDocument()
+    expect(await screen.findByText(/字符串保存错误/)).toBeInTheDocument()
   })
 
   it("renders fallback texts for missing card fields", async () => {

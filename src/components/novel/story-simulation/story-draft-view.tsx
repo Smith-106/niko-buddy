@@ -17,6 +17,7 @@ import {
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface StoryDraftViewProps {
   onBack: () => void
@@ -92,7 +93,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       setInfoMessage(t("storySimulation.draftExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.exportFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 5000)
     } finally {
       setExporting(false)
@@ -134,7 +135,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         setSelectedFile(result.chapterPaths[0])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("storySimulation.importFailed"))
+      setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 5000)
     } finally {
       setImporting(false)

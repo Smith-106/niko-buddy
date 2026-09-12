@@ -39,7 +39,8 @@
     "error": "Error",
     "success": "Success",
     "warning": "Warning",
-    "info": "Info"
+    "info": "Info",
+    "operationFailed": "Operation failed"
   },
   "appLayout": {
     "bookAnalysis": {
@@ -160,7 +161,10 @@
       "open": "Open",
       "none": "No recent projects yet.",
       "remove": "Remove from list"
-    }
+    },
+    "templateLabel": "Project Template",
+    "errorParentDirRequired": "Choose a parent directory first",
+    "browseParentDir": "Browse directory"
   },
   "dashboard": {
     "title": "Project Dashboard",
@@ -820,7 +824,11 @@
     "selectModel": "Select model",
     "searchModel": "Search models...",
     "noModelFound": "No matching model",
-    "pageNotFound": "Page not found: {{name}}"
+    "pageNotFound": "Page not found: {{name}}",
+    "reference": {
+      "expand": "Click to preview referenced content",
+      "remove": "Remove reference"
+    }
   },
   "search": {
     "title": "Search",
@@ -1022,7 +1030,22 @@
       "filesWrittenWithReview": "{{fileCount}} files written, {{reviewCount}} review item(s)",
       "noFilesGenerated": "No files generated",
       "analysisNotAvailable": "(Analysis not available)"
-    }
+    },
+    "fileSyncConflict": "File was modified externally during sync; it will resync automatically",
+    "fileSyncSuperseded": "File was modified externally during sync; this task was superseded by newer changes",
+    "filterAllKinds": "All types",
+    "filterAllStatus": "All statuses",
+    "filterKind": "Filter by type",
+    "filterStatus": "Filter by status",
+    "fsStatus": {
+      "done": "Done",
+      "failed": "Failed",
+      "pending": "Pending",
+      "processing": "Processing",
+      "superseded": "Superseded"
+    },
+    "nextPage": "Next page",
+    "prevPage": "Previous page"
   },
   "fileTree": {
     "noProject": "No project open",
@@ -1355,7 +1378,18 @@
           "description": "Description",
           "descriptionPlaceholder": "e.g. good for coding"
         },
-        "pleaseSelectModel": "Please select a model"
+        "pleaseSelectModel": "Please select a model",
+        "cursorProxy": {
+          "checking": "Checking proxy status...",
+          "errHint": "The managed proxy starts automatically on model requests; to check manually, make sure cursor-api-proxy is reachable.",
+          "healthy": "Proxy is healthy ({{endpoint}})",
+          "managedHint": "Managed by the app; can be stopped at any time",
+          "stop": "Stop Proxy",
+          "stopTitle": "Stop Managed Proxy",
+          "stopping": "Stopping...",
+          "title": "Cursor Proxy Status",
+          "unavailable": "Proxy unavailable"
+        }
       },
       "embedding": {
         "title": "Vector Search / Embedding Model",
@@ -1496,7 +1530,36 @@
         "importSuccess": "Import successful. Please restart the app.",
         "restoredProjects": "Restored {{count}} projects",
         "openFolder": "Open Containing Folder",
-        "securityWarning": "Backup files contain sensitive information like API keys. Keep them safe and do not share."
+        "securityWarning": "Backup files contain sensitive information like API keys. Keep them safe and do not share.",
+        "cancelExport": "Cancel Export",
+        "docxEmptyChapters": "No chapters: no final-status chapters to export",
+        "docxExportButton": "Export Word Document",
+        "docxExportCount": "{{count}} chapters total",
+        "docxExportDescription": "Export the current project's final-status chapters to a single .docx file (openable in Word) for submission or offline reading.",
+        "docxExportProgress": "{{current}} / {{total}}",
+        "docxExportSuccess": "Export successful",
+        "docxExportTitle": "Export Novel as Word Document",
+        "docxExporting": "Exporting...",
+        "docxNoProject": "Open a project first",
+        "epubEmptyChapters": "No chapters: no final-status chapters to export",
+        "epubExportButton": "Export EPUB eBook",
+        "epubExportDescription": "Export the current project's final-status chapters to a single .epub file (minimal EPUB3 compliant), for e-readers or submission channels.",
+        "epubExportProgress": "{{current}} / {{total}}",
+        "epubExportSuccess": "Export successful",
+        "epubExportTitle": "Export Novel as EPUB eBook",
+        "epubExporting": "Exporting...",
+        "epubNoProject": "Open a project first",
+        "vectorChunksLabel": "Indexed chunks",
+        "vectorCleanButton": "Clean Legacy Table",
+        "vectorCleanConfirm": "Clean the legacy vector table? This cannot be undone.",
+        "vectorCleanConfirm2": "Confirm again: legacy vector rows will be deleted and a rebuild will be triggered. Continue?",
+        "vectorCleaning": "Cleaning...",
+        "vectorDescription": "Shows the number of indexed vector chunks and legacy rows for the current project; you can clean the legacy table and reindex.",
+        "vectorLegacyLabel": "Legacy rows",
+        "vectorLoading": "Loading...",
+        "vectorNoProject": "Open a project first",
+        "vectorRefresh": "Refresh",
+        "vectorTitle": "Vector Store"
       },
       "changelog": {
         "title": "Release Notes",
@@ -1556,6 +1619,25 @@
         "antiAiTelemetry": {
           "title": "Anti-AI telemetry diagnostics",
           "description": "App-level setting: controls only local anonymous diagnostic telemetry; independent from project-level novel settings."
+        },
+        "spellingConvention": {
+          "description": "Global spelling conventions, the first of the three-layer Voice Preservation mapping.",
+          "dialoguePunctuationPlaceholder": "e.g. use Chinese quotation marks 「」; no dash after dialogue",
+          "dialoguePunctuationStyle": "Dialogue Punctuation Style",
+          "paragraphIndent": "Paragraph Indent",
+          "paragraphIndentPlaceholder": "e.g. indent the first line of each paragraph by two characters",
+          "quoteConvention": "Quotation Mark Convention",
+          "quoteConventionPlaceholder": "e.g. double quotes for dialogue, single quotes for quotations",
+          "title": "Spelling Conventions (Voice Preservation)"
+        },
+        "writingPreference": {
+          "add": "Add",
+          "delete": "Delete",
+          "description": "Personalized review scoring and AI-flavor removal rules (manual entry in v2.5.0; automatic extraction coming in v2.6).",
+          "empty": "No writing preferences yet. Add one to start personalizing.",
+          "preset": "Preference Type",
+          "title": "Writing Preferences",
+          "value": "Value"
         }
       },
       "maintenance": {
@@ -1583,7 +1665,18 @@
           "queueDescription": "Shows tasks from a previous scan that have not finished yet. Merges run one at a time.",
           "notDuplicates": "Not Duplicates",
           "merged": "Merged",
-          "skipped": "Marked as Not Duplicates"
+          "skipped": "Marked as Not Duplicates",
+          "novelHelpExample1": "For example, the AI may call someone “Zhang San,” then “Zhang Xiaosan,” then “the male lead,” but they are the same person. Each new name creates another character page.",
+          "novelHelpExample1Title": "Duplicate Characters (Most Common)",
+          "novelHelpExample2": "For example, “Nine Yang Divine Art” and “Nine Yang Manual,” or “Qingyun Sect” and “Qingyun Faction,” are slightly different names for the same thing, and the database gets messier over time.",
+          "novelHelpExample2Title": "Duplicate Settings/Techniques/Place Names",
+          "novelHelpHow1": "The two pages are merged into one, with no information lost",
+          "novelHelpHow2": "All references to the old name in chapters are automatically updated to the new name, with no broken links",
+          "novelHelpHow3": "A backup is created before merging, so you can restore if the merge was wrong",
+          "novelHelpHowTitle": "What Happens After Merging?",
+          "novelHelpIntro": "In short: when your character or setting library has multiple pages for the same person/thing, this tool finds them and merges them into one.",
+          "novelHelpTip": "💡 Tip: Scan results are only AI guesses; nothing is merged until you confirm. If something is not a duplicate, click “Not a duplicate” and it will not appear in the next scan.",
+          "novelHelpTitle": "What Is This Feature For If You Write Novels?"
         },
         "divergenceTraceTitle": "Dual-write divergence trace",
         "divergenceTraceEmpty": "No divergence trace yet (no dual-write mismatch recorded, or not generated)."
@@ -1657,7 +1750,9 @@
     "snapshotTitle": "View the structured memory extracted from this chapter, including summary, characters, events, foreshadowing, and timeline.",
     "cognitionTitle": "View what each character knows or does not know at the current plot stage to prevent knowledge leaks.",
     "selectFile": "Select a file to preview",
-    "notAvailable": "Preview not available"
+    "notAvailable": "Preview not available",
+    "close": "Close Preview",
+    "loading": "Loading..."
   },
   "trash": {
     "title": "Trash",
@@ -1669,7 +1764,9 @@
     "kindOutline": "Outline",
     "kindPage": "Page",
     "kindHistory": "History",
-    "restoreTitle": "Restore to original location; if a file with the same name already exists there, it will be restored with a new name automatically"
+    "restoreTitle": "Restore to original location; if a file with the same name already exists there, it will be restored with a new name automatically",
+    "deletedItem": "Deleted Item",
+    "originalPath": "Original Path"
   },
   "knowledgeTree": {
     "noProject": "No project opened",
@@ -1947,7 +2044,8 @@
       "builtInSoul": "Built-in Soul",
       "customSoul": "Custom Soul",
       "newCustomSoul": "+ New Character Soul",
-      "noCustomSoul": "No custom souls yet"
+      "noCustomSoul": "No custom souls yet",
+      "bindCharacterLabel": "Bind character"
     },
     "app": {
       "title": "Novel Writing Assistant",
@@ -1984,7 +2082,8 @@
         "organizations": "Factions",
         "powerSystem": "Power System",
         "foreshadowing": "Foreshadowing"
-      }
+      },
+      "autoExtract": "Auto Extract"
     },
     "outline": {
       "createTitle": "New Outline",
@@ -2319,7 +2418,13 @@
       "noDataHint": "Each card is one chapter's scene summary",
       "chapter": "Chapter {{num}}",
       "words": "{{count}} words",
-      "noSummary": "No summary"
+      "noSummary": "No summary",
+      "cancelDelete": "Cancel",
+      "confirmDelete": "Confirm Delete",
+      "createFailed": "Failed to create scene card",
+      "createScene": "New Scene Card",
+      "deleteChapter": "Delete",
+      "openChapter": "Open Chapter"
     },
     "plotgrid": {
       "title": "Plot Grid",
@@ -2622,6 +2727,43 @@
       "title": "Project Doctor",
       "failed": "Diagnostics failed",
       "empty": "Run diagnostics automatically after opening a project"
+    },
+    "outlineImport": {
+      "documentFilter": "Documents",
+      "emptyResult": "No importable outline documents found.",
+      "importFilesTitle": "Import Outline Files",
+      "importFolderTitle": "Import Outline Folder"
+    },
+    "planning": {
+      "chaptersSince": "No progress for {{n}} chapters",
+      "characters": "Character Appearances",
+      "close": "Close",
+      "cognition": "Cognition Blind Spots",
+      "cognitionEmpty": "No cognition blind spot records",
+      "dead": "Exited",
+      "degraded": "Data source unavailable",
+      "dimensionTruncated": "Truncated by per-dimension budget",
+      "dormant": "Absent for {{n}} chapters",
+      "emptyCharacters": "No character data",
+      "emptyForeshadow": "No unresolved foreshadowing",
+      "emptySubplots": "No subplot data",
+      "encounter": "Encounter Boundaries",
+      "encounterEmpty": "No encounter records",
+      "foreshadowing": "Foreshadowing Debt",
+      "inOutline": "Appears This Chapter",
+      "particles": "Particle Holdings",
+      "particlesEmpty": "No particle ledger",
+      "refresh": "Refresh",
+      "startWriting": "Start Writing from This Plan",
+      "stateDeltas": "Recent Chapter State Changes",
+      "stateDeltasEmpty": "No recent chapter state changes",
+      "summary": "Debt {{debt}} · Open Subplots {{threads}} · Due Characters {{due}}",
+      "threads": "Subplot Progress",
+      "title": "Deterministic Scope for This Chapter"
+    },
+    "range": {
+      "from": "From",
+      "to": "To"
     }
   },
   "canon": {
@@ -2885,5 +3027,32 @@
   "pdfexport.report": "{{pages}} page(s) · {{bytes}} bytes · {{font}}",
   "batchreplace.find.label": "Find",
   "batchreplace.replace.label": "Replace with",
-  "batchreplace.preview.action": "Preview (read-only)"
+  "batchreplace.preview.action": "Preview (read-only)",
+  "craft": {
+    "arcWorkbench": {
+      "confidence": "Confidence",
+      "current": "Current",
+      "currentStage": "Current stage",
+      "noData": "No arc data yet. Ingest entity technique fields first.",
+      "reason": "Evidence",
+      "title": "Arc Workbench"
+    },
+    "techniquePanel": {
+      "noData": "No technique data yet. Compile the technique rules pack first.",
+      "title": "Technique Panel",
+      "statPacks": "Rule packs",
+      "statHookTypes": "Hook types",
+      "statSnapshotVersion": "Snapshot version",
+      "hookRegistry": "Hook type registry",
+      "packDetails": "Rule pack details ({{n}} packs)"
+    },
+    "thrillDashboard": {
+      "chartFailed": "Failed to load chart. Make sure the echarts dependency is installed.",
+      "noData": "No thrill point quantification data yet. Run thrill point quantification first.",
+      "title": "Thrill Point Dashboard"
+    }
+  },
+  "mermaid": {
+    "syntaxError": "Mermaid syntax error"
+  }
 }

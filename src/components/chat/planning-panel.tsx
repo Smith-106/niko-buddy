@@ -136,7 +136,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-muted-foreground">{t("novel.planning.empty", { defaultValue: "无未回收伏笔" })}</p>
+              <p className="text-xs text-muted-foreground">{t("novel.planning.emptyForeshadow", { defaultValue: "无未回收伏笔" })}</p>
             )}
           </section>
 
@@ -171,7 +171,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-muted-foreground">{t("novel.planning.empty", { defaultValue: "无角色数据" })}</p>
+              <p className="text-xs text-muted-foreground">{t("novel.planning.emptyCharacters", { defaultValue: "无角色数据" })}</p>
             )}
           </section>
 
@@ -197,7 +197,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-muted-foreground">{t("novel.planning.empty", { defaultValue: "无支线数据" })}</p>
+              <p className="text-xs text-muted-foreground">{t("novel.planning.emptySubplots", { defaultValue: "无支线数据" })}</p>
             )}
           </section>
 

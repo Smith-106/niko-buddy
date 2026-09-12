@@ -4,6 +4,7 @@ import { X, RefreshCw, MapPin, Swords, Package } from "lucide-react"
 import { loadCognitionState, loadCharacterStates } from "@/lib/novel"
 import type { CognitionState, CharacterState } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface Props {
   projectPath: string
@@ -36,7 +37,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
     } catch (err) {
       setState(null)
       setCharStates(new Map())
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatOperationError(t, err))
     } finally {
       setLoading(false)
     }
@@ -63,7 +64,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
         if (!cancelled) {
           setState(null)
           setCharStates(new Map())
-          setError(err instanceof Error ? err.message : String(err))
+          setError(formatOperationError(t, err))
         }
       } finally {
         if (!cancelled) setLoading(false)

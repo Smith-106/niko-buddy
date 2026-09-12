@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, Link2, PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import type { CharacterAura, CharacterAuraBinding, CharacterAuraGenerationProgre
 import { useWikiStore } from "@/stores/wiki-store"
 import { SoulDocEditor } from "./soul-doc-editor"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 type AuraFormState = {
   name: string
@@ -175,6 +176,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     setSection(nextSection)
   }
 
+  const projectPathRef = useRef(project?.path)
+  projectPathRef.current = project?.path
+
   useEffect(() => {
     if (!project) return
     void runAction(refresh, "角色灵魂加载失败，请稍后重试")
@@ -199,11 +203,15 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   async function refresh() {
     /* v8 ignore next */
     if (!project) return
+    const requestPath = project.path
     const [loaded, loadedCharacters, loadedBindings] = await Promise.all([
       listCharacterAuras(project.path),
       listBindableNovelCharacters(project.path),
       getCharacterAuraBindings(project.path),
     ])
+    // 项目已切换：丢弃过期响应，避免旧项目数据覆盖新项目状态。
+    /* v8 ignore next */
+    if (projectPathRef.current !== requestPath) return
     setAuras(loaded)
     setCharacterOptions(loadedCharacters)
     setBindings(loadedBindings)
@@ -342,6 +350,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   async function handlePreviewAuraContext() {
     /* v8 ignore next */
     if (!project || !auraPreviewTask.trim()) return
+    const requestPath = project.path
     setAuraPreviewLoading(true)
     setAuraPreview("")
     await runAction(async () => {
@@ -393,6 +402,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
         { temperature: 0.7 },
       )
       if (streamError) throw streamError
+      // 项目已切换：丢弃过期预览，避免旧项目灵魂预览写进新项目状态。
+      /* v8 ignore next */
+      if (projectPathRef.current !== requestPath) return
       setAuraPreview(preview.trim() ? preview.trim() : EMPTY_AURA_PREVIEW_MESSAGE)
     }, "灵魂注入预览失败，请稍后重试")
     setAuraPreviewLoading(false)
@@ -440,6 +452,8 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       {!hideSidebar && (
       <div className="flex border-b shrink-0">
         <button
+          role="tab"
+          aria-selected={soulTab === "project"}
           className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
             soulTab === "project"
               ? "border-primary text-primary"
@@ -566,6 +580,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
             <p className="mb-3 text-sm text-muted-foreground">从小说人物下拉框中选择要绑定的人物，绑定后也可以直接取消。</p>
             <div className="flex gap-2">
               <select
+                aria-label={t("novel.soul.bindCharacterLabel", "绑定小说人物")}
                 value={characterName}
                 onChange={(event) => setCharacterName(event.target.value)}
                 className="flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
@@ -650,7 +665,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                 setForm={setForm}
                 onCreate={handleCreate}
                 onUpdate={handleUpdate}
-                onDelete={handleDelete}
+                onDelete={() => void handleDelete(selected ?? undefined)}
                 onCancel={() => setShowCustomEditor(false)}
                 mode={mode}
                 editing={Boolean(selected && !selected.builtIn)}
@@ -694,6 +709,7 @@ function AuraDetails({
   onDelete?: () => void
   actionsDisabled?: boolean
 }) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const [skillDocument, setSkillDocument] = useState("")
   const [skillLoading, setSkillLoading] = useState(false)
@@ -734,8 +750,8 @@ function AuraDetails({
       .then((document) => {
         if (!cancelled) setResearchDocument(document)
       })
-      .catch(() => {
-        if (!cancelled) setResearchError(`研究文件读取失败：${aura.skillFolder}/references/research/${researchFile}`)
+      .catch((err) => {
+        if (!cancelled) setResearchError(formatOperationError(t, err))
       })
       .finally(() => {
         if (!cancelled) setResearchLoading(false)
@@ -810,7 +826,9 @@ function AuraDetails({
             </button>
           ))}
         </div>
-        <div className="mb-2 text-xs text-muted-foreground">{researchFile}</div>
+        <div className="mb-2 text-xs text-muted-foreground" title={researchFile}>
+          {CHARACTER_AURA_RESEARCH_FILES.find((file) => file.fileName === researchFile)?.label ?? researchFile}
+        </div>
         {researchLoading && <div className="text-sm text-muted-foreground">正在读取研究文件。</div>}
         {researchError && <div className="text-sm text-destructive">{researchError}</div>}
         {!researchLoading && !researchError && researchDocument && <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{researchDocument}</pre>}
@@ -1008,11 +1026,13 @@ function TextField({
   value: string
   onChange: (value: string) => void
 }) {
+  const fieldId = useId()
   return (
     <div>
-      <Label>{label}</Label>
+      <Label htmlFor={fieldId}>{label}</Label>
       {helper && <div className="mt-1 text-xs text-muted-foreground">{helper}</div>}
       <textarea
+        id={fieldId}
         className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -3,14 +3,11 @@
  * W4D4 coverage campaign — CreateProjectDialog 全口径 100%。
  * 所有 store / 外部依赖均 vi.mock，参考 src/App.spec.tsx 的 vi.hoisted 可写 state 模式。
  *
- * 已知不可达（详见最终报告）：
- * - effect 内 `setHasInitializedPath(true)` 改变依赖 → React 重跑 effect 前先执行上一
- *   实例 cleanup（`cancelled = true`），该 flush 的微任务先于 `await resolveDefaultParentDir()`
- *   的续体入队，因此 `if (!cancelled)` 的真分支（初始化 setPath）在任何解析延迟下都不可达
- *   （实测 0/2/20/100/300ms 均不填充 path）。handleCreate 的 `path.trim() || await
- *   resolveDefaultParentDir()` 回退掩盖了该缺陷。
- * - guard `hasInitializedPath || path.trim()` 的 path.trim() 真分支：path 非空时
- *   hasInitializedPath 必已为 true（同一 effect 同步置位），短路使其不可达。
+ * 已修复（R3，三模型共识轮）：旧版本 effect 内 `setHasInitializedPath(true)` 置位自身依赖
+ * → React 重跑 effect 前先执行上一实例 cleanup（`cancelled = true`），该 flush 的微任务先于
+ * `await resolveDefaultParentDir()` 的续体入队，因此 `if (!cancelled)` 的真分支（初始化
+ * setPath）在当时任何解析延迟（0/2/20/100/300ms）下都不可达——默认父目录永远填不进去。
+ * 现删除该 latch 状态（仅 `path.trim()` 守位），默认目录初始化重新可达，并由下列断言覆盖。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
@@ -155,20 +152,37 @@ describe("CreateProjectDialog", () => {
     expect(screen.queryByLabelText("project.name")).not.toBeInTheDocument()
   })
 
-  it("打开后触发默认目录初始化（getExecutableDir 被调用）", async () => {
+  it("打开后填充默认父目录（默认目录初始化可达）", async () => {
     renderDialog(true)
     await flushAsync()
     expect(mocks.getExecutableDir).toHaveBeenCalledTimes(1)
-    // cancelled 竞态：effect cleanup 先于续体执行，path 保持为空（见文件头注释）
-    expect(pathInput()).toHaveValue("")
+    // 旧版本此处为 ""（自取消缺陷）；修复后默认目录真正落到 path。
+    expect(pathInput()).toHaveValue("C:\\QM-BOOK")
   })
 
-  it("getExecutableDir 失败时 catch 分支不抛错", async () => {
+  it("getExecutableDir 失败时回落到兜底默认目录，不抛错", async () => {
     mocks.getExecutableDir.mockRejectedValue(new Error("no-exec"))
     renderDialog(true)
     await flushAsync()
     expect(mocks.getExecutableDir).toHaveBeenCalledTimes(1)
-    expect(pathInput()).toHaveValue("")
+    // buildDefaultNovelDir("") → mock 返回 D:\\QM-BOOK（兜底路径仍写入 path）
+    expect(pathInput()).toHaveValue("D:\\QM-BOOK")
+  })
+
+  it("浏览目录失败 → 显示本地化引导 + 原始诊断，不静默", async () => {
+    mocks.pickDirectory.mockRejectedValue(new Error("dialog-boom"))
+    renderDialog(true)
+    await flushAsync()
+    const browseBtn = pathInput().nextElementSibling as HTMLElement
+    fireEvent.click(browseBtn)
+    await flushAsync()
+    expect(mocks.pickDirectory).toHaveBeenCalled()
+    expect(screen.getByText(/dialog-boom/)).toBeInTheDocument()
+  })
+
+  it("浏览目录按钮有可访问名称", async () => {
+    renderDialog(true)
+    expect(screen.getByLabelText("project.browseParentDir")).toBeInTheDocument()
   })
 
   it("初始化挂起期间卸载 → cancelled=true，续体不写 path（!cancelled 假分支）", async () => {
@@ -212,7 +226,7 @@ describe("CreateProjectDialog", () => {
     expect(mocks.createProject).not.toHaveBeenCalled()
   })
 
-  it("创建成功：完整链路（parentDir 为空 → resolveDefaultParentDir fallback）", async () => {
+  it("创建成功：完整链路（默认父目录预填）", async () => {
     renderDialog(true)
     await flushAsync()
     // path 为空 → handleCreate 走 fallback（第二次 getExecutableDir）
@@ -237,7 +251,10 @@ describe("CreateProjectDialog", () => {
     await waitFor(() => {
       expect(nameInput()).toHaveValue("")
     })
-    expect(pathInput()).toHaveValue("")
+    // handleCreate 成功后 setPath("")；本用例 onOpenChange 为 mock（对话框仍 open），
+    // 于是默认目录初始化 effect 再次触发并重新填入默认父目录。真实链路里 open 变 false，
+    // effect 走 !isOpen 分支清空 path。
+    expect(pathInput()).toHaveValue("C:\\QM-BOOK")
   })
 
   it("创建成功：显式输入 parentDir 时直接使用（path.trim() 真分支）", async () => {
@@ -250,16 +267,19 @@ describe("CreateProjectDialog", () => {
     expect(mocks.createDirectory).toHaveBeenCalledWith("E:/books")
   })
 
-  it("resolveDefaultParentDir 返回空 → parentDir 为空时报错", async () => {
+  it("resolveDefaultParentDir 返回空 → parentDir 为空时报错（父目录专用提示）", async () => {
     renderDialog(true)
     await flushAsync()
     // getExecutableDir 失败 → 保留 fallback 初值；buildDefaultNovelDir 返回空 → parentDir 为空
     mocks.getExecutableDir.mockRejectedValue(new Error("no-exec"))
     mocks.buildDefaultNovelDir.mockReturnValue("")
+    // 预填修复后 path 非空，需显式清空才能走到 fallback 分支
+    fireEvent.change(pathInput(), { target: { value: "" } })
     fireEvent.change(nameInput(), { target: { value: "MyBook" } })
     fireEvent.submit(formOf())
     await flushAsync()
-    expect(screen.getByText("project.errorNameRequired")).toBeInTheDocument()
+    // 旧版本此处误用「项目名称必填」提示；现使用父目录专用文案。
+    expect(screen.getByText("project.errorParentDirRequired")).toBeInTheDocument()
     expect(mocks.createProject).not.toHaveBeenCalled()
   })
 

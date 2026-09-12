@@ -17,6 +17,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadMemoryCenterData } from "@/lib/novel"
 import type { MemoryCenterSnapshotCard } from "@/lib/novel"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -364,7 +365,7 @@ export function MemoryCenterView() {
       setStatusMessage(t("novel.memoryCenter.saveSuccess"))
       bumpDataVersion()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatOperationError(t, err))
     }
   }, [bumpDataVersion, detailView, t])
 
@@ -406,7 +407,7 @@ export function MemoryCenterView() {
       setPendingDelete(null)
       setStatusMessage(t("novel.memoryCenter.deleteSuccess"))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatOperationError(t, err))
     } finally {
       setDeleting(false)
     }

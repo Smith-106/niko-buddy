@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel"
 import type { SimulationResultStatus } from "@/lib/novel"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface HistoryResultsModalProps {
   open: boolean
@@ -58,7 +59,7 @@ export function HistoryResultsModal({
         setPage(0)
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : t("storySimulation.loadFailed"))
+        setError(formatOperationError(t, err))
         setResults([])
       })
       .finally(() => setLoading(false))

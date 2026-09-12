@@ -321,7 +321,7 @@ describe("OutlineCreatorDialog", () => {
     fireEvent.change(titleInput(), { target: { value: "T" } })
     fireEvent.click(createButton())
     await waitFor(() => {
-      expect(screen.getByText("disk-full")).toBeInTheDocument()
+      expect(screen.getByText(/disk-full/)).toBeInTheDocument()
     })
     expect(screen.queryByText("novel.outline.created")).not.toBeInTheDocument()
   })
@@ -332,7 +332,7 @@ describe("OutlineCreatorDialog", () => {
     fireEvent.change(titleInput(), { target: { value: "T" } })
     fireEvent.click(createButton())
     await waitFor(() => {
-      expect(screen.getByText("boom-string")).toBeInTheDocument()
+      expect(screen.getByText(/boom-string/)).toBeInTheDocument()
     })
   })
 
