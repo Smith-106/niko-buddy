@@ -276,6 +276,28 @@ pub fn ingest_remote_payload(
         ));
     }
 
+    // TASK-001 门的包容性自证：writeFile 不在 DESTRUCTIVE_OPS，gate 对非受保护路径
+    // 不会介入（直接 Allowed），因此「目标必须在项目根内」必须由本模块自行强制。
+    // 拒绝绝对路径（Path::join 语义：绝对路径整体替换基座）与 `..` 组件（目录逃逸）。
+    let rel_path = Path::new(target_rel);
+    if rel_path.is_absolute() {
+        return Err(McpError::AuditBlocked(format!(
+            "target must be relative to project root, got: {target_rel}"
+        )));
+    }
+    for component in rel_path.components() {
+        if matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+        ) {
+            return Err(McpError::AuditBlocked(format!(
+                "target must stay inside the project root; forbidden path component in: {target_rel}"
+            )));
+        }
+    }
+
     let target = project_root.join(target_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
     let gate = crate::agent_gate::gate_authorize(
         "writeFile",
@@ -288,6 +310,19 @@ pub fn ingest_remote_payload(
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| McpError::Transport(format!("create dir failed: {e}")))?;
+        // 双保险：磁盘规范化后仍须在项目根内（防项目内 symlink 指向外部）。
+        let parent_canon = parent
+            .canonicalize()
+            .map_err(|e| McpError::Transport(format!("resolve parent failed: {e}")))?;
+        let root_canon = project_root
+            .canonicalize()
+            .map_err(|e| McpError::Transport(format!("resolve root failed: {e}")))?;
+        if !parent_canon.starts_with(&root_canon) {
+            return Err(McpError::AuditBlocked(format!(
+                "target escapes project root after canonicalization: {}",
+                parent_canon.display()
+            )));
+        }
     }
     std::fs::write(&target, &payload.body)
         .map_err(|e| McpError::Transport(format!("write failed: {e}")))?;
@@ -537,6 +572,66 @@ mod mcp {
             .expect("allow 应写入");
         assert!(Path::new(&written).exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// F-005/C6 收口：目标路径必须被包含在项目根内（模块文档承诺的 TASK-001 门）。
+    /// writeFile 不在 DESTRUCTIVE_OPS，gate 不会介入 —— 包容性必须由本模块自证。
+    #[test]
+    fn ingest_rejects_paths_escaping_project_root() {
+        let root = temp_root("escape");
+        // 共享 Temp 下的逃逸目标可能被上次 panic 的红跑残留：先清场再断言。
+        let outside = root.parent().unwrap().join("escape.md");
+        let abs = root.parent().unwrap().join("abs-escape.md");
+        let nested_out = root.parent().unwrap().join("out.md");
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_file(&abs);
+        let _ = std::fs::remove_file(&nested_out);
+        let payload = RemotePayload {
+            server_id: "demo".into(),
+            transport: "http".into(),
+            body: "remote content".into(),
+            audit_pending: true,
+            origin: "http://127.0.0.1:9/mcp".into(),
+        };
+
+        // ① 相对路径 .. 逃逸
+        let err = ingest_remote_payload(&root, "../escape.md", &payload, AuditVerdict::Allow)
+            .expect_err(".. 逃逸必须被拒");
+        assert!(matches!(err, McpError::AuditBlocked(_)), "got {err:?}");
+        assert!(!outside.exists(), "逃逸目标不得落盘");
+
+        // ② 绝对路径（Path::join 语义：绝对路径整体替换基座）
+        let err =
+            ingest_remote_payload(&root, &abs.to_string_lossy(), &payload, AuditVerdict::Allow)
+                .expect_err("绝对路径必须被拒");
+        assert!(matches!(err, McpError::AuditBlocked(_)), "got {err:?}");
+        assert!(!abs.exists(), "绝对路径目标不得落盘");
+
+        // ③ 嵌套 .. 组件
+        let err = ingest_remote_payload(
+            &root,
+            "components/../../out.md",
+            &payload,
+            AuditVerdict::Allow,
+        )
+        .expect_err("嵌套 .. 必须被拒");
+        assert!(matches!(err, McpError::AuditBlocked(_)), "got {err:?}");
+        assert!(!nested_out.exists(), "嵌套逃逸目标不得落盘");
+
+        // ④ 正常项目内路径仍可写（不因守卫误伤正常入库）
+        let ok = ingest_remote_payload(
+            &root,
+            ".novel/mcp-incoming/payload.json",
+            &payload,
+            AuditVerdict::Allow,
+        )
+        .expect("项目内路径应写入成功");
+        assert!(Path::new(&ok).exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_file(&abs);
+        let _ = std::fs::remove_file(&nested_out);
     }
 
     #[test]
