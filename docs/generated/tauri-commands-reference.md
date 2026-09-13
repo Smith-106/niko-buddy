@@ -1,15 +1,24 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-09-08（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**76**（`generate_handler!` 块）；未注册声明（死命令）：**1**
+> 生成时间：2026-09-13（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**110**（`generate_handler!` 块）；未注册声明（死命令）：**1**
 
-## 注册命令（76）
+## 注册命令（110）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
+| `confirm_gate_classify` | agent_gate | ✓ |
+| `confirm_gate_loop_state` | agent_gate | ✓ |
+| `confirm_gate_pending` | agent_gate | ✓ |
+| `confirm_gate_resolve` | agent_gate | ✓ |
+| `app_lock_set_passphrase` | app_lock::api | ✓ |
+| `app_lock_state` | app_lock::api | ✓ |
+| `app_lock_verify` | app_lock::api | ✓ |
 | `cancel_backup` | backup | ✓ |
 | `export_backup` | backup | ✓ |
 | `import_backup` | backup | ✓ |
+| `batch_replace_apply` | batch_replace::api | ✓ |
+| `batch_replace_preview` | batch_replace::api | ✓ |
 | `canon_facts_known_by` | canon::commands | ✓ |
 | `canon_get_revision` | canon::commands | ✓ |
 | `canon_ingest_episode` | canon::commands | ✓ |
@@ -30,6 +39,10 @@
 | `codex_cli_detect` | codex_cli | ✓ |
 | `codex_cli_kill` | codex_cli | ✓ |
 | `codex_cli_spawn` | codex_cli | ✓ |
+| `vault_delete_secret` | credential_vault::api | ✓ |
+| `vault_get_secret` | credential_vault::api | ✓ |
+| `vault_has_secret` | credential_vault::api | ✓ |
+| `vault_put_secret` | credential_vault::api | ✓ |
 | `get_device_fingerprint_cmd` | crypto | ✓ |
 | `cursor_cli_detect` | cursor_cli | ✓ |
 | `cursor_proxy_ensure` | cursor_cli | ✓ |
@@ -66,16 +79,37 @@
 | `write_file_atomic` | fs | ✓ |
 | `write_files_atomic` | fs | ✓ |
 | `log_diagnostic` | log_diagnostic | ✓ |
+| `mcp_remote_close` | mcp_remote::api | ✓ |
+| `mcp_remote_connect` | mcp_remote::api | ✓ |
+| `mcp_remote_request` | mcp_remote::api | ✓ |
+| `mcp_transport_set_mode` | mcp_remote::api | ✓ |
 | `mcp_stdio_kill` | mcp_stdio | ✓ |
 | `mcp_stdio_read` | mcp_stdio | ✓ |
 | `mcp_stdio_spawn` | mcp_stdio | ✓ |
 | `mcp_stdio_write` | mcp_stdio | ✓ |
+| `export_pdf` | pdf_export::api | ✓ |
 | `acquire_wake_lock` | power | ✓ |
 | `release_wake_lock` | power | ✓ |
 | `create_project` | project | ✓ |
 | `open_file_location` | project | ✓ |
 | `open_project` | project | ✓ |
 | `open_project_folder` | project | ✓ |
+| `secret_available` | secret_store | ✓ |
+| `secret_delete` | secret_store | ✓ |
+| `secret_get` | secret_store | ✓ |
+| `secret_put` | secret_store | ✓ |
+| `skill_bundle_export` | skill_bundle | ✓ |
+| `skill_bundle_import` | skill_bundle | ✓ |
+| `skill_bundle_verify` | skill_bundle | ✓ |
+| `snapshot_list_chain` | snapshot_timemachine | ✓ |
+| `snapshot_preview_point` | snapshot_timemachine | ✓ |
+| `snapshot_restore_atomic` | snapshot_timemachine | ✓ |
+| `sync_configure` | sync_target | ✓ |
+| `sync_conflicts` | sync_target | ✓ |
+| `sync_pull` | sync_target | ✓ |
+| `sync_push` | sync_target | ✓ |
+| `sync_status` | sync_target | ✓ |
+| `sync_test` | sync_target | ✓ |
 | `vector_count_chunks` | vectorstore | ✓ |
 | `vector_delete_page` | vectorstore | ✓ |
 | `vector_drop_legacy` | vectorstore | ✓ |
