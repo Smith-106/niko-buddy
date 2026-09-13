@@ -452,6 +452,10 @@ mod tests {
         assert!(drifted[0].starts_with("content_digest:"));
     }
 
+    // 运维注记：本用例曾在 mac CI 单次失败（判运行器偶发：内容寻址 sha256 确定性 +
+    // 历史三 mac run 均通过，未复现）。断言消息现自带诊断负载（manifest 块集合 hash 前缀
+    // +字节数 / 块目录实况文件+字节数）。若复发：在 src-tauri 下 `RUST_BACKTRACE=1 cargo
+    // test dedupes_identical_blocks` 本地复现，比对失败消息中的块集合与三个源文件字节后定论。
     #[test]
     fn dedupes_identical_blocks() {
         let source = TempTree::new("src");
@@ -461,19 +465,33 @@ mod tests {
         source.write("three.md", b"different");
 
         let manifest = build_manifest(&source.root).expect("build manifest");
-        // 3 个文件 → 2 个唯一块。
+        // 3 个文件 → 2 个唯一块（失败消息携带块集合诊断：hash 前缀 + 字节数）。
         assert_eq!(
             manifest.blocks.len(),
             2,
-            "identical contents must dedupe to one block"
+            "identical contents must dedupe to one block; blocks={:#?}",
+            manifest
+                .blocks
+                .iter()
+                .map(|b| (&b.hash[..12.min(b.hash.len())], b.size))
+                .collect::<Vec<_>>()
         );
 
         pack_blocks(&source.root, &manifest, &dest.root).expect("pack blocks");
-        let written = fs::read_dir(dest.root.join(ARCHIVE_BLOCKS_DIR))
+        let written: Vec<(String, u64)> = fs::read_dir(dest.root.join(ARCHIVE_BLOCKS_DIR))
             .expect("read blocks dir")
-            .filter(|entry| entry.as_ref().map(|e| e.path().is_file()).unwrap_or(false))
-            .count();
-        assert_eq!(written, 2, "only unique blocks are written");
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let meta = entry.metadata().ok()?;
+                meta.is_file()
+                    .then(|| (entry.file_name().to_string_lossy().into_owned(), meta.len()))
+            })
+            .collect();
+        assert_eq!(
+            written.len(),
+            2,
+            "only unique blocks are written; on-disk={written:#?}"
+        );
 
         // 空目录 → 空块集合，且仍产出可校验的 manifest。
         let empty = TempTree::new("empty");
