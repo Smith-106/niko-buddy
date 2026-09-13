@@ -185,7 +185,13 @@ export async function testSettingsRerankModel(
   )
 
   const json = extractJson(result.content)
-  const parsed = JSON.parse(json) as { order?: Array<{ id?: string }> }
+  // 贪心提取的 JSON 跨可能畸形（LLM 输出不可控）：裸 SyntaxError 会把英文解析错误泄漏进测试失败消息（spec coding-conventions-055）。
+  let parsed: { order?: Array<{ id?: string }> }
+  try {
+    parsed = JSON.parse(json) as { order?: Array<{ id?: string }> }
+  } catch {
+    throw new Error("模型返回了内容，但不是可用的 JSON 结果。")
+  }
   if (!Array.isArray(parsed.order) || parsed.order.length === 0 || !parsed.order[0]?.id) {
     throw new Error("重排模型返回了内容，但结果格式不正确。")
   }

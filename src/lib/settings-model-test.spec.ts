@@ -256,4 +256,13 @@ describe("testSettingsRerankModel", () => {
     })
     await expect(testSettingsRerankModel(baseConfig, rerankConfig)).rejects.toThrow("不是可用的 JSON 结果")
   })
+
+  it("throws a friendly error when the extracted JSON candidate is malformed", async () => {
+    // 贪心提取能拿到 {...} 跨但内容非法 → 不得裸抛 SyntaxError（spec coding-conventions-055）
+    mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {
+      callbacks.onToken("结果如下 {oops: not json}")
+      callbacks.onDone()
+    })
+    await expect(testSettingsRerankModel(baseConfig, rerankConfig)).rejects.toThrow("不是可用的 JSON 结果")
+  })
 })
