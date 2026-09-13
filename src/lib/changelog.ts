@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.8.3",
+    date: "2026-09-13",
+    highlights: {
+      en: [
+        "Four-round three-model consensus bug hunt (R1-R4): deepseek-v4-flash + GLM-5.3-flash + qwen3.8-flash audited 7 previously unreviewed high-traffic surfaces with full 3-model coverage (29 dispatch jobs + a documented payload-split fallback for oversized GLM contexts); the line-number gate, verified against the frozen dispatched revision, scored 193 findings / 185 line-OK with 62 cross-model consensus points; 69 confirmed defects fixed across the four rounds (24d3db1d, 490746de, 0b0eb503).",
+        "Two data-loss paths closed: preview-panel no longer writes the read-failure text into editor content, where the 1s debounced autosave would overwrite the real file with an error string; graph-view no longer falls back to template content when a profile-page read fails while the save target still points at the real page - a save would have clobbered the user's document.",
+        "odyssey-ui shell fixes: unreachable panel scrolling, page leak/overlap, missing MCP connection status and raw English diagnostics surfaced to the user (4c79ee58); the 7 ported panels wired into the real host shell (3b919b00); gate and lock mounted into the app shell so the new capabilities finally have an entry point (4862dee2).",
+        "Error-surface and i18n standardization: user-facing failures now go through formatOperationError (localized lead-in + raw diagnostic; 27 sites rewritten and the pattern extended across all audited surfaces); visible broken i18n keys 160 to 0, missing EN translations 133 to 0, and the zh/en key sets are now identical at 2659 keys each; batch a11y fixes (aria-label on filters/dialogs, role=alert error banners, role=tablist containers, useId+htmlFor associations).",
+        "Verification discipline: 3 counter-proofs captured (re-injecting each defect fails the new test verbatim); 9 review-debt tests that had pinned buggy behavior inverted to assert the correct semantics; 28+ new regression tests; full suite green at 831 files / 12793 tests (12 skipped) plus 84 e2e scenarios against the live app.",
+      ],
+      zh: [
+        "四轮三模型共识缺陷猎取（R1–R4）：deepseek-v4-flash + GLM-5.3-flash + qwen3.8-flash 对 7 个此前未复核的高流量面达成三模型全覆盖（29 个派发作业；超大 GLM 上下文按记录在案的分块方案补测）；行号门对冻结的派发修订版核验：193 条发现 / 185 条行号验证通过、62 个跨模型共识点；四轮累计修复 69 项确认缺陷（24d3db1d、490746de、0b0eb503）。",
+        "两处数据丢失路径封堵：preview-panel 读档失败不再把错误文本写进编辑器内容——否则 1 秒防抖自动保存会用错误字符串覆盖原文件；graph-view 档案页读取失败不再回退模板内容进入编辑（保存目标仍指向真实档案页，保存即覆盖用户文档）。",
+        "odyssey-ui 外壳修复：面板滚动不可达、页面泄露/重叠、MCP 连接状态缺失、英文诊断串直出（4c79ee58）；7 个移植面板接入真实宿主（3b919b00）；门与锁挂载进应用壳层，新能力终于有入口（4862dee2）。",
+        "错误面与 i18n 口径统一：用户可感知失败统一走 formatOperationError（本地化引导 + 原始诊断；R3 重写 27 处并在 R4 各面推广）；可见坏键 160→0、en 缺译 133→0，zh/en 键集双侧一致各 2659；批量 a11y 修复（筛选器/对话框 aria-label、role=alert 错误横幅、role=tablist 容器、useId+htmlFor 关联）。",
+        "验证纪律：3 处反证（重注入缺陷后新断言原样失败）；9 处「把缺陷写成预期」的评审债测试反转为断言正确语义；新增回归用例 28+；全量套件绿：831 文件 / 12793 用例（12 skipped）+ 实机 e2e 84 通过。",
+      ],
+    },
+  },
+
+  {
     version: "2.8.2",
     date: "2026-09-12",
     highlights: {

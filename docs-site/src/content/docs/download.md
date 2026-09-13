@@ -7,9 +7,18 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.8.2**（2026-09-12 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+**v2.8.3**（2026-09-13 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.8.3 更新亮点（2026-09-13，三模型共识缺陷猎取 R1–R4）
+
+- ✅ **四轮三模型共识审计** — deepseek-v4-flash + GLM-5.3-flash + qwen3.8-flash 对 7 个高流量面全覆盖（193 findings / 185 行号验证通过 / 62 共识点）；累计修复 **69 项确认缺陷**（24d3db1d、490746de、0b0eb503）
+- ✅ **两处数据丢失路径封堵** — preview-panel 读档失败不再把错误文本写进编辑器（防 1s 防抖自动保存覆盖原文件）；graph-view 档案页读档失败不再回退模板内容进入编辑（防保存覆盖真实档案页）
+- ✅ **odyssey-ui 外壳修复** — 面板滚动不可达、页面泄露/重叠、MCP 连接状态缺失、英文诊断串直出（4c79ee58）；7 个移植面板接入真实宿主（3b919b00）
+- ✅ **错误面与 i18n 统一** — 失败统一 `formatOperationError`（本地化引导 + 原始诊断）；可见坏键 160→0、en 缺译 133→0、zh/en 双侧 2659 一致；批量 a11y（aria-label / role=alert / role=tablist）
+- ✅ **验证纪律** — 3 处反证 + 9 处评审债反转 + 28+ 新回归用例；全量 831 文件 / 12793 用例绿 + 实机 e2e 84 通过
+- 发布语义：prerelease（10/2 承诺窗口内不发 stable；验证通过后提升 stable）
 
 ### v2.8.2 更新亮点（2026-09-12，provider 修复 + 过程债务收敛）
 
