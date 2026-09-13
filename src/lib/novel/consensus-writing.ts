@@ -9,6 +9,7 @@ import {
   type DeepChapterGenerationResult,
 } from "./deep-chapter-generation"
 import { anonymousId, pickBestDraft, type DraftCandidate, type PeerEvaluation } from "./consensus-aggregate"
+import { logger } from "@/lib/utils"
 import { resolveConsensusModels } from "./model-resolver"
 
 /**
@@ -66,7 +67,10 @@ async function evaluateDraft(
         text += token
       },
       onDone: () => {},
-      onError: () => {},
+      onError: (err: unknown) => {
+        // IMT-ODX-02: 同型修复（见 consensus-review.ts）——互评席位流中断不再静默
+        logger.warn("Consensus Writing", `互评席位流中断: ${err instanceof Error ? err.message : String(err)}`)
+      },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: input.novelConfig.reviewReasoningEffort ?? "high" } },
@@ -120,6 +124,11 @@ export async function runDeepChapterGenerationConsensus(
   if (successes.length === 0) {
     // 全部失败：抛最后一个错误（与单模型失败语义一致）
     const last = [...settled].reverse().find((s) => s.status === "rejected") as PromiseRejectedResult | undefined
+    logger.error(
+      "Consensus Writing",
+      `共识生成全部失败（${models.length} 席位）`,
+      { reason: last?.reason instanceof Error ? last.reason.message : String(last?.reason ?? "unknown") },
+    )
     throw last?.reason ?? new Error("共识生成全部失败")
   }
   if (successes.length === 1) {
