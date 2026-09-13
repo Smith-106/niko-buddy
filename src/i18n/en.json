@@ -1049,7 +1049,8 @@
       "superseded": "Superseded"
     },
     "nextPage": "Next page",
-    "prevPage": "Previous page"
+    "prevPage": "Previous page",
+    "pageInfo": "Page {{page}} of {{total}}"
   },
   "fileTree": {
     "noProject": "No project open",
@@ -2417,7 +2418,8 @@
       "loading": "Loading timeline...",
       "noEvents": "No timeline events yet. Timeline will appear here after saving canon chapters with memory extraction.",
       "noEventsHint": "Timeline events are recorded automatically when chapters are generated",
-      "chapter": "Chapter {{num}}"
+      "chapter": "Chapter {{num}}",
+      "openChapter": "Open chapter {{num}}"
     },
     "corkboard": {
       "title": "Scene Corkboard",
@@ -2432,7 +2434,12 @@
       "createFailed": "Failed to create scene card",
       "createScene": "New Scene Card",
       "deleteChapter": "Delete",
-      "openChapter": "Open Chapter"
+      "openChapter": "Open Chapter",
+      "newSceneTitle": "Scene {{num}}",
+      "created": "Created scene {{num}}",
+      "chapterNotFound": "Chapter file {{num}} not found",
+      "deleted": "Deleted chapter file {{num}}",
+      "deleteFailed": "Failed to delete chapter {{num}}"
     },
     "plotgrid": {
       "title": "Plot Grid",
@@ -2442,7 +2449,8 @@
       "plotline": "Plotline",
       "chapterShort": "Ch.{{num}}",
       "noChapters": "No chapter columns yet",
-      "noChaptersHint": "Chapter columns appear after canon chapter snapshots are saved"
+      "noChaptersHint": "Chapter columns appear after canon chapter snapshots are saved",
+      "openChapter": "Open chapter {{num}}"
     },
     "coverWorkbench": {
       "title": "Cover Prompt Workbench",
@@ -2474,7 +2482,9 @@
       "planted": "Planted",
       "advanced": "Advancing",
       "plantedAt": "Planted in Chapter {{chapter}}",
-      "resolvedAt": "Resolved in Chapter {{chapter}}"
+      "resolvedAt": "Resolved in Chapter {{chapter}}",
+      "openPlanted": "Open chapter {{num}}",
+      "openResolved": "Open resolved chapter {{num}}"
     },
     "character": {
       "location": "Location",
@@ -2740,7 +2750,8 @@
       "documentFilter": "Documents",
       "emptyResult": "No importable outline documents found.",
       "importFilesTitle": "Import Outline Files",
-      "importFolderTitle": "Import Outline Folder"
+      "importFolderTitle": "Import Outline Folder",
+      "importFailed": "Import failed: {{message}}"
     },
     "planning": {
       "chaptersSince": "No progress for {{n}} chapters",
@@ -3046,7 +3057,9 @@
       "currentStage": "Current stage",
       "noData": "No arc data yet. Ingest entity technique fields first.",
       "reason": "Evidence",
-      "title": "Arc Workbench"
+      "title": "Arc Workbench",
+      "titleWithChar": "Arc Workbench — {{name}}",
+      "progressed": "Stage progressed: {{from}} → {{to}}"
     },
     "techniquePanel": {
       "noData": "No technique data yet. Compile the technique rules pack first.",
@@ -3060,7 +3073,8 @@
     "thrillDashboard": {
       "chartFailed": "Failed to load chart. Make sure the echarts dependency is installed.",
       "noData": "No thrill point quantification data yet. Run thrill point quantification first.",
-      "title": "Thrill Point Dashboard"
+      "title": "Thrill Point Dashboard",
+      "titleWithChapter": "Thrill Dashboard — {{title}}"
     }
   },
   "mermaid": {

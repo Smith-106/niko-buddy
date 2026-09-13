@@ -1313,7 +1313,8 @@
       "superseded": "已取代"
     },
     "nextPage": "下一页",
-    "prevPage": "上一页"
+    "prevPage": "上一页",
+    "pageInfo": "第 {{page}}/{{total}} 页"
   },
   "fileTree": {
     "noProject": "未打开项目",
@@ -2026,7 +2027,8 @@
       "loading": "加载时间线...",
       "noEvents": "暂无时间线事件。保存正式章节并提取记忆后，时间线将在此展示。",
       "noEventsHint": "章节生成后会自动记录时间线",
-      "chapter": "第{{num}}章"
+      "chapter": "第{{num}}章",
+      "openChapter": "打开第{{num}}章"
     },
     "corkboard": {
       "title": "场景卡片墙",
@@ -2041,7 +2043,12 @@
       "createFailed": "新建场景卡片失败",
       "createScene": "新建场景卡片",
       "deleteChapter": "删除",
-      "openChapter": "打开章节"
+      "openChapter": "打开章节",
+      "newSceneTitle": "第{{num}}章",
+      "created": "已创建场景 {{num}}",
+      "chapterNotFound": "未找到第{{num}}章文件",
+      "deleted": "已删除第{{num}}章文件",
+      "deleteFailed": "删除第{{num}}章失败"
     },
     "plotgrid": {
       "title": "情节矩阵",
@@ -2051,7 +2058,8 @@
       "plotline": "情节线",
       "chapterShort": "第{{num}}章",
       "noChapters": "暂无章节列",
-      "noChaptersHint": "保存正式章节快照后，矩阵将出现章节列"
+      "noChaptersHint": "保存正式章节快照后，矩阵将出现章节列",
+      "openChapter": "打开第{{num}}章"
     },
     "coverWorkbench": {
       "title": "封面 Prompt 工作台",
@@ -2083,7 +2091,9 @@
       "planted": "已埋设",
       "advanced": "推进中",
       "plantedAt": "第{{chapter}}章埋设",
-      "resolvedAt": "第{{chapter}}章回收"
+      "resolvedAt": "第{{chapter}}章回收",
+      "openPlanted": "打开第{{num}}章",
+      "openResolved": "打开第{{num}}章"
     },
     "character": {
       "location": "位置",
@@ -2360,7 +2370,8 @@
       "documentFilter": "文档",
       "emptyResult": "没有找到可导入的大纲文档。",
       "importFilesTitle": "导入大纲文件",
-      "importFolderTitle": "导入大纲文件夹"
+      "importFolderTitle": "导入大纲文件夹",
+      "importFailed": "导入失败：{{message}}"
     },
     "planning": {
       "chaptersSince": "已 {{n}} 章未推进",
@@ -3046,7 +3057,9 @@
       "currentStage": "当前阶段",
       "noData": "暂无弧光数据，请先摄取实体技法字段",
       "reason": "检测依据",
-      "title": "弧光工作台"
+      "title": "弧光工作台",
+      "titleWithChar": "弧光工作台 — {{name}}",
+      "progressed": "阶段推进：{{from}} → {{to}}"
     },
     "techniquePanel": {
       "noData": "暂无技法数据，请先编译技法规则包",
@@ -3060,7 +3073,8 @@
     "thrillDashboard": {
       "chartFailed": "图表加载失败，请确认 echarts 依赖已安装",
       "noData": "暂无爽点量化数据，请先运行爽点量化",
-      "title": "爽点仪表盘"
+      "title": "爽点仪表盘",
+      "titleWithChapter": "爽点仪表盘 — {{title}}"
     }
   },
   "mermaid": {
