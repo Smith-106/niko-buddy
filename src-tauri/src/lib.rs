@@ -1,13 +1,13 @@
 pub mod agent_gate;
 pub mod app_lock;
 pub mod batch_replace;
-pub mod pdf_export;
+mod canon;
+mod commands;
 pub mod credential_vault;
 pub mod mcp_remote;
 pub mod mcp_transport;
-mod canon;
-mod commands;
 mod panic_guard;
+pub mod pdf_export;
 mod proxy;
 pub mod snapshot_timemachine;
 mod status_watcher;

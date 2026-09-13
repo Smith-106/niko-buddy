@@ -134,7 +134,10 @@ impl WriteTarget {
     pub fn is_truth_surface(self) -> bool {
         matches!(
             self,
-            WriteTarget::StatusJson | WriteTarget::SchemaDoc | WriteTarget::Canon | WriteTarget::Reference
+            WriteTarget::StatusJson
+                | WriteTarget::SchemaDoc
+                | WriteTarget::Canon
+                | WriteTarget::Reference
         )
     }
 }
@@ -290,7 +293,11 @@ pub struct AuthorityAuditRecord {
 }
 
 /// 构造审计记录（纯函数，不落盘；落盘由调用方按各自审计通道决定）。
-pub fn audit_record(source: WriteSource, target: &Path, decision: WriteDecision) -> AuthorityAuditRecord {
+pub fn audit_record(
+    source: WriteSource,
+    target: &Path,
+    decision: WriteDecision,
+) -> AuthorityAuditRecord {
     AuthorityAuditRecord {
         source: source.as_str(),
         target: classify_target(target).as_str(),
@@ -376,11 +383,23 @@ mod tests {
     #[test]
     fn sync_pull_cannot_write_status_json() {
         // 硬规则 1：外部来源不得对 status.json 取 Allow。
-        assert_eq!(may_write(WriteSource::SyncPull, &p(".novel/status.json")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::SyncPull, &p(".novel/schema.md")), WriteDecision::Deny);
+        assert_eq!(
+            may_write(WriteSource::SyncPull, &p(".novel/status.json")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::SyncPull, &p(".novel/schema.md")),
+            WriteDecision::Deny
+        );
         // 回填仍须过门，不得直接写正典 / 资料库。
-        assert_eq!(may_write(WriteSource::SyncPull, &p("canon/ch-01.md")), WriteDecision::RequireGate);
-        assert_eq!(may_write(WriteSource::SyncPull, &p("QM/book-analysis/x.md")), WriteDecision::RequireGate);
+        assert_eq!(
+            may_write(WriteSource::SyncPull, &p("canon/ch-01.md")),
+            WriteDecision::RequireGate
+        );
+        assert_eq!(
+            may_write(WriteSource::SyncPull, &p("QM/book-analysis/x.md")),
+            WriteDecision::RequireGate
+        );
         // 冲突副本与草稿域是允许的落点。
         assert_eq!(
             may_write(WriteSource::SyncPull, &p(".novel/drafts/conflict-a.json")),
@@ -390,19 +409,37 @@ mod tests {
 
     #[test]
     fn skill_import_cannot_allow_truth_targets() {
-        assert_eq!(may_write(WriteSource::SkillImport, &p(".novel/status.json")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::SkillImport, &p(".novel/schema.md")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::SkillImport, &p("canon/ch.md")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::SkillImport, &p("QM/skills/a.md")), WriteDecision::Deny);
+        assert_eq!(
+            may_write(WriteSource::SkillImport, &p(".novel/status.json")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::SkillImport, &p(".novel/schema.md")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::SkillImport, &p("canon/ch.md")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::SkillImport, &p("QM/skills/a.md")),
+            WriteDecision::Deny
+        );
         // 技能包只可进草稿域 / 引用文件 / 用户资产域，且必须过信任复核门。
-        assert_eq!(may_write(WriteSource::SkillImport, &p(".novel/drafts/skill-a.md")), WriteDecision::RequireGate);
+        assert_eq!(
+            may_write(WriteSource::SkillImport, &p(".novel/drafts/skill-a.md")),
+            WriteDecision::RequireGate
+        );
         assert_eq!(
             may_write(WriteSource::SkillImport, &p(".novel/user-asset-refs.json")),
             WriteDecision::RequireGate
         );
         // C-007：包本体归用户资产域（项目外），但仍须过导入确认门。
         assert_eq!(
-            may_write(WriteSource::SkillImport, &p("C:/Users/me/.qmai/user-assets/skill_bundle/a/1.0.0")),
+            may_write(
+                WriteSource::SkillImport,
+                &p("C:/Users/me/.qmai/user-assets/skill_bundle/a/1.0.0")
+            ),
             WriteDecision::RequireGate
         );
         // 项目内资产路径仍不得成为技能包直写落点。
@@ -414,41 +451,92 @@ mod tests {
 
     #[test]
     fn ai_suggestion_cannot_write_truth_or_assets() {
-        assert_eq!(may_write(WriteSource::AiSuggestion, &p(".novel/status.json")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::AiSuggestion, &p("canon/ch.md")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::AiSuggestion, &p("QM/x.md")), WriteDecision::Deny);
-        assert_eq!(may_write(WriteSource::AiSuggestion, &p(".novel/drafts/d.md")), WriteDecision::Allow);
+        assert_eq!(
+            may_write(WriteSource::AiSuggestion, &p(".novel/status.json")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::AiSuggestion, &p("canon/ch.md")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::AiSuggestion, &p("QM/x.md")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(WriteSource::AiSuggestion, &p(".novel/drafts/d.md")),
+            WriteDecision::Allow
+        );
     }
 
     #[test]
     fn user_edit_holds_full_authority_but_cannot_inline_asset_body() {
-        assert_eq!(may_write(WriteSource::UserEdit, &p("canon/ch.md")), WriteDecision::Allow);
-        assert_eq!(may_write(WriteSource::UserEdit, &p(".novel/status.json")), WriteDecision::Allow);
-        assert_eq!(may_write(WriteSource::UserEdit, &p("QM/x.md")), WriteDecision::Allow);
+        assert_eq!(
+            may_write(WriteSource::UserEdit, &p("canon/ch.md")),
+            WriteDecision::Allow
+        );
+        assert_eq!(
+            may_write(WriteSource::UserEdit, &p(".novel/status.json")),
+            WriteDecision::Allow
+        );
+        assert_eq!(
+            may_write(WriteSource::UserEdit, &p("QM/x.md")),
+            WriteDecision::Allow
+        );
         // C-007 D4：项目内不得内联用户资产本体。
         assert_eq!(
-            may_write(WriteSource::UserEdit, &p(".qmai/user-assets/pkg/a.nbskill.json")),
+            may_write(
+                WriteSource::UserEdit,
+                &p(".qmai/user-assets/pkg/a.nbskill.json")
+            ),
             WriteDecision::RequireGate
         );
     }
 
     #[test]
     fn classifies_paths_by_library_root() {
-        assert_eq!(classify_target(&p(".novel/status.json")), WriteTarget::StatusJson);
-        assert_eq!(classify_target(&p("C:/proj/.novel/schema.md")), WriteTarget::SchemaDoc);
-        assert_eq!(classify_target(&p("QM/raw/sources/rank/x.json")), WriteTarget::Reference);
+        assert_eq!(
+            classify_target(&p(".novel/status.json")),
+            WriteTarget::StatusJson
+        );
+        assert_eq!(
+            classify_target(&p("C:/proj/.novel/schema.md")),
+            WriteTarget::SchemaDoc
+        );
+        assert_eq!(
+            classify_target(&p("QM/raw/sources/rank/x.json")),
+            WriteTarget::Reference
+        );
         assert_eq!(classify_target(&p("canon/export.rs")), WriteTarget::Canon);
-        assert_eq!(classify_target(&p(".novel/snapshots/s1.json")), WriteTarget::Procedure);
-        assert_eq!(classify_target(&p(".novel/drafts/x.md")), WriteTarget::Drafts);
-        assert_eq!(classify_target(&p(".novel/market/c.json")), WriteTarget::MarketCache);
-        assert_eq!(classify_target(&p(".novel/user-asset-refs.json")), WriteTarget::UserAssetRef);
+        assert_eq!(
+            classify_target(&p(".novel/snapshots/s1.json")),
+            WriteTarget::Procedure
+        );
+        assert_eq!(
+            classify_target(&p(".novel/drafts/x.md")),
+            WriteTarget::Drafts
+        );
+        assert_eq!(
+            classify_target(&p(".novel/market/c.json")),
+            WriteTarget::MarketCache
+        );
+        assert_eq!(
+            classify_target(&p(".novel/user-asset-refs.json")),
+            WriteTarget::UserAssetRef
+        );
         assert_eq!(
             classify_target(&p("C:/Users/me/.qmai/user-assets/skill_bundle/a.json")),
             WriteTarget::UserAssetBody
         );
         // 大小写与分隔符归一
-        assert_eq!(classify_target(&p("qm\\raw\\x.json")), WriteTarget::Reference);
-        assert_eq!(classify_target(&p(".NOVEL/status.json")), WriteTarget::StatusJson);
+        assert_eq!(
+            classify_target(&p("qm\\raw\\x.json")),
+            WriteTarget::Reference
+        );
+        assert_eq!(
+            classify_target(&p(".NOVEL/status.json")),
+            WriteTarget::StatusJson
+        );
     }
 
     #[test]
@@ -476,7 +564,11 @@ mod tests {
 
     #[test]
     fn audit_line_is_single_line_jsonl() {
-        let record = audit_record(WriteSource::ExternalFetch, &p(".novel/status.json"), WriteDecision::Deny);
+        let record = audit_record(
+            WriteSource::ExternalFetch,
+            &p(".novel/status.json"),
+            WriteDecision::Deny,
+        );
         assert_eq!(record.source, "external_fetch");
         assert_eq!(record.target, "status_json");
         assert_eq!(record.decision, "deny");

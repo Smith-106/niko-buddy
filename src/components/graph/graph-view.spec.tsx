@@ -2008,23 +2008,28 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     const { unmount } = await renderLoadedGraph()
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    fireSigmaEvent("rightClickNode", {
-      node: "n1",
-      event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
-      preventSigmaDefault: vi.fn(),
-    })
-    await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.editRealProfilePage"))
-    await waitFor(
-      () => {
-        expect(errorSpy).toHaveBeenCalled()
-      },
-      // 整文件并发时共享异步状态可能延迟 errorSpy 触发，默认 5s 不够
-      { timeout: 10000 },
-    )
-    errorSpy.mockRestore()
-    unmount()
-  })
+    try {
+      fireSigmaEvent("rightClickNode", {
+        node: "n1",
+        event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
+        preventSigmaDefault: vi.fn(),
+      })
+      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
+      fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+      await waitFor(
+        () => {
+          expect(errorSpy).toHaveBeenCalled()
+        },
+        // 整文件并发时共享异步状态可能延迟 errorSpy 触发，默认 5s 不够；
+        // CI 慢机（node-gates 全量并发）实测 10s 也会被饿超时，放宽到 60s。
+        { timeout: 60000 },
+      )
+    } finally {
+      // waitFor 超时抛错时也必须还原 console.error，避免污染同文件后续用例
+      errorSpy.mockRestore()
+      unmount()
+    }
+  }, 90_000)
 
   it("节点菜单：裸文件名路径跳过 createDirectory", async () => {
     mocks.findSurprisingConnections.mockReturnValue([])

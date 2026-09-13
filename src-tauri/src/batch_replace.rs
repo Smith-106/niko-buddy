@@ -355,8 +355,13 @@ fn rollback(backup_root: &Path, committed: &[(String, PathBuf)]) -> usize {
     restored
 }
 
-fn mark_projection_status(project_root: &Path, stamp: u128, replacements: u32) -> Result<(), String> {
-    let path = project_root.join(PROJECTION_STATUS_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+fn mark_projection_status(
+    project_root: &Path,
+    stamp: u128,
+    replacements: u32,
+) -> Result<(), String> {
+    let path =
+        project_root.join(PROJECTION_STATUS_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -517,8 +522,12 @@ mod batchreplace {
     fn unconfirmed_irreversible_target_needs_human() {
         let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("confirm");
-        seed(&root, "book/c1.md", "林舟走进屋。
-");
+        seed(
+            &root,
+            "book/c1.md",
+            "林舟走进屋。
+",
+        );
         let target = root.join("book/c1.md");
         let before = std::fs::read_to_string(&target).unwrap();
 
@@ -552,7 +561,6 @@ mod batchreplace {
         assert_eq!(report.applied, vec!["book/c1.md"]);
         assert!(std::fs::read_to_string(&target).unwrap().contains("林舟舟"));
         let _ = std::fs::remove_dir_all(&root);
-    
     }
 
     #[test]
@@ -561,7 +569,6 @@ mod batchreplace {
         let root = temp_root("drafts");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "book/c2.md", "林舟看着窗外。\n");
-        
 
         let report = batch_replace_apply_with(
             &root,
@@ -597,13 +604,11 @@ mod batchreplace {
         let root = temp_root("rollback");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "book/c2.md", "林舟看着窗外。\n");
-        
-        // 第二个目标设为只读 → 覆盖式 rename 必失败（Windows 拒绝替换只读文件）。
-        let mut perms = std::fs::metadata(root.join("book/c2.md"))
-            .unwrap()
-            .permissions();
-        perms.set_readonly(true);
-        std::fs::set_permissions(root.join("book/c2.md"), perms).expect("readonly");
+
+        // 便携失败注入：在 c2 提交相临时文件路径（canonical.with_extension("batchtmp")）
+        // 上预置目录占位 → `fs::write(tmp)` 在三个平台都必败，此时 c1 已提交 → 走回滚路径。
+        // （原「文件只读」注入是 Windows 专属语义：POSIX 的 rename 只要求目录写权限。）
+        std::fs::create_dir_all(root.join("book/c2.batchtmp")).expect("预置 c2.batchtmp 目录占位");
 
         let err = batch_replace_apply_with(
             &root,
@@ -613,7 +618,10 @@ mod batchreplace {
             &allow_all,
         )
         .expect_err("提交失败必须回滚");
-        assert!(matches!(err, BatchReplaceError::RolledBack(_)), "got {err:?}");
+        assert!(
+            matches!(err, BatchReplaceError::RolledBack(_)),
+            "got {err:?}"
+        );
 
         let restored = std::fs::read_to_string(root.join("book/c1.md")).unwrap();
         assert!(
@@ -629,7 +637,7 @@ mod batchreplace {
         let _serial = crate::agent_gate::gate_test_serial();
         let root = temp_root("projection");
         seed(&root, "book/c1.md", "林舟走进屋。\n");
-        
+
         let report = batch_replace_apply_with(
             &root,
             &["book/c1.md".to_string()],

@@ -233,19 +233,17 @@ fn get_with(backend: &dyn SecretBackend, service: &str, account: &str) -> Result
         return Err(unavailable_error());
     }
     let target = resolve_target(service, account)?;
-    backend.get(&target.service, &target.bound_account)?.ok_or_else(|| {
-        format!(
-            "[secret_store] no credential stored for {} (account bound to this device)",
-            target.service
-        )
-    })
+    backend
+        .get(&target.service, &target.bound_account)?
+        .ok_or_else(|| {
+            format!(
+                "[secret_store] no credential stored for {} (account bound to this device)",
+                target.service
+            )
+        })
 }
 
-fn delete_with(
-    backend: &dyn SecretBackend,
-    service: &str,
-    account: &str,
-) -> Result<bool, String> {
+fn delete_with(backend: &dyn SecretBackend, service: &str, account: &str) -> Result<bool, String> {
     if !backend.available() {
         return Err(unavailable_error());
     }
@@ -277,7 +275,11 @@ pub(crate) fn is_available_sync() -> bool {
 /// `service` 为逻辑域名（如 `webdav`），`account` 为逻辑账户（如 project_id）；
 /// `account` 亦可直接传既有 `credential_ref`（`nb:<domain>:<account>`）。
 #[tauri::command]
-pub async fn secret_put(service: String, account: String, secret: String) -> Result<String, String> {
+pub async fn secret_put(
+    service: String,
+    account: String,
+    secret: String,
+) -> Result<String, String> {
     put_with(&default_backend(), &service, &account, &secret)
 }
 
@@ -324,18 +326,25 @@ impl SecretBackend for MemoryBackend {
 
     fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), String> {
         let mut guard = self.entries.lock().unwrap();
-        guard.insert((service.to_string(), account.to_string()), secret.to_string());
+        guard.insert(
+            (service.to_string(), account.to_string()),
+            secret.to_string(),
+        );
         Ok(())
     }
 
     fn get(&self, service: &str, account: &str) -> Result<Option<String>, String> {
         let guard = self.entries.lock().unwrap();
-        Ok(guard.get(&(service.to_string(), account.to_string())).cloned())
+        Ok(guard
+            .get(&(service.to_string(), account.to_string()))
+            .cloned())
     }
 
     fn delete(&self, service: &str, account: &str) -> Result<bool, String> {
         let mut guard = self.entries.lock().unwrap();
-        Ok(guard.remove(&(service.to_string(), account.to_string())).is_some())
+        Ok(guard
+            .remove(&(service.to_string(), account.to_string()))
+            .is_some())
     }
 }
 
@@ -368,7 +377,10 @@ fn roundtrip() {
     // 写入：返回值只含引用，不含 secret 值。
     let reference = put_with(&backend, "webdav", "proj-42", secret).expect("put");
     assert_eq!(reference, "nb:webdav:proj-42");
-    assert!(!reference.contains(secret), "return value must not echo the secret");
+    assert!(
+        !reference.contains(secret),
+        "return value must not echo the secret"
+    );
 
     // 读回：值与写入一致，且账户已绑定本机设备。
     let read_back = get_with(&backend, "webdav", "proj-42").expect("get");
@@ -387,24 +399,45 @@ fn roundtrip() {
     );
 
     // 直接以 credential_ref 消费（同步引擎持有的形态）。
-    assert_eq!(get_with(&backend, "ignored", &reference).expect("get by ref"), secret);
+    assert_eq!(
+        get_with(&backend, "ignored", &reference).expect("get by ref"),
+        secret
+    );
 
     // 删除语义：存在 → true；再次删除 → false。
     assert!(delete_with(&backend, "webdav", "proj-42").expect("delete"));
     assert!(!delete_with(&backend, "webdav", "proj-42").expect("delete again"));
-    assert!(get_with(&backend, "webdav", "proj-42").is_err(), "deleted secret must be gone");
+    assert!(
+        get_with(&backend, "webdav", "proj-42").is_err(),
+        "deleted secret must be gone"
+    );
 
     // 引用解析与命名规范。
     assert_eq!(
         resolve_credential_ref("nb:webdav:proj-42").expect("resolve ref"),
         ("webdav".to_string(), "proj-42".to_string())
     );
-    assert!(resolve_credential_ref("webdav:proj-42").is_err(), "missing nb: prefix is rejected");
-    assert!(resolve_credential_ref("nb:webdav").is_err(), "missing account segment is rejected");
-    assert!(normalize_service("WebDAV").is_ok(), "domain is case-normalized");
-    assert!(normalize_service("bad/domain").is_err(), "separators are rejected");
+    assert!(
+        resolve_credential_ref("webdav:proj-42").is_err(),
+        "missing nb: prefix is rejected"
+    );
+    assert!(
+        resolve_credential_ref("nb:webdav").is_err(),
+        "missing account segment is rejected"
+    );
+    assert!(
+        normalize_service("WebDAV").is_ok(),
+        "domain is case-normalized"
+    );
+    assert!(
+        normalize_service("bad/domain").is_err(),
+        "separators are rejected"
+    );
     assert!(normalize_service("").is_err(), "empty domain is rejected");
-    assert!(build_credential_ref("webdav", "  ").is_err(), "blank account is rejected");
+    assert!(
+        build_credential_ref("webdav", "  ").is_err(),
+        "blank account is rejected"
+    );
 }
 
 #[cfg(test)]
@@ -417,14 +450,26 @@ fn unavailable_is_reported() {
 
     // 三个写/读/删入口一律返回降级错误，且**不得**回退到明文路径。
     let put = put_with(&backend, "webdav", "proj-42", "secret").unwrap_err();
-    assert!(put.contains("unavailable"), "put must report unavailability: {put}");
-    assert!(put.contains("plaintext"), "degradation contract must be explicit: {put}");
+    assert!(
+        put.contains("unavailable"),
+        "put must report unavailability: {put}"
+    );
+    assert!(
+        put.contains("plaintext"),
+        "degradation contract must be explicit: {put}"
+    );
 
     let get = get_with(&backend, "webdav", "proj-42").unwrap_err();
-    assert!(get.contains("unavailable"), "get must report unavailability: {get}");
+    assert!(
+        get.contains("unavailable"),
+        "get must report unavailability: {get}"
+    );
 
     let delete = delete_with(&backend, "webdav", "proj-42").unwrap_err();
-    assert!(delete.contains("unavailable"), "delete must report unavailability: {delete}");
+    assert!(
+        delete.contains("unavailable"),
+        "delete must report unavailability: {delete}"
+    );
 
     // 降级错误本身不得携带任何 secret 值。
     let leaked = "s3cr3t-not-echoed";

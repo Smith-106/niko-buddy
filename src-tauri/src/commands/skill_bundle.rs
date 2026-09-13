@@ -184,7 +184,8 @@ pub struct SkillBundleImportResult {
 
 fn extension_of(name: &str) -> Option<String> {
     let file = name.rsplit('/').next().unwrap_or(name);
-    file.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase())
+    file.rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
 }
 
 /// 可执行扩展名 → true（C-007：一律拒绝导入）。
@@ -216,19 +217,25 @@ pub fn validate_entry_name(name: &str) -> Result<(), String> {
         ));
     }
     if name.starts_with('/') {
-        return Err(format!("[skill_bundle] absolute zip entry rejected: {name}"));
+        return Err(format!(
+            "[skill_bundle] absolute zip entry rejected: {name}"
+        ));
     }
     // Windows 盘符（`C:/...`）与 UNC 前缀。
     let bytes = name.as_bytes();
     if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
-        return Err(format!("[skill_bundle] drive-qualified zip entry rejected: {name}"));
+        return Err(format!(
+            "[skill_bundle] drive-qualified zip entry rejected: {name}"
+        ));
     }
     for component in name.split('/') {
         if component == ".." {
             return Err(format!("[skill_bundle] path traversal rejected: {name}"));
         }
         if component.is_empty() && !name.ends_with('/') {
-            return Err(format!("[skill_bundle] malformed zip entry rejected: {name}"));
+            return Err(format!(
+                "[skill_bundle] malformed zip entry rejected: {name}"
+            ));
         }
     }
     Ok(())
@@ -291,11 +298,15 @@ pub fn validate_manifest(manifest: &SkillBundleManifest) -> Result<(), String> {
         ("min_nb_version", &manifest.min_nb_version),
     ] {
         if value.trim().is_empty() {
-            return Err(format!("[skill_bundle] manifest field {field} must not be empty"));
+            return Err(format!(
+                "[skill_bundle] manifest field {field} must not be empty"
+            ));
         }
     }
     if !looks_like_sha256_hex(&manifest.content_hash) {
-        return Err("[skill_bundle] manifest content_hash must be a 64-char sha256 hex".to_string());
+        return Err(
+            "[skill_bundle] manifest content_hash must be a 64-char sha256 hex".to_string(),
+        );
     }
     if manifest.files.is_empty() {
         return Err("[skill_bundle] manifest files[] must not be empty".to_string());
@@ -303,7 +314,10 @@ pub fn validate_manifest(manifest: &SkillBundleManifest) -> Result<(), String> {
     let mut seen: BTreeMap<&str, ()> = BTreeMap::new();
     for file in &manifest.files {
         validate_entry_name(&file.path)?;
-        if !file.path.starts_with(&format!("{SKILL_BUNDLE_SKILLS_DIR}/")) {
+        if !file
+            .path
+            .starts_with(&format!("{SKILL_BUNDLE_SKILLS_DIR}/"))
+        {
             return Err(format!(
                 "[skill_bundle] manifest file must live under {SKILL_BUNDLE_SKILLS_DIR}/: {}",
                 file.path
@@ -328,7 +342,10 @@ pub fn validate_manifest(manifest: &SkillBundleManifest) -> Result<(), String> {
             ));
         }
         if seen.insert(file.path.as_str(), ()).is_some() {
-            return Err(format!("[skill_bundle] duplicate manifest file: {}", file.path));
+            return Err(format!(
+                "[skill_bundle] duplicate manifest file: {}",
+                file.path
+            ));
         }
     }
     // allowlist 字段存在性由 serde 保证；此处校验声明内容本身不可越界。
@@ -577,8 +594,8 @@ fn export_impl(
         let sink = fs::File::create(dest_path)
             .map_err(|e| format!("[skill_bundle] create {} failed: {e}", dest_path.display()))?;
         let mut writer = zip::ZipWriter::new(sink);
-        let options =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
 
         let mut names: Vec<String> = entries_on_disk(&staging)?;
         names.sort();
@@ -650,8 +667,9 @@ fn verify_impl(bundle_path: &Path) -> Result<SkillBundleVerifyResult, String> {
     let mut rejected: Vec<String> = Vec::new();
     let mut mismatched: Vec<String> = Vec::new();
 
-    let raw_manifest = manifest_bytes(&entries)
-        .ok_or_else(|| format!("[skill_bundle] {SKILL_BUNDLE_MANIFEST_FILE} missing from bundle"))?;
+    let raw_manifest = manifest_bytes(&entries).ok_or_else(|| {
+        format!("[skill_bundle] {SKILL_BUNDLE_MANIFEST_FILE} missing from bundle")
+    })?;
     let manifest: SkillBundleManifest = serde_json::from_slice(raw_manifest)
         .map_err(|e| format!("[skill_bundle] manifest parse failed: {e}"))?;
     if let Err(reason) = validate_manifest(&manifest) {
@@ -679,7 +697,9 @@ fn verify_impl(bundle_path: &Path) -> Result<SkillBundleVerifyResult, String> {
                 ));
             }
         } else {
-            rejected.push(format!("[skill_bundle] {SKILL_BUNDLE_SKILLS_DIR}/ missing from bundle"));
+            rejected.push(format!(
+                "[skill_bundle] {SKILL_BUNDLE_SKILLS_DIR}/ missing from bundle"
+            ));
         }
 
         for file in &manifest.files {
@@ -751,8 +771,9 @@ fn import_impl(
 ) -> Result<SkillBundleImportResult, String> {
     let (entries, total_bytes) = read_bundle_entries(bundle_path)?;
 
-    let raw_manifest = manifest_bytes(&entries)
-        .ok_or_else(|| format!("[skill_bundle] {SKILL_BUNDLE_MANIFEST_FILE} missing from bundle"))?;
+    let raw_manifest = manifest_bytes(&entries).ok_or_else(|| {
+        format!("[skill_bundle] {SKILL_BUNDLE_MANIFEST_FILE} missing from bundle")
+    })?;
     let manifest: SkillBundleManifest = serde_json::from_slice(raw_manifest)
         .map_err(|e| format!("[skill_bundle] manifest parse failed: {e}"))?;
     validate_manifest(&manifest)?;
@@ -807,7 +828,9 @@ fn import_impl(
 
         let skills_root = staging.join(SKILL_BUNDLE_SKILLS_DIR);
         if !skills_root.is_dir() {
-            return Err(format!("[skill_bundle] {SKILL_BUNDLE_SKILLS_DIR}/ missing from bundle"));
+            return Err(format!(
+                "[skill_bundle] {SKILL_BUNDLE_SKILLS_DIR}/ missing from bundle"
+            ));
         }
         let actual = archive::build_manifest(&skills_root)?;
         if actual.content_digest != manifest.content_hash {
@@ -1010,7 +1033,10 @@ mod tests {
         let first = export_to(&source.root, &dest.root.join("a.nbskill.zip"));
         let second = export_to(&source.root, &dest.root.join("b.nbskill.zip"));
 
-        assert_eq!(first.content_hash, second.content_hash, "content_hash must be stable");
+        assert_eq!(
+            first.content_hash, second.content_hash,
+            "content_hash must be stable"
+        );
         assert_eq!(
             first.manifest_sha256, second.manifest_sha256,
             "manifest_sha256 must be stable (no timestamps in the manifest)"
@@ -1038,7 +1064,10 @@ mod tests {
             &bad.root,
             &dest.root.join("bad.nbskill.zip"),
         );
-        assert!(refused.is_err(), "executable entries must never be exported");
+        assert!(
+            refused.is_err(),
+            "executable entries must never be exported"
+        );
     }
 
     #[test]
@@ -1090,7 +1119,10 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(leftovers.is_empty(), "no residue expected, found {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "no residue expected, found {leftovers:?}"
+        );
     }
 
     #[test]
@@ -1114,7 +1146,9 @@ mod tests {
             writer
                 .start_file("skills/demo-a/install.ps1", options)
                 .expect("start executable");
-            writer.write_all(b"Write-Host pwn").expect("write executable");
+            writer
+                .write_all(b"Write-Host pwn")
+                .expect("write executable");
             writer.finish().expect("finish");
         }
 
@@ -1153,7 +1187,10 @@ mod tests {
                 size: 3,
             }],
         };
-        assert!(validate_manifest(&manifest).is_err(), "manifest must reject executables");
+        assert!(
+            validate_manifest(&manifest).is_err(),
+            "manifest must reject executables"
+        );
         manifest.files[0].path = "skills/demo-a/skill.md".to_string();
         validate_manifest(&manifest).expect("manifest accepts allowlisted extensions");
     }
@@ -1200,7 +1237,10 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(leftovers.is_empty(), "staging must be rolled back, found {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "staging must be rolled back, found {leftovers:?}"
+        );
 
         // 对照：未篡改的包可以正常导入（证明失败来自指纹而非路径）。
         let ok_root = user_asset_root("roll-ok").1;
@@ -1232,7 +1272,10 @@ mod tests {
         // 对照：用户资产域是 RequireGate —— 未确认即失败，确认后通过。
         let asset_root = user_asset_root("canon-assets").1;
         let unconfirmed = import_impl(&bundle, &asset_root, false);
-        assert!(unconfirmed.is_err(), "RequireGate must not pass without confirmation");
+        assert!(
+            unconfirmed.is_err(),
+            "RequireGate must not pass without confirmation"
+        );
         assert!(
             unconfirmed.unwrap_err().contains("confirmation required"),
             "gate rejection must be explicit"

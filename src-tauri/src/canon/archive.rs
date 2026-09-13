@@ -101,7 +101,10 @@ fn block_hash_of_file(path: &Path) -> Result<(u64, String), String> {
 /// 枚举 `root` 下的全部**普通文件**，返回 `(相对路径 POSIX 形式, 绝对路径)`，按相对路径升序。
 fn enumerate_files(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     if !root.is_dir() {
-        return Err(format!("[archive] root is not a directory: {}", root.display()));
+        return Err(format!(
+            "[archive] root is not a directory: {}",
+            root.display()
+        ));
     }
     let mut files: Vec<(String, PathBuf)> = Vec::new();
     for entry in WalkDir::new(root).follow_links(false) {
@@ -184,7 +187,10 @@ pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<(), String> {
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for block in &manifest.blocks {
         if !seen.insert(block.hash.as_str()) {
-            return Err(format!("[archive] duplicate block in manifest: {}", block.hash));
+            return Err(format!(
+                "[archive] duplicate block in manifest: {}",
+                block.hash
+            ));
         }
     }
     let recomputed = compute_content_digest(&manifest.blocks);
@@ -214,7 +220,8 @@ pub fn pack_blocks(root: &Path, manifest: &ArchiveManifest, dest: &Path) -> Resu
 
     // 源侧索引：块哈希 → 首个提供该内容的源文件。
     let files = enumerate_files(root)?;
-    let mut source_for: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    let mut source_for: std::collections::HashMap<String, PathBuf> =
+        std::collections::HashMap::new();
     for (_relative, path) in &files {
         let (_size, hash) = block_hash_of_file(path)?;
         source_for.entry(hash).or_insert_with(|| path.clone());
@@ -393,11 +400,16 @@ mod tests {
 
         // 校验通过 → 空列表。
         let mismatched = verify_manifest(&dest.root, &manifest).expect("verify");
-        assert!(mismatched.is_empty(), "expected clean verify, got {mismatched:?}");
+        assert!(
+            mismatched.is_empty(),
+            "expected clean verify, got {mismatched:?}"
+        );
 
         // 幂等重打包（断点续传路径：已存在且正确的块被跳过）。
         pack_blocks(&source.root, &manifest, &dest.root).expect("re-pack must be idempotent");
-        assert!(verify_manifest(&dest.root, &manifest).expect("verify again").is_empty());
+        assert!(verify_manifest(&dest.root, &manifest)
+            .expect("verify again")
+            .is_empty());
     }
 
     #[test]
@@ -407,12 +419,17 @@ mod tests {
         source.write("only.md", b"genuine content");
         let manifest = build_manifest(&source.root).expect("build manifest");
         pack_blocks(&source.root, &manifest, &dest.root).expect("pack blocks");
-        assert!(verify_manifest(&dest.root, &manifest).expect("verify clean").is_empty());
+        assert!(verify_manifest(&dest.root, &manifest)
+            .expect("verify clean")
+            .is_empty());
 
         // 篡改块内容（保持文件名不变）→ 必须命中该块。
         let victim = manifest.blocks[0].hash.clone();
-        fs::write(dest.root.join(ARCHIVE_BLOCKS_DIR).join(&victim), b"tampered!")
-            .expect("corrupt block");
+        fs::write(
+            dest.root.join(ARCHIVE_BLOCKS_DIR).join(&victim),
+            b"tampered!",
+        )
+        .expect("corrupt block");
         let mismatched = verify_manifest(&dest.root, &manifest).expect("verify corrupt");
         assert_eq!(mismatched, vec![victim.clone()]);
 
@@ -425,7 +442,10 @@ mod tests {
         // 另起一份完整归档（前一份已被删块，会叠加块级噪声）。
         let intact = TempTree::new("dst-intact");
         pack_blocks(&source.root, &manifest, &intact.root).expect("pack intact blocks");
-        let extra = intact.root.join(ARCHIVE_BLOCKS_DIR).join(block_hash(b"extra"));
+        let extra = intact
+            .root
+            .join(ARCHIVE_BLOCKS_DIR)
+            .join(block_hash(b"extra"));
         fs::write(&extra, b"extra").expect("write extra block");
         let drifted = verify_manifest(&intact.root, &manifest).expect("verify drift");
         assert_eq!(drifted.len(), 1, "digest drift reported once: {drifted:?}");
@@ -442,7 +462,11 @@ mod tests {
 
         let manifest = build_manifest(&source.root).expect("build manifest");
         // 3 个文件 → 2 个唯一块。
-        assert_eq!(manifest.blocks.len(), 2, "identical contents must dedupe to one block");
+        assert_eq!(
+            manifest.blocks.len(),
+            2,
+            "identical contents must dedupe to one block"
+        );
 
         pack_blocks(&source.root, &manifest, &dest.root).expect("pack blocks");
         let written = fs::read_dir(dest.root.join(ARCHIVE_BLOCKS_DIR))
@@ -464,6 +488,9 @@ mod tests {
         source.write("a.md", b"alpha");
         let mut manifest = build_manifest(&source.root).expect("build manifest");
         manifest.schema_version = ARCHIVE_SCHEMA_VERSION + 1;
-        assert!(validate_manifest(&manifest).is_err(), "unknown major must be rejected");
+        assert!(
+            validate_manifest(&manifest).is_err(),
+            "unknown major must be rejected"
+        );
     }
 }

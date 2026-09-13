@@ -163,7 +163,10 @@ mod mcp {
     fn sse_also_requires_optin() {
         let root = temp_root("sse");
         assert!(set_mode(&root, "sse", false).is_err());
-        assert_eq!(set_mode(&root, "sse", true).expect("opt-in").transport, "sse");
+        assert_eq!(
+            set_mode(&root, "sse", true).expect("opt-in").transport,
+            "sse"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -172,7 +175,11 @@ mod mcp {
         let root = temp_root("unknown");
         let err = set_mode(&root, "carrier-pigeon", true).expect_err("未知传输必须拒绝");
         assert!(err.contains("unknown transport"), "unexpected: {}", err);
-        assert_eq!(load_config(&root).transport, "stdio", "不得静默回退到其它模式");
+        assert_eq!(
+            load_config(&root).transport,
+            "stdio",
+            "不得静默回退到其它模式"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

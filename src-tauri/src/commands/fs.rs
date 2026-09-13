@@ -410,14 +410,32 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
 ///   3. Paths relative to the executable where Tauri's bundler lands
 ///      resources on each platform (macOS Frameworks / Resources /
 ///      MacOS dir, Windows sibling, Linux sibling)
+/// 测试/诊断用：候选路径里是否存在任一 pdfium 动态库（只做文件存在性探测，不 dlopen）。
+/// CI 的 mac/ubuntu 作业会把 pdfium 解压到 `src-tauri/pdfium/libpdfium.dylib|so`，
+/// 因此该探测与 CI 解包布局对齐后即可让渲染类测试在三平台真实运行。
+pub fn pdfium_dynamic_library_present() -> bool {
+    !pdfium_candidate_paths().is_empty()
+}
+
+/// Enumerate plausible locations for the PDFium dynamic library on the
+/// current platform. Order from most specific to least:
+///   1. `$PDFIUM_DYNAMIC_LIB_PATH` env var (local dev convenience)
+///   2. Tauri resource dir (set via setup()) — the authoritative location
+///   3. Paths relative to the executable where Tauri's bundler lands
+///      resources on each platform (macOS Frameworks / Resources /
+///      MacOS dir, Windows sibling, Linux sibling)
 ///   4. OS dynamic loader search path (last resort)
 fn pdfium_candidate_paths() -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
 
     // 源码树内的自带副本（开发 / 测试 / 便携布局）：发布包里若不存在会被自然跳过。
-    const VENDORED: [&str; 2] = [
+    // dylib/so 两个名字与 CI「Install PDFium binary」步骤的解包目标一致
+    // （ci.yml: cp … "src-tauri/pdfium/${{ matrix.pdfium_library }}"）。
+    const VENDORED: [&str; 4] = [
         "pdfium/pdfium.dll",
         "pdfium/libpdfium.dll",
+        "pdfium/libpdfium.dylib",
+        "pdfium/libpdfium.so",
     ];
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for rel in VENDORED {

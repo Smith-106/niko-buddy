@@ -100,25 +100,38 @@ async fn bf007_batch_replace_through_registered_command_with_real_gate() {
     .expect("预览应成功");
     let changed: Vec<&batch_replace::FileDiff> =
         diffs.iter().filter(|d| !d.is_unchanged()).collect();
-    println!("[1] 预览命中文件 {} 个，总替换 {}", changed.len(), diffs.iter().map(|d| d.replacements).sum::<u32>());
+    println!(
+        "[1] 预览命中文件 {} 个，总替换 {}",
+        changed.len(),
+        diffs.iter().map(|d| d.replacements).sum::<u32>()
+    );
     assert_eq!(changed.len(), 2);
     assert_eq!(changed.iter().map(|d| d.replacements).sum::<u32>(), 3);
     assert!(read(&root, "book/c1.md").contains("林舟"), "预览不得改盘");
-    assert!(!root.join(batch_replace::DRAFTS_ROOT).exists(), "预览不得建草稿目录");
+    assert!(
+        !root.join(batch_replace::DRAFTS_ROOT).exists(),
+        "预览不得建草稿目录"
+    );
 
     // [2] 未确认直接提交：真实门必须拒绝，且整批零副作用。
-    let denied = batch_replace::api::batch_replace_apply(
-        project_path.clone(),
-        files.clone(),
-        rule.clone(),
-    )
-    .await
-    .expect_err("未确认的批替换必须被门拒绝");
+    let denied =
+        batch_replace::api::batch_replace_apply(project_path.clone(), files.clone(), rule.clone())
+            .await
+            .expect_err("未确认的批替换必须被门拒绝");
     println!("[2] 未确认 -> {denied}");
-    assert!(denied.contains("GATE_REQUIRE_CONFIRM"), "应为确认请求而非其它错误：{denied}");
-    assert!(read(&root, "book/c1.md").contains("林舟"), "被拒的批不得改盘");
+    assert!(
+        denied.contains("GATE_REQUIRE_CONFIRM"),
+        "应为确认请求而非其它错误：{denied}"
+    );
+    assert!(
+        read(&root, "book/c1.md").contains("林舟"),
+        "被拒的批不得改盘"
+    );
     assert!(read(&root, "book/c2.md").contains("林舟"));
-    assert!(!root.join(batch_replace::DRAFTS_ROOT).exists(), "被拒的批不得留草稿");
+    assert!(
+        !root.join(batch_replace::DRAFTS_ROOT).exists(),
+        "被拒的批不得留草稿"
+    );
 
     // [3] 人工确认该请求（UI 的确认按钮等价动作），然后**逐个文件**确认并重试：
     //     门的强度是**逐目标**的，第一轮只会在第一个文件上产生请求。
@@ -152,8 +165,7 @@ async fn bf007_batch_replace_through_registered_command_with_real_gate() {
         }
     };
     assert_eq!(
-        confirmations,
-        2,
+        confirmations, 2,
         "应逐文件确认 2 次（且已授权的重试不得被熔断误伤）"
     );
     println!(
@@ -177,12 +189,19 @@ async fn bf007_batch_replace_through_registered_command_with_real_gate() {
         read(&root, "book/untouched.md").contains("林舟"),
         "未列入的候选文件绝不能被整批事务牵连"
     );
-    assert!(root.join(batch_replace::DRAFTS_ROOT).exists(), "提交应留草稿");
+    assert!(
+        root.join(batch_replace::DRAFTS_ROOT).exists(),
+        "提交应留草稿"
+    );
     assert!(
         root.join(batch_replace::PROJECTION_STATUS_FILE).is_file(),
         "投影状态文件应被刷新"
     );
-    assert!(residue(&root).is_empty(), "不应留 .tmp/.bak：{:?}", residue(&root));
+    assert!(
+        residue(&root).is_empty(),
+        "不应留 .tmp/.bak：{:?}",
+        residue(&root)
+    );
 
     // [5] 空 find 必须被拒（真实命令面也要挡住）。
     let empty = batch_replace::api::batch_replace_apply(
@@ -216,7 +235,11 @@ async fn bf007_batch_replace_through_registered_command_with_real_gate() {
         guard_err.contains("not bypassable") || guard_err.contains("protected"),
         "应为受保护区硬拒：{guard_err}"
     );
-    assert_eq!(read(&root, protected_target), "{\"chapter\":9}\n", "被拒的真源面不得被写");
+    assert_eq!(
+        read(&root, protected_target),
+        "{\"chapter\":9}\n",
+        "被拒的真源面不得被写"
+    );
     assert!(
         batch_replace::api::batch_replace_preview(
             project_path.clone(),
@@ -260,7 +283,11 @@ fn bf002_snapshot_restore_real_project() {
 
     // [1] 链与预览（只读）。
     let chain = snapshot::snapshot_list_chain(&root, 0, 50);
-    println!("[1] 快照链 {} 个点，total={}", chain.points.len(), chain.total);
+    println!(
+        "[1] 快照链 {} 个点，total={}",
+        chain.points.len(),
+        chain.total
+    );
     assert!(chain.points.iter().any(|p| p.id == "t1"));
     let preview = snapshot::snapshot_preview_point(&root, "t1");
     println!(
@@ -269,7 +296,11 @@ fn bf002_snapshot_restore_real_project() {
         preview.world_state_diffs.len()
     );
     assert!(!preview.status_diff.is_empty(), "预览应显示状态差异");
-    assert_eq!(read(&root, STATUS), "{\"chapter\":9,\"words\":9999}\n", "预览不得改盘");
+    assert_eq!(
+        read(&root, STATUS),
+        "{\"chapter\":9,\"words\":9999}\n",
+        "预览不得改盘"
+    );
 
     // [3] 无令牌 / 未知快照：必须被拒。
     assert!(
@@ -294,17 +325,28 @@ fn bf002_snapshot_restore_real_project() {
         "应恢复 status.json：{:?}",
         outcome.restored
     );
-    assert!(outcome.verify.is_none(), "同步入口不做异步复验（命令层才有）");
+    assert!(
+        outcome.verify.is_none(),
+        "同步入口不做异步复验（命令层才有）"
+    );
     assert_eq!(read(&root, STATUS), "{\"chapter\":3,\"words\":3000}\n");
     assert_eq!(read(&root, ".novel/entities.json"), "{\"林舟\":\"T1\"}\n");
     assert_eq!(read(&root, ".novel/characters.json"), "{\"沈舟\":\"T1\"}\n");
-    assert!(residue(&root).is_empty(), "恢复后不应留 .tmp/.bak：{:?}", residue(&root));
+    assert!(
+        residue(&root).is_empty(),
+        "恢复后不应留 .tmp/.bak：{:?}",
+        residue(&root)
+    );
 
     // [5] 回滚路径：让第 2 个目标不可替换 → 已写文件必须逆序还原，且不留残留。
     let drifted = "{\"chapter\":9,\"words\":9999}\n";
     write(&root, STATUS, drifted);
     let projection = root.join(".novel/projection-status.json");
-    write(&root, ".novel/projection-status.json", "{\"state\":\"drifted\"}\n");
+    write(
+        &root,
+        ".novel/projection-status.json",
+        "{\"state\":\"drifted\"}\n",
+    );
     write(
         &root,
         ".novel/snapshots/t1/projection-status.json",
@@ -324,7 +366,11 @@ fn bf002_snapshot_restore_real_project() {
         drifted,
         "失败必须逆序回滚，把已覆盖的真源还原为恢复前内容"
     );
-    assert!(residue(&root).is_empty(), "回滚后不应留 .tmp/.bak：{:?}", residue(&root));
+    assert!(
+        residue(&root).is_empty(),
+        "回滚后不应留 .tmp/.bak：{:?}",
+        residue(&root)
+    );
 
     let _ = std::fs::remove_dir_all(&root);
     println!("[6] B-F-002 真机冒烟 PASS：预览只读 / 拒绝非法请求 / 原子恢复 / 失败逆序回滚");

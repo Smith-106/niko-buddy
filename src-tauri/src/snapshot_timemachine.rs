@@ -36,7 +36,10 @@ pub const WORLD_STATE_FILES: [(&str, &[&str]); 7] = [
     ("timeline", &["timeline.json"]),
     ("worldbuilding", &["worldbuilding.json"]),
     ("characters", &["characters.json", "character-states.json"]),
-    ("foreshadowing", &["foreshadowing.json", "foreshadowing-tracker.json"]),
+    (
+        "foreshadowing",
+        &["foreshadowing.json", "foreshadowing-tracker.json"],
+    ),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -151,7 +154,9 @@ fn measure(dir: &Path) -> (usize, u64) {
     let mut bytes = 0u64;
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
@@ -226,7 +231,10 @@ fn read_snapshot_json(path: &Path) -> BTreeMap<String, String> {
     out
 }
 
-fn diff_maps(before: &BTreeMap<String, String>, after: &BTreeMap<String, String>) -> Vec<FieldDiff> {
+fn diff_maps(
+    before: &BTreeMap<String, String>,
+    after: &BTreeMap<String, String>,
+) -> Vec<FieldDiff> {
     let mut keys: Vec<&String> = before.keys().chain(after.keys()).collect();
     keys.sort();
     keys.dedup();
@@ -486,7 +494,9 @@ fn latest_canon_export(root: &Path) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     let mut stack = vec![dir];
     while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
@@ -651,11 +661,13 @@ pub mod snapshot {
             let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("preview");
             let diff = snapshot_preview_point(&t.root, "ch-10-20");
+            assert!(diff.status_diff.iter().any(|d| d.path == "title"
+                && d.before.contains("旧标题")
+                && d.after.contains("新标题")));
             assert!(diff
-                .status_diff
+                .projection_status_diff
                 .iter()
-                .any(|d| d.path == "title" && d.before.contains("旧标题") && d.after.contains("新标题")));
-            assert!(diff.projection_status_diff.iter().any(|d| d.path.contains("status")));
+                .any(|d| d.path.contains("status")));
             assert_eq!(diff.world_state_diffs.len(), 1, "only characters exists");
             assert_eq!(diff.world_state_diffs[0].state, "characters");
             assert_ne!(
@@ -675,7 +687,10 @@ pub mod snapshot {
             assert_eq!(out.restored.len(), 3);
 
             let status = std::fs::read_to_string(abs(&t.root, STATUS_FILE)).expect("status");
-            assert!(status.contains("旧标题"), "truth surface must come from the snapshot");
+            assert!(
+                status.contains("旧标题"),
+                "truth surface must come from the snapshot"
+            );
             let chars = std::fs::read_to_string(abs(&t.root, ".novel/character-states.json"))
                 .expect("characters");
             assert!(chars.contains("平静"));
@@ -687,7 +702,11 @@ pub mod snapshot {
                 .map(|e| e.file_name().to_string_lossy().to_string())
                 .filter(|n| n.ends_with(TMP_SUFFIX))
                 .collect();
-            assert!(leftover.is_empty(), "temp files must be cleaned: {:?}", leftover);
+            assert!(
+                leftover.is_empty(),
+                "temp files must be cleaned: {:?}",
+                leftover
+            );
         }
 
         #[test]
@@ -717,7 +736,11 @@ pub mod snapshot {
             let _serial = crate::agent_gate::gate_test_serial();
             let t = fixture("token");
             let err = snapshot_restore_atomic(&t.root, "ch-10-20", "  ").expect_err("must refuse");
-            assert!(err.contains("confirmation token"), "unexpected error: {}", err);
+            assert!(
+                err.contains("confirmation token"),
+                "unexpected error: {}",
+                err
+            );
         }
 
         #[test]

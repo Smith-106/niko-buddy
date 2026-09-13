@@ -787,8 +787,7 @@ async fn push_staged<T: SyncTarget>(
     device_id: &str,
     timestamp: &str,
 ) -> Result<SyncPushResult, String> {
-    fs::create_dir_all(staging)
-        .map_err(|e| format!("[sync_target] create staging failed: {e}"))?;
+    fs::create_dir_all(staging).map_err(|e| format!("[sync_target] create staging failed: {e}"))?;
     fs::copy(artifact_path, staging.join(file_name))
         .map_err(|e| format!("[sync_target] stage artifact failed: {e}"))?;
 
@@ -865,7 +864,9 @@ pub async fn pull_impl<T: SyncTarget>(
         .iter()
         .filter_map(|key| parse_remote_revision(key))
         .max()
-        .ok_or_else(|| format!("[sync_target] no remote revision found for manifest {manifest_id}"))?;
+        .ok_or_else(|| {
+            format!("[sync_target] no remote revision found for manifest {manifest_id}")
+        })?;
     let prefix = remote_revision_dir(manifest_id, remote_revision);
 
     let manifest_bytes = target
@@ -1213,7 +1214,10 @@ mod tests {
         for block in &manifest.blocks {
             let bytes = fs::read(staging.join(REMOTE_BLOCKS_DIR).join(&block.hash)).expect("block");
             target
-                .put(&format!("{prefix}/{REMOTE_BLOCKS_DIR}/{}", block.hash), &bytes)
+                .put(
+                    &format!("{prefix}/{REMOTE_BLOCKS_DIR}/{}", block.hash),
+                    &bytes,
+                )
                 .await
                 .expect("put block");
         }
@@ -1228,7 +1232,12 @@ mod tests {
         manifest
     }
 
-    fn journal_entry(manifest_id: &str, revision: u64, direction: &str, hash: &str) -> SyncJournalEntry {
+    fn journal_entry(
+        manifest_id: &str,
+        revision: u64,
+        direction: &str,
+        hash: &str,
+    ) -> SyncJournalEntry {
         SyncJournalEntry {
             manifest_id: manifest_id.to_string(),
             revision,
@@ -1267,7 +1276,10 @@ mod tests {
         save_config(&project.root, &config).expect("save");
         let raw = fs::read_to_string(project.root.join(SYNC_CONFIG_FILE)).expect("read");
         assert_no_secret_plaintext(&raw).expect("persisted config is clean");
-        assert_eq!(load_config(&project.root).expect("load"), Some(config.clone()));
+        assert_eq!(
+            load_config(&project.root).expect("load"),
+            Some(config.clone())
+        );
 
         // 试图写入口令 → 结构层拒绝（deny_unknown_fields + 键白名单双重拦截）。
         let with_password = r#"{"endpoint":"https://dav.example.com","root":"r","credential_ref":"nb:webdav:p","enabled":true,"password":"hunter2"}"#;
@@ -1430,7 +1442,10 @@ mod tests {
 
             // 冲突是终止态：journal 记 conflict，且不污染真源。
             let journal = read_journal(&project.root);
-            assert_eq!(journal.last().map(|entry| entry.direction.as_str()), Some("conflict"));
+            assert_eq!(
+                journal.last().map(|entry| entry.direction.as_str()),
+                Some("conflict")
+            );
             assert!(!project.root.join(".novel/status.json").exists());
 
             // 裁决出口：默认「保留两者」。
@@ -1457,8 +1472,10 @@ mod tests {
             );
         }
         // 快照入库与草稿域是允许的落点。
-        assert_local_target_allowed(Path::new(".novel/snapshots/remote-demo-rev-3/manifest.json"))
-            .expect("snapshot target allowed");
+        assert_local_target_allowed(Path::new(
+            ".novel/snapshots/remote-demo-rev-3/manifest.json",
+        ))
+        .expect("snapshot target allowed");
         assert_local_target_allowed(Path::new(".novel/.conflict-d-rev/manifest.json"))
             .expect("conflict target allowed");
 
@@ -1473,11 +1490,18 @@ mod tests {
         runtime().block_on(async {
             // 推送：块寻址、manifest 最后写、journal 记方向、版本单调。
             let project = TempTree::new("push");
-            let artifact = project.write("backups/auto/20260912-artifact.zip", b"artifact-bytes-v1");
+            let artifact =
+                project.write("backups/auto/20260912-artifact.zip", b"artifact-bytes-v1");
             let target = MemoryTarget::new();
-            let pushed = push_impl(&target, &project.root, &artifact, "device-a", "20260912140000")
-                .await
-                .expect("push");
+            let pushed = push_impl(
+                &target,
+                &project.root,
+                &artifact,
+                "device-a",
+                "20260912140000",
+            )
+            .await
+            .expect("push");
             assert_eq!(pushed.manifest_id, "20260912-artifact");
             assert_eq!(pushed.revision, 1);
             assert!(pushed.block_count >= 1);
@@ -1491,9 +1515,15 @@ mod tests {
                 "remote blocks must be content-addressed: {keys:?}"
             );
 
-            let again = push_impl(&target, &project.root, &artifact, "device-a", "20260912140100")
-                .await
-                .expect("push again");
+            let again = push_impl(
+                &target,
+                &project.root,
+                &artifact,
+                "device-a",
+                "20260912140100",
+            )
+            .await
+            .expect("push again");
             assert_eq!(again.revision, 2, "revision must be monotonic");
             assert!(read_journal(&project.root)
                 .iter()
@@ -1526,7 +1556,10 @@ mod tests {
                 .map(|entry| entry.file_name().to_string_lossy().to_string())
                 .filter(|name| name.starts_with(".sync-"))
                 .collect();
-            assert!(leftovers.is_empty(), "staging must be reclaimed: {leftovers:?}");
+            assert!(
+                leftovers.is_empty(),
+                "staging must be reclaimed: {leftovers:?}"
+            );
         });
     }
 
@@ -1655,9 +1688,15 @@ mod webdav_smoke {
         let target = WebDavTarget::new(ENDPOINT, ROOT, &credential_ref);
 
         // [1] 推送：真实 HTTP PUT（块 + manifest，manifest 最后写）。
-        let pushed = push_impl(&target, &project_a, &artifact, DEVICE_A, "2026-09-12T10-00-00")
-            .await
-            .expect("push 应成功");
+        let pushed = push_impl(
+            &target,
+            &project_a,
+            &artifact,
+            DEVICE_A,
+            "2026-09-12T10-00-00",
+        )
+        .await
+        .expect("push 应成功");
         println!(
             "[1] push manifest={} rev={} blocks={} bytes={} prefix={}",
             pushed.manifest_id,
@@ -1679,7 +1718,10 @@ mod webdav_smoke {
         for key in &keys {
             let lowered = key.to_lowercase();
             for forbidden in ["/qm/", "canon", "status.json", "/.novel/"] {
-                assert!(!lowered.contains(forbidden), "远端出现了禁用键 {forbidden}：{key}");
+                assert!(
+                    !lowered.contains(forbidden),
+                    "远端出现了禁用键 {forbidden}：{key}"
+                );
             }
         }
 
@@ -1702,7 +1744,10 @@ mod webdav_smoke {
         assert_eq!(pulled.decision, "apply");
         let snapshot = PathBuf::from(pulled.snapshot_dir.as_deref().expect("快照目录"));
         assert!(snapshot.is_dir(), "快照目录应存在：{}", snapshot.display());
-        assert!(conflict_dirs(&project_b).is_empty(), "幂等 apply 不该产生冲突副本");
+        assert!(
+            conflict_dirs(&project_b).is_empty(),
+            "幂等 apply 不该产生冲突副本"
+        );
 
         // [4] 再次拉取：同版本同指纹 → 幂等 Apply。
         let again = pull_impl(
@@ -1720,7 +1765,10 @@ mod webdav_smoke {
 
         // [5] 同版本但本地内容不同 → KeepBoth：两边都留，绝不覆盖。
         let local = local_state(&project_b, &pushed.manifest_id);
-        println!("[5] 本地状态 rev={} hash={}", local.revision, local.content_hash);
+        println!(
+            "[5] 本地状态 rev={} hash={}",
+            local.revision, local.content_hash
+        );
         append_journal(
             &project_b,
             &journal_entry(
@@ -1745,8 +1793,13 @@ mod webdav_smoke {
             conflicted.decision, conflicted.conflict_path, conflicted.message
         );
         assert_eq!(conflicted.decision, "keep_both");
-        let conflict_path = PathBuf::from(conflicted.conflict_path.as_deref().expect("冲突副本路径"));
-        assert!(conflict_path.is_dir(), "冲突副本目录应存在：{}", conflict_path.display());
+        let conflict_path =
+            PathBuf::from(conflicted.conflict_path.as_deref().expect("冲突副本路径"));
+        assert!(
+            conflict_path.is_dir(),
+            "冲突副本目录应存在：{}",
+            conflict_path.display()
+        );
         assert!(
             conflict_path
                 .file_name()
@@ -1777,11 +1830,19 @@ mod webdav_smoke {
         )
         .await
         .expect("更旧远端应被拒绝而非报错");
-        println!("[6] 更旧远端 decision={} msg={}", stale.decision, stale.message);
+        println!(
+            "[6] 更旧远端 decision={} msg={}",
+            stale.decision, stale.message
+        );
         assert_eq!(stale.decision, "refuse_stale");
 
         // [7] 白名单是**传输前**的硬拦（不是事后过滤）。
-        for forbidden in ["qm/notes.md", "canon/entities.json", "status.json", ".novel/x"] {
+        for forbidden in [
+            "qm/notes.md",
+            "canon/entities.json",
+            "status.json",
+            ".novel/x",
+        ] {
             assert!(
                 assert_remote_key_allowed(forbidden).is_err(),
                 "禁用远端键必须被拒：{forbidden}"
@@ -1798,7 +1859,10 @@ mod webdav_smoke {
         println!(
             "[8] journal {} 条，方向={:?}",
             journal.len(),
-            journal.iter().map(|e| e.direction.clone()).collect::<Vec<_>>()
+            journal
+                .iter()
+                .map(|e| e.direction.clone())
+                .collect::<Vec<_>>()
         );
         println!("[9] A-F-004 真机冒烟 PASS：真实 HTTP 推送/拉取/幂等/冲突保留/防回退/白名单");
     }

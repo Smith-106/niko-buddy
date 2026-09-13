@@ -158,25 +158,25 @@ pub fn vault_delete_secret(key: String) -> Result<bool, String> {
 // 命令与核心同名的落点：核心保持模块根的 `pub fn`（同步、可单测），命令放 `api`
 // 子模块转发（异步、走 Tauri 宏）。Rust 不允许同名同作用域，故分离。
 pub mod api {
-#[tauri::command]
-pub async fn vault_put_secret(key: String, secret: String) -> Result<String, String> {
-    super::vault_put_secret(key, secret)
-}
+    #[tauri::command]
+    pub async fn vault_put_secret(key: String, secret: String) -> Result<String, String> {
+        super::vault_put_secret(key, secret)
+    }
 
-#[tauri::command]
-pub async fn vault_get_secret(key: String) -> Result<Option<String>, String> {
-    super::vault_get_secret(key)
-}
+    #[tauri::command]
+    pub async fn vault_get_secret(key: String) -> Result<Option<String>, String> {
+        super::vault_get_secret(key)
+    }
 
-#[tauri::command]
-pub async fn vault_has_secret(key: String) -> Result<bool, String> {
-    super::vault_has_secret(key)
-}
+    #[tauri::command]
+    pub async fn vault_has_secret(key: String) -> Result<bool, String> {
+        super::vault_has_secret(key)
+    }
 
-#[tauri::command]
-pub async fn vault_delete_secret(key: String) -> Result<bool, String> {
-    super::vault_delete_secret(key)
-}
+    #[tauri::command]
+    pub async fn vault_delete_secret(key: String) -> Result<bool, String> {
+        super::vault_delete_secret(key)
+    }
 }
 
 #[cfg(test)]
@@ -193,11 +193,7 @@ mod vault {
         fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), String> {
             let mut guard = self.entries.lock().expect("memory vault");
             guard.retain(|(s, a, _)| !(s == service && a == account));
-            guard.push((
-                service.to_string(),
-                account.to_string(),
-                secret.to_string(),
-            ));
+            guard.push((service.to_string(), account.to_string(), secret.to_string()));
             Ok(())
         }
 

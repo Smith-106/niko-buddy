@@ -23,7 +23,10 @@ fn endpoint() -> String {
 /// 只读本机端点日志，取最后一条请求记录。
 fn last_request(log_path: &str) -> Option<String> {
     let text = std::fs::read_to_string(log_path).ok()?;
-    text.lines().filter(|l| !l.trim().is_empty()).next_back().map(str::to_string)
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .next_back()
+        .map(str::to_string)
 }
 
 #[test]
@@ -55,7 +58,10 @@ fn real_http_roundtrip_with_optin_and_bearer() {
     let cfg_path = transport::transport_config_path(&root);
     if cfg_path.is_file() {
         let raw = std::fs::read_to_string(&cfg_path).unwrap_or_default();
-        assert!(!raw.contains("\"http\""), "被拒的 opt-in 不得留下 http 配置：{raw}");
+        assert!(
+            !raw.contains("\"http\""),
+            "被拒的 opt-in 不得留下 http 配置：{raw}"
+        );
     }
 
     // [3] 显式 opt-in + 真实令牌入 OS 凭据库。
@@ -83,14 +89,23 @@ fn real_http_roundtrip_with_optin_and_bearer() {
             body.to_string(),
         ))
         .expect("真实 HTTP 请求应成功");
-    println!("[4] payload.audit_pending={} origin={}", payload.audit_pending, payload.origin);
+    println!(
+        "[4] payload.audit_pending={} origin={}",
+        payload.audit_pending, payload.origin
+    );
     assert!(payload.audit_pending, "远端载荷必须标记待审计");
-    assert!(!payload.body.contains(token), "响应体不得包含我们发出的令牌");
+    assert!(
+        !payload.body.contains(token),
+        "响应体不得包含我们发出的令牌"
+    );
     assert_eq!(payload.origin, ep, "origin 必须记录真实端点作为来源");
 
     let logged = last_request(&log).expect("端点日志应有请求记录");
     println!("[4] 端点实收: {logged}");
-    assert!(logged.contains("\"method\":\"POST\""), "端点应收到 POST：{logged}");
+    assert!(
+        logged.contains("\"method\":\"POST\""),
+        "端点应收到 POST：{logged}"
+    );
     assert!(
         logged.contains(&format!("Bearer {token}")),
         "端点应收到 Authorization: Bearer 令牌：{logged}"
@@ -118,7 +133,9 @@ fn real_http_roundtrip_with_optin_and_bearer() {
             // 命令层把 McpError 映射为 String（Tauri 边界），故断在文本上。
             println!("[5] 拒因: {msg}");
             assert!(
-                msg.contains("exceeds") || msg.contains("too large") || msg.contains("MCP_TRANSPORT"),
+                msg.contains("exceeds")
+                    || msg.contains("too large")
+                    || msg.contains("MCP_TRANSPORT"),
                 "拒因应说明超限：{msg}"
             );
         }
@@ -136,35 +153,53 @@ fn real_http_roundtrip_with_optin_and_bearer() {
     for verdict in [remote::AuditVerdict::Block, remote::AuditVerdict::Review] {
         let denied = remote::ingest_remote_payload(&root, target, &payload, verdict);
         println!("[6] ingest({verdict:?}) -> {denied:?}");
-        assert!(matches!(denied, Err(remote::McpError::AuditBlocked(_))), "{verdict:?} 必须被拦");
+        assert!(
+            matches!(denied, Err(remote::McpError::AuditBlocked(_))),
+            "{verdict:?} 必须被拦"
+        );
         assert!(!root.join(target).exists(), "{verdict:?} 被拦后不得落盘");
     }
     // 伪造来源（audit_pending=false）也不得入库。
-    let forged = remote::RemotePayload { audit_pending: false, ..payload.clone() };
-    let forged_result = remote::ingest_remote_payload(&root, target, &forged, remote::AuditVerdict::Allow);
+    let forged = remote::RemotePayload {
+        audit_pending: false,
+        ..payload.clone()
+    };
+    let forged_result =
+        remote::ingest_remote_payload(&root, target, &forged, remote::AuditVerdict::Allow);
     println!("[6] ingest(伪造 audit_pending=false) -> {forged_result:?}");
-    assert!(matches!(forged_result, Err(remote::McpError::AuditBlocked(_))));
+    assert!(matches!(
+        forged_result,
+        Err(remote::McpError::AuditBlocked(_))
+    ));
     assert!(!root.join(target).exists(), "伪造来源不得落盘");
 
     // Allow + 草稿区：当前契约下会落盘（writeFile 不在门的破坏性操作表内）。
     // 这里把它作为**已声明的限制**连同保护路径反向用例一起固化下来。
-    let written = remote::ingest_remote_payload(&root, target, &payload, remote::AuditVerdict::Allow);
+    let written =
+        remote::ingest_remote_payload(&root, target, &payload, remote::AuditVerdict::Allow);
     println!("[6] ingest(Allow, External, 草稿区) -> {written:?}");
     assert!(written.is_ok(), "Allow 后草稿区应可落盘");
     assert!(root.join(target).is_file(), "落盘文件应存在");
 
     // 保护路径：即使 Allow + External，门必须硬拒且零写入。
     for protected in ["QM/memory/f005.md", "canon/f005.md"] {
-        let denied = remote::ingest_remote_payload(&root, protected, &payload, remote::AuditVerdict::Allow);
+        let denied =
+            remote::ingest_remote_payload(&root, protected, &payload, remote::AuditVerdict::Allow);
         println!("[6] ingest(Allow, External, {protected}) -> {denied:?}");
-        assert!(matches!(denied, Err(remote::McpError::AuditBlocked(_))), "{protected} 必须被门拒");
+        assert!(
+            matches!(denied, Err(remote::McpError::AuditBlocked(_))),
+            "{protected} 必须被门拒"
+        );
         assert!(!root.join(protected).exists(), "{protected} 不得落盘");
     }
 
     // [7] 收尾：关闭会话 + 删除真实凭据，不留残留。
     let closed = remote::mcp_remote_close(SERVER).expect("关闭应成功");
     let removed = vault::vault_delete_secret(key).expect("删除令牌应成功");
-    println!("[7] closed={closed} tokenRemoved={removed} 剩余会话={}", remote::open_session_count());
+    println!(
+        "[7] closed={closed} tokenRemoved={removed} 剩余会话={}",
+        remote::open_session_count()
+    );
     assert!(closed, "会话应被关闭");
     assert!(removed, "令牌应被删除（不留残留）");
     assert_eq!(remote::open_session_count(), 0);

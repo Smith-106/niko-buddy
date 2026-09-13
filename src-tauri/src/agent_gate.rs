@@ -37,7 +37,8 @@ pub const GATE_AUDIT_FILE: &str = ".novel/audit/gate-audit.jsonl";
 pub const GATE_HALT_FILE: &str = ".novel/audit/gate-halt.json";
 
 /// 状态真源与规范层；破坏性操作命中即硬拒绝。
-pub const PROTECTED_PREFIXES: [&str; 4] = [".novel/status.json", ".novel/schema.md", "QM/", "canon"];
+pub const PROTECTED_PREFIXES: [&str; 4] =
+    [".novel/status.json", ".novel/schema.md", "QM/", "canon"];
 
 /// 需要经过门的破坏性操作。
 pub const DESTRUCTIVE_OPS: [&str; 4] = ["deleteFile", "deleteFolder", "batchReplace", "runCommand"];
@@ -130,7 +131,12 @@ pub fn gate_error(out: &GateOutcome) -> String {
             out.request_id.clone().unwrap_or_default(),
             out.reason
         ),
-        Decision::Denied => format!("{}{}:{}", GATE_DENIED_PREFIX, out.decision.as_str(), out.reason),
+        Decision::Denied => format!(
+            "{}{}:{}",
+            GATE_DENIED_PREFIX,
+            out.decision.as_str(),
+            out.reason
+        ),
         _ => String::new(),
     }
 }
@@ -353,7 +359,10 @@ pub fn hit_criteria(op: &str, target: &str, actor: GateActor) -> Vec<String> {
         hits.push("destructive_op".to_string());
     }
     let class = classify_rebuild_class(target);
-    if matches!(class, RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable) {
+    if matches!(
+        class,
+        RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable
+    ) {
         hits.push("rebuildable".to_string());
     }
     if op.eq_ignore_ascii_case("runCommand") || actor == GateActor::Cli {
@@ -376,7 +385,9 @@ fn hydrate_halt_from_disk(g: &mut GateState) {
     }
     let Some(root) = g.root.clone() else { return };
     let path = halt_path(&root);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return;
+    };
     if let Ok(rec) = serde_json::from_str::<HaltRecord>(raw.trim()) {
         g.halt = Some(rec);
     }
@@ -384,7 +395,8 @@ fn hydrate_halt_from_disk(g: &mut GateState) {
 
 /// 记录一次同指纹调用；窗口内达到阈值即熔断并落盘标记。
 fn record_event(g: &mut GateState, key: &str, now: u64) -> bool {
-    g.events.retain(|(_, ts)| now.saturating_sub(*ts) <= LOOP_WINDOW_MS);
+    g.events
+        .retain(|(_, ts)| now.saturating_sub(*ts) <= LOOP_WINDOW_MS);
     g.events.push((key.to_string(), now));
     let count = g.events.iter().filter(|(k, _)| k == key).count() as u32;
     if count >= LOOP_THRESHOLD {
@@ -427,7 +439,9 @@ fn append_audit(root: Option<&Path>, rec: &GateAuditRecord) {
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    let Ok(mut line) = serde_json::to_string(rec) else { return };
+    let Ok(mut line) = serde_json::to_string(rec) else {
+        return;
+    };
     line.push('\n');
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -527,17 +541,31 @@ fn sweep_timeouts(g: &mut GateState, now: u64) {
     }
 }
 
-fn effective_decision(op: &str, target: &str, class: RebuildClass, actor: GateActor) -> (Decision, &'static str) {
+fn effective_decision(
+    op: &str,
+    target: &str,
+    class: RebuildClass,
+    actor: GateActor,
+) -> (Decision, &'static str) {
     if protected_prefix(target) {
         if is_destructive_op(op) {
             // 受保护区对破坏性操作硬拒绝，任何 actor 都不能绕过。
-            return (Decision::Denied, "target is a protected truth surface; not bypassable");
+            return (
+                Decision::Denied,
+                "target is a protected truth surface; not bypassable",
+            );
         }
         if actor != GateActor::User {
             // 真源面的非破坏性写入：Agent/CLI/External 必须经人工确认，不得静默落地。
-            return (Decision::RequireConfirm, "protected truth surface requires human confirmation");
+            return (
+                Decision::RequireConfirm,
+                "protected truth surface requires human confirmation",
+            );
         }
-        return (Decision::Allowed, "human actor may write a protected truth surface");
+        return (
+            Decision::Allowed,
+            "human actor may write a protected truth surface",
+        );
     }
     if !is_destructive_op(op) {
         // 非破坏性操作不进入门的裁决面，门只拦真实副作用。
@@ -545,12 +573,16 @@ fn effective_decision(op: &str, target: &str, class: RebuildClass, actor: GateAc
     }
     if op.eq_ignore_ascii_case("runCommand") || actor == GateActor::Cli {
         // 外部进程的逐次写入不在本进程可见范围内，可强制的人工边界是“不得指向保护区”。
-        return (Decision::Allowed, "external process target is outside protected prefixes; audited");
+        return (
+            Decision::Allowed,
+            "external process target is outside protected prefixes; audited",
+        );
     }
     match class {
-        RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable => {
-            (Decision::Allowed, "target is rebuildable from snapshots or projections")
-        }
+        RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable => (
+            Decision::Allowed,
+            "target is rebuildable from snapshots or projections",
+        ),
         RebuildClass::Irreversible => (Decision::RequireConfirm, "target is irreversible"),
     }
 }
@@ -721,7 +753,11 @@ pub fn loop_state_impl() -> LoopState {
 }
 
 /// 人工裁决：确认放行、拒绝、或解除熔断。
-pub fn resolve_impl(request_id: &str, decision: Decision, note: &str) -> Result<GateOutcome, String> {
+pub fn resolve_impl(
+    request_id: &str,
+    decision: Decision,
+    note: &str,
+) -> Result<GateOutcome, String> {
     let now = now_ms();
     let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
     hydrate_halt_from_disk(&mut g);
@@ -880,12 +916,7 @@ mod tests {
     impl TempTree {
         fn new(tag: &str) -> TempTree {
             let mut root = std::env::temp_dir();
-            let uniq = format!(
-                "nb-gate-{}-{}-{}",
-                tag,
-                std::process::id(),
-                now_ms()
-            );
+            let uniq = format!("nb-gate-{}-{}-{}", tag, std::process::id(), now_ms());
             root.push(uniq);
             std::fs::create_dir_all(root.join(".novel/audit")).expect("mkdir");
             TempTree { root }
@@ -923,7 +954,10 @@ mod tests {
         let first = gate_authorize("deleteFile", target, GateActor::Agent);
         assert_eq!(first.decision, Decision::RequireConfirm);
         let request_id = first.request_id.clone().expect("bracket request id");
-        assert!(!first.may_proceed(), "a bracket must not authorize the side effect");
+        assert!(
+            !first.may_proceed(),
+            "a bracket must not authorize the side effect"
+        );
 
         // 把请求推到窗口之外，模拟 120s 无响应。
         {
@@ -935,7 +969,10 @@ mod tests {
         let late = resolve_impl(&request_id, Decision::Allowed, "too late");
         assert!(late.is_ok());
         assert_eq!(late.unwrap().decision, Decision::Denied);
-        assert!(pending_impl().is_empty(), "timed-out bracket must be dropped");
+        assert!(
+            pending_impl().is_empty(),
+            "timed-out bracket must be dropped"
+        );
         assert_eq!(
             sweep_timeouts_impl(now_ms()).len(),
             0,
@@ -946,7 +983,11 @@ mod tests {
     #[test]
     fn cli_path_cannot_bypass() {
         let _serial = serial();
-        for target in [".novel/status.json", "QM/raw/notes.md", "canon/entities.json"] {
+        for target in [
+            ".novel/status.json",
+            "QM/raw/notes.md",
+            "canon/entities.json",
+        ] {
             let out = gate_authorize("deleteFile", target, GateActor::Cli);
             assert_eq!(
                 out.decision,
@@ -962,7 +1003,10 @@ mod tests {
 
         // 非保护区的 CLI 执行仍被记录为外部副作用，但不拦普通使用。
         let normal = gate_authorize("runCommand", "book/chapter-1.md", GateActor::Cli);
-        assert!(normal.may_proceed(), "ordinary CLI execution must not regress");
+        assert!(
+            normal.may_proceed(),
+            "ordinary CLI execution must not regress"
+        );
         assert!(normal
             .hit_criteria
             .iter()
@@ -1000,10 +1044,14 @@ mod tests {
 
         // 仅人工 ResumeAfterHalt 解除。
         let halt_id = loop_state_impl().halt_request_id.expect("halt id");
-        let resumed = resolve_impl(&halt_id, Decision::ResumeAfterHalt, "reviewed").expect("resume");
+        let resumed =
+            resolve_impl(&halt_id, Decision::ResumeAfterHalt, "reviewed").expect("resume");
         assert_eq!(resumed.decision, Decision::ResumeAfterHalt);
         assert!(!loop_state_impl().halted);
-        assert!(!t.path(GATE_HALT_FILE).exists(), "resume must clear the marker");
+        assert!(
+            !t.path(GATE_HALT_FILE).exists(),
+            "resume must clear the marker"
+        );
 
         let cleared = gate_authorize("deleteFile", "book/ok.md", GateActor::Agent);
         assert_ne!(
@@ -1017,7 +1065,11 @@ mod tests {
     fn rebuildable_targets_pass_and_are_audited() {
         let _serial = serial();
         let t = use_tree("rebuildable");
-        let snap = gate_authorize("deleteFile", ".novel/snapshots/ch1/body.md", GateActor::Agent);
+        let snap = gate_authorize(
+            "deleteFile",
+            ".novel/snapshots/ch1/body.md",
+            GateActor::Agent,
+        );
         assert_eq!(snap.decision, Decision::Allowed);
         assert_eq!(snap.class, RebuildClass::Rebuildable);
 
@@ -1026,7 +1078,10 @@ mod tests {
         assert_eq!(derived.class, RebuildClass::DerivedRebuildable);
 
         let log = std::fs::read_to_string(t.path(GATE_AUDIT_FILE)).expect("audit log");
-        assert!(log.lines().count() >= 2, "allowed decisions must be audited");
+        assert!(
+            log.lines().count() >= 2,
+            "allowed decisions must be audited"
+        );
         assert!(log.contains("rebuildable"));
     }
 
@@ -1097,7 +1152,10 @@ mod tests {
                 .decision,
             Decision::ResumeAfterHalt
         );
-        assert!(!loop_state_impl().halted, "本用例必须清理熔断态，避免污染同进程其他用例");
+        assert!(
+            !loop_state_impl().halted,
+            "本用例必须清理熔断态，避免污染同进程其他用例"
+        );
     }
 
     #[test]
@@ -1158,7 +1216,9 @@ mod tests {
         let _t = use_tree("nondestructive");
         let out = gate_authorize("writeFile", "book/chapter-1.md", GateActor::Agent);
         assert_eq!(out.decision, Decision::Allowed);
-        assert!(out.hit_criteria.is_empty() || !out.hit_criteria.iter().any(|c| c == "destructive_op"));
+        assert!(
+            out.hit_criteria.is_empty() || !out.hit_criteria.iter().any(|c| c == "destructive_op")
+        );
     }
 
     #[test]

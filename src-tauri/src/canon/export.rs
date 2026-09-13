@@ -608,7 +608,10 @@ fn sidecar_path(zip_path: &Path) -> PathBuf {
 /// 写标准 `sha256sum` 行格式：`<hex>  <filename>`。
 ///
 /// TASK-005 技能包复用同一 sidecar 范式（`<bundle>.sha256` 存 manifest sha256）。
-pub(crate) fn write_checksum_sidecar(zip_path: &Path, checksum_hex: &str) -> Result<PathBuf, String> {
+pub(crate) fn write_checksum_sidecar(
+    zip_path: &Path,
+    checksum_hex: &str,
+) -> Result<PathBuf, String> {
     let sp = sidecar_path(zip_path);
     let file_name = zip_path
         .file_name()

@@ -45,7 +45,10 @@ fn real_windows_credential_manager_roundtrip() {
         "账号必须带命名空间前缀，实际 {account}"
     );
 
-    println!("[1] key={key} account={account} service={}", vault::VAULT_SERVICE);
+    println!(
+        "[1] key={key} account={account} service={}",
+        vault::VAULT_SERVICE
+    );
 
     // 前置清理：确保从确定状态开始。
     let _ = vault::vault_delete_secret(key.to_string());
@@ -56,7 +59,8 @@ fn real_windows_credential_manager_roundtrip() {
     );
 
     // [2] 真实写入。
-    let stored = vault::vault_put_secret(key.to_string(), secret.to_string()).expect("真实写入应成功");
+    let stored =
+        vault::vault_put_secret(key.to_string(), secret.to_string()).expect("真实写入应成功");
     println!("[2] put -> {stored}");
     // 契约：返回 credential_ref = `<service>:<key>`（不含账号前缀、绝不含明文）。
     assert_eq!(
@@ -70,7 +74,10 @@ fn real_windows_credential_manager_roundtrip() {
     let after_put = cmdkey_list();
     let hits = count_account(&after_put, &account);
     println!("[3] cmdkey /list 命中 {account} 次数 = {hits}");
-    assert!(hits >= 1, "系统凭据管理器里应能看到 {account}；cmdkey 输出：\n{after_put}");
+    assert!(
+        hits >= 1,
+        "系统凭据管理器里应能看到 {account}；cmdkey 输出：\n{after_put}"
+    );
     println!(
         "[3] cmdkey 行: {}",
         after_put
@@ -92,7 +99,10 @@ fn real_windows_credential_manager_roundtrip() {
     let after_delete = cmdkey_list();
     let hits_after = count_account(&after_delete, &account);
     println!("[5] delete 后 cmdkey 命中次数 = {hits_after}");
-    assert_eq!(hits_after, 0, "删除后系统侧不应残留 {account}；cmdkey 输出：\n{after_delete}");
+    assert_eq!(
+        hits_after, 0,
+        "删除后系统侧不应残留 {account}；cmdkey 输出：\n{after_delete}"
+    );
     assert_eq!(
         vault::vault_get_secret(key.to_string()).expect("删除后读取仍应成功"),
         None,
@@ -123,7 +133,9 @@ fn secret_is_not_written_into_project_data_sections() {
     let mut scanned = 0usize;
     let mut found: Vec<String> = Vec::new();
     for root in roots {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(root);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(root);
         if !dir.is_dir() {
             continue;
         }
