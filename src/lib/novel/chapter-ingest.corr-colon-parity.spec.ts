@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+// 顶层静态 import：chapter-ingest 模块图很重，动态 import 在 it() 内会把
+// 加载耗时计入 testTimeout，全量并发负载下偶发超时/worker 崩溃。
+// 提升到文件级后 test fn 仅做同步断言（声明顺序保持注册表填充次序）。
+import { PROJECTION_REGISTRY } from "./projection-status-ledger"
+import "./chapter-ingest"
+
 const NOVEL_DIR = resolve(__dirname)
 function readSource(): string {
   return readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8")
@@ -92,12 +98,10 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     expect(src).toMatch(/applyForeshadowingChangesToStore[\s\S]*?parseForeshadowingChange\(change\)/)
   })
 
-  it("live ingest character fold calls applyCharacterStateChangesToStore (no inline fold)", async () => {
+  it("live ingest character fold calls applyCharacterStateChangesToStore (no inline fold)", () => {
     // P2-IMP-14: 四路径同源遍历注册表后，ingest 增量路径经 character 条目的
     // applyToStore 委派到共享 helper（与 rebuild 同一函数引用）——旧版内联
     // 硬编码调用点已收敛到注册表填充处。行为等价断言改扫注册表条目。
-    const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
-    await import("./chapter-ingest") // 确保注册表已填充
     const entry = PROJECTION_REGISTRY.character
     expect(entry).toBeTruthy()
     expect(entry.applyToStore).toBeTypeOf("function")
@@ -107,9 +111,7 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     expect(src).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\r?\n      \}/)
   })
 
-  it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", async () => {
-    const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
-    await import("./chapter-ingest")
+  it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", () => {
     const entry = PROJECTION_REGISTRY.foreshadow
     expect(entry).toBeTruthy()
     expect(entry.applyToStore).toBeTypeOf("function")

@@ -17,6 +17,7 @@ import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
+import { TASK_PROMPT_KEYS } from "@/stores/wiki-store"
 
 interface Props {
   draft: SettingsDraft
@@ -146,6 +147,8 @@ export function NovelSection({ draft, setDraft }: Props) {
       })
     }
   }
+
+  const consensusDimensionKeys = ["thrill", "consistency", "pacing", "character", "continuity", "pull"] as const
 
   const modelItems = useMemo(() => ([
     { task: "review", field: "reviewModel", wrapperClassName: "space-y-2" },
@@ -713,6 +716,123 @@ export function NovelSection({ draft, setDraft }: Props) {
             )
           })}
         </div>
+      </div>
+
+      {/* 多模型共识（consensus feature）：关闭时零行为变更 */}
+      <div className="space-y-3 rounded-lg border p-4">
+        <div className="flex items-center gap-1.5">
+          <Label>{t("novel.settings.consensusTitle")}</Label>
+          {settingTooltip("consensusHelp")}
+        </div>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={draft.novelConfig.consensusEnabled}
+            onChange={(e) => updateNovelConfig({ consensusEnabled: e.target.checked })}
+          />
+          <span className="text-sm">{t("novel.settings.consensusEnabled")}</span>
+        </label>
+        {draft.novelConfig.consensusEnabled ? (
+          <>
+            <div className="space-y-2">
+              <Label className="text-sm">{t("novel.settings.consensusWritingModels")}</Label>
+              <input
+                type="text"
+                className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+                placeholder="providerId/modelId, providerId/modelId"
+                value={draft.novelConfig.consensusWritingModels.join(", ")}
+                onChange={(e) =>
+                  updateNovelConfig({
+                    consensusWritingModels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  })
+                }
+              />
+              <p className="text-xs leading-5 text-muted-foreground">{t("novel.settings.consensusWritingModelsHint")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">{t("novel.settings.consensusDebateRounds")}</Label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={draft.novelConfig.consensusDebateRounds}
+                onChange={(e) =>
+                  updateNovelConfig({
+                    consensusDebateRounds: Math.max(1, Math.min(5, Number(e.target.value) || 1)),
+                  })
+                }
+                className="w-24"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">{t("novel.settings.consensusReviewModels")}</Label>
+              {consensusDimensionKeys.map((key) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    {t(`novel.reviewCenter.dimension.${key}`)}
+                  </span>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+                    placeholder="providerId/modelId, ..."
+                    value={(draft.novelConfig.consensusReviewModels[key] ?? []).join(", ")}
+                    onChange={(e) =>
+                      updateNovelConfig({
+                        consensusReviewModels: {
+                          ...draft.novelConfig.consensusReviewModels,
+                          [key]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+              <p className="text-xs leading-5 text-muted-foreground">{t("novel.settings.consensusReviewModelsHint")}</p>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {/* 任务提示词与技能（task customization）：默认空=行为与现状一致 */}
+      <div className="space-y-3 rounded-lg border p-4">
+        <div className="flex items-center gap-1.5">
+          <Label>{t("novel.settings.taskCustomTitle")}</Label>
+          {settingTooltip("taskCustomHelp")}
+        </div>
+        {TASK_PROMPT_KEYS.map((key) => (
+          <div key={key} className="space-y-1.5 rounded-md border p-3">
+            <Label className="text-sm">{t(`novel.settings.taskCustom_${key}`)}</Label>
+            <input
+              type="text"
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+              placeholder={t("novel.settings.taskCustomSkillPlaceholder")}
+              value={(draft.novelConfig.taskSkillNames?.[key] ?? []).join(", ")}
+              onChange={(e) =>
+                updateNovelConfig({
+                  taskSkillNames: {
+                    ...draft.novelConfig.taskSkillNames,
+                    [key]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  },
+                })
+              }
+            />
+            <textarea
+              rows={2}
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+              placeholder={t("novel.settings.taskCustomPromptPlaceholder")}
+              value={draft.novelConfig.taskPrompts?.[key]?.extra ?? ""}
+              onChange={(e) =>
+                updateNovelConfig({
+                  taskPrompts: {
+                    ...draft.novelConfig.taskPrompts,
+                    [key]: { extra: e.target.value },
+                  },
+                })
+              }
+            />
+          </div>
+        ))}
       </div>
 
       <div className="space-y-2">

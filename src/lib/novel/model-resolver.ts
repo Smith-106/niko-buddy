@@ -101,3 +101,26 @@ export function resolveNovelModel(
 
   return resolveModelConfig(taskModel, llmConfig, providerConfigs)
 }
+
+/**
+ * 多模型共识（consensus feature）：把 "providerId/modelId" 模型名数组逐个解析为
+ * 独立 LlmConfig。空数组或全部解析失败时回退 reviewModel 单模型路径（返回长度 1），
+ * 保证共识执行器在配置缺失时退化为现状行为。
+ */
+export function resolveConsensusModels(
+  models: string[],
+  llmConfig: LlmConfig,
+  novelConfig: NovelConfig,
+  storeSnapshot?: ModelResolverStoreSnapshot,
+): LlmConfig[] {
+  const cleaned = models.map((m) => m.trim()).filter(Boolean)
+  if (cleaned.length === 0) {
+    // 空配置回退：与审查单模型同一路径（reviewModel，可能仍为空 → 调用方 hasUsableLlm 兜底）
+    return [resolveNovelModel(llmConfig, novelConfig, "review", storeSnapshot)]
+  }
+  const { providerConfigs } = storeSnapshot
+    ? { providerConfigs: storeSnapshot.providerConfigs ?? useWikiStore.getState().providerConfigs }
+    : { providerConfigs: useWikiStore.getState().providerConfigs }
+  const resolved = cleaned.map((model) => resolveModelConfig(model, llmConfig, providerConfigs))
+  return resolved.length > 0 ? resolved : [llmConfig]
+}

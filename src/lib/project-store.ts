@@ -683,6 +683,13 @@ function normalizeNovelConfig(
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,
     summaryModel: config.summaryModel ?? DEFAULT_NOVEL_CONFIG.summaryModel,
     extractModel: config.extractModel ?? DEFAULT_NOVEL_CONFIG.extractModel,
+    // task customization（每任务追加提示词/技能名单）：Partial 输入归一化为完整 Record
+    taskPrompts: { ...DEFAULT_NOVEL_CONFIG.taskPrompts, ...config.taskPrompts },
+    taskSkillNames: { ...DEFAULT_NOVEL_CONFIG.taskSkillNames, ...config.taskSkillNames },
+    consensusEnabled: config.consensusEnabled ?? DEFAULT_NOVEL_CONFIG.consensusEnabled,
+    consensusReviewModels: config.consensusReviewModels ?? DEFAULT_NOVEL_CONFIG.consensusReviewModels,
+    consensusWritingModels: config.consensusWritingModels ?? DEFAULT_NOVEL_CONFIG.consensusWritingModels,
+    consensusDebateRounds: config.consensusDebateRounds ?? DEFAULT_NOVEL_CONFIG.consensusDebateRounds,
     communitySummaryEnabled: config.communitySummaryEnabled ?? DEFAULT_NOVEL_CONFIG.communitySummaryEnabled,
     communitySummaryInterval: Math.max(1, Math.min(50, config.communitySummaryInterval ?? DEFAULT_NOVEL_CONFIG.communitySummaryInterval)),
     communitySummaryAsync: config.communitySummaryAsync ?? DEFAULT_NOVEL_CONFIG.communitySummaryAsync,

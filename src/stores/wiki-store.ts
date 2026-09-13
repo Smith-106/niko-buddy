@@ -256,6 +256,9 @@ interface SourceWatchConfig {
 
 // ── Novel config ────────────────────────────────────────────────────────────────
 
+export type TaskPromptKey = "writing" | "outline" | "review" | "summary" | "extract"
+export const TASK_PROMPT_KEYS = ["writing", "outline", "review", "summary", "extract"] as const
+
 export interface NovelConfig {
   contextTokenBudget: number
   recentSummaryWindow: number
@@ -286,6 +289,18 @@ export interface NovelConfig {
   reviewModel: string
   summaryModel: string
   extractModel: string
+  /** 多模型共识总开关（default off）。开启后审查六维分维与章节生成走共识执行器；关闭=单模型现状行为逐字节等价。 */
+  consensusEnabled: boolean
+  /** 审查共识：每维独立模型组（"providerId/modelId"）；空数组回退 reviewModel 单模型。 */
+  consensusReviewModels: Record<string, string[]>
+  /** 写作共识：章节生成并行模型组；空数组回退会话当前模型。 */
+  consensusWritingModels: string[]
+  /** 辩论轮次数（default 1）：各模型互看他方匿名评分/理由后再评。 */
+  consensusDebateRounds: number
+  /** 任务级自定义提示词（追加段，default 空=追加段不存在）。键与 NovelTaskType 语义对齐。 */
+  taskPrompts: Record<TaskPromptKey, { extra?: string }>
+  /** 任务级技能名单覆盖（default 空数组=走内置默认选择逻辑）。 */
+  taskSkillNames: Record<TaskPromptKey, string[]>
   /** Community summary auto-extraction toggle (default on). */
   communitySummaryEnabled: boolean
   /** Chapter interval for community summary rebuild (default 5). */
@@ -388,6 +403,12 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   reviewModel: "",
   summaryModel: "",
   extractModel: "",
+  consensusEnabled: false,
+  consensusReviewModels: {},
+  consensusWritingModels: [],
+  consensusDebateRounds: 1,
+  taskPrompts: { writing: {}, outline: {}, review: {}, summary: {}, extract: {} },
+  taskSkillNames: { writing: [], outline: [], review: [], summary: [], extract: [] },
   communitySummaryEnabled: true,
   communitySummaryInterval: 5,
   communitySummaryAsync: true,

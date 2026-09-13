@@ -36,7 +36,7 @@ vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
   }
 })
 
-import { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
+import { resolveConsensusModels, resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
 
 const baseConfig: LlmConfig = {
   provider: "custom",
@@ -298,6 +298,35 @@ describe("model-resolver", () => {
       })
       const resolved = resolveNovelModel(baseConfig, novelConfig, "writing", { providerConfigs: {} })
       expect(resolved.model).toBe("store-fallback")
+    })
+  })
+
+  describe("resolveConsensusModels", () => {
+    const novelConfig = { reviewModel: "review-model", summaryModel: "", extractModel: "" } as NovelConfig
+
+    it("empty model list falls back to review single-model path (length 1)", () => {
+      const resolved = resolveConsensusModels([], baseConfig, novelConfig, { providerConfigs: {} })
+      expect(resolved).toHaveLength(1)
+      expect(resolved[0]!.model).toBe("review-model") // novelConfig.reviewModel
+    })
+
+    it("resolves each providerId/modelId entry independently", () => {
+      mocks.getState.mockReturnValue({ providerConfigs: {} })
+      const resolved = resolveConsensusModels(
+        ["anthropic/claude-a", "anthropic/claude-b"],
+        baseConfig,
+        novelConfig,
+        { providerConfigs: {} },
+      )
+      expect(resolved).toHaveLength(2)
+      expect(resolved[0]!.model).toBe("claude-a")
+      expect(resolved[1]!.model).toBe("claude-b")
+    })
+
+    it("trims and drops blank entries; all-blank falls back to review path", () => {
+      const resolved = resolveConsensusModels(["  ", ""], baseConfig, novelConfig, { providerConfigs: {} })
+      expect(resolved).toHaveLength(1)
+      expect(resolved[0]!.model).toBe("review-model")
     })
   })
 })

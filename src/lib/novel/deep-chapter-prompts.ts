@@ -62,6 +62,24 @@ export function buildStableContextPrefix(outline: string, contextPrompt: string)
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * 任务级自定义追加段（task customization）：extra 为空/空白时原样返回（字节等价），
+ * 非空时在 prompt 尾部追加【任务自定义要求】段。
+ */
+export function appendTaskExtraSection(prompt: string, extraInstructions?: string): string {
+  const trimmed = extraInstructions?.trim()
+  if (!trimmed) return prompt
+  return [
+    prompt,
+    "",
+    "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "# 【任务自定义要求】（用户配置，优先级高于风格建议，不得违背硬性输出协议）",
+    "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "",
+    trimmed,
+  ].join("\n")
+}
+
 export function buildDeepChapterBriefPrompt(
   outline: string,
   contextPrompt: string,
@@ -69,8 +87,9 @@ export function buildDeepChapterBriefPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
+  extraInstructions?: string,
 ): string {
-  return [
+  return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
     "[TASK_BRIEF_MARKER]",
     "",
@@ -88,7 +107,7 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-  ].filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n"), extraInstructions)
 }
 
 export function buildDeepChapterDraftPrompt(
@@ -99,8 +118,9 @@ export function buildDeepChapterDraftPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
+  extraInstructions?: string,
 ): string {
-  return [
+  return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
     "[DRAFT_STAGE_MARKER]",
     "",
@@ -124,7 +144,7 @@ export function buildDeepChapterDraftPrompt(
     "",
     "写作任务书：",
     taskBrief,
-  ].filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n"), extraInstructions)
 }
 
 export function buildDeepChapterRevisionPrompt(
@@ -136,8 +156,9 @@ export function buildDeepChapterRevisionPrompt(
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
+  extraInstructions?: string,
 ): string {
-  return [
+  return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
     "[REVISION_STAGE_MARKER]",
     "",
@@ -166,7 +187,7 @@ export function buildDeepChapterRevisionPrompt(
     "",
     "原始初稿：",
     draftContent,
-  ].filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n"), extraInstructions)
 }
 
 export function buildDeepChapterExpansionPrompt(
@@ -178,8 +199,9 @@ export function buildDeepChapterExpansionPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
+  extraInstructions?: string,
 ): string {
-  return [
+  return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
     "[EXPANSION_STAGE_MARKER]",
     "",
@@ -205,7 +227,7 @@ export function buildDeepChapterExpansionPrompt(
     "",
     "当前过短正文：",
     currentContent,
-  ].filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n"), extraInstructions)
 }
 
 export function buildDeepChapterFinalPolishPrompt(
@@ -219,6 +241,7 @@ export function buildDeepChapterFinalPolishPrompt(
   customDeAiSkill?: string,
   userMemoryStore?: UserMemoryStore,
   genre?: string,
+  extraInstructions?: string,
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim()
     ? customDeAiSkill.trim()
@@ -231,7 +254,7 @@ export function buildDeepChapterFinalPolishPrompt(
   const genreFragment = genre && genre.trim()
     ? ["", buildStructuredDeAiRules(genre.trim()), ""].join("\n")
     : ""
-  return [
+  return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
     "[FINAL_POLISH_STAGE_MARKER]",
     "",
@@ -260,7 +283,7 @@ export function buildDeepChapterFinalPolishPrompt(
     "",
     "待最终简单审查与去AI味正文：",
     currentContent,
-  ].filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n"), extraInstructions)
 }
 
 export function buildDeepChapterLengthRewritePrompt(
@@ -271,9 +294,10 @@ export function buildDeepChapterLengthRewritePrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   options?: { autoGenerateTitle?: boolean },
+  extraInstructions?: string,
 ): string {
   const autoTitle = options?.autoGenerateTitle !== false
-  return [
+  return appendTaskExtraSection([
     "你是小说正文轻量整理助手。",
     "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
     "",
@@ -299,7 +323,7 @@ export function buildDeepChapterLengthRewritePrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].join("\n"), extraInstructions)
 }
 
 function goldenThreeChapterSection(goldenThreeChapter?: GoldenThreeChapterRequest): string {

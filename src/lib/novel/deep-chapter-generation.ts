@@ -1,6 +1,7 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { setLogTraceId, logger } from "@/lib/utils"
+import { resolveTaskExtraPrompt, resolveTaskSkillNames } from "./task-customization"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { loadEmotionLedger, checkEmotionCircuitBreaker } from "./emotion-ledger"
@@ -1934,6 +1935,29 @@ async function assembleContext(
     })
   }
 
+  // 任务自定义技能（task customization）：用户 taskSkillNames.writing 名单 → 技能内容追加段。
+  // 名单为空（默认）时整段不存在，contextPrompt 字节不变；装载失败不阻断生成。
+  let userTaskSkillFragments = ""
+  const userTaskSkillNames = resolveTaskSkillNames(input.novelConfig, "writing")
+  if (userTaskSkillNames.length > 0) {
+    try {
+      const { loadUserSkillConfig } = await import("./user-skill-store")
+      const { resolveAvailableSkillsByNames } = await import("./skill-route-registry")
+      const pool = await loadUserSkillConfig(input.projectPath)
+      const picked = resolveAvailableSkillsByNames(pool.skills, userTaskSkillNames)
+      if (picked.skills.length > 0) {
+        userTaskSkillFragments = [
+          "## 任务自定义技能（用户配置）",
+          ...picked.skills.map((s) => `### ${s.name}\n${s.content}`),
+        ].join("\n\n")
+      }
+    } catch (err) {
+      logger.warn("Deep Chapter", "任务自定义技能装载失败（非阻断）", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   // 其他上下文可以进行token预算管理，但大纲已被排除
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
@@ -1946,6 +1970,7 @@ async function assembleContext(
     }),
     communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
     skillHookFragments,
+    userTaskSkillFragments,
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 
@@ -2056,6 +2081,7 @@ async function generateTaskBrief(
   cachePrefix: string | undefined,
   watchdog?: WatchdogState,
 ): Promise<string> {
+  const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
   if (!taskBrief) {
     taskBrief = await collectModelText(
@@ -2069,6 +2095,7 @@ async function generateTaskBrief(
           input.chapterNumber,
           input.goldenThreeChapter,
           lengthSpec,
+          writingTaskExtra,
         ),
       }],
       deps,
@@ -2204,6 +2231,7 @@ async function generateDraft(
   clearPartial: () => void,
   watchdog?: WatchdogState,
 ): Promise<string> {
+  const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
   if (!draftContent) {
     draftContent = await collectModelText(
@@ -2218,6 +2246,7 @@ async function generateDraft(
           input.chapterNumber,
           input.goldenThreeChapter,
           lengthSpec,
+          writingTaskExtra,
         ),
       }],
       deps,
@@ -2244,6 +2273,7 @@ async function generateDraft(
             input.chapterNumber,
             input.goldenThreeChapter,
             lengthSpec,
+            writingTaskExtra,
           ),
         }],
         deps,
@@ -2308,6 +2338,7 @@ async function generateDraft(
             input.chapterNumber,
             input.goldenThreeChapter,
             lengthSpec,
+            writingTaskExtra,
           ),
         }],
         deps,
@@ -2363,6 +2394,7 @@ async function runReviewAndRepair(
   notePartial: (reason: string) => void,
   watchdog?: WatchdogState,
 ): Promise<ReviewAndRepairResult> {
+  const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
   let retryCount = resumeCheckpoint?.retryCount ?? 0
@@ -2659,6 +2691,7 @@ async function runReviewAndRepair(
           input.userRequest,
           input.chapterNumber,
           input.goldenThreeChapter,
+          writingTaskExtra,
         ),
       }],
       deps,
@@ -2865,7 +2898,7 @@ async function runReviewAndRepair(
             input.userRequest,
             input.chapterNumber,
             input.goldenThreeChapter,
-          ) + trackBConstraint + residualConstraint,
+          ) + trackBConstraint + residualConstraint + writingTaskExtra,
         }],
         deps,
         signal,
@@ -2945,6 +2978,7 @@ async function finalPolishChapter(
   onPartial?: (reason: string) => void,
   watchdog?: WatchdogState,
 ): Promise<string> {
+  const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   assertNotAborted(signal)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
   const polished = await collectModelText(
@@ -2963,6 +2997,7 @@ async function finalPolishChapter(
         userMemoryStore,
         // 55 号设计 W1-1: 入口统一解析 (英文码 → 中文流派名; undefined/未知码 → 默认基线)。
         resolveDeAiGenre(input.genre),
+        writingTaskExtra,
       ),
     }],
     deps,

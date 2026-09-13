@@ -1,6 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { resolveAiWorkflowMode, type AiWorkflowMode } from "../workflow-mode"
 import { filterSkillsForSkillRoute, filterSkillsForSkillRoutes, inferSkillRoute, collectExplicitSkills, getOutlineSkillNames, getWritingSkillNames, resolveAvailableSkillsByNames, uniqueSkillsById } from "@/lib/novel"
+import { applyTaskSkillOverride, resolveTaskSkillNames } from "@/lib/novel/task-customization"
 import type { NovelTaskIntent, SkillKind, SkillStage, UserSkill, SkillRoute } from "@/lib/novel"
 
 const WRITING_INTENTS = new Set<NovelTaskIntent>([
@@ -69,14 +70,34 @@ export function createSelectSkillsPlugin(): PrePlugin {
         ...collectExplicitSkills(availableSkills, input.userMessage),
       ])
       const routedSkills = selectSkillsForRoute(availableSkills, route.intent, mode, input.userMessage)
-      const selectedSkills = uniqueSkillsById([...explicitSkills, ...routedSkills])
+      let selectedSkills = uniqueSkillsById([...explicitSkills, ...routedSkills])
+      const missingSkillNames = deterministicNames.length > 0
+        ? resolveAvailableSkillsByNames(mode === "fast"
+            ? availableSkills
+            : availableSkills.filter((skill) => skill.modes.includes(mode)), deterministicNames).missingNames
+        : []
+
+      // 任务级技能名单覆盖（task customization）：novelConfig 缺省/名单空 = 现状逻辑不变
+      const overrideKey = resolveOverrideKey(route.intent)
+      const userNames = input.novelConfig && overrideKey
+        ? resolveTaskSkillNamesForOverride(input.novelConfig, overrideKey)
+        : []
+      if (userNames.length > 0) {
+        const override = applyTaskSkillOverride(
+          selectedSkills.map((skill) => skill.name),
+          userNames,
+          new Set(availableSkills.map((skill) => skill.name)),
+        )
+        if (override.applied) {
+          const byName = resolveAvailableSkillsByNames(availableSkills, override.names).skills
+          selectedSkills = uniqueSkillsById([...byName, ...selectedSkills])
+        }
+        if (override.missing.length > 0) missingSkillNames.push(...override.missing)
+      }
+
       return {
         selectedSkills,
-        missingSkillNames: deterministicNames.length > 0
-          ? resolveAvailableSkillsByNames(mode === "fast"
-              ? availableSkills
-              : availableSkills.filter((skill) => skill.modes.includes(mode)), deterministicNames).missingNames
-          : [],
+        missingSkillNames,
       }
     },
   }
@@ -248,4 +269,19 @@ export function buildSelectedSkillsPrompt(skills: UserSkill[] | undefined): stri
     "以下 Skill 只用于本次任务的内部写作决策和输出约束。不要在最终回复中解释 Skill、列出 Skill 分析过程，除非用户明确要求。",
     ...blocks,
   ].join("\n\n")
+}
+
+
+function resolveOverrideKey(intent: NovelTaskIntent): "writing" | "outline" | "review" | null {
+  if (WRITING_INTENTS.has(intent)) return "writing"
+  if (intent === "generate_outline") return "outline"
+  if (REVIEW_INTENTS.has(intent)) return "review"
+  return null
+}
+
+function resolveTaskSkillNamesForOverride(
+  novelConfig: import("@/stores/wiki-store").NovelConfig,
+  key: "writing" | "outline" | "review",
+): string[] {
+  return resolveTaskSkillNames(novelConfig, key)
 }

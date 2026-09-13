@@ -1,6 +1,9 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { formatStageThinking, ensureString } from "./chapter-utils"
+import { resolveTaskExtraPrompt } from "./task-customization"
+import { appendTaskExtraSection } from "./deep-chapter-prompts"
+import type { NovelConfig } from "@/stores/wiki-store"
 
 // PAT-G2 mirror of deep-chapter-generation.ts F-4: throttle onUpdate so it
 // does not pass the entire growing content string to the caller on every
@@ -16,6 +19,8 @@ export interface DeepOutlineGenerationInput {
   userRequest: string
   context: string
   historyMessages?: ChatMessage[]
+  /** 任务级自定义（task customization）：追加提示词载体；缺省=字节等价。 */
+  novelConfig?: NovelConfig
 }
 
 export interface DeepOutlineGenerationCallbacks {
@@ -53,6 +58,8 @@ export async function runDeepOutlineGeneration(
   const safeContext = ensureString(input.context)
   const safeUserRequest = ensureString(input.userRequest)
   const history = formatRecentHistory(input.historyMessages ?? [])
+  // 任务级自定义追加段（task customization）：缺省/空 = prompt 字节不变
+  const outlineTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "outline")
 
   callbacks.onThinking?.(formatStageThinking(
     "阶段1：大纲上下文分析",
@@ -67,7 +74,7 @@ export async function runDeepOutlineGeneration(
 
   const taskBrief = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineTaskBriefPrompt(safeContext, history, safeUserRequest) }],
+    [{ role: "user", content: buildOutlineTaskBriefPrompt(safeContext, history, safeUserRequest, outlineTaskExtra) }],
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", partial)),
@@ -76,7 +83,7 @@ export async function runDeepOutlineGeneration(
 
   const draftContent = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineDraftPrompt(safeContext, history, taskBrief, safeUserRequest) }],
+    [{ role: "user", content: buildOutlineDraftPrompt(safeContext, history, taskBrief, safeUserRequest, outlineTaskExtra) }],
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", partial)),
@@ -89,7 +96,7 @@ export async function runDeepOutlineGeneration(
 
   const selfCheck = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineSelfCheckPrompt(safeContext, history, taskBrief, draftContent, safeUserRequest) }],
+    [{ role: "user", content: buildOutlineSelfCheckPrompt(safeContext, history, taskBrief, draftContent, safeUserRequest, outlineTaskExtra) }],
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", partial)),
@@ -149,8 +156,8 @@ async function collectModelText(
   return content.trim()
 }
 
-function buildOutlineTaskBriefPrompt(context: string, history: string, userRequest: string): string {
-  return [
+function buildOutlineTaskBriefPrompt(context: string, history: string, userRequest: string, extraInstructions?: string): string {
+  return appendTaskExtraSection([
     "你是小说大纲规划助手。请先输出一份大纲任务书，不要直接写大纲正文。",
     "",
     "任务书必须包含：",
@@ -164,11 +171,11 @@ function buildOutlineTaskBriefPrompt(context: string, history: string, userReque
     "",
     "已有大纲与章节上下文：",
     context || "暂无可用上下文。",
-  ].join("\n")
+  ].join("\n"), extraInstructions)
 }
 
-function buildOutlineDraftPrompt(context: string, history: string, taskBrief: string, userRequest: string): string {
-  return [
+function buildOutlineDraftPrompt(context: string, history: string, taskBrief: string, userRequest: string, extraInstructions?: string): string {
+  return appendTaskExtraSection([
     "你是小说大纲写作助手。请根据大纲任务书生成大纲草稿。",
     "",
     "输出要求：",
@@ -185,7 +192,7 @@ function buildOutlineDraftPrompt(context: string, history: string, taskBrief: st
     "",
     "已有大纲与章节上下文：",
     context || "暂无可用上下文。",
-  ].join("\n")
+  ].join("\n"), extraInstructions)
 }
 
 function buildOutlineSelfCheckPrompt(
@@ -194,8 +201,9 @@ function buildOutlineSelfCheckPrompt(
   taskBrief: string,
   draftContent: string,
   userRequest: string,
+  extraInstructions?: string,
 ): string {
-  return [
+  return appendTaskExtraSection([
     "你是小说大纲自检助手。请对大纲草稿做一次简短自检。",
     "",
     "只输出自检结论，不要改写正文。检查重点：",
@@ -215,7 +223,7 @@ function buildOutlineSelfCheckPrompt(
     "",
     "已有上下文：",
     context || "暂无可用上下文。",
-  ].join("\n")
+  ].join("\n"), extraInstructions)
 }
 
 function formatRecentHistory(messages: ChatMessage[]): string {

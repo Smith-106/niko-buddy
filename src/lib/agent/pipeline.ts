@@ -8,6 +8,8 @@ export interface PrePluginInput {
   projectPath: string
   agentConfig: AgentConfig
   novelMode?: boolean
+  /** 任务级自定义（task customization）载体；缺省时各 plugin 行为与现状一致。 */
+  novelConfig?: import("@/stores/wiki-store").NovelConfig
   selectedFile?: string | null
   lastGeneratedChapterNumber?: number
   historyMessages?: Array<{ role: string; content: string }>

@@ -1064,6 +1064,12 @@ export function ChatPanel() {
       const deepChapterEnabledNow = sharedDeepChapterEnabledRef.current
       if (novelMode && project && deepChapterEnabledNow) {
         const { runDeepChapterGeneration } = await import("@/lib/novel/deep-chapter-generation")
+        // 多模型共识旁路：开启且配置了写作模型组时才加载共识执行器（懒加载，关闭状态零额外模块加载）
+        const consensusActive =
+          novelConfig.consensusEnabled && novelConfig.consensusWritingModels.some((m) => m.trim())
+        const runGenerationFirst = consensusActive
+          ? (await import("@/lib/novel/consensus-writing")).runDeepChapterGenerationConsensus
+          : runDeepChapterGeneration
         const controller = new AbortController()
         const interruptedResumeCheckpoint = await loadNovelSessionStatus(pp)
           .then((status) => resolveInterruptedSessionResumeCheckpoint(status, {
@@ -1114,7 +1120,7 @@ export function ChatPanel() {
             chapterNumber: effectiveTaskRoute?.chapterNumber,
             config: novelConfig,
           })
-          const generationResult = await runDeepChapterGeneration(
+          const generationResult = await runGenerationFirst(
             {
               projectPath: pp,
               userRequest: text,
@@ -2046,6 +2052,12 @@ export function ChatPanel() {
         const goldenResume = detectGoldenThreeChapterRequest(originalRequest, resumeRoute?.chapterNumber)
         const dismantlingDirective = await loadEnabledDismantlingDirective(pp).catch(() => "")
         const { runDeepChapterGeneration } = await import("@/lib/novel/deep-chapter-generation")
+        // 多模型共识旁路（同首次生成）：恢复续写懒加载共识执行器
+        const consensusActiveResume =
+          novelConfig.consensusEnabled && novelConfig.consensusWritingModels.some((m) => m.trim())
+        const runGenerationResume = consensusActiveResume
+          ? (await import("@/lib/novel/consensus-writing")).runDeepChapterGenerationConsensus
+          : runDeepChapterGeneration
         let checkpointPersistError: string | null = null
         const sessionState = await startDeepChapterSession({
           projectPath: pp,
@@ -2068,7 +2080,7 @@ export function ChatPanel() {
           chapterNumber: resumeRoute?.chapterNumber,
           config: novelConfig,
         })
-        const generationResult = await runDeepChapterGeneration(
+        const generationResult = await runGenerationResume(
           {
             projectPath: pp,
             userRequest: originalRequest,

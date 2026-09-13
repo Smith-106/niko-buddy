@@ -23,7 +23,10 @@ import { validateSeverity, logger } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { buildMeasurementFingerprint } from "./measurement-fingerprint"
 import { createLiteraryExperimentProtocol } from "./literary-experiment-protocol"
-import { resolveNovelModel } from "./model-resolver"
+import { resolveConsensusModels, resolveNovelModel } from "./model-resolver"
+import { resolveTaskExtraPrompt } from "./task-customization"
+import { appendTaskExtraSection } from "./deep-chapter-prompts"
+import { runDimensionConsensus } from "./consensus-review"
 import type { StyleExemplar } from "./style-exemplars-loader"
 import {
   assessGoldScaleReadiness,
@@ -623,7 +626,9 @@ export async function runSixDimensionReview({
   // M0: attach measurement fingerprint for UI / logs (Track B instrument identity)
   try {
     const protocol = createLiteraryExperimentProtocol({
-      model: llmConfigResolved.model || "unknown",
+      model: injectedNovelConfig.consensusEnabled
+        ? `consensus:debate${injectedNovelConfig.consensusDebateRounds}`
+        : llmConfigResolved.model || "unknown",
       samples: 1,
       label: `ui-six-dim-ch${chapterNumber ?? "?"}`,
       notes: ["UI six-dimension run fingerprint; N=1 is display-only not seal"],
@@ -753,6 +758,29 @@ export async function runSixDimensionReview({
         return { key, result: shortCircuitResult, error: null as Error | null }
       }
       try {
+        // 多模型共识旁路（consensusEnabled 且该维明确配置了模型组才启用；关闭/空配置 = 单模型现状路径）
+        const consensusConfigured =
+          injectedNovelConfig.consensusEnabled && (injectedNovelConfig.consensusReviewModels[key]?.length ?? 0) > 0
+        if (consensusConfigured) {
+          const consensusModels = resolveConsensusModels(
+            injectedNovelConfig.consensusReviewModels[key] ?? [],
+            llmConfigResolved,
+            injectedNovelConfig,
+          )
+          const outcome = await runDimensionConsensus({
+            models: consensusModels,
+            dimension,
+            contextPack,
+            chapterContent,
+            debateRounds: injectedNovelConfig.consensusDebateRounds,
+            signal,
+            novelConfig: injectedNovelConfig,
+            goldAnchors,
+            goldReadinessHint,
+          })
+          callbacks.onDimensionThinking?.(key, outcome.result.thinking)
+          return { key, result: outcome.result, error: null as Error | null }
+        }
         const result = await reviewChapterDimension({
           llmConfig: llmConfigResolved,
           contextPack,
@@ -808,7 +836,13 @@ async function runDimensionStage(
   novelConfig?: NovelConfig,
 ): Promise<string> {
   const messages: ChatMessage[] = [
-    { role: "system", content: `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。` },
+    {
+      role: "system",
+      content: appendTaskExtraSection(
+        `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。`,
+        resolveTaskExtraPrompt(novelConfig, "review"),
+      ),
+    },
     { role: "user", content: userPrompt },
   ]
   let result = ""
@@ -842,7 +876,7 @@ async function runDimensionStage(
   return result.trim()
 }
 
-function parseDimensionReviewResult(
+export function parseDimensionReviewResult(
   dimension: SixReviewDimensionDefinition,
   finalText: string,
   thinking: string,
