@@ -458,6 +458,34 @@ mod pdfexport {
         }
     }
 
+    /// 空段（空行）导出探针：wrap_paragraph 对空段返回 [""]，空串直接进
+    /// PdfPageTextObject::new —— 若 pdfium 拒绝空串，含空行章节的导出会整体失败。
+    #[test]
+    fn exports_with_empty_paragraphs() {
+        if !pdfium_available() {
+            eprintln!("skip: pdfium 动态库不可用，跳过导出用例");
+            return;
+        }
+        let root = repo_root();
+        let out_dir = root.join("docs").join("p5");
+        std::fs::create_dir_all(&out_dir).expect("mkdir docs/p5");
+        let target = out_dir.join("empty-paragraph-probe.pdf");
+        let report = export_pdf(&PdfExportRequest {
+            project_root: root.clone(),
+            target: target.to_string_lossy().to_string(),
+            title: "空段探针".to_string(),
+            paragraphs: vec![
+                "首段内容".to_string(),
+                String::new(),
+                "空行之后的内容".to_string(),
+            ],
+            font_path: None,
+        })
+        .expect("含空行导出应成功");
+        assert!(report.pages >= 1);
+        let _ = std::fs::remove_file(&target);
+    }
+
     /// 渲染 PDF 第 1 页并量测文本行带：返回 (行带质心 px, 页高 pt, 图像高 px)。
     /// 量测对象是**渲染像素**而非生成代码里的常量，因此能独立验证声明的行距。
     fn render_and_measure(
