@@ -1,6 +1,6 @@
 import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride, type ProviderConfigs } from "@/stores/wiki-store"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
-import { resolveConfig } from "@/components/settings/preset-resolver"
+import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
+import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint"
 

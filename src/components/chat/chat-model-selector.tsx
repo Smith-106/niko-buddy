@@ -4,7 +4,7 @@ import { ChevronDown, Check } from "lucide-react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 
 interface ChatModelSelectorProps {
   value: string

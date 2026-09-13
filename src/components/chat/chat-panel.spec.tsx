@@ -37,7 +37,7 @@ import type { QueryPageReference } from "./chat-shared"
 import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import type { StreamSessionGuard } from "./stream-session"
 import type { ContextBudget } from "@/lib/context-budget"
-import type { LlmPreset } from "@/components/settings/llm-presets"
+import type { LlmPreset } from "@/lib/llm-config/llm-presets"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1084,15 +1084,15 @@ vi.mock("@/lib/novel/review-model", async (importOriginal) => {
   }
 })
 
-vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+vi.mock("@/lib/llm-config/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/preset-resolver")>()
   return {
     ...actual, resolveConfig: mocks.resolveConfig 
   }
 })
 
-vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+vi.mock("@/lib/llm-config/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/llm-presets")>()
   return {
     ...actual,
       LLM_PRESETS: [

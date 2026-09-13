@@ -111,6 +111,8 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <div
               className="cursor-zoom-in p-3"
               onClick={() => setExpanded(true)}
+              // SEC-ODX-01 防御假设：svg 的净化保证来自上方 mermaid.initialize({ securityLevel: "strict" })（库级 escape/sandbox），
+              // 非应用层 sanitize。升级 mermaid 或改动 securityLevel 前必须重新评估这两处注入点的安全性。
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </>
@@ -162,6 +164,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <div
               className="origin-top-left transition-transform duration-150"
               style={{ transform: `scale(${scale})` }}
+              // SEC-ODX-01：同上，净化边界 = mermaid securityLevel:"strict"（见 :48）
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </div>

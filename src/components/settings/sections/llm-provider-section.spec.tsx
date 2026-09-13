@@ -18,7 +18,7 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { LlmProviderSection, ReasoningControls } from "./llm-provider-section"
-import type { LlmPreset } from "../llm-presets"
+import type { LlmPreset } from "@/lib/llm-config/llm-presets"
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -126,11 +126,11 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-vi.mock("../llm-presets", () => ({
+vi.mock("@/lib/llm-config/llm-presets", () => ({
   LLM_PRESETS: mocks.LLM_PRESETS,
 }))
 
-vi.mock("../preset-resolver", () => ({
+vi.mock("@/lib/llm-config/preset-resolver", () => ({
   resolveConfig: mocks.resolveConfig,
 }))
 

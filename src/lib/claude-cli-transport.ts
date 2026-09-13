@@ -6,7 +6,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 import { classifyTransportError, type TransportError } from "./transport-error"
-import { hasAnthropicApiKey } from "@/components/settings/preset-resolver"
+import { hasAnthropicApiKey } from "@/lib/llm-config/preset-resolver"
 
 export type ClaudeCodeStreamParseResult =
   | { kind: "token"; text: string }

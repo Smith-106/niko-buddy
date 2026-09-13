@@ -10,7 +10,7 @@ import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reaso
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "./reasoning-retry"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
-import { resolveProviderOverride } from "@/components/settings/preset-resolver"
+import { resolveProviderOverride } from "@/lib/llm-config/preset-resolver"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"

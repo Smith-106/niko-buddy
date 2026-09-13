@@ -1,7 +1,7 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
 import { useCallback } from "react"
-import { resolveConfig } from "@/components/settings/preset-resolver"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { resolveConfig } from "@/lib/llm-config/preset-resolver"
+import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import type { LlmConfig, ProviderOverride } from "@/stores/wiki-store"
 
 /**

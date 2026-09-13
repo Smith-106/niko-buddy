@@ -15,8 +15,8 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+vi.mock("@/lib/llm-config/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/llm-presets")>()
   return {
     ...actual,
       LLM_PRESETS: [
@@ -27,8 +27,8 @@ vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
   }
 })
 
-vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+vi.mock("@/lib/llm-config/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/preset-resolver")>()
   return {
     ...actual,
       resolveConfig: (...args: unknown[]) => mocks.resolveConfig(...args),

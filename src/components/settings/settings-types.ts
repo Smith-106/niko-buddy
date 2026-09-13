@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import type { CustomApiMode } from "./llm-presets"
+import type { CustomApiMode } from "@/lib/llm-config/llm-presets"
 import type {
   AzureModelFamily,
   ReasoningConfig,

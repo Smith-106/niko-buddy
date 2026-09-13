@@ -8,6 +8,7 @@ import {
   type SixReviewDimensionDefinition,
 } from "./dimension-review-adapter"
 import { aggregateReviewDimension, anonymousId, type ReviewConsensusOutcome } from "./consensus-aggregate"
+import { logger } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
@@ -73,7 +74,10 @@ async function debateCall(
         result += token
       },
       onDone: () => {},
-      onError: () => {},
+      onError: (err: unknown) => {
+        // IMT-ODX-01: 辩论流式错误此前静默吞噬（onError 空）——席位降级路径依赖 catch 采样不到流中断，失败不可排查。
+        logger.warn("Consensus Review", `辩论席位流中断（降级沿用上轮票）: ${err instanceof Error ? err.message : String(err)}`)
+      },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
@@ -131,8 +135,12 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
           const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig)
           const parsed = parseDimensionReviewResult(dimension, text, `${dimension.label}辩论轮${round + 1}`)
           return { anonymousId: seat, score: parsed.score, status: parsed.status, summary: parsed.summary, issues: parsed.issues }
-        } catch {
-          // 降级容错：该席位沿用上一轮票
+        } catch (err) {
+          // 降级容错：该席位沿用上一轮票（IMT-ODX-01: 补日志，失败席位/轮次可观测）
+          logger.warn(
+            "Consensus Review",
+            `辩论席位 ${anonymousId(i)} 第 ${round + 1} 轮失败，沿用上轮票: ${err instanceof Error ? err.message : String(err)}`,
+          )
           return ballots[i]!
         }
       }),

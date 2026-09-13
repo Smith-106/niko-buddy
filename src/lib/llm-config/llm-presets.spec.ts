@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 //
-// 100% coverage spec for src/components/settings/llm-presets.ts
+// 100% coverage spec for src/lib/llm-config/llm-presets.ts
 
 import { describe, expect, it } from "vitest"
 import { LLM_PRESETS, matchPreset } from "./llm-presets"

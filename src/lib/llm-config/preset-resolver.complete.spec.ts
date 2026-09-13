@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 //
-// 100% coverage spec for src/components/settings/preset-resolver.ts
+// 100% coverage spec for src/lib/llm-config/preset-resolver.ts
 // (complements preset-resolver.override.spec.ts — this file drives the
 // resolveConfig / hasAnthropicApiKey / isExplicitUserSelection branches
 // that the override spec does not reach.)

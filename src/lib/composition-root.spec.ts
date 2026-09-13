@@ -165,14 +165,14 @@ vi.mock("@/components/chat/chat-resume", () => ({
   hydrateChatHistoryWithInterruptedDeepChapter: mocks.hydrateChat,
 }))
 vi.mock("@/lib/reset-project-state", () => ({ resetProjectState: mocks.resetProjectState }))
-vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+vi.mock("@/lib/llm-config/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/llm-presets")>()
   return {
     ...actual, LLM_PRESETS: mocks.LLM_PRESETS 
   }
 })
-vi.mock("@/components/settings/preset-resolver", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/preset-resolver")>()
+vi.mock("@/lib/llm-config/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/preset-resolver")>()
   return {
     ...actual,
       resolveConfig: mocks.resolveConfig,

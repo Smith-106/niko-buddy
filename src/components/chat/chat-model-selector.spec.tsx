@@ -43,8 +43,8 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-vi.mock("@/components/settings/llm-presets", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/settings/llm-presets")>()
+vi.mock("@/lib/llm-config/llm-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/llm-presets")>()
   return {
     ...actual,
       LLM_PRESETS: [

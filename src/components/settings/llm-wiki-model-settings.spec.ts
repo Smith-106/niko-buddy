@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest"
 import { getProviderConfig } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import zh from "@/i18n/zh.json"
-import { LLM_PRESETS } from "./llm-presets"
-import { resolveConfig } from "./preset-resolver"
+import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
+import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 
 const fallback: LlmConfig = {
   provider: "custom",
