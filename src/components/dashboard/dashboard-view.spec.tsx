@@ -432,8 +432,9 @@ describe("DashboardView — items 装配 / 分组 / 排序 / 卡片", () => {
     const card = dashboardCard("错误项")
     // 源码 L501: 来源标签渲染为 "[{label}]" 包裹文本
     expect(within(card).getByText(/dashboard\.source\.review/)).toBeInTheDocument()
-    // 证据按钮 → handleEditDashItem (highlight=true) → findChapterSelectionByEvidence + highlight
-    fireEvent.click(within(card).getByText(/审查证据/))
+    // odyssey-ui M3: 证据文本改 span（消除 role=button 内嵌 button 的无效 ARIA 嵌套），
+    // 「定位原文」编辑入口移入动作栏 → handleEditDashItem (highlight=true) 路径不变
+    fireEvent.click(within(card).getByText("dashboard.actions.edit"))
     await waitFor(() => expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalled())
     expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
     // 建议
@@ -675,8 +676,11 @@ describe("DashboardView — 伏笔债务区块", () => {
     expect(screen.getByText(/dashboard.section.debtScore/)).toBeInTheDocument()
     // 源码 L706: "{t('dashboard.section.debtScore')}: {debtScore}/100"
     expect(screen.getByText(/55\/100/)).toBeInTheDocument()
-    expect(screen.getByText(/埋设于第2章/)).toBeInTheDocument()
-    expect(screen.getByText(/上次推进于第5章/)).toBeInTheDocument()
+    // odyssey-ui H3: 状态文案入 i18n（identity t 渲染 key 文本；插值参数经 mocks.t 调用断言）
+    expect(screen.getByText("dashboard.debt.plantedAgo")).toBeInTheDocument()
+    expect(screen.getByText("dashboard.debt.advancedAgo")).toBeInTheDocument()
+    expect(mocks.t).toHaveBeenCalledWith("dashboard.debt.plantedAgo", expect.objectContaining({ chapter: 2 }))
+    expect(mocks.t).toHaveBeenCalledWith("dashboard.debt.advancedAgo", expect.objectContaining({ chapter: 5 }))
     expect(screen.getByText("伏笔A")).toBeInTheDocument()
     expect(screen.getByText("伏笔B")).toBeInTheDocument()
     // normal 级不渲染
@@ -808,8 +812,8 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     fireEvent.click(within(card.closest("div[role=button]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toBeInTheDocument())
     // insert_before → sourceLabel 原文位置
-    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-source-label", "原文位置")
-    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-candidate-label", "修改后内容")
+    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-source-label", "dashboard.rewriteDialog.sourceAnchorLabel")
+    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-candidate-label", "dashboard.rewriteDialog.candidateLabel")
     // onToken 不累积 (factcheck 早退)
     expect(screen.getByTestId("ttpd-candidate")).toHaveValue("补写内容\n正文")
     // streamChat 用 buildFactCheckInsertMessages
@@ -859,7 +863,7 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     render(<DashboardView />)
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toBeInTheDocument())
-    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-description", "正在生成修改内容，请稍候…")
+    expect(screen.getByTestId("ttpd")).toHaveAttribute("data-description", "dashboard.rewriteDialog.generating")
     expect(screen.getByTestId("ttpd-apply")).toBeDisabled()
     fireEvent.click(screen.getByTestId("ttpd-close"))
     expect(screen.getByTestId("ttpd")).toBeInTheDocument()

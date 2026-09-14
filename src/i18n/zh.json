@@ -93,7 +93,12 @@
       "chaseDebtWriteOff": "核销",
       "emotionDebt": "情绪债务",
       "emotionNetValue": "情绪净值",
-      "loadingExtras": "正在加载补充数据..."
+      "loadingExtras": "正在加载补充数据...",
+      "factCheckHint": "事实核查问题已并入上方严重度分组卡片。"
+    },
+    "debt": {
+      "plantedAgo": "埋设于第{{chapter}}章，已过{{since}}章未推进",
+      "advancedAgo": "上次推进于第{{chapter}}章，已过{{since}}章未回收"
     },
     "actions": {
       "edit": "编辑",
@@ -109,7 +114,10 @@
       "sourceLabel": "原文片段",
       "candidateLabel": "修改后内容",
       "apply": "确认并替换",
-      "regenerate": "重新生成"
+      "regenerate": "重新生成",
+      "generating": "正在生成修改内容，请稍候…",
+      "insertBeforeDescription": "右侧会包含补写内容和原文位置，确认后会覆盖左侧原文位置。",
+      "sourceAnchorLabel": "原文位置"
     },
     "rewrite": {
       "alertNoProject": "当前没有打开项目。",
@@ -2381,7 +2389,9 @@
     "doctor": {
       "title": "项目医生",
       "failed": "诊断失败",
-      "empty": "打开项目后自动运行整链诊断"
+      "empty": "打开项目后自动运行整链诊断",
+      "noProject": "未打开项目",
+      "refresh": "重新诊断"
     },
     "outlineImport": {
       "documentFilter": "文档",

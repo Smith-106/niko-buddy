@@ -681,10 +681,20 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           type="button"
           onClick={(event) => {
             event.stopPropagation()
+            void handleEditDashItem(item)
+          }}
+          className="inline-flex min-h-6 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("dashboard.actions.edit")}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
             void runAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-6 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
@@ -696,7 +706,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-6 items-center rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -708,7 +718,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-6 items-center rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -719,7 +729,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             event.stopPropagation()
             void handleIgnoreDashItem(item)
           }}
-          className="inline-flex items-center rounded-md border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex min-h-6 items-center rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("dashboard.actions.ignore")}
         </button>
@@ -750,16 +760,9 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
       </div>
       <p className="mt-1 text-xs">{item.message}</p>
       {item.evidence && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            void handleEditDashItem(item)
-          }}
-          className="mt-1 text-left text-xs italic text-muted-foreground underline-offset-2 hover:underline"
-        >
+        <span className="mt-1 block text-left text-xs italic text-muted-foreground">
           {String.fromCharCode(0x300C)}{item.evidence}{String.fromCharCode(0x300D)}
-        </button>
+        </span>
       )}
       {item.secondaryEvidence && (
         <p className="mt-1 text-xs text-muted-foreground">
@@ -775,9 +778,9 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{t("dashboard.title")}</h2>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-y-1 border-b px-4 py-3">
+        <h2 className="min-w-0 truncate text-sm font-semibold">{t("dashboard.title")}</h2>
+        <div className="flex flex-wrap items-center gap-3">
           {items.length > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{grouped.blocking.length} {t("dashboard.severity.blocking")}</span>
@@ -837,14 +840,12 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           <div className="border-t p-3">
             <div className="mb-2 flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{t("dashboard.section.factCheck")}</span>
+              <h3 className="text-sm font-medium">{t("dashboard.section.factCheck")}</h3>
               <span className="ml-auto text-xs text-muted-foreground">
                 {factReport.checkedChapterCount} {t("dashboard.section.chapters")}
               </span>
             </div>
-            <div className="space-y-1">
-              {visibleFactItems.map((item) => renderDashCard(item, SEVERITY_CONFIG[item.severity], `fact-${item.id}`))}
-            </div>
+            <p className="text-xs text-muted-foreground">{t("dashboard.section.factCheckHint")}</p>
           </div>
         )}
 
@@ -852,7 +853,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           <div className="border-t p-3">
             <div className="mb-2 flex items-center gap-2">
               <AlertOctagon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{t("dashboard.section.foreshadowingDebt")}</span>
+              <h3 className="text-sm font-medium">{t("dashboard.section.foreshadowingDebt")}</h3>
               <span className="ml-auto text-xs text-muted-foreground">
                 {t("dashboard.section.debtScore")}: {debtReport.debtScore}/100
               </span>
@@ -871,8 +872,8 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
                 </div>
                 <p className="text-muted-foreground">
                   {item.status === "planted"
-                    ? `埋设于第${item.plantedChapter}章，已过${item.chaptersSincePlanted}章未推进`
-                    : `上次推进于第${item.lastAdvancedChapter}章，已过${item.chaptersSinceAdvanced}章未回收`}
+                    ? t("dashboard.debt.plantedAgo", { chapter: item.plantedChapter, since: item.chaptersSincePlanted })
+                    : t("dashboard.debt.advancedAgo", { chapter: item.lastAdvancedChapter, since: item.chaptersSinceAdvanced })}
                 </p>
                 <p className="text-muted-foreground italic">{item.description}</p>
               </div>
@@ -891,7 +892,8 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           onSettleDebt={(debtId, newStatus) => {
             const pp = project?.path ? normalizePath(project.path) : null
             if (!pp) return
-            void (async () => {
+            // 返回 Promise 供 DebtBoardView busy 态跟踪（防双击重复入账）
+            return (async () => {
               try {
                 const status = await loadNovelSessionStatus(pp)
                 if (!status) return
@@ -925,7 +927,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           {t("dashboard.rewriteAlertPrefix")}: {alertMessage}
           <button
             type="button"
-            className="ml-2 underline-offset-2 hover:underline"
+            className="ml-2 rounded underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setAlertMessage(null)}
           >
             {t("common.dismiss")}
@@ -937,14 +939,14 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         open={Boolean(rewriteDialog)}
         title={t("dashboard.rewriteDialog.title")}
         description={rewriteError || (rewriteBusyId === rewriteDialog?.item.id
-          ? "正在生成修改内容，请稍候…"
+          ? t("dashboard.rewriteDialog.generating")
           : rewriteDialog?.mode === "insert_before"
-            ? "右侧会包含补写内容和原文位置，确认后会覆盖左侧原文位置。"
+            ? t("dashboard.rewriteDialog.insertBeforeDescription")
             : t("dashboard.rewriteDialog.description"))}
-        sourceLabel={rewriteDialog?.mode === "insert_before" ? "原文位置" : t("dashboard.rewriteDialog.sourceLabel")}
-        candidateLabel={rewriteDialog?.mode === "insert_before" ? "修改后内容" : t("dashboard.rewriteDialog.candidateLabel")}
+        sourceLabel={rewriteDialog?.mode === "insert_before" ? t("dashboard.rewriteDialog.sourceAnchorLabel") : t("dashboard.rewriteDialog.sourceLabel")}
+        candidateLabel={t("dashboard.rewriteDialog.candidateLabel")}
         sourceContent={rewriteDialog?.sourceContent || ""}
-        candidateContent={rewriteDialog?.candidateContent || (rewriteBusyId === rewriteDialog?.item.id ? "正在生成修改内容，请稍候…" : "")}
+        candidateContent={rewriteDialog?.candidateContent || (rewriteBusyId === rewriteDialog?.item.id ? t("dashboard.rewriteDialog.generating") : "")}
         applyLabel={t("dashboard.rewriteDialog.apply")}
         secondaryActionLabel={t("dashboard.rewriteDialog.regenerate")}
         applyDisabled={

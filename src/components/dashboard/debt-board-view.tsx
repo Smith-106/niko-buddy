@@ -1,5 +1,6 @@
+import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertOctagon, Coins, HeartCrack } from "lucide-react"
+import { AlertOctagon, Coins, HeartCrack, Loader2 } from "lucide-react"
 import { computeChaseDebtState, calculateEmotionNetValue } from "@/lib/novel"
 import type { ChaseDebt, ChaseDebtEvent, ForeshadowingDebtReport, EmotionLedgerEntry } from "@/lib/novel"
 
@@ -41,8 +42,9 @@ export interface DebtBoardViewProps {
   /**
    * 55 号设计 W1-5 (54④ 收尾): 结账回调 (debtId, newStatus)。
    * optional: 缺省 → 不渲染操作按钮 (现状只读行为)。
+   * 可返回 Promise（推荐）：等待期间按钮进入 busy 态防双击重复入账。
    */
-  onSettleDebt?: (debtId: string, newStatus: "paid" | "written_off") => void
+  onSettleDebt?: (debtId: string, newStatus: "paid" | "written_off") => void | Promise<void>
 }
 
 export function DebtBoardView({
@@ -54,6 +56,21 @@ export function DebtBoardView({
   onSettleDebt,
 }: DebtBoardViewProps = {}) {
   const { t } = useTranslation()
+  const [settling, setSettling] = useState<{ id: string; status: "paid" | "written_off" } | null>(null)
+
+  // odyssey-ui M4：异步结账 busy 态——等待期间禁用两钮防双击重复入账
+  const handleSettle = useCallback(
+    async (debtId: string, status: "paid" | "written_off") => {
+      if (settling) return
+      setSettling({ id: debtId, status })
+      try {
+        await onSettleDebt?.(debtId, status)
+      } finally {
+        setSettling(null)
+      }
+    },
+    [onSettleDebt, settling],
+  )
 
   const hasChaseDebts = chaseDebts.length > 0
   const hasEmotionDebts = emotionDebts.length > 0
@@ -67,7 +84,7 @@ export function DebtBoardView({
         <div className="mb-2 rounded-md border bg-muted/30 p-2">
           <div className="mb-2 flex items-center gap-2">
             <Coins className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{t("dashboard.section.chaseDebt")}</span>
+            <h3 className="text-sm font-medium">{t("dashboard.section.chaseDebt")}</h3>
           </div>
           <div className="space-y-1">
             {chaseDebts.map((debt) => {
@@ -102,17 +119,25 @@ export function DebtBoardView({
                       <button
                         type="button"
                         data-testid={`settle-debt-${debt.id}`}
-                        onClick={() => onSettleDebt(debt.id, "paid")}
-                        className="rounded border border-input px-1.5 py-0.5 text-[11px] hover:bg-accent"
+                        onClick={() => void handleSettle(debt.id, "paid")}
+                        disabled={settling?.id === debt.id}
+                        className="inline-flex min-h-6 items-center gap-1 rounded border border-input px-2 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                       >
+                        {settling?.id === debt.id && settling.status === "paid" && (
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                        )}
                         {t("dashboard.section.chaseDebtSettle")}
                       </button>
                       <button
                         type="button"
                         data-testid={`writeoff-debt-${debt.id}`}
-                        onClick={() => onSettleDebt(debt.id, "written_off")}
-                        className="rounded border border-input px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent"
+                        onClick={() => void handleSettle(debt.id, "written_off")}
+                        disabled={settling?.id === debt.id}
+                        className="inline-flex min-h-6 items-center gap-1 rounded border border-input px-2 py-1 text-xs text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                       >
+                        {settling?.id === debt.id && settling.status === "written_off" && (
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                        )}
                         {t("dashboard.section.chaseDebtWriteOff")}
                       </button>
                     </div>
@@ -129,7 +154,7 @@ export function DebtBoardView({
         <div className="mb-2 rounded-md border bg-muted/30 p-2">
           <div className="mb-2 flex items-center gap-2">
             <AlertOctagon className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{t("dashboard.section.foreshadowingDebt")}</span>
+            <h3 className="text-sm font-medium">{t("dashboard.section.foreshadowingDebt")}</h3>
             <span className="ml-auto text-xs text-muted-foreground">
               {t("dashboard.section.debtScore")}: {debtReport.debtScore}/100
             </span>
@@ -152,7 +177,7 @@ export function DebtBoardView({
         <div className="rounded-md border bg-muted/30 p-2">
           <div className="mb-2 flex items-center gap-2">
             <HeartCrack className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{t("dashboard.section.emotionDebt")}</span>
+            <h3 className="text-sm font-medium">{t("dashboard.section.emotionDebt")}</h3>
           </div>
           <div className="space-y-1">
             {emotionDebts.map((entry) => {

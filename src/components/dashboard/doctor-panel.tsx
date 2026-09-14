@@ -33,35 +33,47 @@ export function DoctorPanel() {
       })
       setReport(r)
     } catch (err) {
-      setError(`${t("novel.doctor.failed") ?? "诊断失败"}：${err instanceof Error ? err.message : String(err)}`)
+      setError(`${t("novel.doctor.failed")}：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRunning(false)
     }
   }, [projectPath, t])
 
-  // 挂载即自动跑一次（只读诊断，无副作用）
+  // 项目打开/切换后自动跑一次（只读诊断，无副作用）；无项目时渲染空态提示
   useEffect(() => {
+    if (!projectPath) return
     void run()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectPath, run])
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 p-4 doctor-panel" data-testid="doctor-panel">
       <div className="flex items-center gap-2 text-sm font-semibold">
-          <Stethoscope className="h-4 w-4" />
+        <h3 className="flex items-center gap-2">
+          <Stethoscope className="h-4 w-4" aria-hidden="true" />
           {t("novel.doctor.title")}
-          <Button size="sm" variant="ghost" onClick={run} disabled={running || !projectPath} className="ml-auto">
-            <RefreshCw className={`h-3 w-3 ${running ? "animate-spin" : ""}`} />
-          </Button>
+        </h3>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => void run()}
+          disabled={running || !projectPath}
+          className="ml-auto"
+          aria-label={t("novel.doctor.refresh")}
+          title={t("novel.doctor.refresh")}
+        >
+          <RefreshCw className={`h-3 w-3 ${running ? "animate-spin" : ""}`} aria-hidden="true" />
+        </Button>
       </div>
       <div className="space-y-2 pt-2">
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        )}
         {report ? (
           <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded border p-2 text-xs">{formatDoctorReport(report)}</pre>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {t("novel.doctor.empty") ?? projectPath ? "打开项目后自动运行整链诊断" : "未打开项目"}
-          </p>
+          <p className="text-sm text-muted-foreground">{projectPath ? t("novel.doctor.empty") : t("novel.doctor.noProject")}</p>
         )}
       </div>
     </div>

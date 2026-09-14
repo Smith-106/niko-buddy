@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
+import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { DebtBoardView } from "./debt-board-view"
 import type { ForeshadowingDebtReport, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
 
@@ -228,7 +228,7 @@ describe("W3 / R16 / TASK-302: DebtBoardView 债务看板", () => {
     expect(html).toContain("dashboard.section.chaseDebtWriteOff")
   })
 
-  it("55 W1-5: 点击结清/核销按钮 → onSettleDebt 携带 (debtId, status) (防空转: 回调契约)", () => {
+  it("55 W1-5: 点击结清/核销按钮 → onSettleDebt 携带 (debtId, status) (防空转: busy 态 + 回调契约)", async () => {
     const onSettleDebt = vi.fn()
     render(
       <DebtBoardView
@@ -240,6 +240,8 @@ describe("W3 / R16 / TASK-302: DebtBoardView 债务看板", () => {
     )
     fireEvent.click(screen.getByTestId("settle-debt-debt-1"))
     expect(onSettleDebt).toHaveBeenCalledWith("debt-1", "paid")
+    // odyssey-ui M4: 异步结账 busy 态——等待复位后第二次点击可达（防双击重复入账）
+    await waitFor(() => expect(screen.getByTestId("settle-debt-debt-1")).toBeEnabled())
     fireEvent.click(screen.getByTestId("writeoff-debt-debt-1"))
     expect(onSettleDebt).toHaveBeenCalledWith("debt-1", "written_off")
   })

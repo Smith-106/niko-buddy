@@ -263,6 +263,14 @@
 
 .collapsible-panel > * {
   overflow: hidden;
+  transition: visibility 0s linear;
+}
+
+/* 折叠态隐藏可聚焦子元素（WCAG 2.4.7）：visibility 脱离 tab 序与可达性树，
+   延迟 200ms 与 grid-template-rows 动画同步，避免关闭动画中内容闪消 */
+.collapsible-panel[data-open="false"] > * {
+  visibility: hidden;
+  transition: visibility 0s linear 200ms;
 }
 
 /* Skeleton 占位条 — content-aware 加载骨架复用 */

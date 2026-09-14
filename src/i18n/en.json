@@ -194,7 +194,12 @@
       "chaseDebtWriteOff": "Write Off",
       "emotionDebt": "Emotional Debt",
       "emotionNetValue": "Emotion Net",
-      "loadingExtras": "Loading supplementary data..."
+      "loadingExtras": "Loading supplementary data...",
+      "factCheckHint": "Fact-check issues are listed above, merged into the severity groups."
+    },
+    "debt": {
+      "plantedAgo": "Planted in chapter {{chapter}}, {{since}} chapters without advancement",
+      "advancedAgo": "Last advanced in chapter {{chapter}}, {{since}} chapters without payoff"
     },
     "actions": {
       "edit": "Edit",
@@ -210,7 +215,10 @@
       "sourceLabel": "Original Passage",
       "candidateLabel": "Rewritten Passage",
       "apply": "Confirm and Replace",
-      "regenerate": "Regenerate"
+      "regenerate": "Regenerate",
+      "generating": "Generating revised content, please wait…",
+      "insertBeforeDescription": "The right pane shows the inserted text with its anchor; confirming will replace the original passage on the left.",
+      "sourceAnchorLabel": "Anchor Text"
     },
     "rewrite": {
       "alertNoProject": "No project is currently open.",
@@ -2761,7 +2769,9 @@
     "doctor": {
       "title": "Project Doctor",
       "failed": "Diagnostics failed",
-      "empty": "Run diagnostics automatically after opening a project"
+      "empty": "Run diagnostics automatically after opening a project",
+      "noProject": "No project open",
+      "refresh": "Re-run diagnostics"
     },
     "outlineImport": {
       "documentFilter": "Documents",
