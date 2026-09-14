@@ -26,7 +26,7 @@ import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-reso
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
-import { canContinueUnfinishedDeepChapter } from "./chat-resume"
+import { canContinueUnfinishedDeepChapter } from "@/lib/chat/resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 import { parseAgentResponse } from "@/lib/novel"
 

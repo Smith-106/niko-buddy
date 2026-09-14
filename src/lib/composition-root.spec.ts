@@ -161,7 +161,7 @@ vi.mock("@/lib/persist", () => ({
 vi.mock("@/lib/app-updater", () => ({ checkForAppUpdate: mocks.checkForAppUpdate }))
 vi.mock("@/lib/analytics", () => ({ initAnalytics: mocks.initAnalytics }))
 vi.mock("@/lib/ingest-queue", () => ({ restoreQueue: mocks.restoreIngestQueue }))
-vi.mock("@/components/chat/chat-resume", () => ({
+vi.mock("@/lib/chat/resume", () => ({
   hydrateChatHistoryWithInterruptedDeepChapter: mocks.hydrateChat,
 }))
 vi.mock("@/lib/reset-project-state", () => ({ resetProjectState: mocks.resetProjectState }))

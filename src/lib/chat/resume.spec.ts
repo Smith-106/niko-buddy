@@ -7,7 +7,7 @@ import {
   extractContinueUnfinishedDeepChapterContext,
   hydrateChatHistoryWithInterruptedDeepChapter,
   stripContinueUnfinishedDeepChapterContext,
-} from "./chat-resume"
+} from "@/lib/chat/resume"
 import type { NovelSessionStatus } from "@/lib/novel"
 
 describe("chat deep chapter resume", () => {

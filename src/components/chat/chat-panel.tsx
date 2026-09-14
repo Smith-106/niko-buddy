@@ -48,7 +48,7 @@ import {
   buildContinueUnfinishedDeepChapterPrompt,
   extractContinueUnfinishedDeepChapterContext,
   stripContinueUnfinishedDeepChapterContext,
-} from "./chat-resume"
+} from "@/lib/chat/resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 import { ContextPackReplayPanel } from "@/components/novel/context-pack-replay-panel"
 

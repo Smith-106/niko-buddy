@@ -150,7 +150,7 @@ vi.mock("@/lib/novel/agent-tools", async (importOriginal) => {
   }
 })
 vi.mock("@/components/chat/chat-shared", () => ({ getLastQueryPages: mocks.getLastQueryPages }))
-vi.mock("./chat-resume", () => ({
+vi.mock("@/lib/chat/resume", () => ({
   canContinueUnfinishedDeepChapter: mocks.canContinueUnfinishedDeepChapter,
 }))
 vi.mock("@/lib/chat-copy-content", () => ({

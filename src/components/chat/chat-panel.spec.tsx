@@ -32,7 +32,7 @@ import type { SearchResult, SearchWikiOptions } from "@/lib/search"
 import type { RetrievalGraph, RetrievalNode } from "@/lib/graph-relevance"
 import type { TaskRouteResult, CognitionState, ExemplarABSample, CleanedChapterContent, GoldenThreeChapterRequest, ChatEditTarget, ParsedChapterEditFile, ChapterSaveStrategy, NovelSessionStatus, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResumeCheckpoint, DeepChapterGenerationResult, DeepChapterDecisionGates, ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields, BuildContextOptions, ContextPack, ContextPackToPromptOptions, IngestChapterOptions, IngestResult, ChapterLengthSpec, ResolveTargetChapterNumberForChatInput, NovelReviewResult, ModelResolverStoreSnapshot, NovelTaskType, ChapterStatus, CommitAcceptedDeepChapterDraftInput } from "@/lib/novel"
 import type { MarkStyleExemplarInput, StyleExemplarRecord } from "@/commands/exemplar"
-import type { ContinueUnfinishedDeepChapterContext } from "./chat-resume"
+import type { ContinueUnfinishedDeepChapterContext } from "@/lib/chat/resume"
 import type { QueryPageReference } from "./chat-shared"
 import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import type { StreamSessionGuard } from "./stream-session"
@@ -1117,7 +1117,7 @@ vi.mock("@/lib/novel/golden-three-chapters", async (importOriginal) => {
 
 vi.mock("./stream-session", () => ({ createStreamSessionGuard: mocks.createStreamSessionGuard }))
 
-vi.mock("./chat-resume", () => ({
+vi.mock("@/lib/chat/resume", () => ({
   appendContinueUnfinishedDeepChapterContext: mocks.appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload: mocks.buildInterruptedResumeContextPayload,
   buildContinueUnfinishedDeepChapterPrompt: mocks.buildContinueUnfinishedDeepChapterPrompt,
