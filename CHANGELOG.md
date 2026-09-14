@@ -7,6 +7,28 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.1] - 2026-09-14
+
+### 安全修复（Security）
+
+- **互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）**（f59b1361）：不可信剧情内容未转义直达 DOM，导出预览路径补齐转义与防御假设文档化。
+- **npm audit fix 7 漏洞（2H/4M/1L）+ CI 依赖审计回归门**（0544de22）：依赖升级消除全部已知审计发现，并新增 CI 门——后续新审计发现直接阻断流水线。
+
+### UI 可达性与语义修复（Fixed）
+
+- **全局焦点环/禁用态基线 + 键盘可达卡片区 + role 语义**（94e3eb5d）：dashboard 与技能视图统一焦点可见性，卡片交互区补键盘路径。
+- **ARIA 嵌套 6 处包裹层重构**（ee945de6）：role=button 卡内含交互控件的违规全部平级化——graph-view 蓝卡关闭钮绝对定位、trash-panel 内容区包裹、skill-library / unified / writing×2 复选框与收藏钮出嵌套层；`aria-current` 归位 wrapper（全局属性）；spec 同步 4 处点击目标。
+- **mermaid 灯箱焦点回移**（ee945de6）：灯箱关闭后焦点回到展开触发点（对话框焦点管理惯例）。
+- **dashboard 域 UI 发现项 H/M/L 分层处置**（37153b3c）。
+
+### 其他修复
+
+- **agent 写入工具 preview 存在性检查失败静默降级 → 响亮报错**（0691a58a，FIX-LOW）。
+
+### 验证
+
+- 触达域 vitest 188/188（skill-library / graph / trash-panel / mermaid）、e2e 84/84、tsc --build 0、eslint 0、ARIA 嵌套扫描 0 残留；全量套件在发布硬门重跑。
+
 ## [2.9.0] - 2026-09-14
 
 ### 任务级自定义（feature）

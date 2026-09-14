@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.1",
+    date: "2026-09-14",
+    highlights: {
+      en: [
+        "Security: fixed a runtime XSS (CWE-79, FIX-HIGH) in the interactive-fiction export page where untrusted story content reached the DOM unescaped.",
+        "Dependencies: npm audit fix resolved 7 vulnerabilities (2 high / 4 moderate / 1 low) and added a CI dependency-audit regression gate so new audit findings fail the pipeline.",
+        "UI accessibility batch: global focus-ring and disabled-state baselines, keyboard-reachable card regions, and role-semantics fixes across dashboard and skill views — including 6 ARIA-nesting violations (role=button cards containing interactive controls) resolved by wrapper restructuring so buttons are siblings, not descendants, plus mermaid lightbox focus restoration to the expand trigger on close.",
+        "Fixes: the agent write-tool preview now fails loudly when its existence check errors instead of silently degrading (FIX-LOW); dashboard-domain UI findings across H/M/L tiers addressed.",
+        "Verification: targeted vitest 188/188 across touched domains, e2e 84/84, tsc --build 0, ARIA-nesting scan 0 residual; full suites re-run at the release gate.",
+      ],
+      zh: [
+        "安全：修复互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）——不可信剧情内容未转义直达 DOM。",
+        "依赖：npm audit fix 修复 7 漏洞（2H/4M/1L），并新增 CI 依赖审计回归门，新增审计发现直接阻断流水线。",
+        "UI 可达性批次：全局焦点环与禁用态基线、卡片区键盘可达、dashboard 与技能视图 role 语义修复——含 6 处 ARIA 嵌套违规（role=button 卡内含交互控件）经包裹层重构平级化，及 mermaid 灯箱关闭后焦点回移展开触发点。",
+        "缺陷修复：agent 写入工具 preview 存在性检查失败时改为响亮报错而非静默降级（FIX-LOW）；dashboard 域 UI 发现项 H/M/L 分层全部处置。",
+        "验证纪律：触达域 vitest 188/188、e2e 84/84、tsc --build 0、ARIA 嵌套扫描 0 残留；全量套件在发布硬门重跑。",
+      ],
+    },
+  },
+  {
     version: "2.9.0",
     date: "2026-09-14",
     highlights: {
