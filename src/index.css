@@ -273,6 +273,27 @@
   transition: visibility 0s linear 200ms;
 }
 
+/* 全局键盘焦点环（WCAG 2.4.7，odyssey-ui-rest 20260914）：覆盖未携带组件级
+   focus-visible 类的裸 button/a/表单控件/role=button 卡片；shadcn 组件自身的
+   .focus-visible:ring-* 类特异性更高不受影响，视觉同 token 一致 */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible,
+[role="tab"]:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+}
+
+/* 原生 button 禁用态基线：shadcn Button 的 disabled:pointer-events-none 特异性更高；
+   裸 button 由此获得可感知的禁用反馈（cursor + 降透明度） */
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Skeleton 占位条 — content-aware 加载骨架复用 */
 .skeleton-bar {
   @apply rounded-sm bg-muted;

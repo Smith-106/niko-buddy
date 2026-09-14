@@ -132,6 +132,12 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => { setExpanded(false); setScale(1) }}
+          onKeyDown={(e) => { if (e.key === "Escape") { setExpanded(false); setScale(1) } }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="放大图表（Esc 关闭）"
+          tabIndex={-1}
+          autoFocus
         >
           <div
             className="relative h-[90vh] w-[90vw] overflow-auto rounded-lg bg-background border border-border shadow-2xl p-6"

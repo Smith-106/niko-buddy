@@ -35,6 +35,8 @@ function NovelToggle({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={onChange}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
         checked ? "bg-primary" : "bg-input"

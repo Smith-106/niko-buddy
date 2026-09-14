@@ -175,6 +175,9 @@ export function TrashPanel() {
               return (
                 <div 
                   key={item.id} 
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void handleItemClick(item) } }}
                   className={`group rounded-md border bg-background px-2 py-2 cursor-pointer transition-colors ${
                     isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
                   }`}

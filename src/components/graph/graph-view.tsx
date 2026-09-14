@@ -2107,6 +2107,9 @@ export function GraphView() {
                         return (
                           <div
                             key={i}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
                             className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-blue-500/10 border-blue-500/40" : "hover:bg-muted/50"}`}
                             onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
                           >
@@ -2152,6 +2155,9 @@ export function GraphView() {
                       return (
                         <div
                           key={i}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
                           className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-amber-500/10 border-amber-500/40" : "hover:bg-muted/50"}`}
                           onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
                         >

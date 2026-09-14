@@ -515,6 +515,9 @@ export function ChapterSelectionPanel({
 
             {/* 章节列表 */}
             <div className="min-h-0 flex-1 overflow-y-auto px-6">
+              {chapters.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">暂无章节可分析</div>
+              ) : (
               <div className="py-4 space-y-2">
                 {chapters.map((chapter) => {
                   const isSelected = selectedChapters.has(chapter.id)
@@ -549,6 +552,7 @@ export function ChapterSelectionPanel({
                   )
                 })}
               </div>
+              )}
             </div>
           </>
         )}

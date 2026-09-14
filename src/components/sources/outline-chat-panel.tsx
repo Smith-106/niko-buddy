@@ -570,7 +570,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ))}
         <div className="ml-auto flex items-center gap-1">
           {saveStatus && <span className="text-xs text-muted-foreground">{saveStatus}</span>}
-          <button onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-accent">
+          <button onClick={onClose} aria-label="关闭" className="rounded p-1 text-muted-foreground hover:bg-accent">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
