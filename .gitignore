@@ -122,3 +122,6 @@ docs/p5/f008-sample*.png
 smoke-*.jsonl
 # 真机冒烟用的临时项目/靶端数据目录（F-005/F-008/A-F-004 等）。
 .smoke-*/
+
+# quality-auto-test 运行工作区（auto-test state/report/log，本机产物不入库；报告副本发布到 hub .workflow run outputs）
+.tests/

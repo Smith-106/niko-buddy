@@ -57,6 +57,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Dependency audit gate
+        # 依赖漏洞回归守卫（quality-auto-test 20260914）：audit fix 修复 2H/4M/1L 后
+        # 基线归零；本门防 high/critical 复发，moderate 及以下不阻塞（追踪见
+        # .workflow/sessions quality-auto-test run report）。
+        run: npm audit --audit-level=high
+
       - name: Typecheck (tsc, force)
         # ADR-47 回归防线：--force 禁增量缓存假绿（e2522af6 教训）
         run: npm run typecheck:force
