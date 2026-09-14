@@ -2107,31 +2107,33 @@ export function GraphView() {
                         return (
                           <div
                             key={i}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
-                            className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-blue-500/10 border-blue-500/40" : "hover:bg-muted/50"}`}
-                            onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
+                            className={`relative rounded-lg border p-3 text-sm transition-colors ${isActive ? "bg-blue-500/10 border-blue-500/40" : "hover:bg-muted/50"}`}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <span className="font-medium text-foreground text-xs">
+                            <button
+                              className="absolute top-1.5 right-1.5 z-10 rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDismissedInsights((prev) => new Set([...prev, conn.key]))
+                                /* v8 ignore next */
+                                if (isActive) setHighlightedNodes(new Set())
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
+                              className="cursor-pointer pr-6 text-left"
+                              onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
+                            >
+                              <div className="font-medium text-foreground text-xs">
                                 {conn.source.label} ↔ {conn.target.label}
-                              </span>
-                              <button
-                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDismissedInsights((prev) => new Set([...prev, conn.key]))
-                                  /* v8 ignore next */
-                                  if (isActive) setHighlightedNodes(new Set())
-                                }}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {conn.reasons.join("，")}
+                              </p>
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                              {conn.reasons.join("，")}
-                            </p>
                           </div>
                         )
                       })}

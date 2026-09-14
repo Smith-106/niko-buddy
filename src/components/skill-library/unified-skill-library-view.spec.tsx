@@ -281,7 +281,7 @@ describe("UnifiedSkillLibraryView", () => {
     await setInputValue(searchInput, "三翻")
 
     await act(async () => {
-      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')?.click()
+      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')?.querySelector<HTMLElement>('[role="button"]')?.click()
     })
     await flushEffects()
 
@@ -292,7 +292,7 @@ describe("UnifiedSkillLibraryView", () => {
     await setInputValue(searchInput, "沉浸式")
 
     await act(async () => {
-      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')?.click()
+      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')?.querySelector<HTMLElement>('[role="button"]')?.click()
     })
     await flushEffects()
 
@@ -311,7 +311,7 @@ describe("UnifiedSkillLibraryView", () => {
     const writingEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')
 
     await act(async () => {
-      writingEntry?.click()
+      writingEntry?.querySelector<HTMLElement>('[role="button"]')?.click()
     })
     await flushEffects()
 
@@ -321,7 +321,7 @@ describe("UnifiedSkillLibraryView", () => {
     const deAiEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
 
     await act(async () => {
-      deAiEntry?.click()
+      deAiEntry?.querySelector<HTMLElement>('[role="button"]')?.click()
     })
     await flushEffects()
 

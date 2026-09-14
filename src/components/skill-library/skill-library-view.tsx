@@ -158,34 +158,37 @@ export function SkillLibrarySidebarPanel() {
             <div
               key={skill.id}
               data-skill-id={skill.id}
-              onClick={() => setSelectedSkillId(skill.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  setSelectedSkillId(skill.id)
-                }
-              }}
-              role="button"
-              tabIndex={0}
               className={`mb-2 w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent ${
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {sourceLabel(skill)}
-                </span>
-                {config?.defaultSkillId === skill.id ? (
-                  <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">默认</span>
-                ) : null}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedSkillId(skill.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    setSelectedSkillId(skill.id)
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {sourceLabel(skill)}
+                  </span>
+                  {config?.defaultSkillId === skill.id ? (
+                    <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">默认</span>
+                  ) : null}
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description}</div>
               </div>
-              <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description}</div>
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={enabled}
-                  onClick={(event) => event.stopPropagation()}
                   onChange={(event) => void handleToggleSkill(skill, event.target.checked)}
                   className="h-3.5 w-3.5 accent-primary"
                   disabled={saving}

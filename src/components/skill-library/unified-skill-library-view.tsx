@@ -463,53 +463,56 @@ export function UnifiedSkillLibrarySidebarPanel() {
             <div
               key={entry.id}
               data-testid={`unified-skill-entry-${entry.id}`}
-              role="button"
               aria-current={active ? "true" : undefined}
-              tabIndex={0}
-              onClick={() => handleSelectEntry(entry)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  handleSelectEntry(entry)
-                }
-              }}
-              className={`mb-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent ${
+              className={`relative mb-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent ${
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {entry.type === "writing" ? "写作" : "去AI味"}
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const library = entry.type === "writing" ? "writing" : "de-ai"
-                    void toggleFavorite({
-                      library,
-                      skill: entry.rawSkill,
-                      originProjectPath: project?.path,
-                    })
-                  }}
-                  aria-label={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
-                  title={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
-                  className={`shrink-0 rounded p-0.5 transition-colors ${
-                    isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId)
-                      ? "text-yellow-500 hover:text-yellow-600"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Star
-                    className="h-3.5 w-3.5"
-                    fill={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "currentColor" : "none"}
-                  />
-                </button>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => handleSelectEntry(entry)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    handleSelectEntry(entry)
+                  }
+                }}
+                className="cursor-pointer pr-7"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {entry.type === "writing" ? "写作" : "去AI味"}
+                  </span>
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {entry.description || "未填写说明"}
+                </div>
               </div>
-              <div className="mt-1 truncate text-xs text-muted-foreground">
-                {entry.description || "未填写说明"}
-              </div>
+              <button
+                type="button"
+                className={`absolute top-2 right-2 shrink-0 rounded p-0.5 transition-colors ${
+                  isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId)
+                    ? "text-yellow-500 hover:text-yellow-600"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                aria-label={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
+                title={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
+                onClick={() => {
+                  const library = entry.type === "writing" ? "writing" : "de-ai"
+                  void toggleFavorite({
+                    library,
+                    skill: entry.rawSkill,
+                    originProjectPath: project?.path,
+                  })
+                }}
+              >
+                <Star
+                  className="h-3.5 w-3.5"
+                  fill={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "currentColor" : "none"}
+                />
+              </button>
             </div>
           )
         })}

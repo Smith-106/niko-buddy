@@ -175,22 +175,23 @@ export function TrashPanel() {
               return (
                 <div 
                   key={item.id} 
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void handleItemClick(item) } }}
-                  className={`group rounded-md border bg-background px-2 py-2 cursor-pointer transition-colors ${
+                  className={`group flex items-start gap-2 rounded-md border bg-background px-2 py-2 transition-colors ${
                     isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
                   }`}
-                  onClick={() => void handleItemClick(item)}
                 >
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium" title={item.originalPath}>{item.name}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t("trash.remainingDays", { days: remainingDays, defaultValue: "剩余{{days}}天" })} · {item.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : item.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : item.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
-                      </div>
+                  <div 
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void handleItemClick(item) } }}
+                    className="min-w-0 flex-1 cursor-pointer text-left"
+                    onClick={() => void handleItemClick(item)}
+                  >
+                    <div className="truncate text-sm font-medium" title={item.originalPath}>{item.name}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {t("trash.remainingDays", { days: remainingDays, defaultValue: "剩余{{days}}天" })} · {item.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : item.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : item.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
                     </div>
-                    <Button
+                  </div>
+                  <Button
                       type="button"
                       variant="ghost"
                       size="icon"
@@ -215,7 +216,6 @@ export function TrashPanel() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
-                  </div>
                 </div>
               )
             })}

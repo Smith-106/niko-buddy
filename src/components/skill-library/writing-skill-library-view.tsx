@@ -189,15 +189,6 @@ function SortableCategoryItem({
         </div>
       ) : (
         <div
-          role="button"
-          tabIndex={0}
-          onClick={onSelect}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-              onSelect()
-            }
-          }}
           className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
             isSelected ? "bg-accent/60" : ""
           }`}
@@ -212,7 +203,20 @@ function SortableCategoryItem({
           >
             <GripVertical className="h-4 w-4" />
           </button>
-          <span className="flex-1 truncate">{category.name}</span>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={onSelect}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onSelect()
+              }
+            }}
+            className="min-w-0 flex-1 cursor-pointer text-left"
+          >
+            <span className="block truncate">{category.name}</span>
+          </div>
           <span className="text-xs text-muted-foreground">{count}</span>
           {(isHovered || isSelected) && (
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -597,32 +601,35 @@ export function WritingSkillLibrarySidebarPanel() {
           return (
             <div
               key={skill.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => void handleSelectSkill(skill.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  void handleSelectSkill(skill.id)
-                }
-              }}
               className={`mb-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent ${
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">写作</span>
-                {isLinked ? (
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">引用</span>
-                ) : null}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => void handleSelectSkill(skill.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    void handleSelectSkill(skill.id)
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">写作</span>
+                  {isLinked ? (
+                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">引用</span>
+                  ) : null}
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
               </div>
-              <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={enabled}
-                  onClick={(event) => event.stopPropagation()}
                   onChange={(event) => void handleToggleSkill(skill, event.target.checked)}
                   className="h-3.5 w-3.5 accent-primary"
                   disabled={saving}

@@ -14,6 +14,16 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
   const [svg, setSvg] = useState<string | null>(null)
   const [visible, setVisible] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const lastFocusedRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    // 灯箱关闭后焦点回移到展开触发点（对话框焦点管理惯例）
+    if (expanded) {
+      lastFocusedRef.current = document.activeElement as HTMLElement | null
+    } else if (lastFocusedRef.current) {
+      lastFocusedRef.current.focus()
+      lastFocusedRef.current = null
+    }
+  }, [expanded])
   const [scale, setScale] = useState(1)
 
   // Only render when the diagram scrolls into view

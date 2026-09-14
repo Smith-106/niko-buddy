@@ -222,7 +222,7 @@ describe("SkillLibraryView", () => {
     expect(reduceExplanationCard).not.toBeUndefined()
 
     await act(async () => {
-      reduceExplanationCard?.click()
+      reduceExplanationCard?.querySelector<HTMLElement>('[role="button"]')?.click()
     })
     await flushEffects()
 
