@@ -87,12 +87,23 @@ describe("interactive-film-graph (64 号实施：P0-1 互动影游图模型)", (
     expect(html).toContain("go(")
   })
 
-  it("html 导出：文本注入安全（escapeHtml 语义）", () => {
+  it("html 导出：文本注入安全（render 时 esc 转义，非仅编码侥幸）", () => {
     const g = graph()
     const node = g.nodes.find((n) => n.id === "k1") as InteractiveNode
+    node.title = "<img src=x onerror=alert(1)>"
     node.text = "<script>alert(1)</script>"
     const html = exportInteractiveHtml(g)
-    expect(html).not.toContain("<script>alert")
+    // 静态源码层：生成脚本必须对三类用户内容应用 esc()（encodeURIComponent 编码
+    // 只保护模版嵌入，运行时 decodeURIComponent 后拼接才是真实注入点）
+    expect(html).toContain("esc(node.title)")
+    expect(html).toContain("esc(node.text)")
+    expect(html).toContain("esc(e.choiceLabel")
+    expect(html).not.toContain("+ node.title")
+    expect(html).not.toContain("+ node.text")
+    // esc 函数存在且覆盖五个危险字符
+    expect(html).toContain('"&": "&amp;"')
+    expect(html).toContain('"<": "&lt;"')
+    expect(html).toContain('"\'": "&#39;"')
   })
 
   it("buildInteractiveExport：组合三产物", () => {

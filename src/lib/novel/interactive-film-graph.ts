@@ -201,16 +201,21 @@ var EDGES = JSON.parse(decodeURIComponent("${edgesJson}"));
 var START = decodeURIComponent("${startId}");
 var current = START;
 var path = [];
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
 function render() {
   var node = NODES.find(function (n) { return n.id === current; });
   var el = document.getElementById("app");
   if (!node) { el.innerHTML = "<p>图缺失节点</p>"; return; }
-  var html = "<h2>" + node.title + "</h2><p>" + node.text + "</p>";
+  var html = "<h2>" + esc(node.title) + "</h2><p>" + esc(node.text) + "</p>";
   if (node.kind === "end") {
     html += "<p><em>— 终 —</em></p><p><button data-choice onclick=\\"location.reload()\\">重新开始</button></p>";
   } else {
     EDGES.filter(function (e) { return e.from === current; }).forEach(function (e, i) {
-      html += "<button data-choice onclick=\\"go(" + i + ")\\">" + (e.choiceLabel || "继续") + "</button>";
+      html += "<button data-choice onclick=\\"go(" + i + ")\\">" + esc(e.choiceLabel || "继续") + "</button>";
     });
   }
   el.innerHTML = html;
