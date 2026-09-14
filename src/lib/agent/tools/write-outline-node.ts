@@ -1,5 +1,6 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { isLikelyChapterOutline, summarizeChapterOutlineQuality } from "@/lib/novel"
 
 function isJsonContent(text: string): boolean {
@@ -165,7 +166,10 @@ export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
             : "目标文件已存在，确认后仍不会直接追加。请先选择覆盖、另存为新版本或追加修改说明。"
           return `无法直接写入「${outlineName}」：${modeText}\n\n预览：\n${newSection}${buildChapterOutlineQualityText(outlineName, newSection)}`
         }
-      } catch {}
+      } catch (error) {
+        // 存在性未知时按「将写入」预览降级（execute 路径仍有覆盖/追加守卫，非数据风险）；留痕便于诊断
+        logger.info("AgentTools/write_outline_node", `preview 存在性检查失败，按新写入降级: ${toErrorMessage(error)}`)
+      }
       return `将写入大纲「${outlineName}」\n\n预览：\n${newSection}${buildChapterOutlineQualityText(outlineName, newSection)}`
     },
     execute: async (params) => {

@@ -1,5 +1,6 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 export function createWriteMemoryTool(memoryDir: string): Tool {
   return {
@@ -20,7 +21,10 @@ export function createWriteMemoryTool(memoryDir: string): Tool {
         if (await fileExists(path)) {
           isNew = false
         }
-      } catch {}
+      } catch (error) {
+        // 存在性未知时按「新建」预览降级（execute 路径仍有覆盖守卫，非数据风险）；留痕便于诊断
+        logger.info("AgentTools/write_memory", `preview 存在性检查失败，按新建降级: ${toErrorMessage(error)}`)
+      }
       if (isNew) {
         return `将新建记忆「${name}」\n\n预览：\n${content}`
       } else {
