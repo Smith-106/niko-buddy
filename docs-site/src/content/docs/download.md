@@ -7,9 +7,20 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.9.0**（2026-09-14 发布：任务级自定义 feature + 六维质量改进 + agent 链强化）
+**v2.9.1**（2026-09-14 发布：安全修复 + UI 可达性批次）
 
-### v2.9.0 更新亮点（2026-09-14）
+### v2.9.1 更新亮点（2026-09-14）
+
+- ✅ **安全** — 互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）修复：不可信剧情内容未转义直达 DOM 的路径补齐转义
+- ✅ **依赖** — npm audit fix 7 漏洞（2H/4M/1L）+ 新增 CI 依赖审计回归门，新审计发现直接阻断流水线
+- ✅ **UI 可达性** — 全局焦点环/禁用态基线 + 键盘可达卡片区 + role 语义修复；ARIA 嵌套 6 处包裹层重构（role=button 卡内交互控件平级化）+ mermaid 灯箱焦点回移展开触发点
+- ✅ **缺陷修复** — agent 写入工具 preview 存在性检查失败改为响亮报错（FIX-LOW）；dashboard 域 UI 发现项 H/M/L 分层处置
+- ✅ **验证纪律** — 触达域 vitest 188/188、e2e 84/84、tsc --build 0、ARIA 嵌套扫描 0 残留；全量套件在发布硬门重跑
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+
+前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.9.0 更新亮点（2026-09-14，任务级自定义 feature + 六维质量改进 + agent 链强化）
 
 - ✅ **任务级自定义（feature）** — 正文写作、大纲生成、六维审查、章节摘要、设定提取五类任务均可在「设置 → 小说 → 任务提示词与技能」中配置追加提示词与技能名单覆盖（中英双语）；空配置与旧行为逐字节一致（三层等价设计 + 专项回归 spec）
 - ✅ **agent 链强化** — PrePluginInput 新增可选 novelConfig；select-skills-plugin 按 writing/outline/review 意图应用用户技能名单覆盖（技能库存在性校验，缺失名单进入诊断面）
@@ -17,9 +28,6 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **死代码清理** — 未接线的 agent pre-plugin 链 5 文件删除（零引用审计，git 历史 d21cb3f6 可找回）
 - ✅ **测试债跟踪** — 新建 ISS-20260914-001（185 生产文件无覆盖）并偿还首项：story-simulation-store 冒烟 spec（最后一个无 spec 的 store）
 - ✅ **验证纪律** — 全量 mock 套件 **12799/12810 绿（829 文件）**、tsc --build 0、生产构建通过；新增等价回归 spec 13+
-- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
-
-前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### v2.8.3（2026-09-13，三模型共识缺陷猎取 R1–R4）
 

@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.9.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.9.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-80%2F75%2F80%2F80-yellow?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -66,6 +66,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 10 | v2.8.2 | provider 修复 + 过程债务收敛 | GLM 思考链下发修复（f06b5242）+ provider 层 max_tokens 6000 下限（734a80c9，修复 0 字节/`finish_reason=length`/无评分）；T18 公共导入面收束（458 处导入入单 barrel）+ eslint 棘轮 162→100→0 且 `--max-warnings` 删除；过程债务批次（Python 归零 / PS1 下沉 Node / `.test.ts` 白名单归零 / bench 解耦 / retry sunset 钉 v2.9.0 / eval 沙箱去 new Function / analytics-worker CI 门）；e2e 冷启动根治（ubuntu 4.25→0.25min、windows 失败 6.21min→成功 1.91min）；C1/C2 证据 hash 清单入库（prerelease） |
 | 11 | v2.8.3 | 三模型共识缺陷猎取（R1–R4） | 四轮 deepseek-v4-flash + GLM-5.3-flash + qwen3.8-flash 共识审计：7 个未复核高流量面全覆盖（193 findings / 185 LINE-OK / 62 共识点）+ 累计修复 69 项确认缺陷（含 preview-panel / graph-view 两处数据丢失路径）+ 错误面统一 `formatOperationError` + i18n zh/en 双侧 2659 一致 + 反证与评审债反转（全量 12793 tests / e2e 84 全绿） |
 | 12 | v2.9.0 | 任务级自定义 + 六维质量改进 + agent 链强化 | 五类任务（正文/大纲/六维审查/摘要/设定提取）可配置追加提示词与技能名单覆盖（设置→小说→任务提示词与技能，空配置逐字节等价 + 三层等价设计回归 spec）+ odyssey-improve 六维 0C/1H/4M/3L：lib→components 反向依赖 7→0 清零（llm-presets/preset-resolver 下沉 llm-config、chat-resume 下沉 lib/chat）+ 共识门控链可观测化 + 未接线 pre-plugin 链死代码清理 + 测试债 issue 化并偿还首项（story-simulation-store 冒烟 spec） |
+| 13 | v2.9.1 | 安全修复 + UI 可达性批次 | 互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）修复（f59b1361）+ npm audit fix 7 漏洞（2H/4M/1L）+ CI 依赖审计回归门（0544de22）+ 全局焦点环/禁用态基线 + 键盘可达卡片区 + role 语义修复（94e3eb5d）+ ARIA 嵌套 6 处包裹层重构（role=button 卡内交互控件平级化）+ mermaid 灯箱焦点回移（ee945de6）+ preview 存在性检查响亮报错（0691a58a）+ dashboard 域 H/M/L 处置（37153b3c）（prerelease） |
 
 > 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
