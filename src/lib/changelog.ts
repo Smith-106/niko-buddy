@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.0",
+    date: "2026-09-14",
+    highlights: {
+      en: [
+        "Task-level customization (feature): per-task extra prompts and skill-list overrides for chapter writing, outline generation, six-dimension review, chapter summary and setting extraction — configured in Settings → Novel → Task Prompts & Skills (zh/en). Empty config stays byte-identical to the previous behavior, guaranteed by a three-layer equivalence design (null-safe resolvers, pass-through prompt builders, unchanged plugin default path) with dedicated regression specs.",
+        "Agent chain hardening: PrePluginInput now carries optional novelConfig and select-skills-plugin applies user skill-list overrides (existence-checked against the skill library, missing names surfaced in diagnostics) for writing/outline/review intents — the default path remains byte-identical.",
+        "Six-dimension quality improvement (odyssey-improve, 0C/1H/4M/3L): the lib→components reverse dependency is eliminated by sinking llm-presets/preset-resolver (+3 specs) into src/lib/llm-config/ and chat-resume into src/lib/chat/ (7→0); the consensus chain is now observable (debate seat failures, stream interruptions and all-seats-failed paths log with scope context); mermaid SVG injection points document the securityLevel-strict defense assumption.",
+        "Dead-code removal: the unwired agent pre-plugin chain (novel-pre-plugin-chain, select-capabilities-plugin, capabilities registry/selector) deleted after a zero-reference audit; capabilities/types retained for the live context-trace consumer. Recoverable from git history (d21cb3f6).",
+        "Verification: full mock suite 12799/12810 green (829 files), tsc --build 0, production build ok; new test-debt issue tracker (ISS-20260914-001) with the first item repaid — story-simulation-store smoke spec (the last spec-less store).",
+      ],
+      zh: [
+        "任务级自定义（feature）：正文写作、大纲生成、六维审查、章节摘要、设定提取五类任务均可在「设置 → 小说 → 任务提示词与技能」中配置追加提示词与技能名单覆盖（中英双语）。空配置与旧行为逐字节一致——由三层等价设计保证（resolver 空安全、builder 空直通、plugin 缺省路径不变），并附专项等价回归 spec。",
+        "agent 链强化：PrePluginInput 新增可选 novelConfig；select-skills-plugin 按 writing/outline/review 意图应用用户技能名单覆盖（经技能库存在性校验，缺失名单进入诊断面）——缺省路径逐字节不变。",
+        "六维质量改进（odyssey-improve，0C/1H/4M/3L）：lib→components 反向依赖清零——llm-presets/preset-resolver（含 3 个 spec）下沉 src/lib/llm-config/、chat-resume 下沉 src/lib/chat/（7→0）；共识门控链可观测化（辩论席位失败、流中断、全败路径均带 scope 日志）；mermaid SVG 注入点将 securityLevel-strict 防御假设文档化。",
+        "死代码清理：未接线的 agent pre-plugin 链（novel-pre-plugin-chain、select-capabilities-plugin、capabilities registry/selector）经零引用审计后删除；capabilities/types 因 context-trace 活引用保留。可从 git 历史（d21cb3f6）找回。",
+        "验证纪律：全量 mock 套件 12799/12810 绿（829 文件）、tsc --build 0、生产构建通过；新建测试债跟踪（ISS-20260914-001）并偿还第一项——story-simulation-store 冒烟 spec（最后一个无 spec 的 store）。",
+      ],
+    },
+  },
+  {
     version: "2.8.3",
     date: "2026-09-13",
     highlights: {

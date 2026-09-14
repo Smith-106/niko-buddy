@@ -7,6 +7,26 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.0] - 2026-09-14
+
+### 任务级自定义（feature）
+
+- **五类任务可配置**：正文写作、大纲生成、六维审查、章节摘要、设定提取均可在「设置 → 小说 → 任务提示词与技能」中配置追加提示词与技能名单覆盖（中英双语）。
+- **空配置逐字节等价**：三层等价设计保证（resolver 空安全、builder 空直通、plugin 缺省路径不变），附专项等价回归 spec。
+- **agent 链强化**：PrePluginInput 新增可选 novelConfig；select-skills-plugin 按 writing/outline/review 意图应用用户技能名单覆盖（技能库存在性校验，缺失名单进入诊断面）。
+
+### 六维质量改进（odyssey-improve，0C/1H/4M/3L）
+
+- **分层修复**：llm-presets/preset-resolver（含 3 个 spec）下沉 `src/lib/llm-config/`、chat-resume 下沉 `src/lib/chat/`——lib→components 反向依赖 **7→0 清零**。
+- **共识链可观测化**：consensus-review/consensus-writing 的辩论席位失败、流中断、全败路径补齐 scope 日志（此前 0 日志静默降级）。
+- **安全面**：mermaid SVG 注入点将 securityLevel-strict 防御假设文档化；依赖审计 7 项漏洞（2H/4M/1L）均有修复版本可用。
+
+### 清理与验证
+
+- **死代码清理**：未接线的 agent pre-plugin 链 5 文件删除（零引用审计，git 历史 d21cb3f6 可找回）。
+- **测试债跟踪**：新建 ISS-20260914-001（185 生产文件无覆盖），首项已还——story-simulation-store 冒烟 spec（最后一个无 spec 的 store）。
+- **验证纪律**：全量 mock 套件 **12799/12810 绿（829 文件）**、`tsc --build` 0、生产构建通过；新增等价回归 spec 13+。
+
 ## [2.8.3] - 2026-09-13
 
 ### 三模型共识缺陷猎取（R1–R4）
