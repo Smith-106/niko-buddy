@@ -118,6 +118,15 @@ fn enumerate_files(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             .map_err(|e| format!("[archive] strip_prefix failed: {e}"))?
             .to_string_lossy()
             .replace('\\', "/");
+        // 隐藏/系统杂质（.DS_Store、._* 资源分叉、.git 内部文件等）不入归档清单：
+        // 任何路径组件以 '.' 开头即跳过——归档的是用户内容；macOS runner 临时目录
+        // 的外来杂质曾致 CI dedupes_identical_blocks 假红（v2.9.1 波次实测）。
+        if relative
+            .split('/')
+            .any(|component| component.starts_with('.'))
+        {
+            continue;
+        }
         files.push((relative, path));
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -452,10 +461,10 @@ mod tests {
         assert!(drifted[0].starts_with("content_digest:"));
     }
 
-    // 运维注记：本用例曾在 mac CI 单次失败（判运行器偶发：内容寻址 sha256 确定性 +
-    // 历史三 mac run 均通过，未复现）。断言消息现自带诊断负载（manifest 块集合 hash 前缀
-    // +字节数 / 块目录实况文件+字节数）。若复发：在 src-tauri 下 `RUST_BACKTRACE=1 cargo
-    // test dedupes_identical_blocks` 本地复现，比对失败消息中的块集合与三个源文件字节后定论。
+    // 运维注记（2026-09-14 已根治）：本用例曾在 mac CI 单次失败——根因是 macOS runner
+    // 临时目录混入系统杂质（.DS_Store 类）被旧版 enumerate_files 收进 manifest（块数 3≠2），
+    // 非内容寻址不确定性。现 enumerate_files 已过滤点前缀组件（见 excludes_hidden_files），
+    // 断言消息仍自带诊断负载（manifest 块集合 hash 前缀+字节数 / 块目录实况）备未来回归。
     #[test]
     fn dedupes_identical_blocks() {
         let source = TempTree::new("src");
@@ -498,6 +507,45 @@ mod tests {
         let empty_manifest = build_manifest(&empty.root).expect("build empty manifest");
         assert!(empty_manifest.blocks.is_empty());
         validate_manifest(&empty_manifest).expect("empty manifest must validate");
+    }
+
+    // 隐藏/系统杂质不入归档清单：任何路径组件以 '.' 开头即被 enumerate_files 跳过
+    // （macOS runner 杂质曾致 dedupes_identical_blocks 假红，见该用例运维注记）。
+    #[test]
+    fn excludes_hidden_files() {
+        let source = TempTree::new("hidden");
+        let dest = TempTree::new("hidden-dst");
+        source.write("chapter.md", b"visible content");
+        source.write(".DS_Store", b"macos runner junk");
+        source.write("sub/._resource", b"resource fork junk");
+
+        let manifest = build_manifest(&source.root).expect("build manifest");
+        assert_eq!(
+            manifest.blocks.len(),
+            1,
+            "hidden files must not enter the manifest; blocks={:#?}",
+            manifest
+                .blocks
+                .iter()
+                .map(|b| (&b.hash[..12.min(b.hash.len())], b.size))
+                .collect::<Vec<_>>()
+        );
+
+        pack_blocks(&source.root, &manifest, &dest.root).expect("pack blocks");
+        let written: Vec<(String, u64)> = fs::read_dir(dest.root.join(ARCHIVE_BLOCKS_DIR))
+            .expect("read blocks dir")
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let meta = entry.metadata().ok()?;
+                meta.is_file()
+                    .then(|| (entry.file_name().to_string_lossy().into_owned(), meta.len()))
+            })
+            .collect();
+        assert_eq!(
+            written.len(),
+            1,
+            "only the visible file's block is written; on-disk={written:#?}"
+        );
     }
 
     #[test]
