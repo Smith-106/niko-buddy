@@ -7,11 +7,21 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.8.3**（2026-09-13 发布，prerelease 内测语义：安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+**v2.9.0**（2026-09-14 发布：任务级自定义 feature + 六维质量改进 + agent 链强化）
+
+### v2.9.0 更新亮点（2026-09-14）
+
+- ✅ **任务级自定义（feature）** — 正文写作、大纲生成、六维审查、章节摘要、设定提取五类任务均可在「设置 → 小说 → 任务提示词与技能」中配置追加提示词与技能名单覆盖（中英双语）；空配置与旧行为逐字节一致（三层等价设计 + 专项回归 spec）
+- ✅ **agent 链强化** — PrePluginInput 新增可选 novelConfig；select-skills-plugin 按 writing/outline/review 意图应用用户技能名单覆盖（技能库存在性校验，缺失名单进入诊断面）
+- ✅ **六维质量改进（0C/1H/4M/3L）** — lib→components 反向依赖 **7→0 清零**（llm-presets/preset-resolver 下沉 llm-config、chat-resume 下沉 lib/chat）；共识门控链可观测化（席位失败/流中断/全败路径带 scope 日志）；mermaid SVG 注入点防御假设文档化
+- ✅ **死代码清理** — 未接线的 agent pre-plugin 链 5 文件删除（零引用审计，git 历史 d21cb3f6 可找回）
+- ✅ **测试债跟踪** — 新建 ISS-20260914-001（185 生产文件无覆盖）并偿还首项：story-simulation-store 冒烟 spec（最后一个无 spec 的 store）
+- ✅ **验证纪律** — 全量 mock 套件 **12799/12810 绿（829 文件）**、tsc --build 0、生产构建通过；新增等价回归 spec 13+
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
-### v2.8.3 更新亮点（2026-09-13，三模型共识缺陷猎取 R1–R4）
+### v2.8.3（2026-09-13，三模型共识缺陷猎取 R1–R4）
 
 - ✅ **四轮三模型共识审计** — deepseek-v4-flash + GLM-5.3-flash + qwen3.8-flash 对 7 个高流量面全覆盖（193 findings / 185 行号验证通过 / 62 共识点）；累计修复 **69 项确认缺陷**（24d3db1d、490746de、0b0eb503）
 - ✅ **两处数据丢失路径封堵** — preview-panel 读档失败不再把错误文本写进编辑器（防 1s 防抖自动保存覆盖原文件）；graph-view 档案页读档失败不再回退模板内容进入编辑（防保存覆盖真实档案页）
