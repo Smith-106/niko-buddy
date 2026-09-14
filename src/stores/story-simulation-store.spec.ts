@@ -58,12 +58,12 @@ describe("story-simulation store — setter 行为", () => {
   it("setPhase / setMode / setError / setInfoMessage 写入对应字段", () => {
     const st = useStorySimulationStore
     st.getState().setPhase("simulating")
-    st.getState().setMode("chapter-driven")
+    st.getState().setMode("hybrid")
     st.getState().setError("boom")
     st.getState().setInfoMessage("ok")
     const s = st.getState()
     expect(s.phase).toBe("simulating")
-    expect(s.mode).toBe("chapter-driven")
+    expect(s.mode).toBe("hybrid")
     expect(s.error).toBe("boom")
     expect(s.infoMessage).toBe("ok")
   })
