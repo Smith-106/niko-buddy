@@ -131,6 +131,7 @@ export default tseslint.config(
             'src/lib/novel/canon-dual-write.ts',
             'src/lib/novel/chapter-ingest.ts',
             'src/lib/novel/context-engine.ts',
+            'src/lib/novel/consensus-writing.ts',
             'src/lib/novel/de-ai-adapter.ts',
             'src/lib/novel/deep-chapter-generation.ts',
             'src/lib/novel/delete-source-memory.ts',
