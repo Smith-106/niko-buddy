@@ -352,11 +352,19 @@ mod tests {
         root: PathBuf,
     }
 
+    // 同进程内递增序号：TempTree 唯一性由构造器保证，不再依赖时钟精度。
+    // 2026-09-16 根修：两个并行测试在同一时钟分辨率单元内 new 同名 tag（如 "src"）时，
+    // 纯 nanos 命名产生同名目录 → 测试间 fixture 串台（dedupes_identical_blocks 曾
+    // 因此间歇假红：detects_corrupt_block 的 only.md 混入其枚举，15B 块 3≠2）。
+    static TEMP_TREE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     impl TempTree {
         fn new(tag: &str) -> Self {
+            let seq = TEMP_TREE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let unique = format!(
-                "niko-archive-{}-{}-{}",
+                "niko-archive-{}-{}-{}-{}",
                 tag,
+                seq,
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
