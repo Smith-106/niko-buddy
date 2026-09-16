@@ -12,6 +12,9 @@
 > dashboard-evidence 10 / evidence-dashboard-section 4 / subgate-alerts 3）
 > + 既有 `book-analysis-book-list.spec.tsx` 新增 1 个 it()（健康徽标）；
 > `npx eslint src` exit 0；`node scripts/check-boundaries.mjs` 4/4。
+> 实物重跑（root 侧，18 个交付 spec 文件）：**138 passed / 18 文件全绿**
+> （17 新 spec 132 it() + `book-analysis-book-list.spec.tsx` 全文件 6 it()——
+> 该文件既有 5 个 + 健康徽标新增 1 个，与 diff +1 对齐；132+6=138）。
 > （勘误：此前卷宗所记“基线 12,833 / 净增 186”有误——12,833 为波1实施前基线；
 > fedc2370 实测 12,886 passed；正确口径为 **12,886 → 13,019（+133）**，
 > 与 diff 级逐行计数完全对齐。）
