@@ -87,4 +87,29 @@ describe("BookAnalysisBookList", () => {
     render(<BookAnalysisBookList books={[book]} selectedBookId={null} onSelectBook={vi.fn()} />)
     expect(screen.getByText(/10 章 · 1 角色 · 1 Skill/)).toBeInTheDocument()
   })
+
+  it("renders health badges from healthByBookId (波2-D 列表健康列) and omits when absent", () => {
+    const healthByBookId = {
+      "b1": { bookId: "b1", display: "fail", blocked: true, blockingGate: "consistency", evaluatedGates: 3 },
+      "b2": { bookId: "b2", display: "pass", blocked: false, blockingGate: null, evaluatedGates: 3 },
+      "b3": { bookId: "b3", display: "not_evaluated", blocked: false, blockingGate: null, evaluatedGates: 0 },
+    } as Record<string, import("@/lib/novel").BookHealthSummary>
+    const { rerender } = render(
+      <BookAnalysisBookList
+        books={[makeBook({ id: "b1" }), makeBook({ id: "b2" }), makeBook({ id: "b3" })]}
+        selectedBookId={null}
+        onSelectBook={vi.fn()}
+        healthByBookId={healthByBookId}
+      />,
+    )
+    expect(screen.getByTestId("book-health-b1").textContent).toContain("门控未通过")
+    expect(screen.getByTestId("book-health-b1").title).toContain("被 consistency 阻塞")
+    expect(screen.getByTestId("book-health-b2").textContent).toContain("门控通过")
+    expect(screen.getByTestId("book-health-b3").textContent).toContain("门控未评估")
+    // 未提供 healthByBookId → 不渲染徽标（向后兼容）
+    rerender(
+      <BookAnalysisBookList books={[makeBook({ id: "b1" })]} selectedBookId={null} onSelectBook={vi.fn()} />,
+    )
+    expect(screen.queryByTestId("book-health-b1")).not.toBeInTheDocument()
+  })
 })

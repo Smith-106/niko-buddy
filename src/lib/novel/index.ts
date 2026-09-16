@@ -649,3 +649,166 @@ export type {
   EvidenceGateCard,
   EvidenceSnapshot,
 } from "./evidence-snapshot"
+// ── 波2-A：P0 接线批（世界约束门联动 / autoarm 落盘 / 账本持久化） ──────────
+export {
+  WORLD_CONSTRAINT_PACK_ID,
+  WorldConstraintGateError,
+  buildWorldConstraintPack,
+  parseWorldConstraint,
+} from "./world-constraint-gate"
+export type {
+  ParsedWorldConstraint,
+  WorldConstraintKind,
+} from "./world-constraint-gate"
+export {
+  DRAFT_AUTO_ARM_SCHEMA,
+  AutoArmStatusError,
+  applyDraftAutoArmPatch,
+  assertAutoArmPatchNeverAccepts,
+  buildDraftAutoArmPatch,
+  buildDraftAutoArmRecord,
+} from "./auto-arm-status"
+export type {
+  DraftAutoArmPatch,
+  DraftAutoArmStatus,
+} from "./auto-arm-status"
+export {
+  RUN_EVENTS_FILENAME,
+  RunEventLedgerStoreError,
+  appendRunEventToStore,
+  appendRunEventsToStore,
+  createFsRunEventLedgerStoreDeps,
+  loadRunEventLedgerStore,
+  runEventsPath,
+} from "./run-event-ledger-store"
+export type {
+  RunEventAppendInput,
+  RunEventLedgerStoreDeps,
+} from "./run-event-ledger-store"
+// ── 波2-B：P1 数据层批一（标题工坊 / 拆书→aura 单向闭环 / 导演跟进） ──────
+export {
+  TitleForgeError,
+  forgeTitles,
+} from "./title-forge"
+export type {
+  TitleConstraintCheck,
+  TitleForgeCandidate,
+  TitleForgeReport,
+  TitleForgeRow,
+  TitleSeedMatchRow,
+} from "./title-forge"
+export {
+  BookAnalysisEvolutionError,
+  IMAGE_EVOLUTION_ANCHOR_SCHEMA,
+  IMAGE_EVOLUTION_TIMELINE_SCHEMA,
+  applyAuraSeedsToArchetype,
+  evolutionAuraEvents,
+  evolutionToAuraSeeds,
+} from "./book-analysis-evolution"
+export type {
+  AuraSeedSynthesis,
+  ImageEvolutionAnchor,
+  ImageEvolutionTimeline,
+} from "./book-analysis-evolution"
+export {
+  buildBlockingQueue,
+  buildDirectorFollowupSnapshot,
+  estimateRerunCost,
+  propagateStaleness,
+} from "./director-followup"
+export type {
+  BlockingQueueItem,
+  DirectorFollowupSnapshot,
+  RerunCostEstimate,
+  StalenessEdge,
+} from "./director-followup"
+// ── 波2-C：P1 数据层批二（闭环指标 / 重试差分 / 同质化告警） ──────────────
+export {
+  buildCorrectionLoopStats,
+} from "./repair-loop"
+export type {
+  CorrectionLoopGateStat,
+  CorrectionLoopStats,
+} from "./repair-loop"
+export {
+  GateRetryDiffError,
+  diffGateRunPair,
+  diffLatestGateRetries,
+} from "./gate-retry-diff"
+export type {
+  GateRetryDiff,
+  GateRunSide,
+} from "./gate-retry-diff"
+export {
+  AuraHomogenizationError,
+  computeVoiceDrift,
+  detectAuraHomogenization,
+  homogenizationAlertEvents,
+  jaccardSimilarity,
+  voiceDriftAlertEvents,
+} from "./aura-homogenization"
+export type {
+  ChapterVoiceDrift,
+  ChapterVoiceSample,
+  HomogenizationAlert,
+} from "./aura-homogenization"
+// ── 波3-A：多形态数据层批（题材雷达 / 跨形态一致性 / 反事实通用化 / 视觉血缘） ──
+export {
+  TREND_RADAR_ARTIFACT_SCHEMA_VERSION,
+  RADAR_SIGNAL_SCHEMA,
+  TrendRadarError,
+  buildTrendRadarArtifact,
+  probeTrendRadarHealth,
+  verifyTrendRadarConservation,
+} from "./trend-radar"
+export type {
+  RadarSignal,
+  TrendRadarArtifact,
+  TrendRadarHealth,
+} from "./trend-radar"
+export {
+  CROSS_FORM_DERIVATION_SCHEMA,
+  CROSS_FORM_KINDS,
+  CrossFormConsistencyError,
+  crossFormSubGateEvents,
+  evaluateCrossFormSubGate,
+  evaluateVisCont,
+  formL9Status,
+  visContEvents,
+} from "./cross-form-consistency"
+export type {
+  ComicFrameAura,
+  CrossFormCheck,
+  CrossFormDerivation,
+  CrossFormKind,
+  CrossFormSubGateVerdict,
+  FormL9Status,
+  VisContFinding,
+  VisContVerdict,
+} from "./cross-form-consistency"
+export {
+  CounterfactualLabError,
+  counterfactualGateEvents,
+  replayCounterfactual,
+} from "./counterfactual-lab"
+export type {
+  CounterfactualGateReplayInput,
+  CounterfactualGateReplayResult,
+} from "./counterfactual-lab"
+export {
+  VISUAL_APPLIES_TO,
+  VISUAL_ASSET_LINEAGE_SCHEMA,
+  VisualLineageError,
+  assertVisualAppliesTo,
+  buildVisualLineage,
+  visualLineageEvents,
+  visualLineageEvidenceRefs,
+} from "./visual-lineage"
+export type { VisualAssetLineage } from "./visual-lineage"
+// ── 波2-D：首页/列表只读派生数据源（证据卡接线） ────────────────────────
+export {
+  buildDashboardEvidenceSnapshot,
+  deriveBookHealthSummaries,
+  deriveEvidenceGateStatuses,
+} from "./dashboard-evidence"
+export type { BookHealthSummary } from "./dashboard-evidence"

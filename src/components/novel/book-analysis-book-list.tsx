@@ -1,11 +1,13 @@
-import { BookOpen, CheckCircle2, Feather, Trash2 } from "lucide-react"
-import type { BookAnalysisLibraryBook } from "@/lib/novel"
+import { BookOpen, CheckCircle2, Feather, ShieldAlert, ShieldCheck, ShieldQuestion, Trash2 } from "lucide-react"
+import type { BookAnalysisLibraryBook, BookHealthSummary } from "@/lib/novel"
 
 interface BookAnalysisBookListProps {
   books: BookAnalysisLibraryBook[]
   selectedBookId: string | null
   onSelectBook: (bookId: string) => void
   onDeleteBook?: (bookId: string) => void
+  /** 列表健康列（波2-D 只读派生：per-bookId 门控摘要；缺省不渲染健康徽标）。 */
+  healthByBookId?: Readonly<Record<string, BookHealthSummary>>
 }
 
 function styleStatusLabel(book: BookAnalysisLibraryBook): string {
@@ -14,7 +16,17 @@ function styleStatusLabel(book: BookAnalysisLibraryBook): string {
   return "未提取文风"
 }
 
-export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDeleteBook }: BookAnalysisBookListProps) {
+function healthBadge(health: BookHealthSummary): { icon: typeof ShieldCheck; label: string; className: string } {
+  if (health.display === "fail") {
+    return { icon: ShieldAlert, label: "门控未通过", className: "text-destructive" }
+  }
+  if (health.display === "pass") {
+    return { icon: ShieldCheck, label: "门控通过", className: "text-primary" }
+  }
+  return { icon: ShieldQuestion, label: "门控未评估", className: "text-muted-foreground" }
+}
+
+export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDeleteBook, healthByBookId }: BookAnalysisBookListProps) {
   return (
     <aside className="flex min-h-0 w-72 shrink-0 flex-col border-r bg-background">
       <div className="border-b px-4 py-3">
@@ -62,6 +74,23 @@ export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDe
                             已绑定 {book.boundAurasCount}
                           </span>
                         )}
+                        {(() => {
+                          // 列表健康列（波2-D）：只读派生徽标；无数据不渲染（R-04 不臆造）
+                          const health = healthByBookId?.[book.id]
+                          if (!health) return null
+                          const badge = healthBadge(health)
+                          const Icon = badge.icon
+                          return (
+                            <span
+                              className={badge.className}
+                              data-testid={`book-health-${book.id}`}
+                              title={health.blockingGate ? `被 ${health.blockingGate} 阻塞` : badge.label}
+                            >
+                              <Icon className="mr-1 inline h-3 w-3" />
+                              {badge.label}
+                            </span>
+                          )
+                        })()}
                       </div>
                     </div>
                   </button>

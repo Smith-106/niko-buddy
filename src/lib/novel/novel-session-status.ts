@@ -5,6 +5,7 @@ import { isTauri } from "@/lib/platform"
 import { pad, toErrorMessage } from "@/lib/utils"
 import { z } from "zod"
 import { withProjectLock } from "./novel-locks"
+import { DRAFT_AUTO_ARM_SCHEMA, type DraftAutoArmStatus } from "./auto-arm-status"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -189,6 +190,13 @@ export interface NovelSessionStatus {
   canon_migration?: CanonMigrationMode
   /** anti_ai 三档开关: off(默认) / warn / block / 自定义。项目级隔离。 */
   anti_ai_mode?: AntiAiMode
+  /**
+   * 波2-A (consensus plan 模块 10/波2): draft-autoarm 裁定落盘 (additive-optional)。
+   * 机械门 P0+P1 全 pass → 草稿态升 ready 且 target 类型层只有 "ready"
+   * (accept 永远人工, 见 auto-arm-status.ts assertAutoArmPatchNeverAccepts)。
+   * 旧 status.json 无本字段仍可加载 (additive 兼容, zod optional)。
+   */
+  draft_auto_arm?: DraftAutoArmStatus
 }
 
 /**
@@ -1045,6 +1053,9 @@ const novelSessionStatusLoadSchema = z
     anti_ai_mode: z
       .union([z.literal("off"), z.literal("warn"), z.literal("block"), z.string()])
       .optional(),
+    // 波2-A additive: draft-autoarm 裁定落盘（strict 校验，缺省 optional →
+    // 旧 status.json 无此字段不污染，回填 undefined）。
+    draft_auto_arm: DRAFT_AUTO_ARM_SCHEMA.optional(),
   })
   .passthrough()
 
