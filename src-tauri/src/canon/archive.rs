@@ -475,16 +475,31 @@ mod tests {
 
         let manifest = build_manifest(&source.root).expect("build manifest");
         // 3 个文件 → 2 个唯一块（失败消息携带块集合诊断：hash 前缀 + 字节数）。
-        assert_eq!(
-            manifest.blocks.len(),
-            2,
-            "identical contents must dedupe to one block; blocks={:#?}",
-            manifest
-                .blocks
+        // 2026-09-16 CI 再现 15B 非隐藏杂质块（6b7bef9ce57b，与 v2.9.1 波次同签名）——
+        // 点前缀过滤未拦（杂质非点文件）；断言改为失败时列出全部枚举文件（路径+hash+字节），
+        // 下次出现即报杂质实名，定向修复。
+        if manifest.blocks.len() != 2 {
+            let files = enumerate_files(&source.root).expect("enumerate for diagnostics");
+            let diag: Vec<String> = files
                 .iter()
-                .map(|b| (&b.hash[..12.min(b.hash.len())], b.size))
-                .collect::<Vec<_>>()
-        );
+                .filter_map(|(relative, path)| {
+                    block_hash_of_file(path)
+                        .ok()
+                        .map(|(size, hash)| format!("{relative} {hash} {size}B"))
+                })
+                .collect();
+            panic!(
+                "identical contents must dedupe to one block; expected 2 unique blocks, got {}; \
+                 blocks={:#?}; enumerated files:\n{}",
+                manifest.blocks.len(),
+                manifest
+                    .blocks
+                    .iter()
+                    .map(|b| (&b.hash[..12.min(b.hash.len())], b.size))
+                    .collect::<Vec<_>>(),
+                diag.join("\n")
+            );
+        }
 
         pack_blocks(&source.root, &manifest, &dest.root).expect("pack blocks");
         let written: Vec<(String, u64)> = fs::read_dir(dest.root.join(ARCHIVE_BLOCKS_DIR))
