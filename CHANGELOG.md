@@ -7,6 +7,14 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.2] - 2026-09-15
+
+### 归档加固（Fixed）
+
+- **enumerate_files 隐藏文件过滤**（43284803）：点前缀路径组件不再进入归档清单——隐藏/系统杂质（.DS_Store、._* 资源分叉、.git 内部文件）被彻底排除；macOS runner 曾因此类杂质致 CI `dedupes_identical_blocks` 块数断言假红（根因定位并修复，非内容寻址不确定性）。
+- **新增 spec `excludes_hidden_files`**：验证隐藏文件不入 manifest 与块目录；dedupes_identical_blocks 运维注记由「未复现」更新为「已根治」。
+- **验证**：cargo test canon::archive 5/5、fmt clean、CI 34873551050 全作业首轮绿（macOS cargo test 无需 rerun）。
+
 ## [2.9.1] - 2026-09-14
 
 ### 安全修复（Security）

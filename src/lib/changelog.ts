@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.2",
+    date: "2026-09-15",
+    highlights: {
+      en: [
+        "Canon archive hardening: enumerate_files now excludes dot-prefixed path components so hidden/system junk (.DS_Store, ._* resource forks, .git internals) never enters the archive manifest — on macOS runners such junk previously produced a spurious block-count mismatch (CI flake, root-caused and fixed).",
+        "New spec excludes_hidden_files verifies hidden files stay out of both the manifest and the packed block directory; the dedupes_identical_blocks runbook note is updated from 'unreproduced' to 'root-caused'.",
+        "Verification: cargo test canon::archive 5/5 green, cargo fmt clean, CI 34873551050 all jobs green on first attempt (macOS cargo test passed without rerun).",
+      ],
+      zh: [
+        "归档加固：enumerate_files 过滤点前缀路径组件——隐藏/系统杂质（.DS_Store、._* 资源分叉、.git 内部文件）不再进入归档清单；macOS runner 曾因此类杂质致 CI 块数断言假红（已根因定位并修复）。",
+        "新增 spec excludes_hidden_files 验证隐藏文件不入 manifest 与块目录；dedupes_identical_blocks 运维注记由「未复现」更新为「已根治」。",
+        "验证：cargo test canon::archive 5/5、fmt clean、CI 34873551050 全作业首轮绿（macOS cargo test 无需 rerun）。",
+      ],
+    },
+  },
+  {
     version: "2.9.1",
     date: "2026-09-14",
     highlights: {
