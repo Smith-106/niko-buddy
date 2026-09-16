@@ -498,3 +498,154 @@ export type {
   ReplaceRule,
 } from "./batch-replace/plan-client"
 export type { PreWriteGateCode, PreWriteGateState } from "./canon-pre-write-gate"
+
+// ── 波1 共识计划（GLM/DeepSeek/Qwen）：EB 底座公共导出（novel-public） ──
+export {
+  RUN_EVENT_LEDGER_SCHEMA_VERSION,
+  RUN_EVENT_KINDS,
+  RUN_EVENT_ACTORS,
+  BUDGET_COST_SCHEMA,
+  RUN_EVENT_SCHEMA,
+  RunEventLedgerError,
+  RunEventIntegrityError,
+  appendRunEvent,
+  appendRunEvents,
+  createRunEventLedger,
+  recordGateRunEvents,
+  checkGateEventCoverage,
+  readGateRunPayload,
+  gateDisplayStatus,
+  gateDisplayLabel,
+  sliceRunEvents,
+  eventsByReplayId,
+  listReplayIds,
+  aggregateBudgetCost,
+  latestEventOf,
+} from "./run-event-ledger"
+export type {
+  RunEvent,
+  RunEventInput,
+  RunEventKind,
+  RunEventActor,
+  BudgetCost,
+  RunEventLedger,
+  GateEventCoverage,
+  GateDisplayStatus,
+  RunEventFilter,
+  BudgetCostSummary,
+} from "./run-event-ledger"
+export {
+  ROUTE_POLICY_SCHEMA,
+  SchedulingGateInvariantError,
+  assertNoGateFieldsInSchedulingResult,
+  buildRoutingSelfCheckReport,
+  evaluateRetryScheduling,
+  evaluateSchedulingGate,
+  normalizeRoutePolicy,
+  resolveRouteModel,
+  schedulingTierRole,
+} from "./scheduling-gate"
+export type {
+  RoutePolicy,
+  RouteResolution,
+  RetrySchedulingDecision,
+  RetrySchedulingDecisionKind,
+  RoutingSelfCheckEntry,
+  RoutingSelfCheckReport,
+  SchedulingDecision,
+  SchedulingGateConfig,
+  SchedulingGateResult,
+  SchedulingQuotaSnapshot,
+} from "./scheduling-gate"
+export {
+  PROMPT_ARTIFACT_REGISTRY_SCHEMA_VERSION,
+  PROMPT_ARTIFACT_SCHEMA,
+  PromptArtifactRegistryError,
+  artifactToEventRefs,
+  bindGateRunLineage,
+  checkPromptLineageCoverage,
+  comparePromptVersions,
+  computePromptTemplateHash,
+  createPromptArtifactRegistry,
+  lineageOfGateRunEvent,
+  missingTestRefs,
+  registerPromptArtifact,
+  resolvePromptArtifact,
+} from "./prompt-artifacts"
+export type {
+  GatePromptLineage,
+  PromptArtifact,
+  PromptArtifactInput,
+  PromptArtifactRegistry,
+  PromptLineageCoverage,
+} from "./prompt-artifacts"
+export {
+  DEFAULT_DRAFT_AUTO_ARM_POLICY,
+  ADVANCE_MODE_SCHEMA,
+  ADVANCE_PHASE_SCHEMA,
+  DirectorModeError,
+  assertAutoArmNeverAccepts,
+  evaluateDraftAutoArm,
+  evaluatePhaseExit,
+  normalizeAdvanceMode,
+  validateAdvanceTransition,
+} from "./director-modes"
+export type {
+  AdvanceMode,
+  AdvancePhase,
+  AdvancePhaseRunStatus,
+  AdvanceTransitionVerdict,
+  DraftAutoArmDecision,
+  DraftAutoArmPolicy,
+  DraftAutoArmTarget,
+} from "./director-modes"
+export {
+  ASSET_LIBRARY_SCHEMA_VERSION,
+  LIBRARY_IDS,
+  GENRE_BASE_ENTRY_SCHEMA,
+  PACING_PATTERN_ENTRY_SCHEMA,
+  TITLE_SEED_ENTRY_SCHEMA,
+  WORLD_SAMPLE_ENTRY_SCHEMA,
+  CHARACTER_ARCHETYPE_ENTRY_SCHEMA,
+  AssetLibraryError,
+  assertArtifactImmutable,
+  buildLibraryArtifact,
+  computeLibraryHash,
+  probeLibraryHealth,
+  stableStringify,
+  verifyLibraryConservation,
+} from "./asset-library"
+export type {
+  CharacterArchetypeEntry,
+  ConservationReport,
+  GenreBaseEntry,
+  LibraryArtifact,
+  LibraryEntry,
+  LibraryHealthReport,
+  LibraryId,
+  PacingPatternEntry,
+  TitleSeedEntry,
+  WorldSampleEntry,
+} from "./asset-library"
+export {
+  buildSlotManifest,
+  computeQueryHash,
+  counterfactualReplay,
+  markHitRejection,
+} from "./retrieval-trace"
+export type {
+  CounterfactualReplayCandidate,
+  CounterfactualReplayInput,
+  CounterfactualReplayResult,
+  RetrievalCorpusFilter,
+  RetrievalRejection,
+  RetrievalRejectionReason,
+  RetrievalSlotManifestEntry,
+} from "./retrieval-trace"
+export {
+  buildEvidenceSnapshot,
+} from "./evidence-snapshot"
+export type {
+  EvidenceGateCard,
+  EvidenceSnapshot,
+} from "./evidence-snapshot"

@@ -6,7 +6,7 @@ import { rerankCandidates } from "@/lib/rerank"
 import { type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { rankByBm25, tokenizeForBm25 } from "./bm25-ranking"
-import { createRetrievalTrace } from "./retrieval-trace"
+import { computeQueryHash, createRetrievalTrace } from "./retrieval-trace"
 // P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
 // 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
 // context-pack-freeze.spec 的 vi.mock("./search-adapter") 整体替换后拿到 undefined。
@@ -33,6 +33,8 @@ export interface NovelSearchParams {
   traceChannel?: string
   /** 64 号实施接线: trace 关联章节号（缺省 0 = 非章节上下文）。 */
   traceChapter?: number
+  /** 波1 检索可解释包 additive: 检索时模型 id（路由证据，EB-1）。 */
+  traceModelId?: string
 }
 
 export interface NovelSearchResult {
@@ -188,6 +190,9 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       query: params.query,
       channel: params.traceChannel,
       latencyMs: 0,
+      queryHash: computeQueryHash(params.query),
+      modelId: params.traceModelId,
+      corpusFilter: { authoritativeOnly: params.authoritativeOnly === true },
       hits: reranked.slice(0, topK).map((r) => ({
         sourceId: normalizeResultPath(r.path),
         sourceType: "material" as const,
