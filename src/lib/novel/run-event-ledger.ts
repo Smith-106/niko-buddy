@@ -21,6 +21,17 @@
  *   4. 产物（账本与事件）深度冻结；
  *   5. 零 IO / 零时钟（ts 由调用方注入）/ 零模型调用（ADR-19 机械层）。
  *
+ * 事件种类收容矩阵（波2-E 固化，DeepSeek 第 2 轮 E1 建议——事件种类 × 消费方）：
+ *   | kind | 三门快照/覆盖分母 | 闭环率/FP | 子门告警面板 | 检索审计 |
+ *   | gate-run | ✓ 唯一来源 | 裁定事实来源 | — | — |
+ *   | retrieval | — | — | — | ✓ 唯一来源 |
+ *   | retry / generate | — | ✓ 修正动作判定 | — | — |
+ *   | quota / error | — | — | — | — |
+ *   | stage | —（payload 无 gate 字段 + readGateRunPayload 首查 kind）| —（仅 retry/generate 计入修正）| ✓ 唯一来源（subGate/alert/counterfactual）| — |
+ *   | accept / kb-rebuild | — | — | — | — |
+ *   收容由结构性谓词保证：readGateRunPayload(:318) 首查 event.kind!=="gate-run"
+ *   即返回 null——stage 系子门/告警/反事实事件结构性无法污染三门权威口径。
+ *
  * @license MIT © QMAI
  */
 

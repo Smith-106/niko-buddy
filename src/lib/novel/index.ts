@@ -810,5 +810,6 @@ export {
   buildDashboardEvidenceSnapshot,
   deriveBookHealthSummaries,
   deriveEvidenceGateStatuses,
+  deriveSubGateAlerts,
 } from "./dashboard-evidence"
-export type { BookHealthSummary } from "./dashboard-evidence"
+export type { BookHealthSummary, SubGateAlertItem } from "./dashboard-evidence"

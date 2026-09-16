@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { DirectorPanel } from "@/components/novel/director-panel"
 import { EvidenceDashboardSection } from "@/components/novel/evidence-dashboard-section"
+import { SubgateAlertsSection } from "@/components/novel/subgate-alerts-section"
 import { tryAdvanceDirector, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline } from "@/lib/novel"
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -215,6 +216,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       </div>
 
       <EvidenceDashboardSection projectId={projectId} />
+      <SubgateAlertsSection projectId={projectId} />
 
       <div className="flex items-center justify-between rounded-lg border p-3">
         <span className="text-xs text-muted-foreground">{t("directorPanel.nextStep")}</span>

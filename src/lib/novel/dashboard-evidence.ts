@@ -67,8 +67,83 @@ export function buildDashboardEvidenceSnapshot(
 }
 
 // ============================================================================
-// 列表健康列（per-book 门控摘要）
+// 子门与告警可见面（波2-E：G-14 修复——算得到也要看得见）
 // ============================================================================
+
+/** 子门/告警展示项（stage 系事件的 UI 读出单元）。 */
+export interface SubGateAlertItem {
+  readonly eventId: string
+  readonly ts: string
+  readonly seq: number
+  /** 来源类：子门裁定 / 同质化告警 / 反事实重放。 */
+  readonly category: "subgate" | "alert" | "counterfactual"
+  /** 子门或告警名（cross-form-derivation/vis-cont/aura-homogenization/voice-drift/counterfactual）。 */
+  readonly name: string
+  /** 人类可读摘要（裁定/相似度/漂移值等，由 payload 提取）。 */
+  readonly summary: string
+  /** 可点开证据链（evidenceRefs 透传）。 */
+  readonly evidenceRefs: readonly string[]
+  readonly bookId: string | null
+  readonly chapterId: number | null
+}
+
+/** stage 事件摘要提取（纯函数；无匹配 payload → null 跳过）。 */
+function summarizeStageEvent(event: RunEvent): SubGateAlertItem | null {
+  const payload = event.payload as { subGate?: unknown; alert?: unknown; counterfactual?: { gate?: unknown; decisiveSourceIds?: unknown } } | undefined
+  if (event.kind !== "stage" || payload === undefined || payload === null) return null
+  const bookId = event.bookId ?? null
+  const chapterId = event.chapterId ?? null
+  if (typeof payload.subGate === "string") {
+    const sub = payload as { subGate: string; verdict?: string; form?: string; pairsChecked?: number; findings?: { frameA?: string; frameB?: string; similarity?: number }[]; decisiveSourceIds?: string[] }
+    const detail =
+      sub.verdict !== undefined
+        ? `裁定=${sub.verdict}${sub.form !== undefined ? ` (${String(sub.form)})` : ""}`
+        : sub.pairsChecked !== undefined
+          ? `跨帧对=${sub.pairsChecked} 断裂=${sub.findings?.length ?? 0}`
+          : sub.decisiveSourceIds !== undefined
+            ? `决定性证据=${sub.decisiveSourceIds.length}`
+            : ""
+    return { eventId: event.eventId, ts: event.ts, seq: event.seq, category: sub.subGate === "counterfactual" ? "counterfactual" : "subgate", name: sub.subGate, summary: detail, evidenceRefs: event.evidenceRefs, bookId, chapterId }
+  }
+  if (typeof payload.alert === "string") {
+    const alert = payload as { alert: string; pairs?: { entryIdA?: string; entryIdB?: string; similarity?: number }[]; drift?: number | null; chapterId?: number }
+    const detail =
+      alert.alert === "aura-homogenization"
+        ? `同质化角色对=${alert.pairs?.length ?? 0}${alert.pairs?.[0]?.similarity !== undefined ? ` 最高相似度=${alert.pairs[0].similarity}` : ""}`
+        : alert.alert === "voice-drift"
+          ? `漂移=${alert.drift ?? "未知"}（ch${alert.chapterId ?? "?"}）`
+          : ""
+    return { eventId: event.eventId, ts: event.ts, seq: event.seq, category: "alert", name: alert.alert, summary: detail, evidenceRefs: event.evidenceRefs, bookId, chapterId }
+  }
+  if (payload.counterfactual !== undefined && typeof payload.counterfactual === "object") {
+    const cf = payload.counterfactual
+    return {
+      eventId: event.eventId,
+      ts: event.ts,
+      seq: event.seq,
+      category: "counterfactual",
+      name: `counterfactual:${typeof cf.gate === "string" ? cf.gate : "?"}`,
+      summary: `决定性证据=${Array.isArray(cf.decisiveSourceIds) ? cf.decisiveSourceIds.length : 0}`,
+      evidenceRefs: event.evidenceRefs,
+      bookId,
+      chapterId,
+    }
+  }
+  return null
+}
+
+/**
+ * 子门/告警可见面（G-14）：从账本 stage 事件派生可展示清单（账本序，最新在前）。
+ * 纯函数；空账本/无匹配 → 空数组（零告警是合法结果，不制造噪声）。
+ */
+export function deriveSubGateAlerts(ledger: RunEventLedger, limit = 50): readonly SubGateAlertItem[] {
+  const items: SubGateAlertItem[] = []
+  for (const event of ledger.events) {
+    const item = summarizeStageEvent(event)
+    if (item !== null) items.push(item)
+  }
+  return items.reverse().slice(0, limit)
+}
 
 /** 单书健康摘要（列表健康列渲染单元）。 */
 export interface BookHealthSummary {
