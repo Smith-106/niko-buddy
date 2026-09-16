@@ -1,14 +1,20 @@
 # 共识验收：AI-Novel-Writing-Assistant → niko-buddy (QMAI) 功能覆盖+超越映射表
 
 > 第 3 轮共识配套工件。锚点均为 `QMAI/src/lib/novel/`（另注）机械模块 + spec。
-> 硬门终态（commit `1b3d828c`，smith/master）：tsc `--build` 0 错误；
-> `npm run test:mocks` **13,019 passed / 852 文件**（基线 fedc2370 `12,833` 零回退）；
-> `npx eslint src` 0 findings（exit 0）；`node scripts/check-boundaries.mjs` 4/4。
-> 新 spec 17 文件共 132 个 it()（world-constraint 10 / auto-arm 15 / ledger-store 9 /
-> gate-chain-e2e 9 / title-forge 7 / book-analysis-evolution 9 / director-followup 10 /
-> repair-loop 8 / gate-retry-diff 5 / aura-homogenization 9 / trend-radar 5 /
-> cross-form 8 / counterfactual 6 / visual-lineage 5 / dashboard-evidence 10 /
-> evidence-dashboard-section 4 / subgate-alerts 3）。
+> 硬门终态（commit `adda9675`，smith/master）：tsc `--build` 0 错误；
+> `npm run test:mocks` **13,019 passed / 852 文件**（fedc2370 时 12,886 passed，
+> 净增 **+133**；`git diff fedc2370..HEAD -- '*.spec.ts' '*.spec.tsx'` 证实：
+> 删除的 `it(` 计 0，新增的 `it(` 计 133——零回退、零删除、全增量；
+> +133 = 17 个新 spec 文件 132 个 it()（world-constraint 10 / auto-arm 15 /
+> ledger-store 9 / gate-chain-e2e 9 / title-forge 7 / book-analysis-evolution 9 /
+> director-followup 10 / repair-loop 8 / gate-retry-diff 5 / aura-homogenization 9 /
+> trend-radar 5 / cross-form 8 / counterfactual 6 / visual-lineage 5 /
+> dashboard-evidence 10 / evidence-dashboard-section 4 / subgate-alerts 3）
+> + 既有 `book-analysis-book-list.spec.tsx` 新增 1 个 it()（健康徽标）；
+> `npx eslint src` exit 0；`node scripts/check-boundaries.mjs` 4/4。
+> （勘误：此前卷宗所记“基线 12,833 / 净增 186”有误——12,833 为波1实施前基线；
+> fedc2370 实测 12,886 passed；正确口径为 **12,886 → 13,019（+133）**，
+> 与 diff 级逐行计数完全对齐。）
 
 | # | 对标模块 | niko-buddy 对应物（文件:行，机械口） | 超越点 |
 |---|---|---|---|
