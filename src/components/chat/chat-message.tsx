@@ -406,6 +406,12 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
         const candidates = [
           `${pp}/${page.path}`,
           `${pp}/wiki/entities/${id}.md`,
+          // 物理分层：实体可能已迁入 entities/<subdir>/，逐一探测。
+          `${pp}/wiki/entities/characters/${id}.md`,
+          `${pp}/wiki/entities/items/${id}.md`,
+          `${pp}/wiki/entities/locations/${id}.md`,
+          `${pp}/wiki/entities/organizations/${id}.md`,
+          `${pp}/wiki/entities/events/${id}.md`,
           `${pp}/wiki/concepts/${id}.md`,
           `${pp}/wiki/sources/${id}.md`,
           `${pp}/wiki/queries/${id}.md`,
@@ -519,6 +525,11 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
             const candidates = [
               `${pp}/${page.path}`,
               `${pp}/wiki/entities/${id}.md`,
+              `${pp}/wiki/entities/characters/${id}.md`,
+              `${pp}/wiki/entities/items/${id}.md`,
+              `${pp}/wiki/entities/locations/${id}.md`,
+              `${pp}/wiki/entities/organizations/${id}.md`,
+              `${pp}/wiki/entities/events/${id}.md`,
               `${pp}/wiki/concepts/${id}.md`,
               `${pp}/wiki/sources/${id}.md`,
               `${pp}/wiki/queries/${id}.md`,
@@ -1111,6 +1122,11 @@ function WikiLink({ pageName, children }: { pageName: string; children: React.Re
     const pp = normalizePath(project.path)
     const candidates = [
       `${pp}/wiki/entities/${pageName}.md`,
+      `${pp}/wiki/entities/characters/${pageName}.md`,
+      `${pp}/wiki/entities/items/${pageName}.md`,
+      `${pp}/wiki/entities/locations/${pageName}.md`,
+      `${pp}/wiki/entities/organizations/${pageName}.md`,
+      `${pp}/wiki/entities/events/${pageName}.md`,
       `${pp}/wiki/concepts/${pageName}.md`,
       `${pp}/wiki/sources/${pageName}.md`,
       `${pp}/wiki/queries/${pageName}.md`,

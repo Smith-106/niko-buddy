@@ -7,6 +7,7 @@
  */
 
 import { readFile, listDirectory } from "@/commands/fs"
+import { resolveEntityPath } from "../entity-subdir-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { readSoulDoc } from "@/lib/novel/soul-doc"
@@ -531,10 +532,10 @@ async function extractCharacters(
       }
     }
 
-    // 读取角色档案页（wiki/entities/{name}.md），叠加到摄入产物的 profile 上
+    // 读取角色档案页（wiki/entities[<subdir>]/{name}.md，物理分层双查），叠加到摄入产物的 profile 上
     let profile = info.profile
     try {
-      const fileProfile = await readFile(`${pp}/wiki/entities/${name}.md`)
+      const fileProfile = await readFile(await resolveEntityPath(pp, name))
       if (fileProfile) {
         profile = profile ? `${profile}\n\n${fileProfile}` : fileProfile
       }

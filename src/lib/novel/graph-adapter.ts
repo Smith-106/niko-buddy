@@ -3,6 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { mergeArrayFieldsIntoContent } from "@/lib/sources-merge"
 import { uniqueNonEmpty, logger } from "@/lib/utils"
 import { withProjectLock } from "./novel-locks"
+import { resolveEntityPath } from "./entity-subdir-resolver"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
@@ -677,9 +678,10 @@ export async function writeSnapshotToWiki(
       try {
         /* v8 ignore next */
         const slug = slugMap.get(node.id) ?? sanitizeEntitySlug(nodeIdToSlug(node.id))
-        const filePath = `${entitiesDir}/${slug}.md`
         /* v8 ignore next */
         const tag = NODE_TYPE_TO_TAG[node.type] ?? "concept"
+        // 物理分层：按 tag 路由到 entities/<subdir>/（无子目录映射的类型回退扁平）。
+        const filePath = await resolveEntityPath(pp, slug, { forWrite: true, subtype: tag })
         const aliases = node.type === "character"
           ? getCharacterNamesForMatching(canonicalSnapshot, node.label).filter((name) => name !== node.label)
           : []
@@ -723,6 +725,9 @@ export async function writeSnapshotToWiki(
           const existing = await readFile(item.filePath)
           contentToWrite = applyProjectionSnapshotMeta(mergeExistingPage(existing, item.newContent, today), snapshotMeta)
         } else {
+          // 物理分层：新页可能落入 entities/<subdir>/，先确保子目录存在。
+          const dir = item.filePath.slice(0, item.filePath.lastIndexOf("/"))
+          if (dir !== entitiesDir) await createDirectory(dir)
           contentToWrite = item.newContent
         }
         await writeFileAtomic(item.filePath, contentToWrite)
@@ -890,8 +895,9 @@ export async function writePatchFieldsToWiki(
     candidates.map(async (entry) => {
       try {
         const slug = sanitizeEntitySlug(nodeIdToSlug(entry.entryId))
-        const filePath = `${entitiesDir}/${slug}.md`
         const tag = entryTypeToTag(entry.entryType)
+        // 物理分层：按 tag 路由到 entities/<subdir>/（无子目录映射的类型回退扁平）。
+        const filePath = await resolveEntityPath(pp, slug, { forWrite: true, subtype: tag })
         const sectionMd = buildChapterInfoSection(entry)
         const aliases = Array.isArray(entry.fields.aliases)
           ? entry.fields.aliases.map((alias) => String(alias).trim()).filter(Boolean)
@@ -918,6 +924,9 @@ export async function writePatchFieldsToWiki(
           const existing = await readFile(item.filePath)
           contentToWrite = appendChapterInfo(existing, item.sectionMd, today)
         } else {
+          // 物理分层：新页可能落入 entities/<subdir>/，先确保子目录存在。
+          const dir = item.filePath.slice(0, item.filePath.lastIndexOf("/"))
+          if (dir !== entitiesDir) await createDirectory(dir)
           contentToWrite = buildNewEntityPage(item.title, item.tag, today, item.sectionMd, item.aliases)
         }
         await writeFileAtomic(item.filePath, contentToWrite)

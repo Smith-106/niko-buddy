@@ -1,4 +1,5 @@
 import { normalizePath } from "./path-utils"
+import { entitySubdirOf } from "./novel/entity-subdir-resolver"
 import type { GraphNode } from "./wiki-graph"
 
 export interface EditableGraphNodePage {
@@ -35,9 +36,11 @@ function pageIdFromPath(path: string, fallback: string): string {
 export function buildEditableGraphNodePage(projectPath: string, node: GraphNode): EditableGraphNodePage {
   const pp = normalizePath(projectPath)
   const title = node.label
-  const path = node.path || `${pp}/wiki/entities/${fileNameFromLabel(node.label)}.md`
-  const pageId = pageIdFromPath(path, fileNameFromLabel(node.label))
   const tag = (TYPE_TAGS[node.type] ?? node.type) || "entity"
+  // 物理分层：新实体默认页按 tag 路由到 entities/<subdir>/（无映射类型回退扁平）。
+  const subdir = entitySubdirOf(tag)
+  const path = node.path || `${pp}/wiki/entities/${subdir ? subdir + "/" : ""}${fileNameFromLabel(node.label)}.md`
+  const pageId = pageIdFromPath(path, fileNameFromLabel(node.label))
   const today = new Date().toISOString().slice(0, 10)
   const content = [
     "---",

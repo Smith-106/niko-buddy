@@ -18,7 +18,7 @@ describe("buildEditableGraphNodePage", () => {
   it("builds a page with frontmatter and content from the node", () => {
     const page = buildEditableGraphNodePage("C:/novel", makeNode())
     expect(page.title).toBe("林晚")
-    expect(page.path).toBe("C:/novel/wiki/entities/林晚.md")
+    expect(page.path).toBe("C:/novel/wiki/entities/characters/林晚.md")
     expect(page.pageId).toBe("林晚")
     expect(page.content).toContain("title: 林晚")
     expect(page.content).toContain("tags: [character]")
@@ -37,7 +37,7 @@ describe("buildEditableGraphNodePage", () => {
 
   it("normalizes the project path (backslashes → forward slashes)", () => {
     const page = buildEditableGraphNodePage("E:\\Novel", makeNode())
-    expect(page.path).toBe("E:/Novel/wiki/entities/林晚.md")
+    expect(page.path).toBe("E:/Novel/wiki/entities/characters/林晚.md")
   })
 
   it("maps novel graph types to their content tags", () => {
@@ -71,13 +71,13 @@ describe("buildEditableGraphNodePage", () => {
   it("sanitizes illegal filename characters from labels", () => {
     const node = makeNode({ label: 'a/b\\c:d*e?f"g<h>i|j' })
     const page = buildEditableGraphNodePage("C:/novel", node)
-    expect(page.path).toBe("C:/novel/wiki/entities/a-b-c-d-e-f-g-h-i-j.md")
+    expect(page.path).toBe("C:/novel/wiki/entities/characters/a-b-c-d-e-f-g-h-i-j.md")
     expect(page.pageId).toBe("a-b-c-d-e-f-g-h-i-j")
   })
 
   it("uses a fallback filename for whitespace-only labels", () => {
     const page = buildEditableGraphNodePage("C:/novel", makeNode({ label: "   " }))
-    expect(page.path).toBe("C:/novel/wiki/entities/未命名节点.md")
+    expect(page.path).toBe("C:/novel/wiki/entities/characters/未命名节点.md")
     expect(page.pageId).toBe("未命名节点")
   })
 

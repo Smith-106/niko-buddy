@@ -425,9 +425,9 @@ describe("writeSnapshotToWiki", () => {
     expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/wiki/entities")
     expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(3)
     expect(paths).toEqual([
-      "E:/Novel/wiki/entities/林烬.md",
-      "E:/Novel/wiki/entities/沈微.md",
-      "E:/Novel/wiki/entities/旧城.md",
+      "E:/Novel/wiki/entities/characters/林烬.md",
+      "E:/Novel/wiki/entities/characters/沈微.md",
+      "E:/Novel/wiki/entities/locations/旧城.md",
     ])
     const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
     expect(content).toContain('title: "林烬"')
@@ -581,7 +581,7 @@ describe("writeSnapshotToWiki", () => {
 
     const s = mkSnapshot({ characters: ["林烬"], locations: ["旧城"] })
     const paths = await writeSnapshotToWiki("E:/Novel", s)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/旧城.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/locations/旧城.md"])
   })
 
   it("prepare 阶段 fileExists 以非 Error reject → String(err) 记 warn 跳过", async () => {
@@ -658,7 +658,7 @@ describe("writePatchFieldsToWiki", () => {
       ],
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", plainIdPatch)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
   })
 
   it("字段值为 null / 空串 / 空数组 / 全空白 → 跳过渲染", async () => {
@@ -716,7 +716,7 @@ describe("writePatchFieldsToWiki", () => {
       ],
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", twoEntryPatch)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
   })
 
   it("write 以非 Error 值 reject → String(err) 记 warn，其余照写", async () => {
@@ -748,7 +748,7 @@ describe("writePatchFieldsToWiki", () => {
       ],
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", twoEntryPatch)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
   })
 
   const patch: WikiUpdatePatch = {
@@ -808,7 +808,7 @@ describe("writePatchFieldsToWiki", () => {
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", richPatch)
 
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
     const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
     expect(content).toContain('title: "林烬"')
     expect(content).toContain('aliases: ["林少", "阿烬"]')
@@ -896,7 +896,7 @@ describe("writePatchFieldsToWiki", () => {
       ],
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", twoEntryPatch)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
   })
 
   it("prepare 异常 → 跳过该 entry；write 异常 → 其余照写", async () => {
@@ -926,7 +926,7 @@ describe("writePatchFieldsToWiki", () => {
       ],
     }
     const paths = await writePatchFieldsToWiki("E:/Novel", twoEntryPatch)
-    expect(paths).toEqual(["E:/Novel/wiki/entities/林烬.md"])
+    expect(paths).toEqual(["E:/Novel/wiki/entities/characters/林烬.md"])
   })
 })
 

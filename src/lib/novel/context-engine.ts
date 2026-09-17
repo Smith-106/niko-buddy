@@ -1,4 +1,5 @@
 import { listDirectory, readFile, getFileModifiedTime } from "@/commands/fs"
+import { listEntityFiles } from "./entity-subdir-resolver"
 import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
@@ -1880,10 +1881,11 @@ export async function selectActiveEntities(
   pp: string,
   hints: { chapterNumber?: number; outline: string; sceneCharacters: string },
 ): Promise<ContextEntity[]> {
-  const entitiesDir = `${pp}/wiki/entities`
   let files: FileNode[]
   try {
-    files = await listDirectory(entitiesDir)
+    // listEntityFiles 聚合 entities/ 子目录+顶层散装（物理分层双态兼容），
+    // 返回 {name:slug, path}；包回 FileNode 形状供下游读取。
+    files = (await listEntityFiles(pp)).map((f) => ({ name: `${f.name}.md`, path: f.path, is_dir: false }))
   } catch {
     // entities 目录不存在（项目未摄取过任何章节）— 优雅降级返回空。
     return []

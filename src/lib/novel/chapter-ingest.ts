@@ -1,4 +1,5 @@
 ﻿import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+import { listEntityFiles, resolveEntityPath } from "./entity-subdir-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -1742,8 +1743,8 @@ async function cleanupSupersededEntityFiles(
 
   let oldEntityFiles: string[] = []
   try {
-    const tree = await listDirectory(entitiesDir)
-    oldEntityFiles = tree.filter((file) => file.name.endsWith(".md")).map((file) => file.name)
+    // listEntityFiles 递归聚合 entities/ 子目录+顶层散装（双态兼容物理分层）。
+    oldEntityFiles = (await listEntityFiles(projectPath)).map((f) => `${f.name}.md`)
   } catch {
     return
   }
@@ -2814,14 +2815,13 @@ async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSna
 }
 
 async function loadEntityLinkIndex(projectPath: string) {
-  const entitiesDir = `${projectPath}/wiki/entities`
   try {
-    const nodes = await listDirectory(entitiesDir)
-    const summaries = await Promise.all(nodes
-      .filter((node) => !node.is_dir && node.name.endsWith(".md"))
-      .map(async (node) => {
+    // listEntityFiles 聚合子目录+顶层散装，返回 {name:slug, path}。
+    const files = await listEntityFiles(projectPath)
+    const summaries = await Promise.all(files
+      .map(async (file) => {
         try {
-          return extractEntitySummary(`wiki/entities/${node.name}`, await readFile(node.path))
+          return extractEntitySummary(file.path, await readFile(file.path))
         } catch {
           return null
         }
@@ -2890,7 +2890,6 @@ async function validateEntityReferences(
   snapshot: ChapterSnapshot,
 ): Promise<ValidationWarning[]> {
   const warnings: ValidationWarning[] = []
-  const entitiesDir = `${projectPath}/wiki/entities`
 
   const categories = [
     { key: "characters" as const, label: "人物" },
@@ -2914,10 +2913,12 @@ async function validateEntityReferences(
   for (const { key, label } of categories) {
     for (const name of snapshot[key]) {
       // SEC-002: sanitize the LLM-supplied entity name before interpolating
-      // into `${entitiesDir}/${name}.md` (traversal via prompt-injected name).
+      // into the entity path (traversal via prompt-injected name).
       // `entityIsNew` is keyed by the original `name` (in-memory lookup key),
       // only the on-disk path uses the sanitized slug.
-      probes.push({ name, filePath: `${entitiesDir}/${sanitizeEntitySlug(name)}.md`, label })
+      // 物理分层：实体可能在 entities/<subdir>/（已迁移）或扁平（未迁移），
+      // 探测须双查——resolveEntityPath 读模式先子目录后扁平回退。
+      probes.push({ name, filePath: await resolveEntityPath(projectPath, sanitizeEntitySlug(name), { subtype: key === "items" ? "item" : key.slice(0, -1) }), label })
     }
   }
 
