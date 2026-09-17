@@ -65,9 +65,11 @@
 
 | 项 | 开工 | 收口 |
 |----|------|------|
-| HEAD | `da1a6c6b`（R-1 门禁进仓前重核） | 见本文末「收口提交」行（R3 收口 commit） |
+| HEAD | `da1a6c6b`（R-1 门禁进仓前重核） | `edb4cfe6`（R-1→R3 全波收口 commit） |
 | 规模计数 | `corpus 6 / craft 12 / lexicon 38 / world_ref 8`（R1 前） | `corpus 6 / craft 12 / lexicon 44 / world_ref 18`（R1 后，builtFrom `sha256:ec3f9b0e01c912cb`） |
 | flag 默认值 | `dual false / hardInject true / usefulness false` | **不变**（`src/stores/wiki-store.ts:435/440/441`） |
 | 会话状态文件 | `.novel/status.json`（唯一） | 同前，无第二状态文件 |
 
-> 收口提交行由 R3 收口时补齐（commit sha + `master...smith/master` 一致性）。
+> 收口验证（2026-09-17，QMAI `edb4cfe6`）：vitest scoped 16 文件 424 passed / 1 skipped（含回归必跑集 golden-retrieval、kb-shadow-harness）；typecheck 0 错；`eslint src` clean；boundaries 4/4；antigoals ALL PASS(6/6)；anchors ALL PASS(9/9)；生成器 `--check` 三链一致（`sync-kb-view-to-qmai.mjs`（含策展债分门禁）/ `snapshot-kb-view-content.mjs` / `extract-weknora-snapshot.mjs`）。收口后 `master...smith/master` 一致性与本行 commit sha 的对应关系由推送记录核验。
+>
+> flag 默认值变更：**无**（本次未翻任何默认值，故无 `git revert` 对象需注明）；数据填充（R1 内容包）与任何默认值变更均未同 commit（后者不存在）。
