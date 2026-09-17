@@ -195,6 +195,27 @@ describe("CorkboardView", () => {
     expect(ingest.loadSnapshot).toHaveBeenCalledWith("E:/Novel", 1)
   })
 
+  it("renders draft-only chapters (no snapshot) as cards so they can be opened/deleted", async () => {
+    // chapter-001-draft.md 未 ingest（无 snapshot）→ 仍应出卡片。
+    ingest.listSnapshots.mockResolvedValue([15])
+    ingest.loadSnapshot.mockImplementation(async (_pp, n) => snapshotRaw(n, { chapterTitle: "仓库激战" }))
+    fs.listDirectory.mockResolvedValue([
+      { name: "chapter-001-draft.md", path: "E:/Novel/wiki/chapters/chapter-001-draft.md", is_dir: false },
+      { name: "chapter-015.md", path: "E:/Novel/wiki/chapters/chapter-015.md", is_dir: false },
+    ])
+    fs.readFile.mockImplementation(async (path: string) =>
+      path.includes("001-draft")
+        ? "---\ntitle: \"第1章 draft\"\nchapter_number: 1\n---\n# 第1章 draft\n\n草稿正文。"
+        : "---\nchapter_number: '15'\ntitle: 第15章 仓库激战\n---\n# 第15章\n\n正文。",
+    )
+    render(<CorkboardView />)
+    await screen.findByText("novel.corkboard.title")
+    // draft 章（无快照）也出卡片 → 可删除
+    expect(document.querySelector('[data-corkboard-card="1"]')).toBeTruthy()
+    // 带引号 '15' 的 frontmatter 也能归并到同一卡片（不重复出 15）
+    expect(document.querySelectorAll('[data-corkboard-card="15"]').length).toBe(1)
+  })
+
   it("degrades gracefully when the chapters directory is missing (no word badge)", async () => {
     ingest.listSnapshots.mockResolvedValue([1])
     ingest.loadSnapshot.mockImplementation(async (_pp, n) => snapshotRaw(n, { chapterTitle: "有题" }))

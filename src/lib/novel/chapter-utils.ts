@@ -151,7 +151,7 @@ async function readChapterIndexEntry(file: { name: string; path: string }): Prom
   let byTitle: number | null = null
   try {
     const content = await readFile(file.path)
-    const byFrontmatterMatch = content.match(/^chapter_number:\s*(\d+)\s*$/m)
+    const byFrontmatterMatch = content.match(/^chapter_number:\s*['"]?(\d+)['"]?\s*$/m)
     if (byFrontmatterMatch?.[1]) {
       byFrontmatter = Number.parseInt(byFrontmatterMatch[1], 10)
     } else {
@@ -402,7 +402,7 @@ async function readSelectedChapterNumber(selectedFile?: string | null): Promise<
 
   try {
     const content = await readFile(selectedFile)
-    const byFrontmatter = content.match(/^chapter_number:\s*(\d+)\s*$/m)
+    const byFrontmatter = content.match(/^chapter_number:\s*['"]?(\d+)['"]?\s*$/m)
     if (byFrontmatter?.[1]) {
       const n = Number.parseInt(byFrontmatter[1], 10)
       if (Number.isFinite(n) && n > 0) return n

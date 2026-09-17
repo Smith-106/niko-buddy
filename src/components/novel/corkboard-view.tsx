@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Check, FileText, LayoutGrid, Plus, Trash2, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { listSnapshots, loadSnapshot, loadEmotionalArcs, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache } from "@/lib/novel"
+import { extractChapterNumber } from "@/lib/novel/chapter-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
 
@@ -30,12 +31,43 @@ export interface CorkboardCard {
 
 const MAX_CARD_EMOTIONS = 3
 
-/** 与 knowledge-tree 相同的 chapter_number frontmatter 约定。 */
+/** 与 knowledge-tree 相同的 chapter_number frontmatter 约定（容忍带引号标量）。 */
 function extractChapterNumberFromFrontmatter(content: string): number | null {
-  const match = content.match(/^chapter_number:\s*(\d+)\s*$/m)
+  const match = content.match(/^chapter_number:\s*['"]?(\d+)['"]?\s*$/m)
   if (!match?.[1]) return null
   const parsed = Number.parseInt(match[1], 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+/** 提取 chapter frontmatter title（缺省回退 undefined 由渲染层补「第 N 章」）。 */
+function extractChapterTitleFromFrontmatter(content: string): string | undefined {
+  const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m)
+  return match?.[1]?.trim() || undefined
+}
+
+/** wiki/chapters 文件 → {chapterNumber,title} 列表（无 snapshot 的 draft 也计入）。 */
+async function listChapterFileCards(projectPath: string): Promise<Array<{ chapterNumber: number; title?: string }>> {
+  const out: Array<{ chapterNumber: number; title?: string }> = []
+  try {
+    const files = await listDirectory(`${projectPath}/wiki/chapters`)
+    await Promise.all(
+      files
+        .filter((f) => !f.is_dir && f.name.endsWith(".md"))
+        .map(async (f) => {
+          try {
+            const content = await readFile(f.path)
+            const num = extractChapterNumberFromFrontmatter(content) ?? extractChapterNumber(f.name.replace(/\.md$/, ""))
+            if (num === null) return
+            out.push({ chapterNumber: num, title: extractChapterTitleFromFrontmatter(content) })
+          } catch {
+            /* 单文件读取失败不影响其余卡片 */
+          }
+        }),
+    )
+  } catch {
+    /* 章节目录不存在 → 无文件卡片 */
+  }
+  return out
 }
 
 /** 从 wiki/chapters 章节文件计字数；目录缺失或单文件失败均优雅降级。 */
@@ -80,22 +112,25 @@ async function loadEmotionsByChapter(projectPath: string): Promise<Map<number, s
   return byChapter
 }
 
-/** 从 snapshots 派生场景卡片（正文章节，排除 outline 负号快照）。 */
+/** 从 snapshots + wiki/chapters 文件派生场景卡片（正文章节，排除 outline 负号快照）。
+ * 快照源覆盖已 ingest 章节；wiki/chapters 文件源补充未 ingest 的 draft 章节，
+ * 保证每章都有卡片（从而可打开/删除），草稿章 summary 为空、wordCount 照常。 */
 export async function loadCorkboardCards(projectPath: string): Promise<CorkboardCard[]> {
   const numbers = (await listSnapshots(projectPath)).filter((n) => n > 0)
-  if (numbers.length === 0) return []
 
-  const [snapshots, wordCounts, emotionsByChapter] = await Promise.all([
+  const [snapshots, wordCounts, emotionsByChapter, fileCards] = await Promise.all([
     Promise.all(numbers.map((n) => loadSnapshot(projectPath, n))),
     loadChapterWordCounts(projectPath),
     loadEmotionsByChapter(projectPath),
+    listChapterFileCards(projectPath),
   ])
 
-  const cards: CorkboardCard[] = []
+  const cards = new Map<number, CorkboardCard>()
+  // 快照卡片（有 summary/emotions）优先
   snapshots.forEach((snapshot, i) => {
     if (!snapshot) return
     const chapterNumber = numbers[i]
-    cards.push({
+    cards.set(chapterNumber, {
       chapterNumber,
       title: snapshot.chapterTitle || undefined,
       summary: snapshot.summary,
@@ -103,7 +138,18 @@ export async function loadCorkboardCards(projectPath: string): Promise<Corkboard
       emotions: (emotionsByChapter.get(chapterNumber) ?? []).slice(0, MAX_CARD_EMOTIONS),
     })
   })
-  return cards.sort((a, b) => a.chapterNumber - b.chapterNumber)
+  // 文件卡片补无快照章节（draft 未 ingest）
+  for (const fc of fileCards) {
+    if (cards.has(fc.chapterNumber)) continue
+    cards.set(fc.chapterNumber, {
+      chapterNumber: fc.chapterNumber,
+      title: fc.title,
+      summary: "",
+      wordCount: wordCounts.get(fc.chapterNumber),
+      emotions: (emotionsByChapter.get(fc.chapterNumber) ?? []).slice(0, MAX_CARD_EMOTIONS),
+    })
+  }
+  return [...cards.values()].sort((a, b) => a.chapterNumber - b.chapterNumber)
 }
 
 export function CorkboardView() {
