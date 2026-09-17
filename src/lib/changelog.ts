@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.3",
+    date: "2026-09-18",
+    highlights: {
+      en: [
+        "Entity physical layering: wiki/entities is now routed through entity-subdir-resolver — writes land in one of 5 subtype subdirectories (characters/items/locations/organizations/events) by entity_subtype, reads dual-scan subdirs then flat fallback, and listEntityFiles aggregates recursively. 335 existing entities migrated into subdirs; the flat wiki/entities/{name}.md literal path is deprecated (spec wiki-entities-resolver-contract).",
+        "Frontmatter convergence: graph-relevance's private regex parser is consolidated onto the canonical parseFrontmatter with a regex fallback for LLM-malformed inline arrays — one less duplicate frontmatter implementation (REV-005).",
+        "UI fix: detective-board clue dot used hsl(var(--primary)) which is invalid CSS once --primary is an oklch token (color silently dropped) — corrected to var(--primary) (UI-001).",
+        "Governance audit settled: 7 odyssey sessions (review/defensive/security/improve/IPC/perf/UI) audited the codebase end-to-end — 50 findings recorded, boundary specs + knowhow template + issue backlog persisted under .workflow/ (governance-acceptance-20260918).",
+      ],
+      zh: [
+        "实体物理分层：wiki/entities 改由 entity-subdir-resolver 路由——写按 entity_subtype 落入 5 个子目录（characters/items/locations/organizations/events），读先扫子目录再扁平回退，listEntityFiles 递归聚合；已有 335 个实体迁入子目录，扁平 wiki/entities/{name}.md 字面量路径已废弃（spec wiki-entities-resolver-contract）。",
+        "frontmatter 收敛：graph-relevance 私有 regex 解析收敛到 canonical parseFrontmatter + LLM 坏格式 regex 容错回退——又少一份重复 frontmatter 实现（REV-005）。",
+        "UI 修复：detective-board 线索圆点误用 hsl(var(--primary))——--primary 已是 oklch token，hsl() 包裹为非法 CSS 致颜色静默丢失，改 var(--primary)（UI-001）。",
+        "治理审计沉淀：7 个 odyssey session（review/defensive/security/improve/IPC/perf/UI）端到端审计全库——50 findings 入档，边界 spec + knowhow 模板 + issue 池固化于 .workflow/（governance-acceptance-20260918）。",
+      ],
+    },
+  },
+  {
     version: "2.9.2",
     date: "2026-09-15",
     highlights: {

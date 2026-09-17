@@ -7,6 +7,24 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.3] - 2026-09-18
+
+### 实体物理分层（Changed）
+
+- **wiki/entities 物理分层**：改由 `entity-subdir-resolver` 路由——写按 `entity_subtype` 落入 5 个子目录（characters/items/locations/organizations/events），读先扫子目录再扁平回退，`listEntityFiles` 递归聚合；已有 335 个实体迁入子目录（c5f7f393）。扁平 `wiki/entities/{name}.md` 字面量路径已废弃，固化为 spec `wiki-entities-resolver-contract`。
+
+### frontmatter 收敛（Changed）
+
+- **graph-relevance 私有 frontmatter 收敛**（6b7b5eda）：私有 regex 解析收敛到 canonical `parseFrontmatter` + LLM 坏格式（inline array）regex 容错回退——REV-005 又少一份重复实现。
+
+### UI 修复（Fixed）
+
+- **detective-board 线索圆点非法 CSS**（fb48d718）：`hsl(var(--primary))` 在 `--primary` 为 oklch token 时为非法 CSS，颜色静默丢失；改 `var(--primary)`（UI-001）。
+
+### 治理审计沉淀（Internal）
+
+- **全库治理审计**：7 个 odyssey session（review/defensive/security/improve/IPC/perf/UI）端到端审计，50 findings 入档；边界 spec（resolver 契约 / IPC typed layer / catch 日志 / helper 收敛 / oklch token）+ knowhow 模板 + issue 池固化于 `.workflow/`（governance-acceptance-20260918）。
+
 ## [2.9.2] - 2026-09-15
 
 ### 归档加固（Fixed）
