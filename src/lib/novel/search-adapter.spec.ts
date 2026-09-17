@@ -363,6 +363,85 @@ describe("novelMixedSearch", () => {
     expect(spanned.map((r) => r.path)).toEqual(plain.map((r) => r.path))
   })
 
+  it("B3-a 分片：不传 shards 与单片 key=none 字节等价（默认路径零改动）", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/剑.md`, title: "剑", snippet: "剑 剑 设定" }),
+      keywordItem({ path: `${pp}/wiki/concepts/刀.md`, title: "刀", snippet: "刀 设定" }),
+    ])
+    const base = await novelMixedSearch({ projectPath: pp, query: "剑" })
+    const single = await novelMixedSearch({ projectPath: pp, query: "剑", shards: { key: "none" } })
+    expect(JSON.stringify(single)).toBe(JSON.stringify(base))
+    expect(single.length).toBeGreaterThan(0)
+  })
+
+  it("B3-a 分片：key=type + perShardTopK 限幅（片内预算生效，跨源同 path 不误合并）", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/剑.md`, title: "剑", snippet: "剑 剑 设定" }),
+      keywordItem({ path: `${pp}/wiki/concepts/刀.md`, title: "刀", snippet: "刀 设定" }),
+    ])
+    mocks.useWikiStoreGetState.mockReturnValue({
+      embeddingConfig: { enabled: true, model: "bge" } as EmbeddingConfig,
+    })
+    mocks.searchByEmbedding.mockResolvedValue([
+      { id: "剑灵", score: 0.9 },
+      { id: "剑冢", score: 0.8 },
+    ])
+    mocks.readFile.mockResolvedValue("# 剑灵\n正文")
+
+    const collector = createRetrievalSpanCollector(() => "2026-09-17T00:00:00.000Z")
+    const plain = createRetrievalSpanCollector(() => "2026-09-17T00:00:00.000Z")
+    await novelMixedSearch({ projectPath: pp, query: "剑", includeVector: true, spans: plain })
+    const sharded = await novelMixedSearch({
+      projectPath: pp,
+      query: "剑",
+      includeVector: true,
+      spans: collector,
+      shards: { key: "type", perShardTopK: 1 },
+    })
+    // 未分片：每源各 2 条（keyword 2 / vector 2）
+    expect(plain.spans[1]?.detail).toMatchObject({ total: 4, keyword: 2, vector: 2 })
+    // 分片：每片（源）限 1 → 保留 2 条，观测字段入 span（标量）
+    expect(collector.spans[1]?.detail).toMatchObject({
+      total: 2,
+      keyword: 1,
+      vector: 1,
+      shardKey: "type",
+      shardCount: 2,
+      shardPolicy: "shard-major",
+      shardPerTopK: 1,
+      shardKept: 2,
+      shardInput: 4,
+    })
+    // 契约序不因分片改变
+    expect(collector.spans.map((s) => s.stage)).toEqual([...RETRIEVAL_SPAN_STAGES])
+    expect(() => collector.assertComplete()).not.toThrow()
+    expect(sharded.length).toBeGreaterThan(0)
+  })
+
+  it("B3-a 分片：authoritativeOnly 下仍保持「先过滤后截断」与 span 契约序", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/好.md`, title: "好" }),
+      keywordItem({ path: `${pp}/wiki/sources/原始.md`, title: "原始" }),
+    ])
+    const collector = createRetrievalSpanCollector(() => "2026-09-17T00:00:00.000Z")
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "q",
+      authoritativeOnly: true,
+      spans: collector,
+      shards: { key: "type" },
+    })
+    const paths = results.map((r) => r.path)
+    expect(paths).toContain(`${pp}/wiki/entities/好.md`)
+    expect(paths).not.toContain(`${pp}/wiki/sources/原始.md`)
+    expect(collector.spans.map((s) => s.stage)).toEqual([...RETRIEVAL_SPAN_STAGES])
+    const tiering = collector.spans[3]?.detail as { filtered: number }
+    const capDegrade = collector.spans[5]?.detail as { before: number; after: number }
+    expect(tiering.filtered).toBe(1) // 过滤后仅剩权威条目
+    expect(capDegrade.before).toBe(tiering.filtered) // 分档集 = 过滤结果（过滤在前）
+    expect(capDegrade.after).toBeLessThanOrEqual(capDegrade.before)
+  })
+
   it("graph branch: matches nodes by title/id token and reads related nodes in parallel", async () => {
     mocks.buildRetrievalGraph.mockResolvedValue({
       nodes: new Map([

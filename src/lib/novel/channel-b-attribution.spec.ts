@@ -1,10 +1,11 @@
 /**
- * channel-b-attribution.spec — R1-c 通道 B 归因实指（路由缺配 vs token 缺词 vs 题材空置）。
+ * channel-b-attribution.spec — R1-c 通道 B 归因实指（路由缺配 vs token 缺词 vs 题材空置），
+ * B5-a 补新流派探针（奇幻/武侠/科幻）。
  *
  * 输入：P0#3 发现「修仙 world_ref 空置」（golden 34/34 无失败项，故以该发现为输入，
  * 而非伪造失败项）。判定方法：对固定修仙探针集，分别在
  *   基线视图（__fixtures__/kb-routing-view.baseline-dfd24e776c100d12.json，sha 后缀冻结）
- *   现役视图（kb-routing-view.generated.json，builtFrom=sha256:ec3f9b0e01c912cb）
+ *   现役视图（kb-routing-view.generated.json，builtFrom=sha256:df39ecbc9a177c41；B5-a 扩容后指纹）
  * 上跑通道 B 纯逻辑（routeByQueryIntent + tokensForKbMatch，与 golden-retrieval.spec 同 import 面），
  * 记录路由面 / token 面 / collection 命中面（含命中条目名）→ 三态归因：
  *   - routed_missing：目标 collection 不在路由 allowlist（路由缺配）
@@ -38,6 +39,19 @@ const PROBES: Array<{ query: string; intent: string; target: string }> = [
   { query: "丹道 经济 灵石本位", intent: "lookup", target: "world_ref" },
   { query: "飞升 天劫 渡劫台", intent: "draft", target: "world_ref" },
   { query: "九州 地理 灵域分级", intent: "plan", target: "world_ref" },
+]
+
+/** B5-a 新流派探针集（奇幻/武侠/科幻 世界卡目标面；批准计划 r3 §T1）。 */
+const GENRE_PROBES: Array<{ query: string; intent: string; target: string; prefix: string }> = [
+  { query: "奇幻 魔法 咒式 代价", intent: "lookup", target: "world_ref", prefix: "fantasy-world-" },
+  { query: "奇幻 王国 封建 继承法", intent: "plan", target: "world_ref", prefix: "fantasy-world-" },
+  { query: "奇幻 种族 偏见 半血种", intent: "lookup", target: "world_ref", prefix: "fantasy-world-" },
+  { query: "武侠 江湖 门派 盟主", intent: "lookup", target: "world_ref", prefix: "wuxia-world-" },
+  { query: "武侠 镖局 商路 买路钱", intent: "lookup", target: "world_ref", prefix: "wuxia-world-" },
+  { query: "武侠 朝廷 招安 禁武令", intent: "plan", target: "world_ref", prefix: "wuxia-world-" },
+  { query: "科幻 星际 殖民 跃迁节点", intent: "plan", target: "world_ref", prefix: "scifi-world-" },
+  { query: "科幻 义体 阶层 债务", intent: "lookup", target: "world_ref", prefix: "scifi-world-" },
+  { query: "科幻 人工智能 责任 授权链", intent: "draft", target: "world_ref", prefix: "scifi-world-" },
 ]
 
 interface Attribution {
@@ -82,6 +96,7 @@ function attribute(view: View, probe: { query: string; intent: string; target: s
 
 const baseline: Attribution[] = PROBES.map((p) => attribute(baselineView as View, p))
 const current: Attribution[] = PROBES.map((p) => attribute(kbRoutingView as View, p))
+const genreCurrent: Attribution[] = GENRE_PROBES.map((p) => attribute(kbRoutingView as View, p))
 
 describe("R1-c 通道 B 归因实指（三态）", () => {
   it("路由面：world_ref 在 lookup/plan/draft allowlist 内（非路由缺配）", () => {
@@ -130,7 +145,7 @@ describe("R1-c 通道 B 归因实指（三态）", () => {
       // 既有 cthulhu 条目可共存命中（题材并行），但每条探针必须至少命中一张修仙世界卡
       expect(a.names["world_ref"]!.some((n) => n.startsWith("xianxia-world-"))).toBe(true)
     }
-    expect(kbRoutingView.builtFrom).toBe("sha256:ec3f9b0e01c912cb")
+    expect(kbRoutingView.builtFrom).toBe("sha256:df39ecbc9a177c41")
   })
 
   it("零回归：craft/lexicon 命中数不下降（补料不挤占既有 collection）", () => {
@@ -144,12 +159,47 @@ describe("R1-c 通道 B 归因实指（三态）", () => {
     }
   })
 
-  it("扩容计数守恒：world_ref 8→18（+10），lexicon 38→44（+6）", () => {
+  it("扩容计数守恒：world_ref 8→18→27（R1 +10，B5-a +9），lexicon 38→44→53（R1 +6，B5-a +9）", () => {
     const counts = (v: View) =>
       Object.fromEntries(Object.entries(v.collections ?? {}).map(([k, arr]) => [k, arr.length]))
     expect(counts(baselineView as View)["world_ref"]).toBe(8)
-    expect(counts(kbRoutingView as View)["world_ref"]).toBe(18)
+    expect(counts(kbRoutingView as View)["world_ref"]).toBe(27)
     expect(counts(baselineView as View)["lexicon"]).toBe(38)
-    expect(counts(kbRoutingView as View)["lexicon"]).toBe(44)
+    expect(counts(kbRoutingView as View)["lexicon"]).toBe(53)
+    // corpus 不增（AG1 唯一 headroom 保护）
+    expect(counts(kbRoutingView as View)["corpus"]).toBe(6)
+  })
+
+  it("新流派探针（奇幻/武侠/科幻）：全部 hit 且各命中所属流派世界卡", () => {
+    for (let i = 0; i < GENRE_PROBES.length; i += 1) {
+      const a = genreCurrent[i]!
+      expect(a.routed).toContain("world_ref")
+      expect(a.tokens.length).toBeGreaterThan(0)
+      expect(a.mode).toBe("hit")
+      expect(a.target).toBeGreaterThan(0)
+      expect(a.names["world_ref"]!.some((n) => n.startsWith(GENRE_PROBES[i]!.prefix))).toBe(true)
+    }
+  })
+
+  it("新流派归因可负向验证：去掉新流派世界卡后探针不再命中目标面（lookup 降为 corpus_gap）", () => {
+    const stripped = {
+      collections: {
+        ...(kbRoutingView as View).collections,
+        world_ref: ((kbRoutingView as View).collections?.["world_ref"] ?? []).filter(
+          (e) => !/^(fantasy|wuxia|scifi)-world-/.test(String(e["name"] ?? "")),
+        ),
+      },
+    }
+    const modes = GENRE_PROBES.map((probe) => attribute(stripped as View, probe))
+    for (const a of modes) {
+      expect(a.mode).not.toBe("hit")
+      expect(a.target).toBe(0)
+    }
+    // 冻结退化分布（剔除 9 张新流派世界卡后）：lookup/draft 面仍含 lexicon（新流派词条）→ corpus_gap；
+    // plan 面不含 lexicon → 全 collection 零命中 → token_missing。
+    const flat = modes.map((a) => a.mode)
+    expect(flat.filter((m) => m === "corpus_gap")).toHaveLength(6)
+    expect(flat.filter((m) => m === "token_missing")).toHaveLength(3)
+    expect(flat.filter((m) => m === "hit")).toHaveLength(0)
   })
 })

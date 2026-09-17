@@ -35,13 +35,13 @@
 | 明确禁止 | 用作「收敛结论 / 已收敛」的证据——同源集只证非劣化（反目标 #3 豁免标记见 `consensus-antigoals.ts` 的 `CONVERGENCE_CLAIM_PATTERNS`）；跨系统结论必须走非同源集（§3） |
 | 回归触发 | 任何 PR 触及 `src/lib/novel/` 检索面 → 必跑 `golden-retrieval.spec.ts`；`kb-shadow-harness.spec.ts` 同列必跑集 |
 
-## 3. 非同源多集裁决矩阵（目标态；当前缺席）
+## 3. 非同源多集裁决矩阵（目标态；第三方集仍缺席）
 
 | 集 | 来源 | 规模 | 阈值口径 | 裁决 | 现状 |
 |----|------|------|----------|------|------|
 | W 面（WeKnora demo） | `reference/` 只读抽取（`scripts/extract-weknora-snapshot.mjs`，commit `1ef38fdb`） | queries 1 / corpus 4 / qrels 4（**全标**，无判别力） | 仅作方法学同尺参照（口径对齐表） | **未达裁决** | W 面服务不可运行 → 已诚实降级为方法学同尺 + 口径声明（`docs/p0/same-scale-2026-09-16.md`，首页声明非同实例对跑）；qrels 全标 → topK 恒 1.0，不伪造跨系统数字 |
 | 第三方公开检索集 | 待认领（候选：公开中文长文 QA/检索集，许可须可再分发） | 认领时定（建议 N ≥ 100 queries） | Wilson 95% CI 下界 ≥ 阈值 | 待裁决 | **backlog（R0-a2）** |
-| 内部非同源写作集 | 待建（跨题材/跨书稿的真实写作查询 + 人工 qrels） | 认领时定 | 同上 + 掉档 query 清单必附 | 待裁决 | **backlog（R0-a2）** |
+| 内部非同源写作集（B1，已落地） | **本仓自建**：参考库条目身份规则导出（`scripts/build-internal-eval-set.mjs`，5 探针面：title/domain/genre-domain/name-latin/purpose） | **N=336**（跨 6 流派；gold 92 条：world_ref 27 + lexicon 53 + craft 12；排除 corpus 范文面） | 义务召回率 + Wilson 95% CI 下界（top3 ≥ 0.70 / top20 ≥ 0.90）；**不使用 MRR/NDCG** | **内部一致性：PASS**（@top3 334/336=0.9940 CI[0.9786,0.9984]；@top20 336/336 CI[0.9887,1.0000]；掉档 2 条） | `source="reference-library-self-built"`；**不构成第三方裁决 / 不构成跨系统裁决**；**非 real 门锚点**（real 门 case 来自 canon 抽取）；毒块拦截仅提取期双证（44/44 零入消费面），面内无 veto（负向控制 40/40 浮现，如实声明）；报告 `docs/p0/non-same-source-2026-09-17.md` |
 
 ### 3.1 R0-a2 认领条件（进入裁决矩阵的门槛）
 
@@ -55,20 +55,23 @@
 
 | # | 项 | 归属 | 现状与依赖 | 认领条件 / 下一步 |
 |---|----|------|-----------|------------------|
-| B1 | 非同源多集裁决矩阵落地（R0-a2） | 评测 | §3 缺席；W 面服务不可运行 | 按 §3.1 五条；先做「内部非同源写作集」（可控许可），再谈第三方集 |
-| B2 | 阈值标定（1000 语料 / 1e4 chunk / 30 簇 / 0pp / λ=25 ms/pp） | 评测 + 成本 | 全部为待标定初值（R2 §1.1） | 需 B1 产出非同源延迟-质量配对点（≥30 点）→ 回归标定 λ；标定后须改 `RETRIEVAL_LAMBDA_INITIAL.calibrated=true` 并单 commit |
-| B3 | ANN / 分片预案 | 检索底座 | 无实现（`ann_no_implementation` 恒 locked）；占位类型见 `retrieval-scale-placeholders.ts` | 实现向量索引（HNSW/IVF 选型）+ 分片路由；接入前须过 §3 裁决矩阵 + 预算账本（R0-d） |
-| B4 | 矿脉管道契约（ore pipeline） | 语料供给 | 契约占位（`OREPIPE_CONTRACT`，**⓪ 计价待定**：单价/成本模型未拍板） | 先定计价与配额（付费源/自有语料比例）→ 再冻结契约版本；当前仅占位类型 |
-| B5 | 护城河线：lexicon 扩容 + 意图路由 + 题材词典长期投入 | 知识资产 | lexicon 44 / world_ref 18（R1 后）；意图路由 = `routeByQueryIntent` allowlist（现役 craft/lexicon/world_ref/corpus） | 按题材滚动扩容（保持 `CURATION_DEBT_CAP=0`）；意图→collection allowlist 变更须配 R1 归因 spec + 债分门禁；题材词典以内容包（CC0 + ADR）为单位增补 |
+| B1 | 非同源多集裁决矩阵落地（R0-a2） | 评测 | **内部非同源集已落地**（2026-09-17）：N=336 / 6 流派 / 5 探针面，qrels 规则导出（`kb/internal-eval-set.generated.json`，`source="reference-library-self-built"`）；判定核 `internal-eval-set.spec.ts`（义务召回率@top3 334/336=0.9940 CI[0.9786,0.9984] 下界≥0.70 PASS；@top20 336/336 PASS）；**第三方集仍缺席，W 面（WeKnora）服务不可运行 → W 面维持「未达裁决」** | 第三方集按 §3.1 五条认领；内部集不得冒充第三方/跨系统裁决（报告首段已声明）；W 面可运行时重跑同尺比较 |
+| B2 | 阈值标定（1000 语料 / 1e4 chunk / 30 簇 / 0pp / λ=25 ms/pp） | 评测 + 成本 | **λ 标定证据已产出，未翻位**：`lambda-calibration.ts` + 双臂 harness（配对点取内部集全 336 条）→ 非零 Δpp **仅 1/336**（增益 0/损失 1）、排序变化 105/336 但 top3 成员变化 1、增量 ~0.21 ms/query → R²=0.0000 **未达标**（`r2_below_threshold`，近零信号→slope 不可采信）；`calibrated=false` / λ=25 ms/pp / 四阈值全不变 | 需**有判别信号**的配对点（当前规模下重排不产生 top3 义务增益 → 与 R2 `mmr_corpus_below_threshold` 互为交叉印证）；标定达标后方可谈 `calibrated=true`（须单 commit + 注明 revert 对象） |
+| B3 | ANN / 分片预案 | 检索底座 | **分片已实做**（B3-a）：`shard-routing.ts`（resolve/select/merge + 可选 `shards` 参数接入 `novelMixedSearch`；不传=字节等价，六 stage 契约序与「先过滤后截断」不变）→ `SHARD_PLAN.implemented=true`；**ANN 仅接口 + 精确参考**（B3-b）：`ann/ann-index.ts`（`AnnIndex` 契约）+ `ann/brute-force-index.ts`（exact=true）+ recall/延迟 harness（注入时钟）→ `ANN_PLAN.implemented=false`，谓词 `ann_no_implementation` **仍 locked** | 近似索引（HNSW/IVF/DiskANN）未实现：认领方须同 schema/同名次口径、过 `ANN_HARNESS` 延迟地板、并同 commit 更新 ANN_PLAN + 谓词（ADR-48）；精确参考 recall=1.0 **不构成可用性证据** |
+| B4 | 矿脉管道契约（ore pipeline） | 语料供给 | **计价骨架已定，计价仍待定**：`ore-pricing.ts`（三候选 per-token/per-entry/subscription，`decided:false`；`estimateOreCost`/`checkOreQuota` 纯函数，费率必传不内置）+ 契约 `pricing.models` 入清单；`pricing.status="pending"` / `unitPrice` 未填 / `enabled=false` / `isOrePipelineUsable()=false` **全部保持** | 单价/成本模型/配额由**用户拍板**（本任务范围外）；未拍板前不得升契约 minor、不得启用管道 |
+| B5 | 护城河线：lexicon 扩容 + 意图路由 + 题材词典长期投入 | 知识资产 | **扩容 + 路由已实做**：内容包 16→**34 个自建 CC0 包**（新增奇幻/武侠/科幻 3 流派 ×6），REFERENCE-INDEX 193→**211 项**，QMAI 消费面 `builtFrom=sha256:df39ecbc9a177c41`（craft 12 / lexicon 53 / world_ref 27 / corpus 6；债分 `CURATION_DEBT_CAP=0` 保持）；意图路由 `revise` allowlist 补 `world_ref`（修订需回引世界/设定事实）+ 新归因 spec `intent-routing-attribution.spec.ts` | 按题材滚动扩容（保持债分 0）；allowlist 变更须配意图×题材归因 spec + 债分门禁；题材词典以内容包（CC0 + LICENSE + ADR）为单位增补 |
 
 ## 5. 收口绑定记录（R3 开工/收口）
 
 | 项 | 开工 | 收口 |
 |----|------|------|
-| HEAD | `da1a6c6b`（R-1 门禁进仓前重核） | `edb4cfe6`（R-1→R3 全波收口 commit） |
-| 规模计数 | `corpus 6 / craft 12 / lexicon 38 / world_ref 8`（R1 前） | `corpus 6 / craft 12 / lexicon 44 / world_ref 18`（R1 后，builtFrom `sha256:ec3f9b0e01c912cb`） |
+| HEAD（r2 波） | `da1a6c6b`（R-1 门禁进仓前重核） | `edb4cfe6`（R-1→R3 全波收口）→ `98fcb7b2`（收口行补齐） |
+| HEAD（r3 波：B1–B5） | `98fcb7b2` | 本行 commit sha（见下「r3 收口验证」） |
+| 规模计数 | `corpus 6 / craft 12 / lexicon 38 / world_ref 8`（R1 前） | `corpus 6 / craft 12 / lexicon 53 / world_ref 27`（B5 后，builtFrom `sha256:df39ecbc9a177c41`） |
 | flag 默认值 | `dual false / hardInject true / usefulness false` | **不变**（`src/stores/wiki-store.ts:435/440/441`） |
 | 会话状态文件 | `.novel/status.json`（唯一） | 同前，无第二状态文件 |
+| λ / R2 阈值 | λ=25 ms/pp `calibrated=false`；1000/1e4/30/0pp | **不变**（B2 只产出证据，未翻位） |
+| ANN / pricing 门控 | `ANN_PLAN.implemented=false`；`pricing.status=pending` | **不变**（B3-b 仅接口+精确参考；B4 仅骨架）——唯一描述性例外：`SHARD_PLAN_PLACEHOLDER.implemented false→true`（分片已实做；无门控/配置消费者） |
 
 > 收口验证（2026-09-17，QMAI `edb4cfe6`）：vitest scoped 16 文件 424 passed / 1 skipped（含回归必跑集 golden-retrieval、kb-shadow-harness）；typecheck 0 错；`eslint src` clean；boundaries 4/4；antigoals ALL PASS(6/6)；anchors ALL PASS(9/9)；生成器 `--check` 三链一致（`sync-kb-view-to-qmai.mjs`（含策展债分门禁）/ `snapshot-kb-view-content.mjs` / `extract-weknora-snapshot.mjs`）。收口后 `master...smith/master` 一致性与本行 commit sha 的对应关系由推送记录核验。
 >

@@ -18,7 +18,7 @@ import {
   type CurationBatch,
 } from "./curation-gate"
 import kbRoutingView from "./kb/kb-routing-view.generated.json"
-import kbContentView from "./__fixtures__/reference-kb-view.content-ec3f9b0e01c912cb.json"
+import kbContentView from "./__fixtures__/reference-kb-view.content-df39ecbc9a177c41.json"
 
 const LONG_SUMMARY = "这是一段足够长的策展摘要，用于验证摘要长度阈值：".repeat(2) + "完。"
 
@@ -205,10 +205,14 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
   }
   const score = scoreCurationBatch({
     schemaVersion: 1,
-    source: `reference-kb-view.content-ec3f9b0e01c912cb.json@${content.builtFrom ?? "unknown"}`,
+    source: `reference-kb-view.content-df39ecbc9a177c41.json@${content.builtFrom ?? "unknown"}`,
     expectThemes: [
       { theme: "克苏鲁", collections: ["world_ref"] },
       { theme: "修仙", collections: ["world_ref", "lexicon"] },
+      // B5-a 多流派扩容：新题材@collection 同口径（与 check-curation-debt.mjs EXPECT_THEMES 字面同步）
+      { theme: "奇幻", collections: ["world_ref", "lexicon"] },
+      { theme: "武侠", collections: ["world_ref", "lexicon"] },
+      { theme: "科幻", collections: ["world_ref", "lexicon"] },
     ],
     expectCollections: ["world_ref", "lexicon", "craft", "corpus"],
     entries: content.entries,
@@ -218,8 +222,8 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
     expect(score.totalDebt).toBe(0)
     expect(score.withinCap).toBe(true)
     expect(score.findings).toEqual([])
-    expect(content.builtFrom).toBe("sha256:ec3f9b0e01c912cb")
-    expect(content.entryCount).toBe(80)
+    expect(content.builtFrom).toBe("sha256:df39ecbc9a177c41")
+    expect(content.entryCount).toBe(98)
     expect(score.entryCount).toBeGreaterThan(70)
   })
 
@@ -235,14 +239,33 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
     }
   })
 
-  it("题材覆盖实指：world_ref 内克苏鲁 8 + 修仙世界卡 10；lexicon 内修仙词条 ≥ 44", () => {
+  it("题材覆盖实指：world_ref 内克苏鲁 8 + 修仙世界卡 10 + 新流派 9；lexicon 内修仙词条 ≥ 44", () => {
     const worldRef = content.entries.filter((e) => e["collection"] === "world_ref")
     expect(worldRef.filter((e) => String(e["name"]).startsWith("cthulhu-")).length).toBe(8)
     expect(worldRef.filter((e) => String(e["name"]).startsWith("xianxia-world-")).length).toBe(10)
+    expect(worldRef.filter((e) => /^(fantasy|wuxia|scifi)-world-/.test(String(e["name"]))).length).toBe(9)
     const lexicon = content.entries.filter((e) => e["collection"] === "lexicon")
     expect(
       lexicon.filter((e) => String(e["name"]).startsWith("xianxia-")).length,
     ).toBeGreaterThanOrEqual(44)
+    expect(lexicon.filter((e) => /^(fantasy|wuxia|scifi)-term-/.test(String(e["name"]))).length).toBe(9)
+  })
+
+  it("新流派题材闸门可负向触发：抽掉奇幻世界卡后 奇幻@world_ref 计债（新题材门禁非空转）", () => {
+    const withoutFantasy = content.entries.filter(
+      (e) => !String(e["name"] ?? "").startsWith("fantasy-world-"),
+    )
+    const dirty = scoreCurationBatch({
+      schemaVersion: 1,
+      source: "negative-control-genre",
+      expectThemes: [{ theme: "奇幻", collections: ["world_ref"] }],
+      expectCollections: ["world_ref", "lexicon"],
+      entries: withoutFantasy.filter((e) =>
+        ["world_ref", "lexicon"].includes(String(e["collection"])),
+      ),
+    })
+    expect(dirty.byReason.theme_vacant).toBe(CURATION_DEBT_WEIGHTS.theme_vacant)
+    expect(() => assertCurationDebtWithinCap(dirty)).toThrow(/theme_vacant\+3\] 奇幻@world_ref/)
   })
 
   it("闸门可负向触发：抽掉修仙世界卡后 world_ref 题材空置计债（门禁非空转）", () => {

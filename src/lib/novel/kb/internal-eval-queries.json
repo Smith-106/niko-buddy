@@ -1,0 +1,2816 @@
+{
+  "schemaVersion": 1,
+  "builtFrom": "sha256:df39ecbc9a177c41",
+  "droppedGoldenCollisions": [
+    {
+      "query": "去 AI 痕迹审计/重写技法 anti-AI",
+      "gold": "avoid-ai-writing",
+      "derivation": "title-probe",
+      "golden": "去 ai 痕迹"
+    },
+    {
+      "query": "文风匹配/冷读验证/voice-matching 协议 anti-AI",
+      "gold": "fiction-forge",
+      "derivation": "title-probe",
+      "golden": "anti-ai"
+    },
+    {
+      "query": "anti-AI 文风",
+      "gold": "fiction-forge",
+      "derivation": "domain-probe",
+      "golden": "anti-ai"
+    }
+  ],
+  "droppedDegenerateProbes": [
+    {
+      "query": "伏笔",
+      "gold": "show-me-the-story",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "互动叙事",
+      "gold": "ink",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "科幻 科幻",
+      "gold": "scifi-term-alien",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "科幻 科幻",
+      "gold": "scifi-term-wasteland",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "文风",
+      "gold": "ghost-writer",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "武侠 武侠",
+      "gold": "wuxia-term-neigong",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "武侠 武侠",
+      "gold": "wuxia-term-revenge-code",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "武侠 武侠",
+      "gold": "wuxia-term-weapons",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-beauty",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-breakthrough",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-foundation",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-marrow-washing",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-ningshen",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-qi-gathering",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-revive",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙",
+      "gold": "xianxia-pill-yuan-pei",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "一致性",
+      "gold": "narrative-consistency-verifier",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "一致性",
+      "gold": "pagegod-narrative-scanner",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "长篇",
+      "gold": "inkflow",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "anti-AI",
+      "gold": "avoid-ai-writing",
+      "derivation": "domain-probe"
+    }
+  ],
+  "queries": [
+    {
+      "query": "排版 规范",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "chinese-copywriting-guidelines",
+      "genre": "写作技巧",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "人物 克苏鲁 原型",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-characters",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 怪物 眷族",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-creatures",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 教团 邪教",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-cults",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 旧日支配者 神祇",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-deities",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 时代 背景",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-eras",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "世界观 克苏鲁 地点",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-places",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 恐怖 文风",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-style",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 典籍 禁忌知识",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-tomes",
+      "genre": "克苏鲁",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "剧本 结构",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "dramatron",
+      "genre": "写作技巧",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "奇幻 遗迹",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-dungeon",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "奇幻 魔力",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-mana",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "奇幻 誓约",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-oath",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "奇幻 政治 王国",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-kingdoms",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "咒式 奇幻 魔法",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-magic-system",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "偏见 奇幻 种族",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-races",
+      "genre": "奇幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "一致性 数值",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "fiction-number-checker",
+      "genre": "写作技巧",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "伏笔 设定",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "graphify-novel",
+      "genre": "写作技巧",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "外星 科幻",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-alien",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "科幻 航行",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-warp",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "废土 科幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-wasteland",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "人工智能 科幻 责任",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-ai-ethics",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "义体 科幻 阶层",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-cyber",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "星际 殖民 科幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-interstellar",
+      "genre": "科幻",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "内功 武侠",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-neigong",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "侠义 武侠",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-revenge-code",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "兵器 武侠",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-weapons",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "招安 朝廷 武侠",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-court",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "商路 武侠 镖局",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-escort",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "武侠 江湖 门派",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-jianghu",
+      "genre": "武侠",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 功法",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-alchemy",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 阵材",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-array-materials",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 灵物",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-cave",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "丹药 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-beauty",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 境界",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-ascension",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 门派",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-demon",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 称谓",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-appellation",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 灵根",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-linggen",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 神识",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-lingqi-sense",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 宗门",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-sect-office",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 心魔",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-xinmo",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "丹道 修仙 经济",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-alchemy-economy",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 天劫 飞升",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ascension-tribulation",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 因果 天道",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-cultivation-law",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 鬼道 魔道",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ghost-demon-path",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "世俗 修仙 凡人",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-mortal-realm",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 地理 灵域",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-realm-geography",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 洞天 秘境",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-secret-realm",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 势力 宗门",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-sect-order",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 契约 妖兽",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-beast-hierarchy",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "修仙 灵脉 资源",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-vein",
+      "genre": "修仙",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "克苏鲁 克苏鲁 原型",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-characters",
+      "genre": "克苏鲁",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "克苏鲁 克苏鲁 地点",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-places",
+      "genre": "克苏鲁",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "奇幻 奇幻 魔法",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-magic-system",
+      "genre": "奇幻",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "奇幻 奇幻 种族",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-races",
+      "genre": "奇幻",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "科幻 科幻 责任",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-ai-ethics",
+      "genre": "科幻",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "科幻 科幻 阶层",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-cyber",
+      "genre": "科幻",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "科幻 殖民 科幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-interstellar",
+      "genre": "科幻",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "武侠 朝廷 武侠",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-court",
+      "genre": "武侠",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "武侠 武侠 镖局",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-escort",
+      "genre": "武侠",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙 经济",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-alchemy-economy",
+      "genre": "修仙",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "修仙 修仙 凡人",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-mortal-realm",
+      "genre": "修仙",
+      "derivation": "genre-domain-probe"
+    },
+    {
+      "query": "avoid ai writing 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "avoid-ai-writing",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "chinese copywriting guidelines 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "chinese-copywriting-guidelines",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu characters 克苏鲁",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-characters",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu creatures 克苏鲁",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-creatures",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu cults 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-cults",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu deities 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-deities",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu eras 克苏鲁",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-eras",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu places 克苏鲁",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-places",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu style 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-style",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "cthulhu tomes 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-tomes",
+      "genre": "克苏鲁",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "dramatron 写作技巧",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "dramatron",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy term dungeon 奇幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-dungeon",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy term mana 奇幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-mana",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy term oath 奇幻",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-oath",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy world kingdoms 奇幻",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-kingdoms",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy world magic system 奇幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-magic-system",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fantasy world races 奇幻",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-races",
+      "genre": "奇幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fiction forge 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "fiction-forge",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "fiction number checker 写作技巧",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "fiction-number-checker",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "ghost writer 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "ghost-writer",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "graphify novel 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "graphify-novel",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "ink 写作技巧",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "ink",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "inkflow 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "inkflow",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "narrative consistency verifier 写作技巧",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "narrative-consistency-verifier",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "pagegod narrative scanner 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "pagegod-narrative-scanner",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi term alien 科幻",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-alien",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi term warp 科幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-warp",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi term wasteland 科幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-wasteland",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi world ai ethics 科幻",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-ai-ethics",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi world cyber 科幻",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-cyber",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "scifi world interstellar 科幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-interstellar",
+      "genre": "科幻",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "show me the story 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia term neigong 武侠",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-neigong",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia term revenge code 武侠",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-revenge-code",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia term weapons 武侠",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-weapons",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia world court 武侠",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-court",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia world escort 武侠",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-escort",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "wuxia world jianghu 武侠",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-jianghu",
+      "genre": "武侠",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art alchemy 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-alchemy",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art body refining 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-body-refining",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art five elements 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-five-elements",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art formation 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-formation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art puppetry 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-puppetry",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art spirit sense 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-spirit-sense",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art sword control 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-sword-control",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia art talisman 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-talisman",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item array materials 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-array-materials",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item cave 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-cave",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item secret realm 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-secret-realm",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item spirit beast 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-beast",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item spirit herb 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-herb",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item spirit stone 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-stone",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia item treasure 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-treasure",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill beauty 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-beauty",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill breakthrough 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-breakthrough",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill foundation 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-foundation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill marrow washing 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-marrow-washing",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill ningshen 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-ningshen",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill qi gathering 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-qi-gathering",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill revive 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-revive",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia pill yuan pei 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-yuan-pei",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm ascension 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-ascension",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm body union 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-body-union",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm foundation 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-foundation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm golden core 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-golden-core",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm mahayana 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-mahayana",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm nascent soul 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-nascent-soul",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm qi refining 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-qi-refining",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm spirit transformation 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-spirit-transformation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm tribulation 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-tribulation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia realm void refining 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-void-refining",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect demon 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-demon",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect kunlun 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-kunlun",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect penglai 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-penglai",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect qingyun 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-qingyun",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect rogue 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-rogue",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia sect shushan 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-shushan",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia term appellation 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-appellation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia term linggen 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-linggen",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia term lingqi sense 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-lingqi-sense",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia term sect office 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-sect-office",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia term xinmo 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-xinmo",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world alchemy economy 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-alchemy-economy",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world ascension tribulation 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ascension-tribulation",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world cultivation law 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-cultivation-law",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world ghost demon path 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ghost-demon-path",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world mortal realm 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-mortal-realm",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world realm geography 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-realm-geography",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world secret realm 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-secret-realm",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world sect order 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-sect-order",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world spirit beast hierarchy 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-beast-hierarchy",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "xianxia world spirit vein 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-vein",
+      "genre": "修仙",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "去 AI 味写作检查 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "avoid-ai-writing",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "中文文案排版规范 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "chinese-copywriting-guidelines",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁人物原型卡 克苏鲁",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-characters",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁眷族卡 克苏鲁",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-creatures",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁教团卡 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-cults",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁神祇卡 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-deities",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁时代卡 克苏鲁",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-eras",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁地点卡 克苏鲁",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-places",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁文风卡 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-style",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "克苏鲁典籍卡 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-tomes",
+      "genre": "克苏鲁",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "DeepMind 交互式剧作家 写作技巧",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "dramatron",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻词条：地下城与遗迹规则 奇幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-dungeon",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻词条：魔力流动与感知 奇幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-mana",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻词条：誓约与契约约束 奇幻",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-oath",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻世界卡：王国政治与封建秩序 奇幻",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-kingdoms",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻世界卡：魔法体系与代价 奇幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-magic-system",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "奇幻世界卡：种族关系与偏见 奇幻",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-races",
+      "genre": "奇幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "24 种 AI 写作指纹扫描+冷读验证协议 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "fiction-forge",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "从小说中抽取数值事实供人工一致性复核 写作技巧",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "fiction-number-checker",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "24 维法医级文风逆向工程与复现 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "ghost-writer",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "章节→故事圣经图谱+伏笔追踪 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "graphify-novel",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "inkle 互动叙事脚本语言+引擎 写作技巧",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "ink",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "AI 小说写作助手 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "inkflow",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "约束驱动验证长篇小说角色背景一致性 写作技巧",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "narrative-consistency-verifier",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐 写作技巧",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "pagegod-narrative-scanner",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻词条：外星生态与接触协议 科幻",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-alien",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻词条：曲率航行与时间代价 科幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-warp",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻词条：废土生存与旧世遗迹 科幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-wasteland",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻世界卡：人工智能人格与责任边界 科幻",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-ai-ethics",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻世界卡：义体化与赛博阶层 科幻",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-cyber",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "科幻世界卡：星际殖民与航路政治 科幻",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-interstellar",
+      "genre": "科幻",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "单二进制逐章自动连写+伏笔系统+全书优化 写作技巧",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠词条：内功经脉与修炼代价 武侠",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-neigong",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠词条：侠义与仇怨法则 武侠",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-revenge-code",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠词条：兵器谱与招式命名 武侠",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-weapons",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠世界卡：朝廷与武林相互利用 武侠",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-court",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠世界卡：镖局商路与绿林规矩 武侠",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-escort",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "武侠世界卡：江湖秩序与门派生态 武侠",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-jianghu",
+      "genre": "武侠",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：丹道 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-alchemy",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：炼体诀 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-body-refining",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：五行遁术 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-five-elements",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：阵法之道 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-formation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：傀儡术 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-puppetry",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：神识功法 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-spirit-sense",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：御剑术 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-sword-control",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙功法：符箓之术 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-talisman",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：阵材与符纸 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-array-materials",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：洞府 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-cave",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：秘境 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-secret-realm",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：灵兽 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-beast",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：灵草 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-herb",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：灵石 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-stone",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙灵物：法宝 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-treasure",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：驻颜丹 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-beauty",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：破境丹 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-breakthrough",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：筑基丹 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-foundation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：洗髓丹 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-marrow-washing",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：凝神丹 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-ningshen",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：聚气丹 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-qi-gathering",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：九转还魂丹 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-revive",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙丹药：培元丹 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-yuan-pei",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：飞升 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-ascension",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：合体 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-body-union",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：筑基 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-foundation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：金丹 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-golden-core",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：大乘 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-mahayana",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：元婴 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-nascent-soul",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：炼气 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-qi-refining",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：化神 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-spirit-transformation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：渡劫 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-tribulation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙境界：炼虚 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-void-refining",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：魔道宗门 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-demon",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：昆仑 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-kunlun",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：蓬莱 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-penglai",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：青云门 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-qingyun",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：散修联盟 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-rogue",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙门派：蜀山剑派 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-shushan",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙词条：称谓与人情 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-appellation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙词条：灵根与资质 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-linggen",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙词条：灵气感知与灵压 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-lingqi-sense",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙词条：宗门职司体系 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-sect-office",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙词条：心魔与道心 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-xinmo",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：丹道经济与灵石本位 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-alchemy-economy",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：飞升与天劫体系 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ascension-tribulation",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：天道法则与因果 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-cultivation-law",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：鬼道魔道修行体系 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ghost-demon-path",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：凡人世界与仙凡隔绝 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-mortal-realm",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：九州地理与灵域分级 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-realm-geography",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：秘境与洞天规则 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-secret-realm",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：宗门秩序与阵营 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-sect-order",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：妖兽谱系与灵兽契约 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-beast-hierarchy",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "修仙世界卡：灵脉与资源争夺 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-vein",
+      "genre": "修仙",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "中文文案排版规范 排版",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "chinese-copywriting-guidelines",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁人物原型 人物",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-characters",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁眷族 克苏鲁",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-creatures",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁教团 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-cults",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁神祇 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-deities",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁时代 克苏鲁",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-eras",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁地点 世界观",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-places",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁文风 克苏鲁",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-style",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "克苏鲁典籍 克苏鲁",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "cthulhu-tomes",
+      "genre": "克苏鲁",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "分层剧本生成（DeepMind） 剧本",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "dramatron",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "地下城与遗迹规则 奇幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-dungeon",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "魔力流动与感知 奇幻",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-mana",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "誓约与契约的约束力 奇幻",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "fantasy-term-oath",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "奇幻王国政治与封建秩序 奇幻",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-kingdoms",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "奇幻魔法体系与代价 咒式",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-magic-system",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "奇幻种族关系与偏见 偏见",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "fantasy-world-races",
+      "genre": "奇幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "数值事实抽取校验 一致性",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "fiction-number-checker",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "24 维文风逆向与复现 文风",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "ghost-writer",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "章节→故事圣经图谱+伏笔追踪 伏笔",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "graphify-novel",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "inkle 互动叙事脚本语言 互动叙事",
+      "intent": "revise",
+      "expectedCollection": "craft",
+      "gold": "ink",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "长篇生成引擎（技法载体） 长篇",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "inkflow",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "声明分解+证据检索一致性核查 一致性",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "narrative-consistency-verifier",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "确定性连续性错误检测 一致性",
+      "intent": "plan",
+      "expectedCollection": "craft",
+      "gold": "pagegod-narrative-scanner",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "外星生态与接触协议 外星",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-alien",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "曲率航行与时间代价 科幻",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-warp",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "废土生存与旧世遗迹 废土",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "scifi-term-wasteland",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "人工智能人格与责任边界 人工智能",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-ai-ethics",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "义体化与赛博阶层 义体",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-cyber",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "星际殖民与航路政治 星际",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "scifi-world-interstellar",
+      "genre": "科幻",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "逐章连写+伏笔系统 伏笔",
+      "intent": "draft",
+      "expectedCollection": "craft",
+      "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "内功经脉与修炼代价 内功",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-neigong",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "侠义与仇怨法则 侠义",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-revenge-code",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "兵器谱与招式命名 兵器",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "wuxia-term-weapons",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "朝廷与武林的相互利用 招安",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-court",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "镖局商路与绿林规矩 商路",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-escort",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "江湖秩序与门派生态 武侠",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "wuxia-world-jianghu",
+      "genre": "武侠",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "丹道 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-alchemy",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "炼体诀 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-body-refining",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "五行遁术 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-five-elements",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "阵法之道 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-formation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "傀儡术 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-puppetry",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "神识功法 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-spirit-sense",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "御剑术 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-sword-control",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "符箓之术 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-art-talisman",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "阵材与符纸 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-array-materials",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "洞府 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-cave",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "秘境 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-secret-realm",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵兽 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-beast",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵草 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-herb",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵石 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-spirit-stone",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "法宝 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-item-treasure",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "驻颜丹 丹药",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-beauty",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "破境丹 丹药",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-breakthrough",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "筑基丹 丹药",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-foundation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "洗髓丹 丹药",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-marrow-washing",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "凝神丹 丹药",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-ningshen",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "聚气丹 丹药",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-qi-gathering",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "九转还魂丹 丹药",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-revive",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "培元丹 丹药",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-pill-yuan-pei",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "飞升 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-ascension",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "合体 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-body-union",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "筑基 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-foundation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "金丹 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-golden-core",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "大乘 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-mahayana",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "元婴 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-nascent-soul",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "炼气 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-qi-refining",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "化神 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-spirit-transformation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "渡劫 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-tribulation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "炼虚 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-realm-void-refining",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "魔道宗门 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-demon",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "昆仑 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-kunlun",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "蓬莱 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-penglai",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "青云门 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-qingyun",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "散修联盟 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-rogue",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "蜀山剑派 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-sect-shushan",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "修仙称谓与人情 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-appellation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵根与资质 修仙",
+      "intent": "draft",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-linggen",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵气感知与灵压 修仙",
+      "intent": "revise",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-lingqi-sense",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "宗门职司体系 修仙",
+      "intent": "lookup",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-sect-office",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "心魔与道心 修仙",
+      "intent": "style",
+      "expectedCollection": "lexicon",
+      "gold": "xianxia-term-xinmo",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "丹道经济与灵石本位 丹道",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-alchemy-economy",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "飞升与天劫体系 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ascension-tribulation",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "天道法则与因果 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-cultivation-law",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "鬼道魔道修行体系 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-ghost-demon-path",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "凡人世界与仙凡隔绝 世俗",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-mortal-realm",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "修仙九州地理 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-realm-geography",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "秘境与洞天规则 修仙",
+      "intent": "lookup",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-secret-realm",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "宗门秩序与阵营 修仙",
+      "intent": "plan",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-sect-order",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "妖兽谱系与灵兽契约 修仙",
+      "intent": "draft",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-beast-hierarchy",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "灵脉与资源争夺 修仙",
+      "intent": "revise",
+      "expectedCollection": "world_ref",
+      "gold": "xianxia-world-spirit-vein",
+      "genre": "修仙",
+      "derivation": "title-probe"
+    }
+  ]
+}

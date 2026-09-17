@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "builtFrom": "sha256:ec3f9b0e01c912cb",
+  "builtFrom": "sha256:df39ecbc9a177c41",
   "source": "reference/REFERENCE-KB-VIEW.json（hub 生成产物；内容面快照，禁手改）",
   "collections": [
     "craft",
@@ -8,7 +8,7 @@
     "world_ref",
     "corpus"
   ],
-  "entryCount": 80,
+  "entryCount": 98,
   "entries": [
     {
       "name": "avoid-ai-writing",
@@ -250,6 +250,195 @@
       "contentDigest": "sha256-52e68b49c8f84c19bfe1eafabf921aac",
       "upstream": "Nigh/show-me-the-story",
       "purpose": "单二进制逐章自动连写+伏笔系统+全书优化"
+    },
+    {
+      "name": "fantasy-term-dungeon",
+      "collection": "lexicon",
+      "title": "地下城与遗迹规则",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "奇幻",
+        "遗迹"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "地下城与遗迹规则（fantasy-term-dungeon）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：地下城与遗迹规则（自建 CC0）。",
+      "contentDigest": "sha256-bd8b019be60654c5833e6e8c364f7010",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻词条：地下城与遗迹规则（自建 CC0）"
+    },
+    {
+      "name": "fantasy-term-mana",
+      "collection": "lexicon",
+      "title": "魔力流动与感知",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "奇幻",
+        "魔力"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "魔力流动与感知（fantasy-term-mana）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：魔力流动与感知（自建 CC0）。",
+      "contentDigest": "sha256-1df23c4da0b77bb9145252b4556081cb",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻词条：魔力流动与感知（自建 CC0）"
+    },
+    {
+      "name": "fantasy-term-oath",
+      "collection": "lexicon",
+      "title": "誓约与契约的约束力",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "奇幻",
+        "誓约"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "誓约与契约的约束力（fantasy-term-oath）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：誓约与契约约束（自建 CC0）。",
+      "contentDigest": "sha256-fd9fa4eda135bafb5d676cae60460efb",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻词条：誓约与契约约束（自建 CC0）"
+    },
+    {
+      "name": "scifi-term-alien",
+      "collection": "lexicon",
+      "title": "外星生态与接触协议",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "外星",
+        "科幻"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "外星生态与接触协议（scifi-term-alien）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：外星生态与接触协议（自建 CC0）。",
+      "contentDigest": "sha256-b13681f5eaa7e91058761bc99c67a075",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻词条：外星生态与接触协议（自建 CC0）"
+    },
+    {
+      "name": "scifi-term-warp",
+      "collection": "lexicon",
+      "title": "曲率航行与时间代价",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "科幻",
+        "航行"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "曲率航行与时间代价（scifi-term-warp）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：曲率航行与时间代价（自建 CC0）。",
+      "contentDigest": "sha256-f1fcfcf7d72a6c34f33293ce6a01cfaa",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻词条：曲率航行与时间代价（自建 CC0）"
+    },
+    {
+      "name": "scifi-term-wasteland",
+      "collection": "lexicon",
+      "title": "废土生存与旧世遗迹",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "废土",
+        "科幻"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "废土生存与旧世遗迹（scifi-term-wasteland）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：废土生存与旧世遗迹（自建 CC0）。",
+      "contentDigest": "sha256-641ce8dbc37e173057e7164c734cd118",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻词条：废土生存与旧世遗迹（自建 CC0）"
+    },
+    {
+      "name": "wuxia-term-neigong",
+      "collection": "lexicon",
+      "title": "内功经脉与修炼代价",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "内功",
+        "武侠"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "内功经脉与修炼代价（wuxia-term-neigong）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：内功经脉与修炼代价（自建 CC0）。",
+      "contentDigest": "sha256-b8c79b90f512a2430760d4be8d17a93f",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠词条：内功经脉与修炼代价（自建 CC0）"
+    },
+    {
+      "name": "wuxia-term-revenge-code",
+      "collection": "lexicon",
+      "title": "侠义与仇怨法则",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "侠义",
+        "武侠"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "侠义与仇怨法则（wuxia-term-revenge-code）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：侠义与仇怨法则（自建 CC0）。",
+      "contentDigest": "sha256-8499ae12261d08e8e869703e27230e95",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠词条：侠义与仇怨法则（自建 CC0）"
+    },
+    {
+      "name": "wuxia-term-weapons",
+      "collection": "lexicon",
+      "title": "兵器谱与招式命名",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "兵器",
+        "武侠"
+      ],
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "兵器谱与招式命名（wuxia-term-weapons）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：兵器谱与招式命名（自建 CC0）。",
+      "contentDigest": "sha256-c06df89d70d7ecabccb1e14a7d622446",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠词条：兵器谱与招式命名（自建 CC0）"
     },
     {
       "name": "xianxia-art-alchemy",
@@ -1350,6 +1539,213 @@
       "contentDigest": "sha256-25e95460d96f1adb1d96a16fe419a30d",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）"
+    },
+    {
+      "name": "fantasy-world-kingdoms",
+      "collection": "world_ref",
+      "title": "奇幻王国政治与封建秩序",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "奇幻",
+        "政治",
+        "王国"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "奇幻王国政治与封建秩序（fantasy-world-kingdoms）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：王国政治与封建秩序（自建 CC0）。",
+      "contentDigest": "sha256-c686e79832fed8a7c45a68af2a5b85d2",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻世界卡：王国政治与封建秩序（自建 CC0）"
+    },
+    {
+      "name": "fantasy-world-magic-system",
+      "collection": "world_ref",
+      "title": "奇幻魔法体系与代价",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "咒式",
+        "奇幻",
+        "魔法"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "奇幻魔法体系与代价（fantasy-world-magic-system）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：魔法体系与代价（自建 CC0）。",
+      "contentDigest": "sha256-cfa93cde9a3033063c85c80f10887b33",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻世界卡：魔法体系与代价（自建 CC0）"
+    },
+    {
+      "name": "fantasy-world-races",
+      "collection": "world_ref",
+      "title": "奇幻种族关系与偏见",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "偏见",
+        "奇幻",
+        "种族"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "奇幻种族关系与偏见（fantasy-world-races）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：种族关系与偏见（自建 CC0）。",
+      "contentDigest": "sha256-116bc731aa0c16b3583a5b1298cd77f4",
+      "upstream": "UNKNOWN",
+      "purpose": "奇幻世界卡：种族关系与偏见（自建 CC0）"
+    },
+    {
+      "name": "scifi-world-ai-ethics",
+      "collection": "world_ref",
+      "title": "人工智能人格与责任边界",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "人工智能",
+        "科幻",
+        "责任"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "人工智能人格与责任边界（scifi-world-ai-ethics）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：人工智能人格与责任边界（自建 CC0）。",
+      "contentDigest": "sha256-a6016af0fb87c5d03524ddd785684e6d",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻世界卡：人工智能人格与责任边界（自建 CC0）"
+    },
+    {
+      "name": "scifi-world-cyber",
+      "collection": "world_ref",
+      "title": "义体化与赛博阶层",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "义体",
+        "科幻",
+        "阶层"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "义体化与赛博阶层（scifi-world-cyber）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：义体化与赛博阶层（自建 CC0）。",
+      "contentDigest": "sha256-dceab5e45e6be18007019dbccd1fb99b",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻世界卡：义体化与赛博阶层（自建 CC0）"
+    },
+    {
+      "name": "scifi-world-interstellar",
+      "collection": "world_ref",
+      "title": "星际殖民与航路政治",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "星际",
+        "殖民",
+        "科幻"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "星际殖民与航路政治（scifi-world-interstellar）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：星际殖民与航路政治（自建 CC0）。",
+      "contentDigest": "sha256-b1ead5955ca8d8f5d563339530c50b17",
+      "upstream": "UNKNOWN",
+      "purpose": "科幻世界卡：星际殖民与航路政治（自建 CC0）"
+    },
+    {
+      "name": "wuxia-world-court",
+      "collection": "world_ref",
+      "title": "朝廷与武林的相互利用",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "招安",
+        "朝廷",
+        "武侠"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "朝廷与武林的相互利用（wuxia-world-court）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：朝廷与武林相互利用（自建 CC0）。",
+      "contentDigest": "sha256-c033de4554f8c0f1748f133619317975",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠世界卡：朝廷与武林相互利用（自建 CC0）"
+    },
+    {
+      "name": "wuxia-world-escort",
+      "collection": "world_ref",
+      "title": "镖局商路与绿林规矩",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "商路",
+        "武侠",
+        "镖局"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "镖局商路与绿林规矩（wuxia-world-escort）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：镖局商路与绿林规矩（自建 CC0）。",
+      "contentDigest": "sha256-f21c98adf8750bfa2206e8143d5ae44d",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠世界卡：镖局商路与绿林规矩（自建 CC0）"
+    },
+    {
+      "name": "wuxia-world-jianghu",
+      "collection": "world_ref",
+      "title": "江湖秩序与门派生态",
+      "author": "unknown",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "武侠",
+        "江湖",
+        "门派"
+      ],
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "trust": "full",
+      "summary": "江湖秩序与门派生态（wuxia-world-jianghu）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：江湖秩序与门派生态（自建 CC0）。",
+      "contentDigest": "sha256-4d14c5e3b6a28138c5a618dfa05cfabb",
+      "upstream": "UNKNOWN",
+      "purpose": "武侠世界卡：江湖秩序与门派生态（自建 CC0）"
     },
     {
       "name": "xianxia-world-alchemy-economy",

@@ -829,6 +829,52 @@ export {
   wilsonScoreInterval,
 } from "./same-scale-harness"
 export type { SameScaleResult, SameScaleVerdict, WeknoraSnapshot } from "./same-scale-harness"
+// ── B3-a：检索分片路由与跨片确定性归并（批准计划 r3 §T5） ────────
+export {
+  SHARD_KEY_SCHEMA,
+  SHARD_MERGE_POLICY_SCHEMA,
+  SHARD_RECALL_SPEC_SCHEMA,
+  ShardRoutingError,
+  applyShardRecall,
+  mergeShards,
+  resolveShards,
+  selectShardItems,
+} from "./shard-routing"
+export type { Shard, ShardRecallReport, ShardRecallSpec, ShardableItem } from "./shard-routing"
+// ── B2：λ 标定纯函数面（证据面；不翻位） ────────────────────────
+export {
+  LAMBDA_MIN_POINTS,
+  LAMBDA_MIN_SIGNAL_RATIO,
+  LAMBDA_MEASUREMENT_SCHEMA,
+  LAMBDA_R2_MIN,
+  LambdaCalibrationError,
+  fitLambda,
+  formatLambdaFit,
+} from "./lambda-calibration"
+export type { LambdaFit, LambdaFitReason, LambdaMeasurement } from "./lambda-calibration"
+// ── B3-b：ANN 接口契约 + 精确暴力参考（近似未实现） ────────────────
+export {
+  ANN_DESCRIPTOR_SCHEMA,
+  ANN_HIT_SCHEMA,
+  ANN_INDEX_TYPE_SCHEMA,
+  ANN_METRIC_SCHEMA,
+  ANN_QUERY_SCHEMA,
+  ANN_VECTOR_SCHEMA,
+  AnnIndexError,
+  recallAtK,
+  withInjectedClock,
+} from "./ann/ann-index"
+export type {
+  AnnDescriptor,
+  AnnHit,
+  AnnIndex,
+  AnnIndexType,
+  AnnMetric,
+  AnnQuery,
+  AnnVector,
+} from "./ann/ann-index"
+export { createExactAnnIndex } from "./ann/brute-force-index"
+export type { ExactAnnIndexOptions } from "./ann/brute-force-index"
 // ── R0-b：rerank 触发证据采集器（R2-a 硬依赖） ────────────────────────
 export {
   RERANK_TRIGGER_CHANNEL,
@@ -947,3 +993,24 @@ export type {
   OrePricingStatus,
   ShardPlan,
 } from "./retrieval-scale-placeholders"
+// ── B4：矿脉计价模型骨架（候选三型；pricing 仍 pending） ────────────
+export {
+  ORE_COST_ESTIMATE_SCHEMA,
+  ORE_PRICING_MODEL_CANDIDATES,
+  ORE_PRICING_MODEL_IDS,
+  ORE_PRICING_MODEL_SCHEMA,
+  ORE_QUOTA_SCHEMA,
+  ORE_QUOTA_VERDICT_SCHEMA,
+  ORE_USAGE_SCHEMA,
+  OrePricingError,
+  checkOreQuota,
+  estimateOreCost,
+  formatOrePricingSkeleton,
+} from "./ore-pricing"
+export type {
+  OreCostEstimate,
+  OrePricingModel,
+  OrePricingModelId,
+  OreQuotaVerdict,
+  OreUsage,
+} from "./ore-pricing"

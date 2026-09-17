@@ -4,9 +4,11 @@
  * 共识来源：批准计划 r2 §R3-c/§R3-d（planHandoffKey 738a75141a5a6b2386f8b38eef21ef600dedf9461eca4972037b2f0b68f55113）；
  * 对应 `docs/p0/eval-matrix-<date>.md` §4 Backlog B3/B4。
  *
- * 定位（**占位，不是实现**）：
- *   - ANN / 分片：无实现（R2 谓词 `ann_no_implementation` 恒 locked）；本模块只冻结契约形状，
+ * 定位：
+ *   - ANN：**无实现**（R2 谓词 `ann_no_implementation` 恒 locked）；本模块只冻结契约形状，
  *     使实现方有编译期靶子，且任何「已实现」声称都必须在此把 `implemented` 翻为 true 并同步谓词。
+ *   - 分片（SHARD_PLAN）：B3-a 已实做（`shard-routing.ts`），占位实例 `implemented=true`；
+ *     该翻转**不代表默认启用**（无门控/配置消费者）。
  *   - 矿脉管道（ore pipeline）：契约含 **⓪ 计价待定**（`pricing.status = "pending"`）——
  *     单价/配额模型未拍板前不得冻结版本，也不得默认启用。
  *
@@ -16,6 +18,7 @@
  */
 
 import { z } from "zod"
+import { ORE_PRICING_MODEL_CANDIDATES } from "./ore-pricing"
 
 // ============================================================================
 // B3 ANN / 分片预案
@@ -26,7 +29,11 @@ export const ANN_INDEX_KIND_SCHEMA = z.enum(["hnsw", "ivf", "diskann", "unspecif
 
 export type AnnIndexKind = z.infer<typeof ANN_INDEX_KIND_SCHEMA>
 
-/** ANN 预案契约（占位；`implemented` 恒 false，翻 true 须同 commit 更新 scale-unlock-gates 谓词）。 */
+/** ANN 预案契约（`implemented` 恒 false，翻 true 须同 commit 更新 scale-unlock-gates 谓词）。
+ * B3-b（批准计划 r3 §T6）澄清：**接口 + 精确参考已就绪**
+ * （`ann/ann-index.ts` 契约 + `ann/brute-force-index.ts` exact=true 暴力参考），
+ * **近似索引（hnsw/ivf/diskann）仍未实现** → `implemented` 维持 false，谓词 `ann_no_implementation` 保持 locked。
+ * 精确参考的 recall@k=1.0 属构造性结果，**不构成 ANN 可用性证据**（延迟基线与接口一致性靶子才是其价值）。 */
 export const ANN_PLAN_SCHEMA = z
   .object({
     kind: ANN_INDEX_KIND_SCHEMA,
@@ -40,14 +47,15 @@ export const ANN_PLAN_SCHEMA = z
 
 export type AnnPlan = z.infer<typeof ANN_PLAN_SCHEMA>
 
-/** 分片预案契约（占位）。 */
+/** 分片预案契约。契约不因实现变化：`strategy` 冻结为 by-collection（实现后与现役行为一致），
+ * `implemented` 在 B3-a 实做后翻为 true（`retrieval-scale-placeholders.spec.ts` 同步断言）。 */
 export const SHARD_PLAN_SCHEMA = z
   .object({
     strategy: z.enum(["none", "by-collection", "by-genre", "unspecified"]),
-    implemented: z.literal(false),
+    implemented: z.boolean(),
     /** 分片键候选（collection/genre/lang…）；未定 → 空数组。 */
     shardKeys: z.array(z.string().min(1)),
-    /** 跨片归并口径未定 → 留空。 */
+    /** 跨片归并口径。 */
     mergePolicy: z.string().optional(),
   })
   .strict()
@@ -66,10 +74,14 @@ export const ANN_PLAN_PLACEHOLDER: AnnPlan = ANN_PLAN_SCHEMA.parse({
   params: {},
 })
 
+/** 分片预案实例。B3-a（批准计划 r3 §T5）：分片路由已实做（`shard-routing.ts` + `novelMixedSearch` 可选 `shards` 参数）。
+ * 注：`implemented=true` 仅声明**实现存在**，不表示默认启用——`novelMixedSearch` 不传 `shards` 时零改动，
+ * 且分片不参与任何门控/配置默认值（无启用消费者，见 `rg -n "SHARD_PLAN"`：仅 barrel 导出 + spec 断言）。 */
 export const SHARD_PLAN_PLACEHOLDER: ShardPlan = SHARD_PLAN_SCHEMA.parse({
-  strategy: "unspecified",
-  implemented: false,
-  shardKeys: [],
+  strategy: "by-collection",
+  implemented: true,
+  shardKeys: ["collection", "type"],
+  mergePolicy: "shard-major（分片首现序；片内保序，有 perShardTopK 时 relevance desc → path asc）；score-major 仅限同尺度面",
 })
 
 // ============================================================================
@@ -107,6 +119,20 @@ export const ORE_PIPELINE_CONTRACT_SCHEMA = z
         /** 单价（未定 → undefined）；⓪ 计价待定期间不得填。 */
         unitPrice: z.number().nonnegative().optional(),
         currency: z.string().optional(),
+        /** B4 候选计价模型清单（骨架）：仅形状与口径，`decided` 恒 false；单价不写死。 */
+        models: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1),
+                label: z.string().min(1),
+                unit: z.string().min(1),
+                fit: z.string().min(1),
+                decided: z.boolean(),
+              })
+              .strict(),
+          )
+          .optional(),
         note: z.string().min(1),
       })
       .strict(),
@@ -125,7 +151,9 @@ export const ORE_PIPELINE_CONTRACT_PLACEHOLDER: OrePipelineContract =
     enabled: false,
     pricing: {
       status: "pending",
-      note: "⓪ 计价待定：单价/成本模型/配额未拍板；未定前管道不得启用，契约版本不得升 minor。",
+      /** B4（批准计划 r3 §T7）：三候选模型入契约（骨架）；decided 全 false，单价不写死。 */
+      models: ORE_PRICING_MODEL_CANDIDATES.map((c) => ({ ...c })),
+      note: "⓪ 计价待定：单价/成本模型/配额未拍板（三候选 per-token/per-entry/subscription 均 decided=false）；未定前管道不得启用，契约版本不得升 minor。",
     },
     stages: [...ORE_PIPELINE_STAGES],
     licensePolicy:

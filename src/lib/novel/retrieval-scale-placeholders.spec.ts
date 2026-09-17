@@ -18,12 +18,16 @@ import {
 } from "./retrieval-scale-placeholders"
 
 describe("R3-c/d 占位契约", () => {
-  it("ANN / 分片占位恒 locked（implemented=false）且通过自身 schema", () => {
+  it("ANN 占位恒 locked（implemented=false）；分片占位已实做（B3-a）——两者均过自身 schema", () => {
     expect(ANN_PLAN_SCHEMA.safeParse(ANN_PLAN_PLACEHOLDER).success).toBe(true)
     expect(SHARD_PLAN_SCHEMA.safeParse(SHARD_PLAN_PLACEHOLDER).success).toBe(true)
     expect(ANN_PLAN_PLACEHOLDER.implemented).toBe(false)
     expect(ANN_PLAN_PLACEHOLDER.kind).toBe("unspecified")
-    expect(SHARD_PLAN_PLACEHOLDER.implemented).toBe(false)
+    // B3-a：分片实现已落地（shard-routing.ts）；该翻转不代表默认启用
+    expect(SHARD_PLAN_PLACEHOLDER.implemented).toBe(true)
+    expect(SHARD_PLAN_PLACEHOLDER.strategy).toBe("by-collection")
+    expect(SHARD_PLAN_PLACEHOLDER.shardKeys).toEqual(["collection", "type"])
+    expect(String(SHARD_PLAN_PLACEHOLDER.mergePolicy)).toContain("shard-major")
     expect(ANN_PLAN_PLACEHOLDER.prerequisites.length).toBeGreaterThanOrEqual(3)
   })
 

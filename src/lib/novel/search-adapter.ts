@@ -8,6 +8,7 @@ import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { rankByBm25, tokenizeForBm25 } from "./bm25-ranking"
 import { computeQueryHash, createRetrievalTrace } from "./retrieval-trace"
 import type { RetrievalSpanSink } from "./retrieval-span"
+import { applyShardRecall, type ShardRecallSpec } from "./shard-routing"
 import {
   RETRIEVAL_BUDGET_PATHS,
   RETRIEVAL_SOURCE_TIMEOUT_MS,
@@ -43,6 +44,10 @@ export interface NovelSearchParams {
   traceModelId?: string
   /** R0-c 运行时 span 面（additive 观测）：不传则完全不产生 span，检索语义/排序零改动。 */
   spans?: RetrievalSpanSink
+  /** B3-a 分片召回（可选；不传 = 不启用，路径与现状字节等价）：
+   *  分片键（none/type/collection）+ 片内上限（perShardTopK）+ 归并策略（shard-major/score-major）。
+   *  片内排序仅在给出 perShardTopK 时发生；RRF 融合、权威过滤次序与 span 契约序均不变。 */
+  shards?: ShardRecallSpec
 }
 
 export interface NovelSearchResult {
@@ -175,14 +180,32 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   await Promise.all(promises)
 
-  // R0-c：五源 span（各源召回计数；RRF 前快照）。
+  // B3-a 分片召回（可选）：resolve → 片内上限 → 跨片确定性归并。
+  // 不传 `shards` 时完全不走此路径（严格字节等价现状）；片内排序仅在有 perShardTopK 时发生。
+  const shardReport = params.shards ? applyShardRecall(results, params.shards) : null
+  const recalled: RankedNovelSearchResult[] = shardReport ? shardReport.items : results
+
+  // R0-c：五源 span（各源召回计数；RRF 前快照）——启用分片时附标量分片观测字段。
   if (params.spans) {
     const byType: Record<string, number> = {}
-    for (const item of results) byType[item.type] = (byType[item.type] ?? 0) + 1
-    params.spans.span("sources", { total: results.length, ...byType })
+    for (const item of recalled) byType[item.type] = (byType[item.type] ?? 0) + 1
+    params.spans.span("sources", {
+      total: recalled.length,
+      ...byType,
+      ...(shardReport
+        ? {
+            shardKey: shardReport.key,
+            shardCount: shardReport.shardCount,
+            shardPolicy: shardReport.policy,
+            shardPerTopK: shardReport.perShardTopK ?? 0,
+            shardKept: shardReport.outputCount,
+            shardInput: shardReport.inputCount,
+          }
+        : {}),
+    })
   }
 
-  const merged = deduplicateResults(results, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
+  const merged = deduplicateResults(recalled, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
   // R0-c：RRF span（融合前后计数；K 常量与实现同源）。
   params.spans?.span("rrf", {
     raw: results.length,

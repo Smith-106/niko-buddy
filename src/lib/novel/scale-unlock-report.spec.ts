@@ -47,6 +47,8 @@ function findRerankEvidenceArtifact(): { path: string; status: "triggered" | "ar
 const counts = (kbRoutingView as unknown as { collectionCounts: Record<string, number> })
   .collectionCounts
 const corpusEntries = WRITING_COLLECTIONS.reduce((sum, c) => sum + (counts[c] ?? 0), 0)
+/** 写作面语料规模派生口径（随合规内容扩容自动跟随，不硬编码）。 */
+const WRITING_SCALE_EXPECTED = WRITING_COLLECTIONS.reduce((sum, c) => sum + (counts[c] ?? 0), 0)
 const artifact = findRerankEvidenceArtifact()
 const goldStatus = readGoldRerankStatus()
 
@@ -66,9 +68,13 @@ const liveCtx: ScaleUnlockCtx = {
 describe("R2 现役规模可观测输出", () => {
   const report = evaluateUnlockGates(liveCtx)
 
-  it("现役规模 = 80（world_ref 18 + lexicon 44 + craft 12 + corpus 6）", () => {
-    expect(corpusEntries).toBe(80)
-    expect(report.scale.corpusEntries).toBe(80)
+  it("现役规模 = collectionCounts 写作面合计（远低于 1000 → 全部目标 locked）", () => {
+    expect(corpusEntries).toBe(WRITING_SCALE_EXPECTED)
+    expect(corpusEntries).toBe(
+      (counts["world_ref"] ?? 0) + (counts["lexicon"] ?? 0) + (counts["craft"] ?? 0) + (counts["corpus"] ?? 0),
+    )
+    expect(report.scale.corpusEntries).toBe(corpusEntries)
+    expect(corpusEntries).toBeLessThan(report.thresholds["corpusMinEntries"] ?? 1000)
   })
 
   it("R0-b 产物存在且与 golden _meta 状态一致（存在性硬检查的输入有效）", () => {
@@ -80,7 +86,7 @@ describe("R2 现役规模可观测输出", () => {
     const text = formatUnlockGateReport(report)
     // 可观测输出落 stdout（人工审计/CI 日志）
     console.log(text)
-    expect(text).toContain("corpus=80")
+    expect(text).toContain(`corpus=${corpusEntries}`)
     expect(text).toContain("locked=4")
     expect(report.nominatedTargets).toEqual([])
     expect(report.decisions.map((d) => d.reasonCode)).toEqual([

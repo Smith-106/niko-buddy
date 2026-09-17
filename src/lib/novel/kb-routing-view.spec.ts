@@ -180,9 +180,13 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
       // purpose 为指针字段：长度受限（消费端 slice(0,200)），非 content 全文
       expect(String(e.purpose ?? "").length).toBeLessThanOrEqual(200)
     }
-    // purpose 指针入包后体积预算上调（133 条 × ≤200 字符指针 ≈ 26KB 上限）；
-    // content 类大字段仍不入包（体积守恒语义不变）
-    expect(JSON.stringify(view).length).toBeLessThan(60_000)
+    // 语义不变量（与条目规模解耦）：7 字段结构 + purpose 指针（≤200 字符）→ 按条均预算断言
+    // 「content 类大字段不入包」。条均上限 400B 能捕捉任一全文泄漏（全文入包时条均将达数千字节），
+    // 且不因合规内容扩容（B5-a 多流派补料）而失效。
+    const total = JSON.stringify(view).length
+    expect(total / entries.length).toBeLessThan(400)
+    // 绝对上限仅作结构性兜底（防字段爆炸 / 嵌套结构误入包）
+    expect(total).toBeLessThan(120_000)
   })
 })
 

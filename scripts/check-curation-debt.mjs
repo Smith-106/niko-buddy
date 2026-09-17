@@ -49,6 +49,10 @@ const CURATION_REQUIRED_FIELDS = [
 const EXPECT_THEMES = [
   { theme: "克苏鲁", collections: ["world_ref"] },
   { theme: "修仙", collections: ["world_ref", "lexicon"] },
+  // B5-a 多流派扩容（批准计划 r3 §T1）：新流派题材@collection 同口径门禁
+  { theme: "奇幻", collections: ["world_ref", "lexicon"] },
+  { theme: "武侠", collections: ["world_ref", "lexicon"] },
+  { theme: "科幻", collections: ["world_ref", "lexicon"] },
 ]
 const EXPECT_COLLECTIONS = ["world_ref", "lexicon", "craft", "corpus"]
 const WRITING_COLLECTIONS = EXPECT_COLLECTIONS
