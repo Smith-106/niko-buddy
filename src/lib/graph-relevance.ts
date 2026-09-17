@@ -7,6 +7,7 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
+import { parseFrontmatter as parseFrontmatterCanonical } from "@/lib/frontmatter"
 import { NOVEL_RELATION_LABELS } from "@/lib/novel/graph-adapter"
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -80,32 +81,38 @@ function stemId(fileName: string): string {
   return fileName.replace(/\.md$/, "")
 }
 
+// 收敛到 canonical YAML frontmatter 解析（含 wikilink 修复/容错），
+// 原私有 regex 实现保留为 LLM 坏格式（如 inline array 含空项）的容错回退。
 function parseFrontmatter(content: string): { title: string; type: string; sources: string[]; isHistorical: boolean } {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
-  const fm = fmMatch ? fmMatch[1] : ""
+  const { frontmatter } = parseFrontmatterCanonical(content)
+  const fm = frontmatter ?? {}
+  const asStr = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? "") : String(v ?? "")).trim()
 
-  const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-  const typeMatch = fm.match(/^type:\s*["']?(.+?)["']?\s*$/m)
-  const histMatch = fm.match(/^is_historical:\s*(true|false)\s*$/mi)
-
-  const sources: string[] = []
-  const blockMatch = fm.match(/^sources:\s*\n((?:\s+-\s+.+\n?)*)/m)
-  if (blockMatch) {
-    for (const line of blockMatch[1].split("\n")) {
-      const m = line.match(/^\s+-\s+["']?(.+?)["']?\s*$/)
-      if (m) sources.push(m[1])
-    }
-  } else {
-    const inlineMatch = fm.match(/^sources:\s*\[([^\]]*)\]/m)
-    if (inlineMatch) {
-      for (const item of inlineMatch[1].split(",")) {
-        const trimmed = item.trim().replace(/^["']|["']$/g, "")
-        if (trimmed) sources.push(trimmed)
+  // canonical YAML 严格解析 sources；对非法 inline array（空项/未引号）回退 regex 容错。
+  let sources: string[] = Array.isArray(fm["sources"])
+    ? fm["sources"].map((x) => String(x).trim()).filter(Boolean)
+    : []
+  if (sources.length === 0) {
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
+    const rawFm = fmMatch ? fmMatch[1] : ""
+    const blockMatch = rawFm.match(/^sources:\s*\n((?:\s+-\s+.+\n?)*)/m)
+    if (blockMatch) {
+      for (const line of blockMatch[1].split("\n")) {
+        const m = line.match(/^\s+-\s+["']?(.+?)["']?\s*$/)
+        if (m) sources.push(m[1])
+      }
+    } else {
+      const inlineMatch = rawFm.match(/^sources:\s*\[([^\]]*)\]/m)
+      if (inlineMatch) {
+        for (const item of inlineMatch[1].split(",")) {
+          const trimmed = item.trim().replace(/^["']|["']$/g, "")
+          if (trimmed) sources.push(trimmed)
+        }
       }
     }
   }
 
-  let title = titleMatch?.[1]?.trim() ?? ""
+  let title = asStr(fm["title"])
   if (!title) {
     const heading = content.match(/^#\s+(.+)$/m)
     title = heading?.[1]?.trim() ?? ""
@@ -113,9 +120,9 @@ function parseFrontmatter(content: string): { title: string; type: string; sourc
 
   return {
     title,
-    type: typeMatch?.[1]?.trim().toLowerCase() ?? "other",
+    type: asStr(fm["type"]).toLowerCase() || "other",
     sources,
-    isHistorical: histMatch?.[1]?.toLowerCase() === "true",
+    isHistorical: asStr(fm["is_historical"]).toLowerCase() === "true",
   }
 }
 
