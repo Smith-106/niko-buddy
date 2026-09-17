@@ -813,3 +813,137 @@ export {
   deriveSubGateAlerts,
 } from "./dashboard-evidence"
 export type { BookHealthSummary, SubGateAlertItem } from "./dashboard-evidence"
+// ── R-1：共识六条反目标纯函数判定核 ────────────────────────
+export {
+  AG1_MAX_CORPUS_ENTRIES,
+  CORPUS_BASELINE_COUNT,
+  EXPECTED_RETRIEVAL_FLAGS,
+  checkAntigoals,
+  scanConvergenceClaimText,
+} from "./consensus-antigoals"
+export type { AntigoalId, AntigoalSnapshot, AntigoalViolation } from "./consensus-antigoals"
+// ── R0-a1：同尺迁移评测比较核（Wilson CI） ────────────────────────
+export {
+  SAME_SCALE_VERDICT_SCHEMA,
+  compareSameScale,
+  wilsonScoreInterval,
+} from "./same-scale-harness"
+export type { SameScaleResult, SameScaleVerdict, WeknoraSnapshot } from "./same-scale-harness"
+// ── R0-b：rerank 触发证据采集器（R2-a 硬依赖） ────────────────────────
+export {
+  RERANK_TRIGGER_CHANNEL,
+  RERANK_TRIGGER_EVIDENCE_SCHEMA,
+  RERANK_TRIGGER_RULE,
+  RerankTriggerEvidenceError,
+  buildRerankTriggerTraceEntry,
+  collectRerankTriggerEvidence,
+} from "./rerank-trigger-evidence"
+export type {
+  RerankTriggerBaseline,
+  RerankTriggerEvidence,
+  RerankTriggerRank,
+  RerankTriggerStatus,
+} from "./rerank-trigger-evidence"
+// ── R0-c：运行时 span 面（全链观测，零语义改动） ────────────────────────
+export {
+  RETRIEVAL_SPAN_CHANNEL,
+  RETRIEVAL_SPAN_STAGES,
+  RetrievalSpanError,
+  assertRetrievalSpanSequence,
+  buildRetrievalSpanTraceEntry,
+  createRetrievalSpanCollector,
+  makeRetrievalSpan,
+} from "./retrieval-span"
+export type {
+  RetrievalSpan,
+  RetrievalSpanCollector,
+  RetrievalSpanDetail,
+  RetrievalSpanSink,
+  RetrievalSpanStage,
+} from "./retrieval-span"
+// ── R0-d：延迟-成本预算账本（单一封顶口径 + 可回退注册表 + λ 初值） ──────────
+export {
+  DEFAULT_RETRIEVAL_BUDGET,
+  LAMBDA_MS_PER_PP_INITIAL,
+  LLM_RERANK_TIMEOUT_MS,
+  RETRIEVAL_BUDGET_PATHS,
+  RETRIEVAL_BUDGET_SCHEMA,
+  RETRIEVAL_LAMBDA_INITIAL,
+  RETRIEVAL_SOURCE_TIMEOUT_MS,
+  RetrievalBudgetError,
+  ZERO_LLM_DEFAULT_BUDGET_MS,
+  checkRetrievalBudget,
+  createRetrievalBudgetLedger,
+  getRetrievalBudgetLedger,
+  resetRetrievalBudgetLedger,
+} from "./retrieval-budget"
+export type {
+  RetrievalBudget,
+  RetrievalBudgetLedger,
+  RetrievalBudgetPath,
+  RetrievalBudgetVerdict,
+  RetrievalLambda,
+} from "./retrieval-budget"
+export {
+  CURATION_BATCH_SCHEMA,
+  CURATION_DEBT_CAP,
+  CURATION_DEBT_WEIGHTS,
+  CURATION_ENTRY_SCHEMA,
+  CURATION_MIN_SUMMARY_CHARS,
+  CURATION_REQUIRED_FIELDS,
+  CurationGateError,
+  assertCurationDebtWithinCap,
+  scoreCurationBatch,
+} from "./curation-gate"
+export type {
+  CurationBatch,
+  CurationBatchScore,
+  CurationDebtReason,
+  CurationEntry,
+  CurationFinding,
+} from "./curation-gate"
+export {
+  FANOUT_PROBE_SCHEMA,
+  PROMOTION_DOC_FACE_SCHEMA,
+  R0_EVIDENCE_FACE_SCHEMA,
+  SAME_CLUSTER_FACE_SCHEMA,
+  SCALE_UNLOCK_CTX_SCHEMA,
+  SCALE_UNLOCK_DECISION_SCHEMA,
+  SCALE_UNLOCK_REASON_CODES,
+  SCALE_UNLOCK_REPORT_SCHEMA,
+  SCALE_UNLOCK_TARGETS,
+  SCALE_UNLOCK_THRESHOLDS,
+  SCALE_UNLOCK_VERDICT_SCHEMA,
+  SPAN_FACE_SCHEMA,
+  ScaleUnlockGateError,
+  evaluateUnlockGates,
+  formatUnlockGateReport,
+} from "./scale-unlock-gates"
+export type {
+  ScaleUnlockCtx,
+  ScaleUnlockDecision,
+  ScaleUnlockReasonCode,
+  ScaleUnlockReport,
+  ScaleUnlockTarget,
+  ScaleUnlockVerdict,
+} from "./scale-unlock-gates"
+export {
+  ANN_INDEX_KIND_SCHEMA,
+  ANN_PLAN_PLACEHOLDER,
+  ANN_PLAN_SCHEMA,
+  ORE_PIPELINE_CONTRACT_PLACEHOLDER,
+  ORE_PIPELINE_CONTRACT_SCHEMA,
+  ORE_PIPELINE_STAGES,
+  ORE_PRICING_STATUS_SCHEMA,
+  SHARD_PLAN_PLACEHOLDER,
+  SHARD_PLAN_SCHEMA,
+  isOrePipelineUsable,
+} from "./retrieval-scale-placeholders"
+export type {
+  AnnIndexKind,
+  AnnPlan,
+  OrePipelineContract,
+  OrePipelineStage,
+  OrePricingStatus,
+  ShardPlan,
+} from "./retrieval-scale-placeholders"

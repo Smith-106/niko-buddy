@@ -152,6 +152,26 @@
 | 编辑影响分析（事前冲击面预测） | `src/lib/novel/edit-impact-analyzer.ts`（G4，纯函数 analyzeEditImpact：before/after 文本 diff 预测受影响实体集 + riskLevel high/medium/low；接线 `chapter-ingest.ts` saveEditedSnapshot 内，非阻断 trace logger.info，异常吞掉绝不阻断保存） + `edit-impact-analyzer.spec.ts`（7 绿） |
 | Plateau 停止准则 | `src/lib/novel/plateau-stop.ts`（G6，纯函数 detectPlateau：window=2/epsilon=0.5，滑动窗近 N 轮评分增益 ≤ epsilon 判 plateau） + `plateau-stop.spec.ts`（7 绿）；接线 `deep-chapter-generation.ts`（import + tracker + plateau break，早退 break 不置 manualReviewRequired） |
 
+## 检索强化锚点（共识计划 r2：R-1→R3 已落地，2026-09-17 同步）
+
+> 口径真源：`docs/p0/eval-matrix-2026-09-17.md`（治理文档，force-add 入仓；矩阵/回归网/裁决网/backlog）。
+> 反目标门禁：`scripts/guard-consensus-antigoals.mjs`（exit 0/2/3）+ `consensus-antigoals.gates.spec.ts`。
+
+| 能力 | 锚点 |
+|------|------|
+| R-1 反目标门禁（六条 AG） | `src/lib/novel/consensus-antigoals.ts`（纯函数 checkAntigoals + ANTIGOAL_SNAPSHOT_SCHEMA strict；AG1 语料上限 64/基线 6、AG2 flag 期望值、AG3 收敛声称需豁免、AG4 定义限 `src/lib/novel/`、AG5 rule-stack 优先级、AG6 只看 corpus 集合） + `scripts/guard-consensus-antigoals.mjs`（IO 采集 + TS 字面同步自检） + `consensus-antigoals.gates.spec.ts`（14 绿） |
+| R0-a 同尺迁移评测 harness | `src/lib/novel/same-scale-harness.ts`（compareSameScale + wilsonScoreInterval，裁决=CI 下界 ≥ 阈值；输出 P1/W 两面 + droppedQueries） + `scripts/extract-weknora-snapshot.mjs`（只读抽取 + `--check`）+ `__fixtures__/weknora-snapshot.1ef38fdb.json` + 双 spec（13+3；报告门控 `SAME_SCALE_REPORT=1` → `docs/p0/same-scale-<date>.md`） |
+| R0-b rerank 触发证据采集器 | `src/lib/novel/rerank-trigger-evidence.ts`（collectRerankTriggerEvidence 判据核 + strict 契约 + 零时钟 buildRerankTriggerTraceEntry；traceChannel `rerank-trigger`）+ `rerank-trigger-evidence.spec.ts`（13 绿）；报告门控 `RERANK_TRIGGER_EVIDENCE=1`；golden F5 唯一判据源 |
+| R0-c 运行时 span 面 | `src/lib/novel/retrieval-span.ts`（RETRIEVAL_SPAN_STAGES 六 stage 契约序 + makeRetrievalSpan + createRetrievalSpanCollector(now) + assertRetrievalSpanSequence 缺环/乱序/重复 fail-loud + 消费端桥；traceChannel `retrieval-span`）+ 接线 `search-adapter.ts` novelMixedSearch（可选 spans 参数，零语义改动） + `retrieval-span.spec.ts`（13 绿） |
+| R0-d 延迟成本预算账本 | `src/lib/novel/retrieval-budget.ts`（数值真源 2500/2500/45000 + checkRetrievalBudget（达上限即 reject_fallback）+ 调用级 ctx 回退注册表 + RETRIEVAL_LAMBDA_INITIAL=25 ms/pp calibrated=false）+ 接线 `search-adapter.ts` runSearchBranch / `context-engine.ts` rerank .catch + `retrieval-budget.spec.ts`（超时语义等价测） |
+| R1 策展闸门（资产空置） | `src/lib/novel/curation-gate.ts`（scoreCurationBatch 纯函数 + CURATION_BATCH_SCHEMA strict；债分权重 missing_field2/no_provenance1/short_summary1/theme_vacant3（题材@collection 粒度）/collection_vacant3，CAP=0）+ `curation-gate.spec.ts`（16 绿）+ IO 层 `scripts/check-curation-debt.mjs`（exit 0/2/3 + 字面同步自检，串联进 `sync-kb-view-to-qmai.mjs --check`）+ 全字段快照生成器 `scripts/snapshot-kb-view-content.mjs`（`--check`） |
+| R1-c 通道 B 归因 | `src/lib/novel/channel-b-attribution.spec.ts`（三态归因 routed_missing/token_missing/corpus_gap；基线快照 `__fixtures__/kb-routing-view.baseline-dfd24e776c100d12.json`）（7 绿） |
+| R2 解冻提名谓词 | `src/lib/novel/scale-unlock-gates.ts`（evaluateUnlockGates 纯函数 + SCALE_UNLOCK_CTX/REPORT/DECISION strict + 理由码枚举 + formatUnlockGateReport；提名≠开启、R0-b 存在性硬检查、ANN 恒 locked、阈值全标待标定初值、MMR 净增益公式、扇出复用 generateMultiQueries+R0-b 重放自洽）+ `scale-unlock-gates.spec.ts`（22）+ `scale-unlock-report.spec.ts`（6；报告门控 `SCALE_UNLOCK_REPORT=1` → `docs/p0/scale-unlock-<date>.md`） |
+| R3-c/d 工程预案占位 | `src/lib/novel/retrieval-scale-placeholders.ts`（ANN/分片预案占位 implemented=false；矿脉管道契约 ⓪ 计价待定 enabled=false + isOrePipelineUsable 纯函数）+ `retrieval-scale-placeholders.spec.ts`（4 绿） |
+| hub 侧内容包与生成器（不入 QMAI 锚点表主链） | `../scripts/gen-xianxia-content-pack.mjs`（CC0 内容包生成器）+ `../scripts/apply-xianxia-overrides.py`（KB_OVERRIDES 8 字段映射写入）+ `../scripts/build-reference-index.js`（CLASSIFY/META 表）→ 产物 `REFERENCE-INDEX.json` / `REFERENCE-KB-VIEW.json` → QMAI 消费面 `src/lib/novel/kb/kb-routing-view.generated.json`（禁止手改，由 `scripts/sync-kb-view-to-qmai.mjs` 重生成） |
+
+**无需锚点登记（说明理由）**：`__fixtures__/*.json`（冻结快照，sha 后缀）；`*.spec.ts`（测试面，与对应锚点同行已列；唯 `scale-unlock-report.spec.ts`/`same-scale-report.spec.ts` 因承担门控产物写盘职责被显式列出）；`scripts/*.mjs` 门禁脚本（IO 层，已随各自锚点列）。
+
 ## 修改优先顺序
 
 1. `task-router` / `context-engine` / `deep-chapter-generation`

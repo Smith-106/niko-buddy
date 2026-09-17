@@ -7,6 +7,12 @@ import { type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
 import { rankByBm25, tokenizeForBm25 } from "./bm25-ranking"
 import { computeQueryHash, createRetrievalTrace } from "./retrieval-trace"
+import type { RetrievalSpanSink } from "./retrieval-span"
+import {
+  RETRIEVAL_BUDGET_PATHS,
+  RETRIEVAL_SOURCE_TIMEOUT_MS,
+  getRetrievalBudgetLedger,
+} from "./retrieval-budget"
 // P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
 // 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
 // context-pack-freeze.spec 的 vi.mock("./search-adapter") 整体替换后拿到 undefined。
@@ -35,6 +41,8 @@ export interface NovelSearchParams {
   traceChapter?: number
   /** 波1 检索可解释包 additive: 检索时模型 id（路由证据，EB-1）。 */
   traceModelId?: string
+  /** R0-c 运行时 span 面（additive 观测）：不传则完全不产生 span，检索语义/排序零改动。 */
+  spans?: RetrievalSpanSink
 }
 
 export interface NovelSearchResult {
@@ -50,7 +58,8 @@ type RankedNovelSearchResult = NovelSearchResult & {
 }
 
 const SOURCE_RRF_K_DEFAULT = 60
-const SEARCH_SOURCE_TIMEOUT_MS = 2500
+/** R0-d：单源封顶收编到 retrieval-budget（数值不变，2500ms）。 */
+const SEARCH_SOURCE_TIMEOUT_MS = RETRIEVAL_SOURCE_TIMEOUT_MS
 const SOURCE_WEIGHTS: Record<NovelSearchResult["type"], number> = {
   keyword: 1,
   vector: 1,
@@ -81,6 +90,9 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   const pp = normalizePath(params.projectPath)
   const topK = params.topK ?? 5
   const results: RankedNovelSearchResult[] = []
+
+  // R0-c：链头 span（分词）——复用 BM25 同一分词器（tokenizeForBm25），观测不改变分词。
+  params.spans?.span("tokenize", { tokens: tokenizeForBm25(params.query).length })
 
   const promises: Promise<void>[] = []
 
@@ -163,9 +175,35 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 
   await Promise.all(promises)
 
+  // R0-c：五源 span（各源召回计数；RRF 前快照）。
+  if (params.spans) {
+    const byType: Record<string, number> = {}
+    for (const item of results) byType[item.type] = (byType[item.type] ?? 0) + 1
+    params.spans.span("sources", { total: results.length, ...byType })
+  }
+
   const merged = deduplicateResults(results, params.rrfK ?? SOURCE_RRF_K_DEFAULT)
+  // R0-c：RRF span（融合前后计数；K 常量与实现同源）。
+  params.spans?.span("rrf", {
+    raw: results.length,
+    merged: merged.length,
+    rrfK: params.rrfK ?? SOURCE_RRF_K_DEFAULT,
+  })
   const filtered = params.authoritativeOnly ? filterAuthoritative(merged) : merged
+  // R0-c：分档 span（≤3 / 4-20 / >20 三档；与 golden F5 rank 分档同口径）。
+  params.spans?.span("tiering", {
+    filtered: filtered.length,
+    tier1: Math.min(3, filtered.length),
+    tier2: Math.max(0, Math.min(20, filtered.length) - 3),
+    tier3: Math.max(0, filtered.length - 20),
+  })
   const truncated = filtered.slice(0, topK)
+
+  // R0-c：rerank 触发-or-跳过 span（候选≤1 时下游 rerankCandidates 即短路跳过）。
+  params.spans?.span("rerank_trigger", {
+    candidates: truncated.length,
+    decision: truncated.length > 1 ? "rerank" : "skip",
+  })
 
   const reranked = await rerankCandidates(
     params.query,
@@ -179,6 +217,13 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       purpose: "用于小说剧情搜索，优先返回最能支撑当前剧情推进、设定一致性和记忆调用的结果。",
     },
   )
+
+  // R0-c：封顶降级 span（分档集 → topK 窗口的截断计数；降级绝不静默）。
+  params.spans?.span("cap_degrade", {
+    before: filtered.length,
+    after: truncated.length,
+    dropped: Math.max(0, filtered.length - truncated.length),
+  })
 
   // 64 号实施接线（retrieval-trace 消费）：仅当调用方显式传 traceChannel
   // 时留痕（flag 默认关，检索行为不变）。append 失败静默（ADR-45：检索
@@ -235,11 +280,17 @@ async function appendRetrievalTraceQuietly(
 }
 
 async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T> {
+  // R0-d：延迟-成本预算账本接线（观测层，回退语义与迁移前逐字一致）。
+  const startedAt = Date.now()
+  const ledger = getRetrievalBudgetLedger()
+  // 回退策略为路径级常量（返回空结果集，不携带调用级数据）——幂等登记。
+  ledger.ensureRollback(RETRIEVAL_BUDGET_PATHS.searchBranch, () => [] as unknown[])
   try {
     return await withTimeout(promise, SEARCH_SOURCE_TIMEOUT_MS, label)
   } catch (err) {
     logger.error("Novel Search", `${label} error`, { error: err instanceof Error ? err.message : String(err) })
-    return [] as T
+    ledger.check(RETRIEVAL_BUDGET_PATHS.searchBranch, Date.now() - startedAt)
+    return ledger.rollback<undefined, T>(RETRIEVAL_BUDGET_PATHS.searchBranch, undefined)
   }
 }
 

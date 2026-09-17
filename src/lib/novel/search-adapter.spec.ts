@@ -107,6 +107,12 @@ import {
   tokensForKbMatch,
 } from "./search-adapter"
 import type { NovelSearchResult } from "./search-adapter"
+import { RETRIEVAL_SPAN_STAGES, createRetrievalSpanCollector } from "./retrieval-span"
+import {
+  RETRIEVAL_BUDGET_PATHS,
+  getRetrievalBudgetLedger,
+  resetRetrievalBudgetLedger,
+} from "./retrieval-budget"
 
 const pp = "E:/Novel"
 
@@ -314,6 +320,47 @@ describe("novelMixedSearch", () => {
     mocks.searchByEmbedding.mockRejectedValue(new Error("embedding down"))
     const results = await novelMixedSearch({ projectPath: pp, query: "q", includeVector: true })
     expect(results.some((r) => r.type === "vector")).toBe(false)
+  })
+
+  it("R0-d 超时语义等价：单源超 2500ms → 回退 []（字节级一致）且账本记账", async () => {
+    vi.useFakeTimers()
+    try {
+      resetRetrievalBudgetLedger()
+      mocks.searchWiki.mockReturnValue(new Promise(() => {}) as never)
+      const base = Date.now()
+      const pending = novelMixedSearch({ projectPath: pp, query: "超时源" })
+      await vi.advanceTimersByTimeAsync(2500)
+      vi.setSystemTime(base + 2600) // 账本实测耗时取自 Date.now（超时后已越 2500ms 预算）
+      const results = await pending
+      expect(results).toEqual([])
+      const ledger = getRetrievalBudgetLedger()
+      expect(ledger.rollbackPaths()).toContain(RETRIEVAL_BUDGET_PATHS.searchBranch)
+      const verdict = ledger.verdicts.find((v) => v.path === RETRIEVAL_BUDGET_PATHS.searchBranch)
+      expect(verdict).toBeDefined()
+      expect(verdict?.budgetMs).toBe(2500)
+      expect(verdict?.measuredMs).toBeGreaterThanOrEqual(2500)
+      expect(verdict?.action).toBe("reject_fallback")
+      expect(verdict?.rollbackRegistered).toBe(true)
+    } finally {
+      vi.useRealTimers()
+      resetRetrievalBudgetLedger()
+    }
+  })
+
+  it("R0-c 运行时 span：真实链路六 stage 全量落盘，且观测不改结果", async () => {
+    const items = [keywordItem(), keywordItem({ path: `${pp}/wiki/concepts/刀.md`, title: "刀" })]
+    mocks.searchWiki.mockResolvedValue(items)
+    const collector = createRetrievalSpanCollector(() => "2026-09-17T00:00:00.000Z")
+    const spanned = await novelMixedSearch({ projectPath: pp, query: "剑", spans: collector })
+    expect(collector.spans.map((s) => s.stage)).toEqual([...RETRIEVAL_SPAN_STAGES])
+    expect(() => collector.assertComplete()).not.toThrow()
+    expect(collector.spans[0]?.detail).toEqual({ tokens: expect.any(Number) })
+    expect(collector.spans[1]?.detail).toMatchObject({ total: 2 })
+    expect(collector.spans[2]?.detail).toMatchObject({ raw: 2, merged: 2 })
+    expect(collector.spans[4]?.detail).toMatchObject({ decision: "rerank" })
+    // 观测层：传 spans 与不传 spans 结果同形（零语义改动）
+    const plain = await novelMixedSearch({ projectPath: pp, query: "剑" })
+    expect(spanned.map((r) => r.path)).toEqual(plain.map((r) => r.path))
   })
 
   it("graph branch: matches nodes by title/id token and reads related nodes in parallel", async () => {

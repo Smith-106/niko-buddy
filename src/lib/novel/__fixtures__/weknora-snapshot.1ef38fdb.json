@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "source": "reference/WeKnora/dataset/samples（只读抽取，未迁移代码）",
+  "sourceCommit": "1ef38fdb",
+  "files": {
+    "queries.parquet": {
+      "rows": 1,
+      "columns": [
+        "id",
+        "text"
+      ]
+    },
+    "corpus.parquet": {
+      "rows": 4,
+      "columns": [
+        "id",
+        "text"
+      ]
+    },
+    "qrels.parquet": {
+      "rows": 4,
+      "columns": [
+        "qid",
+        "pid",
+        "score"
+      ]
+    },
+    "answers.parquet": {
+      "rows": 1,
+      "columns": [
+        "id",
+        "text"
+      ]
+    },
+    "qas.parquet": {
+      "rows": 1,
+      "columns": [
+        "qid",
+        "aid"
+      ]
+    }
+  },
+  "tables": {
+    "queries.parquet": [
+      {
+        "id": "1",
+        "text": "������Ĳ���ϵͳ����Щ"
+      }
+    ],
+    "corpus.parquet": [
+      {
+        "id": "1",
+        "text": "Mac ����ϵͳ�� Mac OS �� Apple Macintosh ����ϵͳ����ʽ���ơ� Mac OS ����ͼ���û����� (GUI)���ý������ô��ڡ�ͼ��������� Macintosh ������ϵ�����Ӧ�ó��򶼾������Ƶ��û����档"
+      },
+      {
+        "id": "2",
+        "text": "UNIX �������಻ͬ���͵ļ������ʵ�ֵĶ����������в���ϵͳ����Ϊ�����Ƕ�������ϵͳ�����������ϵͳ���������˳� UNIX Ϊ����;����ϵͳ�� Linux ��һ�����еġ���ѵġ�������� UNIX ���Ͳ���ϵͳ��"
+      },
+      {
+        "id": "3",
+        "text": "Ubuntu �� Mint �����ܻ�ӭ�ġ�������������� PC �ϰ�װ�� Windows ����ϵͳ��ʵ��ʹ������������Ӧ��ѡ�� Linux�� Linux ��һ���� Unix ����ϵͳ������������Դ����ϵͳ���� FreeBSD�� FreeBSD ʹ�ò�ͬ���ںˣ�����ʹ�õ����������ڵ��͵� Linux ���а��п����ҵ��Ĵ󲿷�������ͬ����̨ʽ PC ��ʹ�� FreeBSD �����齫�ǳ����ơ�������ϵͳ��"
+      },
+      {
+        "id": "4",
+        "text": "DOS - ���̲���ϵͳ - ���˼��������������ϵͳ֮һ�������򿪼����ʱ����������ֻ�ǿ������� c:\\> ��������ʾ������������������ʾ���¼������������Щ������������� c:\\>wp\\wp.exe�����Ϊ�����н��档"
+      }
+    ],
+    "qrels.parquet": [
+      {
+        "qid": "1",
+        "pid": "2",
+        "score": "1"
+      },
+      {
+        "qid": "1",
+        "pid": "3",
+        "score": "1"
+      },
+      {
+        "qid": "1",
+        "pid": "1",
+        "score": "1"
+      },
+      {
+        "qid": "1",
+        "pid": "4",
+        "score": "1"
+      }
+    ],
+    "answers.parquet": [
+      {
+        "id": "1",
+        "text": "������Ĳ���ϵͳ�� UNIX��Linux��FreeBSD��Mac OS �� DOS��"
+      }
+    ],
+    "qas.parquet": [
+      {
+        "qid": "1",
+        "aid": "1"
+      }
+    ]
+  }
+}

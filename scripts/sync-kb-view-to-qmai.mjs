@@ -24,8 +24,13 @@
  *   node scripts/sync-kb-view-to-qmai.mjs --source <path> --out <path>
  *
  * 退出码：0 一致/写入成功；1 漂移或缺字段（--check）；2 源不可读/参数错误。
+ *
+ * R1-d 策展闸门串联：`--check` 通过字节一致性后，追加调用
+ * scripts/check-curation-debt.mjs（债分上限门禁，本仓内；全字段面缺失时回退仓内
+ * 内容面 fixture）。债分超限/自检失败 → 本脚本 exit 2（fail-loud，不静默降级）。
  */
 import { mkdirSync, readFileSync, existsSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -232,6 +237,19 @@ function main(argv) {
       `[kb-view-sync] ✓ 一致：builtFrom=${fresh.builtFrom} schemaVersion=${fresh.schemaVersion} ` +
         `消费面 ${freshText.length}B / 源 ${sourceBytes}B\n`,
     )
+    // R1-d 策展闸门（债分上限）：与投影面一致性串联，均过才算 --check 通过
+    const gate = spawnSync(
+      process.execPath,
+      [resolve(HERE, "check-curation-debt.mjs")],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    )
+    process.stdout.write(gate.stdout ?? "")
+    if (gate.status !== 0) {
+      process.stderr.write(
+        gate.stderr ?? "[kb-view-sync] ✗ 策展债分门禁失败（scripts/check-curation-debt.mjs）\n",
+      )
+      return 2
+    }
     return 0
   }
 

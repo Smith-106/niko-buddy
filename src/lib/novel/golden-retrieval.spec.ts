@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { readFileSync } from "fs"
+import { readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
 import { routeByQueryIntent, tokensForKbMatch } from "./search-adapter"
 import { rankByBm25 } from "./bm25-ranking"
 import kbRoutingView from "./kb/kb-routing-view.generated.json"
+import { collectRerankTriggerEvidence } from "./rerank-trigger-evidence"
+import { wilsonScoreInterval } from "./same-scale-harness"
 
 /**
  * F4（2026-09-07 三模型共识）：golden queries 检索质量回归基线。
@@ -128,8 +130,47 @@ describe("F4 golden queries 检索质量基线（通道 B 纯逻辑）", () => {
 
   it(`F5 top3 命中率 ≥ 基线 ${golden._meta.baseline.minTop3Rate}（rerank 触发哨：top20 守住而 top3 掉档即产出采纳证据）`, () => {
     expect(top3Rate, `top3 掉档项: ${JSON.stringify(top3Below)}`).toBeGreaterThanOrEqual(golden._meta.baseline.minTop3Rate)
-    // rerank 触发哨状态：top20 守住而 top3 掉档 → 触发证据（_meta.rerankTrigger.rule）
-    const triggerArmed = top20Rate >= golden._meta.baseline.minTop20Rate && top3Rate < golden._meta.baseline.minTop3Rate
-    expect(golden._meta.rerankTrigger.status).toBe(triggerArmed ? "triggered" : "armed")
+    // R0-b：rerank 触发哨判定改为采集器（rerank-trigger-evidence.ts）单一真源；
+    // 与 golden _meta.rerankTrigger.status 做漂移自检（口径漂移即测试红）。
+    const evidence = collectRerankTriggerEvidence({
+      ranks,
+      baseline: {
+        minTop3Rate: golden._meta.baseline.minTop3Rate,
+        minTop20Rate: golden._meta.baseline.minTop20Rate,
+      },
+    })
+    expect(golden._meta.rerankTrigger.status).toBe(evidence.status)
+    // R0-b 产物文件（R2-a 硬依赖：文件不存在则相关谓词直接 locked）。
+    // 门控写盘：RERANK_TRIGGER_EVIDENCE=1（缺省零副作用）。
+    if (process.env.RERANK_TRIGGER_EVIDENCE === "1") {
+      const date = new Date().toISOString().slice(0, 10)
+      const ci = wilsonScoreInterval(evidence.top3Hits, evidence.n)
+      const md = [
+        `# rerank 触发证据（${date}）`,
+        "",
+        "## 输入绑定",
+        "",
+        "- golden 集：`src/lib/novel/__fixtures__/golden-queries.json`（N=" + String(evidence.n) + "）",
+        "- 基线阈值：minTop3Rate=" + String(evidence.minTop3Rate) + " / minTop20Rate=" + String(evidence.minTop20Rate),
+        "- 判据：" + evidence.rule,
+        "",
+        "## 判定",
+        "",
+        `- status：**${evidence.status}**（golden _meta.rerankTrigger.status 同步位）`,
+        `- top3：${evidence.top3Hits}/${evidence.n} = ${evidence.top3Rate.toFixed(4)}；top20：${evidence.top20Hits}/${evidence.n} = ${evidence.top20Rate.toFixed(4)}`,
+        `- top3 Wilson 95% CI：[${ci.lower.toFixed(4)}, ${ci.upper.toFixed(4)}]`,
+        `- top3 掉档候选（${evidence.droppedQueries.length}）：` + (evidence.droppedQueries.length ? "" : "（无）"),
+        ...evidence.droppedQueries.map((q) => `  - ${q}`),
+        `- top20 掉档（${evidence.top20DroppedQueries.length}，非触发判据）：` + (evidence.top20DroppedQueries.length ? "" : "（无）"),
+        ...evidence.top20DroppedQueries.map((q) => `  - ${q}`),
+        "",
+        "## status.json 同步位",
+        "",
+        "- 本文件为证据快照，未写入 `.novel/status.json`（状态真源唯一，HARD-1）；开关默认值不变。",
+        "- R2-a 提名谓词消费本文件存在性；R0-b 不开启 rerank 默认开关。",
+        "",
+      ].join("\n")
+      writeFileSync(resolve(__dirname, "..", "..", "..", "docs", "p0", `rerank-trigger-evidence-${date}.md`), md, "utf8")
+    }
   })
 })

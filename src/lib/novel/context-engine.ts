@@ -33,6 +33,7 @@ import { buildTrustGradeMap } from "./trust-grader"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch, retrieveDualTrack, reorderByUsefulness, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult, type NovelSearchResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import { runVectorSearchShared } from "./vector-search-core"
+import { RETRIEVAL_BUDGET_PATHS, getRetrievalBudgetLedger } from "./retrieval-budget"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
@@ -2191,10 +2192,24 @@ export async function searchRelevantContentUnified(
     })
   })()
 
+  const rerankStartedAt = Date.now()
+  const budgetLedger = getRetrievalBudgetLedger()
+  // R0-d：回退策略为“保留原候选”（每次调用传 ctx，共享账本不持调用级数据）。
+  budgetLedger.ensureRollback(
+    RETRIEVAL_BUDGET_PATHS.contextRerank,
+    (ctx: typeof candidates) => ctx,
+  )
   const reranked = await rerankCandidates(query, dedupedCandidates, {
     topK: Math.max(limit * 2, limit),
     purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
-  }).catch(() => candidates)
+  }).catch(() => {
+    // R0-d：LLM rerank 失败/超时→回退原始候选（字节级语义不变）；账本记账实测耗时。
+    budgetLedger.check(RETRIEVAL_BUDGET_PATHS.contextRerank, Date.now() - rerankStartedAt)
+    return budgetLedger.rollback<typeof candidates, typeof candidates>(
+      RETRIEVAL_BUDGET_PATHS.contextRerank,
+      candidates,
+    )
+  })
 
   // E-02 (C-7): 写作特化 usefulness rerank（flag 门控，默认 false → 现状排序）。
   // canon_consistency 否决制（冲突候选剔除，不加权平均）；置于 rerankCandidates 之后。
