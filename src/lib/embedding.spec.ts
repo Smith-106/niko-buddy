@@ -123,6 +123,20 @@ describe("fetchEmbedding — default (OpenAI-compatible) endpoint", () => {
     expect(getLastEmbeddingError()).toBeNull()
   })
 
+  it("auto-suffixes a bare OpenAI-style base with /embeddings", async () => {
+    fetchMock.mockResolvedValueOnce(okJsonResponse({ data: [{ embedding: [0.5] }] }))
+    const vec = await fetchEmbedding("hello", cfg({ endpoint: "https://api.siliconflow.cn/v1" }))
+    expect(vec).toEqual([0.5])
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe("https://api.siliconflow.cn/v1/embeddings")
+  })
+
+  it("keeps an explicit /embeddings URL unchanged", async () => {
+    fetchMock.mockResolvedValueOnce(okJsonResponse({ data: [{ embedding: [0.5] }] }))
+    await fetchEmbedding("hello", cfg({ endpoint: "https://x.com/v1/embeddings/" }))
+    expect(fetchMock.mock.calls[0][0]).toBe("https://x.com/v1/embeddings")
+  })
+
   it("accepts a non-finite-free numeric array", async () => {
     fetchMock.mockResolvedValueOnce(okJsonResponse({ data: [{ embedding: [0] }] }))
     expect(await fetchEmbedding("x", cfg())).toEqual([0])

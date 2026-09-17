@@ -7,7 +7,7 @@
 
 import { getProviderConfig, withCustomOriginHeader } from "@/lib/llm-providers"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
-import { isDirectRerankEndpoint } from "@/lib/rerank-api"
+import { isRerankCapableEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
@@ -232,7 +232,7 @@ export async function fetchRerankModelList(
     return fetchLlmModelList(llmConfig)
   }
 
-  if (isDirectRerankEndpoint({ provider: rerankConfig.provider, customEndpoint: rerankConfig.customEndpoint })) {
+  if (isRerankCapableEndpoint({ provider: rerankConfig.provider, customEndpoint: rerankConfig.customEndpoint })) {
     return fetchModelsFromUrl(
       buildEndpointModelsUrl(rerankConfig.customEndpoint),
       rerankConfig.apiKey.trim() ? { Authorization: `Bearer ${rerankConfig.apiKey.trim()}` } : {},

@@ -1,6 +1,6 @@
 import { streamChat } from "@/lib/llm-client"
 import { useWikiStore, type LlmConfig, type RerankConfig } from "@/stores/wiki-store"
-import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
+import { isRerankCapableEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 
 export interface RerankCandidate {
@@ -152,7 +152,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
   const candidateSlice = candidates.slice(0, candidateLimit)
   const prompt = buildPrompt(query, candidateSlice, options.purpose)
 
-  if (isDirectRerankEndpoint(modelConfig)) {
+  if (isRerankCapableEndpoint(modelConfig)) {
     try {
       const directResults = await requestDirectRerank(
         modelConfig,

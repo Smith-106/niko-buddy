@@ -15,7 +15,7 @@ vi.mock("@/lib/tauri-fetch", async (importOriginal) => {
   }
 })
 
-import { isDirectRerankEndpoint, requestDirectRerank } from "./rerank-api"
+import { isDirectRerankEndpoint, isRerankCapableEndpoint, requestDirectRerank, resolveDirectRerankUrl } from "./rerank-api"
 
 function makeConfig(
   overrides: Partial<{ provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"; customEndpoint: string; apiKey: string; model: string }> = {},
@@ -49,10 +49,42 @@ describe("isDirectRerankEndpoint", () => {
   })
 })
 
+describe("isRerankCapableEndpoint", () => {
+  it("accepts explicit /rerank and bare base URLs", () => {
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://x.com/v1/rerank" })).toBe(true)
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://api.siliconflow.cn/v1" })).toBe(true)
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://x.com" })).toBe(true)
+  })
+
+  it("rejects chat-path tails and non-custom providers", () => {
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://x.com/v1/chat/completions" })).toBe(false)
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://x.com/v1/responses" })).toBe(false)
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "https://x.com/v1/messages" })).toBe(false)
+    expect(isRerankCapableEndpoint({ provider: "openai", customEndpoint: "https://x.com/v1" })).toBe(false)
+    expect(isRerankCapableEndpoint({ provider: "custom", customEndpoint: "not-a-url" })).toBe(false)
+  })
+})
+
+describe("resolveDirectRerankUrl", () => {
+  it("keeps an explicit /rerank URL", () => {
+    expect(resolveDirectRerankUrl("https://x.com/v1/rerank")).toBe("https://x.com/v1/rerank")
+    expect(resolveDirectRerankUrl("https://x.com/v1/rerank/")).toBe("https://x.com/v1/rerank")
+  })
+
+  it("auto-suffixes a bare base URL with /rerank", () => {
+    expect(resolveDirectRerankUrl("https://api.siliconflow.cn/v1")).toBe("https://api.siliconflow.cn/v1/rerank")
+    expect(resolveDirectRerankUrl("https://x.com")).toBe("https://x.com/rerank")
+    expect(resolveDirectRerankUrl("https://x.com/v1/")).toBe("https://x.com/v1/rerank")
+  })
+})
+
 describe("requestDirectRerank", () => {
-  it("throws when the endpoint is not a direct rerank endpoint", async () => {
+  it("throws when the endpoint is not rerank-capable", async () => {
     await expect(
-      requestDirectRerank(makeConfig({ customEndpoint: "https://x.com/v1/models" }), "q", ["d"]),
+      requestDirectRerank(makeConfig({ customEndpoint: "https://x.com/v1/chat/completions" }), "q", ["d"]),
+    ).rejects.toThrow("当前配置不是直连重排接口。")
+    await expect(
+      requestDirectRerank(makeConfig({ provider: "openai" }), "q", ["d"]),
     ).rejects.toThrow("当前配置不是直连重排接口。")
   })
 

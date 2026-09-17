@@ -17,6 +17,34 @@ export function isDirectRerankEndpoint(config: Pick<LlmConfig, "provider" | "cus
   return config.provider === "custom" && /\/rerank\/?$/i.test(config.customEndpoint.trim())
 }
 
+/**
+ * Resolve the final POST URL for a direct rerank endpoint.
+ * Accepts either a full `…/rerank` URL or a bare OpenAI-style base
+ * (`https://api.siliconflow.cn/v1`); a base URL is auto-suffixed with
+ * `/rerank` so users can paste the provider base instead of the exact
+ * rerank path. Request-path tails for chat (`/chat/completions`,
+ * `/responses`, `/messages`) are never treated as rerank endpoints.
+ */
+export function resolveDirectRerankUrl(endpoint: string): string {
+  const trimmed = endpoint.trim().replace(/\/+$/, "")
+  if (/\/rerank$/i.test(trimmed)) return trimmed
+  return `${trimmed}/rerank`
+}
+
+/**
+ * True when the custom endpoint is rerank-capable: either an explicit
+ * `…/rerank` URL or a bare base URL that will be auto-suffixed. Explicit
+ * chat-path tails (`/chat/completions`, `/responses`, `/messages`) are
+ * excluded — those are chat endpoints, not rerank.
+ */
+export function isRerankCapableEndpoint(config: Pick<LlmConfig, "provider" | "customEndpoint">): boolean {
+  if (config.provider !== "custom") return false
+  const trimmed = config.customEndpoint.trim()
+  if (!/^https?:\/\//i.test(trimmed)) return false
+  if (/\/(chat\/completions|responses|messages)\/?$/i.test(trimmed)) return false
+  return true
+}
+
 export async function requestDirectRerank(
   config: Pick<LlmConfig, "provider" | "customEndpoint" | "apiKey" | "model">,
   query: string,
@@ -24,7 +52,7 @@ export async function requestDirectRerank(
   signal?: AbortSignal,
 ): Promise<DirectRerankResultItem[]> {
   const endpoint = config.customEndpoint.trim()
-  if (!isDirectRerankEndpoint(config)) {
+  if (!isRerankCapableEndpoint(config)) {
     throw new Error("当前配置不是直连重排接口。")
   }
   /* v8 ignore next */
@@ -40,7 +68,7 @@ export async function requestDirectRerank(
 
   try {
     const httpFetch = await getHttpFetch()
-    const response = await httpFetch(endpoint.replace(/\/+$/, ""), {
+    const response = await httpFetch(resolveDirectRerankUrl(endpoint), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

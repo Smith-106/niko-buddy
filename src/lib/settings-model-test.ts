@@ -7,7 +7,7 @@
  */
 import { fetchEmbedding } from "@/lib/embedding"
 import { streamChat } from "@/lib/llm-client"
-import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
+import { isRerankCapableEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
@@ -153,7 +153,7 @@ export async function testSettingsRerankModel(
 ): Promise<RerankModelTestResult> {
   const { config, model, usedMainLlm } = resolveRerankConfig(llmConfig, rerankConfig)
 
-  if (isDirectRerankEndpoint(config)) {
+  if (isRerankCapableEndpoint(config)) {
     const results = await requestDirectRerank(
       config,
       "主角寻找关键线索",

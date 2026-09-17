@@ -115,11 +115,25 @@ const dashScopeEmbeddingAdapter: EmbeddingProviderAdapter = {
 const genericEmbeddingAdapter: EmbeddingProviderAdapter = {
   // Matches everything: always the final fallback, so dispatch never falls through.
   matches: () => true,
-  resolveEndpoint: (cfg) => cfg.endpoint,
+  // A bare OpenAI-style base (`…/v1`) is auto-suffixed with `/embeddings`;
+  // an explicit `…/embeddings` URL is used verbatim.
+  resolveEndpoint: (cfg) => resolveGenericEmbeddingUrl(cfg.endpoint),
   buildHeaders: (cfg) => bearerHeaders(cfg),
   buildRequest: (cfg, text) => ({ model: cfg.model, input: text }),
   parseResponse: (payload) => readPath(payload, ["data", 0, "embedding"]) as number[] | null | undefined,
   expectedShapeName: "data[0].embedding",
+}
+
+/**
+ * Resolve the final POST URL for an OpenAI-compatible embedding endpoint.
+ * Users commonly paste the provider base (`https://api.siliconflow.cn/v1`)
+ * instead of the full `…/embeddings` path — auto-suffix so the base works.
+ * An endpoint already ending in `/embeddings` is returned unchanged.
+ */
+export function resolveGenericEmbeddingUrl(endpoint: string): string {
+  const trimmed = endpoint.trim().replace(/\/+$/, "")
+  if (/\/embeddings$/i.test(trimmed)) return trimmed
+  return `${trimmed}/embeddings`
 }
 
 /** Bearer auth headers for DashScope and the generic OpenAI-compatible path. */
