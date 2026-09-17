@@ -7,9 +7,19 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.9.1**（2026-09-14 发布：安全修复 + UI 可达性批次）
+**v2.9.3**（2026-09-18 发布：实体物理分层 + 治理审计沉淀）
 
-### v2.9.1 更新亮点（2026-09-14）
+### v2.9.3 更新亮点（2026-09-18）
+
+- ✅ **实体物理分层** — `wiki/entities` 改由 `entity-subdir-resolver` 路由：写按 `entity_subtype` 落入 5 个子目录（characters/items/locations/organizations/events），读先扫子目录再扁平回退；已有 335 个实体迁入子目录，扁平 `wiki/entities/{name}.md` 字面量路径已废弃（spec `wiki-entities-resolver-contract`）
+- ✅ **frontmatter 收敛** — graph-relevance 私有 regex 解析收敛到 canonical `parseFrontmatter` + LLM 坏格式容错回退（REV-005）
+- ✅ **UI 修复** — detective-board 线索圆点 `hsl(var(--primary))` 非法 CSS（`--primary` 为 oklch token）改 `var(--primary)`（UI-001）
+- ✅ **治理审计沉淀** — 7 个 odyssey session（review/defensive/security/improve/IPC/perf/UI）端到端审计 50 findings，边界 spec + knowhow 模板 + issue 池固化
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+
+前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
+
+### v2.9.1 更新亮点（2026-09-14，安全修复 + UI 可达性批次）
 
 - ✅ **安全** — 互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）修复：不可信剧情内容未转义直达 DOM 的路径补齐转义
 - ✅ **依赖** — npm audit fix 7 漏洞（2H/4M/1L）+ 新增 CI 依赖审计回归门，新审计发现直接阻断流水线
@@ -17,8 +27,6 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **缺陷修复** — agent 写入工具 preview 存在性检查失败改为响亮报错（FIX-LOW）；dashboard 域 UI 发现项 H/M/L 分层处置
 - ✅ **验证纪律** — 触达域 vitest 188/188、e2e 84/84、tsc --build 0、ARIA 嵌套扫描 0 残留；全量套件在发布硬门重跑
 - 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
-
-前往 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases) 下载最新 Windows 安装包（macOS/Linux planned）。
 
 ### v2.9.0 更新亮点（2026-09-14，任务级自定义 feature + 六维质量改进 + agent 链强化）
 
