@@ -18,9 +18,8 @@ import {
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
-import { reviewChapter, runContinuityMechanicalPreflight, runAuditTriadPreflight, isReviewParseError, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import {
-  dimensionResultsToReviewResults,
   runSixDimensionReview,
   type SixReviewDimensionKey,
   type DimensionReviewResult,
@@ -67,21 +66,6 @@ import { resolveRoleModel as resolveRoleModelName } from "@/lib/llm/model-resolv
 import {
   appendRewriteRateASample,
 } from "./character-cognition"
-import {
-  checkContinuity,
-  buildReadonlyStoreFromInput,
-  DEFAULT_CONTINUITY_CONFIG,
-  summarizeContinuityFindings,
-  formatContinuityFindingsForPrompt,
-  type ContinuityInput,
-  type ContinuityFinding,
-  type ContinuityOverrideStore,
-} from "./deterministic-continuity-engine"
-import { forecastBranches } from "./plot-forecast"
-import { collectContinuityMetric } from "@/lib/llm-client"
-import { loadContinuityOverrides } from "./continuity-overrides-store"
-import { loadForeshadowingTracker } from "./foreshadowing-tracker"
-import { loadSubplotBoard } from "./subplot-board"
 import { loadCharacterStates } from "./character-state"
 import {
   extractEmbeddedStateDeltaJson,
@@ -124,7 +108,6 @@ import {
   type WatchdogState,
 } from "./watchdog"
 import { createStatusWriteMerger } from "./status-write-merge"
-import { recordAntiAiShadowTelemetry } from "./anti-ai-shadow-telemetry"
 
 export interface DeepChapterGenerationInput {
   projectPath: string
@@ -703,409 +686,18 @@ function hasCheckpointRevision(
 ): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], currentContent: string } {
   return hasCheckpointReview(checkpoint) && Boolean(checkpoint.currentContent?.trim()) && checkpointStageAtLeast(checkpoint, "after_revision")
 }
-
-/**
- * ARCH-001 (ISS-20260708-005): single review helper called at all 3 review
- * points (stage-4 initial, stage-5.5 resume-after-revision, stage-5
- * post-repair). Runs reviewChapter + the F-003 6-dimension review + the
- * dimension-flatten merge in one place, so the 6-dim wiring that previously
- * lived only at stage-4 (causing copy-paste drift) now fires on revised
- * content too. The 6-dim block is best-effort: a failure MUST NOT break the
- * main review flow (preserved from the original stage-4 pattern).
- *
- * The helper does NOT call buildDecisionGates — callers do, because the 3
- * sites differ in retryCount / manualReviewRequired.
- *
- * Returns `{ reviewResults, dimensionResults }` so callers can checkpoint
- * dimensionResults (the raw 6-dim map) alongside the flattened reviewResults.
- */
-export async function runFullReviewWithSixDim(
-  content: string,
-  chapterNumber: number | undefined,
-  projectPath: string,
-  deps: DeepChapterGenerationDeps,
-  signal: AbortSignal | undefined,
-  contextPack: ContextPack,
-  callbacks: DeepChapterGenerationCallbacks,
-): Promise<{
-  reviewResults: NovelReviewResult[]
-  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
-  /** 48号报告 §六-⑥: 审查输出不可解析且重试耗尽 ⇒ 禁止 LLM 自动修订正文, 转人工。 */
-  reviewParseFailed?: boolean
-}> {
-  // (a) reviewChapter — signal-aware ternary (both branches must stay or
-  // non-signal callers break). Matches the original stage-4 call shape.
-  let reviewResults: NovelReviewResult[]
-  // PERF-NEW-06: reviewChapter and runSixDimensionReview have NO data
-  // dependency between them — launch both concurrently. reviewChapter keeps
-  // its rethrow-on-failure semantics (await it first so its error surfaces
-  // before the non-blocking 6-dim result is merged), while runSixDim runs
-  // in parallel and is merged only after reviewChapter resolves.
-  const runSixDim = deps.runSixDimensionReview
-  // ISS-20260709-049: own a local AbortController for the 6-dim review so a
-  // reviewChapter throw can cascade-abort the orphan 6-dim LLM stream instead
-  // of letting it run to its 120s timeout. The external `signal` (caller-side
-  // cancel / user abort) is merged in via combineAbortSignals so it propagates
-  // to 6-dim too — but we cannot abort the external signal ourselves, so the
-  // local controller is the only handle we hold for orphan cancellation.
-  const sixDimController = new AbortController()
-  const sixDimSignal = combineAbortSignals(signal, sixDimController.signal)
-  // ISS-20260719-002 (option C1 真接线): 启动 6-dim 前先串行跑一次机械连续性预检,
-  // 结果同时注入 (a) sixDimP 的 priorReviewResults 激活 continuity 维度短路跳 LLM,
-  // (b) reviewChapter 的 injectedContinuityResults 跳过内部重跑。串行插入的仅是
-  // 机械 IO (4-store load + 纯函数 checkContinuity), 不取消任何 LLM 并发 —
-  // PERF-NEW-06 的 invariant 是 reviewChapter 的 LLM 审查与 6-dim 的 LLM 审查并发,
-  // 机械预检非 LLM 不在 invariant 范围。净成本 0 (现状 reviewChapter 内也要跑这步),
-  // 净收益 = 省 1 轮 continuity LLM (短路命中时)。守 S-20260718-ito3 (复用已加载 store
-  // 不独立 reload): injectedContinuityResults 消除重复 load, 总 preflight 调用次数 = 1。
-  const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
-  const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
-    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity })
-        .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
-        .catch((err: unknown) => {
-          // Non-blocking: capture the original error so the gap log can print
-          // the real Error object (matches the prior console.error shape).
-          // Re-throws are NOT propagated (preserves 6-dim-non-blocking contract).
-          return { __sixDimError: err }
-        })
-    : Promise.resolve(undefined)
-  try {
-    reviewResults = signal
-      ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity }, signal)
-      : await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity })
-  } catch (err) {
-    // (b) log + rethrow (matches the original stage-4 ~1042-1044 pattern).
-    // The 3 call sites previously each had their own try/catch with slightly
-    // different log messages; consolidating into the helper eliminates that
-    // copy-paste drift along with the 6-dim block.
-    // F-16 (CWE-532): log only the message, not the full error object — streamChat
-    // errors may carry provider request details (URL/headers) that should not
-    // reach the app's stderr. Matches the :778 six-dim error-message extraction.
-    logger.error("Deep Chapter", "Review failed", { error: err instanceof Error ? err.message : String(err) })
-    // F-1 (orphan 6-dim process): when reviewChapter throws, the `await
-    // sixDimP` at the coalesce step below is unreachable, so the 6-dim review
-    // launched in parallel would keep running as an orphan background LLM
-    // stream (up to 6 dimensions × stream timeout). ISS-20260709-049: now
-    // that runSixDimensionReview accepts an AbortSignal, abort the local
-    // sixDimController to cascade-cancel the in-flight 6-dim LLM streams,
-    // reclaiming the orphaned token/quota. sixDimP already has a .catch above
-    // so the abort surfaces as a non-blocking __sixDimError (discarded: the
-    // coalesce step is unreachable on this path, and reviewChapter's failure
-    // already fails the whole review). Attach a terminal .catch so the orphan
-    // is explicitly owned (never becomes an unhandled rejection if the .catch
-    // above is ever changed). The external signal is NOT aborted — only the
-    // local controller, so the caller's cancel semantics are untouched.
-    if (runSixDim) {
-      sixDimController.abort()
-      void sixDimP.catch(() => {})
-      logger.warn("Deep Chapter", "6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
-    }
-    // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析 (ReviewParseError,
-    // 重试耗尽后) ⇒ 禁止基于不可信审计触发 LLM 自动返修正文 (对齐 inkos
-    // chapter-review-cycle parseFailed → skip auto-revise 语义)。不 re-throw
-    // 触发 watchdog paused, 而是返回 warning finding + reviewParseFailed=true
-    // 让编排层走 manualHandoff 转人工。守 IC-02 "从不静默降级" 纪律。
-    if (isReviewParseError(err)) {
-      if (runSixDim) {
-        sixDimController.abort()
-        void sixDimP.catch(() => {})
-      }
-      callbacks.onThinking?.(formatStageThinking(
-        "阶段4：审稿解析失败保护",
-        "重试耗尽，审查输出不可解析。禁止基于不可信审计自动返修正文，转人工处理。",
-      ))
-      return {
-        reviewResults: [{
-          severity: "warning" as const,
-          type: "review_parse_failed",
-          message: "审查输出解析失败（重试耗尽），已跳过自动修订以避免误改正文",
-          evidence: err.parseMessage,
-          relatedMemory: "review-adapter",
-          suggestion: "换用更强模型或检查结构化输出格式后重跑审稿；正文未做任何自动改动。",
-        }],
-        dimensionResults: {},
-        reviewParseFailed: true,
-      }
-    }
-    throw err
-  }
-  // (c) coalesce — reviewChapter may return null/undefined.
-  reviewResults = reviewResults || []
-  // (c)+(d) F-003 6-dim block: non-blocking. A 6-dim failure must not break
-  // the main review flow.
-  let dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
-  const sixDimOutcome = await sixDimP
-  if (sixDimOutcome && typeof sixDimOutcome === "object" && "__sixDimError" in sixDimOutcome) {
-    // CORR-109 (IC-02 contract): record the gap. The prior catch only logged
-    // and left dimensionResults={}, so a chapter whose 6-dim review threw was
-    // indistinguishable downstream from one where 6-dim passed clean (the
-    // F-003/ARCH-001 "6-dim orphan" silently recurred). Push an info-severity
-    // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
-    // review was skipped, not clean. Non-blocking preserved (info, not error).
-    const sixDimErr = sixDimOutcome.__sixDimError
-    const errMsg = sixDimErr instanceof Error ? sixDimErr.message : String(sixDimErr)
-    // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Deep Chapter", "6-dimension review failed (non-blocking)", { error: errMsg })
-    reviewResults = [
-      ...reviewResults,
-      {
-        severity: "info",
-        type: "quality",
-        message: `[6-dim review unavailable: ${errMsg}]`,
-        evidence: "",
-        relatedMemory: "",
-        suggestion: "",
-      },
-    ]
-  } else if (sixDimOutcome) {
-    dimensionResults = sixDimOutcome
-    if (Object.keys(dimensionResults).length > 0) {
-      reviewResults = [
-        ...reviewResults,
-        ...dimensionResultsToReviewResults(dimensionResults),
-      ]
-    }
-  }
-  // ISS-20260719-002 (option C1 真接线已激活): 机械预检在 sixDimP 启动前先跑
-  // (见上方 preflightContinuity), 结果注入 6-dim 的 priorReviewResults 激活
-  // continuity 维度短路 (dimension-review-adapter.ts:404-422), 命中 consistency_mechanical
-  // findings 时 6-dim continuity 维度产 pass 占位跳 LLM。此处仅记短路激活频次信号
-  // (CWE-532 脱敏, 只记 count 不引用 findings 正文), 供未来 plan session 评估短路收益
-  // (省了多少 continuity LLM token)。短路未命中 (mechanical=0 或 6-dim 仍跑 continuity)
-  // 不记。守 logger 双参 scope='Deep Chapter'。
-  const mechanicalContinuityCount = reviewResults.filter(
-    (r) => r.type === "consistency_mechanical",
-  ).length
-  if (mechanicalContinuityCount > 0 && dimensionResults.continuity) {
-    logger.warn("Deep Chapter", "ISS-20260719-002 continuity 短路接线运行信号", {
-      mechanical_findings: mechanicalContinuityCount,
-      six_dim_continuity_status: dimensionResults.continuity.status,
-    })
-  }
-  // T24-01 影子遥测接线（#34 ≥200 章累积钟）：跑 mech 四因子仅供 sink 记录，
-  // 不并入 reviewResults/gate（门裁语义零变更）。fire-and-forget，永不阻塞主评审。
-  // 语料降级：生产无 corpus 则 n-gram/标点因子中性，PL/熵正常算。
-  void recordAntiAiShadowTelemetry(content, chapterNumber).catch(() => {
-    /* 非致命：遥测失败绝不影响章节生成 */
-  })
-  return { reviewResults, dimensionResults }
-}
-
-/**
- * TASK-007: 确定性连续性引擎生成层预检 (grill GRL-011 Decision 1.3 bullet 模式)。
- *
- * 薄包装: load foreshadowing-tracker / subplot-board / character-states 结构化
- * store (幂等 try/catch 降级, 缺失/损坏返回空数组非致命), 组装 ContinuityInput,
- * 经 buildReadonlyStoreFromInput 转 ReadonlyStore 调 checkContinuity 纯函数拿
- * ContinuityFinding[]。过滤 critical+high 且排除
- * data_gap (Decision 1.3 bullet 只注入提醒级 findings, 不阻断生成守 Draft-first 三
- * 大硬约束 #2; data_gap 是 info 级标注非一致性问题不注入生成层)。文本化为简短
- * bullet list 注入任务书 prompt 末尾 (非长文, 守 context 预算)。空则返回 "" 不污染
- * prompt (空守卫)。try/catch 降级: 引擎或 store 读取失败返回 "" 不阻断草稿生成
- * (生成层绝不阻断, 阻断职责归审查层 TASK-008)。
- *
- * snapshots 传空数组: 预检轻量化, 不全量 load snapshots (O(C) 读盘开销大)。
- * 引擎 checkDormantThreads 优先读 subplot.lastSeenChapter 落盘值 (writehook 增量
- * 更新), 仅 undefined 时 fold 反推需 snapshots——此时 deriveSubplotLastSeenChapter
- * 返回 undefined, 引擎产 data_gap (info) 标注缺数据, 不阻断。其余 3 项检测
- * (absent_character/overdue_threads/dead_character_state) 不依赖 snapshots。
- */
-async function runContinuityPreCheck(
-  projectPath: string,
-  currentChapter: number | undefined,
-): Promise<string> {
-  const startMs = Date.now()
-  try {
-    const chapterNum = currentChapter ?? 0
-    const [foreshadowingStore, subplotStore, characterStore] = await Promise.all([
-      loadForeshadowingTracker(projectPath)/* v8 ignore start */ /* v8 ignore stop */.catch(() => ({ items: [], lastUpdated: "" })),
-      loadSubplotBoard(projectPath)/* v8 ignore start */ /* v8 ignore stop */.catch(() => ({ items: [], lastUpdated: "" })),
-      loadCharacterStates(projectPath).catch(() => ({ characters: [], lastUpdated: "" })),
-    ])
-    const continuityInput: ContinuityInput = {
-      foreshadowing: foreshadowingStore.items,
-      subplots: subplotStore.items,
-      characters: characterStore.characters,
-      snapshots: [],
-      currentChapter: chapterNum,
-    }
-    // G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级, 失败
-    // 返 undefined 走 rawFindings 不阻断 (守 fold_rebuildable)。生成层不双跑
-    // (不关心 overrides_hit metric, Decision 5)。overrideStore 仅传非空。
-    let overrideStore: ContinuityOverrideStore | undefined
-    try {
-      const loaded = await loadContinuityOverrides(projectPath)
-      overrideStore = loaded.overrides.length > 0 ? loaded : undefined
-    } catch (err) {
-      logger.warn(
-        "continuity-engine",
-        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
-      )
-      overrideStore = undefined
-    }
-    const findings: ContinuityFinding[] = checkContinuity(
-      buildReadonlyStoreFromInput(continuityInput),
-      DEFAULT_CONTINUITY_CONFIG,
-      overrideStore,
-    )
-    const summary = summarizeContinuityFindings(findings)
-    // ADR-30: 3 级 severity (critical/warning/info) — blueprint 对齐 (非 4 级无 high)。
-    // 生成层预检注入 critical+warning 提醒级 (非阻断守 Draft-first)。
-    // warning 级 = dormant_thread/absent_character/unresolved_foreshadowing (3 级方案)。
-    // data_gap (info) 不注入 (仅可见标注)。
-    // TASK-010 (Decision 7.2): continuity 观测层 metric — 生成层预检 gate=consistency,
-    // 只记 count+ms (CWE-532)。short_circuit_hits=0 (预检非阻断不短路 LLM)。
-    // high_count=0 (3 级方案无 high, dormant/absent/unresolved 归 warning)。
-    // overrides_hit=0 (生成层不双跑, 不关心 override metric, Decision 5)。
-    collectContinuityMetric({
-      execution_ms: Date.now() - startMs,
-      critical_count: summary.critical,
-      high_count: 0,
-      warning_count: summary.warning,
-      data_gap_count: summary.data_gap,
-      overrides_hit: 0,
-      short_circuit_hits: 0,
-      engine_error_count: 0,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
-    })
-    // 64 号实施接线（plot-forecast 消费）：写章前对未回收支线做并发/逾期
-    // 预检（确定性零 LLM）。error 级风险追加到注入文本（仅提示，非阻断，
-    // 守 Draft-first）；无风险不产生输出。
-    const forecastText = buildPlotForecastHint(subplotStore, chapterNum)
-    const base = formatContinuityFindingsForPrompt(findings, { includeChapter: false })
-    return forecastText ? [base, forecastText].filter(Boolean).join("\n\n") : base
-  } catch (err) {
-    logger.warn("continuity-engine", "precheck degraded: " + (err as Error).message)
-    collectContinuityMetric({
-      execution_ms: Date.now() - startMs,
-      critical_count: 0,
-      high_count: 0,
-      warning_count: 0,
-      data_gap_count: 0,
-      overrides_hit: 0,
-      short_circuit_hits: 0,
-      engine_error_count: 1,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
-    })
-    return ""
-  }
-}
-
-/**
- * TASK-009: 确定性连续性引擎机械 critical 检测 (grill GRL-011 Decision 3.1 +
- * ADR-17 Q4 机械 critical 不进 fix-loop LLM 重写)。
- *
- * 薄包装: load foreshadowing-tracker / subplot-board / character-states store
- * (幂等 try/catch 降级), 组装 ContinuityInput, 经 buildReadonlyStoreFromInput
- * 转 ReadonlyStore 调 checkContinuity 纯函数拿 findings, 检查是否存在
- * severity==='critical' 且 subtype==='consistency_mechanical'
- * 的 finding (dead_character_state / overdue_thread; 两者 type 不同但 subtype 都是
- * consistency_mechanical)。用 subtype 而非 type 判定 (ContinuityFinding.subtype 字段
- * 是 consistency_mechanical 标记)。有则返回 {tripped:true, reason: 模板化摘要 (critical
- * findings 的 ref+type 列表, 不引用正文守 CWE-532)}; 无则 {tripped:false, reason:''}。
- * 该分流走 emotion-ledger Circuit Breaker 同款 manualHandoff 路径 (Decision 3.1 复用
- * 不新建独立 audit)。调用点在 fix-loop LLM 重写分支前, 通过 manualHandoff 提前返回
- * 绕过 max_retry=3 LLM 重写 (守 ADR-17)。
- */
-async function checkContinuityCritical(
-  projectPath: string,
-  currentChapter: number | undefined,
-  chapterText?: string,
-): Promise<{ tripped: boolean; reason: string }> {
-  const startMs = Date.now()
-  try {
-    const chapterNum = currentChapter ?? 0
-    const [foreshadowingStore, subplotStore, characterStore] = await Promise.all([
-      loadForeshadowingTracker(projectPath)/* v8 ignore start */ /* v8 ignore stop */.catch(() => ({ items: [], lastUpdated: "" })),
-      loadSubplotBoard(projectPath)/* v8 ignore start */ /* v8 ignore stop */.catch(() => ({ items: [], lastUpdated: "" })),
-      loadCharacterStates(projectPath).catch(() => ({ characters: [], lastUpdated: "" })),
-    ])
-    const continuityInput: ContinuityInput = {
-      foreshadowing: foreshadowingStore.items,
-      subplots: subplotStore.items,
-      characters: characterStore.characters,
-      snapshots: [],
-      currentChapter: chapterNum,
-    }
-    // G3 override 写入端接线 (AC-006.5): loadContinuityOverrides try/catch 降级, 失败
-    // 返 undefined 走 rawFindings 不阻断 (守 fold_rebuildable)。生成层不双跑
-    // (不关心 overrides_hit metric, Decision 5)。overrideStore 仅传非空。
-    let overrideStore: ContinuityOverrideStore | undefined
-    try {
-      const loaded = await loadContinuityOverrides(projectPath)
-      overrideStore = loaded.overrides.length > 0 ? loaded : undefined
-    } catch (err) {
-      logger.warn(
-        "continuity-engine",
-        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
-      )
-      overrideStore = undefined
-    }
-    const findings: ContinuityFinding[] = checkContinuity(
-      buildReadonlyStoreFromInput(continuityInput),
-      DEFAULT_CONTINUITY_CONFIG,
-      overrideStore,
-    )
-    const summary = summarizeContinuityFindings(findings)
-    const critical = findings.filter(
-      (f) => f.severity === "critical" && f.subtype === "consistency_mechanical",
-    )
-    // E-04 (C-8 生成侧为辅): 审计三口诀 critical 并入 — 复用审查侧预检 (含 JSONL
-    // 落盘幂等), 正文在场实体提取 + 证据分级; critical → error 并入 tripped 判定,
-    // manualHandoff 语义不变 (机械 critical 不进 fix-loop LLM 重写)。
-    let auditCritical: NovelReviewResult[] = []
-    try {
-      auditCritical = await runAuditTriadPreflight(projectPath, chapterNum, { chapterText })
-        .then((rs) => rs.filter((r) => r.severity === "error"))
-    } catch {
-      auditCritical = []
-    }
-    // TASK-010 (Decision 7.2): critical 分流 metric — short_circuit_hits=tripped 数
-    // (机械 critical 短路 LLM fix-loop, 走 manualHandoff 非 LLM 重写)。
-    // high_count=0 (3 级方案无 high, ADR-30 blueprint 对齐)。
-    // overrides_hit=0 (生成层不双跑, 不关心 override metric, Decision 5)。
-    collectContinuityMetric({
-      execution_ms: Date.now() - startMs,
-      critical_count: summary.critical,
-      high_count: 0,
-      warning_count: summary.warning,
-      data_gap_count: summary.data_gap,
-      overrides_hit: 0,
-      short_circuit_hits: critical.length,
-      engine_error_count: 0,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
-    })
-    if (critical.length === 0 && auditCritical.length === 0) {
-      return { tripped: false, reason: "" }
-    }
-    const list = [
-      ...critical.map((f) => `${f.ref}(${f.type})`),
-      ...auditCritical.map((r) => `${r.continuityMeta?.ref ?? r.message}(${r.type})`),
-    ].join(", ")
-    return {
-      tripped: true,
-      reason: `连续性机械 critical: ${list} (死亡角色活跃态/伏笔逾期未回收/信息边界泄露, 走人工处理避免 fix-loop LLM 重写加深不一致)`,
-    }
-  } catch (err) {
-    logger.warn("continuity-engine", "critical check degraded: " + (err as Error).message)
-    collectContinuityMetric({
-      execution_ms: Date.now() - startMs,
-      critical_count: 0,
-      high_count: 0,
-      warning_count: 0,
-      data_gap_count: 0,
-      overrides_hit: 0,
-      short_circuit_hits: 0,
-      engine_error_count: 1,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
-    })
-    return { tripped: false, reason: "" }
-  }
-}
+// ── 审查执行子模块（arch-risk W4 god-object 拆分）─────────────────────────
+// runFullReviewWithSixDim 已抽离到 deep-chapter-review.ts；import 供编排使用 +
+// re-export 保持外部 import 路径不变。
+import { runFullReviewWithSixDim } from "./deep-chapter-review"
+export { runFullReviewWithSixDim } from "./deep-chapter-review"
+// ── 连贯性预检子模块（arch-risk W4 god-object 拆分）───────────────────────
+// runContinuityPreCheck/checkContinuityCritical/buildPlotForecastHint 已抽离到
+// deep-chapter-continuity.ts；import 供编排使用。
+import {
+  checkContinuityCritical,
+  runContinuityPreCheck,
+} from "./deep-chapter-continuity"
 
 export async function runDeepChapterGeneration(
   input: DeepChapterGenerationInput,
@@ -2838,45 +2430,15 @@ async function finalPolishChapter(
   return polished.trim() ? polished : currentContent
 }
 
-function resolveCurrentChapterLengthSpec(novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"]): ChapterLengthSpec {
-  return resolveChapterLengthSpec(novelConfig?.chapterTargetChars)
-}
-
-function resolveWritingConfig(llmConfig: LlmConfig): LlmConfig {
-  // 写作模型已移除，始终使用 AI 会话当前模型。
-  // llmConfig 已在 chat-panel.tsx 中通过 effectiveChatLlmConfig 正确解析，
-  // 不再通过 resolveNovelModel 重新解析，避免二次解析使用不同 API 端点/密钥
-  return llmConfig
-}
-
-/**
- * 把以 cachePrefix 开头的 user 字符串消息拆成 [前缀块(cacheControl), 余下块]，
- * 让 provider 在稳定上下文前缀上打缓存断点。其余消息原样返回。
- * 注：Anthropic/MiniMax 会据此发出 cache_control；OpenAI/DeepSeek 端纯文本块会被
- * 折叠回与原字符串逐字节一致的内容，不影响其自动前缀缓存。
- */
-export function applyCachePrefix(messages: ChatMessage[], cachePrefix?: string): ChatMessage[] {
-  /* v8 ignore next */
-  if (!cachePrefix) return messages
-  return messages.map((message) => {
-    /* v8 ignore next */
-    if (
-      message.role === "user" &&
-      typeof message.content === "string" &&
-      message.content.startsWith(cachePrefix)
-    ) {
-      const rest = message.content.slice(cachePrefix.length)
-      return {
-        role: message.role,
-        content: [
-          { type: "text" as const, text: cachePrefix, cacheControl: true },
-          ...(rest ? [{ type: "text" as const, text: rest }] : []),
-        ],
-      }
-    }
-    return message
-  })
-}
+// ── 解析/缓存辅助子模块（arch-risk W4 god-object 拆分）────────────────────
+// resolveCurrentChapterLengthSpec/resolveWritingConfig/applyCachePrefix 已抽离到
+// deep-chapter-resolve.ts；import 供编排使用 + applyCachePrefix re-export。
+import {
+  applyCachePrefix,
+  resolveCurrentChapterLengthSpec,
+  resolveWritingConfig,
+} from "./deep-chapter-resolve"
+export { applyCachePrefix } from "./deep-chapter-resolve"
 
 async function collectModelText(
   config: LlmConfig,
@@ -3182,33 +2744,4 @@ async function safeBuildChapterContextPack(
       revisionDirectives: "",
     }
   }
-}
-
-/**
- * 64 号实施接线（plot-forecast 消费）：从 subplot board 构造候选分支并预检。
- * 只取未回收/未废弃支线；projectedChapter 缺省目标回收章，无则当前章+2。
- * error 级风险渲染为提示文本；无风险返回 ""（零 LLM 确定性）。
- */
-function buildPlotForecastHint(
-  subplotStore: { items: { id: string; title: string; status: string; abandoned?: boolean; targetResolutionChapter?: number }[] },
-  currentChapter: number,
-): string {
-  if (!subplotStore.items || subplotStore.items.length === 0) return ""
-  const branches = subplotStore.items
-    .filter((s) => s.status !== "resolved" && s.status !== "done" && !s.abandoned)
-    .map((s) => ({
-      id: s.id,
-      subplotId: s.id,
-      direction: `推进支线「${s.title}」`,
-      projectedChapter: s.targetResolutionChapter ?? currentChapter + 2,
-    }))
-  if (branches.length === 0) return ""
-  const results = forecastBranches(
-    { items: subplotStore.items as never, lastUpdated: "" },
-    branches,
-  )
-  const errors = results.flatMap((r) =>
-    r.risks.filter((risk) => risk.severity === "error").map((risk) => `- [支线预检] ${risk.message}`),
-  )
-  return errors.length > 0 ? `## 支线推进预检\n${errors.join("\n")}` : ""
 }
