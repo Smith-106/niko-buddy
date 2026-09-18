@@ -1,0 +1,3509 @@
+{
+  "schemaVersion": 2,
+  "builtFrom": "sha256:989f0ce9d1cd638d",
+  "source": "reference/REFERENCE-KB-VIEW.json",
+  "collections": {
+    "corpus": 6,
+    "craft": 12,
+    "lexicon": 53,
+    "tech": 70,
+    "world_ref": 27
+  },
+  "entryCount": 168,
+  "entries": [
+    {
+      "author": "wfcz10086",
+      "collection": "corpus",
+      "contentDigest": "sha256-174e5c9c329075d0f7bd50c6a58bbcc4",
+      "domain": [
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "AI-automatically-generates-novels",
+      "purpose": "AI 自动生成小说工具（批量草稿流水线）",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "AI 自动生成小说范文（AI-automatically-generates-novels）；分类：writing-tools；上游：wfcz10086/AI-automatically-generates-novels；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：AI 自动生成小说工具（批量草稿流水线）。",
+      "title": "AI 自动生成小说范文",
+      "trust": "reference_only",
+      "upstream": "wfcz10086/AI-automatically-generates-novels"
+    },
+    {
+      "author": "voocel",
+      "collection": "corpus",
+      "contentDigest": "sha256-a6b2047a7df72d6d058cce6782e6efb4",
+      "domain": [
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "ainovel-cli",
+      "purpose": "AI 小说 CLI 生成链",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "AINovel CLI 生成样本（ainovel-cli）；分类：writing-engines；上游：voocel/ainovel-cli；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：AI 小说 CLI 生成链。",
+      "title": "AINovel CLI 生成样本",
+      "trust": "reference_only",
+      "upstream": "voocel/ainovel-cli"
+    },
+    {
+      "author": "GOAT-AI-lab",
+      "collection": "corpus",
+      "contentDigest": "sha256-4adb021915d6b6a447cf316a495c7b1a",
+      "domain": [
+        "叙事样本",
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "goat-storytelling",
+      "purpose": "分层规划长篇故事 Agent，20部中篇零监督生成",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "分层规划长篇故事 Agent 生成样本（20部中篇）（goat-storytelling）；分类：writing-engines；上游：GOAT-AI-lab/GOAT-Storytelling-Agent；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：分层规划长篇故事 Agent，20部中篇零监督生成。",
+      "title": "分层规划长篇故事 Agent 生成样本（20部中篇）",
+      "trust": "reference_only",
+      "upstream": "GOAT-AI-lab/GOAT-Storytelling-Agent"
+    },
+    {
+      "author": "mrigankad",
+      "collection": "corpus",
+      "contentDigest": "sha256-05858029144aafdf391ea42060c17179",
+      "domain": [
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "Novel-OS",
+      "purpose": "写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "Novel-OS 写作工具范文（Novel-OS）；分类：writing-tools；上游：mrigankad/Novel-OS；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：写作工作室编辑基础设施（Scrivener 结构+5 agent 协作）。",
+      "title": "Novel-OS 写作工具范文",
+      "trust": "reference_only",
+      "upstream": "mrigankad/Novel-OS"
+    },
+    {
+      "author": "Navneshwar",
+      "collection": "corpus",
+      "contentDigest": "sha256-b25c2c0a317b27552436381bdddcae1d",
+      "domain": [
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "NovelForge-cognee",
+      "purpose": "NovelForge × cognee 记忆集成变体",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "NovelForge cognee 变体范文（NovelForge-cognee）；分类：writing-tools；上游：Navneshwar/novelforge-ai；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：NovelForge × cognee 记忆集成变体。",
+      "title": "NovelForge cognee 变体范文",
+      "trust": "reference_only",
+      "upstream": "Navneshwar/novelforge-ai"
+    },
+    {
+      "author": "2572873335",
+      "collection": "corpus",
+      "contentDigest": "sha256-b505e51bb4e57b394dc830a8cbb02810",
+      "domain": [
+        "生成范文"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "NovelForge-v5",
+      "purpose": "NovelForge v5 写作引擎",
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "summary": "NovelForge v5 生成小说范文（NovelForge-v5）；分类：writing-engines；上游：2572873335/novel_generator；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：NovelForge v5 写作引擎。",
+      "title": "NovelForge v5 生成小说范文",
+      "trust": "reference_only",
+      "upstream": "2572873335/novel_generator"
+    },
+    {
+      "author": "conorbronsdon",
+      "collection": "craft",
+      "contentDigest": "sha256-f0a6b3effc9e072bd29d81865731aa87",
+      "domain": [
+        "anti-AI"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "avoid-ai-writing",
+      "purpose": "去 AI 味写作检查",
+      "query_intent": [
+        "revise",
+        "style"
+      ],
+      "summary": "去 AI 痕迹审计/重写技法（avoid-ai-writing）；分类：writing-tools；上游：conorbronsdon/avoid-ai-writing；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：去 AI 味写作检查。",
+      "title": "去 AI 痕迹审计/重写技法",
+      "trust": "reference_only",
+      "upstream": "conorbronsdon/avoid-ai-writing"
+    },
+    {
+      "author": "sparanoid",
+      "collection": "craft",
+      "contentDigest": "sha256-7d1b13218b5a3359f15cb934c8c520e0",
+      "domain": [
+        "排版",
+        "规范"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "chinese-copywriting-guidelines",
+      "purpose": "中文文案排版规范（空格/标点/中英混排指南）",
+      "query_intent": [
+        "revise",
+        "style"
+      ],
+      "summary": "中文文案排版规范（chinese-copywriting-guidelines）；分类：writing-ecosystem；上游：sparanoid/chinese-copywriting-guidelines；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：中文文案排版规范（空格/标点/中英混排指南）。",
+      "title": "中文文案排版规范",
+      "trust": "reference_only",
+      "upstream": "sparanoid/chinese-copywriting-guidelines"
+    },
+    {
+      "author": "google-deepmind",
+      "collection": "craft",
+      "contentDigest": "sha256-d17a78ecb0535a36bf19371a3416c900",
+      "domain": [
+        "剧本",
+        "结构"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "dramatron",
+      "purpose": "DeepMind 交互式剧作家（分层剧本生成）",
+      "query_intent": [
+        "plan",
+        "revise"
+      ],
+      "summary": "分层剧本生成（DeepMind）（dramatron）；分类：writing-engines；上游：google-deepmind/dramatron；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：DeepMind 交互式剧作家（分层剧本生成）。",
+      "title": "分层剧本生成（DeepMind）",
+      "trust": "reference_only",
+      "upstream": "google-deepmind/dramatron"
+    },
+    {
+      "author": "geobond13",
+      "collection": "craft",
+      "contentDigest": "sha256-126393dc79efc8337d814ee50d3db14b",
+      "domain": [
+        "anti-AI",
+        "文风"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "fiction-forge",
+      "purpose": "24 种 AI 写作指纹扫描+冷读验证协议",
+      "query_intent": [
+        "revise",
+        "style"
+      ],
+      "summary": "文风匹配/冷读验证/voice-matching 协议（fiction-forge）；分类：writing-tools；上游：geobond13/fiction-forge；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：24 种 AI 写作指纹扫描+冷读验证协议。",
+      "title": "文风匹配/冷读验证/voice-matching 协议",
+      "trust": "reference_only",
+      "upstream": "geobond13/fiction-forge"
+    },
+    {
+      "author": "loganpendragonmultiverse",
+      "collection": "craft",
+      "contentDigest": "sha256-7c5adbf4b0b223b687d148f561b5aae3",
+      "domain": [
+        "一致性",
+        "数值"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "fiction-number-checker",
+      "purpose": "从小说中抽取数值事实供人工一致性复核",
+      "query_intent": [
+        "revise"
+      ],
+      "summary": "数值事实抽取校验（fiction-number-checker）；分类：writing-engines；上游：loganpendragonmultiverse/fiction-number-checker；许可：MIT；ADR 档级：理念参考 gap2（数值事实抽取）；信任：reference_only；用途：从小说中抽取数值事实供人工一致性复核。",
+      "title": "数值事实抽取校验",
+      "trust": "reference_only",
+      "upstream": "loganpendragonmultiverse/fiction-number-checker"
+    },
+    {
+      "author": "OneSpiral",
+      "collection": "craft",
+      "contentDigest": "sha256-f3cb15343288c4f2c3be5ddfb4fd7132",
+      "domain": [
+        "文风"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "ghost-writer",
+      "purpose": "24 维法医级文风逆向工程与复现",
+      "query_intent": [
+        "style"
+      ],
+      "summary": "24 维文风逆向与复现（ghost-writer）；分类：writing-tools；上游：OneSpiral/ghost-writer；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：24 维法医级文风逆向工程与复现。",
+      "title": "24 维文风逆向与复现",
+      "trust": "reference_only",
+      "upstream": "OneSpiral/ghost-writer"
+    },
+    {
+      "author": "Anshler",
+      "collection": "craft",
+      "contentDigest": "sha256-217044147d6ceeca2df84a06d52c764b",
+      "domain": [
+        "伏笔",
+        "设定"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "graphify-novel",
+      "purpose": "章节→故事圣经图谱+伏笔追踪",
+      "query_intent": [
+        "plan",
+        "revise"
+      ],
+      "summary": "章节→故事圣经图谱+伏笔追踪（graphify-novel）；分类：writing-tools；上游：Anshler/graphify-novel；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：章节→故事圣经图谱+伏笔追踪。",
+      "title": "章节→故事圣经图谱+伏笔追踪",
+      "trust": "reference_only",
+      "upstream": "Anshler/graphify-novel"
+    },
+    {
+      "author": "inkle",
+      "collection": "craft",
+      "contentDigest": "sha256-81c6a80fbd1cd31788219f9a31162079",
+      "domain": [
+        "互动叙事"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "ink",
+      "purpose": "inkle 互动叙事脚本语言+引擎（Ink）",
+      "query_intent": [
+        "plan",
+        "draft"
+      ],
+      "summary": "inkle 互动叙事脚本语言（ink）；分类：writing-engines；上游：inkle/ink；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：inkle 互动叙事脚本语言+引擎（Ink）。",
+      "title": "inkle 互动叙事脚本语言",
+      "trust": "reference_only",
+      "upstream": "inkle/ink"
+    },
+    {
+      "author": "real-Elysia886",
+      "collection": "craft",
+      "contentDigest": "sha256-1a702761b3ecf2a1245709bfcaecb3b3",
+      "domain": [
+        "长篇"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "inkflow",
+      "purpose": "AI 小说写作助手",
+      "query_intent": [
+        "plan",
+        "draft"
+      ],
+      "summary": "长篇生成引擎（技法载体）（inkflow）；分类：writing-engines；上游：real-Elysia886/inkflow；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：AI 小说写作助手。",
+      "title": "长篇生成引擎（技法载体）",
+      "trust": "reference_only",
+      "upstream": "real-Elysia886/inkflow"
+    },
+    {
+      "author": "Krish-afk-bot",
+      "collection": "craft",
+      "contentDigest": "sha256-be6a800fae517ce19b8b8fece8a0d9f8",
+      "domain": [
+        "一致性"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "narrative-consistency-verifier",
+      "purpose": "约束驱动验证长篇小说角色背景一致性（claim 分解+证据检索+因果推理）",
+      "query_intent": [
+        "revise"
+      ],
+      "summary": "声明分解+证据检索一致性核查（narrative-consistency-verifier）；分类：writing-engines；上游：Krish-afk-bot/narrative-consistency-verifier；许可：MIT；ADR 档级：理念参考 gap2（声明分解+证据检索）；信任：reference_only；用途：约束驱动验证长篇小说角色背景一致性（claim 分解+证据检索+因果推理）。",
+      "title": "声明分解+证据检索一致性核查",
+      "trust": "reference_only",
+      "upstream": "Krish-afk-bot/narrative-consistency-verifier"
+    },
+    {
+      "author": "PAGEGOD",
+      "collection": "craft",
+      "contentDigest": "sha256-9d5009c31deaa277a8603477f641b8e0",
+      "domain": [
+        "一致性"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "pagegod-narrative-scanner",
+      "purpose": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐",
+      "query_intent": [
+        "revise"
+      ],
+      "summary": "确定性连续性错误检测（pagegod-narrative-scanner）；分类：writing-engines；上游：PAGEGOD/pagegod-narrative-scanner；许可：Apache-2.0；ADR 档级：理念参考 gap2（纯算术连续性主原型）；信任：reference_only；用途：确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐。",
+      "title": "确定性连续性错误检测",
+      "trust": "reference_only",
+      "upstream": "PAGEGOD/pagegod-narrative-scanner"
+    },
+    {
+      "author": "Nigh",
+      "collection": "craft",
+      "contentDigest": "sha256-52e68b49c8f84c19bfe1eafabf921aac",
+      "domain": [
+        "伏笔"
+      ],
+      "era": "unavailable",
+      "lang": "en",
+      "name": "show-me-the-story",
+      "purpose": "单二进制逐章自动连写+伏笔系统+全书优化",
+      "query_intent": [
+        "plan",
+        "revise"
+      ],
+      "summary": "逐章连写+伏笔系统（show-me-the-story）；分类：writing-engines；上游：Nigh/show-me-the-story；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：单二进制逐章自动连写+伏笔系统+全书优化。",
+      "title": "逐章连写+伏笔系统",
+      "trust": "reference_only",
+      "upstream": "Nigh/show-me-the-story"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-bd8b019be60654c5833e6e8c364f7010",
+      "domain": [
+        "奇幻",
+        "遗迹"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-term-dungeon",
+      "purpose": "奇幻词条：地下城与遗迹规则（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "地下城与遗迹规则（fantasy-term-dungeon）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：地下城与遗迹规则（自建 CC0）。",
+      "title": "地下城与遗迹规则",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-1df23c4da0b77bb9145252b4556081cb",
+      "domain": [
+        "奇幻",
+        "魔力"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-term-mana",
+      "purpose": "奇幻词条：魔力流动与感知（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "魔力流动与感知（fantasy-term-mana）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：魔力流动与感知（自建 CC0）。",
+      "title": "魔力流动与感知",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-fd9fa4eda135bafb5d676cae60460efb",
+      "domain": [
+        "奇幻",
+        "誓约"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-term-oath",
+      "purpose": "奇幻词条：誓约与契约约束（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "誓约与契约的约束力（fantasy-term-oath）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：誓约与契约约束（自建 CC0）。",
+      "title": "誓约与契约的约束力",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-b13681f5eaa7e91058761bc99c67a075",
+      "domain": [
+        "外星",
+        "科幻"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-term-alien",
+      "purpose": "科幻词条：外星生态与接触协议（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "外星生态与接触协议（scifi-term-alien）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：外星生态与接触协议（自建 CC0）。",
+      "title": "外星生态与接触协议",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-f1fcfcf7d72a6c34f33293ce6a01cfaa",
+      "domain": [
+        "科幻",
+        "航行"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-term-warp",
+      "purpose": "科幻词条：曲率航行与时间代价（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "曲率航行与时间代价（scifi-term-warp）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：曲率航行与时间代价（自建 CC0）。",
+      "title": "曲率航行与时间代价",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-641ce8dbc37e173057e7164c734cd118",
+      "domain": [
+        "废土",
+        "科幻"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-term-wasteland",
+      "purpose": "科幻词条：废土生存与旧世遗迹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "废土生存与旧世遗迹（scifi-term-wasteland）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：废土生存与旧世遗迹（自建 CC0）。",
+      "title": "废土生存与旧世遗迹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-b8c79b90f512a2430760d4be8d17a93f",
+      "domain": [
+        "内功",
+        "武侠"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-term-neigong",
+      "purpose": "武侠词条：内功经脉与修炼代价（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "内功经脉与修炼代价（wuxia-term-neigong）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：内功经脉与修炼代价（自建 CC0）。",
+      "title": "内功经脉与修炼代价",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-8499ae12261d08e8e869703e27230e95",
+      "domain": [
+        "侠义",
+        "武侠"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-term-revenge-code",
+      "purpose": "武侠词条：侠义与仇怨法则（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "侠义与仇怨法则（wuxia-term-revenge-code）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：侠义与仇怨法则（自建 CC0）。",
+      "title": "侠义与仇怨法则",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-c06df89d70d7ecabccb1e14a7d622446",
+      "domain": [
+        "兵器",
+        "武侠"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-term-weapons",
+      "purpose": "武侠词条：兵器谱与招式命名（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "兵器谱与招式命名（wuxia-term-weapons）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：兵器谱与招式命名（自建 CC0）。",
+      "title": "兵器谱与招式命名",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-5575e308c5c37551a9de32b2cbaf593d",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-alchemy",
+      "purpose": "修仙功法：丹道（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "丹道（xianxia-art-alchemy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：丹道（自建 CC0）。",
+      "title": "丹道",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-01c19d07c1d2be1a4e2e546fd88c3dd5",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-body-refining",
+      "purpose": "修仙功法：炼体诀（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "炼体诀（xianxia-art-body-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：炼体诀（自建 CC0）。",
+      "title": "炼体诀",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-b3cfc980157508b3bb9a2e6f745822b2",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-five-elements",
+      "purpose": "修仙功法：五行遁术（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "五行遁术（xianxia-art-five-elements）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：五行遁术（自建 CC0）。",
+      "title": "五行遁术",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-e4c8f097a2af6c973f3013684b96d8d4",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-formation",
+      "purpose": "修仙功法：阵法之道（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "阵法之道（xianxia-art-formation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：阵法之道（自建 CC0）。",
+      "title": "阵法之道",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-a17e24ab16931e6499db449299d74e75",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-puppetry",
+      "purpose": "修仙功法：傀儡术（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "傀儡术（xianxia-art-puppetry）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：傀儡术（自建 CC0）。",
+      "title": "傀儡术",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-48fa27a7ddc0a7f0138f8c90851211f8",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-spirit-sense",
+      "purpose": "修仙功法：神识功法（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "神识功法（xianxia-art-spirit-sense）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：神识功法（自建 CC0）。",
+      "title": "神识功法",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-6fbba2762880291ad0cfa6c0f333873a",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-sword-control",
+      "purpose": "修仙功法：御剑术（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "御剑术（xianxia-art-sword-control）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：御剑术（自建 CC0）。",
+      "title": "御剑术",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-2c08c7fb0213e5da7387433f09f0adfb",
+      "domain": [
+        "修仙",
+        "功法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-art-talisman",
+      "purpose": "修仙功法：符箓之术（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "符箓之术（xianxia-art-talisman）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：符箓之术（自建 CC0）。",
+      "title": "符箓之术",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-474cfca49a0c43e3c11ec322d7230aab",
+      "domain": [
+        "修仙",
+        "阵材"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-array-materials",
+      "purpose": "修仙灵物：阵材与符纸（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "阵材与符纸（xianxia-item-array-materials）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：阵材与符纸（自建 CC0）。",
+      "title": "阵材与符纸",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-3414d8d558fc90a3d2f17f4bb5283a97",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-cave",
+      "purpose": "修仙灵物：洞府（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "洞府（xianxia-item-cave）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：洞府（自建 CC0）。",
+      "title": "洞府",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-52adcc4b61e557b3327c5e07c7ca42c9",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-secret-realm",
+      "purpose": "修仙灵物：秘境（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "秘境（xianxia-item-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：秘境（自建 CC0）。",
+      "title": "秘境",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-8dff1699de0ba2ff17c22a71ad7a25f7",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-spirit-beast",
+      "purpose": "修仙灵物：灵兽（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵兽（xianxia-item-spirit-beast）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵兽（自建 CC0）。",
+      "title": "灵兽",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-26725cd20bde9adae09107b377f590db",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-spirit-herb",
+      "purpose": "修仙灵物：灵草（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵草（xianxia-item-spirit-herb）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵草（自建 CC0）。",
+      "title": "灵草",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-63133129af50a59a2982da7e45a82d41",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-spirit-stone",
+      "purpose": "修仙灵物：灵石（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵石（xianxia-item-spirit-stone）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵石（自建 CC0）。",
+      "title": "灵石",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-fea6ea29eca6e8e22f13e024b8c79d19",
+      "domain": [
+        "修仙",
+        "灵物"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-item-treasure",
+      "purpose": "修仙灵物：法宝（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "法宝（xianxia-item-treasure）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：法宝（自建 CC0）。",
+      "title": "法宝",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-4485b295ff3510d1c6cf3ac8b62d0501",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-beauty",
+      "purpose": "修仙丹药：驻颜丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "驻颜丹（xianxia-pill-beauty）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：驻颜丹（自建 CC0）。",
+      "title": "驻颜丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-c77fb745d1e3c85049f2713d999d16ba",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-breakthrough",
+      "purpose": "修仙丹药：破境丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "破境丹（xianxia-pill-breakthrough）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：破境丹（自建 CC0）。",
+      "title": "破境丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-b9c3eb5f61565d5f9e9a612b1e2b5e25",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-foundation",
+      "purpose": "修仙丹药：筑基丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "筑基丹（xianxia-pill-foundation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：筑基丹（自建 CC0）。",
+      "title": "筑基丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-f221de3714f108aa4ca9232d285978a7",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-marrow-washing",
+      "purpose": "修仙丹药：洗髓丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "洗髓丹（xianxia-pill-marrow-washing）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：洗髓丹（自建 CC0）。",
+      "title": "洗髓丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-a1f218e303a8f71e75d757f974136742",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-ningshen",
+      "purpose": "修仙丹药：凝神丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "凝神丹（xianxia-pill-ningshen）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：凝神丹（自建 CC0）。",
+      "title": "凝神丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-45c9c2ccc5a597f4b67f280d04b77d87",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-qi-gathering",
+      "purpose": "修仙丹药：聚气丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "聚气丹（xianxia-pill-qi-gathering）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：聚气丹（自建 CC0）。",
+      "title": "聚气丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-5641c454b57fe1a6063f9a6d4cce17f0",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-revive",
+      "purpose": "修仙丹药：九转还魂丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "九转还魂丹（xianxia-pill-revive）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：九转还魂丹（自建 CC0）。",
+      "title": "九转还魂丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-b17657feaf3ba1a6858a46ddc82df58e",
+      "domain": [
+        "丹药",
+        "修仙"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-pill-yuan-pei",
+      "purpose": "修仙丹药：培元丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "培元丹（xianxia-pill-yuan-pei）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：培元丹（自建 CC0）。",
+      "title": "培元丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-332f3d31ae8b08996cda8b32be674d31",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-ascension",
+      "purpose": "修仙境界：飞升（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "飞升（xianxia-realm-ascension）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：飞升（自建 CC0）。",
+      "title": "飞升",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-863cf1e3e52f603a326727fa7721696a",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-body-union",
+      "purpose": "修仙境界：合体（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "合体（xianxia-realm-body-union）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：合体（自建 CC0）。",
+      "title": "合体",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-147c90829443ee52eb762cb1c2f6ed83",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-foundation",
+      "purpose": "修仙境界：筑基（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "筑基（xianxia-realm-foundation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：筑基（自建 CC0）。",
+      "title": "筑基",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-53b39669df19b2cfacb94cfbee303a36",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-golden-core",
+      "purpose": "修仙境界：金丹（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "金丹（xianxia-realm-golden-core）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：金丹（自建 CC0）。",
+      "title": "金丹",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-69b7962d226f59c92bbeb955f2ad756d",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-mahayana",
+      "purpose": "修仙境界：大乘（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "大乘（xianxia-realm-mahayana）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：大乘（自建 CC0）。",
+      "title": "大乘",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-ea9cda0c37cf759682e9a0f615fb0c8b",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-nascent-soul",
+      "purpose": "修仙境界：元婴（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "元婴（xianxia-realm-nascent-soul）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：元婴（自建 CC0）。",
+      "title": "元婴",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-188dbade4bb79f95729f51db1813bf50",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-qi-refining",
+      "purpose": "修仙境界：炼气（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "炼气（xianxia-realm-qi-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：炼气（自建 CC0）。",
+      "title": "炼气",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-77c99ab32020f5eb148b1c5565d26ead",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-spirit-transformation",
+      "purpose": "修仙境界：化神（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "化神（xianxia-realm-spirit-transformation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：化神（自建 CC0）。",
+      "title": "化神",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-183c4a66b1288fd134e26782071ab123",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-tribulation",
+      "purpose": "修仙境界：渡劫（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "渡劫（xianxia-realm-tribulation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：渡劫（自建 CC0）。",
+      "title": "渡劫",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-22142ba380d4b87f8e66bb2368f4c17b",
+      "domain": [
+        "修仙",
+        "境界"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-realm-void-refining",
+      "purpose": "修仙境界：炼虚（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "炼虚（xianxia-realm-void-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：炼虚（自建 CC0）。",
+      "title": "炼虚",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-cf8fc5a0733c15b13a60113c94374e5f",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-demon",
+      "purpose": "修仙门派：魔道宗门（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "魔道宗门（xianxia-sect-demon）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：魔道宗门（自建 CC0）。",
+      "title": "魔道宗门",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-19b94d55920bf9cc37046b74b8f2bf86",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-kunlun",
+      "purpose": "修仙门派：昆仑（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "昆仑（xianxia-sect-kunlun）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：昆仑（自建 CC0）。",
+      "title": "昆仑",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-cb6760bf53d2a3c26e2a93f490664003",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-penglai",
+      "purpose": "修仙门派：蓬莱（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "蓬莱（xianxia-sect-penglai）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：蓬莱（自建 CC0）。",
+      "title": "蓬莱",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-10d12b97e651ef1e1942a7ba4349bc0a",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-qingyun",
+      "purpose": "修仙门派：青云门（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "青云门（xianxia-sect-qingyun）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：青云门（自建 CC0）。",
+      "title": "青云门",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-23f3ac000decd7f3662914b66f4eb343",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-rogue",
+      "purpose": "修仙门派：散修联盟（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "散修联盟（xianxia-sect-rogue）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：散修联盟（自建 CC0）。",
+      "title": "散修联盟",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-279b489a1687234891f4d5ac2c891f22",
+      "domain": [
+        "修仙",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-sect-shushan",
+      "purpose": "修仙门派：蜀山剑派（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "蜀山剑派（xianxia-sect-shushan）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：蜀山剑派（自建 CC0）。",
+      "title": "蜀山剑派",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-3b2a4ab8654b9d10f6adf83131a10da0",
+      "domain": [
+        "修仙",
+        "称谓"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-term-appellation",
+      "purpose": "修仙词条：称谓与人情（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "修仙称谓与人情（xianxia-term-appellation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：称谓与人情（自建 CC0）。",
+      "title": "修仙称谓与人情",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-2b34c131e83544a53114d98083f5375e",
+      "domain": [
+        "修仙",
+        "灵根"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-term-linggen",
+      "purpose": "修仙词条：灵根与资质（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵根与资质（xianxia-term-linggen）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：灵根与资质（自建 CC0）。",
+      "title": "灵根与资质",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-67853cb0d8dd8aee94ee866b3da82c2a",
+      "domain": [
+        "修仙",
+        "神识"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-term-lingqi-sense",
+      "purpose": "修仙词条：灵气感知与灵压（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵气感知与灵压（xianxia-term-lingqi-sense）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：灵气感知与灵压（自建 CC0）。",
+      "title": "灵气感知与灵压",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-6dcc4b33cc6ecd376597056c9f72eee6",
+      "domain": [
+        "修仙",
+        "宗门"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-term-sect-office",
+      "purpose": "修仙词条：宗门职司体系（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "宗门职司体系（xianxia-term-sect-office）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：宗门职司体系（自建 CC0）。",
+      "title": "宗门职司体系",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "lexicon",
+      "contentDigest": "sha256-45e9e8916b38825d25b7ed4f406b2fca",
+      "domain": [
+        "修仙",
+        "心魔"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-term-xinmo",
+      "purpose": "修仙词条：心魔与道心（自建 CC0）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "心魔与道心（xianxia-term-xinmo）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：心魔与道心（自建 CC0）。",
+      "title": "心魔与道心",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "rohitg00",
+      "collection": "tech",
+      "contentDigest": "sha256-b141dae92e2820dcc463b4eb1c238aa1",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "agentmemory",
+      "purpose": "Agent 记忆库（SDK+检索）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "agentmemory（agentmemory）；分类：memory-knowledge；上游：rohitg00/agentmemory；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：Agent 记忆库（SDK+检索）。",
+      "title": "agentmemory",
+      "trust": "reference_only",
+      "upstream": "rohitg00/agentmemory"
+    },
+    {
+      "author": "Abnerla",
+      "collection": "tech",
+      "contentDigest": "sha256-db33254d60717a4a6a808599cdff514c",
+      "domain": [
+        "设计稿/清单/上游对照/域外/残留"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "AI_paper",
+      "purpose": "纸研社·本地优先 AI 学术写作助手平台",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "AI_paper（AI_paper）；分类：special；上游：Abnerla/AI_paper；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：纸研社·本地优先 AI 学术写作助手平台。",
+      "title": "AI_paper",
+      "trust": "reference_only",
+      "upstream": "Abnerla/AI_paper"
+    },
+    {
+      "author": "anthropics",
+      "collection": "tech",
+      "contentDigest": "sha256-27ca2088b6d3aa78774016e9d2c8150b",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "anthropic-sdk-ts",
+      "purpose": "Anthropic 官方 TS SDK",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "anthropic-sdk-ts（anthropic-sdk-ts）；分类：sdk-infra；上游：anthropics/anthropic-sdk-typescript；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：Anthropic 官方 TS SDK。",
+      "title": "anthropic-sdk-ts",
+      "trust": "reference_only",
+      "upstream": "anthropics/anthropic-sdk-typescript"
+    },
+    {
+      "author": "apecloud",
+      "collection": "tech",
+      "contentDigest": "sha256-37ff89afc91121cd095e07ac1eaee8a9",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "ApeRAG",
+      "purpose": "图谱+向量混合 RAG 平台",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "ApeRAG（ApeRAG）；分类：rag-retrieval；上游：apecloud/ApeRAG；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：图谱+向量混合 RAG 平台。",
+      "title": "ApeRAG",
+      "trust": "reference_only",
+      "upstream": "apecloud/ApeRAG"
+    },
+    {
+      "author": "huacnlee",
+      "collection": "tech",
+      "contentDigest": "sha256-4224c3fb3ae59cbb1b29ea238168774c",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "autocorrect",
+      "purpose": "中文/英文文本自动纠错（空格/标点/拼写，Go）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "autocorrect（autocorrect）；分类：data-cleaning；上游：huacnlee/autocorrect；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：中文/英文文本自动纠错（空格/标点/拼写，Go）。",
+      "title": "autocorrect",
+      "trust": "reference_only",
+      "upstream": "huacnlee/autocorrect"
+    },
+    {
+      "author": "IAAR-Shanghai",
+      "collection": "tech",
+      "contentDigest": "sha256-4ca8b2657d0d93611b6205e0dfbdb71c",
+      "domain": [
+        "设计稿/清单/上游对照/域外/残留"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "Awesome-AI-Memory",
+      "purpose": "AI 记忆研究清单仓（无代码）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "Awesome-AI-Memory（Awesome-AI-Memory）；分类：special；上游：IAAR-Shanghai/Awesome-AI-Memory；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：AI 记忆研究清单仓（无代码）。",
+      "title": "Awesome-AI-Memory",
+      "trust": "reference_only",
+      "upstream": "IAAR-Shanghai/Awesome-AI-Memory"
+    },
+    {
+      "author": "netease-youdao",
+      "collection": "tech",
+      "contentDigest": "sha256-a98b0281c3cf17f694c94f15c843cfb8",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "BCEmbedding",
+      "purpose": "网易有道双语 embedding/重排",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "BCEmbedding（BCEmbedding）；分类：rag-retrieval；上游：netease-youdao/BCEmbedding；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：网易有道双语 embedding/重排。",
+      "title": "BCEmbedding",
+      "trust": "reference_only",
+      "upstream": "netease-youdao/BCEmbedding"
+    },
+    {
+      "author": "ahans30",
+      "collection": "tech",
+      "contentDigest": "sha256-f638afd0d65aafa3c08f925b5e75d8c8",
+      "domain": [
+        "AI 检测/去 AI 化"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "Binoculars",
+      "purpose": "Binoculars 无监督 AI 文本检测（困惑度+交叉困惑度双指标）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "Binoculars（Binoculars）；分类：ai-detection；上游：ahans30/Binoculars；许可：BSD；ADR 档级：理念参考（54⑨ 矩阵对照源）；信任：reference_only；用途：Binoculars 无监督 AI 文本检测（困惑度+交叉困惑度双指标）。",
+      "title": "Binoculars",
+      "trust": "reference_only",
+      "upstream": "ahans30/Binoculars"
+    },
+    {
+      "author": "uu201",
+      "collection": "tech",
+      "contentDigest": "sha256-37dd4efed5bfe2d2fab43457d922c2af",
+      "domain": [
+        "写作辅助/工作台/CLI/插件"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "character-arc",
+      "purpose": "桌面工作台：项目中心+三栏编辑+AI侧边栏，SQLite 本地优先，无自主生产链",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "character-arc（character-arc）；分类：writing-tools；上游：uu201/character-arc；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：桌面工作台：项目中心+三栏编辑+AI侧边栏，SQLite 本地优先，无自主生产链。",
+      "title": "character-arc",
+      "trust": "reference_only",
+      "upstream": "uu201/character-arc"
+    },
+    {
+      "author": "ThomasHoussin",
+      "collection": "tech",
+      "contentDigest": "sha256-33e3ed5aa2981ea546a0a504efedde25",
+      "domain": [
+        "写作辅助/工作台/CLI/插件"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "Claude-Book",
+      "purpose": "Claude 驱动书籍写作",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "Claude-Book（Claude-Book）；分类：writing-tools；上游：ThomasHoussin/Claude-Book；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：Claude 驱动书籍写作。",
+      "title": "Claude-Book",
+      "trust": "reference_only",
+      "upstream": "ThomasHoussin/Claude-Book"
+    },
+    {
+      "author": "topoteretes",
+      "collection": "tech",
+      "contentDigest": "sha256-2bb1f40360cdaef06c5737432f7db3da",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "cognee",
+      "purpose": "图优先记忆管道（Kuzu/LanceDB）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "cognee（cognee）；分类：memory-knowledge；上游：topoteretes/cognee；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：图优先记忆管道（Kuzu/LanceDB）。",
+      "title": "cognee",
+      "trust": "reference_only",
+      "upstream": "topoteretes/cognee"
+    },
+    {
+      "author": "deepseek-ai",
+      "collection": "tech",
+      "contentDigest": "sha256-36ca66d18fbb909bde60fd88d6de3711",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "deepseek-harness",
+      "purpose": "DeepSeek 模型调用封装",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "deepseek-harness（deepseek-harness）；分类：sdk-infra；上游：deepseek-ai/deepseek-harness；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：DeepSeek 模型调用封装。",
+      "title": "deepseek-harness",
+      "trust": "reference_only",
+      "upstream": "deepseek-ai/deepseek-harness"
+    },
+    {
+      "author": "docling-project",
+      "collection": "tech",
+      "contentDigest": "sha256-35db4377a61c9daf1e84af0999e1afcb",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "docling",
+      "purpose": "IBM 文档解析（EPUB/DOCX/PDF→结构化）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "docling（docling）；分类：data-cleaning；上游：docling-project/docling；许可：MIT；ADR 档级：组件借鉴(P0 EPUB 提取器)；信任：reference_only；用途：IBM 文档解析（EPUB/DOCX/PDF→结构化）。",
+      "title": "docling",
+      "trust": "reference_only",
+      "upstream": "docling-project/docling"
+    },
+    {
+      "author": "duckdb",
+      "collection": "tech",
+      "contentDigest": "sha256-32e2ab31f4283871010bc6e042f82df9",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "duckdb",
+      "purpose": "嵌入式 OLAP（本地分析查询）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "duckdb（duckdb）；分类：sdk-infra；上游：duckdb/duckdb；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：嵌入式 OLAP（本地分析查询）。",
+      "title": "duckdb",
+      "trust": "reference_only",
+      "upstream": "duckdb/duckdb"
+    },
+    {
+      "author": "EverMind-AI",
+      "collection": "tech",
+      "contentDigest": "sha256-b606bc60179908f92c53ad708ac47324",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "everos",
+      "purpose": "Markdown 为真源的记忆运行时（cascade 对账模式）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "everos（everos）；分类：memory-knowledge；上游：EverMind-AI/EverOS；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：Markdown 为真源的记忆运行时（cascade 对账模式）。",
+      "title": "everos",
+      "trust": "reference_only",
+      "upstream": "EverMind-AI/EverOS"
+    },
+    {
+      "author": "dubzzz",
+      "collection": "tech",
+      "contentDigest": "sha256-f601345e97ccc0723bebc2de6d563a45",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "fast-check",
+      "purpose": "JS/TS 属性测试库（随机测试+收缩）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "fast-check（fast-check）；分类：sdk-infra；上游：dubzzz/fast-check；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：JS/TS 属性测试库（随机测试+收缩）。",
+      "title": "fast-check",
+      "trust": "reference_only",
+      "upstream": "dubzzz/fast-check"
+    },
+    {
+      "author": "labring",
+      "collection": "tech",
+      "contentDigest": "sha256-7c5a224e84ea0bb9eafa6b86638db843",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "FastGPT",
+      "purpose": "知识库问答平台（可视化编排）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "FastGPT（FastGPT）；分类：rag-retrieval；上游：labring/FastGPT；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：知识库问答平台（可视化编排）。",
+      "title": "FastGPT",
+      "trust": "reference_only",
+      "upstream": "labring/FastGPT"
+    },
+    {
+      "author": "hermes-labs-ai",
+      "collection": "tech",
+      "contentDigest": "sha256-f7017437c05cd4550cdcc224ff96ada1",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "fidelis",
+      "purpose": "本地优先零 LLM agent 记忆系统（LongMemEval-S 73%）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "fidelis（fidelis）；分类：memory-knowledge；上游：hermes-labs-ai/fidelis；许可：MIT；ADR 档级：理念参考 P1（zero-LLM 查询分解+分类路由+置信度前置闸门）；信任：reference_only；用途：本地优先零 LLM agent 记忆系统（LongMemEval-S 73%）。",
+      "title": "fidelis",
+      "trust": "reference_only",
+      "upstream": "hermes-labs-ai/fidelis"
+    },
+    {
+      "author": "flagopen",
+      "collection": "tech",
+      "contentDigest": "sha256-adf9aee6886a4f8eba95fd744d9ad3f8",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "flagdata",
+      "purpose": "书籍结构级清洗规则集",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "flagdata（flagdata）；分类：data-cleaning；上游：flagopen/FlagData；许可：Apache-2.0；ADR 档级：组件借鉴 P0（BookCleaner→EPUB/HTML 提取器）；信任：reference_only；用途：书籍结构级清洗规则集。",
+      "title": "flagdata",
+      "trust": "reference_only",
+      "upstream": "flagopen/FlagData"
+    },
+    {
+      "author": "FlowiseAI",
+      "collection": "tech",
+      "contentDigest": "sha256-90ff25e7ea44aca4131fa15600aa78f9",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "flowise",
+      "purpose": "拖拽式 LLM 流程编排",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "flowise（flowise）；分类：rag-retrieval；上游：FlowiseAI/Flowise；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：拖拽式 LLM 流程编排。",
+      "title": "flowise",
+      "trust": "reference_only",
+      "upstream": "FlowiseAI/Flowise"
+    },
+    {
+      "author": "rspeer",
+      "collection": "tech",
+      "contentDigest": "sha256-6294c5ba01586ef6bcff6a1b88ff07f0",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "ftfy",
+      "purpose": "乱码修复/Unicode 归一（mojibake 管线）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "ftfy（ftfy）；分类：data-cleaning；上游：rspeer/python-ftfy；许可：Apache-2.0；ADR 档级：组件借鉴 P1（字符归一钩子核心）；信任：reference_only；用途：乱码修复/Unicode 归一（mojibake 管线）。",
+      "title": "ftfy",
+      "trust": "reference_only",
+      "upstream": "rspeer/python-ftfy"
+    },
+    {
+      "author": "joonspk-research",
+      "collection": "tech",
+      "contentDigest": "sha256-7e74cb7f2774989323cd9d068dffa67f",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "generative_agents",
+      "purpose": "生成式 Agent 模拟（斯坦福 Smallville 记忆架构）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "generative_agents（generative_agents）；分类：sdk-infra；上游：joonspk-research/generative_agents；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：生成式 Agent 模拟（斯坦福 Smallville 记忆架构）。",
+      "title": "generative_agents",
+      "trust": "reference_only",
+      "upstream": "joonspk-research/generative_agents"
+    },
+    {
+      "author": "getzep",
+      "collection": "tech",
+      "contentDigest": "sha256-d90fc51595852ae2b9b58f234efada65",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "graphiti",
+      "purpose": "bi-temporal 时序知识图谱记忆引擎",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "graphiti（graphiti）；分类：memory-knowledge；上游：getzep/graphiti；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：bi-temporal 时序知识图谱记忆引擎。",
+      "title": "graphiti",
+      "trust": "reference_only",
+      "upstream": "getzep/graphiti"
+    },
+    {
+      "author": "microsoft",
+      "collection": "tech",
+      "contentDigest": "sha256-524d9fe08dfa184af30ec59ca114f2ae",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "graphrag",
+      "purpose": "微软图谱化 RAG（实体图+社区摘要）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "graphrag（graphrag）；分类：rag-retrieval；上游：microsoft/graphrag；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：微软图谱化 RAG（实体图+社区摘要）。",
+      "title": "graphrag",
+      "trust": "reference_only",
+      "upstream": "microsoft/graphrag"
+    },
+    {
+      "author": "fivetran",
+      "collection": "tech",
+      "contentDigest": "sha256-fe01dd69ee8b3008742c8cd7b778b195",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "great-expectations",
+      "purpose": "数据质量断言框架",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "great-expectations（great-expectations）；分类：data-cleaning；上游：fivetran/great_expectations；许可：Apache-2.0；ADR 档级：理念参考 P2（校验门控）；信任：reference_only；用途：数据质量断言框架。",
+      "title": "great-expectations",
+      "trust": "reference_only",
+      "upstream": "fivetran/great_expectations"
+    },
+    {
+      "author": "guidance-ai",
+      "collection": "tech",
+      "contentDigest": "sha256-73efbf48db9bb17749003a3bf43b5269",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "guidance",
+      "purpose": "LLM 结构化生成控制框架（约束解码+模板）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "guidance（guidance）；分类：sdk-infra；上游：guidance-ai/guidance；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：LLM 结构化生成控制框架（约束解码+模板）。",
+      "title": "guidance",
+      "trust": "reference_only",
+      "upstream": "guidance-ai/guidance"
+    },
+    {
+      "author": "vectorize-io",
+      "collection": "tech",
+      "contentDigest": "sha256-6cebae7a2afde3e011389111a62814dc",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "hindsight",
+      "purpose": "会学习的 Agent 记忆（基准领先）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "hindsight（hindsight）；分类：memory-knowledge；上游：vectorize-io/hindsight；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：会学习的 Agent 记忆（基准领先）。",
+      "title": "hindsight",
+      "trust": "reference_only",
+      "upstream": "vectorize-io/hindsight"
+    },
+    {
+      "author": "cottagephilosopher",
+      "collection": "tech",
+      "contentDigest": "sha256-ab91a4ead12136c6c215ea7147dce662",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "hit-rag",
+      "purpose": "HIT-RAG：Human-in-the-Loop 检索增强生成——人标与检索注入闭环",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "hit-rag（hit-rag）；分类：rag-retrieval；上游：cottagephilosopher/hit-rag；许可：MIT；ADR 档级：理念参考 gap4（标注→回注全链路主原型）；信任：reference_only；用途：HIT-RAG：Human-in-the-Loop 检索增强生成——人标与检索注入闭环。",
+      "title": "hit-rag",
+      "trust": "reference_only",
+      "upstream": "cottagephilosopher/hit-rag"
+    },
+    {
+      "author": "blader",
+      "collection": "tech",
+      "contentDigest": "sha256-4c45f864d9ebce1f627badd22b5162b9",
+      "domain": [
+        "AI 检测/去 AI 化"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "humanizer",
+      "purpose": "AI 文本人性化改写工具（模式库对照）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "humanizer（humanizer）；分类：ai-detection；上游：blader/humanizer；许可：MIT；ADR 档级：理念参考（54⑨ 矩阵对照源）；信任：reference_only；用途：AI 文本人性化改写工具（模式库对照）。",
+      "title": "humanizer",
+      "trust": "reference_only",
+      "upstream": "blader/humanizer"
+    },
+    {
+      "author": "itsjwill",
+      "collection": "tech",
+      "contentDigest": "sha256-910a1216dcae34dc8f37f288bb7cb389",
+      "domain": [
+        "AI 检测/去 AI 化"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "humanizer-x",
+      "purpose": "AI 文本人性化改写工具变体",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "humanizer-x（humanizer-x）；分类：ai-detection；上游：itsjwill/humanizer-x；许可：MIT；ADR 档级：理念参考（54⑨ 矩阵对照源）；信任：reference_only；用途：AI 文本人性化改写工具变体。",
+      "title": "humanizer-x",
+      "trust": "reference_only",
+      "upstream": "itsjwill/humanizer-x"
+    },
+    {
+      "author": "YTyangtao666",
+      "collection": "tech",
+      "contentDigest": "sha256-019869fc2bd0d576b1bc600299b482b8",
+      "domain": [
+        "写作引擎"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "inkmuse",
+      "purpose": "AI 长篇小说平台（RAG+Style Profiling+故事上下文引擎）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "inkmuse（inkmuse）；分类：writing-engines；上游：YTyangtao666/inkmuse；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：AI 长篇小说平台（RAG+Style Profiling+故事上下文引擎）。",
+      "title": "inkmuse",
+      "trust": "reference_only",
+      "upstream": "YTyangtao666/inkmuse"
+    },
+    {
+      "author": "obsidianmd",
+      "collection": "tech",
+      "contentDigest": "sha256-d07f4d8fb0a35ca9122b2777035e4935",
+      "domain": [
+        "传统写作/笔记/Obsidian生态"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "jsoncanvas",
+      "purpose": "无限画布开放文件格式规范",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "jsoncanvas（jsoncanvas）；分类：writing-ecosystem；上游：obsidianmd/jsoncanvas；许可：MIT；ADR 档级：理念参考（关系图导出候选格式）；信任：reference_only；用途：无限画布开放文件格式规范。",
+      "title": "jsoncanvas",
+      "trust": "reference_only",
+      "upstream": "obsidianmd/jsoncanvas"
+    },
+    {
+      "author": "langchain-ai",
+      "collection": "tech",
+      "contentDigest": "sha256-964f4ff371afc26d6dafff06245a51b6",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "langchain",
+      "purpose": "LLM 应用编排框架（链/检索器抽象）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "langchain（langchain）；分类：sdk-infra；上游：langchain-ai/langchain；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：LLM 应用编排框架（链/检索器抽象）。",
+      "title": "langchain",
+      "trust": "reference_only",
+      "upstream": "langchain-ai/langchain"
+    },
+    {
+      "author": "langchain-ai",
+      "collection": "tech",
+      "contentDigest": "sha256-f748b8361e96805e6ddcd13afe0178dc",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "langgraph",
+      "purpose": "生产级状态图 Agent 编排",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "langgraph（langgraph）；分类：sdk-infra；上游：langchain-ai/langgraph；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：生产级状态图 Agent 编排。",
+      "title": "langgraph",
+      "trust": "reference_only",
+      "upstream": "langchain-ai/langgraph"
+    },
+    {
+      "author": "HKUDS",
+      "collection": "tech",
+      "contentDigest": "sha256-cd2642fcef674e725e3e0514bd706214",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "LightRAG",
+      "purpose": "轻量图谱 RAG",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "LightRAG（LightRAG）；分类：rag-retrieval；上游：HKUDS/LightRAG；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：轻量图谱 RAG。",
+      "title": "LightRAG",
+      "trust": "reference_only",
+      "upstream": "HKUDS/LightRAG"
+    },
+    {
+      "author": "BerriAI",
+      "collection": "tech",
+      "contentDigest": "sha256-d3f5d636e4a968be42192749463f953e",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "litellm",
+      "purpose": "100+ 模型统一路由网关",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "litellm（litellm）；分类：sdk-infra；上游：BerriAI/litellm；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：100+ 模型统一路由网关。",
+      "title": "litellm",
+      "trust": "reference_only",
+      "upstream": "BerriAI/litellm"
+    },
+    {
+      "author": "run-llama",
+      "collection": "tech",
+      "contentDigest": "sha256-85951ef923b73c410501791fa53dd0aa",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "llama_index",
+      "purpose": "LLM 数据框架（索引/检索范式全集）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "llama_index（llama_index）；分类：rag-retrieval；上游：run-llama/llama_index；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：LLM 数据框架（索引/检索范式全集）。",
+      "title": "llama_index",
+      "trust": "reference_only",
+      "upstream": "run-llama/llama_index"
+    },
+    {
+      "author": "datalab-to",
+      "collection": "tech",
+      "contentDigest": "sha256-186867c16da2b62d1ad94f443f650eec",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "marker",
+      "purpose": "PDF→Markdown（跨页页眉页脚去重思路）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "marker（marker）；分类：data-cleaning；上游：datalab-to/marker；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：PDF→Markdown（跨页页眉页脚去重思路）。",
+      "title": "marker",
+      "trust": "reference_only",
+      "upstream": "datalab-to/marker"
+    },
+    {
+      "author": "microsoft",
+      "collection": "tech",
+      "contentDigest": "sha256-716799e0a93686469a433e943a28e468",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "markitdown",
+      "purpose": "微软万能格式→Markdown 转换",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "markitdown（markitdown）；分类：data-cleaning；上游：microsoft/markitdown；许可：MIT；ADR 档级：组件借鉴 P0（OPF 解析模式）；信任：reference_only；用途：微软万能格式→Markdown 转换。",
+      "title": "markitdown",
+      "trust": "reference_only",
+      "upstream": "microsoft/markitdown"
+    },
+    {
+      "author": "mem0ai",
+      "collection": "tech",
+      "contentDigest": "sha256-c11d4961f69ef5d460b4ad3d21edfe5d",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "mem0",
+      "purpose": "Agent 长期记忆层（事实抽取+向量检索）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "mem0（mem0）；分类：memory-knowledge；上游：mem0ai/mem0；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：Agent 长期记忆层（事实抽取+向量检索）。",
+      "title": "mem0",
+      "trust": "reference_only",
+      "upstream": "mem0ai/mem0"
+    },
+    {
+      "author": "zilliztech",
+      "collection": "tech",
+      "contentDigest": "sha256-8fbb1d2c0cdf85ce2e60287d25970658",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "memsearch",
+      "purpose": "跨 agent 持久记忆层（md 真源+Milvus 影子索引）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "memsearch（memsearch）；分类：memory-knowledge；上游：zilliztech/memsearch；许可：MIT；ADR 档级：理念参考 P2（ONNX 本地 rerank 后端模式）；信任：reference_only；用途：跨 agent 持久记忆层（md 真源+Milvus 影子索引）。",
+      "title": "memsearch",
+      "trust": "reference_only",
+      "upstream": "zilliztech/memsearch"
+    },
+    {
+      "author": "vercel",
+      "collection": "tech",
+      "contentDigest": "sha256-073719af14aadb0daeea0f71e78e5561",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "modelfusion",
+      "purpose": "TS 多模型抽象层",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "modelfusion（modelfusion）；分类：sdk-infra；上游：vercel/modelfusion；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：TS 多模型抽象层。",
+      "title": "modelfusion",
+      "trust": "reference_only",
+      "upstream": "vercel/modelfusion"
+    },
+    {
+      "author": "chianglianglin",
+      "collection": "tech",
+      "contentDigest": "sha256-1bb63455388287465d240386c72f1589",
+      "domain": [
+        "写作引擎"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "novel-writer",
+      "purpose": "15 作者 persona 自动草稿循环+编辑合成（Claude Code 技能）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "novel-writer（novel-writer）；分类：writing-engines；上游：chianglianglin/novel-writer；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：15 作者 persona 自动草稿循环+编辑合成（Claude Code 技能）。",
+      "title": "novel-writer",
+      "trust": "reference_only",
+      "upstream": "chianglianglin/novel-writer"
+    },
+    {
+      "author": "obsidianmd",
+      "collection": "tech",
+      "contentDigest": "sha256-3aa373b159053419ee21a9e9d1a252b2",
+      "domain": [
+        "传统写作/笔记/Obsidian生态"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "obsidian-api",
+      "purpose": "Obsidian 插件 API 类型定义（导出兼容契约）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "obsidian-api（obsidian-api）；分类：writing-ecosystem；上游：obsidianmd/obsidian-api；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：Obsidian 插件 API 类型定义（导出兼容契约）。",
+      "title": "obsidian-api",
+      "trust": "reference_only",
+      "upstream": "obsidianmd/obsidian-api"
+    },
+    {
+      "author": "PixeroJan",
+      "collection": "tech",
+      "contentDigest": "sha256-24d0c81c388fcc343da0d0858090cc3c",
+      "domain": [
+        "传统写作/笔记/Obsidian生态"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "obsidian-storyline",
+      "purpose": "Obsidian 小说角色管理社区插件",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "obsidian-storyline（obsidian-storyline）；分类：writing-ecosystem；上游：PixeroJan/obsidian-storyline；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：Obsidian 小说角色管理社区插件。",
+      "title": "obsidian-storyline",
+      "trust": "reference_only",
+      "upstream": "PixeroJan/obsidian-storyline"
+    },
+    {
+      "author": "ollama",
+      "collection": "tech",
+      "contentDigest": "sha256-c77c25c8700cf4baf25cc77dad9531fb",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "ollama",
+      "purpose": "本地大模型运行时",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "ollama（ollama）；分类：sdk-infra；上游：ollama/ollama；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：本地大模型运行时。",
+      "title": "ollama",
+      "trust": "reference_only",
+      "upstream": "ollama/ollama"
+    },
+    {
+      "author": "Open-Write",
+      "collection": "tech",
+      "contentDigest": "sha256-d3ab4324c00e7576734cd1a5f90a4e4e",
+      "domain": [
+        "写作辅助/工作台/CLI/插件"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "open-write-studio",
+      "purpose": "工位制写作（Architect/Writer/Critics 分离）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "open-write-studio（open-write-studio）；分类：writing-tools；上游：Open-Write/open-write-studio；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：工位制写作（Architect/Writer/Critics 分离）。",
+      "title": "open-write-studio",
+      "trust": "reference_only",
+      "upstream": "Open-Write/open-write-studio"
+    },
+    {
+      "author": "openai",
+      "collection": "tech",
+      "contentDigest": "sha256-e9b9cceff73d9c113edbb9530556ac80",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "openai-node",
+      "purpose": "OpenAI 官方 TS SDK",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "openai-node（openai-node）；分类：sdk-infra；上游：openai/openai-node；许可：Apache-2.0；ADR 档级：已吸收；信任：reference_only；用途：OpenAI 官方 TS SDK。",
+      "title": "openai-node",
+      "trust": "reference_only",
+      "upstream": "openai/openai-node"
+    },
+    {
+      "author": "VectifyAI",
+      "collection": "tech",
+      "contentDigest": "sha256-c3a66fcf01fedd8c1e6d5a5904d68bf3",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "OpenKB",
+      "purpose": "LLM 编译文档→互联 Markdown Wiki（无向量库）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "OpenKB（OpenKB）；分类：memory-knowledge；上游：VectifyAI/OpenKB；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：LLM 编译文档→互联 Markdown Wiki（无向量库）。",
+      "title": "OpenKB",
+      "trust": "reference_only",
+      "upstream": "VectifyAI/OpenKB"
+    },
+    {
+      "author": "Yaemikoreal",
+      "collection": "tech",
+      "contentDigest": "sha256-c9079e790af4724a6819d0d189d2e95f",
+      "domain": [
+        "写作引擎"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "opennovel",
+      "purpose": "四 Agent 单命令整本生成（Writer/Critic/Manager/Director）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "opennovel（opennovel）；分类：writing-engines；上游：Yaemikoreal/OpenNovel；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：四 Agent 单命令整本生成（Writer/Critic/Manager/Director）。",
+      "title": "opennovel",
+      "trust": "reference_only",
+      "upstream": "Yaemikoreal/OpenNovel"
+    },
+    {
+      "author": "PaddlePaddle",
+      "collection": "tech",
+      "contentDigest": "sha256-d80b20a33b68190e28a5124aecf0d359",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "paddleocr",
+      "purpose": "中文 OCR+版面恢复（扫描书正交象限）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "paddleocr（paddleocr）；分类：data-cleaning；上游：PaddlePaddle/PaddleOCR；许可：Apache-2.0；ADR 档级：组件借鉴+sidecar 特例候选；信任：reference_only；用途：中文 OCR+版面恢复（扫描书正交象限）。",
+      "title": "paddleocr",
+      "trust": "reference_only",
+      "upstream": "PaddlePaddle/PaddleOCR"
+    },
+    {
+      "author": "pandas-dev",
+      "collection": "tech",
+      "contentDigest": "sha256-999d0b577d28447f1d9dfd9a408ef391",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "pandas",
+      "purpose": "Python 数据分析标准库",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "pandas（pandas）；分类：data-cleaning；上游：pandas-dev/pandas；许可：BSD；ADR 档级：理念参考；信任：reference_only；用途：Python 数据分析标准库。",
+      "title": "pandas",
+      "trust": "reference_only",
+      "upstream": "pandas-dev/pandas"
+    },
+    {
+      "author": "vinta",
+      "collection": "tech",
+      "contentDigest": "sha256-25c4dcef13b1d4c78b5333c7c6df3bf2",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "pangu.js",
+      "purpose": "中文排版自动加空格（JS 版）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "pangu.js（pangu.js）；分类：data-cleaning；上游：vinta/pangu.js；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：中文排版自动加空格（JS 版）。",
+      "title": "pangu.js",
+      "trust": "reference_only",
+      "upstream": "vinta/pangu.js"
+    },
+    {
+      "author": "earendil-works",
+      "collection": "tech",
+      "contentDigest": "sha256-36480337153c3bb303faa559bdbe001e",
+      "domain": [
+        "设计稿/清单/上游对照/域外/残留"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "pi",
+      "purpose": "pi coding agent 上游（与本地运行环境同源）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "pi（pi）；分类：special；上游：earendil-works/pi；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：pi coding agent 上游（与本地运行环境同源）。",
+      "title": "pi",
+      "trust": "reference_only",
+      "upstream": "earendil-works/pi"
+    },
+    {
+      "author": "pyjanitor-devs",
+      "collection": "tech",
+      "contentDigest": "sha256-f854d49b777170429db0d5950454c89e",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "pyjanitor",
+      "purpose": "pandas 清洗链式扩展",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "pyjanitor（pyjanitor）；分类：data-cleaning；上游：pyjanitor-devs/pyjanitor；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：pandas 清洗链式扩展。",
+      "title": "pyjanitor",
+      "trust": "reference_only",
+      "upstream": "pyjanitor-devs/pyjanitor"
+    },
+    {
+      "author": "pykeen",
+      "collection": "tech",
+      "contentDigest": "sha256-d81b4efbd80ef91780b6ff7e0fa820bd",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "pykeen",
+      "purpose": "知识图谱嵌入库（Python，KGE 模型全集）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "pykeen（pykeen）；分类：memory-knowledge；上游：pykeen/pykeen；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：知识图谱嵌入库（Python，KGE 模型全集）。",
+      "title": "pykeen",
+      "trust": "reference_only",
+      "upstream": "pykeen/pykeen"
+    },
+    {
+      "author": "Raudaschl",
+      "collection": "tech",
+      "contentDigest": "sha256-ea6fb6d65bfc5635b70df63cac6f154e",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "rag-fusion",
+      "purpose": "RAG-Fusion 多路检索融合范式",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "rag-fusion（rag-fusion）；分类：rag-retrieval；上游：Raudaschl/rag-fusion；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：RAG-Fusion 多路检索融合范式。",
+      "title": "rag-fusion",
+      "trust": "reference_only",
+      "upstream": "Raudaschl/rag-fusion"
+    },
+    {
+      "author": "infiniflow",
+      "collection": "tech",
+      "contentDigest": "sha256-136213158c575c6e466a411e6815e6a2",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "ragflow",
+      "purpose": "开源 RAG 完整平台（检索+引用+Agent 编排）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "ragflow（ragflow）；分类：rag-retrieval；上游：infiniflow/ragflow；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：开源 RAG 完整平台（检索+引用+Agent 编排）。",
+      "title": "ragflow",
+      "trust": "reference_only",
+      "upstream": "infiniflow/ragflow"
+    },
+    {
+      "author": "AnswerDotAI",
+      "collection": "tech",
+      "contentDigest": "sha256-d2b28a9bfd5d9292025bf7d8a7cb1a25",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "rerankers",
+      "purpose": "重排序器统一接口",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "rerankers（rerankers）；分类：rag-retrieval；上游：AnswerDotAI/rerankers；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：重排序器统一接口。",
+      "title": "rerankers",
+      "trust": "reference_only",
+      "upstream": "AnswerDotAI/rerankers"
+    },
+    {
+      "author": "Lanerra",
+      "collection": "tech",
+      "contentDigest": "sha256-f8c443b609d1ac2e996fb66cff058551",
+      "domain": [
+        "写作引擎"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "SAGA",
+      "purpose": "长篇故事生成引擎",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "SAGA（SAGA）；分类：writing-engines；上游：Lanerra/saga；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：长篇故事生成引擎。",
+      "title": "SAGA",
+      "trust": "reference_only",
+      "upstream": "Lanerra/saga"
+    },
+    {
+      "author": "raestrada",
+      "collection": "tech",
+      "contentDigest": "sha256-4e1cbdd03bea7cc0aec6b3f4de30e25c",
+      "domain": [
+        "写作辅助/工作台/CLI/插件"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "storycraftr",
+      "purpose": "故事写作 CLI 助手",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "storycraftr（storycraftr）；分类：writing-tools；上游：raestrada/storycraftr；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：故事写作 CLI 助手。",
+      "title": "storycraftr",
+      "trust": "reference_only",
+      "upstream": "raestrada/storycraftr"
+    },
+    {
+      "author": "TencentCloud",
+      "collection": "tech",
+      "contentDigest": "sha256-73bbc73080782cf079158a8c2746fb8a",
+      "domain": [
+        "记忆/知识层"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "TencentDB-Agent-Memory",
+      "purpose": "腾讯云 Agent Memory（记忆存取 API 服务）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "TencentDB-Agent-Memory（TencentDB-Agent-Memory）；分类：memory-knowledge；上游：TencentCloud/TencentDB-Agent-Memory；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：腾讯云 Agent Memory（记忆存取 API 服务）。",
+      "title": "TencentDB-Agent-Memory",
+      "trust": "reference_only",
+      "upstream": "TencentCloud/TencentDB-Agent-Memory"
+    },
+    {
+      "author": "benbrandt",
+      "collection": "tech",
+      "contentDigest": "sha256-a249ae837e6221d93352b28e473ca311",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "text-splitter",
+      "purpose": "文本分块 TS 库",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "text-splitter（text-splitter）；分类：rag-retrieval；上游：benbrandt/text-splitter；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：文本分块 TS 库。",
+      "title": "text-splitter",
+      "trust": "reference_only",
+      "upstream": "benbrandt/text-splitter"
+    },
+    {
+      "author": "ConfettiFX",
+      "collection": "tech",
+      "contentDigest": "sha256-554e65d9f2e45b75890ad80b0fb4ea6f",
+      "domain": [
+        "设计稿/清单/上游对照/域外/残留"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "The-Forge",
+      "purpose": "⚠ 图形渲染引擎——营销概念误入，域外留档",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "The-Forge（The-Forge）；分类：special；上游：ConfettiFX/The-Forge；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：⚠ 图形渲染引擎——营销概念误入，域外留档。",
+      "title": "The-Forge",
+      "trust": "reference_only",
+      "upstream": "ConfettiFX/The-Forge"
+    },
+    {
+      "author": "surdijon",
+      "collection": "tech",
+      "contentDigest": "sha256-8b012cef74df6d6599b15b7a08dbe670",
+      "domain": [
+        "AI 检测/去 AI 化"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "ultimate-humanizer",
+      "purpose": "AI 文本人性化改写工具变体",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "ultimate-humanizer（ultimate-humanizer）；分类：ai-detection；上游：surdijon/ultimate-humanizer；许可：MIT；ADR 档级：理念参考（54⑨ 矩阵对照源）；信任：reference_only；用途：AI 文本人性化改写工具变体。",
+      "title": "ultimate-humanizer",
+      "trust": "reference_only",
+      "upstream": "surdijon/ultimate-humanizer"
+    },
+    {
+      "author": "Unstructured-IO",
+      "collection": "tech",
+      "contentDigest": "sha256-a1dd794c687261bde731f481f3012ea4",
+      "domain": [
+        "数据清洗/文档解析/OCR"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "unstructured",
+      "purpose": "万能文档分区解析",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "unstructured（unstructured）；分类：data-cleaning；上游：Unstructured-IO/unstructured；许可：Apache-2.0；ADR 档级：组件借鉴 P1（字符归一钩子）；信任：reference_only；用途：万能文档分区解析。",
+      "title": "unstructured",
+      "trust": "reference_only",
+      "upstream": "Unstructured-IO/unstructured"
+    },
+    {
+      "author": "ssamba1",
+      "collection": "tech",
+      "contentDigest": "sha256-5050942ecf87f0e07fe6b85ca9dafc9b",
+      "domain": [
+        "AI 检测/去 AI 化"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "untell",
+      "purpose": "AI 文本人性化改写工具变体",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "untell（untell）；分类：ai-detection；上游：ssamba1/untell；许可：MIT；ADR 档级：理念参考（54⑨ 矩阵对照源）；信任：reference_only；用途：AI 文本人性化改写工具变体。",
+      "title": "untell",
+      "trust": "reference_only",
+      "upstream": "ssamba1/untell"
+    },
+    {
+      "author": "vercel",
+      "collection": "tech",
+      "contentDigest": "sha256-348f56535d574030e54ec93dde9da3e7",
+      "domain": [
+        "SDK/运行时/基建"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "vercel-ai",
+      "purpose": "AI SDK 统一多模型流式接口",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "vercel-ai（vercel-ai）；分类：sdk-infra；上游：vercel/ai；许可：Apache-2.0；ADR 档级：已吸收；信任：reference_only；用途：AI SDK 统一多模型流式接口。",
+      "title": "vercel-ai",
+      "trust": "reference_only",
+      "upstream": "vercel/ai"
+    },
+    {
+      "author": "Tencent",
+      "collection": "tech",
+      "contentDigest": "sha256-e2a9cb646de37aadadcf783c870c7675",
+      "domain": [
+        "RAG/检索管线"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "WeKnora",
+      "purpose": "腾讯企业级 RAG+知识图谱+Wiki Mode",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "WeKnora（WeKnora）；分类：rag-retrieval；上游：Tencent/WeKnora；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：腾讯企业级 RAG+知识图谱+Wiki Mode。",
+      "title": "WeKnora",
+      "trust": "reference_only",
+      "upstream": "Tencent/WeKnora"
+    },
+    {
+      "author": "Leolai6-7",
+      "collection": "tech",
+      "contentDigest": "sha256-64f323e95c8ae46e00285beb8eb22bf4",
+      "domain": [
+        "写作引擎"
+      ],
+      "era": "unavailable",
+      "lang": "n/a",
+      "name": "write_ai_agent",
+      "purpose": "多 agent 长篇生成系统（图谱记忆反馈循环 Write→Update→Query）",
+      "query_intent": [
+        "plan",
+        "lookup"
+      ],
+      "summary": "write_ai_agent（write_ai_agent）；分类：writing-engines；上游：Leolai6-7/write_ai_agent；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：多 agent 长篇生成系统（图谱记忆反馈循环 Write→Update→Query）。",
+      "title": "write_ai_agent",
+      "trust": "reference_only",
+      "upstream": "Leolai6-7/write_ai_agent"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-3514f6e9317816c0b2c6b464b5f11d29",
+      "domain": [
+        "人物",
+        "克苏鲁",
+        "原型"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-characters",
+      "purpose": "克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁人物原型（cthulhu-characters）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）。",
+      "title": "克苏鲁人物原型",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-6b9750046da9bc8541505eae0049e326",
+      "domain": [
+        "克苏鲁",
+        "怪物",
+        "眷族"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-creatures",
+      "purpose": "克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁眷族（cthulhu-creatures）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）。",
+      "title": "克苏鲁眷族",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-9b228c4ba7a1d524a928c6abc72ae3f7",
+      "domain": [
+        "克苏鲁",
+        "教团",
+        "邪教"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-cults",
+      "purpose": "克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁教团（cthulhu-cults）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）。",
+      "title": "克苏鲁教团",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-dd0a04f510c7ec8b27c8a77008985b63",
+      "domain": [
+        "克苏鲁",
+        "旧日支配者",
+        "神祇"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-deities",
+      "purpose": "克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁神祇（cthulhu-deities）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）。",
+      "title": "克苏鲁神祇",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-0d6fb72be9b054fb617bdcd67d36c34b",
+      "domain": [
+        "克苏鲁",
+        "时代",
+        "背景"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-eras",
+      "purpose": "克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁时代（cthulhu-eras）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）。",
+      "title": "克苏鲁时代",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-a20b5626afb37a848acf10aeb0313b47",
+      "domain": [
+        "世界观",
+        "克苏鲁",
+        "地点"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-places",
+      "purpose": "克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁地点（cthulhu-places）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）。",
+      "title": "克苏鲁地点",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-3901f1622b6e5b4dfd98a11ecbbd7bab",
+      "domain": [
+        "克苏鲁",
+        "恐怖",
+        "文风"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-style",
+      "purpose": "克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁文风（cthulhu-style）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）。",
+      "title": "克苏鲁文风",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-25e95460d96f1adb1d96a16fe419a30d",
+      "domain": [
+        "克苏鲁",
+        "典籍",
+        "禁忌知识"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "cthulhu-tomes",
+      "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）",
+      "query_intent": [
+        "lookup",
+        "draft"
+      ],
+      "summary": "克苏鲁典籍（cthulhu-tomes）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）。",
+      "title": "克苏鲁典籍",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-c686e79832fed8a7c45a68af2a5b85d2",
+      "domain": [
+        "奇幻",
+        "政治",
+        "王国"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-world-kingdoms",
+      "purpose": "奇幻世界卡：王国政治与封建秩序（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "奇幻王国政治与封建秩序（fantasy-world-kingdoms）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：王国政治与封建秩序（自建 CC0）。",
+      "title": "奇幻王国政治与封建秩序",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-cfa93cde9a3033063c85c80f10887b33",
+      "domain": [
+        "咒式",
+        "奇幻",
+        "魔法"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-world-magic-system",
+      "purpose": "奇幻世界卡：魔法体系与代价（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "奇幻魔法体系与代价（fantasy-world-magic-system）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：魔法体系与代价（自建 CC0）。",
+      "title": "奇幻魔法体系与代价",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-116bc731aa0c16b3583a5b1298cd77f4",
+      "domain": [
+        "偏见",
+        "奇幻",
+        "种族"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "fantasy-world-races",
+      "purpose": "奇幻世界卡：种族关系与偏见（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "奇幻种族关系与偏见（fantasy-world-races）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：种族关系与偏见（自建 CC0）。",
+      "title": "奇幻种族关系与偏见",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-a6016af0fb87c5d03524ddd785684e6d",
+      "domain": [
+        "人工智能",
+        "科幻",
+        "责任"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-world-ai-ethics",
+      "purpose": "科幻世界卡：人工智能人格与责任边界（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "人工智能人格与责任边界（scifi-world-ai-ethics）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：人工智能人格与责任边界（自建 CC0）。",
+      "title": "人工智能人格与责任边界",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-dceab5e45e6be18007019dbccd1fb99b",
+      "domain": [
+        "义体",
+        "科幻",
+        "阶层"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-world-cyber",
+      "purpose": "科幻世界卡：义体化与赛博阶层（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "义体化与赛博阶层（scifi-world-cyber）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：义体化与赛博阶层（自建 CC0）。",
+      "title": "义体化与赛博阶层",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-b1ead5955ca8d8f5d563339530c50b17",
+      "domain": [
+        "星际",
+        "殖民",
+        "科幻"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "scifi-world-interstellar",
+      "purpose": "科幻世界卡：星际殖民与航路政治（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "星际殖民与航路政治（scifi-world-interstellar）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：星际殖民与航路政治（自建 CC0）。",
+      "title": "星际殖民与航路政治",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-c033de4554f8c0f1748f133619317975",
+      "domain": [
+        "招安",
+        "朝廷",
+        "武侠"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-world-court",
+      "purpose": "武侠世界卡：朝廷与武林相互利用（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "朝廷与武林的相互利用（wuxia-world-court）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：朝廷与武林相互利用（自建 CC0）。",
+      "title": "朝廷与武林的相互利用",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-f21c98adf8750bfa2206e8143d5ae44d",
+      "domain": [
+        "商路",
+        "武侠",
+        "镖局"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-world-escort",
+      "purpose": "武侠世界卡：镖局商路与绿林规矩（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "镖局商路与绿林规矩（wuxia-world-escort）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：镖局商路与绿林规矩（自建 CC0）。",
+      "title": "镖局商路与绿林规矩",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-4d14c5e3b6a28138c5a618dfa05cfabb",
+      "domain": [
+        "武侠",
+        "江湖",
+        "门派"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "wuxia-world-jianghu",
+      "purpose": "武侠世界卡：江湖秩序与门派生态（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "江湖秩序与门派生态（wuxia-world-jianghu）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：江湖秩序与门派生态（自建 CC0）。",
+      "title": "江湖秩序与门派生态",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-1bf5473850f558c5d6bb81cd28ef2534",
+      "domain": [
+        "丹道",
+        "修仙",
+        "经济"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-alchemy-economy",
+      "purpose": "修仙世界卡：丹道经济与灵石本位（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "丹道经济与灵石本位（xianxia-world-alchemy-economy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：丹道经济与灵石本位（自建 CC0）。",
+      "title": "丹道经济与灵石本位",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-6cb898dbd6f39f74f3b9988d8bedd0fc",
+      "domain": [
+        "修仙",
+        "天劫",
+        "飞升"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-ascension-tribulation",
+      "purpose": "修仙世界卡：飞升与天劫体系（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "飞升与天劫体系（xianxia-world-ascension-tribulation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：飞升与天劫体系（自建 CC0）。",
+      "title": "飞升与天劫体系",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-f7e441ffd0a3b4a7217442120d3d0c7b",
+      "domain": [
+        "修仙",
+        "因果",
+        "天道"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-cultivation-law",
+      "purpose": "修仙世界卡：天道法则与因果（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "天道法则与因果（xianxia-world-cultivation-law）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：天道法则与因果（自建 CC0）。",
+      "title": "天道法则与因果",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-1f1d6c371cf621c698a2996c18a8363d",
+      "domain": [
+        "修仙",
+        "鬼道",
+        "魔道"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-ghost-demon-path",
+      "purpose": "修仙世界卡：鬼道魔道修行体系（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "鬼道魔道修行体系（xianxia-world-ghost-demon-path）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：鬼道魔道修行体系（自建 CC0）。",
+      "title": "鬼道魔道修行体系",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-a387f1cbe0605f62d46e77eb7b3494f2",
+      "domain": [
+        "世俗",
+        "修仙",
+        "凡人"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-mortal-realm",
+      "purpose": "修仙世界卡：凡人世界与仙凡隔绝（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "凡人世界与仙凡隔绝（xianxia-world-mortal-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：凡人世界与仙凡隔绝（自建 CC0）。",
+      "title": "凡人世界与仙凡隔绝",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-824222d58bd2d252dbaf487575500870",
+      "domain": [
+        "修仙",
+        "地理",
+        "灵域"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-realm-geography",
+      "purpose": "修仙世界卡：九州地理与灵域分级（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "修仙九州地理（xianxia-world-realm-geography）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：九州地理与灵域分级（自建 CC0）。",
+      "title": "修仙九州地理",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-d6b6047b4b7a861d1d6baedfae5bcb5f",
+      "domain": [
+        "修仙",
+        "洞天",
+        "秘境"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-secret-realm",
+      "purpose": "修仙世界卡：秘境与洞天规则（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "秘境与洞天规则（xianxia-world-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：秘境与洞天规则（自建 CC0）。",
+      "title": "秘境与洞天规则",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-091e242360a11b2c26e93e182a83f3fc",
+      "domain": [
+        "修仙",
+        "势力",
+        "宗门"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-sect-order",
+      "purpose": "修仙世界卡：宗门秩序与阵营（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "宗门秩序与阵营（xianxia-world-sect-order）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：宗门秩序与阵营（自建 CC0）。",
+      "title": "宗门秩序与阵营",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-8bbc621fdfbb90d48132e67f8c846e62",
+      "domain": [
+        "修仙",
+        "契约",
+        "妖兽"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-spirit-beast-hierarchy",
+      "purpose": "修仙世界卡：妖兽谱系与灵兽契约（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "妖兽谱系与灵兽契约（xianxia-world-spirit-beast-hierarchy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：妖兽谱系与灵兽契约（自建 CC0）。",
+      "title": "妖兽谱系与灵兽契约",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    },
+    {
+      "author": "unknown",
+      "collection": "world_ref",
+      "contentDigest": "sha256-2707820d509788b6f82c02de878b384e",
+      "domain": [
+        "修仙",
+        "灵脉",
+        "资源"
+      ],
+      "era": "unavailable",
+      "lang": "zh",
+      "name": "xianxia-world-spirit-vein",
+      "purpose": "修仙世界卡：灵脉与资源争夺（自建 CC0）",
+      "query_intent": [
+        "plan",
+        "lookup",
+        "draft"
+      ],
+      "summary": "灵脉与资源争夺（xianxia-world-spirit-vein）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：灵脉与资源争夺（自建 CC0）。",
+      "title": "灵脉与资源争夺",
+      "trust": "full",
+      "upstream": "UNKNOWN"
+    }
+  ]
+}

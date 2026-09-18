@@ -145,7 +145,7 @@ describe("R1-c 通道 B 归因实指（三态）", () => {
       // 既有 cthulhu 条目可共存命中（题材并行），但每条探针必须至少命中一张修仙世界卡
       expect(a.names["world_ref"]!.some((n) => n.startsWith("xianxia-world-"))).toBe(true)
     }
-    expect(kbRoutingView.builtFrom).toBe("sha256:df39ecbc9a177c41")
+    expect(kbRoutingView.builtFrom).toBe("sha256:989f0ce9d1cd638d")
   })
 
   it("零回归：craft/lexicon 命中数不下降（补料不挤占既有 collection）", () => {
