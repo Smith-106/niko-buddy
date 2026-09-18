@@ -10,6 +10,13 @@ import "./chapter-ingest"
 
 const NOVEL_DIR = resolve(__dirname)
 function readSource(): string {
+  // arch-risk W4：apply 函数族已抽离到 chapter-ingest-store-apply.ts（同 fold
+  // 家族）。断言源指向新宿主（grep-verifiable 模式不变）。
+  return readFileSync(resolve(NOVEL_DIR, "chapter-ingest-store-apply.ts"), "utf-8")
+}
+function readIngestSource(): string {
+  // registry 填充调用点仍在 chapter-ingest.ts（P2-IMP-14 块）——applyToStore
+  // 委派共享 helper 的调用点断言用此源。
   return readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8")
 }
 
@@ -106,9 +113,11 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     expect(entry).toBeTruthy()
     expect(entry.applyToStore).toBeTypeOf("function")
     // 注册表内 character 条目的 applyToStore 实现仍委派共享 helper（grep 可验）。
-    expect(src).toMatch(/applyCharacterStateChangesToStore\(store, snapshot, registryAliasMaps\(ctx, snapshot\), ctx\)/)
+    // arch-risk W4：调用点在 chapter-ingest.ts 的 PROJECTION_REGISTRY 填充（非 store-apply）。
+    const ingestSrc = readIngestSource()
+    expect(ingestSrc).toMatch(/applyCharacterStateChangesToStore\(store, snapshot, registryAliasMaps\(ctx, snapshot\), ctx\)/)
     // E-03 (C-3): fold 纯性 — 调用点注入 foldCtx（显式时间戳全链下传）。
-    expect(src).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\r?\n      \}/)
+    expect(ingestSrc).toMatch(/const foldCtx: ProjectionFoldContext = \{[\s\S]*?now: options\.now \?\? new Date\(\)\.toISOString\(\),[\s\S]*?aliasMaps,\r?\n      \}/)
   })
 
   it("live ingest foreshadow fold calls applyForeshadowingChangesToStore (no inline fold)", () => {
@@ -116,7 +125,8 @@ describe("CORR-001/002: fold_rebuildable colon-parity (ingest == rebuild) — st
     expect(entry).toBeTruthy()
     expect(entry.applyToStore).toBeTypeOf("function")
     // E-03 (C-3): 同上, 注册表条目 applyToStore 委派共享 helper 并注入 foldCtx。
-    expect(src).toMatch(/applyForeshadowingChangesToStore\(store, snapshot, ctx\)/)
+    // arch-risk W4：调用点在 chapter-ingest.ts 的 PROJECTION_REGISTRY 填充（非 store-apply）。
+    expect(readIngestSource()).toMatch(/applyForeshadowingChangesToStore\(store, snapshot, ctx\)/)
   })
 
   it("removes the ASCII-only double-indexOf from applyCharacterStateChangesToStore", () => {
@@ -241,9 +251,11 @@ describe("CORR-001/002: fold_rebuildable contract — ingest path delegates to s
     expect(PROJECTION_REGISTRY.foreshadow.applyToStore).toBeTypeOf("function")
     // The live ingest region must NOT contain the old inline
     // change.search(/[:：]/) inside a for-loop (it now delegates via the registry).
-    const ingestIdx = src.indexOf("const runProjection = async")
+    // arch-risk W4：live ingest 块在 chapter-ingest.ts（非 store-apply）。
+    const ingestSrc = readIngestSource()
+    const ingestIdx = ingestSrc.indexOf("const runProjection = async")
     expect(ingestIdx).toBeGreaterThan(-1)
-    const ingestBlock = src.slice(ingestIdx, src.indexOf("finally {", ingestIdx))
+    const ingestBlock = ingestSrc.slice(ingestIdx, ingestSrc.indexOf("finally {", ingestIdx))
     // No inline for-loop with change.search in the live ingest block
     expect(ingestBlock).not.toMatch(/for \(const change of snapshot\.characterStateChanges\)[\s\S]*?change\.search\(\/\[:：\]\/\)/)
     // No inline for-loop with /^(新增伏笔|新增)[:：]/.test in the live ingest block
