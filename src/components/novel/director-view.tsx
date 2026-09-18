@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { DirectorPanel } from "@/components/novel/director-panel"
 import { EvidenceDashboardSection } from "@/components/novel/evidence-dashboard-section"
 import { SubgateAlertsSection } from "@/components/novel/subgate-alerts-section"
-import { tryAdvanceDirector, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline } from "@/lib/novel"
+import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline } from "@/lib/novel"
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Play, Rocket } from "lucide-react"
@@ -15,24 +15,10 @@ export interface DirectorViewProps {
   projectId: string
 }
 
-function gatherSnapshot(
-  ideaInput: DirectorIdeaInput,
-  marked: { worldComplete: boolean; protagonistNamed: boolean; antagonistNamed: boolean; frameworkChosen: boolean; volumesPlanned: boolean },
-): DirectorSnapshot {
-  return {
-    idea: ideaInput,
-    worldComplete: marked.worldComplete,
-    protagonistNamed: marked.protagonistNamed,
-    antagonistNamed: marked.antagonistNamed,
-    frameworkChosen: marked.frameworkChosen,
-    volumesPlanned: marked.volumesPlanned,
-    firstChapterReady: false,
-  }
-}
-
 /**
- * 60 号设计：开书导演主视图（C-glm 共识）— 显式启动门（D3）+ ideaInput 落盘（D4）
- * + 阶段手动标记（world/character/outline 门输入）+ 完成横幅跳转审查中心。
+ * 60 号设计：开书导演主视图（C-glm 共识）— 显式启动门（D3）+ ideaInput 落盘（D4）。
+ * MIG-001：阶段门输入改为从项目真实产物自动采集（world-blueprint store /
+ * entities characters / wiki-outlines / snapshots），不再依赖手动 checkbox。
  */
 export function DirectorView({ projectId }: DirectorViewProps) {
   const { t } = useTranslation()
@@ -41,13 +27,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   const [started, setStarted] = useState(false)
   const [gap, setGap] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [marks, setMarks] = useState({
-    worldComplete: false,
-    protagonistNamed: false,
-    antagonistNamed: false,
-    frameworkChosen: false,
-    volumesPlanned: false,
-  })
+  const [snapshot, setSnapshot] = useState<DirectorSnapshot | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -94,13 +74,23 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     }
   }, [projectId])
 
+  const refreshSnapshot = useCallback(async () => {
+    if (!persisted) return
+    const snap = await collectProjectSnapshot(projectId, persisted.ideaInput)
+    setSnapshot(snap)
+  }, [persisted, projectId])
+
+  useEffect(() => {
+    if (!persisted) return
+    void refreshSnapshot()
+  }, [persisted, refreshSnapshot])
+
   const handleAdvance = useCallback(async () => {
     if (!persisted) return
     setBusy(true)
     setGap(null)
     try {
-      const snapshot = gatherSnapshot(persisted.ideaInput, marks)
-      const outcome = tryAdvanceDirector(persisted.state, snapshot)
+      const outcome = await tryAdvanceDirectorFromProject(projectId, persisted.state, persisted.ideaInput)
       const file = { ...persisted, state: outcome.state }
       await saveDirectorPersisted(projectId, file)
       setPersisted(file)
@@ -110,7 +100,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     } finally {
       setBusy(false)
     }
-  }, [persisted, marks, projectId])
+  }, [persisted, projectId])
 
   const handleRetry = useCallback(async () => {
     if (!persisted) return
@@ -124,11 +114,6 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       setBusy(false)
     }
   }, [persisted, projectId])
-
-  const mark = (key: keyof typeof marks) => {
-    setMarks((m) => ({ ...m, [key]: !m[key] }))
-    setGap(null)
-  }
 
   if (!started || !persisted) {
     return (
@@ -193,6 +178,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
         <div className="flex flex-col gap-2 rounded-lg border p-4">
           <h3 className="text-sm font-semibold">{t("directorPanel.marksTitle")}</h3>
+          <p className="text-xs text-muted-foreground">{t("directorPanel.autoCollectHint")}</p>
           {(
             [
               ["worldComplete", "directorPanel.markWorld"],
@@ -201,17 +187,15 @@ export function DirectorView({ projectId }: DirectorViewProps) {
               ["frameworkChosen", "directorPanel.markFramework"],
               ["volumesPlanned", "directorPanel.markVolumes"],
             ] as const
-          ).map(([key, labelKey]) => (
-            <label key={key} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={marks[key]}
-                onChange={() => mark(key)}
-                data-testid={`director-mark-${key}`}
-              />
-              {t(labelKey)}
-            </label>
-          ))}
+          ).map(([key, labelKey]) => {
+            const ok = snapshot ? Boolean(snapshot[key]) : false
+            return (
+              <div key={key} className="flex items-center gap-2 text-sm" data-testid={`director-auto-${key}`}>
+                <span className={ok ? "text-success" : "text-muted-foreground"}>{ok ? "✓" : "○"}</span>
+                {t(labelKey)}
+              </div>
+            )
+          })}
         </div>
       </div>
 

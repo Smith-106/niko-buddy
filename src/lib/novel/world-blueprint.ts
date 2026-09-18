@@ -113,3 +113,28 @@ export function worldBlueprintToPromptFragment(bp: WorldBlueprint): string {
   if (sections.length === 0) return ""
   return [`# 世界观骨架（${bp.worldType}）`, ...sections].join("\n\n")
 }
+
+// ── 持久化（MIG-001：补产物管线）──────────────────────────────────
+// world-blueprint 之前只有校验器无持久化——orchestrator 拿不到真实 blueprint
+// 只能吃手动 checkbox。补上 .novel/world-blueprint.json 原子 store，让
+// 写作流程/编辑器能把骨架落盘，collectPhaseGateInput 才能读真实完备度。
+import { createAtomicJsonStore } from "./projection-store"
+
+const worldBlueprintStore = createAtomicJsonStore<WorldBlueprint | null>(
+  "world-blueprint.json",
+  () => null,
+)
+
+/** 持久化世界观骨架（.novel/world-blueprint.json 原子写）。 */
+export async function saveWorldBlueprint(projectPath: string, bp: WorldBlueprint): Promise<void> {
+  await worldBlueprintStore.save(projectPath, bp)
+}
+
+/** 读取持久化世界观骨架；未写过返回 null（调用方按需 createEmpty）。 */
+export async function loadWorldBlueprint(projectPath: string): Promise<WorldBlueprint | null> {
+  try {
+    return await worldBlueprintStore.load(projectPath)
+  } catch {
+    return null
+  }
+}
