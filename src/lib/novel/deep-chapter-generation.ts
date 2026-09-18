@@ -645,6 +645,14 @@ import {
   collectRepairIssues,
   emptyDecisionGates,
 } from "./deep-chapter-decision-gates"
+import {
+  assertNotAborted,
+  countChapterChars,
+  fallback,
+  findRepeatedTailStart,
+  severityLabel,
+  summaryText,
+} from "./deep-chapter-utils"
 export {
   buildDecisionGates,
   collectBlockingIssues,
@@ -653,6 +661,8 @@ export {
   createEmptyDecisionGate,
   emptyDecisionGates,
 } from "./deep-chapter-decision-gates"
+// ISS-20260712-ARCH-1: trimForThinking 供 deep-chapter-task-brief 复用，re-export。
+export { trimForThinking } from "./deep-chapter-utils"
 
 function checkpointStageAtLeast(
   checkpoint: DeepChapterGenerationResumeCheckpoint | null | undefined,
@@ -1103,7 +1113,7 @@ export async function runDeepChapterGeneration(
   deps: DeepChapterGenerationDeps = defaultDeps,
   signal?: AbortSignal,
 ): Promise<DeepChapterGenerationResult> {
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   // ISS-20260709-019/020: configure the observability sinks for this run.
   // setMetricsFilePath enables LLM metrics buffering (collectLLMMetric in
   // streamChat); setMetricsTraceId + setLogTraceId stamp every metric/log
@@ -1196,7 +1206,7 @@ export async function runDeepChapterGeneration(
   const previousChaptersAnalysis = await runPreviousChaptersAnalysis(
     input, writingConfig, novelConfig, resumeCheckpoint, callbacks, signal,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1206,7 +1216,7 @@ export async function runDeepChapterGeneration(
     deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
   )
   const { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1216,7 +1226,7 @@ export async function runDeepChapterGeneration(
   // (TASK-008)。logger 双参 scope='continuity-engine'。
   const continuityPreCheckText = await runContinuityPreCheck(input.projectPath, input.chapterNumber)
   const contextPrompt = continuityPreCheckText ? rawContextPrompt + continuityPreCheckText : rawContextPrompt
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1229,7 +1239,7 @@ export async function runDeepChapterGeneration(
     novelConfig,
     callbacks,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1237,7 +1247,7 @@ export async function runDeepChapterGeneration(
   await runSceneBreakdownStage(
     input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1247,7 +1257,7 @@ export async function runDeepChapterGeneration(
     outlinePrompt, contextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
     watchdog,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1257,7 +1267,7 @@ export async function runDeepChapterGeneration(
     outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
     notePartial, clearPartial, watchdog,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
 
   // 54 号设计 ②: format-normalizer 机械层接线 (character-arc humanizer-zh 吸收)。
   // Draft-first: 规范化只作用于草稿 (pending 阶段), 不直接回填正式正文;
@@ -1276,7 +1286,7 @@ export async function runDeepChapterGeneration(
     ))
   }
   const draftContent = normalized.text
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
 
   // Quality Foundation v1 / FR-C1: post-draft StateDelta light-check (warn-only by default).
   // Non-fatal: extract/check failures never block generation; results merge into reviewResults.
@@ -1287,7 +1297,7 @@ export async function runDeepChapterGeneration(
     novelConfig,
     callbacks,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1325,7 +1335,7 @@ export async function runDeepChapterGeneration(
       contextUsage: contextPack.contextUsage,
     }
   }
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
@@ -1684,7 +1694,7 @@ async function assembleContext(
     input.userRequest,
     input.chapterNumber,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
 
   // 阶段1后：加载智能skill（传递contextPack用于场景检测）
   const customDeAiSkill = await loadSmartDeAiSkill(input.projectPath, input.userRequest, contextPack)
@@ -1798,7 +1808,7 @@ async function assembleContext(
     callbacks.onThinking?.(formatContextThinking(input, contextPack))
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_context"))
   }
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
 
   return { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, communitySummaryInjection, contextPrompt, cachePrefix }
 }
@@ -1840,7 +1850,7 @@ async function runSceneBreakdownStage(
     // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
     logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: error instanceof Error ? error.message : String(error) })
   }
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   if (sceneResult && sceneResult.scenes.length > 0) {
     // 工厂持久化（ADR-31 硬先决）：persistSceneBreakdownDraft 内部用
     // buildNextStatus + persistCheckpointBase 写 status.json，非手动 const next 块。
@@ -1922,7 +1932,7 @@ async function generateTaskBrief(
       undefined,
       watchdog,
     )
-    assertNotAborted(signal)
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief))
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
   }
@@ -1985,7 +1995,7 @@ async function generateTaskBrief(
         undefined,
         watchdog,
       )
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
       callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", taskBrief))
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
     }
@@ -2073,7 +2083,7 @@ async function generateDraft(
       undefined,
       watchdog,
     )
-    assertNotAborted(signal)
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
       draftContent = await collectModelText(
         writingConfig,
@@ -2100,7 +2110,7 @@ async function generateDraft(
         clearPartial,
         watchdog,
       )
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
     }
     callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", [
       draftContent,
@@ -2138,7 +2148,7 @@ async function generateDraft(
       undefined,
       watchdog,
     )
-    assertNotAborted(signal)
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
       draftContent = await collectModelText(
         writingConfig,
@@ -2165,7 +2175,7 @@ async function generateDraft(
         clearPartial,
         watchdog,
       )
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
     }
     callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", [
       draftContent,
@@ -2237,7 +2247,7 @@ async function runReviewAndRepair(
       reviewResults = stage4.reviewResults
       reviewParseFailedFlag = reviewParseFailedFlag || stage4.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
       // EPIC-002 / TASK-013 / Story 2.3: rewrite 率 A/B 埋点（severity=error /
       // 总 findings）。variant 由 sceneBreakdownEnabled 决定（enabled 章节
@@ -2287,7 +2297,7 @@ async function runReviewAndRepair(
       reviewResults = stage55.reviewResults
       reviewParseFailedFlag = reviewParseFailedFlag || stage55.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
       await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
         taskBrief,
         draftContent,
@@ -2518,7 +2528,7 @@ async function runReviewAndRepair(
       undefined,
       watchdog,
     )
-    assertNotAborted(signal)
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
     callbacks.onThinking?.(formatStageThinking(
       "阶段5：自动返修",
       [
@@ -2618,7 +2628,7 @@ async function runReviewAndRepair(
     // return, or thread manualReviewRequired explicitly here too.
     decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
     blockingIssues = collectBlockingIssues(decisionGates)
-    assertNotAborted(signal)
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
       taskBrief,
       draftContent,
@@ -2724,7 +2734,7 @@ async function runReviewAndRepair(
         undefined,
         watchdog,
       )
-      assertNotAborted(signal)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
       if (polishedContent.trim()) {
         const prevSlop = scoreCandidate(currentContent)
         const nextSlop = scoreCandidate(polishedContent)
@@ -2794,7 +2804,7 @@ async function finalPolishChapter(
   watchdog?: WatchdogState,
 ): Promise<string> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
   const polished = await collectModelText(
     writingConfig,
@@ -2824,7 +2834,7 @@ async function finalPolishChapter(
     undefined,
     watchdog,
   )
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
   return polished.trim() ? polished : currentContent
 }
 
@@ -2931,7 +2941,7 @@ async function collectModelText(
     streamController.abort()
   }
 
-  assertNotAborted(signal)
+  assertNotAborted(signal, USER_ABORT_MESSAGE)
 
   await deps.streamChat(
     config,
@@ -2952,7 +2962,7 @@ async function collectModelText(
         // form a new 3x repeat until that much new content arrives.
         if (content.length - lastRepeatCheckLen >= REPEAT_WINDOW_CHARS) {
           lastRepeatCheckLen = content.length
-          const loopStart = findRepeatedTailStart(content)
+          const loopStart = findRepeatedTailStart(content, { minChars: REPEAT_CHECK_MIN_CHARS, windowChars: REPEAT_WINDOW_CHARS, hitLimit: REPEAT_HIT_LIMIT })
           if (loopStart !== null) {
             content = content.slice(0, loopStart).trimEnd()
             // Reset the flush tracker: content shrank, so the next flush must
@@ -3057,57 +3067,6 @@ async function collectModelText(
   return content.trim()
 }
 
-function countChapterChars(content: string): number {
-  return content.replace(/\s+/g, "").length
-}
-
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE)
-}
-
-function findRepeatedTailStart(content: string): number | null {
-  const normalized = content.replace(/\r\n/g, "\n")
-  const compact = normalized.replace(/\s+/g, "")
-  if (compact.length < REPEAT_CHECK_MIN_CHARS) return null
-
-  const tail = compact.slice(-REPEAT_WINDOW_CHARS)
-  const first = compact.indexOf(tail)
-  if (first === -1 || first >= compact.length - REPEAT_WINDOW_CHARS) return null
-
-  let hits = 0
-  let searchIndex = 0
-  while (true) {
-    const found = compact.indexOf(tail, searchIndex)
-    if (found === -1) break
-    hits += 1
-    if (hits >= REPEAT_HIT_LIMIT) {
-      // Pass the RAW content (not `normalized`) so the returned index lands in
-      // the caller's coordinate space — :1886 slices raw `content`, and slicing
-      // a CRLF string at an LF-normalized index cuts N chars too early (one per
-      // \r\n). sourceIndexFromCompactIndex skips whitespace via /\s/.test so \r
-      // doesn't perturb the `seen` count; only the returned index space differs.
-      return sourceIndexFromCompactIndex(content, first + REPEAT_WINDOW_CHARS)
-    }
-    searchIndex = found + Math.max(1, tail.length)
-  }
-  return null
-}
-
-function sourceIndexFromCompactIndex(content: string, compactIndex: number): number {
-  let seen = 0
-  for (let index = 0; index < content.length; index += 1) {
-    if (/\s/.test(content[index])) continue
-    seen += 1
-    // CORR-102: return `index` (not `index + 1`) so slice(0, index) lands at
-    // the start of the second repeated copy, not one char past it. The prior
-    // +1 dropped the first non-whitespace char after the cut point.
-    if (seen >= compactIndex) return index
-  }
-  /* v8 ignore start */
-  return content.length
-  /* v8 ignore stop */
-}
-
 function formatContextThinking(input: DeepChapterGenerationInput, pack: ContextPack): string {
   const recentSummaries = Array.isArray(pack.recentSummaries) ? pack.recentSummaries : []
   const goldenThreeHints = resolveGoldenThreeThinkingHints(input.goldenThreeChapter)
@@ -3165,30 +3124,6 @@ function formatReviewIssueList(reviewResults: NovelReviewResult[]): string {
       item.suggestion ? `   - 建议：${item.suggestion}` : "",
     ].filter(Boolean).join("\n"))
     .join("\n")
-}
-
-function fallback(value: string | null | undefined, fallbackText: string): string {
-  const trimmed = typeof value === "string" ? value.trim() : ""
-  return trimmed ? trimForThinking(trimmed, 180) : fallbackText
-}
-
-function summaryText(value: string | null | undefined): string {
-  const trimmed = typeof value === "string" ? value.trim() : ""
-  return trimmed ? trimForThinking(trimmed, 140) : "暂无"
-}
-
-// ISS-20260712-ARCH-1: export 供 deep-chapter-task-brief.ts (抽出的集群) 复用,
-// thinking 格式集群本身留本文件。
-export function trimForThinking(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim()
-  if (normalized.length <= maxLength) return normalized
-  return `${normalized.slice(0, maxLength)}...`
-}
-
-function severityLabel(severity: NovelReviewResult["severity"]): string {
-  if (severity === "error") return "严重"
-  if (severity === "warning") return "提醒"
-  return "信息"
 }
 
 function resolveGoldenThreeThinkingHints(goldenThreeChapter?: GoldenThreeChapterRequest): string[] {
