@@ -79,6 +79,13 @@ export interface AtomicJsonStoreOptions {
    * 「missing → empty; 其它错误 → rethrow」语义。
    */
   isMissingError?: (err: unknown) => boolean
+  /**
+   * 无界增长护栏（arch-risk W2）：对 store 内数组字段在 save 时截尾保最近 N 条。
+   * { fieldPath: maxEntries }——fieldPath 用顶层字段名（如 "entries"/"events"）。
+   * 用于 metrics/telemetry/audit/promotions 等 append-only 投影，防 .novel/ 无限累积。
+   * 缺省无 cap（向后兼容——只对显式声明的 store 生效）。
+   */
+  arrayFieldCaps?: Record<string, number>
 }
 
 /**
@@ -107,9 +114,21 @@ export function createAtomicJsonStore<T>(
       // projection .json would break ingest on next load. fold_rebuildable
       // via the committed snapshot sequence, but atomicity protects the
       // rebuild path itself.
+      let toSave = store
+      // 无界增长护栏：save 时截尾数组字段（arch-risk W2）
+      if (options.arrayFieldCaps && store && typeof store === "object") {
+        const clone = { ...(store as Record<string, unknown>) }
+        for (const [field, cap] of Object.entries(options.arrayFieldCaps)) {
+          const arr = clone[field]
+          if (Array.isArray(arr) && arr.length > cap) {
+            clone[field] = arr.slice(-cap)
+          }
+        }
+        toSave = clone as T
+      }
       const payload = currentVersion > 1
-        ? { ...(store as Record<string, unknown>), fileVersion: currentVersion }
-        : store
+        ? { ...(toSave as Record<string, unknown>), fileVersion: currentVersion }
+        : toSave
       await writeFileAtomic(`${pp}/.novel/${relativePath}`, JSON.stringify(payload, null, 2))
     },
     async load(projectPath: string): Promise<T> {

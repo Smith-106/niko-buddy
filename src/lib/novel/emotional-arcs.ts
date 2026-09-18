@@ -53,6 +53,8 @@ export function createEmptyEmotionalArcStore(now = ""): EmotionalArcStore {
 const emotionalArcsStore = createAtomicJsonStore<EmotionalArcStore>(
   "emotional-arcs.json",
   createEmptyEmotionalArcStore,
+  // arch-risk W2: 无界增长护栏——beats 截尾保最近 400 拍
+  { arrayFieldCaps: { beats: 400 } },
 )
 
 export async function saveEmotionalArcs(

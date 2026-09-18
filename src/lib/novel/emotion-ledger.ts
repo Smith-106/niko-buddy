@@ -131,6 +131,8 @@ export function createEmptyEmotionLedgerStore(): EmotionLedgerStore {
 const emotionLedgerStore = createAtomicJsonStore<EmotionLedgerStore>(
   "emotion-ledger.json",
   createEmptyEmotionLedgerStore,
+  // arch-risk W2: 无界增长护栏——entries 截尾保最近 500 条
+  { arrayFieldCaps: { entries: 500 } },
 )
 
 export async function saveEmotionLedger(

@@ -227,3 +227,54 @@ describe("E-03 canonicalizeForHash / truthStoreHash (truth_fold_drift 可执行�
     expect(a).toBe(b)
   })
 })
+
+describe("arrayFieldCaps（arch-risk W2 无界增长护栏）", () => {
+  it("save 时数组字段截尾保最近 N 条", async () => {
+    const { createAtomicJsonStore } = await import("./projection-store")
+    const fsMocks = (globalThis as { __fsMocks?: { writeFileAtomic?: { mock: { calls: unknown[][] } } } }).__fsMocks
+    const store = createAtomicJsonStore<{ entries: number[] }>(
+      "test-cap.json",
+      () => ({ entries: [] }),
+      { arrayFieldCaps: { entries: 3 } },
+    )
+    const written: string[] = []
+    // mock writeFileAtomic 捕获 payload
+    const orig = (await import("@/commands/fs")).writeFileAtomic
+    ;(await import("@/commands/fs")).writeFileAtomic = (async (_p: string, c: string) => { written.push(c) }) as typeof orig
+    await store.save("/proj", { entries: [1, 2, 3, 4, 5, 6, 7] })
+    ;(await import("@/commands/fs")).writeFileAtomic = orig
+    const saved = JSON.parse(written[0])
+    expect(saved.entries).toEqual([5, 6, 7])
+  })
+
+  it("数组未超 cap → 不截尾", async () => {
+    const { createAtomicJsonStore } = await import("./projection-store")
+    const store = createAtomicJsonStore<{ entries: number[] }>(
+      "test-cap2.json",
+      () => ({ entries: [] }),
+      { arrayFieldCaps: { entries: 10 } },
+    )
+    const written: string[] = []
+    const orig = (await import("@/commands/fs")).writeFileAtomic
+    ;(await import("@/commands/fs")).writeFileAtomic = (async (_p: string, c: string) => { written.push(c) }) as typeof orig
+    await store.save("/proj", { entries: [1, 2] })
+    ;(await import("@/commands/fs")).writeFileAtomic = orig
+    const saved = JSON.parse(written[0])
+    expect(saved.entries).toEqual([1, 2])
+  })
+
+  it("缺省无 arrayFieldCaps → 不截尾（向后兼容）", async () => {
+    const { createAtomicJsonStore } = await import("./projection-store")
+    const store = createAtomicJsonStore<{ entries: number[] }>(
+      "test-nocap.json",
+      () => ({ entries: [] }),
+    )
+    const written: string[] = []
+    const orig = (await import("@/commands/fs")).writeFileAtomic
+    ;(await import("@/commands/fs")).writeFileAtomic = (async (_p: string, c: string) => { written.push(c) }) as typeof orig
+    await store.save("/proj", { entries: [1, 2, 3, 4, 5] })
+    ;(await import("@/commands/fs")).writeFileAtomic = orig
+    const saved = JSON.parse(written[0])
+    expect(saved.entries).toEqual([1, 2, 3, 4, 5])
+  })
+})

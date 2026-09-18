@@ -61,6 +61,8 @@ export function createEmptyParticleLedgerStore(): ParticleLedgerStore {
 const store = createAtomicJsonStore<ParticleLedgerStore>(
   "particle-ledger.json",
   createEmptyParticleLedgerStore,
+  // arch-risk W2: 无界增长护栏——entries 截尾保最近 600 条
+  { arrayFieldCaps: { entries: 600 } },
 )
 
 export async function saveParticleLedger(
