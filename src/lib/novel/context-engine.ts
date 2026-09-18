@@ -46,6 +46,7 @@ import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 // cached leaf，无环依赖；失败降级 null → memoryChars 0，不阻断 build）。
 import { buildContextUsage, type ContextUsage } from "@/lib/context-usage"
 import { loadUserMemoryForProject } from "@/lib/user-memory/session"
+import { loadWorldBlueprint, worldBlueprintToPromptFragment } from "./world-blueprint"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
@@ -344,6 +345,13 @@ export interface ContextPack {
    * Compressible tier — empty when none / disabled. Optional for legacy packs.
    */
   communitySummaries?: string
+  /**
+   * MIG-002: 世界骨架 prompt 片段（worldBlueprintToPromptFragment 渲染结果）。
+   * 迁移模块产物接入主链 — 之前 world-blueprint.json 写了但不进 context pack
+   * （孤岛投影）。独立 additive 分块，与 communitySummaries 同款 optional 契约：
+   * 空/无 blueprint → undefined → 不渲染（字节级不变）。
+   */
+  worldBlueprint?: string
   /**
    * S2a (roadmap R06 / TASK-101 + TASK-102): 四维反查（伏笔/出场/状态/关系）
    * + 伏笔逾期 finding 组合文本，由主装配注入。relatedChaptersEnabled=false 或
@@ -1180,6 +1188,11 @@ async function buildContextPackFromRawData(
     searchResults: rawData.searchResults,
     graphSearchResults: rawData.graphSearchResults,
     communitySummaries: communitySummaries || undefined,
+    // MIG-002: 世界骨架接入 context pack — loadWorldBlueprint 非空且有完备层时
+    // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
+    worldBlueprint: (await loadWorldBlueprint(context.projectPath).then(
+      (bp) => (bp ? worldBlueprintToPromptFragment(bp) || undefined : undefined),
+    ).catch(() => undefined)),
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
     mustAvoid: buildMustAvoid(canonRules, timeline, characterStates),
     nextChapterAdvice: buildNextChapterAdvice({
@@ -2552,6 +2565,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
+  {
+    // MIG-002: 世界骨架段 — additive 独立分块；renderIf 非空才渲染
+    // （空/无 blueprint → undefined → 不渲染，字节级不变）。
+    titleKey: "novel.contextPack.worldBlueprint",
+    fieldKey: "worldBlueprint",
+    layer: "L2",
+    renderIf: (pack) => Boolean(pack.worldBlueprint),
+  },
   { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
   // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）
   { titleKey: "novel.contextPack.references", fieldKey: "references", layer: "aux" },

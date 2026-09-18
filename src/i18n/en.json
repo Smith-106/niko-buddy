@@ -2548,6 +2548,7 @@
       "searchResults": "## Related Search Results",
       "graphSearchResults": "## Graph Related Nodes",
       "communitySummaries": "## Community Summaries (GraphRAG-style)",
+      "worldBlueprint": "## World Blueprint (Skeleton)",
       "relatedChapters": "## Related Chapters Lookup",
       "references": "## Reference Lookup",
       "referenceBindings": "## Material Reference Bindings",
