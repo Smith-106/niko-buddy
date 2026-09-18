@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.5",
+    date: "2026-09-19",
+    highlights: {
+      en: [
+        "Module boundary god-objects fully split: all 3 files >2900 lines refactored below the limit — deep-chapter-generation 3464→2747 (5 submodules: decision-gates/utils/review/resolve/continuity), context-engine 2928→2882 (outline-helpers), chapter-ingest 3198→2821 (utils/store-apply + apply function family merged; P2-IMP-14 registry↔ingest circular dependency broken).",
+        "Silent catch zeroed: 27 real empty catch{} blocks now log via logger.warn (character-aura/context-derived-stores/context-engine/timeline/volume/generation-history/user-skill-store/lint).",
+        ".novel unbounded growth capped: createAtomicJsonStore gains arrayFieldCaps (save-time tail-truncation to newest N) — 12 growth stores now bounded (emotion-ledger/emotional-arcs/particle-ledger/foreshadowing-tracker/subplot-board/resource-ledger/materials-library/character-state/chapter-summaries/narrative-state).",
+        "Frontmatter convergence: 8 private parsing regexes consolidated onto canonical parseFrontmatter; 4 residual .novel projections registered (promotions/promotion-events/audit-findings/inspirations).",
+        "Testability: chapter-ingest pure-function spec added (10 tests) + corr-colon-parity dual-source assertions (21 tests).",
+      ],
+      zh: [
+        "模块边界 god-object 全拆：3 个 >2900 行文件全拆分至 <2900——deep-chapter-generation 3464→2747（拆出 decision-gates/utils/review/resolve/continuity 5 个子模块）、context-engine 2928→2882（outline-helpers）、chapter-ingest 3198→2821（拆出 utils/store-apply + apply 函数族并入，P2-IMP-14 registry↔ingest 循环依赖环断开）。",
+        "静默 catch 清零：27 个真空 catch{} 全补 logger.warn 降级标记（character-aura/context-derived-stores/context-engine/timeline/volume/generation-history/user-skill-store/lint）。",
+        ".novel 无界增长 cap：createAtomicJsonStore 加 arrayFieldCaps（save 截尾保最近 N 条）——12 个增长型 store 全上限（emotion-ledger/emotional-arcs/particle-ledger/foreshadowing-tracker/subplot-board/resource-ledger/materials-library/character-state/chapter-summaries/narrative-state）。",
+        "frontmatter 收敛：8 处私有解析 regex 全并入 canonical parseFrontmatter；残余孤岛 4 个真实投影登记 registry（promotions/promotion-events/audit-findings/inspirations）。",
+        "可测性：chapter-ingest 补纯函数 spec（10 tests）+ corr-colon-parity 改双源断言（21 tests）。",
+      ],
+    },
+  },
+  {
     version: "2.9.4",
     date: "2026-09-18",
     highlights: {
