@@ -2897,6 +2897,7 @@
     "ideaHint": "Fill title/genre/conflict to advance the idea phase",
     "marksTitle": "Phase Gate Status (auto-collected)",
     "autoCollectHint": "Statuses below are auto-detected from real project artifacts: world blueprint, character entities, outline files, first-chapter snapshots.",
+    "generateBlueprint": "Generate / refresh world blueprint",
     "markWorld": "World blueprint complete",
     "markProtagonist": "Protagonist set",
     "markAntagonist": "Antagonist set",

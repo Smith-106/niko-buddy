@@ -57,7 +57,8 @@ export async function collectProjectSnapshot(
   ])
 
   // world：持久化 blueprint 完备即过
-  const worldComplete = blueprint ? validateWorldBlueprint(blueprint).verdict === "complete" : false
+  // 防御：mock/旧持久化可能返回缺 layers 的不完整对象——规范后再校验
+  const worldComplete = blueprint?.layers ? validateWorldBlueprint(blueprint).verdict === "complete" : false
 
   // character：entities/characters 实体数启发式——≥1 主角、≥2 对手。
   // listEntityFiles 已聚合子目录；按 entities/characters 路径前缀过滤角色实体。
@@ -96,7 +97,7 @@ export function collectPhaseGateInput(
   snapshot: DirectorSnapshot,
   worldBlueprint?: WorldBlueprint | null,
 ): PhaseGateInput {
-  const worldComplete = worldBlueprint
+  const worldComplete = worldBlueprint?.layers
     ? validateWorldBlueprint(worldBlueprint).verdict === "complete"
     : snapshot.worldComplete
   return {

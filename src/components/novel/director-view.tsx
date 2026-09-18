@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { DirectorPanel } from "@/components/novel/director-panel"
 import { EvidenceDashboardSection } from "@/components/novel/evidence-dashboard-section"
 import { SubgateAlertsSection } from "@/components/novel/subgate-alerts-section"
-import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline } from "@/lib/novel"
+import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline, deriveAndSaveWorldBlueprint } from "@/lib/novel"
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Play, Rocket } from "lucide-react"
@@ -115,6 +115,18 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     }
   }, [persisted, projectId])
 
+  // MIG-002：世界骨架生成 — 从项目实体推导骨架落盘 .novel/world-blueprint.json，
+  // 让 worldComplete 能真正判真（不再靠手动 checkbox / 死数据）。
+  const handleGenerateBlueprint = useCallback(async () => {
+    setBusy(true)
+    try {
+      await deriveAndSaveWorldBlueprint(projectId)
+      await refreshSnapshot()
+    } finally {
+      setBusy(false)
+    }
+  }, [projectId, refreshSnapshot])
+
   if (!started || !persisted) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
@@ -196,6 +208,15 @@ export function DirectorView({ projectId }: DirectorViewProps) {
               </div>
             )
           })}
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="director-generate-blueprint"
+            disabled={busy}
+            onClick={() => void handleGenerateBlueprint()}
+          >
+            {t("directorPanel.generateBlueprint")}
+          </Button>
         </div>
       </div>
 

@@ -2897,6 +2897,7 @@
     "ideaHint": "填写书名/题材/核心冲突后即可推进 idea 阶段",
     "marksTitle": "阶段门状态（自动采集）",
     "autoCollectHint": "以下状态由项目真实产物自动判定：世界观骨架、角色实体、大纲文件、首章快照。",
+    "generateBlueprint": "生成 / 刷新世界骨架",
     "markWorld": "世界骨架已完备",
     "markProtagonist": "主角已建立",
     "markAntagonist": "对手已建立",
