@@ -182,6 +182,7 @@ export function createEmptyNarrativeStateStore(): NarrativeStateStore {
 const narrativeStore = createAtomicJsonStore<NarrativeStateStore>(
   "narrative-state.json",
   createEmptyNarrativeStateStore,
+  { arrayFieldCaps: { declarations: 500, visibilities: 500, events: 600, locatedInRelations: 400 } },
 )
 
 /** 持久化叙事状态（.novel/narrative-state.json，原子写；非第二真源——内容数据层，会话状态仍在 status.json）。 */

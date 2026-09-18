@@ -92,6 +92,7 @@ const store = createAtomicJsonStore<CharacterStateStore>(
       const message = err instanceof Error ? err.message : String(err)
       return /not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)
     },
+    arrayFieldCaps: { characters: 400 },
   },
 )
 

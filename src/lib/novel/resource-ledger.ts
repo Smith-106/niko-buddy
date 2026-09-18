@@ -57,6 +57,7 @@ export function createEmptyResourceLedgerStore(): ResourceLedgerStore {
 const resourceLedgerStore = createAtomicJsonStore<ResourceLedgerStore>(
   "resource-ledger.json",
   createEmptyResourceLedgerStore,
+  { arrayFieldCaps: { entries: 600 } }
 )
 
 export async function saveResourceLedger(

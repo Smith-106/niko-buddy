@@ -33,6 +33,7 @@ export function createEmptyForeshadowingStore(): ForeshadowingStore {
 const store = createAtomicJsonStore<ForeshadowingStore>(
   "foreshadowing-tracker.json",
   createEmptyForeshadowingStore,
+  { arrayFieldCaps: { items: 500 } }
 )
 
 export async function saveForeshadowingTracker(

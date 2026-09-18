@@ -57,6 +57,7 @@ export function createEmptyChapterSummariesStore(): ChapterSummariesStore {
 const store = createAtomicJsonStore<ChapterSummariesStore>(
   "chapter-summaries.json",
   createEmptyChapterSummariesStore,
+  { arrayFieldCaps: { entries: 800 } }
 )
 
 export async function saveChapterSummaries(

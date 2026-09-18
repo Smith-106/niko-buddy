@@ -75,6 +75,7 @@ export function createEmptySubplotBoardStore(now = ""): SubplotBoardStore {
 const subplotBoardStore = createAtomicJsonStore<SubplotBoardStore>(
   "subplot-board.json",
   createEmptySubplotBoardStore,
+  { arrayFieldCaps: { items: 300 } }
 )
 
 export async function saveSubplotBoard(

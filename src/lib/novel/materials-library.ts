@@ -54,6 +54,7 @@ export function createEmptyMaterialsStore(): MaterialsStore {
 const materialsStore = createAtomicJsonStore<MaterialsStore>(
   "materials-library.json",
   createEmptyMaterialsStore,
+  { arrayFieldCaps: { items: 400 } }
 )
 
 export async function saveMaterialsLibrary(
