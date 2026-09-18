@@ -40,7 +40,7 @@ export { isChapterPage, isFinalChapter, normalizeChapterStatus, parseChapterMeta
 export type { ChapterStatus, OutlineType } from "./chapter-meta"
 export { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "./chapter-save-strategy"
 export type { ChapterSaveStrategy } from "./chapter-save-strategy"
-export { detectLastGeneratedChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
+export { detectLastGeneratedChapterNumber, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 export type { ResolveTargetChapterNumberForChatInput } from "./chapter-utils"
 export { appendChapterWorkspaceSnapshot } from "./chapter-workspace"
 export { BUILT_IN_CHARACTER_AURAS, CHARACTER_AURA_RESEARCH_FILES, bindCharacterAura, buildCharacterAuraContext, createCustomCharacterAuraSkill, deleteCustomCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument, unbindCharacterAura, updateCustomCharacterAura } from "./character-aura"
