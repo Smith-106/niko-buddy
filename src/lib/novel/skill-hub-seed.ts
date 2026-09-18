@@ -15,7 +15,9 @@ function parseSkillFrontmatter(content: string): {
   name: string
   description: string
 } | null {
-  const { frontmatter } = parseFrontmatter(content)
+  // mock 兼容：spec 可能 mock parseFrontmatter 返回 undefined（review-center-
+  // sidebar-panel.spec 顶层 mock 拦截共享模块）。防御性解构降级 null。
+  const { frontmatter } = parseFrontmatter(content) ?? { frontmatter: null }
   if (!frontmatter) return null
   const name = (frontmatter.name as string | undefined)?.trim()
   const description = (frontmatter.description as string | undefined)?.trim()
