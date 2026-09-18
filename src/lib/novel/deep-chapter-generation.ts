@@ -18,8 +18,7 @@ import {
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
 } from "./track-b-multi-objective"
-import { reviewChapter, runContinuityMechanicalPreflight, runAuditTriadPreflight, resolveReviewGateKey, isReviewParseError, type NovelReviewResult } from "./review-adapter"
-import { getUpgradeThreshold, getRepairScope, GATE_MAPPING } from "./audit-taxonomy"
+import { reviewChapter, runContinuityMechanicalPreflight, runAuditTriadPreflight, isReviewParseError, type NovelReviewResult } from "./review-adapter"
 import {
   dimensionResultsToReviewResults,
   runSixDimensionReview,
@@ -635,209 +634,25 @@ function createResumeCheckpoint(
   }
 }
 
-function createEmptyDecisionGate(): DeepChapterDecisionGate {
-  return {
-    status: "pending",
-    verdict: "pending",
-    findings: [],
-    repair_suggestions: [],
-    retry_count: 0,
-  }
-}
-
-function emptyDecisionGates(): DeepChapterDecisionGates {
-  return {
-    consistency: createEmptyDecisionGate(),
-    anti_ai: createEmptyDecisionGate(),
-    quality: createEmptyDecisionGate(),
-    overall: "pending",
-  }
-}
-
-/**
- * 解析审查 finding type → 三门控键（consistency / anti_ai / quality）。
- *
- * DEBT-20260824-T24-02 偿还：已迁移到 review-adapter.resolveReviewGateKey
- * （GATE_MAPPING 唯一真源），删除本地硬编码重复集。
- * normalize 口径（trim + lowercase）与 review-adapter 一致。
- */
-function resolveDecisionGateKey(type: string): DeepChapterDecisionGateKey {
-  return resolveReviewGateKey(type) as DeepChapterDecisionGateKey
-}
-
-function uniqueSuggestions(findings: NovelReviewResult[]): string[] {
-  return [...new Set(
-    findings
-      .map((item) => item.suggestion?.trim())
-      .filter((value): value is string => Boolean(value)),
-  )]
-}
-
-export function buildDecisionGates(
-  reviewResults: NovelReviewResult[],
-  retryCount: number,
-  manualReviewRequired = false,
-  genre?: string,
-): DeepChapterDecisionGates {
-  const grouped: Record<DeepChapterDecisionGateKey, NovelReviewResult[]> = {
-    consistency: [],
-    anti_ai: [],
-    quality: [],
-  }
-  for (const item of reviewResults) {
-    grouped[resolveDecisionGateKey(item.type)].push(item)
-  }
-  const updatedAt = new Date().toISOString()
-  const createGate = (findings: NovelReviewResult[], gateKey: DeepChapterDecisionGateKey): DeepChapterDecisionGate => {
-    const hasError = findings.some((item) => item.severity === "error")
-    const hasWarning = findings.some((item) => item.severity === "warning")
-    const warningCount = findings.filter((item) => item.severity === "warning").length
-    // 53 号报告 P0-3 接线② additive: 题材级 warn→fail 升级 (inkos
-    // getUpgradeThreshold 模式, AGPL 只借模式)。仅 genre 已传时启用
-    // (缺省零行为变更), 且只作用于 Quality 门 (P0/P1 恒硬门不受题材影响)。
-    // 语义: Quality 门无 error 但 warn 数 ≥ 阈值 → verdict 升 fail。
-    const upgradedToFail =
-      gateKey === "quality" &&
-      genre !== undefined &&
-      !hasError &&
-      hasWarning &&
-      warningCount >= getUpgradeThreshold(genre, GATE_MAPPING.quality.dimensionIds[0])
-    return {
-      status: hasError || upgradedToFail ? "failed" : "passed",
-      verdict: manualReviewRequired && (hasError || upgradedToFail)
-        ? "manual_review"
-        : hasError || upgradedToFail
-          ? "fail"
-          : hasWarning
-            ? "warning"
-            : "pass",
-      findings,
-      repair_suggestions: uniqueSuggestions(findings),
-      retry_count: retryCount,
-      updated_at: updatedAt,
-      manual_review_required: manualReviewRequired && hasError ? true : undefined,
-    }
-  }
-  const gates: DeepChapterDecisionGates = {
-    consistency: createGate(grouped.consistency, "consistency"),
-    anti_ai: createGate(grouped.anti_ai, "anti_ai"),
-    quality: createGate(grouped.quality, "quality"),
-    overall: "pass",
-  }
-  // CORR-108 fix (ADR-17 priority: Consistency > Anti-AI > Quality): a
-  // Quality-gate FAILURE must still produce overall='fail', even when the
-  // Anti-AI gate has only a warning. The prior ternary chain checked the
-  // anti_ai/quality warning branch BEFORE the quality.status==='failed'
-  // branch, so an Anti-AI warning demoted a Quality failure to 'warning'.
-  // Group all status==='failed' checks first (any failed gate → 'fail'),
-  // then warnings, then pass. collectBlockingIssues still fires the repair
-  // loop either way; this only corrects the reported overall verdict.
-  // F-18: manual_review requires at least one failed gate (matches the
-  // createGate verdict at :297 which also gates on hasError). The prior
-  // `manualReviewRequired ? "manual_review"` branch could mark overall as
-  // manual_review with all gates passed when an external caller passed
-  // manualReviewRequired=true with empty reviewResults — a semantic
-  // contradiction for this exported pure function. In the live call chain
-  // manualReviewRequired=true only happens at MAX_GATE_RETRY (which guarantees
-  // a failed gate), so this is a robustness guard, not a behavior change.
-  const anyFailed = gates.consistency.status === "failed"
-    || gates.anti_ai.status === "failed"
-    || gates.quality.status === "failed"
-  gates.overall = manualReviewRequired && anyFailed
-    ? "manual_review"
-    : anyFailed
-      ? "fail"
-      : gates.consistency.verdict === "warning"
-          || gates.anti_ai.verdict === "warning"
-          || gates.quality.verdict === "warning"
-        ? "warning"
-        : "pass"
-  return gates
-}
-
-export function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
-  // CORR-005 fix (GRL-008 C-104): accumulate error-severity findings across
-  // ALL failed gates, not just the first. The prior early-return dropped
-  // errors from subsequent failed gates (e.g. if consistency AND quality
-  // both fail, quality's errors never reached the repair prompt). Warnings
-  // are still routed separately via collectRepairIssues (error-only here is
-  // by design — warnings never block).
-  const blocking: NovelReviewResult[] = []
-  for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
-    const gate = decisionGates[gateKey]
-    if (gate.status === "failed") {
-      for (const finding of gate.findings) {
-        if (finding.severity === "error") {
-          blocking.push(finding)
-        }
-      }
-    }
-  }
-  return blocking
-}
-
-/**
- * F-003 (ANL-010): route WARNING-severity review findings to the stage-5
- * repair loop. `collectBlockingIssues` (above) is error-only and MUST stay
- * that way — warnings never block. But warnings SHOULD still reach the
- * repair model so it can fix non-blocking quality issues in the same pass.
- * This function gathers all warning-severity findings across the 3 gates
- * (in the same gate precedence order as collectBlockingIssues) for the
- * revision prompt, WITHOUT changing the 3-gate verdict logic (gate.status
- * remains 'failed'-only-by-hasError at buildDecisionGates).
- *
- * Exported for TS-01 testing (verify warning dims reach stage-5).
- */
-export function collectRepairIssues(
-  decisionGates: DeepChapterDecisionGates,
-  genre?: string,
-): NovelReviewResult[] {
-  const warnings: NovelReviewResult[] = []
-  for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
-    const gate = decisionGates[gateKey]
-    // 53 号报告 P0-3 接线③ additive: 题材级 repair_scope 路由 (inkos
-    // getRepairScope 模式, AGPL 只借模式)。scope=warn_only 的门不进自动修复
-    // (仅 surface); scope=resettle_only 由状态重结算路径处理 (不重写正文),
-    // 此处亦跳过 (避免正文重写)。genre 未传 → 全量进修复 (现状零行为变更)。
-    if (genre !== undefined) {
-      const scope = getRepairScope(genre, GATE_MAPPING[gateKey].dimensionIds[0])
-      if (scope === "warn_only" || scope === "resettle_only") continue
-    }
-    for (const finding of gate.findings) {
-      if (finding.severity === "warning") {
-        warnings.push(finding)
-      }
-    }
-  }
-  return warnings
-}
-
-/**
- * Track B literary polish (optional, post Track A gate-green):
- * thril/pacing/pull warnings only. Never includes consistency/anti_ai errors.
- * Used when novelConfig.literaryPolishAfterGate is true and collectBlockingIssues is empty.
- */
-export function collectLiteraryPolishIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
-  const literaryTypes = new Set(["plot", "thrill", "pacing", "pull", "quality"])
-  const out: NovelReviewResult[] = []
-  for (const finding of collectRepairIssues(decisionGates)) {
-    const t = (finding.type || "") /* v8 ignore start */ /* v8 ignore stop */.toLowerCase()
-    if (finding.severity !== "warning" && finding.severity !== "info") continue
-    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
-      out.push(finding)
-    }
-  }
-  // Also pull from quality gate findings that look literary even if severity is warning already covered
-  const quality = decisionGates.quality
-  for (const finding of quality.findings) {
-    if (finding.severity === "error") continue
-    const t = (finding.type || "") /* v8 ignore start */ /* v8 ignore stop */.toLowerCase()
-    if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
-      if (!out.some((x) => x.message === finding.message)) out.push(finding)
-    }
-  }
-  return out
-}
+// ── 决策门子模块（arch-risk W4 god-object 拆分）─────────────────────────
+// DeepChapterDecisionGate*/buildDecisionGates/collect*Issues/createEmpty* 已抽离
+// 到 deep-chapter-decision-gates.ts；import 供本模块编排使用 + re-export 保持
+// 外部 import 路径不变。改决策门逻辑只动子模块，不再动本编排体。
+import {
+  buildDecisionGates,
+  collectBlockingIssues,
+  collectLiteraryPolishIssues,
+  collectRepairIssues,
+  emptyDecisionGates,
+} from "./deep-chapter-decision-gates"
+export {
+  buildDecisionGates,
+  collectBlockingIssues,
+  collectLiteraryPolishIssues,
+  collectRepairIssues,
+  createEmptyDecisionGate,
+  emptyDecisionGates,
+} from "./deep-chapter-decision-gates"
 
 function checkpointStageAtLeast(
   checkpoint: DeepChapterGenerationResumeCheckpoint | null | undefined,
