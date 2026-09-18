@@ -1,6 +1,7 @@
 import { searchWiki } from "@/lib/search"
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 /**
  * 卷册元数据结构。
@@ -97,24 +98,12 @@ export async function getChapterVolumes(
  * @param content - Markdown 文件内容
  * @returns frontmatter 键值对或 null
  */
+// 收敛 canonical frontmatter 解析（arch-risk W3）——私有 regex 全字段解析
+// 改委托 canonical parseFrontmatter（真 YAML parse，容错 wikilink 修复），
+// 返回 Record<string, unknown> 与旧私有实现同构（调用方读 fm[key]）。
 function parseFrontmatterFromMarkdown(content: string): Record<string, unknown> | null {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
-  if (!fmMatch) return null
-
-  const fmRaw = fmMatch[1]
-  const result: Record<string, unknown> = {}
-
-  const scalarMatches = fmRaw.matchAll(/^(\w[\w_]*):\s*["']?([^"'\n]+)["']?\s*$/gm)
-  for (const m of scalarMatches) {
-    const key = m[1]
-    const value = m[2].trim()
-    if (value === "true") result[key] = true
-    else if (value === "false") result[key] = false
-    else if (/^\d+$/.test(value)) result[key] = Number(value)
-    else result[key] = value
-  }
-
-  return result
+  const { frontmatter } = parseFrontmatter(content)
+  return frontmatter as Record<string, unknown> | null
 }
 
 // ============================================================================

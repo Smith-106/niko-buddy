@@ -21,6 +21,7 @@
  */
 
 import { readFile, listDirectory } from "@/commands/fs"
+import { parseFrontmatter } from "./frontmatter"
 import { invoke } from "@tauri-apps/api/core"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
@@ -571,8 +572,9 @@ export async function embedAllPages(
   for (const file of mdFiles) {
     try {
       const content = await readFile(file.path)
-      const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-      const title = titleMatch ? titleMatch[1].trim() : file.id
+      // 收敛 canonical frontmatter 解析（arch-risk W3）——私有 regex → parseFrontmatter
+      const { frontmatter } = parseFrontmatter(content)
+      const title = (frontmatter?.title as string | undefined)?.trim() || file.id
       await embedPage(pp, file.id, title, content, cfg)
     } catch {
       // skip — individual file failure doesn't halt the batch

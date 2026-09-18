@@ -1,6 +1,7 @@
 import { normalizeUserSkill, type SkillKind, type SkillStage, type UserSkill } from "./skill-library"
 import { SKILL_ROUTE_CATEGORY_IDS } from "./skill-route"
 import { validateSkillRouteRegistry } from "./skill-route-registry"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 const skillHubModules = import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {
   eager: true,
@@ -8,15 +9,16 @@ const skillHubModules = import.meta.glob("../../../skills/SkillHub/**/SKILL.md",
   import: "default",
 }) as Record<string, string>
 
+// 收敛 canonical frontmatter（arch-risk W3）——私有 regex → parseFrontmatter
+// （BOM/容错由 canonical locateFrontmatterBlock 统一处理，不再手写 \\uFEFF regex）。
 function parseSkillFrontmatter(content: string): {
   name: string
   description: string
 } | null {
-  const match = content.match(/^\uFEFF?---\s*\n([\s\S]*?)\n---\s*\n?/)
-  if (!match) return null
-  const yaml = match[1]
-  const name = yaml.match(/^name:\s*(.+?)\s*$/m)?.[1]?.trim()
-  const description = yaml.match(/^description:\s*(.+?)\s*$/m)?.[1]?.trim()
+  const { frontmatter } = parseFrontmatter(content)
+  if (!frontmatter) return null
+  const name = (frontmatter.name as string | undefined)?.trim()
+  const description = (frontmatter.description as string | undefined)?.trim()
   if (!name || !description) return null
   return { name, description }
 }

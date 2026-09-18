@@ -231,7 +231,6 @@ describe("E-03 canonicalizeForHash / truthStoreHash (truth_fold_drift 可执行�
 describe("arrayFieldCaps（arch-risk W2 无界增长护栏）", () => {
   it("save 时数组字段截尾保最近 N 条", async () => {
     const { createAtomicJsonStore } = await import("./projection-store")
-    const fsMocks = (globalThis as { __fsMocks?: { writeFileAtomic?: { mock: { calls: unknown[][] } } } }).__fsMocks
     const store = createAtomicJsonStore<{ entries: number[] }>(
       "test-cap.json",
       () => ({ entries: [] }),

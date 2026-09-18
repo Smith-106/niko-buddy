@@ -2,6 +2,7 @@ import { readFile } from "@/commands/fs"
 import type { PageSearchResult } from "@/lib/embedding"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import { sanitizeEntitySlug } from "./graph-adapter"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 /**
  * P1-IMP-14 (PAT-G2 孪生归一): 向量检索共享核心。
@@ -40,8 +41,10 @@ export const VECTOR_WIKI_DIRS: readonly string[] = [
 export function extractTitle(content: string, fallback: string): string {
   const match = content.match(/^#\s+(.+)/m)
   if (match) return match[1].trim()
-  const fmMatch = content.match(/^---\ntitle:\s*(.+)/m)
-  if (fmMatch) return fmMatch[1].trim()
+  // 收敛 canonical frontmatter（arch-risk W3）——私有 regex → parseFrontmatter
+  const { frontmatter } = parseFrontmatter(content)
+  const fmTitle = (frontmatter?.title as string | undefined)?.trim()
+  if (fmTitle) return fmTitle
   return fallback
 }
 
