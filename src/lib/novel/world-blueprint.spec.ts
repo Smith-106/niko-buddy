@@ -7,6 +7,7 @@ import {
   WORLD_LAYERS,
   type WorldBlueprint,
 } from "./world-blueprint"
+import { SUBDIR_TO_LAYER_TEST_EXPORT } from "./world-blueprint"
 
 function completeBlueprint(): WorldBlueprint {
   return {
@@ -71,5 +72,17 @@ describe("world-blueprint（吸收自 ANWA services/world 分层结构模式）"
     expect(JSON.stringify(validateWorldBlueprint(completeBlueprint()))).toBe(
       JSON.stringify(validateWorldBlueprint(completeBlueprint())),
     )
+  })
+
+  it("MIG-002: subtype→layer 映射保守——实体子目录正确落骨架层", () => {
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.locations).toBe("geography")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.organizations).toBe("factions")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.items).toBe("technology")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.events).toBe("conflicts")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.characters).toBe("cultures")
+    // 全部映射目标是合法 WORLD_LAYERS 成员
+    for (const layer of Object.values(SUBDIR_TO_LAYER_TEST_EXPORT)) {
+      expect(WORLD_LAYERS).toContain(layer)
+    }
   })
 })

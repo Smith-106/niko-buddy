@@ -138,3 +138,69 @@ export async function loadWorldBlueprint(projectPath: string): Promise<WorldBlue
     return null
   }
 }
+
+// ── 生成器（MIG-002：从实体推导骨架层，接线产物生产管线）──────────────
+// world-blueprint 之前有 store + 校验但无生成器——骨架永远 incomplete，
+// worldComplete 判不死。补确定性推导：按 entities/ 物理子目录聚类映射到
+// WORLD_LAYERS，产出骨架草稿（治理数据非正文，Draft-first 语义）。
+import { listEntityFiles } from "./entity-subdir-resolver"
+import { normalizePath } from "@/lib/path-utils"
+
+/** entity 物理子目录 → 骨架层映射（保守推导：实体是骨架的原料）。 */
+export const SUBDIR_TO_LAYER: Record<string, WorldLayer> = {
+  locations: "geography",
+  organizations: "factions",
+  items: "technology",
+  events: "conflicts",
+  characters: "cultures",
+}
+
+/** spec 辅助：暴露映射表供断言（避免内部实现漂移）。 */
+export const SUBDIR_TO_LAYER_TEST_EXPORT = SUBDIR_TO_LAYER
+
+/**
+ * 从项目实体推导世界骨架草稿：读 entities/ 各子目录实体名，映射到
+ * WORLD_LAYERS 对应层。只做确定性聚合（不 LLM 生成语义），产物是骨架
+ * 治理草稿供后续编辑/draft-first 完善。空项目返回全空骨架（优雅降级）。
+ */
+export async function deriveWorldBlueprint(
+  projectPath: string,
+  worldType = "fantasy",
+): Promise<WorldBlueprint> {
+  const pp = normalizePath(projectPath).replace(/\/+$/, "")
+  const bp = createEmptyWorldBlueprint(worldType)
+  const entities = await listEntityFiles(pp).catch(() => [])
+
+  // 按子目录聚类实体名 → 映射到骨架层
+  const byLayer = new Map<WorldLayer, string[]>()
+  for (const e of entities) {
+    // path 形如 wiki/entities/<subdir>/<name>.md 或 wiki/entities/<name>.md
+    const m = e.path.match(/entities\/([a-z-]+)\//)
+    const subdir = m?.[1]
+    const layer = subdir ? SUBDIR_TO_LAYER[subdir] : undefined
+    if (!layer) continue
+    if (!byLayer.has(layer)) byLayer.set(layer, [])
+    byLayer.get(layer)!.push(e.name)
+  }
+  for (const [layer, names] of byLayer) {
+    bp.layers[layer] = names.sort()
+  }
+  // 保底必填层：entities 为空的必填层给一个占位骨架条目，避免永远 missing
+  // （骨架是草稿——占位提示后续完善，非伪造语义内容）
+  if (entities.length === 0) {
+    for (const layer of REQUIRED_WORLD_LAYERS) {
+      bp.layers[layer] = bp.layers[layer] ?? []
+    }
+  }
+  return bp
+}
+
+/** 推导并持久化世界骨架（derive + save 一步到位）。 */
+export async function deriveAndSaveWorldBlueprint(
+  projectPath: string,
+  worldType = "fantasy",
+): Promise<WorldBlueprint> {
+  const bp = await deriveWorldBlueprint(projectPath, worldType)
+  await saveWorldBlueprint(projectPath, bp)
+  return bp
+}

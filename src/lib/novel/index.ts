@@ -85,6 +85,8 @@ export { DIRECTOR_PHASES, advanceDirectorPhase, createDirectorPipeline } from ".
 export type { DirectorPhase, DirectorPipelineState, PhaseGateInput } from "./director-pipeline"
 export { hasPersistedDirectorState, loadDirectorPersisted, saveDirectorIdeaInput, saveDirectorPersisted } from "./director-pipeline-store"
 export type { DirectorIdeaInput, DirectorPersistedFile } from "./director-pipeline-store"
+export { deriveWorldBlueprint, deriveAndSaveWorldBlueprint, loadWorldBlueprint, saveWorldBlueprint, validateWorldBlueprint, worldBlueprintToPromptFragment, createEmptyWorldBlueprint } from "./world-blueprint"
+export type { WorldBlueprint, WorldLayer, WorldValidation, WorldFinding } from "./world-blueprint"
 export { buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "./dismantling"
 export type { DismantlingAnalysis, DismantlingChapter, DismantlingLibrary, DismantlingProject } from "./dismantling"
 export { formatDoctorReport, runProjectDoctor } from "./doctor"
