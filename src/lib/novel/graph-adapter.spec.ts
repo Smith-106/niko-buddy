@@ -7,6 +7,8 @@ import {
   detectNodeType,
   getCanonicalCharacterName,
   getCharacterNamesForMatching,
+  narrativeEventsToGraphEdges,
+  narrativeEventsToGraphNodes,
   NOVEL_NODE_TYPE_LABELS,
   NOVEL_RELATION_LABELS,
   sanitizeEntitySlug,
@@ -16,6 +18,7 @@ import {
   writePatchFieldsToWiki,
   writeSnapshotToWiki,
 } from "./graph-adapter"
+import type { NarrativeEvent } from "./event-causality"
 
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
@@ -959,5 +962,51 @@ describe("A7 precision gate (writeSnapshotToWiki 单点接线)", () => {
     await writeSnapshotToWiki("E:/Novel", s)
     const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
     expect(content).not.toContain("[[林烬]] — 知道")
+  })
+})
+
+describe("narrativeEventsToGraph（MIG-003 event-causality 接 graph）", () => {
+  const ev = (over: Partial<NarrativeEvent>): NarrativeEvent => ({
+    eventId: "e1",
+    type: "birth",
+    storyTime: "t0",
+    entityId: "林烬",
+    source: "engine",
+    ...over,
+  })
+
+  it("事件 → event 节点（summary 作 label，无 summary 回退 type:entity）", () => {
+    const nodes = narrativeEventsToGraphNodes([
+      ev({ eventId: "e1", summary: "林烬出生" }),
+      ev({ eventId: "e2", type: "death", entityId: "老谢" }),
+    ])
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0]).toEqual({ id: "event:e1", label: "林烬出生", type: "event" })
+    expect(nodes[1].type).toBe("event")
+    expect(nodes[1].label).toBe("death:老谢")
+  })
+
+  it("causedBy 因果前驱 → CAUSES 边；entityId → INVOLVES 边", () => {
+    const edges = narrativeEventsToGraphEdges([
+      ev({ eventId: "e1", entityId: "林烬" }),
+      ev({ eventId: "e2", type: "change", entityId: "林烬", causedBy: "e1" }),
+    ])
+    const causes = edges.filter((e) => e.relation === "CAUSES")
+    const involves = edges.filter((e) => e.relation === "INVOLVES")
+    expect(causes).toHaveLength(1)
+    expect(causes[0]).toMatchObject({ source: "event:e1", target: "event:e2" })
+    expect(involves).toHaveLength(2)
+    expect(involves[0].target).toBe("character:林烬")
+  })
+
+  it("causedBy 指向不存在事件 → 不出 CAUSES 边（防悬空）", () => {
+    const edges = narrativeEventsToGraphEdges([
+      ev({ eventId: "e2", entityId: "林烬", causedBy: "ghost" }),
+    ])
+    expect(edges.filter((e) => e.relation === "CAUSES")).toHaveLength(0)
+  })
+
+  it("INVOLVES 已注册 NOVEL_RELATION_LABELS", () => {
+    expect(NOVEL_RELATION_LABELS.INVOLVES).toBe("涉及")
   })
 })

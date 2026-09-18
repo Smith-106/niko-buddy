@@ -5,6 +5,7 @@ import { uniqueNonEmpty, logger } from "@/lib/utils"
 import { withProjectLock } from "./novel-locks"
 import { resolveEntityPath } from "./entity-subdir-resolver"
 import type { ChapterSnapshot } from "./chapter-ingest"
+import type { NarrativeEvent } from "./event-causality"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
 import { applyPrecisionGateToSnapshot } from "./canon-precision-filter"
@@ -157,6 +158,7 @@ export const NOVEL_RELATION_LABELS: Record<string, string> = {
   REVEALS: "揭示",
   AFFECTS: "影响",
   LOCATED_AT: "位于",
+  INVOLVES: "涉及",
 }
 
 export function snapshotToGraphNodes(snapshot: ChapterSnapshot): NovelGraphNode[] {
@@ -225,6 +227,45 @@ function normalizeGraphEdgeRelation(raw: string): string {
   // stored-injection / prompt-injection-persistence vector. Fall back to the
   // safe canonical default so only allow-listed relations are ever persisted.
   return "AFFECTS"
+}
+
+// ── MIG-003: event-causality 接 graph ─────────────────────────────
+// NarrativeEvent（append-only 因果日志）→ graph 节点/边。事件对齐既有
+// "event" NovelNodeType；causedBy 因果前驱 → CAUSES 边；entityId →
+// INVOLVES 边挂到对应实体节点。让 event-causality 不再孤岛——因果链
+// 在 graph 可查、graph-view 可见。
+export function narrativeEventsToGraphNodes(events: NarrativeEvent[]): NovelGraphNode[] {
+  return events.map((e) => ({
+    id: `event:${e.eventId}`,
+    label: e.summary?.trim() || `${e.type}:${e.entityId}`,
+    type: "event",
+  }))
+}
+
+export function narrativeEventsToGraphEdges(events: NarrativeEvent[]): NovelGraphEdge[] {
+  const edges: NovelGraphEdge[] = []
+  const byId = new Map(events.map((e) => [e.eventId, e]))
+  for (const e of events) {
+    // 因果前驱 → CAUSES 边（causedBy → 本事件）
+    if (e.causedBy && byId.has(e.causedBy)) {
+      edges.push({
+        source: `event:${e.causedBy}`,
+        target: `event:${e.eventId}`,
+        relation: "CAUSES",
+        confidence: 1,
+      })
+    }
+    // 事件 → 涉及实体（entityId 已是实体 slug/名）
+    if (e.entityId) {
+      edges.push({
+        source: `event:${e.eventId}`,
+        target: `character:${e.entityId}`,
+        relation: "INVOLVES",
+        confidence: 1,
+      })
+    }
+  }
+  return edges
 }
 
 export function snapshotToGraphEdges(snapshot: ChapterSnapshot): NovelGraphEdge[] {
