@@ -7,7 +7,22 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.9.3**（2026-09-18 发布：实体物理分层 + 治理审计沉淀）
+**v2.9.5**（2026-09-19 发布：8维架构风险修复 odyssey 全收敛）
+
+### v2.9.5 更新亮点（2026-09-19）
+
+- ✅ **模块边界 god-object 全拆** — 3 个 >2900 行文件全拆分至 <2900：`deep-chapter-generation` 3464→2747（拆出 decision-gates/utils/review/resolve/continuity 5 个子模块）、`context-engine` 2928→2882（outline-helpers）、`chapter-ingest` 3198→2821（拆出 utils/store-apply + apply 函数族并入，P2-IMP-14 registry↔ingest 循环依赖环断开）
+- ✅ **错误处理静默 catch 清零** — 27 个真空 `catch{}` 全补 `logger.warn` 降级标记（character-aura/context-derived-stores/context-engine/timeline/volume/generation-history/user-skill-store/lint）
+- ✅ **性能资源 .novel 无界增长 cap** — `createAtomicJsonStore` 加 `arrayFieldCaps`（save 截尾保最近 N 条），覆盖 12 个增长型 store
+- ✅ **复用率 frontmatter 收敛** — 8 处私有解析 regex 全并入 canonical `parseFrontmatter`；残余孤岛 4 个真实投影登记 registry
+- ✅ **可测性** — chapter-ingest 补纯函数 spec（10 tests）+ corr-colon-parity 改双源断言（21 tests）
+- ✅ **验证纪律** — typecheck 0 错，全量 13264+ tests 通过（串行 0 fail）；17 个 arch-risk commit 推送
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
+
+### v2.9.4 更新亮点（2026-09-18）
+
+- ✅ **rerank/embedding base 自动补全** — 填 base URL 不再被当 chat 测试报 `Model does not exist`（`isRerankCapableEndpoint` + `resolveDirectRerankUrl`/`resolveGenericEmbeddingUrl` 自动补路径）
+- ✅ **draft 章节可删除** — corkboard 卡片合并 wiki/chapters 文件源；未 ingest 的 draft 章节也出卡片可打开/删除
 
 ### v2.9.3 更新亮点（2026-09-18）
 

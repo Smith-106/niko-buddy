@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.5] - 2026-09-19
+
+### 架构风险修复（Fixed — 8维 odyssey 全收敛）
+
+- **模块边界 god-object 全拆**（W4）：3 个 >2900 行文件全拆分至 <2900——`deep-chapter-generation` 3464→2747（拆出 decision-gates/utils/review/resolve/continuity 5 个子模块）、`context-engine` 2928→2882（outline-helpers）、`chapter-ingest` 3198→2821（拆出 utils/store-apply + apply 函数族并入，P2-IMP-14 registry↔ingest 循环依赖环断开）。
+- **错误处理静默 catch 清零**（W1）：27 个真空 `catch{}` 全补 `logger.warn` 降级标记（character-aura-context/character-aura/context-derived-stores/context-engine/timeline/volume/generation-history/user-skill-store/lint）。
+- **性能资源 .novel 无界增长 cap**（W2）：`createAtomicJsonStore` 加 `arrayFieldCaps`（save 截尾保最近 N 条），覆盖 12 个增长型 store（emotion-ledger/emotional-arcs/particle-ledger/foreshadowing-tracker/subplot-board/resource-ledger/materials-library/character-state/chapter-summaries/narrative-state）。
+- **复用率 frontmatter 收敛**（W3）：8 处私有解析 regex 全并入 canonical `parseFrontmatter`（embedding/volume/vector-search-core/skill-hub-seed/ingest/search/sweep-reviews/wiki-graph）。
+- **可测性**（W5）：chapter-ingest 补纯函数 spec（10 tests）+ corr-colon-parity 改双源断言（21 tests）。
+- **残余孤岛**（W6）：4 个真实投影登记 projections-registry（promotions/promotion-events/audit-findings/inspirations）。
+- **failing tests 全修**：curation-gate fixture 重生成（新 sha 989f0ce9）/ reset-project-state 超时 / kb-routing-view 产物重同步 / startup.bench mock 环境断言。
+
+**验证**：typecheck 0 错，全量 13264+ tests 通过（串行 0 fail）。17 个 arch-risk commit 推送。
+
 ## [2.9.4] - 2026-09-18
 
 ### 端点补全（Fixed）
