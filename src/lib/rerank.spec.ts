@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
   resolveDefaultModel: vi.fn(),
   isDirectRerankEndpoint: vi.fn(),
+  isRerankCapableEndpoint: vi.fn(),
   requestDirectRerank: vi.fn(),
 }))
 
@@ -28,6 +29,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 
 vi.mock("@/lib/rerank-api", () => ({
   isDirectRerankEndpoint: mocks.isDirectRerankEndpoint,
+  isRerankCapableEndpoint: mocks.isRerankCapableEndpoint,
   requestDirectRerank: mocks.requestDirectRerank,
 }))
 
@@ -74,6 +76,7 @@ beforeEach(() => {
   mocks.getState.mockReturnValue({ llmConfig: baseConfig, rerankConfig, dataVersion: 0 })
   mocks.resolveDefaultModel.mockImplementation((c: LlmConfig) => c)
   mocks.isDirectRerankEndpoint.mockReturnValue(false)
+  mocks.isRerankCapableEndpoint.mockReturnValue(false)
   // G8 (39 号修复): 模块级 rerank 缓存跨测试隔离
   invalidateRerankCache()
 })
@@ -172,7 +175,7 @@ describe("rerankCandidates — early exit and config resolution", () => {
 
 describe("rerankCandidates — direct rerank endpoint", () => {
   beforeEach(() => {
-    mocks.isDirectRerankEndpoint.mockReturnValue(true)
+    mocks.isRerankCapableEndpoint.mockReturnValue(true)
   })
 
   it("reorders by direct results, appends leftovers, and applies topK", async () => {

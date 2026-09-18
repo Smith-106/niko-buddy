@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   fetchEmbedding: vi.fn(),
   streamChat: vi.fn(),
   isDirectRerankEndpoint: vi.fn(),
+  isRerankCapableEndpoint: vi.fn(),
   requestDirectRerank: vi.fn(),
   fetchLlmModelList: vi.fn(),
 }))
@@ -29,6 +30,7 @@ vi.mock("@/lib/llm-client", async (importOriginal) => {
 
 vi.mock("@/lib/rerank-api", () => ({
   isDirectRerankEndpoint: mocks.isDirectRerankEndpoint,
+  isRerankCapableEndpoint: mocks.isRerankCapableEndpoint,
   requestDirectRerank: mocks.requestDirectRerank,
 }))
 
@@ -67,6 +69,7 @@ const rerankConfig: RerankConfig = {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.isDirectRerankEndpoint.mockReturnValue(false)
+  mocks.isRerankCapableEndpoint.mockReturnValue(false)
 })
 
 describe("normalizeModelTestError", () => {
@@ -203,7 +206,7 @@ describe("testSettingsRerankModel", () => {
   })
 
   it("returns direct rerank results when the endpoint is a direct rerank API", async () => {
-    mocks.isDirectRerankEndpoint.mockReturnValue(true)
+    mocks.isRerankCapableEndpoint.mockReturnValue(true)
     mocks.requestDirectRerank.mockResolvedValue([
       { index: 0, relevanceScore: 0.9 },
       { index: 1, relevanceScore: 0.1 },
@@ -236,7 +239,7 @@ describe("testSettingsRerankModel", () => {
   })
 
   it("throws when direct rerank results are malformed", async () => {
-    mocks.isDirectRerankEndpoint.mockReturnValue(true)
+    mocks.isRerankCapableEndpoint.mockReturnValue(true)
     mocks.requestDirectRerank.mockResolvedValue([])
     await expect(testSettingsRerankModel(baseConfig, rerankConfig)).rejects.toThrow("结果格式不正确")
   })
