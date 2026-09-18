@@ -11,6 +11,7 @@
  */
 
 import { listDirectory, readFile } from "@/commands/fs"
+import { parseFrontmatter } from "./frontmatter"
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -66,9 +67,11 @@ async function buildWikiIndex(projectPath: string): Promise<WikiIndex> {
       let title: string | null = null
       try {
         const content = await readFile(file.path)
-        const match = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-        if (match) {
-          title = match[1].trim()
+        // 收敛 canonical frontmatter（arch-risk W3 补）——私有 regex → parseFrontmatter
+        const { frontmatter } = parseFrontmatter(content)
+        const fmTitle = (frontmatter?.title as string | undefined)?.trim()
+        if (fmTitle) {
+          title = fmTitle
           byTitle.add(title.toLowerCase())
         }
       } catch {

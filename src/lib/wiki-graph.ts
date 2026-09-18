@@ -1,4 +1,5 @@
 import { readFile, listDirectory } from "@/commands/fs"
+import { parseFrontmatter } from "./frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { buildRetrievalGraph, calculateRelevance } from "./graph-relevance"
@@ -136,8 +137,10 @@ function flattenMdFiles(nodes: FileNode[]): FileNode[] {
 }
 
 function extractTitle(content: string, fileName: string): string {
-  const frontmatterTitleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-  if (frontmatterTitleMatch) return frontmatterTitleMatch[1].trim()
+  // 收敛 canonical frontmatter（arch-risk W3 补）——title 字段直读 parsed object
+  const { frontmatter } = parseFrontmatter(content)
+  const fmTitle = (frontmatter?.title as string | undefined)?.trim()
+  if (fmTitle) return fmTitle
 
   const headingMatch = content.match(/^#\s+(.+)$/m)
   if (headingMatch) return headingMatch[1].trim()
@@ -146,12 +149,16 @@ function extractTitle(content: string, fileName: string): string {
 }
 
 function extractType(content: string, filePath: string): string {
-  const frontmatterTypeMatch = content.match(/^---\n[\s\S]*?^type:\s*["']?(.+?)["']?\s*$/m)
-  if (frontmatterTypeMatch) return frontmatterTypeMatch[1].trim().toLowerCase()
-  const frontmatter = extractFrontmatter(content)
-  if (frontmatter) {
-    if (/^chapter_number:\s*\d+\s*$/m.test(frontmatter)) return "chapter"
-    if (/^outline_type:\s*["']?.+?["']?\s*$/m.test(frontmatter)) return "outline"
+  // 收敛 canonical frontmatter（arch-risk W3 补）——type/chapter_number/outline_type
+  // 直读 parsed object，不再对 raw YAML 行级 regex。
+  const { frontmatter: fmObj } = parseFrontmatter(content)
+  const fmType = (fmObj?.type as string | undefined)?.trim().toLowerCase()
+  if (fmType) return fmType
+  if (fmObj) {
+    // chapter_number 可为 number 或可转 number 的字符串（YAML normalize 口径差异）
+    const cn = fmObj.chapter_number
+    if (typeof cn === "number" || (typeof cn === "string" && cn.trim() !== "" && !Number.isNaN(Number(cn)))) return "chapter"
+    if (fmObj.outline_type !== undefined && fmObj.outline_type !== null) return "outline"
   }
   const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase()
   if (normalizedPath.includes("/wiki/chapters/")) return "chapter"

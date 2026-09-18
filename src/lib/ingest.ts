@@ -1,4 +1,5 @@
 import { readFile, writeFile, listDirectory } from "@/commands/fs"
+import { parseFrontmatter } from "./frontmatter"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -726,8 +727,9 @@ async function autoIngestImpl(
           if (!pageId || ["index", "log", "overview"].includes(pageId)) return
           try {
             const content = await readFile(`${pp}/${wpath}`)
-            const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-            const title = titleMatch ? titleMatch[1].trim() : pageId
+            // 收敛 canonical frontmatter（arch-risk W3 补）——私有 regex → parseFrontmatter
+            const { frontmatter } = parseFrontmatter(content)
+            const title = (frontmatter?.title as string | undefined)?.trim() || pageId
             await embedPage(pp, pageId, title, content, embCfg)
           } catch {
             // non-critical

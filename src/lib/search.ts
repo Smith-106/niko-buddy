@@ -1,4 +1,5 @@
 import { readFile, listDirectory } from "@/commands/fs"
+import { parseFrontmatter } from "./frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath, getFileStem } from "@/lib/path-utils"
@@ -222,9 +223,10 @@ async function listWikiFiles(pp: string): Promise<FileNode[]> {
 }
 
 function extractTitle(content: string, fileName: string): string {
-  // Try YAML frontmatter title
-  const frontmatterMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-  if (frontmatterMatch) return frontmatterMatch[1].trim()
+  // Try YAML frontmatter title（arch-risk W3 补：私有 regex → canonical parseFrontmatter）
+  const { frontmatter } = parseFrontmatter(content)
+  const fmTitle = (frontmatter?.title as string | undefined)?.trim()
+  if (fmTitle) return fmTitle
 
   // Try first heading
   const headingMatch = content.match(/^#\s+(.+)$/m)
