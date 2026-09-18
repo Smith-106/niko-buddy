@@ -41,7 +41,10 @@ src/test-helpers/*
 !/docs/p6/ab-evidence/
 /docs/p6/ab-evidence/*
 !/docs/p6/ab-evidence/*-hash-manifest-*.json
+!/docs/p0/
+/docs/p0/*
 !/docs/p0/gov-seed/
+!/docs/p0/rerank-trigger-evidence-*.md
 !/docs/decision-log/
 !/docs/p2/
 !/docs/p5/
