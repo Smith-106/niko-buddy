@@ -1,5 +1,6 @@
 import { readFile, writeFileAtomic, listDirectory, createDirectory } from "@/commands/fs"
 import { join,} from "@tauri-apps/api/path"
+import { logger } from "@/lib/utils"
 import {
   normalizeUserSkill,
   type SkillCategory,
@@ -217,6 +218,7 @@ export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> 
             const docContent = await readFile(filePath)
             docContents.push(docContent)
           } catch {
+            logger.warn("user-skill-store", "user-skill-store: 读取附加文档/技能目录失败跳过（吞错已标记）")
           }
         }
         if (docContents.length > 0) {
@@ -224,6 +226,7 @@ export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> 
         }
       }
     } catch {
+      logger.warn("user-skill-store", "user-skill-store: 读取附加文档/技能目录失败跳过（吞错已标记）")
     }
 
     return content

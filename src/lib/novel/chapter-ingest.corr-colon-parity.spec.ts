@@ -240,7 +240,6 @@ describe("CORR-001/002: fold_rebuildable contract — ingest path delegates to s
   // The parser parity tests above (fullwidth == ASCII) + the structural tests
   // (live ingest calls helper) together prove the contract is restored.
   it("structural: live ingest no longer inlines a divergent fold (grep verifiable)", async () => {
-    const src = readSource()
     const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
     await import("./chapter-ingest")
     // P2-IMP-14: 旧版扫描 ingest 内联块 → 改扫注册表：ingest/rebuild/drift 三路径

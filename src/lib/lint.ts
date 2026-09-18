@@ -1,6 +1,7 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { logger } from "@/lib/utils"
 import type { FileNode } from "@/types/wiki"
 import { useActivityStore } from "@/stores/activity-store"
 import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
@@ -87,6 +88,7 @@ export async function runStructuralLint(projectPath: string): Promise<LintResult
       const outlinks = extractWikilinks(content)
       pages.push({ path: f.path, slug, content, outlinks })
     } catch {
+      logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
     }
   }
 
@@ -260,6 +262,7 @@ export async function runSemanticLint(
       const shortPath = getRelativePath(f.path, wikiRoot)
       summaries.push(`### ${shortPath}\n${preview}`)
     } catch {
+      logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
     }
   }
 

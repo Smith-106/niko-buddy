@@ -1,6 +1,7 @@
 import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/fs"
 import type { LintResult } from "@/lib/lint"
 import { normalizePath } from "@/lib/path-utils"
+import { logger } from "@/lib/utils"
 import { moveFileToTrash } from "@/lib/trash"
 import { pad } from "@/lib/utils"
 import type { NovelReviewResult } from "./review-adapter"
@@ -164,6 +165,7 @@ export async function listGenerationHistory(
         entries.push({ ...parsed, filePath: normalizePath(parsed.filePath) })
       }
     } catch {
+      logger.warn("generation-history", "generation-history: 解析历史条目失败跳过（吞错已标记）")
     }
   }
 
