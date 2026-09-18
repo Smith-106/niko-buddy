@@ -7,6 +7,22 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.9.4] - 2026-09-18
+
+### 端点补全（Fixed）
+
+- **rerank/embedding base 自动补全**（e1ee9979）：填 base URL（如 `https://api.siliconflow.cn/v1`）不再被当 chat 测试报 `Model does not exist`——`isRerankCapableEndpoint`（custom+非chat尾即可直连）+ `resolveDirectRerankUrl` 自动补 `/rerank`，embedding generic adapter `resolveGenericEmbeddingUrl` 自动补 `/embeddings`。
+
+### 章节删除（Fixed）
+
+- **draft 章节可删除**（8e2e32db）：corkboard 卡片合并 wiki/chapters 文件源——未 ingest 的 draft 章节（无快照）也出卡片可打开/删除；`chapter_number` frontmatter 容忍带引号标量。
+
+### 迁移连贯性接线（Changed）
+
+- **MIG-001 开书导演门读真实产物**（4f37bae6）：5 阶段门从手动 checkbox 改 `collectProjectSnapshot` 自动采集——world←world-blueprint 校验、character←entities/characters 启发式、outline←wiki/outlines、chapters←listSnapshots；world-blueprint 补 `.novel/world-blueprint.json` 原子 store。
+- **MIG-002 孤岛投影汇入主链**（8c0e841c/55ad5411/c0253b58/394f9b1a）：`worldBlueprint` 注入 `ContextPack` L2 段；`deriveWorldBlueprint` 生成器从 entities 子目录聚类映射骨架层 + director-view「生成/刷新世界骨架」按钮；`.novel` 投影注册表声明 21 个投影写者/读者/消费面/孤岛标记。
+- **MIG-003 剩余孤岛接线**（65352508/7ff88b36/9e2d0550）：`event-causality` NarrativeEvent 接 graph（event 节点 + CAUSES/INVOLVES 边）；`narrativeVisibility` 视角可见性注入 ContextPack L2 段（信息差防剧透）；literary-gold/scenes 注册表校正为已有消费方。
+
 ## [2.9.3] - 2026-09-18
 
 ### 实体物理分层（Changed）

@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.9.4",
+    date: "2026-09-18",
+    highlights: {
+      en: [
+        "Endpoint auto-completion: rerank/embedding base URLs now auto-suffix — a base like https://api.siliconflow.cn/v1 is no longer treated as a chat endpoint (which produced 'Model does not exist'); isRerankCapableEndpoint + resolveDirectRerankUrl append /rerank, resolveGenericEmbeddingUrl appends /embeddings.",
+        "Chapter delete fix: corkboard cards now merge wiki/chapters file sources — draft chapters never ingested (no snapshot) still get a card and can be opened/deleted; chapter_number frontmatter tolerates quoted scalars.",
+        "Migration coherence wiring (MIG-001/002/003): director phase gates now read real project artifacts instead of manual checkboxes (collectProjectSnapshot: world-blueprint/entities/outlines/snapshots); worldBlueprint + narrativeVisibility injected into ContextPack L2 sections; event-causality NarrativeEvent wired to graph (event nodes + CAUSES/INVOLVES edges); .novel projections registry declares writer/reader/consumer/orphan for all 21 projections — migrated modules no longer write isolated .json islands.",
+      ],
+      zh: [
+        "endpoint 自动补全：rerank/embedding 填 base URL（如 https://api.siliconflow.cn/v1）不再被当 chat 测试报 Model-does-not-exist——isRerankCapableEndpoint + resolveDirectRerankUrl 自动补 /rerank，resolveGenericEmbeddingUrl 自动补 /embeddings。",
+        "章节删除修复：corkboard 卡片合并 wiki/chapters 文件源——未 ingest 的 draft 章节（无快照）也出卡片可打开/删除；chapter_number frontmatter 容忍带引号标量。",
+        "迁移连贯性接线（MIG-001/002/003）：开书导演阶段门改读真实产物（collectProjectSnapshot：world-blueprint/entities/outlines/snapshots 替代手动 checkbox）；worldBlueprint + narrativeVisibility 注入 ContextPack L2 段；event-causality NarrativeEvent 接 graph（event 节点 + CAUSES/INVOLVES 边）；.novel 投影注册表声明 21 个投影的写者/读者/消费面/孤岛标记——迁移模块不再写孤立 .json 孤岛。",
+      ],
+    },
+  },
+  {
     version: "2.9.3",
     date: "2026-09-18",
     highlights: {
