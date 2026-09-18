@@ -47,6 +47,7 @@ import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 import { buildContextUsage, type ContextUsage } from "@/lib/context-usage"
 import { loadUserMemoryForProject } from "@/lib/user-memory/session"
 import { loadWorldBlueprint, worldBlueprintToPromptFragment } from "./world-blueprint"
+import { loadNarrativeState, type NarrativeStateStore } from "./narrative-state"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
@@ -267,6 +268,24 @@ function tieredSlice(
   return retained
 }
 
+// MIG-003: 叙事信息差可见性摘要渲染——统计已知/未知声明 + 各角色视角
+// 可见声明数。空 store（无声明/无可见性）→ ""，调用方转 undefined 不渲染。
+export function narrativeVisibilitySummary(store: NarrativeStateStore | null): string {
+  if (!store || !Array.isArray(store.declarations) || store.declarations.length === 0) return ""
+  const lines: string[] = []
+  const knownByChar = new Map<string, number>()
+  for (const v of store.visibilities ?? []) {
+    if (v.state === "known") {
+      knownByChar.set(v.characterId, (knownByChar.get(v.characterId) ?? 0) + 1)
+    }
+  }
+  lines.push(`叙事声明共 ${store.declarations.length} 条`) 
+  for (const [char, n] of knownByChar) {
+    lines.push(`- ${char} 视角可见 ${n} 条`)
+  }
+  return lines.length > 1 ? lines.join("\n") : ""
+}
+
 export interface ContextPack {
   task: string
   chapterGoal: string
@@ -352,6 +371,12 @@ export interface ContextPack {
    * 空/无 blueprint → undefined → 不渲染（字节级不变）。
    */
   worldBlueprint?: string
+  /**
+   * MIG-003: 叙事信息差可见性摘要——谁在 storyTime 知道哪些声明
+   * （characterView 双时态计算）。防剧透/视角穿帮：生成时知道该角色
+   * 视角可见哪些信息。optional：空 store/无声明 → undefined → 不渲染。
+   */
+  narrativeVisibility?: string
   /**
    * S2a (roadmap R06 / TASK-101 + TASK-102): 四维反查（伏笔/出场/状态/关系）
    * + 伏笔逾期 finding 组合文本，由主装配注入。relatedChaptersEnabled=false 或
@@ -1192,6 +1217,11 @@ async function buildContextPackFromRawData(
     // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
     worldBlueprint: (await loadWorldBlueprint(context.projectPath).then(
       (bp) => (bp ? worldBlueprintToPromptFragment(bp) || undefined : undefined),
+    ).catch(() => undefined)),
+    // MIG-003: 叙事信息差可见性——loadNarrativeState 非空且有效声明时
+    // 渲染视角可见性摘要；空 store → undefined → 不渲染。
+    narrativeVisibility: (await loadNarrativeState(context.projectPath).then(
+      (store) => narrativeVisibilitySummary(store) || undefined,
     ).catch(() => undefined)),
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
     mustAvoid: buildMustAvoid(canonRules, timeline, characterStates),
@@ -2572,6 +2602,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
     fieldKey: "worldBlueprint",
     layer: "L2",
     renderIf: (pack) => Boolean(pack.worldBlueprint),
+  },
+  {
+    // MIG-003: 叙事信息差可见性段 — additive 独立分块；renderIf 非空才渲染
+    // （空 store/无可见声明 → undefined → 不渲染，字节级不变）。
+    titleKey: "novel.contextPack.narrativeVisibility",
+    fieldKey: "narrativeVisibility",
+    layer: "L2",
+    renderIf: (pack) => Boolean(pack.narrativeVisibility),
   },
   { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
   // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）

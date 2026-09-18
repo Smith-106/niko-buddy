@@ -25,13 +25,12 @@ describe("projections-registry（MIG-002 .novel 投影治理目录）", () => {
     expect(bp!.orphan).toBe(false)
   })
 
-  it("孤儿投影：internal 状态显式声明（narrative-state；literary-gold/scenes 已接线非孤岛）", () => {
+  it("孤儿投影：internal 状态显式声明（MIG-003 后 literary-gold/scenes/narrative-state 均接线）", () => {
     const orphans = orphanProjections().map((e) => e.file)
-    // MIG-003 校正：literary-gold/scenes 已有真实消费方——非孤岛
+    // MIG-003：literary-gold/scenes/narrative-state 均已有真实消费方——非孤岛
     expect(orphans).not.toContain("literary-gold-anchors.json")
     expect(orphans).not.toContain("scenes.json")
-    // narrative-state 仍是声明孤岛（event-causality 消费但未接 graph/context）
-    expect(orphans).toContain("narrative-state.json")
+    expect(orphans).not.toContain("narrative-state.json")
     // 孤儿必须 consumer=internal（设计而非缺陷）
     for (const e of orphanProjections()) {
       expect(e.consumer).toBe("internal")

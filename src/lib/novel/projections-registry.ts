@@ -128,10 +128,10 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
   {
     file: "narrative-state.json",
     writer: "narrative-state",
-    readers: ["event-causality"],
-    consumer: "internal",
-    orphan: true,
-    note: "叙事状态账本——仅 event-causality 读；不进 context pack（MIG-003 遗留：如需喂 context 再接线）",
+    readers: ["event-causality", "context-engine"],
+    consumer: "context-pack",
+    orphan: false,
+    note: "叙事信息差可见性——MIG-003 已接 ContextPack.narrativeVisibility L2 段（视角可见性防剧透）；event-causality 读事件日志",
   },
   {
     file: "scenes.json",
