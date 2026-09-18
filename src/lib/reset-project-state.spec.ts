@@ -92,7 +92,7 @@ describe("resetProjectStores", () => {
     })
     expect(mocks.reviewSetState).toHaveBeenCalledWith({ items: [] })
     expect(mocks.activitySetState).toHaveBeenCalledWith({ items: [] })
-  })
+  }, 30000) // context-engine import 链长（frontmatter 收敛后加深），默认 15s 不够
 })
 
 describe("resetProjectState", () => {
