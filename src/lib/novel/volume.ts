@@ -1,4 +1,5 @@
 import { searchWiki } from "@/lib/search"
+import { logger } from "@/lib/utils"
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -85,9 +86,13 @@ export async function getChapterVolumes(
         ) {
           results.push(meta)
         }
-      } catch {}
+      } catch {
+        logger.warn("volume", "silent-degrade: 降级返回空值（吞错已标记）", { line: 88 })
+      }
     }
-  } catch {}
+  } catch {
+    logger.warn("volume", "silent-degrade: 降级返回空值（吞错已标记）", { line: 90 })
+  }
   return results
 }
 

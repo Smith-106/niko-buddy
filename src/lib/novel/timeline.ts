@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "@/commands/fs"
+import { logger } from "@/lib/utils"
 import { normalizePath } from "@/lib/path-utils"
 
 /**
@@ -47,7 +48,9 @@ export async function loadTimeline(projectPath: string): Promise<TimelineFile> {
     if (data.version === 1 && Array.isArray(data.entries)) {
       return data as TimelineFile
     }
-  } catch {}
+  } catch {
+    logger.warn("timeline", "silent-degrade: 降级返回空值（吞错已标记）", { line: 50 })
+  }
   return { version: 1, entries: [], serial: 0, updatedAt: "" }
 }
 

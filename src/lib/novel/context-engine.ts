@@ -1708,7 +1708,9 @@ export async function readOutlineContent(pp: string): Promise<string> {
       )
       return joinNonEmpty(contents, "\n\n---\n\n")
     }
-  } catch {}
+  } catch {
+    logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1711 })
+  }
   logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1709 })
   return ""
 }
@@ -1826,7 +1828,9 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
       try {
         const content = await readFile(results[0].path)
         return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
-      } catch {}
+      } catch {
+        logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1829 })
+      }
     logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1876 })
     }
   }

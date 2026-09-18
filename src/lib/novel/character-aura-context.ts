@@ -154,14 +154,20 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
           // 也尝试 exe 的上一级目录
           const parentDir = exeDir.replace(/[\\/][^\\/]+[\\/]?$/, "")
           if (parentDir && parentDir !== exeDir) roots.push(parentDir)
-        } catch {}
+        } catch {
+          logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 157 })
+        }
         try {
           const resDir = await getResourceDir()
           roots.push(resDir)
           // Tauri NSIS 安装版把 ../skills 放到 _up_/skills
           roots.push(joinPath(resDir, "_up_"))
-        } catch {}
-      } catch {}
+        } catch {
+          logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 163 })
+        }
+      } catch {
+        logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 164 })
+      }
 
       try {
         const { resourceDir } = await import("@tauri-apps/api/path")
@@ -169,8 +175,12 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
           const resDir = await resourceDir()
           roots.push(resDir)
           roots.push(joinPath(resDir, "_up_"))
-        } catch {}
-      } catch {}
+        } catch {
+          logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 172 })
+        }
+      } catch {
+        logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 173 })
+      }
     }
     
     // 去重
@@ -182,7 +192,9 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
       try {
         const fullPath = joinPath(root, filePath)
         return await readFile(fullPath)
-      } catch {}
+      } catch {
+        logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 185 })
+      }
     }
     
     throw error

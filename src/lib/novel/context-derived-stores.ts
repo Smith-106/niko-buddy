@@ -15,6 +15,7 @@
  * 时同步更新, 不引入新反模式)。
  */
 import { loadEmotionalArcs, emotionalArcsToContextText } from "./emotional-arcs"
+import { logger } from "@/lib/utils"
 import { loadSubplotBoard, subplotBoardToContextText } from "./subplot-board"
 import { loadResourceLedger, resourceLedgerToContextText } from "./resource-ledger"
 import { loadEmotionLedger, emotionLedgerToContextText } from "./emotion-ledger"
@@ -32,7 +33,9 @@ export async function readEmotionalArcsText(pp: string): Promise<string> {
   try {
     const store = await loadEmotionalArcs(pp)
     return emotionalArcsToContextText(store)
-  } catch {}
+  } catch {
+    logger.warn("context-derived-stores", "silent-degrade: 降级返回空值（吞错已标记）", { line: 35 })
+  }
   return ""
 }
 
@@ -46,7 +49,9 @@ export async function readSubplotBoardText(pp: string): Promise<string> {
   try {
     const store = await loadSubplotBoard(pp)
     return subplotBoardToContextText(store)
-  } catch {}
+  } catch {
+    logger.warn("context-derived-stores", "silent-degrade: 降级返回空值（吞错已标记）", { line: 49 })
+  }
   return ""
 }
 
@@ -60,7 +65,9 @@ export async function readResourceLedgerText(pp: string): Promise<string> {
   try {
     const store = await loadResourceLedger(pp)
     return resourceLedgerToContextText(store)
-  } catch {}
+  } catch {
+    logger.warn("context-derived-stores", "silent-degrade: 降级返回空值（吞错已标记）", { line: 63 })
+  }
   return ""
 }
 
@@ -75,7 +82,9 @@ export async function readEmotionLedgerText(pp: string): Promise<string> {
   try {
     const store = await loadEmotionLedger(pp)
     return emotionLedgerToContextText(store)
-  } catch {}
+  } catch {
+    logger.warn("context-derived-stores", "silent-degrade: 降级返回空值（吞错已标记）", { line: 78 })
+  }
   return ""
 }
 
@@ -96,6 +105,8 @@ export async function readAuraEvolutionText(pp: string): Promise<string> {
       .map((n) => auraEvolutionToContextText(store, n, 0))
       .filter((t) => t.length > 0)
       .join("\n")
-  } catch {}
+  } catch {
+    logger.warn("context-derived-stores", "silent-degrade: 降级返回空值（吞错已标记）", { line: 99 })
+  }
   return ""
 }
