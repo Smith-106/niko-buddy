@@ -205,6 +205,39 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
     orphan: true,
     note: "章节工作区草稿态",
   },
+  // ── arch-risk W6 残余孤岛判定：补登记真实引擎投影（非 orphan——有消费者）──
+  {
+    file: "promotions.json",
+    writer: "promotion-bridge",
+    readers: ["promotion-bridge", "kb-governance", "canon"],
+    consumer: "canon",
+    orphan: false,
+    note: "晋升事件 record——record=唯一原子提交点，promotion-events.jsonl 是其 append 日志",
+  },
+  {
+    file: "promotion-events.jsonl",
+    writer: "promotion-bridge",
+    readers: ["promotion-bridge", "kb-observability"],
+    consumer: "canon",
+    orphan: false,
+    note: "晋升事件 append 日志——promotions.json 的写前审计轨",
+  },
+  {
+    file: "audit-findings.jsonl",
+    writer: "review-adapter",
+    readers: ["review-adapter", "kb-observability"],
+    consumer: "orchestrator",
+    orphan: false,
+    note: "审查 findings append 日志——auditChapter 编排层零写句柄例外",
+  },
+  {
+    file: "inspirations.json",
+    writer: "inspiration-entry",
+    readers: ["inspiration-entry", "outline-wizard"],
+    consumer: "ui-panel",
+    orphan: false,
+    note: "灵感集合——桌面端导入移动端记录，outline-wizard 消费",
+  },
 ]
 
 /** 主链投影（进 context pack/graph/canon）。 */
