@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "gateId": "eval-gov-gate:C:\\Users\\niko\\Desktop\\工作目录\\niko-hub\\QMAI\\docs\\p0\\gov-seed\\gov-seed-v1.jsonl",
+  "timestamp": "2026-09-08T17:22:07.913Z",
+  "arms": {
+    "baseline": {
+      "flagValue": false,
+      "metrics": {
+        "consistency": null,
+        "quality": null
+      },
+      "shadow": {
+        "lines": 34,
+        "coverage": 1,
+        "retrievalError": 0
+      }
+    },
+    "experiment": {
+      "flagValue": true,
+      "metrics": {
+        "consistency": null,
+        "quality": null
+      },
+      "shadow": {
+        "lines": 34,
+        "coverage": 1,
+        "retrievalError": 0
+      }
+    }
+  },
+  "verdict": "BLOCKED",
+  "criteria": {
+    "consistencyNoRegression": true,
+    "qualityGain": false,
+    "reason": "metric-unavailable"
+  },
+  "seedCaseCoverage": {
+    "baseline": 34,
+    "experiment": 34
+  }
+}

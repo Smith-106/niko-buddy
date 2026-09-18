@@ -216,6 +216,7 @@ async function readCurrentSnapshot(projectPath: string, chapterNumber: number): 
     })
     return parsed ? ensureSnapshotIdentity(parsed) : null
   } catch {
+    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 218 })
     return null
   }
 }
@@ -1240,6 +1241,7 @@ export async function listSnapshotHistory(projectPath: string, chapterNumber: nu
       }))
       .sort((a, b) => b.fileName.localeCompare(a.fileName))
   } catch {
+    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1242 })
     return []
   }
 }
@@ -1423,12 +1425,14 @@ async function listActualChapterNumbers(projectPath: string): Promise<number[]> 
             }
             return parseChapterNumber(frontmatter.chapter_number)
           } catch {
+            logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1425 })
             return null
           }
         }),
     )
     return chapterNumbers.filter((chapterNumber): chapterNumber is number => Number.isFinite(chapterNumber))
   } catch {
+    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1431 })
     return []
   }
 }
@@ -2823,6 +2827,7 @@ async function loadEntityLinkIndex(projectPath: string) {
         try {
           return extractEntitySummary(file.path, await readFile(file.path))
         } catch {
+          logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 2825 })
           return null
         }
       }))
@@ -3001,6 +3006,7 @@ export async function loadSnapshot(
       chapterNumber,
     })
   } catch {
+    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3003 })
     return null
   }
 }
@@ -3022,6 +3028,7 @@ export async function listSnapshots(projectPath: string): Promise<number[]> {
       .filter(n => !isNaN(n))
       .sort((a, b) => a - b)
   } catch {
+    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3024 })
     return []
   }
 }

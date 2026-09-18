@@ -1177,6 +1177,7 @@ async function buildContextPackFromRawData(
       })
       return loaded.text
     } catch {
+      logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1179 })
       return ""
     }
   })()
@@ -1700,6 +1701,7 @@ export async function readOutlineContent(pp: string): Promise<string> {
           try {
             return await readFile(result.path)
           } catch {
+            logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1702 })
             return ""
           }
         }),
@@ -1707,6 +1709,7 @@ export async function readOutlineContent(pp: string): Promise<string> {
       return joinNonEmpty(contents, "\n\n---\n\n")
     }
   } catch {}
+  logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1709 })
   return ""
 }
 
@@ -1874,6 +1877,7 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
         const content = await readFile(results[0].path)
         return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
       } catch {}
+    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1876 })
     }
   }
   return ""
@@ -1943,6 +1947,7 @@ export async function selectActiveEntities(
       try {
         return { path: f.path, content: await readFile(f.path) }
       } catch {
+        logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1945 })
         return null
       }
     }),
@@ -2431,6 +2436,7 @@ export async function searchGraphRelevantContent(
             relevance: Math.round(entry.relevance * 100) / 100,
           }
         } catch {
+          logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 2433 })
           return null
         }
       }),
@@ -2472,6 +2478,7 @@ export async function searchGraphRelevantContent(
 
     return [nodeResults, communityResults].filter(Boolean).join("\n")
   } catch {
+    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 2474 })
     return ""
   }
 }
