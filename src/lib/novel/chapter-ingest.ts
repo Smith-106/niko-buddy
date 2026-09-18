@@ -308,15 +308,22 @@ export interface IngestChapterOptions {
  * 「为」前一字为 名/称/作/因（名为/称为/作为/因为）时不切分（lookbehind），
  * 回退 rawFact 前 20 字。
  */
-export function parseFactsSubject(rawFact: string): string {
-  const subjectMatch = rawFact.match(/^(.+?)(：|:|是|属于|(?<![名称作因])为)/)
-  return subjectMatch ? subjectMatch[1]!.trim() : rawFact.slice(0, 20).trim()
-}
-
-export function isCanonDualWriteEligible(fm: Record<string, unknown>): boolean {
-  const status = fm.chapter_status
-  return status === "final" || status === "accepted"
-}
+// ── 纯工具子模块（arch-risk W4 god-object 拆分）─────────────────────────
+// parseFactsSubject/isCanonDualWriteEligible 已抽离到 chapter-ingest-utils.ts；
+// extractFrontmatter* 同抽（并收敛 canonical parseFrontmatter）。import 供本模块
+// 使用 + re-export 保持外部 import 路径不变。
+import {
+  extractFrontmatterNumber,
+  extractFrontmatterString,
+  isCanonDualWriteEligible,
+  parseFactsSubject,
+} from "./chapter-ingest-utils"
+export {
+  extractFrontmatterNumber,
+  extractFrontmatterString,
+  isCanonDualWriteEligible,
+  parseFactsSubject,
+} from "./chapter-ingest-utils"
 
 /**
  * T16 / F-14: 从 snapshot.newCanonFacts 派生 episode 双写操作集。
@@ -1699,17 +1706,6 @@ function snapshotSourceFileNameCandidates(chapterNumber: number): string[] {
   return Array.from(new Set([canonical, legacy]))
 }
 
-function extractFrontmatterString(content: string, key: string): string | null {
-  const match = content.match(new RegExp(`^${key}:\\s*["']?(.+?)["']?\\s*$`, "m"))
-  return match?.[1]?.trim() || null
-}
-
-function extractFrontmatterNumber(content: string, key: string): number | null {
-  const value = extractFrontmatterString(content, key)
-  if (!value) return null
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
 
 function shouldDeleteSupersededProjectionContent(content: string, snapshot: ChapterSnapshot): boolean {
   const currentSnapshot = ensureSnapshotIdentity(snapshot)
