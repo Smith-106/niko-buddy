@@ -11,6 +11,7 @@ import {
 } from "@/lib/app-lock/lock-client";
 
 import { formatOperationError } from "@/lib/format-operation-error";
+import { isTauri } from "@/lib/platform";
 
 export interface AppLockOverlayProps {
   /** 已通过验证后的回调（宿主据此决定是否渲染主界面）。 */
@@ -39,14 +40,24 @@ export function AppLockOverlay({ onUnlocked, initialState }: AppLockOverlayProps
 
   useEffect(() => {
     if (initialState !== undefined) return;
+    // 非 Tauri 环境（dev 浏览器/测试）没有 IPC bridge，invoke 必抛错——
+    // 应用锁是桌面特性，此时不遮挡，否则 dev/预览会被误判锁死。
+    if (!isTauri()) {
+      setState("not_configured");
+      return;
+    }
     let alive = true;
     void lockState()
       .then((s) => {
         if (alive) setState(s);
       })
-      .catch(() => {
-        // 查询失败保守为 locked：宁可要求验证，也不静默放行。
-        if (alive) setState("locked");
+      .catch((e) => {
+        // invoke 抛错 = IPC/命令不可用 → 锁功能本身失效，不应锁死用户。
+        // 保守锁定的前提是「凭据库有口令但查询失败」；invoke 抛错说明连不上 Rust，
+        // 此时锁屏只会把无口令用户挡在门外（本 issue 的真实 bug）。
+        // 放行并警告，让应用可用；真要锁的安全语义由 Rust 侧 app_lock_state 的 Ok 分支保证。
+        console.warn("[AppLock] lockState invoke 失败，放行（锁功能不可用）:", e);
+        if (alive) setState("not_configured");
       });
     return () => {
       alive = false;
