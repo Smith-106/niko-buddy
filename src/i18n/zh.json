@@ -1450,7 +1450,8 @@
       "coverWorkbench": "封面工作台",
       "director": "开书导演",
       "translationWorkbench": "翻译工作台",
-      "fanficMerge": "同人正典合并"
+      "fanficMerge": "同人正典合并",
+      "dataManager": "数据管理"
     },
     "backupExport": {
       "cancelled": "已取消",
@@ -3114,5 +3115,58 @@
   },
   "mermaid": {
     "syntaxError": "Mermaid 语法错误"
+  },
+  "dataManager": {
+    "title": "数据管理",
+    "noProject": "请先打开一个项目再管理其数据。",
+    "total": "本机数据共 {{size}}（.niko-buddy 数据域）",
+    "refresh": "刷新",
+    "resetAll": "整项目重置",
+    "clear": "清空",
+    "confirmHint": "用户内容域需输入其域 id；整项目重置需输入 RESET。清空会先移入回收站（可恢复）。",
+    "confirmPlaceholder": "输入域 id 或 RESET",
+    "confirm": {
+      "title": "确认删除",
+      "typeToConfirm": "该域含你的创作内容。请在输入框输入域 id「{{id}}」后再清空。",
+      "typeReset": "整项目重置将清空所有数据域。请输入 RESET 后继续。",
+      "moveToTrash": "将「{{name}}」全部内容移入回收站？可在下方回收站恢复或彻底删除。",
+      "resetAll": "将本项目的所有数据域移入回收站？此操作影响全部本地创作数据。",
+      "purge": "彻底删除该回收站批次？此操作不可恢复。"
+    },
+    "stat": "{{size}} · {{count}} 项",
+    "risk": {
+      "cache": "缓存",
+      "generated": "可重建",
+      "user": "用户内容"
+    },
+    "trash": {
+      "title": "回收站",
+      "empty": "回收站为空。清空的数据会先移到这里。",
+      "purge": "彻底删除"
+    },
+    "domain": {
+      "chapterSnapshots": "章节快照与备份",
+      "chapterSnapshotsDesc": "chapter-backups、page-history 等章节级历史快照。",
+      "vectorIndex": "向量与检索索引",
+      "vectorIndexDesc": "LanceDB 向量、全文索引、向量指纹（删除后可重建）。",
+      "caches": "缓存与队列",
+      "cachesDesc": "ingest 缓存/队列、图片标注缓存、分块标注、检索轨迹、去重队列等。",
+      "generationHistory": "生成与评审历史",
+      "generationHistoryDesc": "章节生成历史、评审记录、lint 历史。",
+      "antiAi": "反AI与写法库",
+      "antiAiDesc": "de-ai 技能库、写法库、写作风格资产。",
+      "knowledgeLibrary": "知识资料库",
+      "knowledgeLibraryDesc": "拆书库、书籍分析任务结果。",
+      "conversations": "会话与聊天记录",
+      "conversationsDesc": "聊天会话、历史、大纲会话。",
+      "simulations": "推演数据",
+      "simulationsDesc": "故事推演框架、访谈、绑定分支。",
+      "characterAssets": "角色与用户资产",
+      "characterAssetsDesc": "角色气场、用户资产素材。",
+      "dashboard": "看板数据",
+      "dashboardDesc": "dashboard 问题项（可重建）。",
+      "configs": "项目配置",
+      "configsDesc": "novel-config、rerank、修订反馈、来源监听、同步等配置。"
+    }
   }
 }

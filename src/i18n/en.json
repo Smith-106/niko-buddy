@@ -1830,7 +1830,8 @@
       "coverWorkbench": "Cover Workbench",
       "director": "Director",
       "translationWorkbench": "Translation Workbench",
-      "fanficMerge": "Fanfic Canon Merge"
+      "fanficMerge": "Fanfic Canon Merge",
+      "dataManager": "Data Manager"
     },
     "backupExport": {
       "cancelled": "Cancelled",
@@ -3114,5 +3115,58 @@
   },
   "mermaid": {
     "syntaxError": "Mermaid syntax error"
+  },
+  "dataManager": {
+    "title": "Data Manager",
+    "noProject": "Open a project to manage its data.",
+    "total": "Local data total {{size}} (.niko-buddy domains)",
+    "refresh": "Refresh",
+    "resetAll": "Reset project",
+    "clear": "Clear",
+    "confirmHint": "User-content domains require typing the domain id; full reset requires RESET. Clearing moves data to the trash bin first (recoverable).",
+    "confirmPlaceholder": "Type domain id or RESET",
+    "confirm": {
+      "title": "Confirm deletion",
+      "typeToConfirm": "This domain holds your creative content. Type the domain id '{{id}}' in the box, then clear.",
+      "typeReset": "Full reset clears every data domain. Type RESET to continue.",
+      "moveToTrash": "Move all of '{{name}}' to the trash bin? You can restore or purge it below.",
+      "resetAll": "Move every data domain of this project to the trash bin? This affects all local creative data.",
+      "purge": "Permanently delete this trash batch? This cannot be undone."
+    },
+    "stat": "{{size}} · {{count}} item(s)",
+    "risk": {
+      "cache": "Cache",
+      "generated": "Rebuildable",
+      "user": "User content"
+    },
+    "trash": {
+      "title": "Trash bin",
+      "empty": "Trash bin is empty. Cleared data lands here first.",
+      "purge": "Purge"
+    },
+    "domain": {
+      "chapterSnapshots": "Chapter snapshots & backups",
+      "chapterSnapshotsDesc": "chapter-backups, page-history and other chapter-level history snapshots.",
+      "vectorIndex": "Vector & search index",
+      "vectorIndexDesc": "LanceDB vectors, FTS index, vector fingerprints (rebuildable).",
+      "caches": "Caches & queues",
+      "cachesDesc": "ingest cache/queue, image-caption cache, chunk annotations, retrieval traces, dedup queue.",
+      "generationHistory": "Generation & review history",
+      "generationHistoryDesc": "Chapter generation history, review records, lint history.",
+      "antiAi": "Anti-AI & style library",
+      "antiAiDesc": "de-ai skill library, writing skills, writing-style assets.",
+      "knowledgeLibrary": "Knowledge library",
+      "knowledgeLibraryDesc": "Dismantling library, book-analysis task results.",
+      "conversations": "Chats & history",
+      "conversationsDesc": "Chat sessions, history, outline chats.",
+      "simulations": "Simulation data",
+      "simulationsDesc": "Story simulation frameworks, interviews, bound branches.",
+      "characterAssets": "Character & user assets",
+      "characterAssetsDesc": "Character auras and user asset material.",
+      "dashboard": "Dashboard data",
+      "dashboardDesc": "Dashboard issue items (rebuildable).",
+      "configs": "Project configs",
+      "configsDesc": "novel-config, rerank, revision-feedback, source-watch, sync configs."
+    }
   }
 }
