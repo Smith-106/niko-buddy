@@ -24,6 +24,7 @@ export type Provider =
   | "claude-code"
   | "codex-cli"
   | "cursor-cli"
+  | "antigravity-cli"
 
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
@@ -132,6 +133,20 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "claude-haiku-4-5-20251001",
     ],
     suggestedContextSize: 200000,
+  },
+  {
+    id: "antigravity-cli",
+    label: "Antigravity CLI (local)",
+    hint: "Uses the local `antigravity` binary (Google account subscription) — no API key needed",
+    provider: "antigravity-cli",
+    defaultModel: "gemini-3-pro",
+    suggestedModels: [
+      "gemini-3-pro",
+      "gemini-3-flash",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+    ],
+    suggestedContextSize: 1000000,
   },
   {
     id: "openai",

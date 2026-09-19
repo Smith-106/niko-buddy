@@ -782,7 +782,11 @@
           "codexUnavailable": "未检测到 Codex CLI。",
           "desktopOnly": "仅桌面应用可检测 CLI 状态。",
           "installPrefix": "可执行",
-          "installSuffix": "安装后再重新检查。"
+          "installSuffix": "安装后再重新检查。",
+          "antigravityDetecting": "正在检测 Antigravity CLI…",
+          "antigravityReady": "Antigravity CLI 已就绪{{versionSuffix}}（本地 binary · Google 账号 · 无需 API key）",
+          "antigravityFallback": "gemini 内核降级",
+          "antigravityUnavailable": "Antigravity CLI 不可用"
         },
         "reasoning": {
           "title": "推理 / thinking",

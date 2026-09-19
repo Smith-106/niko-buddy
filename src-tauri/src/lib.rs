@@ -140,6 +140,7 @@ pub fn run() {
             // drained on process exit or by claude_cli_kill.
             app.manage(CanonCommandState::default());
             app.manage(commands::claude_cli::ClaudeCliState::default());
+            app.manage(commands::antigravity_cli::AntigravityCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::mcp_stdio::McpStdioState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
@@ -236,6 +237,9 @@ pub fn run() {
             commands::vectorstore::vector_drop_legacy,
             commands::vectorstore::vector_run_startup_reconcile,
             commands::claude_cli::claude_cli_detect,
+            commands::antigravity_cli::antigravity_cli_detect,
+            commands::antigravity_cli::antigravity_cli_spawn,
+            commands::antigravity_cli::antigravity_cli_kill,
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,
             commands::claude_cli::claude_cli_terminate,

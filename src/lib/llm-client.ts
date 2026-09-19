@@ -210,6 +210,17 @@ async function streamViaCodexCli(
   return mod.streamCodexCli(config, messages, callbacks, signal, requestOverrides)
 }
 
+async function streamViaAntigravityCli(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+) {
+  const mod = await import("./antigravity-cli-transport")
+  return mod.streamAntigravityCli(config, messages, callbacks, signal, requestOverrides)
+}
+
 /**
  * Fast-fail retry backoff for the HTTP transport. Replaces the old linear
  * 30/60/90/120s ladder (~5 min of silent waiting on a dead endpoint): a
@@ -581,6 +592,15 @@ async function streamChatHeld(
     const wrappedCallbacks = { ...callbacks, onError }
     try {
       return await streamViaCodexCli(runtimeConfig, messages, wrappedCallbacks, signal, requestOverrides)
+    } finally {
+      recordMetric()
+    }
+  }
+
+  if (runtimeConfig.provider === "antigravity-cli") {
+    const wrappedCallbacks = { ...callbacks, onError }
+    try {
+      return await streamViaAntigravityCli(runtimeConfig, messages, wrappedCallbacks, signal, requestOverrides)
     } finally {
       recordMetric()
     }

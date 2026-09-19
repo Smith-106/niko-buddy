@@ -1341,7 +1341,11 @@
           "codexUnavailable": "Codex CLI not available.",
           "desktopOnly": "Desktop only",
           "installPrefix": "Install with",
-          "installSuffix": "then re-check."
+          "installSuffix": "then re-check.",
+          "antigravityDetecting": "Detecting Antigravity CLI…",
+          "antigravityReady": "Antigravity CLI ready{{versionSuffix}} (local binary · Google account · no API key)",
+          "antigravityFallback": "gemini kernel fallback",
+          "antigravityUnavailable": "Antigravity CLI unavailable"
         },
         "reasoning": {
           "title": "Reasoning / thinking",

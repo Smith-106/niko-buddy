@@ -55,6 +55,7 @@ export function hasUsableLlm(
       return isNonEmpty(cfg.apiKey) && isNonEmpty(cfg.model) && isNonEmpty(cfg.customEndpoint)
     case "claude-code":
     case "codex-cli":
+    case "antigravity-cli":
       return true
     case "openai":
     case "anthropic":

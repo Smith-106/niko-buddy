@@ -6,14 +6,17 @@ export interface LocalCliDetectResult {
   installed: boolean
   version: string | null
   path: string | null
+  /** Antigravity：内核降级候选（gemini binary）路径。 */
+  fallback_path?: string | null
   model?: string | null
   error: string | null
 }
 
-function detectCommand(provider: LlmConfig["provider"]): "claude_cli_detect" | "codex_cli_detect" | "cursor_cli_detect" | null {
+function detectCommand(provider: LlmConfig["provider"]): "claude_cli_detect" | "codex_cli_detect" | "cursor_cli_detect" | "antigravity_cli_detect" | null {
   if (provider === "claude-code") return "claude_cli_detect"
   if (provider === "codex-cli") return "codex_cli_detect"
   if (provider === "cursor-cli") return "cursor_cli_detect"
+  if (provider === "antigravity-cli") return "antigravity_cli_detect"
   return null
 }
 

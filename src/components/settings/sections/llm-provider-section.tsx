@@ -180,7 +180,7 @@ function PresetRow({
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
-  const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli"
+  const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "antigravity-cli"
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
@@ -195,6 +195,7 @@ function PresetRow({
     preset.provider !== "ollama" &&
     preset.provider !== "claude-code" &&
     preset.provider !== "codex-cli" &&
+    preset.provider !== "antigravity-cli" &&
     preset.provider !== "cursor-cli"
 
   const resolvedConfig = useMemo(
@@ -437,6 +438,7 @@ function PresetRow({
 
           {preset.provider === "claude-code" && <ClaudeCliStatusPill />}
           {preset.provider === "codex-cli" && <CodexCliStatusPill />}
+          {preset.provider === "antigravity-cli" && <AntigravityCliStatusPill />}
           {preset.provider === "cursor-cli" && <CursorProxyStatusBadge />}
 
           {isLocalCliProvider && (
@@ -973,6 +975,8 @@ interface DetectResult {
   installed: boolean
   version: string | null
   path: string | null
+  /** Antigravity：gemini 内核降级候选路径。 */
+  fallback_path?: string | null
   error: string | null
 }
 
@@ -1195,6 +1199,98 @@ interface CursorProxyStatusPayload {
   managed: boolean
   error: string | null
 }
+
+/** Health-check pill for Antigravity CLI (local binary / Google account, no API key). */
+function AntigravityCliStatusPill() {
+  const { t } = useTranslation()
+  const [state, setState] = useState<"loading" | "ok" | "err">("loading")
+  const [result, setResult] = useState<DetectResult | null>(null)
+
+  async function detect() {
+    setState("loading")
+    if (!isTauri()) {
+      setResult({ installed: false, version: null, path: null, error: t("settings.sections.llm.cliStatus.desktopOnly") })
+      setState("err")
+      return
+    }
+    try {
+      const r = await invoke<DetectResult>("antigravity_cli_detect")
+      setResult(r)
+      setState(r.installed ? "ok" : "err")
+    } catch (e) {
+      setResult({ installed: false, version: null, path: null, error: e instanceof Error ? e.message : String(e) })
+      setState("err")
+    }
+  }
+
+  useEffect(() => {
+    void detect()
+  }, [])
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="m-0">{t("settings.sections.llm.cliStatus.title")}</Label>
+        <button
+          type="button"
+          onClick={() => void detect()}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          disabled={state === "loading"}
+        >
+          {state === "loading"
+            ? t("settings.sections.llm.cliStatus.checking")
+            : t("settings.sections.llm.cliStatus.recheck")}
+        </button>
+      </div>
+      <div
+        className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+          state === "ok"
+            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            : state === "err"
+              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              : "border-border bg-background/50 text-muted-foreground"
+        }`}
+      >
+        {state === "loading" && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {state === "ok" && <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        {state === "err" && <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        <div className="min-w-0 flex-1 space-y-0.5">
+          {state === "loading" && <div>{t("settings.sections.llm.cliStatus.antigravityDetecting")}</div>}
+          {state === "ok" && (
+            <>
+              <div>
+                {t("settings.sections.llm.cliStatus.antigravityReady", {
+                  versionSuffix: result?.version ? ` ${result.version}` : "",
+                })}
+              </div>
+              {result?.path && (
+                <div className="truncate font-mono text-[10px] text-muted-foreground">{result.path}</div>
+              )}
+              {result?.fallback_path && result.path !== result.fallback_path && (
+                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.antigravityFallback")}: {result.fallback_path}
+                </div>
+              )}
+            </>
+          )}
+          {state === "err" && (
+            <>
+              <div>{result?.error ?? t("settings.sections.llm.cliStatus.antigravityUnavailable")}</div>
+              <div className="text-muted-foreground">
+                {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                  antigravity / gemini
+                </code>{" "}
+                {t("settings.sections.llm.cliStatus.installSuffix")}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 /** Extract `host:port` from a proxy base URL, e.g. `http://127.0.0.1:8765` → `127.0.0.1:8765`. */
 function proxyEndpointLabel(baseUrl: string): string {

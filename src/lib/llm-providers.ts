@@ -713,6 +713,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
 
     case "claude-code":
     case "codex-cli":
+    case "antigravity-cli":
       throw new Error(
         `${provider} provider uses subprocess transport; getProviderConfig should not be called for it`,
       )
