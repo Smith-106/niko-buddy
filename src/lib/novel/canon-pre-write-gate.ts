@@ -1,10 +1,10 @@
 /**
  * 53 号报告 P1-2: canon 写前一致性门控 (lore-weave GuardrailViolation
- * L1_axiom 硬锁模式, AGPL-3.0 只借模式; QMAI 纯函数 TS 实现, 零 IO 零 LLM)。
+ * L1_axiom 硬锁模式, AGPL-3.0 只借模式; Niko Buddy 纯函数 TS 实现, 零 IO 零 LLM)。
  *
  * 语义 (对齐 lore-weave WriteCanonEntry → 409 canon_guardrail_l1_conflict):
  *  - 抽取即 canon 校验, Consistency 门控前置到写入前;
- *  - QMAI 四态: PASS / DUPLICATE / WARN / BLOCK (镜像写后对账 twoPhaseReconcile
+ *  - Niko Buddy 四态: PASS / DUPLICATE / WARN / BLOCK (镜像写后对账 twoPhaseReconcile
  *    的确定性判定, 但语义相反: 对账是写后检测, gate 是写前拦截);
  *  - 与 Rust 侧 classify_conflict (53 P0-2) 共享判定逻辑: 同端点同 predicate
  *    异值 + 有效区间重叠 = 硬冲突 (BLOCK/contradicted), digest 重复 = 幂等跳过。

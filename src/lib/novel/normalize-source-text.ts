@@ -14,7 +14,7 @@
  *   任何把 normalizeSourceText 的返回值写回持久化正文的调用方都是误用, 须在 code review
  *   拦截 (见 docs/decision-log)。正文存储统一真源仍是 draft-first accept 后的原始字节。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 /** 零宽字符正则: ZWSP U+200B / ZWNJ U+200C / ZWJ U+200D / WORD JOINER U+2060 / BOM U+FEFF */

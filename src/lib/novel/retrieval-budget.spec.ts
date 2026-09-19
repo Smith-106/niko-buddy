@@ -5,7 +5,7 @@
  * 回退调用语义（无回退 fail-loud）/ λ 初值（25 ms/pp，calibrated=false）/
  * 超时语义等价（真实链路 runSearchBranch：2500ms 超时 → 回退 [] 且账本记账）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

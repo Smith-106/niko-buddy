@@ -1,5 +1,5 @@
 /**
- * Benchmark fixture generators for QMAI performance testing.
+ * Benchmark fixture generators for Niko Buddy performance testing.
  *
  * Generates synthetic Chinese long-text documents, fake embeddings, and
  * preset query sets used across multiple bench files.

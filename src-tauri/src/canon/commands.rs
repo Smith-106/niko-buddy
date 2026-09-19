@@ -27,7 +27,7 @@
 //!     写锁」守写路径串行化（同项目写不并发），等价于 status.json 单实例锁
 //!     契约（ADR-16）。读路径不加锁（只读，可并发）。
 //!
-//! ## 依赖边界（QMAI 执行纪律）
+//! ## 依赖边界（Niko Buddy 执行纪律）
 //!   - 仅包装 T11 [`crate::canon::store::CanonStore`]（结构化时态/认知
 //!     过滤查询 + 幂等摄取 + 批量 supersede）。**不修改 T11/T12 源码**。
 //!   - T12 [`crate::canon::search`] 为混合检索（FTS+RRF+图遍历）增强层：

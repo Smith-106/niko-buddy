@@ -1,12 +1,12 @@
 /**
  * candidate-selector.ts — fix-loop 候选退化检测选优层 (A19 借鉴点 #4, 零 LLM 机械分)
  *
- * 借鉴点 #4 (ANL-20260715-16proj-selrev F-007): QMAI deep-chapter-generation.ts
+ * 借鉴点 #4 (ANL-20260715-16proj-selrev F-007): Niko Buddy deep-chapter-generation.ts
  * fix-loop 无候选选择 — currentContent = revisedContent 直接覆盖 (file:1747),
  * 无版本对比/打分。返修可能越改越差 (slop 上升) 却无机制回退。本模块补退化检测层。
  *
  * 诚实标注机械层价值局限 (plan DD-3): autonovel evaluate.py 的 Elo 实质是 LLM
- * judge 打分 (JUDGE_MODEL opus harsh), 非纯 Elo 算法, 不符 A19 零 LLM。QMAI 版
+ * judge 打分 (JUDGE_MODEL opus harsh), 非纯 Elo 算法, 不符 A19 零 LLM。Niko Buddy 版
  * 机械层只复用 #1 slopScore 做候选机械分 + 退化检测 (防越改越差), 非真正 Elo
  * 选优。slop 低不代表质量高/一致性高 — 真正选优需 LLM judge, 降级 deferred。
  * 退化检测 (防回退) 是机械层能可靠做到的, 选最优 (正向比较) 超出机械层能力。
@@ -18,7 +18,7 @@
  *
  * 参考 (只读, 不改上游):
  *   - autonovel/evaluate.py: Elo+LLM judge 架构 (实质 LLM judge, 非纯 Elo)
- *   - QMAI/src/lib/novel/mechanical-slop-detector.ts: slopScore (#1 已落地, 复用)
+ *   - Niko Buddy/src/lib/novel/mechanical-slop-detector.ts: slopScore (#1 已落地, 复用)
  */
 
 import { slopScore } from "./mechanical-slop-detector"

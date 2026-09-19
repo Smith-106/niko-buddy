@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Frontmatter array-field parsing, writing, and union-merging.
  *

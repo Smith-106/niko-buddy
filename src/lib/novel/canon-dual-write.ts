@@ -27,7 +27,7 @@
  *   默认实现 `defaultCanonDualWriteDeps()` 走真实 `@tauri-apps/api/core` invoke +
  *   `@/commands/fs` 原子写。单测用 mock deps 覆盖全部分支，运行时路径在 `.novel/`。
  *
- * 遵循 QMAI/CLAUDE.md：T15 新增锚点，落 `src/lib/novel/`；运行期队列在 `.novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：T15 新增锚点，落 `src/lib/novel/`；运行期队列在 `.novel/`。
  *
  * ## E-05 幂等键交叉引用（R-3 / C-3，与 promotion-bridge.ts 模块头定义文档对齐）
  *   本模块 digest = SHA-256(stable({chapter, fact})) —— **去重语义**（同一原料

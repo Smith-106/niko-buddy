@@ -9,7 +9,7 @@ describe("release notes for updater manifest", () => {
   it("uses the full Chinese changelog for the current package version", async () => {
     const notes = await buildCurrentReleaseNotes()
 
-    expect(notes).not.toMatch(/^QMAI [\d.]+ 发布版本$/)
+    expect(notes).not.toMatch(/^Niko Buddy [\d.]+ 发布版本$/)
     expect(notes).toContain("1. ")
     const lines = notes.split("\n").filter((line) => line.trim().length > 0)
     expect(lines.length).toBeGreaterThan(0)

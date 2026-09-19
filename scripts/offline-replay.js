@@ -38,10 +38,10 @@ import {
 } from "../src/lib/novel/offline-replay-config.ts"
 
 const SCRIPT_DIR = fileURLToPath(new URL(".", import.meta.url))
-const QMAI_ROOT = resolve(SCRIPT_DIR, "..")
+const NIKO_BUDDY_ROOT = resolve(SCRIPT_DIR, "..")
 const SPEC_REL = "src/lib/novel/offline-replay-t31-vertical-slice.spec.ts"
 const T36_AB_SPEC_REL = "src/lib/novel/offline-replay-t36-ab-pair.spec.ts"
-const VITEST_ENTRY = join(QMAI_ROOT, "node_modules", "vitest", "vitest.mjs")
+const VITEST_ENTRY = join(NIKO_BUDDY_ROOT, "node_modules", "vitest", "vitest.mjs")
 
 /** 验收项清单（与 spec 证据 id 一一对应）。 */
 const ACCEPTANCE_ITEMS = [
@@ -130,7 +130,7 @@ function printQuality(q) {
 
 function runAcceptance(evidenceOut) {
   if (!existsSync(VITEST_ENTRY)) {
-    console.error("[t31] FATAL: 未找到 vitest 入口（先在 QMAI 仓库内 npm install）:")
+    console.error("[t31] FATAL: 未找到 vitest 入口（先在 本仓库内 npm install）:")
     console.error(`       ${VITEST_ENTRY}`)
     return 2
   }
@@ -145,7 +145,7 @@ function runAcceptance(evidenceOut) {
     process.execPath,
     [VITEST_ENTRY, "run", SPEC_REL],
     {
-      cwd: QMAI_ROOT,
+      cwd: NIKO_BUDDY_ROOT,
       stdio: "inherit",
       env: { ...process.env, T31_EVIDENCE_PATH: evidencePath },
     },
@@ -256,7 +256,7 @@ const AB_GATES = [
 
 function runAbMode(args) {
   if (!existsSync(VITEST_ENTRY)) {
-    console.error("[t36] FATAL: 未找到 vitest 入口（先在 QMAI 仓库内 npm install）:")
+    console.error("[t36] FATAL: 未找到 vitest 入口（先在 本仓库内 npm install）:")
     console.error(`       ${VITEST_ENTRY}`)
     return 2
   }
@@ -277,7 +277,7 @@ function runAbMode(args) {
     process.execPath,
     [VITEST_ENTRY, "run", T36_AB_SPEC_REL],
     {
-      cwd: QMAI_ROOT,
+      cwd: NIKO_BUDDY_ROOT,
       stdio: "inherit",
       env: { ...process.env, T36_AB_EVIDENCE_PATH: evidenceFile },
     },

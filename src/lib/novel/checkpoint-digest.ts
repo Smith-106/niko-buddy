@@ -1,7 +1,7 @@
 /**
  * checkpoint-digest.ts
  *
- * SHA-256 idempotent checkpoint digests for the QMAI control / mechanical layer.
+ * SHA-256 idempotent checkpoint digests for the Niko Buddy control / mechanical layer.
  *
  * ADR-19 (mechanical layer, zero LLM): this module is pure cryptography. It
  * performs no model inference, no network IO, and no LLM calls. Given the same
@@ -13,7 +13,7 @@
  *   - T15 canon-pending replay queue (each pending write keyed by its digest,
  *     deduplicated + replayed in order after a restart).
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 const HEX_DIGITS = "0123456789abcdef"

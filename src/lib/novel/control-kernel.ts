@@ -29,7 +29,7 @@
  *   7-13. 阶段机        — context→scene_breakdown→task_brief→draft→review→revision→done
  *                          (stage=review 时按门控 P0>P1>P2 + anti_ai_mode 三档裁定)
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import {

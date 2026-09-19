@@ -4,7 +4,7 @@
  * 吸收来源：reference/inkos packages/core/src/models/book-rules.ts
  * （protagonist.personalityLock/behavioralConstraints、genreLock、
  * prohibitions、eraConstraints、fanficMode、allowedDeviations 等）。
- * 25 号审计三模型盲区扫描第一名（hy3 value 9：QMAI 零命中）。
+ * 25 号审计三模型盲区扫描第一名（hy3 value 9：Niko Buddy 零命中）。
  *
  * 定位：书籍级统一约束（题材锁/人设锁/禁止项/时代约束/允许偏差白名单），
  * 供写作前预检（plot-forecast 同层）与审稿门控引用。确定性纯函数：

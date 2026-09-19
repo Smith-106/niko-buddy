@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Dashboard issue state persistence, evidence matching, and
  * rewrite/insert operations for the novel quality dashboard.

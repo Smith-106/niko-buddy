@@ -45,7 +45,7 @@
  *   rejected∧final 并存 / channel 未知）→ BLOCK + ambiguity_block 事件
  *   （BND-PRM-10：单向门不可误开，绝不默认放行）。
  *
- * 遵循 QMAI/CLAUDE.md：E-05 新增锚点（2026-09-04 三模型共识），落
+ * 遵循 Niko Buddy CLAUDE.md：E-05 新增锚点（2026-09-04 三模型共识），落
  * `src/lib/novel/`；运行期数据在 `.novel/`（ADR-16）；报告工件非真相文件。
  */
 

@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Cross-page chunk fingerprinting & dedup index.
  *

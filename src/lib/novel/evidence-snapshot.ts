@@ -12,7 +12,7 @@
  *
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；UI 只读渲染。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"

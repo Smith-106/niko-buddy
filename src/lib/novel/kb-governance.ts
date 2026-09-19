@@ -19,7 +19,7 @@
  * ## DimensionCoord（SA-05 / GOV-REV-02，E-06 共识 C-10）
  *   (Coupled, Sync, Fixed)：与运行时启动耦合（启动自检）；同步强制。
  *
- * 遵循 QMAI/CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
  */
 
 import { z } from "zod"

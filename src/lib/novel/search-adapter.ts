@@ -660,11 +660,11 @@ export async function searchPlot(
 // ============================================================================
 
 /**
- * P1-IMP-08: KB-VIEW 消费面切仓内 generated JSON —— QMAI 单仓自带数据可构建。
+ * P1-IMP-08: KB-VIEW 消费面切仓内 generated JSON —— Niko Buddy 单仓自带数据可构建。
  *
  * 切换点（回退说明，务必保留本注释）：
  *   现状（IMP-08 后）：读 ./kb/kb-routing-view.generated.json（入 git，由
- *     scripts/sync-kb-view-to-qmai.mjs 从 hub reference/REFERENCE-KB-VIEW.json 抽取）。
+ *     scripts/sync-kb-view-to-niko-buddy.mjs 从 hub reference/REFERENCE-KB-VIEW.json 抽取）。
  *   回退（仅本地联调，单仓 checkout 下该路径不存在 → 构建即碎）：
  *     import kbRoutingViewRaw from "../../../../reference/REFERENCE-KB-VIEW.json"
  *
@@ -718,7 +718,7 @@ export function loadKbRoutingViewBuiltFrom(): string {
   if (typeof raw !== "string" || raw.length === 0) {
     throw new Error(
       "kb-routing-view.generated.json 缺少 builtFrom (P1-IMP-08 新鲜度断言失败 — " +
-        "重跑 node scripts/sync-kb-view-to-qmai.mjs 并重新入 git)",
+        "重跑 node scripts/sync-kb-view-to-niko-buddy.mjs 并重新入 git)",
     )
   }
   return raw

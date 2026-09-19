@@ -13,7 +13,7 @@
  * 常态零副作用（console.log 可观测输出）；`SCALE_UNLOCK_REPORT=1` 门控写
  * docs/p0/scale-unlock-<YYYYMMDD>.md（报告为门控产物，docs/ 被 gitignore，靠本 spec 重生成）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"

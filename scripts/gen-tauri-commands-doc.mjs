@@ -12,8 +12,8 @@
  *   node scripts/gen-tauri-commands-doc.mjs --check   校验现有输出是否最新（exit 0/1，不写盘）
  *   node scripts/gen-tauri-commands-doc.mjs --check --out <p>
  *
- * 默认输出：docs/generated/tauri-commands-reference.md（QMAI 仓内，P0 B6 仓内化）
- * 同步副本：docs/qmai-codex-delivery/90-tauri-commands-reference-20260907.md（hub 仓外，
+ * 默认输出：docs/generated/tauri-commands-reference.md（本仓内，P0 B6 仓内化）
+ * 同步副本：docs/niko-buddy-codex-delivery/90-tauri-commands-reference-20260907.md（hub 仓外，
  *           README.md 索引引用；单向同步：默认路径生成时若副本存在则覆写为相同内容）
  *
  * --check 语义（P0 B4）：生成到 os.tmpdir() 临时路径，与现有输出目标字节比对；
@@ -27,7 +27,7 @@ import { tmpdir } from "node:os"
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const libRs = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8")
 const outDefault = join(root, "docs", "generated", "tauri-commands-reference.md")
-const outMirror = join(root, "..", "docs", "qmai-codex-delivery", "90-tauri-commands-reference-20260907.md")
+const outMirror = join(root, "..", "docs", "niko-buddy-codex-delivery", "90-tauri-commands-reference-20260907.md")
 
 // 参数解析：--check 校验模式；--out <path> 覆盖输出路径；旧式位置参数兼容
 let check = false
@@ -173,7 +173,7 @@ if (check) {
   writeFileSync(outPath, doc, "utf8")
   console.log(`written: ${outPath} (registered=${registered.size}, dead=${dead.length})`)
 
-  // 单向同步副本（P0 B6）：hub docs/qmai-codex-delivery/README.md 索引引用仓外文件；
+  // 单向同步副本（P0 B6）：hub docs/niko-buddy-codex-delivery/README.md 索引引用仓外文件；
   // 仅默认路径生成时同步，且副本已存在才覆写（生成器不在仓外凭空创建文件）。
   if (outPath === outDefault && existsSync(outMirror)) {
     writeFileSync(outMirror, doc, "utf8")

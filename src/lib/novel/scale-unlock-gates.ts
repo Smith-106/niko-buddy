@@ -19,7 +19,7 @@
  *
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟 / 零模型调用；产物存在性与状态由调用方采集后注入 ctx。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

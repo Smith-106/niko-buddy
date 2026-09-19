@@ -188,12 +188,12 @@ describe("briefing-renderer / canon 优先与 divergence", () => {
   it("canon 取值不同 → 该断言被 canon 取代并进入 divergence 块", () => {
     const digest = buildBriefingDigest(bundle());
     const out = renderBriefing(digest, [
-      { claimKey: "foreshadowing/f-1", value: "旧信已于第7章回收", source: "QMAI/canon#f-1" },
+      { claimKey: "foreshadowing/f-1", value: "旧信已于第7章回收", source: "Niko Buddy/canon#f-1" },
     ]);
     expect(out.divergence).toHaveLength(1);
     expect(out.divergence[0].claimKey).toBe("foreshadowing/f-1");
     expect(out.divergence[0].canonSide).toBe("旧信已于第7章回收");
-    expect(out.divergence[0].canonSource).toBe("QMAI/canon#f-1");
+    expect(out.divergence[0].canonSource).toBe("Niko Buddy/canon#f-1");
     const debts = out.blocks.find((b) => b.kind === "debts");
     expect(debts?.lines.map((l) => l.id)).toEqual(["debt:f-2"]);
   });

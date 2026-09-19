@@ -3,9 +3,9 @@
  *
  * License 核验（R1）：reference/RAG-PROMPT_INJECTION_-SECURITY 无 LICENSE 文件、
  * README 无 license 声明 → **只借模式不借代码**。本 spec 是断言式审计：
- * 逐层断言 QMAI 现有机制是否覆盖，不复制任何参考实现。
+ * 逐层断言 Niko Buddy 现有机制是否覆盖，不复制任何参考实现。
  *
- * 审计对象（QMAI 现有防御面）：
+ * 审计对象（Niko Buddy 现有防御面）：
  * - canon-precision-filter.ts（实体关系机械裁决）
  * - evidence-chain.ts（证据链构建）
  * - chapter-ingest.ts:2479（prompt-injected name 路径穿越防护）
@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest"
 import { mechanicalVerdict, entityBareName } from "./canon-precision-filter"
 import { buildEvidenceChainFromContinuity } from "./evidence-chain"
 
-/** 12 层对照表：参考层 → QMAI 覆盖机制 → 覆盖判定（audit 断言） */
+/** 12 层对照表：参考层 → Niko Buddy 覆盖机制 → 覆盖判定（audit 断言） */
 const LAYER_COVERAGE: Array<{ layer: number; name: string; qmai: string; covered: boolean }> = [
   { layer: 1, name: "Input Sanitizer", qmai: "normalizeSourceText（NFKC+零宽剥离+同形字还原）", covered: true },
   { layer: 2, name: "Risk Scorer", qmai: "avoid-ai-patterns score（Track B 软信号）", covered: true },
@@ -33,7 +33,7 @@ const LAYER_COVERAGE: Array<{ layer: number; name: string; qmai: string; covered
 ]
 
 describe("55 W3-2: RAG 注入 12 层防御审计（断言式）", () => {
-  it("审计表完整性: 12 层全部登记, 每层有 QMAI 机制名", () => {
+  it("审计表完整性: 12 层全部登记, 每层有 Niko Buddy 机制名", () => {
     expect(LAYER_COVERAGE).toHaveLength(12)
     for (const l of LAYER_COVERAGE) {
       expect(l.qmai.length).toBeGreaterThan(0)

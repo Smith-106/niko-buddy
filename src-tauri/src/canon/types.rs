@@ -786,7 +786,7 @@ pub struct SupersedeResult {
 }
 
 /// 53 号报告 P0-2: 写时冲突语义分类 (graphiti dedupe_edges/contradiction 语义,
-/// Apache-2.0 借模式)。QMAI 双层: Rust 确定性分类权威 (零 LLM 守 ADR-19) +
+/// Apache-2.0 借模式)。Niko Buddy 双层: Rust 确定性分类权威 (零 LLM 守 ADR-19) +
 /// TS 侧 LLM 语义分类 advisory (opt-in, 仅进审计事件不参与权威判定)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

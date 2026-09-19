@@ -14,7 +14,7 @@
  *   不动 deep-chapter-generation.ts 主链。
  *   0 新 route 分支：批判步骤复用 run_review 既有指令（review-adapter 审查维度）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { ModelPort } from "@/lib/llm/model-port"

@@ -20,7 +20,7 @@
  *
  * 机械层零模型调用 (ADR-19): checkContinuity 纯函数零 IO 零 LLM，本包无模型调用。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import {

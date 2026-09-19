@@ -1,14 +1,14 @@
 /**
  * project-owner.ts — 项目占用锁（防跨应用 `.qmai/` / `.novel/` 互相覆盖）。
  *
- * 背景（54 号设计隐患 1）：QMAI 引擎的项目内目录 `.qmai/`（novel-config.json、
+ * 背景（54 号设计隐患 1）：Niko Buddy 引擎的项目内目录 `.qmai/`（novel-config.json、
  * source-watch-config.json、rerank-config.json、review.json 等）、`.novel/status.json`
  * （运行时唯一真源）与 `QM/` 是引擎级共用命名。若另一款基于同一引擎的应用
- * （QMaiWrite）打开同一项目目录，两个应用会同时写这些文件并互相覆盖。
+ * （NikoBuddyWrite）打开同一项目目录，两个应用会同时写这些文件并互相覆盖。
  *
  * 本模块实现**协同协议**：打开项目时写 `.qmai/owner.json`（应用标识 + 实例 token +
  * 时间戳），冲突判定 = 异主且新鲜（STALE 窗口内）。双方都实现本协议才能互检；
- * QMAI 侧先行落地，未来引擎共用方升级后协议自动生效。
+ * Niko Buddy 侧先行落地，未来引擎共用方升级后协议自动生效。
  *
  * 语义（additive，不破坏现有行为）：
  *   - 无 owner 记录 / 同主（本应用，含崩溃遗留）→ 刷新并接管，正常打开。
@@ -23,7 +23,7 @@ import { readFile, writeFileAtomic } from "@/commands/fs"
 /** 本应用标识（owner.json 的 app 字段）。 */
 export const APP_OWNER_ID = "niko-buddy"
 
-/** 项目占用锁文件（引擎级共用命名，QMAI 侧先行实现协议）。 */
+/** 项目占用锁文件（引擎级共用命名，Niko Buddy 侧先行实现协议）。 */
 export const PROJECT_OWNER_FILE = ".qmai/owner.json"
 
 /** 异主记录的过期窗口（毫秒）：超过视为进程已退出，允许接管。 */

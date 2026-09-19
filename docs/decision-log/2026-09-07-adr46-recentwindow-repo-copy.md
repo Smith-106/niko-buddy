@@ -20,10 +20,10 @@
 ## 二、v3.2.6 治理出处登记（供复评核验）
 
 - **v3.x 治理真源**：hub 工作区 `AGENTS.md`「版本控制」节 + `.workflow/sessions/residual-execute-20260823/runs/run-w0-v3investigation/wave0-decision.md`。
-- 语义：v3.x（cb42dc4f / v3.2.6）是 upstream Mochocyang/QMAI 只读对照线 + smith off-master side-tag，**不在 smith/master、非本地祖先，禁止 track/merge**（无边界违反）；产物仓库内可见物：`docs/qmai-codex-delivery/` 交付文档链 + `.workflow/` 会话记录（hub 根，非 git）。
+- 语义：v3.x（cb42dc4f / v3.2.6）是 upstream Mochocyang/QMAI 只读对照线 + smith off-master side-tag，**不在 smith/master、非本地祖先，禁止 track/merge**（无边界违反）；产物仓库内可见物：`docs/niko-buddy-codex-delivery/` 交付文档链 + `.workflow/` 会话记录（hub 根，非 git）。
 - 仓库内登记目的：QMAI 仓内评审可核验出处（同 ADR-46 副本逻辑）。
 
 ## 三、关联
 
-- 前序决策：ADR-26（supersession）`docs/qmai-codex-delivery/adr-26-supersession-note.md`；ADR-45 检索治理 `docs/decision-log/` 系。
+- 前序决策：ADR-26（supersession）`docs/niko-buddy-codex-delivery/adr-26-supersession-note.md`；ADR-45 检索治理 `docs/decision-log/` 系。
 - CHANGELOG：v2.7.10 清偿批收录（含 recentWindow/ADR-46 条目）。

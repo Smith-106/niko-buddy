@@ -25,7 +25,7 @@
  *   `defaultStageJournalDeps()` 走真实 `@/commands/fs`（原子写 + 建目录），单测用
  *   mock deps 覆盖全部分支。运行时路径在 `.novel/journal/`。
  *
- * 遵循 QMAI/CLAUDE.md：T18 组件 1 新增锚点，落 `src/lib/novel/`；运行期缓存 `.novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：T18 组件 1 新增锚点，落 `src/lib/novel/`；运行期缓存 `.novel/`。
  */
 
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"

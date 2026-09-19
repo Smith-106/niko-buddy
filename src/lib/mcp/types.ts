@@ -42,7 +42,7 @@ export interface McpToolCallRequest {
   serverId: string
   serverName: string
   toolName: string
-  qmaiToolName: string
+  nikoBuddyToolName: string
 }
 
 export interface McpToolCallResult {

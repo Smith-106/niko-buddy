@@ -16,7 +16,7 @@
  *   - 嵌套 filter / 响应体走 serde snake_case，与 Rust `CanonEdgeFilter` / `CanonEdge` 对齐。
  *   - 多项目契约：单库查询，无跨库 join；`max_revision` 由 TS 侧缓存失效判定使用（本文件只透传响应）。
  *
- * 遵循 QMAI/CLAUDE.md：纯客户端封装，零 LLM、零副作用；Draft-first 不适用。
+ * 遵循 Niko Buddy CLAUDE.md：纯客户端封装，零 LLM、零副作用；Draft-first 不适用。
  */
 
 import { invoke } from "@tauri-apps/api/core"

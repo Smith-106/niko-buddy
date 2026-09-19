@@ -1,6 +1,6 @@
 /**
  * 53 号报告 P1-1: 中文 per-1k 目标作者声纹画像 + 欠靶恢复 (fiction-forge
- * voice-matching 模式, MIT 借模式; QMAI 中文适配, 纯函数零 IO 零 LLM)。
+ * voice-matching 模式, MIT 借模式; Niko Buddy 中文适配, 纯函数零 IO 零 LLM)。
  *
  * 语义 (对齐 fiction-forge docs/voice-matching.md):
  *  - per-1k 度量 = 每千字出现次数 (count / (总字数/1000));

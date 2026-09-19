@@ -1,11 +1,11 @@
 /**
  * mechanical-slop-detector.ts — A19 机械层零 LLM 中文 slop 检测器
  *
- * 借鉴点 #1 (ANL-20260715-16proj-selrev F-007): QMAI 现有 Anti-AI 全靠 LLM 语义
+ * 借鉴点 #1 (ANL-20260715-16proj-selrev F-007): Niko Buddy 现有 Anti-AI 全靠 LLM 语义
  * 审查 (de-ai-rules.ts 是 Markdown prompt 喂 LLM, dimension-review-adapter 是 LLM
  * 六维审查), 缺机械层正则这一整层。本模块补这一层: 融合 autonovel evaluate.py 的
  * 三级架构 (TIER1_BANNED/TIER2_SUSPICIOUS/TIER3_FILLER + slop_score 密度统计) 与
- * QMAI de-ai-rules.ts 已有中文 slop 词库, 产出零 LLM 中文机械 slop 检测。
+ * Niko Buddy de-ai-rules.ts 已有中文 slop 词库, 产出零 LLM 中文机械 slop 检测。
  *
  * A19 机械层零 LLM: slopScore 纯正则+算术, 不调 streamChat/llm/invoke。门控优先级
  * '机械层先于语义层': slop 属 Anti-AI(P1), 机械检测在 LLM 六维审查前前置门控,
@@ -14,8 +14,8 @@
  *
  * 参考 (只读, 不改上游):
  *   - autonovel/evaluate.py: TIER1/2/3 英文词库 + slop_score 密度统计架构
- *   - QMAI/src/lib/novel/de-ai-rules.ts: CHINESE_NOVEL_DE_AI_RULES 中文词库来源
- *   - QMAI/src/lib/novel/emotion-ledger.ts: A19 机械层正则+算术+文本化注入范式
+ *   - Niko Buddy/src/lib/novel/de-ai-rules.ts: CHINESE_NOVEL_DE_AI_RULES 中文词库来源
+ *   - Niko Buddy/src/lib/novel/emotion-ledger.ts: A19 机械层正则+算术+文本化注入范式
  *
  * 中文差异: autonovel 英文词库 (delve/tapestry) 不适用中文长篇, 词库从 de-ai-rules.ts
  * 已验证中文 slop 词提取 (总结腔/解释腔/AI 特征词/模板句首/机械句式)。

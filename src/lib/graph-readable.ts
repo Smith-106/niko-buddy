@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Graph document rendering — node grouping, filtering, risk tracking,
  * mind-map generation, and human-readable document export.

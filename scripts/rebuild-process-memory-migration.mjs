@@ -26,5 +26,5 @@ console.log(`[P2-IMP-03 migration] 全量 rebuild 过程库投影（9 类）。
   途径 A：应用内「还原最新快照」（restoreSnapshotHistory → rebuildDerivedMemoryFromSnapshots）。
   途径 B：vitest/tsx 上下文调用 rebuildDerivedMemoryFromSnapshots("<小说目录>")。
   校验：computeTruthFoldDrift 返回 9 类全部 drifted=false。
-详见 QMAI/src/lib/novel/chapter-ingest.ts :: rebuildFromCommittedSnapshot。`);
+详见 src/lib/novel/chapter-ingest.ts :: rebuildFromCommittedSnapshot。`);
 process.exit(0);

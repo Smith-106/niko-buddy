@@ -18,7 +18,7 @@
  *   - 机械层零模型调用 (ADR-19): 本模块纯算术统计，无 IO / 无网络 / 无模型调用。
  *   - Draft-first (ADR-08): 只读输入文本，不写任何会话状态。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { normalizeText } from "../mechanical-slop-detector"

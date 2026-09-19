@@ -10,7 +10,7 @@
  * This script mirrors the pure decision table for campaign/tooling without a
  * build step. Keep logic in sync when the TS modules change.
  *
- * Usage (from QMAI/):
+ * Usage (from repo root):
  *   node scripts/residual-rewrite-toolkit.mjs evaluate \
  *     --median 8.8 --mode densify_only
  *   node scripts/residual-rewrite-toolkit.mjs evaluate \

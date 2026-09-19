@@ -10,7 +10,7 @@
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟 / 零模型调用；
  * 时间戳由调用方注入（零时钟），trace 落盘由调用方决定。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

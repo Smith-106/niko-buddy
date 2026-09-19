@@ -4,7 +4,7 @@
  * 50 号报告 S0 行动项: 覆盖渲染确定性（golden snapshot）/ stale-blocked 诊断标记 /
  * 幂等性 / 单向派生（不写回）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

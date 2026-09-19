@@ -20,7 +20,7 @@
  * Draft-first（ADR-08）：新增纯函数规则包，不写运行时会话状态，
  * 不触及草稿正式层。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { RulePackDefinition, RuleDefinition, RawRuleFinding } from "../rule-stack"

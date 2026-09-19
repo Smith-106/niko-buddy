@@ -1,5 +1,5 @@
 // verify-consensus-anchors.mjs — 共识撤销锚点机器校验（DeepSeek 轮3 撤销条件 a-e + 映射表在仓）。
-// 用法：node scripts/verify-consensus-anchors.mjs（QMAI 根执行，exit 0 = 全 PASS）。
+// 用法：node scripts/verify-consensus-anchors.mjs（仓库根执行，exit 0 = 全 PASS）。
 // 只读文件断言，不改任何产物；输出 PASS/FAIL逐项 + 汇总（ASCII only，防 PS 乱码）。
 import { readFileSync, existsSync } from "node:fs"
 import { join, dirname } from "node:path"

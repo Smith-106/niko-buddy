@@ -4,7 +4,7 @@
  * 覆盖: detectPlateau 纯函数（连续 2 轮 delta<阈值→true / 非连续→false /
  * 空单元素→false / 阈值 0→false）+ SlopHistoryTracker 滑窗记账。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

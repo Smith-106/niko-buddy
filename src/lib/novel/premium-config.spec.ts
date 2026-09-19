@@ -14,7 +14,7 @@
  *
  * 机械层约束：纯函数测试，无 IO / 无网络 / 无模型调用。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

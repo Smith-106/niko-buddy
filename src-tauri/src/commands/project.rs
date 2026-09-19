@@ -4,7 +4,7 @@
 //! Project management IPC commands.
 //!
 //! Handles project creation, opening, folder navigation, and legacy directory
-//! migration for the QMAI / Niko Buddy desktop application.
+//! migration for the Niko Buddy / Niko Buddy desktop application.
 
 use std::fs;
 use std::path::Path;
@@ -184,7 +184,7 @@ fn open_file_location_impl(app: &AppHandle, path: &str) -> Result<(), String> {
 
 // ── Validation ──────────────────────────────────────────────────────────────
 
-/// Confirm that `root` looks like a valid QMAI project directory.
+/// Confirm that `root` looks like a valid Niko Buddy project directory.
 /// If lightweight markers are missing they are auto-created for convenience.
 pub fn validate_wiki_project_root(root: &Path) -> Result<(), String> {
     if !root.exists() {

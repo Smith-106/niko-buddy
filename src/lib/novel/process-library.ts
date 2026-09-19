@@ -18,7 +18,7 @@ import {
 } from "./deterministic-continuity-engine"
 
 /**
- * ProcessLibrary 门面 — Grok 过程库（7 类真相文件）在 QMAI 的只读装配入口。
+ * ProcessLibrary 门面 — Grok 过程库（7 类真相文件）在 Niko Buddy 的只读装配入口。
  * 三模型共识（2026-08-27，deepseek-v4-pro + GLM-5.2 + hy3，参考 Grok
  * "Different Knowledge Bases for Writing AI"）：
  *   - 过程库 = 当前作品的活状态（动态、精确召回、可校验、按章节回溯），

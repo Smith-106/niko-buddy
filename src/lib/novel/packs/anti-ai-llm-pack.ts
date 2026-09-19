@@ -20,7 +20,7 @@
  *
  * 组合语义: 未冻结 RulePackDefinition，须经 T23 combinePacks() 冻结后运行。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { AuditDimensionId } from "../audit-taxonomy"

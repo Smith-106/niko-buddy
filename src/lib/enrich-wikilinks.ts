@@ -12,7 +12,7 @@
  * - Length increases by exactly 4 × number_of_links
  * - Prevents catastrophic LLM output from corrupting user content
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { readFile, writeFile } from "@/commands/fs"

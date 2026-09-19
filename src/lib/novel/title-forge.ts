@@ -14,7 +14,7 @@
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；事件对象只产出输入
  * 形态（RunEventAppendInput，seq/eventId 由 run-event-ledger-store 派生落账）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { TitleSeedEntry } from "./asset-library"

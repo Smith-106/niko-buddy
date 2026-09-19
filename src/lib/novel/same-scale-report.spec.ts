@@ -12,7 +12,7 @@
  * 同尺（rank 分档 + topK 命中率 + Wilson CI），非同实例对跑。
  * 同源回归口径，不可作收敛结论。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import { readFileSync, writeFileSync } from "fs"

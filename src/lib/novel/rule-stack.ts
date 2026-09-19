@@ -24,7 +24,7 @@
  * Draft-first (ADR-08): 本模块为新增纯函数层，不写入运行时会话状态文件，
  * 不回填正式正文/记忆，不触及草稿正式层。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import {

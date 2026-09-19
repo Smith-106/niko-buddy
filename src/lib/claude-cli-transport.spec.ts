@@ -58,7 +58,7 @@ describe("createClaudeCodeStreamParser", () => {
   it("treats reasoning heartbeat events as progress while ignoring init/result lifecycle noise", () => {
     const parse = createClaudeCodeStreamParser()
 
-    expect(parse('{"type":"system","subtype":"init","cwd":"D:/QMaiWrite"}')).toEqual({ kind: "ignore" })
+    expect(parse('{"type":"system","subtype":"init","cwd":"D:/NikoBuddyWrite"}')).toEqual({ kind: "ignore" })
     expect(parse('{"type":"system","subtype":"thinking_tokens","estimated_tokens":42}')).toEqual({ kind: "heartbeat" })
     expect(parse('{"type":"result","subtype":"success"}')).toEqual({ kind: "ignore" })
   })
@@ -528,7 +528,7 @@ describe("streamClaudeCodeCli", () => {
     }
 
     listeners.get(dataEventName)?.({
-      payload: '{"type":"system","subtype":"init","cwd":"D:/QMaiWrite"}',
+      payload: '{"type":"system","subtype":"init","cwd":"D:/NikoBuddyWrite"}',
     })
 
     await vi.advanceTimersByTimeAsync(30_001)
@@ -827,7 +827,7 @@ describe("streamClaudeCodeCli", () => {
     }
 
     listeners.get(dataEventName)?.({
-      payload: '{"type":"system","subtype":"init","cwd":"D:/QMaiWrite"}',
+      payload: '{"type":"system","subtype":"init","cwd":"D:/NikoBuddyWrite"}',
     })
     await vi.advanceTimersByTimeAsync(25_000)
     listeners.get(dataEventName)?.({

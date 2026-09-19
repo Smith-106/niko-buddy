@@ -218,7 +218,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
           <div className="flex flex-col @sm:flex-row items-start @sm:items-center gap-1.5 @sm:flex-wrap">
             {canResumeUnfinished && (
               // VH-001 (odyssey-ui): replaced hardcoded amber-* scale (not in
-              // QMAI oklch token system, inconsistent across 3 themes) with
+              // Niko Buddy oklch token system, inconsistent across 3 themes) with
               // primary-token opacity tiers that adapt per-theme automatically.
               <div className="basis-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-xs leading-5 text-primary">
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。

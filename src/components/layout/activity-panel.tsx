@@ -1,4 +1,4 @@
-// Copyright © 2024-2099 QAHUI (https://qmai.qimai-im.com/)
+// Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
 import { useState, useEffect, useRef, useCallback } from "react"

@@ -9,7 +9,7 @@
  * Architecture mirrors ingest-queue.ts with identical lifecycle, persistence format,
  * retry policy (up to 3 attempts), and registry-based path resolution.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { readFile, writeFile } from "@/commands/fs"

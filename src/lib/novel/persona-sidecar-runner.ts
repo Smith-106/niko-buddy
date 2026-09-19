@@ -7,7 +7,7 @@
  *   - Writes only `.novel/sidecars/personas/{personaId}.json`.
  *   - MUST NOT write `status.json` / `decision_gates`.
  *   - Single LLM transport (`streamChat`); sequential persona runs (no multi-LLM fan-out).
- *   - No Big Five / Dark Tetrad imports — QMAI-authored system prompts only.
+ *   - No Big Five / Dark Tetrad imports — Niko Buddy-authored system prompts only.
  *   - Main-chain modules MUST NOT import this runner (firewall tests).
  * - Firewall: see `docs/epic-005-persona-sidecar-firewall.md` for full isolation boundary.
  * - Verified: runPersonaCritique is consultative (authority="advisory"), never touches gate state.
@@ -78,7 +78,7 @@ export const DEFAULT_PERSONA_IDS: readonly PersonaId[] = [
   "reader",
 ] as const
 
-/** QMAI-authored personas — no ProseCreator Big Five / Dark Tetrad. */
+/** Niko Buddy-authored personas — no ProseCreator Big Five / Dark Tetrad. */
 export const PERSONA_CATALOG: Record<PersonaId, PersonaDefinition> = {
   critic: {
     id: "critic",

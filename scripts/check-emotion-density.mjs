@@ -73,7 +73,7 @@ function main() {
   if (args.length === 0) {
     console.error('Usage: node scripts/check-emotion-density.mjs <file.md>')
     console.error('\nExample:')
-    console.error('  node scripts/check-emotion-density.mjs QMAI/.novel/chapters/chapter-1.md')
+    console.error('  node scripts/check-emotion-density.mjs Niko Buddy/.novel/chapters/chapter-1.md')
     process.exit(1)
   }
   

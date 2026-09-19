@@ -5,7 +5,7 @@
  * 判定一致）/ 输入非法 fail-loud / trace 条目形状（channel 字面量 + slotManifest 候选）/
  * 零时钟（timestamp 由调用方注入）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

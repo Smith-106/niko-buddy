@@ -152,7 +152,7 @@ describe("E-06 evaluateRetrievalGate（GOV-EVAL-04/08，三态）", () => {
 // P1-IMP-11：真实种子文件契约用例（docs/p0/gov-seed/gov-seed-v1.jsonl）
 // ──────────────────────────────────────────────────────────────────────────
 
-/** 种子文件路径：spec 位于 QMAI/src/lib/novel/ → hub 根 QMAI/docs/p0/gov-seed。 */
+/** 种子文件路径：spec 位于 Niko Buddy/src/lib/novel/ → hub 根 Niko Buddy/docs/p0/gov-seed。 */
 const GOV_SEED_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/p0/gov-seed/gov-seed-v1.jsonl")
 
 /** 读真实种子文件（每行一例；文件缺失 = 契约破坏 → 测试必须红）。 */

@@ -16,7 +16,7 @@
  *     drift 自动修复（autoRepairTruthFoldDrift）成功时告警不升级，宿主传入
  *     selfHealedFiles → 展示「漂移已自动修复」信息横幅（与告警横幅互斥）。
  *
- * 遵循 QMAI/CLAUDE.md 锚点：新增组件落 `src/components/novel/`（与 snapshot-viewer
+ * 遵循 Niko Buddy CLAUDE.md 锚点：新增组件落 `src/components/novel/`（与 snapshot-viewer
  * 同目录约定），中文标签直书（与 snapshot-viewer 历史版本/POV 区块同款约定）。
  */
 import type { KbMetrics, MetricSample } from "@/lib/novel"

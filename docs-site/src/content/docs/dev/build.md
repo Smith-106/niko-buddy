@@ -63,7 +63,7 @@ GitHub 发布版构建需要 Tauri 签名私钥，默认路径 `~/.tauri/qmai-up
 ## 项目结构
 
 ```
-QMAI/
+Niko Buddy/
 ├── src/                  # 前端源码（components / lib / stores / i18n / commands）
 ├── src-tauri/            # Rust 后端
 ├── skills/               # 角色 SKILL 数据（运行时资源）

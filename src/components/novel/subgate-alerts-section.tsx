@@ -8,7 +8,7 @@
  *   - 数据源 = 运行事件账本（与 evidence-dashboard-section 同一账本，零写路径）；
  *   - 零子门/零告警 → 显式"暂无记录"（零候选是合法结果，不制造噪声）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { useEffect, useState } from "react"

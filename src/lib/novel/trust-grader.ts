@@ -20,7 +20,7 @@
  *   (Decoupled, Sync, Tunable)：纯函数与库存储解耦（无写句柄）；同步求值无延迟面；
  *   阈值可配置 = Tunable 且锁 seed + 分支可回滚；AGPL→blocked 为 Fixed 子约束不可放宽。
  *
- * 遵循 QMAI/CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
  */
 
 import { z } from "zod"

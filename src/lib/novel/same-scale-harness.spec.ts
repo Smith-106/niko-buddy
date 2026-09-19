@@ -5,7 +5,7 @@
  * （下界≥阈值 triggered，否则未达裁决；掉档清单；W 面方法学声明；
  * 输入 schema 校验失败 fail-loud）/ WeknoraSnapshotSchema 严格性。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

@@ -64,9 +64,9 @@ function createMcpToolFromParameters(
   parameters: Record<string, ToolParameter>,
 ): Tool {
   const policy = mapMcpOperationToToolPolicy(descriptor.operation)
-  const qmaiToolName = mcpToolName(descriptor)
+  const nikoBuddyToolName = mcpToolName(descriptor)
   return {
-    name: qmaiToolName,
+    name: nikoBuddyToolName,
     description: descriptor.description,
     category: policy.category,
     permission: policy.permission,
@@ -77,7 +77,7 @@ function createMcpToolFromParameters(
           serverId: descriptor.serverId,
           serverName: descriptor.serverName,
           toolName: descriptor.name,
-          qmaiToolName,
+          nikoBuddyToolName,
         }, params)
         return JSON.stringify({
           status: result.status,

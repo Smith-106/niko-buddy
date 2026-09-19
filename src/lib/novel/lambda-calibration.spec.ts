@@ -9,7 +9,7 @@
  *   5. 不翻位硬断言：RETRIEVAL_LAMBDA_INITIAL.calibrated === false 且 value=25，
  *      RETRIEVAL_LAMBDA_SCHEMA 形状不变；R2 阈值常量未被本模块改写。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import { RETRIEVAL_LAMBDA_INITIAL, RETRIEVAL_LAMBDA_SCHEMA, LAMBDA_MS_PER_PP_INITIAL } from "./retrieval-budget"

@@ -5,7 +5,7 @@
  * Prefer this over hand-crafted thin packs so Track B N≥5 shares the same
  * ContextPack shape as deep-chapter (task/outline/exemplars fields present).
  *
- * Usage (from QMAI/):
+ * Usage (from repo root):
  *   node scripts/build-step0-production-fixture.mjs \
  *     --project "E:/写作/8人" \
  *     --chapter 4 \

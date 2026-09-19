@@ -340,7 +340,7 @@ export function buildSpawnErrorGuide(kind: SpawnErrorKind, message: string): str
 function appendClaudeCliIsolationRetryNote(message: string): string {
   return [
     message,
-    "QMAI automatically retried once with local CLI isolation enabled, but Claude Code CLI still failed before producing meaningful output.",
+    "Niko Buddy automatically retried once with local CLI isolation enabled, but Claude Code CLI still failed before producing meaningful output.",
   ].join("\n\n")
 }
 

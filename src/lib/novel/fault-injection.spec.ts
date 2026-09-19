@@ -18,7 +18,7 @@
  *   5. OOM：writeCanon 抛 OOM Error → safeWrite 捕获 → ok:false → pending queue → replay 补齐
  *   6. 时钟偏移：vi.useFakeTimers 模拟时间跳变 → nextRetryAt 计算受时钟影响 → 到期判定正确
  *
- * 遵循 QMAI/CLAUDE.md：T18 新增锚点，落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：T18 新增锚点，落 `src/lib/novel/`。
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"

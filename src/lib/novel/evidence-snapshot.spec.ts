@@ -5,7 +5,7 @@
  * 覆盖率与血缘率（无 LLM 中介门=null）+ budgetCost 聚合 + 库健康透传 +
  * 「被 P0 阻塞」语义（blocked/blockingGate）.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

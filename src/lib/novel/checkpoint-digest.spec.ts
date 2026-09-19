@@ -10,7 +10,7 @@
  * Mechanical layer, zero LLM (ADR-19): every assertion here exercises only
  * pure crypto — no model call is touched.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

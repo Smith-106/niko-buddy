@@ -5,7 +5,7 @@
  * 真实链集成（search-adapter.novelMixedSearch 六 stage 单次调用全量落 span，
  * A5：无调用集成不验收）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

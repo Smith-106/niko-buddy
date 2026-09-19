@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Headless thril-only smoke: production-shaped pack + literary gold block + real LLM.
- * Loads STEP0_* from env or QMAI/.env.test.local (same keys as step0-ab-calibration.real-llm).
+ * Loads STEP0_* from env or Niko Buddy/.env.test.local (same keys as step0-ab-calibration.real-llm).
  *
- * Usage (from QMAI/):
+ * Usage (from repo root):
  *   node scripts/smoke-thril-gold-llm.mjs \
  *     --pack ../.workflow/harvest-staging/fixtures-ch4-gold-pack-20260809/context-pack.ch4.json \
  *     --chapter-file "E:/写作/8人/.novel/chapters/4/draft.md" \
@@ -202,4 +202,4 @@ console.log(JSON.stringify({
   errors,
 }, null, 2))
 process.exit(valid.length > 0 ? 0 : 3)
-
+

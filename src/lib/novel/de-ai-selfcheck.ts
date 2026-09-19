@@ -2,7 +2,7 @@
  * de-ai-selfcheck.ts — P1-3 去 AI 改写 4-pass 自检 (零 LLM 打分层)
  *
  * 共识 (V3-ds/hy3 4-pass-pipeline + selfcheck-scoring 7 维 / V2 统计指纹):
- * humanizer-x Pass4 (8-point 自检) + ultimate-humanizer 5D 映射到 QMAI,
+ * humanizer-x Pass4 (8-point 自检) + ultimate-humanizer 5D 映射到 Niko Buddy,
  * 但保持 ADR-19: 打分全机械, LLM 只做改写本身。
  *
  * 管道重排 (与现有 de-ai-batch scheduler 接线):

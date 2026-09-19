@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * I/O wrapper connecting the pure dedup algorithm (dedup.ts) to the
  * project filesystem and LLM.  The UI layer calls these functions;

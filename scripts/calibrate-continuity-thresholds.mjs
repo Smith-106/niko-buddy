@@ -4,10 +4,10 @@
  * 用法:
  *   node scripts/calibrate-continuity-thresholds.mjs <projectPath> [--p75]
  *
- * <projectPath> = 已用 QMAI 跑过完整生成、产出 .novel/snapshots/*.snapshot.json
+ * <projectPath> = 已用 Niko Buddy 跑过完整生成、产出 .novel/snapshots/*.snapshot.json
  *                 的中文长篇项目目录 (非裸 epub — deriveSubplotLastSeenChapter
  *                 需 ChapterSnapshot 结构: summary + characterStateChanges +
- *                 foreshadowingChanges, 由 QMAI 生成流程产出, 非原始 epub 文本)。
+ *                 foreshadowingChanges, 由 Niko Buddy 生成流程产出, 非原始 epub 文本)。
  *
  * 流程:
  *   1. 扫描 .novel/snapshots/*.snapshot.json, 构造 ChapterSnapshot[]
@@ -22,14 +22,14 @@
  *       供手动替换 DEFAULT_CONTINUITY_CONFIG (deterministic-continuity-engine.ts)。
  *
  * 状态: 双分布统计就绪 (dormant_thread + absent_character 两条腿), 待用户提供
- *       >=3 本中文长篇 QMAI 项目样本 (50+ 章/本, 群像/慢热/快节奏各一) 跑校准。
+ *       >=3 本中文长篇 Niko Buddy 项目样本 (50+ 章/本, 群像/慢热/快节奏各一) 跑校准。
  *       当前 DEFAULT_CONTINUITY_CONFIG 沿用默认值标 [需校准-样本不足]。
  *       (absent 分布已排除死亡角色 isAlive===false, 引擎 detectDeadCharacterState
  *       单独处理; lastSeenChapter 优先回退 lastUpdatedChapter 守 ADR-31 additive。)
  *
  * PAT-G2 孪生镜像: deriveSubplotLastSeenChapterInline 镜像
  * deterministic-continuity-engine.ts:397-414 纯函数逻辑。引擎逻辑变更须同步
- * (校准脚本是线下工具, 不走 TS import 因 QMAI 无预编译产物, 守 calibrate-
+ * (校准脚本是线下工具, 不走 TS import 因 Niko Buddy 无预编译产物, 守 calibrate-
  * review-weights.mjs 自包含模式)。
  */
 import { readFileSync, readdirSync } from "node:fs"
@@ -64,7 +64,7 @@ function loadSnapshots(projectPath) {
     files = readdirSync(dir).filter((f) => SNAPSHOT_GLOB.test(f))
   } catch {
     console.error(`ERROR: snapshots dir not found: ${dir}`)
-    console.error("项目需先用 QMAI 跑完整生成产出 snapshot chain。裸 epub 无法直接校准。")
+    console.error("项目需先用 Niko Buddy 跑完整生成产出 snapshot chain。裸 epub 无法直接校准。")
     process.exit(1)
   }
   const snapshots = []

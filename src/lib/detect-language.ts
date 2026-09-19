@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Language detection based on Unicode script ranges and Latin-script
  * diacritic / keyword heuristics.  Covers 20+ major writing systems.

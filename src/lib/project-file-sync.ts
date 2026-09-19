@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Project file-system synchronisation — watches for external file
  * changes, processes raw-source ingest, and cascades wiki-page cleanup

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 清理历史 release 资产双命名残留（生态建设 P0，2026-08-29）。
- * 动作：删除全部 release 中的 QMaiWrite_* 资产；统一标题为 "Niko Buddy v<ver>"。
+ * 动作：删除全部 release 中的 NikoBuddyWrite_* 资产；统一标题为 "Niko Buddy v<ver>"。
  * 用法：node scripts/cleanup-release-assets.mjs [--dry-run]
  */
 import { execSync } from "node:child_process"
@@ -21,7 +21,7 @@ let renamed = 0
 for (const r of releases) {
   const assets = JSON.parse(gh(`release view ${r.tagName} --json assets -q .assets`))
   for (const a of assets) {
-    if (a.name.startsWith("QMaiWrite_")) {
+    if (a.name.startsWith("NikoBuddyWrite_")) {
       if (DRY) {
         console.log(`[dry] delete ${r.tagName}: ${a.name}`)
       } else {

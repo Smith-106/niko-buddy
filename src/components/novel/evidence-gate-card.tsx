@@ -8,7 +8,7 @@
  * 数据层（buildEvidenceSnapshot）与渲染解耦：本组件为纯展示，
  * 数据由调用方（首页/列表/章节页）注入，不自行读 status（可测性）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { cn } from "@/lib/utils"

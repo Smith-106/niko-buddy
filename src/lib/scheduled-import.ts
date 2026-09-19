@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Scheduled import — periodic file-system scan that copies new or
  * changed files from a watched directory into the project's source

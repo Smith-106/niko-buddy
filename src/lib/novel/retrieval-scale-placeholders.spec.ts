@@ -3,7 +3,7 @@
  * 覆盖：占位恒 locked（ANN/分片 implemented=false）、矿脉管道 ⓪ 计价待定 → 不可用、
  * 契约非法 fail-loud、占位实例通过自身 schema（防占位漂移）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

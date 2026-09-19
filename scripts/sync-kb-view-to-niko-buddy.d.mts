@@ -1,5 +1,5 @@
 /**
- * sync-kb-view-to-qmai.mjs 的最小类型声明（供 vitest 规格与 IDE 引用；
+ * sync-kb-view-to-niko-buddy.mjs 的最小类型声明（供 vitest 规格与 IDE 引用；
  * 实现真源为同名 .mjs，P1-IMP-08 KB-VIEW 消费面同步脚本）。
  */
 

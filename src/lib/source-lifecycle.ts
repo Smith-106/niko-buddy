@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Source file lifecycle management — import, delete, folder operations,
  * and the wiki-page cascade cleanup that follows.

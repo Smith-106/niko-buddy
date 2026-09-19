@@ -5,7 +5,7 @@
  * recordGateRunEvents + checkGateEventCoverage（未落=未发生）+ R-04 三态
  * 显示（undefined/skipped → NOT_EVALUATED，绝不 pass）+ 切片/replay/成本归因.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

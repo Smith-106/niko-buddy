@@ -16,7 +16,7 @@
  * run-events:<file path>）；跨进程并发写由上层串行调用保证。
  * Rust append IPC 为 additive 后续项，本契约不变。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"

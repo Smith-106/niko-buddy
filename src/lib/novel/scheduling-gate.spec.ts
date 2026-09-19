@@ -5,7 +5,7 @@
  * 软警告 admit / 墙钟 defer + 重试三切面（retryable/content/fatal × attempt ×
  * 换模型）+ RoutePolicy schema/解析 + 路由自检报告（分歧/最便宜/最快）.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

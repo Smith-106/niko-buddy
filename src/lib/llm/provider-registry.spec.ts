@@ -12,7 +12,7 @@
  *   6. TaskTier 复杂度路由
  *   7. ModelPort execute/stream（mock streamChat）
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"

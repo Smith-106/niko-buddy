@@ -2,9 +2,9 @@
 /**
  * snapshot-kb-view-content.mjs — R1 全字段内容面快照（策展闸门 fixture）。
  *
- * 背景：sync-kb-view-to-qmai.mjs 的投影面显式排除 content 类字段（summary/contentDigest），
+ * 背景：sync-kb-view-to-niko-buddy.mjs 的投影面显式排除 content 类字段（summary/contentDigest），
  * 故策展闸门（8 字段 + 摘要 + 出处）必须在**全字段面**评分。hub 全量视图
- * （reference/REFERENCE-KB-VIEW.json）不在 QMAI 仓内，故冻结为仓内 fixture（文件名带
+ * （reference/REFERENCE-KB-VIEW.json）不在 本仓内，故冻结为仓内 fixture（文件名带
  * builtFrom sha 后缀），使 R1-d 门禁可在单仓内复跑且可检测漂移。
  *
  * 输入：../reference/REFERENCE-KB-VIEW.json（hub 生成产物）

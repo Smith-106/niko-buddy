@@ -797,7 +797,7 @@ export const ENTRIES: ChangelogEntry[] = [
         "de-ai completion: genres 8->14 with baselines; structured rule matrix 24->28 (7 categories x 4 severities, critical/high semantics unchanged); replacement-dict expanded (+36: 35/40/40/28) with whitelist/self-conflict regression tests.",
         "Engineering/UX: composition root extraction (App.tsx orchestration -> src/lib/composition-root.ts); debt board UI (chase_debt / overdue foreshadowing / emotion ledger); chapter version diff via MonacoDiffEditor.",
         "Performance: graph-adapter WIKILINK_RE module-level precompilation; community-summary semaphore-limited parallelism (maxConcurrency=3, zero new deps); export parallelism; dimension-review confirmed parallel (PERF-NEW-07).",
-        "E2E infrastructure: Playwright e2e + ci.yml frontend checks. All 18 improvement points landed (see docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md).",
+        "E2E infrastructure: Playwright e2e + ci.yml frontend checks. All 18 improvement points landed (see docs/niko-buddy-codex-delivery/20-roadmap-w3w4-shou-kou.md).",
         "Notes-only release: installer assets stay v2.4.6; source tip semantics apply until the next asset rebuild.",
       ],
       zh: [
@@ -805,7 +805,7 @@ export const ENTRIES: ChangelogEntry[] = [
         "de-ai 补全：流派 8→14 带基线；结构化规则矩阵 24→28（7 类别 x 4 严重度，critical/high 语义不变）；替换字典扩充（+36：35/40/40/28）带白名单/self-conflict 回归。",
         "工程/UX：组合根抽取（App 编排 → src/lib/composition-root.ts）；债看板 UI（追读债务/伏笔逾期/情绪债务）；章节版本 diff（MonacoDiffEditor）。",
         "性能：图谱正则预编译缓存；社区摘要信号量限流并行（maxConcurrency=3，零新依赖）；导出并行化；六维审查并行确认（PERF-NEW-07）。",
-        "E2E 基建：Playwright e2e + ci.yml 前端检查。18 项改进点全部落地（docs/qmai-codex-delivery/20-roadmap-w3w4-shou-kou.md）。",
+        "E2E 基建：Playwright e2e + ci.yml 前端检查。18 项改进点全部落地（docs/niko-buddy-codex-delivery/20-roadmap-w3w4-shou-kou.md）。",
         "Notes-only 发布：安装包资产保持 v2.4.6；下次资产重建前适用源码 tip 语义。",
       ],
     },

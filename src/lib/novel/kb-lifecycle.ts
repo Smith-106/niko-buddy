@@ -25,7 +25,7 @@
  *     可逆 = 清空重放；process-supersession: (Coupled, Sync, Sovereign) ——
  *     与门面读取路径耦合，invalid_at 权威元数据，可逆 = 清除 invalid_at。
  *
- * 遵循 QMAI/CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
  */
 
 // ──────────────────────────────────────────────────────────────────────────

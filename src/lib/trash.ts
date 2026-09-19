@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Soft-delete trash system: move files to `.trash/`, restore them,
  * and periodically purge expired items.

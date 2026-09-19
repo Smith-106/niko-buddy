@@ -97,7 +97,7 @@ describe("RealMcpConnector", () => {
       serverId: "graph",
       serverName: "图谱 MCP",
       toolName: "query_graph",
-      qmaiToolName: "mcp_graph_query_graph",
+      nikoBuddyToolName: "mcp_graph_query_graph",
     }, { query: "主角" })
 
     expect(clientMocks.call).toHaveBeenCalledWith("tools/call", {
@@ -119,7 +119,7 @@ describe("RealMcpConnector", () => {
       serverId: "graph",
       serverName: "图谱 MCP",
       toolName: "query_graph",
-      qmaiToolName: "mcp_graph_query_graph",
+      nikoBuddyToolName: "mcp_graph_query_graph",
     }, {})
 
     expect(result.status).toBe("error")

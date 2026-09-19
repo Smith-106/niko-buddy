@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Settings model connectivity tests — LLM, embedding, and rerank
  * model endpoints are exercised with minimal requests to verify

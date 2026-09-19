@@ -12,9 +12,9 @@
  *   - collection_vacant（+3/collection）：expectCollections 中声明的 collection 零条目。
  *
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟；读产物由调用方（脚本/spec）负责。
- * 生成器管线接入：`QMAI/scripts/check-curation-debt.mjs`（IO 层，exit 0/2/3）+ sync --check 串联。
+ * 生成器管线接入：`Niko Buddy/scripts/check-curation-debt.mjs`（IO 层，exit 0/2/3）+ sync --check 串联。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"
@@ -63,7 +63,7 @@ export const CURATION_ENTRY_SCHEMA = z
     contentDigest: z.string().optional(),
     upstream: z.string().optional(),
     author: z.string().optional(),
-    /** 投影面（sync-kb-view-to-qmai.mjs COLLECTION_ENTRY_FIELDS）与 hub 全量面附加字段。 */
+    /** 投影面（sync-kb-view-to-niko-buddy.mjs COLLECTION_ENTRY_FIELDS）与 hub 全量面附加字段。 */
     purpose: z.string().optional(),
     category: z.string().optional(),
     license: z.string().optional(),

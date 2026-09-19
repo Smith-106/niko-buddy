@@ -4,7 +4,7 @@
  * 吸收来源：reference/inkos packages/core/src/models/length-governance.ts
  * （LengthSpec: target/softMin/softMax/hardMin/hardMax/countingMode；
  * LengthTelemetry: writerCount/postReviseCount/finalCount/repairApplied；
- * LengthWarning）。25 号审计 hy3 value 7：QMAI 硬编码 3000-5000 字，
+ * LengthWarning）。25 号审计 hy3 value 7：Niko Buddy 硬编码 3000-5000 字，
  * 无可配置软硬界。
  *
  * 定位：章节字数治理的确定性引擎层——软界 warn（可过）、硬界 error（阻断），

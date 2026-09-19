@@ -18,7 +18,7 @@
  * xianxia-world-*。→ 单点修复 = R1-a 内容补料（路由与分词均无代码缺陷；故无路由/分词
  * 改动），符合反目标「不伪造失败项」。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import { routeByQueryIntent, tokensForKbMatch } from "./search-adapter"

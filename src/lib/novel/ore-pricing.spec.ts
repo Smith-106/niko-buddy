@@ -8,7 +8,7 @@
  *   4. 骨架≠可用：`pricingDecided` 恒 false；ORE 契约 `status:"pending"` / `enabled:false` /
  *      `isOrePipelineUsable()===false` 三重钉死。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

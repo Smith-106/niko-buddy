@@ -9,7 +9,7 @@
  * ⑤ ANN 恒 locked（无实现）；⑥ 提名 ≠ 开启（appliesToConfig 恒 false、configMutated 恒 false，
  *    且与 consensus-antigoals 期望 flag 默认值不冲突）；⑦ 契约非法 fail-loud；⑧ span 面不完整降级锁定。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

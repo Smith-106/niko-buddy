@@ -10,7 +10,7 @@ import { DE_AI_EXTENDED_TABLE, detectTieredDeAi } from "./de-ai-tiered-table"
  * ultimate-humanizer 50 = 115 条）。本矩阵逐条对照，防「口径偏窄」复审遗漏。
  *
  * 判定口径（与 54⑨ 三态一致）：
- *   - 已覆盖 = 该模式有 QMAI 确定性/机械层检测器命中（中文网文路径）；
+ *   - 已覆盖 = 该模式有 Niko Buddy 确定性/机械层检测器命中（中文网文路径）；
  *   - 豁免 = 结构性豁免：英文/排版/SEO/客服/技术文档/注入类信号对中文网文无意义，
  *     或英文统计指纹由 vendored avoid-ai-writing 引擎 Track B soft 参考（不设产品硬门）；
  *   - 缺口 = 无检测器对应（登记在案，纳入后续批次）。
@@ -21,7 +21,7 @@ import { DE_AI_EXTENDED_TABLE, detectTieredDeAi } from "./de-ai-tiered-table"
  *   - reference/ultimate-humanizer/references/patterns.md P1-P50
  *
  * 本 spec 为静态契约锁（无 LLM/IO）：若模式增删或判定漂移，测试红。
- * 人类可读报告：docs/qmai-codex-delivery/55-w3-4-humanizer-115-matrix-20260904.md
+ * 人类可读报告：docs/niko-buddy-codex-delivery/55-w3-4-humanizer-115-matrix-20260904.md
  */
 
 type MatrixRow = readonly [
@@ -203,7 +203,7 @@ describe("55 W3-4 humanizer 簇 115 条模式池 × anti_ai 维度对照矩阵",
   })
 
   it("已覆盖模式均有确定性检测器（真实代码联动抽查）：夸大腔/格言腔/二元对立/三连/填充词/引号", () => {
-    // 抽查 6 条已覆盖模式的 QMAI 检测器真实存在（防矩阵空转）:
+    // 抽查 6 条已覆盖模式的 Niko Buddy 检测器真实存在（防矩阵空转）:
     // 1) 矩阵行名自检 (数据锁) + 2) 真实检测器词表命中 (代码联动)
     const covered = MATRIX.filter(([, , , , s]) => s === "已覆盖")
     const names = covered.map(([, , name]) => name)

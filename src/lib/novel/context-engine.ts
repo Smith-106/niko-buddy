@@ -2723,7 +2723,7 @@ export function contextPackToPrompt(
 
   if (tokenBudget && tokenBudget > 0 && fullPrompt.length > tokenBudget) {
     // COR (odyssey-review): CJK chars tokenize ~1 token/1.5char, not 1/4.
-    // QMAI novel prompts are predominantly Chinese, so a naive length/4
+    // Niko Buddy novel prompts are predominantly Chinese, so a naive length/4
     // underestimates real token count → budget gate misjudges and returns
     // an over-budget prompt untrimmed. Weight CJK at ~1.5 char/token.
     const cjkCount = (fullPrompt.match(/[一-鿿]/g) ?? []).length

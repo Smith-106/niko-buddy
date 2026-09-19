@@ -5,7 +5,7 @@ import type { ChapterSnapshot } from "./chapter-ingest"
  * R4 (S4 / ANL-013): ParticleLedger projection — 金钱/伤势/功法（修为）时序
  * 账本，与 resource-ledger（物品归属）并列，合称 Grok 的 particle_ledger
  * （防无限背包）。三模型共识（2026-08-27，deepseek-v4-pro + GLM-5.2 +
- * hy3，参考 Grok "Different Knowledge Bases for Writing AI"）：QMAI 现状
+ * hy3，参考 Grok "Different Knowledge Bases for Writing AI"）：Niko Buddy 现状
  * 只覆盖「物品」归属时序（ResourceEntry.transferHistory），金钱/伤势/功法
  * 无增减账本 — 金钱散落在 snapshot.items 文本、伤势在 CharacterState.status
  * 自由文本、功法在 abilities[] 无时序。本投影补齐三类粒子账本，作为

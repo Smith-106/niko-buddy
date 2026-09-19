@@ -14,7 +14,7 @@
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟 / 零模型调用；事件对象只
  * 产出输入形态（RunEventAppendInput，seq/eventId 由 ledger-store 派生落账）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

@@ -1,10 +1,10 @@
 /**
  * ISS-20260719-001: 直接从中文 epub 文本跑连续性阈值校准.
  *
- * 绕过 QMAI 生成流程产 snapshot chain 的依赖 — 角色是否在每章出现可直接
+ * 绕过 Niko Buddy 生成流程产 snapshot chain 的依赖 — 角色是否在每章出现可直接
  * 从章节文本检测 (角色名是否在文本里), 推出 lastSeenChapter, 算 absent
  * gap 分布取 P75. 与 calibrate-continuity-thresholds.mjs (需 .novel/
- * snapshots + character-states store) 互补, 后者校准 QMAI 项目内样本,
+ * snapshots + character-states store) 互补, 后者校准 Niko Buddy 项目内样本,
  * 本脚本校准任意中文长篇 epub.
  *
  * 用法:

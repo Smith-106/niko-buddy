@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Wiki project templates — each bundles a schema document, a purpose
  * scaffold, and any extra directories the template expects.

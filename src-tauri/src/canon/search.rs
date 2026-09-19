@@ -37,7 +37,7 @@
 //!     `score = Σ 1 / (rrf_rank_const + rank)`，rank_const **起点 = 1**
 //!     （蓝图 §6 T12 / A-06）。两者同属 RRF 家族，差异在池规模与源数：
 //!     TS 用大 K=60 平滑多源噪声，Rust canon 用紧 rank_const=1 保留头部精度。
-//!     A-06（P5）若 QMAI 召回池实测调参劣化 → 保留 rank_const=1（蓝图兜底）。
+//!     A-06（P5）若 Niko Buddy 召回池实测调参劣化 → 保留 rank_const=1（蓝图兜底）。
 //!
 //! ## 分词器裁决（T04 spike §4）
 //!   LanceDB 内置 tokenizer 对中文默认空格分词（召回退化）。裁决规则：
@@ -45,7 +45,7 @@
 //!   → 采纳内置通道（少一层依赖）；否则降级 jieba-rs / tantivy-jieba。
 //!   [`tokenizer_verdict`] 纯函数落档该规则，首日验证复用 T04 结论。
 //!
-//! ## 设计约束（QMAI 执行纪律）
+//! ## 设计约束（Niko Buddy 执行纪律）
 //!   - 不修改 T11 已落地文件（`store.rs` / `types.rs`）；只新增 +
 //!     `lib.rs` 注册一行（`mod canon;`）。本文件位于 `src-tauri/src/canon/`
 //!     与 `store.rs` / `types.rs` 同层（非 IPC 命令模块）；T13 `commands.rs`
@@ -68,7 +68,7 @@ use crate::canon::types::{CanonEdge, CanonEdgeFilter};
 /// 混合检索 + 窗口衰减配置。
 ///
 /// 所有参数入 config（蓝图 §9 信号因子 ⑤：「RRF 衰减函数形式冻结
-/// decay(d)=1/(1+α·d)^β」，α/β 参数化；T32 在 QMAI 召回池做 α/β 扫描，
+/// decay(d)=1/(1+α·d)^β」，α/β 参数化；T32 在 Niko Buddy 召回池做 α/β 扫描，
 /// 函数形式不换）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -89,7 +89,7 @@ impl Default for SearchConfig {
         Self {
             // 蓝图 §6 T12 起点；A-06 劣化兜底亦保留 1（T32 不入扫参）。
             rrf_rank_const: 1.0,
-            // 窗口衰减默认（T32 重调参定稿，2026-08-22）：QMAI 形态代理池上
+            // 窗口衰减默认（T32 重调参定稿，2026-08-22）：Niko Buddy 形态代理池上
             // α/β 网格扫描赢家 (0.08, 0.75)，mean NDCG@10 = 0.9410 vs 调参前
             // (0.1, 1.0) 的 0.9358。函数形式不变；绑定测试
             // t32_default_config_matches_swept_winner 防止池/网格演化后默认值
@@ -238,7 +238,7 @@ pub struct FusedAccum {
 /// - 单调不增：d 越大权重越小（近章高、远章低）。
 ///
 /// 形式冻结（蓝图 §9 因子 ⑤）；α/β 参数化由 [`SearchConfig`] 承载，
-/// T32 在 QMAI 召回池扫描 α/β，函数形式不换。
+/// T32 在 Niko Buddy 召回池扫描 α/β，函数形式不换。
 #[inline]
 pub fn decay(d: i32, alpha: f64, beta: f64) -> f64 {
     if d <= 0 || alpha == 0.0 {
@@ -354,17 +354,17 @@ impl WindowDecayTable {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// α/β 参数扫（T32：QMAI 召回池重调参；形式不换，非照搬 graphiti）
+// α/β 参数扫（T32：Niko Buddy 召回池重调参；形式不换，非照搬 graphiti）
 // ──────────────────────────────────────────────────────────────────────────
 //
 // 蓝图 A-06 兑现路径：rank_const 保持 1 不动；只扫窗口衰减 (α, β)，衰减
 // 函数形式维持 `1/(1+α·d)^β` 冻结——不引入 graphiti 的指数/半衰期等新
 // 形式（ADR-20 纪律：提取「调参在自有召回池上做」的模式，不照搬其函数
-// 形式）。真实 LanceDB 召回池接入前的调参底座为确定性 QMAI 形态代理池
+// 形式）。真实 LanceDB 召回池接入前的调参底座为确定性 Niko Buddy 形态代理池
 // （见 tests::t32_retune_tests::qmai_recall_pool）；重调参结论与债务边界
 // 落 docs/decision-log/。
 
-/// 参数扫评估用的单条查询样本（QMAI 召回池代理的最小单元）。
+/// 参数扫评估用的单条查询样本（Niko Buddy 召回池代理的最小单元）。
 #[derive(Debug, Clone)]
 pub struct RecallCase {
     /// 查询名（诊断用）。
@@ -373,7 +373,7 @@ pub struct RecallCase {
     pub vector: Vec<RecallItem>,
     pub at_chapter: Option<i32>,
     /// 人工标注相关 id 集合（分级增益：(id, gain)，gain ≥ 1；池构造保证非空）。
-    /// 分级而非二元：QMAI 产品语义下近章活跃事实（gain 高）比远期回调
+    /// 分级而非二元：Niko Buddy 产品语义下近章活跃事实（gain 高）比远期回调
     /// （gain 低）更相关——窗口衰减的调参目标正是这种近章优先序。
     pub relevant: Vec<(String, u32)>,
 }
@@ -1848,7 +1848,7 @@ mod proptest_tests {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// T32 重调参测试：QMAI 召回池代理 + α/β 扫描 + 默认值绑定
+// T32 重调参测试：Niko Buddy 召回池代理 + α/β 扫描 + 默认值绑定
 // ──────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1856,7 +1856,7 @@ mod t32_retune_tests {
     use super::*;
     use crate::canon::types::EdgeKind;
 
-    /// QMAI 召回池代理（确定性 fixture，零随机源，跨平台位稳定）。
+    /// Niko Buddy 召回池代理（确定性 fixture，零随机源，跨平台位稳定）。
     ///
     /// 长篇形态编码：
     /// - 36 条查询，at_chapter ∈ [100, 240] 步进 4（中后期叙事窗）。

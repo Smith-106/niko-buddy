@@ -7,7 +7,7 @@
  * actual IPC serialization cost requires a running Tauri app.
  *
  * Comparison note: niko-studio uses HTTP proxy mode (localhost REST API),
- * while QMAI uses Tauri IPC invoke. This bench documents the pattern
+ * while Niko Buddy uses Tauri IPC invoke. This bench documents the pattern
  * for future cross-project comparison.
  *
  * Run: npx vitest run src/lib/ipc-latency.bench.ts
@@ -99,7 +99,7 @@ describe("IPC Latency Benchmark", () => {
     }
     saveBaseline("ipc-latency", data)
     console.log("")
-    console.log("  [comparison note] QMAI uses Tauri IPC invoke (binary channel).")
+    console.log("  [comparison note] Niko Buddy uses Tauri IPC invoke (binary channel).")
     console.log("  [comparison note] niko-studio uses HTTP proxy (localhost REST API).")
     console.log("  [comparison note] Cross-project comparison requires matching payload sizes.")
   })

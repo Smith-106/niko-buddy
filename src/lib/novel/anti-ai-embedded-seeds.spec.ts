@@ -14,7 +14,7 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { AntiAiCandidatePool } from "./anti-ai-candidate-pool"
 
-// QMAI/src/lib/novel → hub 根 docs/p0/corpus
+// Niko Buddy/src/lib/novel → hub 根 docs/p0/corpus
 const HUB_CORPUS_ROOT = resolve(__dirname, "../../../../docs/p0/corpus")
 const HUB_TREE_EXISTS = existsSync(resolve(HUB_CORPUS_ROOT, "human", "batch-20260821-001"))
 

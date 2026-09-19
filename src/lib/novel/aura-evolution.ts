@@ -1,7 +1,7 @@
 /**
  * aura-evolution.ts — P14 仿写画像进化层 (A19 借鉴点 #3, 零 LLM 字段 diff + time-decay)
  *
- * 借鉴点 #3 (ANL-20260715-16proj-selrev F-007): QMAI character-aura.ts P14 schema
+ * 借鉴点 #3 (ANL-20260715-16proj-selrev F-007): Niko Buddy character-aura.ts P14 schema
  * 已完整 (expressionDna/mentalModel/decisionHeuristics/valueAntiPatterns/honestyBoundaries),
  * 但缺 per-character 风格追踪历史 (进化层) — 当前 aura 是静态快照, 不追踪角色风格
  * 随章节的漂移。本模块补派生观测层: 字段 diff (=== 比对) + time-decay eviction。

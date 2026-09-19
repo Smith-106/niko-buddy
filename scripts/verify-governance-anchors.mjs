@@ -1,14 +1,14 @@
 /**
  * verify-governance-anchors.mjs — ADR-47 回归防线：治理文档锚点校验。
  *
- * 校验对象（QMAI 单仓 CI 可解析面）：
+ * 校验对象（Niko Buddy 单仓 CI 可解析面）：
  *   1. 治理文档声称的仓内 文件:行 锚点真实存在（ADR-47/48 登记行 → arch-decisions.md 小节）。
  *   2. 种子契约文件行数与 eval-gate 底线一致（种子 110 达标钉死）。
  *   3. KB view 产物 builtFrom 非空 sha256（与 ci.yml 自洽步互补）。
  *
  * hub 侧数据面（reference/、arch-decisions 全文）由 hub 侧等价门禁校验：
  *   node scripts/build-reference-kb-view.js --check
- *   node QMAI/scripts/sync-kb-view-to-qmai.mjs --check
+ *   node Niko Buddy/scripts/sync-kb-view-to-niko-buddy.mjs --check
  * exit 0 = 全过；exit 1 = 任一项失败（fail-loud，绝不静默）。
  */
 import { readFileSync, existsSync } from "node:fs"
@@ -23,7 +23,7 @@ const log = (ok, msg) => {
 }
 
 // 1. ADR 登记锚点：project.md 声称的两条登记行（源在 hub，但锚点文本作为契约入仓）
-//    ——此处校验 arch-decisions 小节标题存在（hub 侧文件，QMAI 单仓 CI 不可读时跳过并标注）。
+//    ——此处校验 arch-decisions 小节标题存在（hub 侧文件，Niko Buddy 单仓 CI 不可读时跳过并标注）。
 const adrFile = resolve(REPO_ROOT, "../.workflow/specs/arch-decisions.md")
 const expectedSections = [
   { adr: "ADR-47", section: "ADR-47" },

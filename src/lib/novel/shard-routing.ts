@@ -13,7 +13,7 @@
  *
  * 硬边界（ADR-19）：纯函数、零 IO / 零时钟 / 零模型调用；不读视图、不改默认行为。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

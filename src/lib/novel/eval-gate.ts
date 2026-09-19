@@ -24,7 +24,7 @@
  *   (Decoupled, Replay, Fixed)：离线可重放；gate 失败 = 不发布 = 零状态变更
  *   天然可逆；EVAL_GATE 常量 Fixed 不可运行时关闭。
  *
- * 遵循 QMAI/CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：E-06 新增锚点（2026-09-04 三模型共识），落 `src/lib/novel/`。
  */
 
 import { z } from "zod"

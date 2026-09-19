@@ -30,7 +30,7 @@ export const STRUCTURAL_CONSTRAINTS = {
 
 /** 产物 hash 条目。 */
 export interface ArtifactHash {
-  /** 产物路径（相对 QMAI 根）。 */
+  /** 产物路径（相对 Niko Buddy 根）。 */
   path: string
   /** SHA-256 摘要。 */
   sha256: string

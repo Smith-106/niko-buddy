@@ -6,7 +6,7 @@ import type { ChapterSnapshot } from "./chapter-ingest"
  * 状态变了什么」的键控真相。三模型共识（2026-08-27，deepseek-v4-pro +
  * GLM-5.2 + hy3，参考 Grok "Different Knowledge Bases for Writing AI"）：
  * Grok 7 类真相文件中 chapter_summaries 要求显式记录 state-change delta
- * （谁/什么字段 before→after），而 QMAI 现状只有 snapshot.summary 文本 +
+ * （谁/什么字段 before→after），而 Niko Buddy 现状只有 snapshot.summary 文本 +
  * recentSummaries 注入，无按章键控的 stateDelta 子表。本投影从
  * ChapterSnapshot 既有字段 fold（不新增提取语义），作为 character-state
  * SAME-LAYER sibling（NOT a Truth Files module — ANL-013 C4 forbids a

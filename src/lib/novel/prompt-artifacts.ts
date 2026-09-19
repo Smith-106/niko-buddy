@@ -13,7 +13,7 @@
  * （非加密身份哈希，仅用于版本不可变判定与 diff 指纹；加密级 digest 见
  * checkpoint-digest.ts 的异步 SHA-256，按需另走）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

@@ -22,7 +22,7 @@
  * ## Draft-first
  *   纯控制/机械编排（零 LLM），不涉及 AI 写作，Draft-first 不适用。
  *
- * 遵循 QMAI/CLAUDE.md：T17 新增锚点，落 `src/lib/novel/`；运行期队列在 `.novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：T17 新增锚点，落 `src/lib/novel/`；运行期队列在 `.novel/`。
  */
 
 import fastDiff from "fast-diff"

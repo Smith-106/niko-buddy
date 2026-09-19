@@ -29,7 +29,7 @@
  *   node scripts/thrill-retention-correlate.js --fixture-only # 仅显示 fixture 数据
  *   node scripts/thrill-retention-correlate.js --help
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 // ============================================================================

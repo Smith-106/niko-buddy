@@ -6,7 +6,7 @@
  * 只读守卫（产物/条目冻结）+ kb-health（world_sample 无约束不合格/跨书混载违规）+
  * stableStringify 键序确定性.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

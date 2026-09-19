@@ -11,7 +11,7 @@
  * 数据源：T25 buildContextPackUnlocked 三源并行（含 pack.sourceTimingsMs）；
  * canon 源用 fixture/mock 不依赖真实 LanceDB。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest"

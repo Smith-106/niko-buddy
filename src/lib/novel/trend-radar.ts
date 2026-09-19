@@ -18,7 +18,7 @@
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟（generatedAt 注入）/
  * 零模型调用。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

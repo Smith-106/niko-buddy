@@ -8,7 +8,7 @@
  *   4. 归并策略：shard-major（首现去重）/ score-major（全局分序去重）；
  *   5. 边界：空集 / 单元素 / 空片 / 缺键（unknown）/ 非法 perShardTopK fail-loud。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

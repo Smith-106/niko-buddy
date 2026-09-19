@@ -7,7 +7,7 @@
  *
  * 授权防泄漏硬约束：路径含 "unlicensed-ref" 直接 throw（990 片未授权文本绝不入包）。
  *
- * 用法（在 QMAI/ 目录执行）：
+ * 用法（在 Niko Buddy/ 目录执行）：
  *   node scripts/generate-anti-ai-corpus-bundle.mjs          # 生成 JSON 入库
  *   node scripts/generate-anti-ai-corpus-bundle.mjs --check  # 漂移比对（有语料树时）
  *
@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url"
 import { assertBatchesIndexed, GENRE_ENUM } from "./lib/corpus-guard.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// 语料树在 hub 根（QMAI 仓库外）；QMAI/scripts/ → ../../docs/p0/corpus
+// 语料树在 hub 根（本仓库外）；Niko Buddy/scripts/ → ../../docs/p0/corpus
 // 路径可用环境变量覆盖（仅测试 fixture 用；默认行为不变）
 const HUB_CORPUS_ROOT = resolve(process.env.ANTI_AI_CORPUS_ROOT ?? resolve(__dirname, "../../docs/p0/corpus"))
 const OUTPUT = resolve(process.env.ANTI_AI_BUNDLE_OUTPUT ?? resolve(__dirname, "../src/lib/novel/anti-ai-seeds.generated.json"))

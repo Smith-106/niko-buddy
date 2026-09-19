@@ -31,7 +31,7 @@
  * > 模式借鉴 canon-precision-filter（degraded 降级 + 注入 verify 缝）与
  * > dimension-review-adapter 六维拆解思想；只借模式不抄码，为全独立 TS 实现。
  *
- * 遵循 QMAI/CLAUDE.md：零 LLM 机械层 + 可注入扩展，纯函数无副作用。
+ * 遵循 Niko Buddy CLAUDE.md：零 LLM 机械层 + 可注入扩展，纯函数无副作用。
  */
 
 /** 六维维度标识。 */

@@ -6,8 +6,8 @@
  * ADR-31 (中文阈值 CV 0.1 + max(N,floor(total*ratio)) 保底公式 + backward compat
  * additive-only deferred Phase 2/3/4) + ADR-33 (consistency_mechanical gate 映射
  * + 机械先于语义短路) + ADR-34 (override 双轨 + reasonCode 6 值合并集 + 机械
- * critical 不进 fix-loop)。借鉴 Novel-OS 5 项检测 + 复用 QMAI 已有
- * analyzeForeshadowingDebt (foreshadowing-debt.ts:34 已实现逾期检测, 守 QMAI
+ * critical 不进 fix-loop)。借鉴 Novel-OS 5 项检测 + 复用 Niko Buddy 已有
+ * analyzeForeshadowingDebt (foreshadowing-debt.ts:34 已实现逾期检测, 守 Niko Buddy
  * CLAUDE.md 禁止 clean-room 重写)。
  *
  * 纯函数零 IO 零 LLM (ADR-29 C-001): 引擎模块 MUST NOT 导入任何 store loader /
@@ -429,7 +429,7 @@ function detectAbsentCharacter(
  * detectOverdueThread: 复用 analyzeForeshadowingDebt (foreshadowing-debt.ts:34)
  * 产 ForeshadowingDebtReport, debtLevel==='critical' 产 overdue_thread (critical,
  * consistency_mechanical), debtLevel==='warning' 产 unresolved_foreshadowing
- * (warning)。不重写逾期检测 (守 QMAI CLAUDE.md 禁止 clean-room 重写)。
+ * (warning)。不重写逾期检测 (守 Niko Buddy CLAUDE.md 禁止 clean-room 重写)。
  *
  * Phase 3 (LE-1): Subplot targetResolutionChapter?/abandoned? 结构化逾期标记
  * 已接入 — 优先读 s.targetResolutionChapter?/s.abandoned?，字段存在则判 critical
@@ -1188,7 +1188,7 @@ export function checkContinuity(
 /**
  * CONTINUITY_CANONICAL_FAMILY (53 号报告 P0-1): ContinuityFindingType → 9 族
  * canonical family 映射。镜像 pagegod V38 CANONICAL_FAMILY (14 code→9 family)
- * 语义, 按 QMAI 现有 14 类 finding 适配 (Apache-2.0 借模式)。所有映射机械
+ * 语义, 按 Niko Buddy 现有 14 类 finding 适配 (Apache-2.0 借模式)。所有映射机械
  * 赋值, 非 LLM。
  */
 export const CONTINUITY_CANONICAL_FAMILY: Record<ContinuityFindingType, string> = {
@@ -1290,7 +1290,7 @@ export function mergeContinuityFindings(
 
 /**
  * suppressContinuityFindings (53 号报告 P0-1): 4 条抑制规则, 镜像 pagegod
- * suppress 语义中与 QMAI 14 类 finding 可对应的子集 (Apache-2.0 借模式):
+ * suppress 语义中与 Niko Buddy 14 类 finding 可对应的子集 (Apache-2.0 借模式):
  * ① 同段冗余: 同 ref+family+chapter 多条 → 保留 severity 最高者;
  * ② barrier_entry_then_lock: barrier_state critical 抑制同 ref 相邻章
  *    presence_path 同因;③ knowledge_shadowed_custody: knowledge_boundary
@@ -1408,7 +1408,7 @@ export function buildReadonlyStoreFromInput(input: ContinuityInput): ReadonlySto
  * checkContinuity。内部调用点已迁移到 checkContinuity + buildReadonlyStoreFromInput
  * (ADR-29 blueprint 权威 API), 本别名仅供外部 caller backward compat。
  *
- * 保留原因: 守 QMAI CLAUDE.md "Never break backward compatibility" — legacy 别名
+ * 保留原因: 守 Niko Buddy CLAUDE.md "Never break backward compatibility" — legacy 别名
  * 零行为变更, 外部 caller (含测试 + 未来下游) 仍可用 ContinuityInput 入参。
  *
  * runContinuityEngine(input, overrideStore?): overrideStore 为 ADR-34 AC-006.5

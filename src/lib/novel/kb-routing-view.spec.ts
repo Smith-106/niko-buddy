@@ -59,7 +59,7 @@ describe("P1-IMP-08 routeByQueryIntent 消费面断言", () => {
     // routing.agent 在位 —— 失败点必须是 builtFrom，不得被旧断言吞掉。
     expect(() => mod.loadKbRoutingMatrix()).not.toThrow()
     expect(() => mod.loadKbRoutingViewBuiltFrom()).toThrow(/缺少 builtFrom/)
-    expect(() => mod.routeByQueryIntent("draft")).toThrow(/sync-kb-view-to-qmai\.mjs/)
+    expect(() => mod.routeByQueryIntent("draft")).toThrow(/sync-kb-view-to-niko-buddy\.mjs/)
   })
 
   it("builtFrom 为空串同样视为缺失（不接受空指纹）", async () => {
@@ -190,11 +190,11 @@ describe("P1-IMP-08 仓内 generated 产物（真实文件，非 mock）", () =>
   })
 })
 
-describe("P1-IMP-08 scripts/sync-kb-view-to-qmai.mjs 抽取逻辑", () => {
+describe("P1-IMP-08 scripts/sync-kb-view-to-niko-buddy.mjs 抽取逻辑", () => {
   const HUB_SOURCE = resolve(__dirname, "../../../../reference/REFERENCE-KB-VIEW.json")
 
   it("源缺 builtFrom → 拒绝同步（不产出无指纹消费面）", async () => {
-    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-qmai.mjs")
+    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-niko-buddy.mjs")
     expect(() =>
       extractConsumerSurface({
         schemaVersion: 2,
@@ -205,7 +205,7 @@ describe("P1-IMP-08 scripts/sync-kb-view-to-qmai.mjs 抽取逻辑", () => {
   })
 
   it("counts 与 collections.length 漂移 → 拒绝同步", async () => {
-    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-qmai.mjs")
+    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-niko-buddy.mjs")
     expect(() =>
       extractConsumerSurface({
         schemaVersion: 2,
@@ -218,7 +218,7 @@ describe("P1-IMP-08 scripts/sync-kb-view-to-qmai.mjs 抽取逻辑", () => {
   })
 
   it("collectionCounts 由数组长度派生，治理桶（blocked/quarantine）计数一并保留", async () => {
-    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-qmai.mjs")
+    const { extractConsumerSurface } = await import("../../../scripts/sync-kb-view-to-niko-buddy.mjs")
     const view = extractConsumerSurface({
       schemaVersion: 2,
       builtFrom: "sha256:y",
@@ -230,11 +230,11 @@ describe("P1-IMP-08 scripts/sync-kb-view-to-qmai.mjs 抽取逻辑", () => {
     expect(view.collections.craft[0]).not.toHaveProperty("content")
   })
 
-  // 源侧守恒比对：仅 hub 工作区在场时执行（QMAI 单仓 checkout 无 reference/ → 跳过）。
+  // 源侧守恒比对：仅 hub 工作区在场时执行（Niko Buddy 单仓 checkout 无 reference/ → 跳过）。
   const hubPresent = existsSync(HUB_SOURCE)
   describe.skipIf(!hubPresent)("hub 源视图 ↔ 仓内产物守恒", () => {
     it("产物与源 builtFrom 一致，且重新抽取结果与产物逐字节相同（--check 语义）", async () => {
-      const { extractConsumerSurface, serialize } = await import("../../../scripts/sync-kb-view-to-qmai.mjs")
+      const { extractConsumerSurface, serialize } = await import("../../../scripts/sync-kb-view-to-niko-buddy.mjs")
       const source = JSON.parse(readFileSync(HUB_SOURCE, "utf8"))
       const committed = readFileSync(resolve(__dirname, "kb/kb-routing-view.generated.json"), "utf8")
       expect(serialize(extractConsumerSurface(source))).toBe(committed)

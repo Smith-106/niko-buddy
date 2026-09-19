@@ -7,7 +7,7 @@
  * - Frontmatter preservation during body edits
  * - Robust handling of edge cases (code fence wrappers, nested structures)
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import yaml from "js-yaml"

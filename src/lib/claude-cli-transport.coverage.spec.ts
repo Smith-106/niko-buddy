@@ -300,7 +300,7 @@ describe("final error messages", () => {
     expect(store.set).toHaveBeenCalledTimes(3) // one spool per backoff retry (attempts 2-4)
     expect(cb.onError).toHaveBeenCalledTimes(1)
     expect(cb.onError.mock.calls[0]?.[0]?.message).toContain(
-      "QMAI automatically retried once with local CLI isolation enabled",
+      "Niko Buddy automatically retried once with local CLI isolation enabled",
     )
   })
 

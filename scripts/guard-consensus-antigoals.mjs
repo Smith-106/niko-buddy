@@ -11,7 +11,7 @@
 // 阈值/期望值/模式字面量，与本脚本常量逐项比对，不一致即 exit 3 拒跑
 // （防两层漂移——改一处须改另一处）。
 //
-// 用法：node scripts/guard-consensus-antigoals.mjs（QMAI 根执行）。
+// 用法：node scripts/guard-consensus-antigoals.mjs（仓库根执行）。
 // 退出码：0 全部通过；2 违禁（打印违禁项 AG1-AG6）；3 自检/采集失败。
 // ASCII only 输出（防 PS 乱码）；只读断言，不改任何产物。
 

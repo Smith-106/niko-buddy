@@ -223,14 +223,14 @@ export function emotionLedgerToContextText(store: EmotionLedgerStore): string {
 //     + 正文共现匹配判定本章出场角色, 基调 delta 均分给每个出场角色 (applyEmotionDelta)
 //
 // 词典来源: NovelForge-v5/core/emotion_tracker.py (PAYOFF/PRESSURE/NEUTRAL, 只读参考)。
-// 去掉大纲专有标记 (情绪净值(+)/(+) 等, QMAI 大纲无此 schema), 保留叙事关键词。
+// 去掉大纲专有标记 (情绪净值(+)/(+) 等, Niko Buddy 大纲无此 schema), 保留叙事关键词。
 // ============================================================================
 
 /**
  * 情绪关键词词典 (NovelForge-v5 移植, 只读参考不改上游)。
  * 三类: payoff (爽点/正向) / pressure (压抑/负向) / neutral (过渡/平稳)。
  * 权重对齐 NovelForge-v5: 章节级标记 8-10, 核心 2.5-3, 次级 1.5, 日常 0.5-1。
- * 去掉大纲专有标记 ((+)/(0)/情绪净值(+), QMAI 大纲无此 schema, 正文也不会有)。
+ * 去掉大纲专有标记 ((+)/(0)/情绪净值(+), Niko Buddy 大纲无此 schema, 正文也不会有)。
  */
 const EMOTION_KEYWORD_LEXICON = {
   payoff: [

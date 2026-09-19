@@ -4,7 +4,7 @@
  * 契约非法 fail-loud、上限断言 fail-loud，以及**真实全字段面**（reference-kb-view.content-*.json 快照）
  * 债分 0（R1-a/R1-b 补料后题材空置归零；expectThemes=[{克苏鲁@world_ref},{修仙@world_ref,lexicon}]）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

@@ -1602,7 +1602,7 @@ mod tests {
 /// A-F-004 真机冒烟（**默认忽略**）：真实 HTTP WebDAV 靶端上的 推送 / 拉取 / 冲突保留。
 ///
 /// ```text
-/// cd QMAI
+/// cd Niko Buddy
 /// node scripts/smoke-webdav-server.mjs 8792 .smoke-webdav smoke-webdav.jsonl smoke-user:smoke-pass &
 /// cd src-tauri
 /// cargo test --lib sync_target::webdav_smoke -- --ignored --nocapture

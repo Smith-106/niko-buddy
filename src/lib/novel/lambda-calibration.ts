@@ -12,7 +12,7 @@
  *     `RETRIEVAL_LAMBDA_INITIAL.calibrated` 恒 false（由 spec 断言锁死）。
  *   - 点数 < 30 直接抛错（硬校验不降级）；x 方差为 0（Δpp 全零）→ 无信号，pass=false。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { z } from "zod"
 

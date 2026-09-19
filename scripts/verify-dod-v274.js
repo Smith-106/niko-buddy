@@ -22,7 +22,7 @@ const HELP = `verify-dod-v274.js — DoD v2.7.4 断言（vitest 转发薄壳）
 说明：原 11 条 check 断言已转为 11 个 it 块（console.log PASS 计数已移除，
 测试数 = 原 PASS 数）
 证据性质：输入为硬编码/公式合成数据，仅防纯函数契约回归（非 stretch 达标证据，
-详见 spec 头部声明与 docs/qmai-codex-delivery/67-stretch-gate-disclosure-20260907.md）`
+详见 spec 头部声明与 docs/niko-buddy-codex-delivery/67-stretch-gate-disclosure-20260907.md）`
 
 if (process.argv.slice(2).some((a) => a === "--help" || a === "-h")) {
   console.log(HELP)

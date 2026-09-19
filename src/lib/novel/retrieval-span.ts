@@ -13,7 +13,7 @@
  * `now()` 提供）；观测层不得改变检索语义与排序结果 —— 注入点全部为可选参数，
  * 不传即零行为差异。消费端 = 既有 retrieval-trace（traceChannel 语义）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

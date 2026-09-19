@@ -1,7 +1,7 @@
 /**
  * Character Aura Utilities Module
  * 
- * Copyright © 2024 QMAI Team
+ * Copyright © 2024 Niko Buddy Team
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal

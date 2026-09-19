@@ -9,7 +9,7 @@
  *      （entityHints = query tokens，situational_fit 真实语义）。rerank 只重排不丢项，
  *      paired 断言全集合命中数不变。
  *   3. 逐臂 obligationCoverage 由 coverageOf 从 top5 命中现算（期望收藏覆盖率）→
- *      recordKbShadowArms 落 {QMAI_ROOT}/.novel/telemetry/kb-shadow-harness/dual-arm-*.jsonl
+ *      recordKbShadowArms 落 {NIKO_BUDDY_ROOT}/.novel/telemetry/kb-shadow-harness/dual-arm-*.jsonl
  *      → `npm run eval:gov -- --shadow-input <dir>` 消费（ADR-47 挂钩）。
  *   4. 报告 harness-report.json（逐 query 配对 A/B + rank 分档 + 聚合）供三模型复评引用。
  *
@@ -40,11 +40,11 @@ const RUN = process.env.KB_SHADOW_HARNESS === "1"
 /** 工件写入门控：shadow JSONL/report 仅在 KB_SHADOW_HARNESS=1 时写；测量断言层（压力臂）常态运行。 */
 const d = RUN ? describe : describe.skip
 
-const QMAI_ROOT = resolve(__dirname, "../../..")
+const NIKO_BUDDY_ROOT = resolve(__dirname, "../../..")
 /** harness 独立落盘根（与运行时 .novel/telemetry/kb-shadow 分离，两测量面不混淆；.novel/ gitignored）。 */
-const HARNESS_PROJECT_ROOT = join(QMAI_ROOT, ".novel", "harness-project")
+const HARNESS_PROJECT_ROOT = join(NIKO_BUDDY_ROOT, ".novel", "harness-project")
 const SHADOW_DIR = join(HARNESS_PROJECT_ROOT, ".novel", "telemetry", "kb-shadow")
-const OUT_DIR = join(QMAI_ROOT, ".novel", "telemetry", "kb-shadow-harness")
+const OUT_DIR = join(NIKO_BUDDY_ROOT, ".novel", "telemetry", "kb-shadow-harness")
 const TOP_K = 5
 const RANK_TOP3 = 3
 const RANK_TOP20 = 20

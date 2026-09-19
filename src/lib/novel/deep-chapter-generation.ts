@@ -357,9 +357,9 @@ const ONUPDATE_FLUSH_CHARS = 256
 // coverage but risks false positives on legitimate prose; deferred.
 const MAX_GATE_RETRY = 3
 // A19 emotion-ledger pilot: 情绪债务熔断阈值。任一角色 netValue 低于此值即触发
-// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 为 QMAI 设计阈值
+// Circuit Breaker (长期承压, ADR-17 fix-loop 配套)。-0.6 为 Niko Buddy 设计阈值
 // (NovelForge-v5 EmotionTracker 的 net_debt 为 0-100+ 量纲, 无可直接对照的
-// Circuit Breaker 阈值; -0.6 基于 QMAI 的 -1.0~1.0 netValue 量纲经验设定:
+// Circuit Breaker 阈值; -0.6 基于 Niko Buddy 的 -1.0~1.0 netValue 量纲经验设定:
 // 三轴负偏 + history 负累积达此深度时角色状态已不可逆, 对应 NovelForge-v5
 // CAUTIOUS 状态类比)。
 const EMOTION_CB_THRESHOLD = -0.6

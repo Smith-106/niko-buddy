@@ -7,7 +7,7 @@ import type { NameAliasMap } from "./book-analysis/types"
  * R4 (S4 / ANL-013): EncounterMatrix projection — 谁见过谁（character_matrix
  * 的「见面矩阵」侧）。三模型共识（2026-08-27，deepseek-v4-pro + GLM-5.2 +
  * hy3，参考 Grok "Different Knowledge Bases for Writing AI"）：Grok 7 类
- * 真相文件中 character_matrix（谁见过谁/信息边界）是 QMAI 最大缺口之一 —
+ * 真相文件中 character_matrix（谁见过谁/信息边界）是 Niko Buddy 最大缺口之一 —
  * CharacterState.relationships 是自由文本关系标签，无「见面事件」时间线。
  * 本投影补齐「谁与谁在何时共场/见面」的时序边，作为 character-state
  * SAME-LAYER sibling（NOT a Truth Files module — ANL-013 C4 forbids a

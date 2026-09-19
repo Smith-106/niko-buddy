@@ -67,7 +67,7 @@ function assertValidMarkType(markType: string): asserts markType is StyleExempla
  * 解包装 exemplar 数据（FIX-2/EC-1：双格式兼容）。
  *
  * 接受两种合法形状：
- *   1. 裸数组（QMAI 自写格式）：[{exemplarId, chapterId, text, markType, note?, createdAt}]
+ *   1. 裸数组（Niko Buddy 自写格式）：[{exemplarId, chapterId, text, markType, note?, createdAt}]
  *   2. 包装对象（v1.0 人工/第三方版式）：{$schema, exemplars: [{id, chapterId, text, markType, note?, markedAt}]}
  *
  * 两者都不是 → 返回 null（调用方判 corrupt）。

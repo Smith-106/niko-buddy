@@ -10,7 +10,7 @@
  * 使用方式（认领方）：选定模型 → 传入费率 → `estimateOreCost` 出成本分解 →
  * `checkOreQuota` 出配额判定；**决策与启用是用户保留事项**（ADR-48 gate 判据包）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { z } from "zod"
 

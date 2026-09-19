@@ -14,7 +14,7 @@
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；全部派生自
  * RunEventLedger（append-only 真源）——不写 status.json / 不写 kb 产物。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"

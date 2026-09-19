@@ -7,7 +7,7 @@
  * - Listens for streamed agent messages and error events
  * - Handles abort, timeout, and retry scenarios gracefully
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { invoke } from "@tauri-apps/api/core"

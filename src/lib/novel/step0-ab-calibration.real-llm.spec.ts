@@ -15,7 +15,7 @@
  *   STEP0_REAL_LLM_KEY=... STEP0_REAL_LLM_BASE=... STEP0_REAL_LLM_MODEL=... \
  *     npx vitest run src/lib/novel/step0-ab-calibration.real-llm.spec.ts
  *
- * 输出：{QMAI}/../.workflow/harvest-staging/step0-ab-results.json（每维每臂
+ * 输出：{Niko Buddy}/../.workflow/harvest-staging/step0-ab-results.json（每维每臂
  * 3 采样 + 中位数 + 判定），控制台打印对照表。
  */
 import { afterAll, describe, expect, it } from "vitest"

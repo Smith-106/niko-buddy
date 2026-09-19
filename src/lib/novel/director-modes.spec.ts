@@ -6,7 +6,7 @@
  * 门判定（skipped→未评估不可出）+ autoarm（机械门全 pass → ready；未评估/fail
  * 不 arm；target 类型层无 accepted；幂等）+ assertAutoArmNeverAccepts.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

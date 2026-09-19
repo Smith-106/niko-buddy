@@ -4,7 +4,7 @@
  * AG4 外部定义 / AG5 双护栏缺失组合 / AG6 基线豁免+扩容证据双门 / 文本扫描 /
  * 全清洁快照零违禁。判定顺序 AG1→AG6。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { describe, expect, it } from "vitest"
 import {

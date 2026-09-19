@@ -33,7 +33,7 @@
  *   纯控制/机械编排（零 LLM、零网络）：只读本地快照 JSON + 经注入依赖写 canon。
  *   Draft-first 不适用；digest 全部走 T07 `computeCheckpointDigestOf` 纯 crypto。
  *
- * 遵循 QMAI/CLAUDE.md：T30b 新增锚点，落 `src/lib/novel/`；运行期数据在 `.novel/`
+ * 遵循 Niko Buddy CLAUDE.md：T30b 新增锚点，落 `src/lib/novel/`；运行期数据在 `.novel/`
  * （ADR-16）；模式提取而非代码融合（ADR-20）。
  */
 

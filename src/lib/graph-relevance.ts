@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Retrieval graph — builds an in-memory graph from wiki pages and
  * computes relevance scores for context retrieval.

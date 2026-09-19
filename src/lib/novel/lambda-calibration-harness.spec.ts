@@ -14,7 +14,7 @@
  *
  * 硬边界：不回写 λ 默认值、不翻 calibrated、不改 R2 阈值（1000/1e4/30/0pp）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"

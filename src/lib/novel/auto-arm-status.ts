@@ -17,7 +17,7 @@
  * 注入）/ 零模型调用。禁止 import novel-session-status（防循环：后者反向
  * import 本模块 schema 做加载护栏），补丁应用端用结构类型收口。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

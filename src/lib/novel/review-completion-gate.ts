@@ -1,14 +1,14 @@
 /**
  * 53 号报告 P1-3: critic 防伪完成门 (open-write-studio verify_completion.py
- * 模式, MIT 借模式; QMAI 纯函数 TS 实现, 零 IO 零 LLM)。
+ * 模式, MIT 借模式; Niko Buddy 纯函数 TS 实现, 零 IO 零 LLM)。
  *
  * 语义 (对齐 open-write-studio):
- *  - _compute_chapter_hash: SHA-256 of artifact-stripped content → QMAI 用
+ *  - _compute_chapter_hash: SHA-256 of artifact-stripped content → Niko Buddy 用
  *    computeCheckpointDigest 同源摘要 (checkpoint-digest.ts, 既有实现);
  *  - _check_hash_binding (STALE_ARTIFACT): 审查绑定章节 hash 与当前章不匹配
  *    → 旧审查作废, 不得宣称完成;
  *  - _validate_critic_substance (HOLLOW_ARTIFACT/INSUFFICIENT_FINDINGS):
- *    PASS/ADVANCE 断言但零定位发现 → 空 PASS 自夸失败; QMAI 阈值 ≥3 定位发现
+ *    PASS/ADVANCE 断言但零定位发现 → 空 PASS 自夸失败; Niko Buddy 阈值 ≥3 定位发现
  *    (LOCATED_FINDING_PATTERN 语义: 数字定位 + ≥10 字符原文引用)。
  *
  * 与既有防幻觉检查 (review-scoring runAntiHallucinationChecks 软告警) 的关系:

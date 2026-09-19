@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Cascade delete for wiki pages — removes the page from disk, drops
  * its vector embeddings, cleans media directories for source pages,

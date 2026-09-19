@@ -1,5 +1,5 @@
 /**
- * Benchmark helper utilities for QMAI performance testing.
+ * Benchmark helper utilities for Niko Buddy performance testing.
  *
  * Provides measureLatency (P50/P95/P99), printStats, saveBaseline, and
  * compareBaseline — modelled after niko-studio's gateway-benchmark pattern.
@@ -7,7 +7,7 @@
  * Baseline contract (P2-6): `src/test-helpers/baselines/` is the tracked
  * frozen baseline *read* source; saveBaseline writes fresh measurements to
  * an untracked scratch dir (default `node_modules/.cache/qmai-baselines/`)
- * so runs never dirty the worktree. Set QMAI_BASELINE_DIR to override the
+ * so runs never dirty the worktree. Set NIKO_BUDDY_BASELINE_DIR to override the
  * write target (e.g. refresh the frozen baselines during a release wave).
  *
  * Run: npx vitest run src/test-helpers/*.bench.ts src/lib/*.bench.ts src/lib/novel/*.bench.ts
@@ -110,15 +110,15 @@ const BASELINE_DIR = resolve(__dirname, "baselines")
 
 /**
  * Scratch dir for fresh measurements — saveBaseline writes here so regular
- * runs never modify tracked files. Overridable via QMAI_BASELINE_DIR.
+ * runs never modify tracked files. Overridable via NIKO_BUDDY_BASELINE_DIR.
  */
 const BASELINE_WRITE_DIR =
-  process.env.QMAI_BASELINE_DIR ??
+  process.env.NIKO_BUDDY_BASELINE_DIR ??
   resolve(__dirname, "../../node_modules/.cache/qmai-baselines")
 
 /**
  * Persist baseline data to `<write-dir>/{name}.json` (untracked by default;
- * set QMAI_BASELINE_DIR=src/test-helpers/baselines during a release wave to
+ * set NIKO_BUDDY_BASELINE_DIR=src/test-helpers/baselines during a release wave to
  * refresh the frozen baselines).
  */
 export function saveBaseline(name: string, data: BaselineData): void {

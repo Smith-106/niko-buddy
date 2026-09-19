@@ -3,7 +3,7 @@
  * kappa-round2.mjs — κ Round-2 计算入口（T01b-3 共识预置）
  * 复用 corpus-kappa.ts 单一真源（computeCohenKappa / toLabelPairs / isGoldQualified）
  *
- * 用法（QMAI/ 下）：
+ * 用法（Niko Buddy/ 下）：
  *   node scripts/kappa-round2.mjs --round1 docs/p0/corpus/blind-label-round2.json --round2 <同一文件，labelB 已填>
  * 输出：κ / po / pe / level / 达标判定（≥0.7=黄金集正式验收合格）
  */

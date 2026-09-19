@@ -12,7 +12,7 @@
  * loadRunEventLedgerStore 只读加载（deps 可注入；缺省生产 deps=Tauri fs）。
  * 断网/读取失败 → 空账本快照（诚实未评估），不阻塞首页其他区块。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { useEffect, useState } from "react"

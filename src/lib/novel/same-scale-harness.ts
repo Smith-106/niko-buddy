@@ -20,7 +20,7 @@
  * 机械层（ADR-19）：纯函数 + zod，零 IO / 零时钟 / 零模型调用；
  * docs 与 kb 视图由调用方传入（IO 层组装）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

@@ -42,8 +42,8 @@ import { computeCheckpointDigestOf } from "../src/lib/novel/checkpoint-digest.ts
 import { synthCorpus, EVAL_SCENARIOS } from "../src/lib/novel/eval/eval-corpus-synth.ts"
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const QMAI_ROOT = resolve(SCRIPT_DIR, "..")
-const DEFAULT_FIXTURES = join(QMAI_ROOT, "src", "lib", "novel", "eval", "fixtures")
+const NIKO_BUDDY_ROOT = resolve(SCRIPT_DIR, "..")
+const DEFAULT_FIXTURES = join(NIKO_BUDDY_ROOT, "src", "lib", "novel", "eval", "fixtures")
 
 // C1 阈值（与 eval-metrics.ts DEFAULT_THRESHOLDS 同步；PAT-G2 镜像）
 const TH = Object.freeze({ l1Min: 0.95, l2Min: 0.99, l3Max: 0.01 })
@@ -193,7 +193,7 @@ function parseArgs(argv) {
   return args
 }
 
-const USAGE = `eval-baseline.mjs — QMAI 评测 B 门基线 driver（F2）
+const USAGE = `eval-baseline.mjs — Niko Buddy 评测 B 门基线 driver（F2）
 
 用法:
   node scripts/eval-baseline.mjs                       读 baseline.json 做 diff（PASS）

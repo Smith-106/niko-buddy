@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * epub-to-novel.mjs — 将 epub 书稿提取为 QMAI .novel 项目骨架（chapters/N/draft.md + status.json）。
+ * epub-to-novel.mjs — 将 epub 书稿提取为 Niko Buddy .novel 项目骨架（chapters/N/draft.md + status.json）。
  *
  * 用法:
  *   node scripts/epub-to-novel.mjs --epub <path.epub> --project <dest> [--chapters 1-210] [--title <书题>]

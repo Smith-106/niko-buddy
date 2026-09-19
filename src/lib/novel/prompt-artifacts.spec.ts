@@ -5,7 +5,7 @@
  * 新版本追加 / 原仓库不变）+ 版本解析（最高版本语义）+ 门-提示词血缘绑定 +
  * checkPromptLineageCoverage（LLM 中介门 100% 携带 promptArtifact@version）.
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

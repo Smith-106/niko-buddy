@@ -2,7 +2,7 @@
  * mechanical-fingerprint.ts — P1-1 统计指纹自检 (零 LLM/IO, A19 机械层)
  *
  * 共识 (V2-ds stat-fingerprint / V2-glm mechanical-fingerprint / V1-ds r-verify):
- * QMAI 现有 de-ai-rules T19 的「突发性/熵」只在 LLM prompt 文本里描述,
+ * Niko Buddy 现有 de-ai-rules T19 的「突发性/熵」只在 LLM prompt 文本里描述,
  * 没有确定性度量。本模块补齐句长分布 (mean/std/CV/分位)、Shannon 熵、
  * 突发性 (burstiness)、句首多样性、高频词重复率 —— 纯算术, 输出 0-1 分 + band。
  *

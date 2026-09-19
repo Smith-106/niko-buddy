@@ -11,7 +11,7 @@
  *
  * 硬边界：纯计算，零 IO / 零时钟 / 零模型调用；不改变 `ANN_PLAN.implemented=false`。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import {
   ANN_DESCRIPTOR_SCHEMA,

@@ -76,8 +76,8 @@ describe("Startup IPC Benchmark", () => {
         )
         // mock IPC 环境下 regression 断言放宽：基线是 v2.7.9 真 Tauri 环境
         // 测量的 P50≈0ms，mock vi.fn 任何微小波动都 >20% delta → flaky 而非
-        // 真回归。release wave 用真环境跑才断言（QMAI_BASELINE_DIR 指向真基线）。
-        if (process.env.QMAI_BASELINE_DIR) {
+        // 真回归。release wave 用真环境跑才断言（NIKO_BUDDY_BASELINE_DIR 指向真基线）。
+        if (process.env.NIKO_BUDDY_BASELINE_DIR) {
           expect(c.regression).toBe(false)
         }
       }

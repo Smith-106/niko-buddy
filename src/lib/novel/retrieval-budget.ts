@@ -17,7 +17,7 @@
  * 机械层（ADR-19）：纯函数 + zod + 无 IO/无时钟（measuredMs 由调用方测量注入）。
  * 账本为显式状态容器（工厂 `createRetrievalBudgetLedger`，测试可独立实例）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

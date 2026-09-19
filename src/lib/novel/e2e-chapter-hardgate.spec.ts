@@ -24,7 +24,7 @@
  *   全程 **mock LLM**（`producer` 计数 spy，绝不真实调用）；Tauri IPC 用 `@tauri-apps/api/core`
  *   `invoke` mock 成 in-memory canon_store；`@/commands/fs` mock 成内存文件。fixture 内联构造。
  *
- * 遵循 QMAI/CLAUDE.md：T18 组件 3 新增锚点，落 `src/lib/novel/`，纯机械编排零真实 LLM。
+ * 遵循 Niko Buddy CLAUDE.md：T18 组件 3 新增锚点，落 `src/lib/novel/`，纯机械编排零真实 LLM。
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest"

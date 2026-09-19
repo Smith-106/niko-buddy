@@ -61,9 +61,9 @@ const { loadGovSeedSet, computeTripleCriteria, evaluateRetrievalGate, renderEval
   await import("../src/lib/novel/eval-gate.ts")
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const QMAI_ROOT = resolve(SCRIPT_DIR, "..")
-const DEFAULT_SEED = join(QMAI_ROOT, "docs", "p0", "gov-seed", "gov-seed-v1.jsonl")
-const DEFAULT_REPORT_DIR = join(QMAI_ROOT, "docs", "p0", "gov-seed")
+const NIKO_BUDDY_ROOT = resolve(SCRIPT_DIR, "..")
+const DEFAULT_SEED = join(NIKO_BUDDY_ROOT, "docs", "p0", "gov-seed", "gov-seed-v1.jsonl")
+const DEFAULT_REPORT_DIR = join(NIKO_BUDDY_ROOT, "docs", "p0", "gov-seed")
 
 /** 影子双臂三 flag（wiki-store 六 flag 中 awaiting-eval-evidence 三者；仅对照采集，不翻转）。 */
 const SHADOW_FLAGS = ["dualKbRoutingEnabled", "hardInjectEnabled", "usefulnessRerank"]

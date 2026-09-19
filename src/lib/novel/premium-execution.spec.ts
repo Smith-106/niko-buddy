@@ -14,7 +14,7 @@
  * 机械层约束：模型调用走 ModelPort mock，不真调 LLM。
  * 不动 deep-chapter-generation.ts 主链。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it, vi } from "vitest"

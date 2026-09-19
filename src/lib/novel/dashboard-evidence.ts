@@ -19,7 +19,7 @@
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；磁盘读取由 UI 层
  * 经 run-event-ledger-store 完成后注入账本。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"

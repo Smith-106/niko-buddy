@@ -10,7 +10,7 @@
  *
  * 写盘：`ANN_HARNESS=1` 门控 → docs/p0/ann-recall-latency-<YYYYMMDD>.md。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"

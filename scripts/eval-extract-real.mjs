@@ -32,8 +32,8 @@ import { fileURLToPath } from "node:url"
 import { computeCheckpointDigestOf } from "../src/lib/novel/checkpoint-digest.ts"
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const QMAI_ROOT = resolve(SCRIPT_DIR, "..")
-const DEFAULT_FIXTURES = join(QMAI_ROOT, "src", "lib", "novel", "eval", "fixtures")
+const NIKO_BUDDY_ROOT = resolve(SCRIPT_DIR, "..")
+const DEFAULT_FIXTURES = join(NIKO_BUDDY_ROOT, "src", "lib", "novel", "eval", "fixtures")
 
 const DECODE_ORDERS = ["utf-8", "gbk"]
 

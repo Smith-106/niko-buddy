@@ -31,7 +31,7 @@
  *
  *   > 图形投影候选点（`chapter-ingest-output.ts` 的 `buildGraphDerivation`/graphDerivation）
  *   > 本轮**未**接入——其为仅审计的候选（不见实体页落库），由后续批次单独评估。
- * 遵循 QMAI/CLAUDE.md：零 LLM 机械层 + 可注入核验，纯函数无副作用，Draft-first 不适用。
+ * 遵循 Niko Buddy CLAUDE.md：零 LLM 机械层 + 可注入核验，纯函数无副作用，Draft-first 不适用。
  */
 
 /** 单条被抽取的关系候选（与 `NovelGraphEdge` 三要素同构，保持本模块独立、无反向依赖）。 */

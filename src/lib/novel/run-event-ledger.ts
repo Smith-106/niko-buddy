@@ -32,7 +32,7 @@
  *   收容由结构性谓词保证：readGateRunPayload(:318) 首查 event.kind!=="gate-run"
  *   即返回 null——stage 系子门/告警/反事实事件结构性无法污染三门权威口径。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { z } from "zod"

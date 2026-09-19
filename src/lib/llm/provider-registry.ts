@@ -11,7 +11,7 @@
  * 机械层约束:
  *   纯数据 + 注册表操作，无 IO / 无网络 / 无模型调用。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { getProviderConfig as legacyGetProviderConfig } from "@/lib/llm-providers"

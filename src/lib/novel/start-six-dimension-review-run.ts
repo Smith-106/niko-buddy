@@ -71,7 +71,7 @@ export async function startSixDimensionReviewRun({
   })
 
   try {
-    // U2: advance status.review_job (non-blocking; no-op if no QMAI session status)
+    // U2: advance status.review_job (non-blocking; no-op if no Niko Buddy session status)
     void advanceReviewJobRunning(projectPath, meta?.chapterNumber).catch(() => {})
     // G5 (39 号修复): UI 路径注入机械连续性预检结果, 激活 continuity 维度短路
     // (与 deep-chapter fold 同源: runContinuityMechanicalPreflight → priorReviewResults)。

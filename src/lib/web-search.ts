@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Web search abstraction supporting Tavily, SerpApi, and SearXNG providers.
  */

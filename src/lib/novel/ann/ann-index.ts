@@ -10,7 +10,7 @@
  * 硬边界：本模块与同目录 `brute-force-index.ts` 均为纯函数/纯计算，零 IO / 零时钟 / 零模型调用；
  * **不解除** `ANN_PLAN.implemented=false`（近似未实现 → `ann_no_implementation` 谓词保持 locked）。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { z } from "zod"
 import { ANN_INDEX_KIND_SCHEMA } from "../retrieval-scale-placeholders"

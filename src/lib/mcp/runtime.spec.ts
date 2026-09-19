@@ -91,7 +91,7 @@ describe("buildMcpRuntime", () => {
       serverId: "graph",
       serverName: "Knowledge Graph",
       toolName: "query_graph",
-      qmaiToolName: "mcp_graph_query_graph",
+      nikoBuddyToolName: "mcp_graph_query_graph",
     }, { query: "主角关系" })
 
     expect(result.status).toBe("error")

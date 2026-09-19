@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Graph analysis utilities for discovering surprising connections
  * and knowledge gaps in the wiki knowledge graph.

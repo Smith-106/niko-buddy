@@ -17,7 +17,7 @@
  *
  * 机械层：纯函数，零 IO / 零时钟 / 零模型调用；事件对象只产出输入形态。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { CharacterArchetypeEntry } from "./asset-library"

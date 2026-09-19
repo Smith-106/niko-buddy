@@ -63,7 +63,7 @@ const CLAUDE_STDERR_LIMIT_BYTES: usize = 1024 * 1024;
 /// F-001 (ANL-010 C1): bounded stdout JSON buffer cap. The stdout BufReader
 /// drain loop previously had NO cap (only stderr was capped at
 /// CLAUDE_STDERR_LIMIT_BYTES), so a pipe-buffer-deadlock — the CLI blocks on
-/// writing to a full stdout pipe while QMAI stops draining — could grow
+/// writing to a full stdout pipe while Niko Buddy stops draining — could grow
 /// stdout unbounded and stall indefinitely (the S2 Chapter-12 root cause).
 /// Symmetric with codex_cli.rs STDOUT_LIMIT_BYTES (raised to match). On
 /// overflow the drain emits a final `stdout-buffer-overflow` marker line and

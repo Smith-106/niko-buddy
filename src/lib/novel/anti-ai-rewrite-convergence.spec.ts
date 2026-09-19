@@ -19,7 +19,7 @@
  *   - Draft-first (ADR-08): 本 spec 不触及 .novel/status.json 正式层。
  *   - fast-diff: 使用 computeMyersDiff 做行级章节 diff, 替换 LCS 大文本 O(NM) 路径。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

@@ -17,7 +17,7 @@
  *
  * 常态零副作用；`INTERNAL_EVAL_SET=1` 门控写 docs/p0/non-same-source-<YYYYMMDD>.md。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"

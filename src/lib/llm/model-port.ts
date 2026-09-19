@@ -10,7 +10,7 @@
  *
  * 不动 deep-chapter-generation.ts 的调用点（接线归后续）；只建层不改主链行为。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { streamChat, type StreamCallbacks } from "@/lib/llm-client"

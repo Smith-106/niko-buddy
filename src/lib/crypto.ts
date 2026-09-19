@@ -7,7 +7,7 @@
  * - Storage format: `enc::v1::<base64(nonce || ciphertext || tag)>`
  * - Fallback: Random localStorage-based fingerprint for non-Tauri environments
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { invoke } from "@tauri-apps/api/core"

@@ -4,8 +4,16 @@ const trimEnv = (value: unknown): string => {
   return typeof value === "string" ? value.trim() : ""
 }
 
+// 环境变量双名兼容：VITE_NIKOBUDDY_LLM_* 优先，VITE_QMAI_LLM_* 旧名回退（不破坏既有 .env）
+const readEnv = (suffix: string): string => {
+  return (
+    trimEnv(import.meta.env[`VITE_NIKOBUDDY_LLM_${suffix}`]) ||
+    trimEnv(import.meta.env[`VITE_QMAI_LLM_${suffix}`])
+  )
+}
+
 const readContextSize = (): number => {
-  const raw = Number(trimEnv(import.meta.env.VITE_QMAI_LLM_CONTEXT_SIZE))
+  const raw = Number(readEnv("CONTEXT_SIZE"))
   return Number.isFinite(raw) && raw > 0 ? raw : 204800
 }
 
@@ -14,9 +22,9 @@ export function loadEnvLlmDefault(): {
   providerConfigs: ProviderConfigs
   activePresetId: string
 } | null {
-  const apiKey = trimEnv(import.meta.env.VITE_QMAI_LLM_API_KEY)
-  const customEndpoint = trimEnv(import.meta.env.VITE_QMAI_LLM_ENDPOINT)
-  const model = trimEnv(import.meta.env.VITE_QMAI_LLM_MODEL)
+  const apiKey = readEnv("API_KEY")
+  const customEndpoint = readEnv("ENDPOINT")
+  const model = readEnv("MODEL")
 
   if (!apiKey || !customEndpoint || !model) return null
 

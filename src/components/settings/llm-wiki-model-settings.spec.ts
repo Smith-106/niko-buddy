@@ -25,7 +25,7 @@ function preset(id: string) {
   return found
 }
 
-describe("LLM Wiki model settings copied into QMAI", () => {
+describe("LLM Wiki model settings copied into Niko Buddy", () => {
   it("includes the LLM Wiki provider rows below the custom row", () => {
     expect(LLM_PRESETS[0]?.id).toBe("custom")
 

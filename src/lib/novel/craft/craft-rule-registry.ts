@@ -17,7 +17,7 @@
  *
  * Draft-first（ADR-08）：新增纯数据模块，不写运行时会话状态，不触及草稿正式层。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { NarrativeMode, ConflictCaliber } from "./canon-craft-fields"

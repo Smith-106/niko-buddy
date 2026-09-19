@@ -13,9 +13,9 @@
  *   纯函数 + 类型定义，无 IO / 无网络 / 无模型调用。
  *   硬前置检查需外部传入 status 与 reconcile 数据（由调用方注入，本模块不依赖 Tauri 运行时）。
  *
- * 遵循 QMAI/CLAUDE.md：T33b 新增锚点，落 `src/lib/novel/`。
+ * 遵循 Niko Buddy CLAUDE.md：T33b 新增锚点，落 `src/lib/novel/`。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import type { FallbackChainConfig } from "@/lib/llm/model-resolver"

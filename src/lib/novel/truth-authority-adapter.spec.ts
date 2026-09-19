@@ -4,7 +4,7 @@
  * 50 号报告 S0 行动项: 49 号 6 项补齐 spec 补测（C 视角 3/3 全票 claimed-only 修正）。
  * 覆盖: deriveTruthEntries 分级映射 / entryId 对齐 / runTruthAuthorityCheck 冲突→warning / 空事实→[]。
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

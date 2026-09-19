@@ -2,7 +2,7 @@
 /**
  * check-generated.mjs — 生成物闭环门禁 (P0 B3)
  *
- * 校验 QMAI 仓内 5 个 generated 产物的一致性，纯 Node stdlib，零依赖：
+ * 校验 本仓内 5 个 generated 产物的一致性，纯 Node stdlib，零依赖：
  *
  *   1. t2s-map.generated.ts            幂等可再生 → 临时路径重生成 + 字节比对（禁止全局 git diff）
  *   2. anti-ai-thresholds.generated.ts 与 docs/p2/anti-ai-thresholds.json 仓内源断言
@@ -162,7 +162,7 @@ function checkT2sMap() {
   }
 
   // 生成器不支持输出参数：把脚本复制到临时目录，改为
-  //   a) 把 root 推导钉死为仓内 QMAI 根（临时脚本的 import.meta.url 会指向 %TEMP%，
+  //   a) 把 root 推导钉死为仓内 仓库根（临时脚本的 import.meta.url 会指向 %TEMP%，
   //      root 随之漂移到临时目录，导致 BASE/源表读取失败）
   //   b) 仅把 writeFileSync 目标改写为临时路径（BASE 自读仍指向仓内产物，
   //      与真实生成语义一致）
@@ -418,7 +418,7 @@ function checkCommandsDoc() {
   }
   // --check 语义（P0 B4）：生成到 os.tmpdir() 临时路径，与仓内输出字节比对
   // （时间戳行规范化），不写盘、无副作用。仅校验仓内文件；hub 镜像副本
-  // （docs/qmai-codex-delivery/）仓外不可门禁，可接受。
+  // （docs/niko-buddy-codex-delivery/）仓外不可门禁，可接受。
   const r = spawnSync(process.execPath, [genScript, "--check"], { encoding: "utf8", timeout: 120000 })
   const out = toAscii(r.stdout).trim()
   const err = toAscii(r.stderr).trim()

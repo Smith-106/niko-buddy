@@ -1,5 +1,5 @@
 /**
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  *
  * Vision-caption helper — sends an image plus a factual prompt to a
  * vision-capable LLM and returns the model's plain-text description.

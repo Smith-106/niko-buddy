@@ -10,7 +10,7 @@
  *   - 工具函数 (getDimensionsByGate / getAllAuditDimensions / getGateDimensionCounts)
  *   - ADR-19 机械层零模型调用守卫
  *
- * @license MIT © QMAI
+ * @license MIT © Niko Buddy
  */
 
 import { describe, expect, it } from "vitest"

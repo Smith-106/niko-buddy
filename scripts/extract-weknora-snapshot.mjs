@@ -11,7 +11,7 @@
 // 输出：`src/lib/novel/__fixtures__/weknora-snapshot.<sha>.json`
 // （ensure_ascii=False 的中文原文 JSON；旧快照保留一波再删）。
 //
-// 用法（QMAI 根执行）：
+// 用法（仓库根执行）：
 //   node scripts/extract-weknora-snapshot.mjs            # 抽取（幂等：同 commit 已有快照则跳过）
 //   node scripts/extract-weknora-snapshot.mjs --check    # 只校验：快照与源一致（exit 0 一致 / 1 漂移 / 2 源不可读）
 // 退出码：0 成功/一致；1 漂移（--check）或抽取失败；2 源不可读/参数错误。
@@ -22,11 +22,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const QMAI_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
-const HUB_ROOT = join(QMAI_ROOT, "..")
+const NIKO_BUDDY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+const HUB_ROOT = join(NIKO_BUDDY_ROOT, "..")
 const WEKNORA_ROOT = join(HUB_ROOT, "reference", "WeKnora")
 const SAMPLES_DIR = join(WEKNORA_ROOT, "dataset", "samples")
-const FIXTURE_DIR = join(QMAI_ROOT, "src", "lib", "novel", "__fixtures__")
+const FIXTURE_DIR = join(NIKO_BUDDY_ROOT, "src", "lib", "novel", "__fixtures__")
 const PARQUET_FILES = ["queries.parquet", "corpus.parquet", "qrels.parquet", "answers.parquet", "qas.parquet"]
 
 const opts = { check: false }

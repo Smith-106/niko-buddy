@@ -14,7 +14,7 @@
  * Provenance is recorded in pack.gaps so scores are never silently compared
  * to offline-minimal fixtures as if identical.
  *
- * Usage (from QMAI/):
+ * Usage (from repo root):
  *   node scripts/export-production-context-pack.mjs \
  *     --project "E:/写作/8人" --chapter 4 \
  *     --out "../.workflow/harvest-staging/.../context-pack.ch4.json"
