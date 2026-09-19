@@ -38,7 +38,7 @@ describe("IPC camelCase contract (ISO 3.3.2 interoperability)", () => {
       let m: RegExpExecArray | null
       INVOKE_RE.lastIndex = 0
       while ((m = INVOKE_RE.exec(src)) !== null) {
-        const [full, cmd, argsBody] = m
+        const [, cmd, argsBody] = m
         // 只取顶层 key——截断在第一个嵌套 { 或 [ 之前的 key 列表
         const topLevel = argsBody.split(/[{\[]/, 1)[0]
         let km: RegExpExecArray | null
