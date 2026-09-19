@@ -7,6 +7,19 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.10.0] - 2026-09-19
+
+### 质量与标准合规（Added — ISO 全维度验收 + 需求工程/SRS 完备化）
+
+- **ISO/IEC 25010:2023 全项 5/5**：9 特性 38 子特性全部满分重评定稿；配套证据文档族落盘（functional-completeness/performance/reliability/flexibility/safety evidence）。
+- **可维护性 analysability 工具**：`scripts/impact-analysis.mjs` 静态影响面分析（扇入/扇出/符号引用/风险评分）；`ipc-contract.spec.ts` 契约测试（60+ 命令 snake_case + 顶层参数 camelCase）。
+- **交互能力补强**：welcome-screen 首次无项目显示 3 步快速上手引导（learnability/self-descriptiveness）；审计链密码学化（SHA-256 链式 prevHash/entryHash + timestamp/actor，业务字段幂等）。
+- **ISO/IEC/IEEE 29148 需求工程**：22+ REQ/NFR frontmatter 全属性完备（version/owner/risk/difficulty）；`.workflow/srs/SRS-niko-buddy.md` 集中 SRS（接口/usability/数据库需求汇聚）+ NFR-usability-001。
+- **ISO/IEC/IEEE 26531/14764/12207/21840** 专项评估全过：CCMS 内容管理 / 软件维护 / 生命周期过程 30/30 / SoS 治理。
+- **工程卫生**：kg 知识库 maestro.db VACUUM 回收 18.6G；临时/缓存/构建产物清理。
+
+**验证**：typecheck 0 错，全量测试通过；ISO 标准符合性文档族完备（`.workflow/`）。
+
 ## [2.9.5] - 2026-09-19
 
 ### 架构风险修复（Fixed — 8维 odyssey 全收敛）

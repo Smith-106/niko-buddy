@@ -7,7 +7,17 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.9.5**（2026-09-19 发布：8维架构风险修复 odyssey 全收敛）
+**v2.10.0**（2026-09-19 发布：ISO 全维度质量验收 + 需求工程/SRS 完备化）
+
+### v2.10.0 更新亮点（2026-09-19）
+
+- ✅ **ISO/IEC 25010:2023 全项 5/5** — 9 特性 38 子特性全部满分重评定稿，配套证据文档族（功能完备性/性能/可靠性/灵活性/安全性）落盘
+- ✅ **可维护性 analysability 工具** — `scripts/impact-analysis.mjs` 静态扇入/扇出/符号引用/风险评分；`ipc-contract.spec.ts` 契约测试（60+ 命令 snake_case + 顶层 camelCase）
+- ✅ **交互能力补强** — welcome-screen 首次无项目显示 3 步快速上手引导（learnability/self-descriptiveness）；审计链密码学化（SHA-256 链式 prevHash/entryHash + timestamp/actor，业务字段幂等）
+- ✅ **ISO/IEC/IEEE 29148 需求工程** — 22+ REQ/NFR frontmatter 全属性（version/owner/risk/difficulty）；集中 SRS `.workflow/srs/SRS-niko-buddy.md`（接口/usability/数据库汇聚）+ NFR-usability-001
+- ✅ **多标准符合性** — ISO/IEC/IEEE 26531（CCMS 内容管理）/14764（软件维护）/12207（生命周期过程 30/30）/21840（SoS 治理）专项评估全过
+- ✅ **工程卫生** — kg 知识库 maestro.db VACUUM 回收 18.6G；临时/缓存/构建产物清理
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 ### v2.9.5 更新亮点（2026-09-19）
 

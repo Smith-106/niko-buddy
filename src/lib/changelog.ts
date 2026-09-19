@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.10.0",
+    date: "2026-09-19",
+    highlights: {
+      en: [
+        "ISO/IEC 25010:2023 all 5/5 — 9 characteristics / 38 subcharacteristics fully re-scored to maximum, with evidence doc family on disk (functional-completeness/performance/reliability/flexibility/safety).",
+        "Maintainability analysability tooling: scripts/impact-analysis.mjs static fan-in/fan-out/symbol-ref/risk analysis; ipc-contract.spec.ts contract test (60+ commands snake_case + top-level camelCase).",
+        "Interaction capability boost: welcome-screen shows a 3-step quick-start card when no project exists (learnability/self-descriptiveness); audit chain cryptographized (SHA-256 prevHash/entryHash + timestamp/actor, business-field idempotent).",
+        "ISO/IEC/IEEE 29148 requirements engineering: 22+ REQ/NFR frontmatter completed (version/owner/risk/difficulty); centralized SRS at .workflow/srs/SRS-niko-buddy.md + NFR-usability-001.",
+        "ISO/IEC/IEEE 26531/14764/12207/21840 assessments all pass: CCMS content management / software maintenance / lifecycle processes 30/30 / SoS governance.",
+      ],
+      zh: [
+        "ISO/IEC 25010:2023 全项 5/5——9 特性 38 子特性全部满分重评，配套证据文档族落盘（功能完备性/性能/可靠性/灵活性/安全性）。",
+        "可维护性 analysability 工具：scripts/impact-analysis.mjs 静态扇入/扇出/符号引用/风险评分；ipc-contract.spec.ts 契约测试（60+ 命令 snake_case + 顶层 camelCase）。",
+        "交互能力补强：welcome-screen 首次无项目显示 3 步快速上手引导；审计链密码学化（SHA-256 链式 prevHash/entryHash + timestamp/actor，业务字段幂等）。",
+        "ISO/IEC/IEEE 29148 需求工程：22+ REQ/NFR frontmatter 全属性（version/owner/risk/difficulty）；集中 SRS .workflow/srs/SRS-niko-buddy.md + NFR-usability-001。",
+        "ISO/IEC/IEEE 26531/14764/12207/21840 评估全过：CCMS 内容管理 / 软件维护 / 生命周期过程 30/30 / SoS 治理。",
+      ],
+    },
+  },
+  {
     version: "2.9.5",
     date: "2026-09-19",
     highlights: {
