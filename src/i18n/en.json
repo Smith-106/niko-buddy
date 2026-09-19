@@ -690,7 +690,11 @@
   "welcome": {
     "newProject": "New Novel",
     "openProject": "Novel Directory",
-    "recentProjects": "Novel Shelf"
+    "recentProjects": "Novel Shelf",
+    "quickStart": "Quick Start",
+    "quickStart1": "New project — pick novel mode to create a workspace (wiki + .novel memory)",
+    "quickStart2": "Configure LLM — Settings → LLM provider, enter API endpoint + key (proxy supported)",
+    "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept"
   },
   "wiki": {
     "gatingProgress": {

@@ -239,7 +239,11 @@
   "welcome": {
     "newProject": "新建小说",
     "openProject": "小说目录",
-    "recentProjects": "小说书架"
+    "recentProjects": "小说书架",
+    "quickStart": "快速上手",
+    "quickStart1": "新建项目——选择小说模式，创建工作区（wiki + .novel 记忆）",
+    "quickStart2": "配置 LLM——设置 → LLM 提供商，填 API endpoint + key（支持代理）",
+    "quickStart3": "开始写作——章节生成走 Draft-first：AI 草稿 accept 后才写正式，安全可靠"
   },
   "sidebar": {
     "knowledge": "章节",

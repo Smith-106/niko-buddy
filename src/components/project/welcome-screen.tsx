@@ -80,6 +80,41 @@ export function WelcomeScreen({
           </Button>
         </div>
 
+        {/* 新手引导：首次无项目时显示3步快速上手（ISO 3.4.2 learnability + 3.4.8 self-descriptiveness） */}
+        {recentProjects.length === 0 && (
+          <div className="w-full max-w-md rounded-lg border bg-muted/30 p-4">
+            <div className="mb-3 text-sm font-medium">
+              {t("welcome.quickStart", { defaultValue: "快速上手" })}
+            </div>
+            <ol className="space-y-2 text-xs text-muted-foreground">
+              <li className="flex gap-2">
+                <span className="font-medium text-foreground">1.</span>
+                {t("welcome.quickStart1", {
+                  defaultValue: novelMode
+                    ? "新建项目 —— 选择小说模式，创建工作区（wiki + .novel 记忆）"
+                    : "新建项目 —— 选择目录，创建 wiki 知识库工作区",
+                })}
+              </li>
+              <li className="flex gap-2">
+                <span className="font-medium text-foreground">2.</span>
+                {t("welcome.quickStart2", {
+                  defaultValue: novelMode
+                    ? "配置 LLM —— 设置 → LLM 提供商，填 API endpoint + key（支持代理）"
+                    : "开始编辑 —— 左侧文件树新建/编辑 markdown 页面",
+                })}
+              </li>
+              <li className="flex gap-2">
+                <span className="font-medium text-foreground">3.</span>
+                {t("welcome.quickStart3", {
+                  defaultValue: novelMode
+                    ? "开始写作 —— 章节生成走 Draft-first：AI 草稿 accept 后才写正式，安全可靠"
+                    : "使用功能 —— 搜索/图谱/导入导出在顶部工具栏",
+                })}
+              </li>
+            </ol>
+          </div>
+        )}
+
         {recentProjects.length > 0 && (
           <div className="w-full max-w-md">
             <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">

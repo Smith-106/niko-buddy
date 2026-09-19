@@ -441,7 +441,19 @@ const AUDIT_FINDINGS_LINE_SCHEMA = z.object({
   ref: z.string().optional(),
   message: z.string().optional(),
   subtype: z.string().optional(),
+  // ISO 3.6.3 non-repudiation + 3.6.4 accountability：链式哈希+时间戳+操作者
+  timestamp: z.string().optional(),
+  actor: z.string().optional(),
+  prevHash: z.string().optional(),
+  entryHash: z.string().optional(),
 })
+
+/** 审计条目内容哈希（SHA-256 via WebCrypto，链式 prevHash 防篡改）。 */
+async function auditEntryHash(payload: string, prevHash: string): Promise<string> {
+  const data = new TextEncoder().encode(prevHash + "|" + payload)
+  const digest = await crypto.subtle.digest("SHA-256", data)
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("")
+}
 
 export async function appendAuditFindings(
   projectPath: string,
@@ -451,8 +463,38 @@ export async function appendAuditFindings(
   try {
     const dir = `${projectPath}/.novel`
     const filePath = `${dir}/audit-findings.jsonl`
-    const lines = findings.map((f) => JSON.stringify(
-      AUDIT_FINDINGS_LINE_SCHEMA.parse({
+    // 读现有链尾 prevHash（链式审计：每条 entryHash = SHA256(prevHash|content)）
+    let prevHash = "GENESIS"
+    let existing = new Set<string>()
+    const existingBusinessKeys = new Set<string>()
+    try {
+      if (await fileExists(filePath)) {
+        const content = await readFile(filePath)
+        const lines = content.split("\n").filter((l) => l.trim().length > 0)
+        existing = new Set(lines)
+        for (const l of lines) {
+          try {
+            const p = JSON.parse(l)
+            // 幂等判定用业务字段（type/severity/chapter/evidence/ref/message/subtype）
+            // —— timestamp/actor/prevHash/entryHash 不参与（审计链字段非业务重复判定）。
+            existingBusinessKeys.add(JSON.stringify({t:p.type,s:p.severity,c:p.chapter,e:p.evidence,r:p.ref,m:p.message,st:p.subtype}))
+          } catch { /* 损坏行跳过 */ }
+        }
+        const last = lines[lines.length - 1]
+        if (last) {
+          try {
+            const parsed = JSON.parse(last)
+            if (parsed.entryHash) prevHash = parsed.entryHash
+          } catch { /* 末行损坏则沿用 GENESIS */ }
+        }
+      }
+    } catch {
+      existing = new Set()
+    }
+    const actor = "review-adapter" // 操作者标识（accountability）
+    const lines: string[] = []
+    for (const f of findings) {
+      const base = {
         type: f.type,
         severity: f.severity,
         chapter: f.chapter,
@@ -460,18 +502,19 @@ export async function appendAuditFindings(
         ref: f.ref,
         message: f.message,
         subtype: f.subtype,
-      }),
-    ))
-    let existing = new Set<string>()
-    try {
-      if (await fileExists(filePath)) {
-        const content = await readFile(filePath)
-        existing = new Set(content.split("\n").filter((l) => l.trim().length > 0))
+        timestamp: new Date().toISOString(),
+        actor,
+        prevHash,
       }
-    } catch {
-      existing = new Set()
+      const businessKey = JSON.stringify({t:f.type,s:f.severity,c:f.chapter,e:f.evidence,r:f.ref,m:f.message,st:f.subtype})
+      if (existingBusinessKeys.has(businessKey)) continue // 幂等：业务字段重复跳过
+      const entryHash = await auditEntryHash(JSON.stringify(base), prevHash)
+      const line = JSON.stringify(AUDIT_FINDINGS_LINE_SCHEMA.parse({ ...base, entryHash }))
+      lines.push(line)
+      existingBusinessKeys.add(businessKey)
+      prevHash = entryHash // 链式推进
     }
-    const fresh = lines.filter((l) => !existing.has(l))
+    const fresh = lines
     if (fresh.length === 0) return
     await createDirectory(dir)
     await writeFileAtomic(filePath, [...existing, ...fresh].join("\n") + "\n")
