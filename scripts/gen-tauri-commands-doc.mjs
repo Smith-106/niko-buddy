@@ -147,7 +147,7 @@ if (check) {
     process.exitCode = 1
   } else {
     // 临时路径重生成 + 字节比对（R11 防御：禁止 git diff --exit-code）
-    const tmpDir = mkdtempSync(join(tmpdir(), "qmai-cmdoc-"))
+    const tmpDir = mkdtempSync(join(tmpdir(), "niko-buddy-cmdoc-"))
     let fresh
     try {
       const tmpOut = join(tmpDir, "tauri-commands-reference.md")

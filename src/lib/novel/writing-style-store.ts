@@ -1,7 +1,7 @@
 /**
  * 作品文风预设的项目级启用态 + 生成注入（feature/book-style-extraction）
  *
- * 镜像 character-aura 的 store 范式：存盘在 <projectPath>/.qmai/writing-style.json。
+ * 镜像 character-aura 的 store 范式：存盘在 <projectPath>/.niko-buddy/writing-style.json。
  * 启用某个文风后，buildWritingStyleContext() 把"风格宪法 + 代表样本"拼成注入文本，
  * 由 context-engine 的 readWritingStyle 接入 contextPack.writingStyle，
  * 经 contextPackToPrompt 流向普通对话与深度生成各阶段（含缓存前缀）。
@@ -37,7 +37,7 @@ const DEFAULT_CONSTITUTION_LIMIT = 800
 const DEFAULT_SAMPLES_LIMIT = 2500
 
 function storePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/writing-style.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/writing-style.json`
 }
 
 export async function loadWritingStyleStore(projectPath: string): Promise<WritingStyleStore> {
@@ -55,7 +55,7 @@ export async function loadWritingStyleStore(projectPath: string): Promise<Writin
 }
 
 export async function saveWritingStyleStore(projectPath: string, store: WritingStyleStore): Promise<void> {
-  await createDirectory(`${normalizePath(projectPath)}/.qmai`)
+  await createDirectory(`${normalizePath(projectPath)}/.niko-buddy`)
   await writeFileAtomic(storePath(projectPath), JSON.stringify(store, null, 2))
 }
 

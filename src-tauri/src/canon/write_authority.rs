@@ -438,13 +438,13 @@ mod tests {
         assert_eq!(
             may_write(
                 WriteSource::SkillImport,
-                &p("C:/Users/me/.qmai/user-assets/skill_bundle/a/1.0.0")
+                &p("C:/Users/me/.niko-buddy/user-assets/skill_bundle/a/1.0.0")
             ),
             WriteDecision::RequireGate
         );
         // 项目内资产路径仍不得成为技能包直写落点。
         assert_eq!(
-            may_write(WriteSource::SkillImport, &p(".qmai/user-assets/pkg/a")),
+            may_write(WriteSource::SkillImport, &p(".niko-buddy/user-assets/pkg/a")),
             WriteDecision::RequireGate
         );
     }
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(
             may_write(
                 WriteSource::UserEdit,
-                &p(".qmai/user-assets/pkg/a.nbskill.json")
+                &p(".niko-buddy/user-assets/pkg/a.nbskill.json")
             ),
             WriteDecision::RequireGate
         );
@@ -525,7 +525,7 @@ mod tests {
             WriteTarget::UserAssetRef
         );
         assert_eq!(
-            classify_target(&p("C:/Users/me/.qmai/user-assets/skill_bundle/a.json")),
+            classify_target(&p("C:/Users/me/.niko-buddy/user-assets/skill_bundle/a.json")),
             WriteTarget::UserAssetBody
         );
         // 大小写与分隔符归一

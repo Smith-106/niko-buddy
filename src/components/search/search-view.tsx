@@ -112,7 +112,7 @@ async function runNovelPanelSearch(
 }
 
 function getHistoryKey(projectId: string): string {
-  return `qmai_search_history_${projectId}`
+  return `niko_buddy_search_history_${projectId}`
 }
 
 function loadSearchHistory(projectId: string): string[] {

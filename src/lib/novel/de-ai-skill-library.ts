@@ -25,10 +25,10 @@ export interface DeAiSkillConfig {
 }
 
 export const DEFAULT_DE_AI_SKILL_ID = "built-in:comprehensive"
-// G7 (39 号修复): 配置迁入 .qmai/ 治理目录 (备份/清理脚本覆盖范围);
+// G7 (39 号修复): 配置迁入 .niko-buddy/ 治理目录 (备份/清理脚本覆盖范围);
 // 旧根路径 (projectPath/de-ai-skills.json) 保留为回退源, load 时惰性迁移。
-const DE_AI_SKILL_CONFIG_FILE = ".qmai/de-ai-skills.json"
-const DE_AI_SKILL_BACKUP_FILE = ".qmai/de-ai-skills.backup.json"
+const DE_AI_SKILL_CONFIG_FILE = ".niko-buddy/de-ai-skills.json"
+const DE_AI_SKILL_BACKUP_FILE = ".niko-buddy/de-ai-skills.backup.json"
 const DE_AI_SKILL_LEGACY_ROOT_FILE = "de-ai-skills.json"
 
 const configSaveQueues = new Map<string, Promise<void>>()
@@ -809,7 +809,7 @@ export async function loadDeAiSkillConfig(projectPath: string | null | undefined
     const legacyContent = await readFile(legacyPath)
     const legacyConfig = normalizeDeAiSkillConfig(JSON.parse(legacyContent))
     try {
-      await createDirectory(await join(projectPath, ".qmai"))
+      await createDirectory(await join(projectPath, ".niko-buddy"))
       await writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2))
     } catch {
       // 迁移写失败不阻断, 下次再试
@@ -845,9 +845,9 @@ async function writeDeAiSkillConfig(projectPath: string, config: DeAiSkillConfig
   const backupPath = await join(projectPath, DE_AI_SKILL_BACKUP_FILE)
   const content = JSON.stringify(normalizeDeAiSkillConfig(config), null, 2)
   try {
-    await createDirectory(await join(projectPath, ".qmai"))
+    await createDirectory(await join(projectPath, ".niko-buddy"))
   } catch {
-    // .qmai 已存在或创建失败均继续 (writeFileAtomic 会再试)
+    // .niko-buddy 已存在或创建失败均继续 (writeFileAtomic 会再试)
   }
   try {
     const existingContent = await readFile(configPath)

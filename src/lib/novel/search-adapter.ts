@@ -279,7 +279,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
 }
 
 /**
- * 64 号实施接线: 追加检索 trace 到 .qmai/retrieval-traces.jsonl（每行一条）。
+ * 64 号实施接线: 追加检索 trace 到 .niko-buddy/retrieval-traces.jsonl（每行一条）。
  * 静默失败（观测层不得影响主检索路径）。
  */
 async function appendRetrievalTraceQuietly(
@@ -288,7 +288,7 @@ async function appendRetrievalTraceQuietly(
 ): Promise<void> {
   try {
     const { readFile, writeFileAtomic } = await import("@/commands/fs")
-    const filePath = `${projectPath}/.qmai/retrieval-traces.jsonl`
+    const filePath = `${projectPath}/.niko-buddy/retrieval-traces.jsonl`
     let existing = ""
     try {
       existing = await readFile(filePath)

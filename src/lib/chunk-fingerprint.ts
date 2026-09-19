@@ -19,7 +19,7 @@
  *     truth the embed pipeline consults before upserting a chunk and
  *     mutates as pages are (re)indexed or deleted.
  *
- * Persistence: `<project>/.qmai/vector-fingerprints.json`, same `.qmai/`
+ * Persistence: `<project>/.niko-buddy/vector-fingerprints.json`, same `.niko-buddy/`
  * JSON-on-disk pattern as ingest-cache.json / image-caption-cache.json.
  * Atomic writes (writeFileAtomic) keep the index crash-safe; a corrupt or
  * missing file degrades to an empty index so ingestion never hard-fails.
@@ -46,7 +46,7 @@ function getCreateHash(): CreateHash {
   return _createHash
 }
 
-const FINGERPRINT_FILE = ".qmai/vector-fingerprints.json"
+const FINGERPRINT_FILE = ".niko-buddy/vector-fingerprints.json"
 
 /** Version stamp so a future on-disk format change can migrate cleanly. */
 // 55 号设计 W2-7: v1: 前缀引入后 bump 2 — 旧 64-hex 键与新 v1: 键混存时版本化读者可区分

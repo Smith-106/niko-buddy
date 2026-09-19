@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { conflictFileName } from "@/lib/novel/sync-client"
 import { getDeviceId, sanitizeDeviceId, setDeviceId } from "@/lib/device-id"
 
-const KEY = "qmai.deviceId"
+const KEY = "niko-buddy.deviceId"
 
 /** node 测试环境无 localStorage，按既有 crypto.spec.ts 的做法补一个。 */
 function makeLocalStorage(): Storage {
@@ -49,7 +49,7 @@ describe("sanitizeDeviceId", () => {
 })
 
 describe("getDeviceId", () => {
-  it("首次调用生成并持久化到 qmai.deviceId", () => {
+  it("首次调用生成并持久化到 niko-buddy.deviceId", () => {
     const id = getDeviceId()
     expect(id).toMatch(/^dev-[A-Za-z0-9_-]+$/)
     expect(storage.getItem(KEY)).toBe(id)

@@ -13,7 +13,7 @@ const msgs = (): Array<{ role: string; content: string }> => [
   { role: "assistant", content: "收到。修炼体系按炼气→筑基→金丹递进。" },
 ]
 
-describe("session-summary（context-hub 子件，qmai 移植）", () => {
+describe("session-summary（context-hub 子件，niko-buddy 移植）", () => {
   it("buildSessionContextSummary 生成头尾摘要", () => {
     const s = buildSessionContextSummary({
       messages: msgs(),

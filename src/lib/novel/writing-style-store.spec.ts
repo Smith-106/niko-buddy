@@ -110,7 +110,7 @@ describe("writing-style-store", () => {
 
   it("coerces a non-array styles field from a persisted file to []", async () => {
     // Array.isArray(parsed.styles) 为 false → 回退 [] 臂
-    mem.set(`${PROJECT}/.qmai/writing-style.json`, JSON.stringify({ version: 1, enabledStyleId: null, styles: "not-an-array" }))
+    mem.set(`${PROJECT}/.niko-buddy/writing-style.json`, JSON.stringify({ version: 1, enabledStyleId: null, styles: "not-an-array" }))
     const store = await loadWritingStyleStore(PROJECT)
     expect(store.styles).toEqual([])
     expect(store.enabledStyleId).toBeNull()
@@ -118,7 +118,7 @@ describe("writing-style-store", () => {
 
   it("returns null when the enabled style id is no longer present in the store", async () => {
     // enabledStyleId 已设置但对应 preset 被删 → find 回退 ?? null 臂
-    mem.set(PROJECT + "/.qmai/writing-style.json", JSON.stringify({ version: 1, enabledStyleId: "ghost", styles: [] }))
+    mem.set(PROJECT + "/.niko-buddy/writing-style.json", JSON.stringify({ version: 1, enabledStyleId: "ghost", styles: [] }))
     expect(await getEnabledWritingStyle(PROJECT)).toBeNull()
   })
 

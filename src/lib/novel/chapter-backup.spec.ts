@@ -22,7 +22,7 @@ describe("backupChapterFile", () => {
     fsMocks.writeFile.mockClear()
   })
 
-  it("writes backups into .qmai/chapter-backups with a timestamped chapter name", async () => {
+  it("writes backups into .niko-buddy/chapter-backups with a timestamped chapter name", async () => {
     const backupPath = await backupChapterFile({
       projectPath: "E:/Novel",
       chapterPath: "E:/Novel/wiki/chapters/第1章.md",
@@ -31,10 +31,10 @@ describe("backupChapterFile", () => {
       now: new Date("2026-06-09T15:30:12.000Z"),
     })
 
-    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.qmai/chapter-backups")
-    expect(backupPath).toBe("E:/Novel/.qmai/chapter-backups/chapter-001-20260609-153012.md")
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("E:/Novel/.niko-buddy/chapter-backups")
+    expect(backupPath).toBe("E:/Novel/.niko-buddy/chapter-backups/chapter-001-20260609-153012.md")
     expect(fsMocks.writeFile).toHaveBeenCalledWith(
-      "E:/Novel/.qmai/chapter-backups/chapter-001-20260609-153012.md",
+      "E:/Novel/.niko-buddy/chapter-backups/chapter-001-20260609-153012.md",
       "原始章节内容",
     )
   })
@@ -59,7 +59,7 @@ describe("backupChapterFile", () => {
       content: "内容",
       now: new Date("2026-06-09T15:30:12.000Z"),
     })
-    expect(backupPath).toBe("E:/Novel/.qmai/chapter-backups/chapter-unknown-20260609-153012.md")
+    expect(backupPath).toBe("E:/Novel/.niko-buddy/chapter-backups/chapter-unknown-20260609-153012.md")
 
     const zeroPath = await backupChapterFile({
       projectPath: "E:/Novel",

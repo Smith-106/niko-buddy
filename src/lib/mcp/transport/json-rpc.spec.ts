@@ -20,13 +20,13 @@ describe("JsonRpcClient", () => {
     ])
     const client = new JsonRpcClient(transport)
 
-    await client.call("initialize", { client: "qmai" })
+    await client.call("initialize", { client: "niko-buddy" })
 
     expect(JSON.parse(sent[0])).toEqual({
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { client: "qmai" },
+      params: { client: "niko-buddy" },
     })
   })
 

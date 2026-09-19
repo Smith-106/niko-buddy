@@ -431,7 +431,7 @@ async function autoIngestImpl(
   // Now that read_file's combined extraction has put `![](abs_path)`
   // markers inline in `sourceContent`, walk them and replace the
   // empty alt text with a vision-model-generated factual caption.
-  // SHA-256-keyed cache (`<project>/.qmai/image-caption-cache.json`)
+  // SHA-256-keyed cache (`<project>/.niko-buddy/image-caption-cache.json`)
   // dedupes across runs and across documents (shared logos / chart
   // templates caption once, not once per document).
   //
@@ -1297,7 +1297,7 @@ function buildPageMerger(llmConfig: LlmConfig): MergeFn {
 
 /**
  * Best-effort snapshot of a page before a fallback merge overwrites
- * it. Saved to `.qmai/page-history/<sanitized-path>-<timestamp>.md`
+ * it. Saved to `.niko-buddy/page-history/<sanitized-path>-<timestamp>.md`
  * so a user who later notices content lost in a merge can recover it.
  * Errors are swallowed by the caller (page-merge's tryBackup).
  */
@@ -1308,7 +1308,7 @@ async function backupExistingPage(
 ): Promise<void> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const sanitized = relativePath.replace(/[/\\]/g, "_")
-  const backupPath = `${projectPath}/.qmai/page-history/${sanitized}-${stamp}`
+  const backupPath = `${projectPath}/.niko-buddy/page-history/${sanitized}-${stamp}`
   await writeFile(backupPath, existingContent)
 }
 

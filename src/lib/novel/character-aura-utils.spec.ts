@@ -178,10 +178,10 @@ describe("compressMarkdownForAuraContext", () => {
 
 describe("storePath", () => {
   it("joins the normalized project path with the store file", () => {
-    expect(storePath("E:\\Novel")).toBe("E:/Novel/.qmai/character-aura.json")
+    expect(storePath("E:\\Novel")).toBe("E:/Novel/.niko-buddy/character-aura.json")
   })
 
   it("preserves a trailing slash from the normalized path", () => {
-    expect(storePath("E:\\Novel\\")).toBe("E:/Novel//.qmai/character-aura.json")
+    expect(storePath("E:\\Novel\\")).toBe("E:/Novel//.niko-buddy/character-aura.json")
   })
 })

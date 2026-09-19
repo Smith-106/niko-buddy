@@ -22,7 +22,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-const cachePath = "/proj/.qmai/ingest-cache.json"
+const cachePath = "/proj/.niko-buddy/ingest-cache.json"
 
 const entry = (hash: string, filesWritten: string[]) => ({
   hash,

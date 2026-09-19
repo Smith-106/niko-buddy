@@ -28,26 +28,25 @@ afterEach(() => {
 })
 
 describe("ContactSupportSection", () => {
-  it("renders the header and WeChat contact card with the contact image", () => {
+  it("renders the header and WeChat contact card with the QR placeholder", () => {
     render(<ContactSupportSection />)
     expect(screen.getByText("settings.sections.contactSupport.title")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.contactSupport.contact.title")).toBeInTheDocument()
-    const contactImg = screen.getByAltText("settings.sections.contactSupport.contact.alt")
-    expect(contactImg).toHaveAttribute("src", expect.stringContaining("wechat-contact"))
+    expect(
+      screen.getByText("settings.sections.contactSupport.contact.alt"),
+    ).toBeInTheDocument()
   })
 
-  it("renders both donation channels with their QR images", () => {
+  it("renders both donation channels with their QR placeholders", () => {
     render(<ContactSupportSection />)
     expect(screen.getByText("settings.sections.contactSupport.donation.title")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.contactSupport.donation.wechatPay.title")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.contactSupport.donation.alipayPay.title")).toBeInTheDocument()
-    expect(screen.getByAltText("settings.sections.contactSupport.donation.wechatPay.alt")).toHaveAttribute(
-      "src",
-      expect.stringContaining("wechat-pay"),
-    )
-    expect(screen.getByAltText("settings.sections.contactSupport.donation.alipayPay.alt")).toHaveAttribute(
-      "src",
-      expect.stringContaining("alipay-pay"),
-    )
+    expect(
+      screen.getByText("settings.sections.contactSupport.donation.wechatPay.alt"),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("settings.sections.contactSupport.donation.alipayPay.alt"),
+    ).toBeInTheDocument()
   })
 })

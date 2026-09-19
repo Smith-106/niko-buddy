@@ -276,7 +276,7 @@ describe("executeMerge", () => {
     )
     // snapshot + canonical + rewrites
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      expect.stringMatching(/\/P\/\.qmai\/page-history\/dedup-/),
+      expect.stringMatching(/\/P\/\.niko-buddy\/page-history\/dedup-/),
       "old A",
     )
     expect(mocks.writeFile).toHaveBeenCalledWith("/P/wiki/entities/canon.md", "# Canon merged")

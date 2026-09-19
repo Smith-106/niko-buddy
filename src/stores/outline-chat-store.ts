@@ -53,7 +53,7 @@ interface OutlineChatState {
 function resolveStoragePath(): string | null {
   const project = useWikiStore.getState().project
   if (!project?.path) return null
-  return `${normalizePath(project.path)}/.qmai/outline-chats.json`
+  return `${normalizePath(project.path)}/.niko-buddy/outline-chats.json`
 }
 
 /**
@@ -71,7 +71,7 @@ function deriveTitle(messages: OutlineChatMessage[], fallback: string): string {
 
 /**
  * Zustand store for outline-specific conversations. Conversations are
- * persisted to `<project>/.qmai/outline-chats.json` so they survive
+ * persisted to `<project>/.niko-buddy/outline-chats.json` so they survive
  * app restarts. Streaming state is intentionally excluded from disk.
  */
 export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({

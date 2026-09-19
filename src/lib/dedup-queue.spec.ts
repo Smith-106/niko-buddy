@@ -328,7 +328,7 @@ describe("restoreQueue", () => {
   it("registers the project when the saved queue is empty", async () => {
     mocks.readFile.mockResolvedValue("[]")
     await restoreQueue("pid", "/proj")
-    expect(mocks.readFile).toHaveBeenCalledWith("/proj/.qmai/dedup-queue.json")
+    expect(mocks.readFile).toHaveBeenCalledWith("/proj/.niko-buddy/dedup-queue.json")
     expect(getQueue()).toHaveLength(0)
     // project is now active → enqueue works
     const id = await enqueueMerge("pid", group, "dpao")

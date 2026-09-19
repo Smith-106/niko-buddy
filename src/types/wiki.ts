@@ -1,5 +1,5 @@
 export interface WikiProject {
-  /** Stable UUID, persisted inside the project at .qmai/project.json.
+  /** Stable UUID, persisted inside the project at .niko-buddy/project.json.
    *  Survives the user moving or renaming the project folder. */
   id: string
   name: string

@@ -19,7 +19,7 @@ import { normalizePath } from "@/lib/path-utils"
  * 与 DA-01「MUST NOT 新建第三库」的关系：**「域」≠「库」**。双库（过程库 `.novel/`、
  * 资料库 `QM/`）说的是**项目内**的持久化边界；用户资产域的本体落在**项目外**的用户级
  * 路径，项目内只留引用文件——因此不构成第三库，而是既有「项目内只存引用」惯例
- * （参见 user-skill-store 的 `.qmai/writing-skills.json` 治理目录先例）的显式化。
+ * （参见 user-skill-store 的 `.niko-buddy/writing-skills.json` 治理目录先例）的显式化。
  *
  * 落位（C-007）：
  *   - 技能包**本体** → 用户资产域（`USER_ASSET_ROOT`）；
@@ -30,7 +30,7 @@ import { normalizePath } from "@/lib/path-utils"
  */
 
 /** 用户资产域根目录（用户级、跨项目；落点在各项目之外）。 */
-export const USER_ASSET_ROOT = ".qmai/user-assets"
+export const USER_ASSET_ROOT = ".niko-buddy/user-assets"
 
 /** 项目侧唯一落点：引用文件（只存引用，不存本体）。 */
 export const USER_ASSET_REF_FILE = ".novel/user-asset-refs.json"

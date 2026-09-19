@@ -386,7 +386,7 @@ export async function createCustomCharacterAuraSkill(
   }
   const now = Date.now()
   const id = `custom-${now}-${Math.random().toString(36).slice(2, 8)}`
-  const skillFolder = `${normalizePath(projectPath)}/.qmai/character-auras/${safeSkillSlug(id, input.name)}-perspective`
+  const skillFolder = `${normalizePath(projectPath)}/.niko-buddy/character-auras/${safeSkillSlug(id, input.name)}-perspective`
   const totalSteps = 2 + AURA_WORKFLOW_STAGES.length + 2
   let progressStep = 0
   const emitProgress = (stage: string, detail: string, researchFileName?: CharacterAuraResearchFileName) => {
@@ -476,7 +476,7 @@ export async function createCustomCharacterAuraSkill(
  *
  * 区别于 createCustomCharacterAuraSkill：本函数不再调用 LLM，
  * 假定 skillContent 和 researchFiles 已经由 6 维度分析生成完毕，
- * 只负责把结果落盘到 <projectPath>/.qmai/character-auras/<id>-perspective/。
+ * 只负责把结果落盘到 <projectPath>/.niko-buddy/character-auras/<id>-perspective/。
  */
 export async function createCustomCharacterAuraFromGeneratedSkill(
   projectPath: string,
@@ -485,7 +485,7 @@ export async function createCustomCharacterAuraFromGeneratedSkill(
   const store = await loadCharacterAuraStore(projectPath)
   const now = Date.now()
   const id = `custom-${now}-${Math.random().toString(36).slice(2, 8)}`
-  const skillFolder = `${normalizePath(projectPath)}/.qmai/character-auras/${safeSkillSlug(id, input.name)}-perspective`
+  const skillFolder = `${normalizePath(projectPath)}/.niko-buddy/character-auras/${safeSkillSlug(id, input.name)}-perspective`
   const aura: CharacterAura = {
     id,
     builtIn: false,
@@ -2002,7 +2002,7 @@ function storedCustomResearchMarkdown(aura: CharacterAura, fileName: CharacterAu
 }
 
 function storePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/character-aura.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/character-aura.json`
 }
 
 function normalizeCharacterText(value: string): string {

@@ -10,14 +10,20 @@
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
-export const DEFAULT_SIGNING_KEY_NAME = ".tauri/qmai-updater.key"
+export const DEFAULT_SIGNING_KEY_NAME = ".tauri/niko-buddy-updater.key"
+const LEGACY_SIGNING_KEY_NAME = ".tauri/qmai-updater.key"
 
-/** Resolve the signing key path (env override wins over the home fallback). */
+/** Resolve the signing key path (env override wins, then new name, then legacy qmai name). */
 export function resolveSigningKeyPath() {
-  return (
-    process.env.TAURI_SIGNING_PRIVATE_KEY_PATH ||
-    resolve(process.env.USERPROFILE ?? process.env.HOME ?? ".", DEFAULT_SIGNING_KEY_NAME)
-  )
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    return process.env.TAURI_SIGNING_PRIVATE_KEY_PATH
+  }
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "."
+  const newPath = resolve(home, DEFAULT_SIGNING_KEY_NAME)
+  if (existsSync(newPath)) return newPath
+  const legacyPath = resolve(home, LEGACY_SIGNING_KEY_NAME)
+  if (existsSync(legacyPath)) return legacyPath
+  return newPath
 }
 
 /** Throw a descriptive error when the resolved key file is absent. */

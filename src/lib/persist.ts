@@ -1,6 +1,6 @@
 /**
  * Persistent storage for chat history and review items.
- * Writes verified JSON snapshots to `.qmai/` with per-conversation
+ * Writes verified JSON snapshots to `.niko-buddy/` with per-conversation
  * message files and backward-compatible legacy format migration.
  * MIT License — independently implemented.
  */
@@ -26,24 +26,24 @@ function safeParseArray<T>(content: string, fieldName: string = "items"): T[] {
   }
 }
 
-/** Ensure the `.qmai/` and `.qmai/chats/` directories exist. */
+/** Ensure the `.niko-buddy/` and `.niko-buddy/chats/` directories exist. */
 async function ensureStorageDirs(projectPath: string): Promise<void> {
-  await createDirectory(`${projectPath}/.qmai`).catch(() => {})
-  await createDirectory(`${projectPath}/.qmai/chats`).catch(() => {})
+  await createDirectory(`${projectPath}/.niko-buddy`).catch(() => {})
+  await createDirectory(`${projectPath}/.niko-buddy/chats`).catch(() => {})
 }
 
-/** Save review items as a JSON array to `.qmai/review.json`. */
+/** Save review items as a JSON array to `.niko-buddy/review.json`. */
 export async function saveReviewItems(projectPath: string, items: ReviewItem[]): Promise<void> {
   const pp = normalizePath(projectPath)
   await ensureStorageDirs(pp)
-  await writeFileAtomic(`${pp}/.qmai/review.json`, JSON.stringify(items, null, 2))
+  await writeFileAtomic(`${pp}/.niko-buddy/review.json`, JSON.stringify(items, null, 2))
 }
 
-/** Load review items from `.qmai/review.json`, returning [] on any error. */
+/** Load review items from `.niko-buddy/review.json`, returning [] on any error. */
 export async function loadReviewItems(projectPath: string): Promise<ReviewItem[]> {
   const pp = normalizePath(projectPath)
   try {
-    const content = await readFile(`${pp}/.qmai/review.json`)
+    const content = await readFile(`${pp}/.niko-buddy/review.json`)
     return safeParseArray<ReviewItem>(content, "reviewItems")
   } catch {
     return []
@@ -131,7 +131,7 @@ export async function saveChatHistory(
     await ensureStorageDirs(pp)
 
     await writeAndVerifyJsonArray(
-      `${pp}/.qmai/conversations.json`,
+      `${pp}/.niko-buddy/conversations.json`,
       conversations,
       "聊天会话索引",
       (parsed) => verifyConversationSnapshot(parsed, conversations),
@@ -147,7 +147,7 @@ export async function saveChatHistory(
     for (const [convId, msgs] of grouped) {
       const trimmed = msgs.slice(-(maxMessages || 100))
       await writeAndVerifyJsonArray(
-        `${pp}/.qmai/chats/${convId}.json`,
+        `${pp}/.niko-buddy/chats/${convId}.json`,
         trimmed,
         `聊天消息文件 ${convId}`,
         (parsed) => verifyMessageSnapshot(parsed, trimmed),
@@ -164,13 +164,13 @@ export async function saveChatHistory(
 export async function loadChatHistory(projectPath: string): Promise<PersistedChatData> {
   const pp = normalizePath(projectPath)
   try {
-    const convContent = await readFile(`${pp}/.qmai/conversations.json`)
+    const convContent = await readFile(`${pp}/.niko-buddy/conversations.json`)
     const conversations = safeParseArray<Conversation>(convContent, "conversations")
 
     const allMessages: DisplayMessage[] = []
     for (const conv of conversations) {
       try {
-        const msgContent = await readFile(`${pp}/.qmai/chats/${conv.id}.json`)
+        const msgContent = await readFile(`${pp}/.niko-buddy/chats/${conv.id}.json`)
         const msgs = safeParseArray<DisplayMessage>(msgContent, "messages")
         allMessages.push(...msgs)
       } catch {
@@ -182,7 +182,7 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
   } catch {
     // Legacy format fallback.
     try {
-      const content = await readFile(`${pp}/.qmai/chat-history.json`)
+      const content = await readFile(`${pp}/.niko-buddy/chat-history.json`)
       const parsed = JSON.parse(content)
 
       if (Array.isArray(parsed)) {

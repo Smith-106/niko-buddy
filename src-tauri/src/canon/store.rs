@@ -110,7 +110,7 @@ fn intervals_overlap(a: &CanonEdge, b: &CanonEdge) -> bool {
 }
 
 fn db_path(project_path: &str) -> String {
-    format!("{}/.qmai/lancedb", project_path.replace('\\', "/"))
+    format!("{}/.niko-buddy/lancedb", project_path.replace('\\', "/"))
 }
 
 /// 转义为 LanceDB SQL 字符串字面量（单引号包裹，内部单引号加倍）。
@@ -639,7 +639,7 @@ pub struct CompactionReport {
     pub tables_compacted: Vec<String>,
 }
 
-/// LanceDB 支持的 canon 存储。每项目一库（`<project>/.qmai/lancedb`）。
+/// LanceDB 支持的 canon 存储。每项目一库（`<project>/.niko-buddy/lancedb`）。
 pub struct CanonStore {
     db: lancedb::Connection,
     manifest: SchemaManifest,

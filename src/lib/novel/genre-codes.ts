@@ -2,7 +2,7 @@
  * 55 号设计 W1-1 (54⑧ 收尾): 题材 (genre) 码表统一模块。
  *
  * 单真源纪律 (55 号设计报告 §八.1):
- * - 运行时真源 = NovelConfig.genre (`.qmai/novel-config.json`, 英文稳定码)。
+ * - 运行时真源 = NovelConfig.genre (`.niko-buddy/novel-config.json`, 英文稳定码)。
  * - 本模块是「UI 码 → de-ai-rules 中文流派名」的唯一映射层;
  *   未知码/undefined 一律透传 undefined → 生成链与现状逐字节一致。
  * - 不接 audit-taxonomy 的 GENRE_AUDIT_ACTIVATION (门控敏感, 观察项)。

@@ -51,7 +51,7 @@ const HISTORY_ENTRY = {
   sourcePath: "ch1.md",
   results: [ORPHAN, NO_OUT],
   createdAt: "2026-01-02T03:04:05Z",
-  filePath: "/p/mybook/.qmai/history/h1.json",
+  filePath: "/p/mybook/.niko-buddy/history/h1.json",
 }
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────

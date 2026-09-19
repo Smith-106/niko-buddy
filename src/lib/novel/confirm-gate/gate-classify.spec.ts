@@ -103,7 +103,7 @@ describe("gate-classify / 三分类", () => {
   });
 
   it("既有投影目录为派生可重建", () => {
-    expect(classifyRebuildClass(".qmai/lancedb")).toBe("derived_rebuildable");
+    expect(classifyRebuildClass(".niko-buddy/lancedb")).toBe("derived_rebuildable");
     expect(classifyRebuildClass("backups/auto/x.zip")).toBe("derived_rebuildable");
   });
 

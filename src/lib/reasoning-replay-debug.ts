@@ -2,7 +2,7 @@ import type { ChatMessage } from "./llm-providers"
 import { isTauri } from "./platform"
 
 const TAG = "[reasoning-replay]"
-const RECENT_LOG_KEY = "qmai.reasoningReplayLogs"
+const RECENT_LOG_KEY = "niko-buddy.reasoningReplayLogs"
 const MAX_RECENT_LOGS = 40
 
 interface ReasoningMessageProbe {

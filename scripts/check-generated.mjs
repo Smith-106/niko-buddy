@@ -174,7 +174,7 @@ function checkT2sMap() {
     return
   }
 
-  const tmpDir = mkdtempSync(join(tmpdir(), "qmai-gencheck-"))
+  const tmpDir = mkdtempSync(join(tmpdir(), "niko-buddy-gencheck-"))
   try {
     const tmpOut = join(tmpDir, "t2s-map.generated.ts")
     const tmpScript = join(tmpDir, "gen-t2s-map.mjs")

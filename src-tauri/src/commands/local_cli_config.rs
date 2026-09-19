@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn reads_claude_model_from_settings_json() {
-        let dir = create_temp_dir("qmai-local-cli-config-test-claude");
+        let dir = create_temp_dir("niko-buddy-local-cli-config-test-claude");
         let claude_dir = dir.join(".claude");
         std::fs::create_dir_all(&claude_dir).unwrap();
         std::fs::write(
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn reads_codex_model_from_config_toml() {
-        let dir = create_temp_dir("qmai-local-cli-config-test-codex");
+        let dir = create_temp_dir("niko-buddy-local-cli-config-test-codex");
         let codex_dir = dir.join(".codex");
         std::fs::create_dir_all(&codex_dir).unwrap();
         std::fs::write(

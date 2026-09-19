@@ -76,7 +76,7 @@ vi.mock("@/lib/source-lifecycle", () => ({
 }))
 
 const project: WikiProject = { id: "proj1", name: "P", path: "C:/projects/p" }
-const DB_FILE = "C:/projects/p/.qmai/scheduled-import-db.json"
+const DB_FILE = "C:/projects/p/.niko-buddy/scheduled-import-db.json"
 
 const storeState = {
   projectId: "proj1",
@@ -111,7 +111,7 @@ const config: ScheduledImportConfig = { enabled: true, path: "watched", interval
 
 describe("path helpers", () => {
   it("detects internal paths", () => {
-    expect(isScheduledImportInternalPath("C:/p/.qmai/x.json")).toBe(true)
+    expect(isScheduledImportInternalPath("C:/p/.niko-buddy/x.json")).toBe(true)
     expect(isScheduledImportInternalPath("C:/p/raw/.llm-wiki-imported/y")).toBe(true)
     expect(isScheduledImportInternalPath("C:/p/raw/.llm-wiki/z")).toBe(true)
     expect(isScheduledImportInternalPath("C:/p/wiki/a.md")).toBe(false)
@@ -119,7 +119,7 @@ describe("path helpers", () => {
 
   it("skips internal, wiki, cache and dotfile paths", () => {
     const pp = "C:/p"
-    expect(shouldSkipScheduledImportFile(pp, "C:/p/.qmai/db.json")).toBe(true)
+    expect(shouldSkipScheduledImportFile(pp, "C:/p/.niko-buddy/db.json")).toBe(true)
     expect(shouldSkipScheduledImportFile(pp, "C:/p/wiki/entities/a.md")).toBe(true)
     expect(shouldSkipScheduledImportFile(pp, "C:/p/raw/sources/.cache/a.txt")).toBe(true)
     expect(shouldSkipScheduledImportFile(pp, "C:/p/raw/sources/.hidden")).toBe(true)
@@ -400,7 +400,7 @@ describe("scanAndImport", () => {
       "/home/u/p/watched/a.md",
       "/home/u/p/raw/sources/scheduled-import/a.md",
     )
-    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/home/u/p/.qmai/scheduled-import-db.json", expect.any(String))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/home/u/p/.niko-buddy/scheduled-import-db.json", expect.any(String))
   })
 })
 

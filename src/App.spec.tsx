@@ -59,7 +59,7 @@ const mocks = vi.hoisted(() => {
     stopScheduledImport: vi.fn(),
     getCurrentWindow: vi.fn(() => ({ setTitle: vi.fn() })),
     claimProjectOwnership: vi.fn(async () => ({ ok: true, conflict: false, tookOver: false })),
-    // project-owner 锁 (54 号设计隐患 1): 打开项目时读/写 .qmai/owner.json
+    // project-owner 锁 (54 号设计隐患 1): 打开项目时读/写 .niko-buddy/owner.json
     readFile: vi.fn(async () => {
       throw new Error("ENOENT: no owner.json")
     }),

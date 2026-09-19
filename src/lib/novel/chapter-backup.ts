@@ -8,7 +8,7 @@ import { normalizePath } from "@/lib/path-utils"
  * - campaign  战役/批量连写产物
  * - template  模板/导入路径（draft-importer 等）
  * - migrated  旧格式迁移（无来源元数据的存量备份）
- * 标签写入备份文件名后缀（.qmai/chapter-backups/ 无读端，命名向后兼容：
+ * 标签写入备份文件名后缀（.niko-buddy/chapter-backups/ 无读端，命名向后兼容：
  * 未传 source 时保持旧格式文件名）。
  */
 export type ChapterBackupSource = "manual" | "llm" | "campaign" | "template" | "migrated"
@@ -62,7 +62,7 @@ export async function backupChapterFile(input: {
   /** 64 号实施 additive: 版本来源五标签（缺省不写后缀，向后兼容）。 */
   source?: ChapterBackupSource
 }): Promise<string> {
-  const backupDir = `${normalizePath(input.projectPath)}/.qmai/chapter-backups`
+  const backupDir = `${normalizePath(input.projectPath)}/.niko-buddy/chapter-backups`
   const stamp = formatBackupTimestamp(input.now ?? new Date())
   const prefix = input.chapterNumber && input.chapterNumber > 0
     ? `chapter-${String(input.chapterNumber).padStart(3, "0")}`

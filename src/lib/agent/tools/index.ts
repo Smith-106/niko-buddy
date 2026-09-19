@@ -70,7 +70,7 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
   const chaptersDir = `${options.wikiPath}/chapters`
   const memoryDir = `${options.wikiPath}/memory`
   const outlinesDir = `${options.wikiPath}/outlines`
-  const simDir = `${options.wikiPath}/../.qmai/simulations`
+  const simDir = `${options.wikiPath}/../.niko-buddy/simulations`
   const disabledTools = new Set(options.disabledTools ?? [])
   const enabledToolNames = options.enabledToolNames ? new Set(options.enabledToolNames) : null
   const shouldRegister = (name: string) =>

@@ -282,9 +282,9 @@ describe("接线：云端备份（F-004）与快照时间机器（F-002）", () 
     expect(screen.getByTestId("mock-snapshot-timeline")).toHaveTextContent("E:/Novel")
   })
 
-  it("deviceId 首次渲染即生成并持久化到 qmai.deviceId", () => {
+  it("deviceId 首次渲染即生成并持久化到 niko-buddy.deviceId", () => {
     render(<BackupExportView />)
-    const persisted = localStorage.getItem("qmai.deviceId")
+    const persisted = localStorage.getItem("niko-buddy.deviceId")
     expect(persisted).toMatch(/^dev-[A-Za-z0-9_-]+$/)
     expect(screen.getByTestId("mock-cloud-backup")).toHaveTextContent(`E:/Novel|${persisted}`)
   })
@@ -293,7 +293,7 @@ describe("接线：云端备份（F-004）与快照时间机器（F-002）", () 
     render(<BackupExportView />)
     const input = screen.getByLabelText("novel.backupExport.deviceIdLabel")
     fireEvent.change(input, { target: { value: "desk top/01" } })
-    expect(localStorage.getItem("qmai.deviceId")).toBe("desktop01")
+    expect(localStorage.getItem("niko-buddy.deviceId")).toBe("desktop01")
     expect(screen.getByTestId("mock-cloud-backup")).toHaveTextContent("E:/Novel|desktop01")
   })
 

@@ -2,7 +2,7 @@
  * 故事框架持久化
  *
  * 将 StoryFramework 以 Markdown 文档（YAML frontmatter + 正文）的形式
- * 持久化到项目的 .qmai/simulations 目录下，并提供加载 / 删除 / 推演结果
+ * 持久化到项目的 .niko-buddy/simulations 目录下，并提供加载 / 删除 / 推演结果
  * 存取能力。
  */
 
@@ -30,7 +30,7 @@ import type {
 } from "./types"
 import type { SerializedSimulationSnapshot } from "./simulation-serializer"
 
-const SIM_ROOT = ".qmai/simulations"
+const SIM_ROOT = ".niko-buddy/simulations"
 const FRAMEWORKS_DIR = `${SIM_ROOT}/frameworks`
 const RESULTS_DIR = `${SIM_ROOT}/results`
 
@@ -58,7 +58,7 @@ function frameworkResultsDir(projectPath: string, frameworkId: string): string {
 // ── 目录初始化 ──
 
 /**
- * 创建 .qmai/simulations/{frameworks,results,bindings} 目录。
+ * 创建 .niko-buddy/simulations/{frameworks,results,bindings} 目录。
  * createDirectory 内部使用 create_dir_all，已存在时不会报错。
  */
 async function ensureSimulationDirs(projectPath: string): Promise<void> {

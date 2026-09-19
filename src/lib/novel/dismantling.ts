@@ -52,11 +52,11 @@ const DEFAULT_LIBRARY: DismantlingLibrary = {
 export const DISMANTLING_NO_PREPROCESSING_NEEDED = "no preprocessing needed"
 
 export function getDismantlingLibraryPath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/dismantling/library.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/dismantling/library.json`
 }
 
 export function getDismantlingLibraryDir(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/dismantling`
+  return `${normalizePath(projectPath)}/.niko-buddy/dismantling`
 }
 
 export async function loadDismantlingLibrary(projectPath: string): Promise<DismantlingLibrary> {

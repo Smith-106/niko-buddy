@@ -6,7 +6,7 @@
  *
  * 定位：检索侧 chunk 级人工/反馈标注，标注随内容指纹版本化（内容变更 →
  * 指纹失配 → 标注自动失效），召回侧按标注极性加减分。全链路纯函数零 LLM；
- * 持久化 `.qmai/chunk-annotations.json`（writeFileAtomic 原子写，损坏 → 空库
+ * 持久化 `.niko-buddy/chunk-annotations.json`（writeFileAtomic 原子写，损坏 → 空库
  * 安全降级）。消费面（search-adapter）经 flag 门控缺省关闭，字节级回退现状。
  *
  * 与 reference-binding.ts 的关系：reference-binding 是「素材→章节用途绑定」
@@ -42,7 +42,7 @@ export function createEmptyChunkAnnotationStore(): ChunkAnnotationStore {
   return { version: 1, annotations: [], lastUpdated: new Date().toISOString() }
 }
 
-const ANNOTATION_FILE = ".qmai/chunk-annotations.json"
+const ANNOTATION_FILE = ".niko-buddy/chunk-annotations.json"
 
 export function chunkAnnotationsPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${ANNOTATION_FILE}`

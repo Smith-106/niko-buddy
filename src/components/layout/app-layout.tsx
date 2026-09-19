@@ -17,7 +17,7 @@ import { clampSidebarWidth } from "@/lib/workspace-layout"
 import { useTranslation } from "react-i18next"
 import { HelpCircle, X } from "lucide-react"
 
-const USAGE_GUIDE_PROMPT_DISMISSED_KEY = "qmai-usage-guide-prompt-dismissed"
+const USAGE_GUIDE_PROMPT_DISMISSED_KEY = "niko-buddy-usage-guide-prompt-dismissed"
 
 interface AppLayoutProps {
   onSwitchProject: () => void

@@ -40,8 +40,8 @@ import { loadChatHistory, saveChatHistory, loadReviewItems, saveReviewItems } fr
 
 const projectPath = "E:\\Novel"
 const normalizedProjectPath = "E:/Novel"
-const conversationsPath = `${normalizedProjectPath}/.qmai/conversations.json`
-const conversationFilePath = `${normalizedProjectPath}/.qmai/chats/conv-1.json`
+const conversationsPath = `${normalizedProjectPath}/.niko-buddy/conversations.json`
+const conversationFilePath = `${normalizedProjectPath}/.niko-buddy/chats/conv-1.json`
 
 const baseConversation: Conversation = {
   id: "conv-1",
@@ -90,8 +90,8 @@ describe("persist chat history", () => {
     await saveChatHistory(projectPath, [baseConversation], baseMessages, 20)
 
     expect(fsState.createdDirs).toEqual(new Set([
-      `${normalizedProjectPath}/.qmai`,
-      `${normalizedProjectPath}/.qmai/chats`,
+      `${normalizedProjectPath}/.niko-buddy`,
+      `${normalizedProjectPath}/.niko-buddy/chats`,
     ]))
     expect(JSON.parse(fsState.fileMap.get(conversationsPath) ?? "null")).toEqual([baseConversation])
     expect(JSON.parse(fsState.fileMap.get(conversationFilePath) ?? "null")).toEqual(baseMessages)
@@ -159,7 +159,7 @@ describe("persist — full-coverage extensions", () => {
     })
   })
 
-  const reviewPath = `${normalizedProjectPath}/.qmai/review.json`
+  const reviewPath = `${normalizedProjectPath}/.niko-buddy/review.json`
 
   it("saves review items and creates storage directories", async () => {
     const item = { id: "r1", title: "Review", description: "d", options: [], resolved: false, createdAt: 1, type: "suggestion" } as ReviewItem
@@ -167,8 +167,8 @@ describe("persist — full-coverage extensions", () => {
     await saveReviewItems(projectPath, [item])
 
     expect(fsState.createdDirs).toEqual(new Set([
-      `${normalizedProjectPath}/.qmai`,
-      `${normalizedProjectPath}/.qmai/chats`,
+      `${normalizedProjectPath}/.niko-buddy`,
+      `${normalizedProjectPath}/.niko-buddy/chats`,
     ]))
     expect(JSON.parse(fsState.fileMap.get(reviewPath) ?? "null")).toEqual([item])
   })
@@ -217,7 +217,7 @@ describe("persist — full-coverage extensions", () => {
     })
 
     await expect(saveChatHistory(projectPath, [baseConversation], baseMessages, 20))
-      .rejects.toThrow("聊天会话索引 写入后回读失败（E:/Novel/.qmai/conversations.json）：raw disk failure")
+      .rejects.toThrow("聊天会话索引 写入后回读失败（E:/Novel/.niko-buddy/conversations.json）：raw disk failure")
   })
 
   it("swallows directory creation failures", async () => {
@@ -264,7 +264,7 @@ describe("persist — full-coverage extensions", () => {
 
   it("loads legacy flat-array chat history into the default conversation", async () => {
     fsState.fileMap.set(
-      `${normalizedProjectPath}/.qmai/chat-history.json`,
+      `${normalizedProjectPath}/.niko-buddy/chat-history.json`,
       JSON.stringify(baseMessages),
     )
 
@@ -282,7 +282,7 @@ describe("persist — full-coverage extensions", () => {
 
   it("uses Date.now() for missing timestamps in legacy chat history", async () => {
     fsState.fileMap.set(
-      `${normalizedProjectPath}/.qmai/chat-history.json`,
+      `${normalizedProjectPath}/.niko-buddy/chat-history.json`,
       JSON.stringify([{ id: "a", role: "user", content: "x", conversationId: "ignored" }]),
     )
 
@@ -295,7 +295,7 @@ describe("persist — full-coverage extensions", () => {
 
   it("returns legacy object-format chat history as-is", async () => {
     const data = { conversations: [baseConversation], messages: baseMessages }
-    fsState.fileMap.set(`${normalizedProjectPath}/.qmai/chat-history.json`, JSON.stringify(data))
+    fsState.fileMap.set(`${normalizedProjectPath}/.niko-buddy/chat-history.json`, JSON.stringify(data))
 
     const loaded = await loadChatHistory(projectPath)
 
@@ -305,10 +305,10 @@ describe("persist — full-coverage extensions", () => {
   it("warns and returns empty when the legacy chat history payload is invalid", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 
-    fsState.fileMap.set(`${normalizedProjectPath}/.qmai/chat-history.json`, "null")
+    fsState.fileMap.set(`${normalizedProjectPath}/.niko-buddy/chat-history.json`, "null")
     expect(await loadChatHistory(projectPath)).toEqual({ conversations: [], messages: [] })
 
-    fsState.fileMap.set(`${normalizedProjectPath}/.qmai/chat-history.json`, "42")
+    fsState.fileMap.set(`${normalizedProjectPath}/.niko-buddy/chat-history.json`, "42")
     expect(await loadChatHistory(projectPath)).toEqual({ conversations: [], messages: [] })
 
     expect(warnSpy).toHaveBeenCalledTimes(2)

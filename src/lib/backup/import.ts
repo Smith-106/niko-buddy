@@ -73,9 +73,9 @@ export async function importBackup(
     }
 
     if (result.localStorageData) {
-      const prefixes = ["qmai", "lk-"]
+      const prefixes = ["niko-buddy", "lk-"]
       /** Protect the local device-bound fingerprint key so that already-encrypted apiKeys on this machine remain decryptable after a restore. */
-      const PROTECT_KEYS = new Set(["qmai_fallback_fingerprint"])
+      const PROTECT_KEYS = new Set(["niko_buddy_fallback_fingerprint"])
       const keysToRemove: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)

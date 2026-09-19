@@ -53,15 +53,15 @@ describe("generation-history", () => {
       sourcePath: "/p/chapters/ch3.md",
       results: [{ file: "ch3.md", ok: true } as never],
     })
-    // 目录创建顺序：.qmai → root → kind
+    // 目录创建顺序：.niko-buddy → root → kind
     const dirs = fsMocks.createDirectory.mock.calls.map(([d]) => d)
-    expect(dirs).toContain("/p/.qmai")
-    expect(dirs).toContain("/p/.qmai/generation-history")
-    expect(dirs).toContain("/p/.qmai/generation-history/lint")
+    expect(dirs).toContain("/p/.niko-buddy")
+    expect(dirs).toContain("/p/.niko-buddy/generation-history")
+    expect(dirs).toContain("/p/.niko-buddy/generation-history/lint")
     // 写盘 JSON 与返回 entry
     expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
     const [path, raw] = fsMocks.writeFile.mock.calls[0]
-    expect(String(path)).toMatch(/\/p\/\.qmai\/generation-history\/lint\/\d{8}-\d{6}-[a-z0-9]{6}\.json$/)
+    expect(String(path)).toMatch(/\/p\/\.niko-buddy\/generation-history\/lint\/\d{8}-\d{6}-[a-z0-9]{6}\.json$/)
     const parsed = JSON.parse(String(raw))
     expect(parsed.kind).toBe("lint")
     expect(parsed.title).toBe("lint 检查")
@@ -102,13 +102,13 @@ describe("generation-history", () => {
 
   it("listGenerationHistory parses matching entries, skips junk, and sorts desc by createdAt", async () => {
     fsMocks.listDirectory.mockResolvedValue([
-      { name: "a.json", path: "/p/.qmai/generation-history/review/a.json", is_dir: false },
-      { name: "b.json", path: "/p/.qmai/generation-history/review/b.json", is_dir: false },
-      { name: "sub", path: "/p/.qmai/generation-history/review/sub", is_dir: true },
-      { name: "notes.txt", path: "/p/.qmai/generation-history/review/notes.txt", is_dir: false },
-      { name: "bad.json", path: "/p/.qmai/generation-history/review/bad.json", is_dir: false },
-      { name: "wrong-kind.json", path: "/p/.qmai/generation-history/review/wrong-kind.json", is_dir: false },
-      { name: "shapeless.json", path: "/p/.qmai/generation-history/review/shapeless.json", is_dir: false },
+      { name: "a.json", path: "/p/.niko-buddy/generation-history/review/a.json", is_dir: false },
+      { name: "b.json", path: "/p/.niko-buddy/generation-history/review/b.json", is_dir: false },
+      { name: "sub", path: "/p/.niko-buddy/generation-history/review/sub", is_dir: true },
+      { name: "notes.txt", path: "/p/.niko-buddy/generation-history/review/notes.txt", is_dir: false },
+      { name: "bad.json", path: "/p/.niko-buddy/generation-history/review/bad.json", is_dir: false },
+      { name: "wrong-kind.json", path: "/p/.niko-buddy/generation-history/review/wrong-kind.json", is_dir: false },
+      { name: "shapeless.json", path: "/p/.niko-buddy/generation-history/review/shapeless.json", is_dir: false },
     ])
     fsMocks.readFile.mockImplementation(async (path: string) => {
       const name = String(path).split("/").pop()
@@ -139,7 +139,7 @@ describe("generation-history", () => {
 
   it("deleteGenerationHistoryEntry moves the file to trash with normalized path", async () => {
     const { deleteGenerationHistoryEntry } = await import("./generation-history")
-    await deleteGenerationHistoryEntry("/p", "C:\\p\\.qmai\\generation-history\\lint\\x.json")
-    expect(moveFileToTrashMock).toHaveBeenCalledWith("/p", expect.stringContaining("/p/.qmai/generation-history/lint/x.json"), "history")
+    await deleteGenerationHistoryEntry("/p", "C:\\p\\.niko-buddy\\generation-history\\lint\\x.json")
+    expect(moveFileToTrashMock).toHaveBeenCalledWith("/p", expect.stringContaining("/p/.niko-buddy/generation-history/lint/x.json"), "history")
   })
 })

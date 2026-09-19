@@ -710,7 +710,7 @@ pub struct ChunkUpsertInput {
 }
 
 fn db_path(project_path: &str) -> String {
-    format!("{}/.qmai/lancedb", project_path.replace('\\', "/"))
+    format!("{}/.niko-buddy/lancedb", project_path.replace('\\', "/"))
 }
 
 /// v1 (legacy) table name. One row per page.

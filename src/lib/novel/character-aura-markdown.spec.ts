@@ -54,7 +54,7 @@ function aura(overrides: Partial<CharacterAura> = {}): CharacterAura {
     honestyBoundaries: "诚实边界",
     generationPrompt: "提示词",
     webSearchEnabled: true,
-    skillFolder: "/P/.qmai/character-auras/custom-1-perspective",
+    skillFolder: "/P/.niko-buddy/character-auras/custom-1-perspective",
     createdAt: 1,
     updatedAt: 2,
     ...overrides,

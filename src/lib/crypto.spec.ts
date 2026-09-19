@@ -28,7 +28,7 @@ function makeLocalStorage(): Storage {
   } as unknown as Storage
 }
 
-const FALLBACK_KEY = "qmai_fallback_fingerprint"
+const FALLBACK_KEY = "niko_buddy_fallback_fingerprint"
 
 async function loadCrypto() {
   vi.resetModules()

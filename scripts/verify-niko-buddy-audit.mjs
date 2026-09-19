@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, rmSync, readFileSync } from "node:fs"
 
-const OUT = ".qmai-audit-final.json"
+const OUT = ".niko-buddy-audit-final.json"
 if (existsSync(OUT)) rmSync(OUT)
 
 execFileSync("npx", ["vitest", "run", "--reporter=json", `--outputFile=${OUT}`], {

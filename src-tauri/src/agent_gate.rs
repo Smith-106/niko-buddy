@@ -342,7 +342,7 @@ pub fn classify_rebuild_class(target: &str) -> RebuildClass {
         return RebuildClass::Rebuildable;
     }
     // 只认既有目录约定；不发明新的“可重建根”。
-    const DERIVED_ROOTS: [&str; 3] = [".qmai/", ".novel/", "backups/"];
+    const DERIVED_ROOTS: [&str; 3] = [".niko-buddy/", ".novel/", "backups/"];
     if DERIVED_ROOTS.iter().any(|r| t.starts_with(*r)) {
         return RebuildClass::DerivedRebuildable;
     }
@@ -1073,7 +1073,7 @@ mod tests {
         assert_eq!(snap.decision, Decision::Allowed);
         assert_eq!(snap.class, RebuildClass::Rebuildable);
 
-        let derived = gate_authorize("deleteFolder", ".qmai/lancedb", GateActor::Agent);
+        let derived = gate_authorize("deleteFolder", ".niko-buddy/lancedb", GateActor::Agent);
         assert_eq!(derived.decision, Decision::Allowed);
         assert_eq!(derived.class, RebuildClass::DerivedRebuildable);
 

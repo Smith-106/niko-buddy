@@ -6,7 +6,7 @@
  *
  * Baseline contract (P2-6): `src/test-helpers/baselines/` is the tracked
  * frozen baseline *read* source; saveBaseline writes fresh measurements to
- * an untracked scratch dir (default `node_modules/.cache/qmai-baselines/`)
+ * an untracked scratch dir (default `node_modules/.cache/niko-buddy-baselines/`)
  * so runs never dirty the worktree. Set NIKO_BUDDY_BASELINE_DIR to override the
  * write target (e.g. refresh the frozen baselines during a release wave).
  *
@@ -114,7 +114,7 @@ const BASELINE_DIR = resolve(__dirname, "baselines")
  */
 const BASELINE_WRITE_DIR =
   process.env.NIKO_BUDDY_BASELINE_DIR ??
-  resolve(__dirname, "../../node_modules/.cache/qmai-baselines")
+  resolve(__dirname, "../../node_modules/.cache/niko-buddy-baselines")
 
 /**
  * Persist baseline data to `<write-dir>/{name}.json` (untracked by default;

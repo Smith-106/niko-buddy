@@ -78,7 +78,7 @@ const CHECK_FTS_INDEX: DoctorCheckInput = {
   name: "FTS 索引",
   diagnose: (ctx) =>
     ctx.ftsIndexReady
-      ? { severity: "ok", message: ".qmai/fts-index.json 可加载" }
+      ? { severity: "ok", message: ".niko-buddy/fts-index.json 可加载" }
       : { severity: "warn", message: "FTS 索引缺失/过期——运行重建（rebuildWikiFtsIndex）后可恢复" },
 }
 
@@ -87,7 +87,7 @@ const CHECK_BACKUPS: DoctorCheckInput = {
   name: "章节备份",
   diagnose: (ctx) =>
     ctx.backupsPresent
-      ? { severity: "ok", message: ".qmai/chapter-backups 有版本备份产出" }
+      ? { severity: "ok", message: ".niko-buddy/chapter-backups 有版本备份产出" }
       : { severity: "warn", message: "尚无章节备份——首次保存章节后自动产生" },
 }
 
@@ -210,7 +210,7 @@ export async function runProjectDoctor(
 
   let backupsPresent = false
   try {
-    const tree = await listDirectory(`${pp}/.qmai/chapter-backups`)
+    const tree = await listDirectory(`${pp}/.niko-buddy/chapter-backups`)
     backupsPresent = tree.some((n) => !n.is_dir)
   } catch {
     backupsPresent = false

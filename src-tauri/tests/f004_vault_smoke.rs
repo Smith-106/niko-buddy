@@ -129,7 +129,7 @@ fn secret_is_not_written_into_project_data_sections() {
     let _ = vault::vault_delete_secret(key.to_string());
     vault::vault_put_secret(key.to_string(), secret.to_string()).expect("真实写入应成功");
 
-    let roots = [".novel", "QM", ".qmai", "backups"];
+    let roots = [".novel", "QM", ".niko-buddy", "backups"];
     let mut scanned = 0usize;
     let mut found: Vec<String> = Vec::new();
     for root in roots {

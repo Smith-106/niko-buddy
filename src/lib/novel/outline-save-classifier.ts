@@ -1,9 +1,9 @@
-/** 本地类型（qmai outline-save-request 精简子集，2026-08-30 三模型共识移植） */
+/** 本地类型（niko-buddy outline-save-request 精简子集，2026-08-30 三模型共识移植） */
 export type OutlineSaveRequestFileType =
   | "outline" | "volume-outline" | "chapter-outline" | "character"
   | "setting" | "foreshadowing" | "organization" | "quality-report"
 
-/** 本地工具（qmai outline-workbench 2 函数精简移植） */
+/** 本地工具（niko-buddy outline-workbench 2 函数精简移植） */
 export function sanitizeOutlineFileNamePart(value: string): string {
   return value
     .trim()

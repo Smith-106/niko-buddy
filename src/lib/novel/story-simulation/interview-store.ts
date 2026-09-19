@@ -1,7 +1,7 @@
 /**
  * 采访对话持久化
  *
- * 将 Agent 采访对话保存到项目的 .qmai/simulations/interviews/ 目录下，
+ * 将 Agent 采访对话保存到项目的 .niko-buddy/simulations/interviews/ 目录下，
  * 方便后续回顾和查看。
  */
 
@@ -11,7 +11,7 @@ import type { FileNode } from "@/types/wiki"
 import type { AgentChatSession } from "./types"
 import type { SerializedSimulationSnapshot } from "./simulation-serializer"
 
-const INTERVIEWS_DIR = ".qmai/simulations/interviews"
+const INTERVIEWS_DIR = ".niko-buddy/simulations/interviews"
 
 function interviewsDir(projectPath: string): string {
   return `${normalizePath(projectPath)}/${INTERVIEWS_DIR}`

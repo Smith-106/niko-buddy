@@ -126,5 +126,5 @@ export function compressMarkdownForAuraContext(markdown: string, maxLength: numb
 }
 
 export function storePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/character-aura.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/character-aura.json`
 }

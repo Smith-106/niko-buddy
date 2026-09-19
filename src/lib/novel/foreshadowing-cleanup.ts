@@ -9,7 +9,7 @@
 
 import type { Foreshadowing, ForeshadowingStore } from "./foreshadowing-tracker"
 
-/** niko 本地等价（qmai foreshadowing-normalize 移植缺失补位） */
+/** niko 本地等价（niko-buddy foreshadowing-normalize 移植缺失补位） */
 export function isActiveForeshadowingStatus(status: string): boolean {
   return status === "planted" || status === "advanced"
 }

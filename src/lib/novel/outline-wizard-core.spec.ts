@@ -15,7 +15,7 @@ import {
 } from "./outline-save-classifier"
 import { emptyPlotFrameworkLibrary } from "./plot-framework"
 
-describe("outline-genres（频道/分类/标签体系，qmai 移植）", () => {
+describe("outline-genres（频道/分类/标签体系，niko-buddy 移植）", () => {
   it("getMainGenreLabel 男女频主分类", () => {
     expect(getMainGenreLabel("male", "xuanhuan")).toBe("玄幻")
     expect(getMainGenreLabel("female", "gudaiyanqing")).toBe("古代言情")
@@ -23,7 +23,7 @@ describe("outline-genres（频道/分类/标签体系，qmai 移植）", () => {
   })
 })
 
-describe("outline-intent-clarity（意图澄清，qmai 移植）", () => {
+describe("outline-intent-clarity（意图澄清，niko-buddy 移植）", () => {
   it("classifyDirectOutlineGenerationRequest 判定清晰/需输入", () => {
     expect(classifyDirectOutlineGenerationRequest("生成玄幻大纲，主角孤儿，修炼体系炼气筑基金丹"))
       .toBeTruthy()
@@ -44,7 +44,7 @@ describe("outline-intent-clarity（意图澄清，qmai 移植）", () => {
   })
 })
 
-describe("outline-next-step（下一步推荐，qmai 移植）", () => {
+describe("outline-next-step（下一步推荐，niko-buddy 移植）", () => {
   it("extractNextStep 提取推荐", () => {
     const payload = JSON.stringify({
       completedModule: "outline",
@@ -65,7 +65,7 @@ describe("outline-next-step（下一步推荐，qmai 移植）", () => {
   })
 })
 
-describe("outline-save-classifier（保存分类，qmai 移植）", () => {
+describe("outline-save-classifier（保存分类，niko-buddy 移植）", () => {
   it("getDefaultFolderForOutlineFileType 文件夹映射", () => {
     expect(getDefaultFolderForOutlineFileType("chapter-outline")).toBe("章纲")
     expect(getDefaultFolderForOutlineFileType("character")).toBe("人物小传")

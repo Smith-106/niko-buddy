@@ -56,8 +56,8 @@ describe("initAnalytics", () => {
     expect(store.get).toHaveBeenCalledWith("analytics_device_uuid")
     expect(store.set).not.toHaveBeenCalled()
     const urls = fetchSpy.mock.calls.map((c) => c[0])
-    expect(urls).toContain("https://qmai-analytics.qmai.workers.dev/open")
-    expect(urls).toContain("https://qmai-analytics.qmai.workers.dev/heartbeat")
+    expect(urls).toContain("https://niko-buddy-analytics.niko-buddy.workers.dev/open")
+    expect(urls).toContain("https://niko-buddy-analytics.niko-buddy.workers.dev/heartbeat")
     const bodies = fetchSpy.mock.calls.map((c) => JSON.parse(c[1]?.body ?? "{}"))
     for (const body of bodies) {
       expect(body.uuid).toBe("existing-uuid")
@@ -160,7 +160,7 @@ describe("initAnalytics", () => {
     // Fire beforeunload → beacon with the close payload and cleared interval.
     listeners.get("beforeunload")?.()
     expect(beaconSpy).toHaveBeenCalledWith(
-      "https://qmai-analytics.qmai.workers.dev/close",
+      "https://niko-buddy-analytics.niko-buddy.workers.dev/close",
       expect.any(Blob),
     )
     expect(win.clearInterval).toHaveBeenCalled()

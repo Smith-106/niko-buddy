@@ -215,7 +215,7 @@ describe("UnifiedSkillLibraryView", () => {
     expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toMatch(/^skill:/)
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
-      "C:/project/.qmai/writing-skills.json",
+      "C:/project/.niko-buddy/writing-skills.json",
       expect.stringContaining("新建写作 Skill"),
     )
 
@@ -238,11 +238,11 @@ describe("UnifiedSkillLibraryView", () => {
     await flushEffects()
 
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
-      "C:/project/.qmai/de-ai-skills.json",
+      "C:/project/.niko-buddy/de-ai-skills.json",
       expect.stringContaining("冷硬叙事"),
     )
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
-      "C:/project/.qmai/de-ai-skills.json",
+      "C:/project/.niko-buddy/de-ai-skills.json",
       expect.stringContaining("删掉解释，保留动作。"),
     )
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")

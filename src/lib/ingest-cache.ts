@@ -4,7 +4,7 @@ import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
 /**
  * SHA256-based ingest cache.
  * Stores hash of source file content → skips re-ingest if unchanged.
- * Cache file: .qmai/ingest-cache.json
+ * Cache file: .niko-buddy/ingest-cache.json
  */
 
 interface CacheEntry {
@@ -26,7 +26,7 @@ async function sha256(content: string): Promise<string> {
 }
 
 function cachePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/ingest-cache.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/ingest-cache.json`
 }
 
 async function loadCache(projectPath: string): Promise<CacheData> {

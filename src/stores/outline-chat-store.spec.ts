@@ -33,8 +33,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 import { useOutlineChatStore } from "./outline-chat-store"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 
-const DISK_PATH = "E:/Novel/.qmai/outline-chats.json"
-const PARENT_DIR = "E:/Novel/.qmai"
+const DISK_PATH = "E:/Novel/.niko-buddy/outline-chats.json"
+const PARENT_DIR = "E:/Novel/.niko-buddy"
 
 /** 等待 fire-and-forget 的 saveToDisk 异步链（createDirectory → writeFile）完成 */
 async function flushAsync(): Promise<void> {

@@ -2,14 +2,14 @@
 //!
 //! 默认传输**恒为 stdio**（既有 `commands/mcp_stdio.rs` 保持不变）；切到远程传输
 //! （`http` / `sse`）必须显式 `allow_http = true`——这就是 opt-in 的机械门。
-//! 配置持久化到既有项目配置目录（`.qmai`）下的 `mcp-transport.json`。
+//! 配置持久化到既有项目配置目录（`.niko-buddy`）下的 `mcp-transport.json`。
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// 传输配置文件名（相对项目根的 `.qmai` 目录）。
-pub const TRANSPORT_CONFIG_FILE: &str = ".qmai/mcp-transport.json";
+/// 传输配置文件名（相对项目根的 `.niko-buddy` 目录）。
+pub const TRANSPORT_CONFIG_FILE: &str = ".niko-buddy/mcp-transport.json";
 /// 默认传输：本地 stdio。
 pub const DEFAULT_TRANSPORT: &str = "stdio";
 /// 传输模式清单。

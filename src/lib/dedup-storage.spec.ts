@@ -35,7 +35,7 @@ beforeEach(() => {
 })
 
 const PROJECT = "E:\\Novel"
-const FILE = "E:/Novel/.qmai/dedup-not-duplicates.json"
+const FILE = "E:/Novel/.niko-buddy/dedup-not-duplicates.json"
 
 describe("loadNotDuplicates", () => {
   it("returns [] when the file does not exist", async () => {

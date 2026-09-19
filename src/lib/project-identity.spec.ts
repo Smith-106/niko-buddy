@@ -69,7 +69,7 @@ describe("ensureProjectId", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(uuid)
     await expect(ensureProjectId("/P")).resolves.toBe(uuid)
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      "/P/.qmai/project.json",
+      "/P/.niko-buddy/project.json",
       expect.stringContaining('"id": "12345678-1234-1234-1234-123456789abc"'),
     )
   })

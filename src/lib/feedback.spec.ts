@@ -64,7 +64,7 @@ describe("submitFeedback", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe("https://qmai-analytics.qmai.workers.dev/feedback")
+    expect(url).toBe("https://niko-buddy-analytics.niko-buddy.workers.dev/feedback")
     expect(init.method).toBe("POST")
     expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json")
     const body = JSON.parse(String(init.body))

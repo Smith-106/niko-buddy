@@ -159,7 +159,7 @@ describe("enqueueIngest", () => {
     const id = await enqueueIngest("pid", "raw/sources/a.pdf", "papers > 2026")
     expect(id).toMatch(/^ingest-/)
     expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-      "/proj/.qmai/ingest-queue.json",
+      "/proj/.niko-buddy/ingest-queue.json",
       expect.stringContaining("raw/sources/a.pdf"),
     )
     await vi.waitFor(() => expect(getQueue()).toHaveLength(0))
@@ -549,7 +549,7 @@ describe("restoreQueue", () => {
   it("registers the project when the saved queue is empty", async () => {
     mocks.readFile.mockResolvedValue("[]")
     await restoreQueue("pid", "/proj")
-    expect(mocks.readFile).toHaveBeenCalledWith("/proj/.qmai/ingest-queue.json")
+    expect(mocks.readFile).toHaveBeenCalledWith("/proj/.niko-buddy/ingest-queue.json")
     expect(getQueue()).toHaveLength(0)
     const id = await enqueueIngest("pid", "raw/sources/a.pdf")
     expect(id).toMatch(/^ingest-/)

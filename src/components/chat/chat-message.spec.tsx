@@ -396,7 +396,7 @@ describe("deep chapter draft action visibility", () => {
   it("keeps continue-unfinished for manually stopped deep chapter messages with resume context", () => {
     const html = renderToStaticMarkup(
       <ChatMessage
-        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- qmai-continue-unfinished-context:%7B%22originalRequest%22%3A%22%E8%AF%B7%E4%B8%BA%E7%AC%AC1%E7%AB%A0%E7%94%9F%E6%88%90%E6%AD%A3%E6%96%87%22%2C%22resumeContext%22%3A%22%3Cthink%3E%23%23%20%E9%98%B6%E6%AE%B51%EF%BC%9A%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%86%E6%9E%90%3C%2Fthink%3E%22%2C%22checkpoint%22%3A%7B%22version%22%3A1%2C%22originalRequest%22%3A%22%E8%AF%B7%E4%B8%BA%E7%AC%AC1%E7%AB%A0%E7%94%9F%E6%88%90%E6%AD%A3%E6%96%87%22%2C%22chapterNumber%22%3A1%2C%22stage%22%3A%22after_context%22%7D%7D -->")}
+        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- niko-buddy-continue-unfinished-context:%7B%22originalRequest%22%3A%22%E8%AF%B7%E4%B8%BA%E7%AC%AC1%E7%AB%A0%E7%94%9F%E6%88%90%E6%AD%A3%E6%96%87%22%2C%22resumeContext%22%3A%22%3Cthink%3E%23%23%20%E9%98%B6%E6%AE%B51%EF%BC%9A%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%86%E6%9E%90%3C%2Fthink%3E%22%2C%22checkpoint%22%3A%7B%22version%22%3A1%2C%22originalRequest%22%3A%22%E8%AF%B7%E4%B8%BA%E7%AC%AC1%E7%AB%A0%E7%94%9F%E6%88%90%E6%AD%A3%E6%96%87%22%2C%22chapterNumber%22%3A1%2C%22stage%22%3A%22after_context%22%7D%7D -->")}
         isLastAssistant
         novelMode
         onSaveAsChapter={() => {}}
@@ -414,7 +414,7 @@ describe("deep chapter draft action visibility", () => {
   it("keeps continue-unfinished for manually stopped deep chapter messages with only debug metadata", () => {
     const html = renderToStaticMarkup(
       <ChatMessage
-        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- qmai-novel-session-debug:%7B%22flow%22%3A%22deep-chapter%22%2C%22lastCheckpointStage%22%3A%22after_context%22%7D -->")}
+        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- niko-buddy-novel-session-debug:%7B%22flow%22%3A%22deep-chapter%22%2C%22lastCheckpointStage%22%3A%22after_context%22%7D -->")}
         isLastAssistant
         novelMode
         onSaveAsChapter={() => {}}
@@ -439,7 +439,7 @@ describe("deep chapter draft action visibility", () => {
       "",
       "When the door finally opened, damp dust rolled out in a low wave, and the cabinet inside carried the mark of a hurried search.",
       "",
-      "<!-- qmai-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22ready%22%7D -->",
+      "<!-- niko-buddy-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22ready%22%7D -->",
     ].join("\n")
 
     const html = renderToStaticMarkup(
@@ -467,7 +467,7 @@ describe("deep chapter draft action visibility", () => {
       "",
       "When the door finally opened, damp dust rolled out in a low wave, and the cabinet inside carried the mark of a hurried search.",
       "",
-      "<!-- qmai-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22pending%22%7D -->",
+      "<!-- niko-buddy-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22pending%22%7D -->",
     ].join("\n")
 
     const html = renderToStaticMarkup(
@@ -493,7 +493,7 @@ describe("deep chapter draft action visibility", () => {
       "",
       "The protagonist leaned into the seam first, listening for proof that the movement inside belonged to more than the wind.",
       "",
-      "<!-- qmai-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22accepted%22%7D -->",
+      "<!-- niko-buddy-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%2C%22draftStatus%22%3A%22accepted%22%7D -->",
     ].join("\n")
 
     const html = renderToStaticMarkup(
@@ -540,7 +540,7 @@ describe("deep chapter draft action visibility", () => {
 // ── 新增 jsdom 交互覆盖 ───────────────────────────────────────────────────────
 
 const DRAFT_MARKER = (status: string): string =>
-  `<!-- qmai-deep-chapter-draft:${encodeURIComponent(
+  `<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(
     JSON.stringify({ conversationId: "conv-1", draftStatus: status }),
   )} -->`
 
@@ -762,7 +762,7 @@ describe("ChatMessage 深度章节草稿操作", () => {
   it("损坏的 draft marker JSON 不显示操作", () => {
     render(
       <ChatMessage
-        message={createAssistantMessage(`# Chapter 1\n\n${"X".repeat(120)}\n\n<!-- qmai-deep-chapter-draft:not-json -->`)}
+        message={createAssistantMessage(`# Chapter 1\n\n${"X".repeat(120)}\n\n<!-- niko-buddy-deep-chapter-draft:not-json -->`)}
         isLastAssistant
         novelMode
         onSaveAsChapter={() => {}}
@@ -774,7 +774,7 @@ describe("ChatMessage 深度章节草稿操作", () => {
   })
 
   it("marker 缺少 conversationId 或 draftStatus 非法时不显示操作", () => {
-    const noConv = `<!-- qmai-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ draftStatus: "ready" }))} -->`
+    const noConv = `<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ draftStatus: "ready" }))} -->`
     cleanup()
     render(
       <ChatMessage
@@ -785,7 +785,7 @@ describe("ChatMessage 深度章节草稿操作", () => {
     )
     expect(screen.queryByText("接受草稿")).not.toBeInTheDocument()
     cleanup()
-    const badStatus = `<!-- qmai-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ conversationId: "c", draftStatus: "bogus" }))} -->`
+    const badStatus = `<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ conversationId: "c", draftStatus: "bogus" }))} -->`
     render(
       <ChatMessage
         message={createAssistantMessage(`# Chapter 1\n\n${"X".repeat(120)}\n\n${badStatus}`)}
@@ -845,7 +845,7 @@ describe("ChatMessage 深度章节草稿操作", () => {
     const onContinueUnfinished = vi.fn()
     render(
       <ChatMessage
-        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- qmai-continue-unfinished-context:xxx -->")}
+        message={createAssistantMessage("<think>## 阶段1：上下文分析</think>\n\n已停止生成。\n<!-- niko-buddy-continue-unfinished-context:xxx -->")}
         isLastAssistant
         novelMode
         onContinueUnfinished={onContinueUnfinished}
@@ -859,7 +859,7 @@ describe("ChatMessage 深度章节草稿操作", () => {
   it("resume 场景下 isSaving 禁用继续未完成", () => {
     render(
       <ChatMessage
-        message={createAssistantMessage("<think>x</think>\n\n已停止生成。\n<!-- qmai-continue-unfinished-context:xxx -->")}
+        message={createAssistantMessage("<think>x</think>\n\n已停止生成。\n<!-- niko-buddy-continue-unfinished-context:xxx -->")}
         isLastAssistant
         novelMode
         onContinueUnfinished={() => {}}
@@ -879,7 +879,7 @@ describe("ChatMessage 上下文用量圆环（Wave 5）", () => {
     otherChars: 25000,
     maxCtx: 100000,
   }
-  const USAGE_MARKER = `正文内容\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify(USAGE))} -->`
+  const USAGE_MARKER = `正文内容\n<!-- niko-buddy-context-usage:${encodeURIComponent(JSON.stringify(USAGE))} -->`
 
   beforeEach(() => {
     resetMocks()
@@ -889,7 +889,7 @@ describe("ChatMessage 上下文用量圆环（Wave 5）", () => {
     cleanup()
   })
 
-  it("含 qmai-context-usage 标记 → 渲染 ContextRing 圆环", () => {
+  it("含 niko-buddy-context-usage 标记 → 渲染 ContextRing 圆环", () => {
     render(
       <ChatMessage
         message={createAssistantMessage(USAGE_MARKER)}
@@ -913,7 +913,7 @@ describe("ChatMessage 上下文用量圆环（Wave 5）", () => {
     cleanup()
     render(
       <ChatMessage
-        message={createAssistantMessage(`正文\n<!-- qmai-context-usage:not-json -->`)}
+        message={createAssistantMessage(`正文\n<!-- niko-buddy-context-usage:not-json -->`)}
         isLastAssistant
         novelMode
       />,
@@ -924,7 +924,7 @@ describe("ChatMessage 上下文用量圆环（Wave 5）", () => {
   it("标记字段类型非法（非 number）→ 不渲染圆环", () => {
     render(
       <ChatMessage
-        message={createAssistantMessage(`正文\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify({ ...USAGE, memoryChars: "bad" }))} -->`)}
+        message={createAssistantMessage(`正文\n<!-- niko-buddy-context-usage:${encodeURIComponent(JSON.stringify({ ...USAGE, memoryChars: "bad" }))} -->`)}
         isLastAssistant
         novelMode
       />,

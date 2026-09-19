@@ -1,4 +1,4 @@
-const USER_MEMORY_LEARNING_BUDGET_KEY = "qmai.user-memory-learning-budget.v1"
+const USER_MEMORY_LEARNING_BUDGET_KEY = "niko-buddy.user-memory-learning-budget.v1"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
 

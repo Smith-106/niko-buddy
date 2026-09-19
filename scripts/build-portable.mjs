@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"))
 
-// Prefer current binary name (niko-buddy), fall back to legacy qmai for older trees.
+// Prefer current binary name (niko-buddy), legacy niko-buddy for older trees.
 const releaseExeCandidates = [
   resolve(root, "src-tauri/target/release/niko-buddy.exe"),
-  resolve(root, "src-tauri/target/release/qmai.exe"),
+  resolve(root, "src-tauri/target/release/niko-buddy.exe"),
 ]
 const portableDevExeCandidates = [
   resolve(root, "src-tauri/target/portable-dev/niko-buddy.exe"),
-  resolve(root, "src-tauri/target/portable-dev/qmai.exe"),
+  resolve(root, "src-tauri/target/portable-dev/niko-buddy.exe"),
 ]
 const portableDevExe = portableDevExeCandidates.find((p) => existsSync(p))
 const releaseExe = releaseExeCandidates.find((p) => existsSync(p))

@@ -1,6 +1,6 @@
 import { isTauri } from "@/lib/platform"
 
-const FEEDBACK_URL = "https://qmai-analytics.qmai.workers.dev/feedback"
+const FEEDBACK_URL = "https://niko-buddy-analytics.niko-buddy.workers.dev/feedback"
 const MAX_MESSAGE_LENGTH = 3000
 const MAX_CONTACT_LENGTH = 200
 

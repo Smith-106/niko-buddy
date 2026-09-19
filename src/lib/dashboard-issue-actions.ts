@@ -43,7 +43,7 @@ export interface DashboardRewriteMessage {
   content: string
 }
 
-const STORE_FILE = ".qmai/dashboard-issues.json"
+const STORE_FILE = ".niko-buddy/dashboard-issues.json"
 
 export function createEmptyDashboardIssueState(): DashboardIssueState {
   return { ignored: {}, rewrites: {} }
@@ -69,7 +69,7 @@ export async function loadDashboardIssueState(projectPath: string): Promise<Dash
 
 export async function saveDashboardIssueState(projectPath: string, state: DashboardIssueState): Promise<void> {
   const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.qmai`).catch(() => {})
+  await createDirectory(`${pp}/.niko-buddy`).catch(() => {})
   await writeFile(
     getDashboardIssueStorePath(pp),
     JSON.stringify({ ignored: normaliseIgnored(state.ignored), rewrites: normaliseRewrites(state.rewrites) }, null, 2),

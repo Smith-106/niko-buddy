@@ -7,7 +7,7 @@
  * 「IPC 直 invoke、不引入重型运行时」硬约束）。
  *
  * 定位：wiki/*.md 全量构建倒排索引（token 复用 tokenizeForBm25 中文 bigram），
- * 持久化 `.qmai/fts-index.json`（writeFileAtomic 原子写）；重建幂等
+ * 持久化 `.niko-buddy/fts-index.json`（writeFileAtomic 原子写）；重建幂等
  * （同语料同输出）；消费方（search-adapter keyword 分支）索引缺失/损坏 →
  * 现全量扫描字节级回退，绝不让检索挂死。纯函数层零 IO。
  */
@@ -147,7 +147,7 @@ export function searchFtsIndex(
     .slice(0, topK)
 }
 
-const FTS_FILE = ".qmai/fts-index.json"
+const FTS_FILE = ".niko-buddy/fts-index.json"
 
 export function ftsIndexPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${FTS_FILE}`

@@ -395,7 +395,7 @@ describe("SkillLibraryView", () => {
 
     expect(container.textContent).toContain("综合去AI味")
     expect(readFileMock).toHaveBeenCalledTimes(3)
-    expect(readFileMock).toHaveBeenNthCalledWith(1, "C:/project/.qmai/de-ai-skills.json")
+    expect(readFileMock).toHaveBeenNthCalledWith(1, "C:/project/.niko-buddy/de-ai-skills.json")
     expect(readFileMock).toHaveBeenNthCalledWith(2, "C:/project/de-ai-skills.json")
     expect(readFileMock).toHaveBeenNthCalledWith(3, "C:/project/de-ai-skill.txt")
 
@@ -435,7 +435,7 @@ describe("SkillLibraryView", () => {
     await flushEffects()
 
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
-      "C:/project/.qmai/de-ai-skills.json",
+      "C:/project/.niko-buddy/de-ai-skills.json",
       JSON.stringify({ ...JSON.parse(backup), lastChapterDeAiSkillId: null }, null, 2),
     )
     expect(container.textContent).toContain("备份 Skill")
@@ -458,7 +458,7 @@ describe("SkillLibraryView", () => {
     await flushEffects()
 
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
-      "C:/project/.qmai/de-ai-skills.json",
+      "C:/project/.niko-buddy/de-ai-skills.json",
       expect.stringContaining('"defaultSkillId": "built-in:comprehensive"'),
     )
     expect(container.textContent).toContain("综合去AI味")

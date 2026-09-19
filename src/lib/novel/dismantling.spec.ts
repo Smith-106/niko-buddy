@@ -35,7 +35,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 describe("dismantling library", () => {
   it("stores dismantling data in an isolated project cache path", () => {
-    expect(getDismantlingLibraryPath("E:/Novel")).toBe("E:/Novel/.qmai/dismantling/library.json")
+    expect(getDismantlingLibraryPath("E:/Novel")).toBe("E:/Novel/.niko-buddy/dismantling/library.json")
   })
 
   it("splits imported text into ordered chapters without writing to novel memory", () => {
@@ -237,7 +237,7 @@ describe("dismantling library persistence", () => {
     await saveDismantlingLibrary("/p", { version: 1, projects: [], selectedProjectId: null })
     expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
     const [path, raw] = fsMocks.writeFile.mock.calls[0]
-    expect(path).toBe("/p/.qmai/dismantling/library.json")
+    expect(path).toBe("/p/.niko-buddy/dismantling/library.json")
     expect(JSON.parse(String(raw)).version).toBe(1)
   })
 })

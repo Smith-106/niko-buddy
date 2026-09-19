@@ -5,7 +5,7 @@
 //!
 //! 与既有「全局导出备份」（`commands/backup.rs`，打包所有项目配置 + app-state）
 //! 严格区分：本模块是**单项目**备份，包内容 = `.novel/status.json`（会话状态
-//! 唯一真源）+ `.novel/drafts/`（草稿工件）+ `.qmai/lancedb/`（Canon 三表
+//! 唯一真源）+ `.novel/drafts/`（草稿工件）+ `.niko-buddy/lancedb/`（Canon 三表
 //! LanceDB 库目录快照），zip 容器 + SHA-256 校验和（`.sha256` sidecar +
 //! 包内 manifest 双层校验）。
 //!
@@ -76,7 +76,7 @@ const MANIFEST_ENTRY: &str = "manifest.json";
 const STATUS_PREFIX: &str = "status/";
 /// 草稿目录在 zip 内的前缀（映射 `{project}/.novel/drafts`）。
 const DRAFTS_PREFIX: &str = "drafts/";
-/// Canon LanceDB 快照在 zip 内的前缀（映射 `{project}/.qmai/lancedb`）。
+/// Canon LanceDB 快照在 zip 内的前缀（映射 `{project}/.niko-buddy/lancedb`）。
 const LANCEDB_PREFIX: &str = "canon-lancedb/";
 
 /// 会话状态唯一真源（HARD-1）：`.novel/status.json`。
@@ -84,7 +84,7 @@ const STATUS_REL: &str = ".novel/status.json";
 /// 草稿工件目录。
 const DRAFTS_REL: &str = ".novel/drafts";
 /// Canon LanceDB 库目录（与 `canon::store::db_path` 同源）。
-const LANCEDB_REL: &str = ".qmai/lancedb";
+const LANCEDB_REL: &str = ".niko-buddy/lancedb";
 
 /// 自动备份落点：`{project}/backups/auto/`。
 const AUTO_BACKUP_DIR: &str = "backups/auto";
@@ -1319,7 +1319,7 @@ mod tests {
     fn seed_project(tag: &str) -> PathBuf {
         let p = tmp_dir(tag);
         fs::create_dir_all(p.join(".novel/drafts")).unwrap();
-        fs::create_dir_all(p.join(".qmai/lancedb")).unwrap();
+        fs::create_dir_all(p.join(".niko-buddy/lancedb")).unwrap();
         fs::write(
             p.join(".novel/status.json"),
             r#"{"step":"ch-3","chapter":3}"#,
@@ -1331,15 +1331,15 @@ mod tests {
             r#"{"draft":2-old}"#,
         )
         .unwrap();
-        fs::create_dir_all(p.join(".qmai/lancedb/entities.lance")).unwrap();
-        fs::create_dir_all(p.join(".qmai/lancedb/_versions")).unwrap();
+        fs::create_dir_all(p.join(".niko-buddy/lancedb/entities.lance")).unwrap();
+        fs::create_dir_all(p.join(".niko-buddy/lancedb/_versions")).unwrap();
         fs::write(
-            p.join(".qmai/lancedb/entities.lance/data.lance"),
+            p.join(".niko-buddy/lancedb/entities.lance/data.lance"),
             b"lance-bytes-1",
         )
         .unwrap();
         fs::write(
-            p.join(".qmai/lancedb/_versions/manifest-0"),
+            p.join(".niko-buddy/lancedb/_versions/manifest-0"),
             b"lance-manifest",
         )
         .unwrap();
@@ -1393,7 +1393,7 @@ mod tests {
         .unwrap();
         fs::remove_file(project.join(".novel/drafts/conv_1.json")).unwrap();
         fs::write(
-            project.join(".qmai/lancedb/_versions/manifest-0"),
+            project.join(".niko-buddy/lancedb/_versions/manifest-0"),
             b"tampered",
         )
         .unwrap();
@@ -1433,7 +1433,7 @@ mod tests {
         );
         assert!(project.join(".novel/drafts/conv_1.json").is_file());
         assert_eq!(
-            fs::read(project.join(".qmai/lancedb/_versions/manifest-0")).unwrap(),
+            fs::read(project.join(".niko-buddy/lancedb/_versions/manifest-0")).unwrap(),
             b"lance-manifest"
         );
 

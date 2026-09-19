@@ -11,7 +11,7 @@ import type {
   TimelineEvent,
 } from "./types"
 
-const SIM_ROOT = ".qmai/simulations"
+const SIM_ROOT = ".niko-buddy/simulations"
 const EXPORTS_DIR = `${SIM_ROOT}/exports`
 
 function exportsDir(projectPath: string): string {

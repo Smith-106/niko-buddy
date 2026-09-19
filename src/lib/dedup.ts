@@ -90,7 +90,7 @@ export interface MergeResult {
    *  Excludes the canonical path. */
   pagesToDelete: string[]
   /** Snapshot of every file the merge touches BEFORE the merge
-   *  was computed. Caller persists this to .qmai/page-history/
+   *  was computed. Caller persists this to .niko-buddy/page-history/
    *  before writing changes so a bad merge can be rolled back. */
   backup: { path: string; content: string }[]
 }

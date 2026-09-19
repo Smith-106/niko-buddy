@@ -21,8 +21,9 @@ use crate::types::wiki::WikiProject;
 
 const KNOWLEDGE_DIR: &str = "QM";
 const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
-const META_DIR: &str = ".qmai";
+const META_DIR: &str = ".niko-buddy";
 const LEGACY_META_DIR: &str = ".llm-wiki";
+const LEGACY_QMAI_DIR: &str = ".qmai";
 
 // ── Tauri commands ──────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ pub fn create_project_impl(name: String, path: String) -> Result<WikiProject, St
         "QM/synthesis",
         "QM/chapters",
         "QM/outlines",
-        ".qmai",
+        ".niko-buddy",
         ".novel/snapshots",
     ];
     for subdir in subdirs {
@@ -233,7 +234,9 @@ pub fn validate_wiki_project_root(root: &Path) -> Result<(), String> {
 
 /// Rename legacy directories to the current naming convention when safe.
 pub fn migrate_project_dirs(root: &Path) -> Result<(), String> {
+    // 多代旧名顺序迁移：.llm-wiki → .qmai → .niko-buddy（每个只在目标不存在时 rename）
     rename_dir_if_safe(root, LEGACY_META_DIR, META_DIR)?;
+    rename_dir_if_safe(root, LEGACY_QMAI_DIR, META_DIR)?;
     rename_dir_if_safe(root, LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)?;
     Ok(())
 }
@@ -283,7 +286,7 @@ fn bootstrap_obsidian_config(root: &Path) -> Result<(), String> {
   "attachmentFolderPath": "raw/assets",
   "userIgnoreFilters": [
     ".cache",
-    ".qmai",
+    ".niko-buddy",
     ".superpowers"
   ],
   "useMarkdownLinks": false,

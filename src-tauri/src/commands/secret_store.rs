@@ -4,7 +4,7 @@
 //! 凭据落点：独立 secret store（**C-011**）。
 //!
 //! ## 为什么必须独立
-//! Niko Buddy 此前**没有密钥位**：`.qmai/` 是明文载体，`status.json` 是运行时唯一真源
+//! Niko Buddy 此前**没有密钥位**：`.niko-buddy/` 是明文载体，`status.json` 是运行时唯一真源
 //! （外部来源不可写）。F-004（云端备份 / WebDAV 传输）没有凭据落点就无法落地——把口令
 //! 写进项目文件会同时违反 C-001（真源边界）、C-002（Draft-first）与用户资产域纪律。
 //! 因此凭据**不落任何文件库**，改以 OS 原生安全存储为后端：Windows Credential Manager
@@ -12,7 +12,7 @@
 //!
 //! ## 硬约束（任一违反即视为实现缺陷）
 //! 1. **secret 值 MUST NOT** 出现在 `secret_put` / `secret_delete` / `secret_available`
-//!    的返回值、任何日志、`.qmai/` 文件或 `status.json` 中。唯一的值读取路径是
+//!    的返回值、任何日志、`.niko-buddy/` 文件或 `status.json` 中。唯一的值读取路径是
 //!    [`secret_get`]（传输层即时消费，**不得缓存到项目文件**）。
 //! 2. 调用方只持有 **`credential_ref`**（形如 `nb:webdav:<project_id>`），
 //!    而非明文口令。

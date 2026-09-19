@@ -296,17 +296,17 @@ describe("read tools", () => {
 
   it("read_deduction reads from simulations dir", async () => {
     vi.mocked(readFile).mockResolvedValue('{"result":"sim data"}')
-    const tool = createReadDeductionTool("/project/.qmai/simulations")
+    const tool = createReadDeductionTool("/project/.niko-buddy/simulations")
     const result = await tool.execute({ name: "framework_1" })
     expect(result).toContain("sim data")
   })
 
   it("read_deduction reads an explicit framework or result path", async () => {
     vi.mocked(readFile).mockResolvedValue("# framework")
-    const tool = createReadDeductionTool("/project/.qmai/simulations")
-    const result = await tool.execute({ path: "/project/.qmai/simulations/frameworks/main.md" })
+    const tool = createReadDeductionTool("/project/.niko-buddy/simulations")
+    const result = await tool.execute({ path: "/project/.niko-buddy/simulations/frameworks/main.md" })
     expect(result).toBe("# framework")
-    expect(readFile).toHaveBeenCalledWith("/project/.qmai/simulations/frameworks/main.md")
+    expect(readFile).toHaveBeenCalledWith("/project/.niko-buddy/simulations/frameworks/main.md")
   })
 
   it("search_chapters searches chapter contents by keyword", async () => {

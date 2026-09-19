@@ -43,7 +43,7 @@ import {
 } from "./character-aura-store"
 import type { CharacterAura, CharacterAuraStore } from "./character-aura-types"
 
-const STORE_PATH = "/P/.qmai/character-aura.json"
+const STORE_PATH = "/P/.niko-buddy/character-aura.json"
 
 beforeEach(() => {
   fsMocks.readFile.mockReset()
@@ -81,7 +81,7 @@ function customAura(id: string, name = "林动"): CharacterAura {
     behaviorRules: "规则",
     boundaries: "边界",
     notes: "备注",
-    skillFolder: `/P/.qmai/character-auras/${id}-perspective`,
+    skillFolder: `/P/.niko-buddy/character-auras/${id}-perspective`,
   }
 }
 
@@ -157,9 +157,9 @@ describe("updateCustomCharacterAura", () => {
     const updated = await updateCustomCharacterAura("/P", "custom-1", { name: "新名字" })
     expect(updated.name).toBe("新名字")
     expect(updated.builtIn).toBe(false)
-    expect(fsMocks.createDirectory).toHaveBeenCalledWith("/P/.qmai/character-auras/custom-1-perspective")
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith("/P/.niko-buddy/character-auras/custom-1-perspective")
     expect(fsMocks.createDirectory).toHaveBeenCalledWith(
-      "/P/.qmai/character-auras/custom-1-perspective/references/research",
+      "/P/.niko-buddy/character-auras/custom-1-perspective/references/research",
     )
     expect(markdownMocks.storedCustomSkillMarkdown).toHaveBeenCalled()
     // readFile for research files throws → 6 fallback research files written

@@ -53,7 +53,7 @@ describe("state creation and ids", () => {
   })
 
   it("computes the store path from a normalized project path", () => {
-    expect(getDashboardIssueStorePath("C:\\proj")).toBe("C:/proj/.qmai/dashboard-issues.json")
+    expect(getDashboardIssueStorePath("C:\\proj")).toBe("C:/proj/.niko-buddy/dashboard-issues.json")
   })
 })
 
@@ -108,11 +108,11 @@ describe("loadDashboardIssueState", () => {
 })
 
 describe("saveDashboardIssueState", () => {
-  it("writes the normalized state after ensuring the .qmai dir", async () => {
+  it("writes the normalized state after ensuring the .niko-buddy dir", async () => {
     await saveDashboardIssueState("/P", { ignored: { a: true }, rewrites: {} })
-    expect(mocks.createDirectory).toHaveBeenCalledWith("/P/.qmai")
+    expect(mocks.createDirectory).toHaveBeenCalledWith("/P/.niko-buddy")
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      "/P/.qmai/dashboard-issues.json",
+      "/P/.niko-buddy/dashboard-issues.json",
       expect.stringContaining('"ignored"'),
     )
   })

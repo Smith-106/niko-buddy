@@ -16,7 +16,7 @@ import type {
   StoryFramework,
 } from "./types"
 
-const BINDING_FILE = ".qmai/simulations/bindings/active-binding.json"
+const BINDING_FILE = ".niko-buddy/simulations/bindings/active-binding.json"
 
 function bindingFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${BINDING_FILE}`
@@ -84,9 +84,9 @@ export async function saveBinding(
     boundAt: new Date().toISOString(),
   }
 
-  // createDirectory 使用 create_dir_all，会递归创建 .qmai/simulations/bindings
+  // createDirectory 使用 create_dir_all，会递归创建 .niko-buddy/simulations/bindings
   await createDirectory(
-    `${normalizePath(projectPath)}/.qmai/simulations/bindings`,
+    `${normalizePath(projectPath)}/.niko-buddy/simulations/bindings`,
   )
   await writeFileAtomic(bindingFilePath(projectPath), JSON.stringify(binding, null, 2))
   return binding
@@ -138,7 +138,7 @@ export function buildBindingContext(
 // 64 号实施（63 号共识 §6 缺口 14）：分支正史绑定 + stale 半环
 // ============================================================================
 
-const BRANCH_CANON_FILE = ".qmai/simulations/bindings/branch-canon.json"
+const BRANCH_CANON_FILE = ".niko-buddy/simulations/bindings/branch-canon.json"
 
 function branchCanonFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${BRANCH_CANON_FILE}`
@@ -258,6 +258,6 @@ export async function saveBranchCanonBindings(
   projectPath: string,
   bindings: readonly BranchCanonBinding[],
 ): Promise<void> {
-  await createDirectory(`${normalizePath(projectPath)}/.qmai/simulations/bindings`)
+  await createDirectory(`${normalizePath(projectPath)}/.niko-buddy/simulations/bindings`)
   await writeFileAtomic(branchCanonFilePath(projectPath), JSON.stringify(bindings, null, 2))
 }

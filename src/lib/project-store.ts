@@ -271,7 +271,7 @@ export async function loadProjectFileSyncEnabled(projectId?: string): Promise<bo
   return true
 }
 
-const SOURCE_WATCH_CONFIG_FILE = ".qmai/source-watch-config.json"
+const SOURCE_WATCH_CONFIG_FILE = ".niko-buddy/source-watch-config.json"
 
 function sourceWatchConfigFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${SOURCE_WATCH_CONFIG_FILE}`
@@ -393,7 +393,7 @@ const DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: RevisionFeedbackWindowConfig = {
   lookbackIncludeMustFixOnly: true,
 }
 
-const REVISION_FEEDBACK_CONFIG_FILE = ".qmai/revision-feedback-config.json"
+const REVISION_FEEDBACK_CONFIG_FILE = ".niko-buddy/revision-feedback-config.json"
 
 function revisionFeedbackConfigFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${REVISION_FEEDBACK_CONFIG_FILE}`
@@ -471,7 +471,7 @@ function normalizeRevisionFeedbackWindowConfig(
 const NOVEL_CONFIG_KEY = "novelConfig"
 const PROJECT_NOVEL_CONFIG_KEY = "projectNovelConfigs"
 
-const NOVEL_CONFIG_FILE = ".qmai/novel-config.json"
+const NOVEL_CONFIG_FILE = ".niko-buddy/novel-config.json"
 
 function novelConfigFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${NOVEL_CONFIG_FILE}`
@@ -530,7 +530,7 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
 const RERANK_CONFIG_KEY = "rerankConfig"
 const PROJECT_RERANK_CONFIG_KEY = "projectRerankConfigs"
 
-const RERANK_CONFIG_FILE = ".qmai/rerank-config.json"
+const RERANK_CONFIG_FILE = ".niko-buddy/rerank-config.json"
 
 function rerankConfigFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${RERANK_CONFIG_FILE}`

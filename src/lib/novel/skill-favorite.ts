@@ -97,8 +97,8 @@ const FAVORITE_SKILL_CONFIG_KEY = "favoriteSkills"
 const configSaveQueues = new Map<string, Promise<void>>()
 
 // G7 (39 号修复): 收藏分轨 — 内置/全局 (originProjectPath === "") 留 app KV;
-// 项目级收藏落 {projectPath}/.qmai/skill-favorites.json (随项目迁移)。
-const PROJECT_FAVORITES_FILE = ".qmai/skill-favorites.json"
+// 项目级收藏落 {projectPath}/.niko-buddy/skill-favorites.json (随项目迁移)。
+const PROJECT_FAVORITES_FILE = ".niko-buddy/skill-favorites.json"
 
 async function loadProjectFavorites(projectPath: string): Promise<FavoriteSkillConfig> {
   try {
@@ -179,9 +179,9 @@ export async function saveFavorites(config: FavoriteSkillConfig, projectPath?: s
 
 async function persistProjectFavorites(projectPath: string, config: FavoriteSkillConfig): Promise<void> {
   try {
-    await createDirectory(await join(projectPath, ".qmai"))
+    await createDirectory(await join(projectPath, ".niko-buddy"))
   } catch {
-    // .qmai 已存在或创建失败均继续
+    // .niko-buddy 已存在或创建失败均继续
   }
   await writeFileAtomic(await join(projectPath, PROJECT_FAVORITES_FILE), JSON.stringify(config, null, 2))
 }

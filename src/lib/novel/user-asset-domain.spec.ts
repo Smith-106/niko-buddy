@@ -40,7 +40,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 const validRef: UserAssetRef = {
   id: "bundle-abc123",
   kind: "skill_bundle",
-  assetPath: ".qmai/user-assets/skill_bundle/abc123.nbskill.json",
+  assetPath: ".niko-buddy/user-assets/skill_bundle/abc123.nbskill.json",
   contentHash: "a".repeat(64),
   trustLevel: "untrusted",
   referencedAt: "2026-09-12T00:00:00.000Z",
@@ -59,7 +59,7 @@ beforeEach(() => {
 
 describe("C-007 用户资产域常量与落位", () => {
   it("域根与项目侧引用文件路径符合裁定（项目内只存引用）", () => {
-    expect(USER_ASSET_ROOT).toBe(".qmai/user-assets")
+    expect(USER_ASSET_ROOT).toBe(".niko-buddy/user-assets")
     expect(USER_ASSET_REF_FILE).toBe(".novel/user-asset-refs.json")
     expect(USER_ASSET_REF_SCHEMA_VERSION).toBe(1)
     // 本体落在项目外（用户资产域），项目内只有 .novel 引用文件
@@ -76,7 +76,7 @@ describe("C-007 用户资产域常量与落位", () => {
     expect(isProjectLocalAssetPath(".novel/x.json")).toBe(true)
     expect(isProjectLocalAssetPath("QM/raw/x.json")).toBe(true)
     expect(isProjectLocalAssetPath("canon/x.json")).toBe(true)
-    expect(isProjectLocalAssetPath(".qmai/user-assets/x.json")).toBe(false)
+    expect(isProjectLocalAssetPath(".niko-buddy/user-assets/x.json")).toBe(false)
   })
 })
 

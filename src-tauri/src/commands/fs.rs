@@ -41,7 +41,7 @@ const EXTRACT_MAX_ENTRIES: usize = 4096;
 const EXTRACT_MAX_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
 
 const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
-const META_DIR: &str = ".qmai";
+const META_DIR: &str = ".niko-buddy";
 const LEGACY_META_DIR: &str = ".llm-wiki";
 
 #[allow(dead_code)]
@@ -138,7 +138,7 @@ pub(crate) fn resolve_project_storage_path(path: &str) -> Result<String, String>
     // 段级卫生守卫（纵深防御）：先拒绝再段替换，替换目标段均为安全常量。
     reject_unsafe_storage_path(&normalized)?;
 
-    // 先尝试替换所有 .llm-wiki → .qmai（可能有多个嵌套）
+    // 先尝试替换所有 .llm-wiki → .niko-buddy（可能有多个嵌套）
     if let Some(candidate) = replace_all_path_segments(&normalized, LEGACY_META_DIR, META_DIR) {
         if Path::new(&candidate).exists() || !Path::new(&normalized).exists() {
             return Ok(candidate);
@@ -333,7 +333,7 @@ fn cache_path_for(original: &Path) -> std::path::PathBuf {
 
     // 如果缓存目录创建失败（如根目录无权限），回退到系统临时目录
     if fs::create_dir_all(&cache_dir).is_err() {
-        return std::env::temp_dir().join("qmai-cache").join(cache_key);
+        return std::env::temp_dir().join("niko-buddy-cache").join(cache_key);
     }
     cache_dir.join(cache_key)
 }
@@ -2506,7 +2506,7 @@ mod tests {
     fn tmp_text_with_bytes(ext: &str, bytes: &[u8]) -> String {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "qmai-text-{}.{}",
+            "niko-buddy-text-{}.{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -3126,7 +3126,7 @@ mod tests {
     fn tmp_epub(label: &str, bytes: &[u8]) -> String {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "qmai-epub-{label}-{}.epub",
+            "niko-buddy-epub-{label}-{}.epub",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

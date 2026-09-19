@@ -950,7 +950,7 @@ fn prepare_claude_cli_launch(
 ) -> Result<ClaudeCliLaunchConfig, String> {
     let mut temp_files = Vec::new();
     let mcp_config_path = if isolate_local_config {
-        let file = TempFileGuard::write_json("qmai-claude-mcp-config", EMPTY_MCP_CONFIG_JSON)?;
+        let file = TempFileGuard::write_json("niko-buddy-claude-mcp-config", EMPTY_MCP_CONFIG_JSON)?;
         let path = file.path().to_path_buf();
         temp_files.push(file);
         Some(path)
@@ -1175,7 +1175,7 @@ mod tests {
 
     #[test]
     fn claude_args_can_isolate_user_config_tools_and_mcp() {
-        let temp = TempFileGuard::write_json("qmai-claude-cli-test", EMPTY_MCP_CONFIG_JSON)
+        let temp = TempFileGuard::write_json("niko-buddy-claude-cli-test", EMPTY_MCP_CONFIG_JSON)
             .expect("temporary mcp config");
         let expected_path = temp.path().to_string_lossy().to_string();
         let args = build_claude_cli_args(
@@ -1332,7 +1332,7 @@ mod tests {
     fn temp_file_guard_removes_file_on_drop() {
         let path = {
             let guard =
-                TempFileGuard::write_json("qmai-temp-guard-test", b"{}").expect("temporary file");
+                TempFileGuard::write_json("niko-buddy-temp-guard-test", b"{}").expect("temporary file");
             let path = guard.path().to_path_buf();
             assert!(path.exists());
             path
@@ -1440,7 +1440,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("qmai-claude-cli-test-{stamp}"));
+        let dir = std::env::temp_dir().join(format!("niko-buddy-claude-cli-test-{stamp}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

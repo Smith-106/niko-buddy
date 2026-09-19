@@ -45,7 +45,7 @@ let currentAbortController: AbortController | null = null
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 function queueFilePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/dedup-queue.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/dedup-queue.json`
 }
 
 async function saveQueue(projectPath: string): Promise<void> {

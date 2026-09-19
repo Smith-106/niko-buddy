@@ -69,7 +69,7 @@ import {
   loadCharacterAuraSkillDocument,
 } from "./character-aura-context"
 
-const STORE_PATH = "/P/.qmai/character-aura.json"
+const STORE_PATH = "/P/.niko-buddy/character-aura.json"
 
 function seedStore(store: unknown): void {
   fsMocks.readFile.mockImplementation(async (path: string) => {
@@ -295,7 +295,7 @@ describe("buildCharacterAuraContext", () => {
   })
 
   it("includes compressed skill summaries when the aura has a skill folder", async () => {
-    const skillFolder = "/P/.qmai/character-auras/custom-1-perspective"
+    const skillFolder = "/P/.niko-buddy/character-auras/custom-1-perspective"
     seedStore({
       customAuras: [customAura(skillFolder)],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],
@@ -315,7 +315,7 @@ describe("buildCharacterAuraContext", () => {
   })
 
   it("omits empty skill and research documents without treating them as read failures", async () => {
-    const skillFolder = "/P/.qmai/character-auras/custom-1-perspective"
+    const skillFolder = "/P/.niko-buddy/character-auras/custom-1-perspective"
     seedStore({
       customAuras: [customAura(skillFolder)],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],
@@ -336,7 +336,7 @@ describe("buildCharacterAuraContext", () => {
   })
 
   it("falls back to structured fields when skill files cannot be read", async () => {
-    const skillFolder = "/P/.qmai/character-auras/custom-1-perspective"
+    const skillFolder = "/P/.niko-buddy/character-auras/custom-1-perspective"
     seedStore({
       customAuras: [customAura(skillFolder)],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],

@@ -169,7 +169,7 @@ export async function executeMerge(
 
   // 2. Snapshot backup
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const backupDir = `${pp}/.qmai/page-history/dedup-${stamp}`
+  const backupDir = `${pp}/.niko-buddy/page-history/dedup-${stamp}`
   for (const b of result.backup) {
     await writeFile(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)
   }

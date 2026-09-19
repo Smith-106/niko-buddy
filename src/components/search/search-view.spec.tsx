@@ -146,35 +146,35 @@ describe("SearchView 空态与挂载", () => {
 
   it("挂载时从 localStorage 加载历史（合法 JSON 数组）", () => {
     mocks.state.project = PROJECT
-    localStorage.setItem("qmai_search_history_p1", JSON.stringify(["旧查询", "old query"]))
+    localStorage.setItem("niko_buddy_search_history_p1", JSON.stringify(["旧查询", "old query"]))
     render(<SearchView />)
     expect(mocks.state.setSearchHistory).toHaveBeenCalledWith(["旧查询", "old query"])
   })
 
   it("挂载时历史为空数组则不写 store", () => {
     mocks.state.project = PROJECT
-    localStorage.setItem("qmai_search_history_p1", JSON.stringify([]))
+    localStorage.setItem("niko_buddy_search_history_p1", JSON.stringify([]))
     render(<SearchView />)
     expect(mocks.state.setSearchHistory).not.toHaveBeenCalled()
   })
 
   it("localStorage 损坏 JSON 时静默返回空历史", () => {
     mocks.state.project = PROJECT
-    localStorage.setItem("qmai_search_history_p1", "not-json{{{")
+    localStorage.setItem("niko_buddy_search_history_p1", "not-json{{{")
     render(<SearchView />)
     expect(mocks.state.setSearchHistory).not.toHaveBeenCalled()
   })
 
   it("localStorage 非数组或含空串时过滤", () => {
     mocks.state.project = PROJECT
-    localStorage.setItem("qmai_search_history_p1", JSON.stringify(["ok", "", 3]))
+    localStorage.setItem("niko_buddy_search_history_p1", JSON.stringify(["ok", "", 3]))
     render(<SearchView />)
     expect(mocks.state.setSearchHistory).toHaveBeenCalledWith(["ok"])
   })
 
   it("localStorage 非数组 JSON 时返回空历史", () => {
     mocks.state.project = PROJECT
-    localStorage.setItem("qmai_search_history_p1", JSON.stringify(42))
+    localStorage.setItem("niko_buddy_search_history_p1", JSON.stringify(42))
     render(<SearchView />)
     expect(mocks.state.setSearchHistory).not.toHaveBeenCalled()
   })
@@ -284,7 +284,7 @@ describe("SearchView wiki 搜索与结果", () => {
     await waitFor(() => expect(bodyContains("search.pageCount:1")).toBe(true))
     expect(mocks.state.searchHistory[0]).toBe("总资产")
     expect(mocks.state.searchHistory[1]).toBe("旧查询")
-    expect(JSON.parse(localStorage.getItem("qmai_search_history_p1") ?? "[]")).toEqual(["总资产", "旧查询"])
+    expect(JSON.parse(localStorage.getItem("niko_buddy_search_history_p1") ?? "[]")).toEqual(["总资产", "旧查询"])
   })
 
   it("saveSearchHistory 写失败被吞掉", async () => {

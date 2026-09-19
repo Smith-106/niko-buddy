@@ -9,10 +9,10 @@ import type {
   BackupProgressCallback,
 } from "./types"
 
-const LS_PREFIXES = ["qmai", "lk-"]
+const LS_PREFIXES = ["niko-buddy", "lk-"]
 
 /** Keys to exclude from backup collection (sensitive material that must not travel with the backup). */
-const EXCLUDE_KEYS = new Set(["qmai_fallback_fingerprint"])
+const EXCLUDE_KEYS = new Set(["niko_buddy_fallback_fingerprint"])
 
 function collectLocalStorage(): Record<string, string> {
   const data: Record<string, string> = {}
@@ -44,7 +44,7 @@ export async function exportBackup(
 ): Promise<ExportResult> {
   const now = new Date()
   const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`
-  const defaultName = `qmai-backup-${dateStr}.zip`
+  const defaultName = `niko-buddy-backup-${dateStr}.zip`
 
   const savePath = await save({
     defaultPath: defaultName,

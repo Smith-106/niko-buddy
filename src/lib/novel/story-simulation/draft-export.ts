@@ -7,7 +7,7 @@ import { createDirectory, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { StoryDraft, StoryFramework } from "./types"
 
-const SIM_ROOT = ".qmai/simulations"
+const SIM_ROOT = ".niko-buddy/simulations"
 const EXPORTS_DIR = `${SIM_ROOT}/exports`
 
 function exportsDir(projectPath: string): string {

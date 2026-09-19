@@ -10,8 +10,8 @@ import type {
 } from "./types"
 import { resetUserMemoryLearningBudget } from "./learning-budget"
 
-export const GLOBAL_USER_MEMORY_STORAGE_KEY = "qmai.global-user-memory.v1"
-export const GLOBAL_USER_MEMORY_CHANGED_EVENT = "qmai:global-user-memory-changed"
+export const GLOBAL_USER_MEMORY_STORAGE_KEY = "niko-buddy.global-user-memory.v1"
+export const GLOBAL_USER_MEMORY_CHANGED_EVENT = "niko-buddy:global-user-memory-changed"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
 

@@ -31,7 +31,7 @@ import type { ExportResult } from "./types"
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
-  mocks.dialogSave.mockResolvedValue("/out/qmai-backup.zip")
+  mocks.dialogSave.mockResolvedValue("/out/niko-buddy-backup.zip")
   mocks.invoke.mockResolvedValue({ success: true, warnings: [], fileCount: 3, totalSize: 100 })
   mocks.loadRegistry.mockResolvedValue({})
   mocks.listen.mockResolvedValue(() => {})
@@ -52,12 +52,12 @@ describe("exportBackup", () => {
     await exportBackup()
     vi.useRealTimers()
     expect(mocks.dialogSave).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultPath: "qmai-backup-20260305.zip" }),
+      expect.objectContaining({ defaultPath: "niko-buddy-backup-20260305.zip" }),
     )
   })
 
   it("collects prefixed localStorage entries and registry projects", async () => {
-    localStorage.setItem("qmai:theme", "dark")
+    localStorage.setItem("niko-buddy:theme", "dark")
     localStorage.setItem("lk-cache", "x")
     localStorage.setItem("other", "y")
     mocks.loadRegistry.mockResolvedValue({
@@ -70,25 +70,25 @@ describe("exportBackup", () => {
     await expect(exportBackup()).resolves.toBe(result)
 
     const params = mocks.invoke.mock.calls[0][1].params
-    expect(params.localStorageData).toEqual({ "qmai:theme": "dark", "lk-cache": "x" })
+    expect(params.localStorageData).toEqual({ "niko-buddy:theme": "dark", "lk-cache": "x" })
     expect(params.projects).toEqual([
       { id: "a", path: "/A", name: "Alpha" },
       { id: "b", path: "/B", name: "Beta" },
     ])
   })
 
-  it("excludes qmai_fallback_fingerprint from the collected localStorage", async () => {
-    localStorage.setItem("qmai:theme", "dark")
-    localStorage.setItem("qmai_fallback_fingerprint", "device-key-material")
-    localStorage.setItem("qmai:other", "z")
+  it("excludes niko_buddy_fallback_fingerprint from the collected localStorage", async () => {
+    localStorage.setItem("niko-buddy:theme", "dark")
+    localStorage.setItem("niko_buddy_fallback_fingerprint", "device-key-material")
+    localStorage.setItem("niko-buddy:other", "z")
     mocks.loadRegistry.mockResolvedValue({})
     mocks.invoke.mockResolvedValue({ success: true, warnings: [], fileCount: 0, totalSize: 0 })
 
     await exportBackup()
 
     const params = mocks.invoke.mock.calls[0][1].params
-    expect(params.localStorageData).not.toHaveProperty("qmai_fallback_fingerprint")
-    expect(params.localStorageData).toEqual({ "qmai:theme": "dark", "qmai:other": "z" })
+    expect(params.localStorageData).not.toHaveProperty("niko_buddy_fallback_fingerprint")
+    expect(params.localStorageData).toEqual({ "niko-buddy:theme": "dark", "niko-buddy:other": "z" })
   })
 
   it("forwards the invoke result and tears down the progress listener", async () => {
@@ -112,18 +112,18 @@ describe("exportBackup", () => {
   })
 
   it("skips null localStorage keys and null values", async () => {
-    localStorage.setItem("qmai:a", "1")
-    localStorage.setItem("qmai:b", "2") // 保证 length≥2，使 key(1) 分支可达
+    localStorage.setItem("niko-buddy:a", "1")
+    localStorage.setItem("niko-buddy:b", "2") // 保证 length≥2，使 key(1) 分支可达
     const keySpy = vi.spyOn(Storage.prototype, "key").mockImplementation((index: number) =>
-      index === 0 ? null : ("qmai:a" as unknown as string),
+      index === 0 ? null : ("niko-buddy:a" as unknown as string),
     )
     const getSpy = vi.spyOn(Storage.prototype, "getItem").mockImplementation((k: string) =>
-      k === "qmai:a" ? null : localStorage.getItem(k),
+      k === "niko-buddy:a" ? null : localStorage.getItem(k),
     )
     mocks.loadRegistry.mockResolvedValue({})
     await exportBackup()
     expect(keySpy).toHaveBeenCalled()
-    expect(getSpy).toHaveBeenCalledWith("qmai:a")
+    expect(getSpy).toHaveBeenCalledWith("niko-buddy:a")
     keySpy.mockRestore()
     getSpy.mockRestore()
   })

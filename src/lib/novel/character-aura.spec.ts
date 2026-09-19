@@ -168,7 +168,7 @@ import {
 const USABLE_LLM = { provider: "custom", model: "m", customEndpoint: "http://x", apiKey: "" } as LlmConfig
 const NO_LLM = { provider: "openai", model: "", apiKey: "" } as LlmConfig
 
-const STORE_PATH = "/P/.qmai/character-aura.json"
+const STORE_PATH = "/P/.niko-buddy/character-aura.json"
 
 function emptyStore(): unknown {
   return { customAuras: [], bindings: [] }
@@ -359,7 +359,7 @@ describe("store CRUD via character-aura.ts", () => {
           honestyBoundaries: "h",
           generationPrompt: "g",
           webSearchEnabled: true,
-          skillFolder: "/P/.qmai/character-auras/custom-1-perspective",
+          skillFolder: "/P/.niko-buddy/character-auras/custom-1-perspective",
         },
       ],
       bindings: [],
@@ -392,7 +392,7 @@ describe("store CRUD via character-aura.ts", () => {
   it("re-syncs minimal stored files with fallback fields", async () => {
     seedRead({
       customAuras: [
-        { id: "custom-1", builtIn: false, name: "林动", skillFolder: "/P/.qmai/character-auras/custom-1-perspective" },
+        { id: "custom-1", builtIn: false, name: "林动", skillFolder: "/P/.niko-buddy/character-auras/custom-1-perspective" },
       ],
       bindings: [],
     })
@@ -755,7 +755,7 @@ describe("buildCharacterAuraContext (monolithic)", () => {
   })
 
   it("includes compressed skill summaries and degrades on read failure", async () => {
-    const skillFolder = "/P/.qmai/character-auras/custom-1-perspective"
+    const skillFolder = "/P/.niko-buddy/character-auras/custom-1-perspective"
     const store = {
       customAuras: [
         {
@@ -850,7 +850,7 @@ describe("buildCharacterAuraContext (monolithic)", () => {
           behaviorRules: "",
           boundaries: "",
           notes: "",
-          skillFolder: "/P/.qmai/character-auras/custom-1-perspective",
+          skillFolder: "/P/.niko-buddy/character-auras/custom-1-perspective",
         },
       ],
       bindings: [{ characterName: "小晴", auraId: "custom-1" }],
@@ -977,7 +977,7 @@ describe("createCustomCharacterAuraSkill", () => {
     expect(aura.sourceNote).toBe("来源说明")
     expect(aura.webSearchEnabled).toBe(true)
     expect(aura.sourceUrls).toBe("https://a.com")
-    expect(aura.skillFolder).toContain("/.qmai/character-auras/")
+    expect(aura.skillFolder).toContain("/.niko-buddy/character-auras/")
     // 10 progress steps: 准备资料, 搜索, 6 阶段, 汇总, 保存
     expect(steps).toHaveLength(10)
     expect(steps[0].stage).toBe("准备资料")
@@ -1209,7 +1209,7 @@ describe("createCustomCharacterAuraSkill", () => {
       honestyBoundaries: "h",
       generationPrompt: "g",
       webSearchEnabled: true,
-      skillFolder: "/P/.qmai/character-auras/custom-1-perspective",
+      skillFolder: "/P/.niko-buddy/character-auras/custom-1-perspective",
     }
     seedRead({ customAuras: [aura], bindings: [] }, (path) => {
       if (path.endsWith("/references/research/01-writings.md")) return "# 已有内容"

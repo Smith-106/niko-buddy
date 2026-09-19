@@ -19,8 +19,8 @@ use walkdir::WalkDir;
 
 use crate::panic_guard::run_guarded;
 
-const SNAPSHOT_FILE: &str = ".qmai/file-snapshot.json";
-const QUEUE_FILE: &str = ".qmai/file-change-queue.json";
+const SNAPSHOT_FILE: &str = ".niko-buddy/file-snapshot.json";
+const QUEUE_FILE: &str = ".niko-buddy/file-change-queue.json";
 const EVENT_QUEUE_UPDATED: &str = "file-sync://queue-updated";
 const EVENT_CHANGED: &str = "file-sync://changed";
 const MAX_HASH_BYTES: u64 = 32 * 1024 * 1024;
@@ -1091,8 +1091,8 @@ fn should_watch_rel(rel: &str, rules: &SourceWatchRules) -> bool {
         return false;
     }
     let lower = rel.to_lowercase();
-    if lower.contains("/.qmai/")
-        || lower.starts_with(".qmai/")
+    if lower.contains("/.niko-buddy/")
+        || lower.starts_with(".niko-buddy/")
         || lower.contains("/.llm-wiki/")
         || lower.starts_with(".llm-wiki/")
         // App-managed generated media is intentionally ignored here. The
@@ -1262,7 +1262,7 @@ fn emit_changed_batch(app: &AppHandle, project_id: &str, tasks: Vec<FileChangeTa
 }
 
 fn ensure_sync_dir(root: &Path) -> Result<(), String> {
-    fs::create_dir_all(root.join(".qmai")).map_err(|e| format!("Failed to create .qmai: {e}"))
+    fs::create_dir_all(root.join(".niko-buddy")).map_err(|e| format!("Failed to create .niko-buddy: {e}"))
 }
 
 fn read_snapshot(root: &Path) -> Result<FileSnapshot, String> {

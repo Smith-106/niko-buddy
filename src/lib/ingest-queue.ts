@@ -46,7 +46,7 @@ let sweepAbortController: AbortController | null = null
 // ── Persistence ───────────────────────────────────────────────────────────
 
 function queueFilePath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/ingest-queue.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/ingest-queue.json`
 }
 
 async function saveQueue(projectPath: string): Promise<void> {

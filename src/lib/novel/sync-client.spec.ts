@@ -40,7 +40,7 @@ const validConfig: SyncConfig = {
 
 describe("constants mirror the Rust contract", () => {
   it("pins config/journal paths, conflict prefix and the four allowed fields", () => {
-    expect(SYNC_CONFIG_FILE).toBe(".qmai/sync-config.json")
+    expect(SYNC_CONFIG_FILE).toBe(".niko-buddy/sync-config.json")
     expect(SYNC_JOURNAL_FILE).toBe(".novel/sync-journal.jsonl")
     expect(CONFLICT_PREFIX).toBe(".conflict-")
     expect([...SYNC_CONFIG_KEYS]).toEqual(["endpoint", "root", "credential_ref", "enabled"])

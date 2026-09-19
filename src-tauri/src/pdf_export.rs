@@ -1,7 +1,7 @@
 //! PDF 导出（F-008）：**只读投影** + 数据区路径硬拦 + CJK 字体嵌入。
 //!
 //! 三条不变量：
-//! 1. 导出目标 MUST 落在数据区之外（`.novel/`、`QM/`、`.qmai/`、`backups/` 一律拒绝）——
+//! 1. 导出目标 MUST 落在数据区之外（`.novel/`、`QM/`、`.niko-buddy/`、`backups/` 一律拒绝）——
 //!    导出产物是可再生的读物，绝不允许写回正文、记忆或投影目录；
 //! 2. 中文必须**内嵌字体**（`NotoSerifCJKsc-Regular.otf`），不依赖读者机器上的字体；
 //! 3. 行距固定 1.5 倍，页面尺寸 A4，正文来自调用方传入的只读文本切片。
@@ -24,7 +24,7 @@ pub const DEFAULT_FONT_SIZE_PT: f32 = 11.0;
 /// 页边距（pt）。
 pub const PAGE_MARGIN_PT: f32 = 56.0;
 /// 数据区目录名（一律不可作为导出目标）。
-pub const DATA_SECTIONS: [&str; 4] = [".novel", "QM", ".qmai", "backups"];
+pub const DATA_SECTIONS: [&str; 4] = [".novel", "QM", ".niko-buddy", "backups"];
 /// A4 高度（pt），用于换页判断。
 pub const A4_HEIGHT_PT: f32 = 841.89;
 
@@ -329,7 +329,7 @@ mod pdfexport {
             .expect_err("QM 必须拒绝");
         assert!(matches!(err, PdfExportError::PathInsideDataSection(_)));
         assert!(
-            assert_export_path_outside_data_sections(&root, Path::new(".qmai/book.pdf")).is_err()
+            assert_export_path_outside_data_sections(&root, Path::new(".niko-buddy/book.pdf")).is_err()
         );
         assert!(
             assert_export_path_outside_data_sections(&root, Path::new("backups/a/b.pdf")).is_err()

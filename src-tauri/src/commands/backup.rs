@@ -100,7 +100,7 @@ pub struct ProjectRestoreResult {
 pub struct BackupManifest {
     pub backup_version: u32,
     /// 备份**从不**包含凭据：凭据只存 OS 凭据库（`credential_vault`），
-    /// 不落 `.qmai` 项目数据区任何文件。此字段恒为 false，用于恢复时的明示。
+    /// 不落 `.niko-buddy` 项目数据区任何文件。此字段恒为 false，用于恢复时的明示。
     pub credentials_included: bool,
     pub created_at: String,
     pub app_version: String,
@@ -120,7 +120,7 @@ pub struct BackupProgressPayload {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 /// Subdirectories inside each project that should be included in a backup.
-const PROJECT_SUBDIRS: &[&str] = &[".qmai", ".novel", "book-analysis", "raw"];
+const PROJECT_SUBDIRS: &[&str] = &[".niko-buddy", ".novel", "book-analysis", "raw"];
 
 /// Top-level project files to include in a backup.
 const PROJECT_FILES: &[&str] = &["soul.md", "schema.md", "purpose.md"];
@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_extract_dir_rejects_path_traversal() {
-        let tmp = std::env::temp_dir().join("qmai_zipslip_test");
+        let tmp = std::env::temp_dir().join("niko_buddy_zipslip_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -865,7 +865,7 @@ mod tests {
 
     #[test]
     fn test_extract_dir_accepts_normal_paths() {
-        let tmp = std::env::temp_dir().join("qmai_zipslip_normal_test");
+        let tmp = std::env::temp_dir().join("niko_buddy_zipslip_normal_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 

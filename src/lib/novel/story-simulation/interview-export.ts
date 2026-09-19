@@ -8,7 +8,7 @@ import { normalizePath } from "@/lib/path-utils"
 import type { AgentChatMessage } from "./types"
 import type { SavedInterview } from "./interview-store"
 
-const SIM_ROOT = ".qmai/simulations"
+const SIM_ROOT = ".niko-buddy/simulations"
 const INTERVIEWS_DIR = `${SIM_ROOT}/interviews`
 
 function interviewsDir(projectPath: string): string {

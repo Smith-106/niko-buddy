@@ -30,7 +30,7 @@ const llmConfig: LlmConfig = {
 }
 
 const B64 = "aGVsbG8=" // base64 of "hello"
-const CACHE_PATH = "/P/.qmai/image-caption-cache.json"
+const CACHE_PATH = "/P/.niko-buddy/image-caption-cache.json"
 
 let helloHash = ""
 let warnSpy: ReturnType<typeof vi.spyOn>
@@ -152,7 +152,7 @@ describe("captionMarkdownImages", () => {
       undefined,
       { contextBefore: "", contextAfter: "" },
     )
-    expect(fsState.createDirectory).toHaveBeenCalledWith("/P/.qmai")
+    expect(fsState.createDirectory).toHaveBeenCalledWith("/P/.niko-buddy")
     expect(fsState.writeFile).toHaveBeenCalledWith(CACHE_PATH, expect.stringContaining(helloHash))
   })
 

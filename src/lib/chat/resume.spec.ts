@@ -63,7 +63,7 @@ describe("chat deep chapter resume", () => {
       "<think>## 阶段1：上下文分析</think>",
       "",
       "已停止生成。",
-      "<!-- qmai-novel-session-debug:%7B%22flow%22%3A%22deep-chapter%22%7D -->",
+      "<!-- niko-buddy-novel-session-debug:%7B%22flow%22%3A%22deep-chapter%22%7D -->",
     ].join("\n")
 
     expect(stripContinueUnfinishedDeepChapterContext(visible)).toBe([
@@ -603,15 +603,15 @@ describe("chat deep chapter resume", () => {
     expect(extractContinueUnfinishedDeepChapterContext("没有注释的普通内容")).toBeNull()
     // JSON 解析失败 → catch 分支
     expect(extractContinueUnfinishedDeepChapterContext(
-      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent("{bad json") + " -->",
+      "x\n<!-- niko-buddy-continue-unfinished-context:" + encodeURIComponent("{bad json") + " -->",
     )).toBeNull()
     // JSON.parse 结果为 null
     expect(extractContinueUnfinishedDeepChapterContext(
-      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent("null") + " -->",
+      "x\n<!-- niko-buddy-continue-unfinished-context:" + encodeURIComponent("null") + " -->",
     )).toBeNull()
     // 缺少 resumeContext 字段
     expect(extractContinueUnfinishedDeepChapterContext(
-      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent(JSON.stringify({ originalRequest: "o" })) + " -->",
+      "x\n<!-- niko-buddy-continue-unfinished-context:" + encodeURIComponent(JSON.stringify({ originalRequest: "o" })) + " -->",
     )).toBeNull()
   })
 
@@ -623,7 +623,7 @@ describe("chat deep chapter resume", () => {
       checkpoint: "not-an-object",
     }
     const parsed = extractContinueUnfinishedDeepChapterContext(
-      "x\n<!-- qmai-continue-unfinished-context:" + encodeURIComponent(JSON.stringify(payload)) + " -->",
+      "x\n<!-- niko-buddy-continue-unfinished-context:" + encodeURIComponent(JSON.stringify(payload)) + " -->",
     )
     expect(parsed?.originalRequest).toBeUndefined()
     expect(parsed?.resumeContext).toBe("阶段1")

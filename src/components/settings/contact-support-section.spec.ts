@@ -15,12 +15,12 @@ describe("settings contact support section", () => {
     expect(settingsViewSource).toContain("<ContactSupportSection")
   })
 
-  it("shows WeChat contact, WeChat pay, and Alipay pay images", () => {
+  it("shows WeChat contact, WeChat pay, and Alipay pay QR placeholders", () => {
     const sectionSource = readFileSync(sectionSourcePath, "utf8")
 
-    expect(sectionSource).toContain("wechat-contact.jpg")
-    expect(sectionSource).toContain("wechat-pay.jpg")
-    expect(sectionSource).toContain("alipay-pay.jpg")
+    expect(sectionSource).toContain("QrPlaceholder")
+    expect(sectionSource).toContain("wechatPay")
+    expect(sectionSource).toContain("alipayPay")
     expect(sectionSource).toContain("settings.sections.contactSupport.contact.title")
     expect(sectionSource).toContain("settings.sections.contactSupport.donation.title")
   })

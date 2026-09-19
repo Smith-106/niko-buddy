@@ -17,7 +17,7 @@
 //! 目录，待 `.novel` 出现后动态补挂 watch。
 //!
 //! `projectId` 语义：后端在 open_project 时只掌握项目路径（前端 projectId 是
-//! 其 `.qmai/project.json` 里生成的 UUID，属前端域），故事件里的 `projectId`
+//! 其 `.niko-buddy/project.json` 里生成的 UUID，属前端域），故事件里的 `projectId`
 //! 取归一化（`\`→`/`）后的项目路径；前端订阅方可经 project-registry 反查真实
 //! 项目 id 后过滤。
 

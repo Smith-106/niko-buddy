@@ -473,7 +473,7 @@ ${chaptersText.slice(0, 15000)}
  *
  * 主路径：从章节摄入产物（.novel/chapter-ingest-output/）读取角色名与
  * 基础特征（身份/阵营/目标/弧光/认知）。
- * 补充源：光环（.qmai/character-auras/）、角色认知状态、角色档案页。
+ * 补充源：光环（.niko-buddy/character-auras/）、角色认知状态、角色档案页。
  */
 async function extractCharacters(
   pp: string,

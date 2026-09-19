@@ -414,7 +414,7 @@ describe("AppLayout", () => {
     expect(screen.getByText("appLayout.usageGuidePrompt.title")).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText("appLayout.usageGuidePrompt.close"))
     expect(screen.queryByText("appLayout.usageGuidePrompt.title")).not.toBeInTheDocument()
-    expect(localStorage.getItem("qmai-usage-guide-prompt-dismissed")).toBe("1")
+    expect(localStorage.getItem("niko-buddy-usage-guide-prompt-dismissed")).toBe("1")
     view.unmount()
   })
 
@@ -423,12 +423,12 @@ describe("AppLayout", () => {
     fireEvent.click(screen.getByText("appLayout.usageGuidePrompt.description"))
     expect(mocks.wikiState.setActiveSettingsCategory).toHaveBeenCalledWith("usage-guide")
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("settings")
-    expect(localStorage.getItem("qmai-usage-guide-prompt-dismissed")).toBe("1")
+    expect(localStorage.getItem("niko-buddy-usage-guide-prompt-dismissed")).toBe("1")
     view.unmount()
   })
 
   it("使用引导：localStorage 已关闭则挂载即隐藏；settings 视图隐藏", () => {
-    localStorage.setItem("qmai-usage-guide-prompt-dismissed", "1")
+    localStorage.setItem("niko-buddy-usage-guide-prompt-dismissed", "1")
     const v1 = render(<AppLayout onSwitchProject={() => {}} />)
     expect(screen.queryByText("appLayout.usageGuidePrompt.title")).not.toBeInTheDocument()
     v1.unmount()

@@ -258,7 +258,7 @@ mod tests {
 
     fn tmp_project_dir(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "qmai-exemplar-{}-{}",
+            "niko-buddy-exemplar-{}-{}",
             label,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

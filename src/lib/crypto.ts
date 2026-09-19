@@ -44,12 +44,12 @@ export async function getDeviceFingerprint(): Promise<string> {
   }
 
   // Fallback: generate random fingerprint stored in localStorage
-  let fallback = localStorage.getItem("qmai_fallback_fingerprint")
+  let fallback = localStorage.getItem("niko_buddy_fallback_fingerprint")
   if (!fallback) {
     const buf = new Uint8Array(32)
     crypto.getRandomValues(buf)
     fallback = Array.from(buf, b => b.toString(16).padStart(2, "0")).join("")
-    localStorage.setItem("qmai_fallback_fingerprint", fallback)
+    localStorage.setItem("niko_buddy_fallback_fingerprint", fallback)
   }
   // Do not cache fallback fingerprint to allow retry when Tauri is ready
   return fallback

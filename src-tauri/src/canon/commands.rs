@@ -20,7 +20,7 @@
 //!
 //! ## 多项目契约注记（蓝图 §9 ③ / ADR-16）
 //!   1. **`project_id` 进每个命令签名**（首参）：canon DB 路径 =
-//!      `{project_id}/.qmai/lancedb`，每项目一库（T11 约定）。
+//!      `{project_id}/.niko-buddy/lancedb`，每项目一库（T11 约定）。
 //!   2. **无跨库 join**：每条命令只操作单个 `project_id` 的库，绝不在一次
 //!     invoke 内跨项目读取/合并。多项目聚合由编排层（TS）在 invoke 之外完成。
 //!   3. **`status.json` 单实例锁**：本模块以「每项目一条 `tokio::sync::Mutex`

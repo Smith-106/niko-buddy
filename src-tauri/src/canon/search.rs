@@ -361,7 +361,7 @@ impl WindowDecayTable {
 // 函数形式维持 `1/(1+α·d)^β` 冻结——不引入 graphiti 的指数/半衰期等新
 // 形式（ADR-20 纪律：提取「调参在自有召回池上做」的模式，不照搬其函数
 // 形式）。真实 LanceDB 召回池接入前的调参底座为确定性 Niko Buddy 形态代理池
-// （见 tests::t32_retune_tests::qmai_recall_pool）；重调参结论与债务边界
+// （见 tests::t32_retune_tests::niko_buddy_recall_pool）；重调参结论与债务边界
 // 落 docs/decision-log/。
 
 /// 参数扫评估用的单条查询样本（Niko Buddy 召回池代理的最小单元）。
@@ -853,9 +853,9 @@ use lancedb::index::scalar::{FtsIndexBuilder, FullTextSearchQuery};
 use lancedb::index::{Index, IndexType};
 use lancedb::query::{ExecutableQuery, QueryBase};
 
-/// canon LanceDB 库路径（与 store.rs 同源约定：<project>/.qmai/lancedb）。
+/// canon LanceDB 库路径（与 store.rs 同源约定：<project>/.niko-buddy/lancedb）。
 fn db_path(project_path: &str) -> String {
-    format!("{}/.qmai/lancedb", project_path.replace('\\', "/"))
+    format!("{}/.niko-buddy/lancedb", project_path.replace('\\', "/"))
 }
 
 /// canon 混合检索 IO 包装：持有 LanceDB 连接，提供 FTS / 向量召回。
@@ -1871,7 +1871,7 @@ mod t32_retune_tests {
     /// 该形态下衰减强度直接改变 NDCG@10：无衰减时向量通道把远回调与噪声
     /// 推进头部；过强衰减把合法远引用全部压出窗口。真实 LanceDB 召回池
     /// 接入后必须重扫并更新默认值（债条目见 decision-log）。
-    fn qmai_recall_pool() -> Vec<RecallCase> {
+    fn niko_buddy_recall_pool() -> Vec<RecallCase> {
         let mut pool = Vec::with_capacity(36);
         for qi in 0..36usize {
             let at = 100 + qi as i32 * 4;
@@ -1976,8 +1976,8 @@ mod t32_retune_tests {
     const INCUMBENT_ALPHA: f64 = 0.1;
     const INCUMBENT_BETA: f64 = 1.0;
 
-    fn sweep_on_qmai_pool() -> DecaySweepReport {
-        sweep_decay_params(&qmai_recall_pool(), &SWEEP_ALPHAS, &SWEEP_BETAS, 10)
+    fn sweep_on_niko_buddy_pool() -> DecaySweepReport {
+        sweep_decay_params(&niko_buddy_recall_pool(), &SWEEP_ALPHAS, &SWEEP_BETAS, 10)
     }
 
     /// 扫描赢家（T32 定稿值，2026-08-22）：SearchConfig::default 的 α/β 必须与之
@@ -1987,7 +1987,7 @@ mod t32_retune_tests {
 
     #[test]
     fn t32_default_config_matches_swept_winner() {
-        let report = sweep_on_qmai_pool();
+        let report = sweep_on_niko_buddy_pool();
         let best = report.best().expect("non-empty report");
         assert!(
             (best.alpha - TUNED_ALPHA).abs() < 1e-12 && (best.beta - TUNED_BETA).abs() < 1e-12,
@@ -2002,9 +2002,9 @@ mod t32_retune_tests {
     }
 
     #[test]
-    fn t32_decay_sweep_on_qmai_pool_is_deterministic_and_beats_incumbent() {
-        let r1 = sweep_on_qmai_pool();
-        let r2 = sweep_on_qmai_pool();
+    fn t32_decay_sweep_on_niko_buddy_pool_is_deterministic_and_beats_incumbent() {
+        let r1 = sweep_on_niko_buddy_pool();
+        let r2 = sweep_on_niko_buddy_pool();
         assert_eq!(r1, r2, "sweep must be deterministic (same grid, same pool)");
 
         assert_eq!(

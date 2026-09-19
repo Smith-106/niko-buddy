@@ -72,7 +72,7 @@ describe("LLM Wiki model settings copied into Niko Buddy", () => {
       preset("azure"),
       {
         apiKey: "azure-key",
-        baseUrl: "https://qmai-test.openai.azure.com",
+        baseUrl: "https://niko-buddy-test.openai.azure.com",
         model: "writer-prod",
         azureApiVersion: "2024-10-21",
         azureModelFamily: "gpt5",
@@ -85,7 +85,7 @@ describe("LLM Wiki model settings copied into Niko Buddy", () => {
 
     const provider = getProviderConfig(config)
     expect(provider.url).toBe(
-      "https://qmai-test.openai.azure.com/openai/deployments/writer-prod/chat/completions?api-version=2024-10-21",
+      "https://niko-buddy-test.openai.azure.com/openai/deployments/writer-prod/chat/completions?api-version=2024-10-21",
     )
     expect(provider.headers["api-key"]).toBe("azure-key")
   })

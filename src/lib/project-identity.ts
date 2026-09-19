@@ -20,7 +20,7 @@ export interface ProjectRegistryEntry {
 export type ProjectRegistry = Record<string, ProjectRegistryEntry>
 
 function identityPath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/project.json`
+  return `${normalizePath(projectPath)}/.niko-buddy/project.json`
 }
 
 export async function ensureProjectId(projectPath: string): Promise<string> {

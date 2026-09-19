@@ -5,8 +5,8 @@ import type { DeepChapterGenerationResumeCheckpoint, NovelSessionStatus } from "
 const DEEP_CHAPTER_FAILURE_RE = /深度生成章节失败|继续未完成失败|已停止生成|deep chapter generation failed|continue unfinished failed|stopped generating/i
 const THINK_BLOCK_RE = /<think(?:ing)?>[\s\S]*?(?:<\/think(?:ing)?>|$)/i
 const MAX_RESUME_CONTEXT_CHARS = 60_000
-const RESUME_CONTEXT_COMMENT_RE = /<!--\s*qmai-continue-unfinished-context:([\s\S]*?)\s*-->/g
-const NOVEL_SESSION_DEBUG_COMMENT_RE = /<!--\s*qmai-novel-session-debug:[\s\S]*?\s*-->/g
+const RESUME_CONTEXT_COMMENT_RE = /<!--\s*niko-buddy-continue-unfinished-context:([\s\S]*?)\s*-->/g
+const NOVEL_SESSION_DEBUG_COMMENT_RE = /<!--\s*niko-buddy-novel-session-debug:[\s\S]*?\s*-->/g
 
 export interface ContinueUnfinishedDeepChapterContext {
   originalRequest?: string
@@ -227,7 +227,7 @@ export function appendContinueUnfinishedDeepChapterContext(
   context: ContinueUnfinishedDeepChapterContext,
 ): string {
   const payload = encodeURIComponent(JSON.stringify(context))
-  return `${stripContinueUnfinishedDeepChapterContext(content)}\n<!-- qmai-continue-unfinished-context:${payload} -->`
+  return `${stripContinueUnfinishedDeepChapterContext(content)}\n<!-- niko-buddy-continue-unfinished-context:${payload} -->`
 }
 
 export function extractContinueUnfinishedDeepChapterContext(

@@ -24,7 +24,7 @@ export const DESTRUCTIVE_OPS = [
 ] as const;
 
 /** 只认既有目录约定；不发明新的「可重建根」。 */
-export const DERIVED_ROOTS = [".qmai/", ".novel/", "backups/"] as const;
+export const DERIVED_ROOTS = [".niko-buddy/", ".novel/", "backups/"] as const;
 
 export const GATE_CONFIRM_PREFIX = "GATE_REQUIRE_CONFIRM:";
 export const GATE_DENIED_PREFIX = "GATE_DENIED:";

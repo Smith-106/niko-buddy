@@ -20,7 +20,7 @@ describe("release notes for updater manifest", () => {
   })
 
   it("can write release notes directly to a UTF-8 file for CI scripts", () => {
-    const outDir = mkdtempSync(join(tmpdir(), "qmai-release-notes-"))
+    const outDir = mkdtempSync(join(tmpdir(), "niko-buddy-release-notes-"))
     const outPath = join(outDir, "release-notes.txt")
 
     execFileSync(process.execPath, ["scripts/release-notes.mjs", "2.1.0", "--out", outPath], {

@@ -34,7 +34,7 @@ import {
 
 const PROJECT = "E:\\Novel"
 const PP = "E:/Novel"
-const FILE = `${PP}/.qmai/vector-fingerprints.json`
+const FILE = `${PP}/.niko-buddy/vector-fingerprints.json`
 
 beforeEach(() => {
   vi.clearAllMocks()

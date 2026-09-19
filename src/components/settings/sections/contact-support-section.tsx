@@ -3,15 +3,22 @@
 
 import { HeartHandshake, MessageCircle, QrCode } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import wechatContactImage from "@/assets/support/wechat-contact.jpg"
-import wechatPayImage from "@/assets/support/wechat-pay.jpg"
-import alipayPayImage from "@/assets/support/alipay-pay.jpg"
 
-/** Donation payment channels with their QR code images. */
+/** Donation payment channels (QR images pending real assets). */
 const DONATION_CHANNELS = [
-  { key: "wechatPay", image: wechatPayImage },
-  { key: "alipayPay", image: alipayPayImage },
+  { key: "wechatPay" },
+  { key: "alipayPay" },
 ] as const
+
+/** Placeholder shown while the real QR image asset is not yet provided. */
+function QrPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 p-4 text-center">
+      <QrCode className="h-8 w-8 text-muted-foreground/60" />
+      <span className="text-xs text-muted-foreground">{label}</span>
+    </div>
+  )
+}
 
 /**
  * Contact & support section showing WeChat contact info and donation QR codes.
@@ -45,11 +52,11 @@ export function ContactSupportSection() {
               {t("settings.sections.contactSupport.contact.description")}
             </p>
             <div className="mt-4 flex justify-center sm:justify-start">
-              <img
-                src={wechatContactImage}
-                alt={t("settings.sections.contactSupport.contact.alt")}
-                className="max-h-[420px] w-full max-w-[320px] rounded-md border border-border bg-background object-contain"
-              />
+              <div className="w-full max-w-[320px]">
+                <QrPlaceholder
+                  label={t("settings.sections.contactSupport.contact.alt")}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -80,10 +87,8 @@ export function ContactSupportSection() {
                       {t(`settings.sections.contactSupport.donation.${channel.key}.title`)}
                     </span>
                   </div>
-                  <img
-                    src={channel.image}
-                    alt={t(`settings.sections.contactSupport.donation.${channel.key}.alt`)}
-                    className="aspect-[3/4] w-full rounded-md bg-background object-contain"
+                  <QrPlaceholder
+                    label={t(`settings.sections.contactSupport.donation.${channel.key}.alt`)}
                   />
                 </div>
               ))}

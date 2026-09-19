@@ -9,7 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /** 数据区目录名；这些目录内的路径一律不可作为导出目标。 */
-export const DATA_SECTIONS = [".novel", "QM", ".qmai", "backups"] as const;
+export const DATA_SECTIONS = [".novel", "QM", ".niko-buddy", "backups"] as const;
 /** 行距倍数（与 Rust 侧 `LINE_HEIGHT_RATIO` 一致）。 */
 export const LINE_HEIGHT_RATIO = 1.5;
 /** 内嵌中文字体文件名。 */

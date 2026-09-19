@@ -49,7 +49,7 @@ let scanTimer: ReturnType<typeof setInterval> | null = null
 let scanning = false
 let activeRunId = 0
 
-const DB_PATH = ".qmai/scheduled-import-db.json"
+const DB_PATH = ".niko-buddy/scheduled-import-db.json"
 const LEGACY_DB_DIR = ".llm-wiki-imported"
 const SI_DIR = "scheduled-import"
 const MAX_BYTES = 100 * 1024 * 1024
@@ -116,7 +116,7 @@ function safeRelPath(path: string): string {
 
 export function isScheduledImportInternalPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
-  return parts.includes(LEGACY_DB_DIR) || parts.includes(".qmai") || parts.includes(".llm-wiki")
+  return parts.includes(LEGACY_DB_DIR) || parts.includes(".niko-buddy") || parts.includes(".llm-wiki")
 }
 
 export function shouldSkipScheduledImportFile(projectPath: string, filePath: string): boolean {

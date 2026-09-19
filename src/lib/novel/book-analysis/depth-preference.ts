@@ -13,7 +13,7 @@
 
 import type { AnalysisDepth } from "./types"
 
-const STORAGE_KEY = "qmai.book-analysis.depth-preference"
+const STORAGE_KEY = "niko-buddy.book-analysis.depth-preference"
 
 const VALID_DEPTHS: AnalysisDepth[] = ["fast", "standard", "deep"]
 

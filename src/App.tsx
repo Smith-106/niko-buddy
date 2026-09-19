@@ -77,12 +77,12 @@ function App() {
   async function handleSelectRecent(proj: WikiProject) {
     try {
       const validated = await openProject(proj.path)
-      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .qmai/.novel 互相覆盖)
+      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .niko-buddy/.novel 互相覆盖)
       const claim = await import("@/lib/project-owner").then((m) => m.claimProjectOwnership(validated.path))
       if (!claim.ok && claim.conflict && claim.occupant) {
         const proceed = window.confirm(
           `该项目正被「${claim.occupant.app}」占用（${new Date(claim.occupant.startedAt).toLocaleTimeString()} 起）。\n` +
-          `两个引擎实例同时写入 .qmai/ 与 .novel/status.json 会互相覆盖。\n\n` +
+          `两个引擎实例同时写入 .niko-buddy/ 与 .novel/status.json 会互相覆盖。\n\n` +
           `确定继续打开？`,
         )
         if (!proceed) return
@@ -98,12 +98,12 @@ function App() {
     if (!path) return
     try {
       const proj = await openProject(path)
-      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .qmai/.novel 互相覆盖)
+      // 54 号设计隐患 1: 项目占用锁 (防跨应用 .niko-buddy/.novel 互相覆盖)
       const claim = await import("@/lib/project-owner").then((m) => m.claimProjectOwnership(proj.path))
       if (!claim.ok && claim.conflict && claim.occupant) {
         const proceed = window.confirm(
           `该项目正被「${claim.occupant.app}」占用（${new Date(claim.occupant.startedAt).toLocaleTimeString()} 起）。\n` +
-          `两个引擎实例同时写入 .qmai/ 与 .novel/status.json 会互相覆盖。\n\n` +
+          `两个引擎实例同时写入 .niko-buddy/ 与 .novel/status.json 会互相覆盖。\n\n` +
           `确定继续打开？`,
         )
         if (!proceed) return

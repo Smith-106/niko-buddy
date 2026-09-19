@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn reads_export_lines_from_rc() {
-        let dir = std::env::temp_dir().join(format!("qmai-cursor-rc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("niko-buddy-cursor-rc-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let rc = dir.join(".zshrc");
         std::fs::write(

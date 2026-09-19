@@ -16,8 +16,8 @@ import {
   SKILL_ROUTE_CATEGORY_IDS,
 } from "./skill-route"
 
-// G7 (39 号修复): 配置迁入 .qmai/ 治理目录; 旧根路径回退 + 惰性迁移。
-export const USER_SKILL_CONFIG_FILE = ".qmai/writing-skills.json"
+// G7 (39 号修复): 配置迁入 .niko-buddy/ 治理目录; 旧根路径回退 + 惰性迁移。
+export const USER_SKILL_CONFIG_FILE = ".niko-buddy/writing-skills.json"
 const USER_SKILL_LEGACY_ROOT_FILE = "writing-skills.json"
 
 export interface UserSkillConfig {
@@ -427,7 +427,7 @@ export async function loadUserSkillConfig(projectPath: string | null | undefined
     const legacyContent = await readFile(legacyPath)
     const legacyConfig = ensureBuiltinSkills(normalizeUserSkillConfig(JSON.parse(legacyContent)))
     try {
-      await createDirectory(await join(projectPath, ".qmai"))
+      await createDirectory(await join(projectPath, ".niko-buddy"))
       await writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2))
     } catch {
       // 迁移写失败不阻断, 下次再试
@@ -441,9 +441,9 @@ export async function loadUserSkillConfig(projectPath: string | null | undefined
 export async function saveUserSkillConfig(projectPath: string, config: UserSkillConfig): Promise<void> {
   const configPath = await join(projectPath, USER_SKILL_CONFIG_FILE)
   try {
-    await createDirectory(await join(projectPath, ".qmai"))
+    await createDirectory(await join(projectPath, ".niko-buddy"))
   } catch {
-    // .qmai 已存在或创建失败均继续
+    // .niko-buddy 已存在或创建失败均继续
   }
   await writeFileAtomic(configPath, JSON.stringify(normalizeUserSkillConfig(config), null, 2))
 }
@@ -472,7 +472,7 @@ export function ensureBuiltinSkills(config: UserSkillConfig): UserSkillConfig {
 
 export function exportSkillToJson(skill: UserSkill): string {
   const data = {
-    "qmai-skill": true,
+    "niko-buddy-skill": true,
     version: 1,
     name: skill.name,
     description: skill.description,

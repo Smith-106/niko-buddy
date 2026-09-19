@@ -4,7 +4,7 @@
  * 设计依据：方案 B 远期目标——框架作为顶层共享实体，可被多个拆文项目/章纲引用。
  *
  * 存储路径：{projectPath}/.novel/plot-frameworks/library.json
- * 与拆文库 {projectPath}/.qmai/dismantling/library.json 同级，符合现有 .qmai 数据约定。
+ * 与拆文库 {projectPath}/.niko-buddy/dismantling/library.json 同级，符合现有 .niko-buddy 数据约定。
  *
  * 跨作品共享：同一个框架可被多个 DismantlingProject 拆出，通过 sourceDismantlingProjectId 追溯。
  * 主线/支线：每个框架标注 main/sub，主线按时间串联保证主线不乱。

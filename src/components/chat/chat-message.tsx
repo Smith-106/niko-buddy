@@ -66,9 +66,9 @@ function isTerminalAssistantError(content: string): boolean {
   return TERMINAL_ASSISTANT_STATUS_RE.test(visible)
 }
 
-const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*qmai-deep-chapter-draft:([\s\S]*?)\s*-->/i
+const MANAGED_DEEP_CHAPTER_DRAFT_RE = /<!--\s*niko-buddy-deep-chapter-draft:([\s\S]*?)\s*-->/i
 
-const MANAGED_CONTEXT_USAGE_RE = /<!--\s*qmai-context-usage:([\s\S]*?)\s*-->/i
+const MANAGED_CONTEXT_USAGE_RE = /<!--\s*niko-buddy-context-usage:([\s\S]*?)\s*-->/i
 
 type ManagedDeepChapterDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
 
@@ -94,7 +94,7 @@ function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDr
 }
 
 /**
- * Wave 5 (v2.5.0): 解析 qmai-context-usage 标记 → 上下文用量快照。
+ * Wave 5 (v2.5.0): 解析 niko-buddy-context-usage 标记 → 上下文用量快照。
  * 缺省/损坏标记返回 null（不渲染 ring，优雅降级）。
  */
 function getContextUsageFromMessage(content: string): import("@/lib/context-usage").ContextUsage | null {

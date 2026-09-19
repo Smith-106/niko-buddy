@@ -17,9 +17,9 @@ const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
 const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
-const CHAT_DOCK_POSITION_KEY = "qmai-chat-dock-position"
-const OFFLINE_MODE_KEY = "qmai-offline-mode"
-const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
+const CHAT_DOCK_POSITION_KEY = "niko-buddy-chat-dock-position"
+const OFFLINE_MODE_KEY = "niko-buddy-offline-mode"
+const UI_FONT_SIZE_SCALE_KEY = "niko-buddy-ui-font-size-scale"
 
 // ── Public type exports ────────────────────────────────────────────────────────
 
@@ -373,7 +373,7 @@ export interface NovelConfig {
   usefulnessRerankEnabled: boolean
   /**
    * 55 号设计 W1-1 (54⑧ 收尾): 题材 (genre) 英文稳定码 (outline-generator 9 码之一)。
-   * 运行时单真源 (`.qmai/novel-config.json`); undefined = 未设置 → 生成链零行为变更。
+   * 运行时单真源 (`.niko-buddy/novel-config.json`); undefined = 未设置 → 生成链零行为变更。
    */
   genre?: string
   /**

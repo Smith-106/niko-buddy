@@ -24,7 +24,7 @@ import type {
 /**
  * createEmptyContinuityOverrideStore: 空工厂, lastUpdated 用空字符串 (非
  * new Date().toISOString()) — 避免模块加载时执行 new Date 不稳 (模块级求值
- * 时机不定, 参考 memory qmai-observability-infra 模块级 env 常量坑)。save 时
+ * 时机不定, 参考 memory niko-buddy-observability-infra 模块级 env 常量坑)。save 时
  * 在函数内设 lastUpdated = new Date().toISOString() (运行时求值)。
  */
 export function createEmptyContinuityOverrideStore(): ContinuityOverrideStore {

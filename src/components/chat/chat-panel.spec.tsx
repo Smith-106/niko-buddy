@@ -1588,7 +1588,7 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
     expect(within(tabs[1]).getByLabelText("确认删除该会话")).toBeInTheDocument()
     fireEvent.click(within(tabs[1]).getByLabelText("确认删除该会话"))
     expect(mocks.chatState.deleteConversation).toHaveBeenCalledWith("conv-2")
-    expect(mocks.deleteFile).toHaveBeenCalledWith("/p/mybook/.qmai/chats/conv-2.json")
+    expect(mocks.deleteFile).toHaveBeenCalledWith("/p/mybook/.niko-buddy/chats/conv-2.json")
     fireEvent.mouseLeave(tabs[1])
   })
 
@@ -1667,7 +1667,7 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
     fireEvent.click(within(tab).getByLabelText("删除该会话"))
     fireEvent.click(within(tab).getByLabelText("确认删除该会话"))
     expect(capturedSignal.current?.aborted).toBe(true)
-    expect(mocks.deleteFile).toHaveBeenCalledWith("/p/mybook/.qmai/chats/conv-1.json")
+    expect(mocks.deleteFile).toHaveBeenCalledWith("/p/mybook/.niko-buddy/chats/conv-1.json")
     await flushAsync()
   })
 })
@@ -2601,10 +2601,10 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     expect(mocks.blockDeepChapterSession).not.toHaveBeenCalled()
     expect(mocks.pauseDeepChapterSession).not.toHaveBeenCalled()
     const [content] = lastFinalize()
-    expect(content).toContain("<!-- qmai-deep-chapter-draft:")
+    expect(content).toContain("<!-- niko-buddy-deep-chapter-draft:")
     expect(decodeURIComponent(content)).toContain('"draftStatus":"ready"')
     // Wave 5: 上下文用量标记随 draft 标记同追 + completeDeepChapterSession 透传
-    expect(content).toContain("<!-- qmai-context-usage:")
+    expect(content).toContain("<!-- niko-buddy-context-usage:")
     expect(decodeURIComponent(content)).toContain('"memoryChars":80')
     expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(
       expect.objectContaining({ contextUsage: expect.objectContaining({ maxCtx: 100000 }) }),
@@ -2619,7 +2619,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
-    expect(lastFinalize()[0]).not.toContain("qmai-context-usage")
+    expect(lastFinalize()[0]).not.toContain("niko-buddy-context-usage")
     expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(
       expect.objectContaining({ contextUsage: undefined }),
     )
@@ -2635,7 +2635,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
-    expect(lastFinalize()[0]).not.toContain("qmai-context-usage")
+    expect(lastFinalize()[0]).not.toContain("niko-buddy-context-usage")
     setDeepMode(false)
   })
 
@@ -2693,7 +2693,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     await sendText("深度写")
     const [content] = lastFinalize()
     expect(content).toContain("已停止生成。")
-    expect(content).toContain("<!-- qmai-novel-session-debug:")
+    expect(content).toContain("<!-- niko-buddy-novel-session-debug:")
     expect(content).toContain("appendContinueUnfinishedDeepChapterContext".length > 0 ? "已停止生成" : "")
     setDeepMode(false)
   })
@@ -2707,7 +2707,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     await sendText("深度写")
     const [content, refs] = lastFinalize()
     expect(content).toContain("出错：深度生成章节失败：boom")
-    expect(content).toContain("<!-- qmai-novel-session-debug:")
+    expect(content).toContain("<!-- niko-buddy-novel-session-debug:")
     expect(refs).toBeUndefined()
     setDeepMode(false)
   })
@@ -2789,7 +2789,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     setDeepMode(true)
     await sendText("深度写")
     const [content] = lastFinalize()
-    expect(content).not.toContain("qmai-novel-session-debug")
+    expect(content).not.toContain("niko-buddy-novel-session-debug")
     expect(content).toContain("出错：深度生成章节失败")
     setDeepMode(false)
   })
@@ -3188,7 +3188,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalled()
     const [content] = lastFinalize()
     expect(content).toContain("出错：继续未完成失败")
-    expect(content).not.toContain("qmai-novel-session-debug")
+    expect(content).not.toContain("niko-buddy-novel-session-debug")
   })
 
   it("无 checkpoint 续写 onToken/onReasoningToken 的 guard 失效分支", async () => {
@@ -3279,7 +3279,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     await flushAsync()
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalled()
     const [content] = lastFinalize()
-    expect(content).toContain("qmai-novel-session-debug")
+    expect(content).toContain("niko-buddy-novel-session-debug")
     expect(decodeURIComponent(content)).toContain('"pauseWrite"')
     expect(decodeURIComponent(content)).toContain('"status":"paused"')
     expect(decodeURIComponent(content)).toContain('"lastError":"resume-boom"')
@@ -4086,7 +4086,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
-    expect(lastFinalize()[0]).not.toContain("qmai-deep-chapter-draft")
+    expect(lastFinalize()[0]).not.toContain("niko-buddy-deep-chapter-draft")
     setDeepMode(false)
   })
 })

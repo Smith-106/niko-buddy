@@ -84,7 +84,7 @@ function makeHistoryId(now: number): string {
 }
 
 function historyRoot(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/generation-history`
+  return `${normalizePath(projectPath)}/.niko-buddy/generation-history`
 }
 
 function historyKindDir(projectPath: string, kind: GenerationHistoryKind): string {
@@ -93,7 +93,7 @@ function historyKindDir(projectPath: string, kind: GenerationHistoryKind): strin
 
 async function ensureHistoryDirs(projectPath: string, kind: GenerationHistoryKind): Promise<void> {
   const pp = normalizePath(projectPath)
-  await createDirectory(`${pp}/.qmai`)
+  await createDirectory(`${pp}/.niko-buddy`)
   await createDirectory(historyRoot(pp))
   await createDirectory(historyKindDir(pp, kind))
 }

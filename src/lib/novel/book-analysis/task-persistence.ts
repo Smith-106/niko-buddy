@@ -3,7 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import type { BookAnalysisTask } from "@/lib/novel/book-analysis/types"
 
-const TASKS_FILE = ".qmai/book-analysis-tasks.json"
+const TASKS_FILE = ".niko-buddy/book-analysis-tasks.json"
 
 function tasksFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${TASKS_FILE}`

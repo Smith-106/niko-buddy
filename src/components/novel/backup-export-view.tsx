@@ -7,7 +7,7 @@
  * 与设置页「数据管理」的**全局**备份（i18n exportTitle，打包所有项目配置 +
  * app-state）严格区分：本视图是**单项目**入口，包内容 =
  * `.novel/status.json`（会话状态唯一真源）+ `.novel/drafts/`（草稿工件）+
- * `.qmai/lancedb/`（Canon 三表 LanceDB 快照），zip + SHA-256 校验和
+ * `.niko-buddy/lancedb/`（Canon 三表 LanceDB 快照），zip + SHA-256 校验和
  * （sidecar `.sha256` + 包内 manifest 双层校验）。
  *
  * - 导出：save 对话框选路径 → `canon_export_project`；可选本地口令

@@ -16,7 +16,7 @@
  *   保证 `conflictFileName` 不会返回 `null`。
  */
 
-const STORAGE_KEY = "qmai.deviceId"
+const STORAGE_KEY = "niko-buddy.deviceId"
 
 /** 清洗为两侧 `conflict_file_name` / `conflictFileName` 都接受的安全片段。 */
 export function sanitizeDeviceId(raw: string): string {

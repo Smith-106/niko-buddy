@@ -53,7 +53,7 @@ function readStoredGraphEdgeLabelsAlways() {
   return (globalThis.localStorage as any).getItem("lk-graph-edge-labels-always") === "true"
 }
 function readStoredUiFontSizeScale() {
-  const saved = Number((globalThis.localStorage as any).getItem("qmai-ui-font-size-scale") ?? "1")
+  const saved = Number((globalThis.localStorage as any).getItem("niko-buddy-ui-font-size-scale") ?? "1")
   return Number.isFinite(saved) ? Math.max(0.85, Math.min(1.3, Number(saved.toFixed(2)))) : 1
 }
 
@@ -368,15 +368,15 @@ describe("setChatDockPosition / setUiFontSizeScale 的 localStorage 持久化", 
   it("setChatDockPosition 写入 localStorage", () => {
     useWikiStore.getState().setChatDockPosition("right")
     // Spies live on globalThis.localStorage; _localStorageMock is only the value map.
-    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("qmai-chat-dock-position", "right")
-    expect(_localStorageMock["qmai-chat-dock-position"]).toBe("right")
+    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("niko-buddy-chat-dock-position", "right")
+    expect(_localStorageMock["niko-buddy-chat-dock-position"]).toBe("right")
   })
 
   it("setUiFontSizeScale 写入并约束范围", () => {
     useWikiStore.getState().setUiFontSizeScale(2.0) // 超出上限
     expect(useWikiStore.getState().uiFontSizeScale).toBeCloseTo(1.3)
-    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("qmai-ui-font-size-scale", String(1.3))
-    expect(_localStorageMock["qmai-ui-font-size-scale"]).toBe(String(1.3))
+    expect(globalThis.localStorage.setItem).toHaveBeenCalledWith("niko-buddy-ui-font-size-scale", String(1.3))
+    expect(_localStorageMock["niko-buddy-ui-font-size-scale"]).toBe(String(1.3))
   })
 })
 
@@ -665,8 +665,8 @@ describe("readStored* 预置值解析", () => {
   })
 
   it("合法预置值被读取", async () => {
-    _localStorageMock["qmai-chat-dock-position"] = "right"
-    _localStorageMock["qmai-ui-font-size-scale"] = "1.25"
+    _localStorageMock["niko-buddy-chat-dock-position"] = "right"
+    _localStorageMock["niko-buddy-ui-font-size-scale"] = "1.25"
     _localStorageMock["lk-graph-label-display-mode"] = "auto"
     _localStorageMock["lk-graph-edge-style"] = "arrow"
     _localStorageMock["lk-graph-edge-strength"] = "250"
@@ -685,8 +685,8 @@ describe("readStored* 预置值解析", () => {
   })
 
   it("非法/越界预置值回退默认或夹取边界", async () => {
-    _localStorageMock["qmai-chat-dock-position"] = "left"
-    _localStorageMock["qmai-ui-font-size-scale"] = "0.5"
+    _localStorageMock["niko-buddy-chat-dock-position"] = "left"
+    _localStorageMock["niko-buddy-ui-font-size-scale"] = "0.5"
     _localStorageMock["lk-graph-label-display-mode"] = "bogus"
     _localStorageMock["lk-graph-edge-style"] = "dotted"
     _localStorageMock["lk-graph-edge-strength"] = "300"
@@ -705,7 +705,7 @@ describe("readStored* 预置值解析", () => {
   })
 
   it("非数字字体缩放 / 强度回退默认", async () => {
-    _localStorageMock["qmai-ui-font-size-scale"] = "abc"
+    _localStorageMock["niko-buddy-ui-font-size-scale"] = "abc"
     _localStorageMock["lk-graph-edge-strength"] = "nan"
     vi.resetModules()
     const mod = await import("../wiki-store")

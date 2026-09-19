@@ -53,7 +53,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
       "{\"summary\":\"ok\",\"characters\":[\"A\"],\"nested\":{\"k\":\"v\"}}",
       "```",
       "",
-      "<!-- qmai-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%7D -->",
+      "<!-- niko-buddy-deep-chapter-draft:%7B%22conversationId%22%3A%22conv-1%22%7D -->",
     ].join("\n")
 
     const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw

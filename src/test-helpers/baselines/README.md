@@ -32,7 +32,7 @@ and reports regressions (>20% threshold).
 ## Write contract (P2-6, 2026-09-10)
 
 - **Read source（冻结基线）**: `src/test-helpers/baselines/*.json`（tracked，仅发布会话刷新）
-- **Write target（测量落盘）**: `node_modules/.cache/qmai-baselines/*.json`（untracked，每次 bench 自动写入）
+- **Write target（测量落盘）**: `node_modules/.cache/niko-buddy-baselines/*.json`（untracked，每次 bench 自动写入）
 - **刷新冻结基线**: `NIKO_BUDDY_BASELINE_DIR=src/test-helpers/baselines npm run bench` 后走 review/commit（P16 单写者纪律）
 - 目的：普通 bench 运行不再污染工作树（R11 清偿；原 skip-worktree workaround 已删）
 

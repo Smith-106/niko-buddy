@@ -386,7 +386,7 @@ describe("source watch config", () => {
   it("saves to the store and to a per-project file", async () => {
     const config = { enabled: true, autoIngest: true }
     await saveSourceWatchConfig(config as never, "p1", "C:/p")
-    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.qmai/source-watch-config.json", expect.any(String))
+    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.niko-buddy/source-watch-config.json", expect.any(String))
     const parsed = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
     expect(parsed.enabled).toBe(true)
   })
@@ -494,7 +494,7 @@ describe("revision feedback window config", () => {
       lookbackIncludeMustFixOnly: false,
     }
     await saveRevisionFeedbackWindowConfig(config, "p1", "C:/p")
-    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.qmai/revision-feedback-config.json", expect.any(String))
+    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.niko-buddy/revision-feedback-config.json", expect.any(String))
     await expect(loadRevisionFeedbackWindowConfig("p1")).resolves.toEqual(config)
     await expect(loadRevisionFeedbackWindowConfig()).resolves.toEqual(config)
   })
@@ -576,7 +576,7 @@ describe("novel config", () => {
     // store 配置 + projectPath → 迁移写入文件
     mocks.fileExists.mockResolvedValue(false)
     await expect(loadNovelConfig("p1", "C:/p")).resolves.toMatchObject({ searchTopK: 3 })
-    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.qmai/novel-config.json", expect.any(String))
+    expect(mocks.writeFile).toHaveBeenCalledWith("C:/p/.niko-buddy/novel-config.json", expect.any(String))
   })
 
   it("rejects configs that try to disable safety invariants (P1-IMP-01)", async () => {
@@ -687,7 +687,7 @@ describe("rerank config", () => {
     await mocks.store.set("projectRerankConfigs", { p1: { enabled: true, model: "m" } })
     await loadRerankConfig("p1", "C:/p")
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      "C:/p/.qmai/rerank-config.json",
+      "C:/p/.niko-buddy/rerank-config.json",
       expect.stringContaining('"model": "m"'),
     )
   })

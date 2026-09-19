@@ -16,7 +16,7 @@
 import { invoke } from "@tauri-apps/api/core"
 
 /** 传输配置文件名（与 Rust `SYNC_CONFIG_FILE` 同值）。 */
-export const SYNC_CONFIG_FILE = ".qmai/sync-config.json"
+export const SYNC_CONFIG_FILE = ".niko-buddy/sync-config.json"
 
 /** 传输 journal 文件名（会话态、可清、非第二真源）。 */
 export const SYNC_JOURNAL_FILE = ".novel/sync-journal.jsonl"

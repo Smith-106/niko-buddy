@@ -81,7 +81,7 @@ async function loadEnabledDismantlingDirective(projectPath: string): Promise<str
 }
 function appendHiddenNovelSessionDebug(content: string, debug: Record<string, unknown>): string {
   try {
-    return `${content}\n<!-- qmai-novel-session-debug:${encodeURIComponent(JSON.stringify(debug))} -->`
+    return `${content}\n<!-- niko-buddy-novel-session-debug:${encodeURIComponent(JSON.stringify(debug))} -->`
   } catch {
     return content
   }
@@ -93,7 +93,7 @@ function appendManagedDeepChapterDraftMarker(content: string, marker: {
   draftStatus: "ready" | "accepted" | "rejected" | "pending" | "superseded"
 }): string {
   try {
-    return `${content}\n<!-- qmai-deep-chapter-draft:${encodeURIComponent(JSON.stringify(marker))} -->`
+    return `${content}\n<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify(marker))} -->`
   } catch {
     return content
   }
@@ -104,7 +104,7 @@ function replaceManagedDeepChapterDraftMarker(content: string, marker: {
   sessionId?: string
   draftStatus: "ready" | "accepted" | "rejected" | "pending" | "superseded"
 }): string {
-  const withoutExisting = content.replace(/<!--\s*qmai-deep-chapter-draft:[\s\S]*?\s*-->/gi, "").trimEnd()
+  const withoutExisting = content.replace(/<!--\s*niko-buddy-deep-chapter-draft:[\s\S]*?\s*-->/gi, "").trimEnd()
   return appendManagedDeepChapterDraftMarker(withoutExisting, marker)
 }
 
@@ -116,7 +116,7 @@ function appendContextUsageMarker(
 ): string {
   if (!usage) return content
   try {
-    return `${content}\n<!-- qmai-context-usage:${encodeURIComponent(JSON.stringify(usage))} -->`
+    return `${content}\n<!-- niko-buddy-context-usage:${encodeURIComponent(JSON.stringify(usage))} -->`
   } catch {
     return content
   }
@@ -163,7 +163,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
     deleteConversation(convId)
     const proj = useWikiStore.getState().project
     if (proj) {
-      deleteFile(`${proj.path}/.qmai/chats/${convId}.json`).catch((err) => {
+      deleteFile(`${proj.path}/.niko-buddy/chats/${convId}.json`).catch((err) => {
         // 内存态已移除，但磁盘文件仍在：必须如实告知，否则重载后会话“复活”无法解释。
         setDeleteFileError(formatOperationError(t, err))
       })

@@ -149,7 +149,7 @@ describe("pack-import / 信任分级与落盘形态", () => {
   });
 
   it("落盘目标复用既有 user-skill-store 的真源文件", () => {
-    expect(importedSkillsTargetFile()).toBe(".qmai/writing-skills.json");
+    expect(importedSkillsTargetFile()).toBe(".niko-buddy/writing-skills.json");
   });
 });
 

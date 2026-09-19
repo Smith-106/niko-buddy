@@ -110,27 +110,27 @@ describe("importBackup", () => {
     expect(result.success).toBe(false)
   })
 
-  it("replaces qmai/lk- localStorage entries with the imported data", async () => {
-    localStorage.setItem("qmai:theme", "old")
+  it("replaces niko-buddy/lk- localStorage entries with the imported data", async () => {
+    localStorage.setItem("niko-buddy:theme", "old")
     localStorage.setItem("other-key", "keep")
     mocks.invoke.mockResolvedValue(
-      okResult({ localStorageData: { "qmai:theme": "new", "lk-new": "v" } }),
+      okResult({ localStorageData: { "niko-buddy:theme": "new", "lk-new": "v" } }),
     )
     await importBackup("full")
-    expect(localStorage.getItem("qmai:theme")).toBe("new")
+    expect(localStorage.getItem("niko-buddy:theme")).toBe("new")
     expect(localStorage.getItem("lk-new")).toBe("v")
     expect(localStorage.getItem("other-key")).toBe("keep")
   })
 
-  it("protects the local qmai_fallback_fingerprint during restore", async () => {
-    localStorage.setItem("qmai_fallback_fingerprint", "local-device-key")
-    localStorage.setItem("qmai:theme", "old")
+  it("protects the local niko_buddy_fallback_fingerprint during restore", async () => {
+    localStorage.setItem("niko_buddy_fallback_fingerprint", "local-device-key")
+    localStorage.setItem("niko-buddy:theme", "old")
     mocks.invoke.mockResolvedValue(
-      okResult({ localStorageData: { "qmai_fallback_fingerprint": "imported-key", "qmai:theme": "new" } }),
+      okResult({ localStorageData: { "niko_buddy_fallback_fingerprint": "imported-key", "niko-buddy:theme": "new" } }),
     )
     await importBackup("full")
-    expect(localStorage.getItem("qmai_fallback_fingerprint")).toBe("local-device-key")
-    expect(localStorage.getItem("qmai:theme")).toBe("new")
+    expect(localStorage.getItem("niko_buddy_fallback_fingerprint")).toBe("local-device-key")
+    expect(localStorage.getItem("niko-buddy:theme")).toBe("new")
   })
 
   it("registers restored projects and refreshes the currently open project", async () => {

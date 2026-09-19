@@ -38,7 +38,7 @@ use crate::canon::write_authority::{may_write, WriteDecision, WriteSource};
 use crate::commands::secret_store::{is_available_sync, read_secret_sync};
 
 /// 传输配置文件名（与项目内既有配置同族）。
-pub const SYNC_CONFIG_FILE: &str = ".qmai/sync-config.json";
+pub const SYNC_CONFIG_FILE: &str = ".niko-buddy/sync-config.json";
 
 /// 传输 journal（会话态、可清、**非第二真源**）。
 pub const SYNC_JOURNAL_FILE: &str = ".novel/sync-journal.jsonl";

@@ -111,7 +111,7 @@ describe("ISS-20260719-002 real token channel — mock HTTP server end-to-end", 
     return {
       provider: "custom" as const,
       apiKey: "mock-local-key",
-      model: "mock-qmai",
+      model: "mock-niko-buddy",
       ollamaUrl: "",
       customEndpoint: `http://${MOCK_HOST}:${mockPort}/v1`,
       apiMode: "chat_completions" as const,
@@ -151,7 +151,7 @@ describe("ISS-20260719-002 real token channel — mock HTTP server end-to-end", 
     const lines = onDisk.trim().split("\n")
     expect(lines.length).toBeGreaterThanOrEqual(1)
     const record = JSON.parse(lines[lines.length - 1]!)
-    expect(record.model).toBe("mock-qmai")
+    expect(record.model).toBe("mock-niko-buddy")
     expect(record.traceId).toBe("iss002-integration-run")
     expect(record.success).toBe(true)
     expect(record.inputTokens).toBe(42)
@@ -191,7 +191,7 @@ async function waitForPort(host: string, port: number, timeoutMs: number): Promi
       const res = await fetch(`http://${host}:${port}/v1/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model: "mock-qmai", messages: [], stream: true }),
+        body: JSON.stringify({ model: "mock-niko-buddy", messages: [], stream: true }),
         signal: AbortSignal.timeout(1000),
       })
       res.body?.cancel()

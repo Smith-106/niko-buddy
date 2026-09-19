@@ -17,26 +17,26 @@ import { mechanicalVerdict, entityBareName } from "./canon-precision-filter"
 import { buildEvidenceChainFromContinuity } from "./evidence-chain"
 
 /** 12 层对照表：参考层 → Niko Buddy 覆盖机制 → 覆盖判定（audit 断言） */
-const LAYER_COVERAGE: Array<{ layer: number; name: string; qmai: string; covered: boolean }> = [
-  { layer: 1, name: "Input Sanitizer", qmai: "normalizeSourceText（NFKC+零宽剥离+同形字还原）", covered: true },
-  { layer: 2, name: "Risk Scorer", qmai: "avoid-ai-patterns score（Track B 软信号）", covered: true },
-  { layer: 3, name: "Access Control", qmai: "项目级隔离（projectPath 归一化）", covered: true },
-  { layer: 4, name: "Trust Filter", qmai: "canon-precision-filter 机械裁决（reject 低置信关系）", covered: true },
-  { layer: 5, name: "Context Firewall", qmai: "context-engine 预算截断 + tier cap（压缩不静默）", covered: true },
-  { layer: 6, name: "Embedding Poison Gate", qmai: "chunk-fingerprint 版本位 + 去重索引", covered: true },
-  { layer: 7, name: "Doc Risk Scorer", qmai: "章节级 draft_status 门控（not_final 跳过 ingest）", covered: true },
-  { layer: 8, name: "LLM Security Auditor", qmai: "prompt-injection-auditor 机械签名扫描（9 规则，零 LLM；LLM 语义审计 defer）", covered: true },
-  { layer: 9, name: "Grounding Validator", qmai: "evidence-chain（证据链可追溯）", covered: true },
-  { layer: 10, name: "Output Filter", qmai: "finalContentNorm + formatNormalize（输出规范化）", covered: true },
-  { layer: 11, name: "Citation Verifier", qmai: "evidence_refs（status.json 溯源 ID）", covered: true },
-  { layer: 12, name: "Audit Logger", qmai: "divergence trace + debt_events + recordEpisode", covered: true },
+const LAYER_COVERAGE: Array<{ layer: number; name: string; nikoBuddy: string; covered: boolean }> = [
+  { layer: 1, name: "Input Sanitizer", nikoBuddy: "normalizeSourceText（NFKC+零宽剥离+同形字还原）", covered: true },
+  { layer: 2, name: "Risk Scorer", nikoBuddy: "avoid-ai-patterns score（Track B 软信号）", covered: true },
+  { layer: 3, name: "Access Control", nikoBuddy: "项目级隔离（projectPath 归一化）", covered: true },
+  { layer: 4, name: "Trust Filter", nikoBuddy: "canon-precision-filter 机械裁决（reject 低置信关系）", covered: true },
+  { layer: 5, name: "Context Firewall", nikoBuddy: "context-engine 预算截断 + tier cap（压缩不静默）", covered: true },
+  { layer: 6, name: "Embedding Poison Gate", nikoBuddy: "chunk-fingerprint 版本位 + 去重索引", covered: true },
+  { layer: 7, name: "Doc Risk Scorer", nikoBuddy: "章节级 draft_status 门控（not_final 跳过 ingest）", covered: true },
+  { layer: 8, name: "LLM Security Auditor", nikoBuddy: "prompt-injection-auditor 机械签名扫描（9 规则，零 LLM；LLM 语义审计 defer）", covered: true },
+  { layer: 9, name: "Grounding Validator", nikoBuddy: "evidence-chain（证据链可追溯）", covered: true },
+  { layer: 10, name: "Output Filter", nikoBuddy: "finalContentNorm + formatNormalize（输出规范化）", covered: true },
+  { layer: 11, name: "Citation Verifier", nikoBuddy: "evidence_refs（status.json 溯源 ID）", covered: true },
+  { layer: 12, name: "Audit Logger", nikoBuddy: "divergence trace + debt_events + recordEpisode", covered: true },
 ]
 
 describe("55 W3-2: RAG 注入 12 层防御审计（断言式）", () => {
   it("审计表完整性: 12 层全部登记, 每层有 Niko Buddy 机制名", () => {
     expect(LAYER_COVERAGE).toHaveLength(12)
     for (const l of LAYER_COVERAGE) {
-      expect(l.qmai.length).toBeGreaterThan(0)
+      expect(l.nikoBuddy.length).toBeGreaterThan(0)
     }
   })
 
