@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="QM-LOGO.png" width="120" alt="Niko Buddy Logo" />
+  <img src="niko-buddy-logo.png" width="120" alt="Niko Buddy Logo" />
 </p>
 
 <h1 align="center">niko-buddy · Niko Buddy</h1>
