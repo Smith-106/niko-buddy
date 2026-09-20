@@ -12,7 +12,6 @@
     "dialog:default",
     "store:default",
     "updater:default",
-    "mcp-bridge:default",
     {
       "identifier": "http:default",
       "allow": [
