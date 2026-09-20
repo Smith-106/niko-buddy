@@ -39,6 +39,7 @@ const GraphView = lazy(async () => {
 const StorySimulationView = lazy(() => import("@/components/novel/story-simulation/story-simulation-view").then((m) => ({ default: m.StorySimulationView })))
 const UnifiedSkillLibraryView = lazy(() => import("@/components/skill-library/unified-skill-library-view").then((m) => ({ default: m.UnifiedSkillLibraryView })))
 const DataManagerView = lazy(() => import("@/components/novel/data-manager-view").then((m) => ({ default: m.DataManagerView })))
+const WorkbenchView = lazy(() => import("./workbench-view").then((m) => ({ default: m.WorkbenchView })))
 const SoulView = lazy(async () => {
   const mod = await import("@/components/novel/soul-view")
   return { default: mod.SoulView }
@@ -183,6 +184,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <DataManagerView />
+          </Suspense>
+        )
+        break
+      case "workbench":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <WorkbenchView />
           </Suspense>
         )
         break

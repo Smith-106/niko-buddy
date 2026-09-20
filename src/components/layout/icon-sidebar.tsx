@@ -27,6 +27,7 @@ const SEARCH_NAV_ITEM: { view: NavView; icon: typeof FileText; labelKey: string 
 }
 
 const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = [
+  { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench" },
   { view: "wiki", icon: FileText, labelKey: "novel.nav.wiki" },
   { view: "director", icon: Clapperboard, labelKey: "novel.nav.director" },
   { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources" },
