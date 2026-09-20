@@ -44,12 +44,12 @@ test("本机标识：首次即生成、随输入清洗、写入 localStorage 并
   const input = page.locator("#backup-device-id")
   const generated = await input.inputValue()
   expect(generated).toMatch(/^dev-[A-Za-z0-9_-]+$/)
-  expect(await page.evaluate(() => localStorage.getItem("qmai.deviceId"))).toBe(generated)
+  expect(await page.evaluate(() => localStorage.getItem("niko-buddy.deviceId"))).toBe(generated)
 
   // 非法字符被剔除后持久化（空格 / 斜杠 / 井号）
   await input.fill("desk top/01#x")
   await expect(input).toHaveValue("desktop01x")
-  expect(await page.evaluate(() => localStorage.getItem("qmai.deviceId"))).toBe("desktop01x")
+  expect(await page.evaluate(() => localStorage.getItem("niko-buddy.deviceId"))).toBe("desktop01x")
 
   expect(errors, `console/page errors: ${errors.join(" | ")}`).toEqual([])
 })
