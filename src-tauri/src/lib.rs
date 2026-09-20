@@ -85,7 +85,7 @@ pub fn run() {
     if let Err(violation) = canon::write_authority::assert_hard_rules() {
         panic!("[write_authority] hard rule violation at startup: {violation}");
     }
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
@@ -109,7 +109,18 @@ pub fn run() {
         // Ark's api/coding/v3, etc.) still work. Requests leave the app
         // from Rust, never the webview.
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    // MCP Bridge（受控测试控制面）：经 WebSocket 9223 暴露 webview 控制+IPC monitor,
+    // 供 GATE-I3 真链路验收驱动真实 webview。
+    // 仅 feature=mcp-test 编译(dev/release-test 显式开启);Production release 无此
+    // feature→optional dep 不进二进制,测试控制面物理不可启用,最小攻击面。
+    #[cfg(feature = "mcp-test")]
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init_with_config(
+        tauri_plugin_mcp_bridge::Config::localhost_only(),
+    ));
+
+    builder
         .setup(|app| {
             // Let the PDF extractor find the bundled pdfium dynamic
             // library via Tauri's platform-correct resource path.

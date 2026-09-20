@@ -82,7 +82,19 @@ tauri-plugin-log = "2"
 # macros in commands layer, consumed by the tauri-plugin-log wiring in lib.rs.
 log = "0.4"
 tauri-plugin-window-state = "2"
+
+# GATE-I3 发布纵切面验收：MCP Bridge 依赖常驻 lock，但代码经 #[cfg(debug_assertions)]
+# 门控（lib.rs），release 剥离不编译——发布产物无 webview 调试控制面，最小攻击面。
+# dev 构建经 WebSocket 9223 供 mcp-server-tauri 驱动真实 webview 验真 IPC 链路。
+tauri-plugin-mcp-bridge = { version = "0.13", optional = true }
 keyring = "4.2.0"
+
+[features]
+# mcp-test:受控测试控制面(mcp-bridge webview 控制+IPC monitor,WS 9223)
+# - dev:          npx tauri dev -f mcp-test -c '{"app":{"withGlobalTauri":true}}'
+# - release-test: cargo build --release --features mcp-test + -c withGlobalTauri:true
+# - production:   cargo build --release (无此feature)→二进制无mcp-bridge代码,不可启用
+mcp-test = ["dep:tauri-plugin-mcp-bridge"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
