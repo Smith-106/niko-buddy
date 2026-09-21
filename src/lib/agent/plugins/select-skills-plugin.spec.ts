@@ -98,6 +98,25 @@ describe("SelectSkillsPlugin", () => {
     expect(result.selectedSkills).toEqual([])
   })
 
+  // ── 能力规划器灰度降级：planExecuteEnabled=true 但 spec 环境无可用 LLM，
+  //    planCapabilitySelection 应静默回退到查表结果（与不开启时一致）。──
+  it("planner path degrades to deterministic table when LLM unavailable", async () => {
+    const plugin = createSelectSkillsPlugin()
+    const base = {
+      userMessage: "帮我写下一章",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "standard" as const,
+      availableSkills,
+      taskRoute: { intent: "write_chapter", confidence: 0.95, extractedParams: {} },
+    }
+    const off = await plugin.run({ ...base, planExecuteEnabled: false })
+    const on = await plugin.run({ ...base, planExecuteEnabled: true })
+    // 无 LLM 时规划器回退 → 两者选中技能一致（零回归）
+    expect(on.selectedSkills?.map((s) => s.name)).toEqual(off.selectedSkills?.map((s) => s.name))
+  })
+
   it("selects writing route skills for key chapter writing", async () => {
     const plugin = createSelectSkillsPlugin()
 
