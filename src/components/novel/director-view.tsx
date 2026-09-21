@@ -9,7 +9,9 @@ import { SubgateAlertsSection } from "@/components/novel/subgate-alerts-section"
 import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline, deriveAndSaveWorldBlueprint } from "@/lib/novel"
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
-import { Play, Rocket } from "lucide-react"
+import { assessLlmHealth } from "@/lib/llm-health"
+import { writeFile, createDirectory } from "@/commands/fs"
+import { Play, Rocket, PenLine, Settings as SettingsIcon } from "lucide-react"
 
 export interface DirectorViewProps {
   projectId: string
@@ -23,6 +25,12 @@ export interface DirectorViewProps {
 export function DirectorView({ projectId }: DirectorViewProps) {
   const { t } = useTranslation()
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  // J05-02/F-010：Director 接入六态模型健康，LLM 不可用时 CTA 禁用+本地写作分流
+  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const project = useWikiStore((s) => s.project)
+  const llmHealth = assessLlmHealth(llmConfig)
+  const llmBlocked = !llmHealth.canWrite
   const [persisted, setPersisted] = useState<DirectorPersistedFile | null>(null)
   const [started, setStarted] = useState(false)
   const [gap, setGap] = useState<string | null>(null)
@@ -117,15 +125,44 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
   // MIG-002：世界骨架生成 — 从项目实体推导骨架落盘 .novel/world-blueprint.json，
   // 让 worldComplete 能真正判真（不再靠手动 checkbox / 死数据）。
+  // J05-03：点击必须有反馈——骨架为空时明确告知原因，禁止静默零反应。
   const handleGenerateBlueprint = useCallback(async () => {
     setBusy(true)
+    setGap(null)
     try {
-      await deriveAndSaveWorldBlueprint(projectId)
+      const bp = await deriveAndSaveWorldBlueprint(projectId)
       await refreshSnapshot()
+      const total = Object.values(bp.layers).reduce((n, arr) => n + (arr?.length ?? 0), 0)
+      if (total === 0) {
+        setGap(t("directorPanel.blueprintEmpty", { defaultValue: "未检测到项目实体——世界骨架暂为空。请先写作或建立角色/地点/组织等实体后再生成。" }))
+      } else {
+        setGap(t("directorPanel.blueprintDone", { defaultValue: "已根据实体生成世界骨架草稿。" }))
+      }
     } finally {
       setBusy(false)
     }
-  }, [projectId, refreshSnapshot])
+  }, [projectId, refreshSnapshot, t])
+
+  // J05-04/F-010：跳过 LLM 的本地写作路径——建空白第一章 → 写作工作区编辑器。
+  // 兑现建项流程「跳过=仅本地编辑可用」的承诺。不依赖任何 LLM/Provider。
+  const handleLocalWrite = useCallback(async () => {
+    if (!project) return
+    setBusy(true)
+    try {
+      const pp = project.path.replace(/\\/g, "/").replace(/\/+$/, "")
+      const chaptersDir = `${pp}/wiki/chapters`
+      await createDirectory(chaptersDir)
+      const chapterPath = `${chaptersDir}/chapter-001.md`
+      const title = ideaInput.title.trim() || "第一章"
+      // frontmatter 标记章节 + 标题占位——Draft-first 本地正文，不走 LLM
+      const content = `---\nkind: chapter\nchapter: 1\ntitle: ${title}\nstatus: draft\n---\n\n# ${title}\n\n`
+      await writeFile(chapterPath, content)
+      setSelectedFile(chapterPath)
+      setActiveView("wiki")
+    } finally {
+      setBusy(false)
+    }
+  }, [project, ideaInput.title, setSelectedFile, setActiveView])
 
   if (!started || !persisted) {
     return (
@@ -135,10 +172,43 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         <p className="max-w-md text-center text-sm text-muted-foreground">
           {t("directorPanel.heroDesc")}
         </p>
-        <Button onClick={() => void handleStart()} disabled={busy} data-testid="director-start">
-          <Play className="mr-1 h-4 w-4" />
-          {t("directorPanel.start")}
-        </Button>
+        {/* J05-04/F-010：LLM 不可用时，开书管线 CTA 禁用 + 本地写作分流 */}
+        {llmBlocked ? (
+          <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4" data-testid="director-llm-blocked">
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {llmHealth.label}
+            </p>
+            <p className="text-center text-xs text-muted-foreground">
+              {t("directorPanel.llmBlockedHint", { defaultValue: "AI 开书管线需要模型服务。你仍然可以跳过 AI、直接创建第一章手工写作。" })}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="default"
+                data-testid="director-local-write"
+                disabled={busy}
+                onClick={() => void handleLocalWrite()}
+              >
+                <PenLine className="mr-1 h-4 w-4" />
+                {t("directorPanel.localWrite", { defaultValue: "继续本地写作" })}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="director-configure-llm"
+                onClick={() => setActiveView("settings")}
+              >
+                <SettingsIcon className="mr-1 h-4 w-4" />
+                {t("directorPanel.configureLlm", { defaultValue: "立即配置模型" })}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button onClick={() => void handleStart()} disabled={busy} data-testid="director-start">
+            <Play className="mr-1 h-4 w-4" />
+            {t("directorPanel.start")}
+          </Button>
+        )}
       </div>
     )
   }
@@ -148,6 +218,39 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
+      {/* J05-04/F-010：LLM 不可用时顶部横幅——承诺兑现：本地写作可继续，AI 管线受限 */}
+      {llmBlocked && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3" data-testid="director-llm-blocked-banner">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-amber-600 dark:text-amber-400">●</span>
+            <span className="font-medium">{llmHealth.label}</span>
+            <span className="text-xs text-muted-foreground">
+              {t("directorPanel.llmBlockedBanner", { defaultValue: "AI 开书与章节生成受限，本地写作仍可用" })}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="default"
+              data-testid="director-local-write-banner"
+              disabled={busy}
+              onClick={() => void handleLocalWrite()}
+            >
+              <PenLine className="mr-1 h-3.5 w-3.5" />
+              {t("directorPanel.localWrite", { defaultValue: "继续本地写作" })}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="director-configure-llm-banner"
+              onClick={() => setActiveView("settings")}
+            >
+              <SettingsIcon className="mr-1 h-3.5 w-3.5" />
+              {t("directorPanel.configureLlm", { defaultValue: "立即配置模型" })}
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-2 rounded-lg border p-4">
           <h3 className="text-sm font-semibold">{t("directorPanel.ideaTitle")}</h3>

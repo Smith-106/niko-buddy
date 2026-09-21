@@ -2929,7 +2929,13 @@
     "markFramework": "Framework chosen",
     "markVolumes": "Volumes planned",
     "nextStep": "After completion, head to Review Center",
-    "gotoReview": "Go to Review Center"
+    "gotoReview": "Go to Review Center",
+    "llmBlockedHint": "AI outlining needs a model service. You can still skip AI and hand-write chapter one.",
+    "llmBlockedBanner": "AI outlining & generation limited; local writing still works",
+    "localWrite": "Continue writing locally",
+    "configureLlm": "Configure model now",
+    "blueprintEmpty": "No project entities found — blueprint is empty for now. Write or create characters/places/orgs first, then regenerate.",
+    "blueprintDone": "World blueprint draft generated from entities."
   },
   "skillbundle.export.title": "Export skill bundle",
   "skillbundle.export.submit": "Export",

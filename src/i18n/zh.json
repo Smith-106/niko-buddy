@@ -2929,7 +2929,13 @@
     "markFramework": "情节框架已选型",
     "markVolumes": "分卷已规划",
     "nextStep": "流程完成后前往审查中心做整体评审",
-    "gotoReview": "前往审查中心"
+    "gotoReview": "前往审查中心",
+    "llmBlockedHint": "AI 开书管线需要模型服务。你仍然可以跳过 AI、直接创建第一章手工写作。",
+    "llmBlockedBanner": "AI 开书与章节生成受限，本地写作仍可用",
+    "localWrite": "继续本地写作",
+    "configureLlm": "立即配置模型",
+    "blueprintEmpty": "未检测到项目实体——世界骨架暂为空。请先写作或建立角色/地点/组织等实体后再生成。",
+    "blueprintDone": "已根据实体生成世界骨架草稿。"
   },
   "skillbundle.export.title": "导出技能包",
   "skillbundle.export.submit": "导出",

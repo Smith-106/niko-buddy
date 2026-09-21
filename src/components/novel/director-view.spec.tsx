@@ -10,9 +10,27 @@ const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFile: vi.fn(async () => {}),
   createDirectory: vi.fn(),
   setActiveView: vi.fn(),
+  setSelectedFile: vi.fn(),
+  // J05：可用 LLM 配置（usable 态）——默认让原有用例走 LLM 可用路径
+  llmConfig: { provider: "openai", apiKey: "sk-test", model: "gpt-4o" } as Record<string, unknown>,
+  project: { id: "p1", name: "测试之书", path: "C:/proj/book" } as Record<string, unknown> | null,
 }))
+
+function resetMocks() {
+  mocks.fileExists.mockReset()
+  mocks.readFile.mockReset()
+  mocks.writeFileAtomic.mockReset()
+  mocks.writeFile.mockReset()
+  mocks.createDirectory.mockReset()
+  mocks.setActiveView.mockReset()
+  mocks.setSelectedFile.mockReset()
+  // 默认恢复可用 LLM
+  mocks.llmConfig = { provider: "openai", apiKey: "sk-test", model: "gpt-4o" }
+  mocks.project = { id: "p1", name: "测试之书", path: "C:/proj/book" }
+}
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -26,6 +44,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       fileExists: mocks.fileExists,
       readFile: mocks.readFile,
       writeFileAtomic: mocks.writeFileAtomic,
+      writeFile: mocks.writeFile,
       createDirectory: mocks.createDirectory,
     
   }
@@ -36,7 +55,12 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   return {
     ...actual,
       useWikiStore: (sel: (s: Record<string, unknown>) => unknown) =>
-        sel({ setActiveView: mocks.setActiveView }),
+        sel({
+          setActiveView: mocks.setActiveView,
+          setSelectedFile: mocks.setSelectedFile,
+          llmConfig: mocks.llmConfig,
+          project: mocks.project,
+        }),
     
   }
 })
@@ -62,6 +86,7 @@ function fullDoneState(): DirectorPipelineState {
 
 describe("DirectorView（60 号设计：开书导演主视图）", () => {
   beforeEach(() => {
+    resetMocks()
     cleanup()
     vi.clearAllMocks()
     mocks.fileExists.mockResolvedValue(false)
@@ -139,5 +164,31 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     await waitFor(() => expect(screen.getByTestId("director-completed")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-goto-review"))
     expect(mocks.setActiveView).toHaveBeenCalledWith("reviewCenter")
+  })
+
+  it("LLM 未配置（F-010）→ 显示本地写作分流而非开书启动", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" } // unconfigured → llmBlocked
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-llm-blocked")).toBeInTheDocument())
+    // 不再渲染 LLM 开书启动 CTA，改显本地写作 + 立即配置
+    expect(screen.queryByTestId("director-start")).not.toBeInTheDocument()
+    expect(screen.getByTestId("director-local-write")).toBeInTheDocument()
+    expect(screen.getByTestId("director-configure-llm")).toBeInTheDocument()
+  })
+
+  it("LLM 未配置点「继续本地写作」→ 建 chapter-001 + 跳写作工作区", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-local-write")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-local-write"))
+    await waitFor(() => {
+      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/wiki/chapters")
+      expect(mocks.writeFile).toHaveBeenCalledWith(
+        "C:/proj/book/wiki/chapters/chapter-001.md",
+        expect.stringContaining("chapter: 1"),
+      )
+      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/wiki/chapters/chapter-001.md")
+      expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
+    })
   })
 })
