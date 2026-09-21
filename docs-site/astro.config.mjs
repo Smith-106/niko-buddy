@@ -39,6 +39,7 @@ export default defineConfig({
             { label: '设置', link: '/features/settings/' },
             { label: '回收站', link: '/features/trash/' },
             { label: '技能库', link: '/features/skill-library/' },
+            { label: '能力指挥', link: '/features/capability-commander/' },
             { label: '故事推演', link: '/features/story-simulation/' },
             { label: '备份与导出', link: '/features/backup-export/' },
             { label: 'Canon 编辑器', link: '/features/canon-editor/' },
