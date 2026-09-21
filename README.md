@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.10.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.11.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-80%2F75%2F80%2F80-yellow?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -54,6 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | v2.11.0 | Capability Commander（A-34） | `select_skills` 从确定性技能查表升级为受约束能力决策层：BM25 召回（复用中文 bigram 排序）→ Rule Filter 硬裁剪（mode/intent/source/autoOnly 能力沙箱）→ LLM Capability DAG 规划（closed-world `capabilityId∈候选集` 防幻觉）→ DAG 验证（id唯一/依赖/DFS环/上限6）→ permission 门控执行 → append-only trace 落 `.novel/capability-traces/trace.jsonl`；`planExecuteEnabled && mode!="fast"` 灰度，失败静默回退查表 |
 | 1 | v2.7.0 | 门控地基 | 门控解耦 / 模型切换闸 / 版本锁定 / 自动结案 / 审计报告 / Draft-first 草稿闸 |
 | 2 | v2.7.1 | 对抗纵深 | D3 探针 / 灰区审查 / 对抗语料 / 每日回归 / 攻击向量 / 软告警 |
 | 3 | v2.7.2 | 自动化闭环 | 自愈回滚 / 回滚追踪 / 混沌平台 / 结案终态 / W3 干预 / 门控不变量 |

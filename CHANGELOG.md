@@ -7,6 +7,19 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.11.0] - 2026-09-21
+
+### Added — Capability Commander（A-34，能力发现/规划/追踪闭环）
+
+- **能力召回层** `src/lib/agent/capability-retrieval.ts`：UserSkill/AiCapability 归一化为 CapabilityDoc，复用 `lib/novel/bm25-ranking.ts` 中文 bigram BM25 做 Top-K 召回（字段加权 name6/label5/tags3/desc2/content1）；Rule Filter 按 mode/intent/allowedSources/autoOnly 硬裁剪构成能力沙箱。
+- **能力规划器** `src/lib/agent/capability-planner.ts`：LLM 产出 Capability DAG `{capabilityId, dependsOn, permission, reason, finalReview}`；closed-world 约束 `capabilityId ∈ 召回候选集`（防幻觉）；`validateCapabilityPlan` 校验 id 唯一/依赖存在/DFS 环/上限 6。
+- **决策 trace 持久化** `src/lib/agent/capability-trace-store.ts`：append-only JSONL 落 `.novel/capability-traces/trace.jsonl`，记录 query/intent/retrieved/filteredOut/planned/outcome，IO 失败吞错不阻断主链。
+- **接线** `select-skills-plugin.ts`：`planExecuteEnabled && mode!=="fast"` 走 Commander 链（召回→过滤→规划→DAG校验→映射回 selectedSkills），失败/超时/无 LLM 静默回退确定性查表；规划理由落 `SelectedCapabilityTrace.reason`。
+
+**边界**：fast 模式不走规划器；permission 不可提升；Capability Selector/偏好学习未启用（待独立决策）。
+**文档**：ADR `docs/decision-log/2026-09-21-capability-commander.md`；Spec `.workflow/specs/architecture-constraints-capability-commander.md`。
+**验证**：`tsc --noEmit` 0 错；`vitest src/lib/agent/` 20 files / 175 passed + 8 skipped，零回归。
+
 ## [2.10.0] - 2026-09-19
 
 ### 质量与标准合规（Added — ISO 全维度验收 + 需求工程/SRS 完备化）
