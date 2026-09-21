@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createSelectSkillsPlugin, buildSelectedSkillsPrompt, selectSkillsForRoute } from "./select-skills-plugin"
 import { normalizeUserSkill, SKILL_ROUTE_CATEGORY_IDS } from "@/lib/novel"
-import type { UserSkill } from "@/lib/novel"
+import type { NovelTaskIntent, UserSkill } from "@/lib/novel"
 
 function skill(partial: Partial<UserSkill>): UserSkill {
   return normalizeUserSkill({
@@ -109,7 +109,7 @@ describe("SelectSkillsPlugin", () => {
       novelMode: true,
       aiWorkflowMode: "standard" as const,
       availableSkills,
-      taskRoute: { intent: "write_chapter", confidence: 0.95, extractedParams: {} },
+      taskRoute: { intent: "write_chapter" as NovelTaskIntent, confidence: 0.95, extractedParams: {} },
     }
     const off = await plugin.run({ ...base, planExecuteEnabled: false })
     const on = await plugin.run({ ...base, planExecuteEnabled: true })

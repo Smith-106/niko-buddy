@@ -353,7 +353,7 @@ interface PlanCapabilitySelectionResult {
  */
 async function planCapabilitySelection(input: PlanCapabilitySelectionInput): Promise<PlanCapabilitySelectionResult> {
   const empty: PlanCapabilitySelectionResult = { skills: [], traces: [] }
-  const { providerConfigs, llmConfig } = useWikiStore.getState()
+  const { providerConfigs, llmConfig, novelConfig: storeNovelConfig } = useWikiStore.getState()
   if (!hasUsableLlm(llmConfig, providerConfigs)) {
     await recordTrace(input, empty, "fallback", "无可用 LLM")
     return empty
@@ -372,7 +372,7 @@ async function planCapabilitySelection(input: PlanCapabilitySelectionInput): Pro
   }
 
   // L2：LLM 规划能力 DAG
-  const resolvedConfig = resolveNovelModel(llmConfig, input.novelConfig, "review")
+  const resolvedConfig = resolveNovelModel(llmConfig, input.novelConfig ?? storeNovelConfig, "review")
   const prompt = buildCapabilityPlannerPrompt({
     userMessage: input.userMessage,
     candidates,
@@ -381,7 +381,8 @@ async function planCapabilitySelection(input: PlanCapabilitySelectionInput): Pro
 
   const timeoutSignal = AbortSignal.timeout(CAPABILITY_PLANNER_TIMEOUT_MS)
   let responseText = ""
-  let streamError: Error | null = null
+  // 可变容器：onError 回调内赋值、await 后读取——直接 let 会被 CFA 收窄为 never
+  const streamErrorRef: { current: Error | null } = { current: null }
   await streamChat(
     resolvedConfig,
     [
@@ -391,10 +392,11 @@ async function planCapabilitySelection(input: PlanCapabilitySelectionInput): Pro
     {
       onToken: (chunk: string) => { responseText += chunk },
       onDone: () => {},
-      onError: (err: Error) => { streamError = err },
+      onError: (err: Error) => { streamErrorRef.current = err },
     },
     timeoutSignal,
   )
+  const streamError = streamErrorRef.current
   if (streamError) {
     await recordTrace(input, empty, "error", streamError.message, retrieval.filteredOut, candidates)
     throw streamError
