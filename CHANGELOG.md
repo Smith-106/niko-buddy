@@ -7,6 +7,23 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.11.1] - 2026-09-21
+
+### Fixed
+
+- **A-34 typecheck 4 真错误**（v2.11.0 发布时 `tsc --build` 增量缓存掩盖，全量 `tsc --noEmit` 复验抓出，commit `00ffdbe2`）：
+  - `select-skills-plugin.ts` `input.novelConfig` 可选 → 回退 store novelConfig（`resolveNovelModel` 要求必填）
+  - `select-skills-plugin.spec.ts` `taskRoute.intent` `string` → `as NovelTaskIntent`
+  - `streamError` CFA 收窄为 `never` → 可变 ref 容器 `streamErrorRef.current`
+- 验证：`npx tsc --noEmit` 0 错；`vitest src/lib/agent/` 20 files / 175 passed + 8 skipped；已推 smith (`00ffdbe2`)。
+
+### Docs
+
+- `docs/how-to-ask-progress.md`（hub 根，非本仓）：查进度提问模板 7 维度 + 部件追问三问 + 现态快照 + 提问纪律，含版本边界说明（tag `16867c82` 是 `00ffdbe2` 祖先，2.11.0 tag 不含修复→2.11.1 才含）。
+- `scripts/verify-how-to-ask-progress.mjs`（hub 根）：验收脚本 `node` exit 0。
+
+## [2.11.0] - 2026-09-21
+
 ## [2.11.0] - 2026-09-21
 
 ### Added — Capability Commander（A-34，能力发现/规划/追踪闭环）
