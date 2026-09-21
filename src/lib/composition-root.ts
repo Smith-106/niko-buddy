@@ -1,5 +1,5 @@
 import i18n from "@/i18n"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
@@ -177,7 +177,11 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
   const projectRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig(proj.id, proj.path)
   useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
   useWikiStore.getState().setSelectedFile(null)
-  useWikiStore.getState().setActiveView("wiki")
+  // J01-T02 (F-005)：novel 项目创建后落写作生产台（director=章节编排含空态 ideaInput），
+  // 非 novel 项目保持 wiki。落点由项目类型决定，不硬编码统一跳 wiki。
+  const landingView: WikiState["activeView"] =
+    useWikiStore.getState().novelMode ? "director" : "wiki"
+  useWikiStore.getState().setActiveView(landingView)
   useWikiStore.getState().bumpDataVersion()
   await saveLastProject(proj)
 

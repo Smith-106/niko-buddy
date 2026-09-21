@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => {
     createProject: vi.fn(async () => ({ id: "proj-1", name: "Novel", path: "C:\\books\\novel" })),
     writeFile: vi.fn(async () => {}),
     createDirectory: vi.fn(async () => {}),
+    listDirectory: vi.fn(async () => [] as Array<{ name: string }>),
     getExecutableDir: vi.fn(async () => "C:\\Program Files\\Niko Buddy"),
     getTemplate: vi.fn(() => template),
     saveOutputLanguage: vi.fn(async () => {}),
@@ -63,6 +64,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       createProject: mocks.createProject,
       writeFile: mocks.writeFile,
       createDirectory: mocks.createDirectory,
+      listDirectory: mocks.listDirectory,
       getExecutableDir: mocks.getExecutableDir,
     
   }
@@ -209,21 +211,30 @@ describe("CreateProjectDialog", () => {
     expect(pathInput()).toHaveValue("E:\\picked")
   })
 
-  it("提交空名称 → 错误提示，不调用创建", async () => {
+  it("提交空名称 → 生成暂名「未命名项目」并创建", async () => {
     renderDialog(true)
     fireEvent.submit(formOf())
     await flushAsync()
-    expect(screen.getByText("project.errorNameRequired")).toBeInTheDocument()
-    expect(mocks.createProject).not.toHaveBeenCalled()
+    // 空名不再拦截 —— 生成无冲突暂名（listDirectory 返回空 → 首个基础名）
+    expect(mocks.listDirectory).toHaveBeenCalled()
+    expect(mocks.createProject).toHaveBeenCalledWith("未命名项目", expect.any(String))
+    expect(mocks.onCreated).toHaveBeenCalled()
   })
 
-  it("提交空白名称（仅空格）→ 同样报错", async () => {
+  it("提交空白名称（仅空格）→ 按空名处理，同样暂名创建", async () => {
     renderDialog(true)
     fireEvent.change(nameInput(), { target: { value: "   " } })
     fireEvent.submit(formOf())
     await flushAsync()
-    expect(screen.getByText("project.errorNameRequired")).toBeInTheDocument()
-    expect(mocks.createProject).not.toHaveBeenCalled()
+    expect(mocks.createProject).toHaveBeenCalledWith("未命名项目", expect.any(String))
+  })
+
+  it("空名冲突 → 追加序号「未命名项目 2」", async () => {
+    mocks.listDirectory.mockResolvedValueOnce([{ name: "未命名项目" }] as never)
+    renderDialog(true)
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.createProject).toHaveBeenCalledWith("未命名项目 2", expect.any(String))
   })
 
   it("创建成功：完整链路（默认父目录预填）", async () => {

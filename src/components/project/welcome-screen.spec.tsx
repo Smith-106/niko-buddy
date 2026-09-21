@@ -108,7 +108,7 @@ describe("WelcomeScreen", () => {
     expect(mocks.t).toHaveBeenCalledWith("app.subtitle")
     expect(screen.getByText("welcome.newProject")).toBeInTheDocument()
     expect(screen.getByText("welcome.openProject")).toBeInTheDocument()
-    expect(screen.getByText("恢复数据")).toBeInTheDocument()
+    expect(screen.getByText("welcome.restoreBackup")).toBeInTheDocument()
     // no recent projects → list section hidden
     expect(screen.queryByText("welcome.recentProjects")).not.toBeInTheDocument()
   })
@@ -201,7 +201,7 @@ describe("WelcomeScreen", () => {
       expect(mocks.getRecentProjects).toHaveBeenCalledTimes(1)
     })
     mocks.getRecentProjects.mockResolvedValue(PROJECTS)
-    fireEvent.click(screen.getByText("恢复数据"))
+    fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
       expect(mocks.importBackup).toHaveBeenCalledWith("full", undefined, expect.any(Function))
     })
@@ -219,7 +219,7 @@ describe("WelcomeScreen", () => {
   it("restores backup with success=false → alert failure with result.error", async () => {
     mocks.importBackup.mockResolvedValue({ success: false, error: "zip corrupt", projects: [] })
     renderWelcome()
-    fireEvent.click(screen.getByText("恢复数据"))
+    fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
       expect(window.alert).toHaveBeenCalledWith("恢复失败：zip corrupt")
     })
@@ -228,7 +228,7 @@ describe("WelcomeScreen", () => {
   it("restores backup with success=false and no error → 未知错误 fallback", async () => {
     mocks.importBackup.mockResolvedValue({ success: false, projects: [] })
     renderWelcome()
-    fireEvent.click(screen.getByText("恢复数据"))
+    fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
       expect(window.alert).toHaveBeenCalledWith("恢复失败：未知错误")
     })
@@ -237,7 +237,7 @@ describe("WelcomeScreen", () => {
   it("restore throws an Error → alert with its message", async () => {
     mocks.importBackup.mockRejectedValue(new Error("disk failure"))
     renderWelcome()
-    fireEvent.click(screen.getByText("恢复数据"))
+    fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
       expect(window.alert).toHaveBeenCalledWith("恢复失败：disk failure")
     })
@@ -246,7 +246,7 @@ describe("WelcomeScreen", () => {
   it("restore throws a non-Error value → alert with String(value)", async () => {
     mocks.importBackup.mockRejectedValue("raw-string")
     renderWelcome()
-    fireEvent.click(screen.getByText("恢复数据"))
+    fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
       expect(window.alert).toHaveBeenCalledWith("恢复失败：raw-string")
     })
@@ -272,17 +272,17 @@ describe("WelcomeScreen", () => {
         }),
     )
     renderWelcome()
-    fireEvent.click(screen.getByText("恢复数据"))
+    // J01-T05：次级入口 → 确认框 → 点才触发 import
+    fireEvent.click(screen.getByText("welcome.restoreBackup"))
+    fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     expect(screen.getByText("恢复中...")).toBeInTheDocument()
 
-    // handler guard: second invocation while isRestoring=true returns
-    // early → importBackup still called exactly once
-    fireEvent.click(screen.getByText("恢复中..."))
+    // handler guard: isRestoring=true 时按钮 disabled，importBackup 只调用一次
     expect(mocks.importBackup).toHaveBeenCalledTimes(1)
 
     resolveImport({ success: true, projects: [] })
     await waitFor(() => {
-      expect(screen.getByText("恢复数据")).toBeInTheDocument()
+      expect(screen.getByText("welcome.restoreBackup")).toBeInTheDocument()
     })
   })
 })

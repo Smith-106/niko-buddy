@@ -22,6 +22,8 @@ export function WelcomeScreen({
   const novelMode = useWikiStore((s) => s.novelMode)
   const [recentProjects, setRecentProjects] = useState<WikiProject[]>([])
   const [isRestoring, setIsRestoring] = useState(false)
+  // J01-T05 (F-001)：恢复数据为低频高危操作——需应用内确认，不直接用原生 alert/一键触发
+  const [confirmRestore, setConfirmRestore] = useState(false)
 
   useEffect(() => {
     getRecentProjects().then(setRecentProjects).catch(() => {})
@@ -74,9 +76,10 @@ export function WelcomeScreen({
             <FolderOpen className="mr-2 h-4 w-4" />
             {t("welcome.openProject")}
           </Button>
-          <Button variant="secondary" onClick={handleRestoreBackup} disabled={isRestoring}>
+          {/* J01-T05：恢复数据降级为次级入口（ghost+小字），主操作=新建/打开 */}
+          <Button variant="ghost" size="sm" onClick={() => setConfirmRestore(true)} disabled={isRestoring}>
             <Database className="mr-2 h-4 w-4" />
-            {isRestoring ? "恢复中..." : "恢复数据"}
+            {isRestoring ? "恢复中..." : t("welcome.restoreBackup", { defaultValue: "恢复先前数据" })}
           </Button>
         </div>
 
@@ -91,7 +94,7 @@ export function WelcomeScreen({
                 <span className="font-medium text-foreground">1.</span>
                 {t("welcome.quickStart1", {
                   defaultValue: novelMode
-                    ? "新建项目 —— 选择小说模式，创建工作区（wiki + .novel 记忆）"
+                    ? "新建项目 —— 创建工作区（小说模式默认开启：wiki + .novel 记忆）"
                     : "新建项目 —— 选择目录，创建 wiki 知识库工作区",
                 })}
               </li>
@@ -147,6 +150,34 @@ export function WelcomeScreen({
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* J01-T05：恢复前应用内确认——说明操作性质+将进入文件选择；不直接用 alert */}
+        {confirmRestore && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+            <div className="w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg">
+              <h2 className="text-base font-semibold">
+                {t("welcome.restoreConfirmTitle", { defaultValue: "恢复先前数据？" })}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t("welcome.restoreConfirmBody", { defaultValue: "将从备份文件恢复项目数据。下一步会选择备份文件；现有同名项目可能被覆盖，请先确认已备份当前工作。" })}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setConfirmRestore(false)}>
+                  {t("project.cancel", { defaultValue: "取消" })}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setConfirmRestore(false)
+                    void handleRestoreBackup()
+                  }}
+                >
+                  {t("welcome.restoreConfirmGo", { defaultValue: "选择备份并恢复" })}
+                </Button>
+              </div>
             </div>
           </div>
         )}

@@ -598,6 +598,38 @@ describe("hydrateProjectOnOpen", () => {
     expect(mocks.wikiState.setChatExpanded).toHaveBeenCalledWith(true)
   })
 
+  it("lands novel-mode projects on the director view (J01-T02 F-005)", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.wikiState.novelMode = true
+
+    await hydrateProjectOnOpen(proj)
+
+    // novelMode=true → 写作生产台，非 wiki 知识库
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("director")
+  })
+
+  it("lands non-novel projects on the wiki view (J01-T02 F-005)", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.wikiState.novelMode = false
+
+    await hydrateProjectOnOpen(proj)
+
+    // novelMode=false → 保持 wiki 落点（非小说项目不受影响）
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
   it("keeps absolute and Windows drive scheduled-import paths unchanged", async () => {
     mocks.resetProjectState.mockResolvedValue(undefined)
     mocks.loadNovelConfig.mockResolvedValue(null)

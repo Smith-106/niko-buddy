@@ -100,6 +100,16 @@
     "recommended": "Recommended",
     "other": "Other",
     "errorNameRequired": "Project name and path are required.",
+    "llmService": "Model service",
+    "llmServiceExpand": "Set up model service (required for AI writing)",
+    "llmServiceCollapse": "Collapse model service settings",
+    "llmConfigure": "Configure now",
+    "llmSkipHint": "You can skip for now — but chapter generation and AI features will be unavailable; only local editing works. Configure later in Settings → LLM provider.",
+    "stepName": "Name",
+    "stepPath": "Folder",
+    "stepLlm": "Model service",
+    "stepCreate": "Create",
+    "stepProgress": "Creation steps",
     "createFailed": "Failed to create the project",
     "errorLanguageRequired": "Please choose a primary language.",
     "templates": {
@@ -692,9 +702,13 @@
     "openProject": "Novel Directory",
     "recentProjects": "Novel Shelf",
     "quickStart": "Quick Start",
-    "quickStart1": "New project — pick novel mode to create a workspace (wiki + .novel memory)",
+    "quickStart1": "New project — create a workspace (novel writing mode is on by default: wiki + .novel memory)",
     "quickStart2": "Configure LLM — Settings → LLM provider, enter API endpoint + key (proxy supported)",
-    "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept"
+    "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept",
+    "restoreBackup": "Restore previous data",
+    "restoreConfirmTitle": "Restore previous data?",
+    "restoreConfirmBody": "This restores project data from a backup file. You will pick a backup file next; existing projects with the same name may be overwritten — make sure current work is backed up.",
+    "restoreConfirmGo": "Choose backup & restore"
   },
   "wiki": {
     "gatingProgress": {
