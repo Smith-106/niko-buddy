@@ -45,7 +45,11 @@ const SnapshotViewer = lazy(async () => {
 
 function inferEditorMode(path: string): "read" | "edit" {
   const normalized = path.replace(/\\/g, "/")
-  if (normalized.includes("/wiki/chapters/") || normalized.includes("/wiki/outlines/")) {
+  // QM 为当前知识根，wiki 为 legacy——两者都进编辑模式
+  if (
+    normalized.includes("/QM/chapters/") || normalized.includes("/wiki/chapters/") ||
+    normalized.includes("/QM/outlines/") || normalized.includes("/wiki/outlines/")
+  ) {
     return "edit"
   }
   return "read"
@@ -64,11 +68,13 @@ function selectionTimeoutMessage(label: string, gotAnyToken: boolean): string {
 }
 
 function isChapterPath(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/wiki/chapters/")
+  const n = path.replace(/\\/g, "/")
+  return n.includes("/wiki/chapters/") || n.includes("/QM/chapters/")
 }
 
 function isOutlinePath(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/wiki/outlines/")
+  const n = path.replace(/\\/g, "/")
+  return n.includes("/wiki/outlines/") || n.includes("/QM/outlines/")
 }
 
 function getDirName(path: string): string {

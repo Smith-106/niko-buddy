@@ -182,12 +182,12 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     await waitFor(() => expect(screen.getByTestId("director-local-write")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-local-write"))
     await waitFor(() => {
-      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/wiki/chapters")
+      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/QM/chapters")
       expect(mocks.writeFile).toHaveBeenCalledWith(
-        "C:/proj/book/wiki/chapters/chapter-001.md",
+        "C:/proj/book/QM/chapters/chapter-001.md",
         expect.stringContaining("chapter: 1"),
       )
-      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/wiki/chapters/chapter-001.md")
+      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/QM/chapters/chapter-001.md")
       expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
     })
   })

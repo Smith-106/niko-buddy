@@ -10,7 +10,7 @@ import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, h
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { assessLlmHealth } from "@/lib/llm-health"
-import { writeFile, createDirectory } from "@/commands/fs"
+import { writeFile, createDirectory, fileExists } from "@/commands/fs"
 import { Play, Rocket, PenLine, Settings as SettingsIcon } from "lucide-react"
 
 export interface DirectorViewProps {
@@ -150,12 +150,19 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     setBusy(true)
     try {
       const pp = project.path.replace(/\\/g, "/").replace(/\/+$/, "")
-      const chaptersDir = `${pp}/wiki/chapters`
+      // 项目知识根是 QM/（LEGACY=wiki）；章节物理落 QM/chapters/ 才与 fileTree/编辑器对齐
+      const chaptersDir = `${pp}/QM/chapters`
       await createDirectory(chaptersDir)
-      const chapterPath = `${chaptersDir}/chapter-001.md`
-      const title = ideaInput.title.trim() || "第一章"
+      // 若已有章节则追加下一章号，不覆盖已有正文
+      let num = 1
+      let chapterPath = `${chaptersDir}/chapter-001.md`
+      while ((await fileExists(chapterPath)) && num < 999) {
+        num += 1
+        chapterPath = `${chaptersDir}/chapter-${String(num).padStart(3, "0")}.md`
+      }
+      const title = ideaInput.title.trim() || `第${num}章`
       // frontmatter 标记章节 + 标题占位——Draft-first 本地正文，不走 LLM
-      const content = `---\nkind: chapter\nchapter: 1\ntitle: ${title}\nstatus: draft\n---\n\n# ${title}\n\n`
+      const content = `---\nkind: chapter\nchapter: ${num}\ntitle: ${title}\nstatus: draft\n---\n\n# ${title}\n\n`
       await writeFile(chapterPath, content)
       setSelectedFile(chapterPath)
       setActiveView("wiki")
