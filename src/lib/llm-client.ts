@@ -91,6 +91,7 @@ function classifyLlmError(err: unknown): string {
     if (err.name === HEADER_TIMEOUT_ERROR_NAME) return "header_timeout"
     if (err.name === STREAM_IDLE_ERROR_NAME) return "stream_idle"
     const msg = err.message
+    if (/HTTP (401|403)\b|unauthorized|invalid api.?key|invalid_api_key|forbidden|认证失败|凭据/i.test(msg)) return "auth"
     if (/timed out|timeout/i.test(msg)) return "timeout"
     if (/网络连接|Connection lost|connection/i.test(msg)) return "network"
     if (/HTTP \d{3}/.test(msg)) return "http"

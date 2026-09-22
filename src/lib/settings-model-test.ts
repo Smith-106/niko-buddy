@@ -39,7 +39,11 @@ function requireModel(model: string, msg: string): string {
 export function normalizeModelTestError(error: Error): Error {
   const msg = error.message
 
-  if (/insufficient account balance/i.test(msg)) {
+  // J05-05：凭据/认证失败优先于其他分类——401/403/invalid key 必须给明确原因
+  if (/HTTP (401|403)\b|unauthorized|invalid api.?key|invalid_api_key|incorrect api.?key|forbidden|认证失败|凭据|密钥错误|invalid token/i.test(msg)) {
+    return new Error("凭据无效或已过期（HTTP 401/403）。请检查 API Key 是否正确、是否已过期或被禁用，重新配置后重试。")
+  }
+  if (/insufficient account balance|quota|余额|额度不足/i.test(msg)) {
     return new Error("当前中转站账户余额不足，或该模型没有可用额度，请先充值或切换可用模型。")
   }
   if (/client not allowed/i.test(msg)) {

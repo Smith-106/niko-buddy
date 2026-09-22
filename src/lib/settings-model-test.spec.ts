@@ -78,6 +78,20 @@ describe("normalizeModelTestError", () => {
     expect(err.message).toContain("账户余额不足")
   })
 
+  it("maps HTTP 401 auth failure to credential reason (J05-05)", () => {
+    const err = normalizeModelTestError(new Error("HTTP 401 unauthorized"))
+    expect(err.message).toContain("凭据无效或已过期")
+  })
+
+  it("maps invalid api key / 403 to credential reason", () => {
+    expect(normalizeModelTestError(new Error("invalid_api_key provided")).message).toContain("凭据无效")
+    expect(normalizeModelTestError(new Error("HTTP 403 forbidden")).message).toContain("凭据无效")
+  })
+
+  it("maps balance/quota variants", () => {
+    expect(normalizeModelTestError(new Error("quota exceeded")).message).toContain("余额不足")
+  })
+
   it("maps client-not-allowed messages", () => {
     const err = normalizeModelTestError(new Error("client not allowed, please contact admin"))
     expect(err.message).toContain("客户端来源")
