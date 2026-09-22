@@ -14,6 +14,7 @@ import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
 import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
 import { hydrateChatHistoryWithInterruptedDeepChapter } from "@/lib/chat/resume"
+import { markSessionInterrupted } from "@/lib/novel"
 import { resetProjectState } from "@/lib/reset-project-state"
 import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import { resolveConfig } from "@/lib/llm-config/preset-resolver"
@@ -262,6 +263,11 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
     const savedChat = await loadChatHistory(proj.path)
     const interruptedStatus = await loadNovelSessionStatus(proj.path).catch(() => null)
     const hydratedChat = hydrateChatHistoryWithInterruptedDeepChapter(savedChat, interruptedStatus)
+    // J10-02: 重启发现 running/paused 残留 → 回写 status.json 标 interrupted 持久态，
+    // 防止幽灵 running 跨重启复活（落盘态=读回态=UI语义一致）。
+    if (interruptedStatus && (interruptedStatus.status === "running" || interruptedStatus.status === "paused")) {
+      await markSessionInterrupted(proj.path).catch(() => null)
+    }
     if (hydratedChat.conversations.length > 0) {
       useChatStore.getState().setConversations(hydratedChat.conversations)
       useChatStore.getState().setMessages(hydratedChat.messages)

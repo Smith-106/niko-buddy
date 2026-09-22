@@ -27,7 +27,7 @@ function markWriteReadyThenQueueReview(
   return markReviewQueued(markWriteReady(prev, chapterNumber), chapterNumber)
 }
 
-export type NovelSessionLifecycleStatus = "running" | "completed" | "paused" | "blocked"
+export type NovelSessionLifecycleStatus = "running" | "completed" | "paused" | "blocked" | "interrupted"
 export type NovelDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
 export type NovelGateStatus = "pending" | "passed" | "failed"
 
@@ -40,6 +40,10 @@ const SESSION_LIFECYCLE_STATUSES: readonly NovelSessionLifecycleStatus[] = [
   "completed",
   "paused",
   "blocked",
+  // J10-02: interrupted = 上个进程 running/paused 但进程已终止的持久态。
+  // 重启加载时降级写入，区分「主动 running」与「重启发现的死 running」，
+  // 防止幽灵 running 跨重启复活。additive — 下游应视其为非活跃可续作态。
+  "interrupted",
 ]
 const DRAFT_STATUSES: readonly NovelDraftStatus[] = [
   "pending",
@@ -575,7 +579,9 @@ export function resolveInterruptedSessionResumeCheckpoint(
     userRequest: string
   },
 ): DeepChapterGenerationResumeCheckpoint | undefined {
-  if (!status || status.status !== "running") return undefined
+  // J10-02: interrupted 是 running 的持久化中断态（重启降级写入），
+  // 与 running 同享中断恢复路径——否则标 interrupted 的任务无法续作。
+  if (!status || (status.status !== "running" && status.status !== "interrupted")) return undefined
   if (status.current_task.conversation_id !== input.conversationId) return undefined
   if (normalizeUserRequest(status.current_task.user_request) !== normalizeUserRequest(input.userRequest)) {
     return undefined
@@ -1016,7 +1022,7 @@ export async function requireManagedDeepChapterDraft(
  * 仍是文件顶部 `NovelSessionStatus` interface; 本 schema 仅作运行时校验护栏,
  * 不另立类型真源。
  */
-const SESSION_STATUS_ENUM = ["running", "completed", "paused", "blocked"] as const
+const SESSION_STATUS_ENUM = ["running", "completed", "paused", "blocked", "interrupted"] as const
 const DRAFT_STATUS_ENUM = ["pending", "ready", "accepted", "rejected", "superseded"] as const
 
 const novelSessionStatusLoadSchema = z
@@ -1358,6 +1364,29 @@ export async function pauseDeepChapterSession(
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
   await persistCheckpointBase(input.projectPath, input.sessionId, next)
+  return next
+}
+
+/**
+ * J10-02：重启加载时把上个进程残留的 running/paused 降级为 interrupted 持久态。
+ * 幽灵 running 修复——落盘态准确反映「进程已终止的任务」，二次重启不再误当 running。
+ * 幂等：已是 interrupted/非 running|paused 态 → 原样返回不写。
+ * 不改 draft/checkpoint/decision_gates——中断任务的可续作证据原样保留。
+ */
+export async function markSessionInterrupted(projectPath: string): Promise<NovelSessionStatus | null> {
+  const existing = await loadNovelSessionStatus(projectPath)
+  if (!existing) return null
+  if (existing.status !== "running" && existing.status !== "paused") return existing
+  const now = new Date().toISOString()
+  const next = buildNextStatus(existing, {
+    updated_at: now,
+    status: "interrupted",
+    current_task: {
+      ...existing.current_task,
+      status: "interrupted",
+    },
+  })
+  await persistCheckpointBase(projectPath, existing.session_id, next)
   return next
 }
 

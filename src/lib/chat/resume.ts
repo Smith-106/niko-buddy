@@ -117,7 +117,12 @@ export function hydrateChatHistoryWithInterruptedDeepChapter(
   status: NovelSessionStatus | null,
   now: number = Date.now(),
 ): HydratedInterruptedDeepChapterChat {
-  if (!status || (status.status !== "running" && status.status !== "paused")) {
+  // J10-02: interrupted（上个进程 running/paused 的持久化降级态）与
+  // running/paused 同走中断恢复——二次重启标 interrupted 后仍需注入续作上下文。
+  if (
+    !status ||
+    (status.status !== "running" && status.status !== "paused" && status.status !== "interrupted")
+  ) {
     return {
       conversations: chatData.conversations,
       messages: chatData.messages,

@@ -45,6 +45,7 @@ import {
   createNovelSessionId,
   loadNovelDraftArtifact,
   loadNovelSessionStatus,
+  markSessionInterrupted,
   novelDraftArtifactPath,
   novelSessionStatusPath,
   pauseDeepChapterSession,
@@ -2242,5 +2243,76 @@ describe("novel-session-status 全口径补齐：decision/fallback 分支", () =
     expect(status.decision_gates.overall).toBe("pending")
     const draft = readJson(draftPath) as Record<string, unknown>
     expect(draft.review_results).toEqual([])
+  })
+})
+
+describe("markSessionInterrupted (J10-02 幽灵running降级)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+  })
+
+  it("running → interrupted 落盘，幂等且不改draft", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-int",
+      userRequest: "generate chapter 5",
+      chapterNumber: 5,
+    })
+    expect(session.status).toBe("running")
+
+    const marked = await markSessionInterrupted(projectPath)
+    expect(marked?.status).toBe("interrupted")
+    expect(marked?.current_task.status).toBe("interrupted")
+
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded?.status).toBe("interrupted")
+    // draft 证据原样保留（可续作）
+    expect(reloaded?.draft.draft_status).toBe(session.draft.draft_status)
+  })
+
+  it("paused → interrupted 落盘", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-p",
+      userRequest: "generate chapter 2",
+      chapterNumber: 2,
+    })
+    await pauseDeepChapterSession({
+      projectPath,
+      sessionId: session.session_id,
+      conversationId: "conv-p",
+      userRequest: "generate chapter 2",
+      chapterNumber: 2,
+    })
+    const marked = await markSessionInterrupted(projectPath)
+    expect(marked?.status).toBe("interrupted")
+  })
+
+  it("completed 非活跃态 → 原样返回不写", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-c",
+      userRequest: "generate chapter 1",
+      chapterNumber: 1,
+    })
+    await completeDeepChapterSession({
+      projectPath,
+      sessionId: session.session_id,
+      conversationId: "conv-c",
+      userRequest: "generate chapter 1",
+      chapterNumber: 1,
+    })
+    const callsBefore = fsState.writeFileAtomic.mock.calls.length
+    const marked = await markSessionInterrupted(projectPath)
+    expect(marked?.status).toBe("completed")
+    // 幂等：completed 不触发新写入
+    expect(fsState.writeFileAtomic.mock.calls.length).toBe(callsBefore)
+  })
+
+  it("无 status.json → 返回 null", async () => {
+    const marked = await markSessionInterrupted(projectPath)
+    expect(marked).toBeNull()
   })
 })
