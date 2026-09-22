@@ -15,6 +15,34 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.11.1",
+    date: "2026-09-21",
+    highlights: {
+      en: [
+        "A-34 typecheck fix: resolved 4 real tsc errors masked by incremental build cache at v2.11.0 release — select-skills-plugin optional novelConfig fallback to store, spec intent cast to NovelTaskIntent, streamError CFA narrowing to never fixed via mutable ref container.",
+        "Verified: npx tsc --noEmit 0 errors; vitest src/lib/agent/ 20 files / 175 passed + 8 skipped.",
+      ],
+      zh: [
+        "A-34 typecheck 修复：解决 v2.11.0 发布时被增量构建缓存掩盖的 4 个真错误——select-skills-plugin 可选 novelConfig 回退 store、spec intent 断言 NovelTaskIntent、streamError CFA 收窄为 never 改可变 ref 容器。",
+        "验证：npx tsc --noEmit 0 错；vitest src/lib/agent/ 20 文件 / 175 通过 + 8 跳过。",
+      ],
+    },
+  },
+  {
+    version: "2.11.0",
+    date: "2026-09-21",
+    highlights: {
+      en: [
+        "Capability Commander (A-34): capability discovery/planning/tracing closed loop — capability-retrieval.ts normalizes UserSkill/AiCapability to CapabilityDoc with Chinese-bigram BM25 Top-K recall; capability-planner.ts LLM emits a validated Capability DAG (closed-world ids, DFS cycle check, cap 6); capability-trace-store.ts append-only JSONL to .novel/capability-traces.",
+        "select-skills-plugin wiring: planExecuteEnabled && mode!==\"fast\" runs the Commander chain with silent fallback to deterministic lookup on failure/timeout/no-LLM; plan reasons land in SelectedCapabilityTrace.reason. Permission cannot be elevated; fast mode bypasses the planner.",
+      ],
+      zh: [
+        "Capability Commander（A-34）：能力发现/规划/追踪闭环——capability-retrieval.ts 将 UserSkill/AiCapability 归一化为 CapabilityDoc，中文 bigram BM25 Top-K 召回；capability-planner.ts LLM 产出校验过的 Capability DAG（closed-world id、DFS 环校验、上限 6）；capability-trace-store.ts append-only JSONL 落 .novel/capability-traces。",
+        "select-skills-plugin 接线：planExecuteEnabled 且 mode!==\"fast\" 走 Commander 链，失败/超时/无 LLM 静默回退确定性查表；规划理由落 SelectedCapabilityTrace.reason。permission 不可提升；fast 模式不走规划器。",
+      ],
+    },
+  },
+  {
     version: "2.10.0",
     date: "2026-09-19",
     highlights: {

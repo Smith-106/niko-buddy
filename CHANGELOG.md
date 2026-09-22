@@ -24,8 +24,6 @@
 
 ## [2.11.0] - 2026-09-21
 
-## [2.11.0] - 2026-09-21
-
 ### Added — Capability Commander（A-34，能力发现/规划/追踪闭环）
 
 - **能力召回层** `src/lib/agent/capability-retrieval.ts`：UserSkill/AiCapability 归一化为 CapabilityDoc，复用 `lib/novel/bm25-ranking.ts` 中文 bigram BM25 做 Top-K 召回（字段加权 name6/label5/tags3/desc2/content1）；Rule Filter 按 mode/intent/allowedSources/autoOnly 硬裁剪构成能力沙箱。
