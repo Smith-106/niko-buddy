@@ -35,6 +35,7 @@ describe("LLM Wiki model settings copied into Niko Buddy", () => {
       "claude-code-cli",
       "codex-cli",
       "cursor-cli",
+      "antigravity-cli",
       "openai",
       "google",
       "azure",
