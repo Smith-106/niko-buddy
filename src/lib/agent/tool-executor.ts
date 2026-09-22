@@ -70,6 +70,7 @@ export async function executeAgentTool(
   registry: ToolRegistry,
   callbacks: AgentRunCallbacks,
   signal?: AbortSignal,
+  opts?: { forceExecute?: boolean },
 ): Promise<ExecuteAgentToolResult> {
   const startedAt = Date.now()
   const record: AgentRunRecord["toolCalls"][number] = {
@@ -123,7 +124,8 @@ export async function executeAgentTool(
     },
   }
   const permission = tool.permission ?? (tool.category === "write" ? "confirm" : "auto")
-  if (permission === "confirm") {
+  // J09 F-J09-01: opts.forceExecute 跳过 confirm 预览门——用于用户批准后的真实执行。
+  if (permission === "confirm" && !opts?.forceExecute) {
     // 预览阶段不是真正执行，即使复用 execute 也不得对外交付终稿。
     acceptFinalContent = false
     try {
@@ -230,4 +232,36 @@ export async function executeAgentTool(
     }
     return { record, responseText: result, success: false }
   }
+}
+
+// ─── J09 F-J09-01: confirm 工具批准执行通道 ───
+// approval_required 是预览态(未执行)。本模块提供批准→真实执行的最小闭环,
+// 供 UI 层在用户确认后调用,补齐「预览→批准→执行」门控链路。
+
+/** 已批准并执行过的 callId——防重复批准导致重复执行(幂等,绑定 callId)。 */
+const approvedCallIds = new Set<string>()
+
+export function isToolCallApproved(callId: string): boolean {
+  return approvedCallIds.has(callId)
+}
+
+/** 测试/会话重置时清空批准记录。 */
+export function resetApprovedToolCalls(): void {
+  approvedCallIds.clear()
+}
+
+/**
+ * 批准并真实执行一个处于 approval_required 的 confirm 工具调用。
+ * 幂等:同一 callId 已批准过则不再执行,返回 null。
+ * 批准后走 executeAgentTool 的 forceExecute 路径(跳过 preview 直跑 execute)。
+ */
+export async function approveConfirmedToolCall(
+  call: ToolCall,
+  registry: ToolRegistry,
+  callbacks: AgentRunCallbacks,
+  signal?: AbortSignal,
+): Promise<ExecuteAgentToolResult | null> {
+  if (approvedCallIds.has(call.id)) return null
+  approvedCallIds.add(call.id)
+  return executeAgentTool(call, registry, callbacks, signal, { forceExecute: true })
 }

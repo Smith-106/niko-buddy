@@ -2285,6 +2285,7 @@ describe("markSessionInterrupted (J10-02 幽灵running降级)", () => {
       conversationId: "conv-p",
       userRequest: "generate chapter 2",
       chapterNumber: 2,
+      errorMessage: "user paused",
     })
     const marked = await markSessionInterrupted(projectPath)
     expect(marked?.status).toBe("interrupted")
@@ -2303,6 +2304,7 @@ describe("markSessionInterrupted (J10-02 幽灵running降级)", () => {
       conversationId: "conv-c",
       userRequest: "generate chapter 1",
       chapterNumber: 1,
+      finalContent: "chapter 1 content",
     })
     const callsBefore = fsState.writeFileAtomic.mock.calls.length
     const marked = await markSessionInterrupted(projectPath)
