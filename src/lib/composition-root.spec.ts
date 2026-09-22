@@ -86,6 +86,7 @@ const mocks = vi.hoisted(() => {
     resolveConfig: vi.fn(),
     loadEnvLlmDefault: vi.fn(),
     loadNovelSessionStatus: vi.fn(),
+    markSessionInterrupted: vi.fn(async () => null),
     applyAntiAiTelemetryConsentOnProjectOpen: vi.fn(),
     shutdownAntiAiTelemetrySink: vi.fn(),
     createDirectory: vi.fn(),
@@ -184,7 +185,8 @@ vi.mock("@/lib/env-llm-defaults", () => ({ loadEnvLlmDefault: mocks.loadEnvLlmDe
 vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
   return {
-    ...actual, loadNovelSessionStatus: mocks.loadNovelSessionStatus 
+    ...actual, loadNovelSessionStatus: mocks.loadNovelSessionStatus,
+    markSessionInterrupted: mocks.markSessionInterrupted 
   }
 })
 vi.mock("@/lib/novel/anti-ai-telemetry-wiring", async (importOriginal) => {
@@ -612,6 +614,40 @@ describe("hydrateProjectOnOpen", () => {
 
     // novelMode=true → 写作生产台，非 wiki 知识库
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("director")
+  })
+
+  it("J10-02: 重启发现 running/paused 残留 → 调 markSessionInterrupted 降级", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue({ status: "running", session_id: "s1" })
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+
+    await hydrateProjectOnOpen(proj)
+    await flushDynamicImports()
+
+    expect(mocks.markSessionInterrupted).toHaveBeenCalledWith(proj.path)
+  })
+
+  it("J10-02: status 非 running/paused → 不调 markSessionInterrupted", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue({ status: "interrupted", session_id: "s1" })
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+
+    await hydrateProjectOnOpen(proj)
+    await flushDynamicImports()
+
+    expect(mocks.markSessionInterrupted).not.toHaveBeenCalled()
   })
 
   it("lands non-novel projects on the wiki view (J01-T02 F-005)", async () => {
