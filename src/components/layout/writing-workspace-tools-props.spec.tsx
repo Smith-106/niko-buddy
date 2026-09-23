@@ -93,6 +93,7 @@ describe("WritingWorkspace 写作工具抽屉传参", () => {
       projectPath: "C:/novels/demo",
       title: "第一章 起点",
       paragraphs: ["第一段。", "第二段。"],
+      chapterPath: "正文/第01章.md",
     })
   })
 

@@ -44,6 +44,7 @@ export function WritingWorkspace() {
   )
   const fileName = selectedFile ? getFileName(selectedFile) : ""
   const chapterTitle = chapter.heading.trim() || fileName.replace(/\.md$/i, "") || t("workspace.tools.untitled")
+  // PDF 确认门与批量替换共用同一相对化契约：导出前按该相对路径读回章节磁盘内容断言 final（门禁 1）。
   // BatchReplacePanel 的契约是**项目相对路径**：复用既有 getRelativePath（已含尾斜杠/分隔符处理）。
   const batchTargets = useMemo(
     () => (selectedFile ? [getRelativePath(selectedFile, projectPath)] : []),
@@ -153,7 +154,7 @@ export function WritingWorkspace() {
           className="max-h-[45vh] overflow-auto border-t"
           data-testid="pdf-export-section"
         >
-          <PdfExportDialog projectPath={projectPath} title={chapterTitle} paragraphs={paragraphs} />
+          <PdfExportDialog projectPath={projectPath} title={chapterTitle} paragraphs={paragraphs} chapterPath={selectedFile ? getRelativePath(selectedFile, projectPath) : undefined} />
         </div>
       ) : null}
       {toolsPanel === "batch" ? (
