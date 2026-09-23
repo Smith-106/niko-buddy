@@ -59,6 +59,11 @@ export interface PdfExportHistoryEntry {
   exportedAt: string
   /** 重试命中既有记录时为 true（不产生重复条目，门禁 6）。 */
   deduped?: boolean
+  /**
+   * 门禁 8：源章节被删除后，历史保留溯源但标记源缺失（而非静默删除记录或
+   * 误认为仍指向现存资产）。由 `markExportHistorySourceMissing` 写入。
+   */
+  sourceMissing?: boolean
 }
 
 interface ExportHistoryFile {
@@ -83,6 +88,35 @@ export async function loadPdfExportHistory(projectPath: string): Promise<PdfExpo
   } catch {
     return []
   }
+}
+
+/**
+ * 门禁 8：删除源资产时必须明确导出历史如何处理。
+ * 策略=保留溯源、标记 `sourceMissing`：删除章节本体时不得连带抹掉“谁导出过
+ * 该章节的哪个版本”的审计记录，但也必须把条目标为源缺失，避免重启后被误读
+ * 为仍指向现存资产。返回值=被标记的条数（0 表示该章节无历史或已全部缺失）。
+ */
+export async function markExportHistorySourceMissing(input: {
+  projectPath: string
+  chapterPath: string
+}): Promise<number> {
+  const historyPath = exportHistoryPath(input.projectPath)
+  const existing = await loadPdfExportHistory(input.projectPath)
+  if (existing.length === 0) return 0
+  let marked = 0
+  const next = existing.map((e) => {
+    if (e.chapterPath === input.chapterPath && e.sourceMissing !== true) {
+      marked += 1
+      return { ...e, sourceMissing: true }
+    }
+    return e
+  })
+  if (marked === 0) return 0
+  await writeFileAtomic(
+    historyPath,
+    JSON.stringify({ version: EXPORT_HISTORY_VERSION, entries: next }, null, 2),
+  )
+  return marked
 }
 
 /**

@@ -60,6 +60,7 @@ import {
   exportConfirmedChapterPdf,
   exportHistoryPath,
   loadPdfExportHistory,
+  markExportHistorySourceMissing,
 } from "./pdf-export-gate"
 
 const PROJECT = "C:/QM-J0312/gate-book"
@@ -247,5 +248,36 @@ describe("PDF 导出确认门 + 导出历史（门禁 1/5/6/7/9）", () => {
       }),
     ).rejects.toThrow("PDF_EXPORT_INVALID_TARGET")
     expect(ipcMocks.exportPdf).not.toHaveBeenCalled()
+  })
+
+  it("门禁8：删除源章节后历史保留溯源并标记 sourceMissing，不误读为现存资产", async () => {
+    await fsState.writeFileAtomic(CHAPTER_ABS, FINAL_MD)
+    const { entry } = await exportConfirmedChapterPdf({
+      projectPath: PROJECT,
+      chapterPath: CHAPTER,
+      chapterTitle: "第1章",
+      target: "exports/chapter-001.pdf",
+      paragraphs: PARAGRAPHS,
+      readChapterContent: readChapter,
+    })
+    expect(entry.sourceMissing).toBeUndefined()
+    // 删除源资产 → 明确处理：历史条目保留溯源但标记源缺失
+    fsState.fileMap.delete(CHAPTER_ABS)
+    const marked = await markExportHistorySourceMissing({
+      projectPath: PROJECT,
+      chapterPath: CHAPTER,
+    })
+    expect(marked).toBe(1)
+    // 重启读回：溯源字段仍在，但 sourceMissing=true 明确源已不存在
+    const reloaded = await loadPdfExportHistory(PROJECT)
+    expect(reloaded).toHaveLength(1)
+    expect(reloaded[0]?.id).toBe(entry.id)
+    expect(reloaded[0]?.chapterPath).toBe(CHAPTER)
+    expect(reloaded[0]?.sourceMissing).toBe(true)
+    expect(reloaded[0]?.confirmedDigest).toBe(entry.confirmedDigest)
+    // 幂等：重复标记不重复计数
+    expect(await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: CHAPTER })).toBe(0)
+    // 无该章节的标记请求返回 0
+    expect(await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: "QM/chapters/other.md" })).toBe(0)
   })
 })
