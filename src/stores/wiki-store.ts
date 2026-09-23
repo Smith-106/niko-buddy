@@ -623,7 +623,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "canonEditor" | "director" | "dataManager" | "workbench" | "followUpCenter" | "liveExecution" | "bookshelf" | "creativeHub" | "knowledgeLibrary" | "worldLibrary" | "genreLibrary" | "storyModeLibrary" | "titleStudio" | "styleEngine" | "antiAiRules" | "modelRoutes" | "mcpManager" | "workflowEditor" | "marketRadar" | "help" | "exportCenter"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "diagnosticsCenter" | "canonEditor" | "director" | "dataManager" | "workbench" | "followUpCenter" | "liveExecution" | "bookshelf" | "creativeHub" | "knowledgeLibrary" | "worldLibrary" | "genreLibrary" | "storyModeLibrary" | "titleStudio" | "styleEngine" | "antiAiRules" | "modelRoutes" | "mcpManager" | "workflowEditor" | "marketRadar" | "help" | "exportCenter"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"

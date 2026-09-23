@@ -60,6 +60,11 @@ const BackupExportView = lazy(async () => {
   return { default: mod.BackupExportView }
 })
 
+const DiagnosticsCenterView = lazy(async () => {
+  const mod = await import("@/components/novel/diagnostics-center")
+  return { default: mod.DiagnosticsCenterView }
+})
+
 const CanonEditor = lazy(async () => {
   const mod = await import("@/components/canon-editor/canon-editor")
   return { default: mod.CanonEditor }
@@ -163,6 +168,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <BackupExportView />
+          </Suspense>
+        )
+        break
+      case "diagnosticsCenter":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <DiagnosticsCenterView />
           </Suspense>
         )
         break

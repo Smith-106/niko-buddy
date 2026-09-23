@@ -26,6 +26,7 @@ import {
   Radar,
   ScrollText,
   Settings,
+  Stethoscope,
   Sparkles,
   Workflow,
   type LucideIcon,
@@ -78,6 +79,7 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "marketRadar", icon: Radar, labelKey: "wb.card.marketRadar", descKey: "wb.card.marketRadarDesc", group: "config", planned: true },
   { view: "help", icon: BookOpen, labelKey: "wb.card.help", descKey: "wb.card.helpDesc", group: "config", planned: true },
   // 数据
+  { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "wb.card.diagnostics", descKey: "wb.card.diagnosticsDesc", group: "data" },
   { view: "backupExport", icon: ArchiveRestore, labelKey: "wb.card.backup", descKey: "wb.card.backupDesc", group: "data" },
   { view: "dataManager", icon: Database, labelKey: "wb.card.dataManager", descKey: "wb.card.dataManagerDesc", group: "data" },
   { view: "exportCenter", icon: ArchiveRestore, labelKey: "wb.card.exportCenter", descKey: "wb.card.exportCenterDesc", group: "data", planned: true },
