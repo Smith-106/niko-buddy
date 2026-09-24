@@ -24,6 +24,25 @@ function dirEntries(names: string[]) {
   return names.map((name) => ({ name, path: `C:/novel/.novel/snapshots/${name}`, is_dir: false }))
 }
 
+// #93 测试缝注入：绕过 chapter-ingest 巨型模块冷加载（#92 根因：T18 冷加载
+// ~7.2s，全量 4-worker 并发下可击穿 15s testTimeout → 纯超时 flaky）。
+// 微型 lister 与 listSnapshots 同解析口径（outline-NNN → 负号），输入仍由
+// fsMocks.listDirectory 驱动，降级路径（reject → []）同样可测。
+async function injectedSnapshots(projectPath: string): Promise<number[]> {
+  const tree = await fsMocks.listDirectory(`${projectPath}/.novel/snapshots`)
+  return (tree as { name: string }[])
+    .filter((f) => f.name.endsWith(".snapshot.json"))
+    .map((f) => {
+      const stem = f.name.split(".")[0]
+      const m = stem.match(/^outline-(\d+)$/)
+      if (m) return -parseInt(m[1], 10)
+      return parseInt(stem, 10)
+    })
+    .filter((n) => !isNaN(n))
+    .sort((a, b) => a - b)
+}
+const DEPS = () => ({ listSnapshots: injectedSnapshots })
+
 describe("collectCompletionChecklistInput 机械项采集（§GAP-89-01）", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -49,7 +68,7 @@ describe("collectCompletionChecklistInput 机械项采集（§GAP-89-01）", () 
       }
       throw new Error(`ENOENT ${p}`)
     })
-    const input = await collectCompletionChecklistInput("C:/novel", 3)
+    const input = await collectCompletionChecklistInput("C:/novel", 3, {}, DEPS())
     expect(input.completedChapters).toBe(3)
     expect(input.activeForeshadowCount).toBe(2)
     expect(input.openThreads).toEqual([])
@@ -72,7 +91,7 @@ describe("collectCompletionChecklistInput 机械项采集（§GAP-89-01）", () 
       }
       throw new Error(`ENOENT ${p}`)
     })
-    const input = await collectCompletionChecklistInput("C:/novel", 5)
+    const input = await collectCompletionChecklistInput("C:/novel", 5, {}, DEPS())
     expect(input.openThreads).toEqual(["复仇线"])
   })
 
@@ -84,7 +103,7 @@ describe("collectCompletionChecklistInput 机械项采集（§GAP-89-01）", () 
       characterFatesClear: true,
       userExpectationMet: true,
       scaleRange: { min: 30, max: 40 },
-    })
+    }, DEPS())
     expect(input.openThreads).toEqual(["长线A"])
     expect(input.endingAnswered).toBe(true)
     expect(input.characterFatesClear).toBe(true)
@@ -95,7 +114,7 @@ describe("collectCompletionChecklistInput 机械项采集（§GAP-89-01）", () 
   it("全源失败降级零值不抛错", async () => {
     fsMocks.listDirectory.mockRejectedValue(new Error("no dir"))
     fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
-    const input = await collectCompletionChecklistInput("C:/novel", 5)
+    const input = await collectCompletionChecklistInput("C:/novel", 5, {}, DEPS())
     expect(input.completedChapters).toBe(0)
     expect(input.activeForeshadowCount).toBe(0)
     expect(input.openThreads).toEqual([])

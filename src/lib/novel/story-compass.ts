@@ -369,19 +369,29 @@ export interface CompletionInputCollectOptions {
  * 失败语义：各源 load 失败降级（快照→0、伏笔→0、支线→[]），绝不整体抛错
  * （与 buildChapterPlan 逐维降级同哲学）；缺失 store 即视为空（lenient）。
  */
+/** collectCompletionChecklistInput 可注入依赖（测试缝：默认动态 import 路径，生产零行为变化）。 */
+export interface CompletionInputCollectDeps {
+  /** 快照清单函数（默认动态 import chapter-ingest.listSnapshots）。 */
+  listSnapshots?: (projectPath: string) => Promise<number[]>
+}
+
 export async function collectCompletionChecklistInput(
   projectPath: string,
   currentChapter: number,
   options: CompletionInputCollectOptions = {},
+  deps: CompletionInputCollectDeps = {},
 ): Promise<CompletionChecklistInput> {
   // listSnapshots / tracker load 全部经动态 import（chapter-ingest 为巨型模块；
   // foreshadowing/subplot/story-thread 虽是 leaf，同样动态 import 把依赖推迟到
   // 调用时，本模块顶层只留 projection-store + type-only import，彻底零循环风险）。
-  const { listSnapshots } = await import("./chapter-ingest")
+  // deps.listSnapshots 测试缝：注入后跳过巨型模块加载，消除全量并发下冷加载
+  // 击穿 15s testTimeout 的 flaky（根因见 #92：T18 冷加载 ~7.2s 实证）。
+  const listSnapshotsFn =
+    deps.listSnapshots ?? (await import("./chapter-ingest")).listSnapshots
   const { loadForeshadowingTracker } = await import("./foreshadowing-tracker")
   const { loadSubplotBoard } = await import("./subplot-board")
   const { deriveAllThreadArcStates } = await import("./story-thread-arcs")
-  const snapshots = await listSnapshots(projectPath).catch(() => [] as number[])
+  const snapshots = await listSnapshotsFn(projectPath).catch(() => [] as number[])
   const completedChapters = snapshots.filter((n) => n > 0).length
 
   const fore = await loadForeshadowingTracker(projectPath).catch(() => null)

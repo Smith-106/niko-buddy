@@ -206,6 +206,7 @@ export type {
   CompletionChecklistItem,
   CompletionChecklistItemId,
   CompletionChecklistResult,
+  CompletionInputCollectDeps,
   CompletionInputCollectOptions,
   StoryCompass,
 } from "./story-compass"
