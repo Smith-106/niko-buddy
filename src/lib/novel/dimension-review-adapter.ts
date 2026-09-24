@@ -167,6 +167,12 @@ export const SIX_REVIEW_DIMENSION_ORDER: SixReviewDimensionKey[] = [
  * status is authoritative: status "error" → at least "error"; "high"/"medium"
  * → at least "warning"; "low"/"pass" → "info".
  */
+/**
+ * §GAP-88-02 评分与 verdict 解耦（ainovel editor.md 模式）：模型只打分不判刑。
+ * status 是档位下限语义（error→阻断级 / high|medium→返修级 / low|pass→通过级），
+ * 最终门控裁定只读 score（见 deriveScoreVerdict），status 不直接决定门控。
+ * 档位-score 一致性由 validateDimensionScoreBand 机械校验。
+ */
 function severityForIssue(
   dimStatus: DimensionReviewStatus,
   issueSeverity: NovelReviewResult["severity"],
@@ -328,19 +334,50 @@ export function dimensionResultsToReviewResults(
     const result = dimensionResults[key]
     if (!result) continue
     const reviewType = DIM_TO_GATE_TYPE[key]
+    let droppedEvidenceCount = 0
+    // §GAP-88-02 score 派生 error 下限：举证扣减后有效分落入硬伤档（≤4）时，
+    // 该维按 error 处理 —— 模型只打分，是否阻断由系统按有效分裁定。
+    const scoreErrorFloor = (): NovelReviewResult["severity"] | null => {
+      const effective = Math.max(0, result.score - droppedEvidenceCount)
+      return deriveScoreVerdict(effective) === "error" ? "error" : null
+    }
+    const dimStartLen = out.length
     if (result.issues.length > 0) {
       for (const issue of result.issues) {
         // F-001 (v2.6 Tier1 must): mechanical evidence citation verification.
         // Check each issue's evidence against the chapter body; on failure
         // downgrade severity to "warning" and backfill the nearest fragment.
+        // §GAP-88-03 (ainovel 强制举证硬门): 有 chapterBody（真实正文可对）
+        // 时，空 evidence 或校验失败的 issue 不计入门控（跳过，不再回填
+        // warning 占位），且该维 score 按 1 分/条扣减下限 0（出口条款机械
+        // 执行）。error 级 issue 校验失败同样跳过：不可信的阻断不断章（防误
+        // 修订，对齐 parseFailed 语义）。无 chapterBody（旧调用/单元凭空
+        // evidence）时沿用旧语义保留 issue，避免误杀。
         let severity: NovelReviewResult["severity"] = severityForIssue(result.status, issue.severity)
         let evidence = issue.evidence || ""
-        if (chapterBody && evidence) {
-          const verification = verifyEvidenceCitations(evidence, chapterBody)
-          if (!verification.passed) {
-            severity = severity === "error" ? "error" : "warning"
-            evidence = verification.resolvedEvidence
+        let evidenceDropped = false
+        // §GAP-88-03 举证作用域纪律：仅在生产链传入 chapterBody（真实章节
+        // 正文）时做机械举证校验。单元测试凭空构造 evidence（如 "ex"）无
+        // 正文可对，不应误杀 —— 无 chapterBody 时沿用旧语义（保留 issue，
+        // 不扣分），硬门只在真实正文可得时生效。
+        if (chapterBody) {
+          if (evidence) {
+            const verification = verifyEvidenceCitations(evidence, chapterBody)
+            if (!verification.passed) {
+              evidenceDropped = true
+            }
+          } else {
+            // 空 evidence = 无举证：硬门直接丢弃（旧回填 warning 占位语义废止）
+            evidenceDropped = true
           }
+        }
+        if (evidenceDropped) {
+          droppedEvidenceCount += 1
+          continue
+        }
+        // §GAP-88-02：举证扣减后有效分落入硬伤档 → 该 issue 升 error（系统裁定）。
+        if (deriveScoreVerdict(Math.max(0, result.score - droppedEvidenceCount)) === "error") {
+          severity = "error"
         }
         out.push({
           severity,
@@ -354,17 +391,70 @@ export function dimensionResultsToReviewResults(
           suggestion: issue.suggestion || "",
         })
       }
+      // §GAP-88-03 全丢弃回退：有 issue 但举证校验全部丢弃时，本维不能零
+      // finding 沉默（否则门控以为该维未评审）。按无 issue 出口条款结算：
+      // 有效分 <8.5 → warning 出口 finding（含举证丢弃计数），有效分落入
+      // 硬伤档 → 补 error 级 score-floor finding 保持阻断可见。
+      if (out.length === dimStartLen && droppedEvidenceCount > 0) {
+        const effectiveScore = Math.max(0, result.score - droppedEvidenceCount)
+        const exitViolation =
+          deriveScoreVerdict(effectiveScore) !== "info" ||
+          (result.score < 8.5 && !result.summary.trim())
+        out.push({
+          severity: exitViolation ? "warning" : "info",
+          type: reviewType,
+          message: `${SIX_REVIEW_DIMENSIONS[key].label}：${result.summary || "pass"} (score ${result.score}, 举证丢弃${droppedEvidenceCount}条有效${effectiveScore})`,
+          evidence: "",
+          relatedMemory: "",
+          suggestion: exitViolation ? "对照档位行为定义补足检查项兑现或下调分数。" : "",
+        })
+        const bandFinding = validateDimensionScoreBand(key, result.score, result.status)
+        if (bandFinding) out.push(bandFinding)
+        if (scoreErrorFloor() === "error") {
+          out.push({
+            severity: "error",
+            type: reviewType,
+            message: `[${result.summary || key}] 维度有效分 ${effectiveScore} 落入硬伤档`,
+            evidence: "",
+            relatedMemory: "score-floor",
+            suggestion: "返修正文或重审该维度。",
+          })
+        }
+      }
     } else {
       // Dimension produced no issues — emit an info-level summary so the
       // gate still records that the dimension was reviewed.
+      // §GAP-88-02 出口条款机械执行：无 issue 但有效分 <8.5 → warning（含举证
+      // 扣减后的有效分），summary 未列未兑现项同样 warning —— 无举证不给高分。
+      // 顺序：摘要 finding 始终首位（守旧 spec results[0] 摘要不变量），档位
+      // 不一致 finding 追加其后。
+      const effectiveScore = Math.max(0, result.score - droppedEvidenceCount)
+      const exitViolation =
+        deriveScoreVerdict(effectiveScore) !== "info" ||
+        (result.score < 8.5 && !result.summary.trim())
       out.push({
-        severity: "info",
+        severity: exitViolation ? "warning" : "info",
         type: reviewType,
-        message: `${SIX_REVIEW_DIMENSIONS[key].label}：${result.summary || "pass"}`,
+        message: `${SIX_REVIEW_DIMENSIONS[key].label}：${result.summary || "pass"} (score ${result.score}${droppedEvidenceCount > 0 ? `, 举证丢弃${droppedEvidenceCount}条有效${effectiveScore}` : ""})`,
         evidence: "",
         relatedMemory: "",
-        suggestion: "",
+        suggestion: exitViolation ? "对照档位行为定义补足检查项兑现或下调分数。" : "",
       })
+      const bandFinding = validateDimensionScoreBand(key, result.score, result.status)
+      if (bandFinding) out.push(bandFinding)
+      // score 下限 error 但零 issue：维度自身状态权威（CORR-010），补 error
+      // finding 使 collectBlockingIssues 可见 —— 否则高分零举证可绕过阻断。
+      const floor = scoreErrorFloor()
+      if (floor === "error") {
+        out.push({
+          severity: "error",
+          type: reviewType,
+          message: `[${result.summary || key}] 维度有效分 ${effectiveScore} 落入硬伤档`,
+          evidence: "",
+          relatedMemory: "score-floor",
+          suggestion: "返修正文或重审该维度。",
+        })
+      }
     }
   }
   return out
@@ -450,6 +540,7 @@ ${dimension.checks.map((check) => `- ${check}`).join("\n")}
   - 7-8 分：良级——无硬伤，检查项基本兑现，有阅读价值但缺乏出彩点。
   - 9-10 分：可发表文学质量——检查项全部兑现且有出彩点（强画面感/叙事节奏/情绪冲击/主题升华），达到出版级参照水准。
 - 出口条款：若本维度所有检查项均通过、且 issues 中没有任何 error/warning 级问题，score 必须 ≥8.5；若打出 <8.5，summary 必须明确列出未兑现的检查项。
+- 举证条款（强制）：每个 issue 的 evidence 字段必须是从下方“章节正文”逐字摘出的原文片段（允许只去空白差异），不得编造、概括或转述；无原文可引的问题必须删除。evidence 为空或经系统校验与正文不匹配时，该 issue 将被忽略且本维度 score 按规则扣减——无举证不给高分。
 - 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}${goldExtra}
 
 结构化结果格式：
@@ -970,9 +1061,105 @@ function normalizeScore(value: unknown): number {
   return normalizeDimensionScore(value)
 }
 
+// ── §GAP-88-02 评分↔档位一致性机械校验 ────────────────────────────────
+// 档位行为定义（buildDimensionReviewPrompt 校准锚点）的机械镜像：
+//   0-4 → error（硬伤）；5-6 → medium（及格但平淡）；7-8 → low（良级）；
+//   9-10 → pass（可发表）。high 保留作 LLM 过渡态，score 落 5-8 均接受。
+// 模型只打分不判刑：门控裁定（collectBlockingIssues / collectRepairIssues /
+// deriveSixDimVerdict）最终只读 score 派生的 verdict，status 仅作 floor。
+
+export type ScoreDerivedVerdict = "error" | "warning" | "info"
+
+/** score 派生 verdict（系统裁定唯一口径，模型 status 不直接决定门控）。 */
+export function deriveScoreVerdict(score: number): ScoreDerivedVerdict {
+  if (!Number.isFinite(score)) return "error"
+  if (score <= 4) return "error"
+  if (score <= 6) return "warning"
+  if (score < 8.5) return "warning"
+  return "info"
+}
+
+/**
+ * 校验 status 与 score 是否落在同一档位。返回 null 表示一致，否则返回
+ * 描述不一致的 warning 级 NovelReviewResult（供调用方并入 reviewResults）。
+ * high 为过渡态：score ∈ [5,8] 视为一致。
+ */
+export function validateDimensionScoreBand(
+  dimensionKey: SixReviewDimensionKey,
+  score: number,
+  status: DimensionReviewStatus,
+): import("./review-adapter").NovelReviewResult | null {
+  const inBand = (s: number, lo: number, hi: number): boolean => s >= lo && s <= hi
+  const consistent =
+    status === "error" ? score <= 4
+    : status === "medium" ? inBand(score, 4, 7)
+    : status === "high" ? inBand(score, 5, 8)
+    : status === "low" ? inBand(score, 6.5, 8.5)
+    : inBand(score, 8.5, 10)
+  if (consistent) return null
+  return {
+    severity: "warning",
+    type: DIM_TO_GATE_TYPE[dimensionKey],
+    message: `评分与档位不一致：${dimensionKey} status=${status} 但 score=${score}（模型又当运动员又当裁判嫌疑，裁定以 score 为准）`,
+    evidence: "",
+    relatedMemory: "score-band",
+    suggestion: "以 score 派生 verdict 为准重审该维度。",
+  }
+}
+
 function validateStatus(value: unknown, issueCount: number): DimensionReviewStatus {
   if (value === "error" || value === "high" || value === "medium" || value === "low" || value === "pass") {
     return value
   }
   return issueCount === 0 ? "pass" : "medium"
+}
+
+// ── §GAP-90-08 授权边界最小返工集（ainovel AffectedChapters 派生模式）────────
+// 分析范围 ≠ 修改范围：返工集合只含“需要改”的章节，去重排序。
+// RequiresChange 等价口径（QMAI 侧已有字段复用，无新概念）：
+//   requiresChange 显式 true，或 rewriteTarget 非空（“建议 AI 修改时定位的
+//   原文片段”，DimensionReviewIssue 已有字段），或 error 级且带章号。
+// verdict=accept 等价（零 error 且无显式 requiresChange/rewriteTarget）→ 空集
+// （ainovel：accept review 不得含 requires_change issue 同款语义）。
+// 章号来源：continuityMeta.chapter（稳定跨检测 key 持有者）或调用方显式传入。
+// 纯函数零 LLM。
+
+/** 最小返工集候选（NovelReviewResult 的章号承载子集）。 */
+export interface MinimalReworkIssue {
+  severity: NovelReviewResult["severity"]
+  chapter?: number
+  rewriteTarget?: string
+  requiresChange?: boolean
+}
+
+/**
+ * 最小返工章节集合（升序去重）。缺章号的 issue 跳过（不伪造范围）。
+ */
+export function minimalReworkSet(issues: readonly MinimalReworkIssue[]): number[] {
+  const set = new Set<number>()
+  for (const issue of issues) {
+    if (issue.chapter === undefined || !Number.isFinite(issue.chapter)) continue
+    const needsChange =
+      issue.requiresChange === true ||
+      (typeof issue.rewriteTarget === "string" && issue.rewriteTarget.trim().length > 0) ||
+      issue.severity === "error"
+    if (needsChange) set.add(issue.chapter)
+  }
+  return [...set].sort((a, b) => a - b)
+}
+
+/**
+ * DimensionReviewIssue[] 便捷重载：rewriteTarget 非空 / error 级 +
+ * continuityMeta.chapter 并入最小返工集。
+ */
+export function minimalReworkSetFromDimensionIssues(
+  issues: readonly DimensionReviewIssue[],
+): number[] {
+  return minimalReworkSet(
+    issues.map((i) => ({
+      severity: i.severity,
+      chapter: i.continuityMeta?.chapter,
+      rewriteTarget: i.rewriteTarget,
+    })),
+  )
 }

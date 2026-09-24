@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest"
 import type { ContextPack } from "./context-engine"
 import type { ChapterLengthSpec } from "./deep-chapter-prompts"
 import {
+  buildChapterContractSection,
+  buildCompactChapterContractSection,
   buildDraftRecoveryPrompt,
   buildFallbackTaskBrief,
   buildTaskBriefRepairPrompt,
+  checkChapterContract,
   isMetaDraftContent,
+  parseChapterContractSection,
   shouldRepairTaskBrief,
   shouldUseDeterministicTaskBriefFallback,
+  splitContractLines,
 } from "./deep-chapter-task-brief"
 
 const thinPack: ContextPack = {
@@ -227,5 +232,68 @@ describe("task brief source sanitization (via userRequest path)", () => {
     expect(long.length).toBeGreaterThanOrEqual(240)
     expect(shouldRepairTaskBrief(long)).toBe(true)
     expect(shouldUseDeterministicTaskBriefFallback(long)).toBe(true)
+  })
+})
+
+describe("§GAP-88-01 章节契约 machine-readable 段", () => {
+  it("build/parse 往返：完整段各标签同构", () => {
+    const section = buildChapterContractSection({
+      requiredBeats: ["主角握住陌生钥匙", "小青暴露隐秘联系"],
+      forbiddenMoves: ["不得提前揭露屋主身份"],
+      continuityChecks: ["雨夜时间线连续"],
+      emotionTarget: "悬疑克制",
+      payoffPoints: ["旧信警告不要相信送钥匙的人"],
+      hookGoal: "引出屋内第二个人影",
+    })
+    const parsed = parseChapterContractSection(`任务书正文\n${section}\n后续段落`)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.requiredBeats).toEqual(["主角握住陌生钥匙", "小青暴露隐秘联系"])
+    expect(parsed!.forbiddenMoves).toEqual(["不得提前揭露屋主身份"])
+    expect(parsed!.continuityChecks).toEqual(["雨夜时间线连续"])
+    expect(parsed!.emotionTarget).toBe("悬疑克制")
+    expect(parsed!.payoffPoints).toEqual(["旧信警告不要相信送钥匙的人"])
+    expect(parsed!.hookGoal).toBe("引出屋内第二个人影")
+  })
+
+  it("parse 缺段返回 null（无契约=无约束，不伪造 findings）", () => {
+    expect(parseChapterContractSection("本章必须完成：推进线索")).toBeNull()
+  })
+
+  it("fallback 紧凑段恒 2 行且 parse 同构", () => {
+    const compact = buildCompactChapterContractSection({
+      requiredBeat: "承接上一章门缝声推进锈钥匙线索",
+      forbiddenMove: "不要提前揭露旧屋主人身份",
+      continuityCheck: "雨夜当晚十点时间线连续",
+      hookGoal: "结尾引出屋内第二个人影",
+    })
+    // 长度纪律：紧凑段 ≤120 字符（守 420/520 预算）
+    expect(compact.length).toBeLessThanOrEqual(120)
+    const parsed = parseChapterContractSection(`fallback正文\n${compact}\n正史指纹：abc`)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.requiredBeats).toHaveLength(1)
+    expect(parsed!.forbiddenMoves).toHaveLength(1)
+    expect(parsed!.continuityChecks).toHaveLength(1)
+    expect(parsed!.hookGoal).toBeTruthy()
+  })
+
+  it("checkChapterContract：禁区命中 error、节拍缺失 warning（防转述误杀 stranded）", () => {
+    const contract = {
+      requiredBeats: ["第十章完全不存在的节拍XYZ"],
+      forbiddenMoves: ["旧屋主人身份"],
+      continuityChecks: [] as string[],
+    }
+    // 正文含禁区原文 → error；节拍用转述表达 → warning（不管阻断）
+    const body = "主角继续追查线索。旧屋主人身份在此刻被揭晓了。"
+    const check = checkChapterContract(contract, body)
+    expect(check.passed).toBe(false)
+    expect(check.findings.some((f) => f.type === "contract" && f.severity === "error")).toBe(true)
+    expect(check.findings.some((f) => f.type === "contract" && f.severity === "warning")).toBe(true)
+    // contract finding 归 consistency 门（CORR108 双真源一致性）
+    expect(check.findings.every((f) => f.type === "contract")).toBe(true)
+  })
+
+  it("splitContractLines 上限 5 条防膨胀", () => {
+    expect(splitContractLines("a；b；c；d；e；f；g")).toHaveLength(5)
+    expect(splitContractLines("   ")).toEqual([])
   })
 })

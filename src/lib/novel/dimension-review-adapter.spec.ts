@@ -4,6 +4,7 @@ import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import {
   buildDimensionReviewPrompt,
+  deriveScoreVerdict,
   DimParseError,
   dimensionResultsToReviewResults,
   findNearestEvidenceFragment,
@@ -13,6 +14,9 @@ import {
   runSixDimensionReview,
   SIX_REVIEW_DIMENSION_ORDER,
   SIX_REVIEW_DIMENSIONS,
+  minimalReworkSet,
+  minimalReworkSetFromDimensionIssues,
+  validateDimensionScoreBand,
   verifyEvidenceCitations,
 } from "./dimension-review-adapter"
 import type { DimensionReviewResult, DimensionReviewStatus, SixReviewDimensionKey } from "./dimension-review-adapter"
@@ -519,19 +523,25 @@ describe("six-dimension review adapter", () => {
     })
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({ severity: "info", type: "plot" })
-    expect(results[0]!.message).toBe("追读引力：钩子成立")
+    expect(results[0]!.message).toContain("追读引力：钩子成立")
   })
 
   it("dimensionResultsToReviewResults falls back to the dimension key when summary is empty", () => {
+    // §GAP-88-02 出口条款机械执行：score 6 无 issue + 空 summary → warning
+    // （档位行为定义要求 <8.5 必须列未兑现项，空 summary 违反出口条款）。
     const results = dimensionResultsToReviewResults({
       thrill: {
         dimensionKey: "thrill", score: 6, status: "pass", summary: "", thinking: "", issues: [],
       },
     })
-    expect(results[0]!.message).toBe("爽感密度：pass")
+    expect(results[0]!.message).toContain("爽感密度：pass")
+    expect(results[0]!.severity).toBe("warning")
   })
 
   it("dimensionResultsToReviewResults uses the key as message prefix and empty evidence fallback", () => {
+    // 举证作用域纪律：无 chapterBody（无正文可对）时保留旧语义 —— 空
+    // evidence 的 issue 照常折叠输出（前缀 + 空回退），不丢弃。硬门仅在
+    // 传入真实 chapterBody 时生效（见 F-001 章节举证用例）。
     const results = dimensionResultsToReviewResults({
       pacing: {
         dimensionKey: "pacing",
@@ -547,6 +557,25 @@ describe("six-dimension review adapter", () => {
     expect(results[0]!.evidence).toBe("")
     expect(results[0]!.relatedMemory).toBe("")
     expect(results[0]!.suggestion).toBe("")
+  })
+
+  it("§GAP-88-03 空 evidence 在传入 chapterBody 时被丢弃并扣减有效分", () => {
+    // 生产链语义：有真实正文可对时，无举证 issue 不计入门控（丢弃），
+    // 该维 score 按 1 分/条扣减（score 5 → 有效 4 落入 error 档 → error finding）。
+    const results = dimensionResultsToReviewResults({
+      pacing: {
+        dimensionKey: "pacing",
+        score: 5,
+        status: "medium",
+        summary: "节奏摘要",
+        thinking: "",
+        issues: [{ severity: "warning", type: "pacing", dimensionKey: "pacing", message: "节奏拖沓", evidence: "", relatedMemory: "", suggestion: "", impact: "", rewriteTarget: "" }],
+      },
+    }, "真实章节正文内容，用于举证校验的作用域纪律测试。")
+    // 无举证 issue 被丢弃：无任何 finding 携带原 issue 消息
+    expect(results.every((r) => !r.message.includes("节奏拖沓"))).toBe(true)
+    // 有效分 4 → error 级 score-floor finding 保持阻断可见
+    expect(results.some((r) => r.severity === "error" && r.relatedMemory === "score-floor")).toBe(true)
   })
 
   it("truncates long exemplar excerpts to 200 chars in the prompt", () => {
@@ -974,6 +1003,8 @@ describe("six-dimension review adapter", () => {
     })
 
     it("dimensionResultsToReviewResults applies verification when chapterBody is provided", () => {
+      // §GAP-88-03 强制举证硬门：举证与正文不匹配 → issue 被丢弃（不再回填
+      // warning 占位）；score 7 有效分 6 落入 warning 档 → 出 warning 出口 finding。
       const dimResult: DimensionReviewResult = {
         dimensionKey: "thrill",
         score: 7,
@@ -996,14 +1027,15 @@ describe("six-dimension review adapter", () => {
         { thrill: dimResult },
         chapterBody,
       )
-      expect(results).toHaveLength(1)
-      // Failed verification downgrades to warning (from warning)
-      expect(results[0]!.severity).toBe("warning")
-      // evidence is backfilled with nearest fragment
-      expect(results[0]!.evidence.length).toBeGreaterThan(0)
+      // 无举证 issue 被丢弃：无任何 finding 携带原 issue 消息
+      expect(results.every((r) => !r.message.includes("证据不匹配"))).toBe(true)
+      // 有效分 6 → warning 出口 finding 记录举证丢弃
+      expect(results.some((r) => r.severity === "warning" && r.message.includes("举证丢弃1条"))).toBe(true)
     })
 
     it("dimensionResultsToReviewResults preserves error severity when verification fails on an error issue", () => {
+      // §GAP-88-03：举证失败的 error issue 同样丢弃（不可信的阻断不断章）；
+      // score 0 有效分落入 error 档 → 出 error 级 score-floor finding 保持阻断。
       const dimResult: DimensionReviewResult = {
         dimensionKey: "thrill",
         score: 0,
@@ -1027,7 +1059,7 @@ describe("six-dimension review adapter", () => {
         chapterBody,
       )
       // error status → error floor, verification failure keeps error
-      expect(results[0]!.severity).toBe("error")
+      expect(results.some((r) => r.severity === "error")).toBe(true)
     })
 
     it("dimensionResultsToReviewResults skips verification when chapterBody is omitted", () => {
@@ -1052,5 +1084,80 @@ describe("six-dimension review adapter", () => {
       const results = dimensionResultsToReviewResults({ thrill: dimResult })
       expect(results[0]!.evidence).toBe("任何文本")
     })
+  })
+})
+
+describe("§GAP-88-02 评分与 verdict 解耦", () => {
+  it("deriveScoreVerdict：score 派生 verdict（系统裁定唯一口径）", () => {
+    expect(deriveScoreVerdict(0)).toBe("error")
+    expect(deriveScoreVerdict(4)).toBe("error")
+    expect(deriveScoreVerdict(4.5)).toBe("warning")
+    expect(deriveScoreVerdict(6)).toBe("warning")
+    expect(deriveScoreVerdict(7)).toBe("warning")
+    expect(deriveScoreVerdict(8.4)).toBe("warning")
+    expect(deriveScoreVerdict(8.5)).toBe("info")
+    expect(deriveScoreVerdict(9)).toBe("info")
+    expect(deriveScoreVerdict(Number.NaN)).toBe("error")
+  })
+
+  it("validateDimensionScoreBand：档位一致返回 null，不一致返回 warning finding", () => {
+    expect(validateDimensionScoreBand("thrill", 3, "error")).toBeNull()
+    expect(validateDimensionScoreBand("thrill", 5, "medium")).toBeNull()
+    expect(validateDimensionScoreBand("thrill", 7, "high")).toBeNull()
+    expect(validateDimensionScoreBand("thrill", 7.5, "low")).toBeNull()
+    expect(validateDimensionScoreBand("thrill", 9, "pass")).toBeNull()
+    // 高分报 error（模型又当运动员又当裁判）：warning finding，裁定以 score 为准
+    const mismatch = validateDimensionScoreBand("thrill", 9, "error")
+    expect(mismatch).not.toBeNull()
+    expect(mismatch!.severity).toBe("warning")
+    expect(mismatch!.type).toBe("plot")
+    expect(mismatch!.message).toContain("裁定以 score 为准")
+  })
+})
+
+describe("§GAP-90-08 minimalReworkSet 最小返工集 (ainovel AffectedChapters 模式)", () => {
+  it("空输入 → 空集；缺章号跳过不伪造范围", () => {
+    expect(minimalReworkSet([])).toEqual([])
+    expect(minimalReworkSet([
+      { severity: "error" },
+      { severity: "warning", rewriteTarget: "某片段" },
+      { severity: "error", chapter: Number.NaN },
+    ])).toEqual([])
+  })
+
+  it("error 级带章号 / rewriteTarget 非空 / requiresChange 显式 → 入集，去重升序", () => {
+    expect(minimalReworkSet([
+      { severity: "error", chapter: 8 },
+      { severity: "warning", chapter: 5, rewriteTarget: "主角直接说出族谱被换。" },
+      { severity: "info", chapter: 3, requiresChange: true },
+      { severity: "error", chapter: 5 },
+      { severity: "warning", chapter: 9 },
+      { severity: "info", chapter: 9, rewriteTarget: "  " },
+    ])).toEqual([3, 5, 8])
+  })
+
+  it("accept 等价（零 error 且无 requiresChange/rewriteTarget）→ 空集", () => {
+    expect(minimalReworkSet([
+      { severity: "warning", chapter: 4 },
+      { severity: "info", chapter: 7 },
+    ])).toEqual([])
+  })
+
+  it("minimalReworkSetFromDimensionIssues：continuityMeta.chapter 承载章号", () => {
+    const mk = (over: Record<string, unknown>) => ({
+      severity: "warning" as const,
+      type: "timeline",
+      dimensionKey: "continuity" as const,
+      message: "m",
+      evidence: "e",
+      relatedMemory: "",
+      suggestion: "",
+      ...over,
+    })
+    expect(minimalReworkSetFromDimensionIssues([
+      mk({ severity: "error", continuityMeta: { subtype: "x", ref: "r", chapter: 8 } }),
+      mk({ rewriteTarget: "定位片段", continuityMeta: { subtype: "x", ref: "r", chapter: 5 } }),
+      mk({}),
+    ])).toEqual([5, 8])
   })
 })

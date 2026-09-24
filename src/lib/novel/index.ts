@@ -79,6 +79,9 @@ export { deleteNovelSourceMemory } from "./delete-source-memory"
 export type { ContinuityOverrideReasonCode } from "./deterministic-continuity-engine"
 export { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "./dimension-review-adapter"
 export type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
+// §GAP-90-08 授权边界最小返工集（dimension-review-adapter additive 导出）
+export { minimalReworkSet, minimalReworkSetFromDimensionIssues } from "./dimension-review-adapter"
+export type { MinimalReworkIssue } from "./dimension-review-adapter"
 export { retryDirector, tryAdvanceDirector, tryAdvanceDirectorFromProject, collectProjectSnapshot } from "./director-orchestrator"
 export type { DirectorSnapshot } from "./director-orchestrator"
 export { DIRECTOR_PHASES, advanceDirectorPhase, createDirectorPipeline } from "./director-pipeline"
@@ -129,6 +132,9 @@ export { repairMarkdownFormatWithAi } from "./markdown-quality-ai-repair"
 export { finalizeStructuredMarkdownMessage } from "./markdown-quality-finalizer"
 export { formatMeasurementFingerprintSummary } from "./measurement-fingerprint"
 export type { MeasurementFingerprint } from "./measurement-fingerprint"
+// §GAP-90-04 全书级 style_stats rollup（mechanical-slop-detector additive 导出）
+export { bookStyleStatsToText, rollupStyleStats, STYLE_STATS_DEGRADED_AVG, STYLE_STATS_MIN_CHAPTERS } from "./mechanical-slop-detector"
+export type { BookStyleStats } from "./mechanical-slop-detector"
 export { loadMemoryCenterData } from "./memory-center"
 export type { MemoryCenterData, MemoryCenterFilePreview, MemoryCenterSnapshotCard } from "./memory-center"
 export { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
@@ -143,7 +149,7 @@ export { OUTLINE_SECTION_GENERATION_CONFIGS, addOutlineTaskToSourceList, buildOu
 export type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "./outline-generation"
 export { OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, importOutlineCandidates, importOutlineFiles } from "./outline-import"
 export type { OutlineImportCandidate } from "./outline-import"
-export { isLikelyChapterOutline, summarizeChapterOutlineQuality } from "./outline-quality-check"
+export { checkFinaleVolumeDiscipline, isLikelyChapterOutline, summarizeChapterOutlineQuality } from "./outline-quality-check"
 export { THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER, getOutlineThrillSoftGateRuntimeStatus, isThrillSoftGateAcknowledged, thrilAckChapterKey } from "./outline-thrill-checkpoints"
 export type { ThrillCheckStatus } from "./outline-thrill-checkpoints"
 export { DEFAULT_OUTLINE_FOLDERS } from "./outline-workbench"
@@ -155,6 +161,9 @@ export { createPlayState, renderPlayFrame, replayPlay, stepPlay } from "./play-r
 export type { PlayState } from "./play-runtime"
 export { loadNovelProjectMeta, saveNovelProjectMeta } from "./project-meta"
 export { PROMPTS } from "./prompt-templates"
+// §GAP-90-07 配角 recent_cast（related-chapters additive 导出）
+export { recentCast, renderCastIntros } from "./related-chapters"
+export type { CharacterAppearance, RecentCastEntry } from "./related-chapters"
 export { resolveResidualCampaignFields } from "./residual-campaign"
 export type { ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields } from "./residual-campaign"
 export { reviewChapter } from "./review-adapter"
@@ -176,6 +185,60 @@ export { collectExplicitSkills, getOutlineSkillNames, getWritingSkillNames, reso
 export { readSoulDoc, writeSoulDoc } from "./soul-doc"
 export { startNovelReviewRun } from "./start-review-run"
 export { startSixDimensionReviewRun } from "./start-six-dimension-review-run"
+// §GAP-89-01 滚动规划指南针 + 完结六项清单（ainovel architect-long 模式吸收）
+export {
+  checkCompleteBookAllowed,
+  collectCompletionChecklistInput,
+  createEmptyStoryCompass,
+  evaluateCompletionChecklist,
+  loadStoryCompass,
+  saveStoryCompass,
+  updateCompass,
+  COMPLETION_CHECKLIST_IDS,
+  FINALE_NO_NEW_HOOKS,
+  PADDING_TRAP,
+  PREMATURE_ENDING_TRAP,
+} from "./story-compass"
+export type {
+  CompassUpdate,
+  CompleteBookVerdict,
+  CompletionChecklistInput,
+  CompletionChecklistItem,
+  CompletionChecklistItemId,
+  CompletionChecklistResult,
+  CompletionInputCollectOptions,
+  StoryCompass,
+} from "./story-compass"
+// §GAP-89-01 收官卷自动完结判定（volume.ts 配套 story-compass）
+export { checkFinaleAutoComplete } from "./volume"
+export type { FinaleAutoCompleteInput } from "./volume"
+// §GAP-89-02 四级上下文压缩 + 恢复包 + 熔断器（ainovel ctxpack 模式吸收）
+export {
+  allowHalfOpenProbe,
+  buildRestorePack,
+  compactContextSections,
+  createCompactBreaker,
+  createCompactWatchdog,
+  estimateCompactTokens,
+  feedCompactHeartbeat,
+  pollCompactWatchdog,
+  recordCompactFailure,
+  recordCompactSuccess,
+  CONTEXT_DROP_ORDER,
+  DEFAULT_COMPACT_FAILURE_THRESHOLD,
+  DEFAULT_COMPACT_HALF_OPEN_ROUNDS,
+  PROTECTED_COMPACT_FIELDS,
+  RESTORE_PACK_BUDGET_CHARS,
+} from "./context-compact"
+export type {
+  CompactBreakerState,
+  CompactGap,
+  CompactLevel,
+  CompactOptions,
+  CompactResult,
+  CompactWatchdog,
+  RestorePackInput,
+} from "./context-compact"
 export { buildTaskDirective, routeTask } from "./task-router"
 export type { NovelTaskIntent, TaskRouteResult } from "./task-router"
 export { getTimelineEvents } from "./timeline"

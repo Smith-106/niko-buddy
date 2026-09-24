@@ -136,6 +136,10 @@ export const CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES: readonly string[] = [
   "foreshadowing",
   "setting",
   "consistency_mechanical",
+  // §GAP-88-01 (ainovel chapter_contract 写后核对): 契约 finding type 归
+  // consistency 门 — 与 audit-taxonomy GATE_MAPPING.quality 的 quality 门三维
+  // (thrill_density/pacing_tension/reading_power) 无隶属冲突。
+  "contract",
 ]
 
 /** CORR-108 历史对照常量（anti-AI legacy alias 集，见上注）。 */

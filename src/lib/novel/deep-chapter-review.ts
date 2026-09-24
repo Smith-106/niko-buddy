@@ -156,9 +156,12 @@ export async function runFullReviewWithSixDim(
   } else if (sixDimOutcome) {
     dimensionResults = sixDimOutcome
     if (Object.keys(dimensionResults).length > 0) {
+      // §GAP-88-03 (ainovel 强制举证硬门激活): 传入 content 作 chapterBody，
+      // 使 dimensionResultsToReviewResults 内的举证机械校验真正生效——无
+      // chapterBody 时 verifyEvidenceCitations 全跳过，硬门形同虚设。
       reviewResults = [
         ...reviewResults,
-        ...dimensionResultsToReviewResults(dimensionResults),
+        ...dimensionResultsToReviewResults(dimensionResults, content),
       ]
     }
   }

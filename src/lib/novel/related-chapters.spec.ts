@@ -5,6 +5,8 @@ import {
   findOverdueForeshadowing,
   relatedChaptersToContextText,
   buildAppearancesFromSnapshots,
+  recentCast,
+  renderCastIntros,
   RelatedChaptersInput,
 } from "./related-chapters"
 
@@ -351,5 +353,47 @@ describe("S2a context-engine 融合 (buildRelatedChaptersContext)", () => {
       snapshots: snapshots as never,
     })
     expect(result.related.some((r) => r.reasons.includes("character") && r.chapter === 8)).toBe(true)
+  })
+})
+
+describe("§GAP-90-07 recentCast 配角上次出场 (ainovel RecentCast 模式)", () => {
+  const appearances = [
+    { character: "白砚", chapters: [2, 8, 14] },
+    { character: "苏未晞", chapters: [3, 9, 16] },
+    { character: "路人甲", chapters: [1, 5] },
+  ]
+
+  it("按上次出场章倒序：苏未晞(16) > 白砚(14) > 路人甲(5)", () => {
+    const cast = recentCast(appearances)
+    expect(cast.map((c) => c.character)).toEqual(["苏未晞", "白砚", "路人甲"])
+    expect(cast[0]).toMatchObject({ lastSeenChapter: 16, appearanceCount: 3 })
+    expect(cast[0]!.chapters).toEqual([3, 9, 16])
+  })
+
+  it("limit 裁剪 + limit<=0 返回 []", () => {
+    expect(recentCast(appearances, 2)).toHaveLength(2)
+    expect(recentCast(appearances, 0)).toEqual([])
+    expect(recentCast(appearances, -1)).toEqual([])
+  })
+
+  it("同章 tie 按出场数倒序再按名字升序，不修改输入", () => {
+    const input = [
+      { character: "乙", chapters: [4] },
+      { character: "甲", chapters: [4, 6] },
+      { character: "丙", chapters: [6] },
+    ]
+    const snapshot = JSON.stringify(input)
+    const cast = recentCast(input)
+    // 甲/丙同为 lastSeen=6：甲出场数 2 排前；乙 lastSeen=4 垫底
+    expect(cast.map((c) => c.character)).toEqual(["甲", "丙", "乙"])
+    expect(JSON.stringify(input)).toBe(snapshot)
+  })
+
+  it("renderCastIntros：空 cast 返回空串，否则含角色与章号", () => {
+    expect(renderCastIntros([])).toBe("")
+    const text = renderCastIntros(recentCast(appearances, 1))
+    expect(text).toContain("配角上次出场")
+    expect(text).toContain("苏未晞")
+    expect(text).toContain("16")
   })
 })

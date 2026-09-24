@@ -245,6 +245,7 @@ export function buildTaskBriefRepairPrompt(
     "3. 不得输出小说正文、对话片段、场景描写、章节标题或任何可直接作为正文保存的内容。",
     "4. 如果上下文不足，必须自行补出最小必要设定，并明确标成“暂定设定”。",
     "5. 任务书必须显式覆盖：本章必须完成、禁止违背、角色状态、伏笔推进、结尾钩子。",
+    "5b. 必须追加【章节契约】machine-readable 段（供写后核对自动解析）：逐行输出必须节拍：… / 禁区：… / 连贯核对：…，方向提示（情绪主色/兑现点/钩子目标）有则输出、无则省略，末行固定为方向提示豁免声明。",
     `6. 这份任务书必须足以直接写出完整章节正文，${chapterLengthRequirement(lengthSpec)}`,
     "7. 严格按下面的结构输出，不得改标题，不得额外添加章节标题、正文片段或解释：",
     "本章必须完成：...",
@@ -273,6 +274,211 @@ function pickTaskBriefFallbackValue(...values: Array<string | null | undefined>)
 
 function taskBriefFallbackLine(label: string, value: string): string {
   return `${label}：${value.trim()}`
+}
+
+// ── §GAP-88-01 章节契约 machine-readable 段 ─────────────────────────────
+// ainovel-cli chapter_contract 模式吸收：写前约束（任务书携带）+ 写后核对
+// （checkChapterContract 消费）。渲染/解析同构，标签固定，不得改名。
+
+export interface ChapterContractSection {
+  requiredBeats: string[]
+  forbiddenMoves: string[]
+  continuityChecks: string[]
+  emotionTarget?: string
+  payoffPoints?: string[]
+  hookGoal?: string
+}
+
+export const CHAPTER_CONTRACT_HEADER = "【章节契约】"
+export const CHAPTER_CONTRACT_WAIVER = "方向提示不是机械打卡项：自然节奏与契约细项冲突时优先保证章节成立，并在返修说明中记录取舍。"
+
+/** sanitize 后文本按 ；/换行 切分为契约条目（上限 5，防膨胀）。 */
+export function splitContractLines(value: string): string[] {
+  if (!value.trim()) return []
+  return value
+    .split(/[；;\n]/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 5)
+}
+
+/** fallback 紧凑契约行：必须/禁区/核对首条各 8 字符锚点摘要，‖ 分隔。
+ * 8 字符 ≥ hit() 4 字符最小锚点下限（短锚点恒命中=宽松核对），锚点落在
+ * 摘要前缀内则命中 —— 紧凑摘要即核对锚点前缀，语义一致。长度纪律优先：
+ * 8 字符 * 3 + 标签 ≈ 60 字符行，守 420/520 预算。 */
+function compactContractSummary(value: string): string {
+  const compact = value.replace(/\s+/g, "").slice(0, 8)
+  return compact || "—"
+}
+
+/**
+ * 渲染 fallback 紧凑章节契约段（恒 2 行：header + 紧凑行，无豁免行）。
+ * 豁免行在此省略的原因：fallback 无 LLM 参与，豁免声明是写给模型的
+ * 文档行；parse 遇后续非契约行（正史指纹/文末）同样终止，段界明确。
+ * 长度纪律：紧凑段恒 ≤120 字符，守 420/520 字符预算（旧 spec 不变量）。
+ * parseChapterContractSection 同构解析紧凑行（‖ 切分 → 三类条目各 1）。
+ */
+export function buildCompactChapterContractSection(parts: {
+  requiredBeat: string
+  forbiddenMove: string
+  continuityCheck: string
+  hookGoal?: string
+}): string {
+  // hookGoal 上限 24（与三类摘要同宽；超长钩子由任务书正文行承载，此处仅锚点）。
+  const compactLine = [
+    `必须节拍：${compactContractSummary(parts.requiredBeat)}`,
+    `禁区：${compactContractSummary(parts.forbiddenMove)}`,
+    `连贯核对：${compactContractSummary(parts.continuityCheck)}`,
+  ].join("‖") + (parts.hookGoal ? `‖钩子目标：${parts.hookGoal.slice(0, 24)}` : "")
+  return [CHAPTER_CONTRACT_HEADER, compactLine].join("\n")
+}
+
+/** 渲染 machine-readable 章节契约段（任务书携带，写后核对解析）。 */
+export function buildChapterContractSection(contract: ChapterContractSection): string {
+  const lines = [CHAPTER_CONTRACT_HEADER]
+  for (const beat of contract.requiredBeats) lines.push(`必须节拍：${beat}`)
+  for (const move of contract.forbiddenMoves) lines.push(`禁区：${move}`)
+  for (const check of contract.continuityChecks) lines.push(`连贯核对：${check}`)
+  if (contract.emotionTarget) lines.push(`情绪主色：${contract.emotionTarget}`)
+  for (const payoff of contract.payoffPoints ?? []) lines.push(`兑现点：${payoff}`)
+  if (contract.hookGoal) lines.push(`钩子目标：${contract.hookGoal}`)
+  lines.push(CHAPTER_CONTRACT_WAIVER)
+  return lines.join("\n")
+}
+
+/** 解析任务书中的章节契约段；缺失返回 null（contract 不适用如实标记）。 */
+export function parseChapterContractSection(taskBrief: string): ChapterContractSection | null {
+  const headerIndex = taskBrief.indexOf(CHAPTER_CONTRACT_HEADER)
+  if (headerIndex < 0) return null
+  const section = taskBrief.slice(headerIndex).split("\n").slice(1)
+  const contract: ChapterContractSection = {
+    requiredBeats: [],
+    forbiddenMoves: [],
+    continuityChecks: [],
+    payoffPoints: [],
+  }
+  for (const rawLine of section) {
+    const line = rawLine.trim()
+    if (!line) continue
+    if (line === CHAPTER_CONTRACT_WAIVER) break
+    // 豁免声明变体（模型复述）同样视为段结束
+    if (line.startsWith("方向提示不是机械")) break
+    // 紧凑行（fallback 单行 ‖ 式）：切分后每段按标签归类，各类至多 1 条
+    if (line.includes("‖")) {
+      for (const part of line.split("‖")) {
+        const seg = part.trim()
+        if (seg.startsWith("必须节拍：") && contract.requiredBeats.length === 0) contract.requiredBeats.push(seg.slice("必须节拍：".length).trim())
+        else if (seg.startsWith("禁区：") && contract.forbiddenMoves.length === 0) contract.forbiddenMoves.push(seg.slice("禁区：".length).trim())
+        else if (seg.startsWith("连贯核对：") && contract.continuityChecks.length === 0) contract.continuityChecks.push(seg.slice("连贯核对：".length).trim())
+        else if (seg.startsWith("情绪主色：") && !contract.emotionTarget) contract.emotionTarget = seg.slice("情绪主色：".length).trim() || undefined
+        else if (seg.startsWith("兑现点：")) contract.payoffPoints!.push(seg.slice("兑现点：".length).trim())
+        else if (seg.startsWith("钩子目标：") && !contract.hookGoal) contract.hookGoal = seg.slice("钩子目标：".length).trim() || undefined
+      }
+      continue
+    }
+    if (line.startsWith("必须节拍：")) contract.requiredBeats.push(line.slice("必须节拍：".length).trim())
+    else if (line.startsWith("禁区：")) contract.forbiddenMoves.push(line.slice("禁区：".length).trim())
+    else if (line.startsWith("连贯核对：")) contract.continuityChecks.push(line.slice("连贯核对：".length).trim())
+    else if (line.startsWith("情绪主色：")) contract.emotionTarget = line.slice("情绪主色：".length).trim() || undefined
+    else if (line.startsWith("兑现点：")) contract.payoffPoints!.push(line.slice("兑现点：".length).trim())
+    else if (line.startsWith("钩子目标：")) contract.hookGoal = line.slice("钩子目标：".length).trim() || undefined
+    // 非契约行（后续任务书段落）→ 段结束，未消费行丢弃
+    else break
+  }
+  if (contract.payoffPoints!.length === 0) delete contract.payoffPoints
+  return contract
+}
+
+/**
+ * 写后核对：对照契约检查正文（纯函数，机械包含匹配）。
+ * - required_beats 缺失 → warning（不管阻断只告警：机械子串匹配无法区分
+ *   “转述兑现”与“真正缺失”，error 级会把每个转述章节 stranded 进 manual
+ *   handoff —— 端到端 spec 已证明确定性误杀；人类/复审可见即管住下限）
+ * - forbidden_moves 命中 → error（触犯禁区）：禁区 distinctive 原文逐字出现
+ *   才是高精度信号，误报率远低于缺失类检查，可阻断
+ * - continuity_checks 未命中 → warning
+ * - 方向提示（emotion/payoff/hook）未兑现 → warning；transitional 过渡章
+ *   方向提示未兑现记 trade_off 不出 finding（ainovel editor.md 同款语义）。
+ */
+export function checkChapterContract(
+  contract: ChapterContractSection,
+  chapterBody: string,
+  options?: { transitional?: boolean },
+): { passed: boolean; findings: import("./review-adapter").NovelReviewResult[]; tradeOffs: string[] } {
+  const findings: import("./review-adapter").NovelReviewResult[] = []
+  const tradeOffs: string[] = []
+  const body = (chapterBody ?? "").replace(/\s+/g, "")
+  const hit = (beat: string): boolean => {
+    const anchor = beat.replace(/\s+/g, "").slice(0, 12)
+    if (anchor.length < 4) return true
+    return body.includes(anchor)
+  }
+  const err = (message: string, relatedMemory: string, suggestion: string) => ({
+    severity: "error" as const,
+    type: "contract",
+    message,
+    evidence: "",
+    relatedMemory,
+    suggestion,
+  })
+  const warn = (message: string, relatedMemory: string, suggestion: string) => ({
+    severity: "warning" as const,
+    type: "contract",
+    message,
+    evidence: "",
+    relatedMemory,
+    suggestion,
+  })
+  for (const beat of contract.requiredBeats) {
+    if (!hit(beat)) {
+      // warning 而非 error：见函数头注释（转述兑现误杀 → stranded manual）。
+      findings.push(warn(
+        `章节契约：必须节拍未兑现——${beat.slice(0, 40)}`,
+        "chapter_contract.required_beats",
+        "在返修中补足该节拍，或确认为过渡章并记录取舍。",
+      ))
+    }
+  }
+  for (const move of contract.forbiddenMoves) {
+    if (hit(move)) {
+      findings.push(err(
+        `章节契约：触犯禁区——${move.slice(0, 40)}`,
+        "chapter_contract.forbidden_moves",
+        "删除或改写触犯禁区的段落。",
+      ))
+    }
+  }
+  for (const check of contract.continuityChecks) {
+    if (!hit(check)) {
+      findings.push(warn(
+        `章节契约：连贯核对未覆盖——${check.slice(0, 40)}`,
+        "chapter_contract.continuity_checks",
+        "核对时间线/认知边界是否在本章得到呼应。",
+      ))
+    }
+  }
+  const soft: Array<[string, readonly string[] | string | undefined]> = [
+    ["情绪主色", contract.emotionTarget ? [contract.emotionTarget] : []],
+    ["兑现点", contract.payoffPoints ?? []],
+    ["钩子目标", contract.hookGoal ? [contract.hookGoal] : []],
+  ]
+  for (const [label, values] of soft) {
+    const list = Array.isArray(values) ? values : []
+    for (const v of list) {
+      if (!hit(v)) {
+        if (options?.transitional) {
+          tradeOffs.push(`${label}未兑现但记为过渡章取舍：${v.slice(0, 40)}`)
+        } else {
+          findings.push(warn(
+            `章节契约（方向提示）：${label}未兑现——${v.slice(0, 40)}`,
+            "chapter_contract.soft",
+            "如下章承接则可接受，否则补强。",
+          ))
+        }
+      }
+    }
+  }
+  return { passed: !findings.some((f) => f.severity === "error"), findings, tradeOffs }
 }
 
 export function buildFallbackTaskBrief(
@@ -333,6 +539,19 @@ export function buildFallbackTaskBrief(
       "原始请求对齐",
       sanitizeTaskBriefSourceText(userRequest) || `围绕 ${chapterLabel} 的写作需求推进。`,
     ),
+    // §GAP-88-01 (ainovel chapter_contract 写前约束): fallback 同样携带
+    // machine-readable 章节契约段 — sanitize 后的同源字段压缩为单行契约
+    // （紧凑式：首行 header + 尾行豁免固定，中间一行承载必须/禁区/核对首条
+    // 64 字符摘要；方向提示只留钩子目标）。写后核对经 parse 紧凑行解析，
+    // 长度纪律：紧凑段恒 ≤160 字符，守 420/520 字符预算（旧 spec 不变量）。
+    buildCompactChapterContractSection({
+      requiredBeat: splitContractLines(mustDo)[0] ?? "",
+      forbiddenMove: splitContractLines(mustAvoid)[0] ?? "",
+      continuityCheck: splitContractLines(
+        [contextPack.timeline, contextPack.cognitionStates].filter(Boolean).join("\n"),
+      )[0] ?? "",
+      hookGoal: sanitizeTaskBriefSourceText(contextPack.nextChapterAdvice) || undefined,
+    }),
     ...(canonHash ? [taskBriefFallbackLine("正史指纹", canonHash)] : []),
   ].join("\n")
 }

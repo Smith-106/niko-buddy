@@ -64,6 +64,9 @@ export function runVolumeOutlineQualityCheck(
   // 5. 伏笔无回收计划检查
   results.push(checkForeshadowingRecovery(content));
 
+  // 6. §GAP-89-01 收官卷专项检查（非收官卷恒 pass，零误伤）
+  results.push(checkFinaleVolumeDiscipline(content));
+
   return results;
 }
 
@@ -547,4 +550,39 @@ function checkForeshadowingRecovery(content: string): QualityCheckItem {
       (id) => `伏笔「${id}」缺少预计回收时机`,
     ),
   };
+}
+
+// ── §GAP-89-01 收官卷专项检查 ─────────────────────────────────────────────
+// FINALE_NO_NEW_HOOKS 落为机械检查（零 LLM）：仅当卷纲显式宣告收官
+// （含 final:true / 收官卷 / 终卷 / 完结卷字样）时生效——普通卷恒 pass，
+// 零误伤。收官卷内出现新钩子/新长线措辞（新埋伏笔/新增长线/新开冲突/
+// 后续再议/敬请期待）→ error（收束与兑现是收官卷唯一叙事功能）；
+// 未检测到 open_threads 回收分配（无"回收"/"收束"/"完结"/"落幕"字样）→
+// warn（可能遗漏长线分配）。
+const FINALE_DECLARE_RE = /final\s*:\s*true|收官卷|终卷|完结卷|最终卷/u
+const FINALE_NEW_HOOK_RE = /新埋伏笔|新增伏笔|新增长线|新开冲突|新开.*线|后续再议|敬请期待|下卷再表|欲知后事/u
+const FINALE_THREAD_RECYCLE_RE = /回收|收束|完结|落幕|终局|尘埃落定/u
+
+export function checkFinaleVolumeDiscipline(content: string): QualityCheckItem {
+  const category = "收官卷纪律"
+  if (!FINALE_DECLARE_RE.test(content)) {
+    return { category, status: "pass", message: "非收官卷：不适用收官纪律" }
+  }
+  const newHooks = content.match(new RegExp(FINALE_NEW_HOOK_RE.source, "gu")) ?? []
+  if (newHooks.length > 0) {
+    return {
+      category,
+      status: "error",
+      message: `收官卷埋新钩子 ${newHooks.length} 处（FINALE_NO_NEW_HOOKS）`,
+      details: [...new Set(newHooks)].slice(0, 5).map((h) => `收官卷出现新钩子措辞「${h}」：收官卷禁止开新长线/埋新钩子`),
+    }
+  }
+  if (!FINALE_THREAD_RECYCLE_RE.test(content)) {
+    return {
+      category,
+      status: "warn",
+      message: "收官卷未检测到长线回收分配（回收/收束/完结/落幕）：确认 open_threads 已全部分配到各弧",
+    }
+  }
+  return { category, status: "pass", message: "收官卷纪律通过：无新钩子且有回收分配" }
 }

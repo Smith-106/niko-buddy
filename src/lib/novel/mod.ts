@@ -6,7 +6,9 @@ export {
   arcSegmentForChapter,
   createVolumeArcState,
   advanceVolumeArc,
+  checkFinaleAutoComplete,
   type ArcSegment,
+  type FinaleAutoCompleteInput,
   type VolumeArcState,
 } from "./volume"
 export {

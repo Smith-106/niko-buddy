@@ -90,6 +90,8 @@ import {
   taskBriefHasStructurePlan,
   appendPlanningBlockToTaskBrief,
   taskBriefHasPlanningBlock,
+  parseChapterContractSection,
+  checkChapterContract,
 } from "./deep-chapter-task-brief"
 import {
   createDefaultStructureThrilPacingPlan,
@@ -691,6 +693,25 @@ function hasCheckpointRevision(
 // re-export 保持外部 import 路径不变。
 import { runFullReviewWithSixDim } from "./deep-chapter-review"
 export { runFullReviewWithSixDim } from "./deep-chapter-review"
+
+// ── §GAP-88-01 章节契约写后核对（ainovel chapter_contract 模式）──────────
+// 解析任务书契约段并机械核对正文，findings (type="contract") 并入
+// reviewResults → CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES 归 consistency 门。
+// 零 LLM。transitional 暂恒 false（过渡章判定见 #89 滚动规划，当前保守按非
+// 过渡处理：方向提示未兑现出 warning 而非 trade_off，避免漏报）。契约缺段
+// （parse null）如实跳过、不伪造 findings（IC-02 不静默降级：无契约=无约束，
+// 而非 pass）。stage4/55/5/57 四个审查点统一经此 helper，防 ARCH-001 式漂移。
+export function applyChapterContractCheck(
+  taskBrief: string,
+  content: string,
+  reviewResults: NovelReviewResult[],
+): NovelReviewResult[] {
+  const contract = parseChapterContractSection(taskBrief)
+  if (!contract) return reviewResults
+  const check = checkChapterContract(contract, content)
+  if (check.findings.length === 0) return reviewResults
+  return [...reviewResults, ...check.findings]
+}
 // ── 连贯性预检子模块（arch-risk W4 god-object 拆分）───────────────────────
 // runContinuityPreCheck/checkContinuityCritical/buildPlotForecastHint 已抽离到
 // deep-chapter-continuity.ts；import 供编排使用。
@@ -1836,7 +1857,7 @@ async function runReviewAndRepair(
       // (was copy-paste drift — only stage-4 had the 6-dim wiring, the 2
       // resume/repair paths silently skipped it).
       const stage4 = await runFullReviewWithSixDim(draftContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-      reviewResults = stage4.reviewResults
+      reviewResults = applyChapterContractCheck(taskBrief, draftContent, stage4.reviewResults)
       reviewParseFailedFlag = reviewParseFailedFlag || stage4.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
       assertNotAborted(signal, USER_ABORT_MESSAGE)
@@ -1886,7 +1907,7 @@ async function runReviewAndRepair(
       // (was reviewChapter-only, silently skipping dimension findings on
       // resumed revised content). dimensionResults is checkpointed additively.
       const stage55 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-      reviewResults = stage55.reviewResults
+      reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage55.reviewResults)
       reviewParseFailedFlag = reviewParseFailedFlag || stage55.reviewParseFailed === true
       decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
       assertNotAborted(signal, USER_ABORT_MESSAGE)
@@ -2206,7 +2227,7 @@ async function runReviewAndRepair(
     // revised content never reached decision gates, causing quality-regression
     // blindness). dimensionResults checkpointed additively.
     const stage5 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-    reviewResults = stage5.reviewResults
+    reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage5.reviewResults)
     // F-9: intentionally NOT passing manualReviewRequired here. The only path
     // that sets manualReviewRequired=true (retryCount >= MAX_GATE_RETRY at the
     // loop top) returns immediately, so reaching this post-repair gate rebuild
@@ -2351,7 +2372,7 @@ async function runReviewAndRepair(
           ))
         }
         const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-        reviewResults = stage57.reviewResults
+        reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage57.reviewResults)
         decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
         await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
           taskBrief,

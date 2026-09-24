@@ -280,3 +280,55 @@ export function buildAppearancesFromSnapshots(
     chapters: [...new Set(chapters)].sort((a, b) => a - b),
   }))
 }
+
+// ============================================================================
+// §GAP-90-07 配角 recent_cast（ainovel domain.RecentCast 模式吸收）
+//
+// 写“老周”前先回读上次出场，长篇配角不串味。输入复用 CharacterAppearance[]
+//（buildAppearancesFromSnapshots 已产出“角色→出场章列表”索引），本函数只做
+// 排序取 TopN + 回读文本渲染，不另建 store、不读盘，纯函数零 LLM。
+// 排序口径与 ainovel RecentCast 一致：上次出场章倒序→出场数倒序→名字升序。
+// ============================================================================
+
+/** 最近活跃配角条目（recentCast 产出）。 */
+export interface RecentCastEntry {
+  character: string
+  lastSeenChapter: number
+  appearanceCount: number
+  chapters: number[]
+}
+
+/**
+ * 最近活跃配角 TopN（默认 15，ainovel ctxpack 注入档）。
+ * limit<=0 返回 []；不修改输入（ainovel 同款“不修改输入”语义）。
+ */
+export function recentCast(
+  appearances: readonly CharacterAppearance[],
+  limit = 15,
+): RecentCastEntry[] {
+  if (limit <= 0) return []
+  const entries: RecentCastEntry[] = appearances.map((a) => ({
+    character: a.character,
+    lastSeenChapter: a.chapters.length > 0 ? Math.max(...a.chapters) : 0,
+    appearanceCount: a.chapters.length,
+    chapters: [...a.chapters].sort((x, y) => x - y),
+  }))
+  entries.sort(
+    (a, b) =>
+      b.lastSeenChapter - a.lastSeenChapter ||
+      b.appearanceCount - a.appearanceCount ||
+      (a.character < b.character ? -1 : a.character > b.character ? 1 : 0),
+  )
+  return entries.slice(0, limit)
+}
+
+/**
+ * 配角回读文本（供 ContextPack/任务书注入）。空 cast 返回 ""。
+ */
+export function renderCastIntros(cast: readonly RecentCastEntry[]): string {
+  if (cast.length === 0) return ""
+  const lines = cast.map(
+    (c) => `- ${c.character}：上次出场第${c.lastSeenChapter}章（共${c.appearanceCount}章：${c.chapters.join("、")}）`,
+  )
+  return `配角上次出场：\n${lines.join("\n")}`
+}

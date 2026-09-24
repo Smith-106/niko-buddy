@@ -1604,6 +1604,10 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     key: SixReviewDimensionKey,
     overrides: Partial<DimensionReviewResult> = {},
   ): DimensionReviewResult {
+    // §GAP-88-03 举证作用域纪律适配：生产链传入 content 作 chapterBody 后，
+    // issue evidence 必须逐字命中 content 否则被丢弃。此处 evidence 取三处
+    // content 的公共子串（"正文内容" ⊂ 初稿/返修/章节正文内容），使桩通过
+    // 机械举证校验 —— 旧 "正文片段" 无出处会被硬门丢弃。
     return {
       dimensionKey: key,
       score: 40,
@@ -1615,7 +1619,7 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
         type: key,
         dimensionKey: key,
         message: `${key} 维度问题`,
-        evidence: "正文片段",
+        evidence: "正文内容",
         relatedMemory: "",
         suggestion: "修正",
       }],

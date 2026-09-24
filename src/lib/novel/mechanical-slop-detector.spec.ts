@@ -11,6 +11,9 @@ import {
   overCorrectionReport,
   overCorrectionToText,
   cavityPatternPenalty,
+  rollupStyleStats,
+  bookStyleStatsToText,
+  STYLE_STATS_MIN_CHAPTERS,
   type CharacterActionHit,
 } from "./mechanical-slop-detector"
 import { SUSPICIOUS_HOMOGLYPH_KEYS } from "./normalize-source-text"
@@ -488,5 +491,59 @@ describe("P1-5 cavityPatternPenalty — 2026 强信号补漏", () => {
     const { penalty, hits } = cavityPatternPenalty("他推开门走了出去，夜色很深，远处有狗叫。")
     expect(hits).toEqual([])
     expect(penalty).toBe(0)
+  })
+})
+
+describe("§GAP-90-04 rollupStyleStats 全书级文体统计 (ainovel style_stats 模式)", () => {
+  const cleanChapter = "他推开门走了出去，夜色很深，远处有狗叫。灯还亮着，风把落叶卷进院子。"
+
+  it("章数不足返回 null（非失败，调用方跳过注入）", () => {
+    expect(rollupStyleStats([])).toBeNull()
+    expect(rollupStyleStats([cleanChapter, cleanChapter])).toBeNull()
+    expect(rollupStyleStats(Array.from({ length: STYLE_STATS_MIN_CHAPTERS - 1 }, () => cleanChapter))).toBeNull()
+  })
+
+  it("5 章干净文本 rollup：chapters=5，degraded=false，短结尾占比 1", () => {
+    // 5 章正文各不相同：同一长句不跨 ≥3 章出现 → repeatedSentences 为空。
+    // （若 5 章用完全相同正文，跨章重复句检出正是正确行为，见下一用例。）
+    const variants = [
+      "他推开门走了出去，夜色很深，远处有狗叫。灯还亮着，风把落叶卷进院子。",
+      "她合上书站起身来，窗外雨声渐密，檐下水珠连成了线。",
+      "老周点燃旱烟，火光照亮他布满皱纹的脸，沉默在屋里蔓延开来。",
+      "马蹄声由远及近，尘土飞扬中一骑黑马冲进了镇口。",
+      "他把信折好塞进怀里，转身消失在人群之中，再也没有回头。",
+    ]
+    const stats = rollupStyleStats(variants)
+    expect(stats).not.toBeNull()
+    expect(stats!.chapters).toBe(5)
+    expect(stats!.avgPenalty).toBe(0)
+    expect(stats!.maxPenalty).toBe(0)
+    expect(stats!.degraded).toBe(false)
+    expect(stats!.topPatterns).toEqual([])
+    expect(stats!.repeatedSentences).toEqual([])
+    expect(stats!.shortEndingRatio).toBe(0.8) // 5 变体中 1 章末行 31 字超 30 字阈值
+  })
+
+  it("跨 ≥3 章逐字重复长句被检出（复读交代证据）", () => {
+    const repeat = "夜色很深远处传来了几声断断续续的狗叫"
+    const chapters = Array.from({ length: 5 }, (_, i) =>
+      i < 3 ? `${cleanChapter}${repeat}。` : cleanChapter,
+    )
+    const stats = rollupStyleStats(chapters)
+    expect(stats).not.toBeNull()
+    expect(stats!.repeatedSentences.length).toBeGreaterThan(0)
+    // 目标复读句必须在检出集合中（排序按 count 降序，[0] 可能是更高频的底句，不强求位置）
+    const hit = stats!.repeatedSentences.find((s) => s.text.includes(repeat))
+    expect(hit).toBeDefined()
+    expect(hit!.chapters).toBeGreaterThanOrEqual(3)
+  })
+
+  it("bookStyleStatsToText：null 返回空串，正常统计可文本化", () => {
+    expect(bookStyleStatsToText(null)).toBe("")
+    const stats = rollupStyleStats(Array.from({ length: 5 }, () => cleanChapter))
+    const text = bookStyleStatsToText(stats)
+    expect(text).toContain("全书文体统计")
+    expect(text).toContain("5 章")
+    expect(text).toContain("章末短结尾占比")
   })
 })

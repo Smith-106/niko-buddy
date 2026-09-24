@@ -790,3 +790,130 @@ export function cavityPatternPenalty(rawText: string): { penalty: number; hits: 
   const penalty = Math.min(4, Math.max(0, density - 0.5))
   return { penalty, hits }
 }
+
+// ============================================================================
+// §GAP-90-04 全书级 style_stats rollup（ainovel stylestat.Compute 模式吸收）
+//
+// 单章 slopScore 只见树木：审阅窗口内每处都正常、全书章均几十次就是病
+// （温水煮青蛙式文体退化）。本函数把各章 SlopReport rollup 为全书级数字，
+// 模型只做裁定不做统计：
+//   - topPatterns：tier1+tier2 命中词全书聚合（总数+章均，子串去重取 top 8，
+//     对应 ainovel TopPhrases）；
+//   - repeatedSentences：跨 ≥3 章逐字重复的 ≥12 字长句（复读交代直接证据，
+//     取 top 5，对应 ainovel RepeatedSentences）；
+//   - shortEndingRatio：章末短结尾（≤30 字）占比（对应 ainovel EndingStat）；
+//   - degraded：章均≥4 或任一章触 block 线（初值，待真实语料校准）。
+// 章数 < STYLE_STATS_MIN_CHAPTERS（ainovel minChapters=5）返回 null。
+// 纯函数零 LLM；输入为正文数组（调用方从快照/章节文件组装，本模块不读盘）。
+// ============================================================================
+
+/** 全书级风格统计（rollupStyleStats 产出，供 editor 审美维 + 诊断面板消费）。 */
+export interface BookStyleStats {
+  chapters: number
+  avgPenalty: number
+  maxPenalty: number
+  degraded: boolean
+  topPatterns: Array<{ kw: string; total: number; perChapter: number }>
+  repeatedSentences: Array<{ text: string; chapters: number; count: number }>
+  shortEndingRatio: number
+}
+
+/** 最少章节数（ainovel minChapters=5：样本太小频率无意义）。 */
+export const STYLE_STATS_MIN_CHAPTERS = 5
+/** 高频模式上限（ainovel 取 top 8）。 */
+export const STYLE_STATS_TOP_PATTERNS = 8
+/** 重复长句最短字数（ainovel ≥12 字）。 */
+export const STYLE_STATS_MIN_REPEAT_CHARS = 12
+/** 章末短结尾阈值（ainovel shortEndingRunes=30）。 */
+export const STYLE_STATS_SHORT_ENDING_RUNES = 30
+/** 全书退化均值初值（待真实语料校准；单章 warn=5/block=8 见 SLOP_CLASSIFY_*）。 */
+export const STYLE_STATS_DEGRADED_AVG = 4
+
+function round1Stat(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
+function splitLongSentences(text: string): string[] {
+  const { text: norm } = normalizeSourceText(text)
+  return norm
+    .split(/[。！？\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= STYLE_STATS_MIN_REPEAT_CHARS)
+}
+
+/**
+ * 全书文体统计 rollup。null = 章数不足（非失败，调用方跳过注入即可）。
+ */
+export function rollupStyleStats(chapterTexts: readonly string[]): BookStyleStats | null {
+  if (chapterTexts.length < STYLE_STATS_MIN_CHAPTERS) return null
+  const n = chapterTexts.length
+  const reports = chapterTexts.map((t) => slopScore(t))
+  const penalties = reports.map((r) => r.slopPenalty)
+  const avgPenalty = round1Stat(penalties.reduce((a, b) => a + b, 0) / n)
+  const maxPenalty = Math.max(...penalties)
+
+  const totals = new Map<string, number>()
+  for (const r of reports) {
+    for (const h of [...r.tier1Hits, ...r.tier2Hits]) {
+      totals.set(h.kw, (totals.get(h.kw) ?? 0) + h.count)
+    }
+  }
+  const ranked = [...totals.entries()].sort(
+    (a, b) => b[1] - a[1] || b[0].length - a[0].length || (a[0] < b[0] ? -1 : 1),
+  )
+  const topPatterns: BookStyleStats["topPatterns"] = []
+  for (const [kw, total] of ranked) {
+    if (topPatterns.length >= STYLE_STATS_TOP_PATTERNS) break
+    if (topPatterns.some((p) => p.kw.includes(kw) || kw.includes(p.kw))) continue
+    topPatterns.push({ kw, total, perChapter: round1Stat(total / n) })
+  }
+
+  const sentCount = new Map<string, number>()
+  const sentChapters = new Map<string, Set<number>>()
+  chapterTexts.forEach((t, idx) => {
+    for (const s of new Set(splitLongSentences(t))) {
+      sentCount.set(s, (sentCount.get(s) ?? 0) + 1)
+      const set = sentChapters.get(s) ?? new Set<number>()
+      set.add(idx)
+      sentChapters.set(s, set)
+    }
+  })
+  const repeatedSentences: BookStyleStats["repeatedSentences"] = [...sentCount.entries()]
+    .filter(([s]) => (sentChapters.get(s)?.size ?? 0) >= 3)
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, 5)
+    .map(([text, count]) => ({ text, chapters: sentChapters.get(text)?.size ?? 0, count }))
+
+  let shortEndings = 0
+  for (const t of chapterTexts) {
+    const lines = t.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0)
+    const last = lines.length > 0 ? (lines[lines.length - 1] ?? "") : ""
+    if (last.length > 0 && last.length <= STYLE_STATS_SHORT_ENDING_RUNES) shortEndings++
+  }
+
+  return {
+    chapters: n,
+    avgPenalty,
+    maxPenalty,
+    degraded: avgPenalty >= STYLE_STATS_DEGRADED_AVG || maxPenalty >= SLOP_CLASSIFY_BLOCK_THRESHOLD,
+    topPatterns,
+    repeatedSentences,
+    shortEndingRatio: Math.round((shortEndings / n) * 100) / 100,
+  }
+}
+
+/** 文本化全书统计（供 editor 审美维 prompt 注入；null 返回 ""）。 */
+export function bookStyleStatsToText(stats: BookStyleStats | null): string {
+  if (!stats) return ""
+  const lines = [
+    `全书文体统计（${stats.chapters} 章，章均 penalty ${stats.avgPenalty}/10，最高 ${stats.maxPenalty}/10${stats.degraded ? "：文体退化，需干预" : ""}）`,
+  ]
+  if (stats.topPatterns.length > 0) {
+    lines.push(`- 全书高频短语：${stats.topPatterns.map((p) => `${p.kw}×${p.total}（章均${p.perChapter}）`).join("、")}`)
+  }
+  for (const s of stats.repeatedSentences) {
+    lines.push(`- 跨章重复句（${s.chapters} 章×${s.count} 次）：${s.text.slice(0, 40)}`)
+  }
+  lines.push(`- 章末短结尾占比 ${(stats.shortEndingRatio * 100).toFixed(0)}%`)
+  return lines.join("\n")
+}

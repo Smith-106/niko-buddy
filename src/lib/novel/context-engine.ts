@@ -2726,7 +2726,7 @@ export function contextPackToPrompt(
     // Niko Buddy novel prompts are predominantly Chinese, so a naive length/4
     // underestimates real token count → budget gate misjudges and returns
     // an over-budget prompt untrimmed. Weight CJK at ~1.5 char/token.
-    const cjkCount = (fullPrompt.match(/[一-鿿]/g) ?? []).length
+    const cjkCount = (fullPrompt.match(/[㐀-鿿]/g) ?? []).length
     const nonCjk = fullPrompt.length - cjkCount
     const estimatedTokens = Math.ceil(nonCjk / 4 + cjkCount / 1.5)
     if (estimatedTokens <= tokenBudget) return fullPrompt
@@ -2844,11 +2844,38 @@ export function trimContextPack(
   const removed: Array<{ kind: string; label: string; chars: number }> = []
   const result: ContextPack = { ...pack }
   let total = dump.length
+  // §GAP-89-02 dropOrder 有序丢弃（ainovel chapterWriterPrompt dropOrder +
+  // context-compact.ts CONTEXT_DROP_ORDER 同源顺序）：超预算时先丢低优先级
+  // 检索/引用段，高优先级（任务/大纲/canon/硬注入/禁区）不在表内永不丢弃。
+  // 力学与旧表一致：数组段保留首元素，字符串段截断至 2000 字符。
   const fields: Array<[keyof ContextPack, string]> = [
+    ["graphSearchResults", "图谱检索"],
+    ["searchResults", "检索结果"],
+    ["references", "引用检索"],
+    ["referenceBindings", "素材引用绑定"],
+    ["relatedChapters", "关联章节"],
+    ["communitySummaries", "社区摘要"],
+    ["kbReferences", "知识库引用"],
+    ["techniqueBlocks", "技法块"],
     ["recentChapterContents", "章节正文"],
     ["recentSummaries", "摘要"],
     ["characterAuras", "角色气质"],
     ["cognitionStates", "认知状态"],
+    ["relatedSettings", "相关设定"],
+    ["previousChapterEnding", "上一章结尾"],
+    ["timeline", "时间线"],
+    ["characterStates", "人物状态"],
+    ["foreshadowingStates", "伏笔状态"],
+    ["soulDoc", "灵魂文档"],
+    ["writingStyle", "写作风格"],
+    ["voiceStyleGuide", "语音风格"],
+    ["revisionDirectives", "修订指令"],
+    ["nextChapterAdvice", "下章建议"],
+    ["mustDo", "必须做"],
+    ["chapterGoal", "章节目标"],
+    ["recentStateDeltas", "状态变更"],
+    ["narrativeVisibility", "叙事可见性"],
+    ["worldBlueprint", "世界骨架"],
   ]
   for (const [key, label] of fields) {
     if (total <= budgetChars) break

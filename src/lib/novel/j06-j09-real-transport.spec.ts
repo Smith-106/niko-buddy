@@ -29,7 +29,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { streamChat, type LlmConfig } from "../llm-client"
+import { streamChat } from "../llm-client"
+import type { LlmConfig } from "@/stores/wiki-store"
 import { setAllowHttpLoopbackForTests } from "../tauri-fetch"
 import {
   startDeepChapterSession,
@@ -43,6 +44,7 @@ const FAKE_LLM: LlmConfig = {
   customEndpoint: "http://127.0.0.1:8787/v1",
   model: "fake-model-1",
   apiKey: "",
+  ollamaUrl: "",
   maxContextSize: 8000,
 }
 const PROJECT = "C:/QM-J069E2E/test-book"

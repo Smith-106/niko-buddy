@@ -255,3 +255,33 @@ export function advanceVolumeArc(
 
   return { state: { ...state, completedInVolume, lastUpdated: now }, rolled: false, volumeComplete: false }
 }
+
+// ── §GAP-89-01 收官卷自动完结判定（story-compass.ts 配套）────────────────
+// advanceVolumeArc 只知道"卷末"（volumeComplete）；故事是否整书完结取决于
+// 收官卷语义：final 卷写完、卷末评审与摘要齐备后系统自动完结，无需再调
+// complete_book（ainovel architect-long 原文 §创建下一卷模式第 4 步）。
+// 本函数纯拼装该判定：非 final 卷的 volumeComplete 只是普通续卷信号。
+// 纯函数，now 无需注入（无时间字段），同输入同输出。
+export interface FinaleAutoCompleteInput {
+  volumeComplete: boolean
+  finalVolumeDeclared: boolean
+  currentVolumeNumber: number
+  finalVolumeNumber?: number
+}
+
+export function checkFinaleAutoComplete(
+  input: FinaleAutoCompleteInput,
+): { completed: boolean; reason: string } {
+  if (!input.volumeComplete) return { completed: false, reason: "" }
+  if (
+    input.finalVolumeDeclared &&
+    input.finalVolumeNumber !== undefined &&
+    input.currentVolumeNumber === input.finalVolumeNumber
+  ) {
+    return { completed: true, reason: `第${input.currentVolumeNumber}卷为收官卷且已写完：自动完结，无需 complete_book` }
+  }
+  if (input.finalVolumeDeclared) {
+    return { completed: false, reason: "收官卷已宣告但当前卷末非收官卷终点：继续推进" }
+  }
+  return { completed: false, reason: "普通卷末：滚动进入下一卷" }
+}
