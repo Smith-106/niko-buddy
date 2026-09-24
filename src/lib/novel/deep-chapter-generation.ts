@@ -697,8 +697,8 @@ export { runFullReviewWithSixDim } from "./deep-chapter-review"
 // ── §GAP-88-01 章节契约写后核对（ainovel chapter_contract 模式）──────────
 // 解析任务书契约段并机械核对正文，findings (type="contract") 并入
 // reviewResults → CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES 归 consistency 门。
-// 零 LLM。transitional 暂恒 false（过渡章判定见 #89 滚动规划，当前保守按非
-// 过渡处理：方向提示未兑现出 warning 而非 trade_off，避免漏报）。契约缺段
+// 零 LLM。transitional 由契约段 `过渡章：是` 自声明透传（DEBT-89b 已关闭；
+// 缺省非过渡=保守 warning，避免漏报）。契约缺段
 // （parse null）如实跳过、不伪造 findings（IC-02 不静默降级：无契约=无约束，
 // 而非 pass）。stage4/55/5/57 四个审查点统一经此 helper，防 ARCH-001 式漂移。
 export function applyChapterContractCheck(
@@ -708,9 +708,21 @@ export function applyChapterContractCheck(
 ): NovelReviewResult[] {
   const contract = parseChapterContractSection(taskBrief)
   if (!contract) return reviewResults
-  const check = checkChapterContract(contract, content)
-  if (check.findings.length === 0) return reviewResults
-  return [...reviewResults, ...check.findings]
+  // DEBT-89b 关闭：transitional 不再恒 false——由契约段 `过渡章：是` 自声明
+  // 透传；trade_off 转 info 级 finding 并入（人类/复审可见，IC-02 不静默），
+  // info 级不进 error 门（passed 语义不变：仅 error 阻断）。stage4/55/5/57
+  // 四个审查点统一经此 helper，调用方零改动。
+  const check = checkChapterContract(contract, content, { transitional: contract.transitional })
+  const tradeOffFindings: NovelReviewResult[] = check.tradeOffs.map((t) => ({
+    severity: "info" as const,
+    type: "contract",
+    message: `章节契约（过渡章取舍）：${t}`,
+    evidence: "",
+    relatedMemory: "chapter_contract.transitional",
+    suggestion: "过渡章方向提示取舍已记录；如下章仍未承接则补强。",
+  }))
+  if (check.findings.length === 0 && tradeOffFindings.length === 0) return reviewResults
+  return [...reviewResults, ...check.findings, ...tradeOffFindings]
 }
 // ── 连贯性预检子模块（arch-risk W4 god-object 拆分）───────────────────────
 // runContinuityPreCheck/checkContinuityCritical/buildPlotForecastHint 已抽离到

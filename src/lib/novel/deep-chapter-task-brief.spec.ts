@@ -296,4 +296,38 @@ describe("§GAP-88-01 章节契约 machine-readable 段", () => {
     expect(splitContractLines("a；b；c；d；e；f；g")).toHaveLength(5)
     expect(splitContractLines("   ")).toEqual([])
   })
+
+  it("DEBT-89b 关闭：过渡章自声明往返 + 方向提示未兑现记 trade_off（不出 warning）", () => {
+    const section = buildChapterContractSection({
+      requiredBeats: ["主角握住陌生钥匙"],
+      forbiddenMoves: ["不得提前揭露屋主身份"],
+      continuityChecks: [],
+      emotionTarget: "悬疑克制",
+      transitional: true,
+    })
+    expect(section).toContain("过渡章：是")
+    const parsed = parseChapterContractSection(`任务书正文\n${section}\n后续段落`)
+    expect(parsed?.transitional).toBe(true)
+    // 缺省契约=非过渡（零回归）
+    const plain = parseChapterContractSection(
+      `任务书正文\n${buildChapterContractSection({
+        requiredBeats: ["主角握住陌生钥匙"],
+        forbiddenMoves: [],
+        continuityChecks: [],
+      })}\n后续段落`,
+    )
+    expect(plain?.transitional).toBeUndefined()
+    // 过渡章：方向提示未兑现 → tradeOffs 有记录、findings 无 warning
+    const body = "主角握住陌生钥匙，推门而入。"
+    const t = checkChapterContract(parsed!, body, { transitional: parsed!.transitional })
+    expect(t.tradeOffs.length).toBeGreaterThan(0)
+    expect(t.findings.some((f) => f.severity === "warning")).toBe(false)
+    // 非过渡对照：同输入出 warning、无 trade_off
+    const n2 = checkChapterContract(
+      { requiredBeats: [], forbiddenMoves: [], continuityChecks: [], emotionTarget: "悬疑克制" },
+      "主角推门而入。",
+    )
+    expect(n2.findings.some((f) => f.severity === "warning")).toBe(true)
+    expect(n2.tradeOffs).toEqual([])
+  })
 })

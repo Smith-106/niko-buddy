@@ -234,7 +234,8 @@ export function triadDraftGate(
   chapterBody: string,
 ): { blocked: boolean; findings: NovelReviewResult[] } {
   if (!contract) return { blocked: false, findings: [] };
-  const { findings } = checkChapterContract(contract, chapterBody);
+  // DEBT-89b 联动：过渡章自声明由契约段透传（与 applyChapterContractCheck 同语义）。
+  const { findings } = checkChapterContract(contract, chapterBody, { transitional: contract.transitional });
   return { blocked: findings.some((f) => f.severity === "error"), findings };
 }
 

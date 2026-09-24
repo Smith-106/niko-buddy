@@ -100,7 +100,9 @@ import {
   type DeepChapterGenerationInput,
   type DeepChapterDecisionGates,
   applyCachePrefix,
+  applyChapterContractCheck,
 } from "./deep-chapter-generation"
+import { buildChapterContractSection } from "./deep-chapter-task-brief"
 import { createWatchdog, pollWatchdog } from "./watchdog"
 import { createDefaultStructureThrilPacingPlan } from "./chapter-structure-plan"
 import { RESIDUAL_OVERALL_MEDIAN_THRESHOLD } from "./residual-rewrite-policy"
@@ -4239,5 +4241,41 @@ describe("55 W2-5 数值事实检查接线 (.novel/chapters/{n}/draft.md)", () =
     const numericIdx = thinking.findIndex((t) => t.includes("数值一致性检查"))
     expect(numericIdx).toBeGreaterThanOrEqual(0)
     expect(thinking[numericIdx]).toContain("warn-only")
+  })
+})
+
+describe("§GAP-88-01 applyChapterContractCheck（DEBT-89b 关闭：过渡章自声明透传）", () => {
+  const briefOf = (transitional?: boolean) =>
+    `任务书正文\n${buildChapterContractSection({
+      requiredBeats: ["主角握住陌生钥匙"],
+      forbiddenMoves: ["不得提前揭露屋主身份"],
+      continuityChecks: [],
+      emotionTarget: "悬疑克制",
+      ...(transitional ? { transitional: true as const } : {}),
+    })}\n后续段落`
+  const body = "主角握住陌生钥匙，推门而入。"
+
+  it("非过渡：方向提示未兑现出 warning、无 info 取舍", () => {
+    const out = applyChapterContractCheck(briefOf(), body, [])
+    expect(out.some((f) => f.type === "contract" && f.severity === "warning")).toBe(true)
+    expect(out.some((f) => f.type === "contract" && f.severity === "info")).toBe(false)
+  })
+
+  it("过渡章：方向提示未兑现记 info 取舍，不出 warning（禁区仍 error）", () => {
+    const out = applyChapterContractCheck(briefOf(true), body, [])
+    expect(out.some((f) => f.type === "contract" && f.severity === "warning")).toBe(false)
+    const info = out.filter((f) => f.type === "contract" && f.severity === "info")
+    expect(info.length).toBeGreaterThan(0)
+    expect(info.every((f) => f.relatedMemory === "chapter_contract.transitional")).toBe(true)
+    // 必需节拍命中 + 禁区未触犯 → passed 语义不受 info 影响（仅 error 阻断）
+    expect(out.some((f) => f.severity === "error")).toBe(false)
+  })
+
+  it("无契约段：原样返回，不伪造 findings", () => {
+    const seed: NovelReviewResult[] = [{
+      severity: "warning", type: "x", message: "m", evidence: "",
+      relatedMemory: "", suggestion: "",
+    }]
+    expect(applyChapterContractCheck("本章必须完成：推进线索", body, seed)).toBe(seed)
   })
 })

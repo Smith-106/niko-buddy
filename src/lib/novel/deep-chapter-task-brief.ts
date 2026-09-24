@@ -287,6 +287,9 @@ export interface ChapterContractSection {
   emotionTarget?: string
   payoffPoints?: string[]
   hookGoal?: string
+  /** 过渡章自声明（DEBT-89b 关闭）：任务书契约段 `过渡章：是` 行解析而来；
+   *  缺省 undefined=非过渡（保守，与历史行为一致，零回归）。 */
+  transitional?: boolean
 }
 
 export const CHAPTER_CONTRACT_HEADER = "【章节契约】"
@@ -342,6 +345,7 @@ export function buildChapterContractSection(contract: ChapterContractSection): s
   if (contract.emotionTarget) lines.push(`情绪主色：${contract.emotionTarget}`)
   for (const payoff of contract.payoffPoints ?? []) lines.push(`兑现点：${payoff}`)
   if (contract.hookGoal) lines.push(`钩子目标：${contract.hookGoal}`)
+  if (contract.transitional) lines.push(`过渡章：是`)
   lines.push(CHAPTER_CONTRACT_WAIVER)
   return lines.join("\n")
 }
@@ -374,6 +378,11 @@ export function parseChapterContractSection(taskBrief: string): ChapterContractS
         else if (seg.startsWith("兑现点：")) contract.payoffPoints!.push(seg.slice("兑现点：".length).trim())
         else if (seg.startsWith("钩子目标：") && !contract.hookGoal) contract.hookGoal = seg.slice("钩子目标：".length).trim() || undefined
       }
+      continue
+    }
+    if (line.startsWith("过渡章：")) {
+      const v = line.slice("过渡章：".length).trim()
+      if (v === "是") contract.transitional = true
       continue
     }
     if (line.startsWith("必须节拍：")) contract.requiredBeats.push(line.slice("必须节拍：".length).trim())
