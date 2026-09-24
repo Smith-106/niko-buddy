@@ -296,6 +296,11 @@ async function renderLoadedGraph(patch: Record<string, unknown> = {}) {
   await waitFor(() => {
     expect(screen.getByTestId("sigma-container")).toBeTruthy()
   })
+  // R7 flaky 勘误（2026-09-24）：容器出现≠数据入图。右键菜单 handler 闭包依赖
+  // 已提交的 nodes/edges，fireSigmaEvent 前必须等真数据落定，否则菜单类用例在
+  // 全量 CPU 饥饿下确定性超时（与 renderFixture 内部门同因）。此处统一设门，
+  // 调用方不再需要各自 waitForGraph。
+  await waitForGraph()
   return utils
 }
 
@@ -1727,6 +1732,11 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     await waitFor(() => {
       expect(screen.getByTestId("sigma-container")).toBeTruthy()
     })
+    // R7 flaky 勘误（2026-09-24）：仅等 sigma-container 出现不能保证 nodes 已入图——
+    // loadGraph 的 setNodes/setEdges 是异步提交，fireSigmaEvent 的 handler 闭包若仍是
+    // [] 初始态则 contextNode 恒空、菜单永不渲染（确认为右键菜单类用例全量超时的真因）。
+    // 此处等真数据入图（数据落定门，非时序重试）。
+    await waitForGraph()
     return utils
   }
 
@@ -1998,16 +2008,24 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     unmount()
   })
 
-  // CI 跳过：本用例依赖「右键菜单存活到点击后 60s」的 UI 时序，而 CI 运行器上跨测试
-  // 遗留的真实定时器会在长窗口内重建/清空图（实测 DOM 变空态、console.error 永不触发，
-  // waitFor 10s/60s 两轮超时放宽均无效）；本地时序快、稳定通过。CI 等价覆盖：
-  // ①菜单→handler 接线由正路径用例「节点菜单：编辑真实档案页（文件存在）」与
-  // 「节点菜单：编辑真实档案页（文件不存在 → 创建并 bumpDataVersion）」在 CI 上
-  // 确定性覆盖（断言 editRealProfilePage 点击后的 createDirectory/writeFileAtomic
-  // 副作用）；②写失败→console.error 的语义由 use-graph-node-editing.spec.ts:209
-  // 「handleOpenNodeProfilePage：写文件失败时吞掉并打印错误」hook 级权威覆盖。
-  // 此处仅保留本地失败路径菜单接线冒烟，无 CI 增量覆盖价值。
-  it.skipIf(!!process.env.CI)("节点菜单：档案页写入失败记录 console.error", async () => {
+  // R7 flaky 归因勘误（2026-09-24，根因链已证伪旧注记）：旧注记称「跨测试遗留真实
+  // 定时器在长窗口内重建/清空图」——全文件 grep 证伪：本文件唯一真实 setTimeout 是
+  // useGraphLayoutWorker 的 8s 布局超时回退（仍 resolve 布局，不重建/清空图）；
+  // graph-view.tsx 另有 2 处真实 timer（面板 resize 100ms/50ms）与用例无因果；
+  // MutationObserver 仅响应 data-panel-resizing（resetBaseline/afterEach 恒清空）。
+  // 真实失效链（2026-09-24 全量 60.1s 超时 DOM 实证）：全量并发下 CPU 饥饿 →
+  // buildWikiGraph promise resolve 回调排队延迟 → setNodes/setEdges 迟迟不提交 →
+  // renderLoadedGraph 仅等 sigma-container 出现即返回 → fireSigmaEvent 时 handler
+  // 闭包的 nodes 仍是 [] 初始态 → handleNodeContextMenu 的 nodes.find 恒空 →
+  // nodeMenu 恒 null → 菜单永不渲染（DOM=空态，而非被清空）。
+  // 确定性修法（断言零放宽）：fire 事件前 waitForGraph() 等 nodes 入图（真数据
+  // 落定，非时序重试）；菜单出现仍用默认超时。CI 等价覆盖保持：①菜单→handler
+  // 接线由两正路径用例 CI 确定性覆盖；②写失败→console.error 由
+  // use-graph-node-editing.spec.ts:209 hook 级权威覆盖。
+  it("节点菜单：档案页写入失败记录 console.error", async () => {
+    // 降噪：console.error spy 前置——超时抛错时 restore 逻辑在 finally 仍可达，
+    // 且 TestingLibraryElementError 级诊断不再被 error 输出淹没。
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.findSurprisingConnections.mockReturnValue([])
     mocks.detectKnowledgeGaps.mockReturnValue([])
     mocks.fileExists.mockResolvedValue(false)
@@ -2019,34 +2037,25 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       content: "# 模板",
     })
     const { unmount } = await renderLoadedGraph()
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
+      // 数据落定门已在 renderLoadedGraph 内统一设置，此处直接 fire。
       fireSigmaEvent("rightClickNode", {
         node: "n1",
         event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
         preventSigmaDefault: vi.fn(),
       })
-      // 首个 waitFor 显式 60s：全量并发下 sigma 右键菜单渲染可超过默认 30s
-      //（2026-09-24 全量实测 30.2s 击穿假红，隔离 75/75 绿证无产品缺陷）。
       // 不放宽断言本身——菜单项文案/点击/errorSpy 三断言原样保留。
-      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy(), {
-        timeout: 60000,
-      })
+      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
       fireEvent.click(screen.getByText("graph.editRealProfilePage"))
-      await waitFor(
-        () => {
-          expect(errorSpy).toHaveBeenCalled()
-        },
-        // 整文件并发时共享异步状态可能延迟 errorSpy 触发，默认 5s 不够；
-        // CI 慢机（node-gates 全量并发）实测 10s 也会被饿超时，放宽到 60s。
-        { timeout: 60000 },
-      )
+      await waitFor(() => {
+        expect(errorSpy).toHaveBeenCalled()
+      })
     } finally {
       // waitFor 超时抛错时也必须还原 console.error，避免污染同文件后续用例
       errorSpy.mockRestore()
       unmount()
     }
-  }, 150_000)
+  })
 
   it("节点菜单：裸文件名路径跳过 createDirectory", async () => {
     mocks.findSurprisingConnections.mockReturnValue([])
