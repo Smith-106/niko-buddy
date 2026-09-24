@@ -25,6 +25,17 @@ mustContain("QMAI/src/lib/novel/story-compass.ts", ["evaluateCompletionChecklist
 mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactContextSections", "buildRestorePack"])
 ok("R3 8-gap symbols all present in product code")
 
+// R3b: #104 fixes land in product code + spec (not just commit messages).
+// (f1) trimContextPack honors excludeOutline on both prompt paths.
+mustContain("QMAI/src/lib/novel/context-engine.ts",
+  ["const excludeOutline = Boolean(options?.excludeOutline)"])
+mustContain("QMAI/src/lib/novel/context-engine.trim.spec.ts",
+  ["excludeOutline", "UNIQUE-OUTLINE-103"])
+// (f2) trim fields order aligned to CONTEXT_DROP_ORDER (techniqueBlocks @130).
+// (f3) compactSectionText stale-comment correction.
+mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactSectionText"])
+ok("R3b #104 fixes present (excludeOutline both paths + spec + compact alias)")
+
 // R4: re-eval chain docs with rating markers.
 mustContain("QMAI/docs/decision-log/20260924-90-reeval-closure.md", ["四维度重评", "★★★★→★★★★★"])
 mustContain("QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])

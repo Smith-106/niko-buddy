@@ -7,17 +7,27 @@ function fail(msg) { console.error("FAIL: " + msg); process.exit(1) }
 function ok(msg) { console.log("PASS: " + msg) }
 
 // R1: key commits present + clean tree + evidence doc on file.
-const log = execSync("git -C QMAI log --oneline -12", { encoding: "utf8" })
+// Window -30 (was -12): history grew by 5 commits (#103 gap-list + 3x #104 fixes
+// + #105 review), old chain would slide out of a -12 window. Wider window keeps
+// the same assertion (chain present), no relaxation. New commits are additionally
+// required below (strictly stronger R1).
+const log = execSync("git -C QMAI log --oneline -30", { encoding: "utf8" })
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
   if (!log.includes(c)) fail("missing commit " + c)
 }
 ok("R1 commits present (8-gap chain + evidence)")
+for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
+  if (!log.includes(c)) fail("missing commit " + c)
+}
+ok("R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
 const status = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()
 if (status !== "") fail("dirty tree:\n" + status)
 ok("R1 tree clean")
 for (const f of [
   "QMAI/docs/decision-log/20260924-103-compact-evidence.md",
   "QMAI/docs/decision-log/20260924-102-final-verdict.md",
+  "QMAI/docs/decision-log/20260924-103-gap-list.md",
+  "QMAI/docs/decision-log/20260924-105-final-review.md",
 ]) {
   if (!existsSync(f)) fail("missing " + f)
 }
