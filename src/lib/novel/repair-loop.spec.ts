@@ -5,7 +5,17 @@
  */
 import { describe, expect, it } from "vitest"
 import { appendRunEvents, createRunEventLedger, type RunEventInput } from "./run-event-ledger"
-import { buildCorrectionLoopStats } from "./repair-loop"
+import {
+  advanceChapterTriad,
+  buildCorrectionLoopStats,
+  createChapterTriadState,
+  triadDraftGate,
+  triadPlanGate,
+  triadReviewGate,
+  TRIAD_MAX_REWORK,
+} from "./repair-loop"
+import type { DimensionReviewIssue, DimensionReviewResult } from "./dimension-review-adapter"
+import { buildChapterContractSection } from "./deep-chapter-task-brief"
 
 const TS = "2026-09-16T00:00:00.000Z"
 
@@ -110,5 +120,115 @@ describe("buildCorrectionLoopStats（闭环率 + FP 聚合）", () => {
     ])
     const stats = buildCorrectionLoopStats(ledger)
     expect(stats.gates.find((g) => g.gate === "anti_ai")?.corrections).toBe(1)
+  })
+})
+
+describe("§GAP-91 三权分立单章编排（Architect→Writer→Editor 收缩态）", () => {
+  const contractBrief = (body: string) =>
+    `任务书正文\n${buildChapterContractSection({
+      requiredBeats: ["主角握住陌生钥匙"],
+      forbiddenMoves: ["不得提前揭露屋主身份"],
+      continuityChecks: ["雨夜时间线连续"],
+    })}\n${body}`
+
+  const passDim = (): DimensionReviewResult => ({
+    dimensionKey: "thrill",
+    score: 9,
+    status: "pass",
+    summary: "钩子成立",
+    thinking: "",
+    issues: [],
+  })
+
+  const errorIssue = (chapter?: number): DimensionReviewIssue => ({
+    severity: "error",
+    type: "timeline",
+    dimensionKey: "continuity",
+    message: "时间线矛盾",
+    evidence: "祠堂门缝里透出一线冷光",
+    relatedMemory: "",
+    suggestion: "修正时间线",
+    ...(chapter !== undefined
+      ? { continuityMeta: { subtype: "x", ref: "r", chapter } }
+      : {}),
+  })
+
+  it("plan 门：无契约如实标记不阻断；有契约就绪", () => {
+    const none = triadPlanGate("本章必须完成：推进线索")
+    expect(none.contract).toBeNull()
+    expect(none.ready).toBe(true)
+    const withContract = triadPlanGate(contractBrief("后续段落"))
+    expect(withContract.contract).not.toBeNull()
+    expect(withContract.contract!.requiredBeats).toEqual(["主角握住陌生钥匙"])
+    expect(withContract.ready).toBe(true)
+  })
+
+  it("draft 门：无契约不阻断；禁区命中阻断；干净正文放行", () => {
+    expect(triadDraftGate(null, "任意正文").blocked).toBe(false)
+    const { contract } = triadPlanGate(contractBrief("后续段落"))
+    // 正文含禁区原文逐字 → error 阻断
+    const blocked = triadDraftGate(contract, "他推开门，不得提前揭露屋主身份的秘密被说出。")
+    expect(blocked.blocked).toBe(true)
+    expect(blocked.findings.some((f) => f.severity === "error")).toBe(true)
+    // 干净正文：仅 required_beats 缺失 warning，不阻断
+    const clean = triadDraftGate(contract, "他推开门走了出去，夜色很深，远处有狗叫。")
+    expect(clean.blocked).toBe(false)
+  })
+
+  it("review 门：全 pass 无返工；error issue 触发返工+最小返工集", () => {
+    const ok = triadReviewGate({ dimensionResults: { thrill: passDim() }, issues: [] })
+    expect(ok.rework).toBe(false)
+    expect(ok.reworkChapters).toEqual([])
+    const bad = triadReviewGate({
+      dimensionResults: {},
+      issues: [errorIssue(8), errorIssue(5)],
+      chapterBody: "祠堂门缝里透出一线冷光，夜色很深。",
+    })
+    expect(bad.rework).toBe(true)
+    expect(bad.reworkChapters).toEqual([5, 8])
+  })
+
+  it("状态机：plan→draft→review→done 全绿路径", () => {
+    let s = createChapterTriadState()
+    expect(s.phase).toBe("plan")
+    s = advanceChapterTriad(s, { reason: "契约就绪" })
+    expect(s.phase).toBe("draft")
+    s = advanceChapterTriad(s, { blocked: false, reason: "写后核对通过" })
+    expect(s.phase).toBe("review")
+    s = advanceChapterTriad(s, { rework: false, reason: "editor 裁定通过" })
+    expect(s.phase).toBe("done")
+    expect(s.reworkCount).toBe(0)
+  })
+
+  it("状态机：review 返工回 draft，超限 handoff（上限 TRIAD_MAX_REWORK=2）", () => {
+    expect(TRIAD_MAX_REWORK).toBe(2)
+    let s = advanceChapterTriad(
+      advanceChapterTriad(createChapterTriadState(), { reason: "p" }),
+      { blocked: false, reason: "d" },
+    )
+    expect(s.phase).toBe("review")
+    s = advanceChapterTriad(s, { rework: true, reworkChapters: [8], reason: "返工1" })
+    expect(s.phase).toBe("draft")
+    expect(s.reworkCount).toBe(1)
+    expect(s.reworkChapters).toEqual([8])
+    s = advanceChapterTriad(s, { blocked: false, reason: "d2" })
+    s = advanceChapterTriad(s, { rework: true, reworkChapters: [8], reason: "返工2" })
+    expect(s.phase).toBe("draft")
+    expect(s.reworkCount).toBe(2)
+    s = advanceChapterTriad(s, { blocked: false, reason: "d3" })
+    s = advanceChapterTriad(s, { rework: true, reworkChapters: [8], reason: "返工3超限" })
+    expect(s.phase).toBe("handoff")
+    expect(s.reworkCount).toBe(3)
+    expect(s.reason).toContain("超限")
+  })
+
+  it("状态机：draft 禁区阻断超限同样 handoff；终态 done/handoff 恒等", () => {
+    let s = advanceChapterTriad(createChapterTriadState(), { reason: "p" })
+    for (let i = 0; i <= TRIAD_MAX_REWORK; i++) {
+      s = advanceChapterTriad(s, { blocked: true, reason: `禁区${i}` })
+    }
+    expect(s.phase).toBe("handoff")
+    const done = { ...s, phase: "done" as const }
+    expect(advanceChapterTriad(done, { reason: "x" })).toBe(done)
   })
 })

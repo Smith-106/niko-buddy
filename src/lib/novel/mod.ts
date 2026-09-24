@@ -22,6 +22,18 @@ export {
   type DoctorSeverity,
 } from "./doctor"
 export { createChapterPipeline, type ChapterPipeline, type ChapterPipelineDeps } from "./chapter-pipeline"
+// §GAP-91 三权分立单章编排（repair-loop additive 导出：零生产反向依赖的安全容器）
+export {
+  advanceChapterTriad,
+  createChapterTriadState,
+  triadDraftGate,
+  triadPlanGate,
+  triadReviewGate,
+  TRIAD_MAX_REWORK,
+  type ChapterTriadPhase,
+  type ChapterTriadReviewInput,
+  type ChapterTriadState,
+} from "./repair-loop"
 export {
   buildContextPack,
   contextPackToPrompt,

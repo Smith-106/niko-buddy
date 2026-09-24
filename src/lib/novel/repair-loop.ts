@@ -23,6 +23,15 @@
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"
 import { readGateRunPayload, sliceRunEvents, type RunEvent, type RunEventLedger } from "./run-event-ledger"
+import { checkChapterContract, parseChapterContractSection, type ChapterContractSection } from "./deep-chapter-task-brief"
+import {
+  dimensionResultsToReviewResults,
+  minimalReworkSetFromDimensionIssues,
+  type DimensionReviewIssue,
+  type DimensionReviewResult,
+  type SixReviewDimensionKey,
+} from "./dimension-review-adapter"
+import type { NovelReviewResult } from "./review-adapter"
 
 // ============================================================================
 // 契约
@@ -157,4 +166,117 @@ export function buildCorrectionLoopStats(
     gates,
     totals: { ...totals, closureRate: totalRate(totals.corrections), fpRate: totalRate(totals.falsePositives) },
   }
+}
+
+// ============================================================================
+// §GAP-91 三权分立单章编排（ainovel Architect→Writer→Editor 模式吸收）
+//
+// 落点说明：本容器初版误放在 chapter-pipeline.ts，触发循环导入
+// （pipeline→dim-adapter→context-engine→…→chapter-ingest→pipeline，
+// createChapterPipeline 初始化失效）。repair-loop 零生产反向依赖
+// （仅 index.ts barrel 引用），单向拉重型链无循环 —— 安全容器。
+//
+// #88/#89/#90 已把三权机制件全部代码化（散落各模块）：
+//   Architect（规划）：章节契约 parse（写前约束）+ story-compass 指南针 +
+//     director-pipeline 五阶段门（开书级）；
+//   Writer（执行）：checkChapterContract 写后核对 + recentCast 配角回读；
+//   Editor（裁定）：dimensionResultsToReviewResults（举证硬门内嵌）+
+//     deriveScoreVerdict（模型只打分不判刑）+ minimalReworkSet（授权边界）。
+// 本容器只做显式三阶段串联（plan → draft → review → done | rework → draft），
+// 不新增机制：三阶段判定全部委托上述已有纯函数。
+//
+// 状态机语义（ainovel writer.md/editor.md 执行协议收缩态）：
+//   plan：契约就绪判定（contract 缺失 = 如实标记无契约约束，不阻断 —— #88）；
+//   draft：写后核对（forbidden 禁区 error 阻断返工，其余 warning 只告警 —— #88）；
+//   review：editor 裁定（error 级 finding 或非空最小返工集 → rework；
+//     举证硬门已在 dimensionResultsToReviewResults 内执行 —— #88-03）；
+//   rework 上限 TRIAD_MAX_REWORK=2（ainovel arbiter 干预前两轮自修语义），
+//     超限 → handoff 人工（不 stranded 静默）。
+// 纯函数，零 LLM / 零 IO。
+// ============================================================================
+
+/** 三权阶段。 */
+export type ChapterTriadPhase = "plan" | "draft" | "review" | "done" | "handoff";
+
+/** 自修返工上限（ainovel arbiter 干预前两轮自修）。 */
+export const TRIAD_MAX_REWORK = 2;
+
+export interface ChapterTriadState {
+  phase: ChapterTriadPhase;
+  /** 已用返工轮次（review → draft 回跳计数）。 */
+  reworkCount: number;
+  /** 当前最小返工集（review 裁定产出，done 时为空）。 */
+  reworkChapters: number[];
+  /** 阻断/返工原因（人类可读，handoff 时必填）。 */
+  reason: string;
+}
+
+export interface ChapterTriadReviewInput {
+  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>;
+  issues: DimensionReviewIssue[];
+  chapterBody?: string;
+}
+
+export function createChapterTriadState(): ChapterTriadState {
+  return { phase: "plan", reworkCount: 0, reworkChapters: [], reason: "" };
+}
+
+/** plan 阶段：契约就绪判定（只读 taskBrief，不阻断）。 */
+export function triadPlanGate(taskBrief: string): { contract: ChapterContractSection | null; ready: boolean; reason: string } {
+  const contract = parseChapterContractSection(taskBrief);
+  if (!contract) return { contract, ready: true, reason: "无章节契约：无契约约束写作（如实标记）" };
+  return { contract, ready: true, reason: "章节契约就绪：写前约束已携带" };
+}
+
+/** draft 阶段：写后核对（禁区 error → 返工；其余只告警）。 */
+export function triadDraftGate(
+  contract: ChapterContractSection | null,
+  chapterBody: string,
+): { blocked: boolean; findings: NovelReviewResult[] } {
+  if (!contract) return { blocked: false, findings: [] };
+  const { findings } = checkChapterContract(contract, chapterBody);
+  return { blocked: findings.some((f) => f.severity === "error"), findings };
+}
+
+/** review 阶段：editor 裁定（fold 结果 error 或最小返工集非空 → 返工）。 */
+export function triadReviewGate(input: ChapterTriadReviewInput): { rework: boolean; findings: NovelReviewResult[]; reworkChapters: number[] } {
+  // §GAP-88-03 举证硬门内嵌于 fold（有 chapterBody 时无举证 issue 被丢弃+扣分）。
+  const findings = dimensionResultsToReviewResults(input.dimensionResults, input.chapterBody);
+  const reworkChapters = minimalReworkSetFromDimensionIssues(input.issues);
+  const rework = findings.some((f) => f.severity === "error") || reworkChapters.length > 0;
+  return { rework, findings, reworkChapters };
+}
+
+/**
+ * 三权状态机推进（确定性，同输入同输出）：
+ *   plan → draft（恒推进，reason 记录契约状态）；
+ *   draft → review（禁区阻断时记 reworkCount+1 回 draft，超限 handoff）；
+ *   review → done（无返工）| draft（返工+1）| handoff（超限）。
+ */
+export function advanceChapterTriad(
+  state: ChapterTriadState,
+  gate: { blocked?: boolean; rework?: boolean; reworkChapters?: number[]; reason: string },
+): ChapterTriadState {
+  if (state.phase === "plan") {
+    return { ...state, phase: "draft", reason: gate.reason };
+  }
+  if (state.phase === "draft") {
+    if (!gate.blocked) return { ...state, phase: "review", reason: gate.reason };
+    const reworkCount = state.reworkCount + 1;
+    if (reworkCount > TRIAD_MAX_REWORK) {
+      return { ...state, phase: "handoff", reworkCount, reason: gate.reason };
+    }
+    return { ...state, phase: "draft", reworkCount, reason: gate.reason };
+  }
+  if (state.phase === "review") {
+    if (!gate.rework) {
+      return { ...state, phase: "done", reworkChapters: [], reason: gate.reason };
+    }
+    const reworkCount = state.reworkCount + 1;
+    if (reworkCount > TRIAD_MAX_REWORK) {
+      return { ...state, phase: "handoff", reworkCount, reworkChapters: gate.reworkChapters ?? [], reason: gate.reason };
+    }
+    return { ...state, phase: "draft", reworkCount, reworkChapters: gate.reworkChapters ?? [], reason: gate.reason };
+  }
+  return state;
 }
