@@ -435,5 +435,6 @@ export function pollCompactWatchdog(watchdog: CompactWatchdog, now: number) {
   return pollWatchdog(watchdog.state, now)
 }
 
-/** sectionText 导出供 context-engine trimContextPack 复用（数组段序列化同口径）。 */
+/** sectionText 别名导出（显式记账口径统一用；trimContextPack 预算账目沿用
+ * JSON 序列化口径，两处口径差异已在 trim.spec 记账不变量中断言覆盖）。 */
 export { sectionText as compactSectionText }
