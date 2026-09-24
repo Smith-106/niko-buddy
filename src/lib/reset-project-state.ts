@@ -12,10 +12,11 @@ import { pauseQueue as pauseIngestQueue } from "@/lib/ingest-queue"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useReviewStore } from "@/stores/review-store"
-// Leaf import on purpose: this module is a background subsystem loaded through
-// deferred `await import("@/lib/reset-project-state")` calls, and the barrel
-// would pull novel's whole internal graph (and its app-level deps) into it.
-import { clearTemporalFactsCache } from "@/lib/novel/context-engine"
+// clearTemporalFactsCache 经函数内动态 import（与本文件其他 background
+// subsystem 一致）：context-engine 是巨型模块，静态 import 会把它的传递闭包
+// （llm-client/wiki-store/graph-adapter/projection-status-ledger…）拉进本模块
+// 的加载图，全量并发下冷 transform 可击穿测试超时；生产侧延迟到 reset 执行时
+// 才加载（reset 本就是项目切换时的后台动作，无首屏成本）。
 
 export function resetProjectStores(): void {
   useChatStore.setState({
@@ -90,6 +91,7 @@ export async function resetProjectState(): Promise<void> {
   // switches back to that project (cross-project contamination). No
   // projectPath is available here (switch context), so clear the whole cache.
   try {
+    const { clearTemporalFactsCache } = await import("@/lib/novel/context-engine")
     clearTemporalFactsCache()
   } catch (err) {
     console.warn("[Reset Project State] clearTemporalFactsCache failed:", err)

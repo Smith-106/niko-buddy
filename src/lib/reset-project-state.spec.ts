@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   chatSetState: vi.fn(),
@@ -24,23 +24,14 @@ vi.mock("@/stores/activity-store", () => ({
 vi.mock("@/lib/ingest-queue", () => ({
   pauseQueue: mocks.pauseIngestQueue,
 }))
-// The "background modules fail to load" case installs doMock factories that
-// throw (e.g. @/lib/graph-relevance). The real context-engine imports those
-// transitively, so importOriginal() legitimately rejects there — degrade to the
-// overrides instead of failing the whole mock.
-vi.mock("@/lib/novel/context-engine", async (importOriginal) => {
-  let actual: Record<string, unknown> = {}
-  try {
-    actual = await importOriginal<typeof import("@/lib/novel/context-engine")>()
-  } catch {
-    /* dependency intentionally fails to load in one test case */
-  }
-  return {
-    ...actual,
-      clearTemporalFactsCache: mocks.clearTemporalFactsCache,
-    
-  }
-})
+// 纯桩（#99b）：被测面只用 clearTemporalFactsCache。曾用 importOriginal 合并真
+// 模块，但真 context-engine 是巨型图——resetProjectState 执行时的动态 import
+// 在全量并发下冷 transform 可击穿 15s（2026-09-24 实证）。纯桩后执行路径零重型
+// 加载；"background modules fail to load" 用例 doMock 的是 dedup-queue 等四个
+// 模块，与此桩无关。
+vi.mock("@/lib/novel/context-engine", () => ({
+  clearTemporalFactsCache: mocks.clearTemporalFactsCache,
+}))
 
 const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 
@@ -75,14 +66,6 @@ function registerWorkingModules() {
   vi.doMock("@/lib/project-file-sync", () => ({ stopProjectFileSync: mocks.stopProjectFileSync }))
   vi.doMock("@/lib/scheduled-import", () => ({ stopScheduledImport: mocks.stopScheduledImport }))
 }
-
-// #96 预热：本文件首个 it 承担 reset-project-state 模块图冷加载（context-engine
-// 重建链）；beforeAll 先付该成本，后续 it 只付模块求值，消除首 it 30s 击穿。
-// 断言零改动——纯测试时序加固。
-beforeAll(async () => {
-  registerWorkingModules()
-  await import("./reset-project-state")
-}, 60_000)
 
 describe("resetProjectStores", () => {
   it("clears chat, review and activity stores", async () => {

@@ -1,13 +1,14 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-
-// #96 预热：首个 it 承担 search-adapter 模块图冷 transform（此前隔离/全量首跑
-// ~5.2s 逼近超时，全量并发下偶发击穿 30s）。beforeAll 先付该成本，断言零改动。
-beforeAll(async () => {
-  vi.doMock(VIEW_PATH, () => ({ default: VALID_VIEW }))
-  await import("./search-adapter")
-}, 60_000)
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
+
+// #99b 传递闭包隔离：被测面是 routing/view 消费，chapter-ingest（巨型模块）
+// 非被测——顶层桩掉，使每次 resetModules 重建不再付巨型图冷 transform 成本
+// （全量并发下可超 60s）。桩形状仅覆盖 search-adapter 顶层使用的两个函数。
+vi.mock("./chapter-ingest", () => ({
+  listSnapshots: vi.fn(async () => []),
+  loadSnapshot: vi.fn(async () => null),
+}))
 
 // R7 同款（2026-09-08）：全量并发下 vi.doMock+resetModules 模块图重建耗时 >5s 默认
 // testTimeout（隔离实测首跑 5.2s）→ 文件级提到 30s 治本；it 级 retry 2 兜底纯时序

@@ -14,7 +14,7 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",
-    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/*.real-llm.spec.ts' --exclude='**/*.bench.ts' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**'",
+    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/*.real-llm.spec.ts' --exclude='**/*.bench.ts' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/graph-view.spec.tsx' && vitest run src/components/graph/graph-view.spec.tsx --no-file-parallelism",
     "lint:character-aura": "node scripts/lint-character-aura.mjs",
     "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose",
     "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
