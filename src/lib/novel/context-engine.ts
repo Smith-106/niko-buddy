@@ -2826,9 +2826,11 @@ export function trimContextPack(
   budgetChars: number,
   options?: { excludeOutline?: string | boolean },
 ): TrimResult {
-  void options
+  // §GAP-103(f): honor excludeOutline（与 contextPackToPrompt 同语义）。
+  // 默认 falsy/缺省时 prompt 组装与旧实现逐位一致（字节级等价）。
+  const excludeOutline = Boolean(options?.excludeOutline)
   const dump = JSON.stringify(pack)
-  const prompt = [pack.task, pack.outline, pack.soulDoc].filter(Boolean).join("\n\n")
+  const prompt = [pack.task, ...(excludeOutline ? [] : [pack.outline]), pack.soulDoc].filter(Boolean).join("\n\n")
   if (dump.length <= budgetChars) {
     return {
       pack,
@@ -2900,7 +2902,7 @@ export function trimContextPack(
     pack: result,
     removed,
     remainingChars: Math.max(0, total),
-    prompt: [result.task, result.outline, result.soulDoc].filter(Boolean).join("\n\n"),
+    prompt: [result.task, ...(excludeOutline ? [] : [result.outline]), result.soulDoc].filter(Boolean).join("\n\n"),
     originalChars: dump.length,
     finalChars: finalDump.length,
     trimmedChars: Math.max(0, dump.length - finalDump.length),

@@ -85,3 +85,44 @@ describe("contextPackToPrompt — CJK 预算裁剪口径必须与估算器一致
     expect(estimateTokens(trimmed)).toBeLessThanOrEqual(budget * 1.2)
   })
 })
+
+// §GAP-103(f): trimContextPack 须 honor excludeOutline（与 contextPackToPrompt 同语义）。
+// 默认 falsy/缺省时 prompt 含 outline（字节级等价旧实现）；true 时两路径均跳过 outline。
+function packWithOutline(): ContextPack {
+  return {
+    task: "任务正文",
+    outline: "大纲正文UNIQUE-OUTLINE-103",
+    soulDoc: "灵魂文档",
+    recentChapterContents: [],
+    recentSummaries: [],
+  } as unknown as ContextPack
+}
+
+describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义（§GAP-103(f)）", () => {
+  it("缺省/undefined/空对象：prompt 含 outline（字节级等价旧实现）", () => {
+    const pack = packWithOutline()
+    expect(trimContextPack(pack, 10_000_000).prompt).toContain("大纲正文UNIQUE-OUTLINE-103")
+    expect(trimContextPack(pack, 10_000_000, undefined).prompt).toContain("大纲正文UNIQUE-OUTLINE-103")
+    expect(trimContextPack(pack, 10_000_000, {}).prompt).toContain("大纲正文UNIQUE-OUTLINE-103")
+  })
+
+  it("excludeOutline=true：under-budget 与 trim 后两路径 prompt 均跳过 outline", () => {
+    const pack = packWithOutline()
+    const under = trimContextPack(pack, 10_000_000, { excludeOutline: true })
+    expect(under.prompt).not.toContain("大纲正文UNIQUE-OUTLINE-103")
+    expect(under.prompt).toContain("任务正文")
+    const over = trimContextPack(
+      { ...pack, otherFields: "x".repeat(50_000) } as unknown as ContextPack,
+      5_000,
+      { excludeOutline: true },
+    )
+    expect(over.prompt ?? "").not.toContain("大纲正文UNIQUE-OUTLINE-103")
+  })
+
+  it("excludeOutline=false：prompt 含 outline", () => {
+    const pack = packWithOutline()
+    expect(trimContextPack(pack, 10_000_000, { excludeOutline: false }).prompt).toContain(
+      "大纲正文UNIQUE-OUTLINE-103",
+    )
+  })
+})
