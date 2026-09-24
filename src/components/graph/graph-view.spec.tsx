@@ -575,7 +575,9 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     setState({ project: PROJECT, graphColorMode: "type" })
     const { rerender } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    expect(mocks.fa2.assign).toHaveBeenCalledTimes(1)
+    // 全量并发下布局 effect 可能滞后于容器渲染（2026-09-24 全量实测 0 次调用假红，
+    // 隔离 75/75 绿证无产品缺陷）：同断言包 waitFor，不放宽次数语义。
+    await waitFor(() => expect(mocks.fa2.assign).toHaveBeenCalledTimes(1))
     // 改变 colorMode 触发 GraphLoader effect 重跑，但 dataKey 未变 → 跳过布局
     setState({ graphColorMode: "community" })
     await act(async () => {
@@ -2023,7 +2025,12 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
         event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
         preventSigmaDefault: vi.fn(),
       })
-      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
+      // 首个 waitFor 显式 60s：全量并发下 sigma 右键菜单渲染可超过默认 30s
+      //（2026-09-24 全量实测 30.2s 击穿假红，隔离 75/75 绿证无产品缺陷）。
+      // 不放宽断言本身——菜单项文案/点击/errorSpy 三断言原样保留。
+      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy(), {
+        timeout: 60000,
+      })
       fireEvent.click(screen.getByText("graph.editRealProfilePage"))
       await waitFor(
         () => {
@@ -2038,7 +2045,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       errorSpy.mockRestore()
       unmount()
     }
-  }, 90_000)
+  }, 150_000)
 
   it("节点菜单：裸文件名路径跳过 createDirectory", async () => {
     mocks.findSurprisingConnections.mockReturnValue([])

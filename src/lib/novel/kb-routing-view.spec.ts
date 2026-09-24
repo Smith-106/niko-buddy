@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+
+// #96 预热：首个 it 承担 search-adapter 模块图冷 transform（此前隔离/全量首跑
+// ~5.2s 逼近超时，全量并发下偶发击穿 30s）。beforeAll 先付该成本，断言零改动。
+beforeAll(async () => {
+  vi.doMock(VIEW_PATH, () => ({ default: VALID_VIEW }))
+  await import("./search-adapter")
+}, 60_000)
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   chatSetState: vi.fn(),
@@ -75,6 +75,14 @@ function registerWorkingModules() {
   vi.doMock("@/lib/project-file-sync", () => ({ stopProjectFileSync: mocks.stopProjectFileSync }))
   vi.doMock("@/lib/scheduled-import", () => ({ stopScheduledImport: mocks.stopScheduledImport }))
 }
+
+// #96 预热：本文件首个 it 承担 reset-project-state 模块图冷加载（context-engine
+// 重建链）；beforeAll 先付该成本，后续 it 只付模块求值，消除首 it 30s 击穿。
+// 断言零改动——纯测试时序加固。
+beforeAll(async () => {
+  registerWorkingModules()
+  await import("./reset-project-state")
+}, 60_000)
 
 describe("resetProjectStores", () => {
   it("clears chat, review and activity stores", async () => {
