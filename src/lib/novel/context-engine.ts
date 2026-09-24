@@ -2847,7 +2847,10 @@ export function trimContextPack(
   const result: ContextPack = { ...pack }
   let total = dump.length
   // §GAP-89-02 dropOrder 有序丢弃（ainovel chapterWriterPrompt dropOrder +
-  // context-compact.ts CONTEXT_DROP_ORDER 同源顺序）：超预算时先丢低优先级
+  // context-compact.ts CONTEXT_DROP_ORDER 同源顺序：键集合完全一致 27 键，
+  // techniqueBlocks 位置对齐 compact 顺序（recentChapterContents=80 →
+  // recentSummaries=90 → characterAuras=100 → cognitionStates=110 →
+  // relatedSettings=120 → techniqueBlocks=130）。超预算时先丢低优先级
   // 检索/引用段，高优先级（任务/大纲/canon/硬注入/禁区）不在表内永不丢弃。
   // 力学与旧表一致：数组段保留首元素，字符串段截断至 2000 字符。
   const fields: Array<[keyof ContextPack, string]> = [
@@ -2858,12 +2861,12 @@ export function trimContextPack(
     ["relatedChapters", "关联章节"],
     ["communitySummaries", "社区摘要"],
     ["kbReferences", "知识库引用"],
-    ["techniqueBlocks", "技法块"],
     ["recentChapterContents", "章节正文"],
     ["recentSummaries", "摘要"],
     ["characterAuras", "角色气质"],
     ["cognitionStates", "认知状态"],
     ["relatedSettings", "相关设定"],
+    ["techniqueBlocks", "技法块"],
     ["previousChapterEnding", "上一章结尾"],
     ["timeline", "时间线"],
     ["characterStates", "人物状态"],
