@@ -126,6 +126,21 @@ describe("TrimContextPlugin", () => {
     expect(result.novelSystemPrompt).toContain("写第5章")
   })
 
+  it("excludeOutline=false 时 fallback prompt 含 outline（RV-014 钉住 Boolean 语义）", async () => {
+    const mockTrim = vi.fn().mockReturnValue({ prompt: undefined })
+    const plugin = createTrimContextPlugin({ trimContextPackFn: mockTrim, excludeOutline: false })
+    const result = await plugin.run({
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+    expect(mockTrim).toHaveBeenCalled()
+    expect(mockTrim.mock.calls[0][2]).toEqual({ excludeOutline: false })
+    expect(result.novelSystemPrompt).toContain("大纲内容")
+  })
+
   it("excludeOutline 缺省时 fallback prompt 含 outline（字节级等价旧实现）", async () => {
     const mockTrim = vi.fn().mockReturnValue({ prompt: undefined })
     const plugin = createTrimContextPlugin({ trimContextPackFn: mockTrim })

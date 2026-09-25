@@ -128,15 +128,10 @@ describe("compactContextSections 四级压缩", () => {
     }
   })
 
-  it("RV-004/RV-014: trim fields 表与 CONTEXT_DROP_ORDER 键集合一致（§GAP-103(f) 漂移护栏）", () => {
-    // engine fields 表为源码字面量（27 键），与 CONTEXT_DROP_ORDER 同源顺序逐位一致（d076892e 已对齐）；
-    // 本断言锁定键集合一致，防单边增键/删键静默漂移（顺序断言见 droporder.spec 有序丢弃用例）。
-    const engineSrc = TRIM_FIELDS_SNAPSHOT.join(",");
-    for (const key of TRIM_FIELDS_SNAPSHOT) {
-      expect(CONTEXT_DROP_ORDER[key]).toBeDefined()
-    }
-    expect(Object.keys(CONTEXT_DROP_ORDER)).toHaveLength(TRIM_FIELDS_SNAPSHOT.length)
-    expect(engineSrc).toContain("techniqueBlocks")
+  it("RV-004/RV-014: trim fields 表与 CONTEXT_DROP_ORDER 键序逐位一致（§GAP-103(f) 漂移护栏）", () => {
+    // 有序断言：顺序承载 drop 优先级，重排即红（RV-013）。快照为 spec 内独立字面量（RV-019 非空洞）。
+    const ordered = Object.keys(CONTEXT_DROP_ORDER).sort((a, b) => CONTEXT_DROP_ORDER[a]! - CONTEXT_DROP_ORDER[b]!)
+    expect(TRIM_FIELDS_SNAPSHOT).toEqual(ordered)
   })
 })
 
