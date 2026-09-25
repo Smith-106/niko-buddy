@@ -100,7 +100,7 @@ console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
 // RV-24-05：卫生违例 ⇒ ENV-FAULT(2)（见文件头 taxonomy 第四类），不是 FAIL。
 // 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
 try {
-  const after = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()
+  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim() // RV-29-06：显式 maxBuffer（默认 1MB；大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）
   if (after !== "") {
     console.error(`ALL-ENV-FAULT: post-run tree not clean (hygiene):\n${after}`)
     process.exit(2)
