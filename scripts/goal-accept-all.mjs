@@ -6,6 +6,11 @@
 //   永不因“账本缺失”读出 PASS（RV-155 静默放行窗口关闭）。
 // RV-158 全量映射：0=pass；1=断言失败；2=环境故障；124/126/127/130/137/143/信号终止 ⇒ ENV-FAULT(2)；
 //   3 及其他未列出非零 ⇒ ENV-FAULT 兜底（fail-safe：未知 ⇒ 环境问题，绝不降级为普通 FAIL，更不为 PASS）。
+// RV-23-03 taxonomy（成文）：FAIL(1) 仅保留给子脚本断言失败；一切调用/配置/账本 degenerate
+//   （want 为空、STEPS/EXPECTED_IDS 失配、states 缺键/空/未知态）⇒ ENV-FAULT(2)，fail-closed，永不进 FAIL。
+// RV-23-06 调用契约：want 非空；新增脚本必须同步 EXPECTED_IDS，否则按失配 fail-closed（F5 为凭）。
+// RV-23-09 残余登记：残留 execSync 均为固定字面量（插值注入已闭合）；真实残余 = 经 PATH 解析 git 二进制
+//   （与 node 本体同信任域，接受）；cwd 相对路径漂移只会使命令非零 ⇒ ENV-FAULT（fail-closed，无静默风险）。
 import { spawnSync, execSync } from "node:child_process"
 
 const STEPS = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]
