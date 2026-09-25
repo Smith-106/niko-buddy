@@ -2831,7 +2831,9 @@ function charsPerTokenOfPack(pack: ContextPack): number {
   if (text.length === 0) return 4
   const cjkCount = (text.match(/[\u3400-\u9FFF]/g) ?? []).length
   const cjkRatio = cjkCount / text.length
-  return 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
+  const ratio = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
+  // RV-014：退化输入兜底 — 非有限/非正比率回退纯 ASCII 口径（4），杜绝 NaN 归一化。
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 4
 }
 
 export function trimContextPack(

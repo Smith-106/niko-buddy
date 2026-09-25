@@ -175,6 +175,13 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(byTokens.removed.length).toBeLessThanOrEqual(byChars.removed.length)
   })
 
+  it("RV-014 退化输入：空包 tokens 归一化不产生 NaN（回退 ASCII 口径）", () => {
+    const pack = {} as unknown as ContextPack
+    const out = trimContextPack(pack, 5_000, { budgetUnit: "tokens" })
+    expect(out.removed).toEqual([])
+    expect(out.originalChars).toBe(JSON.stringify(pack).length)
+  })
+
   it("excludeOutline=false：prompt 含 outline", () => {
     const pack = packWithOutline()
     expect(trimContextPack(pack, 10_000_000, { excludeOutline: false }).prompt).toContain(
