@@ -51,7 +51,7 @@ function safeRm(target) {
 }
 // RV-25-07 起止一致：HEAD 采样 helper（失败返回 unresolved，不抛 — 避免采样本身炸掉主流程）。
 function safeHead() {
-  try { return execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8" }).trim() } catch { return "(unresolved)" }
+  try { return execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 60000 }).trim() } catch { return "(unresolved)" }
 }
 let failures = []
 const executed = [] // RV-24-02：实际执行集 — 终态必须与声明清单 MANIFEST 双向相等
@@ -92,7 +92,7 @@ const CRASH_MARKS = ["node:internal", "SyntaxError", "ReferenceError", "TypeErro
 // 注意：git 的 "fatal:" 走 stderr 是探针合法输出（F1 树注入必然触发），不属 Node 崩溃，不列入哨兵。
 function noCrash(out) { return !CRASH_MARKS.some((m) => out.includes(m)) }
 function run(cmd, args) {
-  return spawnSync(cmd, args, { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 })
+  return spawnSync(cmd, args, { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-38-11 timeout（超时 kill→signal→ENV-FAULT，永不挂起门禁）
 }
 // Fixture 构造器：从生产 wrapper 复制并改写 STEPS/EXPECTED_IDS/spawn 路径；
 // keepPostRun=true 时保留尾部 RV-21-10 运行后断言（F7 专用），否则截掉。
@@ -131,12 +131,12 @@ try {
   // RV-24-08 正向证据：initiator（node 二进制绝对路径 + cwd + git 解析路径）回显并断言。
   console.log(`INIT node=${process.execPath} cwd=${process.cwd()}`)
   let gitPath = ""
-  try { gitPath = execFileSync("where", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0].trim() } catch { gitPath = "" }
+  try { gitPath = execFileSync("where", ["git"], { encoding: "utf8", timeout: 60000 }).split(/\r?\n/)[0].trim() } catch { gitPath = "" }
   console.log(`INIT git=${gitPath || "(unresolved)"}`)
   check("INIT-toolchain", process.execPath !== "" && gitPath !== "" && existsSync("QMAI/scripts/goal-accept-all.mjs"), "toolchain/cwd unresolved")
 
   // F1：树哈希注入 r1r2 — RV-21-02 固化（期望 exit=1 + FAIL + states fail，非 ENV-FAULT）。
-  const tree = execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim()
+  const tree = execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD^{tree}"], { encoding: "utf8", timeout: 60000 }).trim()
   copyFileSync("QMAI/scripts/goal-accept-r1r2.mjs", `${DIR}/f1.mjs`)
   let f1 = readFileSync(`${DIR}/f1.mjs`, "utf8")
   f1 = f1.replace('"a741863a", "86862911"', `"${tree}", "86862911"`)
@@ -222,7 +222,7 @@ try {
 
   // F7：POST-RUN 时序反证 — 运行后树脏 ⇒ ENV-FAULT exit 2（RV-23-04；证明该分支存活；
   // RV-24-05：卫生违例归 ENV-FAULT，使 `exit 1 ⇔ 断言失败` 成为机检不变量）。
-  execFileSync("git", ["init", "-q", DIRTY], { encoding: "utf8" })
+  execFileSync("git", ["init", "-q", DIRTY], { encoding: "utf8", timeout: 60000 })
   writeFileSync(`${DIRTY}/dirty.txt`, "uncommitted\n")
   copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f7.mjs`)
   let w7 = makeWrapper(["f7.mjs"], { "f7.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] }, true)
@@ -243,7 +243,7 @@ try {
     'ok("r3-gaps", "R3 8-gap symbols all present in product code")\nif (process.env.NEGPROBE_CRASH === "1" /* F10 阳性对照 */) { nonexistentFn_xyz() }')
   writeFileSync(`${DIR}/f10.mjs`, f10)
   if (!f10.includes("NEGPROBE_CRASH")) throw new Error("F10 anchor missed: ok-line drifted")
-  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
+  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
   const out10 = (r10.stdout ?? "") + (r10.stderr ?? "")
   check("F10-exit2", r10.status === 2, `status=${r10.status}`)
   // 注：fixture 内崩溃发生在子脚本 try 块内 → 走 ENV-FAULT 分支（非 uncaught handler，

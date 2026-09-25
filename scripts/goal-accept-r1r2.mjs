@@ -56,7 +56,7 @@ try {
 // 注意：execSync 走 shell（Windows cmd 会吞 `^`），故用 execFileSync 绕过 shell（RV-204 实证教训）。
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
   try {
-    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8" })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000 })
   } catch {
     fail("r1-8gap", "missing commit " + c)
   }
@@ -65,7 +65,7 @@ ok("r1-8gap", "R1 commits present (8-gap chain + evidence)")
 // RV-146 内容寻址主门控：历史重写（rebase/squash/force-push）改变位置不改变祖先关系时仍可检出。
 let ancestryOk = true
 try {
-  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }) // RV-31-07 统一：空输出但零成本统一防御
+  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-31-07 统一 + RV-38-11 timeout（超时→catch→FAIL ancestry，fail-closed）
 } catch {
   ancestryOk = false
   fail("r1-ancestry", "a741863a not ancestor of HEAD (history rewritten?)")
@@ -73,13 +73,13 @@ try {
 if (ancestryOk) ok("r1-ancestry", "R1 baseline ancestry intact (content-addressed, RV-146)")
 for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
   try {
-    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8" })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000 })
   } catch {
     fail("r1-newchain", "missing commit " + c)
   }
 }
 ok("r1-newchain", "R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
-const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）
+const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）+ RV-38-11 timeout
 // OBS-33-E2 前提显式化：status 已 .trim()（见上行），判空 !== ""（locale/CRLF 安全）；若改为全等比较须处理 \r。
 if (status !== "") fail("r1-cleantree", "dirty tree:\n" + status)
 ok("r1-cleantree", "R1 tree clean")

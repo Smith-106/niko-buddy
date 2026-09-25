@@ -79,7 +79,7 @@ function classify(res, step) {
 }
 
 for (const step of STEPS) {
-  const res = spawnSync(process.execPath, [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 }) // RV-27-02(process.execPath 钉解释器)/RV-27-06(maxBuffer 防 ENOBUFS 截断哨兵)
+  const res = spawnSync(process.execPath, [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-27-02(process.execPath 钉解释器)/RV-27-06(maxBuffer 防 ENOBUFS 截断哨兵)/RV-38-11(timeout 60s：超时 kill→signal→ENV-FAULT，永不挂起门禁)
   process.stdout.write(res.stdout ?? "")
   process.stderr.write(res.stderr ?? "")
   const c = classify(res, step)
@@ -100,7 +100,7 @@ console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
 // RV-24-05：卫生违例 ⇒ ENV-FAULT(2)（见文件头 taxonomy 第四类），不是 FAIL。
 // 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
 try {
-  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-31-08 显式禁 pager + RV-29-06 显式 maxBuffer（大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）
+  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-31-08 显式禁 pager + RV-29-06 显式 maxBuffer（大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）+ RV-38-11 timeout
   if (after !== "") {
     console.error(`ALL-ENV-FAULT: post-run tree not clean (hygiene):\n${after}`)
     process.exit(2)
