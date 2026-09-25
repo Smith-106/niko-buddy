@@ -28,7 +28,7 @@ function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail");
 function ok(id, msg) { if (finalized) { failures.push(`${id}: write-after-finalize`); console.error(`FAIL [${id}]: write after ledger freeze (RV-25-01)`); return }; if (states.get(id) === "fail") { console.log(`INFO [${id}]: ${msg} (superseded by FAIL; non-acceptance)`); return }; states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
-  console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? (e.stack || e.message) : String(e)))
+  console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? ((e.stack || e.message).split("\n")[0]) : String(e)))
   process.exit(2)
 })
 // RV-27-02：unhandledRejection 同理（Node>=15 默认 exit 1，无 stderr 标记）— 同映射为 ENV-FAULT。
@@ -36,7 +36,7 @@ process.on("uncaughtException", (e) => {
 // 无假阴性放行：ENV-FAULT 下游 exit 2 中止（非 PASS），错误信息随 headline 输出供人工复核。
 // try 内同步逻辑错误走 fail()（断言失败 exit 1），不经过此通道。
 process.on("unhandledRejection", (e) => {
-  console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? (e.stack || e.message) : String(e)))
+  console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? ((e.stack || e.message).split("\n")[0]) : String(e)))
   process.exit(2)
 })
 
