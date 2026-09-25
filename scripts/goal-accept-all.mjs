@@ -6,7 +6,7 @@
 //   永不因“账本缺失”读出 PASS（RV-155 静默放行窗口关闭）。
 // RV-158 全量映射：0=pass；1=断言失败；2=环境故障；124/126/127/130/137/143/信号终止 ⇒ ENV-FAULT(2)；
 //   3 及其他未列出非零 ⇒ ENV-FAULT 兜底（fail-safe：未知 ⇒ 环境问题，绝不降级为普通 FAIL，更不为 PASS）。
-import { spawnSync } from "node:child_process"
+import { spawnSync, execSync } from "node:child_process"
 
 const STEPS = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]
 // RV-201：裁决量化在期望 id 集上（非 states 键集）— 缺键即拒，杜绝存在性谓词真空通过。
@@ -30,9 +30,12 @@ function classify(res, step) {
     // RV-151/RV-157 三值账本：states 机读终态 — 任一 fail 即 FAIL（一等结局），任一 env 即 ENV-FAULT。
     if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS states missing (ledger required)` }
     const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
-    // RV-201：期望集 ⊆ 键集 — 缺项即拒（存在性谓词替换为全称量化）。
-    // RV-21-07：严格双向集合比较 — missing 与 unexpected 同时列出（防期望集同义反复/键扩充误报）。
+    // RV-22-01：退化空集前置 — 两侧集合均为空时判 FAIL（非 PASS）。解析失败永不回退为 {}（无 try 包裹）。
+    // RV-201/RV-21-07：严格双向集合比较 — missing 与 unexpected 同时列出。
     const want = EXPECTED_IDS[step] ?? []
+    if (want.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: EXPECTED_IDS empty (degenerate; refuse)` }
+    const gotKeys = Object.keys(st)
+    if (gotKeys.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states empty (degenerate A=B=∅; refuse)` }
     const missing = want.filter((id) => !(id in st))
     const unexpected = Object.keys(st).filter((id) => !want.includes(id))
     if (missing.length > 0 || unexpected.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states key mismatch — missing [${missing.join(",")}] unexpected [${unexpected.join(",")}]` }
@@ -69,3 +72,16 @@ for (const step of STEPS) {
   }
 }
 console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
+// RV-21-10 运行后状态断言：验收脚本自身不写文件 — 运行后工作树必须仍干净（可重入性）。
+// 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
+try {
+  const after = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()
+  if (after !== "") {
+    console.error(`ALL-FAIL: post-run tree not clean:\n${after}`)
+    process.exit(1)
+  }
+  console.log("POST-RUN tree clean (re-entrant, RV-21-10)")
+} catch (e) {
+  console.error("ALL-ENV-FAULT: post-run cleanliness check failed: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+}
