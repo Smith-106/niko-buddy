@@ -51,7 +51,7 @@ function safeRm(target) {
 }
 // RV-25-07 起止一致：HEAD 采样 helper（失败返回 unresolved，不抛 — 避免采样本身炸掉主流程）。
 function safeHead() {
-  try { return execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 60000 }).trim() } catch { return "(unresolved)" }
+  try { return execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" }).trim() } catch { return "(unresolved)" }
 }
 let failures = []
 const executed = [] // RV-24-02：实际执行集 — 终态必须与声明清单 MANIFEST 双向相等
@@ -81,6 +81,7 @@ const MANIFEST = [
   "F13-exit2", "F13-signal",
   "F14-exit2", "F14-uncaught",
   "F14b-exit2", "F14b-unhandled",
+  "F16-signal", "F16-status-null", "F16-wrapper-exit2",
   "F15-saferefuse",
   "BASELINE-head",
   "SELF-bound",
@@ -92,7 +93,7 @@ const CRASH_MARKS = ["node:internal", "SyntaxError", "ReferenceError", "TypeErro
 // 注意：git 的 "fatal:" 走 stderr 是探针合法输出（F1 树注入必然触发），不属 Node 崩溃，不列入哨兵。
 function noCrash(out) { return !CRASH_MARKS.some((m) => out.includes(m)) }
 function run(cmd, args) {
-  return spawnSync(cmd, args, { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-38-11 timeout（超时 kill→signal→ENV-FAULT，永不挂起门禁）
+  return spawnSync(cmd, args, { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL" }) // RV-38-11 timeout（超时 kill→signal→ENV-FAULT，永不挂起门禁）
 }
 // Fixture 构造器：从生产 wrapper 复制并改写 STEPS/EXPECTED_IDS/spawn 路径；
 // keepPostRun=true 时保留尾部 RV-21-10 运行后断言（F7 专用），否则截掉。
@@ -131,12 +132,12 @@ try {
   // RV-24-08 正向证据：initiator（node 二进制绝对路径 + cwd + git 解析路径）回显并断言。
   console.log(`INIT node=${process.execPath} cwd=${process.cwd()}`)
   let gitPath = ""
-  try { gitPath = execFileSync("where", ["git"], { encoding: "utf8", timeout: 60000 }).split(/\r?\n/)[0].trim() } catch { gitPath = "" }
+  try { gitPath = execFileSync("where", ["git"], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" }).split(/\r?\n/)[0].trim() } catch { gitPath = "" }
   console.log(`INIT git=${gitPath || "(unresolved)"}`)
   check("INIT-toolchain", process.execPath !== "" && gitPath !== "" && existsSync("QMAI/scripts/goal-accept-all.mjs"), "toolchain/cwd unresolved")
 
   // F1：树哈希注入 r1r2 — RV-21-02 固化（期望 exit=1 + FAIL + states fail，非 ENV-FAULT）。
-  const tree = execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD^{tree}"], { encoding: "utf8", timeout: 60000 }).trim()
+  const tree = execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD^{tree}"], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" }).trim()
   copyFileSync("QMAI/scripts/goal-accept-r1r2.mjs", `${DIR}/f1.mjs`)
   let f1 = readFileSync(`${DIR}/f1.mjs`, "utf8")
   f1 = f1.replace('"a741863a", "86862911"', `"${tree}", "86862911"`)
@@ -222,7 +223,7 @@ try {
 
   // F7：POST-RUN 时序反证 — 运行后树脏 ⇒ ENV-FAULT exit 2（RV-23-04；证明该分支存活；
   // RV-24-05：卫生违例归 ENV-FAULT，使 `exit 1 ⇔ 断言失败` 成为机检不变量）。
-  execFileSync("git", ["init", "-q", DIRTY], { encoding: "utf8", timeout: 60000 })
+  execFileSync("git", ["init", "-q", DIRTY], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" })
   writeFileSync(`${DIRTY}/dirty.txt`, "uncommitted\n")
   copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f7.mjs`)
   let w7 = makeWrapper(["f7.mjs"], { "f7.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] }, true)
@@ -243,7 +244,7 @@ try {
     'ok("r3-gaps", "R3 8-gap symbols all present in product code")\nif (process.env.NEGPROBE_CRASH === "1" /* F10 阳性对照 */) { nonexistentFn_xyz() }')
   writeFileSync(`${DIR}/f10.mjs`, f10)
   if (!f10.includes("NEGPROBE_CRASH")) throw new Error("F10 anchor missed: ok-line drifted")
-  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
+  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL", env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
   const out10 = (r10.stdout ?? "") + (r10.stderr ?? "")
   check("F10-exit2", r10.status === 2, `status=${r10.status}`)
   // 注：fixture 内崩溃发生在子脚本 try 块内 → 走 ENV-FAULT 分支（非 uncaught handler，
@@ -278,8 +279,8 @@ try {
   check("F12-no-fork-misfire", out12.includes("FAIL [r1-cleantree]") && !out12.includes("text/ledger fork") && noCrash(out12), "legit-fail misfired as fork / missing cleantree FAIL")
 
   // F13：exitmap 兜底阳性对照（RV-26-03）— 未列出非零 exit 3 → [det=exitmap] → ENV-FAULT exit 2。
-  // 注：signal 分支（[det=signal]）在 Windows 不可达（SIGTERM 自杀落为 exit 1 无信号名，
-  // 平台限制）；signal 语义由 classify 代码分支 + POSIX CI 覆盖，本机以 exitmap 为代表。
+  // 注：signal 分支（[det=signal]）由 F16（RV-40C-01）经 timeout kill 在 win32 实测覆盖；
+  // SIGTERM 自杀在 Windows 落为 exit 1 无信号名（平台限制），signal 语义以 F16 超时 kill 为代表。
   writeFileSync(`${DIR}/f13.mjs`, 'process.exit(3);\n')
   writeFileSync(`${DIR}/w13.mjs`, makeWrapper(["f13.mjs"], { "f13.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] }))
   const r13 = run("node", [`${DIR}/w13.mjs`])
@@ -308,6 +309,23 @@ try {
   const out14b = (r14b.stdout ?? "") + (r14b.stderr ?? "")
   check("F14b-exit2", r14b.status === 2, `status=${r14b.status}`)
   check("F14b-unhandled", out14b.includes("ENV-FAULT: unhandledRejection") && out14b.includes("unhandled rejection") && noCrash(out14b), "unhandledRejection ENV-FAULT absent / misclassified")
+
+  // F16：timeout/signal 阳性对照（RV-40C-01）— 超时 kill 的可观测形态 status===null + signal 非 null
+  // 必须被识别为 ENV-FAULT（经 wrapper classify [det=signal] → exit 2），不得落入未知默认或 PASS。
+  // 注：短 timeout（200ms）+ sleep 5s，fixture 自身 deterministic；win32 上 kill 经 TerminateProcess，signal 记 SIGTERM。
+  writeFileSync(`${DIR}/f16.mjs`, 'setTimeout(() => {}, 5000);\n')
+  const r16raw = spawnSync("node", [`${DIR}/f16.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 200, killSignal: "SIGKILL" })
+  check("F16-signal", r16raw.signal !== null, `signal=${r16raw.signal} status=${r16raw.status}`)
+  check("F16-status-null", r16raw.status === null, `status=${r16raw.status} signal=${r16raw.signal}`)
+  // F16b：wrapper 层 [det=signal] 分类 — wrapper 副本 spawn 超时压至 200ms（首个 timeout 命中即步骤 spawn 行；
+  // post-run 行保持 60s），步骤被 kill → classify [det=signal] → ENV-FAULT exit 2。
+  let w16 = makeWrapper(["f16.mjs"], { "f16.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] })
+  w16 = w16.replace("timeout: 60000, killSignal", "timeout: 200, killSignal")
+  writeFileSync(`${DIR}/w16.mjs`, w16)
+  if (!w16.includes("timeout: 200, killSignal")) throw new Error("F16 anchor missed: wrapper spawn timeout not redirected")
+  const r16 = run("node", [`${DIR}/w16.mjs`])
+  const out16 = (r16.stdout ?? "") + (r16.stderr ?? "")
+  check("F16-wrapper-exit2", r16.status === 2 && out16.includes("[det=signal]"), `status=${r16.status}`)
 
   // RV-26-05：基线身份绑定 — NEGPROBE_EXPECT_HEAD 已设时 START_HEAD 必须等于期望基线
   // （错基线全绿拦截）。RV-27-11："已设" = 变量存在（`in` 语义）；存在但 trim 为空
@@ -416,6 +434,11 @@ if (JSON.stringify(execSet) !== JSON.stringify(manSet)) {
 // RV-24-10 证据绑定 + RV-25-07 起止一致：HEAD 起止采样必须相等（运行中树变更即 ENV-FAULT）；
 // 期望 HEAD 由外部钉住比对（产物只输出，不自证）。
 const headSha = safeHead()
+// RV-40C-03：unresolved 永不空过 — 任一端采样失败即 ENV-FAULT（unresolved===unresolved 不得通过）。
+if (START_HEAD === "(unresolved)" || headSha === "(unresolved)") {
+  console.error(`NEG-ENV-FAULT: HEAD unresolved (baseline anchor unavailable) — start ${START_HEAD} end ${headSha}`)
+  process.exit(2)
+}
 if (START_HEAD !== headSha) {
   console.error(`NEG-ENV-FAULT: HEAD moved during run — start ${START_HEAD} end ${headSha}`)
   process.exit(2)

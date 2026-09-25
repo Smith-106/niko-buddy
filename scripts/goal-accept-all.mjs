@@ -53,6 +53,10 @@ function classify(res, step) {
     // RV-151/RV-157 三值账本：states 机读终态 — 任一 fail 即 FAIL（一等结局），任一 env 即 ENV-FAULT。
     if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] CHECKS states missing (ledger required)` }
     const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
+    // RV-40A-03：拒绝重复键（后写覆盖掩蔽fail）与多余冒号分段（宽松接受畸形账本）— 账本须为严格 id:state 对。
+    const segs = m[4].split(",")
+    if (new Set(segs.map((kv) => kv.split(":")[0])).size !== segs.length) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states has duplicate keys (last-wins refused)` }
+    if (segs.some((kv) => kv.split(":").length !== 2)) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states has malformed segment (expected id:state)` }
     // RV-22-01：退化空集前置 — 两侧集合均为空时判 FAIL（非 PASS）。解析失败永不回退为 {}（无 try 包裹）。
     // RV-201/RV-21-07：严格双向集合比较 — missing 与 unexpected 同时列出。
     const want = EXPECTED_IDS[step] ?? []
@@ -79,7 +83,7 @@ function classify(res, step) {
 }
 
 for (const step of STEPS) {
-  const res = spawnSync(process.execPath, [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-27-02(process.execPath 钉解释器)/RV-27-06(maxBuffer 防 ENOBUFS 截断哨兵)/RV-38-11(timeout 60s：超时 kill→signal→ENV-FAULT，永不挂起门禁)
+  const res = spawnSync(process.execPath, [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL" }) // RV-27-02(process.execPath 钉解释器)/RV-27-06(maxBuffer 防 ENOBUFS 截断哨兵)/RV-38-11(timeout 60s：超时 kill→signal→ENV-FAULT，永不挂起门禁)
   process.stdout.write(res.stdout ?? "")
   process.stderr.write(res.stderr ?? "")
   const c = classify(res, step)
@@ -94,13 +98,13 @@ for (const step of STEPS) {
     process.exit(1)
   }
 }
-console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
+// RV-40A-04：卫生检查先于 PASS 横幅 — grep消费者先见横幅后见exit 2会被误导；顺序改为卫生→横幅。
 // RV-21-10 运行后状态断言：验收脚本自身不写文件 — 运行后工作树必须仍干净（可重入性）。
 // OBS-33-E2 前提显式化：after 恒 .trim() 后判空（!== ""，locale/CRLF/尾空安全）；若改为全等内容比较须同步处理 \r（RV-30-08）。
 // RV-24-05：卫生违例 ⇒ ENV-FAULT(2)（见文件头 taxonomy 第四类），不是 FAIL。
 // 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
 try {
-  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-31-08 显式禁 pager + RV-29-06 显式 maxBuffer（大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）+ RV-38-11 timeout
+  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL", env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-31-08 显式禁 pager + RV-29-06 显式 maxBuffer（大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）+ RV-38-11 timeout
   if (after !== "") {
     console.error(`ALL-ENV-FAULT: post-run tree not clean (hygiene):\n${after}`)
     process.exit(2)
@@ -110,3 +114,4 @@ try {
   console.error("ALL-ENV-FAULT: post-run cleanliness check failed: " + (e instanceof Error ? e.message : String(e)))
   process.exit(2)
 }
+console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny, post-run clean)")

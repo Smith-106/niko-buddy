@@ -5,7 +5,6 @@
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行。
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 3 // R3 + R3b + R4（RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
@@ -16,6 +15,7 @@ let finalized = false
 // RV-151/RV-157 三值账本：每项 (check_id → state∈{pass,fail}) 机读记录；FAIL 为一等结局。
 const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r3-gaps", "r3b-fixes", "r4-reeval"]
+const EXPECTED_CHECKS = EXPECTED_CHECK_IDS.length // R3 + R3b + R4（RV-40B-07 单源派生：增删检查时只改 id 清单）
 function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
 // RV-205/RV-157：first-fail-wins — 已 fail 的 id 后续 ok() 不得再打印 PASS 行（文本与机读一致），
 // 记 INFO 降级行，避免文本消费者误读。
@@ -50,7 +50,15 @@ function mustContain(id, file, syms) {
     // RV-144 按路径作用域：IO 异常是环境故障而非断言失败 — 抛给外层 ENV-FAULT 裁决。
     throw new Error(`read ${file}: ` + (e instanceof Error ? e.message : String(e)))
   }
-  for (const s of syms) if (!t.includes(s)) fail(id, file + " lacks " + s)
+  // RV-40B-10：词边界匹配 — 纯 ASCII 标识符用词边界正则（防 excludeOutlineLegacy 类前缀误命中）；
+  // 中文 marker/含非词字符的符号保持子串匹配。
+  for (const s of syms) {
+    const asciiIdent = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(s)
+    const hit = asciiIdent
+      ? new RegExp(`(?<![A-Za-z0-9_$])${s.replace(/[$]/g, "\\$")}(?![A-Za-z0-9_$])`).test(t)
+      : t.includes(s)
+    if (!hit) fail(id, file + " lacks " + s)
+  }
 }
 
 // R3: every gap lands in product code (no parallel implementations).
@@ -84,8 +92,8 @@ mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-90-reeval-closure.md",
 mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
 mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
 ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")
-if (failures.length === 0) {
-  // RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。
+// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行。
+{
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r3-gaps", `check-id set mismatch: got [${got}] want [${want}]`)

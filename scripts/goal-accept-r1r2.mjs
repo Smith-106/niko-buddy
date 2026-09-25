@@ -11,7 +11,6 @@
 import { execSync, execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 6 // R1×5（含 RV-146 祖先断言）+ R2×1（RV-147/RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
@@ -23,6 +22,7 @@ let finalized = false
 // 不再是 informational 文本。降级须带类型标记（见下方 ENV-FAULT 终态改写）。
 const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r1-8gap", "r1-ancestry", "r1-newchain", "r1-cleantree", "r1-evdocs", "r2-reports"]
+const EXPECTED_CHECKS = EXPECTED_CHECK_IDS.length // R1×5（含 RV-146 祖先断言）+ R2×1（RV-40B-07 单源派生：增删检查时只改 id 清单）
 function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
 // RV-205/RV-157：first-fail-wins — 已 fail 的 id 后续 ok() 不得再打印 PASS 行（文本与机读一致），
 // 记 INFO 降级行，避免文本消费者误读。
@@ -56,7 +56,7 @@ try {
 // 注意：execSync 走 shell（Windows cmd 会吞 `^`），故用 execFileSync 绕过 shell（RV-204 实证教训）。
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
   try {
-    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000 })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" })
   } catch {
     fail("r1-8gap", "missing commit " + c)
   }
@@ -65,7 +65,7 @@ ok("r1-8gap", "R1 commits present (8-gap chain + evidence)")
 // RV-146 内容寻址主门控：历史重写（rebase/squash/force-push）改变位置不改变祖先关系时仍可检出。
 let ancestryOk = true
 try {
-  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000 }) // RV-31-07 统一 + RV-38-11 timeout（超时→catch→FAIL ancestry，fail-closed）
+  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL" }) // RV-31-07 统一 + RV-38-11 timeout（超时→catch→FAIL ancestry，fail-closed）
 } catch {
   ancestryOk = false
   fail("r1-ancestry", "a741863a not ancestor of HEAD (history rewritten?)")
@@ -73,13 +73,13 @@ try {
 if (ancestryOk) ok("r1-ancestry", "R1 baseline ancestry intact (content-addressed, RV-146)")
 for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
   try {
-    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000 })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" })
   } catch {
     fail("r1-newchain", "missing commit " + c)
   }
 }
 ok("r1-newchain", "R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
-const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）+ RV-38-11 timeout
+const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 60000, killSignal: "SIGKILL", env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）+ RV-38-11 timeout + RV-40A-01（env 整体替换改合并：子进程须继承 PATH/SystemRoot，与 all.mjs:103 一致）
 // OBS-33-E2 前提显式化：status 已 .trim()（见上行），判空 !== ""（locale/CRLF 安全）；若改为全等比较须处理 \r。
 if (status !== "") fail("r1-cleantree", "dirty tree:\n" + status)
 ok("r1-cleantree", "R1 tree clean")
@@ -106,8 +106,9 @@ for (const [p, markers] of R2) {
   for (const m of markers) if (!t.includes(m)) fail("r2-reports", p + " lacks marker " + m)
 }
 ok("r2-reports", "R2 all 4 reference reports present with baseline markers")
-if (failures.length === 0) {
-  // RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式，非基数相等。
+// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行（失败运行时覆盖度缺陷同样暴露；
+// 有失败时集合必不等→fail()追加，分类仍为 FAIL，不改变退出语义）。
+{
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r1-8gap", `check-id set mismatch: got [${got}] want [${want}]`)

@@ -5,7 +5,6 @@
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行。
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 5 // R5×3 + R6 + R7（RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
@@ -16,6 +15,7 @@ let finalized = false
 // RV-151/RV-157 三值账本：每项 (check_id → state∈{pass,fail}) 机读记录；FAIL 为一等结局。
 const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r5-artifact", "r5-buildlog", "r5-typecheck", "r6-mocks", "r7-comp"]
+const EXPECTED_CHECKS = EXPECTED_CHECK_IDS.length // R5×3 + R6 + R7（RV-40B-07 单源派生：增删检查时只改 id 清单）
 function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
 // RV-205/RV-157：first-fail-wins — 已 fail 的 id 后续 ok() 不得再打印 PASS 行（文本与机读一致），
 // 记 INFO 降级行，避免文本消费者误读。
@@ -42,7 +42,8 @@ process.on("unhandledRejection", (e) => {
 
 try {
 function read(id, p) {
-  if (!existsSync(p)) fail(id, "missing " + p)
+  // RV-40B-02：外部证据（C:/goal-evidence）缺失是环境故障非产品失败 — throw 走外层 ENV-FAULT，不记 FAIL。
+  if (!existsSync(p)) throw new Error(`evidence missing (ENV-FAULT, not product FAIL): ${p}`)
   try {
     return readFileSync(p, "utf8")
   } catch (e) {
@@ -89,8 +90,8 @@ for (const m of ["COMP_FAIL=0", "75 passed"]) {
 if (!comp.includes("3055 passed") && !(comp.includes("2980 passed") && comp.includes("176 passed"))) fail("r7-comp", "comp log lacks 3055 (or 2980+176 split) passed")
 noFailLines("r7-comp", comp, "comp")
 ok("r7-comp", "R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
-if (failures.length === 0) {
-  // RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。
+// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行。
+{
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r5-artifact", `check-id set mismatch: got [${got}] want [${want}]`)
