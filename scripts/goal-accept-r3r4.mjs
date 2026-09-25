@@ -1,10 +1,21 @@
 // goal-accept-r3r4.mjs — R3 (8-gap symbols in product code) + R4 (re-eval docs).
 // Run from workspace root: node QMAI/scripts/goal-accept-r3r4.mjs
-// ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — IO 异常即非零退出，禁止 default-to-pass。
+// ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — 禁止 default-to-pass。
+// RV-143 优先级：ENV-FAULT(2) 支配 FAIL(1)；RV-153：逃逸异常映射 ENV-FAULT。
+// RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行。
 import { existsSync, readFileSync } from "node:fs"
 
-function fail(msg) { console.error("FAIL: " + msg); process.exit(1) }
-function ok(msg) { console.log("PASS: " + msg) }
+const EXPECTED_CHECKS = 3 // R3 + R3b + R4（增删检查时同步更新）
+let failures = []
+let envFault = null
+let checksRun = 0
+function fail(msg) { failures.push(msg); console.error("FAIL: " + msg) }
+function ok(msg) { checksRun++; console.log("PASS: " + msg) }
+// RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
+process.on("uncaughtException", (e) => {
+  console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+})
 
 try {
 function mustContain(file, syms) {
@@ -44,9 +55,19 @@ mustContain("QMAI/docs/decision-log/20260924-90-reeval-closure.md", ["四维度�
 mustContain("QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
 mustContain("QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
 ok("R4 re-eval chain (#90 -> #91 -> #102) on file")
-console.log("ALL R3R4 PASS")
+if (failures.length === 0) {
+  if (checksRun !== EXPECTED_CHECKS) fail(`checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
+}
+if (failures.length === 0) console.log("ALL R3R4 PASS")
+console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS}`)
 } catch (e) {
-  // ENV-FAULT 哨兵：任何环境/通道异常（EPIPE、IO 失败）显式标记并以非零退出。
+  envFault = e
   console.error("ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))
+}
+// RV-143/RV-144：ENV-FAULT 支配 FAIL；故障前的 PASS 降级为非验收。
+if (envFault) {
+  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT)`)
+  console.error("INFO: any prior PASS lines above are non-acceptance (observed under later-proven-bad environment)")
   process.exit(2)
 }
+if (failures.length > 0) process.exit(1)
