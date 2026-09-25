@@ -10,6 +10,13 @@
 //   （want 为空、STEPS/EXPECTED_IDS 失配、states 缺键/空/未知态）⇒ ENV-FAULT(2)，fail-closed，永不进 FAIL。
 // RV-24-05 taxonomy 第四类 state/hygiene（成文）：运行环境卫生违例（运行后树脏、探针残留）
 //   ⇒ ENV-FAULT(2)，不是断言失败。`exit 1 ⇔ 子脚本断言失败` 为机检不变量（negprobe F7/F8 为凭）。
+// RV-25-05 契约表（独立声明，非实现快照）：类别 → 期望出口。taxonomy 改动必须同步改此表。
+//   assertion-fail → exit 1 ALL-FAIL            [行证据: F1/F2/F8/F8b/F8c/F9a/F9b/F11/F12]
+//   ledger-degenerate → exit 2 ENV-FAULT       [行证据: F3/F5]
+//   spawn/signal/unknown-exit → exit 2 ENV-FAULT [行证据: F4]
+//   hygiene → exit 2 ENV-FAULT                 [行证据: F7]
+//   crash → exit 2 ENV-FAULT (uncaught)        [行证据: F10]
+// negprobe 每个 fixture 即此表的行级证据；删任一行契约必须同步删/改对应 fixture（双向）。
 // RV-23-06 调用契约：want 非空；新增脚本必须同步 EXPECTED_IDS，否则按失配 fail-closed（F5 为凭）。
 // RV-23-09 残余登记：残留 execSync 均为固定字面量（插值注入已闭合）；真实残余 = 经 PATH 解析 git 二进制
 //   （与 node 本体同信任域，接受）；cwd 相对路径漂移只会使命令非零 ⇒ ENV-FAULT（fail-closed，无静默风险）。
@@ -25,39 +32,40 @@ const EXPECTED_IDS = {
 }
 // RV-158：信号名 → ENV-FAULT。spawnSync signal 非 null 即进程级死亡（RV-155 不覆盖脚本内映射）。
 function classify(res, step) {
-  if (res.error) return { cls: "ENV-FAULT", code: 2, why: `${step}: spawn error ${res.error.message}` }
-  if (res.signal) return { cls: "ENV-FAULT", code: 2, why: `${step}: terminated by signal ${res.signal}` }
+  if (res.error) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=spawn] spawn error ${res.error.message}` }
+  if (res.signal) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=signal] terminated by signal ${res.signal}` }
   const code = res.status ?? 2
   if (code === 0) {
     const out = (res.stdout ?? "") + (res.stderr ?? "")
     const m = out.match(/CHECKS run=(\d+) skipped=(\d+) expected=(\d+)(?: states=([^\s]*))?/)
-    if (!m) return { cls: "ENV-FAULT", code: 2, why: `${step}: exit 0 but CHECKS line missing/unparseable (default-deny)` }
-    if (m[2] !== "0") return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS skipped=${m[2]} without named exemption` }
-    if (m[1] !== m[3]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS run=${m[1]} != expected=${m[3]}` }
+    if (!m) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=checkline] exit 0 but CHECKS line missing/unparseable (default-deny)` }
+    if (m[2] !== "0") return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=checkline] CHECKS skipped=${m[2]} without named exemption` }
+    if (m[1] !== m[3]) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=checkline] CHECKS run=${m[1]} != expected=${m[3]}` }
     // RV-151/RV-157 三值账本：states 机读终态 — 任一 fail 即 FAIL（一等结局），任一 env 即 ENV-FAULT。
-    if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS states missing (ledger required)` }
+    if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] CHECKS states missing (ledger required)` }
     const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
     // RV-22-01：退化空集前置 — 两侧集合均为空时判 FAIL（非 PASS）。解析失败永不回退为 {}（无 try 包裹）。
     // RV-201/RV-21-07：严格双向集合比较 — missing 与 unexpected 同时列出。
     const want = EXPECTED_IDS[step] ?? []
-    if (want.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: EXPECTED_IDS empty (degenerate; refuse)` }
+    if (want.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] EXPECTED_IDS empty (degenerate; refuse)` }
     const gotKeys = Object.keys(st)
-    if (gotKeys.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states empty (degenerate A=B=∅; refuse)` }
+    if (gotKeys.length === 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states empty (degenerate A=B=∅; refuse)` }
     const missing = want.filter((id) => !(id in st))
     const unexpected = Object.keys(st).filter((id) => !want.includes(id))
-    if (missing.length > 0 || unexpected.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states key mismatch — missing [${missing.join(",")}] unexpected [${unexpected.join(",")}]` }
+    if (missing.length > 0 || unexpected.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states key mismatch — missing [${missing.join(",")}] unexpected [${unexpected.join(",")}]` }
     // RV-207 第三值合取规则（成文）：unexecuted（期望外键/未知态）⇒ 拒绝；显式豁免须登记理由（当前无豁免）。
     const unknown = Object.entries(st).filter(([, s]) => s !== "pass" && s !== "fail" && s !== "env")
-    if (unknown.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has unknown state: ${unknown.map(([id, s]) => `${id}=${s}`).join(",")}` }
+    if (unknown.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states has unknown state: ${unknown.map(([id, s]) => `${id}=${s}`).join(",")}` }
     const fails = Object.entries(st).filter(([, s]) => s === "fail")
     const envs = Object.entries(st).filter(([, s]) => s === "env")
-    if (envs.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has env: ${envs.map(([id]) => id).join(",")}` }
+    if (envs.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=ledger] states has env: ${envs.map(([id]) => id).join(",")}` }
     if (fails.length > 0) return { cls: "FAIL", code: 1, why: `${step}: states has fail: ${fails.map(([id]) => id).join(",")}` }
     return { cls: "PASS", code: 0, why: `${step}: exit 0 + CHECKS ${m[1]}/${m[3]} + states all pass` }
   }
   if (code === 1) return { cls: "FAIL", code: 1, why: `${step}: exit 1 (assertion failure)` }
   if (code === 2) return { cls: "ENV-FAULT", code: 2, why: `${step}: exit 2 (env fault)` }
   // RV-158：124/126/127/130/137/143 及其他未列出非零一律 ENV-FAULT 兜底。
+  // RV-25-04：[det=exitmap] 兜底类标签 — 与断言失败(exit 1)正交可区分。
   return { cls: "ENV-FAULT", code: 2, why: `${step}: exit ${code} (unlisted non-zero → ENV-FAULT fail-safe)` }
 }
 

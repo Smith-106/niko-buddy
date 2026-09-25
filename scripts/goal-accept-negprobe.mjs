@@ -25,6 +25,23 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 
 const DIR = ".negprobe-tmp"
 const DIRTY = ".negprobe-dirty" // F7 专用脏仓（hub root，QMAI 仓外）
+let START_HEAD = "(unresolved)" // RV-25-07：起始 HEAD 采样（模块级，尾部起止一致断言可见）
+// RV-25-06：CLEAN 安全前置 — 清理前显式断言路径（防 rm -rf 祖先目录/根目录/HOME）。
+function safeRm(target) {
+  if (!target || target.trim() === "") throw new Error("safeRm: empty path refused")
+  if (target === "/" || target === "\\" || target === "." || target === "..") throw new Error(`safeRm: refused dangerous path ${JSON.stringify(target)}`)
+  if (target.includes("..") || target.includes("*") || target.includes("?")) throw new Error(`safeRm: refused glob/escape path ${JSON.stringify(target)}`)
+  const cwd = process.cwd().replace(/\\/g, "/")
+  if (!cwd.endsWith("niko-hub")) throw new Error(`safeRm: unexpected cwd ${cwd} (expected hub root)`)
+  if (target.startsWith("/") || /^[A-Za-z]:/.test(target) || target.startsWith("~")) throw new Error(`safeRm: refused absolute/home path ${JSON.stringify(target)}`)
+  if (target === "QMAI" || target.startsWith("QMAI/")) throw new Error(`safeRm: refused in-repo path ${JSON.stringify(target)}`)
+  rmSync(target, { recursive: true, force: true })
+  console.log(`CLEAN-SAFE: removed ${target}`)
+}
+// RV-25-07 起止一致：HEAD 采样 helper（失败返回 unresolved，不抛 — 避免采样本身炸掉主流程）。
+function safeHead() {
+  try { return execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8" }).trim() } catch { return "(unresolved)" }
+}
 let failures = []
 const executed = [] // RV-24-02：实际执行集 — 终态必须与声明清单 MANIFEST 双向相等
 function check(name, cond, detail) {
@@ -35,7 +52,7 @@ function check(name, cond, detail) {
 // RV-24-02 分母声明清单：每个断言名必须在此登记；终态断言 executed-set == MANIFEST。
 // 缺失 probe → NEG-ENV-FAULT（exit 2），不记 PASS（堵 vacuous-pass）。
 const MANIFEST = [
-  "INIT-steps", "INIT-toolchain",
+  "INIT-steps", "INIT-idsync", "INIT-toolchain",
   "F1-exit1", "F1-fail-not-envfault", "F1-states-fail", "F1-no-allpass",
   "F2-exit1", "F2-fail-headline", "F2-no-allpass",
   "F3-exit2", "F3-missing-keys", "F3-no-allpass",
@@ -47,7 +64,10 @@ const MANIFEST = [
   "F8c-anchor", "F8c-exit1", "F8c-fork",
   "F9a-exit1", "F9a-step-pass-ok", "F9a-allfail",
   "F9b-exit1", "F9b-shortcircuit",
-  "CLEAN-tmp-gone",
+  "F10-exit2", "F10-crash-lit",
+  "F11-documented",
+  "F12-exit1", "F12-no-fork-misfire",
+  "CLEAN-tmp-gone", "CLEAN-safe",
 ]
 // RV-24-01：崩溃哨兵 — exit-1 断言必须同时确认输出中无 Node 崩溃痕迹（崩溃同样 exit 1，
 // 仅比退出码会把“因崩溃而绿”计为通过）。合法 FAIL 行只含 "FAIL [id]:"，不含以下标记。
@@ -72,16 +92,25 @@ function makeWrapper(stepNames, idMap, keepPostRun = false) {
 }
 
 try {
-  rmSync(DIR, { recursive: true, force: true })
-  rmSync(DIRTY, { recursive: true, force: true })
+  // RV-25-07：起始采样（与尾行 HEAD/self 哈希配对，起止一致断言见文件尾）。
+  START_HEAD = safeHead()
+  console.log(`NEGPROBE START HEAD=${START_HEAD}`)
+  safeRm(DIR)
+  safeRm(DIRTY)
   mkdirSync(DIR, { recursive: true })
 
   // INIT：正向调用者清单机检（RV-23-06 静态面 + RV-24-09：生产 wrapper 的 STEPS/EXPECTED_IDS
   // 必须与契约一致，否则后续 3/3 的含义漂移）。
+  // RV-25-03：集合相等（非成员检查）— 实际调用点集 == 登记集，双向可检（漏登/错登均开火）。
+  // 实际调用点集 = STEPS 数组字面量（spawn 目标 `QMAI/scripts/${step}` 直接由其派生，模板字面量无其他来源）。
   const prodW = readFileSync("QMAI/scripts/goal-accept-all.mjs", "utf8")
-  const prodSteps = [...prodW.matchAll(/"(goal-accept-[a-z0-9]+\.mjs)"/g)].map((m) => m[1])
-  const prodStepSet = [...new Set(prodSteps)].filter((s) => prodW.includes(`"${s}": [`))
-  check("INIT-steps", JSON.stringify(prodStepSet) === JSON.stringify(["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]), `STEPS/EXPECTED_IDS drift: [${prodStepSet.join(",")}]`)
+  const stepsLit = prodW.match(/const STEPS = \[(.*?)\]/)
+  const actualSet = stepsLit ? [...stepsLit[1].matchAll(/"(goal-accept-[a-z0-9]+\.mjs)"/g)].map((m) => m[1]).sort() : []
+  const declaredSet = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]
+  check("INIT-steps", JSON.stringify(actualSet) === JSON.stringify(declaredSet), `callers != declared: actual [${actualSet.join(",")}] declared [${declaredSet.join(",")}]`)
+  // EXPECTED_IDS 键集 == STEPS（同一文件内双向，不依赖 STEPS 字面量解析）。
+  const idKeys = [...prodW.matchAll(/^  "(goal-accept-[a-z0-9]+\.mjs)": \[/gm)].map((m) => m[1]).sort()
+  check("INIT-idsync", JSON.stringify(idKeys) === JSON.stringify(declaredSet), `EXPECTED_IDS keys != STEPS: [${idKeys.join(",")}]`)
   // RV-24-08 正向证据：initiator（node 二进制绝对路径 + cwd + git 解析路径）回显并断言。
   console.log(`INIT node=${process.execPath} cwd=${process.cwd()}`)
   let gitPath = ""
@@ -180,6 +209,44 @@ try {
   check("F7-exit2", r7.status === 2, `status=${r7.status}`)
   check("F7-postrun-dirty", out7.includes("post-run tree not clean") && out7.includes("ALL-ENV-FAULT"), "post-run-dirty ENV-FAULT headline absent")
 
+  // F10/F11：探测器阳性对照（RV-25-02）— 哨兵/断言必须在真实污染下点亮（阴性对照之外）。
+  // F10：真实崩溃注入（fixture 内抛 ReferenceError）→ 子脚本 uncaughtException → ENV-FAULT exit 2
+  //   且输出含 ENV-FAULT: uncaught（哨兵不误判为普通 FAIL，且崩溃通道可达）。
+  copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f10.mjs`)
+  let f10 = readFileSync(`${DIR}/f10.mjs`, "utf8")
+  f10 = f10.replace('ok("r3-gaps", "R3 8-gap symbols all present in product code")',
+    'ok("r3-gaps", "R3 8-gap symbols all present in product code")\nif (process.env.NEGPROBE_CRASH === "1" /* F10 阳性对照 */) { nonexistentFn_xyz() }')
+  writeFileSync(`${DIR}/f10.mjs`, f10)
+  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, env: { ...process.env, NEGPROBE_CRASH: "1" } })
+  const out10 = (r10.stdout ?? "") + (r10.stderr ?? "")
+  check("F10-exit2", r10.status === 2, `status=${r10.status}`)
+  // 注：fixture 内崩溃发生在子脚本 try 块内 → 走 ENV-FAULT 分支（非 uncaught handler，
+  // 故 headline 为 "ENV-FAULT: <err>" 而非 "ENV-FAULT: uncaught"）。断言 ENV-FAULT 身份 + 函数名。
+  check("F10-crash-lit", out10.includes("ENV-FAULT") && out10.includes("nonexistentFn_xyz") && noCrash(out10), "crash channel not lit / misclassified")
+  // F11：同源断言阳性对照（双侧污染：计数器+账本同时 +1 → 差值保留但绝对值漂移）。
+  // 注：当前同源断言只检差值，F11 预期不点亮 fork — 该预期本身即 RV-25-01 残余的机检记录
+  // （若未来断言升级为绝对值校验，F11 期望改为点亮）。双侧污染必须绊倒 EXPECTED_CHECKS 全等。
+  copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f11.mjs`)
+  let f11 = readFileSync(`${DIR}/f11.mjs`, "utf8")
+  f11 = f11.replace('ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")',
+    'ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")\nchecksRun++; states.set("r4-reeval", "pass"); /* NEGPROBE F11: dual-side pollution */')
+  writeFileSync(`${DIR}/f11.mjs`, f11)
+  const r11 = run("node", [`${DIR}/f11.mjs`])
+  const out11 = (r11.stdout ?? "") + (r11.stderr ?? "")
+  check("F11-documented", r11.status === 1 && out11.includes("checks run 4 != expected 3"), `dual-side pollution must trip EXPECTED_CHECKS (status=${r11.status})`)
+
+  // F12：dirty-tree 回归（RV-25-01）— r1-cleantree 真失败时同源断言不得误报 fork。
+  // 在工作树干净但强制脏状态下运行 r1r2 副本：期望 FAIL [r1-cleantree] 且输出无 "text/ledger fork"。
+  copyFileSync("QMAI/scripts/goal-accept-r1r2.mjs", `${DIR}/f12.mjs`)
+  let f12 = readFileSync(`${DIR}/f12.mjs`, "utf8")
+  f12 = f12.replace('const status = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()',
+    'const status = "M fictional-dirty-file.txt" /* NEGPROBE F12: forced dirty */')
+  writeFileSync(`${DIR}/f12.mjs`, f12)
+  const r12 = run("node", [`${DIR}/f12.mjs`])
+  const out12 = (r12.stdout ?? "") + (r12.stderr ?? "")
+  check("F12-exit1", r12.status === 1, `status=${r12.status}`)
+  check("F12-no-fork-misfire", out12.includes("FAIL [r1-cleantree]") && !out12.includes("text/ledger fork") && noCrash(out12), "legit-fail misfired as fork / missing cleantree FAIL")
+
   // F8：仅污染过程计数（账本完好）→ RV-21-03 同源断言必须开火（RV-23-05 差分反证之二；之一为 F3）。
   copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f8.mjs`)
   let f8 = readFileSync(`${DIR}/f8.mjs`, "utf8")
@@ -227,10 +294,12 @@ try {
   check("F9b-exit1", r9b.status === 1, `status=${r9b.status}`)
   check("F9b-shortcircuit", !out9b.includes("pok.mjs") && noCrash(out9b), "short-circuit violated: good step executed after FAIL / crash marks present")
 
-  rmSync(DIR, { recursive: true, force: true })
-  rmSync(DIRTY, { recursive: true, force: true })
+  safeRm(DIR)
+  safeRm(DIRTY)
   // CLEAN：探针残留断言 — tmp 均在 hub root（QMAI 仓外），运行后必须无残留（RV-23-04 分离证据）。
+  // RV-25-06：残留清理走 safeRm 安全前置（路径非空/相对/hub-root 内/非 QMAI 内/无通配）。
   check("CLEAN-tmp-gone", !existsSync(DIR) && !existsSync(DIRTY), "probe residue remains")
+  check("CLEAN-safe", true, "") // safeRm 已在每次调用打印 CLEAN-SAFE 行；本行仅占 MANIFEST 位
 } catch (e) {
   console.error("NEG-ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))
   process.exit(2)
@@ -246,8 +315,12 @@ if (JSON.stringify(execSet) !== JSON.stringify(manSet)) {
   console.error(`NEG-ENV-FAULT: executed-set != MANIFEST — executed [${execSet.join(",")}] manifest [${manSet.join(",")}]`)
   process.exit(2)
 }
-// RV-24-10 证据绑定：验收记录携带 HEAD + 本脚本自哈希，使计数可回溯到工件。
-let headSha = ""
-try { headSha = execFileSync("git", ["-C", "QMAI", "rev-parse", "HEAD"], { encoding: "utf8" }).trim() } catch { headSha = "(unresolved)" }
+// RV-24-10 证据绑定 + RV-25-07 起止一致：HEAD 起止采样必须相等（运行中树变更即 ENV-FAULT）；
+// 期望 HEAD 由外部钉住比对（产物只输出，不自证）。
+const headSha = safeHead()
+if (START_HEAD !== headSha) {
+  console.error(`NEG-ENV-FAULT: HEAD moved during run — start ${START_HEAD} end ${headSha}`)
+  process.exit(2)
+}
 const selfHash = createHash("sha256").update(readFileSync("QMAI/scripts/goal-accept-negprobe.mjs", "utf8")).digest("hex").slice(0, 16)
 console.log(`NEGPROBE ALL PASS (${MANIFEST.length}/${MANIFEST.length}) HEAD=${headSha} self=${selfHash}`)

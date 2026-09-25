@@ -9,13 +9,17 @@ const EXPECTED_CHECKS = 5 // R5×3 + R6 + R7（RV-159：增删检查时同步更
 let failures = []
 let envFault = null
 let checksRun = 0
+// RV-25-01：比较点冻结 — 同源断言执行前 finalized=true，此后任何 ok() 写入即
+// write-after-finalize（大声开火，不静默）。fail() 不设防：fail 只写 fail 态，
+// 迟到 fail 只会让终态更 fail（fail-closed 方向），永不掩盖。
+let finalized = false
 // RV-151/RV-157 三值账本：每项 (check_id → state∈{pass,fail}) 机读记录；FAIL 为一等结局。
 const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r5-artifact", "r5-buildlog", "r5-typecheck", "r6-mocks", "r7-comp"]
 function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
 // RV-205/RV-157：first-fail-wins — 已 fail 的 id 后续 ok() 不得再打印 PASS 行（文本与机读一致），
 // 记 INFO 降级行，避免文本消费者误读。
-function ok(id, msg) { if (states.get(id) === "fail") { console.log(`INFO [${id}]: ${msg} (superseded by FAIL; non-acceptance)`); return }; states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
+function ok(id, msg) { if (finalized) { failures.push(`${id}: write-after-finalize`); console.error(`FAIL [${id}]: write after ledger freeze (RV-25-01)`); return }; if (states.get(id) === "fail") { console.log(`INFO [${id}]: ${msg} (superseded by FAIL; non-acceptance)`); return }; states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -81,6 +85,8 @@ if (failures.length === 0) {
 // RV-21-03（RV-24-03 强化）：rendered PASS 数 == states 终态 pass 数 — 无条件执行，不在
 // failures 守卫内。ok() 只在非 fail 态计数+写 pass，fail() 只写 fail 不计数，故正常 fail
 // 场景下恒相等（F1/F2 为凭）；仅外部污染计数器或账本时开火。文本与机读同源（states 派生）。
+// RV-25-01：比较前冻结账目 — 此后新增写入者会大声开火，不再静默重引入误报。
+finalized = true
 {
   const passCount = [...states.values()].filter((s) => s === "pass").length
   if (checksRun !== passCount) fail("r5-artifact", `rendered PASS ${checksRun} != states pass ${passCount} (text/ledger fork)`)
