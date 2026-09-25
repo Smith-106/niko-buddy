@@ -45,13 +45,13 @@ export function createTrimContextPlugin(deps: TrimContextPluginDeps = {}): PrePl
 
         if (trimContextPackFn) {
           trimResult = trimContextPackFn(input.contextPack, budget, { excludeOutline })
-          trimmedPrompt = trimResult.prompt ?? [input.contextPack.task, input.contextPack.outline, input.contextPack.soulDoc].filter(Boolean).join("\n\n")
+          trimmedPrompt = trimResult.prompt ?? [input.contextPack.task, ...(excludeOutline ? [] : [input.contextPack.outline]), input.contextPack.soulDoc].filter(Boolean).join("\n\n")
         } else if (contextPackToPromptFn) {
           trimmedPrompt = contextPackToPromptFn(input.contextPack, budget, { excludeOutline })
         } else {
           const mod = await import("@/lib/novel/context-engine")
           trimResult = mod.trimContextPack(input.contextPack, budget, { excludeOutline })
-          trimmedPrompt = trimResult.prompt ?? [input.contextPack.task, input.contextPack.outline, input.contextPack.soulDoc].filter(Boolean).join("\n\n")
+          trimmedPrompt = trimResult.prompt ?? [input.contextPack.task, ...(excludeOutline ? [] : [input.contextPack.outline]), input.contextPack.soulDoc].filter(Boolean).join("\n\n")
         }
 
         if (onVirtualTool && callId) {

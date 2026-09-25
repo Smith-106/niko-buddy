@@ -15,6 +15,17 @@ import {
   recordCompactSuccess,
 } from "./context-compact"
 
+// §GAP-103(f) RV-004/RV-014 漂移护栏：trim fields 表键快照（27 键，与 CONTEXT_DROP_ORDER 同源）。
+// 单边增键/删键/改名即红；改顺序需同步更新本快照 + droporder.spec。
+const TRIM_FIELDS_SNAPSHOT: string[] = [
+  "graphSearchResults", "searchResults", "references", "referenceBindings", "relatedChapters",
+  "communitySummaries", "kbReferences", "recentChapterContents", "recentSummaries", "characterAuras",
+  "cognitionStates", "relatedSettings", "techniqueBlocks", "previousChapterEnding", "timeline",
+  "characterStates", "foreshadowingStates", "soulDoc", "writingStyle", "voiceStyleGuide",
+  "revisionDirectives", "nextChapterAdvice", "mustDo", "chapterGoal", "recentStateDeltas",
+  "narrativeVisibility", "worldBlueprint",
+];
+
 function bigSections(): Record<string, string> {
   return {
     task: "写第 10 章",
@@ -115,6 +126,17 @@ describe("compactContextSections 四级压缩", () => {
     for (const key of ["searchResults", "recentSummaries", "characterStates", "soulDoc"]) {
       expect(CONTEXT_DROP_ORDER[key]).toBeDefined()
     }
+  })
+
+  it("RV-004/RV-014: trim fields 表与 CONTEXT_DROP_ORDER 键集合一致（§GAP-103(f) 漂移护栏）", () => {
+    // engine fields 表为源码字面量（27 键），与 CONTEXT_DROP_ORDER 同源顺序逐位一致（d076892e 已对齐）；
+    // 本断言锁定键集合一致，防单边增键/删键静默漂移（顺序断言见 droporder.spec 有序丢弃用例）。
+    const engineSrc = TRIM_FIELDS_SNAPSHOT.join(",");
+    for (const key of TRIM_FIELDS_SNAPSHOT) {
+      expect(CONTEXT_DROP_ORDER[key]).toBeDefined()
+    }
+    expect(Object.keys(CONTEXT_DROP_ORDER)).toHaveLength(TRIM_FIELDS_SNAPSHOT.length)
+    expect(engineSrc).toContain("techniqueBlocks")
   })
 })
 

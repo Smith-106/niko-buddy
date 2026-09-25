@@ -112,6 +112,33 @@ describe("TrimContextPlugin", () => {
     expect(mockToPrompt).not.toHaveBeenCalled()
   })
 
+  it("excludeOutline=true 时 fallback prompt 跳过 outline（§GAP-103(f) RV-002 第三路径）", async () => {
+    const mockTrim = vi.fn().mockReturnValue({ prompt: undefined })
+    const plugin = createTrimContextPlugin({ trimContextPackFn: mockTrim, excludeOutline: true })
+    const result = await plugin.run({
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+    expect(result.novelSystemPrompt).not.toContain("大纲内容")
+    expect(result.novelSystemPrompt).toContain("写第5章")
+  })
+
+  it("excludeOutline 缺省时 fallback prompt 含 outline（字节级等价旧实现）", async () => {
+    const mockTrim = vi.fn().mockReturnValue({ prompt: undefined })
+    const plugin = createTrimContextPlugin({ trimContextPackFn: mockTrim })
+    const result = await plugin.run({
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+    expect(result.novelSystemPrompt).toContain("大纲内容")
+  })
+
   it("handles error gracefully", async () => {
     const mockError = vi.fn()
     const mockToPrompt = vi.fn().mockImplementation(() => {
