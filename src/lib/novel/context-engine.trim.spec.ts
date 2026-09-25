@@ -186,7 +186,11 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(out.originalChars).toBe(JSON.stringify(pack).length)
     expect(out.originalChars ?? 0).toBeGreaterThan(0) // 非空真守卫：序列化信封非空
     expect(out.finalChars).toBe(out.originalChars)
+    // RV-117 空/非空成对：空包三判据恒真风险 — 非空对照用例（RV-019）已在下方独立存在，
+    // 二者成对才可区分“正确为空”与“错误为空”。
     // RV-101：JSON 全等是有损判据（NaN/±Inf→null、undefined 键丢失）— 加对象级断言互锁。
+    // RV-116：键序归一化声明 — JSON 互锁基于排序后串，与“键集 sort 全等”判别力重合部分已知；
+    // 此处保留三重互锁为有意冗余（空包场景下任一单判据恒真风险高），非独立证据量虚增。
     expect(out.pack).toEqual(pack)
     expect(Object.keys(out.pack).sort()).toEqual(Object.keys(pack).sort())
     expect(JSON.stringify(out.pack)).toBe(JSON.stringify(pack))
