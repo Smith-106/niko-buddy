@@ -71,6 +71,9 @@ if (failures.length === 0) {
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r3-gaps", `check-id set mismatch: got [${got}] want [${want}]`)
+  // RV-21-03：rendered PASS 数 == states 终态 pass 数 — 文本与机读同源（states 派生），防两条路径分叉。
+  const passCount = [...states.values()].filter((s) => s === "pass").length
+  if (checksRun !== passCount) fail("r3-gaps", `rendered PASS ${checksRun} != states pass ${passCount} (text/ledger fork)`)
   if (checksRun !== EXPECTED_CHECKS) fail("r3-gaps", `checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R3R4 PASS")

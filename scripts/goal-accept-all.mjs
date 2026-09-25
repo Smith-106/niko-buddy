@@ -31,9 +31,11 @@ function classify(res, step) {
     if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS states missing (ledger required)` }
     const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
     // RV-201：期望集 ⊆ 键集 — 缺项即拒（存在性谓词替换为全称量化）。
+    // RV-21-07：严格双向集合比较 — missing 与 unexpected 同时列出（防期望集同义反复/键扩充误报）。
     const want = EXPECTED_IDS[step] ?? []
     const missing = want.filter((id) => !(id in st))
-    if (missing.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states missing keys: ${missing.join(",")}` }
+    const unexpected = Object.keys(st).filter((id) => !want.includes(id))
+    if (missing.length > 0 || unexpected.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states key mismatch — missing [${missing.join(",")}] unexpected [${unexpected.join(",")}]` }
     // RV-207 第三值合取规则（成文）：unexecuted（期望外键/未知态）⇒ 拒绝；显式豁免须登记理由（当前无豁免）。
     const unknown = Object.entries(st).filter(([, s]) => s !== "pass" && s !== "fail" && s !== "env")
     if (unknown.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has unknown state: ${unknown.map(([id, s]) => `${id}=${s}`).join(",")}` }
