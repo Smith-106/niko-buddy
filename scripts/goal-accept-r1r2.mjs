@@ -10,11 +10,13 @@ function ok(msg) { console.log("PASS: " + msg) }
 try {
 
 // R1: key commits present + clean tree + evidence doc on file.
-// Window -30 (was -12): history grew by 5 commits (#103 gap-list + 3x #104 fixes
-// + #105 review), old chain would slide out of a -12 window. Wider window keeps
-// the same assertion (chain present), no relaxation. New commits are additionally
-// required below (strictly stronger R1).
-const log = execSync("git -C QMAI log --oneline -30", { encoding: "utf8" })
+// Window -50 (was -30, was -12): history grew by 15 commits (#112 十五批:
+// 1053f597/c4a3307f/2b662828/823fdfb6/b20f4950/1707d3b9/33e0297c/6f6afd64/
+// 2d6c5b06/4faddf29/b5728820/e982041f/9c1dfd95/0701e9e8/601a4244),
+// old chain would slide out of a -30 window (a741863a 现为 HEAD 起第 31 个).
+// Wider window keeps the same assertion (chain present), no relaxation.
+// New commits are additionally required below (strictly stronger R1).
+const log = execSync("git -C QMAI log --oneline -50", { encoding: "utf8" })
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
   if (!log.includes(c)) fail("missing commit " + c)
 }
