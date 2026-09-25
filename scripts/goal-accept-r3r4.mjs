@@ -1,9 +1,12 @@
 // goal-accept-r3r4.mjs — R3 (8-gap symbols in product code) + R4 (re-eval docs).
 // Run from workspace root: node QMAI/scripts/goal-accept-r3r4.mjs
+// ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — IO 异常即非零退出，禁止 default-to-pass。
 import { existsSync, readFileSync } from "node:fs"
 
 function fail(msg) { console.error("FAIL: " + msg); process.exit(1) }
 function ok(msg) { console.log("PASS: " + msg) }
+
+try {
 function mustContain(file, syms) {
   if (!existsSync(file)) fail("missing " + file)
   const t = readFileSync(file, "utf8")
@@ -42,3 +45,8 @@ mustContain("QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②�
 mustContain("QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
 ok("R4 re-eval chain (#90 -> #91 -> #102) on file")
 console.log("ALL R3R4 PASS")
+} catch (e) {
+  // ENV-FAULT 哨兵：任何环境/通道异常（EPIPE、IO 失败）显式标记并以非零退出。
+  console.error("ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+}

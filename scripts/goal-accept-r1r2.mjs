@@ -1,10 +1,13 @@
 // goal-accept-r1r2.mjs — R1 (tasks/commits/clean tree) + R2 (4 reference reports).
 // Run from workspace root: node QMAI/scripts/goal-accept-r1r2.mjs
+// ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — execSync 抛错即非零退出，禁止 default-to-pass。
 import { execSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 
 function fail(msg) { console.error("FAIL: " + msg); process.exit(1) }
 function ok(msg) { console.log("PASS: " + msg) }
+
+try {
 
 // R1: key commits present + clean tree + evidence doc on file.
 // Window -30 (was -12): history grew by 5 commits (#103 gap-list + 3x #104 fixes
@@ -47,3 +50,8 @@ for (const [p, markers] of R2) {
 }
 ok("R2 all 4 reference reports present with baseline markers")
 console.log("ALL R1R2 PASS")
+} catch (e) {
+  // ENV-FAULT 哨兵：任何环境/通道异常（EPIPE、命令缺失、IO 失败）显式标记并以非零退出。
+  console.error("ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+}

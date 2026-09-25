@@ -1,9 +1,12 @@
 // goal-accept-r567.mjs — R5 (feasibility) + R6 (stability) + R7 (UI usability).
 // Run from workspace root: node QMAI/scripts/goal-accept-r567.mjs
+// ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — IO 异常即非零退出，禁止 default-to-pass。
 import { existsSync, readFileSync } from "node:fs"
 
 function fail(msg) { console.error("FAIL: " + msg); process.exit(1) }
 function ok(msg) { console.log("PASS: " + msg) }
+
+try {
 function read(p) {
   if (!existsSync(p)) fail("missing " + p)
   return readFileSync(p, "utf8")
@@ -48,3 +51,8 @@ if (!comp.includes("3055 passed") && !(comp.includes("2980 passed") && comp.incl
 noFailLines(comp, "comp")
 ok("R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
 console.log("ALL R567 PASS")
+} catch (e) {
+  // ENV-FAULT 哨兵：任何环境/通道异常（EPIPE、IO 失败）显式标记并以非零退出。
+  console.error("ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+}
