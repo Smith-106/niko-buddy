@@ -154,6 +154,20 @@ describe("TrimContextPlugin", () => {
     expect(result.novelSystemPrompt).toContain("大纲内容")
   })
 
+  it("RV-002 站点B(动态import分支) honor excludeOutline（§GAP-103(f) 执行级覆盖）", async () => {
+    // 不注入 trimContextPackFn，强制走动态 import 分支（站点B）；excludeOutline=true 时 prompt 跳过 outline。
+    const plugin = createTrimContextPlugin({ excludeOutline: true })
+    const result = await plugin.run({
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+    expect(result.novelSystemPrompt).not.toContain("大纲内容")
+    expect(result.novelSystemPrompt).toContain("写第5章")
+  })
+
   it("handles error gracefully", async () => {
     const mockError = vi.fn()
     const mockToPrompt = vi.fn().mockImplementation(() => {

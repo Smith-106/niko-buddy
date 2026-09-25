@@ -119,6 +119,21 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(over.prompt ?? "").not.toContain("大纲正文UNIQUE-OUTLINE-103")
   })
 
+  it("RV-004 组合面：excludeOutline=true 且超预算裁剪触发时不抛错且 prompt 无 outline", () => {
+    const pack = {
+      task: "任务正文",
+      outline: "大纲正文UNIQUE-OUTLINE-103",
+      soulDoc: "灵魂文档",
+      searchResults: "索".repeat(30_000),
+      graphSearchResults: "图".repeat(30_000),
+      recentChapterContents: ["正".repeat(30_000)],
+    } as unknown as ContextPack
+    const out = trimContextPack(pack, 5_000, { excludeOutline: true })
+    expect(out.prompt ?? "").not.toContain("大纲正文UNIQUE-OUTLINE-103")
+    expect(out.prompt ?? "").toContain("任务正文")
+    expect(out.removed.length).toBeGreaterThan(0)
+  })
+
   it("excludeOutline=false：prompt 含 outline", () => {
     const pack = packWithOutline()
     expect(trimContextPack(pack, 10_000_000, { excludeOutline: false }).prompt).toContain(

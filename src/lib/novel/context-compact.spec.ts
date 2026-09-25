@@ -129,9 +129,13 @@ describe("compactContextSections 四级压缩", () => {
   })
 
   it("RV-004/RV-014: trim fields 表与 CONTEXT_DROP_ORDER 键序逐位一致（§GAP-103(f) 漂移护栏）", () => {
-    // 有序断言：顺序承载 drop 优先级，重排即红（RV-013）。快照为 spec 内独立字面量（RV-019 非空洞）。
-    const ordered = Object.keys(CONTEXT_DROP_ORDER).sort((a, b) => CONTEXT_DROP_ORDER[a]! - CONTEXT_DROP_ORDER[b]!)
-    expect(TRIM_FIELDS_SNAPSHOT).toEqual(ordered)
+    // RV-001 根治 v2：双锚 — (1) 键声明序 == 快照序（重排键即红）；(2) 序值映射逐位一致
+    // （交换两优先级数值即红 — 变异验证：swap 120/130 全绿暴露旧 .sort() 形态空洞，已根治）。
+    expect(Object.keys(CONTEXT_DROP_ORDER)).toEqual(TRIM_FIELDS_SNAPSHOT)
+    const orderVals = TRIM_FIELDS_SNAPSHOT.map((k) => (CONTEXT_DROP_ORDER as Record<string, number>)[k])
+    const sortedVals = [...orderVals].sort((a, b) => a - b)
+    expect(orderVals).toEqual(sortedVals)
+    expect(new Set(orderVals).size).toBe(orderVals.length)
   })
 })
 
