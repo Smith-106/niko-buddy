@@ -317,15 +317,16 @@ try {
   const r16raw = spawnSync("node", [`${DIR}/f16.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, timeout: 200, killSignal: "SIGKILL" })
   check("F16-signal", r16raw.signal !== null, `signal=${r16raw.signal} status=${r16raw.status}`)
   check("F16-status-null", r16raw.status === null, `status=${r16raw.status} signal=${r16raw.signal}`)
-  // F16b：wrapper 层 [det=signal] 分类 — wrapper 副本 spawn 超时压至 200ms（首个 timeout 命中即步骤 spawn 行；
-  // post-run 行保持 60s），步骤被 kill → classify [det=signal] → ENV-FAULT exit 2。
+  // F16b：wrapper 层超时 kill 分类 — wrapper 副本 spawn 超时压至 200ms（首个 timeout 命中即步骤 spawn 行；
+  // post-run 行保持 60s），步骤被 kill → 超时 kill 同时置 error（ETIMEDOUT）+ signal，classify 按
+  // error→signal→status 优先级走 [det=spawn] → ENV-FAULT exit 2（实测：status=null signal=SIGKILL）。
   let w16 = makeWrapper(["f16.mjs"], { "f16.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] })
   w16 = w16.replace("timeout: 60000, killSignal", "timeout: 200, killSignal")
   writeFileSync(`${DIR}/w16.mjs`, w16)
   if (!w16.includes("timeout: 200, killSignal")) throw new Error("F16 anchor missed: wrapper spawn timeout not redirected")
   const r16 = run("node", [`${DIR}/w16.mjs`])
   const out16 = (r16.stdout ?? "") + (r16.stderr ?? "")
-  check("F16-wrapper-exit2", r16.status === 2 && out16.includes("[det=signal]"), `status=${r16.status}`)
+  check("F16-wrapper-exit2", r16.status === 2 && out16.includes("[det=spawn]"), `status=${r16.status}`)
 
   // RV-26-05：基线身份绑定 — NEGPROBE_EXPECT_HEAD 已设时 START_HEAD 必须等于期望基线
   // （错基线全绿拦截）。RV-27-11："已设" = 变量存在（`in` 语义）；存在但 trim 为空

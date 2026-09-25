@@ -90,8 +90,8 @@ for (const m of ["COMP_FAIL=0", "75 passed"]) {
 if (!comp.includes("3055 passed") && !(comp.includes("2980 passed") && comp.includes("176 passed"))) fail("r7-comp", "comp log lacks 3055 (or 2980+176 split) passed")
 noFailLines("r7-comp", comp, "comp")
 ok("r7-comp", "R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
-// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行。
-{
+if (failures.length === 0) {
+  // RV-159：集合相等 + 计数不变式。须带 failures 守卫（同 r1r2 RV-40A-02/F12 实证：无条件 set-fail 会污染 fork 不变式）。
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r5-artifact", `check-id set mismatch: got [${got}] want [${want}]`)

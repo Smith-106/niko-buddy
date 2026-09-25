@@ -106,9 +106,10 @@ for (const [p, markers] of R2) {
   for (const m of markers) if (!t.includes(m)) fail("r2-reports", p + " lacks marker " + m)
 }
 ok("r2-reports", "R2 all 4 reference reports present with baseline markers")
-// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行（失败运行时覆盖度缺陷同样暴露；
-// 有失败时集合必不等→fail()追加，分类仍为 FAIL，不改变退出语义）。
-{
+if (failures.length === 0) {
+  // RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。须带 failures 守卫（RV-40A-02/F12 实证：
+  // 无条件执行时合法单失败会触发 set-mismatch fail()，把已 ok 的 id 翻成 fail，导致 checksRun != passCount，
+  // 同源断言误报 fork。失败运行的覆盖度问题在修好产品失败后的下一轮 pass 运行暴露，不掩盖 exit 1）。
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r1-8gap", `check-id set mismatch: got [${got}] want [${want}]`)

@@ -92,8 +92,8 @@ mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-90-reeval-closure.md",
 mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
 mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
 ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")
-// RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。RV-40B-06：无条件执行。
-{
+if (failures.length === 0) {
+  // RV-159：集合相等 + 计数不变式。须带 failures 守卫（同 r1r2 RV-40A-02/F12 实证：无条件 set-fail 会污染 fork 不变式）。
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r3-gaps", `check-id set mismatch: got [${got}] want [${want}]`)
