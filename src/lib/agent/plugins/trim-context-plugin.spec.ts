@@ -168,6 +168,22 @@ describe("TrimContextPlugin", () => {
     expect(result.novelSystemPrompt).toContain("写第5章")
   })
 
+  it("F5-02/F5-03: 站点B excludeOutline=true 时正向输出可用（非空+含任务/灵魂文档）", async () => {
+    const plugin = createTrimContextPlugin({ excludeOutline: true })
+    const result = await plugin.run({
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+    const prompt = result.novelSystemPrompt ?? ""
+    expect(prompt.length).toBeGreaterThan(0)
+    expect(prompt).toContain("写第5章")
+    expect(prompt).toContain("灵魂文档")
+    expect(prompt).not.toContain("大纲内容")
+  })
+
   it("handles error gracefully", async () => {
     const mockError = vi.fn()
     const mockToPrompt = vi.fn().mockImplementation(() => {

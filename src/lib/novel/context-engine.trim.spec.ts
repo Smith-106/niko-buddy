@@ -128,10 +128,20 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
       graphSearchResults: "图".repeat(30_000),
       recentChapterContents: ["正".repeat(30_000)],
     } as unknown as ContextPack
+    const before = JSON.stringify(pack).length
     const out = trimContextPack(pack, 5_000, { excludeOutline: true })
     expect(out.prompt ?? "").not.toContain("大纲正文UNIQUE-OUTLINE-103")
     expect(out.prompt ?? "").toContain("任务正文")
+    expect(out.prompt ?? "").toContain("灵魂文档")
     expect(out.removed.length).toBeGreaterThan(0)
+    // F5-04 partition 不变量：记账与实际一致，removed/保留互斥且并集为输入。
+    expect(out.originalChars).toBe(before)
+    expect(out.finalChars).toBe(JSON.stringify(out.pack).length)
+    expect(out.trimmedChars).toBe(before - (out.finalChars ?? 0))
+    const removedLabels = new Set((out.trimmedFields ?? []))
+    expect(removedLabels.size).toBe((out.trimmedFields ?? []).length)
+    // 预算口径（字符数）：final 不超预算语义由 remainingChars>=0 表达。
+    expect(out.remainingChars ?? -1).toBeGreaterThanOrEqual(0)
   })
 
   it("excludeOutline=false：prompt 含 outline", () => {
