@@ -9,10 +9,11 @@ const EXPECTED_CHECKS = 3 // R3 + R3b + R4（RV-159：增删检查时同步更�
 let failures = []
 let envFault = null
 let checksRun = 0
-const checkIds = []
+// RV-151/RV-157 三值账本：每项 (check_id → state∈{pass,fail}) 机读记录；FAIL 为一等结局。
+const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r3-gaps", "r3b-fixes", "r4-reeval"]
-function fail(msg) { failures.push(msg); console.error("FAIL: " + msg) }
-function ok(id, msg) { checksRun++; checkIds.push(id); console.log("PASS: " + msg) }
+function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
+function ok(id, msg) { if (!states.has(id)) states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -20,52 +21,59 @@ process.on("uncaughtException", (e) => {
 })
 
 try {
-function mustContain(file, syms) {
-  if (!existsSync(file)) fail("missing " + file)
-  const t = readFileSync(file, "utf8")
-  for (const s of syms) if (!t.includes(s)) fail(file + " lacks " + s)
+function mustContain(id, file, syms) {
+  if (!existsSync(file)) fail(id, "missing " + file)
+  let t = ""
+  try {
+    t = readFileSync(file, "utf8")
+  } catch (e) {
+    // RV-144 按路径作用域：IO 异常是环境故障而非断言失败 — 抛给外层 ENV-FAULT 裁决。
+    throw new Error(`read ${file}: ` + (e instanceof Error ? e.message : String(e)))
+  }
+  for (const s of syms) if (!t.includes(s)) fail(id, file + " lacks " + s)
 }
 
 // R3: every gap lands in product code (no parallel implementations).
-mustContain("QMAI/src/lib/novel/deep-chapter-task-brief.ts",
+mustContain("r3-gaps", "QMAI/src/lib/novel/deep-chapter-task-brief.ts",
   ["buildChapterContractSection", "parseChapterContractSection", "checkChapterContract"])
-mustContain("QMAI/src/lib/novel/deep-chapter-generation.ts", ["applyChapterContractCheck"])
-mustContain("QMAI/src/lib/novel/repair-loop.ts",
+mustContain("r3-gaps", "QMAI/src/lib/novel/deep-chapter-generation.ts", ["applyChapterContractCheck"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/repair-loop.ts",
   ["TRIAD_MAX_REWORK", "createChapterTriadState", "triadPlanGate", "triadDraftGate", "triadReviewGate", "advanceChapterTriad"])
-mustContain("QMAI/src/lib/novel/mechanical-slop-detector.ts", ["rollupStyleStats", "bookStyleStatsToText"])
-mustContain("QMAI/src/lib/novel/related-chapters.ts", ["recentCast", "renderCastIntros"])
-mustContain("QMAI/src/lib/novel/dimension-review-adapter.ts",
+mustContain("r3-gaps", "QMAI/src/lib/novel/mechanical-slop-detector.ts", ["rollupStyleStats", "bookStyleStatsToText"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/related-chapters.ts", ["recentCast", "renderCastIntros"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/dimension-review-adapter.ts",
   ["minimalReworkSet", "minimalReworkSetFromDimensionIssues", "dimensionResultsToReviewResults"])
-mustContain("QMAI/src/lib/novel/volume.ts", ["checkFinaleAutoComplete"])
-mustContain("QMAI/src/lib/novel/story-compass.ts", ["evaluateCompletionChecklist", "checkCompleteBookAllowed"])
-mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactContextSections", "buildRestorePack"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/volume.ts", ["checkFinaleAutoComplete"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/story-compass.ts", ["evaluateCompletionChecklist", "checkCompleteBookAllowed"])
+mustContain("r3-gaps", "QMAI/src/lib/novel/context-compact.ts", ["compactContextSections", "buildRestorePack"])
 ok("r3-gaps", "R3 8-gap symbols all present in product code")
 
 // R3b: #104 fixes land in product code + spec (not just commit messages).
 // (f1) trimContextPack honors excludeOutline on both prompt paths.
-mustContain("QMAI/src/lib/novel/context-engine.ts",
+mustContain("r3b-fixes", "QMAI/src/lib/novel/context-engine.ts",
   ["const excludeOutline = Boolean(options?.excludeOutline)"])
-mustContain("QMAI/src/lib/novel/context-engine.trim.spec.ts",
+mustContain("r3b-fixes", "QMAI/src/lib/novel/context-engine.trim.spec.ts",
   ["excludeOutline", "UNIQUE-OUTLINE-103"])
 // (f2) trim fields order aligned to CONTEXT_DROP_ORDER (techniqueBlocks @130).
 // (f3) compactSectionText stale-comment correction.
-mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactSectionText"])
+mustContain("r3b-fixes", "QMAI/src/lib/novel/context-compact.ts", ["compactSectionText"])
 ok("r3b-fixes", "R3b #104 fixes present (excludeOutline both paths + spec + compact alias)")
 
 // R4: re-eval chain docs with rating markers.
-mustContain("QMAI/docs/decision-log/20260924-90-reeval-closure.md", ["四维度重评", "★★★★→★★★★★"])
-mustContain("QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
-mustContain("QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
+mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-90-reeval-closure.md", ["四维度重评", "★★★★→★★★★★"])
+mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
+mustContain("r4-reeval", "QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
 ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")
 if (failures.length === 0) {
-  // RV-159：集合相等，非基数相等。
-  const got = [...checkIds].sort().join(",")
+  // RV-159：集合相等（终态 pass 的 id 清单全等）+ 计数不变式。
+  const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
-  if (got !== want) fail(`check-id set mismatch: got [${got}] want [${want}]`)
-  if (checksRun !== EXPECTED_CHECKS) fail(`checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
+  if (got !== want) fail("r3-gaps", `check-id set mismatch: got [${got}] want [${want}]`)
+  if (checksRun !== EXPECTED_CHECKS) fail("r3-gaps", `checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R3R4 PASS")
-console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS}`)
+// RV-151 机读账本行。
+console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS} states=${[...states.entries()].map(([id, s]) => `${id}:${s}`).join(",")}`)
 } catch (e) {
   envFault = e
   console.error("ENV-FAULT: " + (e instanceof Error ? e.message : String(e)))

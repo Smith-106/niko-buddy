@@ -16,11 +16,18 @@ function classify(res, step) {
   const code = res.status ?? 2
   if (code === 0) {
     const out = (res.stdout ?? "") + (res.stderr ?? "")
-    const m = out.match(/CHECKS run=(\d+) skipped=(\d+) expected=(\d+)/)
+    const m = out.match(/CHECKS run=(\d+) skipped=(\d+) expected=(\d+)(?: states=([^\s]*))?/)
     if (!m) return { cls: "ENV-FAULT", code: 2, why: `${step}: exit 0 but CHECKS line missing/unparseable (default-deny)` }
     if (m[2] !== "0") return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS skipped=${m[2]} without named exemption` }
     if (m[1] !== m[3]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS run=${m[1]} != expected=${m[3]}` }
-    return { cls: "PASS", code: 0, why: `${step}: exit 0 + CHECKS ${m[1]}/${m[3]}` }
+    // RV-151/RV-157 三值账本：states 机读终态 — 任一 fail 即 FAIL（一等结局），任一 env 即 ENV-FAULT。
+    if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS states missing (ledger required)` }
+    const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
+    const fails = Object.entries(st).filter(([, s]) => s === "fail")
+    const envs = Object.entries(st).filter(([, s]) => s === "env")
+    if (envs.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has env: ${envs.map(([id]) => id).join(",")}` }
+    if (fails.length > 0) return { cls: "FAIL", code: 1, why: `${step}: states has fail: ${fails.map(([id]) => id).join(",")}` }
+    return { cls: "PASS", code: 0, why: `${step}: exit 0 + CHECKS ${m[1]}/${m[3]} + states all pass` }
   }
   if (code === 1) return { cls: "FAIL", code: 1, why: `${step}: exit 1 (assertion failure)` }
   if (code === 2) return { cls: "ENV-FAULT", code: 2, why: `${step}: exit 2 (env fault)` }
