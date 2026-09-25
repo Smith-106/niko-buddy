@@ -48,6 +48,10 @@ function mustContain(id, file, syms) {
     t = readFileSync(file, "utf8")
   } catch (e) {
     // RV-144 按路径作用域：IO 异常是环境故障而非断言失败 — 抛给外层 ENV-FAULT 裁决。
+    // RV-41B-05：ENOENT 例外 — r3r4 读的是仓库源码（受测对象），文件在 existsSync 与 read 之间消失
+    // （删除/改名）是产品级回归而非环境故障。ENOENT → fail(id)（exit 1），携带 id+path+code；
+    // EACCES/EISDIR/EBUSY 等仍 throw 走 ENV-FAULT。
+    if (e && e.code === "ENOENT") { fail(id, `source vanished after exists check [code=ENOENT path=${file}]`); return }
     throw new Error(`read ${file}: ` + (e instanceof Error ? e.message : String(e)))
   }
   // RV-40B-10：词边界匹配 — 纯 ASCII 标识符用词边界正则（防 excludeOutlineLegacy 类前缀误命中）；
@@ -117,7 +121,7 @@ console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS} state
 }
 // RV-143/RV-144：ENV-FAULT 支配 FAIL；故障前的 PASS 降级为非验收。
 if (envFault) {
-  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT)`)
+  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT): ${failures.join(" | ")}`)
   console.error("INFO: any prior PASS lines above are non-acceptance (observed under later-proven-bad environment)")
   process.exit(2)
 }

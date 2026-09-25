@@ -77,11 +77,15 @@ ok("r5-typecheck", "R5 typecheck log EXIT=0")
 // Fresh 2026-09-25 run (#105): 890 files / 13331 tests (+3 new excludeOutline specs
 // in existing trim.spec file, files count unchanged) + graph 75/75, zero FAIL.
 // Accept 13328 (old) or 13331 (new) — never lower (no relaxation, growth only).
+// RV-41B-03：数字边界 — 纯数字 marker 走数字边界正则（防 "13055"/"30551" 类子串伪通过）。
+// vitest 汇总行形态为 "<N> passed"（N 前为空白/行首、后为空格），断言精确到该形态。
+function numPassed(t, n) { return new RegExp(`(^|\\s)${n} passed(\\s|$)`).test(t) }
 const mocks = read("r6-mocks", "C:/goal-evidence/12-mocks.log")
-for (const m of ["890 passed", "75 passed", "MOCKS_FAIL=0"]) {
-  if (!mocks.includes(m)) fail("r6-mocks", "mocks log lacks " + m)
+for (const n of [890, 75]) {
+  if (!numPassed(mocks, n)) fail("r6-mocks", "mocks log lacks " + n + " passed")
 }
-if (!mocks.includes("13328 passed") && !mocks.includes("13331 passed")) fail("r6-mocks", "mocks log lacks 13328/13331 passed")
+if (!mocks.includes("MOCKS_FAIL=0")) fail("r6-mocks", "mocks log lacks MOCKS_FAIL=0")
+if (!numPassed(mocks, 13328) && !numPassed(mocks, 13331)) fail("r6-mocks", "mocks log lacks 13328/13331 passed")
 noFailLines("r6-mocks", mocks, "mocks")
 ok("r6-mocks", "R6 stability: 890 files / 13331 tests + graph 75/75, zero FAIL")
 
@@ -90,10 +94,9 @@ ok("r6-mocks", "R6 stability: 890 files / 13331 tests + graph 75/75, zero FAIL")
 // matching the test:mocks split convention. Evidence log 13-comp.log holds both
 // sections (176/2980 + graph 75/75) + COMP_FAIL=0.
 const comp = read("r7-comp", "C:/goal-evidence/13-comp.log")
-for (const m of ["COMP_FAIL=0", "75 passed"]) {
-  if (!comp.includes(m)) fail("r7-comp", "comp log lacks " + m)
-}
-if (!comp.includes("3055 passed") && !(comp.includes("2980 passed") && comp.includes("176 passed"))) fail("r7-comp", "comp log lacks 3055 (or 2980+176 split) passed")
+if (!comp.includes("COMP_FAIL=0")) fail("r7-comp", "comp log lacks COMP_FAIL=0")
+if (!numPassed(comp, 75)) fail("r7-comp", "comp log lacks 75 passed")
+if (!numPassed(comp, 3055) && !(numPassed(comp, 2980) && numPassed(comp, 176))) fail("r7-comp", "comp log lacks 3055 (or 2980+176 split) passed")
 noFailLines("r7-comp", comp, "comp")
 ok("r7-comp", "R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
 if (failures.length === 0) {
@@ -121,7 +124,7 @@ console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS} state
 }
 // RV-143/RV-144：ENV-FAULT 支配 FAIL；故障前的 PASS 降级为非验收。
 if (envFault) {
-  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT)`)
+  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT): ${failures.join(" | ")}`)
   console.error("INFO: any prior PASS lines above are non-acceptance (observed under later-proven-bad environment)")
   process.exit(2)
 }

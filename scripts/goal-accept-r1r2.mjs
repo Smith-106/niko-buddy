@@ -134,7 +134,7 @@ console.log(`CHECKS run=${checksRun} skipped=0 expected=${EXPECTED_CHECKS} state
 }
 // RV-143/RV-144：ENV-FAULT 支配 FAIL；故障前的 PASS 行在事后被证明损坏的环境中观测，降级为非验收。
 if (envFault) {
-  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT)`)
+  if (failures.length > 0) console.error(`INFO: ${failures.length} FAIL(s) before env fault (informational; headline is ENV-FAULT): ${failures.join(" | ")}`)
   console.error("INFO: any prior PASS lines above are non-acceptance (observed under later-proven-bad environment)")
   process.exit(2)
 }

@@ -23,6 +23,20 @@
 // RV-23-09 残余登记：残留 execSync 均为固定字面量（插值注入已闭合）；真实残余 = 经 PATH 解析 git 二进制
 //   （与 node 本体同信任域，接受）；cwd 相对路径漂移只会使命令非零 ⇒ ENV-FAULT（fail-closed，无静默风险）。
 import { spawnSync, execSync } from "node:child_process"
+// RV-41A-03：入口自身 crash 护栏（与子脚本同构）— classify/循环/卫生块之外一抛若以默认 exit 1 退出，
+// 会被误读为“断言失败”。显式映射为 ENV-FAULT(2)，与本文件 13–22 行 crash→exit2 契约一致。
+process.on("uncaughtException", (e) => {
+  let line = ""
+  try { line = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { line = "unrenderable:" + typeof e }
+  console.error("ALL-ENV-FAULT: uncaught: " + line)
+  process.exit(2)
+})
+process.on("unhandledRejection", (e) => {
+  let line = ""
+  try { line = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { line = "unrenderable:" + typeof e }
+  console.error("ALL-ENV-FAULT: unhandledRejection: " + line)
+  process.exit(2)
+})
 // RV-27-07：运行时同一性 — spawn 用 PATH 解析 node + 相对路径，错误 cwd/解释器下执行集漂移。
 // fail-fast：cwd 非 hub root 即 ENV-FAULT 中止；回显解释器绝对路径 + 版本 + 平台（INIT-toolchain 配对）。
 if (!process.cwd().replace(/\\/g, "/").endsWith("niko-hub")) {
