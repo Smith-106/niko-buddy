@@ -52,7 +52,9 @@ function read(id, p) {
   }
 }
 function noFailLines(id, t, label) {
-  const bad = t.split("\n").filter((l) => l.startsWith(" FAIL"))
+  // RV-40B-03：双向锚定 — vitest 汇总失败行为 " FAIL path"（前导空格），行首风格 "FAIL ..." 同样否决；
+  // 实测 12/13 日志零 FAIL 行（仅 MOCKS_FAIL=0/COMP_FAIL=0 标记，不命中任一分支）。
+  const bad = t.split("\n").filter((l) => l.startsWith(" FAIL") || /^\s*FAIL\b/.test(l))
   if (bad.length > 0) fail(id, label + " has " + bad.length + " FAIL lines")
 }
 
