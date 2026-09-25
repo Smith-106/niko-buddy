@@ -266,6 +266,8 @@ try {
   // 在工作树干净但强制脏状态下运行 r1r2 副本：期望 FAIL [r1-cleantree] 且输出无 "text/ledger fork"。
   copyFileSync("QMAI/scripts/goal-accept-r1r2.mjs", `${DIR}/f12.mjs`)
   let f12 = readFileSync(`${DIR}/f12.mjs`, "utf8")
+  // RV-32-09/RV-32-01/RV-32-04 注记：正则 \{[\s\S]*?\} 为匹配域放宽（容忍尾注/options 变化），精度未变；
+  // 只做定位替换不做提取（截断无关）+ guard 确认生效 + anchor 生产侧唯一（非全局无残留）。
   f12 = f12.replace(/const status = execSync\("git -C QMAI status --short", \{[\s\S]*?\}\)\.trim\(\)/,
     'const status = "M fictional-dirty-file.txt" /* NEGPROBE F12: forced dirty */')
   writeFileSync(`${DIR}/f12.mjs`, f12)
