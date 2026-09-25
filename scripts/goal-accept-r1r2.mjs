@@ -80,6 +80,7 @@ for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
 }
 ok("r1-newchain", "R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
 const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）
+// OBS-33-E2 前提显式化：status 已 .trim()（见上行），判空 !== ""（locale/CRLF 安全）；若改为全等比较须处理 \r。
 if (status !== "") fail("r1-cleantree", "dirty tree:\n" + status)
 ok("r1-cleantree", "R1 tree clean")
 for (const f of [

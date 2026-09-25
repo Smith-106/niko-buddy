@@ -97,10 +97,11 @@ for (const step of STEPS) {
 }
 console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
 // RV-21-10 运行后状态断言：验收脚本自身不写文件 — 运行后工作树必须仍干净（可重入性）。
+// OBS-33-E2 前提显式化：after 恒 .trim() 后判空（!== ""，locale/CRLF/尾空安全）；若改为全等内容比较须同步处理 \r（RV-30-08）。
 // RV-24-05：卫生违例 ⇒ ENV-FAULT(2)（见文件头 taxonomy 第四类），不是 FAIL。
 // 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
 try {
-  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }) // RV-31-08：显式禁 pager（不依赖非 tty 隐式行为）.trim() // RV-29-06：显式 maxBuffer（默认 1MB；大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）
+  const after = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-31-08：显式禁 pager（不依赖非 tty 隐式行为）.trim() // RV-29-06：显式 maxBuffer（默认 1MB；大脏树超限走 catch→ENV-FAULT fail-closed，非 PASS）
   if (after !== "") {
     console.error(`ALL-ENV-FAULT: post-run tree not clean (hygiene):\n${after}`)
     process.exit(2)
