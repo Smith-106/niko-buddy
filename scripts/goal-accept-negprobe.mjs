@@ -141,6 +141,7 @@ try {
   let f1 = readFileSync(`${DIR}/f1.mjs`, "utf8")
   f1 = f1.replace('"a741863a", "86862911"', `"${tree}", "86862911"`)
   writeFileSync(`${DIR}/f1.mjs`, f1)
+  if (f1.includes('"a741863a", "86862911"')) throw new Error("F1 anchor missed: production sha pair drifted")
   const r1 = run("node", [`${DIR}/f1.mjs`])
   const out1 = (r1.stdout ?? "") + (r1.stderr ?? "")
   check("F1-exit1", r1.status === 1, `status=${r1.status}`)
@@ -155,6 +156,7 @@ try {
   // 删除 r4-reeval 的 ok 行 → states 缺键，CHECKS 行仍输出（run!=expected 仅信息层）。
   f2 = f2.replace('ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")', '/* NEGPROBE: ok removed */')
   writeFileSync(`${DIR}/f2.mjs`, f2)
+  if (!f2.includes("NEGPROBE: ok removed")) throw new Error("F2 anchor missed: ok-line drifted")
   copyFileSync("QMAI/scripts/goal-accept-all.mjs", `${DIR}/w2.mjs`)
   let w2 = readFileSync(`${DIR}/w2.mjs`, "utf8")
   w2 = w2.replace('const STEPS = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]', 'const STEPS = ["f2.mjs"]')
@@ -165,6 +167,7 @@ try {
   if (cutAt < 0) throw new Error("RV-21-10 block not found in wrapper copy")
   w2 = w2.slice(0, cutAt)
   writeFileSync(`${DIR}/w2.mjs`, w2)
+  if (!w2.includes('const STEPS = ["f2.mjs"]') || !w2.includes('"f2.mjs":') || w2.includes("QMAI/scripts/${step}")) throw new Error("F2 wrapper anchors missed")
   const r2 = run("node", [`${DIR}/w2.mjs`])
   const out2 = (r2.stdout ?? "") + (r2.stderr ?? "")
   // F2：子脚本自带 RV-159 集合检查 — 缺键在子脚本层即 FAIL exit=1（第一道防线）。
@@ -180,6 +183,7 @@ try {
   f3 = f3.replace('if (got !== want) fail("r3-gaps", `check-id set mismatch: got [${got}] want [${want}]`)', '/* NEGPROBE: set-check removed */')
   f3 = f3.replace('if (checksRun !== passCount) fail("r3-gaps", `rendered PASS ${checksRun} != states pass ${passCount} (text/ledger fork)`)', '/* NEGPROBE: text-ledger check removed */')
   writeFileSync(`${DIR}/f3.mjs`, f3)
+  if (!f3.includes("ledger write skipped") || !f3.includes("set-check removed") || !f3.includes("text-ledger check removed")) throw new Error("F3 anchors missed")
   let w3 = readFileSync(`${DIR}/w2.mjs`, "utf8")
   w3 = w3.split('"f2.mjs"').join('"f3.mjs"')
   writeFileSync(`${DIR}/w3.mjs`, w3)
@@ -194,6 +198,7 @@ try {
   let w4 = readFileSync("QMAI/scripts/goal-accept-all.mjs", "utf8")
   w4 = w4.split("spawnSync(process.execPath, [").join("spawnSync(\"node-nonexistent-bin-xyz\", [")
   writeFileSync(`${DIR}/w4.mjs`, w4)
+  if (!w4.includes("node-nonexistent-bin-xyz")) throw new Error("F4 anchor missed: spawn line drifted")
   const r4 = run("node", [`${DIR}/w4.mjs`])
   const out4 = (r4.stdout ?? "") + (r4.stderr ?? "")
   check("F4-exit2", r4.status === 2, `status=${r4.status}`)
@@ -209,6 +214,7 @@ try {
   if (cut5 < 0) throw new Error("RV-21-10 block not found in wrapper copy (F5)")
   w5 = w5.slice(0, cut5)
   writeFileSync(`${DIR}/w5.mjs`, w5)
+  if (!w5.includes('const STEPS = ["f5.mjs"]') || w5.includes("QMAI/scripts/${step}")) throw new Error("F5 wrapper anchors missed")
   const r5 = run("node", [`${DIR}/w5.mjs`])
   const out5 = (r5.stdout ?? "") + (r5.stderr ?? "")
   check("F5-exit2", r5.status === 2, `status=${r5.status}`)
@@ -222,6 +228,7 @@ try {
   let w7 = makeWrapper(["f7.mjs"], { "f7.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] }, true)
   w7 = w7.split("git -C QMAI status --short").join(`git -C ${DIRTY} status --short`)
   writeFileSync(`${DIR}/w7.mjs`, w7)
+  if (w7.includes("git -C QMAI status --short")) throw new Error("F7 anchor missed: post-run check not redirected to DIRTY")
   const r7 = run("node", [`${DIR}/w7.mjs`])
   const out7 = (r7.stdout ?? "") + (r7.stderr ?? "")
   check("F7-exit2", r7.status === 2, `status=${r7.status}`)
@@ -235,6 +242,7 @@ try {
   f10 = f10.replace('ok("r3-gaps", "R3 8-gap symbols all present in product code")',
     'ok("r3-gaps", "R3 8-gap symbols all present in product code")\nif (process.env.NEGPROBE_CRASH === "1" /* F10 阳性对照 */) { nonexistentFn_xyz() }')
   writeFileSync(`${DIR}/f10.mjs`, f10)
+  if (!f10.includes("NEGPROBE_CRASH")) throw new Error("F10 anchor missed: ok-line drifted")
   const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
   const out10 = (r10.stdout ?? "") + (r10.stderr ?? "")
   check("F10-exit2", r10.status === 2, `status=${r10.status}`)
@@ -249,6 +257,7 @@ try {
   f11 = f11.replace('ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")',
     'ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")\nchecksRun++; states.set("r4-reeval", "pass"); /* NEGPROBE F11: dual-side pollution */')
   writeFileSync(`${DIR}/f11.mjs`, f11)
+  if (!f11.includes("dual-side pollution")) throw new Error("F11 anchor missed: ok-line drifted")
   const r11 = run("node", [`${DIR}/f11.mjs`])
   const out11 = (r11.stdout ?? "") + (r11.stderr ?? "")
   check("F11-documented", r11.status === 1 && out11.includes("checks run 4 != expected 3"), `dual-side pollution must trip EXPECTED_CHECKS (status=${r11.status})`)
@@ -257,9 +266,10 @@ try {
   // 在工作树干净但强制脏状态下运行 r1r2 副本：期望 FAIL [r1-cleantree] 且输出无 "text/ledger fork"。
   copyFileSync("QMAI/scripts/goal-accept-r1r2.mjs", `${DIR}/f12.mjs`)
   let f12 = readFileSync(`${DIR}/f12.mjs`, "utf8")
-  f12 = f12.replace(/const status = execSync\("git -C QMAI status --short", \{[^}]*\}\)\.trim\(\)/,
+  f12 = f12.replace(/const status = execSync\("git -C QMAI status --short", \{[\s\S]*?\}\)\.trim\(\)/,
     'const status = "M fictional-dirty-file.txt" /* NEGPROBE F12: forced dirty */')
   writeFileSync(`${DIR}/f12.mjs`, f12)
+  if (!f12.includes("NEGPROBE F12: forced dirty")) throw new Error("F12 anchor missed: status line drifted (see RV-30-04)")
   const r12 = run("node", [`${DIR}/f12.mjs`])
   const out12 = (r12.stdout ?? "") + (r12.stderr ?? "")
   check("F12-exit1", r12.status === 1, `status=${r12.status}`)
@@ -281,6 +291,7 @@ try {
   let f14 = readFileSync(`${DIR}/f14.mjs`, "utf8")
   f14 = f14.replace("try {\nfunction mustContain", 'throw new Error("NEGPROBE F14: outside-try throw");\ntry {\nfunction mustContain')
   writeFileSync(`${DIR}/f14.mjs`, f14)
+  if (!f14.includes("outside-try throw")) throw new Error("F14 anchor missed: try-block drifted")
   const r14 = run("node", [`${DIR}/f14.mjs`])
   const out14 = (r14.stdout ?? "") + (r14.stderr ?? "")
   check("F14-exit2", r14.status === 2, `status=${r14.status}`)
@@ -290,6 +301,7 @@ try {
   let f14b = readFileSync(`${DIR}/f14b.mjs`, "utf8")
   f14b = f14b.replace("try {\nfunction mustContain", "Promise.reject(new Error(\"NEGPROBE F14b: unhandled rejection\"));\ntry {\nfunction mustContain")
   writeFileSync(`${DIR}/f14b.mjs`, f14b)
+  if (!f14b.includes("NEGPROBE F14b: unhandled rejection")) throw new Error("F14b anchor missed: try-block drifted")
   const r14b = run("node", [`${DIR}/f14b.mjs`])
   const out14b = (r14b.stdout ?? "") + (r14b.stderr ?? "")
   check("F14b-exit2", r14b.status === 2, `status=${r14b.status}`)
@@ -354,6 +366,7 @@ try {
     check(`${tag}-anchor`, true, "")
     fx = fx.replace(anchor, anchor + "\nchecksRun++; /* NEGPROBE F8x: counter-only pollution */")
     writeFileSync(`${DIR}/fx.mjs`, fx)
+  if (!fx.includes("NEGPROBE F8x: counter-only pollution")) throw new Error("F8x anchor missed")
     const rx = run("node", [`${DIR}/fx.mjs`])
     const outx = (rx.stdout ?? "") + (rx.stderr ?? "")
     check(`${tag}-exit1`, rx.status === 1, `status=${rx.status}`)

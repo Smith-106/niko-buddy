@@ -3,6 +3,7 @@
 // ENV-FAULT (RV-112/RV-125): 环境故障必须 fail-closed — 禁止 default-to-pass。
 // RV-143 退出码优先级（全序，可测）：ENV-FAULT(2) 支配 FAIL(1)。同一轮内既有断言失败
 // 又有环境故障 → exit 2，FAIL 明细保留为 informational（headline 为 ENV-FAULT）。
+// RV-31-10 firstLine 独立定义（实现是定义的实例，非定义本身）：`${ErrorName}: ${message 首个非空行}`。
 // RV-153 全量映射：0=pass；1=断言失败；2=环境故障；≥3/126/127/信号退出非本脚本产物 —
 // 外层 runner 必须把未知非零映射为 ENV-FAULT（fail-safe），永不得映射为 PASS。
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行（run/skipped/expected），
@@ -29,7 +30,9 @@ function ok(id, msg) { if (finalized) { failures.push(`${id}: write-after-finali
 // RV-30-01/02/03/08 首行安全范式：首个非空行（空首行不真空通过）；按行切分（CRLF 安全）；String() 包裹防二次抛错掩盖原始失败；全空回退 String(e)。截断不漏报分类信息：错误类型名+message 恒在首行，帧行只含调用位置，noCrash 哨兵只需分类信息。
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
-  console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? (String((e.stack || e.message) ?? e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e)) : String(e)))
+  let uncaughtLine = "";
+  try { uncaughtLine = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { uncaughtLine = "unrenderable:" + typeof e }
+  console.error("ENV-FAULT: uncaught: " + uncaughtLine)
   process.exit(2)
 })
 // RV-27-02：unhandledRejection 同理（Node>=15 默认 exit 1，无 stderr 标记）— 同映射为 ENV-FAULT。
@@ -37,7 +40,9 @@ process.on("uncaughtException", (e) => {
 // 无假阴性放行：ENV-FAULT 下游 exit 2 中止（非 PASS），错误信息随 headline 输出供人工复核。
 // try 内同步逻辑错误走 fail()（断言失败 exit 1），不经过此通道。
 process.on("unhandledRejection", (e) => {
-  console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? (String((e.stack || e.message) ?? e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e)) : String(e)))
+  let unhandledLine = "";
+  try { unhandledLine = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { unhandledLine = "unrenderable:" + typeof e }
+  console.error("ENV-FAULT: unhandledRejection: " + unhandledLine)
   process.exit(2)
 })
 
@@ -74,7 +79,7 @@ for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
   }
 }
 ok("r1-newchain", "R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
-const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）
+const status = execSync("git -C QMAI status --short", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_PAGER: "cat" } }).trim() // RV-30-04（RV-29-06 同理：大脏树超限走 catch→ENV-FAULT fail-closed）
 if (status !== "") fail("r1-cleantree", "dirty tree:\n" + status)
 ok("r1-cleantree", "R1 tree clean")
 for (const f of [

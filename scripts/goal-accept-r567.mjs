@@ -21,9 +21,12 @@ function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail");
 // 记 INFO 降级行，避免文本消费者误读。
 function ok(id, msg) { if (finalized) { failures.push(`${id}: write-after-finalize`); console.error(`FAIL [${id}]: write after ledger freeze (RV-25-01)`); return }; if (states.get(id) === "fail") { console.log(`INFO [${id}]: ${msg} (superseded by FAIL; non-acceptance)`); return }; states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
 // RV-30-01/02/03/08 首行安全范式：首个非空行（空首行不真空通过）；按行切分（CRLF 安全）；String() 包裹防二次抛错掩盖原始失败；全空回退 String(e)。截断不漏报分类信息：错误类型名+message 恒在首行，帧行只含调用位置，noCrash 哨兵只需分类信息。
+// RV-31-10 firstLine 独立定义（实现是定义的实例，非定义本身）：`${ErrorName}: ${message 首个非空行}`。
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
-  console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? (String((e.stack || e.message) ?? e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e)) : String(e)))
+  let uncaughtLine = "";
+  try { uncaughtLine = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { uncaughtLine = "unrenderable:" + typeof e }
+  console.error("ENV-FAULT: uncaught: " + uncaughtLine)
   process.exit(2)
 })
 // RV-27-02：unhandledRejection 同理（Node>=15 默认 exit 1，无 stderr 标记）— 同映射为 ENV-FAULT。
@@ -31,7 +34,9 @@ process.on("uncaughtException", (e) => {
 // 无假阴性放行：ENV-FAULT 下游 exit 2 中止（非 PASS），错误信息随 headline 输出供人工复核。
 // try 内同步逻辑错误走 fail()（断言失败 exit 1），不经过此通道。
 process.on("unhandledRejection", (e) => {
-  console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? (String((e.stack || e.message) ?? e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e)) : String(e)))
+  let unhandledLine = "";
+  try { unhandledLine = String((e && e.stack) || (e && e.message) || e).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "")[0] ?? String(e) } catch { unhandledLine = "unrenderable:" + typeof e }
+  console.error("ENV-FAULT: unhandledRejection: " + unhandledLine)
   process.exit(2)
 })
 
