@@ -92,10 +92,14 @@ if (failures.length === 0) {
   const got = [...states.entries()].filter(([, s]) => s === "pass").map(([id]) => id).sort().join(",")
   const want = [...EXPECTED_CHECK_IDS].sort().join(",")
   if (got !== want) fail("r1-8gap", `check-id set mismatch: got [${got}] want [${want}]`)
-  // RV-21-03：rendered PASS 数 == states 终态 pass 数 — 文本与机读同源（states 派生），防两条路径分叉。
+  if (checksRun !== EXPECTED_CHECKS) fail("r1-8gap", `checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
+}
+// RV-21-03（RV-24-03 强化）：rendered PASS 数 == states 终态 pass 数 — 无条件执行，不在
+// failures 守卫内。ok() 只在非 fail 态计数+写 pass，fail() 只写 fail 不计数，故正常 fail
+// 场景下恒相等（F1/F2 为凭）；仅外部污染计数器或账本时开火。文本与机读同源（states 派生）。
+{
   const passCount = [...states.values()].filter((s) => s === "pass").length
   if (checksRun !== passCount) fail("r1-8gap", `rendered PASS ${checksRun} != states pass ${passCount} (text/ledger fork)`)
-  if (checksRun !== EXPECTED_CHECKS) fail("r1-8gap", `checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R1R2 PASS")
 // RV-151 机读账本行：wrapper 解析 states（env==0∧fail==0 全过才 PASS）。

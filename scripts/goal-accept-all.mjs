@@ -8,6 +8,8 @@
 //   3 及其他未列出非零 ⇒ ENV-FAULT 兜底（fail-safe：未知 ⇒ 环境问题，绝不降级为普通 FAIL，更不为 PASS）。
 // RV-23-03 taxonomy（成文）：FAIL(1) 仅保留给子脚本断言失败；一切调用/配置/账本 degenerate
 //   （want 为空、STEPS/EXPECTED_IDS 失配、states 缺键/空/未知态）⇒ ENV-FAULT(2)，fail-closed，永不进 FAIL。
+// RV-24-05 taxonomy 第四类 state/hygiene（成文）：运行环境卫生违例（运行后树脏、探针残留）
+//   ⇒ ENV-FAULT(2)，不是断言失败。`exit 1 ⇔ 子脚本断言失败` 为机检不变量（negprobe F7/F8 为凭）。
 // RV-23-06 调用契约：want 非空；新增脚本必须同步 EXPECTED_IDS，否则按失配 fail-closed（F5 为凭）。
 // RV-23-09 残余登记：残留 execSync 均为固定字面量（插值注入已闭合）；真实残余 = 经 PATH 解析 git 二进制
 //   （与 node 本体同信任域，接受）；cwd 相对路径漂移只会使命令非零 ⇒ ENV-FAULT（fail-closed，无静默风险）。
@@ -78,12 +80,13 @@ for (const step of STEPS) {
 }
 console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny)")
 // RV-21-10 运行后状态断言：验收脚本自身不写文件 — 运行后工作树必须仍干净（可重入性）。
+// RV-24-05：卫生违例 ⇒ ENV-FAULT(2)（见文件头 taxonomy 第四类），不是 FAIL。
 // 注意：此处用 exec 风格 sync 调用 git（固定字面量，无插值，RV-21-06 已审计）。
 try {
   const after = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()
   if (after !== "") {
-    console.error(`ALL-FAIL: post-run tree not clean:\n${after}`)
-    process.exit(1)
+    console.error(`ALL-ENV-FAULT: post-run tree not clean (hygiene):\n${after}`)
+    process.exit(2)
   }
   console.log("POST-RUN tree clean (re-entrant, RV-21-10)")
 } catch (e) {
