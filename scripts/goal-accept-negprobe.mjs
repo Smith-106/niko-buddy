@@ -17,6 +17,8 @@
 //   F9b-exit1 / F9b-shortcircuit → RV-24-04（短路面：同一语义的两面，非双模式）
 //   F13-exit2 / F13-signal → RV-26-03（exitmap 兜底阳性对照；signal 分支 Windows 不可达已注记）
 //   F14-exit2 / F14-uncaught → RV-26-03（uncaught-handler 阳性对照：try 外抛错）
+//   F14b-exit2 / F14b-unhandled → RV-27-02（unhandledRejection 阳性对照：Node≥15 默认 exit 1 须映射 ENV-FAULT）
+//   F15-saferefuse → RV-27-04（safeRm 拒绝 unit：空/越界/仓内/通配/绝对 5 拒绝均须 throw）
 //   BASELINE-head → RV-26-05（NEGPROBE_EXPECT_HEAD 已设时基线身份绑定）
 //   CLEAN-tmp-gone → RV-23-04（tmp 在 QMAI 仓外 + 运行后无残留）
 //   终态 executed-set == MANIFEST 双向断言 → RV-24-02（分母完整性；缺失 probe 记 ENV-FAULT）
@@ -78,7 +80,10 @@ const MANIFEST = [
   "F12-exit1", "F12-no-fork-misfire",
   "F13-exit2", "F13-signal",
   "F14-exit2", "F14-uncaught",
+  "F14b-exit2", "F14b-unhandled",
+  "F15-saferefuse",
   "BASELINE-head",
+  "SELF-bound",
   "CLEAN-tmp-gone", "CLEAN-safe",
 ]
 // RV-24-01：崩溃哨兵 — exit-1 断言必须同时确认输出中无 Node 崩溃痕迹（崩溃同样 exit 1，
@@ -87,7 +92,7 @@ const CRASH_MARKS = ["node:internal", "SyntaxError", "ReferenceError", "TypeErro
 // 注意：git 的 "fatal:" 走 stderr 是探针合法输出（F1 树注入必然触发），不属 Node 崩溃，不列入哨兵。
 function noCrash(out) { return !CRASH_MARKS.some((m) => out.includes(m)) }
 function run(cmd, args) {
-  return spawnSync(cmd, args, { encoding: "utf8", shell: false })
+  return spawnSync(cmd, args, { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 })
 }
 // Fixture 构造器：从生产 wrapper 复制并改写 STEPS/EXPECTED_IDS/spawn 路径；
 // keepPostRun=true 时保留尾部 RV-21-10 运行后断言（F7 专用），否则截掉。
@@ -185,8 +190,9 @@ try {
   check("F3-no-allpass", !out3.includes("ALL goal-accept STEPS PASS"), "ALL PASS present despite missing key")
 
   // F4：真实环境故障正向对照 — 缺失可执行文件（PATH/安装损坏类），ENV-FAULT 必须可达（RV-23-01）。
+  // 注：生产 spawn 用 process.execPath（RV-27-07），此处替换解释器为坏二进制。
   let w4 = readFileSync("QMAI/scripts/goal-accept-all.mjs", "utf8")
-  w4 = w4.split('spawnSync("node", [').join('spawnSync("node-nonexistent-bin-xyz", [')
+  w4 = w4.split("spawnSync(process.execPath, [").join("spawnSync(\"node-nonexistent-bin-xyz\", [")
   writeFileSync(`${DIR}/w4.mjs`, w4)
   const r4 = run("node", [`${DIR}/w4.mjs`])
   const out4 = (r4.stdout ?? "") + (r4.stderr ?? "")
@@ -229,7 +235,7 @@ try {
   f10 = f10.replace('ok("r3-gaps", "R3 8-gap symbols all present in product code")',
     'ok("r3-gaps", "R3 8-gap symbols all present in product code")\nif (process.env.NEGPROBE_CRASH === "1" /* F10 阳性对照 */) { nonexistentFn_xyz() }')
   writeFileSync(`${DIR}/f10.mjs`, f10)
-  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, env: { ...process.env, NEGPROBE_CRASH: "1" } })
+  const r10 = spawnSync("node", [`${DIR}/f10.mjs`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, NEGPROBE_CRASH: "1" } }) // RV-27-06
   const out10 = (r10.stdout ?? "") + (r10.stderr ?? "")
   check("F10-exit2", r10.status === 2, `status=${r10.status}`)
   // 注：fixture 内崩溃发生在子脚本 try 块内 → 走 ENV-FAULT 分支（非 uncaught handler，
@@ -280,10 +286,49 @@ try {
   check("F14-exit2", r14.status === 2, `status=${r14.status}`)
   check("F14-uncaught", out14.includes("ENV-FAULT: uncaught") && out14.includes("outside-try throw") && noCrash(out14), "uncaught-handler ENV-FAULT absent / misclassified")
 
+  copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f14b.mjs`)
+  let f14b = readFileSync(`${DIR}/f14b.mjs`, "utf8")
+  f14b = f14b.replace("try {\nfunction mustContain", "Promise.reject(new Error(\"NEGPROBE F14b: unhandled rejection\"));\ntry {\nfunction mustContain")
+  writeFileSync(`${DIR}/f14b.mjs`, f14b)
+  const r14b = run("node", [`${DIR}/f14b.mjs`])
+  const out14b = (r14b.stdout ?? "") + (r14b.stderr ?? "")
+  check("F14b-exit2", r14b.status === 2, `status=${r14b.status}`)
+  check("F14b-unhandled", out14b.includes("ENV-FAULT: unhandledRejection") && out14b.includes("unhandled rejection") && noCrash(out14b), "unhandledRejection ENV-FAULT absent / misclassified")
+
   // RV-26-05：基线身份绑定 — NEGPROBE_EXPECT_HEAD 已设时 START_HEAD 必须等于期望基线
-  // （错基线全绿拦截）；未设时恒过（仅起止一致 RV-25-07 生效，此处注明非空转：门禁语义由调用方选择）。
+  // （错基线全绿拦截）。RV-27-11："已设" = 变量存在（`in` 语义）；存在但 trim 为空
+  // （CI `set X=` 事故）→ 大声 ENV-FAULT，不静默降级为未设。仅完全未导出时恒过
+  // （仅起止一致 RV-25-07 生效，此处注明非空转：门禁语义由调用方选择）。
+  const headSet = "NEGPROBE_EXPECT_HEAD" in process.env
   const expectHead = (process.env.NEGPROBE_EXPECT_HEAD ?? "").trim()
-  check("BASELINE-head", expectHead === "" || START_HEAD === expectHead, `HEAD ${START_HEAD} != expected ${expectHead || "(unset)"}`)
+  if (headSet && expectHead === "") {
+    console.error("NEG-ENV-FAULT: NEGPROBE_EXPECT_HEAD exported but empty (refuse silent unbind)")
+    process.exit(2)
+  }
+  check("BASELINE-head", !headSet || START_HEAD === expectHead, `HEAD ${START_HEAD} != expected ${expectHead || "(unset)"}`)
+
+  // RV-27-12：脚本身份绑定 — NEGPROBE_EXPECT_SELF 已设时当前探针 self 哈希必须等于期望
+  // （探针字节漂移拦截；与 BASELINE-head 同语义：存在但空 → 大声失败）。
+  const probeSelfNow = createHash("sha256").update(readFileSync("QMAI/scripts/goal-accept-negprobe.mjs", "utf8")).digest("hex").slice(0, 16)
+  const selfSet = "NEGPROBE_EXPECT_SELF" in process.env
+  const expectSelf = (process.env.NEGPROBE_EXPECT_SELF ?? "").trim()
+  if (selfSet && expectSelf === "") {
+    console.error("NEG-ENV-FAULT: NEGPROBE_EXPECT_SELF exported but empty (refuse silent unbind)")
+    process.exit(2)
+  }
+  check("SELF-bound", !selfSet || probeSelfNow === expectSelf, `self ${probeSelfNow} != expected ${expectSelf || "(unset)"}`)
+
+  // RV-27-04：safeRm 拒绝 unit — 守卫必须可机检拒绝（纵深防御非论证性）。
+  // 全部 in-process try/catch，不删任何东西：空/越界/仓内/通配/绝对 各一例，须全部 throw。
+  const refuseCases = ["", "..", "QMAI", "QMAI/scripts/x.mjs", "../outside", ".negprobe-tmp/../../x", "C:/Windows/Temp/x", "*.mjs"]
+  let refusedAll = true
+  for (const c of refuseCases) {
+    try { safeRm(c); refusedAll = false; console.error(`NEG-FAIL detail: safeRm accepted ${JSON.stringify(c)}`) }
+    catch { /* expected */ }
+  }
+  // 正例：DIR/DIRTY 常量本身必须通过守卫的纯判定部分（不实际删除 — 只复刻判定逻辑的 dry-run）。
+  // 注：safeRm 无 dry-run 参数；此处正例由后文 safeRm(DIR)/safeRm(DIRTY) 实际成功清理覆盖。
+  check("F15-saferefuse", refusedAll, "safeRm accepted a forbidden path")
 
   // F8：仅污染过程计数（账本完好）→ RV-21-03 同源断言必须开火（RV-23-05 差分反证之二；之一为 F3）。
   copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f8.mjs`)
@@ -361,4 +406,6 @@ if (START_HEAD !== headSha) {
   process.exit(2)
 }
 const selfHash = createHash("sha256").update(readFileSync("QMAI/scripts/goal-accept-negprobe.mjs", "utf8")).digest("hex").slice(0, 16)
-console.log(`NEGPROBE ALL PASS (${MANIFEST.length}/${MANIFEST.length}) HEAD=${headSha} self=${selfHash}`)
+// RV-27-10：平台条件记录 — 全绿结论是平台条件的（signal 分支 Windows 不可达）；
+// 尾行强制打印 platform + node 版本，使未来读者可判定哪些 arm 被跳过。
+console.log(`NEGPROBE ALL PASS (${MANIFEST.length}/${MANIFEST.length}) HEAD=${headSha} self=${selfHash} platform=${process.platform} node=${process.version}`)

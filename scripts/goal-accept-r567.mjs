@@ -25,6 +25,11 @@ process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
   process.exit(2)
 })
+// RV-27-02：unhandledRejection 同理（Node>=15 默认 exit 1，无 stderr 标记）— 同映射为 ENV-FAULT。
+process.on("unhandledRejection", (e) => {
+  console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? e.message : String(e)))
+  process.exit(2)
+})
 
 try {
 function read(id, p) {

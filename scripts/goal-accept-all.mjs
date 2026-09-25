@@ -15,12 +15,21 @@
 //   ledger-degenerate → exit 2 ENV-FAULT       [行证据: F3/F5]
 //   spawn/signal/unknown-exit → exit 2 ENV-FAULT [行证据: F4]
 //   hygiene → exit 2 ENV-FAULT                 [行证据: F7]
-//   crash → exit 2 ENV-FAULT (uncaught)        [行证据: F10]
+//   crash → exit 2 ENV-FAULT (uncaught + unhandledRejection) [行证据: F10/F14/F14b]
+//   env-bind → exit 2 ENV-FAULT on mismatch   [行证据: BASELINE-head/SELF-bound]
+//   guard-refusal → unit refuse (in-process)   [行证据: F15-saferefuse]
 // negprobe 每个 fixture 即此表的行级证据；删任一行契约必须同步删/改对应 fixture（双向）。
 // RV-23-06 调用契约：want 非空；新增脚本必须同步 EXPECTED_IDS，否则按失配 fail-closed（F5 为凭）。
 // RV-23-09 残余登记：残留 execSync 均为固定字面量（插值注入已闭合）；真实残余 = 经 PATH 解析 git 二进制
 //   （与 node 本体同信任域，接受）；cwd 相对路径漂移只会使命令非零 ⇒ ENV-FAULT（fail-closed，无静默风险）。
 import { spawnSync, execSync } from "node:child_process"
+// RV-27-07：运行时同一性 — spawn 用 PATH 解析 node + 相对路径，错误 cwd/解释器下执行集漂移。
+// fail-fast：cwd 非 hub root 即 ENV-FAULT 中止；回显解释器绝对路径 + 版本 + 平台（INIT-toolchain 配对）。
+if (!process.cwd().replace(/\\/g, "/").endsWith("niko-hub")) {
+  console.error(`ALL-ENV-FAULT: unexpected cwd ${process.cwd()} (expected hub root; step set would drift)`)
+  process.exit(2)
+}
+console.log(`INIT node=${process.execPath} ${process.version} platform=${process.platform} cwd=${process.cwd()}`)
 
 const STEPS = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]
 // RV-201：裁决量化在期望 id 集上（非 states 键集）— 缺键即拒，杜绝存在性谓词真空通过。
@@ -71,7 +80,7 @@ function classify(res, step) {
 
 let headline = null
 for (const step of STEPS) {
-  const res = spawnSync("node", [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false })
+  const res = spawnSync(process.execPath, [`QMAI/scripts/${step}`], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 }) // RV-27-02(process.execPath 钉解释器)/RV-27-06(maxBuffer 防 ENOBUFS 截断哨兵)
   process.stdout.write(res.stdout ?? "")
   process.stderr.write(res.stderr ?? "")
   const c = classify(res, step)
