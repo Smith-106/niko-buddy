@@ -180,6 +180,18 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     const out = trimContextPack(pack, 5_000, { budgetUnit: "tokens" })
     expect(out.removed).toEqual([])
     expect(out.originalChars).toBe(JSON.stringify(pack).length)
+    // RV-019：removed 空有两种语义 — 空包（originalChars==0） vs 非空未裁剪
+    // （originalChars>0 且 final==original）；此处断言空包语义，避免混淆。
+    expect(out.originalChars).toBe(2) // "{}" 长度为 2
+    expect(out.finalChars).toBe(out.originalChars)
+  })
+
+  it("RV-019 非空未裁剪：removed 空但 originalChars>0 且 final==original", () => {
+    const pack = packWithOutline()
+    const out = trimContextPack(pack, 10_000_000, { budgetUnit: "tokens" })
+    expect(out.removed).toEqual([])
+    expect(out.originalChars ?? 0).toBeGreaterThan(0)
+    expect(out.finalChars).toBe(out.originalChars)
   })
 
   it("excludeOutline=false：prompt 含 outline", () => {
