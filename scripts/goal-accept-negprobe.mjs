@@ -15,6 +15,9 @@
 //   F8c-anchor/exit1/fork → RV-24-03（r567 同源断言三脚本全覆盖）
 //   F9a-exit1 / F9a-step-pass-ok / F9a-allfail → RV-23-07 + RV-24-04（聚合面：同一语义）
 //   F9b-exit1 / F9b-shortcircuit → RV-24-04（短路面：同一语义的两面，非双模式）
+//   F13-exit2 / F13-signal → RV-26-03（exitmap 兜底阳性对照；signal 分支 Windows 不可达已注记）
+//   F14-exit2 / F14-uncaught → RV-26-03（uncaught-handler 阳性对照：try 外抛错）
+//   BASELINE-head → RV-26-05（NEGPROBE_EXPECT_HEAD 已设时基线身份绑定）
 //   CLEAN-tmp-gone → RV-23-04（tmp 在 QMAI 仓外 + 运行后无残留）
 //   终态 executed-set == MANIFEST 双向断言 → RV-24-02（分母完整性；缺失 probe 记 ENV-FAULT）
 //   exit-1 断言均附 noCrash 崩溃哨兵 → RV-24-01（`exit 1 ⇔ 断言失败`，结构化 FAIL 记录身份）
@@ -22,20 +25,26 @@
 import { spawnSync, execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { relative, resolve, sep } from "node:path"
 
 const DIR = ".negprobe-tmp"
 const DIRTY = ".negprobe-dirty" // F7 专用脏仓（hub root，QMAI 仓外）
 let START_HEAD = "(unresolved)" // RV-25-07：起始 HEAD 采样（模块级，尾部起止一致断言可见）
 // RV-25-06：CLEAN 安全前置 — 清理前显式断言路径（防 rm -rf 祖先目录/根目录/HOME）。
+// RV-26-02：realpath 归一化 + 大小写归一（Windows 不敏感）+ 拒绝 QMAI 根自身。
+// 调用点仅为模块常量 DIR/DIRTY（非外部输入），本函数为纵深防御。
 function safeRm(target) {
   if (!target || target.trim() === "") throw new Error("safeRm: empty path refused")
-  if (target === "/" || target === "\\" || target === "." || target === "..") throw new Error(`safeRm: refused dangerous path ${JSON.stringify(target)}`)
-  if (target.includes("..") || target.includes("*") || target.includes("?")) throw new Error(`safeRm: refused glob/escape path ${JSON.stringify(target)}`)
-  const cwd = process.cwd().replace(/\\/g, "/")
-  if (!cwd.endsWith("niko-hub")) throw new Error(`safeRm: unexpected cwd ${cwd} (expected hub root)`)
-  if (target.startsWith("/") || /^[A-Za-z]:/.test(target) || target.startsWith("~")) throw new Error(`safeRm: refused absolute/home path ${JSON.stringify(target)}`)
-  if (target === "QMAI" || target.startsWith("QMAI/")) throw new Error(`safeRm: refused in-repo path ${JSON.stringify(target)}`)
-  rmSync(target, { recursive: true, force: true })
+  if (/[*?[\]$`{}()|&;<>!]/.test(target)) throw new Error(`safeRm: refused metachar path ${JSON.stringify(target)}`)
+  const cwd = process.cwd()
+  if (!cwd.replace(/\\/g, "/").endsWith("niko-hub")) throw new Error(`safeRm: unexpected cwd ${cwd} (expected hub root)`)
+  const abs = resolve(cwd, target) // 归一化 .. 与分隔符
+  const rel = relative(cwd, abs)
+  if (rel === "" || rel.startsWith("..") || rel.startsWith(sep)) throw new Error(`safeRm: refused escape-from-cwd ${JSON.stringify(target)} → ${abs}`)
+  // 首段 Windows 语义归一（去尾点/尾空格 + 小写）："QMAI"、"qmai"、"QMAI." 一律拒绝。
+  const first = rel.split(sep)[0].replace(/[. ]+$/, "").toLowerCase()
+  if (first === "qmai") throw new Error(`safeRm: refused in-repo path ${JSON.stringify(target)}`)
+  rmSync(abs, { recursive: true, force: true })
   console.log(`CLEAN-SAFE: removed ${target}`)
 }
 // RV-25-07 起止一致：HEAD 采样 helper（失败返回 unresolved，不抛 — 避免采样本身炸掉主流程）。
@@ -67,6 +76,9 @@ const MANIFEST = [
   "F10-exit2", "F10-crash-lit",
   "F11-documented",
   "F12-exit1", "F12-no-fork-misfire",
+  "F13-exit2", "F13-signal",
+  "F14-exit2", "F14-uncaught",
+  "BASELINE-head",
   "CLEAN-tmp-gone", "CLEAN-safe",
 ]
 // RV-24-01：崩溃哨兵 — exit-1 断言必须同时确认输出中无 Node 崩溃痕迹（崩溃同样 exit 1，
@@ -246,6 +258,32 @@ try {
   const out12 = (r12.stdout ?? "") + (r12.stderr ?? "")
   check("F12-exit1", r12.status === 1, `status=${r12.status}`)
   check("F12-no-fork-misfire", out12.includes("FAIL [r1-cleantree]") && !out12.includes("text/ledger fork") && noCrash(out12), "legit-fail misfired as fork / missing cleantree FAIL")
+
+  // F13：exitmap 兜底阳性对照（RV-26-03）— 未列出非零 exit 3 → [det=exitmap] → ENV-FAULT exit 2。
+  // 注：signal 分支（[det=signal]）在 Windows 不可达（SIGTERM 自杀落为 exit 1 无信号名，
+  // 平台限制）；signal 语义由 classify 代码分支 + POSIX CI 覆盖，本机以 exitmap 为代表。
+  writeFileSync(`${DIR}/f13.mjs`, 'process.exit(3);\n')
+  writeFileSync(`${DIR}/w13.mjs`, makeWrapper(["f13.mjs"], { "f13.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] }))
+  const r13 = run("node", [`${DIR}/w13.mjs`])
+  const out13 = (r13.stdout ?? "") + (r13.stderr ?? "")
+  check("F13-exit2", r13.status === 2, `status=${r13.status}`)
+  check("F13-signal", out13.includes("[det=exitmap]") && out13.includes("exit 3"), "exitmap ENV-FAULT headline absent")
+
+  // F14：uncaught-handler 阳性对照（RV-26-03）— try 外同步抛错 →
+  // 子脚本 process.on(uncaughtException) → ENV-FAULT exit 2（含 uncaught 身份）。
+  copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f14.mjs`)
+  let f14 = readFileSync(`${DIR}/f14.mjs`, "utf8")
+  f14 = f14.replace("try {\nfunction mustContain", 'throw new Error("NEGPROBE F14: outside-try throw");\ntry {\nfunction mustContain')
+  writeFileSync(`${DIR}/f14.mjs`, f14)
+  const r14 = run("node", [`${DIR}/f14.mjs`])
+  const out14 = (r14.stdout ?? "") + (r14.stderr ?? "")
+  check("F14-exit2", r14.status === 2, `status=${r14.status}`)
+  check("F14-uncaught", out14.includes("ENV-FAULT: uncaught") && out14.includes("outside-try throw") && noCrash(out14), "uncaught-handler ENV-FAULT absent / misclassified")
+
+  // RV-26-05：基线身份绑定 — NEGPROBE_EXPECT_HEAD 已设时 START_HEAD 必须等于期望基线
+  // （错基线全绿拦截）；未设时恒过（仅起止一致 RV-25-07 生效，此处注明非空转：门禁语义由调用方选择）。
+  const expectHead = (process.env.NEGPROBE_EXPECT_HEAD ?? "").trim()
+  check("BASELINE-head", expectHead === "" || START_HEAD === expectHead, `HEAD ${START_HEAD} != expected ${expectHead || "(unset)"}`)
 
   // F8：仅污染过程计数（账本完好）→ RV-21-03 同源断言必须开火（RV-23-05 差分反证之二；之一为 F3）。
   copyFileSync("QMAI/scripts/goal-accept-r3r4.mjs", `${DIR}/f8.mjs`)

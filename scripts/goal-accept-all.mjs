@@ -66,7 +66,7 @@ function classify(res, step) {
   if (code === 2) return { cls: "ENV-FAULT", code: 2, why: `${step}: exit 2 (env fault)` }
   // RV-158：124/126/127/130/137/143 及其他未列出非零一律 ENV-FAULT 兜底。
   // RV-25-04：[det=exitmap] 兜底类标签 — 与断言失败(exit 1)正交可区分。
-  return { cls: "ENV-FAULT", code: 2, why: `${step}: exit ${code} (unlisted non-zero → ENV-FAULT fail-safe)` }
+  return { cls: "ENV-FAULT", code: 2, why: `${step}: [det=exitmap] exit ${code} (unlisted non-zero → ENV-FAULT fail-safe)` }
 }
 
 let headline = null
