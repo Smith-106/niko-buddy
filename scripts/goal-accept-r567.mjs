@@ -54,7 +54,11 @@ function read(id, p) {
 function noFailLines(id, t, label) {
   // RV-40B-03：双向锚定 — vitest 汇总失败行为 " FAIL path"（前导空格），行首风格 "FAIL ..." 同样否决；
   // 实测 12/13 日志零 FAIL 行（仅 MOCKS_FAIL=0/COMP_FAIL=0 标记，不命中任一分支）。
-  const bad = t.split("\n").filter((l) => l.startsWith(" FAIL") || /^\s*FAIL\b/.test(l))
+  // RV-41B-04：FAILED/FAILURE 扩展 — "\bFAIL\b" 使 "FAILED" 漏检（L/E 均为词字符，无边界）。
+  // 标记行 MOCKS_FAIL=0/COMP_FAIL=0/TYPECHECK_EXIT=0 含 "_FAIL="，行首/空白后紧接 FAIL 的任一分支均不命中
+  // （绿日志实测：零 FAILED/FAILURE/not ok/×/✖ 行，仅 _FAIL=0 标记行），故安全扩展。
+  const bad = t.split("\n").filter((l) =>
+    l.startsWith(" FAIL") || /^\s*FAIL\b/.test(l) || /FAILED|FAILURE/.test(l) || /^\s*not ok\b/.test(l) || /[×✖]/.test(l))
   if (bad.length > 0) fail(id, label + " has " + bad.length + " FAIL lines")
 }
 

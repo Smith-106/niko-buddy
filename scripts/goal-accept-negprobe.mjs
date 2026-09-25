@@ -89,6 +89,11 @@ const MANIFEST = [
 ]
 // RV-24-01：崩溃哨兵 — exit-1 断言必须同时确认输出中无 Node 崩溃痕迹（崩溃同样 exit 1，
 // 仅比退出码会把“因崩溃而绿”计为通过）。合法 FAIL 行只含 "FAIL [id]:"，不含以下标记。
+// RV-41A-02（补偿链，非单点修复）：code===1 ⇒ FAIL 无法区分“子脚本断言失败”与“子进程崩溃”
+// （Node 未捕获异常默认退出码也是 1）。三层补偿：① 子脚本侧 uncaught/unhandledRejection 显式映射
+// ENV-FAULT(2)（r1r2/r3r4/r567 全覆盖）；② exit-1 断言全部附 noCrash 哨兵（F1/F2/F8/F8b/F8c/F9a/F9b/F12
+// 机检：崩溃痕迹存在即 fixture 红）；③ 账本要求 states 含 ≥1 个 :fail 态（F1-states-fail 类断言为凭）。
+// 残余仅为“静默 exit(1) 且无崩溃痕迹且伪造 fail 账本”的复合篡改面，已超出验收门禁威胁模型。
 const CRASH_MARKS = ["node:internal", "SyntaxError", "ReferenceError", "TypeError", "UnhandledPromiseRejection"]
 // 注意：git 的 "fatal:" 走 stderr 是探针合法输出（F1 树注入必然触发），不属 Node 崩溃，不列入哨兵。
 function noCrash(out) { return !CRASH_MARKS.some((m) => out.includes(m)) }
@@ -321,6 +326,10 @@ try {
   // post-run 行保持 60s），步骤被 kill → 超时 kill 同时置 error（ETIMEDOUT）+ signal，classify 按
   // error→signal→status 优先级走 [det=spawn] → ENV-FAULT exit 2（实测：status=null signal=SIGKILL）。
   let w16 = makeWrapper(["f16.mjs"], { "f16.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] })
+  // RV-41C-01：锚点唯一性 — "timeout: 60000, killSignal" 在生产 wrapper 存在两处（步骤 spawn 行 86 + post-run 行 107）。
+  // replace 只换首个；若顺序反转会改错行。先断言恰好两处（顺序漂移/新增/删除任一情形即大声失败），再换首个。
+  const anchorCount = w16.split("timeout: 60000, killSignal").length - 1
+  if (anchorCount !== 2) throw new Error(`F16 anchor ambiguous: expected 2 occurrences, found ${anchorCount}`)
   w16 = w16.replace("timeout: 60000, killSignal", "timeout: 200, killSignal")
   writeFileSync(`${DIR}/w16.mjs`, w16)
   if (!w16.includes("timeout: 200, killSignal")) throw new Error("F16 anchor missed: wrapper spawn timeout not redirected")

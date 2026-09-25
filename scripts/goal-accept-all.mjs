@@ -114,4 +114,7 @@ try {
   console.error("ALL-ENV-FAULT: post-run cleanliness check failed: " + (e instanceof Error ? e.message : String(e)))
   process.exit(2)
 }
-console.log("ALL goal-accept STEPS PASS (3/3, CHECKS-verified, default-deny, post-run clean)")
+// RV-41A-10（部分采纳）：终局横幅计数由 STEPS.length 派生（硬编码 (3/3) 在 STEPS 扩容即变谎报）。
+// STEP 行保持 "STEP PASS" 文案（negprobe F9a L407 依赖该字面作聚合面断言，改名即破 fixture）；
+// 权威裁决 = 最终横幅 + 进程退出码（步骤行仅为过程回显，见 RV-25-05 契约表）。
+console.log(`ALL goal-accept STEPS PASS (${STEPS.length}/${STEPS.length}, CHECKS-verified, default-deny, post-run clean)`)
