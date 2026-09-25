@@ -9,6 +9,13 @@
 import { spawnSync } from "node:child_process"
 
 const STEPS = ["goal-accept-r1r2.mjs", "goal-accept-r3r4.mjs", "goal-accept-r567.mjs"]
+// RV-201：裁决量化在期望 id 集上（非 states 键集）— 缺键即拒，杜绝存在性谓词真空通过。
+// RV-159：各步骤期望 id 集与子脚本 EXPECTED_CHECK_IDS 同源，增删检查时同步更新。
+const EXPECTED_IDS = {
+  "goal-accept-r1r2.mjs": ["r1-8gap", "r1-ancestry", "r1-newchain", "r1-cleantree", "r1-evdocs", "r2-reports"],
+  "goal-accept-r3r4.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"],
+  "goal-accept-r567.mjs": ["r5-artifact", "r5-buildlog", "r5-typecheck", "r6-mocks", "r7-comp"],
+}
 // RV-158：信号名 → ENV-FAULT。spawnSync signal 非 null 即进程级死亡（RV-155 不覆盖脚本内映射）。
 function classify(res, step) {
   if (res.error) return { cls: "ENV-FAULT", code: 2, why: `${step}: spawn error ${res.error.message}` }
@@ -23,6 +30,13 @@ function classify(res, step) {
     // RV-151/RV-157 三值账本：states 机读终态 — 任一 fail 即 FAIL（一等结局），任一 env 即 ENV-FAULT。
     if (!m[4]) return { cls: "ENV-FAULT", code: 2, why: `${step}: CHECKS states missing (ledger required)` }
     const st = Object.fromEntries(m[4].split(",").map((kv) => kv.split(":")))
+    // RV-201：期望集 ⊆ 键集 — 缺项即拒（存在性谓词替换为全称量化）。
+    const want = EXPECTED_IDS[step] ?? []
+    const missing = want.filter((id) => !(id in st))
+    if (missing.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states missing keys: ${missing.join(",")}` }
+    // RV-207 第三值合取规则（成文）：unexecuted（期望外键/未知态）⇒ 拒绝；显式豁免须登记理由（当前无豁免）。
+    const unknown = Object.entries(st).filter(([, s]) => s !== "pass" && s !== "fail" && s !== "env")
+    if (unknown.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has unknown state: ${unknown.map(([id, s]) => `${id}=${s}`).join(",")}` }
     const fails = Object.entries(st).filter(([, s]) => s === "fail")
     const envs = Object.entries(st).filter(([, s]) => s === "env")
     if (envs.length > 0) return { cls: "ENV-FAULT", code: 2, why: `${step}: states has env: ${envs.map(([id]) => id).join(",")}` }

@@ -7,7 +7,7 @@
 // 外层 runner 必须把未知非零映射为 ENV-FAULT（fail-safe），永不得映射为 PASS。
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行（run/skipped/expected），
 // 跳过机制不存在（skipped 恒 0）；杜绝“0 断言 = PASS”静默跳过。
-import { execSync } from "node:child_process"
+import { execSync, execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 
 const EXPECTED_CHECKS = 6 // R1×5（含 RV-146 祖先断言）+ R2×1（RV-147/RV-159：增删检查时同步更新 id 清单）
@@ -19,7 +19,9 @@ let checksRun = 0
 const states = new Map() // check_id → "pass" | "fail"
 const EXPECTED_CHECK_IDS = ["r1-8gap", "r1-ancestry", "r1-newchain", "r1-cleantree", "r1-evdocs", "r2-reports"]
 function fail(id, msg) { failures.push(`${id}: ${msg}`); states.set(id, "fail"); console.error(`FAIL [${id}]: ` + msg) }
-function ok(id, msg) { if (!states.has(id)) states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
+// RV-205/RV-157：first-fail-wins — 已 fail 的 id 后续 ok() 不得再打印 PASS 行（文本与机读一致），
+// 记 INFO 降级行，避免文本消费者误读。
+function ok(id, msg) { if (states.get(id) === "fail") { console.log(`INFO [${id}]: ${msg} (superseded by FAIL; non-acceptance)`); return }; states.set(id, "pass"); checksRun++; console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -32,9 +34,11 @@ try {
 // RV-156（根治 RV-145/RV-146/RV-149/RV-163/RV-164）：位置窗口（git log -N）已删除 —
 // 存在性断言改用 `git cat-file -e <sha>`（内容寻址，与 HEAD 距离无关，+1/提交衰减消解）；
 // 祖先断言 `merge-base --is-ancestor` 为主门控。窗口常量不复存在，无扩容、无余量、无老化。
+// RV-204：类型约束 — `^{commit}` 后缀，tree/blob/tag 哈希注入必须拒绝。
+// 注意：execSync 走 shell（Windows cmd 会吞 `^`），故用 execFileSync 绕过 shell（RV-204 实证教训）。
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
   try {
-    execSync(`git -C QMAI cat-file -e ${c}`, { encoding: "utf8" })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8" })
   } catch {
     fail("r1-8gap", "missing commit " + c)
   }
@@ -51,7 +55,7 @@ try {
 if (ancestryOk) ok("r1-ancestry", "R1 baseline ancestry intact (content-addressed, RV-146)")
 for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
   try {
-    execSync(`git -C QMAI cat-file -e ${c}`, { encoding: "utf8" })
+    execFileSync("git", ["-C", "QMAI", "cat-file", "-e", `${c}^{commit}`], { encoding: "utf8" })
   } catch {
     fail("r1-newchain", "missing commit " + c)
   }
