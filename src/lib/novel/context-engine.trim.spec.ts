@@ -150,6 +150,31 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(out.pack.soulDoc as string).toBe("灵魂文档")
   })
 
+  it("RV-009 量纲归一化：budgetUnit 缺省 chars 时为恒等变换（字节级等价）", () => {
+    const pack = packWithOutline()
+    const a = trimContextPack(pack, 5_000)
+    const b = trimContextPack(pack, 5_000, { budgetUnit: "chars" })
+    expect(JSON.stringify(a.pack)).toBe(JSON.stringify(b.pack))
+    expect(a.removed).toEqual(b.removed)
+  })
+
+  it("RV-009 量纲归一化：budgetUnit tokens 时预算按 CJK 加权换算放大（修正过度裁剪）", () => {
+    const pack = {
+      task: "任务正文",
+      outline: "大纲正文UNIQUE-OUTLINE-103",
+      soulDoc: "灵魂文档",
+      searchResults: "索".repeat(30_000),
+      graphSearchResults: "图".repeat(30_000),
+      recentChapterContents: ["正".repeat(30_000)],
+    } as unknown as ContextPack
+    // 中文包 chars/token ≈ 1.5：5000 tokens 换算后 ≈ 7500+ 字符 > 5000 字符预算，
+    // 故 tokens 路径裁剪量必须 ≤ chars 路径裁剪量（预算更大，删得更少）。
+    const byChars = trimContextPack(pack, 5_000, { excludeOutline: true })
+    const byTokens = trimContextPack(pack, 5_000, { excludeOutline: true, budgetUnit: "tokens" })
+    expect(byTokens.finalChars ?? 0).toBeGreaterThanOrEqual(byChars.finalChars ?? 0)
+    expect(byTokens.removed.length).toBeLessThanOrEqual(byChars.removed.length)
+  })
+
   it("excludeOutline=false：prompt 含 outline", () => {
     const pack = packWithOutline()
     expect(trimContextPack(pack, 10_000_000, { excludeOutline: false }).prompt).toContain(

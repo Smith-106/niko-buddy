@@ -2821,17 +2821,35 @@ export interface TrimResult {
   trimmedFields?: string[]
 }
 
+/**
+ * RV-009 量纲换算（与 contextPackToPrompt 同源 CJK 加权口径）：
+ * 纯 ASCII 4 字符/token，纯中文 1.5 字符/token，按实际 CJK 占比混合换算。
+ * 返回 pack 内容对应的平均 chars/token，供 token 量级预算换算为字符。
+ */
+function charsPerTokenOfPack(pack: ContextPack): number {
+  const text = JSON.stringify(pack)
+  if (text.length === 0) return 4
+  const cjkCount = (text.match(/[\u3400-\u9FFF]/g) ?? []).length
+  const cjkRatio = cjkCount / text.length
+  return 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
+}
+
 export function trimContextPack(
   pack: ContextPack,
   budgetChars: number,
-  options?: { excludeOutline?: string | boolean },
+  options?: { excludeOutline?: string | boolean; budgetUnit?: "chars" | "tokens" },
 ): TrimResult {
   // §GAP-103(f): honor excludeOutline（与 contextPackToPrompt 同语义）。
   // 默认 falsy/缺省时 prompt 组装与旧实现逐位一致（字节级等价）。
   const excludeOutline = Boolean(options?.excludeOutline)
+  // RV-009 量纲归一化（additive）：budgetUnit 缺省 "chars" 时为恒等变换（字节级等价）；
+  // 调用方若传入 token 量级预算，应显式传 budgetUnit: "tokens"，此处按 CJK 加权口径
+  // （与 contextPackToPrompt 同源：纯 ASCII 4 字符/token，纯中文 1.5 字符/token）换算为字符。
+  const budget =
+    options?.budgetUnit === "tokens" ? Math.floor(budgetChars * charsPerTokenOfPack(pack)) : budgetChars
   const dump = JSON.stringify(pack)
   const prompt = [pack.task, ...(excludeOutline ? [] : [pack.outline]), pack.soulDoc].filter(Boolean).join("\n\n")
-  if (dump.length <= budgetChars) {
+  if (dump.length <= budget) {
     return {
       pack,
       removed: [],
@@ -2883,7 +2901,7 @@ export function trimContextPack(
     ["worldBlueprint", "世界骨架"],
   ]
   for (const [key, label] of fields) {
-    if (total <= budgetChars) break
+    if (total <= budget) break
     const value = result[key]
     const anyResult = result as unknown as Record<string, unknown>
     if (Array.isArray(value) && value.length > 0) {
