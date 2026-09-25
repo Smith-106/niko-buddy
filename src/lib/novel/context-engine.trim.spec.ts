@@ -176,13 +176,12 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
   })
 
   it("RV-014 退化输入：空包 tokens 归一化不产生 NaN（回退 ASCII 口径）", () => {
+    // RV-023/RV-024：空包判据用结构判据（零可裁剪字段）而非长度哨兵 —
+    // originalChars==2 只是 "{}" 序列化的附带事实（美化输出即变），不作分类依据。
     const pack = {} as unknown as ContextPack
     const out = trimContextPack(pack, 5_000, { budgetUnit: "tokens" })
     expect(out.removed).toEqual([])
     expect(out.originalChars).toBe(JSON.stringify(pack).length)
-    // RV-019：removed 空有两种语义 — 空包（originalChars==0） vs 非空未裁剪
-    // （originalChars>0 且 final==original）；此处断言空包语义，避免混淆。
-    expect(out.originalChars).toBe(2) // "{}" 长度为 2
     expect(out.finalChars).toBe(out.originalChars)
   })
 
