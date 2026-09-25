@@ -326,10 +326,14 @@ try {
   // post-run 行保持 60s），步骤被 kill → 超时 kill 同时置 error（ETIMEDOUT）+ signal，classify 按
   // error→signal→status 优先级走 [det=spawn] → ENV-FAULT exit 2（实测：status=null signal=SIGKILL）。
   let w16 = makeWrapper(["f16.mjs"], { "f16.mjs": ["r3-gaps", "r3b-fixes", "r4-reeval"] })
-  // RV-41C-01：锚点唯一性 — "timeout: 60000, killSignal" 在生产 wrapper 存在两处（步骤 spawn 行 86 + post-run 行 107）。
-  // replace 只换首个；若顺序反转会改错行。先断言恰好两处（顺序漂移/新增/删除任一情形即大声失败），再换首个。
-  const anchorCount = w16.split("timeout: 60000, killSignal").length - 1
-  if (anchorCount !== 2) throw new Error(`F16 anchor ambiguous: expected 2 occurrences, found ${anchorCount}`)
+  // RV-41C-01：锚点唯一性 — "timeout: 60000, killSignal" 在生产 wrapper 存在两处（步骤 spawn 行 86 + post-run 行 107），
+  // 但 makeWrapper 已截掉 post-run 块，故副本内必须恰好 1 处。双层断言：生产侧恰好 2 处（顺序漂移/新增/删除即大声
+  // 失败）+ 副本侧恰好 1 处（replace 首个即步骤行，正确）；任一不符即 throw，不静默改错行。
+  const anchor16 = "timeout: 60000, killSignal"
+  const prodAnchorCount = readFileSync("QMAI/scripts/goal-accept-all.mjs", "utf8").split(anchor16).length - 1
+  if (prodAnchorCount !== 2) throw new Error(`F16 anchor ambiguous in production: expected 2 occurrences, found ${prodAnchorCount}`)
+  const copyAnchorCount = w16.split(anchor16).length - 1
+  if (copyAnchorCount !== 1) throw new Error(`F16 anchor ambiguous in wrapper copy: expected 1 occurrence, found ${copyAnchorCount}`)
   w16 = w16.replace("timeout: 60000, killSignal", "timeout: 200, killSignal")
   writeFileSync(`${DIR}/w16.mjs`, w16)
   if (!w16.includes("timeout: 200, killSignal")) throw new Error("F16 anchor missed: wrapper spawn timeout not redirected")
