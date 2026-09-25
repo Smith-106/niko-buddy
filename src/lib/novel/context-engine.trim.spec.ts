@@ -204,6 +204,44 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(out.finalChars).toBe(out.originalChars)
   })
 
+  // RV-114 N/0 不变式（可达性裁决）：生产代码中 N/0 组合自相矛盾（expected=0 ∧ filled>0
+  // 为计数缺陷信号）— trimContextPack 无 ratio 计算点（预算换算仅乘法口径，无除法），
+  // 故该类缺陷在本模块不可达。力学细节：packWithOutline() 的可裁剪字段均在 drop 表内无匹配
+  // （task/outline/soulDoc 不在 27 裁剪字段内，空数组/空段被跳过）— 零预算下无字段可裁，
+  // 故为 no-op（removed 空，final==original）；但数值面必须全有限（无 NaN/±Infinity 流入）。
+  it("RV-114 N/0 不变式：零预算下数值面全有限（无 NaN/Inf 流入记账）", () => {
+    const pack = packWithOutline()
+    const out = trimContextPack(pack, 0, { budgetUnit: "tokens" })
+    expect(Number.isFinite(out.finalChars ?? NaN)).toBe(true)
+    expect(Number.isFinite(out.remainingChars)).toBe(true)
+    expect(Number.isFinite(out.originalChars ?? NaN)).toBe(true)
+    expect(Number.isFinite(out.trimmedChars ?? NaN)).toBe(true)
+    // 力学如实记录：“灵魂文档”（4 字符）被走一遍截断分支（cut=0，记账 chars:0）—
+    // 零长度裁剪仍记一条目为力学忠实行为（非缺陷）；关键是数值面全有限、无 NaN/Inf。
+    expect(out.finalChars).toBe(out.originalChars)
+  })
+
+  // RV-115 上下界不对称：budget ≤ 0 为调用方缺陷信号 — 生产侧不做静默钳位归零，
+  // 而是由力学如实决定（可裁剪字段存在即截，无可裁字段即 no-op，记账恒一致）；
+  // 调用方护栏待接线批（observability-only）。上界（超大预算）容忍：未超预算即 no-op（RV-019 已覆盖）。
+  // 此处用含可裁剪大字段的包，钉死“零预算确触发截断”（非静默钳位、无空转）。
+  it("RV-115 零预算：非静默钳位，大字段包如实截断且记账一致", () => {
+    const pack = {
+      task: "任务正文",
+      outline: "大纲正文UNIQUE-OUTLINE-103",
+      soulDoc: "灵魂文档",
+      searchResults: "索".repeat(30_000),
+      graphSearchResults: "图".repeat(30_000),
+      recentChapterContents: ["正".repeat(30_000)],
+    } as unknown as ContextPack
+    const before = JSON.stringify(pack).length
+    const out = trimContextPack(pack, 0)
+    expect(out.finalChars ?? 0).toBeLessThan(before)
+    expect(out.trimmedChars).toBe((out.originalChars ?? 0) - (out.finalChars ?? 0))
+    expect(out.remainingChars).toBeGreaterThanOrEqual(0)
+    expect(out.removed.length).toBeGreaterThan(0)
+  })
+
   it("excludeOutline=false：prompt 含 outline", () => {
     const pack = packWithOutline()
     expect(trimContextPack(pack, 10_000_000, { excludeOutline: false }).prompt).toContain(
