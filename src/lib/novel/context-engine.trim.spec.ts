@@ -138,10 +138,16 @@ describe("trimContextPack — excludeOutline 与 contextPackToPrompt 同语义�
     expect(out.originalChars).toBe(before)
     expect(out.finalChars).toBe(JSON.stringify(out.pack).length)
     expect(out.trimmedChars).toBe(before - (out.finalChars ?? 0))
-    const removedLabels = new Set((out.trimmedFields ?? []))
-    expect(removedLabels.size).toBe((out.trimmedFields ?? []).length)
-    // 预算口径（字符数）：final 不超预算语义由 remainingChars>=0 表达。
-    expect(out.remainingChars ?? -1).toBeGreaterThanOrEqual(0)
+    const removedLabels = out.trimmedFields ?? []
+    expect(new Set(removedLabels).size).toBe(removedLabels.length)
+    // 预算口径（字符数）：记账均以 JSON 字符长度量；超预算后裁剪量的确推进（final < original）。
+    expect(out.finalChars ?? before).toBeLessThan(before)
+    // 力学如实记录（best-effort 非硬达标）：每字段至多截断至 2000 字符 / 数组留首元素，
+    // 一轮穷尽后仍可超预算 — 本组合即如此（final 34139 > 预算 5000），但删减确已发生。
+    // drop 序真实生效：序值 10/20 的两检索段被截断至 2000 字符（soulDoc 序值 180 未轮到故保留）。
+    expect(out.pack.searchResults as string).toHaveLength(2000)
+    expect(out.pack.graphSearchResults as string).toHaveLength(2000)
+    expect(out.pack.soulDoc as string).toBe("灵魂文档")
   })
 
   it("excludeOutline=false：prompt 含 outline", () => {

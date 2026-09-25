@@ -184,6 +184,20 @@ describe("TrimContextPlugin", () => {
     expect(prompt).not.toContain("大纲内容")
   })
 
+  it("M1: 站点B 缺省/false 回退含 outline（与站点A对称，防单侧改动静默）", async () => {
+    for (const eo of [undefined, false] as const) {
+      const plugin = createTrimContextPlugin({ ...(eo === undefined ? {} : { excludeOutline: eo }) })
+      const result = await plugin.run({
+        userMessage: "写第5章",
+        projectPath: "/test-project",
+        agentConfig: {} as any,
+        novelMode: true,
+        contextPack: mockContextPack,
+      })
+      expect(result.novelSystemPrompt).toContain("大纲内容")
+    }
+  })
+
   it("handles error gracefully", async () => {
     const mockError = vi.fn()
     const mockToPrompt = vi.fn().mockImplementation(() => {
