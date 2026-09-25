@@ -5,12 +5,14 @@
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行。
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 5 // R5×3 + R6 + R7（增删检查时同步更新）
+const EXPECTED_CHECKS = 5 // R5×3 + R6 + R7（RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
+const checkIds = []
+const EXPECTED_CHECK_IDS = ["r5-artifact", "r5-buildlog", "r5-typecheck", "r6-mocks", "r7-comp"]
 function fail(msg) { failures.push(msg); console.error("FAIL: " + msg) }
-function ok(msg) { checksRun++; console.log("PASS: " + msg) }
+function ok(id, msg) { checksRun++; checkIds.push(id); console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -30,13 +32,13 @@ function noFailLines(t, label) {
 // R5: build artifact + build log + typecheck log (live typecheck is a
 // separate acceptance command: `npm --prefix QMAI run typecheck`).
 if (!existsSync("QMAI/dist/index.html")) fail("missing QMAI/dist/index.html")
-ok("R5 build artifact QMAI/dist/index.html present")
+ok("r5-artifact", "R5 build artifact QMAI/dist/index.html present")
 const buildLog = read("C:/goal-evidence/11-build.log")
 if (!buildLog.includes("built in")) fail("build log lacks built-in line")
-ok("R5 build log shows successful build")
+ok("r5-buildlog", "R5 build log shows successful build")
 const tcLog = read("C:/goal-evidence/10-typecheck.log")
 if (!tcLog.includes("TYPECHECK_EXIT=0")) fail("typecheck log not EXIT=0")
-ok("R5 typecheck log EXIT=0")
+ok("r5-typecheck", "R5 typecheck log EXIT=0")
 
 // R6: full mocks suite green.
 // Fresh 2026-09-25 run (#105): 890 files / 13331 tests (+3 new excludeOutline specs
@@ -48,7 +50,7 @@ for (const m of ["890 passed", "75 passed", "MOCKS_FAIL=0"]) {
 }
 if (!mocks.includes("13328 passed") && !mocks.includes("13331 passed")) fail("mocks log lacks 13328/13331 passed")
 noFailLines(mocks, "mocks")
-ok("R6 stability: 890 files / 13331 tests + graph 75/75, zero FAIL")
+ok("r6-mocks", "R6 stability: 890 files / 13331 tests + graph 75/75, zero FAIL")
 
 // R7: component suite green.
 // 177 files / 3055 tests total = 176 + graph-view isolation (1 file / 75 tests),
@@ -60,8 +62,12 @@ for (const m of ["COMP_FAIL=0", "75 passed"]) {
 }
 if (!comp.includes("3055 passed") && !(comp.includes("2980 passed") && comp.includes("176 passed"))) fail("comp log lacks 3055 (or 2980+176 split) passed")
 noFailLines(comp, "comp")
-ok("R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
+ok("r7-comp", "R7 UI usability: 177 files / 3055 component tests (176/2980 + graph 75/75), zero FAIL")
 if (failures.length === 0) {
+  // RV-159：集合相等，非基数相等。
+  const got = [...checkIds].sort().join(",")
+  const want = [...EXPECTED_CHECK_IDS].sort().join(",")
+  if (got !== want) fail(`check-id set mismatch: got [${got}] want [${want}]`)
   if (checksRun !== EXPECTED_CHECKS) fail(`checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R567 PASS")

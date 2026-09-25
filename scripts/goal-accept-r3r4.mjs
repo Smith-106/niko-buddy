@@ -5,12 +5,14 @@
 // RV-147 正向执行断言：ok() 计数 + EXPECTED_CHECKS 全等 + CHECKS 行。
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 3 // R3 + R3b + R4（增删检查时同步更新）
+const EXPECTED_CHECKS = 3 // R3 + R3b + R4（RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
+const checkIds = []
+const EXPECTED_CHECK_IDS = ["r3-gaps", "r3b-fixes", "r4-reeval"]
 function fail(msg) { failures.push(msg); console.error("FAIL: " + msg) }
-function ok(msg) { checksRun++; console.log("PASS: " + msg) }
+function ok(id, msg) { checksRun++; checkIds.push(id); console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -37,7 +39,7 @@ mustContain("QMAI/src/lib/novel/dimension-review-adapter.ts",
 mustContain("QMAI/src/lib/novel/volume.ts", ["checkFinaleAutoComplete"])
 mustContain("QMAI/src/lib/novel/story-compass.ts", ["evaluateCompletionChecklist", "checkCompleteBookAllowed"])
 mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactContextSections", "buildRestorePack"])
-ok("R3 8-gap symbols all present in product code")
+ok("r3-gaps", "R3 8-gap symbols all present in product code")
 
 // R3b: #104 fixes land in product code + spec (not just commit messages).
 // (f1) trimContextPack honors excludeOutline on both prompt paths.
@@ -48,14 +50,18 @@ mustContain("QMAI/src/lib/novel/context-engine.trim.spec.ts",
 // (f2) trim fields order aligned to CONTEXT_DROP_ORDER (techniqueBlocks @130).
 // (f3) compactSectionText stale-comment correction.
 mustContain("QMAI/src/lib/novel/context-compact.ts", ["compactSectionText"])
-ok("R3b #104 fixes present (excludeOutline both paths + spec + compact alias)")
+ok("r3b-fixes", "R3b #104 fixes present (excludeOutline both paths + spec + compact alias)")
 
 // R4: re-eval chain docs with rating markers.
 mustContain("QMAI/docs/decision-log/20260924-90-reeval-closure.md", ["四维度重评", "★★★★→★★★★★"])
 mustContain("QMAI/docs/decision-log/20260924-91-triad-closure.md", ["①⑤②⑤③⑤④⑤+"])
 mustContain("QMAI/docs/decision-log/20260924-102-final-verdict.md", ["四维度终评", "§五"])
-ok("R4 re-eval chain (#90 -> #91 -> #102) on file")
+ok("r4-reeval", "R4 re-eval chain (#90 -> #91 -> #102) on file")
 if (failures.length === 0) {
+  // RV-159：集合相等，非基数相等。
+  const got = [...checkIds].sort().join(",")
+  const want = [...EXPECTED_CHECK_IDS].sort().join(",")
+  if (got !== want) fail(`check-id set mismatch: got [${got}] want [${want}]`)
   if (checksRun !== EXPECTED_CHECKS) fail(`checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R3R4 PASS")

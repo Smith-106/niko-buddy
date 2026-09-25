@@ -10,12 +10,14 @@
 import { execSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 
-const EXPECTED_CHECKS = 6 // R1×5（含 RV-146 祖先断言）+ R2×1（RV-147：增删检查时同步更新）
+const EXPECTED_CHECKS = 6 // R1×5（含 RV-146 祖先断言）+ R2×1（RV-147/RV-159：增删检查时同步更新 id 清单）
 let failures = []
 let envFault = null
 let checksRun = 0
+const checkIds = [] // RV-159：检查项 id 清单 — 集合相等，非基数相等（防“删一加一”伪 ALL PASS）。
+const EXPECTED_CHECK_IDS = ["r1-8gap", "r1-ancestry", "r1-newchain", "r1-cleantree", "r1-evdocs", "r2-reports"]
 function fail(msg) { failures.push(msg); console.error("FAIL: " + msg) }
-function ok(msg) { checksRun++; console.log("PASS: " + msg) }
+function ok(id, msg) { checksRun++; checkIds.push(id); console.log("PASS: " + msg) }
 // RV-153：逃逸出 try 的异常（Node 默认 exit 1）会被误分类为 FAIL — 显式映射为 ENV-FAULT。
 process.on("uncaughtException", (e) => {
   console.error("ENV-FAULT: uncaught: " + (e instanceof Error ? e.message : String(e)))
@@ -25,21 +27,18 @@ process.on("uncaughtException", (e) => {
 try {
 
 // R1: key commits present + clean tree + evidence doc on file.
-// Window -50 (was -30, was -12). RV-145/RV-146/RV-154 边界约定（已实测钉死）：
-// {HEAD-inclusive: `git log -N` 精确返回 HEAD 起 N 个提交；远端闭合；自 HEAD 向过去计数；
-//  非前瞻性：a741863a 在 dd211789 落地时已为 HEAD 起第 32 个（`git log --format=%H dd211789 -30`
-//  实测不含它），在 601a4244 时第 31 个 — 均在 -30 外，故扩容为必要性。RV-145 关闭}。
-// 覆盖判据为严格全称（∀ commit ∈ W：present），无率型/比例型判据（RV-154 触发条件不成立）。
-// 位置量之外另有下方 merge-base 祖先断言做内容寻址交叉验证（RV-146）。
-// RV-149 闭式代价：R1 不逐个重放窗口内提交，仅 `git log -W` 取名 + 存在性断言 —
-// T(W)≈const（W 只改变 log 输出行数），回溯/重跑代价不随 W 增长。
-const log = execSync("git -C QMAI log --oneline -50", { encoding: "utf8" })
+// RV-156（根治 RV-145/RV-146/RV-149/RV-163/RV-164）：位置窗口（git log -N）已删除 —
+// 存在性断言改用 `git cat-file -e <sha>`（内容寻址，与 HEAD 距离无关，+1/提交衰减消解）；
+// 祖先断言 `merge-base --is-ancestor` 为主门控。窗口常量不复存在，无扩容、无余量、无老化。
 for (const c of ["a741863a", "86862911", "4b43eee7", "f5ca5638", "cde30365", "d3747834", "ea0c310e"]) {
-  if (!log.includes(c)) fail("missing commit " + c)
+  try {
+    execSync(`git -C QMAI cat-file -e ${c}`, { encoding: "utf8" })
+  } catch {
+    fail("missing commit " + c)
+  }
 }
-ok("R1 commits present (8-gap chain + evidence)")
-// RV-146 内容寻址：位置量（-50 窗口）之外，另用 merge-base 做祖先断言 —
-// 历史重写（rebase/squash/force-push）改变位置不改变祖先关系时仍可检出。
+ok("r1-8gap", "R1 commits present (8-gap chain + evidence)")
+// RV-146 内容寻址主门控：历史重写（rebase/squash/force-push）改变位置不改变祖先关系时仍可检出。
 let ancestryOk = true
 try {
   execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8" })
@@ -47,14 +46,18 @@ try {
   ancestryOk = false
   fail("a741863a not ancestor of HEAD (history rewritten?)")
 }
-if (ancestryOk) ok("R1 baseline ancestry intact (content-addressed, RV-146)")
+if (ancestryOk) ok("r1-ancestry", "R1 baseline ancestry intact (content-addressed, RV-146)")
 for (const c of ["3fb5667c", "69a8aa58", "d076892e", "3059fa9f", "1f95ceb4"]) {
-  if (!log.includes(c)) fail("missing commit " + c)
+  try {
+    execSync(`git -C QMAI cat-file -e ${c}`, { encoding: "utf8" })
+  } catch {
+    fail("missing commit " + c)
+  }
 }
-ok("R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
+ok("r1-newchain", "R1 new chain present (#103 gap-list + 3x #104 fixes + #105 review)")
 const status = execSync("git -C QMAI status --short", { encoding: "utf8" }).trim()
 if (status !== "") fail("dirty tree:\n" + status)
-ok("R1 tree clean")
+ok("r1-cleantree", "R1 tree clean")
 for (const f of [
   "QMAI/docs/decision-log/20260924-103-compact-evidence.md",
   "QMAI/docs/decision-log/20260924-102-final-verdict.md",
@@ -63,7 +66,7 @@ for (const f of [
 ]) {
   if (!existsSync(f)) fail("missing " + f)
 }
-ok("R1 evidence docs on file")
+ok("r1-evdocs", "R1 evidence docs on file")
 
 // R2: all 4 reference reports exist with expected baseline markers.
 const R2 = [
@@ -77,8 +80,12 @@ for (const [p, markers] of R2) {
   const t = readFileSync(p, "utf8")
   for (const m of markers) if (!t.includes(m)) fail(p + " lacks marker " + m)
 }
-ok("R2 all 4 reference reports present with baseline markers")
+ok("r2-reports", "R2 all 4 reference reports present with baseline markers")
 if (failures.length === 0) {
+  // RV-159：集合相等（排序后 id 清单全等）+ 计数不变式，非基数相等。
+  const got = [...checkIds].sort().join(",")
+  const want = [...EXPECTED_CHECK_IDS].sort().join(",")
+  if (got !== want) fail(`check-id set mismatch: got [${got}] want [${want}]`)
   if (checksRun !== EXPECTED_CHECKS) fail(`checks run ${checksRun} != expected ${EXPECTED_CHECKS}`)
 }
 if (failures.length === 0) console.log("ALL R1R2 PASS")
