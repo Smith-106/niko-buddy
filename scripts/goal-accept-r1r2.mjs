@@ -32,6 +32,9 @@ process.on("uncaughtException", (e) => {
   process.exit(2)
 })
 // RV-27-02：unhandledRejection 同理（Node>=15 默认 exit 1，无 stderr 标记）— 同映射为 ENV-FAULT。
+// RV-28-01 逃逸语义注记：本映射无条件 — 产品逻辑 bug 若逃逸 try 同样记 ENV-FAULT（分类偏差）。
+// 无假阴性放行：ENV-FAULT 下游 exit 2 中止（非 PASS），错误信息随 headline 输出供人工复核。
+// try 内同步逻辑错误走 fail()（断言失败 exit 1），不经过此通道。
 process.on("unhandledRejection", (e) => {
   console.error("ENV-FAULT: unhandledRejection: " + (e instanceof Error ? e.message : String(e)))
   process.exit(2)
