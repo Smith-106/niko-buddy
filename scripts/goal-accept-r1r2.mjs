@@ -65,7 +65,7 @@ ok("r1-8gap", "R1 commits present (8-gap chain + evidence)")
 // RV-146 内容寻址主门控：历史重写（rebase/squash/force-push）改变位置不改变祖先关系时仍可检出。
 let ancestryOk = true
 try {
-  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8" })
+  execSync("git -C QMAI merge-base --is-ancestor a741863a HEAD", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }) // RV-31-07 统一：空输出但零成本统一防御
 } catch {
   ancestryOk = false
   fail("r1-ancestry", "a741863a not ancestor of HEAD (history rewritten?)")
