@@ -30,7 +30,9 @@ async function boot(page: Page): Promise<void> {
   })
   await page.goto("/")
   await page.getByRole("button", { name: "小说目录" }).click()
-  await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  // CI runner 实证（9-23 起三 run 双平台）：二级渲染配额 10s 不足，提至 30s
+  //（playwright test timeout 45s 内；#root/app.spec 856ms 证明非启动回归）
+  await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
 }
 
 const WRITEISH = /write_file|write_file_atomic|export_pdf|batch_replace|delete_file/
@@ -38,7 +40,7 @@ const WRITEISH = /write_file|write_file_atomic|export_pdf|batch_replace|delete_f
 test.describe("写作工具抽屉 / 壳层可达性", () => {
   test("PDF 导出与批量替换可点开、可切换，且展开不触发写盘 IPC", async ({ page }) => {
     await boot(page)
-    await page.waitForSelector('[data-testid="workspace-tools-bar"]', { timeout: 10000 })
+    await page.waitForSelector('[data-testid="workspace-tools-bar"]', { timeout: 30000 })
 
     const baseline = await page.evaluate(() => {
       const w = window as unknown as { __INVOKES__: string[]; __MOCK_WRITES__?: unknown[] }

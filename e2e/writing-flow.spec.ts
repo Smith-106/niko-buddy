@@ -7,7 +7,8 @@ import { MOCK_INIT, collectErrors } from "./tauri-mock"
 
 async function openMockProject(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "小说目录" }).click()
-  await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  // CI runner 实证（9-23 起三 run 双平台）：二级渲染配额 10s 不足，提至 30s
+  await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
 }
 
 /** 展开 AI 会话：点击章节 → 预览面板章节头工具栏 → AI会话 按钮 */
@@ -15,13 +16,13 @@ async function expandChat(page: import("@playwright/test").Page) {
   await openMockProject(page)
   // 章节文件树 → 点击 chapter-001.md（节点 title 为完整路径）
   const chapterNode = page.locator('[title*="chapter-001.md"]').first()
-  await expect(chapterNode).toBeVisible({ timeout: 10000 })
+  await expect(chapterNode).toBeVisible({ timeout: 30000 })
   await chapterNode.click()
   // 预览面板出现章节正文
-  await expect(page.getByText("夜色沉静", { exact: false }).first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText("夜色沉静", { exact: false }).first()).toBeVisible({ timeout: 30000 })
   // 工具栏 AI会话 按钮 → 展开对话面板
   const chatBtn = page.getByRole("button", { name: "AI会话" })
-  await expect(chatBtn).toBeVisible({ timeout: 10000 })
+  await expect(chatBtn).toBeVisible({ timeout: 30000 })
   await chatBtn.click()
 }
 
@@ -71,7 +72,7 @@ test("写作对话：打开章节 → 展开 AI 会话 → 发送指令 → 回�
 
   // 聊天输入框发送写作指令（novel 模式 placeholder 为「输入写作需求...」）
   const input = page.getByPlaceholder(/输入写作需求|输入消息/)
-  await expect(input).toBeVisible({ timeout: 10000 })
+  await expect(input).toBeVisible({ timeout: 30000 })
   await input.fill("写第一章")
   await input.press("Enter")
 
@@ -88,7 +89,7 @@ test("深度模式开关：开启/关闭切换", async ({ page }) => {
   await expandChat(page)
 
   const deepToggle = page.locator('button[aria-label="开启深度模式"], button[aria-label="关闭深度模式"]')
-  await expect(deepToggle).toBeVisible({ timeout: 10000 })
+  await expect(deepToggle).toBeVisible({ timeout: 30000 })
   // 开启
   await page.locator('button[aria-label="开启深度模式"]').click()
   await expect(page.locator('button[aria-label="关闭深度模式"]')).toBeVisible()

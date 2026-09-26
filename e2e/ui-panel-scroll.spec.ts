@@ -19,7 +19,8 @@ async function boot(page: Page): Promise<void> {
   await page.goto("/")
   await page.waitForSelector("#root", { state: "attached" })
   await page.getByRole("button", { name: "小说目录" }).click()
-  await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  // CI runner 实证（9-23 起三 run 双平台）：二级渲染配额 10s 不足，提至 30s
+  await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
 }
 
 // 与 ui-walkthrough.spec.ts 同口径的 14 个侧栏视图（横向覆盖面）
@@ -187,7 +188,7 @@ test.describe("面板滚动与布局回归", () => {
 
   test("批量替换面板：空态给操作引导，结论行全中文", async ({ page }) => {
     await boot(page)
-    await page.waitForSelector('[data-testid="workspace-tools-bar"]', { timeout: 10000 })
+    await page.waitForSelector('[data-testid="workspace-tools-bar"]', { timeout: 30000 })
     await page.click('[data-testid="workspace-tools-toggle-batch"]')
     const panel = page.locator('[data-testid="batch-replace-panel"]')
     await expect(panel).toBeVisible()
