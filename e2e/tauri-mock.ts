@@ -224,7 +224,7 @@ export const MOCK_INIT = `
         case "export_pdf": {
           const target = ((args && args.target) || "").split(String.fromCharCode(92)).join("/").replace(/^[/]+/, "");
           const segments = target.split("/");
-          const sections = [".novel", "QM", ".qmai", "backups"];
+          const sections = [".novel", "QM", ".niko-buddy", "backups"];
           const inside = segments.indexOf("..") >= 0 || segments.some(function (seg) { return sections.indexOf(seg) >= 0; });
           if (inside) {
             return Promise.reject(new Error("PDF_EXPORT_PATH_INSIDE_DATA_SECTION: target '" + target + "' is inside a data section"));

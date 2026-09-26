@@ -444,7 +444,10 @@ mod tests {
         );
         // 项目内资产路径仍不得成为技能包直写落点。
         assert_eq!(
-            may_write(WriteSource::SkillImport, &p(".niko-buddy/user-assets/pkg/a")),
+            may_write(
+                WriteSource::SkillImport,
+                &p(".niko-buddy/user-assets/pkg/a")
+            ),
             WriteDecision::RequireGate
         );
     }
@@ -525,7 +528,9 @@ mod tests {
             WriteTarget::UserAssetRef
         );
         assert_eq!(
-            classify_target(&p("C:/Users/me/.niko-buddy/user-assets/skill_bundle/a.json")),
+            classify_target(&p(
+                "C:/Users/me/.niko-buddy/user-assets/skill_bundle/a.json"
+            )),
             WriteTarget::UserAssetBody
         );
         // 大小写与分隔符归一

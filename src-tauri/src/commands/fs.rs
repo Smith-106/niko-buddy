@@ -333,7 +333,9 @@ fn cache_path_for(original: &Path) -> std::path::PathBuf {
 
     // 如果缓存目录创建失败（如根目录无权限），回退到系统临时目录
     if fs::create_dir_all(&cache_dir).is_err() {
-        return std::env::temp_dir().join("niko-buddy-cache").join(cache_key);
+        return std::env::temp_dir()
+            .join("niko-buddy-cache")
+            .join(cache_key);
     }
     cache_dir.join(cache_key)
 }

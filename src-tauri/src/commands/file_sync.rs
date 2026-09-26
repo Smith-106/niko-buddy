@@ -1262,7 +1262,8 @@ fn emit_changed_batch(app: &AppHandle, project_id: &str, tasks: Vec<FileChangeTa
 }
 
 fn ensure_sync_dir(root: &Path) -> Result<(), String> {
-    fs::create_dir_all(root.join(".niko-buddy")).map_err(|e| format!("Failed to create .niko-buddy: {e}"))
+    fs::create_dir_all(root.join(".niko-buddy"))
+        .map_err(|e| format!("Failed to create .niko-buddy: {e}"))
 }
 
 fn read_snapshot(root: &Path) -> Result<FileSnapshot, String> {

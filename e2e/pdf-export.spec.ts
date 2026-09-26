@@ -8,7 +8,7 @@ import { MOCK_INIT } from "./tauri-mock"
  *
  * 范围声明：`PdfExportDialog` 此前未挂进应用外壳；2026-09-12 已接线到写作工作区底部
  * 工具条（壳层可达性见 `e2e/workspace-tools.spec.ts`）。以下断言可观察边界：
- *   1. 数据区路径在**本地**与**后端**各挡一次（`.novel` / `QM` / `.qmai` / `backups`）；
+ *   1. 数据区路径在**本地**与**后端**各挡一次（`.novel` / `QM` / `.niko-buddy` / `backups`）；
  *   2. IPC 参数名与 Rust 命令签名一致；
  *   3. 内嵌中文字体资产存在、且真产物里出现过字体名（verify 4 的机械证据，
  *      真实生成与回读由 Rust 单测 `pdfexport::exports_cjk_sample_with_embedded_font` 覆盖）。
@@ -44,7 +44,7 @@ test.describe("F-008 PDF 导出", () => {
     const client = read("src/lib/export/pdf-client.ts")
     expect(client).toContain('".novel"')
     expect(client).toContain('"QM"')
-    expect(client).toContain('".qmai"')
+    expect(client).toContain('".niko-buddy"')
     expect(client).toContain('"backups"')
     expect(client).toContain("export function validateExportTarget")
     expect(client).toContain("isPathInsideDataSection")
@@ -53,7 +53,7 @@ test.describe("F-008 PDF 导出", () => {
 
   test("后端挡：数据区路径被拒绝，且不产出任何文件", async ({ page }) => {
     await boot(page)
-    for (const inside of [".novel/exports/book.pdf", "QM/out.pdf", ".qmai/x.pdf", "backups/x.pdf"]) {
+    for (const inside of [".novel/exports/book.pdf", "QM/out.pdf", ".niko-buddy/x.pdf", "backups/x.pdf"]) {
       const message = await invoke(page, "export_pdf", {
         projectPath: "/tmp/proj",
         target: inside,

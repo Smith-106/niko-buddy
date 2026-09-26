@@ -111,7 +111,9 @@ async fn find_antigravity_command() -> Result<std::path::PathBuf, String> {
 }
 
 async fn find_gemini_fallback() -> Option<std::path::PathBuf> {
-    find_cli_command("gemini", &["gemini.cmd", "gemini.exe"]).await.ok()
+    find_cli_command("gemini", &["gemini.cmd", "gemini.exe"])
+        .await
+        .ok()
 }
 
 /// 实际 spawn 用：优先 antigravity，缺则 gemini 内核。
@@ -151,7 +153,9 @@ async fn probe_version(path: &std::path::Path) -> Result<Option<String>, String>
         }
         Ok(Ok(out)) => Err(format!("`--version` exited with {}", out.status)),
         Ok(Err(e)) => Err(format!("Failed to spawn: {e}")),
-        Err(_) => Err(format!("`--version` timed out after {VERSION_TIMEOUT_SECS}s")),
+        Err(_) => Err(format!(
+            "`--version` timed out after {VERSION_TIMEOUT_SECS}s"
+        )),
     }
 }
 
@@ -171,7 +175,9 @@ pub async fn do_antigravity_cli_detect() -> Result<DetectResult, String> {
                     path: Some(gstr.clone()),
                     fallback_path: Some(gstr),
                     model: None,
-                    error: Some(format!("antigravity not found; using gemini CLI kernel. {error}")),
+                    error: Some(format!(
+                        "antigravity not found; using gemini CLI kernel. {error}"
+                    )),
                 });
             }
             return Ok(DetectResult {
@@ -228,7 +234,11 @@ fn build_spawn_args(model: &str, is_gemini_fallback: bool) -> Vec<String> {
         a
     } else {
         // Antigravity agent headless：stdin prompt + JSONL 输出。
-        let mut a = vec!["agent".to_string(), "--output-format".to_string(), "stream-json".to_string()];
+        let mut a = vec![
+            "agent".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+        ];
         if !model.trim().is_empty() {
             a.extend(["--model".to_string(), model.to_string()]);
         }
@@ -372,7 +382,9 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
             if !stderr_text.is_empty() {
                 stderr_text.push('\n');
             }
-            stderr_text.push_str(&format!("Antigravity CLI timed out after {timeout_minutes} minutes."));
+            stderr_text.push_str(&format!(
+                "Antigravity CLI timed out after {timeout_minutes} minutes."
+            ));
         } else if stderr_text.len() >= STDERR_LIMIT_BYTES {
             stderr_text.push_str("\n[stderr truncated]");
         }
@@ -405,7 +417,10 @@ pub async fn antigravity_cli_spawn(
 }
 
 /// Kill a running child registered under `stream_id`. No-op if unknown.
-pub async fn do_antigravity_cli_kill(state: &AntigravityCliState, stream_id: &str) -> Result<(), String> {
+pub async fn do_antigravity_cli_kill(
+    state: &AntigravityCliState,
+    stream_id: &str,
+) -> Result<(), String> {
     if let Some(mut child) = state.children.lock().await.remove(stream_id) {
         let _ = child.start_kill();
     }

@@ -950,7 +950,8 @@ fn prepare_claude_cli_launch(
 ) -> Result<ClaudeCliLaunchConfig, String> {
     let mut temp_files = Vec::new();
     let mcp_config_path = if isolate_local_config {
-        let file = TempFileGuard::write_json("niko-buddy-claude-mcp-config", EMPTY_MCP_CONFIG_JSON)?;
+        let file =
+            TempFileGuard::write_json("niko-buddy-claude-mcp-config", EMPTY_MCP_CONFIG_JSON)?;
         let path = file.path().to_path_buf();
         temp_files.push(file);
         Some(path)
@@ -1331,8 +1332,8 @@ mod tests {
     #[test]
     fn temp_file_guard_removes_file_on_drop() {
         let path = {
-            let guard =
-                TempFileGuard::write_json("niko-buddy-temp-guard-test", b"{}").expect("temporary file");
+            let guard = TempFileGuard::write_json("niko-buddy-temp-guard-test", b"{}")
+                .expect("temporary file");
             let path = guard.path().to_path_buf();
             assert!(path.exists());
             path

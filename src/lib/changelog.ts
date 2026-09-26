@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.12.0",
+    date: "2026-09-26",
+    highlights: {
+      en: [
+        "Writing-chain capability batch (#88/#89/#90/#91/#98): chapter contracts + review-evidence hard gates + verdict decoupling; compass + completion checklist + context compression; style_stats rollup + recentCast + minimal rework set + four-dimension re-review; three-branch single-chapter orchestration with repair-loop + DEBT-90a repaid; DEBT-89b transitional contract self-declaration closed.",
+        "Export closed loop (#43): PDF export confirm gate + export-history gates; sourceMissing marking when source assets are deleted. Agent/session/LLM: confirm approval-execution channel (J09); interrupted state in status.json (J10-02); skip-LLM local writing path + six-state LLM接入 (J05 F-010); credential-failure recovery (J05-05); onboarding vertical slice (J01).",
+        "Acceptance gates hardened (#103/#108/#112/#118/#119): R1R2/R3R4/R567 + negprobe 51 positive controls + wrapper fail-closed default-deny; unified 60s subprocess timeout; F16 double-layer anchor assertions. Verified: tsc --build 0 errors; npm run lint 0; mocks 890/13331 + comp 176/2980 + graph 75/75 all green.",
+      ],
+      zh: [
+        "写作主链能力批次（#88/#89/#90/#91/#98）：章节契约 + 评审举证硬门 + 评分 verdict 解耦；指南针 + 完结清单 + 上下文压缩；style_stats rollup + recentCast + 最小返工集 + 四维度重评收口；三权分立单章编排容器落 repair-loop + DEBT-90a 偿还；关闭 DEBT-89b transitional 过渡章契约段自声明。",
+        "导出闭环（#43）：PDF 导出确认门 + 导出历史闭环门禁；删除源资产时导出历史 sourceMissing 标记。Agent/会话/LLM：confirm 批准执行通道（J09）；status.json interrupted 态（J10-02）；跳过 LLM 本地写作路径 + 六态接入（J05 F-010）；凭据失败错误恢复（J05-05）；onboarding 纵切面（J01）。",
+        "验收门加固（#103/#108/#112/#118/#119）：R1R2/R3R4/R567 + negprobe 51 阳性对照 + wrapper 默认拒绝；全族子进程统一 timeout 60s；F16 双层锚点断言。验证：tsc --build 0 错误；npm run lint 0；mocks 890/13331 + comp 176/2980 + graph 75/75 全绿。",
+      ],
+    },
+  },
+  {
     version: "2.11.1",
     date: "2026-09-21",
     highlights: {

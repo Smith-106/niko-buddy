@@ -329,7 +329,8 @@ mod pdfexport {
             .expect_err("QM 必须拒绝");
         assert!(matches!(err, PdfExportError::PathInsideDataSection(_)));
         assert!(
-            assert_export_path_outside_data_sections(&root, Path::new(".niko-buddy/book.pdf")).is_err()
+            assert_export_path_outside_data_sections(&root, Path::new(".niko-buddy/book.pdf"))
+                .is_err()
         );
         assert!(
             assert_export_path_outside_data_sections(&root, Path::new("backups/a/b.pdf")).is_err()
