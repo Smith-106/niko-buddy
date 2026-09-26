@@ -31,7 +31,7 @@ import {
   DATA_DOMAINS,
   domainRequiresTypedConfirm,
   type DataDomain,
-} from "@/lib/novel/data-domain-registry"
+} from "@/lib/novel"
 import {
   listTrash,
   moveAllToTrash,
@@ -41,7 +41,7 @@ import {
   statAllDomains,
   type DomainStat,
   type TrashEntry,
-} from "@/lib/novel/data-manager"
+} from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 
 function formatBytes(bytes: number): string {
