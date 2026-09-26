@@ -7,6 +7,23 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.12.0] - 2026-09-26
+
+### Added
+
+- **写作主链能力批次**（#88/#89/#90/#91/#98）：章节契约 + 评审举证硬门 + 评分 verdict 解耦；指南针 + 完结清单 + 上下文压缩；style_stats rollup + recentCast + 最小返工集 + 四维度重评收口；三权分立单章编排容器落 repair-loop + DEBT-90a 偿还；关闭 DEBT-89b transitional 过渡章契约段自声明。
+- **导出闭环**（#43）：PDF 导出确认门 + 导出历史闭环（门禁 1/7/9 F-J12-02/03）；删除源资产时导出历史处理（sourceMissing 标记）。
+- **Agent/会话/LLM**：J09 confirm 工具批准执行通道（approval_required→approved→execute 幂等）；J10-02 status.json 加 interrupted 态修复重启幽灵 running；J05 F-010 跳过 LLM 本地写作路径 + LLM 状态六态接入 + 空骨架反馈；J05-05 凭据失败错误恢复语义；J01 首次安装到第一次成功纵切面（onboarding）。
+- **导演/预览**：F-010 本地写作落 QM/chapters + 编辑器认 QM 章节径。
+
+### Fixed
+
+- **写作主链回归**（#93/#99/#104/#112）：collectCompletionChecklistInput 可注入 listSnapshots 缝 + 全量 flaky 根因确立；巨型模块冷加载 flaky 根治（产品侧延迟加载 + spec 传递闭包隔离）；trimContextPack honor excludeOutline（§GAP-103f）+ trim fields 顺序对齐 CONTEXT_DROP_ORDER + compactSectionText stale 注释修正；#112 空包/归一化/站点 B 对称等 20+ 轮审查落码（N/0 不可达、NaN 兜底、量纲归一化、drop 序不变量）。
+- **验收门脚本**（#103/#108/#112/#118/#119）：R1R2/R3R4/R567 三验收脚本 + negprobe 51 阳性对照 + wrapper 默认拒绝 fail-closed + ENV-FAULT 三路故障注入证据；全族子进程统一 timeout 60s；numPassed 数字边界 + noFailLines 扩展（FAILED/FAILURE/not-ok/×✖）+ F16 双层锚点断言。
+- **工程卫生**：llm-wiki-model-settings 补 antigravity-cli provider 枚举；BASELINE-CHANGELOG-001 补 2.11.x 条目 + 去 md 重复头；Cargo.lock version 漂移补提（v2.11.1 教训：bump 必须含 lock 包 version）。
+- **验证**：`tsc --build` 0 错误； acceptance 三门禁 WRAPPER/NEGPROBE/typecheck 全绿；mocks 890 files / 13331 tests + comp 176 files / 2980 tests + graph 75/75 通过。
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）。
+
 ## [2.11.1] - 2026-09-21
 
 ### Fixed

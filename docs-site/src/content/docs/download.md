@@ -7,7 +7,16 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.10.0**（2026-09-19 发布：ISO 全维度质量验收 + 需求工程/SRS 完备化）
+**v2.12.0**（2026-09-26 发布：写作主链能力批次 + 导出闭环 + 验收门加固）
+
+### v2.12.0 更新亮点（2026-09-26）
+
+- ✅ **写作主链能力批次** — 章节契约 + 评审举证硬门 + 评分 verdict 解耦（#88）；指南针 + 完结清单 + 上下文压缩（#89）；style_stats rollup + recentCast + 最小返工集 + 四维度重评收口（#90）；三权分立单章编排容器落 repair-loop + DEBT-90a 偿还（#91）；关闭 DEBT-89b transitional 过渡章契约段自声明（#98）
+- ✅ **导出闭环** — PDF 导出确认门 + 导出历史闭环门禁（#43）；删除源资产时导出历史 sourceMissing 标记
+- ✅ **Agent/会话/LLM** — confirm 工具批准执行通道（approval_required→approved→execute 幂等，J09）；status.json interrupted 态修复重启幽灵 running（J10-02）；跳过 LLM 本地写作路径 + LLM 状态六态接入（J05 F-010）；凭据失败错误恢复语义（J05-05）；首次安装到第一次成功纵切面（J01）
+- ✅ **验收门加固** — R1R2/R3R4/R567 三脚本 + negprobe 51 阳性对照 + wrapper 默认拒绝 fail-closed；全族子进程统一 timeout 60s；F16 双层锚点断言（#103/#108/#112/#118/#119）
+- ✅ **工程卫生** — Cargo.lock version 漂移补提（bump 必含 lock 包 version）；`tsc --build` 0 错误；mocks 890/13331 + comp 176/2980 + graph 75/75 全绿
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）
 
 ### v2.10.0 更新亮点（2026-09-19）
 
