@@ -73,6 +73,12 @@ export interface BookAnalysisMetadata {
   sourceType: "file"
   createdAt: number
   updatedAt: number
+  /** feature/network-error-resume：断网续传——失败角色名清单（运行时附加） */
+  failedCharacterNames?: string[]
+  /** feature/network-error-resume：断网续传是否为网络失败 */
+  networkFailure?: boolean
+  /** 角色重提/继续生成：源书目录绝对路径（运行时附加） */
+  sourceBook?: string
 }
 
 export interface BookAnalysisProgress {

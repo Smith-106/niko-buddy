@@ -60,7 +60,12 @@ export function createPostWriteCheckPlugin(deps: PostWriteCheckDeps = {}): PrePl
     name: "post_write_check",
     priority: 5,
     run: async (input: PrePluginInput): Promise<PrePluginOutput> => {
-      const content = deps.chapterContent || (input as any).contextInfo?.latestChapterContent || ""
+      const rawContextInfo: unknown = input.contextInfo
+      const latestChapterContent: unknown =
+        typeof rawContextInfo === "object" && rawContextInfo !== null
+          ? (rawContextInfo as { latestChapterContent?: unknown }).latestChapterContent
+          : undefined
+      const content = deps.chapterContent || (typeof latestChapterContent === "string" ? latestChapterContent : "")
       if (!content) return {}
 
       const items: PostWriteCheckItem[] = DEFAULT_CHECK_ITEMS.map((item) => ({

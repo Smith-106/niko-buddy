@@ -24,6 +24,12 @@ interface CustomProviderCard {
   savedModels: SavedModel[]
 }
 
+const API_MODE_OPTIONS: { value: CustomProviderCard["apiMode"]; label: string }[] = [
+  { value: "chat_completions", label: "OpenAI 兼容" },
+  { value: "responses", label: "Responses API" },
+  { value: "anthropic_messages", label: "Anthropic 兼容" },
+]
+
 export function CustomProviderCards() {
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
@@ -427,15 +433,11 @@ function CustomProviderCardItem({
           <div className="space-y-2">
             <Label className="text-xs">API 模式</Label>
             <div className="flex flex-wrap gap-2">
-              {[
-                { value: "chat_completions", label: "OpenAI 兼容" },
-                { value: "responses", label: "Responses API" },
-                { value: "anthropic_messages", label: "Anthropic 兼容" },
-              ].map((mode) => (
+              {API_MODE_OPTIONS.map((mode) => (
                 <button
                   key={mode.value}
                   type="button"
-                  onClick={() => onUpdate({ apiMode: mode.value as any })}
+                  onClick={() => onUpdate({ apiMode: mode.value })}
                   className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
                     card.apiMode === mode.value
                       ? "border-primary bg-primary text-primary-foreground"

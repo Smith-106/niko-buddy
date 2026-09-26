@@ -36,10 +36,10 @@ export function __setWebSearchTimeoutForTest(ms: number | null) {
 
 /** 测试可注入：替换 fetch 实现 */
 const TEST_FETCH_OVERRIDE: {
-  fn: ((input: any, init?: any) => Promise<Response>) | null
+  fn: ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null
 } = { fn: null }
 export function __setWebSearchFetchForTest(
-  fn: ((input: any, init?: any) => Promise<Response>) | null
+  fn: ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null
 ) {
   TEST_FETCH_OVERRIDE.fn = fn
 }

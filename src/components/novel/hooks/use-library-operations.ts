@@ -2,7 +2,7 @@ import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { analyzeWritingStyle, importBookAnalysisSkillsAsAuras, deleteOrphanAurasForBook, loadBookAnalysisLibraryState, bindCharacterAura, listBindableNovelCharacters, setEnabledWritingStyle, upsertWritingStylePreset } from "@/lib/novel"
-import type { BookAnalysisLibraryState, BookAnalysisLibraryBook, AnalysisDepth } from "@/lib/novel"
+import type { BookAnalysisLibraryState, BookAnalysisLibraryBook, AnalysisDepth, BookAnalysisConfig } from "@/lib/novel"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
@@ -18,7 +18,7 @@ export interface UseLibraryOperationsParams {
   setSelectedCharacterId: React.Dispatch<React.SetStateAction<string | null>>
   setChapterSelectionData: React.Dispatch<React.SetStateAction<ChapterSelectionData | null>>
   llmConfig: ReturnType<typeof useWikiStore.getState>["llmConfig"]
-  startTask: (projectPath: string, config: any, abortController?: AbortController) => string
+  startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string
 }
 
 /**

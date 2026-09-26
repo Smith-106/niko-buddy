@@ -1,17 +1,29 @@
 import { useRef, useCallback, useEffect } from "react"
+import type { SimulationBranch, DirectorScore } from "@/lib/novel"
+
+/** 分支对比结果（与 branch-compare-view 的 diffResult 内联类型同构，worker 侧具名化）。 */
+export interface BranchDiffResult {
+  dimensionDiffs: { key: string; diff: number; maxBranchName: string; maxValue: number; minValue: number }[]
+  eventCounts: number[]
+  characterCounts: number[]
+  topSentimentDiffs: { charId: string; charName: string; maxDiff: number; maxBranch: string; values: number[] }[]
+  divergenceRound: number
+  bestBranchIdx: number
+  scoresList: DirectorScore[]
+}
 
 type WorkerRequest =
   | { id: string; type: "calc-clue-relations"; payload: { clues: { id: string; content: string }[] } }
-  | { id: string; type: "calc-branch-diff"; payload: { branchA: any; branchB: any } }
+  | { id: string; type: "calc-branch-diff"; payload: { branchA: SimulationBranch; branchB: SimulationBranch } }
   | { id: string; type: "calc-board-layout"; payload: { cards: { id: string; x: number; y: number; width: number }[]; connections: { fromCardId: string; toCardId: string }[] } }
 
   | { id: string; type: "clue-relations"; payload: { pairs: [string, string, number][] } }
-  | { id: string; type: "branch-diff"; payload: any }
+  | { id: string; type: "branch-diff"; payload: BranchDiffResult }
   | { id: string; type: "board-layout"; payload: { id: string; x: number; y: number }[] }
 
 type PendingRequest = {
-  resolve: (value: any) => void
-  reject: (reason: any) => void
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
   timeoutId: ReturnType<typeof setTimeout>
 }
 
@@ -132,17 +144,7 @@ const DIMENSION_KEYS = [
   "logicConsistency",
 ] as const
 
-type DirectorScore = {
-  tension: number
-  pace: number
-  characterUtilization: number
-  characterArc: number
-  infoDensity: number
-  emotionalResonance: number
-  logicConsistency: number
-}
-
-function fallbackGetAvgDirectorScore(branch: any): DirectorScore {
+function fallbackGetAvgDirectorScore(branch: SimulationBranch): DirectorScore {
   if (branch.directorEvaluations.length === 0) {
     return {
       tension: 3.0,
@@ -176,7 +178,7 @@ function fallbackGetAvgDirectorScore(branch: any): DirectorScore {
   return avg
 }
 
-function fallbackCalcBranchDiff(branchA: any, branchB: any): any {
+function fallbackCalcBranchDiff(branchA: SimulationBranch, branchB: SimulationBranch): BranchDiffResult {
   const branches = [branchA, branchB]
   const scoresList = branches.map((b) => fallbackGetAvgDirectorScore(b))
 
@@ -211,7 +213,7 @@ function fallbackCalcBranchDiff(branchA: any, branchB: any): any {
   for (const [charId, charName] of allCharMap) {
     const values: number[] = []
     for (const b of branches) {
-      const agent = b.finalAgentSnapshots.find((a: any) => a.agentId === charId)
+      const agent = b.finalAgentSnapshots.find((a) => a.agentId === charId)
       let totalSentiment = 0
       let count = 0
       if (agent) {
@@ -238,15 +240,15 @@ function fallbackCalcBranchDiff(branchA: any, branchB: any): any {
 
   const maxRound = Math.max(
     ...branches.map((b) =>
-      b.timelineEvents.length > 0 ? Math.max(...b.timelineEvents.map((e: any) => e.round)) : -1,
+      b.timelineEvents.length > 0 ? Math.max(...b.timelineEvents.map((e) => e.round)) : -1,
     ),
   )
 
   let divergenceRound = -1
   for (let r = 0; r <= maxRound; r++) {
     const roundContents = branches.map((b) => {
-      const evs = b.timelineEvents.filter((e: any) => e.round === r)
-      return evs.map((e: any) => e.content.slice(0, 10)).join("|")
+      const evs = b.timelineEvents.filter((e) => e.round === r)
+      return evs.map((e) => e.content.slice(0, 10)).join("|")
     })
 
     let allSame = true
@@ -315,7 +317,7 @@ export function useSimulationWorker() {
         }, TIMEOUT_MS)
 
         pendingRef.current.set(id, {
-          resolve: resolve as (value: any) => void,
+          resolve: resolve as (value: unknown) => void,
           reject,
           timeoutId,
         })
@@ -358,7 +360,7 @@ export function useSimulationWorker() {
   )
 
   const calcBranchDiff = useCallback(
-    (branchA: any, branchB: any): Promise<any> => {
+    (branchA: SimulationBranch, branchB: SimulationBranch): Promise<BranchDiffResult> => {
       return sendRequest(
         { type: "calc-branch-diff", payload: { branchA, branchB } },
         () => fallbackCalcBranchDiff(branchA, branchB),

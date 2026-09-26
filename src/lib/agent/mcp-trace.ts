@@ -1,9 +1,10 @@
 import type { AgentToolEvent } from "./types"
+import type { NovelTaskIntent } from "@/lib/novel"
 import type { ContextTrace, TraceMcpCall } from "./context-trace"
 
 function createFallbackContextInfo(mcpCalls: TraceMcpCall[]): NonNullable<ContextTrace["contextInfo"]> {
   return {
-    intent: "general_chat" as any,
+    intent: "general_chat" as NovelTaskIntent,
     confidence: 1,
     routeSource: "default",
     loadedSources: [],

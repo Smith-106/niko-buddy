@@ -10,7 +10,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadChapterSummaries, chapterSummariesToContextText } from "./chapter-summaries"
-import { loadRevisionFeedbackForContext } from "./revision-feedback"
+import { loadRevisionFeedbackForContext, createEmptyRevisionFeedback, type NovelRevisionFeedback } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
@@ -521,11 +521,11 @@ export const graphSearchResultsDataSource: DataSource<string> = {
 /**
  * 修订反馈数据源
  */
-export const revisionFeedbackDataSource: DataSource<any> = {
+export const revisionFeedbackDataSource: DataSource<NovelRevisionFeedback> = {
   name: "revisionFeedback",
   priority: 15,
-  async load(context: ContextLoadContext): Promise<any> {
-    if (!context.chapterNumber) return []
+  async load(context: ContextLoadContext): Promise<NovelRevisionFeedback> {
+    if (!context.chapterNumber) return createEmptyRevisionFeedback()
     return await loadRevisionFeedbackForContext(
       context.projectPath,
       context.chapterNumber,
@@ -578,7 +578,7 @@ export const characterAurasDataSource: DataSource<string> = {
 /**
  * 获取所有数据源
  */
-export function getAllDataSources(): DataSource<any>[] {
+export function getAllDataSources(): DataSource<unknown>[] {
   return [
     outlineDataSource,
     chapterOutlineDataSource,

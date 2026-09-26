@@ -1,5 +1,6 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import type { ContextPack, DataSourceCategory, RouteSource } from "@/lib/novel"
+import type { ApplyRouteResult, LoadClassificationResult, RouteRule } from "@/lib/novel/classification"
 
 export interface BuildContextPackPluginDeps {
   buildContextPack?: (
@@ -8,23 +9,8 @@ export interface BuildContextPackPluginDeps {
     chapterNumber?: number,
     options?: { categories?: DataSourceCategory[] },
   ) => Promise<ContextPack>
-  loadClassificationConfig?: (projectPath: string, featureName?: string) => Promise<{
-    config: { routes: Array<{ intent: string; required: string[]; optional: string[]; forbidden: string[] }>; version?: string }
-    source: RouteSource
-    fallbackReason?: string
-    versionInfo?: {
-      upToDate: boolean
-      currentVersion: string
-      latestVersion: string
-      needsUpgrade: boolean
-      canUpgrade: boolean
-    }
-  }>
-  applyRouteRules?: (pack: ContextPack, rule: { intent: string; required: string[]; optional: string[]; forbidden: string[] }) => {
-    pack: ContextPack
-    blockedSources: DataSourceCategory[]
-    keptSources: DataSourceCategory[]
-  }
+  loadClassificationConfig?: (projectPath: string, featureName?: string) => Promise<LoadClassificationResult>
+  applyRouteRules?: (pack: ContextPack, rule: RouteRule) => ApplyRouteResult
   onError?: (error: Error) => void
   enableClassification?: boolean
   featureName?: string
@@ -86,7 +72,7 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
           : []
         let keptSources: DataSourceCategory[] = []
         let allowedCategories: DataSourceCategory[] | undefined
-        let resolvedRule: { intent: string; required: string[]; optional: string[]; forbidden: string[] } | undefined
+        let resolvedRule: RouteRule | undefined
         let classificationFallbackReason: string | undefined
         let classificationVersion: {
           upToDate: boolean
@@ -113,11 +99,11 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
                 }
               : undefined
 
-            const rule = resolveRule(classificationResult.config as any, route.intent) as any
+            const rule = resolveRule(classificationResult.config, route.intent)
             resolvedRule = rule
             allowedCategories = Array.from(new Set([
-              ...(rule.required as DataSourceCategory[]),
-              ...(rule.optional as DataSourceCategory[]),
+              ...rule.required,
+              ...rule.optional,
             ]))
           } catch (e) {
             routeSource = "default"
@@ -145,7 +131,7 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
           try {
             const mod = await import("@/lib/novel/classification")
             const applyRules = deps.applyRouteRules || mod.applyRouteRules
-            const result = applyRules(contextPack, resolvedRule as any)
+            const result = applyRules(contextPack, resolvedRule)
             contextPack = result.pack
             blockedSources = result.blockedSources
             keptSources = result.keptSources

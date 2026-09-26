@@ -6,6 +6,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type {
   BookAnalysisMetadata,
+  BookAnalysisProgress,
   ChapterSelectionState,
 } from "./types"
 import { createDirectory, writeFile, readFile, listDirectory } from "@/commands/fs"
@@ -65,7 +66,7 @@ export async function splitNovelIntoChapters(
   sourcePath: string,
   projectPath: string,
   _llmConfig: LlmConfig,
-  onProgress?: (progress: any) => void,
+  onProgress?: (progress: Partial<BookAnalysisProgress>) => void,
   signal?: AbortSignal
 ): Promise<SplitChaptersResult> {
   // 生成 bookId - 顶部声明一次（feature/book-analysis-reuse）

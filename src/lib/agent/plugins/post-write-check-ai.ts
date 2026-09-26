@@ -70,7 +70,7 @@ function parseAIResponse(text: string): PostWriteCheckItem[] | null {
       if (typeof item.name !== "string" || item.name !== expectedName) return null
       if (typeof item.passed !== "boolean") return null
       if (typeof item.detail !== "string") return null
-      if (item.severity !== undefined && !VALID_SEVERITIES.includes(item.severity as any)) return null
+      if (item.severity !== undefined && !(typeof item.severity === "string" && (VALID_SEVERITIES as readonly string[]).includes(item.severity))) return null
       if (item.evidence !== undefined && typeof item.evidence !== "string") return null
       if (item.suggestion !== undefined && typeof item.suggestion !== "string") return null
 

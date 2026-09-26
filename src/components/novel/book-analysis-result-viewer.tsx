@@ -279,7 +279,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
     const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
     const bookTitle = effectiveResult?.metadata?.title
-    const bookAuthor = (effectiveResult?.metadata as any)?.author
+    const bookAuthor = effectiveResult?.metadata?.author
 
     // 标记此角色正在后台提取（fix/character-reextract-and-loading-state）
     setSingleReextractingIds((prev) => {

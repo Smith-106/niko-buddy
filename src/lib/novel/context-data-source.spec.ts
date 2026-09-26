@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { DataSourceRegistry, type DataSource, type ContextLoadContext } from "./context-data-source"
+import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
 
 const context: ContextLoadContext = {
   projectPath: "E:/Novel",
@@ -8,7 +9,7 @@ const context: ContextLoadContext = {
     recentSummaryWindow: 8,
     searchTopK: 5,
     snapshotLookback: 3,
-    revisionFeedbackWindowConfig: {},
+    revisionFeedbackWindowConfig: { ...DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG },
   },
 }
 

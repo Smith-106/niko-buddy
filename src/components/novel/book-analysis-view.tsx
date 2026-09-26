@@ -8,7 +8,7 @@ import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveModelConfig, toBookAnalysisResult } from "@/lib/novel"
-import type { BookAnalysisLibraryState, AnalysisDepth, SixDimensionProgressItem, SixDimensionStatus, RecognizedCharacter } from "@/lib/novel"
+import type { BookAnalysisLibraryState, AnalysisDepth, BookAnalysisStage, SixDimensionProgressItem, SixDimensionStatus, RecognizedCharacter } from "@/lib/novel"
 import { toast } from "@/lib/toast"
 import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
 import { useCharacterExtraction, type ChapterSelectionData } from "./hooks/use-character-extraction"
@@ -230,7 +230,7 @@ export function BookAnalysisView() {
         analysisLlmConfig,
         (progress) => {
           updateTaskProgress(taskId, {
-            stage: progress.stage as any,
+            stage: progress.stage as BookAnalysisStage,
             stageLabel: progress.stageLabel,
             completed: progress.completed,
             total: progress.total,
@@ -586,7 +586,7 @@ export function BookAnalysisView() {
                 </button>
                 {/* feature/network-error-resume：失败角色时显示"继续生成"按钮 */}
                 {(() => {
-                  const failedNames = (task.metadata as any)?.failedCharacterNames as string[] | undefined
+                  const failedNames = task.metadata?.failedCharacterNames as string[] | undefined
                   if (!failedNames || failedNames.length === 0) return null
                   return (
                     <button

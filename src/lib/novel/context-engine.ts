@@ -4,10 +4,10 @@ import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
-import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig, type RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { listSnapshots, loadSnapshot, sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
-import { buildRevisionDirectives } from "./revision-feedback"
+import { buildRevisionDirectives, type NovelRevisionFeedback } from "./revision-feedback"
 // ISS-20260712-ARCH-1 (Wave 1): 派生 store 文本读取群拆到 context-derived-stores.ts
 // (load* + *ToContextText import 随移)。context-engine 调用点 (buildLoadContext)
 // 改从本 import。
@@ -498,7 +498,7 @@ export interface BuildContextOptions {
   llmConfig?: LlmConfig
   novelConfig?: NovelConfig
   novelMode?: boolean
-  revisionFeedbackWindowConfig?: unknown
+  revisionFeedbackWindowConfig?: RevisionFeedbackWindowConfig
   embeddingConfig?: EmbeddingConfig
   /** Optional entity names for Quality Foundation entity-boost retrieval. */
   entityNames?: string[]
@@ -781,7 +781,7 @@ async function buildContextPackUnlocked(
       novelConfig.conditionalRoutingEnabled
         ? selectActiveEntities(pp, {
             chapterNumber: context.chapterNumber,
-            outline: joinNonEmpty([rawData.outline, rawData.chapterOutline], "\n\n"),
+            outline: joinNonEmpty([typeof rawData.outline === "string" ? rawData.outline : "", typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : ""], "\n\n"),
             sceneCharacters: extractSceneCharacters(rawData),
           }).catch((error) => {
             // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
@@ -1033,10 +1033,24 @@ function createDataSourceRegistry(): DataSourceRegistry {
  * canonRules 回退 raw（向后兼容；原 catch 降级语义已上移至 loadCanonSourceFacts）。
  */
 async function buildContextPackFromRawData(
-  rawData: Record<string, any>,
+  rawData: Record<string, unknown>,
   context: ContextLoadContext,
   temporalFactsPreloaded: TemporalFact[] | null,
 ): Promise<ContextPack> {
+  // C2 类型债：loadAll 返回 Record<string, unknown> —— 动态载荷经本函数入口
+  // 三 helper 收窄（行为与 any 时代字节级一致：缺失/非 string → ""/[]）。
+  const snapshots = (typeof rawData.snapshots === "object" && rawData.snapshots !== null
+    ? rawData.snapshots
+    : {}) as {
+    recentSummaries?: unknown
+    previousChapterEnding?: unknown
+    characterStates?: unknown
+    foreshadowingSignals?: unknown
+    timeline?: unknown
+    recentStateDeltas?: unknown
+  }
+  const rawStr = (v: unknown): string => (typeof v === "string" ? v : "")
+  const rawStrArr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : [])
   // PERF-011 (TASK-007): the adaptive budget for this build was already
   // computed in `buildContextPack` (stored as `currentBuildBudget`) before
   // the data-source load, so the tieredSlice call sites in
@@ -1046,27 +1060,23 @@ async function buildContextPackFromRawData(
   // No recompute here — single source of truth via the module-level budget.
 
   // 合并快照数据和降级数据
-  const snapshotRecentSummaries = Array.isArray(rawData.snapshots?.recentSummaries)
-    ? rawData.snapshots.recentSummaries
-    : []
-  const recentSummaries = snapshotRecentSummaries.length > 0 
-    ? snapshotRecentSummaries 
-    : rawData.fallbackRecentSummaries
-  const recentChapterContents = Array.isArray(rawData.recentChapterContents)
-    ? rawData.recentChapterContents
-    : []
+  const snapshotRecentSummaries = rawStrArr(snapshots.recentSummaries)
+  const recentSummaries = snapshotRecentSummaries.length > 0
+    ? snapshotRecentSummaries
+    : rawStrArr(rawData.fallbackRecentSummaries)
+  const recentChapterContents = rawStrArr(rawData.recentChapterContents)
   // P2-IMP-10 (M2): stateDelta additive 透传 — snapshotDataSource 经
   // chapterSummariesToContextText 渲染的键控子表文本。空 store / 无快照时
   // rawData.snapshots.recentStateDeltas 缺失 → undefined（renderIf 非空才渲染，
   // recentSummaries 现路径字节级不动）。
   const recentStateDeltas =
-    typeof rawData.snapshots?.recentStateDeltas === "string" &&
-    rawData.snapshots.recentStateDeltas.length > 0
-      ? rawData.snapshots.recentStateDeltas
+    typeof snapshots.recentStateDeltas === "string" &&
+    snapshots.recentStateDeltas.length > 0
+      ? snapshots.recentStateDeltas
       : undefined
-  
-  const previousChapterEnding = rawData.snapshots?.previousChapterEnding 
-    || rawData.fallbackPreviousEnding
+
+  const previousChapterEnding = rawStr(snapshots.previousChapterEnding)
+    || rawStr(rawData.fallbackPreviousEnding)
   
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
@@ -1079,8 +1089,8 @@ async function buildContextPackFromRawData(
     readAuraEvolutionText(context.projectPath),
   ])
   const characterStates = joinNonEmpty([
-    rawData.snapshots?.characterStates ?? "",
-    rawData.fallbackCharacterStates,
+    rawStr(snapshots.characterStates),
+    rawStr(rawData.fallbackCharacterStates),
     // R4 (S4 / ANL-013): emotional-arcs projection injected as protected-tier
     // canon — character emotion is part of character state. Loaded directly
     // from the .novel/emotional-arcs.json store (same pattern as
@@ -1106,45 +1116,43 @@ async function buildContextPackFromRawData(
   ], "\n\n")
   
   const timeline = joinNonEmpty([
-    rawData.snapshots?.timeline ?? "", 
-    rawData.fallbackTimeline
+    rawStr(snapshots.timeline),
+    rawStr(rawData.fallbackTimeline)
   ], "\n\n")
-  
-  const snapshotForeshadowingSignals = Array.isArray(rawData.snapshots?.foreshadowingSignals)
-    ? rawData.snapshots.foreshadowingSignals
-    : []
+
+  const snapshotForeshadowingSignals = rawStrArr(snapshots.foreshadowingSignals)
   const foreshadowingStates = mergeForeshadowingSignals(
-    snapshotForeshadowingSignals.length > 0 
-      ? snapshotForeshadowingSignals 
-      : [rawData.fallbackForeshadowingStates].filter(Boolean),
-    rawData.searchResults,
+    snapshotForeshadowingSignals.length > 0
+      ? snapshotForeshadowingSignals
+      : [rawStr(rawData.fallbackForeshadowingStates)].filter(Boolean),
+    rawStr(rawData.searchResults),
   )
-  
+
   // 构建章节目标
   const chapterGoal = buildChapterGoal(
-    rawData.outline, 
-    rawData.chapterOutline, 
+    rawStr(rawData.outline),
+    rawStr(rawData.chapterOutline),
     context.chapterNumber
   )
-  
+
   // 合并大纲信息
   const mergedOutline = joinNonEmpty([
-    rawData.outline,
-    rawData.volumeContext,
-    rawData.chapterOutline
+    rawStr(rawData.outline),
+    rawStr(rawData.volumeContext),
+    rawStr(rawData.chapterOutline)
   ], "\n\n")
-  
+
   // 构建修订指令
-  const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback)
-  
+  const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback as NovelRevisionFeedback)
+
   // 构建角色氛围上下文（依赖其他数据）
   const characterAuraPromise = buildCharacterAuraContext(context.projectPath, context.task, {
     matchingText: joinNonEmpty([
       chapterGoal,
-      rawData.chapterOutline,
-      rawData.fallbackCharacterStates,
-      rawData.snapshots.characterStates,
-      rawData.cognitionText,
+      rawStr(rawData.chapterOutline),
+      rawStr(rawData.fallbackCharacterStates),
+      rawStr(snapshots.characterStates),
+      rawStr(rawData.cognitionText),
     ], "\n\n"),
   })
 
@@ -1163,7 +1171,7 @@ async function buildContextPackFromRawData(
   // PAT-G2 twin-load). null = not enabled / load failed → canonRules keeps
   // the raw canon rules (backward compatible).
   const targetChapter = context.chapterNumber ?? 0
-  let canonRules = rawData.canonRules
+  let canonRules = rawStr(rawData.canonRules)
   const temporalFactsPromise = Promise.resolve(temporalFactsPreloaded)
   const communityPromise = (async () => {
     try {
@@ -1202,17 +1210,17 @@ async function buildContextPackFromRawData(
     recentSummaries,
     previousChapterEnding,
     characterStates,
-    soulDoc: rawData.soulDoc,
+    soulDoc: rawStr(rawData.soulDoc),
     characterAuras,
-    cognitionStates: rawData.cognitionText,
+    cognitionStates: rawStr(rawData.cognitionText),
     foreshadowingStates,
     timeline,
-    relatedSettings: rawData.relatedSettings,
+    relatedSettings: rawStr(rawData.relatedSettings),
     canonRules,
-    writingStyle: rawData.writingStyle,
-    voiceStyleGuide: rawData.voiceStyleGuide || undefined,
-    searchResults: rawData.searchResults,
-    graphSearchResults: rawData.graphSearchResults,
+    writingStyle: rawStr(rawData.writingStyle),
+    voiceStyleGuide: rawStr(rawData.voiceStyleGuide) || undefined,
+    searchResults: rawStr(rawData.searchResults),
+    graphSearchResults: rawStr(rawData.graphSearchResults),
     communitySummaries: communitySummaries || undefined,
     // MIG-002: 世界骨架接入 context pack — loadWorldBlueprint 非空且有完备层时
     // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
@@ -1232,7 +1240,7 @@ async function buildContextPackFromRawData(
       previousChapterEnding,
       foreshadowingStates,
       timeline,
-      searchResults: rawData.searchResults,
+      searchResults: rawStr(rawData.searchResults),
     }),
     revisionDirectives,
     gaps: [],
@@ -1845,13 +1853,16 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
  * 互补构成 entity 匹配双源（grep 验证 'chapter outline mentions' + 'scene characters'
  * 两 term）。
  */
-function extractSceneCharacters(rawData: Record<string, any>): string {
+function extractSceneCharacters(rawData: Record<string, unknown>): string {
   const parts: string[] = []
-  const snapshotCharStates = rawData.snapshots?.characterStates
+  const snapshots = (typeof rawData.snapshots === "object" && rawData.snapshots !== null
+    ? rawData.snapshots
+    : {}) as { characterStates?: unknown }
+  const snapshotCharStates = snapshots.characterStates
   if (typeof snapshotCharStates === "string" && snapshotCharStates.trim()) {
     parts.push(snapshotCharStates)
   }
-  const fallbackCharStates = rawData.fallbackCharacterStates
+  const fallbackCharStates = typeof rawData.fallbackCharacterStates === "string" ? rawData.fallbackCharacterStates : undefined
   if (typeof fallbackCharStates === "string" && fallbackCharStates.trim()) {
     parts.push(fallbackCharStates)
   }

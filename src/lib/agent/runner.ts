@@ -282,7 +282,7 @@ export class AgentRunner {
       let attemptedToolsFallback = false
       const buildRequestOverrides = (baseOverrides = config.requestOverrides) =>
         openaiTools
-          ? { ...baseOverrides, tools: openaiTools as any, toolChoice: "auto" as const }
+          ? { ...baseOverrides, tools: openaiTools, toolChoice: "auto" as const }
           : baseOverrides
       let requestOverrides = buildRequestOverrides()
       const isToolUnsupportedError = (err: unknown) => {

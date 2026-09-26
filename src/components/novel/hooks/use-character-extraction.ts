@@ -2,7 +2,7 @@ import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveModelConfig } from "@/lib/novel"
-import type { AnalysisDepth, ExtractedCharacter, RecognizedCharacter, BookAnalysisMetadata } from "@/lib/novel"
+import type { AnalysisDepth, ExtractedCharacter, RecognizedCharacter, BookAnalysisMetadata, BookAnalysisStage } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
@@ -90,15 +90,15 @@ export function useCharacterExtraction({
         bookAuthor: metadata.author,
         onProgress: (progress) => {
           updateTaskProgress(taskId, {
-            stage: progress.stage as any,
+            stage: progress.stage as BookAnalysisStage,
             stageLabel: progress.stageLabel,
             completed: progress.completed,
             total: progress.total,
             percentage: progress.percentage,
             currentItem: progress.currentItem,
-            currentCharacter: (progress as any).currentCharacter,
-            currentDimension: (progress as any).currentDimension,
-            dimensions: (progress as any).dimensions,
+            currentCharacter: progress.currentCharacter,
+            currentDimension: progress.currentDimension,
+            dimensions: progress.dimensions,
           })
         },
         signal: abortController.signal,
@@ -137,7 +137,7 @@ export function useCharacterExtraction({
         llmConfig,
         (progress) => {
           updateTaskProgress(taskId, {
-            stage: progress.stage as any,
+            stage: progress.stage as BookAnalysisStage,
             stageLabel: progress.stageLabel,
             completed: progress.completed,
             total: progress.total,
@@ -297,10 +297,10 @@ export function useCharacterExtraction({
               ? {
                   ...t,
                   metadata: {
-                    ...(t.metadata ?? {}),
+                    ...(t.metadata ?? {} as BookAnalysisMetadata),
                     failedCharacterNames: failedNames,
                     networkFailure,
-                  } as any,
+                  },
                 }
               : t,
           ),
@@ -365,7 +365,7 @@ export function useCharacterExtraction({
         llmConfig,
         (progress) => {
           updateTaskProgress(taskId, {
-            stage: progress.stage as any,
+            stage: progress.stage as BookAnalysisStage,
             stageLabel: progress.stageLabel,
             completed: progress.completed,
             total: progress.total,
@@ -400,7 +400,7 @@ export function useCharacterExtraction({
   const handleResumeFailedExtraction = useCallback(async (taskId: string) => {
     const task = useBookAnalysisStore.getState().tasks.find((t) => t.id === taskId)
     if (!task) return
-    const failedNames = (task.metadata as any)?.failedCharacterNames as string[] | undefined
+    const failedNames = task.metadata?.failedCharacterNames as string[] | undefined
     if (!failedNames || failedNames.length === 0) return
 
     const failedCharacters = (task.characters ?? []).filter((c) => failedNames.includes(c.name))
@@ -434,8 +434,9 @@ export function useCharacterExtraction({
       return response.trim()
     }
 
-    const sourceBook = (task.metadata as any)?.sourceBook
-    if (!sourceBook) {
+    const taskMetadata = task.metadata
+    const sourceBook = taskMetadata?.sourceBook
+    if (!taskMetadata || !sourceBook) {
       alert("找不到原始作品路径，无法继续生成")
       return
     }
@@ -503,7 +504,7 @@ export function useCharacterExtraction({
       /* v8 ignore start */
       tasks: state.tasks.map((t) =>
         t.id === taskId
-          ? { ...t, metadata: { ...(t.metadata ?? {}), failedCharacterNames: stillFailed } as any }
+          ? { ...t, metadata: { ...(t.metadata ?? {} as BookAnalysisMetadata), failedCharacterNames: stillFailed } }
           : t,
       ),
       /* v8 ignore stop */
@@ -523,7 +524,7 @@ export function useCharacterExtraction({
         )
         const skills = await generateSkillsForCharacters(
           updated,
-          task.metadata as any,
+          taskMetadata,
           sourceBook,
           llmConfig,
         )

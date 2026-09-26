@@ -1,4 +1,5 @@
 import { logger } from "@/lib/utils"
+import type { RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 
 /**
  * 上下文数据源抽象层
@@ -32,7 +33,7 @@ export interface ContextLoadContext {
     recentSummaryWindow: number
     searchTopK: number
     snapshotLookback: number
-    revisionFeedbackWindowConfig: any
+    revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
   }
   /**
    * DC-8 (odyssey-improve): optional gap recorder injected by buildContextPack.
@@ -59,7 +60,7 @@ export interface DataSource<T> {
  */
 interface DataSourceResult {
   name: string
-  value: any
+  value: unknown
   error: Error | null
 }
 
@@ -68,7 +69,7 @@ interface DataSourceResult {
  * 负责管理所有数据源的注册、加载和错误处理
  */
 export class DataSourceRegistry {
-  private sources: Map<string, DataSource<any>> = new Map()
+  private sources: Map<string, DataSource<unknown>> = new Map()
 
   /**
    * 注册数据源
@@ -80,7 +81,7 @@ export class DataSourceRegistry {
   /**
    * 批量注册数据源
    */
-  registerAll(sources: DataSource<any>[]): void {
+  registerAll(sources: DataSource<unknown>[]): void {
     for (const source of sources) {
       this.register(source)
     }
@@ -90,7 +91,7 @@ export class DataSourceRegistry {
    * 并发加载所有数据源
    * 单个数据源失败不会影响整体加载
    */
-  async loadAll(context: ContextLoadContext): Promise<Record<string, any>> {
+  async loadAll(context: ContextLoadContext): Promise<Record<string, unknown>> {
     const sources = Array.from(this.sources.values())
 
     const promises = sources.map(async (source): Promise<DataSourceResult> => {
@@ -127,14 +128,14 @@ export class DataSourceRegistry {
     return results.reduce((acc, { name, value }) => {
       acc[name] = value
       return acc
-    }, {} as Record<string, any>)
+    }, {} as Record<string, unknown>)
   }
 
   /**
    * 获取数据源的默认值
    */
-  private getDefaultValue(sourceName: string): any {
-    const defaults: Record<string, any> = {
+  private getDefaultValue(sourceName: string): unknown {
+    const defaults: Record<string, unknown> = {
       outline: "",
       chapterOutline: "",
       volumeContext: "",

@@ -32,6 +32,7 @@ import {
 } from "./context-engine"
 import { computeContextBudget } from "@/lib/context-budget"
 import { rerankActiveEntitiesByTemporalFacts, type TemporalFact } from "./temporal-memory"
+import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
 import { DEFAULT_NOVEL_CONFIG, useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import i18n from "@/i18n"
 import type { ChapterSnapshot } from "./chapter-ingest"
@@ -243,7 +244,15 @@ vi.mock("./chapter-ingest", () => ({
   listSnapshots: hoisted.listSnapshots,
   loadSnapshot: hoisted.loadSnapshot,
 }))
-vi.mock("./revision-feedback", () => ({ buildRevisionDirectives: hoisted.buildRevisionDirectives }))
+vi.mock("./revision-feedback", () => ({
+  buildRevisionDirectives: hoisted.buildRevisionDirectives,
+  DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: {
+    currentChapterIncludeShouldImprove: true,
+    previousChapterCarryEnabled: true,
+    lookbackChapterCount: 2,
+    lookbackIncludeMustFixOnly: true,
+  },
+}))
 vi.mock("./context-derived-stores", () => ({
   readEmotionalArcsText: hoisted.readEmotionalArcsText,
   readSubplotBoardText: hoisted.readSubplotBoardText,
@@ -1924,7 +1933,7 @@ describe("buildContextPack 集成", () => {
     await buildContextPack("/p", "任务", 2, {
       novelConfig: mkNovelConfig({ recentSummaryWindow: 3, searchTopK: 7 }),
       llmConfig: mkLlmConfig(5000),
-      revisionFeedbackWindowConfig: { lookback: 1 },
+      revisionFeedbackWindowConfig: { ...DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG, lookbackChapterCount: 1 },
     })
     const ctx = hoisted.lastLoadContext as {
       maxContextSize?: number
@@ -1933,7 +1942,7 @@ describe("buildContextPack 集成", () => {
     expect(ctx.maxContextSize).toBe(5000)
     expect(ctx.config.recentSummaryWindow).toBe(3)
     expect(ctx.config.searchTopK).toBe(7)
-    expect(ctx.config.revisionFeedbackWindowConfig).toEqual({ lookback: 1 })
+    expect(ctx.config.revisionFeedbackWindowConfig).toEqual({ ...DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG, lookbackChapterCount: 1 })
   })
 
   it("temporalFacts 折叠注入 canonRules + rerank + 预算截断 gap", async () => {
@@ -2665,16 +2674,15 @@ describe("第三轮补齐：context-engine 分支全覆盖", () => {
     expect(pack.recentChapterContents).toEqual([])
   })
 
-  it("buildContextPack: chapterOutline 非字符串 → relatedChapters 空串；构建抛错由 finally 兜底", async () => {
+  it("buildContextPack: chapterOutline 非字符串 → 空串降级（C2 类型债：rawStr 收窄，脏数据不断构建）", async () => {
     hoisted.loadAllImpl = async () => ({
       ...fixtureRawData(),
       chapterOutline: 42 as unknown as string,
     })
-    await expect(
-      buildContextPack("/p", "任务", 3, {
-        novelConfig: mkNovelConfig({ relatedChaptersEnabled: true }),
-      }),
-    ).rejects.toThrow()
+    const pack = await buildContextPack("/p", "任务", 3, {
+      novelConfig: mkNovelConfig({ relatedChaptersEnabled: true }),
+    })
+    expect(pack.chapterGoal).toBe("")
   })
 
   it("selectActiveEntities: 零匹配回退全量 + tags 字符串分支", async () => {

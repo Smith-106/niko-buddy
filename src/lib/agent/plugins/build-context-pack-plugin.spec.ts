@@ -132,8 +132,8 @@ describe("BuildContextPackPlugin", () => {
     const plugin = createBuildContextPackPlugin({
       buildContextPack: mockBuild,
       enableClassification: true,
-      loadClassificationConfig: mockLoadClassification as any,
-      applyRouteRules: mockApplyRouteRules as any,
+      loadClassificationConfig: mockLoadClassification,
+      applyRouteRules: mockApplyRouteRules,
     })
 
     const result = await plugin.run({

@@ -28,7 +28,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         const dynamicRulesParts: string[] = []
 
         // 去掉 base 里可能已有的找纲协议，统一由本 plugin 注入一次，避免重复。
-        const rawBase = baseSystemPrompt || (input.agentConfig as any)?.systemPrompt || ""
+        const rawBase = baseSystemPrompt || input.agentConfig.systemPrompt || ""
         const base = rawBase ? stripOutlineFindProtocol(rawBase) : ""
         if (base) {
           parts.push(base)

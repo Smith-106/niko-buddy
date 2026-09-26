@@ -16,7 +16,7 @@ const CATEGORY_TO_FIELDS: Record<DataSourceCategory, Array<keyof ContextPack>> =
   revision: ["revisionDirectives"],
 }
 
-interface ApplyRouteResult {
+export interface ApplyRouteResult {
   pack: ContextPack
   blockedSources: DataSourceCategory[]
   keptSources: DataSourceCategory[]
@@ -88,11 +88,11 @@ export function applyRouteRules(pack: ContextPack, rule: RouteRule): ApplyRouteR
 function clearCategoryFields(pack: ContextPack, category: DataSourceCategory): void {
   const fields = CATEGORY_TO_FIELDS[category] || []
   for (const field of fields) {
-    const value = pack[field]
+    const value: unknown = pack[field]
     if (Array.isArray(value)) {
-      ;(pack as any)[field] = []
+      ;(pack as unknown as Record<string, unknown>)[field] = []
     } else if (typeof value === "string") {
-      ;(pack as any)[field] = ""
+      ;(pack as unknown as Record<string, unknown>)[field] = ""
     }
   }
 }

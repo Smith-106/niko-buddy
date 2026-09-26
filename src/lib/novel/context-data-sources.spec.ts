@@ -22,6 +22,7 @@ import {
   characterAurasDataSource,
   getAllDataSources,
 } from "./context-data-sources"
+import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
 
 const mocks = vi.hoisted(() => ({
   buildWritingStyleContext: vi.fn(),
@@ -59,6 +60,13 @@ vi.mock("./volume", () => ({
 
 vi.mock("./revision-feedback", () => ({
   loadRevisionFeedbackForContext: mocks.loadRevisionFeedbackForContext,
+  createEmptyRevisionFeedback: () => ({ mustFix: [], shouldImprove: [], carryToNextChapter: [] }),
+  DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: {
+    currentChapterIncludeShouldImprove: true,
+    previousChapterCarryEnabled: true,
+    lookbackChapterCount: 2,
+    lookbackIncludeMustFixOnly: true,
+  },
 }))
 
 vi.mock("./character-cognition", () => ({
@@ -110,7 +118,7 @@ const context: ContextLoadContext = {
     recentSummaryWindow: 8,
     searchTopK: 5,
     snapshotLookback: 3,
-    revisionFeedbackWindowConfig: {},
+    revisionFeedbackWindowConfig: { ...DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG },
   },
 }
 
@@ -748,16 +756,16 @@ describe("searchResultsDataSource / graphSearchResultsDataSource", () => {
 })
 
 describe("revisionFeedbackDataSource", () => {
-  it("无 chapterNumber → []", async () => {
+  it("无 chapterNumber → 空反馈对象（C2 类型债：createEmptyRevisionFeedback 替代裸 []）", async () => {
     await expect(
       revisionFeedbackDataSource.load({ ...context, chapterNumber: undefined }),
-    ).resolves.toEqual([])
+    ).resolves.toEqual({ mustFix: [], shouldImprove: [], carryToNextChapter: [] })
   })
 
   it("有 chapterNumber → loadRevisionFeedbackForContext 结果", async () => {
     mocks.loadRevisionFeedbackForContext.mockResolvedValue([{ feedback: "f" }])
     await expect(revisionFeedbackDataSource.load(context)).resolves.toEqual([{ feedback: "f" }])
-    expect(mocks.loadRevisionFeedbackForContext).toHaveBeenCalledWith("E:/Novel", 3, {})
+    expect(mocks.loadRevisionFeedbackForContext).toHaveBeenCalledWith("E:/Novel", 3, { ...DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG })
   })
 })
 

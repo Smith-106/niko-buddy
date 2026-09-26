@@ -7,6 +7,7 @@
 
 import { listDirectory, readFile } from "@/commands/fs"
 import type { NovelTaskIntent } from "./task-router"
+import type { FileNode } from "@/types/wiki"
 
 /**
  * 从文本中提取章节编号。
@@ -69,7 +70,7 @@ export function formatStageThinking(title: string, content: string): string {
  * @returns 平铺后的 .md 文件列表
  */
 export function flattenMdFilesBase(
-  nodes: Array<{ name: string; path: string; is_dir: boolean; children?: any[] }>,
+  nodes: FileNode[],
 ): Array<{ name: string; path: string }> {
   const out: Array<{ name: string; path: string }> = []
   for (const node of nodes) {
@@ -91,7 +92,7 @@ export function flattenMdFilesBase(
  * @param nodes - 文件树节点数组
  * @returns 排序后的 .md 文件列表
  */
-export function flattenMdFiles(nodes: Array<{ name: string; path: string; is_dir: boolean; children?: any[] }>): Array<{ name: string; path: string }> {
+export function flattenMdFiles(nodes: FileNode[]): Array<{ name: string; path: string }> {
   return flattenMdFilesBase(nodes).sort((a, b) => {
     const aNum = extractChapterNumber(a.name)
     const bNum = extractChapterNumber(b.name)

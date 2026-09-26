@@ -1095,7 +1095,7 @@ ${sliceChapterForReview(chapterBody)}
     // Promise<ChapterSnapshot | null> contract and letting ingestChapter route
     // to the friendly UX. A non-SyntaxError (transport/stream failure) is
     // re-thrown unchanged so abort/timeout paths stay distinct.
-    let parsed: any
+    let parsed: unknown
     try {
       parsed = JSON.parse(jsonText)
     } catch (error) {
@@ -1108,17 +1108,18 @@ ${sliceChapterForReview(chapterBody)}
       throw error
       /* v8 ignore stop */
     }
+    const record = (parsed ?? {}) as Record<string, unknown>
     return normalizeChapterSnapshot({
-      ...parsed,
+      ...record,
       chapterId: `chapter-${chapterNumber}`,
       chapterNumber,
       entityIsNew: {},
       validationWarnings: [],
-      characterDetails: parsed.characterDetails || undefined,
-      locationDetails: parsed.locationDetails || undefined,
-      organizationDetails: parsed.organizationDetails || undefined,
-      itemDetails: parsed.itemDetails || undefined,
-      eventDetails: parsed.eventDetails || undefined,
+      characterDetails: record.characterDetails || undefined,
+      locationDetails: record.locationDetails || undefined,
+      organizationDetails: record.organizationDetails || undefined,
+      itemDetails: record.itemDetails || undefined,
+      eventDetails: record.eventDetails || undefined,
     }, { chapterId: `chapter-${chapterNumber}`, chapterNumber })
   } catch (err) {
     logger.error("Chapter Ingest", "Failed to extract snapshot", { error: err instanceof Error ? err.message : String(err) })
@@ -2772,7 +2773,7 @@ ${body}
     // early-exit return null @1930). Return null here honors the
     // Promise<ChapterSnapshot | null> contract and lets the caller route to
     // the friendly ingestFailedNotification. A non-SyntaxError re-throws.
-    let parsed: any
+    let parsed: unknown
     try {
       parsed = JSON.parse(jsonText)
     } catch (error) {
@@ -2783,8 +2784,9 @@ ${body}
       }
       throw error
     }
+    const record = (parsed ?? {}) as Record<string, unknown>
     const snapshot = normalizeChapterSnapshot({
-      ...parsed,
+      ...record,
       chapterId,
       chapterNumber: outlineNumber,
       chapterTitle: outlineName,

@@ -1,7 +1,8 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
+import type { ContextPack } from "@/lib/novel"
 
 interface SoulDialogPluginDeps {
-  shouldRequestSoulDialog?: (contextPack: any) => boolean
+  shouldRequestSoulDialog?: (contextPack: ContextPack | null | undefined) => boolean
   onError?: (error: Error) => void
 }
 
@@ -34,6 +35,6 @@ export function createSoulDialogPlugin(deps: SoulDialogPluginDeps = {}): PrePlug
   }
 }
 
-function defaultShouldRequestSoulDialog(contextPack: any): boolean {
+function defaultShouldRequestSoulDialog(contextPack: ContextPack | null | undefined): boolean {
   return Boolean(contextPack?.characterAuras?.trim())
 }
