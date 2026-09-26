@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-09-13（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**110**（`generate_handler!` 块）；未注册声明（死命令）：**1**
+> 生成时间：2026-09-26（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**113**（`generate_handler!` 块）；未注册声明（死命令）：**1**
 
-## 注册命令（110）
+## 注册命令（113）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -11,6 +11,9 @@
 | `confirm_gate_loop_state` | agent_gate | ✓ |
 | `confirm_gate_pending` | agent_gate | ✓ |
 | `confirm_gate_resolve` | agent_gate | ✓ |
+| `antigravity_cli_detect` | antigravity_cli | ✓ |
+| `antigravity_cli_kill` | antigravity_cli | ✓ |
+| `antigravity_cli_spawn` | antigravity_cli | ✓ |
 | `app_lock_set_passphrase` | app_lock::api | ✓ |
 | `app_lock_state` | app_lock::api | ✓ |
 | `app_lock_verify` | app_lock::api | ✓ |
