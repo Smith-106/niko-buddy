@@ -116,7 +116,8 @@ function App() {
 
   async function handleProjectCreated(proj: WikiProject) {
     try {
-      await hydrateProjectOnOpen(proj)
+      // 新建项目：创建后 novel 项目落 director 写作生产台（J01-T02 F-005）。
+      await hydrateProjectOnOpen(proj, { fromCreate: true })
     } catch (err) {
       window.alert(`项目创建后初始化失败：${err}`)
     }

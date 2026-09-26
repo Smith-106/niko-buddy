@@ -30,8 +30,7 @@ async function boot(page: Page): Promise<void> {
   })
   await page.goto("/")
   await page.getByRole("button", { name: "小说目录" }).click()
-  // CI runner 实证（9-23 起三 run 双平台）：二级渲染配额 10s 不足，提至 30s
-  //（playwright test timeout 45s 内；#root/app.spec 856ms 证明非启动回归）
+  // 打开已有项目落 wiki（hydrate fromCreate=false 默认）；30s 配额给 CI runner 慢启动留余量
   await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
 }
 

@@ -265,6 +265,7 @@ const flushDynamicImports = async () => {
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.wikiState.llmConfig = null
+  mocks.wikiState.novelMode = undefined
   mocks.wikiState.scheduledImportConfig = null
   mocks.isTauri.mockReturnValue(false)
   mocks.loadTaskSummaries.mockResolvedValue([])
@@ -600,7 +601,23 @@ describe("hydrateProjectOnOpen", () => {
     expect(mocks.wikiState.setChatExpanded).toHaveBeenCalledWith(true)
   })
 
-  it("lands novel-mode projects on the director view (J01-T02 F-005)", async () => {
+  it("lands novel-mode projects on the director view on create (J01-T02 F-005)", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.wikiState.novelMode = true
+
+    await hydrateProjectOnOpen(proj, { fromCreate: true })
+
+    // novelMode=true → 写作生产台，非 wiki 知识库
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("director")
+  })
+
+  it("lands opened projects on the wiki view even in novel mode (ISS-20260927-001)", async () => {
     mocks.resetProjectState.mockResolvedValue(undefined)
     mocks.loadNovelConfig.mockResolvedValue(null)
     mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
@@ -612,8 +629,8 @@ describe("hydrateProjectOnOpen", () => {
 
     await hydrateProjectOnOpen(proj)
 
-    // novelMode=true → 写作生产台，非 wiki 知识库
-    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("director")
+    // 打开≠创建：打开已有项目一律落 wiki，否则 wiki 视图永不出现
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
   })
 
   it("J10-02: 重启发现 running/paused 残留 → 调 markSessionInterrupted 降级", async () => {
@@ -650,7 +667,7 @@ describe("hydrateProjectOnOpen", () => {
     expect(mocks.markSessionInterrupted).not.toHaveBeenCalled()
   })
 
-  it("lands non-novel projects on the wiki view (J01-T02 F-005)", async () => {
+  it("lands non-novel projects on the wiki view on create (J01-T02 F-005)", async () => {
     mocks.resetProjectState.mockResolvedValue(undefined)
     mocks.loadNovelConfig.mockResolvedValue(null)
     mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
@@ -660,7 +677,7 @@ describe("hydrateProjectOnOpen", () => {
     mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
     mocks.wikiState.novelMode = false
 
-    await hydrateProjectOnOpen(proj)
+    await hydrateProjectOnOpen(proj, { fromCreate: true })
 
     // novelMode=false → 保持 wiki 落点（非小说项目不受影响）
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")

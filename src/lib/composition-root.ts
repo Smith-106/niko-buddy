@@ -148,7 +148,10 @@ export async function initializeApp(): Promise<void> {
  * 抽取自 App.tsx 的 handleProjectOpened：重置项目状态、写入项目相关 store、
  * 恢复队列/定时导入/文件同步、加载文件树/审查项/聊天历史（含中断深度章节恢复）。
  */
-export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
+export async function hydrateProjectOnOpen(
+  proj: WikiProject,
+  opts?: { fromCreate?: boolean },
+): Promise<void> {
   await resetProjectState()
 
   useWikiStore.getState().setProject(proj)
@@ -178,10 +181,11 @@ export async function hydrateProjectOnOpen(proj: WikiProject): Promise<void> {
   const projectRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig(proj.id, proj.path)
   useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
   useWikiStore.getState().setSelectedFile(null)
-  // J01-T02 (F-005)：novel 项目创建后落写作生产台（director=章节编排含空态 ideaInput），
-  // 非 novel 项目保持 wiki。落点由项目类型决定，不硬编码统一跳 wiki。
+  // J01-T02 (F-005)：仅「新建项目」创建后 novel 项目落写作生产台（director）；
+  // 打开已有项目（含欢迎屏最近项目/自动恢复上次项目）一律落 wiki——打开≠创建，
+  // 否则打开路径被带到 director，wiki 视图永不出现（e2e boot 链路回归，见 ISS-20260927-001）。
   const landingView: WikiState["activeView"] =
-    useWikiStore.getState().novelMode ? "director" : "wiki"
+    opts?.fromCreate && useWikiStore.getState().novelMode ? "director" : "wiki"
   useWikiStore.getState().setActiveView(landingView)
   useWikiStore.getState().bumpDataVersion()
   await saveLastProject(proj)
