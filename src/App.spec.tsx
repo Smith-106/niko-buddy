@@ -414,7 +414,7 @@ describe("App 组件树渲染与初始化流程", () => {
 
     await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
     await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
-    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" })
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" }, { fromCreate: true })
     cleanup()
   })
 
@@ -431,7 +431,7 @@ describe("App 组件树渲染与初始化流程", () => {
     expect(container.textContent).toContain("dialog-open:true")
 
     await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
-    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" })
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" }, { fromCreate: true })
     cleanup()
   })
 
@@ -443,7 +443,7 @@ describe("App 组件树渲染与初始化流程", () => {
 
     await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
     await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
-    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" })
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" }, { fromCreate: true })
     expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("项目创建后初始化失败"))
     alertSpy.mockRestore()
     cleanup()
