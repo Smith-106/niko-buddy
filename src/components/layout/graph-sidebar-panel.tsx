@@ -75,7 +75,7 @@ export function GraphSidebarPanel() {
         </div>
 
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">显示模式</label>
+          <label className="text-xs text-muted-foreground mb-1 block">{t("graph.displayMode")}</label>
           <select
             value={displayMode}
             onChange={(e) => setGraphDisplayMode(e.target.value as GraphDisplayMode)}
@@ -88,7 +88,7 @@ export function GraphSidebarPanel() {
         </div>
 
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">颜色模式</label>
+          <label className="text-xs text-muted-foreground mb-1 block">{t("graph.colorMode")}</label>
           <select
             value={colorMode}
             onChange={(e) => setColorMode(e.target.value as ColorMode)}
@@ -100,7 +100,7 @@ export function GraphSidebarPanel() {
         </div>
 
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">标签显示</label>
+          <label className="text-xs text-muted-foreground mb-1 block">{t("graph.labelDisplayOpt")}</label>
           <select
             value={labelDisplayMode}
             onChange={(e) => setLabelDisplayMode(e.target.value as GraphLabelDisplayMode)}
@@ -136,15 +136,15 @@ export function GraphSidebarPanel() {
         {showEdgeControls && (
           <div className="space-y-2 rounded-md border bg-card p-2 text-xs">
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground whitespace-nowrap">线型</span>
+              <span className="text-muted-foreground whitespace-nowrap">{t("graph.lineStyle")}</span>
               <select
                 value={edgeStyle}
                 onChange={(e) => setEdgeStyle(e.target.value as GraphEdgeStyle)}
                 className="flex-1 h-6 rounded border border-input bg-background px-1 text-[11px] outline-none"
               >
-                <option value="curve">曲线避让</option>
-                <option value="arrow">箭头</option>
-                <option value="line">直线避让</option>
+                <option value="curve">{t("graph.curveAvoid")}</option>
+                <option value="arrow">{t("graph.arrow")}</option>
+                <option value="line">{t("graph.lineAvoid")}</option>
               </select>
             </div>
             <div className="flex items-center gap-2">
@@ -176,7 +176,7 @@ export function GraphSidebarPanel() {
           <span className="rounded bg-muted px-1.5 py-0.5">{graphStats.filteredNodeCount}/{graphStats.nodeCount} {t("graph.pages", { count: graphStats.nodeCount })}</span>
           <span className="rounded bg-muted px-1.5 py-0.5">{graphStats.filteredEdgeCount}/{graphStats.edgeCount} {t("graph.links", { count: graphStats.edgeCount })}</span>
           {graphStats.hiddenCount > 0 && (
-            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning dark:text-warning">
               {graphStats.hiddenCount} {t("graph.hidden")}
             </span>
           )}

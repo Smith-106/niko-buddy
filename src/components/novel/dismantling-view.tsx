@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { BookOpenCheck, CheckCircle2, Loader2, Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -10,6 +11,7 @@ import { buildWebResearchContext, collectWebResearch } from "@/lib/web-research"
 const DEFAULT_BATCH_SIZE = 3
 
 export function DismantlingView() {
+  const { t } = useTranslation()
   const project = useWikiStore((state) => state.project)
   const llmConfig = useWikiStore((state) => state.llmConfig)
   const novelConfig = useWikiStore((state) => state.novelConfig)
@@ -194,7 +196,7 @@ export function DismantlingView() {
   }
 
   if (!project) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">请先打开小说项目。</div>
+    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("novel.openProjectFirst")}</div>
   }
 
   return (
@@ -202,8 +204,8 @@ export function DismantlingView() {
       <header className="border-b px-5 py-3">
         <div className="flex items-center gap-2 text-sm text-primary">
           <BookOpenCheck className="h-4 w-4" />
-          <span>拆文库 · 独立拆文记忆库</span>
-          <span className="text-muted-foreground">— 拆文结果独立保存，不会写入小说记忆、章节记忆或大纲记忆。</span>
+          <span>{t("novel.dismantle.title")}</span>
+          <span className="text-muted-foreground">{t("novel.dismantle.isolation")}</span>
         </div>
       </header>
 
@@ -211,13 +213,13 @@ export function DismantlingView() {
         {/* 第三栏：作品详情、自动章节识别与拆文操作 */}
         <main className="min-h-0 flex flex-col overflow-hidden border-r">
           {!selectedProject ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">请从左侧选择拆文作品</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("novel.dismantle.selectHint")}</div>
           ) : (
             <>
               <div className="border-b px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground">作品详情</div>
+                    <div className="text-xs font-medium text-muted-foreground">{t("novel.dismantle.workDetail")}</div>
                     <h2 className="mt-1 text-base font-semibold">{selectedProject.title}</h2>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       已自动识别章节结构：{selectedProject.chapters.length} 章 · {selectedProject.structureMemory.length} 条结构记忆
@@ -238,20 +240,20 @@ export function DismantlingView() {
                       checked={Boolean(selectedProject.useInChat)}
                       onChange={(event) => void toggleUseInChat(event.target.checked)}
                     />
-                    <span>在 AI 会话写作时参考当前拆文作品的结构记忆。</span>
+                    <span>{t("novel.dismantle.referenceHint")}</span>
                   </label>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">只学习节奏、冲突推进、爽点安排和章节钩子；不得复用原作人物、设定、剧情和具体表达。</p>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("novel.dismantle.learnScope")}</p>
                 </section>
 
                 <section className="rounded-lg border bg-card p-3">
-                  <div className="mb-2 text-sm font-medium">网页热门分析</div>
+                  <div className="mb-2 text-sm font-medium">{t("novel.dismantle.webAnalysis")}</div>
                   <p className="mb-2 text-xs leading-5 text-muted-foreground">
                     输入榜单关键词、题材方向或网页地址，AI 会联网读取资料并生成拆文结构分析；结果只写入独立拆文记忆库。
                   </p>
                   <textarea
                     value={webResearchInput}
                     onChange={(event) => setWebResearchInput(event.target.value)}
-                    placeholder="例如：搜索番茄都市脑洞热门开篇套路；或粘贴需要分析的网页地址"
+                    placeholder={t("novel.dismantle.webPlaceholder")}
                     className="min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   <Button
@@ -269,8 +271,8 @@ export function DismantlingView() {
                 <section className="rounded-lg border bg-card">
                   <div className="flex items-center justify-between border-b px-4 py-2.5">
                     <div>
-                      <div className="text-sm font-medium">拆分章节</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">AI 会按导入内容自动拆分或识别章节结构，请选择本次要拆文的章节范围。</div>
+                      <div className="text-sm font-medium">{t("novel.dismantle.splitChapters")}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{t("novel.dismantle.splitHint")}</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex gap-1">
@@ -278,7 +280,7 @@ export function DismantlingView() {
                         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedChapterIds([])}>清空</Button>
                       </div>
                       <label className="flex items-center gap-1.5 text-xs">
-                        <span className="text-muted-foreground">每批</span>
+                        <span className="text-muted-foreground">{t("novel.dismantle.perBatch")}</span>
                         <select
                           value={batchSize}
                           onChange={(event) => setBatchSize(Number(event.target.value))}
@@ -318,18 +320,18 @@ export function DismantlingView() {
         {/* 第四栏：拆文结果 */}
         <aside className="min-h-0 overflow-y-auto bg-muted/20 p-4">
           {!selectedProject ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">选择作品后，拆文结果将显示在此处。</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("novel.dismantle.emptyHint")}</div>
           ) : (
             <div className="space-y-4">
               <div>
-                <div className="text-sm font-semibold">拆文结果</div>
-                <p className="mt-1 text-xs text-muted-foreground">这里只展示拆文输出与结构记忆，不写入小说正文、大纲或小说记忆。</p>
+                <div className="text-sm font-semibold">{t("novel.dismantle.result")}</div>
+                <p className="mt-1 text-xs text-muted-foreground">{t("novel.dismantle.resultScope")}</p>
               </div>
 
               <section className="rounded-lg border bg-card p-3">
-                <div className="mb-2 text-sm font-medium">结构记忆</div>
+                <div className="mb-2 text-sm font-medium">{t("novel.dismantle.structuralMemory")}</div>
                 {selectedProject.structureMemory.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">拆文完成后，这里会显示可供 AI 引用的结构记忆。</div>
+                  <div className="text-xs text-muted-foreground">{t("novel.dismantle.structuralHint")}</div>
                 ) : (
                   <ul className="space-y-1.5 text-xs leading-5">
                     {selectedProject.structureMemory.slice(0, 30).map((item) => <li key={item}>- {item}</li>)}
@@ -343,7 +345,7 @@ export function DismantlingView() {
                   最近拆文结果
                 </div>
                 {selectedProject.analyses.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">还没有拆文结果。</div>
+                  <div className="text-xs text-muted-foreground">{t("novel.dismantle.noResult")}</div>
                 ) : (
                   <div className="space-y-3">
                     {selectedProject.analyses.slice(0, 5).map((analysis) => (

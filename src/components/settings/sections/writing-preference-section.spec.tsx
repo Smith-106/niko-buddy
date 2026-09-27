@@ -14,6 +14,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import type { UserPreference } from "@/lib/user-memory/types"
+import zh from "@/i18n/zh.json"
+
+function lookupZh(key: string): string | undefined {
+  let o: unknown = zh
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const mocks = vi.hoisted(() => {
   const wikiState: {
@@ -23,7 +33,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     wikiState,
-    t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
+    t: vi.fn((key: string, opts?: { defaultValue?: string }) => lookupZh(key) ?? opts?.defaultValue ?? key),
     listPreferences: vi.fn(async (): Promise<UserPreference[]> => []),
     addPreferenceForProject: vi.fn(async () => ({}) as UserPreference),
     deletePreferenceForProject: vi.fn(async () => true),

@@ -13,6 +13,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { GraphView } from "./graph-view"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // 覆盖率负载下 sigma 渲染较慢：放宽 waitFor 默认超时，避免时序偶发
 configure({ asyncUtilTimeout: 30000 })
@@ -83,7 +93,7 @@ const mocks = vi.hoisted(() => {
     findSurprisingConnections: vi.fn(),
     detectKnowledgeGaps: vi.fn(),
     buildEditableGraphNodePage: vi.fn(),
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     fa2: { inferSettings: vi.fn(() => ({})), assign: vi.fn() },
   }
 })
@@ -406,7 +416,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
   it("无项目时渲染 graph.openProject 提示", () => {
     setState({ project: null })
     render(<GraphView />)
-    expect(screen.getByText("graph.openProject")).toBeTruthy()
+    expect(screen.getByText("打开项目以查看关系图")).toBeTruthy()
     expect(mocks.buildWikiGraph).not.toHaveBeenCalled()
   })
 
@@ -420,7 +430,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
-    expect(screen.getByText("graph.buildingGraph")).toBeTruthy()
+    expect(screen.getByText("正在构建关系图...")).toBeTruthy()
     await act(async () => {
       resolveLoad(BASIC_RESULT)
     })
@@ -429,9 +439,9 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
 
   it("文档视图筛选控件具备可访问名（aria-label）", async () => {
     const { unmount } = await renderDocumentView()
-    expect(screen.getByLabelText("graph.nodeTypeFilterLabel")).toBeTruthy()
-    expect(screen.getByLabelText("graph.riskStateFilterLabel")).toBeTruthy()
-    expect(screen.getByLabelText("graph.sortByLabel")).toBeTruthy()
+    expect(screen.getByLabelText("节点类型")).toBeTruthy()
+    expect(screen.getByLabelText("状态")).toBeTruthy()
+    expect(screen.getByLabelText("排序方式")).toBeTruthy()
     unmount()
   })
 
@@ -441,11 +451,11 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("graph.buildFailed：boom")).toBeTruthy()
+      expect(screen.getByText("构建图谱失败：boom")).toBeTruthy()
     })
-    expect(screen.getByText("graph.retry")).toBeTruthy()
+    expect(screen.getByText("重试")).toBeTruthy()
     mocks.buildWikiGraph.mockResolvedValue(BASIC_RESULT)
-    fireEvent.click(screen.getByText("graph.retry"))
+    fireEvent.click(screen.getByText("重试"))
     await waitFor(() => {
       expect(screen.getByTestId("sigma-container")).toBeTruthy()
     })
@@ -458,7 +468,7 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("graph.buildFailed：plain-string")).toBeTruthy()
+      expect(screen.getByText("构建图谱失败：plain-string")).toBeTruthy()
     })
     unmount()
   })
@@ -469,9 +479,9 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     setState({ project: PROJECT, novelMode: true })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("graph.noPages")).toBeTruthy()
+      expect(screen.getByText("暂无页面")).toBeTruthy()
     })
-    expect(screen.getByText("novel.graph.importSourcesHint")).toBeTruthy()
+    expect(screen.getByText("导入大纲以开始构建小说图谱")).toBeTruthy()
     unmount()
   })
 
@@ -481,9 +491,9 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     setState({ project: PROJECT, novelMode: false })
     const { unmount } = render(<GraphView />)
     await waitFor(() => {
-      expect(screen.getByText("graph.noPages")).toBeTruthy()
+      expect(screen.getByText("暂无页面")).toBeTruthy()
     })
-    expect(screen.getByText("graph.importSourcesHint")).toBeTruthy()
+    expect(screen.getByText("导入资料以开始构建知识图谱")).toBeTruthy()
     unmount()
   })
 })
@@ -769,13 +779,13 @@ describe("GraphView — Sigma 事件与交互", () => {
     })
     expect(preventSigmaDefault).toHaveBeenCalled()
     await waitFor(() => {
-      expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy()
+      expect(screen.getByText("编辑真实档案页")).toBeTruthy()
     })
     expect(screen.getByText("Alpha")).toBeTruthy()
-    expect(screen.getByText("novel.graph.relations")).toBeTruthy()
+    expect(screen.getByText("关系")).toBeTruthy()
     fireSigmaEvent("rightClickStage", {})
     await waitFor(() => {
-      expect(screen.queryByText("graph.editRealProfilePage")).toBeNull()
+      expect(screen.queryByText("编辑真实档案页")).toBeNull()
     })
   })
 
@@ -826,7 +836,7 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     mocks.detectKnowledgeGaps.mockReturnValue([])
     const { unmount } = await renderLoadedGraph({ graphShowFilters: true })
     // maxLinks 有效输入 → 隐藏 linkCount > 2 的节点
-    const maxLinksInput = screen.getByPlaceholderText("graph.allPlaceholder")
+    const maxLinksInput = screen.getByPlaceholderText("全部")
     fireEvent.change(maxLinksInput, { target: { value: "2" } })
     await waitFor(() => {
       const calls = (mocks.state.setGraphStats as unknown as ReturnType<typeof vi.fn>).mock.calls
@@ -840,18 +850,18 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     // 节点类型 checkbox：character（typeCounts 中存在）
     const checkboxes = screen.getAllByRole("checkbox")
     const charCheckbox = checkboxes.find((cb) =>
-      cb.closest("label")?.textContent?.includes("novel.graph.nodeTypeLabels.character"),
+      cb.closest("label")?.textContent?.includes("人物"),
     )
     expect(charCheckbox).toBeTruthy()
     fireEvent.click(charCheckbox!)
     // 隐藏类型后图例出现 graph.hidden 徽标
     await waitFor(() => {
-      expect(screen.getByText("graph.hidden")).toBeTruthy()
+      expect(screen.getByText("已隐藏")).toBeTruthy()
     })
     // 重置
-    fireEvent.click(screen.getByText("graph.reset"))
+    fireEvent.click(screen.getByText("重置"))
     await waitFor(() => {
-      expect(screen.queryByText("graph.hidden")).toBeNull()
+      expect(screen.queryByText("已隐藏")).toBeNull()
     })
     unmount()
   })
@@ -867,15 +877,15 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
       preventSigmaDefault: vi.fn(),
     })
     await waitFor(() => {
-      expect(screen.getByText("graph.hideThisNode")).toBeTruthy()
+      expect(screen.getByText("隐藏此节点")).toBeTruthy()
     })
-    fireEvent.click(screen.getByText("graph.hideThisNode"))
+    fireEvent.click(screen.getByText("隐藏此节点"))
     await waitFor(() => {
-      expect(screen.getByText("graph.hiddenNodes")).toBeTruthy()
+      expect(screen.getByText("已隐藏节点")).toBeTruthy()
     })
-    fireEvent.click(screen.getByText("graph.show"))
+    fireEvent.click(screen.getByText("显示"))
     await waitFor(() => {
-      expect(screen.queryByText("graph.hiddenNodes")).toBeNull()
+      expect(screen.queryByText("已隐藏节点")).toBeNull()
     })
     unmount()
   })
@@ -891,8 +901,8 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
       event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
       preventSigmaDefault: vi.fn(),
     })
-    await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+    await waitFor(() => expect(screen.getByText("编辑真实档案页")).toBeTruthy())
+    fireEvent.click(screen.getByText("编辑真实档案页"))
     await waitFor(() => {
       expect(mocks.state.setActiveView).toHaveBeenCalledWith("sources")
     })
@@ -918,8 +928,8 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
       event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
       preventSigmaDefault: vi.fn(),
     })
-    await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+    await waitFor(() => expect(screen.getByText("编辑真实档案页")).toBeTruthy())
+    fireEvent.click(screen.getByText("编辑真实档案页"))
     await waitFor(() => {
       expect(mocks.createDirectory).toHaveBeenCalledWith("/p/test/wiki/characters")
     })
@@ -944,25 +954,25 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     setState({ project: PROJECT, novelMode: true })
     const { unmount } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    expect(screen.getByText("novel.graph.novelNodeTypes")).toBeTruthy()
-    expect(screen.getByText("novel.graph.baseNodeTypes")).toBeTruthy()
-    const legendItem = screen.getByText("novel.graph.nodeTypeLabels.character")
+    expect(screen.getByText("小说节点类型")).toBeTruthy()
+    expect(screen.getByText("基础节点类型")).toBeTruthy()
+    const legendItem = screen.getByText("人物")
     fireEvent.mouseEnter(legendItem)
     fireEvent.mouseLeave(legendItem)
     fireEvent.doubleClick(legendItem)
     await waitFor(() => {
-      expect(screen.getByText("graph.hidden")).toBeTruthy()
+      expect(screen.getByText("已隐藏")).toBeTruthy()
     })
-    fireEvent.click(screen.getByText("graph.showAll"))
+    fireEvent.click(screen.getByText("显示全部"))
     await waitFor(() => {
-      expect(screen.queryByText("graph.hidden")).toBeNull()
+      expect(screen.queryByText("已隐藏")).toBeNull()
     })
-    fireEvent.click(screen.getByTitle("graph.collapseLegend"))
+    fireEvent.click(screen.getByTitle("收起图例"))
     await waitFor(() => {
-      expect(screen.queryByText("novel.graph.novelNodeTypes")).toBeNull()
+      expect(screen.queryByText("小说节点类型")).toBeNull()
     })
-    fireEvent.click(screen.getByTitle("graph.expandLegend"))
-    expect(screen.getByText("novel.graph.novelNodeTypes")).toBeTruthy()
+    fireEvent.click(screen.getByTitle("展开图例"))
+    expect(screen.getByText("小说节点类型")).toBeTruthy()
     unmount()
   })
 
@@ -986,8 +996,8 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     })
     expect(screen.getByText("Alpha")).toBeTruthy()
     expect(screen.getByText("Lonely")).toBeTruthy()
-    expect(screen.getByTitle("graph.lowCohesion")).toBeTruthy()
-    expect(screen.getByText("graph.cluster")).toBeTruthy()
+    expect(screen.getByTitle(/凝聚度偏低/)).toBeTruthy()
+    expect(screen.getByText(/簇 /)).toBeTruthy()
     unmount()
   })
 
@@ -1011,15 +1021,15 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     mocks.findSurprisingConnections.mockReturnValue([])
     mocks.detectKnowledgeGaps.mockReturnValue([])
     const { rerender } = await renderLoadedGraph()
-    expect(screen.queryByText("graph.resizing")).toBeNull()
+    expect(screen.queryByText("调整中...")).toBeNull()
     setState({ selectedFile: "/p/test/wiki/chapters/alpha.md" })
     await act(async () => {
       rerender(<GraphView />)
     })
-    expect(screen.getByText("graph.resizing")).toBeTruthy()
+    expect(screen.getByText("调整中...")).toBeTruthy()
     await waitFor(
       () => {
-        expect(screen.queryByText("graph.resizing")).toBeNull()
+        expect(screen.queryByText("调整中...")).toBeNull()
       },
       { timeout: 2000 },
     )
@@ -1032,7 +1042,7 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     await renderLoadedGraph()
     document.body.dataset.panelResizing = "true"
     await waitFor(() => {
-      expect(screen.getByText("graph.resizing")).toBeTruthy()
+      expect(screen.getByText("调整中...")).toBeTruthy()
     })
     // 等待 isResizing=true 后的 effect 重绑 observer，避免结束属性变更被旧闭包忽略。
     await act(async () => {
@@ -1041,7 +1051,7 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     document.body.dataset.panelResizing = "false"
     await waitFor(
       () => {
-        expect(screen.queryByText("graph.resizing")).toBeNull()
+        expect(screen.queryByText("调整中...")).toBeNull()
       },
       { timeout: 2000 },
     )
@@ -1075,7 +1085,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     })
     fireEvent.click(screen.getByText(/林烬/).closest("button")!)
     await waitFor(() => {
-      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+      expect(screen.getByText("编辑档案")).toBeTruthy()
     })
   }
 
@@ -1095,15 +1105,15 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     const { unmount } = await renderDocumentView()
     // 展开林烬 → 编辑按钮
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => {
-      expect(screen.getByText(/graph\.editingProfileFor/)).toBeTruthy()
+      expect(screen.getByText(/正在编辑/)).toBeTruthy()
     })
-    expect(screen.getByText(/graph\.profilePath/)).toBeTruthy()
+    expect(screen.getByText(/档案路径/)).toBeTruthy()
     const textarea = currentTextarea()
     fireEvent.change(textarea, { target: { value: "# Alpha\n\n新内容" } })
-    expect(screen.getByText("graph.editNodeStatusDefault")).toBeTruthy()
-    fireEvent.click(screen.getByText("graph.saveProfileInline"))
+    expect(screen.getByText("保存后会写入真实 wiki 档案页，并刷新图谱、脑图与可用检索内容。")).toBeTruthy()
+    fireEvent.click(screen.getByText("保存档案"))
     await waitFor(() => {
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/p/test/wiki/characters/Alpha.md", "# Alpha\n\n新内容")
     })
@@ -1112,11 +1122,11 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     expect(mocks.state.setFileContent).toHaveBeenCalledWith("# Alpha\n\n新内容")
     await waitFor(() => {
-      expect(screen.getByText("graph.savedRealProfile")).toBeTruthy()
+      expect(screen.getByText("已保存到真实档案页，图谱和脑图将自动刷新。")).toBeTruthy()
     })
-    fireEvent.click(screen.getByText("graph.cancelProfileInline"))
+    fireEvent.click(screen.getByText("取消编辑"))
     await waitFor(() => {
-      expect(screen.queryByText(/graph\.editingProfileFor/)).toBeNull()
+      expect(screen.queryByText(/正在编辑/)).toBeNull()
     })
     unmount()
   })
@@ -1133,10 +1143,10 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     setState({ embeddingConfig: { enabled: true, model: "m" } })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
     fireEvent.change(currentTextarea(), { target: { value: "# Alpha\n\n正文 v2" } })
-    fireEvent.click(screen.getByText("graph.saveProfileInline"))
+    fireEvent.click(screen.getByText("保存档案"))
     await waitFor(() => {
       expect(mocks.embedPage).toHaveBeenCalledWith(
         "/p/test",
@@ -1147,7 +1157,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
       )
     })
     await waitFor(() => {
-      expect(screen.getByText("graph.savedRealProfileWithEmbedding")).toBeTruthy()
+      expect(screen.getByText("已保存到真实档案页，并已更新向量索引。")).toBeTruthy()
     })
     unmount()
   })
@@ -1164,11 +1174,11 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.saveProfileInline"))
+    fireEvent.click(screen.getByText("保存档案"))
     await waitFor(() => {
-      expect(screen.getByText("graph.saveNodeFailed：disk full")).toBeTruthy()
+      expect(screen.getByText("保存节点档案页失败：disk full")).toBeTruthy()
     })
     unmount()
   })
@@ -1185,8 +1195,8 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     const { unmount } = await renderDocumentView()
     // 展开 秘密A（默认分组：剧情事件）
     fireEvent.click(screen.getByText(/秘密A/).closest("button")!)
-    await waitFor(() => expect(screen.getByText("graph.editProfileInline")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    await waitFor(() => expect(screen.getByText("编辑档案")).toBeTruthy())
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
     const textarea = currentTextarea()
     expect(textarea.value).toBe("# 秘密A\n\n正文")
@@ -1209,7 +1219,7 @@ describe("GraphView — 节点编辑与保存（文档模式）", () => {
     })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => {
       expect(currentTextarea().value).toBe("# 模板标题")
     })
@@ -1356,7 +1366,7 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
     const { unmount } = await renderDocumentView()
     fireEvent.click(screen.getByText(/大战/).closest("button")!)
     await waitFor(() => {
-      expect(screen.getByText("graph.noRelatedEvents")).toBeTruthy()
+      expect(screen.getByText("暂无直接关联事件。")).toBeTruthy()
     })
     const table = screen.getByRole("table")
     expect(within(table).getByText("指向对方")).toBeTruthy()
@@ -1371,7 +1381,7 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
     await waitFor(() => {
       expect(screen.getByText("暂无可用于写作参考的关系摘要。")).toBeTruthy()
     })
-    expect(screen.getByText("graph.noRelations")).toBeTruthy()
+    expect(screen.getByText("暂无已记录关系。")).toBeTruthy()
     // 风险标签徽标（冲突 → 需推进）与状态按钮（待推进）
     expect(screen.getByText("需推进")).toBeTruthy()
     const pendingBtn = [...screen.getAllByText("待推进")].find((el) => el.closest("button") && !el.closest("select"))!
@@ -1484,9 +1494,9 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
     // 展开第 1 页「分页秘密05」并点击编辑（编辑流程因 fileExists 挂起）
     fireEvent.click(screen.getByText(/分页秘密05/).closest("button")!)
     await waitFor(() => {
-      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+      expect(screen.getByText("编辑档案")).toBeTruthy()
     })
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     // 编辑尚未落地 → 翻到第 2 页
     fireEvent.click(screen.getByTestId("pagination-next"))
     await waitFor(() => {
@@ -1499,7 +1509,7 @@ describe("GraphView — 文档模式 DocumentGraphView", () => {
     await waitFor(() => {
       expect(screen.getByText("1.5 分页秘密05")).toBeTruthy()
     })
-    expect(screen.getByText(/graph\.editingProfileFor/)).toBeTruthy()
+    expect(screen.getByText(/正在编辑/)).toBeTruthy()
     expect(screen.queryByText(/分页秘密21/)).toBeNull()
     unmount()
   })
@@ -1700,7 +1710,7 @@ describe("GraphView — 洞察面板（内部 state 不可达）", () => {
     })
     expect(mocks.findSurprisingConnections).toHaveBeenCalled()
     expect(mocks.detectKnowledgeGaps).toHaveBeenCalled()
-    expect(screen.queryByText("graph.insights")).toBeNull()
+    expect(screen.queryByText("洞察")).toBeNull()
     unmount()
   })
 })
@@ -1747,7 +1757,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     fireEvent.click(screen.getByText(/林烬/).closest("button")!)
     await waitFor(() => {
-      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+      expect(screen.getByText("编辑档案")).toBeTruthy()
     })
   }
 
@@ -1829,7 +1839,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       preventSigmaDefault: vi.fn(),
     })
     await waitFor(() => {
-      expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy()
+      expect(screen.getByText("编辑真实档案页")).toBeTruthy()
     })
     expect(screen.getByText("Alpha")).toBeTruthy()
     // 无任何触点 → clientX 兑底 0
@@ -1858,7 +1868,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     expect(screen.getByText("当前分类暂无待处理风险项。")).toBeTruthy()
     expect(screen.getByText("当前显示 0 / 0 个节点")).toBeTruthy()
-    expect(screen.queryByText("graph.editProfileInline")).toBeNull()
+    expect(screen.queryByText("编辑档案")).toBeNull()
     unmount()
   })
 
@@ -1875,7 +1885,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     // 过滤器面板隐藏 character → 重要角色分组消失 → activeGroupTitle / 类型筛选重置
     const charCheckbox = screen.getAllByRole("checkbox").find((cb) =>
-      cb.closest("label")?.textContent?.includes("novel.graph.nodeTypeLabels.character"),
+      cb.closest("label")?.textContent?.includes("人物"),
     )!
     fireEvent.click(charCheckbox)
     await waitFor(() => {
@@ -1894,7 +1904,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       expect(screen.getByText(/伏笔A/)).toBeTruthy()
     })
     const foCheckbox = screen.getAllByRole("checkbox").find((cb) =>
-      cb.closest("label")?.textContent?.includes("novel.graph.nodeTypeLabels.foreshadowing"),
+      cb.closest("label")?.textContent?.includes("伏笔"),
     )!
     fireEvent.click(foCheckbox)
     await waitFor(() => {
@@ -1921,7 +1931,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     // 空 path → 技术信息 来源路径：暂无
     fireEvent.click(screen.getByText(/无名角色/).closest("button")!)
     await waitFor(() => {
-      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+      expect(screen.getByText("编辑档案")).toBeTruthy()
     })
     fireEvent.click(screen.getByText("技术信息"))
     expect(screen.getByText(/来源路径：暂无/)).toBeTruthy()
@@ -1936,11 +1946,11 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     const header = screen.getByText(/林烬/).closest("button")!
     fireEvent.click(header)
     await waitFor(() => {
-      expect(screen.getByText("graph.editProfileInline")).toBeTruthy()
+      expect(screen.getByText("编辑档案")).toBeTruthy()
     })
     fireEvent.click(header)
     await waitFor(() => {
-      expect(screen.queryByText("graph.editProfileInline")).toBeNull()
+      expect(screen.queryByText("编辑档案")).toBeNull()
     })
     unmount()
   })
@@ -1972,11 +1982,11 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.saveProfileInline"))
+    fireEvent.click(screen.getByText("保存档案"))
     await waitFor(() => {
-      expect(screen.getByText("graph.saveNodeFailed：oops-string")).toBeTruthy()
+      expect(screen.getByText("保存节点档案页失败：oops-string")).toBeTruthy()
     })
     unmount()
   })
@@ -1996,7 +2006,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     // 先把异步 handler（fileExists → readFile）彻底放干净，否则断言会在编辑器挂载前 vacuously 通过。
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2045,8 +2055,8 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
         preventSigmaDefault: vi.fn(),
       })
       // 不放宽断言本身——菜单项文案/点击/errorSpy 三断言原样保留。
-      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-      fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+      await waitFor(() => expect(screen.getByText("编辑真实档案页")).toBeTruthy())
+      fireEvent.click(screen.getByText("编辑真实档案页"))
       await waitFor(() => {
         expect(errorSpy).toHaveBeenCalled()
       })
@@ -2073,8 +2083,8 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
       preventSigmaDefault: vi.fn(),
     })
-    await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.editRealProfilePage"))
+    await waitFor(() => expect(screen.getByText("编辑真实档案页")).toBeTruthy())
+    fireEvent.click(screen.getByText("编辑真实档案页"))
     await waitFor(() => {
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith("alpha.md", "# 模板")
     })
@@ -2093,10 +2103,10 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     })
     const { unmount } = await renderDocumentView()
     await openLinJinNode()
-    fireEvent.click(screen.getByText("graph.editProfileInline"))
+    fireEvent.click(screen.getByText("编辑档案"))
     await waitFor(() => expect(currentTextarea()).toBeTruthy())
     fireEvent.change(currentTextarea(), { target: { value: "# Alpha\n\n新内容" } })
-    fireEvent.click(screen.getByText("graph.saveProfileInline"))
+    fireEvent.click(screen.getByText("保存档案"))
     await waitFor(() => {
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith("alpha.md", "# Alpha\n\n新内容")
     })
@@ -2134,7 +2144,7 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     await waitFor(() => {
       expect(screen.getByText("孤立点")).toBeTruthy()
     })
-    expect(screen.queryByText("novel.graph.relations")).toBeNull()
+    expect(screen.queryByText("关系")).toBeNull()
     unmount()
   })
 
@@ -2142,16 +2152,16 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     const { unmount } = await renderLoadedGraph({ graphShowFilters: true })
     const checkboxes = screen.getAllByRole("checkbox")
     const charCheckbox = checkboxes.find((cb) =>
-      cb.closest("label")?.textContent?.includes("novel.graph.nodeTypeLabels.character"),
+      cb.closest("label")?.textContent?.includes("人物"),
     )!
     fireEvent.click(charCheckbox)
     await waitFor(() => {
-      expect(screen.getByText("graph.hidden")).toBeTruthy()
+      expect(screen.getByText("已隐藏")).toBeTruthy()
     })
     // 再次点击 → delete 分支恢复显示
     fireEvent.click(charCheckbox)
     await waitFor(() => {
-      expect(screen.queryByText("graph.hidden")).toBeNull()
+      expect(screen.queryByText("已隐藏")).toBeNull()
     })
     // 容器 DOM contextmenu 事件
     const container = screen.getByTestId("sigma-container").parentElement!
@@ -2168,9 +2178,9 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
       event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
       preventSigmaDefault: vi.fn(),
     })
-    await waitFor(() => expect(screen.getByText("graph.hideThisNode")).toBeTruthy())
-    fireEvent.click(screen.getByText("graph.hideThisNode"))
-    await waitFor(() => expect(screen.getByText("graph.hiddenNodes")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("隐藏此节点")).toBeTruthy())
+    fireEvent.click(screen.getByText("隐藏此节点"))
+    await waitFor(() => expect(screen.getByText("已隐藏节点")).toBeTruthy())
 
     mocks.buildWikiGraph.mockResolvedValue({
       nodes: [
@@ -2192,14 +2202,14 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
 
   it("图例：类型双击再次点击恢复显示（delete 分支）", async () => {
     const { unmount } = await renderLoadedGraph()
-    const legendItem = screen.getByText("novel.graph.nodeTypeLabels.character")
+    const legendItem = screen.getByText("人物")
     fireEvent.doubleClick(legendItem)
     await waitFor(() => {
-      expect(screen.getByText("graph.hidden")).toBeTruthy()
+      expect(screen.getByText("已隐藏")).toBeTruthy()
     })
     fireEvent.doubleClick(legendItem)
     await waitFor(() => {
-      expect(screen.queryByText("graph.hidden")).toBeNull()
+      expect(screen.queryByText("已隐藏")).toBeNull()
     })
     unmount()
   })
@@ -2211,8 +2221,8 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     setState({ project: PROJECT, novelMode: false, graphColorMode: "type" })
     const { unmount } = render(<GraphView />)
     await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
-    const item = screen.getByText("graph.nodeTypeLabels.entity")
-    const labelSpan = within(item).getByText("graph.nodeTypeLabels.entity")
+    const item = screen.getByText("实体")
+    const labelSpan = within(item).getByText("实体")
     fireEvent.mouseEnter(item)
     expect(labelSpan.className).toContain("text-foreground")
     fireEvent.mouseLeave(item)
@@ -2220,11 +2230,11 @@ describe("GraphView — 覆盖率补齐：可达分支", () => {
     // 双击隐藏 → 徽标出现；再双击恢复
     fireEvent.doubleClick(item)
     await waitFor(() => {
-      expect(screen.getByText("graph.hidden")).toBeTruthy()
+      expect(screen.getByText("已隐藏")).toBeTruthy()
     })
     fireEvent.doubleClick(item)
     await waitFor(() => {
-      expect(screen.queryByText("graph.hidden")).toBeNull()
+      expect(screen.queryByText("已隐藏")).toBeNull()
     })
     unmount()
   })
@@ -2324,7 +2334,7 @@ describe("GraphView — 覆盖率终局：可达边界", () => {
         event: { original: mouseEvent },
         preventSigmaDefault,
       })
-      await waitFor(() => expect(screen.getByText("graph.editRealProfilePage")).toBeTruthy())
+      await waitFor(() => expect(screen.getByText("编辑真实档案页")).toBeTruthy())
       // rect 为空 → x/y 保持原始 client 坐标（无 left/top 修正）
       const menu = document.querySelector(".absolute.z-20.w-56") as HTMLElement | null
       expect(menu).not.toBeNull()
@@ -2340,8 +2350,8 @@ describe("GraphView — 覆盖率终局：可达边界", () => {
     mocks.detectKnowledgeGaps.mockReturnValue([])
     const { unmount } = await renderLoadedGraph({ graphShowFilters: true })
     const checkboxes = screen.getAllByRole("checkbox")
-    const structural = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("graph.hideIndexOverview"))
-    const isolated = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("graph.hideIsolated"))
+    const structural = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("隐藏索引/概述/日志"))
+    const isolated = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("隐藏孤立节点"))
     expect(structural).toBeTruthy()
     expect(isolated).toBeTruthy()
     expect((structural as HTMLInputElement).disabled).toBe(true)

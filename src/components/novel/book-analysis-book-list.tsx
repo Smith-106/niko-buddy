@@ -1,5 +1,6 @@
 import { BookOpen, CheckCircle2, Feather, ShieldAlert, ShieldCheck, ShieldQuestion, Trash2 } from "lucide-react"
 import type { BookAnalysisLibraryBook, BookHealthSummary } from "@/lib/novel"
+import { useTranslation } from "react-i18next"
 
 interface BookAnalysisBookListProps {
   books: BookAnalysisLibraryBook[]
@@ -27,10 +28,11 @@ function healthBadge(health: BookHealthSummary): { icon: typeof ShieldCheck; lab
 }
 
 export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDeleteBook, healthByBookId }: BookAnalysisBookListProps) {
+  const { t } = useTranslation()
   return (
     <aside className="flex min-h-0 w-72 shrink-0 flex-col border-r bg-background">
       <div className="border-b px-4 py-3">
-        <div className="text-sm font-semibold">作品库</div>
+        <div className="text-sm font-semibold">{t("bookAnalysis.library")}</div>
         <div className="mt-1 text-xs text-muted-foreground">已拆书 {books.length} 本</div>
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
@@ -99,8 +101,8 @@ export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDe
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onDeleteBook(book.id) }}
                       className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      title="删除作品"
-                      aria-label="删除作品"
+                      title={t("bookAnalysis.deleteWork")}
+                      aria-label={t("bookAnalysis.deleteWork")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

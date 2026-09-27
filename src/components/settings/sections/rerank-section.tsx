@@ -377,12 +377,12 @@ export function RerankSection({ draft, setDraft }: Props) {
                       : t("settings.sections.shared.testModel")}
                   </Button>
                   {testState?.message ? (
-                    <p className={`text-xs ${testState.success ? "text-emerald-600" : "text-destructive"}`}>
+                    <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
                       {testState.message}
                     </p>
                   ) : null}
                   {modelListState?.message ? (
-                    <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+                    <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
                       {modelListState.message}
                     </p>
                   ) : null}
@@ -418,12 +418,12 @@ export function RerankSection({ draft, setDraft }: Props) {
                     : t("settings.sections.shared.testModel")}
                 </Button>
                 {testState?.message ? (
-                  <p className={`text-xs ${testState.success ? "text-emerald-600" : "text-destructive"}`}>
+                  <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
                     {testState.message}
                   </p>
                 ) : null}
                 {modelListState?.message ? (
-                  <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+                  <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
                     {modelListState.message}
                   </p>
                 ) : null}
@@ -464,7 +464,7 @@ function RerankEndpointField({
         <Label>{t("settings.sections.rerank.endpoint")}</Label>
         <ResourceLink
           href={SILICONFLOW_RESOURCE_URL}
-          title="为什么选择硅基流动：国内访问稳定，模型列表完整，适合配置轻量重排模型降低成本。"
+          title={t("settings.sections.rerank.siliconHint")}
         >
           硅基流动重排模型
         </ResourceLink>
@@ -479,8 +479,8 @@ function RerankEndpointField({
         <div
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-400"
-              : "border-blue-500/40 bg-blue-500/5 text-blue-700 dark:text-blue-400"
+              ? "border-warning/40 bg-warning/5 text-warning dark:text-warning"
+              : "border-info/40 bg-info/5 text-info dark:text-info"
           }`}
         >
           {preview.changed ? (

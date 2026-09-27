@@ -323,7 +323,7 @@ function PresetRow({
               </span>
             )}
             {savedHere && (
-              <span className="shrink-0 text-[10px] text-emerald-600">{t("settings.sections.llm.savedBadge")}</span>
+              <span className="shrink-0 text-[10px] text-success">{t("settings.sections.llm.savedBadge")}</span>
             )}
           </div>
           {preset.hint && (
@@ -636,18 +636,18 @@ function PresetRow({
               </button>
             </div>
             {modelListState?.message ? (
-              <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+              <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
                 {modelListState.message}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
-                <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
+                <p className={`text-xs ${modelTestState.success ? "text-success" : "text-destructive"}`}>
                   {modelTestState.message}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground">失败模型：</span>
+                    <span className="text-xs text-muted-foreground">{t("settings.sections.shared.failedModel")}</span>
                     {modelTestState.failedModels.map((failedModel) => (
                       <span
                         key={failedModel}
@@ -735,7 +735,7 @@ function PresetRow({
               <div
                 className={`rounded-md border px-3 py-2 text-xs ${
                   testState.result.ok
-                    ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                    ? "border-success/40 bg-success/5 text-success dark:text-success"
                     : "border-destructive/40 bg-destructive/5 text-destructive"
                 }`}
               >
@@ -856,8 +856,8 @@ function EndpointField({ value, mode, placeholder, onChange }: EndpointFieldProp
         <div
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-400"
-              : "border-blue-500/40 bg-blue-500/5 text-blue-700 dark:text-blue-400"
+              ? "border-warning/40 bg-warning/5 text-warning dark:text-warning"
+              : "border-info/40 bg-info/5 text-info dark:text-info"
           }`}
         >
           {preview.changed ? (
@@ -1036,9 +1036,9 @@ function ClaudeCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            ? "border-success/40 bg-success/5 text-success dark:text-success"
             : state === "err"
-              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -1143,9 +1143,9 @@ function CodexCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            ? "border-success/40 bg-success/5 text-success dark:text-success"
             : state === "err"
-              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -1245,9 +1245,9 @@ function AntigravityCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            ? "border-success/40 bg-success/5 text-success dark:text-success"
             : state === "err"
-              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -1371,9 +1371,9 @@ function CursorProxyStatusBadge() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            ? "border-success/40 bg-success/5 text-success dark:text-success"
             : state === "err"
-              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >

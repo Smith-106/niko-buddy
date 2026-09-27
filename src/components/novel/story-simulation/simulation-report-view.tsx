@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils"
 import { formatOperationError } from "@/lib/format-operation-error"
 
 const PROBABILITY_COLORS: Record<string, string> = {
-  high: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
-  low: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+  high: "bg-success/15 text-success dark:bg-success/20 dark:text-success",
+  medium: "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning",
+  low: "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive",
 }
 
 interface SimulationReportViewProps {
@@ -144,9 +144,9 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
   const getCharHighlightClass = (name: string): string => {
     if (!characterDiff) return ""
-    if (characterDiff.onlyInA.has(name)) return "bg-green-100 dark:bg-green-950/40"
-    if (characterDiff.onlyInB.has(name)) return "bg-red-100 dark:bg-red-950/40"
-    if (characterDiff.scoreDiff.has(name)) return "bg-amber-100 dark:bg-amber-950/40"
+    if (characterDiff.onlyInA.has(name)) return "bg-success dark:bg-success/40"
+    if (characterDiff.onlyInB.has(name)) return "bg-destructive dark:bg-destructive/40"
+    if (characterDiff.scoreDiff.has(name)) return "bg-warning dark:bg-warning/40"
     return ""
   }
 
@@ -169,9 +169,9 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
   const getBranchHighlightClass = (title: string): string => {
     if (!branchDiff) return ""
-    if (branchDiff.onlyInA.has(title)) return "bg-green-100 dark:bg-green-950/40"
-    if (branchDiff.onlyInB.has(title)) return "bg-red-100 dark:bg-red-950/40"
-    if (branchDiff.probDiff.has(title)) return "bg-amber-100 dark:bg-amber-950/40"
+    if (branchDiff.onlyInA.has(title)) return "bg-success dark:bg-success/40"
+    if (branchDiff.onlyInB.has(title)) return "bg-destructive dark:bg-destructive/40"
+    if (branchDiff.probDiff.has(title)) return "bg-warning dark:bg-warning/40"
     return ""
   }
 
@@ -248,7 +248,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
               <span className="font-medium">{t("storySimulation.eventCountCompare")}</span>
               <span className="text-primary">A: {timelineDiff.aCount}</span>
               <span className="text-muted-foreground">vs</span>
-              <span className="text-red-500">B: {timelineDiff.bCount}</span>
+              <span className="text-destructive">B: {timelineDiff.bCount}</span>
               <span className="ml-auto text-muted-foreground">
                 {t("storySimulation.diffCount", { count: Math.abs(timelineDiff.aCount - timelineDiff.bCount) })}
               </span>
@@ -298,10 +298,10 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                   <div key={char.characterId} className={cn("rounded-lg border p-3", getCharHighlightClass(char.name))}>
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{char.name}</span>
-                      <span className="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                      <span className="rounded px-1.5 py-0.5 text-xs bg-info/15 text-info dark:bg-info/20 dark:text-info">
                         {t("storySimulation.consistency", { score: char.consistencyScore })}
                         {characterDiff?.scoreDiff.has(char.name) && (
-                          <span className="ml-1 text-amber-600">
+                          <span className="ml-1 text-warning">
                             (B: {characterDiff.scoreDiff.get(char.name)!.b})
                           </span>
                         )}
@@ -374,14 +374,14 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {branch.pros && (
-                        <div className="rounded-md bg-green-50 p-2 text-sm dark:bg-green-950/30">
-                          <span className="font-medium text-green-700 dark:text-green-400">{t("storySimulation.pros")}</span>
+                        <div className="rounded-md bg-success p-2 text-sm dark:bg-success/30">
+                          <span className="font-medium text-success dark:text-success">{t("storySimulation.pros")}</span>
                           {branch.pros}
                         </div>
                       )}
                       {branch.cons && (
-                        <div className="rounded-md bg-red-50 p-2 text-sm dark:bg-red-950/30">
-                          <span className="font-medium text-red-700 dark:text-red-400">{t("storySimulation.cons")}</span>
+                        <div className="rounded-md bg-destructive p-2 text-sm dark:bg-destructive/30">
+                          <span className="font-medium text-destructive dark:text-destructive">{t("storySimulation.cons")}</span>
                           {branch.cons}
                         </div>
                       )}
@@ -412,7 +412,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                   <Sparkles className="h-3.5 w-3.5" />
                   {t("storySimulation.overallRecommendation")}
                   {recommendationDiff && (
-                    <span className="ml-auto text-xs font-normal text-amber-600">{t("storySimulation.hasDiff")}</span>
+                    <span className="ml-auto text-xs font-normal text-warning">{t("storySimulation.hasDiff")}</span>
                   )}
                 </h3>
                 {recommendationDiff ? (
@@ -420,7 +420,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     {recommendationDiff.segments.map((seg, i) => (
                       <span
                         key={i}
-                        className={seg.isDifferent ? "rounded bg-amber-100 px-1 dark:bg-amber-950/40" : ""}
+                        className={seg.isDifferent ? "rounded bg-warning px-1 dark:bg-warning/40" : ""}
                       >
                         {seg.text}。
                       </span>

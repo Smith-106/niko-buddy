@@ -256,8 +256,8 @@ export function MultimodalSection({ draft, setDraft }: Props) {
           </div>
 
           {/* Cost guardrails — informational panel. */}
-          <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-            <div className="text-sm font-medium text-amber-700 dark:text-amber-400">
+          <div className="space-y-1 rounded-md border border-warning/40 bg-warning/5 p-3">
+            <div className="text-sm font-medium text-warning dark:text-warning">
               {t("settings.sections.multimodal.costHeading", "Cost guardrails")}
             </div>
             <ul className="ml-4 list-disc space-y-1 text-xs text-muted-foreground">

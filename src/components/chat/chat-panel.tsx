@@ -262,7 +262,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                       onBlur={() => setConfirmDeleteId((cur) => (cur === conv.id ? null : cur))}
                     >
                       {armed ? (
-                        <span className="text-[10px] font-medium">确认?</span>
+                        <span className="text-[10px] font-medium">{t("chat.confirmShort")}</span>
                       ) : (
                         <Trash2 className="h-3 w-3" />
                       )}
@@ -2585,7 +2585,7 @@ export function ChatPanel() {
               <button
                 type="button"
                 onClick={scrollToBottom}
-                aria-label="滚动到最新消息"
+                aria-label={t("chat.scrollToLatest")}
                 className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <ArrowDown className="h-4 w-4" />
@@ -2603,7 +2603,7 @@ export function ChatPanel() {
                 <summary className="cursor-pointer select-none list-none px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/40" role="note">
                   <span className="flex items-center gap-2">
                     ContextPack 决策回放（最近一次装配）
-                    <span className="shrink-0 rounded bg-muted/60 px-1.5 py-0.5">点击展开</span>
+                    <span className="shrink-0 rounded bg-muted/60 px-1.5 py-0.5">{t("chat.expandHint")}</span>
                   </span>
                 </summary>
                 <div className="px-3 pb-3">
@@ -2677,8 +2677,8 @@ export function ChatPanel() {
                                 size="icon"
                                 className="relative"
                                 onClick={openExemplarDialogFromSelection}
-                                title="标记为 Style Exemplar"
-                                aria-label="标记为 Style Exemplar"
+                                title={t("chat.markExemplar")}
+                                aria-label={t("chat.markExemplar")}
                               />
                             )}
                           >
@@ -2686,7 +2686,7 @@ export function ChatPanel() {
                             {exemplarCount > 0 ? (
                               <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
                             ) : null}
-                            <TooltipContent>标记为 Style Exemplar（用户锚点）</TooltipContent>
+                            <TooltipContent>{t("chat.markExemplarUserAnchor")}</TooltipContent>
                           </TooltipTrigger>
                         </Tooltip>
                         <Button
@@ -2767,7 +2767,7 @@ export function ChatPanel() {
         <Dialog open={pendingSoulDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) closeSoulDialog(false) }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>本次写作将注入角色灵魂上下文</DialogTitle>
+              <DialogTitle>{t("chat.soulInjectTitle")}</DialogTitle>
               <DialogDescription>
                 下列内容会进入本次写作上下文包。角色灵魂会增强人物气质、语言倾向和判断方式，但仍服从大纲、人物小传与当前剧情。
               </DialogDescription>
@@ -2776,8 +2776,8 @@ export function ChatPanel() {
               {pendingSoulDialog.summary}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => closeSoulDialog(false)}>取消本次生成</Button>
-              <Button onClick={() => closeSoulDialog(true)}>继续生成</Button>
+              <Button variant="outline" onClick={() => closeSoulDialog(false)}>{t("chat.cancelThisGeneration")}</Button>
+              <Button onClick={() => closeSoulDialog(true)}>{t("chat.continueGeneration")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -2785,7 +2785,7 @@ export function ChatPanel() {
         <Dialog open={exemplarDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>标记为 Style Exemplar</DialogTitle>
+              <DialogTitle>{t("chat.markExemplar")}</DialogTitle>
               <DialogDescription>
                 用户标记锚点（非自动生成）— 作为 de-AI 正向锚点经 contextPack 注入，Draft-first 例外直写正式层。
               </DialogDescription>
@@ -2801,19 +2801,19 @@ export function ChatPanel() {
                   value={exemplarMarkType}
                   onChange={(e) => setExemplarMarkType(e.target.value as StyleExemplarMarkType)}
                 >
-                  <option value="style">style — 整体文风</option>
-                  <option value="voice">voice — 角色声线</option>
-                  <option value="pacing">pacing — 叙事节奏</option>
+                  <option value="style">{t("chat.exemplarStyle")}</option>
+                  <option value="voice">{t("chat.exemplarVoice")}</option>
+                  <option value="pacing">{t("chat.exemplarPacing")}</option>
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground">note（可选）</span>
+                <span className="text-muted-foreground">{t("chat.exemplarNote")}</span>
                 <textarea
                   className="rounded border bg-background px-2 py-1 text-xs"
                   rows={2}
                   value={exemplarNote}
                   onChange={(e) => setExemplarNote(e.target.value)}
-                  placeholder="为什么这段是好文风锚点？"
+                  placeholder={t("chat.exemplarWhyPlaceholder")}
                 />
               </label>
               <div className="text-muted-foreground">
@@ -2822,7 +2822,7 @@ export function ChatPanel() {
               {/* ③-6 审计修复：范例列表 + 删除按钮（二次确认） */}
               {exemplarList.length > 0 ? (
                 <div className="max-h-32 overflow-y-auto rounded-md border bg-muted/10">
-                  <div className="sticky top-0 bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground">已标记范例</div>
+                  <div className="sticky top-0 bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground">{t("chat.exemplarsMarked")}</div>
                   {exemplarList.map((ex) => (
                     <div key={ex.exemplarId} className="flex items-start gap-2 border-t px-2 py-1 text-xs first:border-t-0">
                       <div className="min-w-0 flex-1">
@@ -2850,8 +2850,8 @@ export function ChatPanel() {
                           size="sm"
                           className="h-6 shrink-0 px-2 text-[10px]"
                           onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
-                          title="删除此范例"
-                          aria-label="删除此范例"
+                          title={t("chat.deleteExemplar")}
+                          aria-label={t("chat.deleteExemplar")}
                         >删除</Button>
                       )}
                     </div>
@@ -2864,7 +2864,7 @@ export function ChatPanel() {
             </div>
             <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
               <div className="flex gap-1">
-                <span className="self-center text-xs text-muted-foreground">A/B 评分：</span>
+                <span className="self-center text-xs text-muted-foreground">{t("chat.abScore")}</span>
                 {[1, 2, 3, 4, 5].map((s) => (
                   <Button
                     key={`en-${s}`}
@@ -2872,7 +2872,7 @@ export function ChatPanel() {
                     size="sm"
                     className="h-7 px-2 text-xs"
                     onClick={() => submitExemplarABScore(s, "enabled")}
-                    title="exemplar+slop 评分"
+                    title={t("chat.exemplarSlopScore")}
                   >
                     {s}★E
                   </Button>
@@ -2884,7 +2884,7 @@ export function ChatPanel() {
                     size="sm"
                     className="h-7 px-2 text-xs"
                     onClick={() => submitExemplarABScore(s, "disabled")}
-                    title="slop-only 评分"
+                    title={t("chat.slopOnlyScore")}
                   >
                     {s}★D
                   </Button>
@@ -2892,7 +2892,7 @@ export function ChatPanel() {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setExemplarDialog({ open: false, text: "", chapterId: "" })}>取消</Button>
-                <Button onClick={submitExemplarMark}>标记锚点</Button>
+                <Button onClick={submitExemplarMark}>{t("chat.markAnchor")}</Button>
               </div>
             </DialogFooter>
           </DialogContent>

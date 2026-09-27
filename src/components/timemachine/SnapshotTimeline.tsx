@@ -125,7 +125,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
       </header>
 
       {error ? (
-        <p role="alert" className="text-sm text-red-500" data-testid="snapshot-error">
+        <p role="alert" className="text-sm text-destructive" data-testid="snapshot-error">
           {error}
         </p>
       ) : null}
@@ -139,7 +139,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
               key={point.id}
               data-testid="snapshot-point"
               className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
-                isLeft || isRight ? "bg-amber-500/15" : "hover:bg-muted"
+                isLeft || isRight ? "bg-warning/15" : "hover:bg-muted"
               }`}
             >
               <button type="button" onClick={() => setLeftId(point.id)}>
@@ -216,7 +216,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         <div role="dialog" data-testid="snapshot-restore-confirm" className="rounded border p-3">
           <p>{t("timemachine.restore.confirm", { id: pendingConfirm.id })}</p>
           {diff && touchesTruthSurface(diff) ? (
-            <p className="text-xs text-amber-600" data-testid="snapshot-truth-surface-warning">
+            <p className="text-xs text-warning" data-testid="snapshot-truth-surface-warning">
               {t("timemachine.restore.truthSurface")}
             </p>
           ) : null}

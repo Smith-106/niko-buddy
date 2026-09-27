@@ -684,7 +684,7 @@ function SourceTree({
                   className="flex flex-1 items-center gap-1.5 px-1 py-1 text-left"
                 >
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
-                  <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                  <Folder className="h-4 w-4 shrink-0 text-warning" />
                   <span className="truncate font-medium">{node.name}</span>
                   <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">{countFiles(node.children)}</span>
                 </button>
@@ -750,7 +750,7 @@ function SourceTree({
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 shrink-0 ${isExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
+              className={`h-7 w-7 shrink-0 ${isExtracted ? "text-success hover:text-success" : ""}`}
               title={t("novel.outlineGenerator.ingest")}
               disabled={isExtracting}
               onClick={() => onIngest(node)}

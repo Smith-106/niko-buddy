@@ -13,11 +13,12 @@
 
 import { cn } from "@/lib/utils"
 import type { EvidenceSnapshot } from "@/lib/novel"
+import { useTranslation } from "react-i18next"
 
 const DISPLAY_STYLES: Record<string, { dot: string; text: string }> = {
-  pass: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
-  fail: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400" },
-  not_evaluated: { dot: "bg-neutral-400", text: "text-neutral-500 dark:text-neutral-400" },
+  pass: { dot: "bg-success", text: "text-success dark:text-success" },
+  fail: { dot: "bg-destructive", text: "text-destructive dark:text-destructive" },
+  not_evaluated: { dot: "bg-muted-foreground", text: "text-muted-foreground dark:text-muted-foreground" },
 }
 
 function displayClass(display: string): string {
@@ -33,12 +34,13 @@ function textClass(display: string): string {
  * 「被 P0 阻塞」而非通过率高分——未通过的门优先可见。
  */
 export function EvidenceGateCards({ snapshot }: { snapshot: EvidenceSnapshot | null }) {
+  const { t } = useTranslation()
   if (!snapshot) return null
   return (
     <div className="space-y-2" data-testid="evidence-gate-cards">
       {snapshot.blocked ? (
         <div
-          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+          className="rounded-md border border-destructive bg-destructive px-3 py-2 text-xs text-destructive dark:border-destructive dark:bg-destructive/30 dark:text-destructive"
           data-testid="evidence-blocked-banner"
         >
           被 P{snapshot.blockingGate === "consistency" ? "0" : snapshot.blockingGate === "anti_ai" ? "1" : "2"} 阻塞
@@ -56,27 +58,27 @@ export function EvidenceGateCards({ snapshot }: { snapshot: EvidenceSnapshot | n
               className={cn("h-2 w-2 shrink-0 rounded-full", displayClass(card.display))}
             />
             <span className={cn("font-medium", textClass(card.display))}>{card.label}</span>
-            <span className="text-neutral-500 dark:text-neutral-400">
+            <span className="text-muted-foreground dark:text-muted-foreground">
               {card.gate === "consistency" ? "一致性 P0" : card.gate === "anti_ai" ? "反AI P1" : "质量 P2"}
             </span>
             {card.score !== null ? <span className="tabular-nums">{card.score}</span> : null}
             {card.promptArtifact ? (
-              <span className="text-[10px] text-neutral-400" title={card.promptArtifact}>
+              <span className="text-[10px] text-muted-foreground" title={card.promptArtifact}>
                 {card.promptArtifact}
               </span>
             ) : null}
             {card.evidenceCount > 0 ? (
-              <span className="ml-auto text-neutral-400">证据 {card.evidenceCount}</span>
+              <span className="ml-auto text-muted-foreground">证据 {card.evidenceCount}</span>
             ) : null}
             {card.replayId ? (
-              <span className="text-[10px] text-neutral-400" title="可重放">
+              <span className="text-[10px] text-muted-foreground" title={t("novel.replayable")}>
                 replay
               </span>
             ) : null}
           </li>
         ))}
       </ul>
-      <div className="flex items-center gap-3 text-[10px] text-neutral-400">
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
         <span>事件覆盖率 {Math.round(snapshot.gateEventCoverage * 100)}%</span>
         {snapshot.promptLineageRate !== null ? (
           <span>裁判血缘 {Math.round(snapshot.promptLineageRate * 100)}%</span>

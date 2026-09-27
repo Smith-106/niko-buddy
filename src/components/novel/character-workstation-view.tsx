@@ -36,6 +36,7 @@
  */
 
 import { useId, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { User } from "lucide-react"
 
 /** 一个角色工位的输入数据。字段取自既有角色类型（RecognizedCharacter /
@@ -78,6 +79,7 @@ function categoryLabel(c: CharacterWorkstationItem): string {
 }
 
 export function CharacterWorkstationView(props: CharacterWorkstationViewProps) {
+  const { t } = useTranslation()
   const {
     characters,
     activeCharacterId,
@@ -116,12 +118,12 @@ export function CharacterWorkstationView(props: CharacterWorkstationViewProps) {
 
   return (
     <section
-      aria-label="角色分离工作台"
+      aria-label={t("novel.characterSplitWorkstation")}
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-background"
     >
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold">角色工作台</h2>
+          <h2 className="text-sm font-semibold">{t("novel.characterWorkstation")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             每位角色独立工位：草稿与编辑焦点互不干扰，可随时切换往返。
           </p>
@@ -171,6 +173,7 @@ export function CharacterStationSwitcher({
   activeId: string | null
   onSelect: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const baseId = useId()
   const tablistId = `${baseId}-tabs`
   const [focusedId, setFocusedId] = useState<string | null>(null)
@@ -182,8 +185,8 @@ export function CharacterStationSwitcher({
 
   if (tabs.length === 0) {
     return (
-      <div role="tablist" aria-label="角色工位切换" className="flex shrink-0 border-b px-4 py-2">
-        <span className="px-2 py-1 text-xs text-muted-foreground">无角色工位可切换</span>
+      <div role="tablist" aria-label={t("novel.characterStationSwitch")} className="flex shrink-0 border-b px-4 py-2">
+        <span className="px-2 py-1 text-xs text-muted-foreground">{t("novel.noStationToSwitch")}</span>
       </div>
     )
   }
@@ -210,7 +213,7 @@ export function CharacterStationSwitcher({
     <div
       role="tablist"
       aria-orientation="horizontal"
-      aria-label="角色工位切换"
+      aria-label={t("novel.characterStationSwitch")}
       onBlur={() => setFocusedId(null)}
       className="flex shrink-0 flex-wrap gap-1 border-b bg-popover p-2"
     >
@@ -279,6 +282,7 @@ function CharacterStation({
   draft?: string
   onDraftChange: (draft: string) => void
 }) {
+  const { t } = useTranslation()
   const draftText = draft ?? ""
   return (
     <div
@@ -308,7 +312,7 @@ function CharacterStation({
       )}
 
       <label className="flex flex-col gap-2">
-        <span className="text-sm font-medium">草稿（按角色隔离）</span>
+        <span className="text-sm font-medium">{t("novel.draftByCharacter")}</span>
         <textarea
           data-testid={`station-draft-${character.id}`}
           value={draftText}

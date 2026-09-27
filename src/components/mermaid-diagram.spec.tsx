@@ -82,7 +82,7 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
     expect(mocks.initialize).toHaveBeenCalledWith({
       startOnLoad: false,
@@ -104,7 +104,7 @@ describe("MermaidDiagram", () => {
     // 随后 true 才渲染
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
   })
 
@@ -165,7 +165,7 @@ describe("MermaidDiagram", () => {
     await settle()
     // 新 render 成功 → 显示 svg
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
   })
 
@@ -186,7 +186,7 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
     // 点击 svg 主体（cursor-zoom-in div）展开
     const svgHost = document.querySelector('[class*="cursor-zoom-in"]') as HTMLElement
@@ -219,9 +219,9 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTitle("Enlarge diagram"))
+    fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
     const inner = document.querySelector('[class*="relative h-[90vh]"]') as HTMLElement
     fireEvent.click(inner)
     expect(screen.getByText("100%")).toBeInTheDocument()
@@ -231,9 +231,9 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTitle("Enlarge diagram"))
+    fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
     fireEvent.click(screen.getByRole("button", { name: "+" }))
     expect(screen.getByText("130%")).toBeInTheDocument()
 
@@ -244,7 +244,7 @@ describe("MermaidDiagram", () => {
     fireEvent.keyDown(window, { key: "Escape" })
     expect(screen.queryByText("130%")).not.toBeInTheDocument()
     // 重新展开 scale 已重置为 1
-    fireEvent.click(screen.getByTitle("Enlarge diagram"))
+    fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
     expect(screen.getByText("100%")).toBeInTheDocument()
   })
 
@@ -252,9 +252,9 @@ describe("MermaidDiagram", () => {
     renderDiagram()
     triggerIntersect(true)
     await waitFor(() => {
-      expect(screen.getByTitle("Enlarge diagram")).toBeInTheDocument()
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTitle("Enlarge diagram"))
+    fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
     const closeBtn = document.querySelector('button[class*="rounded-md p-1"]') as HTMLElement
     fireEvent.click(closeBtn)
     expect(screen.queryByText("100%")).not.toBeInTheDocument()

@@ -10,6 +10,7 @@
  * 分离（~1.1MB gzip 前），仅在 dashboard 首次渲染时加载。
  */
 import { useRef, useEffect, useMemo, useId } from "react"
+import { useTranslation } from "react-i18next"
 import * as echarts from "echarts"
 import type { TensionSample, QuantifiedHit, SixReviewDimensionKey } from "@/lib/novel"
 
@@ -52,6 +53,7 @@ export interface TensionCurveChartProps {
 }
 
 export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartId = useId()
 
@@ -133,7 +135,7 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
       id={`tension-curve-${chartId}`}
       className="h-52 w-full"
       role="img"
-      aria-label="张力曲线：原始与平滑双列"
+      aria-label={t("craft.tensionCurve")}
     />
   )
 }
@@ -147,6 +149,7 @@ export interface BeatIntensityChartProps {
 }
 
 export function BeatIntensityChart({ hits }: BeatIntensityChartProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartId = useId()
 
@@ -220,7 +223,7 @@ export function BeatIntensityChart({ hits }: BeatIntensityChartProps) {
       id={`beat-intensity-${chartId}`}
       className="h-52 w-full"
       role="img"
-      aria-label="Beat 强度柱状图"
+      aria-label={t("craft.beatChart")}
     />
   )
 }
@@ -255,6 +258,7 @@ const DIM_ORDER: SixReviewDimensionKey[] = [
 ]
 
 export function SixDimRadarChart({ scores, labels }: SixDimRadarChartProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartId = useId()
 
@@ -323,7 +327,7 @@ export function SixDimRadarChart({ scores, labels }: SixDimRadarChartProps) {
       id={`six-dim-radar-${chartId}`}
       className="h-52 w-full"
       role="img"
-      aria-label="六维雷达图"
+      aria-label={t("craft.sixDimRadar")}
     />
   )
 }

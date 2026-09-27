@@ -4,6 +4,7 @@ import type { BookAnalysisLibraryState } from "@/lib/novel"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
+import { useTranslation } from "react-i18next"
 
 interface BookAnalysisLibraryLayoutProps {
   state: BookAnalysisLibraryState
@@ -36,6 +37,7 @@ export function BookAnalysisLibraryLayout({
   onAddSelectedSkillsToSoul,
   onReextractCharacters,
 }: BookAnalysisLibraryLayoutProps) {
+  const { t } = useTranslation()
   const selectedBook = state.books.find((book) => book.id === selectedBookId) ?? state.books[0] ?? null
 
   return (
@@ -44,7 +46,7 @@ export function BookAnalysisLibraryLayout({
         <header className="flex shrink-0 items-center justify-between border-b bg-background px-5 py-3">
           <div>
             <h2 className="text-xl font-semibold">拆书库</h2>
-            <p className="mt-1 text-xs text-muted-foreground">管理作品文风、角色 Skill 和小说人物绑定。</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("bookAnalysis.libraryManageHint")}</p>
           </div>
           <div className="flex items-center gap-2">
             {selectedBook && (
@@ -90,9 +92,9 @@ export function BookAnalysisLibraryLayout({
         ) : (
           <div className="flex flex-1 items-center justify-center p-8 text-center">
             <div>
-              <h3 className="text-lg font-semibold">还没有拆书作品</h3>
-              <p className="mt-2 text-sm text-muted-foreground">导入 TXT 小说后，可以提取角色 Skill 和作品文风。</p>
-              <Button className="mt-4" onClick={onImportNovel}>导入小说</Button>
+              <h3 className="text-lg font-semibold">{t("bookAnalysis.noWorks")}</h3>
+              <p className="mt-2 text-sm text-muted-foreground">{t("bookAnalysis.noWorksHint")}</p>
+              <Button className="mt-4" onClick={onImportNovel}>{t("bookAnalysis.importNovel")}</Button>
             </div>
           </div>
         )}

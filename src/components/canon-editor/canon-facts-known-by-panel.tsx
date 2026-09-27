@@ -121,7 +121,7 @@ export function CanonFactsKnownByPanel({
   return (
     <section
       className="rounded-lg border bg-card p-4 shadow-sm"
-      aria-label="canon 已知事实（POV 视角）"
+      aria-label={t("canon.factsPanel.canonTitle")}
       data-testid="canon-facts-panel"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -184,7 +184,7 @@ export function CanonFactsKnownByPanel({
 
       {error && (
         <div
-          className="mb-3 rounded-md border border-red-300 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300"
+          className="mb-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive dark:text-destructive"
           role="alert"
           data-testid="canon-facts-error"
         >

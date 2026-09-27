@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { Send, Square, Octagon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { isImeComposing } from "@/lib/keyboard-utils"
@@ -38,6 +39,7 @@ function resolveResizePanelHeight(root: HTMLDivElement | null): number {
 }
 
 export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange, mentionEnabled = false }: ChatInputProps) {
+  const { t } = useTranslation()
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const setConversationInputDraft = useChatStore((state) => state.setConversationInputDraft)
   const conversation = useChatStore((state) =>
@@ -192,12 +194,12 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
       <div
         role="separator"
         aria-orientation="horizontal"
-        aria-label="拖动调整输入框高度"
+        aria-label={t("chat.resizeHandle")}
         aria-valuenow={Math.round(inputHeight)}
         aria-valuemin={DEFAULT_RESIZABLE_INPUT_HEIGHT}
         aria-valuemax={getResizeBounds().maxHeight}
         tabIndex={0}
-        title="拖动调整输入框高度（聚焦后可用方向键调节）"
+        title={t("chat.resizeHandleHint")}
         // IS-011/MI-005 (odyssey-ui): the grip bar was a static bg-border line
         // with no hover/active affordance — looked decorative, not grabbable.
         // Group hover/active + focus-visible raise the contrast so the affordance
@@ -233,8 +235,8 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
               size="icon"
               onClick={onStop}
               className="shrink-0"
-              title="停止生成（优雅 SIGTERM）"
-              aria-label="停止生成（优雅）"
+              title={t("chat.stopGraceful")}
+              aria-label={t("chat.stopGracefulShort")}
             >
               <Square className="h-4 w-4" />
             </Button>
@@ -244,8 +246,8 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
                 size="icon"
                 onClick={onForceStop}
                 className="shrink-0"
-                title="强制终止（SIGKILL）"
-                aria-label="强制终止"
+                title={t("chat.killForce")}
+                aria-label={t("chat.killForceShort")}
               >
                 <Octagon className="h-4 w-4" />
               </Button>
@@ -257,8 +259,8 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
             onClick={handleSend}
             disabled={!value.trim()}
             className="shrink-0"
-            title="发送消息"
-            aria-label="发送消息"
+            title={t("chat.sendMessage")}
+            aria-label={t("chat.sendMessage")}
           >
             <Send className="h-4 w-4" />
           </Button>

@@ -377,7 +377,7 @@ function setRun(run: unknown) {
 
 function actionItemCard(message: string): HTMLElement {
   const el = screen.getByText(message)
-  const card = el.closest("div[role=button]")
+  const card = el.closest("button")
   if (!card) throw new Error(`no card for ${message}`)
   return card as HTMLElement
 }
@@ -780,7 +780,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     expect(screen.getByText("quality_soft")).toBeInTheDocument()
   })
 
-  it("点击行动项卡片 → 打开 wiki (readFile + setSelectedFile/Content/ActiveView); Enter/Space 键盘等价", async () => {
+  it("点击行动项卡片 → 打开 wiki (readFile + setSelectedFile/Content/ActiveView); 原生 button 键盘激活等价 click", async () => {
     setRun({
       runId: "r1",
       filePath: "E:/Novel/chapter-8.md",
@@ -795,10 +795,10 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md"))
     expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md")
     expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
-    // openNovelReviewActionItem 是异步 (await readFile), 键盘等价后需 waitFor
-    fireEvent.keyDown(card, { key: "Enter" })
+    // 原生 button：键盘 Enter/Space 由浏览器转为 click（jsdom 不模拟，故用 click 覆盖等价路径）
+    fireEvent.click(card)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(2))
-    fireEvent.keyDown(card, { key: " " })
+    fireEvent.click(card)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(3))
   })
 

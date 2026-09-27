@@ -1084,7 +1084,7 @@ export function StorySimulationView() {
       {/* 主区域：单栏全宽 */}
       <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
         {error && (
-          <div className="flex items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-400">
+          <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive dark:text-destructive">
             <span>
               {t("storySimulation.error")}: {error}
             </span>
@@ -1098,7 +1098,7 @@ export function StorySimulationView() {
           </div>
         )}
         {infoMessage && !error && (
-          <div className="flex items-center justify-between gap-3 border-b border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+          <div className="flex items-center justify-between gap-3 border-b border-success/30 bg-success/10 px-4 py-2 text-sm text-success dark:text-success">
             <span>{infoMessage}</span>
             <button
               type="button"
@@ -2037,9 +2037,9 @@ function ProcessDebugPanel({
         </div>
 
         {latestTrace.blackboard.allAgentCount === 0 && (
-          <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <div className="mb-3 rounded-md border border-warning bg-warning p-3 text-xs text-warning">
             <div className="mb-1 font-medium">{t("storySimulation.noAgentsWarnTitle")}</div>
-            <div className="text-amber-700">
+            <div className="text-warning">
               {t("storySimulation.noAgentsWarnBody")}
             </div>
           </div>

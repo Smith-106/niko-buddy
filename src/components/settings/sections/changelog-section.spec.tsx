@@ -15,6 +15,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { ChangelogSection } from "./changelog-section"
 import type { ChangelogEntry } from "@/lib/changelog"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -35,7 +45,7 @@ const mocks = vi.hoisted(() => {
   const langState = { language: "zh" }
   return {
     langState,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     allChangelog: vi.fn<() => ChangelogEntry[]>(() => []),
     isTauri: vi.fn(() => false),
     formatUpdateErrorMessage: vi.fn((_err: unknown) => "formatted-update-error"),

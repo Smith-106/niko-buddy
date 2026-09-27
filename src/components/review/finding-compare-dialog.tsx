@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -54,6 +55,7 @@ export function FindingCompareDialog({
   onAccept,
   onReject,
 }: FindingCompareDialogProps) {
+  const { t } = useTranslation()
   const [edits, setEdits] = useState<ReviewRewriteEdit[]>([])
   const [loading, setLoading] = useState(false)
   const [modifiedText, setModifiedText] = useState("")
@@ -185,7 +187,7 @@ export function FindingCompareDialog({
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>对比改写</DialogTitle>
+          <DialogTitle>{t("review.compareRewrite")}</DialogTitle>
         </DialogHeader>
 
         {loading ? (

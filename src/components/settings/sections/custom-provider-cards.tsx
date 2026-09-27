@@ -31,6 +31,7 @@ const API_MODE_OPTIONS: { value: CustomProviderCard["apiMode"]; label: string }[
 ]
 
 export function CustomProviderCards() {
+  const { t } = useTranslation()
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
   const activePresetId = useWikiStore((s) => s.activePresetId)
@@ -151,7 +152,7 @@ export function CustomProviderCards() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-medium">自定义模型配置</h3>
+        <h3 className="text-base font-medium">{t("settings.sections.shared.customModel")}</h3>
         <Button type="button" variant="outline" size="sm" onClick={addCard}>
           <Plus className="mr-1.5 h-4 w-4" />
           添加模型
@@ -386,7 +387,7 @@ function CustomProviderCardItem({
                   }
                 }}
                 className="min-w-0 flex-1 border-0 shadow-none focus-visible:ring-0 text-sm h-auto px-1 py-0"
-                placeholder="配置名称"
+                placeholder={t("settings.sections.shared.configName")}
               />
             </div>
           ) : (
@@ -626,7 +627,7 @@ function CustomProviderCardItem({
                     .every((m) => card.savedModels.some((saved) => saved.model === m))
                 }
                 className="shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                title="将当前输入的模型添加到已选列表，多个用逗号分隔"
+                title={t("settings.sections.shared.addModelHint")}
               >
                 添加
               </button>
@@ -662,18 +663,18 @@ function CustomProviderCardItem({
               </button>
             </div>
             {modelListState?.message ? (
-              <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+              <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
                 {modelListState.message}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
-                <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
+                <p className={`text-xs ${modelTestState.success ? "text-success" : "text-destructive"}`}>
                   {modelTestState.message}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground">失败模型：</span>
+                    <span className="text-xs text-muted-foreground">{t("settings.sections.shared.failedModel")}</span>
                     {modelTestState.failedModels.map((failedModel) => (
                       <span
                         key={failedModel}

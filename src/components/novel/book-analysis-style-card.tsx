@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronUp, Feather, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { STYLE_DIMENSIONS } from "@/lib/novel"
@@ -12,6 +13,7 @@ interface BookAnalysisStyleCardProps {
 }
 
 export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onToggleStyle }: BookAnalysisStyleCardProps) {
+  const { t } = useTranslation()
   const profile = book.styleProfile
   const enabled = book.styleStatus === "enabled"
   const [expanded, setExpanded] = useState(false)
@@ -22,9 +24,9 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Feather className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold">作品文风</h3>
+            <h3 className="text-sm font-semibold">{t("bookAnalysis.workStyle")}</h3>
             {enabled && (
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">已启用</span>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{t("bookAnalysis.enabled")}</span>
             )}
           </div>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -75,14 +77,14 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
               {/* 风格宪法 */}
               {profile.constitution && (
                 <div className="rounded-md bg-muted/40 p-3 text-xs">
-                  <div className="font-medium">风格宪法（注入生成）</div>
+                  <div className="font-medium">{t("bookAnalysis.styleConstitutionInjected")}</div>
                   <div className="mt-1 text-muted-foreground leading-5 whitespace-pre-line">{profile.constitution}</div>
                 </div>
               )}
               {/* 代表样本 */}
               {profile.samples && profile.samples.length > 0 && (
                 <div className="rounded-md bg-muted/40 p-3 text-xs">
-                  <div className="font-medium">代表原文样本</div>
+                  <div className="font-medium">{t("bookAnalysis.representativeExcerpt")}</div>
                   <div className="mt-1 space-y-2">
                     {profile.samples.map((sample, i) => (
                       <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">

@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   createFsRunEventLedgerStoreDeps,
   deriveSubGateAlerts,
@@ -36,6 +37,7 @@ const CATEGORY_LABELS: Record<SubGateAlertItem["category"], string> = {
 }
 
 export function SubgateAlertsSection({ projectId, ledger, deps }: SubgateAlertsSectionProps) {
+  const { t } = useTranslation()
   const [loaded, setLoaded] = useState<RunEventLedger | null>(ledger ?? null)
   const [loadedDeps, setLoadedDeps] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -75,7 +77,7 @@ export function SubgateAlertsSection({ projectId, ledger, deps }: SubgateAlertsS
 
   return (
     <section className="rounded-lg border p-4" data-testid="subgate-alerts-section">
-      <h3 className="mb-2 text-sm font-semibold">子门与告警</h3>
+      <h3 className="mb-2 text-sm font-semibold">{t("novel.subgates")}</h3>
       {loadedDeps ? (
         failed ? (
           <p className="text-xs text-muted-foreground" data-testid="subgate-alerts-failed">
@@ -97,10 +99,10 @@ export function SubgateAlertsSection({ projectId, ledger, deps }: SubgateAlertsS
                   {CATEGORY_LABELS[item.category]}
                 </span>
                 <span className="font-medium">{item.name}</span>
-                {item.summary.length > 0 ? <span className="text-neutral-500 dark:text-neutral-400">{item.summary}</span> : null}
-                <span className="text-[10px] text-neutral-400">{item.ts}</span>
+                {item.summary.length > 0 ? <span className="text-muted-foreground dark:text-muted-foreground">{item.summary}</span> : null}
+                <span className="text-[10px] text-muted-foreground">{item.ts}</span>
                 {item.evidenceRefs.length > 0 ? (
-                  <span className="ml-auto text-[10px] text-neutral-400" title={item.evidenceRefs.join(", ")}>
+                  <span className="ml-auto text-[10px] text-muted-foreground" title={item.evidenceRefs.join(", ")}>
                     证据 {item.evidenceRefs.length}
                   </span>
                 ) : null}

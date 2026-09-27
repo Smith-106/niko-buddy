@@ -25,24 +25,16 @@ export function PanelHeaderWithHelp({
   return (
     <div className="flex items-center gap-1.5">
       {helpUrl ? (
-        <span
-          role="button"
-          tabIndex={0}
+        <button type="button"
           className={`cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm ${className}`}
           title={helpTitle ?? `${title}使用说明`}
           onClick={(e) => {
             e.stopPropagation()
             void openExternalUrl(helpUrl)
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation()
-              void openExternalUrl(helpUrl)
-            }
-          }}
         >
           {title}
-        </span>
+        </button>
       ) : (
         <span className={className}>{title}</span>
       )}

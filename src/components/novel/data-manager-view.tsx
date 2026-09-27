@@ -62,9 +62,9 @@ function camelDomainKey(id: string): string {
 }
 
 const RISK_BADGE: Record<DataDomain["risk"], string> = {
-  cache: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  cache: "bg-success/15 text-success dark:text-success",
   generated: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-  user: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  user: "bg-warning/15 text-warning dark:text-warning",
 }
 
 export function DataManagerView() {
@@ -229,7 +229,7 @@ export function DataManagerView() {
 
       {/* 确认输入：用户域需输入 id，整项目重置需输入 RESET */}
       <div className="flex items-center gap-2 rounded-md border border-dashed p-3">
-        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
         <p className="flex-1 text-xs text-muted-foreground">{t("dataManager.confirmHint")}</p>
         <Input
           value={confirmText}

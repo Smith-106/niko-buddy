@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { readFile, writeFile } from "@/commands/fs"
 import { createBlankWritingSkill, createSkillCategory, deleteWritingSkill, deleteSkillCategory, exportSkillToJson, importSkillFromJson, importWritingSkill, loadAllLinkedSkillsContent, loadLinkedSkillContent, loadUserSkillConfig, moveSkillToCategory, normalizeUserSkillConfig, renameSkillCategory, reorderSkillCategories, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, touchSkillUsage, updateWritingSkill, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
@@ -203,20 +204,12 @@ function SortableCategoryItem({
           >
             <GripVertical className="h-4 w-4" />
           </button>
-          <div
-            role="button"
-            tabIndex={0}
+          <button type="button"
             onClick={onSelect}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                onSelect()
-              }
-            }}
             className="min-w-0 flex-1 cursor-pointer text-left"
           >
             <span className="block truncate">{category.name}</span>
-          </div>
+          </button>
           <span className="text-xs text-muted-foreground">{count}</span>
           {(isHovered || isSelected) && (
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -245,6 +238,7 @@ function SortableCategoryItem({
 }
 
 export function WritingSkillLibrarySidebarPanel() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const selectedSkillId = useWikiStore((s) => s.selectedWritingSkillLibrarySkillId)
@@ -436,68 +430,44 @@ export function WritingSkillLibrarySidebarPanel() {
   return (
     <div data-testid="writing-skill-library-sidebar" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-3 py-2">
-        <h1 className="text-sm font-semibold">写作 Skill</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">管理 AI 会话自动使用的写作方法。</p>
+        <h1 className="text-sm font-semibold">{t("skillLibrary.writingSkill")}</h1>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("skillLibrary.writingManageHint")}</p>
       </div>
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <div className="text-sm font-medium">分类</div>
       </div>
       <div className="shrink-0 border-b px-2 py-1">
-        <div
-          role="button"
-          tabIndex={0}
+        <button type="button"
           onClick={() => setSelectedCategoryId("all")}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-              setSelectedCategoryId("all")
-            }
-          }}
           className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
             selectedCategoryId === "all" ? "bg-accent/60" : ""
           }`}
         >
           <span className="flex-1 truncate">全部</span>
           <span className="text-xs text-muted-foreground">{config?.skills.length ?? 0}</span>
-        </div>
+        </button>
         {recentSkills.length > 0 ? (
-          <div
-            role="button"
-            tabIndex={0}
+          <button type="button"
             onClick={() => setSelectedCategoryId("recent")}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                setSelectedCategoryId("recent")
-              }
-            }}
             className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
               selectedCategoryId === "recent" ? "bg-accent/60" : ""
             }`}
           >
-            <span className="flex-1 truncate">最近使用</span>
+            <span className="flex-1 truncate">{t("skillLibrary.recentlyUsed")}</span>
             <span className="text-xs text-muted-foreground">{recentSkills.length}</span>
-          </div>
+          </button>
         ) : null}
-        <div
-          role="button"
-          tabIndex={0}
+        <button type="button"
           onClick={() => setSelectedCategoryId("uncategorized")}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-              setSelectedCategoryId("uncategorized")
-            }
-          }}
           className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
             selectedCategoryId === "uncategorized" ? "bg-accent/60" : ""
           }`}
         >
-          <span className="flex-1 truncate">未分类</span>
+          <span className="flex-1 truncate">{t("skillLibrary.uncategorized")}</span>
           <span className="text-xs text-muted-foreground">
             {config?.skills.filter((s) => !s.categoryId).length ?? 0}
           </span>
-        </div>
+        </button>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -547,7 +517,7 @@ export function WritingSkillLibrarySidebarPanel() {
                 }
               }}
               onBlur={() => void handleCreateCategory()}
-              placeholder="输入分类名称"
+              placeholder={t("skillLibrary.categoryPlaceholder")}
               className="flex-1 rounded-md border bg-background px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
@@ -565,7 +535,7 @@ export function WritingSkillLibrarySidebarPanel() {
         )}
       </div>
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-medium">写作 Skill</div>
+        <div className="text-sm font-medium">{t("skillLibrary.writingSkill")}</div>
         <div className="flex gap-2">
           <button
             type="button"
@@ -605,27 +575,19 @@ export function WritingSkillLibrarySidebarPanel() {
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div
-                role="button"
-                tabIndex={0}
+              <button type="button"
                 onClick={() => void handleSelectSkill(skill.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    void handleSelectSkill(skill.id)
-                  }
-                }}
                 className="cursor-pointer"
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">写作</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{t("skillLibrary.writing")}</span>
                   {isLinked ? (
-                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">引用</span>
+                    <span className="rounded bg-info/15 px-1.5 py-0.5 text-[10px] text-info">引用</span>
                   ) : null}
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
-              </div>
+              </button>
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
@@ -645,6 +607,7 @@ export function WritingSkillLibrarySidebarPanel() {
 }
 
 export function WritingSkillLibraryView() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const selectedSkillId = useWikiStore((s) => s.selectedWritingSkillLibrarySkillId)
@@ -910,8 +873,8 @@ export function WritingSkillLibraryView() {
   return (
     <div data-testid="writing-skill-library-view" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-5 py-4">
-        <h1 className="text-lg font-semibold">写作 Skill</h1>
-        <p className="mt-1 text-sm text-muted-foreground">编辑 AI 会话会自动选择的通用写作 Skill。</p>
+        <h1 className="text-lg font-semibold">{t("skillLibrary.writingSkill")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("skillLibrary.writingEditHint")}</p>
         {!project ? <p className="mt-1 text-sm text-destructive">请先打开项目</p> : null}
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -928,11 +891,11 @@ export function WritingSkillLibraryView() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div>
-                  <div className="text-sm text-muted-foreground">项目写作 Skill</div>
+                  <div className="text-sm text-muted-foreground">{t("skillLibrary.projectWritingSkill")}</div>
                   <h2 className="text-xl font-semibold">{selectedSkill.name}</h2>
                 </div>
                 {isLinkedSkill ? (
-                  <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">引用</span>
+                  <span className="rounded bg-info/15 px-2 py-0.5 text-xs text-info">引用</span>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -967,7 +930,7 @@ export function WritingSkillLibraryView() {
             </div>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">Skill 名称</span>
+              <span className="font-medium">{t("skillLibrary.skillNameLabel")}</span>
               <input
                 data-testid="writing-skill-name-input"
                 value={draftName}
@@ -981,7 +944,7 @@ export function WritingSkillLibraryView() {
             </label>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">说明</span>
+              <span className="font-medium">{t("skillLibrary.description")}</span>
               <input
                 data-testid="writing-skill-description-input"
                 value={draftDescription}
@@ -1005,7 +968,7 @@ export function WritingSkillLibraryView() {
                 }}
                 className="rounded-md border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">未分类</option>
+                <option value="">{t("skillLibrary.uncategorized")}</option>
                 {config?.categories.map((cat) => (
                   <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
@@ -1032,7 +995,7 @@ export function WritingSkillLibraryView() {
             </div>
 
             <div className="grid gap-2 text-sm">
-              <span className="font-medium">阶段</span>
+              <span className="font-medium">{t("skillLibrary.stage")}</span>
               <div className="flex flex-wrap gap-2">
                 {WRITING_SKILL_STAGE_OPTIONS.map((stage) => (
                   <OptionCheckbox
@@ -1051,7 +1014,7 @@ export function WritingSkillLibraryView() {
             </div>
 
             <div className="grid gap-2 text-sm">
-              <span className="font-medium">模式</span>
+              <span className="font-medium">{t("skillLibrary.mode")}</span>
               <div className="flex flex-wrap gap-2">
                 {WRITING_SKILL_MODE_OPTIONS.map((mode) => (
                   <OptionCheckbox
@@ -1070,7 +1033,7 @@ export function WritingSkillLibraryView() {
             </div>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">优先级（1-100，越小越优先）</span>
+              <span className="font-medium">{t("skillLibrary.priority")}</span>
               <input
                 type="number"
                 min={1}
@@ -1110,7 +1073,7 @@ export function WritingSkillLibraryView() {
                   onChange={(event) => setTagInput(event.target.value)}
                   onKeyDown={handleTagKeyDown}
                   onBlur={handleAddTag}
-                  placeholder="输入标签后按回车添加"
+                  placeholder={t("skillLibrary.tagPlaceholder")}
                   className="flex-1 min-w-[150px] rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
@@ -1119,7 +1082,7 @@ export function WritingSkillLibraryView() {
             {isLinkedSkill ? (
               <div className="grid gap-1.5 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">规则正文</span>
+                  <span className="font-medium">{t("skillLibrary.ruleBody")}</span>
                   <button
                     type="button"
                     onClick={() => void handleReloadLinkedContent()}
@@ -1128,7 +1091,7 @@ export function WritingSkillLibraryView() {
                     重新读取
                   </button>
                 </div>
-                <div className="rounded-md border bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                <div className="rounded-md border bg-info px-3 py-2 text-xs text-info">
                   此 Skill 为外部引用，内容实时读取
                 </div>
                 <textarea
@@ -1138,14 +1101,14 @@ export function WritingSkillLibraryView() {
                 />
                 {selectedSkill.linkedPath ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>引用路径：</span>
+                    <span>{t("skillLibrary.refPath")}</span>
                     <code className="truncate rounded bg-muted px-1.5 py-0.5">{selectedSkill.linkedPath}</code>
                   </div>
                 ) : null}
               </div>
             ) : (
               <label className="grid gap-1.5 text-sm">
-                <span className="font-medium">规则正文</span>
+                <span className="font-medium">{t("skillLibrary.ruleBody")}</span>
                 <textarea
                   data-testid="writing-skill-content-input"
                   value={draftContent}
@@ -1172,7 +1135,7 @@ export function WritingSkillLibraryView() {
               {message ? (
                 <span className="text-sm text-muted-foreground">{message}</span>
               ) : draftDirty ? (
-                <span className="text-sm text-amber-700">未保存</span>
+                <span className="text-sm text-warning">{t("skillLibrary.unsaved")}</span>
               ) : null}
             </div>
           </div>
@@ -1196,7 +1159,7 @@ export function WritingSkillLibraryView() {
                 落点根由宿主给出（用户不可在弹窗内改写）。 */}
             <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
               <div className="min-w-0">
-                <div className="text-sm font-medium">导入技能包（.zip）</div>
+                <div className="text-sm font-medium">{t("skillLibrary.importPack")}</div>
                 <div className="truncate text-xs text-muted-foreground">
                   导入落点：当前项目资产域（不可在弹窗内改写）
                 </div>

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,6 +20,7 @@ export function BookAnalysisInputDialog({
   onOpenChange,
   onSubmit,
 }: BookAnalysisInputDialogProps) {
+  const { t } = useTranslation()
   const [filePath, setFilePath] = useState("")
   const [error, setError] = useState("")
 
@@ -73,17 +75,17 @@ export function BookAnalysisInputDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>拆书作品</DialogTitle>
+          <DialogTitle>{t("bookAnalysis.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
           {/* 文件选择 */}
           <div className="space-y-2">
-            <Label>选择小说文件</Label>
+            <Label>{t("bookAnalysis.selectNovelFile")}</Label>
             <div className="flex gap-2">
               <Input
                 value={filePath}
-                placeholder="点击右侧按钮选择TXT文件..."
+                placeholder={t("bookAnalysis.selectTxtHint")}
                 readOnly
                 className="flex-1"
               />
@@ -107,12 +109,12 @@ export function BookAnalysisInputDialog({
 
           {/* 说明 */}
           <div className="p-4 bg-muted rounded-md text-sm text-muted-foreground space-y-2">
-            <p className="font-medium text-foreground">导入后可进行：</p>
+            <p className="font-medium text-foreground">{t("bookAnalysis.afterImport")}</p>
             <ul className="list-disc list-inside space-y-1 ml-2">
-              <li>自动识别章节，可选择需要分析的章节范围</li>
-              <li>提取小说中的所有角色及其性格特征</li>
-              <li>为每个角色生成可复用的 Skill 技能</li>
-              <li>将角色添加到自定义灵魂库，绑定到自己的作品中</li>
+              <li>{t("bookAnalysis.capabilityChapters")}</li>
+              <li>{t("bookAnalysis.capabilityCharacters")}</li>
+              <li>{t("bookAnalysis.capabilitySkills")}</li>
+              <li>{t("bookAnalysis.capabilityLibrary")}</li>
             </ul>
             <p className="text-xs mt-3 text-muted-foreground/80">
               💡 提示：大型小说（500+章）分析耗时较长，支持随时暂停和继续
@@ -124,7 +126,7 @@ export function BookAnalysisInputDialog({
           <Button variant="outline" onClick={handleCancel}>
             取消
           </Button>
-          <Button onClick={handleSubmit}>开始拆书</Button>
+          <Button onClick={handleSubmit}>{t("bookAnalysis.start")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

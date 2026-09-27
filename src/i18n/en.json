@@ -57,7 +57,10 @@
       "viewResult": "View results",
       "handleLater": "Later",
       "retry": "Retry",
-      "restartInterrupted": "The task was interrupted by an app restart. You can retry it."
+      "restartInterrupted": "The task was interrupted by an app restart. You can retry it.",
+      "refresh": "Refresh list",
+      "openCharacterPicker": "Open character picker",
+      "stopNow": "Stop extraction now"
     },
     "usageGuidePrompt": {
       "close": "Close usage guide prompt",
@@ -315,7 +318,10 @@
       "plotgrid": "Plot Grid",
       "timeline": "Timeline",
       "close": "Close storyboard"
-    }
+    },
+    "characterHitReport": "Character hit report",
+    "craftWorkbench": "Craft workbench",
+    "closeCraft": "Close craft panel"
   },
   "nav": {
     "wiki": "Knowledge Base",
@@ -738,7 +744,8 @@
       "source": "Source",
       "category": "Category",
       "note": "Note"
-    }
+    },
+    "more": "More"
   },
   "templates": {
     "research": {
@@ -855,7 +862,41 @@
       "expand": "Click to preview referenced content",
       "remove": "Remove reference"
     },
-    "writeToWikiDone": "Written to wiki"
+    "writeToWikiDone": "Written to wiki",
+    "resizeHandle": "Drag to resize input height",
+    "resizeHandleHint": "Drag to resize input height (arrow keys work when focused)",
+    "stopGraceful": "Stop generation (graceful SIGTERM)",
+    "stopGracefulShort": "Stop generation (graceful)",
+    "killForce": "Force kill (SIGKILL)",
+    "killForceShort": "Force kill",
+    "sendMessage": "Send message",
+    "deprecated": "Deprecated",
+    "continueFromThought": "Continue from existing thinking to reduce redundant cost",
+    "regenerate": "Regenerate this reply",
+    "copyToClipboard": "Copy to clipboard",
+    "generating": "Generating reply",
+    "workflowRunning": "Workflow running...",
+    "workflowStage": "Workflow stage",
+    "confirmShort": "Confirm?",
+    "scrollToLatest": "Scroll to latest message",
+    "expandHint": "Click to expand",
+    "markExemplar": "Mark as Style Exemplar",
+    "markExemplarUserAnchor": "Mark as Style Exemplar (user anchor)",
+    "soulInjectTitle": "This writing will inject character-soul context",
+    "cancelThisGeneration": "Cancel this generation",
+    "continueGeneration": "Continue generation",
+    "exemplarStyle": "style — overall voice",
+    "exemplarVoice": "voice — character voice",
+    "exemplarPacing": "pacing — narrative rhythm",
+    "exemplarNote": "note (optional)",
+    "exemplarWhyPlaceholder": "Why is this passage a good style anchor?",
+    "exemplarsMarked": "Marked exemplars",
+    "deleteExemplar": "Delete this exemplar",
+    "abScore": "A/B score:",
+    "exemplarSlopScore": "exemplar+slop score",
+    "slopOnlyScore": "slop-only score",
+    "markAnchor": "Mark anchor",
+    "originalText": "Original:"
   },
   "search": {
     "title": "Search",
@@ -964,7 +1005,29 @@
     },
     "nodeTypeFilterLabel": "Node type",
     "riskStateFilterLabel": "Risk state",
-    "sortByLabel": "Sort by"
+    "sortByLabel": "Sort by",
+    "relationNetwork": "Relation network",
+    "weight": "Weight",
+    "docTitle": "Novel graph document",
+    "docHint": "Auto-generated from the current novel file page; for lasting changes, edit the real file page inside the matching node section.",
+    "noRisks": "No pending risks in this category.",
+    "searchPlaceholder": "Search node titles or source paths",
+    "riskQuickFilter": "Risk quick filter",
+    "relationSummary": "Relation summary",
+    "noRelationSummary": "No relation summary available for writing reference.",
+    "relatedEvents": "Related events",
+    "statusHistory": "Status change history",
+    "techInfo": "Technical info",
+    "basicInfo": "Basic info",
+    "relatedObject": "Related object",
+    "direction": "Direction",
+    "displayMode": "Display mode",
+    "colorMode": "Color mode",
+    "labelDisplayOpt": "Label display",
+    "lineStyle": "Line style",
+    "curveAvoid": "Curved avoidance",
+    "arrow": "Arrow",
+    "lineAvoid": "Straight avoidance"
   },
   "lint": {
     "title": "Check",
@@ -1196,7 +1259,8 @@
       "confirm": "Needs confirmation",
       "suggestion": "Suggestion"
     },
-    "rewriteAlertPrefix": "Rewrite suggestion"
+    "rewriteAlertPrefix": "Rewrite suggestion",
+    "compareRewrite": "Compare rewrites"
   },
   "settings": {
     "title": "Settings",
@@ -1267,7 +1331,11 @@
         "modelListSuccess": "Fetched {{count}} models.",
         "modelListFailed": "Model list fetch failed: {{message}}",
         "modelSelectPlaceholder": "Choose a fetched model",
-        "modelManualPlaceholder": "Or enter a model manually"
+        "modelManualPlaceholder": "Or enter a model manually",
+        "failedModel": "Failed model:",
+        "customModel": "Custom model config",
+        "configName": "Config name",
+        "addModelHint": "Add the current model input to the selected list, comma-separated for multiples"
       },
       "usageGuide": {
         "title": "Usage Guide",
@@ -1414,7 +1482,8 @@
           "customEndpointPlaceholder": "Leave blank to reuse the provider's endpoint",
           "customEndpointHint": "Leave blank to reuse the current provider's endpoint",
           "description": "Description",
-          "descriptionPlaceholder": "e.g. good for coding"
+          "descriptionPlaceholder": "e.g. good for coding",
+          "endpointLabel": "Endpoint:"
         },
         "pleaseSelectModel": "Please select a model",
         "cursorProxy": {
@@ -1458,7 +1527,8 @@
         "legacyPromptBody": "This project has {{count}} records in the old page-level vector store. The new chunk-level index retrieves better, but needs a one-time re-embed. Click 'Reindex all pages' to upgrade.",
         "dropLegacy": "Delete legacy index",
         "dropLegacyDone": "Legacy index deleted.",
-        "testSuccessWithDimensions": "Embedding model test passed: {{model}} ({{dimensions}} dims)"
+        "testSuccessWithDimensions": "Embedding model test passed: {{model}} ({{dimensions}} dims)",
+        "siliconHint": "Why SiliconFlow: stable access in China with common embedding models like BGE, suits knowledge-base search."
       },
       "rerank": {
         "title": "Rerank / Reranker Model",
@@ -1480,7 +1550,8 @@
         "model": "Model",
         "modelPlaceholder": "Enter rerank model ID",
         "modelHint": "A smaller fast model is fine here as long as it follows instructions and returns JSON reliably.",
-        "testSuccessUsingMainModel": "Rerank test passed via main model: {{model}}"
+        "testSuccessUsingMainModel": "Rerank test passed via main model: {{model}}",
+        "siliconHint": "Why SiliconFlow: stable access in China with a full model list, suits lightweight rerankers at lower cost."
       },
       "multimodal": {
         "title": "Image Captions",
@@ -1548,7 +1619,8 @@
         "title": "Interface",
         "description": "Interface language and visual presentation settings.",
         "uiLanguage": "UI language",
-        "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output."
+        "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output.",
+        "fontSize": "UI font size"
       },
       "dataManagement": {
         "vectorCleanFailed": "Failed to clean the legacy vector table",
@@ -1601,7 +1673,10 @@
       },
       "changelog": {
         "title": "Release Notes",
-        "description": "Highlights worth noticing in the current version."
+        "description": "Highlights worth noticing in the current version.",
+        "downloading": "Downloading update...",
+        "history": "Version history",
+        "current": "← Current version"
       },
       "about": {
         "title": "About",
@@ -1675,7 +1750,32 @@
           "empty": "No writing preferences yet. Add one to start personalizing.",
           "preset": "Preference Type",
           "title": "Writing Preferences",
-          "value": "Value"
+          "value": "Value",
+          "boostHint": "1 boosts,",
+          "presets": {
+            "factsWeight": "Factual-consistency weight",
+            "factsWeightHint": "0–1 value; higher means factual consistency matters more",
+            "plotWeight": "Plot weight",
+            "plotWeightHint": "0–1 value; higher means plot matters more",
+            "characterWeight": "Character weight",
+            "characterWeightHint": "0–1 value; higher means characters matter more",
+            "pacingWeight": "Pacing weight",
+            "pacingWeightHint": "0–1 value; higher means pacing matters more",
+            "continuityWeight": "Continuity weight",
+            "continuityWeightHint": "0–1 value; higher means continuity matters more",
+            "pullWeight": "Pull weight",
+            "pullWeightHint": "0–1 value; higher means reading pull matters more",
+            "vocabBoost": "Vocabulary boost",
+            "sentenceBoost": "Sentence-pattern boost",
+            "narrativeBoost": "Narrative boost",
+            "rhythmBoost": "Rhythm boost",
+            "dialogBoost": "Dialogue boost",
+            "psychBoost": "Psychology boost",
+            "sceneBoost": "Scene boost",
+            "boostHint": ">1 boosts, <1 weakens",
+            "avoidWords": "Avoid words",
+            "avoidWordsHint": "Comma-separated; disabled at generation"
+          }
         }
       },
       "maintenance": {
@@ -1772,6 +1872,16 @@
         "testNeedCommand": "Please fill in the startup command first",
         "testNotAllowed": "Please enable this MCP server first"
       }
+    },
+    "feedback": {
+      "title": "Feedback & suggestions",
+      "type": "Feedback type",
+      "feature": "Feature suggestion",
+      "bug": "Bug report",
+      "content": "Feedback details",
+      "contentPlaceholder": "Describe the issue, the expected result, or the use case.",
+      "contact": "Contact (optional)",
+      "contactPlaceholder": "Email, WeChat, or other contact"
     }
   },
   "preview": {
@@ -1790,7 +1900,9 @@
     "selectFile": "Select a file to preview",
     "notAvailable": "Preview not available",
     "close": "Close Preview",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "moreActions": "More actions",
+    "viewSnapshotDetail": "View snapshot details extracted from this outline"
   },
   "trash": {
     "title": "Trash",
@@ -1804,7 +1916,8 @@
     "kindHistory": "History",
     "restoreTitle": "Restore to original location; if a file with the same name already exists there, it will be restored with a new name automatically",
     "deletedItem": "Deleted Item",
-    "originalPath": "Original Path"
+    "originalPath": "Original Path",
+    "deleteForever": "Delete permanently"
   },
   "knowledgeTree": {
     "noProject": "No project opened",
@@ -1826,7 +1939,9 @@
     "deletingTitle": "Moving to trash: {{name}}…",
     "confirmDeleteTitle": "Click again to confirm moving to trash: {{name}}",
     "confirmDelete": "Confirm",
-    "deleteTitle": "Move to trash: {{name}}"
+    "deleteTitle": "Move to trash: {{name}}",
+    "extracting": "Extracting",
+    "noTasks": "No extraction tasks"
   },
   "novel": {
     "nav": {
@@ -2102,7 +2217,58 @@
       "customSoul": "Custom Soul",
       "newCustomSoul": "+ New Character Soul",
       "noCustomSoul": "No custom souls yet",
-      "bindCharacterLabel": "Bind character"
+      "bindCharacterLabel": "Bind character",
+      "deaiSkill": "De-AI Skill",
+      "personCategory": "Person category",
+      "generatePrompt": "Generate prompt",
+      "auraNote": "Aura note",
+      "soulSummary": "Soul summary",
+      "howSpeak": "How they speak / expression traits",
+      "howThink": "How they think / mind model",
+      "howDecide": "How they judge / decision heuristics",
+      "howRefuse": "What they won't do / value anti-patterns",
+      "howLimit": "Known limits / honesty boundary",
+      "webSourceUrl": "Web source URL",
+      "localDocPath": "Local document path",
+      "deaiGlobalHint": "Custom de-AI rules, applied globally",
+      "boundCharacters": "Bound characters",
+      "novelCharacters": "Novel characters",
+      "bindSoul": "Bind character soul",
+      "noBoundSoul": "No character is bound to a soul yet",
+      "createFirstHint": "Click “New character soul” above, then fill in details and generate.",
+      "bindHint": "Pick a person from the novel-character dropdown to bind; you can unbind directly too.",
+      "addCharacterFirst": "Please add novel characters in the bio or entities page first",
+      "aliasLabel": "Character aliases / nicknames (optional, comma-separated)",
+      "aliasPlaceholder": "E.g. Xiao Lin, Brother Jin, Young Lin",
+      "aliasHint": "After binding, the soul triggers when an alias appears in task text or draft.",
+      "currentBound": "Currently bound to soul",
+      "currentUnbound": "The current soul is not bound to any novel character.",
+      "injectPreview": "Soul injection preview",
+      "previewHint": "Enter this writing task; the preview shows soul content entering the context pack. Souls inject only when a bound name appears.",
+      "taskLabel": "Writing task",
+      "taskPlaceholder": "E.g. Lin Jin enters the palace for his first clash with the prince",
+      "building": "Building soul context...",
+      "folder": "Soul folder",
+      "aiSearch": "AI search",
+      "docPreview": "Soul document preview",
+      "readingDoc": "Reading soul document.",
+      "noDoc": "No soul document.",
+      "researchFiles": "Research files",
+      "readingResearch": "Reading research files.",
+      "noResearch": "No research files.",
+      "backToPreview": "Back to preview",
+      "basicSettings": "Basic settings",
+      "generateSettings": "Generation settings",
+      "enableAiSearch": "Enable AI search",
+      "flowPreview": "Generation flow preview",
+      "currentInfo": "Current soul info",
+      "editHint": "Edit the generated character info of the current custom soul here; saving syncs the preview.",
+      "sourceSummary": "Source text / summary",
+      "sourceIndex": "Source index",
+      "sourceMaintainHint": "You can also maintain web and local-doc sources here.",
+      "importSettings": "Source import settings",
+      "importHint": "Just provide sources: the system reads local docs, fetches pages, and distills expression traits, mind models, decision heuristics, and boundaries with the current model; failures are logged as degradations without blocking.",
+      "sourceText": "Source text"
     },
     "app": {
       "title": "Novel Writing Assistant",
@@ -2250,7 +2416,9 @@
         "epic": "Epic (2M+ words)"
       },
       "multiAgent": "Generate with multi-agent collaboration",
-      "multiAgentHint": "Parallel sub-agents; falls back to single agent on failure"
+      "multiAgentHint": "Parallel sub-agents; falls back to single agent on failure",
+      "selectedOutline": "Selected outline file",
+      "selectedChapters": "Selected chapters (latest 10)"
     },
     "lint": {
       "title": "Consistency Check",
@@ -2518,7 +2686,8 @@
       "copy": "Copy prompt",
       "copied": "Copied",
       "hint": "Pure client-side one-shot output: no AI call, no draft flow. Paste into any text-to-image tool.",
-      "emptyTemplates": "No platform templates (config/cover-platform-templates.json is empty or malformed)"
+      "emptyTemplates": "No platform templates (config/cover-platform-templates.json is empty or malformed)",
+      "brief": "Structured cover brief (cover-brief)"
     },
     "foreshadowing": {
       "title": "Foreshadowing Management",
@@ -2676,7 +2845,18 @@
       "memorySyncedAt": "Last memory sync: {{time}}",
       "notSynced": "Not synced to novel memory yet",
       "syncMemorySuccess": "Synced to novel memory. Future context will read the updated memory content. Updated {{count}} entity pages.",
-      "syncMemoryFailed": "Sync failed: {{message}}"
+      "syncMemoryFailed": "Sync failed: {{message}}",
+      "graphRelationEdges": "Graph relation edges",
+      "lineHint": "One per line; delete, edit, or add entries",
+      "povOptional": "Chapter POV character (optional)",
+      "povPlaceholder": "Enter the chapter POV character's main name (e.g. Bai Yan); blank means no POV",
+      "compareHint": "Compare this version against the current snapshot (read-only).",
+      "compareCurrent": "Compare with current",
+      "closeCompare": "Close comparison",
+      "pov": "Chapter POV character",
+      "historyHint": "View auto-backed-up versions from before saving; old snapshots can be restored but memory won't auto-sync.",
+      "history": "Version history",
+      "noHistory": "No versions yet. Old versions are auto-backed-up when saving snapshots."
     },
     "memoryCenter": {
       "title": "Memory Center",
@@ -2804,7 +2984,9 @@
       "emptyResult": "No importable outline documents found.",
       "importFilesTitle": "Import Outline Files",
       "importFolderTitle": "Import Outline Folder",
-      "importFailed": "Import failed: {{message}}"
+      "importFailed": "Import failed: {{message}}",
+      "noHistory": "No search history",
+      "extractMemory": "Extract memory?"
     },
     "planning": {
       "chaptersSince": "No progress for {{n}} chapters",
@@ -2839,6 +3021,94 @@
     },
     "preview": {
       "closePreview": "Close preview"
+    },
+    "characterWorkstation": "Character workstation",
+    "characterStationSwitch": "Switch character station",
+    "extractDone": "Extraction complete",
+    "analyzing": "Analyzing...",
+    "quickSelect": "Quick select:",
+    "selectedCount": "Selected:",
+    "totalChars": "Total characters:",
+    "charUnit": "chars",
+    "noChaptersToAnalyze": "No chapters to analyze",
+    "closeCharacterWorkstation": "Close character workstation",
+    "searchCharacterName": "Search character name",
+    "sortByImportance": "By importance",
+    "sortByAppearances": "By appearances",
+    "noMatchingCharacter": "No matching character",
+    "backToChapter": "Back to chapter",
+    "characterSplitWorkstation": "Character split workstation",
+    "noStationToSwitch": "No character station to switch",
+    "draftByCharacter": "Drafts (isolated by character)",
+    "replay": {
+      "zoneSources": "1. Retrieved sources — selected pages / chunks",
+      "zoneGates": "2. Gate results (consistency / anti-ai)",
+      "zoneAssembly": "3. Final assembly excerpt",
+      "noAssembly": "No assembly excerpt.",
+      "gaps": "Compression / truncation / load failures (gaps)"
+    },
+    "openProjectFirst": "Please open a novel project first.",
+    "dismantle": {
+      "title": "Breakdown library · standalone memory",
+      "isolation": "— Breakdown results are stored separately and never written to novel, chapter, or outline memory.",
+      "selectHint": "Please select a breakdown work from the left",
+      "workDetail": "Work details",
+      "referenceHint": "Reference the current breakdown work's structural memory when writing in AI sessions.",
+      "learnScope": "Learn only rhythm, conflict pacing, payoff placement, and chapter hooks; never reuse the original's characters, setting, plot, or wording.",
+      "webAnalysis": "Trending web analysis",
+      "webPlaceholder": "E.g. search trending urban opening tropes, or paste a page URL to analyze",
+      "splitChapters": "Split chapters",
+      "splitHint": "AI will auto-split or detect chapter structure from the import; choose the range to break down.",
+      "perBatch": "Per batch",
+      "emptyHint": "Breakdown results will appear here after selecting a work.",
+      "result": "Breakdown result",
+      "resultScope": "Only breakdown output and structural memory are shown here; nothing is written to the novel, outline, or novel memory.",
+      "structuralMemory": "Structural memory",
+      "structuralHint": "Quotable structural memory will appear here after breakdown.",
+      "noResult": "No breakdown results yet."
+    },
+    "gateEvidence": "Gate evidence",
+    "replayable": "Replayable",
+    "kbHealth": "KB health panel",
+    "kbHealthMetrics": "6 core metrics (read-only)",
+    "kbRebuild": "Rebuild store (replay snapshots to rebuild drifted truth files)",
+    "subgates": "Sub-gates & alerts",
+    "wishDriveTitle": "Unblock guide · wish-driven",
+    "wishNoCraft": "Protagonist craft fields not ingested yet.",
+    "wishIngestFirst": "Finish craft ingestion (entities.wish/motive/arc_stage) before entering the unblock guide.",
+    "wishAssemblyBlocked": "A-22.6 assembly check failed — unblock guide entry closed",
+    "wishAssembledCraft": "Assembled craft fields",
+    "wishAssembledList": "Assembled wish list (wish)",
+    "wishMotive": "Motive (motive):",
+    "wishActionEvidence": "Action evidence (wma_action):",
+    "wishQuestionQueue": "Unblock guide question queue",
+    "outlineNewChat": "New outline chat",
+    "outlineAskPlaceholder": "Ask about the outline...",
+    "deai": {
+      "grade1A": "1A high weight",
+      "grade1B": "1B low weight",
+      "grade3": "3 weak hint",
+      "fillAll": "Fill all back",
+      "fillBack": "Fill back",
+      "abort": "Abort",
+      "preview": "De-AI preview",
+      "saveDraft": "Save draft",
+      "replaceBody": "Replace body",
+      "rulePlaceholder": "Enter your de-AI rules here...",
+      "usageTips": "Tips:",
+      "tipSave": "After editing rules, click “Save” to apply to all de-AI features",
+      "tipDefault": "The system defaults to the de-AI-writing skill (faithful rewrite, suits web novels)",
+      "tipMultiline": "Multiline supported; organize rules with bullets or paragraphs",
+      "tipFile": "Rules are saved as de-ai-skill.txt in the project root (highest priority)",
+      "tipFullSystem": "The full skill system lives in the install dir's skills/ folder with references/ rules",
+      "signalWarning": "Signals are not evidence · false-positive rate >60%",
+      "allGrades": "All grades",
+      "searchPlaceholder": "Search words / categories / suggestions...",
+      "term": "Word / phrase",
+      "grade": "Grade",
+      "rewriteSuggestion": "Rewrite suggestion",
+      "gradeNote": "Grading notes:",
+      "fallbackNote": "Keep the de-ai-skill.txt fallback channel (free-text tags)"
     }
   },
   "canon": {
@@ -2858,7 +3128,8 @@
       "emptyNoPov": "Select a POV character first.",
       "pagePrev": "Previous",
       "pageNext": "Next",
-      "pageInfo": "Page {{page}} / {{pages}} · {{total}} total"
+      "pageInfo": "Page {{page}} / {{pages}} · {{total}} total",
+      "canonTitle": "Canon known facts (POV view)"
     },
     "revisionViewer": {
       "title": "Revision History",
@@ -2866,7 +3137,8 @@
       "noStampGroup": "Legacy data (no revision stamp)",
       "groupLabel": "revision {{rev}}",
       "empty": "No revisions yet.",
-      "factCount": "{{count}} edges"
+      "factCount": "{{count}} edges",
+      "canonTitle": "Canon revision history"
     },
     "revisionDiff": {
       "title": "Revision Diff",
@@ -2883,7 +3155,18 @@
       "removed": "Removed",
       "empty": "No differences between the selected revisions.",
       "pairArrow": "{{before}} → {{after}}"
-    }
+    },
+    "filter": "Canon filter",
+    "filterPlaceholder": "E.g. protagonist / POV id",
+    "edgeList": "Canon fact-edge list",
+    "edge": "Fact edges",
+    "predicate": "Predicate",
+    "category": "Category",
+    "actions": "Actions",
+    "cognitionPanel": "Cognition-axis correction panel",
+    "emptyUnknown": "(Empty — unknown to all)",
+    "addKnownByPlaceholder": "Add knowing POV (allowlist only)",
+    "revealedAtHint": "revealed_at (chapter revealed to known_by; blank = unregistered)"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -2895,7 +3178,60 @@
       "empty": "No book analysis versions yet",
       "count": "{{count}} versions",
       "view": "View"
-    }
+    },
+    "title": "Book breakdown",
+    "personality": "Personality",
+    "speakingStyle": "Speaking style",
+    "motivation": "Motivation",
+    "behaviorPattern": "Behavior pattern",
+    "representativeLine": "Representative line",
+    "workStyle": "Work style",
+    "representativeExcerpt": "Representative excerpt",
+    "activeContextTitle": "Current AI session constraints",
+    "activeContextHint": "Shows the breakdown resources actually in effect for the current project.",
+    "noStyleEnabled": "No breakdown writing style is enabled.",
+    "noCharacterBound": "No novel character is bound to a breakdown character Skill.",
+    "library": "Work library",
+    "characterSkill": "Character Skill",
+    "characterSkillHint": "Select a character Skill to add to the custom soul library.",
+    "noCharacterData": "No character data.",
+    "skillPreview": "Skill content preview",
+    "selectCharacterHint": "Please select a character from the left.",
+    "selectNovelFile": "Select novel file",
+    "selectTxtHint": "Click the button on the right to select a TXT file...",
+    "afterImport": "After importing you can:",
+    "capabilityChapters": "Auto-detect chapters and choose the range to analyze",
+    "capabilityCharacters": "Extract all characters and their traits from the novel",
+    "capabilitySkills": "Generate reusable Skills for each character",
+    "capabilityLibrary": "Add characters to the custom soul library and bind them to your own works",
+    "start": "Start breakdown",
+    "libraryManageHint": "Manage work styles, character Skills, and novel-character bindings.",
+    "noWorks": "No breakdown works yet",
+    "noWorksHint": "Import a TXT novel to extract character Skills and work style.",
+    "importNovel": "Import novel",
+    "resultLoadFailed": "Failed to load analysis result",
+    "result": "Analysis result",
+    "extractMethod": "Extraction method",
+    "styleConstitution": "Style constitution",
+    "characterDescription": "Character description",
+    "personalityTraits": "Personality traits",
+    "speakingManner": "Way of speaking",
+    "firstAppearance": "First appearance:",
+    "lastAppearance": "Last appearance:",
+    "appearanceCount": "Appearances:",
+    "importance": "Importance:",
+    "singleCharacterRetry": "Retry single character",
+    "enabled": "Enabled",
+    "styleConstitutionInjected": "Style constitution (injected)",
+    "uploadNovel": "Upload novel file",
+    "uploadHint": "TXT format supported, chapters auto-detected (may contain 500-1000 chapters)",
+    "selectScope": "Select analysis scope",
+    "scopeHint": "Check the chapters to analyze; select all or a specific range",
+    "extractSkills": "Extract characters & generate Skills",
+    "extractSkillsHint": "Deeply analyze characters, generate reusable skills, add to custom souls",
+    "heuristicDetecting": "Heuristically detecting characters...",
+    "llmScoring": "Scoring character importance with LLM...",
+    "deleteWork": "Delete work"
   },
   "directorPanel": {
     "title": "Book Director",
@@ -3133,17 +3469,32 @@
       "statHookTypes": "Hook types",
       "statSnapshotVersion": "Snapshot version",
       "hookRegistry": "Hook type registry",
-      "packDetails": "Rule pack details ({{n}} packs)"
+      "packDetails": "Rule pack details ({{n}} packs)",
+      "params": "Parameters"
     },
     "thrillDashboard": {
       "chartFailed": "Failed to load chart. Make sure the echarts dependency is installed.",
       "noData": "No thrill point quantification data yet. Run thrill point quantification first.",
       "title": "Thrill Point Dashboard",
-      "titleWithChapter": "Thrill Dashboard — {{title}}"
-    }
+      "titleWithChapter": "Thrill Dashboard — {{title}}",
+      "totalPayoffs": "Total payoffs",
+      "open": "Open (delayed)",
+      "closed": "Closed (released)",
+      "tensionRatio": "Tension ratio (open/closed)",
+      "beatType": "Beat type",
+      "rawIntensity": "Raw intensity",
+      "weightedIntensity": "Weighted intensity",
+      "position": "Position (%)",
+      "closeLoop": "Close loop",
+      "arcId": "Arc ID"
+    },
+    "tensionCurve": "Tension curve: raw vs smoothed",
+    "beatChart": "Beat intensity bars",
+    "sixDimRadar": "Six-dimension radar"
   },
   "mermaid": {
-    "syntaxError": "Mermaid syntax error"
+    "syntaxError": "Mermaid syntax error",
+    "zoomIn": "Zoom chart (Esc to close)"
   },
   "dataManager": {
     "title": "Data Manager",
@@ -3265,5 +3616,37 @@
       "exportCenter": "Export Center",
       "exportCenterDesc": "Unified export of all formats & scenes"
     }
+  },
+  "skillLibrary": {
+    "ruleBody": "Rule body",
+    "writingSkill": "Writing Skill",
+    "description": "Description",
+    "unsaved": "Unsaved",
+    "uncategorized": "Uncategorized",
+    "readingSkills": "Reading skills...",
+    "noFavorites": "No favorited skills",
+    "favoriteHint": "Click the star on a skill card to favorite it",
+    "searchFavorites": "Search favorited skills...",
+    "manageHint": "Manage the de-AI skills available to the current project.",
+    "deaiSkill": "De-AI skills",
+    "default": "Default",
+    "editHint": "Edit the currently selected de-AI Skill.",
+    "noSkills": "No skills.",
+    "skillName": "Skill name",
+    "unifiedHint": "Search writing Skills and de-AI skills together.",
+    "searchPlaceholder": "Search skill names, descriptions, or rules",
+    "writingManageHint": "Manage the writing methods AI sessions use automatically.",
+    "recentlyUsed": "Recently used",
+    "categoryPlaceholder": "Enter category name",
+    "writing": "Writing",
+    "writingEditHint": "Edit the general writing Skills that AI sessions auto-select.",
+    "projectWritingSkill": "Project writing Skills",
+    "skillNameLabel": "Skill name",
+    "stage": "Stage",
+    "mode": "Mode",
+    "priority": "Priority (1-100, smaller first)",
+    "tagPlaceholder": "Type a tag and press Enter to add",
+    "refPath": "Reference path:",
+    "importPack": "Import skill pack (.zip)"
   }
 }

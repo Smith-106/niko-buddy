@@ -38,6 +38,16 @@ import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import type { StreamSessionGuard } from "./stream-session"
 import type { ContextBudget } from "@/lib/context-budget"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
+import zhLocaleChatPanel from "@/i18n/zh.json"
+
+function lookupZhChatPanel(key: string): string | undefined {
+  let o: unknown = zhLocaleChatPanel
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -333,9 +343,10 @@ const mocks = vi.hoisted(() => {
     }
   })
 
-  const t = vi.fn((key: string, opts?: { message?: string }) =>
-    opts?.message ? `${key}::${opts.message}` : key,
-  )
+  const t = vi.fn((key: string, opts?: { message?: string }) => {
+    const base = lookupZhChatPanel(key) ?? key
+    return opts?.message ? `${base}::${opts.message}` : base
+  })
 
   return {
     chatState,
@@ -1337,9 +1348,10 @@ function resetStates(): void {
 }
 
 function resetMockDefaults(): void {
-  mocks.t.mockImplementation((key: string, opts?: { message?: string }) =>
-    opts?.message ? `${key}::${opts.message}` : key,
-  )
+  mocks.t.mockImplementation((key: string, opts?: { message?: string }) => {
+    const base = lookupZhChatPanel(key) ?? key
+    return opts?.message ? `${base}::${opts.message}` : base
+  })
   mocks.streamChat.mockImplementation(async (_config: any, _messages: any, handlers: any) => {
     handlers?.onDone?.()
   })
@@ -1506,20 +1518,20 @@ afterEach(() => {
 describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
   it("空会话显示占位文案 + 新建按钮", () => {
     renderPanel()
-    expect(screen.getByText("chat.newChat")).toBeInTheDocument()
-    expect(screen.getByText("chat.noConversationsYet")).toBeInTheDocument()
+    expect(screen.getByText("新建对话")).toBeInTheDocument()
+    expect(screen.getByText("暂无对话")).toBeInTheDocument()
   })
 
   it("novel 模式空会话显示 novel 文案", () => {
     mocks.wikiState.novelMode = true
     renderPanel()
-    expect(screen.getByText("novel.chat.newChat")).toBeInTheDocument()
-    expect(screen.getByText("novel.chat.noConversationsYet")).toBeInTheDocument()
+    expect(screen.getByText("新建写作对话")).toBeInTheDocument()
+    expect(screen.getByText("暂无写作对话")).toBeInTheDocument()
   })
 
   it("点击新建会话调用 createConversation", () => {
     renderPanel()
-    fireEvent.click(screen.getByText("chat.newChat"))
+    fireEvent.click(screen.getByText("新建对话"))
     expect(mocks.chatState.createConversation).toHaveBeenCalled()
   })
 
@@ -1675,8 +1687,8 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
 describe("ChatPanel — 空态与输入区", () => {
   it("无活跃会话显示 hero + 建议 chips，点击 chip 自动建会话并发送", async () => {
     renderPanel()
-    expect(screen.getByText("chat.startNewConversation")).toBeInTheDocument()
-    expect(screen.getByText("chat.clickNewChatToBegin")).toBeInTheDocument()
+    expect(screen.getByText("开始新对话")).toBeInTheDocument()
+    expect(screen.getByText("点击「新建对话」开始")).toBeInTheDocument()
     fireEvent.click(screen.getByText("总结一下当前项目的知识结构"))
     await flushAsync()
     expect(mocks.chatState.createConversation).toHaveBeenCalled()
@@ -1687,8 +1699,8 @@ describe("ChatPanel — 空态与输入区", () => {
   it("novel 空态显示 novel 文案与建议", () => {
     mocks.wikiState.novelMode = true
     renderPanel()
-    expect(screen.getByText("novel.chat.startNewConversation")).toBeInTheDocument()
-    expect(screen.getByText("novel.chat.clickNewChatToBegin")).toBeInTheDocument()
+    expect(screen.getByText("开始新的写作对话")).toBeInTheDocument()
+    expect(screen.getByText("点击「新建对话」开始写作")).toBeInTheDocument()
     fireEvent.click(screen.getByText("帮我梳理当前小说的世界观和主要矛盾"))
     expect(mocks.chatState.addMessage).toHaveBeenCalledWith("user", "帮我梳理当前小说的世界观和主要矛盾")
   })
@@ -1697,18 +1709,18 @@ describe("ChatPanel — 空态与输入区", () => {
     setConversation("conv-1")
     renderPanel()
     expect(screen.getByTestId("chat-input")).toBeInTheDocument()
-    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "chat.typeAMessage")
+    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "输入消息...")
     mocks.chatState.mode = "ingest"
     rerenderPanel()
-    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "chat.ingestPlaceholder")
-    expect(screen.queryByText("chat.startNewConversation")).toBeNull()
+    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "讨论资料内容或继续追问...")
+    expect(screen.queryByText("开始新对话")).toBeNull()
   })
 
   it("novel 模式占位 + 底部控制区（dock/toggle/模型选择）", () => {
     mocks.wikiState.novelMode = true
     setConversation("conv-1")
     renderPanel()
-    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "novel.chat.typeAMessage")
+    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "输入写作需求...")
     expect(screen.getByTestId("chat-dock-controls")).toBeInTheDocument()
     expect(screen.getByLabelText("开启深度模式")).toBeInTheDocument()
     expect(screen.getByLabelText("编辑章节")).toBeInTheDocument()
@@ -1803,7 +1815,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     setConversation("conv-1")
     setMessages([msg({ id: "a1", role: "assistant", content: "输出" })])
     renderPanel()
-    const writeBtn = screen.getByText("chat.writeToWiki")
+    const writeBtn = screen.getByText("写入资料库")
     expect(writeBtn).toBeInTheDocument()
     await act(async () => {
       fireEvent.click(writeBtn)
@@ -1819,11 +1831,11 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     setConversation("conv-1")
     setMessages([msg({ id: "a1", role: "assistant", content: "x" })]) // 有助手消息但 chat 模式
     renderPanel()
-    expect(screen.queryByText("chat.writeToWiki")).toBeNull()
+    expect(screen.queryByText("写入资料库")).toBeNull()
     mocks.chatState.mode = "ingest"
     mocks.chatState.messages = [msg({ id: "u1", role: "user", content: "y" })]
     rerenderPanel()
-    expect(screen.queryByText("chat.writeToWiki")).toBeNull() // ingest 但无助手消息
+    expect(screen.queryByText("写入资料库")).toBeNull() // ingest 但无助手消息
   })
 
   it("写入 wiki：无项目直接返回；失败上屏 role=alert；刷新失败被吞", async () => {
@@ -1832,7 +1844,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     setMessages([msg({ id: "a1", role: "assistant", content: "x" })])
     renderPanel()
     await act(async () => {
-      fireEvent.click(screen.getByText("chat.writeToWiki"))
+      fireEvent.click(screen.getByText("写入资料库"))
     })
     await flushAsync()
     expect(mocks.executeIngestWrites).not.toHaveBeenCalled() // 无 project
@@ -1843,7 +1855,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     mocks.executeIngestWrites.mockResolvedValueOnce([])
     mocks.refreshProjectState.mockRejectedValueOnce(new Error("refresh-boom"))
     await act(async () => {
-      fireEvent.click(screen.getByText("chat.writeToWiki"))
+      fireEvent.click(screen.getByText("写入资料库"))
     })
     await flushAsync()
     expect(screen.queryByTestId("write-wiki-error")).toBeNull()
@@ -1851,7 +1863,7 @@ describe("ChatPanel — 消息列表与流式状态", () => {
     // 阶段3：写入失败 → 如实上屏（R4 共识 deepseek+glm：原先仅 console.error）
     mocks.executeIngestWrites.mockRejectedValueOnce(new Error("write-boom"))
     await act(async () => {
-      fireEvent.click(screen.getByText("chat.writeToWiki"))
+      fireEvent.click(screen.getByText("写入资料库"))
     })
     await flushAsync()
     const alert = screen.getByRole("alert")
@@ -2805,11 +2817,11 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     rerenderPanel()
     expect(mocks.buildChapterPlan).toHaveBeenCalledWith("/p/mybook", 0)
     // 注：chat-panel.spec 的 t mock 返回 key（非 defaultValue）
-    expect(screen.getByText("novel.planning.title")).toBeTruthy()
+    expect(screen.getByText("本章确定性范围")).toBeTruthy()
     // 关闭面板
-    fireEvent.click(screen.getByLabelText("novel.planning.close"))
+    fireEvent.click(screen.getByLabelText("关闭"))
     rerenderPanel()
-    expect(screen.queryByText("novel.planning.title")).toBeNull()
+    expect(screen.queryByText("本章确定性范围")).toBeNull()
     // 发送深度请求 → 目标章跟随（ref = 3）
     await sendText("深度写第3章")
     fireEvent.click(screen.getByLabelText("打开计划面板"))
@@ -2817,9 +2829,9 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     rerenderPanel()
     expect(mocks.buildChapterPlan).toHaveBeenLastCalledWith("/p/mybook", 3)
     // 开写 → 面板关闭，plan 进入 one-shot 状态
-    fireEvent.click(screen.getByText("novel.planning.startWriting"))
+    fireEvent.click(screen.getByText("以此计划开写"))
     rerenderPanel()
-    expect(screen.queryByText("novel.planning.title")).toBeNull()
+    expect(screen.queryByText("本章确定性范围")).toBeNull()
     // 发送 → planningPlan 附加到生成 input（calls[0] 是面板打开前的首次发送）
     await sendText("深度写第3章")
     const genInput = mocks.runDeepChapterGeneration.mock.calls[1][0]
@@ -3443,7 +3455,7 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     renderPanel()
     fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("chat.saveFailed::disk-error")
+    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::disk-error")
   })
 
   it("丢弃草稿成功：reject 落盘 + rejected marker + 标记丢弃", async () => {
@@ -3478,7 +3490,7 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     renderPanel()
     fireEvent.click(screen.getByTestId("discard-draft"))
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("chat.saveFailed::reject-boom")
+    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::reject-boom")
   })
 
   it("丢弃后再保存 → 无助手草稿早退（discarded 被过滤）", async () => {
@@ -4491,7 +4503,7 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
     renderPanel()
     fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("chat.saveFailed::disk-string")
+    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::disk-string")
   })
 
   it("丢弃失败（非 Error）→ String 分支", async () => {
@@ -4505,7 +4517,7 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
     renderPanel()
     fireEvent.click(screen.getByTestId("discard-draft"))
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("chat.saveFailed::reject-string")
+    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::reject-string")
   })
 
   it("丢弃：无用户消息 → userRequest 兜底 draft rejected", async () => {
@@ -4630,7 +4642,7 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
     setConversation("conv-1")
     setMessages([msg({ id: "a1", role: "assistant", content: "x" })])
     renderPanel()
-    const btn = screen.getByText("novel.chat.writeToWiki")
+    const btn = screen.getByText("写入章节")
     expect(btn).toBeInTheDocument()
     await act(async () => {
       fireEvent.click(btn)
@@ -4644,7 +4656,7 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
     mocks.chatState.mode = "ingest"
     setConversation("conv-1")
     renderPanel()
-    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "novel.chat.ingestPlaceholder")
+    expect(screen.getByTestId("chat-input-textarea")).toHaveAttribute("placeholder", "讨论章节内容或继续追问...")
   })
 
   it("写入 wiki 失败（非 Error）→ 上屏保留原始字符串诊断", async () => {
@@ -4655,7 +4667,7 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
     setMessages([msg({ id: "a1", role: "assistant", content: "x" })])
     renderPanel()
     await act(async () => {
-      fireEvent.click(screen.getByText("chat.writeToWiki"))
+      fireEvent.click(screen.getByText("写入资料库"))
     })
     await flushAsync()
     expect(screen.getByTestId("write-wiki-error")).toHaveTextContent("str-err")

@@ -132,10 +132,10 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                       rumor.distortion < 0.3
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                        ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
                         : rumor.distortion < 0.6
-                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                          ? "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning"
+                          : "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive"
                     }`}
                   >
                     {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}
@@ -204,10 +204,10 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
-                      ? "text-green-600 dark:text-green-400"
+                      ? "text-success dark:text-success"
                       : selectedRumor.distortion < 0.6
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-red-600 dark:text-red-400"
+                        ? "text-warning dark:text-warning"
+                        : "text-destructive dark:text-destructive"
                   }`}
                 >
                   {(selectedRumor.distortion * 100).toFixed(0)}%
@@ -293,10 +293,10 @@ function RumorTreeNodeView({
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                     rumor.distortion < 0.3
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                      ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
                       : rumor.distortion < 0.6
-                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                        ? "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning"
+                        : "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive"
                   }`}
                 >
                   {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}

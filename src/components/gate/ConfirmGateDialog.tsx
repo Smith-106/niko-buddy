@@ -115,7 +115,7 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
             <dt className="w-20 shrink-0 opacity-60">{t("gate.confirm.criteriaLabel")}</dt>
             <dd className="flex flex-wrap gap-1" data-testid="confirm-gate-criteria">
               {pending.hit_criteria.map((c) => (
-                <span key={c} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs">
+                <span key={c} className="rounded bg-warning/15 px-1.5 py-0.5 text-xs">
                   {CRITERION_LABEL[c] ? t(CRITERION_LABEL[c]) : c}
                 </span>
               ))}
@@ -171,7 +171,7 @@ export function GateHaltBanner({
     <div
       role="alert"
       data-testid="gate-halt-banner"
-      className="flex items-center justify-between gap-3 bg-red-600/15 px-4 py-2 text-sm"
+      className="flex items-center justify-between gap-3 bg-destructive/15 px-4 py-2 text-sm"
     >
       <span>{t("gate.halt.banner")}</span>
       {onResume ? (

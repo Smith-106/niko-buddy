@@ -113,7 +113,7 @@ export function AppLockOverlay({ onUnlocked, initialState }: AppLockOverlayProps
           }}
         />
         {error ? (
-          <p role="alert" data-testid="app-lock-error" className="text-xs text-red-500">
+          <p role="alert" data-testid="app-lock-error" className="text-xs text-destructive">
             {error}
           </p>
         ) : null}

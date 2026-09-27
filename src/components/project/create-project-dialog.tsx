@@ -58,8 +58,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const [llmExpanded, setLlmExpanded] = useState(false)
   const llmHealth = assessLlmHealth(llmConfig)
   const llmTone = llmHealth.canWrite
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-amber-600 dark:text-amber-400"
+    ? "text-success dark:text-success"
+    : "text-warning dark:text-warning"
 
   // J01-T06 (F-006)：建项步骤指示——让用户知道自己在哪一步、还剩几步。
   // 步骤为逻辑分区（名称→目录→模型服务→创建），非分页；返回/关闭不丢输入（state 保留）。

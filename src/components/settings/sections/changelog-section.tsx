@@ -130,7 +130,7 @@ export function ChangelogSection() {
           </button>
 
           {updateStatus === "up-to-date" && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1.5 text-sm text-success dark:text-success">
               <CheckCircle className="h-4 w-4" />
               当前已是最新版本
             </span>
@@ -138,7 +138,7 @@ export function ChangelogSection() {
 
           {updateStatus === "error" && (
             /* v8 ignore start */
-            <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+            <span className="inline-flex items-center gap-1.5 text-sm text-destructive dark:text-destructive">
               <AlertCircle className="h-4 w-4" />
               {errorMessage || "检查更新失败"}
             </span>
@@ -148,20 +148,20 @@ export function ChangelogSection() {
 
         {/* Update available banner */}
         {updateStatus === "available" && (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">
+          <div className="mt-3 rounded-md border border-warning bg-warning p-3 dark:border-warning/60 dark:bg-warning/40">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                <p className="text-sm font-medium text-warning dark:text-warning">
                   发现新版本：v{latestVersion}
                 </p>
                 {updateNotes && (
-                  <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">{updateNotes}</p>
+                  <p className="mt-1 text-xs text-warning dark:text-warning">{updateNotes}</p>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => void handleDownloadUpdate()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                className="inline-flex items-center gap-1.5 rounded-md bg-warning px-3 py-1.5 text-xs font-medium text-white hover:bg-warning"
               >
                 <Download className="h-3.5 w-3.5" />
                 下载更新
@@ -174,7 +174,7 @@ export function ChangelogSection() {
         {updateStatus === "downloading" && (
           <div className="mt-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">正在下载更新...</span>
+              <span className="text-muted-foreground">{t("settings.sections.changelog.downloading")}</span>
               <span className="font-medium">{downloadProgress}%</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -188,14 +188,14 @@ export function ChangelogSection() {
 
         {/* Ready to install banner */}
         {updateStatus === "ready" && (
-          <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/40">
-            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+          <div className="mt-3 rounded-md border border-success bg-success p-3 dark:border-success/60 dark:bg-success/40">
+            <p className="text-sm font-medium text-success dark:text-success">
               ✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。
             </p>
             <button
               type="button"
               onClick={() => void handleInstallNow()}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success"
             >
               <Download className="h-4 w-4" />
               立即安装
@@ -206,7 +206,7 @@ export function ChangelogSection() {
 
       {/* Full version history */}
       <div className="space-y-4">
-        <h3 className="text-sm font-medium text-muted-foreground">版本历史</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">{t("settings.sections.changelog.history")}</h3>
         {entries.map((entry) => {
           const lines = entry.highlights[lang]
           const isExpanded = expandedVersions.has(entry.version)
@@ -228,7 +228,7 @@ export function ChangelogSection() {
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
                 {entry.version === __APP_VERSION__ && (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400">\u2190 当前版本</span>
+                  <span className="text-xs text-success dark:text-success">{t("settings.sections.changelog.current")}</span>
                 )}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">

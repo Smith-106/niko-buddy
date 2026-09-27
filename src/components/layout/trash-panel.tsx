@@ -179,10 +179,7 @@ export function TrashPanel() {
                     isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
                   }`}
                 >
-                  <div 
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void handleItemClick(item) } }}
+                  <button type="button" 
                     className="min-w-0 flex-1 cursor-pointer text-left"
                     onClick={() => void handleItemClick(item)}
                   >
@@ -190,7 +187,7 @@ export function TrashPanel() {
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {t("trash.remainingDays", { days: remainingDays, defaultValue: "剩余{{days}}天" })} · {item.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : item.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : item.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
                     </div>
-                  </div>
+                  </button>
                   <Button
                       type="button"
                       variant="ghost"
@@ -211,7 +208,7 @@ export function TrashPanel() {
                       size="icon"
                       disabled={deletingId !== null || deletingAll}
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive disabled:opacity-50"
-                      title="永久删除"
+                      title={t("trash.deleteForever")}
                       onClick={(e) => void handlePermanentDelete(item.id, e)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

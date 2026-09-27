@@ -57,7 +57,10 @@
       "viewResult": "查看结果",
       "handleLater": "稍后处理",
       "retry": "重试",
-      "restartInterrupted": "任务因应用重启而中断，可点击重试继续"
+      "restartInterrupted": "任务因应用重启而中断，可点击重试继续",
+      "refresh": "刷新列表",
+      "openCharacterPicker": "打开角色选择面板",
+      "stopNow": "立即停止提取"
     },
     "usageGuidePrompt": {
       "close": "关闭软件使用说明提示",
@@ -204,7 +207,10 @@
       "plotgrid": "情节矩阵",
       "timeline": "时间线",
       "close": "收起分镜板"
-    }
+    },
+    "characterHitReport": "角色命中报告",
+    "craftWorkbench": "技法工作台",
+    "closeCraft": "关闭技法面板"
   },
   "nav": {
     "wiki": "章节库",
@@ -475,7 +481,41 @@
       "expand": "点击预览引用内容",
       "remove": "移除引用"
     },
-    "writeToWikiDone": "已写入 Wiki"
+    "writeToWikiDone": "已写入 Wiki",
+    "resizeHandle": "拖动调整输入框高度",
+    "resizeHandleHint": "拖动调整输入框高度（聚焦后可用方向键调节）",
+    "stopGraceful": "停止生成（优雅 SIGTERM）",
+    "stopGracefulShort": "停止生成（优雅）",
+    "killForce": "强制终止（SIGKILL）",
+    "killForceShort": "强制终止",
+    "sendMessage": "发送消息",
+    "deprecated": "已废弃",
+    "continueFromThought": "基于已有思考过程继续生成，减少重复消耗",
+    "regenerate": "重新生成这条回复",
+    "copyToClipboard": "复制到剪贴板",
+    "generating": "正在生成回复",
+    "workflowRunning": "工作流进行中...",
+    "workflowStage": "工作流阶段",
+    "confirmShort": "确认?",
+    "scrollToLatest": "滚动到最新消息",
+    "expandHint": "点击展开",
+    "markExemplar": "标记为 Style Exemplar",
+    "markExemplarUserAnchor": "标记为 Style Exemplar（用户锚点）",
+    "soulInjectTitle": "本次写作将注入角色灵魂上下文",
+    "cancelThisGeneration": "取消本次生成",
+    "continueGeneration": "继续生成",
+    "exemplarStyle": "style — 整体文风",
+    "exemplarVoice": "voice — 角色声线",
+    "exemplarPacing": "pacing — 叙事节奏",
+    "exemplarNote": "note（可选）",
+    "exemplarWhyPlaceholder": "为什么这段是好文风锚点？",
+    "exemplarsMarked": "已标记范例",
+    "deleteExemplar": "删除此范例",
+    "abScore": "A/B 评分：",
+    "exemplarSlopScore": "exemplar+slop 评分",
+    "slopOnlyScore": "slop-only 评分",
+    "markAnchor": "标记锚点",
+    "originalText": "原文："
   },
   "search": {
     "title": "搜索",
@@ -654,7 +694,8 @@
     },
     "startReview": "开始审查",
     "reviewing": "审查中",
-    "resultsTitle": "审查结果"
+    "resultsTitle": "审查结果",
+    "compareRewrite": "对比改写"
   },
   "settings": {
     "title": "设置",
@@ -707,7 +748,11 @@
         "modelListSuccess": "已拉取 {{count}} 个模型。",
         "modelListFailed": "模型列表拉取失败：{{message}}",
         "modelSelectPlaceholder": "请选择已拉取的模型",
-        "modelManualPlaceholder": "也可手动输入模型"
+        "modelManualPlaceholder": "也可手动输入模型",
+        "failedModel": "失败模型：",
+        "customModel": "自定义模型配置",
+        "configName": "配置名称",
+        "addModelHint": "将当前输入的模型添加到已选列表，多个用逗号分隔"
       },
       "usageGuide": {
         "title": "软件使用说明",
@@ -855,7 +900,8 @@
           "customEndpointPlaceholder": "留空则使用供应商的接口地址",
           "customEndpointHint": "留空则复用当前供应商的接口地址",
           "description": "备注说明",
-          "descriptionPlaceholder": "例如：适合代码生成"
+          "descriptionPlaceholder": "例如：适合代码生成",
+          "endpointLabel": "接口："
         },
         "cursorProxy": {
           "checking": "正在检测代理状态…",
@@ -898,7 +944,8 @@
         "legacyPromptBody": "当前项目在旧版按页向量存储里有 {{count}} 条记录。新版按 chunk 索引检索质量更高,但需要一次性重新 embed。点击\"重新索引全部页面\"完成升级。",
         "dropLegacy": "删除旧版索引",
         "dropLegacyDone": "旧版索引已删除。",
-        "testSuccessWithDimensions": "嵌入模型测试成功：{{model}}（{{dimensions}}维）"
+        "testSuccessWithDimensions": "嵌入模型测试成功：{{model}}（{{dimensions}}维）",
+        "siliconHint": "为什么选择硅基流动：国内访问稳定，提供 BGE 等常用向量模型，适合资料库语义搜索。"
       },
       "rerank": {
         "title": "重排/Reranker模型",
@@ -920,7 +967,8 @@
         "model": "模型",
         "modelPlaceholder": "输入重排模型 ID",
         "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。",
-        "testSuccessUsingMainModel": "已通过主模型完成重排测试：{{model}}"
+        "testSuccessUsingMainModel": "已通过主模型完成重排测试：{{model}}",
+        "siliconHint": "为什么选择硅基流动：国内访问稳定，模型列表完整，适合配置轻量重排模型降低成本。"
       },
       "multimodal": {
         "title": "图片描述",
@@ -1035,7 +1083,8 @@
         "title": "界面",
         "description": "界面语言和外观样式。切换后立即生效并持久化。",
         "uiLanguage": "UI 语言",
-        "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。"
+        "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。",
+        "fontSize": "界面字号"
       },
       "novel": {
         "title": "小说",
@@ -1072,7 +1121,32 @@
           "empty": "暂无写作偏好，添加一条开始个性化。",
           "preset": "偏好类型",
           "title": "写作偏好",
-          "value": "取值"
+          "value": "取值",
+          "boostHint": "1 加强，",
+          "presets": {
+            "factsWeight": "事实一致性权重",
+            "factsWeightHint": "0–1 数值，越高越重视事实一致性",
+            "plotWeight": "情节权重",
+            "plotWeightHint": "0–1 数值，越高越重视情节",
+            "characterWeight": "人物权重",
+            "characterWeightHint": "0–1 数值，越高越重视人物",
+            "pacingWeight": "节奏权重",
+            "pacingWeightHint": "0–1 数值，越高越重视节奏",
+            "continuityWeight": "连续性权重",
+            "continuityWeightHint": "0–1 数值，越高越重视连续性",
+            "pullWeight": "拉力权重",
+            "pullWeightHint": "0–1 数值，越高越重视阅读拉力",
+            "vocabBoost": "词汇增强系数",
+            "sentenceBoost": "句式增强系数",
+            "narrativeBoost": "叙事增强系数",
+            "rhythmBoost": "节奏增强系数",
+            "dialogBoost": "对白增强系数",
+            "psychBoost": "心理描写增强系数",
+            "sceneBoost": "场景增强系数",
+            "boostHint": ">1 加强，<1 减弱",
+            "avoidWords": "避用词",
+            "avoidWordsHint": "逗号分隔，生成时禁用"
+          }
         }
       },
       "maintenance": {
@@ -1167,7 +1241,10 @@
       },
       "changelog": {
         "title": "版本更新",
-        "description": "这里展示当前版本值得关注的变化。"
+        "description": "这里展示当前版本值得关注的变化。",
+        "downloading": "正在下载更新...",
+        "history": "版本历史",
+        "current": "\\u2190 当前版本"
       },
       "about": {
         "title": "关于",
@@ -1230,6 +1307,16 @@
       },
       "budgetTokens": "思考预算",
       "budgetHint": "设定每次请求的思考 token 上限"
+    },
+    "feedback": {
+      "title": "反馈与建议",
+      "type": "反馈类型",
+      "feature": "功能建议",
+      "bug": "问题反馈",
+      "content": "反馈内容",
+      "contentPlaceholder": "请尽量描述你遇到的问题、期望的效果，或者建议的使用场景。",
+      "contact": "联系方式（选填）",
+      "contactPlaceholder": "邮箱、微信或其他联系方式"
     }
   },
   "preview": {
@@ -1248,7 +1335,9 @@
     "snapshotTitle": "查看本章已提取的结构化记忆，包括摘要、人物、事件、伏笔、时间线等",
     "cognitionTitle": "查看当前剧情进度下，各角色知道什么、不知道什么，防止信息穿帮",
     "close": "关闭预览",
-    "loading": "正在加载..."
+    "loading": "正在加载...",
+    "moreActions": "更多功能",
+    "viewSnapshotDetail": "查看该大纲提取的快照详情"
   },
   "trash": {
     "title": "回收站",
@@ -1262,7 +1351,8 @@
     "kindHistory": "历史记录",
     "restoreTitle": "恢复到原位置；如原位置已有同名文件，会自动改名恢复",
     "deletedItem": "已删除项目",
-    "originalPath": "原路径"
+    "originalPath": "原路径",
+    "deleteForever": "永久删除"
   },
   "knowledgeTree": {
     "noProject": "未打开项目",
@@ -1284,7 +1374,9 @@
     "deletingTitle": "正在移入回收站：{{name}}…",
     "confirmDeleteTitle": "再次点击确认移入回收站：{{name}}",
     "confirmDelete": "确认",
-    "deleteTitle": "移入回收站：{{name}}"
+    "deleteTitle": "移入回收站：{{name}}",
+    "extracting": "提取中",
+    "noTasks": "暂无提取任务"
   },
   "activity": {
     "fsKind": {
@@ -1440,7 +1532,29 @@
     },
     "nodeTypeFilterLabel": "节点类型",
     "riskStateFilterLabel": "状态",
-    "sortByLabel": "排序方式"
+    "sortByLabel": "排序方式",
+    "relationNetwork": "关系网络",
+    "weight": "权重",
+    "docTitle": "小说图谱文档",
+    "docHint": "本文档由当前小说档案页自动生成；需要长期生效的修改，可在对应节点段落内直接编辑真实档案页。",
+    "noRisks": "当前分类暂无待处理风险项。",
+    "searchPlaceholder": "搜索节点标题或来源路径",
+    "riskQuickFilter": "风险快捷筛选",
+    "relationSummary": "关系摘要",
+    "noRelationSummary": "暂无可用于写作参考的关系摘要。",
+    "relatedEvents": "相关事件",
+    "statusHistory": "状态变更记录",
+    "techInfo": "技术信息",
+    "basicInfo": "基础信息",
+    "relatedObject": "关联对象",
+    "direction": "方向",
+    "displayMode": "显示模式",
+    "colorMode": "颜色模式",
+    "labelDisplayOpt": "标签显示",
+    "lineStyle": "线型",
+    "curveAvoid": "曲线避让",
+    "arrow": "箭头",
+    "lineAvoid": "直线避让"
   },
   "time": {
     "justNow": "刚刚",
@@ -1711,7 +1825,58 @@
       "customSoul": "自定义灵魂",
       "newCustomSoul": "+ 新建角色灵魂",
       "noCustomSoul": "暂无自定义灵魂",
-      "bindCharacterLabel": "绑定小说人物"
+      "bindCharacterLabel": "绑定小说人物",
+      "deaiSkill": "去AI味Skill",
+      "personCategory": "人物分类",
+      "generatePrompt": "生成提示词",
+      "auraNote": "气质说明",
+      "soulSummary": "灵魂摘要",
+      "howSpeak": "怎么说话 / 表达特征",
+      "howThink": "怎么想 / 心智模型",
+      "howDecide": "怎么判断 / 决策启发式",
+      "howRefuse": "什么不做 / 价值观反模式",
+      "howLimit": "知道局限 / 诚实边界",
+      "webSourceUrl": "网页资料地址",
+      "localDocPath": "本地文档路径",
+      "deaiGlobalHint": "自定义去AI味规则，应用到全局",
+      "boundCharacters": "已绑定人物",
+      "novelCharacters": "小说人物",
+      "bindSoul": "绑定角色灵魂",
+      "noBoundSoul": "还没有人物绑定角色灵魂",
+      "createFirstHint": "点击上方“新建角色灵魂”后，再填写资料并生成。",
+      "bindHint": "从小说人物下拉框中选择要绑定的人物，绑定后也可以直接取消。",
+      "addCharacterFirst": "请先在人物小传或实体页中添加小说人物",
+      "aliasLabel": "角色别名/昵称（可选，用逗号分隔）",
+      "aliasPlaceholder": "例如：小林, 烬哥, 林公子",
+      "aliasHint": "绑定后，任务描述或初稿正文中出现别名时也会命中该角色的灵魂设定。",
+      "currentBound": "当前灵魂已绑定人物",
+      "currentUnbound": "当前灵魂还没有绑定任何小说人物。",
+      "injectPreview": "灵魂注入预览",
+      "previewHint": "输入本次写作任务，预览会进入上下文包的角色灵魂内容。只有任务中出现已绑定人物名时，灵魂才会注入。",
+      "taskLabel": "写作任务",
+      "taskPlaceholder": "例如：写林烬进入皇城，与太子第一次交锋",
+      "building": "正在构建灵魂上下文…",
+      "folder": "灵魂文件夹",
+      "aiSearch": "AI 搜索",
+      "docPreview": "灵魂文档预览",
+      "readingDoc": "正在读取灵魂文档。",
+      "noDoc": "暂无灵魂文档。",
+      "researchFiles": "研究文件",
+      "readingResearch": "正在读取研究文件。",
+      "noResearch": "暂无研究文件。",
+      "backToPreview": "返回预览",
+      "basicSettings": "基础设置",
+      "generateSettings": "生成设置",
+      "enableAiSearch": "开启 AI 搜索",
+      "flowPreview": "生成流程预览",
+      "currentInfo": "当前灵魂信息",
+      "editHint": "这里编辑当前自定义灵魂已经生成的人物信息，保存后会同步更新预览内容。",
+      "sourceSummary": "资料文本 / 来源摘要",
+      "sourceIndex": "资料来源索引",
+      "sourceMaintainHint": "如果你要补充或修正网页资料、本地文档来源，也可以在这里一起维护。",
+      "importSettings": "资料导入设置",
+      "importHint": "只需要提供资料，系统会自动读取本地文档、抓取网页正文，并尝试用当前模型蒸馏表达特征、心智模型、决策启发式和边界说明；读取或模型失败时会记录降级说明，不阻断生成。",
+      "sourceText": "资料文本"
     },
     "app": {
       "title": "Niko Buddy",
@@ -1971,7 +2136,9 @@
         "epic": "超长篇（200万字以上）"
       },
       "multiAgent": "用多智能体协作生成",
-      "multiAgentHint": "子智能体分工并行，失败自动回退单智能体"
+      "multiAgentHint": "子智能体分工并行，失败自动回退单智能体",
+      "selectedOutline": "选中大纲文件",
+      "selectedChapters": "选中章节（最近10章）"
     },
     "graph": {
       "title": "小说图谱",
@@ -2127,7 +2294,8 @@
       "copy": "复制 Prompt",
       "copied": "已复制",
       "hint": "纯客户端一次性产出：不调用 AI、不进入草稿流程。可粘贴到任意文生图工具。",
-      "emptyTemplates": "暂无平台模板（config/cover-platform-templates.json 为空或格式错误）"
+      "emptyTemplates": "暂无平台模板（config/cover-platform-templates.json 为空或格式错误）",
+      "brief": "结构化封面契约（cover-brief）"
     },
     "foreshadowing": {
       "title": "伏笔管理",
@@ -2285,7 +2453,18 @@
       "memorySyncedAt": "上次同步记忆：{{time}}",
       "notSynced": "尚未同步到小说记忆",
       "syncMemorySuccess": "已同步到小说记忆，后续上下文将读取更新后的记忆内容。已更新 {{count}} 个实体页。",
-      "syncMemoryFailed": "同步失败：{{message}}"
+      "syncMemoryFailed": "同步失败：{{message}}",
+      "graphRelationEdges": "图谱关系边",
+      "lineHint": "每行一条，可删除、修改或新增",
+      "povOptional": "本章 POV 角色（可选）",
+      "povPlaceholder": "填写本章视角角色的主名（如：白砚）；留空表示无 POV 声明",
+      "compareHint": "对比该历史版本与当前快照的内容差异（只读）。",
+      "compareCurrent": "对比当前版本",
+      "closeCompare": "关闭对比",
+      "pov": "本章 POV 角色",
+      "historyHint": "查看保存快照前自动备份的历史版本，可恢复旧快照但不会自动同步记忆。",
+      "history": "历史版本",
+      "noHistory": "暂无历史版本。保存快照时会自动备份旧版本。"
     },
     "memoryCenter": {
       "title": "记忆中心",
@@ -2424,7 +2603,9 @@
       "emptyResult": "没有找到可导入的大纲文档。",
       "importFilesTitle": "导入大纲文件",
       "importFolderTitle": "导入大纲文件夹",
-      "importFailed": "导入失败：{{message}}"
+      "importFailed": "导入失败：{{message}}",
+      "noHistory": "暂无历史搜索",
+      "extractMemory": "是否提取记忆"
     },
     "planning": {
       "chaptersSince": "已 {{n}} 章未推进",
@@ -2459,6 +2640,94 @@
     },
     "preview": {
       "closePreview": "关闭预览"
+    },
+    "characterWorkstation": "角色工作台",
+    "characterStationSwitch": "角色工位切换",
+    "extractDone": "提取完成",
+    "analyzing": "正在分析中",
+    "quickSelect": "快捷选择：",
+    "selectedCount": "已选择：",
+    "totalChars": "总字数：",
+    "charUnit": "字",
+    "noChaptersToAnalyze": "暂无章节可分析",
+    "closeCharacterWorkstation": "关闭角色工作台",
+    "searchCharacterName": "搜索角色名",
+    "sortByImportance": "按重要度",
+    "sortByAppearances": "按出场次数",
+    "noMatchingCharacter": "无匹配角色",
+    "backToChapter": "返回章节",
+    "characterSplitWorkstation": "角色分离工作台",
+    "noStationToSwitch": "无角色工位可切换",
+    "draftByCharacter": "草稿（按角色隔离）",
+    "replay": {
+      "zoneSources": "① 检索源 —— 本次入选的页 / chunk",
+      "zoneGates": "② 门控结果（consistency / anti-ai）",
+      "zoneAssembly": "③ 最终组装节选",
+      "noAssembly": "无组装节选内容。",
+      "gaps": "压缩/截断/加载失败 (gaps)"
+    },
+    "openProjectFirst": "请先打开小说项目。",
+    "dismantle": {
+      "title": "拆文库 · 独立拆文记忆库",
+      "isolation": "— 拆文结果独立保存，不会写入小说记忆、章节记忆或大纲记忆。",
+      "selectHint": "请从左侧选择拆文作品",
+      "workDetail": "作品详情",
+      "referenceHint": "在 AI 会话写作时参考当前拆文作品的结构记忆。",
+      "learnScope": "只学习节奏、冲突推进、爽点安排和章节钩子；不得复用原作人物、设定、剧情和具体表达。",
+      "webAnalysis": "网页热门分析",
+      "webPlaceholder": "例如：搜索番茄都市脑洞热门开篇套路；或粘贴需要分析的网页地址",
+      "splitChapters": "拆分章节",
+      "splitHint": "AI 会按导入内容自动拆分或识别章节结构，请选择本次要拆文的章节范围。",
+      "perBatch": "每批",
+      "emptyHint": "选择作品后，拆文结果将显示在此处。",
+      "result": "拆文结果",
+      "resultScope": "这里只展示拆文输出与结构记忆，不写入小说正文、大纲或小说记忆。",
+      "structuralMemory": "结构记忆",
+      "structuralHint": "拆文完成后，这里会显示可供 AI 引用的结构记忆。",
+      "noResult": "还没有拆文结果。"
+    },
+    "gateEvidence": "门控证据",
+    "replayable": "可重放",
+    "kbHealth": "KB 健康面板",
+    "kbHealthMetrics": "6 项核心指标（只读）",
+    "kbRebuild": "重建过程库（按快照重放重建漂移的真相文件）",
+    "subgates": "子门与告警",
+    "wishDriveTitle": "卡文引导 · 愿望驱动",
+    "wishNoCraft": "尚未摄取主角技法字段。",
+    "wishIngestFirst": "先完成技法摄取（entities.wish/motive/arc_stage），再进入卡文引导。",
+    "wishAssemblyBlocked": "A-22.6 装配校验未通过 —— 卡文引导入口关闭",
+    "wishAssembledCraft": "装配的技法字段",
+    "wishAssembledList": "装配的愿望清单（wish）",
+    "wishMotive": "动机（motive）：",
+    "wishActionEvidence": "行动证据（wma_action）：",
+    "wishQuestionQueue": "卡文引导问题序列",
+    "outlineNewChat": "新建大纲对话",
+    "outlineAskPlaceholder": "输入关于大纲的问题...",
+    "deai": {
+      "grade1A": "1A 高权重",
+      "grade1B": "1B 低权重",
+      "grade3": "3 弱提示",
+      "fillAll": "全部回填",
+      "fillBack": "回填",
+      "abort": "中止",
+      "preview": "去AI味预览",
+      "saveDraft": "另存草稿",
+      "replaceBody": "替换正文",
+      "rulePlaceholder": "在此输入你的去AI味规则...",
+      "usageTips": "使用提示：",
+      "tipSave": "编辑规则后点击\"保存\"，将自动应用到所有去AI味功能",
+      "tipDefault": "系统默认使用 de-AI-writing skill（保真改写，适合网络小说）",
+      "tipMultiline": "支持多行文本，可以使用分点、分段的形式组织规则",
+      "tipFile": "规则会保存为项目根目录下的 de-ai-skill.txt 文件（优先级最高）",
+      "tipFullSystem": "完整skill系统位于软件安装目录的 skills/ 文件夹，包含 references/ 详细规则",
+      "signalWarning": "信号非证据 · 误报率 &gt;60%",
+      "allGrades": "全部分级",
+      "searchPlaceholder": "搜索词/分类/建议...",
+      "term": "词/短语",
+      "grade": "分级",
+      "rewriteSuggestion": "改写建议",
+      "gradeNote": "分级说明：",
+      "fallbackNote": "保留 de-ai-skill.txt 兜底通道（自由文本标签）"
     }
   },
   "storySimulation": {
@@ -2839,7 +3108,8 @@
       "source": "来源",
       "category": "分类",
       "note": "笔记"
-    }
+    },
+    "more": "更多"
   },
   "canon": {
     "common": {
@@ -2858,7 +3128,8 @@
       "emptyNoPov": "请先选择 POV 角色。",
       "pagePrev": "上一页",
       "pageNext": "下一页",
-      "pageInfo": "第 {{page}} / {{pages}} 页 · 共 {{total}} 条"
+      "pageInfo": "第 {{page}} / {{pages}} 页 · 共 {{total}} 条",
+      "canonTitle": "canon 已知事实（POV 视角）"
     },
     "revisionViewer": {
       "title": "修订历史",
@@ -2866,7 +3137,8 @@
       "noStampGroup": "旧数据（无 revision 戳）",
       "groupLabel": "revision {{rev}}",
       "empty": "暂无修订记录。",
-      "factCount": "{{count}} 条边"
+      "factCount": "{{count}} 条边",
+      "canonTitle": "canon 修订历史"
     },
     "revisionDiff": {
       "title": "修订对比",
@@ -2883,7 +3155,18 @@
       "removed": "移除",
       "empty": "所选 revision 间无差异。",
       "pairArrow": "{{before}} → {{after}}"
-    }
+    },
+    "filter": "canon 过滤器",
+    "filterPlaceholder": "如：主角 / POV id",
+    "edgeList": "canon 事实边列表",
+    "edge": "事实边",
+    "predicate": "谓词",
+    "category": "类别",
+    "actions": "操作",
+    "cognitionPanel": "认知轴校正面板",
+    "emptyUnknown": "（空 — 无人知晓）",
+    "addKnownByPlaceholder": "新增知晓 POV（限白名单）",
+    "revealedAtHint": "revealed_at（向 known_by 揭示的章节；留空=未登记）"
   },
   "errorBoundary": {
     "title": "出错了",
@@ -2895,7 +3178,60 @@
       "empty": "暂无拆书版本",
       "count": "共 {{count}} 个版本",
       "view": "查看"
-    }
+    },
+    "title": "拆书作品",
+    "personality": "性格",
+    "speakingStyle": "说话风格",
+    "motivation": "动机",
+    "behaviorPattern": "行为模式",
+    "representativeLine": "代表性台词",
+    "workStyle": "作品文风",
+    "representativeExcerpt": "代表原文样本",
+    "activeContextTitle": "当前 AI 会话约束",
+    "activeContextHint": "显示当前项目生成时实际生效的拆书资源。",
+    "noStyleEnabled": "当前未启用拆书文风。",
+    "noCharacterBound": "当前没有小说人物绑定拆书角色 Skill。",
+    "library": "作品库",
+    "characterSkill": "角色 Skill",
+    "characterSkillHint": "选择角色 Skill 加入自定义灵魂库。",
+    "noCharacterData": "暂无角色数据。",
+    "skillPreview": "Skill 内容预览",
+    "selectCharacterHint": "请从左侧选择角色。",
+    "selectNovelFile": "选择小说文件",
+    "selectTxtHint": "点击右侧按钮选择TXT文件...",
+    "afterImport": "导入后可进行：",
+    "capabilityChapters": "自动识别章节，可选择需要分析的章节范围",
+    "capabilityCharacters": "提取小说中的所有角色及其性格特征",
+    "capabilitySkills": "为每个角色生成可复用的 Skill 技能",
+    "capabilityLibrary": "将角色添加到自定义灵魂库，绑定到自己的作品中",
+    "start": "开始拆书",
+    "libraryManageHint": "管理作品文风、角色 Skill 和小说人物绑定。",
+    "noWorks": "还没有拆书作品",
+    "noWorksHint": "导入 TXT 小说后，可以提取角色 Skill 和作品文风。",
+    "importNovel": "导入小说",
+    "resultLoadFailed": "分析结果加载失败",
+    "result": "分析结果",
+    "extractMethod": "选择提取方式",
+    "styleConstitution": "风格宪法",
+    "characterDescription": "角色描述",
+    "personalityTraits": "性格特征",
+    "speakingManner": "说话方式",
+    "firstAppearance": "首次出现：",
+    "lastAppearance": "最后出现：",
+    "appearanceCount": "出现次数：",
+    "importance": "重要性：",
+    "singleCharacterRetry": "单角色重提",
+    "enabled": "已启用",
+    "styleConstitutionInjected": "风格宪法（注入生成）",
+    "uploadNovel": "上传小说文件",
+    "uploadHint": "支持TXT格式，自动识别章节（可能包含500-1000章）",
+    "selectScope": "选择分析范围",
+    "scopeHint": "勾选需要分析的章节，支持全选或选择特定范围",
+    "extractSkills": "提取角色与生成Skill",
+    "extractSkillsHint": "全面分析角色信息，生成可复用技能，添加到自定义灵魂",
+    "heuristicDetecting": "正在启发式识别角色...",
+    "llmScoring": "正在用 LLM 评分角色重要度...",
+    "deleteWork": "删除作品"
   },
   "directorPanel": {
     "title": "开书导演",
@@ -3133,17 +3469,32 @@
       "statHookTypes": "钩子类型",
       "statSnapshotVersion": "快照版本",
       "hookRegistry": "钩子类型注册表",
-      "packDetails": "规则包详情 ({{n}} 包)"
+      "packDetails": "规则包详情 ({{n}} 包)",
+      "params": "参数"
     },
     "thrillDashboard": {
       "chartFailed": "图表加载失败，请确认 echarts 依赖已安装",
       "noData": "暂无爽点量化数据，请先运行爽点量化",
       "title": "爽点仪表盘",
-      "titleWithChapter": "爽点仪表盘 — {{title}}"
-    }
+      "titleWithChapter": "爽点仪表盘 — {{title}}",
+      "totalPayoffs": "爽点总数",
+      "open": "开放 (延宕)",
+      "closed": "已闭环 (疏解)",
+      "tensionRatio": "张弛比 (open/closed)",
+      "beatType": "Beat 类型",
+      "rawIntensity": "原始强度",
+      "weightedIntensity": "加权强度",
+      "position": "位置 (%)",
+      "closeLoop": "闭环",
+      "arcId": "弧光 ID"
+    },
+    "tensionCurve": "张力曲线：原始与平滑双列",
+    "beatChart": "Beat 强度柱状图",
+    "sixDimRadar": "六维雷达图"
   },
   "mermaid": {
-    "syntaxError": "Mermaid 语法错误"
+    "syntaxError": "Mermaid 语法错误",
+    "zoomIn": "放大图表（Esc 关闭）"
   },
   "dataManager": {
     "title": "数据管理",
@@ -3265,5 +3616,37 @@
       "exportCenter": "导出中心",
       "exportCenterDesc": "统一导出全部格式与场景"
     }
+  },
+  "skillLibrary": {
+    "ruleBody": "规则正文",
+    "writingSkill": "写作 Skill",
+    "description": "说明",
+    "unsaved": "未保存",
+    "uncategorized": "未分类",
+    "readingSkills": "正在读取技能...",
+    "noFavorites": "暂无收藏的技能",
+    "favoriteHint": "点击技能卡片上的星标按钮即可收藏",
+    "searchFavorites": "搜索收藏的技能...",
+    "manageHint": "管理当前项目可用的去AI味技能。",
+    "deaiSkill": "去AI味技能",
+    "default": "默认",
+    "editHint": "编辑当前选中的去AI味 Skill 内容。",
+    "noSkills": "暂无技能。",
+    "skillName": "技能名称",
+    "unifiedHint": "统一检索写作 Skill 和去AI味技能。",
+    "searchPlaceholder": "搜索技能名称、说明或规则",
+    "writingManageHint": "管理 AI 会话自动使用的写作方法。",
+    "recentlyUsed": "最近使用",
+    "categoryPlaceholder": "输入分类名称",
+    "writing": "写作",
+    "writingEditHint": "编辑 AI 会话会自动选择的通用写作 Skill。",
+    "projectWritingSkill": "项目写作 Skill",
+    "skillNameLabel": "Skill 名称",
+    "stage": "阶段",
+    "mode": "模式",
+    "priority": "优先级（1-100，越小越优先）",
+    "tagPlaceholder": "输入标签后按回车添加",
+    "refPath": "引用路径：",
+    "importPack": "导入技能包（.zip）"
   }
 }

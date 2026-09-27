@@ -24,8 +24,9 @@ describe("chat-panel exemplar UI (TASK-005 / EPIC-001 / ADR-29)", () => {
     expect(source).toContain("loadCognitionState")
   })
 
-  it("has a '标记为 Style Exemplar' trigger button (novelMode footer control)", () => {
-    expect(source).toContain("标记为 Style Exemplar")
+  it("has markExemplar trigger button (i18n key chat.markExemplar → 标记为 Style Exemplar)", () => {
+    // P1 i18n：按钮文案已 key 化，源码中断言 key；zh 值一致性由 key-coverage 守卫
+    expect(source).toContain('t("chat.markExemplar")')
     expect(source).toContain("openExemplarDialogFromSelection")
   })
 

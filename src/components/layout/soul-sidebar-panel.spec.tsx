@@ -16,6 +16,16 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { SoulSidebarPanel } from "./soul-sidebar-panel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -49,7 +59,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     state,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     listCharacterAuras: vi.fn<(projectPath: string) => Promise<CharacterAura[]>>(async () => []),
     getCharacterAuraBindings: vi.fn<(projectPath: string) => Promise<CharacterAuraBinding[]>>(async () => []),
     bindCharacterAura: vi.fn<
@@ -165,9 +175,9 @@ describe("SoulSidebarPanel", () => {
     mocks.state.project = null
     render(<SoulSidebarPanel />)
     expect(mocks.listCharacterAuras).not.toHaveBeenCalled()
-    expect(screen.getByText("novel.soul.projectSoul")).toBeInTheDocument()
+    expect(screen.getByText("项目灵魂")).toBeInTheDocument()
     expect(screen.getByText("还没有人物绑定角色灵魂")).toBeInTheDocument()
-    expect(screen.getByText("novel.soul.characterSoul")).toBeInTheDocument()
+    expect(screen.getByText("角色灵魂")).toBeInTheDocument()
   })
 
   it("有项目时加载 auras 与 bindings 并渲染绑定列表", async () => {
@@ -313,7 +323,7 @@ describe("SoulSidebarPanel", () => {
   it("项目 tab：project-soul / de-ai-skill 选中态与点击", async () => {
     mocks.state.selectedSoulId = "project-soul"
     const { rerender } = render(<SoulSidebarPanel />)
-    const projectBtn = screen.getByText("novel.soul.projectSoulItem").closest("button") as HTMLElement
+    const projectBtn = screen.getByText("项目灵魂文档").closest("button") as HTMLElement
     expect(String(projectBtn.className)).toContain("qm-selected")
     fireEvent.click(screen.getByText("去AI味Skill"))
     expect(mocks.state.selectedSoulId).toBe("de-ai-skill")
@@ -322,7 +332,7 @@ describe("SoulSidebarPanel", () => {
     expect(String(deAiBtn.className)).toContain("qm-selected")
 
     // 回到 project tab 并点击 project-soul 条目（覆盖 onClick 与未选中态样式）
-    fireEvent.click(screen.getByText("novel.soul.projectSoul"))
+    fireEvent.click(screen.getByText("项目灵魂"))
     expect(mocks.state.selectedSoulTab).toBe("project")
     rerender(<SoulSidebarPanel />)
     fireEvent.click(projectBtn)
@@ -333,16 +343,16 @@ describe("SoulSidebarPanel", () => {
 
   it("切换 tab：人物灵魂 → 角色面板；builtIn/custom 分节", async () => {
     const { rerender } = render(<SoulSidebarPanel />)
-    fireEvent.click(screen.getByText("novel.soul.characterSoul"))
+    fireEvent.click(screen.getByText("角色灵魂"))
     expect(mocks.state.selectedSoulTab).toBe("character")
     rerender(<SoulSidebarPanel />)
     // 分节按钮存在（builtIn 为当前分节）
     const builtInBtn = screen
-      .getAllByText("novel.soul.builtInSoul")
+      .getAllByText("内置灵魂")
       .find((el) => el.tagName === "BUTTON") as HTMLElement
     expect(builtInBtn).toBeDefined()
     const customBtn = screen
-      .getAllByText("novel.soul.customSoul")
+      .getAllByText("自定义灵魂")
       .find((el) => el.tagName === "BUTTON") as HTMLElement
     fireEvent.click(customBtn)
     expect(mocks.state.selectedSoulSection).toBe("custom")
@@ -352,10 +362,10 @@ describe("SoulSidebarPanel", () => {
       expect(screen.getByText("自定义魂")).toBeInTheDocument()
     })
     // 无 category 的自定义 aura → fallback t("novel.soul.customSoul")
-    expect(screen.getAllByText("novel.soul.customSoul").length).toBe(2)
-    expect(screen.getByText("novel.soul.newCustomSoul")).toBeInTheDocument()
+    expect(screen.getAllByText("自定义灵魂").length).toBe(2)
+    expect(screen.getByText("+ 新建角色灵魂")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText("novel.soul.newCustomSoul"))
+    fireEvent.click(screen.getByText("+ 新建角色灵魂"))
     expect(mocks.state.selectedSoulId).toBe("new-custom-soul")
 
     // 切回 builtIn：有 category 显示真实分类，无 category 回退 t
@@ -364,7 +374,7 @@ describe("SoulSidebarPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("历史帝王")).toBeInTheDocument()
     })
-    expect(screen.getAllByText("novel.soul.builtInSoul").length).toBe(2)
+    expect(screen.getAllByText("内置灵魂").length).toBe(2)
   })
 
   it("custom 分节无自定义 aura → 空状态提示", async () => {
@@ -373,7 +383,7 @@ describe("SoulSidebarPanel", () => {
     mocks.listCharacterAuras.mockResolvedValue(LOADED_AURAS.filter((a) => a.builtIn))
     render(<SoulSidebarPanel />)
     await waitFor(() => {
-      expect(screen.getByText("novel.soul.noCustomSoul")).toBeInTheDocument()
+      expect(screen.getByText("暂无自定义灵魂")).toBeInTheDocument()
     })
   })
 
@@ -412,7 +422,7 @@ describe("SoulSidebarPanel", () => {
     })
     expect(screen.queryByText("分页魂01")).not.toBeInTheDocument()
     // 切回内置分节：2 条内置 → 分页控件自动隐藏
-    const builtInBtn = screen.getAllByText("novel.soul.builtInSoul").find((el) => el.tagName === "BUTTON") as HTMLElement
+    const builtInBtn = screen.getAllByText("内置灵魂").find((el) => el.tagName === "BUTTON") as HTMLElement
     fireEvent.click(builtInBtn)
     rerender(<SoulSidebarPanel />)
     await waitFor(() => {
@@ -420,7 +430,7 @@ describe("SoulSidebarPanel", () => {
     })
     expect(screen.queryByTestId("pagination")).not.toBeInTheDocument()
     // 切回 custom 分节 → 页码重置回第 1 页
-    const customBtn = screen.getAllByText("novel.soul.customSoul").find((el) => el.tagName === "BUTTON") as HTMLElement
+    const customBtn = screen.getAllByText("自定义灵魂").find((el) => el.tagName === "BUTTON") as HTMLElement
     fireEvent.click(customBtn)
     rerender(<SoulSidebarPanel />)
     await waitFor(() => {

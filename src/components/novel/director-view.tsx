@@ -181,8 +181,8 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         </p>
         {/* J05-04/F-010：LLM 不可用时，开书管线 CTA 禁用 + 本地写作分流 */}
         {llmBlocked ? (
-          <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4" data-testid="director-llm-blocked">
-            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4" data-testid="director-llm-blocked">
+            <p className="text-sm font-medium text-warning dark:text-warning">
               {llmHealth.label}
             </p>
             <p className="text-center text-xs text-muted-foreground">
@@ -227,9 +227,9 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
       {/* J05-04/F-010：LLM 不可用时顶部横幅——承诺兑现：本地写作可继续，AI 管线受限 */}
       {llmBlocked && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3" data-testid="director-llm-blocked-banner">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3" data-testid="director-llm-blocked-banner">
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-amber-600 dark:text-amber-400">●</span>
+            <span className="text-warning dark:text-warning">●</span>
             <span className="font-medium">{llmHealth.label}</span>
             <span className="text-xs text-muted-foreground">
               {t("directorPanel.llmBlockedBanner", { defaultValue: "AI 开书与章节生成受限，本地写作仍可用" })}

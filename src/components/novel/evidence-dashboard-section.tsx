@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { EvidenceGateCards } from "@/components/novel/evidence-gate-card"
 import {
   buildDashboardEvidenceSnapshot,
@@ -36,6 +37,7 @@ export interface EvidenceDashboardSectionProps {
 }
 
 export function EvidenceDashboardSection({ projectId, ledger, deps }: EvidenceDashboardSectionProps) {
+  const { t } = useTranslation()
   const [loaded, setLoaded] = useState<RunEventLedger | null>(ledger ?? null)
   const [loadedDeps, setLoadedDeps] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -82,7 +84,7 @@ export function EvidenceDashboardSection({ projectId, ledger, deps }: EvidenceDa
 
   return (
     <section className="rounded-lg border p-4" data-testid="evidence-dashboard-section">
-      <h3 className="mb-2 text-sm font-semibold">门控证据</h3>
+      <h3 className="mb-2 text-sm font-semibold">{t("novel.gateEvidence")}</h3>
       {loadedDeps ? (
         failed ? (
           <>

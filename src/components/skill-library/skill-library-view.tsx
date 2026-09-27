@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { createBlankProjectDeAiSkill, deleteProjectDeAiSkill, getAllDeAiSkills, isDeAiSkillConfigCorruptError, loadDeAiSkillConfig, recreateDeAiSkillConfig, resetBuiltInDeAiSkill, restoreDeAiSkillConfigFromBackup, saveDeAiSkillConfig, setDeAiSkillEnabled, setDefaultDeAiSkill, updateDeAiSkill, deAiSkillToUserSkill, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
 import type { DeAiSkill, DeAiSkillConfig } from "@/lib/novel"
 import { confirmDiscardSkillLibraryDraft, useWikiStore } from "@/stores/wiki-store"
@@ -71,6 +72,7 @@ function useSkillLibraryConfig(
 }
 
 export function SkillLibrarySidebarPanel() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -131,11 +133,11 @@ export function SkillLibrarySidebarPanel() {
     <div data-testid="skill-library-sidebar" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-3 py-2">
         <h1 className="text-sm font-semibold">技能库</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">管理当前项目可用的去AI味技能。</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("skillLibrary.manageHint")}</p>
       </div>
 
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-medium">去AI味技能</div>
+        <div className="text-sm font-medium">{t("skillLibrary.deaiSkill")}</div>
         <button
           type="button"
           onClick={() => void handleCreateSkill()}
@@ -162,16 +164,8 @@ export function SkillLibrarySidebarPanel() {
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div
-                role="button"
-                tabIndex={0}
+              <button type="button"
                 onClick={() => setSelectedSkillId(skill.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    setSelectedSkillId(skill.id)
-                  }
-                }}
                 className="cursor-pointer"
               >
                 <div className="flex items-center gap-2">
@@ -180,11 +174,11 @@ export function SkillLibrarySidebarPanel() {
                     {sourceLabel(skill)}
                   </span>
                   {config?.defaultSkillId === skill.id ? (
-                    <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">默认</span>
+                    <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">{t("skillLibrary.default")}</span>
                   ) : null}
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description}</div>
-              </div>
+              </button>
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
@@ -204,6 +198,7 @@ export function SkillLibrarySidebarPanel() {
 }
 
 export function SkillLibraryView() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -398,7 +393,7 @@ export function SkillLibraryView() {
     <div data-testid="skill-library-view" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-5 py-4">
         <h1 className="text-lg font-semibold">技能库</h1>
-        <p className="mt-1 text-sm text-muted-foreground">编辑当前选中的去AI味 Skill 内容。</p>
+        <p className="mt-1 text-sm text-muted-foreground">{t("skillLibrary.editHint")}</p>
         {!project ? <p className="mt-1 text-sm text-destructive">请先打开项目</p> : null}
       </div>
 
@@ -432,7 +427,7 @@ export function SkillLibraryView() {
             </div>
           </div>
         ) : !selectedSkill ? (
-          <div className="text-sm text-muted-foreground">暂无技能。</div>
+          <div className="text-sm text-muted-foreground">{t("skillLibrary.noSkills")}</div>
         ) : (
           <div className="mx-auto flex max-w-5xl flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -491,7 +486,7 @@ export function SkillLibraryView() {
             </div>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">技能名称</span>
+              <span className="font-medium">{t("skillLibrary.skillName")}</span>
               <input
                 data-testid="skill-name-input"
                 value={draftName}
@@ -506,7 +501,7 @@ export function SkillLibraryView() {
             </label>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">说明</span>
+              <span className="font-medium">{t("skillLibrary.description")}</span>
               <input
                 data-testid="skill-description-input"
                 value={draftDescription}
@@ -521,7 +516,7 @@ export function SkillLibraryView() {
             </label>
 
             <label className="grid min-h-0 gap-1.5 text-sm">
-              <span className="font-medium">规则正文</span>
+              <span className="font-medium">{t("skillLibrary.ruleBody")}</span>
               <textarea
                 data-testid="skill-content-input"
                 value={draftContent}
@@ -557,7 +552,7 @@ export function SkillLibraryView() {
               {message ? (
                 <span className="text-sm text-muted-foreground">{message}</span>
               ) : draftDirty ? (
-                <span className="text-sm text-amber-700">未保存</span>
+                <span className="text-sm text-warning">{t("skillLibrary.unsaved")}</span>
               ) : null}
             </div>
           </div>

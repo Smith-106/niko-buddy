@@ -319,7 +319,7 @@ export function DataManagementSection() {
         {exportResult && (
           <div className="text-sm space-y-1">
             {exportResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.exportSuccess", { defaultValue: "导出成功" })}</p>
@@ -333,13 +333,13 @@ export function DataManagementSection() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{exportResult.error}</p>
               </div>
             )}
             {exportResult.warnings.length > 0 && (
-              <div className="text-yellow-600 text-xs space-y-1">
+              <div className="text-warning text-xs space-y-1">
                 {exportResult.warnings.map((w, i) => (
                   <p key={i}>⚠ {w}</p>
                 ))}
@@ -405,7 +405,7 @@ export function DataManagementSection() {
         {docxResult && (
           <div className="text-sm space-y-1">
             {docxResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.docxExportSuccess", { defaultValue: "导出成功" })}</p>
@@ -428,7 +428,7 @@ export function DataManagementSection() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{docxResult.message}</p>
               </div>
@@ -493,7 +493,7 @@ export function DataManagementSection() {
         {epubResult && (
           <div className="text-sm space-y-1">
             {epubResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.epubExportSuccess", { defaultValue: "导出成功" })}</p>
@@ -516,7 +516,7 @@ export function DataManagementSection() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{epubResult.message}</p>
               </div>
@@ -592,7 +592,7 @@ export function DataManagementSection() {
           </Button>
         </div>
         {cleanLegacyError ? (
-          <p data-testid="vector-clean-error" role="alert" className="text-xs text-red-600">
+          <p data-testid="vector-clean-error" role="alert" className="text-xs text-destructive">
             {cleanLegacyError}
           </p>
         ) : null}
@@ -654,7 +654,7 @@ export function DataManagementSection() {
         {importResult && (
           <div className="text-sm space-y-1">
             {importResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.importSuccess", { defaultValue: "导入成功，项目数据已自动刷新，部分全局配置可能需要重启生效" })}</p>
@@ -669,20 +669,20 @@ export function DataManagementSection() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{importResult.error}</p>
               </div>
             )}
             {importResult.warnings?.length > 0 && (
-              <div className="text-yellow-600 text-xs space-y-1">
+              <div className="text-warning text-xs space-y-1">
                 {importResult.warnings.map((w, i) => (
                   <p key={i}>⚠ {w}</p>
                 ))}
               </div>
             )}
             {importResult.projects?.some((p) => !p.success) && (
-              <div className="text-red-600 text-xs space-y-1">
+              <div className="text-destructive text-xs space-y-1">
                 {importResult.projects.filter((p) => !p.success).map((p, i) => (
                   <p key={i}>✗ {p.id}: {p.error}</p>
                 ))}
@@ -693,7 +693,7 @@ export function DataManagementSection() {
       </div>
 
       {/* Security warning */}
-      <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
+      <div className="rounded-lg border border-warning bg-warning p-3 text-sm text-warning dark:border-warning dark:bg-warning/30 dark:text-warning">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <p>

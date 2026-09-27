@@ -16,6 +16,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { ReviewCenterView } from "./review-center-view"
 import type { ReactNode } from "react"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 interface ReviewRunLike {
   running?: boolean
@@ -37,7 +47,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     state,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     readFile: vi.fn(async (): Promise<string> => "# 正文"),
     startSixDimensionReviewRun: vi.fn(async () => {}),
   }
@@ -154,7 +164,7 @@ describe("ReviewCenterView — 路由", () => {
     mocks.state.selectedReviewDimension = null
     render(<ReviewCenterView />)
     expect(document.querySelector("[data-dashboard-view]") as HTMLElement).toBeTruthy()
-    expect(screen.getByRole("button", { name: "reviewCenter.startReview" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "开始审稿" })).toBeTruthy()
   })
 
   it("novelMode=false → DashboardView", () => {
@@ -174,8 +184,8 @@ describe("ReviewCenterView — 路由", () => {
     render(<ReviewCenterView />)
     const view = document.querySelector("[data-review-view]") as HTMLElement
     expect(view.getAttribute("data-dimension-key")).toBe("thrill")
-    expect(view.getAttribute("data-title")).toBe("reviewCenter.dimension.thrill")
-    expect(view.getAttribute("data-empty")).toBe("reviewCenter.noResults")
+    expect(view.getAttribute("data-title")).toBe("爽感密度")
+    expect(view.getAttribute("data-empty")).toBe("暂无该维度审查结果")
   })
 
   it("每个六维 key 均通过 isSixReviewDimensionKey", () => {
@@ -199,7 +209,7 @@ describe("ReviewStartButton — 可用性", () => {
     mocks.state.project = null
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.startReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "开始审稿" }) as HTMLButtonElement
     expect(btn.hasAttribute("disabled")).toBe(true)
     expect(btn.getAttribute("title")).toBeNull()
   })
@@ -208,7 +218,7 @@ describe("ReviewStartButton — 可用性", () => {
     mocks.state.selectedReviewFilePath = ""
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.startReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "开始审稿" }) as HTMLButtonElement
     expect(btn.hasAttribute("disabled")).toBe(true)
     expect(btn.getAttribute("title")).toBe("请先在左侧选择审查章节")
   })
@@ -217,14 +227,14 @@ describe("ReviewStartButton — 可用性", () => {
     mocks.state.reviewRun = { running: true }
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.cancelReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "取消审查" }) as HTMLButtonElement
     expect(btn).toBeTruthy()
   })
 
   it("可审查时按钮可用、无提示 title", () => {
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.startReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "开始审稿" }) as HTMLButtonElement
     expect(btn.hasAttribute("disabled")).toBe(false)
     expect(btn.getAttribute("title")).toBeNull()
   })
@@ -232,7 +242,7 @@ describe("ReviewStartButton — 可用性", () => {
   it("reviewRun 为 null 时 isReviewing=false（?? 分支）", () => {
     renderDashboard()
     render(<ReviewCenterView />)
-    expect(screen.getByRole("button", { name: "reviewCenter.startReview" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "开始审稿" })).toBeTruthy()
   })
 })
 
@@ -244,7 +254,7 @@ describe("ReviewStartButton — 启动审查", () => {
   it("点击 → readFile → startSixDimensionReviewRun（fileContent/projectPath/selectedFile/t）", async () => {
     renderDashboard()
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始审稿" }))
     await waitFor(() => expect(mocks.readFile).toHaveBeenCalledWith("/p/wiki/ch1.md"))
     await waitFor(() =>
       expect(mocks.startSixDimensionReviewRun).toHaveBeenCalledWith({
@@ -261,13 +271,13 @@ describe("ReviewStartButton — 启动审查", () => {
     mocks.readFile.mockRejectedValue(new Error("read-boom"))
     renderDashboard()
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始审稿" }))
     await waitFor(() => expect(errorSpy).toHaveBeenCalledWith("[ReviewCenterView] 读取审查章节失败:", expect.any(Error)))
     expect(mocks.startSixDimensionReviewRun).not.toHaveBeenCalled()
     // 旧实现只 console.error：点「开始审查」界面无任何反应（静默失败）
     const alert = await screen.findByTestId("review-start-error")
     expect(alert.getAttribute("role")).toBe("alert")
-    expect(alert.textContent).toContain("reviewCenter.readFailed")
+    expect(alert.textContent).toContain("读取章节失败，未开始审查")
     expect(alert.textContent).toContain("read-boom")
     errorSpy.mockRestore()
   })
@@ -277,10 +287,10 @@ describe("ReviewStartButton — 启动审查", () => {
     mocks.readFile.mockRejectedValueOnce(new Error("read-boom"))
     renderDashboard()
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始审稿" }))
     await screen.findByTestId("review-start-error")
     mocks.readFile.mockResolvedValue("# 正文")
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.startReview" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始审稿" }))
     await waitFor(() => expect(mocks.startSixDimensionReviewRun).toHaveBeenCalled())
     expect(screen.queryByTestId("review-start-error")).toBeNull()
     errorSpy.mockRestore()
@@ -290,7 +300,7 @@ describe("ReviewStartButton — 启动审查", () => {
     mocks.state.project = null
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.startReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "开始审稿" }) as HTMLButtonElement
     fireEvent.click(btn)
     await act(async () => {})
     expect(mocks.readFile).not.toHaveBeenCalled()
@@ -300,7 +310,7 @@ describe("ReviewStartButton — 启动审查", () => {
     mocks.state.reviewRun = { running: true }
     renderDashboard()
     render(<ReviewCenterView />)
-    const btn = screen.getByRole("button", { name: "reviewCenter.cancelReview" }) as HTMLButtonElement
+    const btn = screen.getByRole("button", { name: "取消审查" }) as HTMLButtonElement
     fireEvent.click(btn)
     await act(async () => {})
     expect(mocks.readFile).not.toHaveBeenCalled()
@@ -316,7 +326,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("点击悬浮按钮 → 打开子面板并默认显示 corkboard tab，按钮隐藏", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
     expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
     expect(document.querySelector("[data-storyboard-toggle]")).toBeNull()
     await waitFor(() =>
@@ -327,7 +337,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("tab 切换：plotgrid / timeline 占位渲染", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
     fireEvent.click(document.querySelector('[data-storyboard-tab="plotgrid"]') as HTMLElement)
     await waitFor(() =>
       expect(document.querySelector('[data-storyboard-placeholder="plotgrid"]')).toBeTruthy(),
@@ -340,7 +350,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
     expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
     fireEvent.click(document.querySelector("[data-storyboard-close]") as HTMLElement)
     expect(document.querySelector("[data-storyboard-panel]")).toBeNull()
@@ -351,7 +361,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
     mocks.state.selectedReviewDimension = "thrill"
     render(<ReviewCenterView />)
     expect(document.querySelector("[data-review-view]")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "reviewCenter.storyboard.toggle" }))
+    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
     await waitFor(() =>
       expect(document.querySelector('[data-storyboard-placeholder="corkboard"]')).toBeTruthy(),
     )

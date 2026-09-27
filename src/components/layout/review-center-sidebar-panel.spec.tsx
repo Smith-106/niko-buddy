@@ -8,9 +8,10 @@ import { cleanup as rtlCleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
 
 const mocks = vi.hoisted(() => {
-  const t = vi.fn((key: string, opts?: Record<string, unknown>) =>
-    opts ? `${key}::${JSON.stringify(opts)}` : key,
-  )
+  const t = vi.fn((key: string, opts?: Record<string, unknown>) => {
+    const base = lookupZhLocale(key) ?? key
+    return opts ? `${base}::${JSON.stringify(opts)}` : base
+  })
   return {
     t,
     // ---- wiki store state ----
@@ -138,6 +139,16 @@ vi.mock("@/lib/novel/outline-thrill-checkpoints", async (importOriginal) => {
 })
 
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const PROJECT = { id: "p1", name: "Novel", path: "/proj" }
 const CHAPTERS_TREE = [{ name: "chapters", path: "/proj/wiki/chapters", is_dir: true, children: [] }]
@@ -210,9 +221,9 @@ describe("ReviewCenterSidebarPanel", () => {
     mocks.state.novelConfig = { outlineThrillSoftGateEnabled: false }
     render(<ReviewCenterSidebarPanel />)
 
-    expect(screen.getByText("reviewCenter.title")).toBeInTheDocument()
-    expect(screen.getByText("reviewCenter.noChapterAvailable")).toBeInTheDocument()
-    expect(screen.getByText(/outlineThrillSoftGateEnabled/)).toBeInTheDocument()
+    expect(screen.getByText("审查中心")).toBeInTheDocument()
+    expect(screen.getByText("暂无可审查章节")).toBeInTheDocument()
+    expect(screen.getByText(/大纲 thril 软门/)).toBeInTheDocument()
     expect(mocks.state.setSelectedReviewFilePath).toHaveBeenCalledWith("")
   })
 
@@ -289,7 +300,7 @@ describe("ReviewCenterSidebarPanel", () => {
 
   it("AI 审稿与角色命中报告按钮切换维度", async () => {
     await renderPanel()
-    fireEvent.click(screen.getByRole("button", { name: /reviewCenter\.aiReview/ }))
+    fireEvent.click(screen.getByRole("button", { name: /AI审稿/ }))
     expect(mocks.state.setSelectedReviewDimension).toHaveBeenCalledWith("ai-review")
     fireEvent.click(screen.getByRole("button", { name: /角色命中报告/ }))
     expect(mocks.state.setSelectedReviewDimension).toHaveBeenCalledWith("character-report")
@@ -320,16 +331,16 @@ describe("ReviewCenterSidebarPanel", () => {
     }
     await renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: /reviewCenter\.dimension\.consistency/ }))
+    fireEvent.click(screen.getByRole("button", { name: /设定自治/ }))
     expect(mocks.state.setSelectedReviewDimension).toHaveBeenCalledWith("consistency")
-    fireEvent.click(screen.getByRole("button", { name: /reviewCenter\.dimension\.thrill/ }))
+    fireEvent.click(screen.getByRole("button", { name: /爽感密度/ }))
     expect(mocks.state.setSelectedReviewDimension).toHaveBeenCalledWith("thrill")
     // Track A 选中高亮（selectedReviewDimension=continuity）
     expect(
-      screen.getByRole("button", { name: /reviewCenter\.dimension\.continuity/ }).className,
+      screen.getByRole("button", { name: /叙事衔接/ }).className,
     ).toContain("qm-selected")
     // 计数徽章：consistency/character/continuity/thrill 各 1 条 issue（章节下拉的 option 也可能含 "1"，须限定在维度按钮内）
-    const dimButtons = screen.getAllByRole("button", { name: /reviewCenter\.dimension\./ })
+    const dimButtons = screen.getAllByRole("button", { name: /设定自治|人设一致|叙事衔接|爽感密度|节奏张力|追读引力/ })
     const badgeCount = dimButtons.filter((b) => within(b).queryByText("1")).length
     expect(badgeCount).toBe(4)
     // 运行中维度标签
@@ -346,7 +357,7 @@ describe("ReviewCenterSidebarPanel", () => {
     mocks.state.selectedReviewDimension = "thrill"
     mocks.state.reviewRun = { running: true, activeDimension: "thrill" }
     const view = await renderPanel()
-    const thrillBtn = screen.getByRole("button", { name: /reviewCenter\.dimension\.thrill/ })
+    const thrillBtn = screen.getByRole("button", { name: /爽感密度/ })
     expect(thrillBtn.className).toContain("qm-selected")
     expect(screen.getByText("张力")).toBeInTheDocument()
     view.unmount()
@@ -429,13 +440,13 @@ describe("ReviewCenterSidebarPanel", () => {
     mocks.state.selectedReviewFilePath = "/proj/wiki/chapters/3/outline.md"
     await renderPanel()
 
-    expect(screen.getByText("novel.settings.outlineThrillFix1Blocked")).toBeInTheDocument()
-    expect(screen.queryByText("novel.settings.outlineThrillAllOk")).not.toBeInTheDocument()
+    expect(screen.getByText("FIX-1 冲突线索 — 不可 thril 确认绕过")).toBeInTheDocument()
+    expect(screen.queryByText("结构点均过（软）")).not.toBeInTheDocument()
     expect(screen.getAllByText("✓")).toHaveLength(2)
     expect(screen.getAllByText("!")).toHaveLength(2)
     expect(screen.getAllByText("?")).toHaveLength(1)
     expect(screen.getByText("有危机")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: /outlineThrillAckButton/ }))
+    fireEvent.click(screen.getByRole("button", { name: /确认 thril 软门/ }))
     expect(mocks.state.setThrillSoftGateAcknowledged).toHaveBeenCalledWith(3, true)
   })
 
@@ -445,9 +456,9 @@ describe("ReviewCenterSidebarPanel", () => {
     )
     mocks.state.thrilSoftGateAcknowledgedByChapter = { "3": true }
     await renderPanel()
-    expect(screen.getByText("novel.settings.outlineThrillAllOk")).toBeInTheDocument()
-    expect(screen.queryByText("novel.settings.outlineThrillFix1Blocked")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /outlineThrillAckDone/ })).toBeInTheDocument()
+    expect(screen.getByText("结构点均过（软）")).toBeInTheDocument()
+    expect(screen.queryByText("FIX-1 冲突线索 — 不可 thril 确认绕过")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /已确认 thril 软门/ })).toBeInTheDocument()
   })
 
   it("thril 门：章节号解析 branch-2（Chapter-3）与 outline 预览候选文件读取", async () => {
@@ -500,6 +511,6 @@ describe("ReviewCenterSidebarPanel", () => {
 
     mocks.state.reviewRun = null
     render(<ReviewCenterSidebarPanel />)
-    expect(screen.getByText("reviewCenter.measurementFingerprintEmpty")).toBeInTheDocument()
+    expect(screen.getByText("尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）")).toBeInTheDocument()
   })
 })

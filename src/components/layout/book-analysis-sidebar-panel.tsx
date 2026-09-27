@@ -220,7 +220,7 @@ export function BookAnalysisSidebarPanel() {
       {/* 标题栏 */}
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <div className="min-w-0">
-          <PanelHeaderWithHelp title="作品库" helpKey="bookAnalysis" />
+          <PanelHeaderWithHelp title={t("bookAnalysis.library")} helpKey="bookAnalysis" />
           <div className="mt-0.5 text-xs text-muted-foreground">
             已分析 {books.length} 部作品
           </div>
@@ -232,7 +232,7 @@ export function BookAnalysisSidebarPanel() {
           className="h-8 w-8"
           onClick={loadBooks}
           disabled={loading}
-          title="刷新列表"
+          title={t("appLayout.bookAnalysis.refresh")}
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
@@ -284,8 +284,8 @@ export function BookAnalysisSidebarPanel() {
                 type="button"
                 onClick={() => handleDeleteBook(book)}
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                title="删除作品"
-                aria-label="删除作品"
+                title={t("bookAnalysis.deleteWork")}
+                aria-label={t("bookAnalysis.deleteWork")}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -327,13 +327,13 @@ export function BookAnalysisSidebarPanel() {
             return (
               <div key={task.id} className="space-y-1">
                 <div className="flex items-center gap-1.5 text-xs">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                  <CheckCircle2 className="h-3 w-3 text-success" />
                   <span className="font-medium text-foreground truncate">{stageLabel}</span>
                   <button
                     type="button"
                     onClick={() => handleReopenRecognition(task.id)}
                     className="ml-auto flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
-                    title="打开角色选择面板"
+                    title={t("appLayout.bookAnalysis.openCharacterPicker")}
                   >
                     现在处理
                   </button>
@@ -355,7 +355,7 @@ export function BookAnalysisSidebarPanel() {
                     type="button"
                     onClick={() => cancelTask(task.id)}
                     className="flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20 transition-colors"
-                    title="立即停止提取"
+                    title={t("appLayout.bookAnalysis.stopNow")}
                   >
                     <Square className="h-2.5 w-2.5" />
                     停止

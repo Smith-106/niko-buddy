@@ -17,6 +17,7 @@
 // 与只读版共享同一后端命令，无新增 Rust 面。
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { CanonFactTable } from "./canon-fact-table"
 import { CanonFactsKnownByPanel } from "./canon-facts-known-by-panel"
@@ -268,10 +269,11 @@ function FilterBar({
   onReset,
   onRefresh,
 }: FilterBarProps) {
+  const { t } = useTranslation()
   return (
     <section
       className="rounded-lg border bg-card p-4 shadow-sm"
-      aria-label="canon 过滤器"
+      aria-label={t("canon.filter")}
     >
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
@@ -279,7 +281,7 @@ function FilterBar({
           <input
             type="text"
             className="h-8 min-w-48 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            placeholder="如：主角 / POV id"
+            placeholder={t("canon.filterPlaceholder")}
             value={knownBy}
             onChange={(e) => onKnownBy(e.target.value)}
             data-testid="canon-filter-known-by"
@@ -372,6 +374,7 @@ interface SaveOutcome {
 }
 
 export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEditorProps) {
+  const { t } = useTranslation()
   // ── 模式 ──
   const [mode, setMode] = useState<EditorMode>("browse")
 
@@ -670,7 +673,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
           {error && (
             <div
-              className="rounded-md border border-red-300 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300"
+              className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive dark:text-destructive"
               data-testid="canon-editor-error"
               role="alert"
             >
@@ -758,7 +761,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
         {error && (
           <div
-            className="rounded-md border border-red-300 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300"
+            className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive dark:text-destructive"
             role="alert"
             data-testid="canon-editor-error"
           >
@@ -775,9 +778,9 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           </div>
         )}
 
-        <section aria-label="canon 事实边列表" className="rounded-lg border bg-card p-4 shadow-sm">
+        <section aria-label={t("canon.edgeList")} className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">事实边</h2>
+            <h2 className="text-sm font-semibold">{t("canon.edge")}</h2>
             <span className="text-xs text-muted-foreground">
               共 {total} 条（服务端过滤后全量）
             </span>
@@ -792,11 +795,11 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 <thead className="text-muted-foreground">
                   <tr>
                     <th className="px-2 py-1.5">id</th>
-                    <th className="px-2 py-1.5">谓词</th>
-                    <th className="px-2 py-1.5">类别</th>
+                    <th className="px-2 py-1.5">{t("canon.predicate")}</th>
+                    <th className="px-2 py-1.5">{t("canon.category")}</th>
                     <th className="px-2 py-1.5">known_by</th>
                     <th className="px-2 py-1.5">revealed_at</th>
-                    <th className="px-2 py-1.5">操作</th>
+                    <th className="px-2 py-1.5">{t("canon.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -839,7 +842,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
         {selected && (
           <section
-            aria-label="认知轴校正面板"
+            aria-label={t("canon.cognitionPanel")}
             className="rounded-lg border bg-card p-4 shadow-sm"
             data-testid="correction-panel"
           >
@@ -866,7 +869,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground">known_by：</span>
               {draftKnownBy.length === 0 && (
-                <span className="text-xs italic text-muted-foreground/70">（空 — 无人知晓）</span>
+                <span className="text-xs italic text-muted-foreground/70">{t("canon.emptyUnknown")}</span>
               )}
               {draftKnownBy.map((pov) => (
                 <span
@@ -893,7 +896,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 type="text"
                 list="canon-pov-allowlist"
                 className="h-8 w-56 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                placeholder="新增知晓 POV（限白名单）"
+                placeholder={t("canon.addKnownByPlaceholder")}
                 value={povInput}
                 onChange={(e) => {
                   setPovInput(e.target.value)
@@ -923,7 +926,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
             {/* revealed_at（text+inputMode：让非法输入留在框内被校验拦截，而非被浏览器静默清洗） */}
             <label className="mb-3 flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">revealed_at（向 known_by 揭示的章节；留空=未登记）</span>
+              <span className="text-xs text-muted-foreground">{t("canon.revealedAtHint")}</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -954,7 +957,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
             {saveViolations.length > 0 && (
               <ul
-                className="mt-3 list-inside list-disc rounded-md border border-red-300 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+                className="mt-3 list-inside list-disc rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive dark:border-destructive dark:text-destructive"
                 role="alert"
                 data-testid="correction-violations"
               >
@@ -976,7 +979,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
         {lastSave && (
           <div
-            className="rounded-md border border-green-300 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:text-green-300"
+            className="rounded-md border border-success bg-success/10 px-4 py-3 text-sm text-success dark:border-success dark:text-success"
             role="status"
             data-testid="correction-saved"
           >

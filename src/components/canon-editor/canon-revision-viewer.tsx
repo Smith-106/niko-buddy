@@ -158,7 +158,7 @@ export function CanonRevisionViewer({
   return (
     <section
       className="rounded-lg border bg-card p-4 shadow-sm"
-      aria-label="canon 修订历史"
+      aria-label={t("canon.revisionViewer.canonTitle")}
       data-testid="canon-revision-viewer"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -255,7 +255,7 @@ export function CanonRevisionViewer({
 
           {!diffLoading && diffError && (
             <div
-              className="rounded-md border border-red-300 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300"
+              className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive dark:text-destructive"
               role="alert"
               data-testid="diff-error"
             >
@@ -280,7 +280,7 @@ export function CanonRevisionViewer({
 
       {error && (
         <div
-          className="mb-3 rounded-md border border-red-300 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300"
+          className="mb-3 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive dark:text-destructive"
           role="alert"
           data-testid="revision-error"
         >

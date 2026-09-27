@@ -1,6 +1,7 @@
 import { Plus, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel"
+import { useTranslation } from "react-i18next"
 
 interface BookAnalysisCharacterPanelProps {
   book: BookAnalysisLibraryBook
@@ -24,6 +25,7 @@ export function BookAnalysisCharacterPanel({
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
 }: BookAnalysisCharacterPanelProps) {
+  const { t } = useTranslation()
   const selectedCharacter = book.characters.find((character) => character.id === selectedCharacterId) ?? book.characters[0] ?? null
   const selectedSkill = selectedCharacter
     ? book.skills.find((skill) => skill.characterId === selectedCharacter.id || skill.characterName === selectedCharacter.name) ?? null
@@ -41,8 +43,8 @@ export function BookAnalysisCharacterPanel({
     <section className="min-h-0 flex-1 rounded-lg border bg-background">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div>
-          <h3 className="text-sm font-semibold">角色 Skill</h3>
-          <p className="mt-1 text-xs text-muted-foreground">选择角色 Skill 加入自定义灵魂库。</p>
+          <h3 className="text-sm font-semibold">{t("bookAnalysis.characterSkill")}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t("bookAnalysis.characterSkillHint")}</p>
         </div>
         <Button
           size="sm"
@@ -57,7 +59,7 @@ export function BookAnalysisCharacterPanel({
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: "minmax(220px, 320px) 1fr" }}>
         <div className="min-h-0 space-y-2 overflow-y-auto border-r p-3">
           {book.characters.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">暂无角色数据。</div>
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{t("bookAnalysis.noCharacterData")}</div>
           ) : (
             book.characters.map((character) => {
               const active = selectedCharacter?.id === character.id
@@ -104,25 +106,25 @@ export function BookAnalysisCharacterPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">性格</div>
+                  <div className="font-medium">{t("bookAnalysis.personality")}</div>
                   <div className="mt-1 text-muted-foreground">{profile?.personality || selectedCharacter.personality || "暂无"}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">说话风格</div>
+                  <div className="font-medium">{t("bookAnalysis.speakingStyle")}</div>
                   <div className="mt-1 text-muted-foreground">{profile?.speechStyle || selectedCharacter.speechStyle || "暂无"}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">动机</div>
+                  <div className="font-medium">{t("bookAnalysis.motivation")}</div>
                   <div className="mt-1 text-muted-foreground">{profile?.motivation || "暂无"}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">行为模式</div>
+                  <div className="font-medium">{t("bookAnalysis.behaviorPattern")}</div>
                   <div className="mt-1 text-muted-foreground">{profile?.behaviorPatterns || "暂无"}</div>
                 </div>
               </div>
               {profile?.quotes && profile.quotes.length > 0 && (
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">代表性台词</div>
+                  <div className="font-medium">{t("bookAnalysis.representativeLine")}</div>
                   <div className="mt-1 space-y-1 text-muted-foreground">
                     {profile.quotes.map((q, i) => (
                       <div key={i}>「{q}」</div>
@@ -132,7 +134,7 @@ export function BookAnalysisCharacterPanel({
               )}
               {selectedSkill && (
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
-                  <div className="font-medium">Skill 内容预览</div>
+                  <div className="font-medium">{t("bookAnalysis.skillPreview")}</div>
                   <div className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">
                     {selectedSkill.skillContent.slice(0, 800)}{selectedSkill.skillContent.length > 800 ? "..." : ""}
                   </div>
@@ -140,7 +142,7 @@ export function BookAnalysisCharacterPanel({
               )}
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">请从左侧选择角色。</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("bookAnalysis.selectCharacterHint")}</div>
           )}
         </div>
       </div>

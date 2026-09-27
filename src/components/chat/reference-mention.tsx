@@ -11,8 +11,8 @@ import { normalizePath } from "@/lib/path-utils"
 
 /** 彩色标签配色：角色蓝 / 章节绿 / 设定紫 */
 const KIND_STYLES: Record<string, string> = {
-  character: "border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  chapter: "border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400",
+  character: "border-info/40 bg-info/10 text-info dark:text-info",
+  chapter: "border-success/40 bg-success/10 text-success dark:text-success",
   setting: "border-purple-500/40 bg-purple-500/10 text-purple-600 dark:text-purple-400",
 }
 

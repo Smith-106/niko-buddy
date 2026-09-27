@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
 import { User, X, Plus, Feather } from "lucide-react"
@@ -22,6 +23,7 @@ interface BookAnalysisResultViewerProps {
 }
 
 export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookAnalysisResultViewerProps) {
+  const { t } = useTranslation()
   const [error, setError] = useState<string>("")
   const [selectedCharacter, setSelectedCharacter] = useState<ExtractedCharacter | null>(null)
   const [sortByImportance, setSortByImportance] = useState(true)
@@ -456,12 +458,12 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
-      protagonist: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-      antagonist: "bg-red-500/10 text-red-600 border-red-500/20",
-      supporting: "bg-green-500/10 text-green-600 border-green-500/20",
-      minor: "bg-gray-500/10 text-gray-600 border-gray-500/20",
+      protagonist: "bg-info/10 text-info border-info/20",
+      antagonist: "bg-destructive/10 text-destructive border-destructive/20",
+      supporting: "bg-success/10 text-success border-success/20",
+      minor: "bg-muted text-muted-foreground border-border",
     }
-    return colors[category] || "bg-gray-500/10 text-gray-600 border-gray-500/20"
+    return colors[category] || "bg-muted text-muted-foreground border-border"
   }
 
   if (error) {
@@ -470,7 +472,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         <div
           role="alertdialog"
           aria-modal="true"
-          aria-label="分析结果加载失败"
+          aria-label={t("bookAnalysis.resultLoadFailed")}
           className="bg-background rounded-lg p-6 outline-none"
         >
           <div className="text-center text-destructive">{error}</div>
@@ -508,7 +510,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>
             <DialogTitle asChild>
-              <h2 className="text-xl font-semibold">分析结果</h2>
+              <h2 className="text-xl font-semibold">{t("bookAnalysis.result")}</h2>
             </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {effectiveResult?.metadata?.title || "未命名作品"}
@@ -526,7 +528,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               </Button>
               {reextractOpen && (
                 <div className="absolute right-0 top-full mt-1 z-10 w-56 rounded-md border bg-background p-2 shadow-md space-y-2">
-                  <div className="text-xs text-muted-foreground px-1">选择提取方式</div>
+                  <div className="text-xs text-muted-foreground px-1">{t("bookAnalysis.extractMethod")}</div>
                   <label className="flex items-center gap-2 px-1 text-sm">
                     <input
                       type="radio"
@@ -572,7 +574,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Feather className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="text-sm font-medium shrink-0">作品文风</span>
+                <span className="text-sm font-medium shrink-0">{t("bookAnalysis.workStyle")}</span>
                 <span className="text-xs text-muted-foreground truncate">
                   {styleProfile ? (styleProfile.narrativeDensity || "已提取") : "尚未提取叙事文风（与角色灵魂相互独立）"}
                 </span>
@@ -607,13 +609,13 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
             )}
             {styleProfile?.constitution && (
               <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs">
-                <div className="font-medium">风格宪法</div>
+                <div className="font-medium">{t("bookAnalysis.styleConstitution")}</div>
                 <div className="mt-1 text-muted-foreground whitespace-pre-line leading-5">{styleProfile.constitution}</div>
               </div>
             )}
             {styleProfile?.samples && styleProfile.samples.length > 0 && (
               <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs">
-                <div className="font-medium">代表原文样本</div>
+                <div className="font-medium">{t("bookAnalysis.representativeExcerpt")}</div>
                 <div className="mt-1 space-y-1">
                   {styleProfile.samples.map((sample, i) => (
                     <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">{sample}</div>
@@ -813,17 +815,17 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                     </div>
 
                     <div>
-                      <h4 className="font-semibold mb-2">角色描述</h4>
+                      <h4 className="font-semibold mb-2">{t("bookAnalysis.characterDescription")}</h4>
                       <p className="text-sm leading-relaxed">{selectedCharacter.description || "暂无描述"}</p>
                     </div>
 
                     <div>
-                      <h4 className="font-semibold mb-2">性格特征</h4>
+                      <h4 className="font-semibold mb-2">{t("bookAnalysis.personalityTraits")}</h4>
                       <p className="text-sm leading-relaxed">{selectedCharacter.personality || "暂无"}</p>
                     </div>
 
                     <div>
-                      <h4 className="font-semibold mb-2">说话方式</h4>
+                      <h4 className="font-semibold mb-2">{t("bookAnalysis.speakingManner")}</h4>
                       <p className="text-sm leading-relaxed">{selectedCharacter.speechStyle || "暂无"}</p>
                     </div>
 
@@ -834,7 +836,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
                     {selectedCharacter.relationships.length > 0 && (
                       <div>
-                        <h4 className="font-semibold mb-2">关系网络</h4>
+                        <h4 className="font-semibold mb-2">{t("graph.relationNetwork")}</h4>
                         <div className="space-y-2">
                           {selectedCharacter.relationships.map((rel, idx) => (
                             <div key={idx} className="flex items-start gap-2 text-sm">
@@ -852,19 +854,19 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                     <div className="pt-4 border-t">
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
-                          <span className="text-muted-foreground">首次出现：</span>
+                          <span className="text-muted-foreground">{t("bookAnalysis.firstAppearance")}</span>
                           <span className="ml-2 font-medium">第 {selectedCharacter.firstAppearance} 章</span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">最后出现：</span>
+                          <span className="text-muted-foreground">{t("bookAnalysis.lastAppearance")}</span>
                           <span className="ml-2 font-medium">第 {selectedCharacter.lastAppearance} 章</span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">出现次数：</span>
+                          <span className="text-muted-foreground">{t("bookAnalysis.appearanceCount")}</span>
                           <span className="ml-2 font-medium">{selectedCharacter.appearanceCount} 次</span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">重要性：</span>
+                          <span className="text-muted-foreground">{t("bookAnalysis.importance")}</span>
                           <span className="ml-2 font-medium">{selectedCharacter.importance}/10</span>
                         </div>
                       </div>
@@ -874,7 +876,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                     {/* 修复（fix/character-reextract-and-loading-state）：按钮根据当前角色是否在后台提取显示不同文案 */}
                     {/* v8 ignore start */}
                     <div className="pt-4 border-t" onClick={(e) => e.stopPropagation()}>
-                      <div className="text-xs text-muted-foreground mb-2">单角色重提</div>
+                      <div className="text-xs text-muted-foreground mb-2">{t("bookAnalysis.singleCharacterRetry")}</div>
                       {selectedCharacter && singleReextractingIds.has(selectedCharacter.id) && (
                         <div className="text-xs text-primary mb-2">
                           当前角色「{selectedCharacter.name}」正在后台提取，可切换到其他角色或关闭此页面
@@ -966,27 +968,28 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
  * 4 字段 + 代表性台词渲染
  */
 function SimpleProfileCard({ profile }: { profile: PersonalityProfile }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-lg border p-4 space-y-2">
       <div>
-        <h4 className="text-sm font-semibold">性格</h4>
+        <h4 className="text-sm font-semibold">{t("bookAnalysis.personality")}</h4>
         <p className="text-sm text-muted-foreground">{profile.personality}</p>
       </div>
       <div>
-        <h4 className="text-sm font-semibold">动机</h4>
+        <h4 className="text-sm font-semibold">{t("bookAnalysis.motivation")}</h4>
         <p className="text-sm text-muted-foreground">{profile.motivation}</p>
       </div>
       <div>
-        <h4 className="text-sm font-semibold">说话风格</h4>
+        <h4 className="text-sm font-semibold">{t("bookAnalysis.speakingStyle")}</h4>
         <p className="text-sm text-muted-foreground">{profile.speechStyle}</p>
       </div>
       <div>
-        <h4 className="text-sm font-semibold">行为模式</h4>
+        <h4 className="text-sm font-semibold">{t("bookAnalysis.behaviorPattern")}</h4>
         <p className="text-sm text-muted-foreground">{profile.behaviorPatterns}</p>
       </div>
       {profile.quotes.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold">代表性台词</h4>
+          <h4 className="text-sm font-semibold">{t("bookAnalysis.representativeLine")}</h4>
           <ul className="text-sm text-muted-foreground list-disc list-inside">
             {profile.quotes.map((q, i) => (
               <li key={i}>「{q}」</li>

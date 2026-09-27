@@ -65,7 +65,7 @@ describe("snapshot-viewer 章节版本对比 (TASK-303)", () => {
     mockDiff.mockClear()
   })
 
-  it("历史版本行渲染「对比当前版本」按钮，与恢复操作并列", () => {
+  it("历史版本行渲染对比按钮（硬编码中文「对比当前版本」），与恢复操作并列", () => {
     const html = renderToStaticMarkup(
       <HistoryEntryRow
         entry={entry}
@@ -89,7 +89,7 @@ describe("snapshot-viewer 章节版本对比 (TASK-303)", () => {
         onClose={() => {}}
       />,
     )
-    expect(html).toContain("对比当前版本")
+    expect(html).toContain("novel.snapshot.compareCurrent")
     expect(mockDiff).toHaveBeenCalledTimes(1)
     const callProps = mockDiff.mock.calls[0][0] as Record<string, unknown>
     expect(callProps.original).toBe('{"summary":"历史摘要","chapterNumber":1}')

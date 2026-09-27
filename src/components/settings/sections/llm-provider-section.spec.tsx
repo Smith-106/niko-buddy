@@ -19,6 +19,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { LlmProviderSection, ReasoningControls } from "./llm-provider-section"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -64,9 +74,9 @@ const mocks = vi.hoisted(() => {
     store,
     t: vi.fn((key: string, params?: Record<string, unknown>) => {
       // keep interpolations visible for {model}/{message} labels
-      if (params && typeof params.model === "string") return `${key}:${params.model}`
+      if (params && typeof params.model === "string") return `${lookupZhLocale(key) ?? key}:${params.model}`
       if (params && typeof params.message === "string") return params.message
-      return key
+      return lookupZhLocale(key) ?? key
     }),
     LLM_PRESETS: [] as LlmPreset[],
     resolveConfig: vi.fn(() => ({
@@ -279,9 +289,9 @@ const DEFAULT_PRESETS: LlmPreset[] = [
   },
 ]
 
-const EXPAND = "settings.sections.llm.expand"
-const FETCH_BTN = "settings.sections.llm.fetchModels"
-const TEST_BTN = "settings.sections.shared.testModel"
+const EXPAND = "展开配置"
+const FETCH_BTN = "拉取模型"
+const TEST_BTN = "测试模型"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -353,8 +363,8 @@ afterEach(() => {
 describe("LlmProviderSection — section shell & row header", () => {
   it("renders title/description, custom provider cards and one row per preset (custom preset excluded)", () => {
     const { rerender } = render(<LlmProviderSection />)
-    expect(screen.getByText("settings.sections.llm.title")).toBeInTheDocument()
-    expect(screen.getByText("settings.sections.llm.description")).toBeInTheDocument()
+    expect(screen.getByText("大语言/LLM模型")).toBeInTheDocument()
+    expect(screen.getByText("配置不同大语言模型服务商的 API Key、模型和连接方式。自定义模型保留在最上方，LLM Wiki 预设模型在下方可单独启用。")).toBeInTheDocument()
     expect(screen.getByTestId("custom-provider-cards")).toBeInTheDocument()
     for (const p of DEFAULT_PRESETS) {
       expect(screen.getByText(p.label)).toBeInTheDocument()
@@ -369,7 +379,7 @@ describe("LlmProviderSection — section shell & row header", () => {
     mocks.state.providerConfigs = { "openai-main": { apiKey: "sk-x" } }
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
-    expect(within(card).getByText("settings.sections.llm.configuredBadge")).toBeInTheDocument()
+    expect(within(card).getByText("已配置")).toBeInTheDocument()
     expect(within(card).queryByText(/enabledBadge/)).not.toBeInTheDocument()
   })
 
@@ -382,8 +392,8 @@ describe("LlmProviderSection — section shell & row header", () => {
     }
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
-    expect(within(card).getByText("settings.sections.llm.enabledBadge")).toBeInTheDocument()
-    expect(within(card).queryByText("settings.sections.llm.configuredBadge")).not.toBeInTheDocument()
+    expect(within(card).getByText("已启用 {{count}} 个模型")).toBeInTheDocument()
+    expect(within(card).queryByText("已配置")).not.toBeInTheDocument()
   })
 
   it("expand/collapse toggles the config panel and chevron title", () => {
@@ -391,10 +401,10 @@ describe("LlmProviderSection — section shell & row header", () => {
     const card = cardByLabel("OpenAI")
     expandCard(card)
     rerender(<LlmProviderSection />)
-    expect(within(card).getByTitle("settings.sections.llm.collapse")).toBeInTheDocument()
+    expect(within(card).getByTitle("收起配置")).toBeInTheDocument()
     expect(within(card).queryByLabelText("settings.sections.llm.apiKey")).not.toBeInTheDocument()
     // collapse again
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.collapse"))
+    fireEvent.click(within(card).getByTitle("收起配置"))
     rerender(<LlmProviderSection />)
     expect(within(card).getByTitle(EXPAND)).toBeInTheDocument()
   })
@@ -402,7 +412,7 @@ describe("LlmProviderSection — section shell & row header", () => {
   it("toggleEnabled flips enabled state and persists (activePresetId null → no llm save)", async () => {
     const { rerender } = render(<LlmProviderSection />)
     let card = cardByLabel("OpenAI")
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.toggleOn"))
+    fireEvent.click(within(card).getByTitle("启用此模型"))
     expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(true)
     await waitFor(() => {
       expect(mocks.store.set).toHaveBeenCalledWith("providerConfigs", expect.anything())
@@ -414,7 +424,7 @@ describe("LlmProviderSection — section shell & row header", () => {
     mocks.state.providerConfigs = { "openai-main": { enabled: true } }
     rerender(<LlmProviderSection />)
     card = cardByLabel("OpenAI")
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.toggleOff"))
+    fireEvent.click(within(card).getByTitle("停用此模型"))
     expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(false)
   })
 
@@ -426,7 +436,7 @@ describe("LlmProviderSection — section shell & row header", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-live" } })
     expect(mocks.state.providerConfigs["openai-main"].apiKey).toBe("sk-live")
     // live refresh: id === activePresetId && preset found → resolveConfig + setLlmConfig
@@ -439,7 +449,7 @@ describe("LlmProviderSection — section shell & row header", () => {
       expect(mocks.store.set).toHaveBeenCalledWith("llmConfig", expect.anything())
     })
     // saved badge appears
-    expect(within(card).getByText("settings.sections.llm.savedBadge")).toBeInTheDocument()
+    expect(within(card).getByText("已保存")).toBeInTheDocument()
   })
 
   it("updateOverride with an unknown active preset skips live refresh and llm save", async () => {
@@ -447,7 +457,7 @@ describe("LlmProviderSection — section shell & row header", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-x" } })
     expect(mocks.state.providerConfigs["openai-main"].apiKey).toBe("sk-x")
     // preset not found → no live refresh (setLlmConfig), no llm config save;
@@ -467,8 +477,8 @@ describe("LlmProviderSection — section shell & row header", () => {
     expandCard(openai)
     const azure = cardByLabel("AzureProd")
     expandCard(azure)
-    const keyOpenai = within(openai).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
-    const keyAzure = within(azure).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyOpenai = within(openai).getByPlaceholderText("输入 API Key")
+    const keyAzure = within(azure).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyOpenai, { target: { value: "sk-1" } })
     await act(async () => { await vi.advanceTimersByTimeAsync(10) })
     fireEvent.change(keyAzure, { target: { value: "sk-2" } })
@@ -476,8 +486,8 @@ describe("LlmProviderSection — section shell & row header", () => {
       // first timeout (openai) fires while savedId is azure-prod → cur !== id
       await vi.advanceTimersByTimeAsync(1600)
     })
-    expect(within(openai).queryByText("settings.sections.llm.savedBadge")).not.toBeInTheDocument()
-    expect(within(azure).queryByText("settings.sections.llm.savedBadge")).not.toBeInTheDocument()
+    expect(within(openai).queryByText("已保存")).not.toBeInTheDocument()
+    expect(within(azure).queryByText("已保存")).not.toBeInTheDocument()
   })
 
   it("persist rejection is swallowed by .catch in updateOverride and toggleEnabled", async () => {
@@ -486,14 +496,14 @@ describe("LlmProviderSection — section shell & row header", () => {
     expandCard(card)
     // updateOverride path: saveProviderConfigs rejects → .catch(() => {})
     mocks.store.set.mockRejectedValueOnce(new Error("save-boom"))
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-x" } })
     await waitFor(() => {
       expect(mocks.state.providerConfigs["openai-main"].apiKey).toBe("sk-x")
     })
     // toggleEnabled path: persist rejects → .catch(() => {})
     mocks.store.set.mockRejectedValueOnce(new Error("save-boom-2"))
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.toggleOn"))
+    fireEvent.click(within(card).getByTitle("启用此模型"))
     expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(true)
     // 等待 persist 异步链（动态 import + saveProviderConfigs reject → catch）完成
     await new Promise((r) => setTimeout(r, 400))
@@ -510,9 +520,9 @@ describe("LlmProviderSection — section shell & row header", () => {
   it("ModelSelectInput falls back to the model placeholder when inputPlaceholder is empty", () => {
     mocks.t.mockImplementation((key: string, params?: Record<string, unknown>) => {
       if (key === "settings.sections.shared.modelManualPlaceholder") return ""
-      if (params && typeof params.model === "string") return `${key}:${params.model}`
+      if (params && typeof params.model === "string") return `${lookupZhLocale(key) ?? key}:${params.model}`
       if (params && typeof params.message === "string") return params.message
-      return key
+      return lookupZhLocale(key) ?? key
     })
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
@@ -526,16 +536,16 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     const { rerender } = render(<LlmProviderSection />)
     const card = cardByLabel("MyCustom")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.llm.wireOpenAi"))
+    fireEvent.click(within(card).getByText("OpenAI 兼容"))
     expect(mocks.state.providerConfigs["my-custom"].apiMode).toBe("chat_completions")
     // anthropic mode flips the URL (declared in baseUrlByMode)
     rerender(<LlmProviderSection />)
-    fireEvent.click(within(card).getByText("settings.sections.llm.wireAnthropic"))
+    fireEvent.click(within(card).getByText("Anthropic 兼容"))
     expect(mocks.state.providerConfigs["my-custom"].apiMode).toBe("anthropic_messages")
     expect(mocks.state.providerConfigs["my-custom"].baseUrl).toBe("https://api.example.com/anthropic")
     // responses mode has no per-wire URL → only apiMode changes
     rerender(<LlmProviderSection />)
-    fireEvent.click(within(card).getByText("settings.sections.llm.wireResponses"))
+    fireEvent.click(within(card).getByText("Responses API"))
     expect(mocks.state.providerConfigs["my-custom"].apiMode).toBe("responses")
     expect(mocks.state.providerConfigs["my-custom"].baseUrl).toBe("https://api.example.com/anthropic")
   })
@@ -552,8 +562,8 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     const input = within(card).getByPlaceholderText("https://api.example.com/v1")
     fireEvent.change(input, { target: { value: "https://api.example.com/v1/chat/completions" } })
     // hint block: AlertCircle path + will-use code + auto-apply + warning
-    expect(within(card).getByText("settings.sections.llm.endpointPreviewWillUse")).toBeInTheDocument()
-    expect(within(card).getByText("settings.sections.llm.endpointPreviewAutoApply")).toBeInTheDocument()
+    expect(within(card).getByText("将使用")).toBeInTheDocument()
+    expect(within(card).getByText("，失焦后自动应用")).toBeInTheDocument()
     expect(within(card).getByText("https://cleaned.example.com/v1")).toBeInTheDocument()
     expect(within(card).getByText("warn-msg")).toBeInTheDocument()
     expect(mocks.state.providerConfigs["my-custom"].baseUrl).toBe("https://api.example.com/v1/chat/completions")
@@ -574,7 +584,7 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     const input = within(card).getByPlaceholderText("https://api.example.com/v1")
     fireEvent.change(input, { target: { value: "https://api.example.com/v1" } })
     expect(within(card).getByText("only-warn")).toBeInTheDocument()
-    expect(within(card).queryByText("settings.sections.llm.endpointPreviewWillUse")).not.toBeInTheDocument()
+    expect(within(card).queryByText("将使用")).not.toBeInTheDocument()
     fireEvent.blur(input)
     // unchanged value → not auto-applied (no onChange for baseUrl)
     expect(mocks.state.providerConfigs["my-custom"]?.baseUrl).toBeUndefined()
@@ -585,9 +595,9 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     const card = cardByLabel("MyCustom")
     expandCard(card)
     const input = within(card).getByPlaceholderText("https://api.example.com/v1")
-    expect(within(card).queryByText("settings.sections.llm.endpointPreviewWillUse")).not.toBeInTheDocument()
+    expect(within(card).queryByText("将使用")).not.toBeInTheDocument()
     fireEvent.change(input, { target: { value: "https://api.example.com/v1" } })
-    expect(within(card).queryByText("settings.sections.llm.endpointPreviewWillUse")).not.toBeInTheDocument()
+    expect(within(card).queryByText("将使用")).not.toBeInTheDocument()
   })
 
   it("endpoint hint shows (empty) fallback when normalized value is empty", () => {
@@ -645,7 +655,7 @@ describe("LlmProviderSection — azure panel", () => {
     fireEvent.change(select, { target: { value: "gpt5" } })
     expect(mocks.state.providerConfigs["azure-prod"].azureModelFamily).toBe("gpt5")
 
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "az-key" } })
     expect(mocks.state.providerConfigs["azure-prod"].apiKey).toBe("az-key")
   })
@@ -667,10 +677,10 @@ describe("LlmProviderSection — local CLI pills", () => {
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
     await waitFor(() => {
-      expect(within(card).getByText("settings.sections.llm.cliStatus.desktopOnly")).toBeInTheDocument()
+      expect(within(card).getByText("仅桌面应用可检测 CLI 状态。")).toBeInTheDocument()
     })
-    expect(within(card).getByText(/installPrefix/)).toBeInTheDocument()
-    expect(within(card).getByText(/installSuffix/)).toBeInTheDocument()
+    expect(within(card).getByText(/可执行/)).toBeInTheDocument()
+    expect(within(card).getByText(/安装后再重新检查/)).toBeInTheDocument()
     expect(within(card).getByText("npm i -g @anthropic-ai/claude-code")).toBeInTheDocument()
   })
 
@@ -681,14 +691,14 @@ describe("LlmProviderSection — local CLI pills", () => {
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
     await waitFor(() => {
-      expect(within(card).getByText(/claudeReady/)).toBeInTheDocument()
+      expect(within(card).getByText(/Claude CLI 可用/)).toBeInTheDocument()
     })
-    expect(within(card).getByText("settings.sections.llm.cliStatus.claudeTransportHint")).toBeInTheDocument()
+    expect(within(card).getByText("此为模型运输层：ContextPack 与草稿由 Niko Buddy 装配。写小说不是在 Claude Code 交互会话里跑 agent。")).toBeInTheDocument()
     expect(within(card).getByText("/usr/bin/claude")).toBeInTheDocument()
-    expect(within(card).getByText(/authErrorPrefix/)).toBeInTheDocument()
+    expect(within(card).getByText(/如果运行时报认证错误/)).toBeInTheDocument()
     // recheck with no version → versionSuffix falsy branch
     mocks.invoke.mockResolvedValue({ installed: true, version: null, path: null, error: null })
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("claude_cli_detect"))
   })
 
@@ -699,7 +709,7 @@ describe("LlmProviderSection — local CLI pills", () => {
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
     await waitFor(() => {
-      expect(within(card).getByText("settings.sections.llm.cliStatus.claudeUnavailable")).toBeInTheDocument()
+      expect(within(card).getByText("未检测到 Claude CLI。")).toBeInTheDocument()
     })
   })
 
@@ -713,7 +723,7 @@ describe("LlmProviderSection — local CLI pills", () => {
       expect(within(card).getByText("detect-boom")).toBeInTheDocument()
     })
     mocks.invoke.mockRejectedValueOnce("detect-boom-plain")
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
       expect(within(card).getByText("detect-boom-plain")).toBeInTheDocument()
     })
@@ -725,9 +735,9 @@ describe("LlmProviderSection — local CLI pills", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
-    expect(within(card).getByText("settings.sections.llm.cliStatus.checking")).toBeInTheDocument()
-    expect(within(card).getByText("settings.sections.llm.cliStatus.claudeDetecting")).toBeInTheDocument()
-    const recheck = within(card).getByText("settings.sections.llm.cliStatus.checking").closest("button")
+    expect(within(card).getByText("检查中...")).toBeInTheDocument()
+    expect(within(card).getByText("正在检查 claude 命令...")).toBeInTheDocument()
+    const recheck = within(card).getByText("检查中...").closest("button")
     expect(recheck).toBeDisabled()
   })
 
@@ -738,36 +748,37 @@ describe("LlmProviderSection — local CLI pills", () => {
     const card = cardByLabel("CodexCli")
     expandCard(card)
     await waitFor(() => {
-      expect(within(card).getByText(/codexReady/)).toBeInTheDocument()
+      expect(within(card).getByText(/Codex CLI 可用/)).toBeInTheDocument()
     })
     expect(within(card).getByText("/usr/local/bin/codex")).toBeInTheDocument()
-    expect(within(card).getByText(/codexAuthErrorSuffix/)).toBeInTheDocument()
+    expect(within(card).getByText(/完成 Codex 登录/)).toBeInTheDocument()
 
     // recheck with no version → versionSuffix falsy branch
     mocks.invoke.mockResolvedValueOnce({ installed: true, version: null, path: null, error: null })
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
-      expect(within(card).getByText(/codexReady/)).toBeInTheDocument()
+      expect(within(card).getByText(/Codex CLI 可用/)).toBeInTheDocument()
     })
-    expect(within(card).queryByText(/version/)).not.toBeInTheDocument()
+    // mock t 无插值：versionSuffix 为空时渲染模板原文，仅断言旧版本号消失
+    expect(within(card).queryByText("2.1.0")).not.toBeInTheDocument()
 
     // not installed → r.installed falsy → err state with codexUnavailable fallback
     mocks.invoke.mockResolvedValueOnce({ installed: false, version: null, path: null, error: null })
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
-      expect(within(card).getByText("settings.sections.llm.cliStatus.codexUnavailable")).toBeInTheDocument()
+      expect(within(card).getByText("未检测到 Codex CLI。")).toBeInTheDocument()
     })
 
     // Error rejection → e.message branch
     mocks.invoke.mockRejectedValueOnce(new Error("codex-boom"))
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
       expect(within(card).getByText("codex-boom")).toBeInTheDocument()
     })
 
     // plain-string rejection → String(e) message
     mocks.invoke.mockRejectedValueOnce("codex-boom-plain")
-    fireEvent.click(within(card).getByText("settings.sections.llm.cliStatus.recheck"))
+    fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
       expect(within(card).getByText("codex-boom-plain")).toBeInTheDocument()
     })
@@ -777,12 +788,12 @@ describe("LlmProviderSection — local CLI pills", () => {
     const { rerender } = render(<LlmProviderSection />)
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
-    expect(within(card).getByText("settings.sections.llm.localCliIsolationOff")).toBeInTheDocument()
-    fireEvent.click(within(card).getByLabelText("settings.sections.llm.localCliIsolation"))
+    expect(within(card).getByText("未隔离，将继承本机 CLI 登录状态。")).toBeInTheDocument()
+    fireEvent.click(within(card).getByLabelText("隔离本地 CLI 配置"))
     expect(mocks.state.providerConfigs["claude-cli"].localCliIsolation).toBe(true)
     rerender(<LlmProviderSection />)
-    expect(within(card).getByText("settings.sections.llm.localCliIsolationOn")).toBeInTheDocument()
-    fireEvent.click(within(card).getByLabelText("settings.sections.llm.localCliIsolation"))
+    expect(within(card).getByText("已隔离，不会使用全局 CLI 配置。")).toBeInTheDocument()
+    fireEvent.click(within(card).getByLabelText("隔离本地 CLI 配置"))
     expect(mocks.state.providerConfigs["claude-cli"].localCliIsolation).toBe(false)
   })
 
@@ -814,7 +825,7 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-123" } })
     expect(mocks.state.providerConfigs["openai-main"].apiKey).toBe("sk-123")
     // claude-code panel: no apiKey field
@@ -827,16 +838,16 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
     const { rerender } = render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.useModel:gpt-4o"))
+    fireEvent.click(within(card).getByTitle("使用 {{model}}:gpt-4o"))
     expect(mocks.state.providerConfigs["openai-main"].model).toBe("gpt-4o")
     rerender(<LlmProviderSection />)
     // type an unlisted model → custom badge (t returns key:model)
     fireEvent.change(modelInput(card), { target: { value: "gpt-custom" } })
     expect(mocks.state.providerConfigs["openai-main"].model).toBe("gpt-custom")
     rerender(<LlmProviderSection />)
-    expect(within(card).getByText("settings.sections.llm.customModelBadge:gpt-custom")).toBeInTheDocument()
+    expect(within(card).getByText("自定义：{{model}}:gpt-custom")).toBeInTheDocument()
     // click the custom-model chip → clears the model
-    fireEvent.click(within(card).getByTitle("settings.sections.llm.typeCustomModel"))
+    fireEvent.click(within(card).getByTitle("输入自定义模型 ID"))
     expect(mocks.state.providerConfigs["openai-main"].model).toBe("")
   })
 
@@ -884,8 +895,9 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
   it("ReasoningControls (exported): mode buttons + custom budget edge cases", () => {
     const onChange = vi.fn()
     const { rerender } = render(<ReasoningControls value={{ mode: "auto" }} onChange={onChange} />)
+    const MODE_LABEL: Record<string, string> = { auto: "自动", off: "关闭", low: "低", medium: "中", high: "高", max: "最大", custom: "自定义" }
     for (const mode of ["off", "low", "medium", "high", "max", "custom"] as const) {
-      fireEvent.click(screen.getByText(`settings.sections.llm.reasoning.${mode}`))
+      fireEvent.click(screen.getByText(MODE_LABEL[mode]))
       expect(onChange).toHaveBeenLastCalledWith({ mode })
     }
     rerender(<ReasoningControls value={{ mode: "custom", budgetTokens: 0 }} onChange={onChange} />)
@@ -904,10 +916,10 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
     const { rerender } = render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.llm.reasoning.off"))
+    fireEvent.click(within(card).getByText("关闭"))
     expect(mocks.state.providerConfigs["openai-main"].reasoning).toEqual({ mode: "off" })
     // custom mode with no budgetTokens → input value falls back to ""
-    fireEvent.click(within(card).getByText("settings.sections.llm.reasoning.custom"))
+    fireEvent.click(within(card).getByText("自定义"))
     expect(mocks.state.providerConfigs["openai-main"].reasoning).toEqual({ mode: "custom" })
     rerender(<LlmProviderSection />)
     expect((within(card).getByPlaceholderText("1024") as HTMLInputElement).value).toBe("")
@@ -921,25 +933,25 @@ describe("LlmProviderSection — model list fetch & selection", () => {
     expandCard(card)
     fireEvent.click(within(card).getByText(FETCH_BTN))
     await waitFor(() => {
-      expect(within(card).getByText("settings.sections.llm.toggleModelHint")).toBeInTheDocument()
+      expect(within(card).getByText("点击模型标签选择/取消选择")).toBeInTheDocument()
     })
     expect(mocks.fetchLlmModelList).toHaveBeenCalled()
-    expect(within(card).getByText("settings.sections.shared.modelListSuccess")).toBeInTheDocument()
-    expect(within(card).getByText("settings.sections.llm.fetchedModelsCount")).toBeInTheDocument()
+    expect(within(card).getByText("已拉取 {{count}} 个模型。")).toBeInTheDocument()
+    expect(within(card).getByText("已拉取 {{count}} 个模型")).toBeInTheDocument()
 
     // select m-alpha
     fireEvent.click(within(card).getByRole("button", { name: "m-alpha" }))
     expect(mocks.state.providerConfigs["openai-main"].savedModels.map((m: any) => m.model)).toEqual(["m-alpha"])
     rerender(<LlmProviderSection />)
-    expect(within(card).getByText("settings.sections.llm.selectedModelsCount")).toBeInTheDocument()
+    expect(within(card).getByText("已选择 {{count}} 个")).toBeInTheDocument()
     // textarea lists the saved model
     expect(within(card).getByDisplayValue("m-alpha")).toBeInTheDocument()
 
     // collapse the selection area, then re-expand
-    fireEvent.click(within(card).getByText("settings.sections.llm.fetchedModelsCount"))
+    fireEvent.click(within(card).getByText("已拉取 {{count}} 个模型"))
     rerender(<LlmProviderSection />)
-    expect(within(card).queryByText("settings.sections.llm.toggleModelHint")).not.toBeInTheDocument()
-    fireEvent.click(within(card).getByText("settings.sections.llm.fetchedModelsCount"))
+    expect(within(card).queryByText("点击模型标签选择/取消选择")).not.toBeInTheDocument()
+    fireEvent.click(within(card).getByText("已拉取 {{count}} 个模型"))
     rerender(<LlmProviderSection />)
 
     // deselect m-alpha
@@ -991,8 +1003,8 @@ describe("LlmProviderSection — model list fetch & selection", () => {
     const card = cardByLabel("OpenAI")
     expandCard(card)
     fireEvent.click(within(card).getByText(FETCH_BTN))
-    expect(within(card).getByText("settings.sections.llm.loadingModels")).toBeInTheDocument()
-    expect(within(card).getByText("settings.sections.llm.loadingModels").closest("button")).toBeDisabled()
+    expect(within(card).getByText("拉取中...")).toBeInTheDocument()
+    expect(within(card).getByText("拉取中...").closest("button")).toBeDisabled()
     expect(within(card).getByText(TEST_BTN).closest("button")).toBeDisabled()
   })
 
@@ -1002,12 +1014,12 @@ describe("LlmProviderSection — model list fetch & selection", () => {
     expandCard(card)
     fireEvent.click(within(card).getByText(FETCH_BTN))
     await waitFor(() => {
-      expect(within(card).getByText("settings.sections.llm.toggleModelHint")).toBeInTheDocument()
+      expect(within(card).getByText("点击模型标签选择/取消选择")).toBeInTheDocument()
     })
     // typing a new apiKey triggers the reset effect → options cleared
-    const keyInput = within(card).getByPlaceholderText("settings.sections.llm.apiKeyPlaceholder")
+    const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-2" } })
-    expect(within(card).queryByText("settings.sections.llm.toggleModelHint")).not.toBeInTheDocument()
+    expect(within(card).queryByText("点击模型标签选择/取消选择")).not.toBeInTheDocument()
     expect(within(card).queryByText(FETCH_BTN)).not.toBeNull()
   })
 
@@ -1037,7 +1049,7 @@ describe("LlmProviderSection — model list fetch & selection", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.shared.testing"))
+    fireEvent.click(within(card).getByText("测试中..."))
     expect(mocks.batch.runBatchTest).not.toHaveBeenCalled()
   })
 
@@ -1072,9 +1084,9 @@ describe("LlmProviderSection — provider connection tests", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.llm.testConnection"))
-    expect(within(card).getByText("settings.sections.llm.testingConnection")).toBeInTheDocument()
-    expect(within(card).getByText("settings.sections.llm.testConnection").closest("button")).toBeDisabled()
+    fireEvent.click(within(card).getByText("测试连接"))
+    expect(within(card).getByText("正在测试连接...")).toBeInTheDocument()
+    expect(within(card).getByText("测试连接").closest("button")).toBeDisabled()
     await waitFor(() => {
       expect(within(card).getByText("conn-ok")).toBeInTheDocument()
     })
@@ -1085,15 +1097,15 @@ describe("LlmProviderSection — provider connection tests", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.llm.testFunction"))
-    expect(within(card).getByText("settings.sections.llm.testingFunction")).toBeInTheDocument()
+    fireEvent.click(within(card).getByText("测试功能"))
+    expect(within(card).getByText("正在测试功能...")).toBeInTheDocument()
     await waitFor(() => {
       expect(within(card).getByText("func-fail")).toBeInTheDocument()
     })
     expect(mocks.testLlmFunction).toHaveBeenCalled()
     // ok path
     mocks.testLlmFunction.mockResolvedValueOnce({ ok: true, message: "func-ok" })
-    fireEvent.click(within(card).getByText("settings.sections.llm.testFunction"))
+    fireEvent.click(within(card).getByText("测试功能"))
     await waitFor(() => {
       expect(within(card).getByText("func-ok")).toBeInTheDocument()
     })
@@ -1104,9 +1116,9 @@ describe("LlmProviderSection — provider connection tests", () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    fireEvent.click(within(card).getByText("settings.sections.llm.testConnection"))
-    expect(within(card).getByText("settings.sections.llm.testConnection").closest("button")).toBeDisabled()
-    expect(within(card).getByText("settings.sections.llm.testFunction").closest("button")).toBeDisabled()
+    fireEvent.click(within(card).getByText("测试连接"))
+    expect(within(card).getByText("测试连接").closest("button")).toBeDisabled()
+    expect(within(card).getByText("测试功能").closest("button")).toBeDisabled()
   })
 })
 
@@ -1127,16 +1139,16 @@ describe("LlmProviderSection — provider connection tests", () => {
         "settings.sections.llm.cursorProxy.healthy",
         expect.objectContaining({ endpoint: "127.0.0.1:8765" }),
       )
-      expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+      expect(within(card).getByText("停止代理")).toBeInTheDocument()
     })
 
     it("stop button invokes stopCursorProxy and refreshes the status", async () => {
       render(<LlmProviderSection />)
       const card = cursorCard()
       await waitFor(() => {
-        expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+        expect(within(card).getByText("停止代理")).toBeInTheDocument()
       })
-      fireEvent.click(within(card).getByText("settings.sections.llm.cursorProxy.stop"))
+      fireEvent.click(within(card).getByText("停止代理"))
       await waitFor(() => {
         expect(mocks.stopCursorProxy).toHaveBeenCalled()
       })
@@ -1157,7 +1169,7 @@ describe("LlmProviderSection — provider connection tests", () => {
         expect(within(card).getByText("cursor-api-proxy is not reachable")).toBeInTheDocument()
       })
       // managed proxy stays stoppable even when unhealthy (zombie cleanup)
-      expect(within(card).getByText("settings.sections.llm.cursorProxy.stop")).toBeInTheDocument()
+      expect(within(card).getByText("停止代理")).toBeInTheDocument()
     })
 
     it("external (unmanaged) healthy proxy hides the stop button", async () => {
@@ -1172,7 +1184,7 @@ describe("LlmProviderSection — provider connection tests", () => {
       await waitFor(() => {
         expect(mocks.getCursorProxyStatus).toHaveBeenCalled()
       })
-      expect(within(card).queryByText("settings.sections.llm.cursorProxy.stop")).not.toBeInTheDocument()
+      expect(within(card).queryByText("停止代理")).not.toBeInTheDocument()
     })
   })
 

@@ -32,20 +32,20 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   entity: {
     label: "Entity",
     icon: User,
-    chipClass: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
-    dotClass: "bg-blue-500",
+    chipClass: "bg-info/15 text-info dark:text-info",
+    dotClass: "bg-info",
   },
   concept: {
     label: "Concept",
     icon: Lightbulb,
-    chipClass: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-    dotClass: "bg-emerald-500",
+    chipClass: "bg-success/15 text-success dark:text-success",
+    dotClass: "bg-success",
   },
   query: {
     label: "Query",
     icon: HelpCircle,
-    chipClass: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-    dotClass: "bg-amber-500",
+    chipClass: "bg-warning/15 text-warning dark:text-warning",
+    dotClass: "bg-warning",
   },
   source: {
     label: "Source",
@@ -56,8 +56,8 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   thesis: {
     label: "Thesis",
     icon: Target,
-    chipClass: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
-    dotClass: "bg-rose-500",
+    chipClass: "bg-destructive/15 text-destructive dark:text-destructive",
+    dotClass: "bg-destructive",
   },
   finding: {
     label: "Finding",

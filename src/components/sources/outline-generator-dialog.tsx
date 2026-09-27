@@ -477,7 +477,7 @@ export function OutlineGeneratorDialog({
               )}
 
               {ingestResult && (
-                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
+                <div className="rounded-md border border-success bg-success px-3 py-2 text-xs text-success">
                   {ingestResult}
                 </div>
               )}
@@ -536,7 +536,7 @@ export function OutlineGeneratorDialog({
                 ) : null}
 
                 {!checkingOutline && !canRefine && (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <div className="rounded-md border border-warning bg-warning px-3 py-2 text-xs text-warning">
                     <div className="font-medium">{t("novel.outlineGenerator.refineMissingOutline")}</div>
                     <div className="mt-1">{t("novel.outlineGenerator.refineMissingOutlineHint")}</div>
                   </div>
@@ -598,7 +598,7 @@ export function OutlineGeneratorDialog({
                 {outlineFiles.length > 0 && (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[11px]">选中大纲文件</Label>
+                      <Label className="text-[11px]">{t("novel.outlineGenerator.selectedOutline")}</Label>
                       <div className="flex gap-1">
                         <button
                           type="button"
@@ -648,7 +648,7 @@ export function OutlineGeneratorDialog({
                 {chapterFiles.length > 0 && (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[11px]">选中章节（最近10章）</Label>
+                      <Label className="text-[11px]">{t("novel.outlineGenerator.selectedChapters")}</Label>
                       <div className="flex gap-1">
                         <button
                           type="button"
@@ -696,7 +696,7 @@ export function OutlineGeneratorDialog({
                 )}
 
                 {refineResult && (
-                  <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
+                  <div className="rounded-md border border-success bg-success px-3 py-2 text-xs text-success">
                     {refineResult}
                   </div>
                 )}

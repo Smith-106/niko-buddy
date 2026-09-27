@@ -31,7 +31,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
           ) : (
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
           )}
-          <Folder className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+          <Folder className="h-3.5 w-3.5 shrink-0 text-info" />
           <span className="truncate">{node.name}</span>
         </button>
         {expanded && node.children?.map((child) => (

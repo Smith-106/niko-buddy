@@ -580,7 +580,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "适中 (0.8x)",
     randomnessLabel: "低 (10%)",
     freedomLabel: "低",
-    color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+    color: "bg-info/15 text-info dark:bg-info/20 dark:text-info",
     icon: "🎯",
   },
   "free-emergence": {
@@ -612,7 +612,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "标准 (1.0x)",
     randomnessLabel: "中 (15%)",
     freedomLabel: "中",
-    color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+    color: "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning",
     icon: "🌳",
   },
   hybrid: {
@@ -628,7 +628,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "较多 (1.2x)",
     randomnessLabel: "中 (20%)",
     freedomLabel: "中高",
-    color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+    color: "bg-success/15 text-success dark:bg-success/20 dark:text-success",
     icon: "⚖️",
   },
 }

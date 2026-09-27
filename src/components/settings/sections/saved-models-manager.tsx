@@ -230,7 +230,7 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
 
               {model.customEndpoint && (
                 <p className="truncate text-xs text-muted-foreground">
-                  <span className="font-medium">接口：</span>
+                  <span className="font-medium">{t("settings.sections.llm.savedModels.endpointLabel")}</span>
                   {model.customEndpoint}
                 </p>
               )}

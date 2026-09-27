@@ -305,7 +305,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                 <Label>{t("settings.sections.embedding.endpoint")}</Label>
                 <ResourceLink
                   href={SILICONFLOW_RESOURCE_URL}
-                  title="为什么选择硅基流动：国内访问稳定，提供 BGE 等常用向量模型，适合资料库语义搜索。"
+                  title={t("settings.sections.embedding.siliconHint")}
                 >
                   硅基流动向量模型
                 </ResourceLink>
@@ -343,12 +343,12 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   : t("settings.sections.shared.testModel")}
               </Button>
               {testState?.message ? (
-                <p className={`text-xs ${testState.success ? "text-emerald-600" : "text-destructive"}`}>
+                <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
                   {testState.message}
                 </p>
               ) : null}
               {modelListState?.message ? (
-                <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+                <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
                   {modelListState.message}
                 </p>
               ) : null}

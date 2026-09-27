@@ -222,19 +222,19 @@ export function filterNonZeroRiskSummaryItems(items: GraphRiskSummaryItem[]): Gr
 
 export function getGraphRiskSummaryItemColor(item: GraphRiskSummaryItem): GraphRiskSummaryItemColor {
   if (item.key === "canon-rule-conflict" || item.key === "timeline-conflict") {
-    return { bg: "bg-red-500/10", border: "border-red-500/40", text: "text-red-700 dark:text-red-300", dotBg: "bg-red-500" }
+    return { bg: "bg-destructive/10", border: "border-destructive/40", text: "text-destructive dark:text-destructive", dotBg: "bg-destructive" }
   }
-  return { bg: "bg-orange-500/10", border: "border-orange-500/40", text: "text-orange-700 dark:text-orange-300", dotBg: "bg-orange-500" }
+  return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning dark:text-warning", dotBg: "bg-warning" }
 }
 
 export function getGraphNodeRiskStateLabelColor(state: string): GraphRiskSummaryItemColor {
   if (state === "疑似冲突" || state === "疑似矛盾") {
-    return { bg: "bg-red-500/10", border: "border-red-500/40", text: "text-red-700 dark:text-red-300", dotBg: "bg-red-500" }
+    return { bg: "bg-destructive/10", border: "border-destructive/40", text: "text-destructive dark:text-destructive", dotBg: "bg-destructive" }
   }
   if (state === "未回收" || state === "推进中" || state === "未揭露" || state === "部分揭露" || state === "待推进") {
-    return { bg: "bg-orange-500/10", border: "border-orange-500/40", text: "text-orange-700 dark:text-orange-300", dotBg: "bg-orange-500" }
+    return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning dark:text-warning", dotBg: "bg-warning" }
   }
-  return { bg: "bg-emerald-500/10", border: "border-emerald-500/40", text: "text-emerald-700 dark:text-emerald-300", dotBg: "bg-emerald-500" }
+  return { bg: "bg-success/10", border: "border-success/40", text: "text-success dark:text-success", dotBg: "bg-success" }
 }
 
 export function getGraphRiskSummaryTotal(items: GraphRiskSummaryItem[]): number {

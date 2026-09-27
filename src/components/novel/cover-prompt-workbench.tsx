@@ -210,7 +210,7 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
         />
         {briefText && (
           <div className="mt-1.5 rounded-md border border-dashed bg-muted/10 p-2.5" data-cover-brief-preview="true">
-            <div className="mb-1 text-[11px] font-semibold text-muted-foreground">结构化封面契约（cover-brief）</div>
+            <div className="mb-1 text-[11px] font-semibold text-muted-foreground">{t("novel.coverWorkbench.brief")}</div>
             <pre className="whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-foreground/90">{briefText}</pre>
           </div>
         )}

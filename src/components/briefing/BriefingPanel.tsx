@@ -52,7 +52,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
       </header>
 
       {rendered.warnings.length > 0 ? (
-        <ul className="text-xs text-amber-600" data-testid="briefing-warnings">
+        <ul className="text-xs text-warning" data-testid="briefing-warnings">
           {rendered.warnings.map((w) => (
             <li key={w}>{w}</li>
           ))}
@@ -90,7 +90,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
       {rendered.divergence.length > 0 ? (
         <section data-testid="briefing-divergence">
           <h3 className="text-sm font-medium">divergence</h3>
-          <p className="text-xs text-amber-600">{t("briefing.divergence.warning")}</p>
+          <p className="text-xs text-warning">{t("briefing.divergence.warning")}</p>
           <ul className="mt-1 space-y-0.5 text-xs">
             {rendered.divergence.map((d) => (
               <li key={d.claimKey} data-testid={`briefing-divergence-${d.claimKey}`}>

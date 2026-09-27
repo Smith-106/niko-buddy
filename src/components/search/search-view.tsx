@@ -801,7 +801,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((part, i) =>
         i % 2 !== 0 ? (
-          <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">
+          <mark key={i} className="bg-warning dark:bg-warning rounded px-0.5">
             {part}
           </mark>
         ) : (

@@ -137,17 +137,13 @@ export function WelcomeScreen({
                       {proj.path}
                     </div>
                   </div>
-                  <div
-                    role="button"
-                    tabIndex={0}
+                  <button type="button"
                     onClick={(e) => handleRemoveRecent(e, proj.path)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRemoveRecent(e as unknown as React.MouseEvent, proj.path)
-                    }}
+                    aria-label={`移除最近项目 ${proj.name}`}
                     className="ml-2 shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100"
                   >
                     <X className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
+                  </button>
                 </button>
               ))}
             </div>

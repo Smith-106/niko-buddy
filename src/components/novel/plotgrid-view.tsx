@@ -223,26 +223,23 @@ export function PlotgridView() {
                     return (
                       <td
                         key={chapter}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => void handleOpenChapter(chapter)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault()
-                            void handleOpenChapter(chapter)
-                          }
-                        }}
-                        title={t("novel.plotgrid.openChapter", { num: chapter, defaultValue: `打开第${chapter}章` })}
-                        className="cursor-pointer px-1 py-2 text-center hover:bg-primary/10"
+                        className="px-1 py-2 text-center"
                         data-plotgrid-cell={`${row.id}:${chapter}`}
                         data-plotgrid-mark={cell?.mark ?? ""}
                       >
                         {cell ? (
-                          <span
-                            className={`inline-block h-2.5 w-2.5 rounded-full align-middle ${MARK_CLASS[cell.mark]}`}
-                            title={markLabel}
-                            aria-label={`${row.name} · ${markLabel}`}
-                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenChapter(chapter)}
+                            title={t("novel.plotgrid.openChapter", { num: chapter, defaultValue: `打开第${chapter}章` })}
+                            aria-label={`${row.name} · ${markLabel} · ${t("novel.plotgrid.openChapter", { num: chapter, defaultValue: `打开第${chapter}章` })}`}
+                            className="rounded-full p-1 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <span
+                              className={`block h-2.5 w-2.5 rounded-full align-middle ${MARK_CLASS[cell.mark]}`}
+                              aria-hidden="true"
+                            />
+                          </button>
                         ) : (
                           <span className="text-muted-foreground/25" aria-hidden="true">·</span>
                         )}

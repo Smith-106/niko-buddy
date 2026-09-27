@@ -166,7 +166,7 @@ export function BranchManagerPanel({
         </div>
 
         {isMaxBranches && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning dark:text-warning">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span>{t("storySimulation.branchLimitReached")}</span>
           </div>
@@ -215,7 +215,7 @@ export function BranchManagerPanel({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         {index === 0 && (
-                          <span className="shrink-0 rounded bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          <span className="shrink-0 rounded bg-gradient-to-r from-warning to-warning/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
                             {t("storySimulation.recommended")}
                           </span>
                         )}
@@ -240,7 +240,7 @@ export function BranchManagerPanel({
                           {t("storySimulation.scorePoints", { score: branch.overallScore.toFixed(1) })}
                         </span>
                         <span
-                          className={`rounded px-1.5 py-0.5 ${modeInfo?.color || "bg-gray-100 text-gray-700"}`}
+                          className={`rounded px-1.5 py-0.5 ${modeInfo?.color || "bg-muted text-muted-foreground"}`}
                         >
                           {modeInfo?.name || branch.mode}
                         </span>
@@ -345,7 +345,7 @@ export function BranchManagerPanel({
             </div>
           )}
           {compareBranchIds.length > 3 && (
-            <div className="mt-1.5 text-center text-[11px] text-amber-600">
+            <div className="mt-1.5 text-center text-[11px] text-warning">
               {t("storySimulation.maxBranchesForCompare")}
             </div>
           )}

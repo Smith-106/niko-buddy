@@ -15,6 +15,16 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { CustomProviderCards } from "./custom-provider-cards"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // ── hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -60,7 +70,7 @@ const mocks = vi.hoisted(() => {
     state,
     store,
     t: vi.fn((key: string, params?: { message?: unknown }) =>
-      params && typeof params.message === "string" ? params.message : key,
+      params && typeof params.message === "string" ? params.message : (lookupZhLocale(key) ?? key),
     ),
     fetchLlmModelList: vi.fn(async () => ({ models: ["model-alpha", "model-beta"] })),
     batch: {
@@ -164,9 +174,9 @@ vi.mock("./saved-models-manager", () => ({
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const FETCH_BTN = "settings.sections.llm.fetchModels"
-const TEST_BTN = "settings.sections.shared.testModel"
-const TESTING_LABEL = "settings.sections.shared.testing"
+const FETCH_BTN = "拉取模型"
+const TEST_BTN = "测试模型"
+const TESTING_LABEL = "测试中..."
 
 function expandCard(container: HTMLElement) {
   fireEvent.click(within(container).getByTitle("展开"))
@@ -498,7 +508,7 @@ describe("CustomProviderCards", () => {
     const card = cardByLabel("C1")
     expandCard(card)
     fireEvent.click(within(card).getByText(FETCH_BTN))
-    const loadingLabel = within(card).getByText("settings.sections.llm.loadingModels")
+    const loadingLabel = within(card).getByText("拉取中...")
     expect(loadingLabel).toBeInTheDocument()
     expect(loadingLabel.closest("button")).toBeDisabled()
     expect(within(card).getByText(TEST_BTN).closest("button")).toBeDisabled()
@@ -565,9 +575,9 @@ describe("CustomProviderCards", () => {
     fireEvent.click(within(card).getByText("256K"))
     expect(mocks.state.providerConfigs["custom-1"].maxContextSize).toBe(262144)
 
-    fireEvent.click(within(card).getByText("settings.sections.llm.reasoning.off"))
+    fireEvent.click(within(card).getByText("关闭"))
     expect(mocks.state.providerConfigs["custom-1"].reasoning).toEqual({ mode: "off" })
-    fireEvent.click(within(card).getByText("settings.sections.llm.reasoning.custom"))
+    fireEvent.click(within(card).getByText("自定义"))
     expect(mocks.state.providerConfigs["custom-1"].reasoning).toEqual({ mode: "custom" })
 
     const budget = within(card).getByPlaceholderText("1024")
@@ -835,7 +845,7 @@ describe("CustomProviderCards", () => {
     const card = cardByLabel("C1")
     expandCard(card)
     const msg = within(card).getByText("全部通过")
-    expect(msg.className).toContain("text-emerald-600")
+    expect(msg.className).toContain("text-success")
   })
 
   it("testCurrentModel mapper callback executes (runBatchTest builds configs)", async () => {

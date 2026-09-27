@@ -44,10 +44,10 @@ const CONNECTION_LABEL_KEY: Record<ConnectionPhase, string> = {
 
 const CONNECTION_DOT: Record<ConnectionPhase, string> = {
   idle: "bg-muted-foreground/50",
-  connecting: "bg-amber-500 animate-pulse",
-  connected: "bg-emerald-500",
+  connecting: "bg-warning animate-pulse",
+  connected: "bg-success",
   closed: "bg-muted-foreground/50",
-  failed: "bg-red-500",
+  failed: "bg-destructive",
 };
 
 /**
@@ -200,7 +200,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
       </label>
 
       {optInRequired ? (
-        <p role="alert" data-testid="mcp-transport-optin-required" className="text-xs text-amber-600">
+        <p role="alert" data-testid="mcp-transport-optin-required" className="text-xs text-warning">
           {t("mcp.transport.optin.required")}
         </p>
       ) : null}

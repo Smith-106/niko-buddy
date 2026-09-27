@@ -85,13 +85,14 @@ function EditableTextSection({ title, value, onChange }: { title: string; value:
 }
 
 function EditableListSection({ title, value, onChange }: { title: string; value: string[]; onChange: (value: string) => void }) {
+  const { t } = useTranslation()
   return (
     <div className="mb-3">
       <h4 className="mb-1 text-sm font-semibold text-foreground">{title}</h4>
       <textarea
         value={listToText(value)}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="每行一条，可删除、修改或新增"
+        placeholder={t("novel.snapshot.lineHint")}
         className="min-h-[86px] w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-ring"
       />
     </div>
@@ -101,14 +102,15 @@ function EditableListSection({ title, value, onChange }: { title: string; value:
 // P2-IMP-12 (M3a)：POV 人工声明输入（零新增 LLM 提取——用户显式声明本章视角角色，
 // 保存进 ChapterSnapshot.povCharacter，供 resolveChapterPovCharacter 解析）。
 function EditablePovSection({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation()
   return (
     <div className="mb-3">
-      <h4 className="mb-1 text-sm font-semibold text-foreground">本章 POV 角色（可选）</h4>
+      <h4 className="mb-1 text-sm font-semibold text-foreground">{t("novel.snapshot.povOptional")}</h4>
       <input
         type="text"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="填写本章视角角色的主名（如：白砚）；留空表示无 POV 声明"
+        placeholder={t("novel.snapshot.povPlaceholder")}
         className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-ring"
       />
       <p className="mt-1 text-xs text-muted-foreground">
@@ -128,6 +130,7 @@ export interface HistoryEntryRowProps {
 }
 
 export function HistoryEntryRow({ entry, disabled, restoring, onCompare, onRestore }: HistoryEntryRowProps) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5">
       <span className="truncate text-xs text-muted-foreground">{entry.createdAt}</span>
@@ -136,7 +139,7 @@ export function HistoryEntryRow({ entry, disabled, restoring, onCompare, onResto
           type="button"
           onClick={onCompare}
           disabled={disabled}
-          title="对比该历史版本与当前快照的内容差异（只读）。"
+          title={t("novel.snapshot.compareHint")}
           className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           对比当前版本
@@ -163,6 +166,7 @@ export interface SnapshotDiffModalProps {
 }
 
 export function SnapshotDiffModal({ open, original, modified, onClose }: SnapshotDiffModalProps) {
+  const { t } = useTranslation()
   // TASK-LE-5 (ISS-20260715-001): 迁移到 @radix-ui/react-dialog。
   // 与外层 SnapshotViewer 叠层：Escape/遮罩点击只作用于顶层（Radix DismissableLayer
   // 栈语义），不再需要手写的 stopPropagation / Escape 分流。
@@ -195,12 +199,12 @@ export function SnapshotDiffModal({ open, original, modified, onClose }: Snapsho
       <div className="flex max-h-[80vh] w-[860px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <DialogTitle asChild>
-            <h3 className="text-lg font-semibold text-foreground">对比当前版本</h3>
+            <h3 className="text-lg font-semibold text-foreground">{t("novel.snapshot.compareCurrent")}</h3>
           </DialogTitle>
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭对比"
+            aria-label={t("novel.snapshot.closeCompare")}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
           >
             <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -380,7 +384,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const renderReadOnly = (data: ChapterSnapshot) => (
     <div className="space-y-2">
       <TextSection title={t("novel.snapshot.summary")} content={data.summary} />
-      {data.povCharacter ? <TextSection title="本章 POV 角色" content={data.povCharacter} /> : null}
+      {data.povCharacter ? <TextSection title={t("novel.snapshot.pov")} content={data.povCharacter} /> : null}
       <Section title={t("novel.snapshot.characters")} items={data.characters} />
       <Section title={t("novel.snapshot.locations")} items={data.locations} />
       <Section title={t("novel.snapshot.organizations")} items={data.organizations} />
@@ -395,7 +399,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       <Section title={t("novel.snapshot.conflicts")} items={data.conflicts} />
       <TextSection title={t("novel.snapshot.endingHook")} content={data.endingHook} />
       <Section title="图谱节点" items={data.graphNodes} />
-      <Section title="图谱关系边" items={data.graphEdges} />
+      <Section title={t("novel.snapshot.graphRelationEdges")} items={data.graphEdges} />
     </div>
   )
 
@@ -417,7 +421,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       <EditableListSection title={t("novel.snapshot.conflicts")} value={data.conflicts} onChange={(value) => editList("conflicts", value)} />
       <EditableTextSection title={t("novel.snapshot.endingHook")} value={data.endingHook} onChange={(value) => editText("endingHook", value)} />
       <EditableListSection title="图谱节点" value={data.graphNodes} onChange={(value) => editList("graphNodes", value)} />
-      <EditableListSection title="图谱关系边" value={data.graphEdges} onChange={(value) => editList("graphEdges", value)} />
+      <EditableListSection title={t("novel.snapshot.graphRelationEdges")} value={data.graphEdges} onChange={(value) => editList("graphEdges", value)} />
     </div>
   )
 
@@ -465,7 +469,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
                 type="button"
                 onClick={() => setShowHistory((value) => !value)}
                 disabled={saving || restoring}
-                title="查看保存快照前自动备份的历史版本，可恢复旧快照但不会自动同步记忆。"
+                title={t("novel.snapshot.historyHint")}
                 className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 历史版本
@@ -520,14 +524,14 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
             <p className="text-sm text-muted-foreground">{t("novel.snapshot.noSnapshot")}</p>
           ) : (
             <>
-              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <div className="mb-4 rounded-md border border-warning bg-warning px-3 py-2 text-sm text-warning dark:border-warning/60 dark:bg-warning/40 dark:text-warning">
                 这些内容会加入小说记忆与后续上下文。AI 生成新章节时会依托这些摘要、人物状态、角色认知、伏笔和时间线进行续写。如果这里有错误，可能会影响后续剧情连贯性，请在保存前检查并修正。保存后会影响后续上下文中读取的快照内容，但不会自动重建实体页、角色认知、伏笔追踪等衍生记忆。
               </div>
               {showHistory ? (
                 <div className="mb-4 rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <div className="mb-2 text-sm font-medium text-foreground">历史版本</div>
+                  <div className="mb-2 text-sm font-medium text-foreground">{t("novel.snapshot.history")}</div>
                   {history.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">暂无历史版本。保存快照时会自动备份旧版本。</p>
+                    <p className="text-xs text-muted-foreground">{t("novel.snapshot.noHistory")}</p>
                   ) : (
                     <div className="space-y-2">
                       {history.map((entry) => (

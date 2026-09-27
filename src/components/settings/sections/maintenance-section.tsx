@@ -283,14 +283,14 @@ export function MaintenanceSection() {
         <DivergenceTraceViewer />
 
         {!projectReady && (
-          <p className="text-xs text-amber-700 dark:text-amber-400">
+          <p className="text-xs text-warning dark:text-warning">
             {t("settings.sections.maintenance.noProject", {
               defaultValue: "请先打开一个项目。",
             })}
           </p>
         )}
         {projectReady && !llmReady && (
-          <p className="text-xs text-amber-700 dark:text-amber-400">
+          <p className="text-xs text-warning dark:text-warning">
             {t("settings.sections.maintenance.noLlm", {
               defaultValue: "请先配置大模型提供方。",
             })}
@@ -316,14 +316,14 @@ export function MaintenanceSection() {
         </Button>
 
         {scanError && (
-          <div className="flex items-start gap-1.5 rounded border border-rose-500/40 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-700 dark:text-rose-400">
+          <div className="flex items-start gap-1.5 rounded border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive dark:text-destructive">
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>{scanError}</div>
           </div>
         )}
 
         {scanCompleted && groups.length === 0 && !scanError && (
-          <div className="flex items-start gap-1.5 rounded border border-emerald-500/40 bg-emerald-500/5 px-2 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+          <div className="flex items-start gap-1.5 rounded border border-success/40 bg-success/5 px-2 py-1.5 text-xs text-success dark:text-success">
             <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>
               {t("settings.sections.maintenance.dedup.noneFound", {
@@ -460,7 +460,7 @@ function QueueOrphanList({
             </Button>
           </span>
           {task.error && task.status === "failed" && (
-            <div className="basis-full rounded border border-rose-500/40 bg-rose-500/5 px-2 py-1 text-rose-700 dark:text-rose-400">
+            <div className="basis-full rounded border border-destructive/40 bg-destructive/5 px-2 py-1 text-destructive dark:text-destructive">
               {task.error}
             </div>
           )}
@@ -479,7 +479,7 @@ function TaskStatusChip({ task, pendingPosition }: ChipProps) {
   const { t } = useTranslation()
   if (task.status === "processing") {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-400">
+      <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning dark:text-warning">
         <Loader2 className="h-3 w-3 animate-spin" />
         {t("settings.sections.maintenance.dedup.merging", {
           defaultValue: "合并中...",
@@ -508,7 +508,7 @@ function TaskStatusChip({ task, pendingPosition }: ChipProps) {
   }
   if (task.status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:text-rose-400">
+      <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive dark:text-destructive">
         <AlertTriangle className="h-3 w-3" />
         {t("settings.sections.maintenance.dedup.failed", {
           defaultValue: "失败（{{retries}}/3）",
@@ -552,9 +552,9 @@ function DuplicateGroupCard({
 
   const confidenceClass =
     group.confidence === "high"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      ? "bg-success/15 text-success dark:text-success"
       : group.confidence === "medium"
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+        ? "bg-warning/15 text-warning dark:text-warning"
         : "bg-muted text-muted-foreground"
 
   return (
@@ -574,7 +574,7 @@ function DuplicateGroupCard({
           })}
         </span>
         {merged && (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-success dark:text-success">
             <CheckCircle2 className="h-3.5 w-3.5" />
             {t("settings.sections.maintenance.dedup.merged", { defaultValue: "已合并" })}
           </span>
@@ -665,7 +665,7 @@ function DuplicateGroupCard({
       )}
 
       {failed && task?.error && (
-        <div className="flex items-start gap-1.5 rounded border border-rose-500/40 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-700 dark:text-rose-400">
+        <div className="flex items-start gap-1.5 rounded border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive dark:text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>{task.error}</div>
         </div>

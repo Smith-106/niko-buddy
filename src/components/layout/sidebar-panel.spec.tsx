@@ -16,6 +16,16 @@ import {
 import { SidebarPanel } from "./sidebar-panel"
 import type { FileNode } from "@/types/wiki"
 import type { ChapterImportCandidate, ImportedChapter, ImportedChapterMemoryProgress, ImportedChapterMemoryResult, OutlineImportCandidate, MemoryCenterData } from "@/lib/novel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 interface ProjectLike {
   id: string
@@ -72,7 +82,7 @@ const mocks = vi.hoisted(() => {
     state,
     getStateSnapshot,
     importProgressActions,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     // fs
     createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
     fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
@@ -455,7 +465,7 @@ describe("SidebarPanel 视图路由", () => {
   it("search 视图：无历史时显示空态", () => {
     renderSidebar({ activeView: "search", searchHistory: [] })
     expect(screen.getByText("暂无历史搜索")).toBeInTheDocument()
-    expect(screen.getByText("novel.nav.search")).toBeInTheDocument()
+    expect(screen.getByText("剧情搜索")).toBeInTheDocument()
   })
 
   it("search 视图：点击历史项触发搜索", () => {
@@ -472,10 +482,10 @@ describe("SidebarPanel 视图路由", () => {
   it("lint+novelMode 且无项目时渲染记忆中心标题与禁用条目", async () => {
     renderSidebar({ activeView: "lint", novelMode: true, project: null })
     await flushAsync()
-    expect(screen.getByText("novel.memoryCenter.title")).toBeInTheDocument()
+    expect(screen.getByText("记忆中心")).toBeInTheDocument()
     expect(mocks.loadMemoryCenterData).not.toHaveBeenCalled()
     const buttons = screen.getAllByRole("button")
-    expect(buttons.some((b) => b.textContent === "novel.memoryCenter.snapshots.title0")).toBe(true)
+    expect(buttons.some((b) => b.textContent === "最近章节快照0")).toBe(true)
   })
 
   it("lint+novelMode：加载中显示 spinner，成功后渲染条目计数", async () => {
@@ -486,7 +496,7 @@ describe("SidebarPanel 视图路由", () => {
       }),
     )
     const { setState } = renderSidebar({ activeView: "lint", novelMode: true, project: DEFAULT_PROJECT })
-    expect(screen.getByText("novel.memoryCenter.loading")).toBeInTheDocument()
+    expect(screen.getByText("正在加载记忆中心...")).toBeInTheDocument()
 
     act(() => {
       resolveData({
@@ -511,21 +521,21 @@ describe("SidebarPanel 视图路由", () => {
     })
     await flushAsync()
 
-    expect(screen.getByText("novel.memoryCenter.sections.characterStates")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.sections.cognition")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.sections.foreshadowing")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.sections.timeline")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.sections.canonFacts")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.sections.conflicts")).toBeInTheDocument()
-    expect(screen.getByText("novel.memoryCenter.snapshots.title")).toBeInTheDocument()
+    expect(screen.getByText("人物状态")).toBeInTheDocument()
+    expect(screen.getByText("角色认知")).toBeInTheDocument()
+    expect(screen.getByText("伏笔推进")).toBeInTheDocument()
+    expect(screen.getByText("时间线")).toBeInTheDocument()
+    expect(screen.getByText("设定事实")).toBeInTheDocument()
+    expect(screen.getByText("冲突与矛盾")).toBeInTheDocument()
+    expect(screen.getByText("最近章节快照")).toBeInTheDocument()
     // 条目计数：snapshots=2 / character-states=5 / cognition=1 / 缺失文件=0
-    const snapshotBtn = screen.getByRole("button", { name: /novel.memoryCenter.snapshots.title/ })
+    const snapshotBtn = screen.getByRole("button", { name: /最近章节快照/ })
     expect(snapshotBtn.textContent).toContain("2")
-    const statesBtn = screen.getByRole("button", { name: /characterStates/ })
+    const statesBtn = screen.getByRole("button", { name: /人物状态/ })
     expect(statesBtn.textContent).toContain("5")
-    const cognitionBtn = screen.getByRole("button", { name: /cognition/ })
+    const cognitionBtn = screen.getByRole("button", { name: /角色认知/ })
     expect(cognitionBtn.textContent).toContain("1")
-    const timelineBtn = screen.getByRole("button", { name: /timeline/ })
+    const timelineBtn = screen.getByRole("button", { name: /时间线/ })
     expect(timelineBtn).toBeDisabled()
     expect(timelineBtn.textContent).toContain("0")
 
@@ -533,14 +543,14 @@ describe("SidebarPanel 视图路由", () => {
     expect(mocks.state.setSelectedMemoryCenterEntry).toHaveBeenCalledWith("character-states")
 
     // 刷新按钮再次加载
-    fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
+    fireEvent.click(screen.getByTitle("刷新"))
     await waitFor(() => expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2))
     await flushAsync()
 
     // 离开 lint 视图后清理数据
     setState({ activeView: "wiki" })
     await flushAsync()
-    expect(screen.queryByText("novel.memoryCenter.loading")).not.toBeInTheDocument()
+    expect(screen.queryByText("正在加载记忆中心...")).not.toBeInTheDocument()
   })
 
   it("lint+novelMode：加载失败显示错误与刷新按钮", async () => {
@@ -549,13 +559,13 @@ describe("SidebarPanel 视图路由", () => {
     await waitFor(() => expect(screen.getByText("memory boom")).toBeInTheDocument())
 
     mocks.loadMemoryCenterData.mockResolvedValue({ stats: { snapshotCount: 0, syncedSnapshotCount: 0, characterCount: 0, activeForeshadowingCount: 0, memoryFileCount: 0 }, snapshots: [], files: [], dismantlingProjects: [] })
-    fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
+    fireEvent.click(screen.getByTitle("刷新"))
     await waitFor(() => expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2))
     await flushAsync()
     expect(screen.queryByText("memory boom")).not.toBeInTheDocument()
 
     setState({ activeView: "lint", novelMode: true, project: null })
-    fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
+    fireEvent.click(screen.getByTitle("刷新"))
     await flushAsync()
     expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2)
   })
@@ -626,12 +636,12 @@ describe("SidebarPanel 视图路由", () => {
     expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(1)
 
     mocks.loadMemoryCenterData.mockRejectedValue(new Error("refresh boom"))
-    fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
+    fireEvent.click(screen.getByTitle("刷新"))
     await waitFor(() => expect(screen.getByText("refresh boom")).toBeInTheDocument())
     expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2)
 
     mocks.loadMemoryCenterData.mockRejectedValue("refresh-boom-str")
-    fireEvent.click(screen.getByTitle("novel.memoryCenter.refresh"))
+    fireEvent.click(screen.getByTitle("刷新"))
     await waitFor(() => expect(screen.getByText("refresh-boom-str")).toBeInTheDocument())
     expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(3)
     firstRender.unmount()
@@ -645,7 +655,7 @@ describe("SidebarPanel 视图路由", () => {
       selectedMemoryCenterEntry: "character-states",
     })
     await flushAsync()
-    const statesBtn = screen.getByRole("button", { name: /characterStates/ })
+    const statesBtn = screen.getByRole("button", { name: /人物状态/ })
     expect(statesBtn).toBeInTheDocument()
   })
 
@@ -707,11 +717,11 @@ describe("SidebarPanel 知识模式（章节）", () => {
     mocks.countChapterBodyWords.mockReturnValue(1234)
     renderSidebar()
     await waitFor(() => expect(screen.getByText("total:1234")).toBeInTheDocument())
-    expect(screen.getByText("sidebar.knowledge")).toBeInTheDocument()
+    expect(screen.getByText("章节")).toBeInTheDocument()
     expect(screen.getByTestId("kt-filter")).toHaveTextContent("chapter")
     expect(screen.getByTestId("raw-sources")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText("iconSidebar.usageGuide"))
+    fireEvent.click(screen.getByText("使用说明"))
     expect(mocks.openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("feishu.cn"))
   })
 
@@ -1191,7 +1201,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("新建章节：无项目时守卫返回", async () => {
     renderSidebar({ project: null })
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await flushAsync()
     expect(mocks.createDirectory).not.toHaveBeenCalled()
     expect(mocks.writeFile).not.toHaveBeenCalled()
@@ -1203,10 +1213,10 @@ describe("SidebarPanel 知识模式（章节）", () => {
     mocks.writeFile.mockRejectedValue(new Error("write boom"))
     renderSidebar()
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(errorSpy).toHaveBeenCalled())
     await flushAsync()
-    expect(screen.getByTitle("sidebar.newChapter")).not.toBeDisabled()
+    expect(screen.getByTitle("新建章节")).not.toBeDisabled()
   })
 
   it("连续新建章节：pending 页面去重保留", async () => {
@@ -1221,10 +1231,10 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(2))
     await flushAsync()
 
@@ -1235,8 +1245,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
   it("新建大纲：无项目时守卫返回", async () => {
     renderSidebar({ project: null, activeView: "sources" })
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "标题" } })
     fireEvent.click(screen.getByText("创建"))
     await flushAsync()
@@ -1276,28 +1286,28 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   it("文件模式渲染 outline 过滤器与导入菜单文案", () => {
     renderSidebar()
     expect(screen.getByTestId("kt-filter")).toHaveTextContent("outline")
-    expect(screen.getByRole("button", { name: "sources.import" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "导入" })).toBeInTheDocument()
   })
 
   it("大纲导入文件：成功链路", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     mocks.importOutlineFiles.mockResolvedValue(["/p/mybook/wiki/outlines/o1.md"])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(mocks.importOutlineFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/o1.md"]))
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/outlines/o1.md"))
     await flushAsync()
-    expect(screen.queryByText("sources.importFiles")).not.toBeInTheDocument()
+    expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
   })
 
   it("大纲导入文件：空结果 alert", async () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.emptyResult"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
     await flushAsync()
   })
 
@@ -1307,9 +1317,9 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     mocks.importOutlineFiles.mockRejectedValue(new Error("outline boom"))
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.importFailed"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
   })
@@ -1325,8 +1335,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       "/p/mybook/wiki/outlines/o2.md",
     ])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
     const dialog = within(screen.getByTestId("dialog-content"))
     expect(dialog.getByText(/本次将导入 2 个 AI 大纲文档/)).toBeInTheDocument()
@@ -1373,8 +1383,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       }),
     )
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
     await waitFor(() => expect(mocks.importProgressActions.startTask).toHaveBeenCalled())
@@ -1397,18 +1407,18 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.emptyResult"))
-    expect(screen.queryByText("sources.importFolder")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
+    expect(screen.queryByText("文件夹")).not.toBeInTheDocument()
   })
 
   it("大纲导入文件夹：取消导入不执行导入", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("取消导入"))
     await flushAsync()
@@ -1418,8 +1428,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   it("大纲导入文件夹：对话框返回非字符串时守卫返回", async () => {
     mocks.dialogOpen.mockResolvedValue(123)
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await flushAsync()
     expect(mocks.collectOutlineImportCandidatesFromFolder).not.toHaveBeenCalled()
   })
@@ -1433,11 +1443,11 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       }),
     )
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    await waitFor(() => expect(screen.getByRole("button", { name: "sources.importing" })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(screen.getByRole("button", { name: "导入中..." })).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole("button", { name: "sources.importing" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入中..." }))
     await flushAsync()
     expect(mocks.dialogOpen).toHaveBeenCalledTimes(1)
 
@@ -1449,29 +1459,29 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入菜单：Escape 与外部点击关闭", () => {
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    expect(screen.getByText("sources.importFiles")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    expect(screen.getByText("导入文件")).toBeInTheDocument()
     fireEvent.keyDown(document, { key: "Escape" })
-    expect(screen.queryByText("sources.importFiles")).not.toBeInTheDocument()
+    expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByText("sources.importFiles")).not.toBeInTheDocument()
+    expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.mouseDown(screen.getByText("sources.importFiles"))
-    expect(screen.getByText("sources.importFiles")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.mouseDown(screen.getByText("导入文件"))
+    expect(screen.getByText("导入文件")).toBeInTheDocument()
   })
 
   it("大纲导入菜单：对话框监听器收到非法 target 时早退", () => {
     const addEventListenerSpy = vi.spyOn(document, "addEventListener")
     const { unmount } = renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
 
     const call = [...addEventListenerSpy.mock.calls].reverse().find(([type]) => type === "mousedown")
     const listener = call?.[1] as unknown as (event: MouseEvent) => void
     listener({ target: {} } as unknown as MouseEvent)
-    expect(screen.getByText("sources.importFiles")).toBeInTheDocument()
+    expect(screen.getByText("导入文件")).toBeInTheDocument()
 
     fireEvent.keyDown(document, { key: "Escape" })
     unmount()
@@ -1479,9 +1489,9 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入：无项目时文件与文件夹 handler 守卫返回", async () => {
     renderSidebar({ project: null, activeView: "sources" })
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    fireEvent.click(screen.getByText("文件夹"))
     await flushAsync()
     expect(mocks.dialogOpen).not.toHaveBeenCalled()
   })
@@ -1495,8 +1505,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       .mockImplementationOnce(() => "")
     renderSidebar()
 
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
     fireEvent.click(screen.getByText("提取记忆"))
     await waitFor(() =>
@@ -1509,18 +1519,18 @@ describe("SidebarPanel 文件模式（大纲）", () => {
 
   it("大纲导入菜单：非 Escape 按键不关闭", () => {
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.keyDown(document, { key: "ArrowDown" })
-    expect(screen.getByText("sources.importFiles")).toBeInTheDocument()
+    expect(screen.getByText("导入文件")).toBeInTheDocument()
     fireEvent.keyDown(document, { key: "Escape" })
-    expect(screen.queryByText("sources.importFiles")).not.toBeInTheDocument()
+    expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
   })
 
   it("大纲导入文件：对话框返回空数组时守卫返回", async () => {
     mocks.dialogOpen.mockResolvedValue([])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await flushAsync()
     expect(mocks.importOutlineFiles).not.toHaveBeenCalled()
   })
@@ -1529,8 +1539,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/single-outline.md")
     mocks.importOutlineFiles.mockResolvedValue(["/p/mybook/wiki/outlines/single-outline.md"])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(mocks.importOutlineFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/single-outline.md"]))
     await flushAsync()
   })
@@ -1541,9 +1551,9 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     mocks.importOutlineFiles.mockRejectedValue("outline-boom-str")
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.importFailed"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
   })
 
@@ -1552,8 +1562,8 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue(["/p/mybook/wiki/outlines/o1.md"])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("只导入"))
     await waitFor(() => expect(mocks.importOutlineCandidates).toHaveBeenCalled())
@@ -1568,11 +1578,11 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue([])
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.emptyResult"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
     await flushAsync()
     expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
   })
@@ -1584,11 +1594,11 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockRejectedValue("folder-outline-boom-str")
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.importFailed"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
   })
 
@@ -1599,11 +1609,11 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockRejectedValue(new Error("outline-folder-err"))
     renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("novel.outlineImport.importFailed"))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("[SidebarPanel] outline folder import failed:"),
@@ -1650,7 +1660,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     expect(mocks.writeFile).toHaveBeenCalledWith(
       "/p/mybook/wiki/chapters/chapter-no-ext-2",
@@ -1678,7 +1688,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
 
@@ -1705,7 +1715,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
 
@@ -1721,7 +1731,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
 
@@ -1736,7 +1746,7 @@ describe("SidebarPanel 创建流程", () => {
     })
     renderSidebar()
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
     expect(mocks.writeFile).toHaveBeenCalledWith(
@@ -1750,7 +1760,7 @@ describe("SidebarPanel 创建流程", () => {
     mocks.createDirectory.mockRejectedValue(new Error("mkdir boom"))
     renderSidebar()
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
     expect(mocks.writeFile).toHaveBeenCalled()
@@ -1769,8 +1779,8 @@ describe("SidebarPanel 创建流程", () => {
   it("新建大纲：输入标题后创建 outline 文件", async () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     const user = userEvent.setup()
     await user.type(input, "新大纲{Enter}")
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
@@ -1791,8 +1801,8 @@ describe("SidebarPanel 创建流程", () => {
   it("新建大纲：Enter 提交", async () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "回车提交" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
@@ -1807,7 +1817,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    const input = screen.getByPlaceholderText("sidebar.newVolumePrompt")
+    const input = screen.getByPlaceholderText("请输入卷名称")
     fireEvent.change(input, { target: { value: "第一卷" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() => expect(mocks.createDirectory).toHaveBeenCalledWith("/p/mybook/wiki/chapters/第一卷"))
@@ -1821,7 +1831,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    const input = screen.getByPlaceholderText("sidebar.newFolderPrompt")
+    const input = screen.getByPlaceholderText("请输入文件夹名称")
     fireEvent.change(input, { target: { value: "素材库" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() => expect(mocks.createDirectory).toHaveBeenCalledWith("/p/mybook/wiki/outlines/素材库"))
@@ -1833,25 +1843,25 @@ describe("SidebarPanel 创建流程", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     renderSidebar({ activeView: "sources" })
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "坏文件" } })
     mocks.writeFile.mockRejectedValue(new Error("write boom"))
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() => expect(console.error).toHaveBeenCalled())
     await flushAsync()
-    expect(screen.getByPlaceholderText("sidebar.newOutlinePrompt")).toBeInTheDocument()
+    expect(screen.getByPlaceholderText("请输入大纲标题")).toBeInTheDocument()
   })
 
   it("输入框 Escape 与取消按钮关闭创建", () => {
     renderSidebar({ activeView: "sources" })
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "abc" } })
     fireEvent.keyDown(input, { key: "Escape" })
     expect(screen.queryByPlaceholderText("sidebar.newOutlinePrompt")).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
+    fireEvent.click(screen.getByTitle("新建大纲"))
     fireEvent.click(screen.getByText("取消"))
     expect(screen.queryByPlaceholderText("sidebar.newOutlinePrompt")).not.toBeInTheDocument()
   })
@@ -1859,13 +1869,13 @@ describe("SidebarPanel 创建流程", () => {
   it("模式切换时取消不匹配的 pendingCreate", () => {
     const { setState } = renderSidebar({ activeView: "sources" })
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    expect(screen.getByPlaceholderText("sidebar.newFolderPrompt")).toBeInTheDocument()
+    expect(screen.getByPlaceholderText("请输入文件夹名称")).toBeInTheDocument()
     setState({ activeView: "wiki" })
     flush()
     expect(screen.queryByPlaceholderText("sidebar.newFolderPrompt")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    expect(screen.getByPlaceholderText("sidebar.newVolumePrompt")).toBeInTheDocument()
+    expect(screen.getByPlaceholderText("请输入卷名称")).toBeInTheDocument()
     setState({ activeView: "sources" })
     flush()
     expect(screen.queryByPlaceholderText("sidebar.newVolumePrompt")).not.toBeInTheDocument()
@@ -1873,11 +1883,11 @@ describe("SidebarPanel 创建流程", () => {
 
   it("模式切换时关闭不匹配的导入菜单", () => {
     const { setState } = renderSidebar({ activeView: "sources" })
-    fireEvent.click(screen.getByRole("button", { name: "sources.import" }))
-    expect(screen.getByText("sources.importFiles")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    expect(screen.getByText("导入文件")).toBeInTheDocument()
     setState({ activeView: "wiki" })
     flush()
-    expect(screen.queryByText("sources.importFiles")).not.toBeInTheDocument()
+    expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     expect(screen.getByText("导入文件")).toBeInTheDocument()
@@ -1902,7 +1912,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     // 先创建一章制造 pending 页面
-    fireEvent.click(screen.getByTitle("sidebar.newChapter"))
+    fireEvent.click(screen.getByTitle("新建章节"))
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
     await flushAsync()
     expect(screen.getByTestId("kt-pending")).not.toHaveTextContent("[]")
@@ -1914,15 +1924,15 @@ describe("SidebarPanel 创建流程", () => {
   it("连续新建大纲：pending 页面保留先前的条目", async () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    let input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    let input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "大纲A" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "大纲B" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(2))
@@ -1937,8 +1947,8 @@ describe("SidebarPanel 创建流程", () => {
     mocks.createDirectory.mockRejectedValue(new Error("mkdir boom"))
     renderSidebar({ activeView: "sources" })
     await flushAsync()
-    fireEvent.click(screen.getByTitle("sidebar.newOutline"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    fireEvent.click(screen.getByTitle("新建大纲"))
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "新大纲" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
@@ -1956,7 +1966,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    const input = screen.getByPlaceholderText("sidebar.newVolumePrompt")
+    const input = screen.getByPlaceholderText("请输入卷名称")
     fireEvent.change(input, { target: { value: "第一卷" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() =>
@@ -1970,7 +1980,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-parent"))
-    const input = screen.getByPlaceholderText("sidebar.newOutlinePrompt")
+    const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "父目录大纲" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() =>
@@ -1986,7 +1996,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar({ activeView: "sources" })
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-secondary"))
-    const input = screen.getByPlaceholderText("sidebar.newFolderPrompt")
+    const input = screen.getByPlaceholderText("请输入文件夹名称")
     fireEvent.change(input, { target: { value: "素材库" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() =>

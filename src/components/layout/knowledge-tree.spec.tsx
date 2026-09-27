@@ -50,7 +50,10 @@ const mocks = vi.hoisted(() => {
     cancelTask: vi.fn(),
   }
   return {
-    t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
+    t: vi.fn((key: string, opts?: Record<string, unknown>) => {
+      const base = lookupZhLocale(key) ?? key
+      return opts ? `${base}::${JSON.stringify(opts)}` : base
+    }),
     wikiState,
     importState,
     readFile: vi.fn(),
@@ -139,6 +142,16 @@ vi.mock("@/lib/novel/delete-source-memory", async (importOriginal) => {
 })
 
 import { KnowledgeTree, RawSourcesSection } from "./knowledge-tree"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -253,7 +266,10 @@ function setElementFromPoint(el: Element | Text | null): void {
 beforeEach(() => {
   vi.clearAllMocks()
   setupDomGlobals()
-  mocks.t.mockImplementation((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key))
+  mocks.t.mockImplementation((key: string, opts?: Record<string, unknown>) => {
+    const base = lookupZhLocale(key) ?? key
+    return opts ? `${base}::${JSON.stringify(opts)}` : base
+  })
   mocks.wikiState.project = { id: "p1", name: "MyBook", path: PROJ }
   mocks.wikiState.fileTree = defaultFileTree()
   mocks.wikiState.selectedFile = null
@@ -297,7 +313,7 @@ describe("KnowledgeTree", () => {
   it("无项目时渲染 noProject 提示且不加载目录", async () => {
     mocks.wikiState.project = null
     const view = renderTree()
-    await waitFor(() => expect(screen.getByText("knowledgeTree.noProject")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("未打开项目")).toBeInTheDocument())
     expect(mocks.listDirectory).not.toHaveBeenCalled()
     view.unmount()
   })
@@ -305,21 +321,21 @@ describe("KnowledgeTree", () => {
   it("空文件树显示空态提示（chapter/outline 两个变体）", async () => {
     mocks.wikiState.fileTree = []
     const view = renderTree()
-    await waitFor(() => expect(screen.getByText('knowledgeTree.emptyFiltered::{"label":"trash.kindChapter"}')).toBeInTheDocument())
-    expect(screen.getByText("sidebar.knowledge")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('暂无{{label}}，点击 + 创建::{"label":"章节"}')).toBeInTheDocument())
+    expect(screen.getByText("章节")).toBeInTheDocument()
     view.unmount()
 
     mocks.wikiState.fileTree = []
     const view2 = render(<KnowledgeTree filterType="outline" />)
-    await waitFor(() => expect(screen.getByText('knowledgeTree.emptyFiltered::{"label":"trash.kindOutline"}')).toBeInTheDocument())
-    expect(screen.getByText("sidebar.files")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('暂无{{label}}，点击 + 创建::{"label":"大纲"}')).toBeInTheDocument())
+    expect(screen.getByText("大纲")).toBeInTheDocument()
     view2.unmount()
   })
 
   it("chapter 文件树渲染：卷/页/字数/来源图标/排序/非 md 过滤", async () => {
     const view = renderTree()
     await screen.findByText("第二章-进展")
-    expect(screen.getByText("sidebar.knowledge")).toBeInTheDocument()
+    expect(screen.getByText("章节")).toBeInTheDocument()
     // 文件夹与计数
     expect(screen.getByText("卷1")).toBeInTheDocument()
     // frontmatter 标题 / heading 标题 / 回退标题
@@ -353,7 +369,7 @@ describe("KnowledgeTree", () => {
   it("outline 文件树渲染：文件夹在前、回退标题（读取失败页）、无字数标签", async () => {
     const view = render(<KnowledgeTree filterType="outline" />)
     await screen.findByText("全书大纲")
-    expect(screen.getByText("sidebar.files")).toBeInTheDocument()
+    expect(screen.getByText("大纲")).toBeInTheDocument()
     expect(screen.getByText("分卷A")).toBeInTheDocument()
     // 分卷A-甲 含连字符：真实标题仅异步 loadPages 完成后存在（回退标题会替换为空格）
     expect(await screen.findByText("分卷A-甲")).toBeInTheDocument()
@@ -395,10 +411,10 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
-    fireEvent.click(within(row).getByTitle(/confirmDeleteTitle/))
-    expect(within(row).getByTitle(/deletingTitle/)).toBeInTheDocument()
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
+    fireEvent.click(within(row).getByTitle(/再次点击确认/))
+    expect(within(row).getByTitle(/正在移入回收站/)).toBeInTheDocument()
     await flush()
     expect(mocks.moveFileToTrash).toHaveBeenCalledWith(PROJ, `${CHAPTERS}/第三章-高潮.md`, "chapter")
     expect(mocks.deleteNovelSourceMemory).toHaveBeenCalledWith(PROJ, {
@@ -416,19 +432,19 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     // 非 Node target（守卫分支：armed 保持）
     const nonNode = new MouseEvent("mousedown", { bubbles: true })
     Object.defineProperty(nonNode, "target", { value: {} })
     act(() => document.dispatchEvent(nonNode))
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     // 外部 mousedown → 取消武装
     act(() => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })))
     expect(within(row).queryByTitle(/confirmDeleteTitle/)).not.toBeInTheDocument()
     // Escape → 取消武装
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
     expect(within(row).queryByTitle(/confirmDeleteTitle/)).not.toBeInTheDocument()
     view.unmount()
@@ -441,8 +457,8 @@ describe("KnowledgeTree", () => {
     await screen.findByText("序章-引子")
     const row = pageRow(view.container, `${CHAPTERS}/序章-引子.md`)
     mocks.readFile.mockImplementationOnce(() => Promise.reject(new Error("read-fail")))
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    fireEvent.click(within(row).getByTitle(/confirmDeleteTitle/))
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    fireEvent.click(within(row).getByTitle(/再次点击确认/))
     await flush()
     expect(mocks.moveFileToTrash).toHaveBeenCalledWith(PROJ, `${CHAPTERS}/序章-引子.md`, "chapter")
     expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(null)
@@ -458,16 +474,16 @@ describe("KnowledgeTree", () => {
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     // 删除失败
     mocks.moveFileToTrash.mockRejectedValueOnce(new Error("trash-fail"))
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    fireEvent.click(within(row).getByTitle(/confirmDeleteTitle/))
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    fireEvent.click(within(row).getByTitle(/再次点击确认/))
     await flush()
     expect(errSpy).toHaveBeenCalled()
     expect(within(row).queryByTitle(/deletingTitle/)).not.toBeInTheDocument()
     // 记忆清理失败 → warn，删除仍完成
     mocks.moveFileToTrash.mockResolvedValueOnce({ id: "t2", name: "x", originalPath: "x", trashPath: "x", deletedAt: 0, expiresAt: 0, kind: "chapter" })
     mocks.deleteNovelSourceMemory.mockRejectedValueOnce(new Error("mem-fail"))
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    fireEvent.click(within(row).getByTitle(/confirmDeleteTitle/))
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    fireEvent.click(within(row).getByTitle(/再次点击确认/))
     await flush()
     expect(warnSpy).toHaveBeenCalled()
     expect(mocks.wikiState.setFileTree).toHaveBeenCalled()
@@ -479,8 +495,8 @@ describe("KnowledgeTree", () => {
     await screen.findByText("全书大纲")
     const row = pageRow(view.container, `${OUTLINES}/全书大纲.md`)
     mocks.readFile.mockClear()
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    fireEvent.click(within(row).getByTitle(/confirmDeleteTitle/))
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    fireEvent.click(within(row).getByTitle(/再次点击确认/))
     await flush()
     expect(mocks.moveFileToTrash).toHaveBeenCalledWith(PROJ, `${OUTLINES}/全书大纲.md`, "outline")
     view.unmount()
@@ -491,9 +507,9 @@ describe("KnowledgeTree", () => {
     const view = renderTree({ onRemovePendingPage })
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    expect(screen.getByText("knowledgeTree.deleteVolume")).toBeInTheDocument()
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
-    expect(mocks.confirm).toHaveBeenCalledWith('knowledgeTree.deleteFolderConfirm::{"name":"卷1","count":1}')
+    expect(screen.getByText("删除卷")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("删除卷"))
+    expect(mocks.confirm).toHaveBeenCalledWith('确认将「{{name}}」及其下 {{count}} 个文件移入回收站吗？::{"name":"卷1","count":1}')
     await flush()
     expect(mocks.moveFileToTrash).toHaveBeenCalledWith(PROJ, `${CHAPTERS}/卷1/第一章-开端.md`, "chapter")
     expect(mocks.deleteNovelSourceMemory).toHaveBeenCalled()
@@ -507,8 +523,8 @@ describe("KnowledgeTree", () => {
     const view = render(<KnowledgeTree filterType="outline" />)
     await screen.findByText("空文件夹")
     fireEvent.contextMenu(screen.getByText("空文件夹"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteFolder"))
-    expect(mocks.confirm).toHaveBeenCalledWith('knowledgeTree.deleteEmptyFolderConfirm::{"name":"空文件夹"}')
+    fireEvent.click(screen.getByText("删除文件夹"))
+    expect(mocks.confirm).toHaveBeenCalledWith('确认删除空文件夹「{{name}}」吗？::{"name":"空文件夹"}')
     await flush()
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${OUTLINES}/空文件夹`)
     view.unmount()
@@ -519,7 +535,7 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     expect(mocks.moveFileToTrash).not.toHaveBeenCalled()
     expect(mocks.deleteFile).not.toHaveBeenCalled()
@@ -536,9 +552,9 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
-    expect(mocks.alert).toHaveBeenCalledWith('knowledgeTree.deleteFolderBlocked::{"name":"卷1"}')
+    expect(mocks.alert).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
     expect(mocks.deleteFile).not.toHaveBeenCalledWith(`${CHAPTERS}/卷1`)
     view.unmount()
   })
@@ -550,7 +566,7 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     expect(warnSpy).toHaveBeenCalled()
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${CHAPTERS}/卷1`)
@@ -567,7 +583,7 @@ describe("KnowledgeTree", () => {
     if (chaptersNode) chaptersNode.children = chaptersNode.children?.filter((c) => c.name !== "卷1")
     mocks.wikiState.fileTree = treeWithout
     view.rerender(<KnowledgeTree filterType="chapter" />)
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     expect(mocks.moveFileToTrash).not.toHaveBeenCalled()
     expect(mocks.deleteFile).not.toHaveBeenCalled()
@@ -583,7 +599,7 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     expect(errSpy).toHaveBeenCalled()
     view.unmount()
@@ -593,13 +609,13 @@ describe("KnowledgeTree", () => {
     const onRequestCreate = vi.fn()
     const view = renderTree({ onRequestCreate })
     await screen.findByText("第二章-进展")
-    fireEvent.contextMenu(screen.getByText("sidebar.knowledge"))
-    expect(screen.getByText("sidebar.newChapter")).toBeInTheDocument()
-    expect(screen.getByText("sidebar.newVolume")).toBeInTheDocument()
-    expect(screen.queryByText("knowledgeTree.deleteVolume")).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText("sidebar.newChapter"))
+    fireEvent.contextMenu(screen.getByText("章节"))
+    expect(screen.getByText("新建章节")).toBeInTheDocument()
+    expect(screen.getByText("新建卷")).toBeInTheDocument()
+    expect(screen.queryByText("删除卷")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText("新建章节"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "chapter", parentDir: undefined })
-    expect(screen.queryByText("sidebar.newChapter")).not.toBeInTheDocument()
+    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
     view.unmount()
   })
 
@@ -610,13 +626,13 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    expect(screen.getByText("knowledgeTree.rename")).toBeInTheDocument()
-    expect(screen.getByText("knowledgeTree.moveToVolume")).toBeInTheDocument()
+    expect(screen.getByText("重命名")).toBeInTheDocument()
+    expect(screen.getByText("移动到卷")).toBeInTheDocument()
     expect(screen.getByText("打开文件所在位置")).toBeInTheDocument()
-    fireEvent.click(screen.getByText("sidebar.newChapter"))
+    fireEvent.click(screen.getByText("新建章节"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "chapter", parentDir: CHAPTERS })
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("sidebar.newVolume"))
+    fireEvent.click(screen.getByText("新建卷"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "volume", parentDir: CHAPTERS })
     // 打开文件位置成功
     fireEvent.contextMenu(row)
@@ -636,7 +652,7 @@ describe("KnowledgeTree", () => {
     const view = renderTree({ onRequestCreate })
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("sidebar.newVolume"))
+    fireEvent.click(screen.getByText("新建卷"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "volume", parentDir: `${CHAPTERS}/卷1` })
     view.unmount()
   })
@@ -647,10 +663,10 @@ describe("KnowledgeTree", () => {
     await screen.findByText("全书大纲")
     const row = pageRow(view.container, `${OUTLINES}/全书大纲.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("sidebar.newOutline"))
+    fireEvent.click(screen.getByText("新建大纲"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "outline", parentDir: OUTLINES })
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("sidebar.newFolder"))
+    fireEvent.click(screen.getByText("新建文件夹"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "folder", parentDir: OUTLINES })
     view.unmount()
   })
@@ -661,7 +677,7 @@ describe("KnowledgeTree", () => {
     await screen.findByText("坏文件")
     const row = pageRow(view.container, `${OUTLINES}/坏文件.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("sidebar.newOutline"))
+    fireEvent.click(screen.getByText("新建大纲"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "outline", parentDir: undefined })
     view.unmount()
   })
@@ -672,7 +688,7 @@ describe("KnowledgeTree", () => {
     const row = pageRow(view.container, `${CHAPTERS}/第二章-进展.md`)
     fireEvent.pointerDown(row, { pointerType: "touch", pointerId: 1, button: 0 })
     fireEvent.contextMenu(row)
-    expect(screen.queryByText("knowledgeTree.rename")).not.toBeInTheDocument()
+    expect(screen.queryByText("重命名")).not.toBeInTheDocument()
     view.unmount()
   })
 
@@ -680,20 +696,20 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     // document mousedown 关闭
-    fireEvent.contextMenu(screen.getByText("sidebar.knowledge"))
-    expect(screen.getByText("sidebar.newChapter")).toBeInTheDocument()
+    fireEvent.contextMenu(screen.getByText("章节"))
+    expect(screen.getByText("新建章节")).toBeInTheDocument()
     act(() => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })))
-    expect(screen.queryByText("sidebar.newChapter")).not.toBeInTheDocument()
+    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
     // document keydown 关闭
-    fireEvent.contextMenu(screen.getByText("sidebar.knowledge"))
-    expect(screen.getByText("sidebar.newChapter")).toBeInTheDocument()
+    fireEvent.contextMenu(screen.getByText("章节"))
+    expect(screen.getByText("新建章节")).toBeInTheDocument()
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true })))
-    expect(screen.queryByText("sidebar.newChapter")).not.toBeInTheDocument()
+    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
     // 容器 onClick 关闭
-    fireEvent.contextMenu(screen.getByText("sidebar.knowledge"))
-    expect(screen.getByText("sidebar.newChapter")).toBeInTheDocument()
-    fireEvent.click(screen.getByText("sidebar.knowledge"))
-    expect(screen.queryByText("sidebar.newChapter")).not.toBeInTheDocument()
+    fireEvent.contextMenu(screen.getByText("章节"))
+    expect(screen.getByText("新建章节")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("章节"))
+    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
     view.unmount()
   })
 
@@ -703,8 +719,8 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.moveToVolume"))
-    const menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    fireEvent.click(screen.getByText("移动到卷"))
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     fireEvent.click(within(menu).getByText("卷1"))
     await flush()
     expect(mocks.copyFile).toHaveBeenCalledWith(`${CHAPTERS}/第三章-高潮.md`, `${CHAPTERS}/卷1/第三章-高潮.md`)
@@ -723,25 +739,25 @@ describe("KnowledgeTree", () => {
     // 目标已存在
     mocks.fileExists.mockResolvedValueOnce(true)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.moveToVolume"))
-    let menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    fireEvent.click(screen.getByText("移动到卷"))
+    let menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     fireEvent.click(within(menu).getByText("卷1"))
     await flush()
-    expect(mocks.alert).toHaveBeenCalledWith("knowledgeTree.moveTargetExists")
+    expect(mocks.alert).toHaveBeenCalledWith("目标卷中已存在同名文件，无法移动")
     expect(mocks.copyFile).not.toHaveBeenCalled()
     // 当前卷禁用（第一章-开端 在卷1 内 → isCurrentVolume）
     const volRow = pageRow(view.container, `${CHAPTERS}/卷1/第一章-开端.md`)
     fireEvent.contextMenu(volRow)
-    fireEvent.click(screen.getByText("knowledgeTree.moveToVolume"))
-    menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    fireEvent.click(screen.getByText("移动到卷"))
+    menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     const volBtn = within(menu).getByText("卷1").closest("button")
     expect(volBtn?.hasAttribute("disabled")).toBe(true)
     expect(within(menu).getByText("当前")).toBeInTheDocument()
     // copyFile 失败 → console.error
     mocks.copyFile.mockRejectedValueOnce(new Error("copy-fail"))
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.moveToVolume"))
-    menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    fireEvent.click(screen.getByText("移动到卷"))
+    menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     fireEvent.click(within(menu).getByText("卷1"))
     await flush()
     expect(errSpy).toHaveBeenCalled()
@@ -755,7 +771,7 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = within(row).getByRole("textbox")
     expect(input).toHaveValue("第三章-高潮")
     fireEvent.change(input, { target: { value: "第四章-新篇章" } })
@@ -778,7 +794,7 @@ describe("KnowledgeTree", () => {
     // 第一章-开端：frontmatter 已有 title/chapter_number → 都替换
     const row1 = pageRow(view.container, `${CHAPTERS}/卷1/第一章-开端.md`)
     fireEvent.contextMenu(row1)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input1 = within(row1).getByRole("textbox")
     fireEvent.change(input1, { target: { value: "第五章-开端改" } })
     fireEvent.keyDown(input1, { key: "Enter" })
@@ -790,7 +806,7 @@ describe("KnowledgeTree", () => {
     await screen.findByText("序章-引子")
     const row2 = pageRow(view.container, `${CHAPTERS}/序章-引子.md`)
     fireEvent.contextMenu(row2)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input2 = within(row2).getByRole("textbox")
     fireEvent.change(input2, { target: { value: "引子修改" } })
     fireEvent.keyDown(input2, { key: "Enter" })
@@ -806,7 +822,7 @@ describe("KnowledgeTree", () => {
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     // 重复标题
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     let input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "第二章-进展" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -814,7 +830,7 @@ describe("KnowledgeTree", () => {
     expect(mocks.writeFile).not.toHaveBeenCalled()
     // 章号冲突（第三章 → 第二章 → 与第二章-进展 冲突）
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "第二章-冲突" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -822,7 +838,7 @@ describe("KnowledgeTree", () => {
     expect(mocks.writeFile).not.toHaveBeenCalled()
     // 空标题 → 取消
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "   " } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -830,7 +846,7 @@ describe("KnowledgeTree", () => {
     expect(mocks.writeFile).not.toHaveBeenCalled()
     // 相同标题 → 取消
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "第三章-高潮" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -838,7 +854,7 @@ describe("KnowledgeTree", () => {
     expect(mocks.writeFile).not.toHaveBeenCalled()
     // Escape → 取消
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row).getByRole("textbox")
     fireEvent.keyDown(input, { key: "Escape" })
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
@@ -851,7 +867,7 @@ describe("KnowledgeTree", () => {
     await screen.findByText("分卷大纲二")
     const row = pageRow(view.container, `${OUTLINES}/分卷大纲-2.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -870,7 +886,7 @@ describe("KnowledgeTree", () => {
     mocks.fileExists.mockImplementation(async (p: string) => p === `${OUTLINES}/分卷大纲-2.md`)
     const row1 = pageRow(view.container, `${OUTLINES}/分卷大纲-2-3.md`)
     fireEvent.contextMenu(row1)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     let input = within(row1).getByRole("textbox")
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -881,7 +897,7 @@ describe("KnowledgeTree", () => {
     mocks.fileExists.mockImplementation(async (p: string) => p === `${OUTLINES}/分卷大纲-2.md` || p === `${OUTLINES}/分卷大纲-2-2.md`)
     const row2 = pageRow(view.container, `${OUTLINES}/分卷大纲-2-3.md`)
     fireEvent.contextMenu(row2)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row2).getByRole("textbox")
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -891,7 +907,7 @@ describe("KnowledgeTree", () => {
     mocks.fileExists.mockImplementation(async (p: string) => p.startsWith(`${OUTLINES}/分卷大纲-2`))
     const row3 = pageRow(view.container, `${OUTLINES}/全书大纲.md`)
     fireEvent.contextMenu(row3)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     input = within(row3).getByRole("textbox")
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -910,7 +926,7 @@ describe("KnowledgeTree", () => {
     let resolveRead!: (v: string) => void
     mocks.readFile.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveRead = resolve }))
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = within(row).getByRole("textbox")
     fireEvent.change(input, { target: { value: "第四章-新篇章" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -921,7 +937,7 @@ describe("KnowledgeTree", () => {
     // readFile 失败 → console.error + 输入框清理
     mocks.readFile.mockRejectedValueOnce(new Error("read-fail"))
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input2 = within(row).getByRole("textbox")
     fireEvent.change(input2, { target: { value: "第四章-新篇章" } })
     fireEvent.keyDown(input2, { key: "Enter" })
@@ -1254,14 +1270,14 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
-    fireEvent.click(within(row).getByTitle(/knowledgeTree\.deleteTitle/))
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    fireEvent.click(within(row).getByTitle(/移入回收站/))
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     // 容器内 mousedown → 早退，武装保持
     act(() => { row.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })) })
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     // 非 Escape 键 → 武装保持
     act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true })) })
-    expect(within(row).getByTitle(/confirmDeleteTitle/)).toBeInTheDocument()
+    expect(within(row).getByTitle(/再次点击确认/)).toBeInTheDocument()
     view.unmount()
   })
 
@@ -1270,7 +1286,7 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(null)
     view.unmount()
@@ -1289,10 +1305,10 @@ describe("KnowledgeTree", () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
     fireEvent.contextMenu(screen.getByText("卷1"))
-    fireEvent.click(screen.getByText("knowledgeTree.deleteVolume"))
+    fireEvent.click(screen.getByText("删除卷"))
     await flush()
     // 递归展平后仍有文件 → 阻止删除目录
-    expect(mocks.alert).toHaveBeenCalledWith('knowledgeTree.deleteFolderBlocked::{"name":"卷1"}')
+    expect(mocks.alert).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
     expect(mocks.deleteFile).not.toHaveBeenCalledWith(`${CHAPTERS}/卷1`)
     view.unmount()
   })
@@ -1331,8 +1347,8 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.moveToVolume"))
-    const menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    fireEvent.click(screen.getByText("移动到卷"))
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     fireEvent.click(within(menu).getByText("卷1"))
     await flush()
     expect(mocks.copyFile).toHaveBeenCalled()
@@ -1491,7 +1507,7 @@ describe("KnowledgeTree", () => {
     act(() => { vi.advanceTimersByTime(300) })
     expect(row.className).not.toContain("ring-2")
     fireEvent.contextMenu(row)
-    expect(screen.getByText("knowledgeTree.rename")).toBeInTheDocument()
+    expect(screen.getByText("重命名")).toBeInTheDocument()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1525,7 +1541,7 @@ describe("KnowledgeTree", () => {
     let resolveRead!: (v: string) => void
     mocks.readFile.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveRead = resolve }))
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = within(row).getByRole("textbox")
     // mousedown/click 冒泡拦截（stopPropagation）
     fireEvent.mouseDown(input)
@@ -1549,7 +1565,7 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const rowButton = row.querySelector("button") as HTMLElement
     expect(rowButton.hasAttribute("disabled")).toBe(true)
     fireEvent.click(rowButton)
@@ -1566,7 +1582,7 @@ describe("KnowledgeTree", () => {
     fireEvent.pointerDown(row, { pointerId: 1, pointerType: "mouse", button: 0, clientX: 0, clientY: 0 })
     // 300ms 内右键 → 重命名：清除 pending timer
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     expect(within(row).getByRole("textbox")).toBeInTheDocument()
     // timer 已清：advance 后无拖拽
     act(() => { vi.advanceTimersByTime(300) })
@@ -1581,14 +1597,14 @@ describe("KnowledgeTree", () => {
     const onRequestCreate = vi.fn()
     const view = render(<KnowledgeTree filterType="outline" onRequestCreate={onRequestCreate} />)
     await screen.findByText("全书大纲")
-    fireEvent.contextMenu(screen.getByText("sidebar.files"))
-    expect(screen.getByText("sidebar.newOutline")).toBeInTheDocument()
+    fireEvent.contextMenu(screen.getByText("大纲"))
+    expect(screen.getByText("新建大纲")).toBeInTheDocument()
     // mousedown 不冒泡到 document → 菜单保持打开
-    const menu = screen.getByText("sidebar.newOutline").closest("div.absolute") as HTMLElement
-    fireEvent.mouseDown(within(menu).getByText("sidebar.newFolder"))
-    expect(screen.getByText("sidebar.newOutline")).toBeInTheDocument()
+    const menu = screen.getByText("新建大纲").closest("div.absolute") as HTMLElement
+    fireEvent.mouseDown(within(menu).getByText("新建文件夹"))
+    expect(screen.getByText("新建大纲")).toBeInTheDocument()
     // outline → folder 变体
-    fireEvent.click(screen.getByText("sidebar.newFolder"))
+    fireEvent.click(screen.getByText("新建文件夹"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "folder", parentDir: undefined })
     view.unmount()
   })
@@ -1599,10 +1615,10 @@ describe("KnowledgeTree", () => {
     await screen.findByText("坏文件")
     const row = pageRow(view.container, `${OUTLINES}/坏文件.md`)
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
     fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("sidebar.newFolder"))
+    fireEvent.click(screen.getByText("新建文件夹"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "folder", parentDir: undefined })
     view.unmount()
   })
@@ -1612,19 +1628,19 @@ describe("KnowledgeTree", () => {
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
-    const menu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     // 页面菜单 mousedown 冒泡拦截
-    fireEvent.mouseDown(within(menu).getByText("knowledgeTree.rename"))
-    expect(within(menu).getByText("knowledgeTree.rename")).toBeInTheDocument()
-    fireEvent.click(within(menu).getByText("knowledgeTree.moveToVolume"))
+    fireEvent.mouseDown(within(menu).getByText("重命名"))
+    expect(within(menu).getByText("重命名")).toBeInTheDocument()
+    fireEvent.click(within(menu).getByText("移动到卷"))
     expect(menu.querySelector(".max-h-48")).not.toBeNull()
-    fireEvent.click(within(menu).getByText("knowledgeTree.moveToVolume"))
+    fireEvent.click(within(menu).getByText("移动到卷"))
     expect(menu.querySelector(".max-h-48")).toBeNull()
     // 卷内页面：当前卷按钮禁用 → 点击不触发移动
     const volRow = pageRow(view.container, `${CHAPTERS}/卷1/第一章-开端.md`)
     fireEvent.contextMenu(volRow)
-    const volMenu = screen.getByText("knowledgeTree.rename").closest("div.absolute") as HTMLElement
-    fireEvent.click(within(volMenu).getByText("knowledgeTree.moveToVolume"))
+    const volMenu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
+    fireEvent.click(within(volMenu).getByText("移动到卷"))
     const volBtn = volMenu.querySelector(".max-h-48 button") as HTMLButtonElement
     expect(volBtn.hasAttribute("disabled")).toBe(true)
     fireEvent.click(volBtn)

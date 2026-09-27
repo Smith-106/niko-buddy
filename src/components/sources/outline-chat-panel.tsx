@@ -1,4 +1,5 @@
 import React, { useRef, useCallback, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { X, Save, Copy, RefreshCw, FileText, Plus, Trash2 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
@@ -92,12 +93,12 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
 
 const OutlineThinkingBlock = React.memo(function OutlineThinkingBlock({ content, open }: { content: string; open: boolean }) {
   return (
-    <div className="mb-2 rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 px-3 py-2 text-xs dark:bg-amber-950/20 min-h-[3rem]">
-      <div className="mb-1.5 flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+    <div className="mb-2 rounded-md border border-dashed border-warning/30 bg-warning/50 px-3 py-2 text-xs dark:bg-warning/20 min-h-[3rem]">
+      <div className="mb-1.5 flex items-center gap-1.5 text-warning dark:text-warning">
         <span className={open ? "animate-pulse" : undefined}>💭</span>
         <span className="font-medium">{open ? "思考中..." : "思考过程"}</span>
       </div>
-      <div className="max-h-72 overflow-y-auto border-t border-amber-500/20 pt-2 pr-1 whitespace-pre-wrap break-words font-mono leading-5 text-amber-800/80 dark:text-amber-300/70">
+      <div className="max-h-72 overflow-y-auto border-t border-warning/20 pt-2 pr-1 whitespace-pre-wrap break-words font-mono leading-5 text-warning/80 dark:text-warning/70">
         {content}
       </div>
     </div>
@@ -189,6 +190,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
 }
 
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
@@ -549,7 +551,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         <button
           onClick={() => { createConversation() }}
           className="shrink-0 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
-          title="新建大纲对话"
+          title={t("novel.outlineNewChat")}
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
@@ -642,7 +644,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         onSend={(text) => void handleSend(text)}
         onStop={handleStop}
         isStreaming={isStreaming}
-        placeholder="输入关于大纲的问题..."
+        placeholder={t("novel.outlineAskPlaceholder")}
         value={inputValue}
         onChange={setInputValue}
         footerControls={

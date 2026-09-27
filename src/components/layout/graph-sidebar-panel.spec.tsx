@@ -8,6 +8,16 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 interface WikiStateLike {
   graphMode: string
@@ -67,7 +77,7 @@ const mocks = vi.hoisted(() => {
     },
     refreshGraph: null,
   }
-  return { state, t: vi.fn((key: string) => key) }
+  return { state, t: vi.fn((key: string) => lookupZhLocale(key) ?? key) }
 })
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -134,30 +144,30 @@ describe("GraphSidebarPanel", () => {
 
   it("默认渲染：标题/四个模式 select/统计徽标；refresh 禁用且不渲染边缘控制", () => {
     render(<GraphSidebarPanel />)
-    expect(screen.getByTestId("panel-title")).toHaveTextContent("novel.graph.title")
-    expect(selectByOption("novel.graph.modeLabels.overview").value).toBe("overview")
-    expect(selectByOption("novel.graph.displayModeGraph").value).toBe("graph")
-    expect(selectByOption("graph.type").value).toBe("type")
-    expect(selectByOption("graph.labelDisplayAll").value).toBe("all")
-    expect(screen.getByText("3/5 graph.pages")).toBeInTheDocument()
-    expect(screen.getByText("4/7 graph.links")).toBeInTheDocument()
-    expect(screen.queryByText("graph.hidden")).not.toBeInTheDocument()
+    expect(screen.getByTestId("panel-title")).toHaveTextContent("小说图谱")
+    expect(selectByOption("总览").value).toBe("overview")
+    expect(selectByOption("图谱").value).toBe("graph")
+    expect(selectByOption("类型").value).toBe("type")
+    expect(selectByOption("全部标签").value).toBe("all")
+    expect(screen.getByText("3/5 页面")).toBeInTheDocument()
+    expect(screen.getByText("4/7 链接")).toBeInTheDocument()
+    expect(screen.queryByText("已隐藏")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "" })).toBeDisabled()
     expect(screen.queryByText("线型")).not.toBeInTheDocument()
   })
 
   it("四个模式 select 切换分别调用对应 setter", () => {
     render(<GraphSidebarPanel />)
-    fireEvent.change(selectByOption("novel.graph.modeLabels.overview"), { target: { value: "character" } })
+    fireEvent.change(selectByOption("总览"), { target: { value: "character" } })
     expect(mocks.state.setGraphMode).toHaveBeenCalledWith("character")
 
-    fireEvent.change(selectByOption("novel.graph.displayModeGraph"), { target: { value: "document" } })
+    fireEvent.change(selectByOption("图谱"), { target: { value: "document" } })
     expect(mocks.state.setGraphDisplayMode).toHaveBeenCalledWith("document")
 
-    fireEvent.change(selectByOption("graph.type"), { target: { value: "community" } })
+    fireEvent.change(selectByOption("类型"), { target: { value: "community" } })
     expect(mocks.state.setGraphColorMode).toHaveBeenCalledWith("community")
 
-    fireEvent.change(selectByOption("graph.labelDisplayAll"), { target: { value: "focused" } })
+    fireEvent.change(selectByOption("全部标签"), { target: { value: "focused" } })
     expect(mocks.state.setGraphLabelDisplayMode).toHaveBeenCalledWith("focused")
   })
 
@@ -173,13 +183,13 @@ describe("GraphSidebarPanel", () => {
 
   it("滤镜按钮切换 graphShowFilters", () => {
     const { rerender } = render(<GraphSidebarPanel />)
-    const filterBtn = screen.getByText("graph.filter").closest("button") as HTMLButtonElement
+    const filterBtn = screen.getByText("过滤器").closest("button") as HTMLButtonElement
     fireEvent.click(filterBtn)
     expect(mocks.state.setGraphShowFilters).toHaveBeenCalledWith(true)
     expect(mocks.state.graphShowFilters).toBe(true)
     // 重渲染：variant 三元切换 secondary 分支
     rerender(<GraphSidebarPanel />)
-    fireEvent.click(screen.getByText("graph.filter").closest("button") as HTMLButtonElement)
+    fireEvent.click(screen.getByText("过滤器").closest("button") as HTMLButtonElement)
     expect(mocks.state.setGraphShowFilters).toHaveBeenCalledWith(false)
   })
 
@@ -218,13 +228,13 @@ describe("GraphSidebarPanel", () => {
   it("hiddenCount > 0 时渲染琥珀徽标", () => {
     mocks.state.graphStats.hiddenCount = 2
     render(<GraphSidebarPanel />)
-    expect(screen.getByText("2 graph.hidden")).toBeInTheDocument()
+    expect(screen.getByText("2 已隐藏")).toBeInTheDocument()
   })
 
   it("GRAPH_MODE_LABELS 全部模式都有对应 option", () => {
     render(<GraphSidebarPanel />)
-    for (const mode of ["overview", "character", "chapter", "storyline", "foreshadowing"]) {
-      expect(screen.getByText(`novel.graph.modeLabels.${mode}`)).toBeInTheDocument()
+    for (const label of ["总览", "人物", "章节", "故事线", "伏笔"]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
     }
   })
 })

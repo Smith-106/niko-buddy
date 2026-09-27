@@ -22,6 +22,7 @@ interface PackCardProps {
 }
 
 function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
@@ -74,7 +75,7 @@ function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
 
           {/* 参数 */}
           <div>
-            <div className="text-[10px] font-medium text-muted-foreground">参数</div>
+            <div className="text-[10px] font-medium text-muted-foreground">{t("craft.techniquePanel.params")}</div>
             <div className="mt-1 space-y-0.5">
               {Object.entries(pack.params).map(([key, value]) => (
                 <div key={key} className="flex items-start gap-2 text-[10px]">

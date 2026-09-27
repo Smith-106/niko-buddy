@@ -238,7 +238,7 @@ export function InterviewHistoryView() {
                     size="sm"
                     onClick={() => handleDelete(viewingInterview)}
                     disabled={deleting === viewingInterview.id}
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
+                    className="text-destructive hover:bg-destructive hover:text-destructive dark:hover:bg-destructive/30"
                   >
                     <Trash2 className="mr-1 h-3.5 w-3.5" />
                     {deleting === viewingInterview.id ? t("storySimulation.deleting") : t("storySimulation.delete")}
@@ -340,7 +340,7 @@ export function InterviewHistoryView() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
+                              className="h-7 w-7 p-0 text-destructive hover:bg-destructive hover:text-destructive dark:hover:bg-destructive/30"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDelete(interview)

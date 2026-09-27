@@ -50,7 +50,7 @@ export function ReviewCenterView() {
   if (selectedReviewDimension === "ai-review") {
     content = <ReviewView />
   } else if (selectedReviewDimension === "character-report") {
-    content = <ReviewView title="角色命中报告" emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />
+    content = <ReviewView title={t("reviewCenter.characterHitReport")} emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />
   } else if (!selectedReviewDimension || !novelMode) {
     content = <DashboardView headerActions={<ReviewStartButton />} />
   } else if (!isSixReviewDimensionKey(selectedReviewDimension)) {
@@ -126,7 +126,7 @@ export function ReviewCenterView() {
           type="button"
           onClick={() => setCraftOpen(true)}
           data-craft-toggle="true"
-          title="技法工作台"
+          title={t("reviewCenter.craftWorkbench")}
           className="absolute bottom-4 right-20 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Wrench className="h-4 w-4" aria-hidden="true" />
@@ -136,7 +136,7 @@ export function ReviewCenterView() {
       {craftOpen && (
         <aside
           data-craft-panel="true"
-          aria-label="技法工作台"
+          aria-label={t("reviewCenter.craftWorkbench")}
           className="absolute inset-y-0 right-0 z-30 flex w-[420px] max-w-[90%] flex-col border-l bg-background shadow-xl"
         >
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -159,7 +159,7 @@ export function ReviewCenterView() {
               type="button"
               onClick={() => setCraftOpen(false)}
               data-craft-close="true"
-              aria-label="关闭技法面板"
+              aria-label={t("reviewCenter.closeCraft")}
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -234,7 +234,7 @@ function ReviewStartButton() {
         {isReviewing ? t("reviewCenter.reviewingAction") : t("reviewCenter.startReview")}
       </Button>
       {reviewError ? (
-        <p data-testid="review-start-error" role="alert" className="text-xs text-red-600">
+        <p data-testid="review-start-error" role="alert" className="text-xs text-destructive">
           {reviewError}
         </p>
       ) : null}

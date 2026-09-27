@@ -71,7 +71,7 @@ export function InterfaceSection({ draft, setDraft }: Props) {
       {/* Font size slider + presets */}
       <div className="space-y-3 rounded-lg border p-4">
         <div className="flex items-center justify-between">
-          <Label>界面字号</Label>
+          <Label>{t("settings.sections.interface.fontSize")}</Label>
           <span className="text-xs text-muted-foreground">{scalePercent}%</span>
         </div>
         <input
@@ -82,7 +82,7 @@ export function InterfaceSection({ draft, setDraft }: Props) {
           value={scalePercent}
           onChange={(e) => setDraft("uiFontSizeScale", Number(e.target.value) / 100)}
           className="w-full accent-primary"
-          aria-label="界面字号"
+          aria-label={t("settings.sections.interface.fontSize")}
         />
         <div className="flex flex-wrap gap-2">
           {FONT_SIZE_PRESETS.map((preset) => {

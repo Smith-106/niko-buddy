@@ -28,6 +28,7 @@
 import type { ContextPack } from "@/lib/novel"
 import type { ContextUsage } from "@/lib/context-usage"
 import { FileText } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 export type GateStatus = "PASS" | "WARN"
 export interface GateVerdict { key: "consistency" | "anti_ai"; label: string; status: GateStatus; reason: string }
@@ -124,6 +125,7 @@ function buildAssemblyExcerpt(pack: ContextPack): string {
 interface ContextPackReplayPanelProps { pack: ContextPack | null; title?: string }
 
 export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放" }: ContextPackReplayPanelProps) {
+  const { t } = useTranslation()
   const replay = buildPackReplay(pack)
   const selectedCount = replay.sources.filter((s) => s.selected).length
   return (
@@ -150,13 +152,13 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          <ZoneTitle>① 检索源 —— 本次入选的页 / chunk</ZoneTitle>
+          <ZoneTitle>{t("novel.replay.zoneSources")}</ZoneTitle>
           {replay.sources.map((s) => (
             <details key={s.key} className="group rounded-md border px-3 py-2" data-testid={`source-${s.key}`}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2" data-testid={`source-toggle-${s.key}`} role="button">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2" data-testid={`source-toggle-${s.key}`}>
                 <span className="flex min-w-0 items-center gap-2">
                   <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${s.selected ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${s.selected ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}
                     data-source-status={s.key}
                   >
                     {s.selected ? "入选" : "未入选"}
@@ -170,7 +172,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
               </p>
             </details>
           ))}
-          <ZoneTitle>② 门控结果（consistency / anti-ai）</ZoneTitle>
+          <ZoneTitle>{t("novel.replay.zoneGates")}</ZoneTitle>
           {replay.gates.map((g) => (
             <div key={g.key} className="flex items-start justify-between gap-2 rounded-md border px-3 py-2" data-gate={g.key}>
               <div className="min-w-0">
@@ -181,19 +183,19 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
               </div>
               <span
                 data-testid={`gate-${g.key}`}
-                className={`shrink-0 rounded px-2 py-0.5 font-semibold ${g.status === "PASS" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"}`}
+                className={`shrink-0 rounded px-2 py-0.5 font-semibold ${g.status === "PASS" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
               >
                 {g.status}
               </span>
             </div>
           ))}
-          <ZoneTitle>③ 最终组装节选</ZoneTitle>
+          <ZoneTitle>{t("novel.replay.zoneAssembly")}</ZoneTitle>
           {replay.assemblyExcerpt ? (
             <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
               {replay.assemblyExcerpt}
             </pre>
           ) : (
-            <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">无组装节选内容。</p>
+            <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">{t("novel.replay.noAssembly")}</p>
           )}
           {replay.usage && (
             <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground" data-usage>
@@ -209,7 +211,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
               data-gaps
               className="rounded-md border border-dashed px-3 py-2"
             >
-              <div className="text-xs text-muted-foreground">压缩/截断/加载失败 (gaps)</div>
+              <div className="text-xs text-muted-foreground">{t("novel.replay.gaps")}</div>
               <ul className="mt-1 list-disc pl-4">
                 {replay.gapNotes.map((n, i) => (
                   <li key={i} className="text-xs text-muted-foreground">{n}</li>

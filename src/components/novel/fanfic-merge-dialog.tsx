@@ -115,7 +115,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames 
               {proposal.conflicts.length > 0 && (
                 <div className="mt-2 space-y-1 border-t pt-2">
                   {proposal.conflicts.map((cf, i) => (
-                    <p key={i} className="text-xs text-amber-600">
+                    <p key={i} className="text-xs text-warning">
                       ⚠ {cf.message}
                     </p>
                   ))}

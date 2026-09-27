@@ -24,6 +24,7 @@
  */
 
 import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { isArcStage } from "@/lib/novel"
 import type { ArcStage } from "@/lib/novel"
 
@@ -232,6 +233,7 @@ export interface WishDriveProps {
 }
 
 export function WishDrive({ profile, characterName, className }: WishDriveProps) {
+  const { t } = useTranslation()
   const check = useMemo(() => validateWishAssembly(profile), [profile])
   const guide = useMemo(
     () => (check.ok && profile ? buildWishDriveGuide(profile) : null),
@@ -248,7 +250,7 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
       data-testid="wish-drive-root"
     >
       <header>
-        <h3 className="text-sm font-semibold text-foreground">卡文引导 · 愿望驱动</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t("novel.wishDriveTitle")}</h3>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {title} · 数据源 T26 canon-craft-fields（wish/motive/wma_action/arc_stage）· A-22.6 装配门
         </p>
@@ -259,8 +261,8 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
           className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"
           data-testid="wish-drive-empty"
         >
-          <p>尚未摄取主角技法字段。</p>
-          <p className="text-xs italic">先完成技法摄取（entities.wish/motive/arc_stage），再进入卡文引导。</p>
+          <p>{t("novel.wishNoCraft")}</p>
+          <p className="text-xs italic">{t("novel.wishIngestFirst")}</p>
         </div>
       )}
 
@@ -270,7 +272,7 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
           role="alert"
           data-testid="wish-drive-blocked"
         >
-          <p className="font-medium text-foreground">A-22.6 装配校验未通过 —— 卡文引导入口关闭</p>
+          <p className="font-medium text-foreground">{t("novel.wishAssemblyBlocked")}</p>
           <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted-foreground">
             {check.violations.map((v) => (
               <li key={v.code} data-testid={`wish-drive-violation-${v.code}`}>
@@ -284,9 +286,9 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
       {profile && check.ok && guide && (
         <div className="flex flex-col gap-4" data-testid="wish-drive-ready">
           {/* 装配可见：wish 清单 + 动机 + 行动证据 + 弧光阶段 */}
-          <section aria-label="装配的技法字段" className="rounded-lg border bg-muted/20 p-3">
+          <section aria-label={t("novel.wishAssembledCraft")} className="rounded-lg border bg-muted/20 p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">装配的愿望清单（wish）</span>
+              <span className="text-xs font-medium text-muted-foreground">{t("novel.wishAssembledList")}</span>
               <span
                 className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
                 data-testid="wish-drive-stage-badge"
@@ -301,11 +303,11 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
             </ul>
             <dl className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
               <div>
-                <dt className="inline text-muted-foreground">动机（motive）：</dt>
+                <dt className="inline text-muted-foreground">{t("novel.wishMotive")}</dt>
                 <dd className="inline">{nonBlank(profile.motive).join("、") || "—"}</dd>
               </div>
               <div>
-                <dt className="inline text-muted-foreground">行动证据（wma_action）：</dt>
+                <dt className="inline text-muted-foreground">{t("novel.wishActionEvidence")}</dt>
                 <dd className="inline">{nonBlank(profile.wmaAction).length || 0} 条</dd>
               </div>
             </dl>
@@ -313,7 +315,7 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
           </section>
 
           {/* 引导问题序列 */}
-          <section aria-label="卡文引导问题序列">
+          <section aria-label={t("novel.wishQuestionQueue")}>
             <ol className="space-y-2" data-testid="wish-drive-steps">
               {guide.steps.map((step, i) => (
                 <li key={step.id} className="rounded-lg border p-3" data-testid={`wish-drive-step-${step.id}`}>

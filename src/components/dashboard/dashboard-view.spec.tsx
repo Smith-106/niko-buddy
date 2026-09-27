@@ -316,7 +316,7 @@ function dashboardCard(message: string): HTMLElement {
   // 同一 message 可能同时出现在 message 与 suggestion (lint 项) 或
   // 分组区 + fact 区块 (factcheck 项) → 取第一个匹配文本所在的卡片
   const el = screen.getAllByText(message)[0]
-  const card = el.closest("div[role=button]")
+  const card = el.closest("[data-dash-card]")
   if (!card) throw new Error(`no dashboard card for ${message}`)
   return card as HTMLElement
 }
@@ -467,11 +467,10 @@ describe("DashboardView — items 装配 / 分组 / 排序 / 卡片", () => {
     // lint 项无 evidence → resolve 用 targetPath 候选
     expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/wiki/page-a.md")
     expect(mocks.state.setPendingEditorHighlight).not.toHaveBeenCalled()
-    // 键盘 Enter (resolve 为异步 → waitFor)
+    // P4 可访问性重构：卡片由 div[role=button]+onKeyDown 改为 article[data-dash-card]（仅 onClick），键盘不再打开
     fireEvent.keyDown(card, { key: "Enter" })
-    await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(2))
     fireEvent.keyDown(card, { key: " " })
-    await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(3))
+    expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(1)
   })
 
   it("factcheck 结果: blocking/high/medium/low + 未知 detail 回退原文; fact 区块重复渲染", async () => {
@@ -808,8 +807,8 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     render(<DashboardView />)
     // factcheck 卡片在分组区 + fact 区块重复渲染 → 取第一张卡
     const [card] = await screen.findAllByText("事实改写项")
-    fireEvent.click(card.closest("div[role=button]") as HTMLElement)
-    fireEvent.click(within(card.closest("div[role=button]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
+    fireEvent.click(card.closest("[data-dash-card]") as HTMLElement)
+    fireEvent.click(within(card.closest("[data-dash-card]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toBeInTheDocument())
     // insert_before → sourceLabel 原文位置
     expect(screen.getByTestId("ttpd")).toHaveAttribute("data-source-label", "dashboard.rewriteDialog.sourceAnchorLabel")
@@ -827,16 +826,16 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     render(<DashboardView />)
     // factReport 异步加载 → 先等卡片出现; 分组区 + fact 区块重复渲染 → 取第一张
     const [card1] = await screen.findAllByText("解析失败项")
-    fireEvent.click(card1.closest("div[role=button]") as HTMLElement)
-    fireEvent.click(within(card1.closest("div[role=button]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
+    fireEvent.click(card1.closest("[data-dash-card]") as HTMLElement)
+    fireEvent.click(within(card1.closest("[data-dash-card]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toHaveAttribute("data-description", "dashboard.rewrite.errorParsePlan"))
     cleanup()
     mocks.parseFactCheckInsertPlan.mockReturnValue({ anchorText: "不存在的锚点", insertText: "补写" })
     mocks.findChapterSelectionByEvidence.mockReturnValue(null)
     render(<DashboardView />)
     const [card2] = await screen.findAllByText("解析失败项")
-    fireEvent.click(card2.closest("div[role=button]") as HTMLElement)
-    fireEvent.click(within(card2.closest("div[role=button]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
+    fireEvent.click(card2.closest("[data-dash-card]") as HTMLElement)
+    fireEvent.click(within(card2.closest("[data-dash-card]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toHaveAttribute("data-description", "dashboard.rewrite.errorNoInsertAnchor"))
   })
 
@@ -846,8 +845,8 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     mocks.streamChat.mockRejectedValue(new Error("http://bad.example Authorization: Bearer zzz"))
     render(<DashboardView />)
     const [card] = await screen.findAllByText("异常项")
-    fireEvent.click(card.closest("div[role=button]") as HTMLElement)
-    fireEvent.click(within(card.closest("div[role=button]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
+    fireEvent.click(card.closest("[data-dash-card]") as HTMLElement)
+    fireEvent.click(within(card.closest("[data-dash-card]") as HTMLElement).getByText("dashboard.actions.aiRewrite"))
     // catch 路径脱敏 (源码 L341-348): url → [url], Authorization 头 → [redacted]; busy 清除 → 描述为脱敏错误
     await waitFor(() => {
       expect(screen.getByTestId("ttpd").getAttribute("data-description")).toContain("[url]")
@@ -1050,7 +1049,7 @@ describe("DashboardView — 全口径缺口补齐 (w4f5)", () => {
     mocks.searchWiki.mockRejectedValue(new Error("search-down"))
     render(<DashboardView />)
     const [card] = await screen.findAllByText("拒搜项")
-    fireEvent.click(card.closest("div[role=button]") as HTMLElement)
+    fireEvent.click(card.closest("[data-dash-card]") as HTMLElement)
     await waitFor(() => expect(mocks.state.setSelectedFile).not.toHaveBeenCalled())
   })
 
@@ -1195,7 +1194,7 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
     // G2 波 DoctorPanel 挂载诊断读 status.json（mount 副作用），清零后仅断言点击链不读候选
     mocks.readFile.mockClear()
     const [card] = await screen.findAllByText("单章项")
-    fireEvent.click(card.closest("div[role=button]") as HTMLElement)
+    fireEvent.click(card.closest("[data-dash-card]") as HTMLElement)
     await waitFor(() => expect(mocks.state.setSelectedFile).not.toHaveBeenCalled())
     expect(mocks.readFile).not.toHaveBeenCalled()
   })
@@ -1260,15 +1259,15 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
     expect(mocks.state.setFileContent).not.toHaveBeenCalled()
   })
 
-  it("卡片 keydown 非 Enter/空格 → 不打开（key 假分支）", async () => {
+  it("卡片 keydown 任何按键 → 不打开（article 卡片无键盘处理，仅 onClick）", async () => {
     runReview()
     render(<DashboardView />)
     const card = dashboardCard("审查消息")
     fireEvent.keyDown(card, { key: "Tab" })
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
-    // 对照：Enter 仍打开
+    // 对照：Enter 也不再打开（P4 后仅 click 打开）
     fireEvent.keyDown(card, { key: "Enter" })
-    await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalled())
+    expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
   })
 })
 

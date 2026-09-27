@@ -71,7 +71,7 @@ const mocks = vi.hoisted(() => {
     saveText,
     selectionText,
     t: vi.fn<(key: string, opts?: { defaultValue?: string } | string) => string | number>((key, opts) =>
-      (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
+      lookupZhLocale(key) ?? (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
     ),
     readFile: vi.fn(),
     writeFile: vi.fn(),
@@ -412,6 +412,16 @@ vi.mock("@/lib/novel/chapter-meta", async (importOriginal) => {
 })
 
 import { PreviewPanel } from "./preview-panel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 async function flushAsync(ms = 0): Promise<void> {
   await act(async () => {
@@ -466,7 +476,7 @@ afterEach(() => {
 describe("PreviewPanel 空态与加载态", () => {
   it("无选中文件时显示空态并清空内容", async () => {
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("preview.empty")).toBeInTheDocument()
+    expect(screen.getByText("选择文件以预览")).toBeInTheDocument()
     expect(mocks.state.setFileContent).toHaveBeenCalledWith("")
     cleanup()
   })
@@ -474,7 +484,7 @@ describe("PreviewPanel 空态与加载态", () => {
   it("无项目时同样显示空态", async () => {
     mocks.state.project = null
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("preview.empty")).toBeInTheDocument()
+    expect(screen.getByText("选择文件以预览")).toBeInTheDocument()
     cleanup()
   })
 
@@ -498,7 +508,7 @@ describe("PreviewPanel 空态与加载态", () => {
     mocks.state.selectedFile = "/proj/wiki/notes.md"
     mocks.readFile.mockResolvedValue("# 笔记\n\n内容")
     const { cleanup } = await renderPanel()
-    expect(screen.getByLabelText("novel.preview.closePreview")).toBeInTheDocument()
+    expect(screen.getByLabelText("关闭预览")).toBeInTheDocument()
     cleanup()
   })
 
@@ -553,7 +563,7 @@ describe("PreviewPanel 章节数据态与章节标题交互", () => {
 
     const input = screen.getByRole("textbox")
     expect(input).toHaveValue("第一章")
-    expect(screen.getByText("novel.chapter.status.draft")).toBeInTheDocument()
+    expect(screen.getByText("草稿")).toBeInTheDocument()
     expect(screen.getByText(/^\d+字$/)).toBeInTheDocument()
 
     fireEvent.focus(input)
@@ -626,7 +636,7 @@ describe("PreviewPanel 章节数据态与章节标题交互", () => {
     mocks.state.fileContent = finalMd
     mocks.readFile.mockResolvedValue(finalMd)
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("novel.chapter.status.canon")).toBeInTheDocument()
+    expect(screen.getByText("正式章节")).toBeInTheDocument()
     cleanup()
   })
 
@@ -636,7 +646,7 @@ describe("PreviewPanel 章节数据态与章节标题交互", () => {
     mocks.state.fileContent = archivedMd
     mocks.readFile.mockResolvedValue(archivedMd)
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("novel.chapter.status.archived")).toBeInTheDocument()
+    expect(screen.getByText("废弃草稿")).toBeInTheDocument()
     cleanup()
   })
 
@@ -797,8 +807,8 @@ describe("PreviewPanel 大纲摄入", () => {
     mocks.fileExists.mockResolvedValue(false)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    await waitFor(() => expect(screen.getByText("novel.outlineGenerator.ingest")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.outlineGenerator.ingest"))
+    await waitFor(() => expect(screen.getByText("提取初始记忆")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("提取初始记忆"))
     expect(mocks.startOutlineIngestTask).toHaveBeenCalledWith("/proj", OUTLINE_PATH)
     cleanup()
   })
@@ -827,7 +837,7 @@ describe("PreviewPanel 大纲摄入", () => {
     view.rerender(<PreviewPanel />)
     await waitFor(() => expect(screen.getByText("正在提取大纲记忆")).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText("更多功能"))
-    await waitFor(() => expect(screen.getByText("novel.outlineGenerator.ingesting")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("正在提取初始记忆...")).toBeInTheDocument())
     view.unmount()
   })
 
@@ -839,7 +849,7 @@ describe("PreviewPanel 大纲摄入", () => {
     const { cleanup } = await renderPanel()
     await flushAsync(20)
     fireEvent.click(screen.getByLabelText("更多功能"))
-    expect(screen.getByText("novel.outlineGenerator.ingest")).toBeInTheDocument()
+    expect(screen.getByText("提取初始记忆")).toBeInTheDocument()
     cleanup()
   })
 
@@ -870,7 +880,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
       { severity: "warning", type: "consistency", message: "警告", evidence: "", relatedMemory: "", suggestion: "" },
     ])
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     // 实现：handleSaveAsFinal 传 chapterFrontmatter.chapterNumber（preview-panel.tsx），
     // parseFrontmatter 返回原始 YAML 键（chapter_number），故该字段为 undefined。
     await waitFor(() => expect(mocks.reviewChapter).toHaveBeenCalledWith("/proj", CHAPTER_MD, undefined))
@@ -887,7 +897,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
       { severity: "warning", type: "consistency", message: "警告", evidence: "", relatedMemory: "", suggestion: "" },
     ])
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: true, phase: "review_warnings", params: { count: 1 } }),
@@ -899,7 +909,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: true, autoIngestOnSave: false })
     mocks.reviewChapter.mockRejectedValue(new Error("llm down"))
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: true, phase: "review_failed_proceed" }),
@@ -910,7 +920,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
   it("直接保存（无审查）→ saved", async () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: false })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: false, phase: "saved" }),
@@ -923,7 +933,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.hasUsableLlm.mockReturnValue(false)
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: false, phase: "ingest_no_llm" }),
     ))
@@ -934,7 +944,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: false, phase: "ingested", params: { chapter: 1 } }),
     ), { timeout: 3000 })
@@ -947,7 +957,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "invalid_chapter_number" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_no_chapter_number" }),
     ))
@@ -958,7 +968,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "not_final" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_not_final" }),
     ))
@@ -969,7 +979,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "extract_failed" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_extract_failed" }),
     ))
@@ -980,7 +990,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "unknown" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed" }),
     ))
@@ -991,7 +1001,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingested" }),
     ), { timeout: 3000 })
@@ -1004,7 +1014,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: false })
     mocks.writeFileAtomic.mockRejectedValue(new Error("disk-full"))
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ saving: false, phase: "ingest_failed", params: expect.objectContaining({ message: expect.stringContaining("快照提取异常") }) }),
     ))
@@ -1020,7 +1030,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    expect(screen.queryByText("novel.chapter.saveAsCanon")).not.toBeInTheDocument()
+    expect(screen.queryByText("保存为正式章节")).not.toBeInTheDocument()
     cleanup()
   })
 })
@@ -1037,7 +1047,7 @@ describe("PreviewPanel 重新提取（handleReingest）", () => {
     finalSetup()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingested" }),
     ))
@@ -1049,7 +1059,7 @@ describe("PreviewPanel 重新提取（handleReingest）", () => {
     finalSetup()
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "invalid_chapter_number" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_no_chapter_number" }),
     ))
@@ -1060,7 +1070,7 @@ describe("PreviewPanel 重新提取（handleReingest）", () => {
     finalSetup()
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "boom" })
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed" }),
     ))
@@ -1071,7 +1081,7 @@ describe("PreviewPanel 重新提取（handleReingest）", () => {
     finalSetup()
     mocks.ingestChapter.mockRejectedValue(new Error("reingest-fail"))
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed" }),
     ))
@@ -1643,7 +1653,7 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    fireEvent.click(screen.getByText("novel.snapshot.viewButton"))
+    fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     expect(screen.getByText("/proj:1")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("snapshot-close"))
@@ -1661,7 +1671,7 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     // 先打开下拉再断言（fileExists 判定 outlineIngested 后文案才切换）。
     fireEvent.click(screen.getByLabelText("更多功能"))
     await waitFor(() => expect(screen.getByText("已提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.snapshot.viewButton"))
+    fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     cleanup()
   })
@@ -1672,13 +1682,13 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    fireEvent.click(screen.getByText("novel.cognition.title"))
+    fireEvent.click(screen.getByText("角色认知状态"))
     expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("cognition-close"))
     expect(screen.queryByTestId("cognition-panel")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText("更多功能"))
-    fireEvent.click(screen.getByText("novel.persona.title"))
+    fireEvent.click(screen.getByText("多视角评审"))
     expect(screen.getByTestId("persona-panel")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("persona-close"))
     expect(screen.queryByTestId("persona-panel")).not.toBeInTheDocument()
@@ -1693,14 +1703,14 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     const { cleanup } = await renderPanel()
     expect(screen.getByText("AI会话")).toBeInTheDocument()
     expect(screen.getByText("去AI味")).toBeInTheDocument()
-    expect(screen.getByText("novel.chapter.saveAsCanon")).toBeInTheDocument()
+    expect(screen.getByText("保存为正式章节")).toBeInTheDocument()
     expect(screen.getByText("一键排版")).toBeInTheDocument()
-    expect(screen.getByText("novel.snapshot.viewButton")).toBeInTheDocument()
-    expect(screen.getByText("novel.cognition.title")).toBeInTheDocument()
-    expect(screen.getByText("novel.persona.title")).toBeInTheDocument()
+    expect(screen.getByText("查看记忆")).toBeInTheDocument()
+    expect(screen.getByText("角色认知状态")).toBeInTheDocument()
+    expect(screen.getByText("多视角评审")).toBeInTheDocument()
     fireEvent.click(screen.getByText("AI会话"))
     expect(mocks.state.setChatExpanded).toHaveBeenCalledWith(true)
-    fireEvent.click(screen.getByText("novel.cognition.title"))
+    fireEvent.click(screen.getByText("角色认知状态"))
     expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
     cleanup()
   })
@@ -1713,9 +1723,9 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     mocks.readFile.mockResolvedValue(finalMd)
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "boom" })
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("novel.chapter.reingestButton")).toBeInTheDocument()
-    expect(screen.queryByText("novel.chapter.saveAsCanon")).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    expect(screen.getByText("重新提取记忆")).toBeInTheDocument()
+    expect(screen.queryByText("保存为正式章节")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed" }),
     ))
@@ -1788,7 +1798,7 @@ describe("PreviewPanel 编辑器高亮与 saveStatus", () => {
     mocks.state.finalChapterSave = { projectPath: "/proj", filePath: CHAPTER_PATH, saving: false, phase: "ingested", params: undefined }
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("novel.chapter.ingestSuccess")).toBeInTheDocument()
+    expect(screen.getByText("正式章节已保存并生成快照：第{{chapter}}章")).toBeInTheDocument()
     cleanup()
   })
 
@@ -2065,7 +2075,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "saved" }),
     ))
@@ -2079,7 +2089,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    expect(screen.getAllByText("novel.chapter.savingAsFinal").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("正在保存...").length).toBeGreaterThan(0)
     cleanup()
   })
 
@@ -2090,8 +2100,8 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(finalMd)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    expect(screen.getByText("novel.chapter.reingestButton")).toBeInTheDocument()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    expect(screen.getByText("重新提取记忆")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed" }),
     ))
@@ -2106,7 +2116,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(finalMd)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    expect(screen.getAllByText("novel.chapter.savingAsFinal").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("正在保存...").length).toBeGreaterThan(0)
     cleanup()
   })
 
@@ -2128,8 +2138,8 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue("# 大纲")
     mocks.fileExists.mockResolvedValue(false)
     const { cleanup } = await renderPanel()
-    await waitFor(() => expect(screen.getByText("novel.outlineGenerator.ingest")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.outlineGenerator.ingest"))
+    await waitFor(() => expect(screen.getByText("提取初始记忆")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("提取初始记忆"))
     expect(mocks.startOutlineIngestTask).toHaveBeenCalledWith("/proj", OUTLINE_PATH)
     cleanup()
   })
@@ -2142,7 +2152,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.fileExists.mockResolvedValue(true)
     const { cleanup } = await renderPanel()
     await waitFor(() => expect(screen.getByText("✓ 已提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.snapshot.viewButton"))
+    fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     cleanup()
   })
@@ -2160,8 +2170,8 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
       status: "ingesting", message: "正在提取", error: null, createdAt: 1, updatedAt: 1,
     }]
     view.rerender(<PreviewPanel />)
-    await waitFor(() => expect(screen.getByText("novel.outlineGenerator.ingesting")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.outlineGenerator.ingesting"))
+    await waitFor(() => expect(screen.getByText("正在提取初始记忆...")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("正在提取初始记忆..."))
     await flushAsync(20)
     expect(mocks.startOutlineIngestTask).not.toHaveBeenCalled()
     view.unmount()
@@ -2173,7 +2183,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.state.fileContent = CHAPTER_MD
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.snapshot.viewButton"))
+    fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     cleanup()
   })
@@ -2184,7 +2194,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.state.fileContent = CHAPTER_MD
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.persona.title"))
+    fireEvent.click(screen.getByText("多视角评审"))
     expect(screen.getByTestId("persona-panel")).toBeInTheDocument()
     cleanup()
   })
@@ -2196,8 +2206,8 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.fileExists.mockResolvedValue(true)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    await waitFor(() => expect(screen.getByText("novel.snapshot.viewButton")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("novel.snapshot.viewButton"))
+    await waitFor(() => expect(screen.getByText("查看记忆")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("snapshot-close"))
     await waitFor(() => expect(screen.queryByTestId("snapshot-viewer")).not.toBeInTheDocument())
@@ -2211,7 +2221,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "saved" }),
     ))
@@ -2226,7 +2236,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByTestId("editor-save"))
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "saved" }),
     ), { timeout: 3000 })
@@ -2245,7 +2255,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingested" }),
     ), { timeout: 3000 })
@@ -2259,7 +2269,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(NO_NUM_MD)
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.importState.startTask).toHaveBeenCalledWith(
       expect.objectContaining({ currentTitle: "第?章" }),
     ), { timeout: 3000 })
@@ -2274,7 +2284,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.writeFileAtomic.mockRejectedValue("raw-disk-error")
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.saveAsCanon"))
+    fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({
         saving: false, phase: "ingest_failed",
@@ -2291,7 +2301,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(NO_NUM_FINAL_MD)
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.importState.startTask).toHaveBeenCalledWith(
       expect.objectContaining({ currentTitle: "第?章" }),
     ))
@@ -2309,7 +2319,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.ingestChapter.mockRejectedValue("raw-reingest-fail")
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
+    fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
       expect.objectContaining({ phase: "ingest_failed", params: expect.objectContaining({ message: expect.stringContaining("raw-reingest-fail") }) }),
     ))
@@ -2456,8 +2466,8 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByLabelText("更多功能"))
-    expect(screen.queryByText("novel.cognition.title")).not.toBeInTheDocument()
-    expect(screen.queryByText("novel.persona.title")).not.toBeInTheDocument()
+    expect(screen.queryByText("角色认知状态")).not.toBeInTheDocument()
+    expect(screen.queryByText("多视角评审")).not.toBeInTheDocument()
     cleanup()
   })
 
@@ -2477,7 +2487,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     // R4: phaseLabelMap 改为存键（原先存译文 ⇒ 二次翻译且 params 无法插值）
     expect(mocks.t).toHaveBeenCalledWith("novel.chapter.reviewBlockedWithErrors", { count: 2, warnings: 1 })
     mocks.t.mockImplementation((key: string, opts?: { defaultValue?: string } | string) =>
-      (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
+      (typeof opts === "string" ? opts : opts?.defaultValue) ?? lookupZhLocale(key) ?? key
     )
     cleanup()
   })
@@ -2610,10 +2620,10 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.state.fileContent = finalMd
     mocks.readFile.mockResolvedValue(finalMd)
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("novel.chapter.reingestButton")).toBeInTheDocument()
+    expect(screen.getByText("重新提取记忆")).toBeInTheDocument()
     mocks.chapterMetaFinalGate.value = false
-    fireEvent.click(screen.getByText("novel.chapter.reingestButton"))
-    await waitFor(() => expect(screen.getByText("novel.chapter.reingestNotFinal")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("重新提取记忆"))
+    await waitFor(() => expect(screen.getByText("只有正式章节可以重新提取记忆")).toBeInTheDocument())
     expect(mocks.importState.startTask).not.toHaveBeenCalled()
     cleanup()
   })

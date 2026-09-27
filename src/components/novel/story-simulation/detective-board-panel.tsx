@@ -131,9 +131,9 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
 
   const typeInfo = (type: ClueType) => {
     if (type === "event") {
-      return { label: t("storySimulation.eventType"), icon: Zap, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-400" }
+      return { label: t("storySimulation.eventType"), icon: Zap, color: "text-info bg-info dark:bg-info/40 dark:text-info" }
     }
-    return { label: t("storySimulation.rumor"), icon: MessageSquare, color: "text-amber-600 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400" }
+    return { label: t("storySimulation.rumor"), icon: MessageSquare, color: "text-warning bg-warning dark:bg-warning/40 dark:text-warning" }
   }
 
   if (clues.length === 0) {
@@ -263,7 +263,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                             {t("storySimulation.roundLabel", { round: clue.round + 1 })}
                           </span>
                           {clue.isSecret && (
-                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning dark:text-warning">
                               <EyeOff className="h-2.5 w-2.5" />
                               {t("storySimulation.secret")}
                             </span>
@@ -282,17 +282,17 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         </div>
 
                         <div className="flex flex-wrap items-start gap-1.5 border-t pt-1.5">
-                          <Eye className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+                          <Eye className="mt-0.5 h-3 w-3 shrink-0 text-success" />
                           <div className="flex flex-wrap gap-1">
                             {clue.knowAgents.length === 0 ? (
                               <span className="text-[10px] text-muted-foreground">{t("storySimulation.knownByNone")}</span>
                             ) : clue.knowAgents.length === agentList.length ? (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{t("storySimulation.knownByAll")}</span>
+                              <span className="text-[10px] text-success dark:text-success">{t("storySimulation.knownByAll")}</span>
                             ) : (
                               clue.knowAgents.map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400"
+                                  className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success dark:text-success"
                                 >
                                   {getAgentName(id)}
                                 </span>

@@ -5,6 +5,7 @@
  */
 
 import { useState, useCallback, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { Check, X, FileText, AlertCircle, Pencil, ChevronDown, ChevronRight } from "lucide-react"
 import type { FileEditAction, FileEditResult } from "@/lib/novel"
 
@@ -27,17 +28,17 @@ interface EditItemState {
 function EditDiffView({ search, replace }: { search: string; replace: string }) {
   return (
     <div className="space-y-1 text-xs font-mono">
-      <div className="rounded bg-red-50 px-2 py-1.5 dark:bg-red-950/30">
+      <div className="rounded bg-destructive px-2 py-1.5 dark:bg-destructive/30">
         {search.split("\n").map((line, i) => (
-          <div key={i} className="text-red-700 dark:text-red-300">
-            <span className="mr-1 select-none text-red-400">-</span>{line}
+          <div key={i} className="text-destructive dark:text-destructive">
+            <span className="mr-1 select-none text-destructive">-</span>{line}
           </div>
         ))}
       </div>
-      <div className="rounded bg-emerald-50 px-2 py-1.5 dark:bg-emerald-950/30">
+      <div className="rounded bg-success px-2 py-1.5 dark:bg-success/30">
         {replace.split("\n").map((line, i) => (
-          <div key={i} className="text-emerald-700 dark:text-emerald-300">
-            <span className="mr-1 select-none text-emerald-400">+</span>{line}
+          <div key={i} className="text-success dark:text-success">
+            <span className="mr-1 select-none text-success">+</span>{line}
           </div>
         ))}
       </div>
@@ -46,6 +47,7 @@ function EditDiffView({ search, replace }: { search: string; replace: string }) 
 }
 
 export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEditPreviewProps) {
+  const { t } = useTranslation()
   const [itemStates, setItemStates] = useState<EditItemState[]>(
     () => edits.map(() => ({ status: applied ? "applied" : "pending" }))
   )
@@ -140,8 +142,8 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   // 全部已处理
   if (pendingCount === 0 && effectiveItemStates.every(s => s.status !== "editing")) {
     return (
-      <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/30">
-        <div className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
+      <div className="mt-2 rounded-md border border-success bg-success p-3 dark:border-success/60 dark:bg-success/30">
+        <div className="flex items-center gap-2 text-sm font-medium text-success dark:text-success">
           <Check className="h-4 w-4" />
           已处理 {appliedCount} 条修改
         </div>
@@ -156,11 +158,11 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
                   className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50"
                 >
                   {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  <span className={state.status === "applied" ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground line-through"}>
+                  <span className={state.status === "applied" ? "text-success dark:text-success" : "text-muted-foreground line-through"}>
                     {state.status === "applied" ? "✓" : "✗"} {edit.filePath}
                   </span>
                   {state.result && !state.result.success && (
-                    <span className="text-red-500 text-xs">({state.result.error})</span>
+                    <span className="text-destructive text-xs">({state.result.error})</span>
                   )}
                 </button>
                 {expanded && (
@@ -177,9 +179,9 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   }
 
   return (
-    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+    <div className="mt-2 rounded-md border border-warning bg-warning p-3 dark:border-warning/60 dark:bg-warning/30">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+        <div className="flex items-center gap-2 text-sm font-medium text-warning dark:text-warning">
           <FileText className="h-4 w-4" />
           AI 建议修改 {edits.length} 处
         </div>
@@ -187,7 +189,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
           {pendingCount > 1 && (
             <button
               onClick={() => void handleApplyAll()}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+              className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-white hover:bg-success"
             >
               <Check className="h-3 w-3" />
               全部应用 ({pendingCount})
@@ -215,8 +217,8 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
           }
           if (state.status === "applied") {
             return (
-              <div key={i} className="rounded border border-emerald-200 bg-emerald-50/50 px-2 py-1.5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                <button onClick={() => toggleExpand(i)} className="flex w-full items-center gap-1 text-xs text-emerald-700 dark:text-emerald-300">
+              <div key={i} className="rounded border border-success bg-success/50 px-2 py-1.5 dark:border-success/40 dark:bg-success/20">
+                <button onClick={() => toggleExpand(i)} className="flex w-full items-center gap-1 text-xs text-success dark:text-success">
                   {expandedItems.has(i) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   ✓ {edit.filePath}
                 </button>
@@ -232,9 +234,9 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
             return (
               <div key={i} className="rounded border bg-background p-2">
                 <div className="mb-1 text-xs font-medium text-muted-foreground">{edit.filePath} — 编辑替换内容</div>
-                <div className="mb-2 rounded bg-red-50 px-2 py-1 text-xs dark:bg-red-950/30">
-                  <div className="mb-1 text-[10px] font-medium text-red-500">原文：</div>
-                  <pre className="whitespace-pre-wrap text-red-700 dark:text-red-300">{edit.search}</pre>
+                <div className="mb-2 rounded bg-destructive px-2 py-1 text-xs dark:bg-destructive/30">
+                  <div className="mb-1 text-[10px] font-medium text-destructive">{t("chat.originalText")}</div>
+                  <pre className="whitespace-pre-wrap text-destructive dark:text-destructive">{edit.search}</pre>
                 </div>
                 <textarea
                   value={state.editedReplace ?? edit.replace}
@@ -277,7 +279,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => void handleApplyOne(i)}
-                    className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white hover:bg-emerald-700"
+                    className="rounded bg-success px-2 py-0.5 text-xs text-white hover:bg-success"
                   >
                     应用
                   </button>
@@ -305,7 +307,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
         })}
       </div>
 
-      <div className="mt-2 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+      <div className="mt-2 flex items-center gap-1 text-xs text-warning dark:text-warning">
         <AlertCircle className="h-3 w-3" />
         点击「应用」后文件将被直接更新
       </div>

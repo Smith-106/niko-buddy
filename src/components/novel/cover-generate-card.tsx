@@ -63,7 +63,7 @@ export function CoverGenerateCard({ port, meta, aspect = "portrait", promptOverr
   return (
     <div className="cover-generate-card space-y-2" data-testid="cover-generate-card">
       {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
-      {!port && <p className="text-xs text-amber-500">{t("novel.coverGen.noPort") ?? "未注入图像端口"}</p>}
+      {!port && <p className="text-xs text-warning">{t("novel.coverGen.noPort") ?? "未注入图像端口"}</p>}
       <Button size="sm" onClick={run} disabled={!port || !projectPath || !meta || running}>
         {running ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Image className="mr-1 h-3 w-3" />}
         {t("novel.coverGen.generate") ?? "生成封面图"}

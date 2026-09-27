@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,7 @@ import { submitFeedback, type FeedbackType } from "@/lib/feedback"
  * and other feedback to the development team.
  */
 export function FeedbackSection() {
+  const { t } = useTranslation()
   const [type, setType] = useState<FeedbackType>("suggestion")
   const [message, setMessage] = useState("")
   const [contact, setContact] = useState("")
@@ -45,7 +47,7 @@ export function FeedbackSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">反馈与建议</h2>
+        <h2 className="text-xl font-semibold">{t("settings.feedback.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           反馈会发送到Niko Buddy的 Cloudflare D1 后台，用于排查问题和改进体验。
         </p>
@@ -54,29 +56,29 @@ export function FeedbackSection() {
       <div className="space-y-4 rounded-md border border-border p-4">
         {/* Feedback type selector */}
         <div className="space-y-2">
-          <Label htmlFor="feedback-type">反馈类型</Label>
+          <Label htmlFor="feedback-type">{t("settings.feedback.type")}</Label>
           <select
             id="feedback-type"
             value={type}
             onChange={(event) => setType(event.target.value as FeedbackType)}
             className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
           >
-            <option value="suggestion">功能建议</option>
-            <option value="bug">问题反馈</option>
+            <option value="suggestion">{t("settings.feedback.feature")}</option>
+            <option value="bug">{t("settings.feedback.bug")}</option>
             <option value="other">其他</option>
           </select>
         </div>
 
         {/* Message textarea */}
         <div className="space-y-2">
-          <Label htmlFor="feedback-message">反馈内容</Label>
+          <Label htmlFor="feedback-message">{t("settings.feedback.content")}</Label>
           <Textarea
             id="feedback-message"
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             maxLength={3000}
             rows={7}
-            placeholder="请尽量描述你遇到的问题、期望的效果，或者建议的使用场景。"
+            placeholder={t("settings.feedback.contentPlaceholder")}
           />
           <p className="text-xs text-muted-foreground">
             请勿提交 API Key、项目原文或隐私信息。
@@ -85,13 +87,13 @@ export function FeedbackSection() {
 
         {/* Contact input */}
         <div className="space-y-2">
-          <Label htmlFor="feedback-contact">联系方式（选填）</Label>
+          <Label htmlFor="feedback-contact">{t("settings.feedback.contact")}</Label>
           <Input
             id="feedback-contact"
             value={contact}
             onChange={(event) => setContact(event.target.value)}
             maxLength={200}
-            placeholder="邮箱、微信或其他联系方式"
+            placeholder={t("settings.feedback.contactPlaceholder")}
           />
         </div>
 

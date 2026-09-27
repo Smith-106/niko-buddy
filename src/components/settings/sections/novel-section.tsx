@@ -28,15 +28,18 @@ interface Props {
 function NovelToggle({
   checked,
   onChange,
+  label,
 }: {
   checked: boolean
   onChange: () => void
+  label: string
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={onChange}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
         checked ? "bg-primary" : "bg-input"
@@ -376,6 +379,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("autoIngestOnSaveHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.autoIngestOnSave')}
               checked={draft.novelConfig.autoIngestOnSave}
               onChange={() => updateNovelConfig({ autoIngestOnSave: !draft.novelConfig.autoIngestOnSave })}
             />
@@ -387,6 +391,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("reviewBeforeSaveHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.reviewBeforeSave')}
               checked={draft.novelConfig.reviewBeforeSave}
               onChange={() => updateNovelConfig({ reviewBeforeSave: !draft.novelConfig.reviewBeforeSave })}
             />
@@ -398,6 +403,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("deepPreviousChaptersAnalysisHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.deepPreviousChaptersAnalysis')}
               checked={draft.novelConfig.deepPreviousChaptersAnalysis}
               onChange={() => updateNovelConfig({ deepPreviousChaptersAnalysis: !draft.novelConfig.deepPreviousChaptersAnalysis })}
             />
@@ -409,6 +415,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("deepChapterReviewHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.deepChapterReview')}
               checked={draft.novelConfig.deepChapterReview}
               onChange={() => updateNovelConfig({ deepChapterReview: !draft.novelConfig.deepChapterReview })}
             />
@@ -422,6 +429,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("literaryPolishAfterGateHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.literaryPolishAfterGate')}
               checked={!!draft.novelConfig.literaryPolishAfterGate}
               onChange={() => updateNovelConfig({ literaryPolishAfterGate: !draft.novelConfig.literaryPolishAfterGate })}
             />
@@ -433,6 +441,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("residualCampaignEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.residualCampaignEnabled')}
               checked={!!draft.novelConfig.residualCampaignEnabled}
               onChange={() => updateNovelConfig({ residualCampaignEnabled: !draft.novelConfig.residualCampaignEnabled })}
             />
@@ -470,6 +479,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("communitySummaryEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.communitySummaryEnabled')}
               checked={draft.novelConfig.communitySummaryEnabled}
               onChange={() => updateNovelConfig({ communitySummaryEnabled: !draft.novelConfig.communitySummaryEnabled })}
             />
@@ -481,6 +491,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("temporalFactsEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.temporalFactsEnabled')}
               checked={draft.novelConfig.temporalFactsEnabled}
               onChange={() => updateNovelConfig({ temporalFactsEnabled: !draft.novelConfig.temporalFactsEnabled })}
             />
@@ -492,6 +503,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("entityBoostEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.entityBoostEnabled')}
               checked={draft.novelConfig.entityBoostEnabled !== false}
               onChange={() => updateNovelConfig({ entityBoostEnabled: !(draft.novelConfig.entityBoostEnabled !== false) })}
             />
@@ -503,6 +515,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("stateDeltaLightCheckEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.stateDeltaLightCheckEnabled')}
               checked={draft.novelConfig.stateDeltaLightCheckEnabled !== false}
               onChange={() => updateNovelConfig({ stateDeltaLightCheckEnabled: !(draft.novelConfig.stateDeltaLightCheckEnabled !== false) })}
             />
@@ -514,6 +527,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("outlineThrillSoftGateEnabledHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.outlineThrillSoftGateEnabled')}
               checked={draft.novelConfig.outlineThrillSoftGateEnabled !== false}
               onChange={() => updateNovelConfig({ outlineThrillSoftGateEnabled: !(draft.novelConfig.outlineThrillSoftGateEnabled !== false) })}
             />
@@ -530,6 +544,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                 {settingTooltip("dualKbRoutingEnabledHint")}
               </div>
               <NovelToggle
+                label={t('novel.settings.dualKbRoutingEnabled')}
                 checked={draft.novelConfig.dualKbRoutingEnabled === true}
                 onChange={() => updateNovelConfig({ dualKbRoutingEnabled: !(draft.novelConfig.dualKbRoutingEnabled === true) })}
               />
@@ -540,6 +555,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                 {settingTooltip("usefulnessRerankEnabledHint")}
               </div>
               <NovelToggle
+                label={t('novel.settings.usefulnessRerankEnabled')}
                 checked={draft.novelConfig.usefulnessRerankEnabled === true}
                 onChange={() => updateNovelConfig({ usefulnessRerankEnabled: !(draft.novelConfig.usefulnessRerankEnabled === true) })}
               />
@@ -550,6 +566,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                 {settingTooltip("hardInjectEnabledHint")}
               </div>
               <NovelToggle
+                label={t('novel.settings.hardInjectEnabled')}
                 checked={draft.novelConfig.hardInjectEnabled !== false}
                 onChange={() => updateNovelConfig({ hardInjectEnabled: !(draft.novelConfig.hardInjectEnabled !== false) })}
               />
@@ -590,6 +607,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                   {settingTooltip(`${i18nKey}Hint`)}
                 </div>
                 <NovelToggle
+                  label={t('novel.settings.contentAssemblySection')}
                   checked={draft.novelConfig[configKey] !== false}
                   onChange={() => updateNovelConfig({ [configKey]: !(draft.novelConfig[configKey] !== false) } as Partial<NovelConfig>)}
                 />
@@ -644,6 +662,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                   {settingTooltip("communitySummaryAsyncHint")}
                 </div>
                 <NovelToggle
+                  label={t('novel.settings.communitySummaryAsync')}
                   checked={draft.novelConfig.communitySummaryAsync}
                   onChange={() => updateNovelConfig({ communitySummaryAsync: !draft.novelConfig.communitySummaryAsync })}
                 />
@@ -710,7 +729,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                   </p>
                 ) : null}
                 {state?.message ? (
-                  <p className={`text-xs ${state.success ? "text-emerald-600" : "text-destructive"}`}>
+                  <p className={`text-xs ${state.success ? "text-success" : "text-destructive"}`}>
                     {state.message}
                   </p>
                 ) : null}
@@ -889,6 +908,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               </p>
             </div>
             <NovelToggle
+              label={t('settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImproveHint')}
               checked={draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove}
               onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
@@ -915,6 +935,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               </p>
             </div>
             <NovelToggle
+              label={t('settings.sections.novel.feedbackWindow.previousChapterCarryEnabledHint')}
               checked={draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled}
               onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
@@ -941,6 +962,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               </p>
             </div>
             <NovelToggle
+              label={t('settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnlyHint')}
               checked={draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly}
               onChange={() => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
@@ -1040,6 +1062,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("antiAiTelemetryConsentHint")}
             </div>
             <NovelToggle
+              label={t('novel.settings.antiAiTelemetryConsent')}
               checked={antiAiTelemetryConsent === true}
               onChange={() => { void toggleAntiAiTelemetryConsent() }}
             />

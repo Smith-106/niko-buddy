@@ -199,7 +199,7 @@ export function ActivityPanel() {
         ) : queueSummary.failed > 0 || fileSyncFailed > 0 || fileSyncError ? (
           <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
         ) : (
-          <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+          <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
         )}
         <span className="flex-1 truncate text-left">{statusText}</span>
         {expanded ? (
@@ -437,7 +437,7 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
           {task.status === "processing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
           {task.status === "pending" && <Clock className="h-3 w-3 text-muted-foreground" />}
           {task.status === "failed" && <AlertCircle className="h-3 w-3 text-destructive" />}
-          {task.status === "superseded" && <GitMerge className="h-3 w-3 text-amber-500" />}
+          {task.status === "superseded" && <GitMerge className="h-3 w-3 text-warning" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
@@ -446,7 +446,7 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
             <div className="mt-0.5 truncate text-[10px] text-destructive">{mapFileSyncError(task.error)}</div>
           )}
           {isConflict && (
-            <div className="mt-0.5 text-[10px] text-amber-500">
+            <div className="mt-0.5 text-[10px] text-warning">
               {task.status === "superseded"
                 ? t("activity.fileSyncSuperseded", "文件在同步期间被外部修改，此任务已被新变更取代")
                 : t("activity.fileSyncConflict", "文件在同步期间被外部修改，将自动重新同步")}
@@ -495,7 +495,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
       <div className="flex items-start gap-2">
         <div className="mt-0.5 shrink-0">
           {item.status === "running" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-          {item.status === "done" && <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
+          {item.status === "done" && <CheckCircle2 className="h-3 w-3 text-success" />}
           {item.status === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
         </div>
         <div className="min-w-0 flex-1">

@@ -14,9 +14,19 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { InterfaceSection } from "./interface-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const mocks = vi.hoisted(() => ({
-  t: vi.fn((key: string) => key),
+  t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -58,7 +68,7 @@ afterEach(() => {
 describe("InterfaceSection", () => {
   it("renders the header and language/font controls", () => {
     render(<ControlledSection />)
-    expect(screen.getByText("settings.sections.interface.title")).toBeInTheDocument()
+    expect(screen.getByText("界面")).toBeInTheDocument()
     expect(screen.getByText("English")).toBeInTheDocument()
     expect(screen.getByText("中文")).toBeInTheDocument()
     expect(screen.getByText("100%")).toBeInTheDocument()

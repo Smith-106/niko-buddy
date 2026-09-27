@@ -59,8 +59,8 @@ describe("KbHealthView 面板 smoke（P2-IMP-13）", () => {
     const alarm = screen.getByTestId("kb-health-drift-alarm")
     expect(alarm).toBeTruthy()
     expect(alarm.textContent).toContain("truth_fold_drift=2")
-    // drift 行高亮（amber 告警配色）
-    expect(screen.getByTestId("kb-metric-truth_fold_drift").className).toContain("amber")
+    // drift 行高亮（warning 语义 token，palette 映射 amber→warning）
+    expect(screen.getByTestId("kb-metric-truth_fold_drift").className).toContain("warning")
     const button = screen.getByRole("button", { name: "建议重建" })
     fireEvent.click(button)
     expect(onRebuild).toHaveBeenCalledTimes(1)

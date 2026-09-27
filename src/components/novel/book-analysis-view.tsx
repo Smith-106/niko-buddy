@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
@@ -20,7 +21,7 @@ import { useLibraryOperations } from "./hooks/use-library-operations"
 function DimensionStatusIcon({ status }: { status: SixDimensionStatus }) {
   /* v8 ignore next */
   if (status === "done") {
-    return <Check className="h-3.5 w-3.5 text-emerald-500" />
+    return <Check className="h-3.5 w-3.5 text-success" />
   }
   /* v8 ignore next */
   if (status === "failed") {
@@ -50,6 +51,7 @@ function dimensionTextClass(
 }
 
 export function BookAnalysisView() {
+  const { t } = useTranslation()
   const [inputDialogOpen, setInputDialogOpen] = useState(false)
   const [viewingResultPath, setViewingResultPath] = useState<string | null>(null)
   const [chapterSelectionData, setChapterSelectionData] = useState<ChapterSelectionData | null>(null)
@@ -379,7 +381,7 @@ export function BookAnalysisView() {
           </div>
 
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold">拆书作品</h2>
+            <h2 className="text-2xl font-bold">{t("bookAnalysis.title")}</h2>
             <p className="text-muted-foreground">
               从小说中提取角色信息，生成可复用的角色 Skill，添加到自定义灵魂库
             </p>
@@ -392,8 +394,8 @@ export function BookAnalysisView() {
                   <span className="text-xs font-medium">1</span>
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-foreground">上传小说文件</div>
-                  <div>支持TXT格式，自动识别章节（可能包含500-1000章）</div>
+                  <div className="font-medium text-foreground">{t("bookAnalysis.uploadNovel")}</div>
+                  <div>{t("bookAnalysis.uploadHint")}</div>
                 </div>
               </div>
 
@@ -402,8 +404,8 @@ export function BookAnalysisView() {
                   <span className="text-xs font-medium">2</span>
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-foreground">选择分析范围</div>
-                  <div>勾选需要分析的章节，支持全选或选择特定范围</div>
+                  <div className="font-medium text-foreground">{t("bookAnalysis.selectScope")}</div>
+                  <div>{t("bookAnalysis.scopeHint")}</div>
                 </div>
               </div>
 
@@ -412,8 +414,8 @@ export function BookAnalysisView() {
                   <span className="text-xs font-medium">3</span>
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-foreground">提取角色与生成Skill</div>
-                  <div>全面分析角色信息，生成可复用技能，添加到自定义灵魂</div>
+                  <div className="font-medium text-foreground">{t("bookAnalysis.extractSkills")}</div>
+                  <div>{t("bookAnalysis.extractSkillsHint")}</div>
                 </div>
               </div>
             </div>
@@ -462,7 +464,7 @@ export function BookAnalysisView() {
       {false && (
       <div className="hidden">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">拆书作品</h2>
+        <h2 className="text-2xl font-bold">{t("bookAnalysis.title")}</h2>
         <Button onClick={() => setInputDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           拆书作品
@@ -471,18 +473,10 @@ export function BookAnalysisView() {
 
       <div className="space-y-4">
         {tasks.map((task) => (
-          <div
+          <button type="button"
             key={task.id}
             className="border rounded-lg p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
-            role="button"
-            tabIndex={0}
             onClick={() => setViewingResultPath(task.projectPath)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                setViewingResultPath(task.projectPath)
-              }
-            }}
           >
             <div className="flex items-start justify-between">
               <div>
@@ -544,10 +538,10 @@ export function BookAnalysisView() {
                 )}
                 {/* 角色识别阶段状态（feature/character-recognition-and-simple-mode） */}
                 {task.progress.recognitionStatus === "heuristic" && (
-                  <p className="text-sm text-muted-foreground">正在启发式识别角色...</p>
+                  <p className="text-sm text-muted-foreground">{t("bookAnalysis.heuristicDetecting")}</p>
                 )}
                 {task.progress.recognitionStatus === "llm_scoring" && (
-                  <p className="text-sm text-muted-foreground">正在用 LLM 评分角色重要度...</p>
+                  <p className="text-sm text-muted-foreground">{t("bookAnalysis.llmScoring")}</p>
                 )}
                 {task.progress.recognitionStatus === "done" && (
                   <p className="text-sm text-muted-foreground">
@@ -591,7 +585,7 @@ export function BookAnalysisView() {
                   return (
                     <button
                       onClick={() => handleResumeFailedExtraction(task.id)}
-                      className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors text-sm font-medium"
+                      className="px-4 py-2 bg-warning text-white rounded-md hover:bg-warning/80 transition-colors text-sm font-medium"
                     >
                       继续生成（{failedNames.length}）
                     </button>
@@ -599,7 +593,7 @@ export function BookAnalysisView() {
                 })()}
               </div>
             )}
-          </div>
+          </button>
         ))}
       </div>
 

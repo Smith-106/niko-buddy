@@ -176,7 +176,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
       </div>
 
       {exportPreview.warnings.length > 0 ? (
-        <ul className="text-xs text-amber-600" data-testid="skillpack-export-warnings">
+        <ul className="text-xs text-warning" data-testid="skillpack-export-warnings">
           {exportPreview.warnings.map((warning) => (
             <li
               key={`${warning.code}:${"fields" in warning ? warning.fields.join(",") : "n" in warning ? warning.n : ""}`}
@@ -213,7 +213,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
       </ul>
 
       {result && !result.ok ? (
-        <ul role="alert" data-testid="skillpack-errors" className="text-xs text-red-500">
+        <ul role="alert" data-testid="skillpack-errors" className="text-xs text-destructive">
           {result.issues.map((issue) => (
             <li key={`${issue.code}:${issue.at}`} title={issue.detail}>
               {t(ISSUE_LABEL_KEY[issue.code])}
@@ -232,7 +232,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
             })}
           </p>
           {result.trustReclassified ? (
-            <p data-testid="skillpack-trust-reclassified" className="text-xs text-amber-600">
+            <p data-testid="skillpack-trust-reclassified" className="text-xs text-warning">
               {t("skillpack.trustReclassified", {
                 declared: t(TRUST_LABEL_KEY[result.trustReclassified.declared]),
                 effective: t(TRUST_LABEL_KEY[result.trustReclassified.effective]),

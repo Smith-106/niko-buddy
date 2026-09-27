@@ -9,6 +9,16 @@ import {
 } from "@/test-helpers/component-test-utils"
 import { TrashPanel } from "./trash-panel"
 import type { TrashItem, RestoreTrashResult } from "@/lib/trash"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 interface ProjectLike {
   id: string
@@ -56,7 +66,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     state,
-    t: vi.fn<(key: string) => string>((key: string) => key),
+    t: vi.fn<(key: string) => string>((key: string) => lookupZhLocale(key) ?? key),
     normalizePath: vi.fn<(p: string) => string>((p: string) => p),
     listDirectory: vi.fn<() => Promise<unknown[]>>(async () => []),
     listTrashItems: vi.fn<() => Promise<TrashItem[]>>(async () => []),
@@ -174,7 +184,7 @@ describe("TrashPanel", () => {
 
     expect(mocks.cleanupExpiredTrashItems).not.toHaveBeenCalled()
     expect(mocks.listTrashItems).not.toHaveBeenCalled()
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
     expect(screen.getByText("0")).toBeTruthy()
   })
 
@@ -199,12 +209,12 @@ describe("TrashPanel", () => {
     expect(screen.getByText("旧版.md")).toBeTruthy()
     expect(screen.getByText("note.md")).toBeTruthy()
     // kind 标签分支
-    expect(screen.getByText(/trash.kindChapter/)).toBeTruthy()
-    expect(screen.getByText(/trash.kindOutline/)).toBeTruthy()
-    expect(screen.getByText(/trash.kindHistory/)).toBeTruthy()
-    expect(screen.getByText(/trash.kindPage/)).toBeTruthy()
+    expect(screen.getByText(/ · 章节/)).toBeTruthy()
+    expect(screen.getByText(/ · 大纲/)).toBeTruthy()
+    expect(screen.getByText(/ · 历史记录/)).toBeTruthy()
+    expect(screen.getByText(/ · 页面/)).toBeTruthy()
     // 剩余天数（每行一个）+ 清空回收站按钮
-    expect(screen.getAllByText(/trash.remainingDays/).length).toBe(4)
+    expect(screen.getAllByText(/剩余/).length).toBe(4)
     expect(screen.getByText("清空回收站")).toBeTruthy()
     expect(mocks.getTrashDaysRemaining).toHaveBeenCalled()
   })
@@ -222,12 +232,12 @@ describe("TrashPanel", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(screen.getByText("trash.loading")).toBeTruthy()
+    expect(screen.getByText("正在加载回收站…")).toBeTruthy()
     await act(async () => {
       release()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
   })
 
   it("加载失败时记录错误并清空列表", async () => {
@@ -238,7 +248,7 @@ describe("TrashPanel", () => {
     await flushAsync()
 
     expect(consoleError).toHaveBeenCalled()
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
   })
 
   it("点击条目读取内容并写入 store", async () => {
@@ -284,7 +294,7 @@ describe("TrashPanel", () => {
     render(<TrashPanel />)
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("trash.restoreTitle"))
+    fireEvent.click(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复"))
     await flushAsync()
 
     expect(mocks.normalizePath).toHaveBeenCalledWith("/p/mybook")
@@ -294,7 +304,7 @@ describe("TrashPanel", () => {
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/p/章一.md")
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
   })
 
   it("恢复 history 条目时不切换视图", async () => {
@@ -309,7 +319,7 @@ describe("TrashPanel", () => {
     render(<TrashPanel />)
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("trash.restoreTitle"))
+    fireEvent.click(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复"))
     await flushAsync()
 
     expect(mocks.state.setActiveView).not.toHaveBeenCalled()
@@ -323,7 +333,7 @@ describe("TrashPanel", () => {
     render(<TrashPanel />)
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("trash.restoreTitle"))
+    fireEvent.click(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复"))
     await flushAsync()
 
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
@@ -337,7 +347,7 @@ describe("TrashPanel", () => {
     render(<TrashPanel />)
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("trash.restoreTitle"))
+    fireEvent.click(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复"))
     await flushAsync()
 
     expect(consoleError).toHaveBeenCalled()
@@ -356,14 +366,14 @@ describe("TrashPanel", () => {
     render(<TrashPanel />)
     await flushAsync()
 
-    fireEvent.click(screen.getByTitle("trash.restoreTitle"))
+    fireEvent.click(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复"))
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    const restoreBtn = screen.getByTitle("trash.restoreTitle") as HTMLButtonElement
+    const restoreBtn = screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复") as HTMLButtonElement
     expect(restoreBtn.disabled).toBe(true)
-    expect(screen.getByTitle("trash.restoreTitle").querySelector(".animate-spin")).toBeTruthy()
+    expect(screen.getByTitle("恢复到原位置；如原位置已有同名文件，会自动改名恢复").querySelector(".animate-spin")).toBeTruthy()
 
     await act(async () => {
       release({ item: makeItem({ id: "i1" }), restoredPath: "/p/page.md", renamed: false })
@@ -384,7 +394,7 @@ describe("TrashPanel", () => {
 
     expect(mocks.permanentlyDeleteTrashItem).toHaveBeenCalledWith("/p/mybook", "i1")
     expect(mocks.state.setSelectedTrashItem).toHaveBeenCalledWith(null)
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
   })
 
   it("永久删除非选中项时不清空选中态", async () => {
@@ -452,7 +462,7 @@ describe("TrashPanel", () => {
 
     expect(mocks.permanentlyDeleteAllTrashItems).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.state.setSelectedTrashItem).toHaveBeenCalledWith(null)
-    expect(screen.getByText("trash.empty")).toBeTruthy()
+    expect(screen.getByText("回收站为空")).toBeTruthy()
   })
 
   it("清空回收站失败时记录错误", async () => {

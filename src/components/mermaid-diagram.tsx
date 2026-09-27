@@ -94,7 +94,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-2 rounded border border-red-300/60 bg-red-50/50 dark:bg-red-950/20 p-2 text-xs text-red-700 dark:text-red-400">
+      <div className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive dark:text-destructive">
         <p className="font-medium mb-1">{t("mermaid.syntaxError", "Mermaid 语法错误")}</p>
         <pre className="whitespace-pre-wrap text-[11px] opacity-70">{error}</pre>
       </div>
@@ -114,7 +114,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
               type="button"
               onClick={() => setExpanded(true)}
               className="absolute top-2 right-2 z-10 rounded-md bg-background/80 px-1.5 py-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/diagram:opacity-100"
-              title="Enlarge diagram"
+              title={t("mermaid.zoomIn")}
             >
               <ZoomIn className="h-4 w-4" />
             </button>
@@ -145,7 +145,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           onKeyDown={(e) => { if (e.key === "Escape") { setExpanded(false); setScale(1) } }}
           role="dialog"
           aria-modal="true"
-          aria-label="放大图表（Esc 关闭）"
+          aria-label={t("mermaid.zoomIn")}
           tabIndex={-1}
           autoFocus
         >

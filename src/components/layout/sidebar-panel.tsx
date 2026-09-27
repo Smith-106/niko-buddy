@@ -57,7 +57,7 @@ function SearchHistoryPanel() {
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-3">
         {searchHistory.length === 0 ? (
-          <div className="px-2 py-4 text-xs text-muted-foreground">暂无历史搜索</div>
+          <div className="px-2 py-4 text-xs text-muted-foreground">{t("novel.outlineImport.noHistory")}</div>
         ) : (
           <div className="space-y-1">
             {searchHistory.map((item) => (
@@ -1089,7 +1089,7 @@ export function SidebarPanel() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>是否提取记忆</DialogTitle>
+            <DialogTitle>{t("novel.outlineImport.extractMemory")}</DialogTitle>
             <DialogDescription>
               {memoryDecisionRequest?.kind === "outline"
                 ? `本次将导入 ${memoryDecisionRequest.count} 个 AI 大纲文档。提取记忆会增加 token 消耗，速度也会比较慢，请耐心等待。`

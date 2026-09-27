@@ -695,8 +695,8 @@ function DocumentGraphView({
     <div className="h-full overflow-auto bg-background p-6">
       <div className="mx-auto max-w-4xl space-y-5">
         <div className="rounded-lg border bg-card p-5 shadow-sm">
-          <h1 className="text-xl font-semibold">小说图谱文档</h1>
-          <p className="mt-2 text-sm text-muted-foreground">本文档由当前小说档案页自动生成；需要长期生效的修改，可在对应节点段落内直接编辑真实档案页。</p>
+          <h1 className="text-xl font-semibold">{t("graph.docTitle")}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{t("graph.docHint")}</p>
         </div>
         <div className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -734,7 +734,7 @@ function DocumentGraphView({
             ) : null}
           </div>
           {filteredRiskSummaryItems.length === 0 ? (
-            <div className="mt-3 text-sm text-muted-foreground">当前分类暂无待处理风险项。</div>
+            <div className="mt-3 text-sm text-muted-foreground">{t("graph.noRisks")}</div>
           ) : (
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {filteredRiskSummaryItems.map((item) => {
@@ -811,7 +811,7 @@ function DocumentGraphView({
               className="h-8 min-w-56 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={documentSearchQuery}
               onChange={(event) => setDocumentSearchQuery(event.target.value)}
-              placeholder="搜索节点标题或来源路径"
+              placeholder={t("graph.searchPlaceholder")}
             />
             <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm text-muted-foreground">
               <input
@@ -858,7 +858,7 @@ function DocumentGraphView({
             </button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">风险快捷筛选</span>
+            <span className="text-muted-foreground">{t("graph.riskQuickFilter")}</span>
             {quickRiskFilters.map((filter) => (
               <button
                 key={filter.key}
@@ -893,13 +893,13 @@ function DocumentGraphView({
                   const isDangerNode = riskStateLabel === "疑似冲突" || riskStateLabel === "疑似矛盾"
                   return (
                     /* v8 ignore next -- canon-rule/timeline-point 恒被 allowedNodeTypes 过滤，danger 不可达 */
-                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${isDangerNode ? "border-l-4 border-l-red-500 bg-red-500/[0.03]" : ""}`}>
+                    <article key={node.id} id={graphDocumentNodeDomId(node.id)} className={`scroll-mt-4 rounded-md border bg-background p-4 ${isDangerNode ? "border-l-4 border-l-destructive bg-destructive/[0.03]" : ""}`}>
                       <button type="button" className="flex w-full items-start justify-between gap-3 text-left" onClick={() => toggleNode(node.id)}>
                         <div>
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{documentNodePage * DOCUMENT_NODES_PAGE_SIZE + nodeIndex + 1} {node.label}</h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
-                            {riskLabel && <span className="rounded border border-amber-300 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 dark:border-amber-800 dark:text-amber-300">{riskLabel}</span>}
+                            {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning dark:border-warning dark:text-warning">{riskLabel}</span>}
                             {riskStateLabel && (() => {
                             const labelColor = getGraphNodeRiskStateLabelColor(riskStateLabel)
                             return (
@@ -930,9 +930,9 @@ function DocumentGraphView({
 
                           <div className="mt-4 space-y-3 text-sm">
                             <div>
-                              <div className="mb-2 font-medium">关系摘要</div>
+                              <div className="mb-2 font-medium">{t("graph.relationSummary")}</div>
                               {relationSummary.length === 0 ? (
-                                <p className="text-muted-foreground">暂无可用于写作参考的关系摘要。</p>
+                                <p className="text-muted-foreground">{t("graph.noRelationSummary")}</p>
                               ) : (
                                 <div className="space-y-2">
                                   {relationSummary.map((summary) => (
@@ -946,7 +946,7 @@ function DocumentGraphView({
                             </div>
 
                             <div>
-                              <div className="mb-1 font-medium">相关事件</div>
+                              <div className="mb-1 font-medium">{t("graph.relatedEvents")}</div>
                               {eventEdges.length === 0 ? (
                                 <p className="text-muted-foreground">{t("graph.noRelatedEvents")}</p>
                               ) : (
@@ -964,7 +964,7 @@ function DocumentGraphView({
                               if (nodeHistory.length === 0) return null
                               return (
                                 <div>
-                                  <div className="mb-1 font-medium">状态变更记录</div>
+                                  <div className="mb-1 font-medium">{t("graph.statusHistory")}</div>
                                   <ul className="space-y-1 text-muted-foreground text-xs">
                                     {nodeHistory.slice(-10).reverse().map((entry, index) => {
                                       const time = new Date(entry.timestamp)
@@ -982,10 +982,10 @@ function DocumentGraphView({
                             })()}
 
                             <details className="rounded-md border bg-muted/20 p-3">
-                              <summary className="cursor-pointer text-sm font-medium">技术信息</summary>
+                              <summary className="cursor-pointer text-sm font-medium">{t("graph.techInfo")}</summary>
                               <div className="mt-3 space-y-3">
                                 <div>
-                                  <div className="mb-1 font-medium">基础信息</div>
+                                  <div className="mb-1 font-medium">{t("graph.basicInfo")}</div>
                                   <ul className="space-y-1 text-muted-foreground">
                                     <li>节点类型：{getGraphNodeTypeLabel(node.type)}</li>
                                     <li>关联数量：{node.linkCount}</li>
@@ -993,7 +993,7 @@ function DocumentGraphView({
                                   </ul>
                                 </div>
                                 <div>
-                                  <div className="mb-1 font-medium">关系网络</div>
+                                  <div className="mb-1 font-medium">{t("graph.relationNetwork")}</div>
                                   {nodeEdges.length === 0 ? (
                                     <p className="text-muted-foreground">{t("graph.noRelations")}</p>
                                   ) : (
@@ -1001,10 +1001,10 @@ function DocumentGraphView({
                                       <table className="w-full border-collapse text-xs">
                                         <thead>
                                           <tr className="border-b text-left text-muted-foreground">
-                                            <th className="py-1 pr-3">关联对象</th>
+                                            <th className="py-1 pr-3">{t("graph.relatedObject")}</th>
                                             <th className="py-1 pr-3">关系</th>
-                                            <th className="py-1 pr-3">方向</th>
-                                            <th className="py-1">权重</th>
+                                            <th className="py-1 pr-3">{t("graph.direction")}</th>
+                                            <th className="py-1">{t("graph.weight")}</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -1076,7 +1076,7 @@ function DocumentGraphView({
 
 function MindMapGraphView({ mindMap }: { mindMap: MindMapNode[] }) {
   return (
-    <div className="h-full overflow-auto bg-slate-50 p-6 dark:bg-slate-950">
+    <div className="h-full overflow-auto bg-background p-6">
       <div className="min-w-[720px] space-y-3">
         {mindMap.map((node) => (
           <MindMapBranch key={node.id} node={node} />
@@ -1556,7 +1556,7 @@ export function GraphView() {
         {/* Graph canvas */}
         <div
           ref={graphContainerRef}
-          className="relative flex-1 min-w-0 overflow-hidden bg-slate-50 dark:bg-slate-950"
+          className="relative flex-1 min-w-0 overflow-hidden bg-background"
           onContextMenu={(e) => e.preventDefault()}
           onClick={() => setNodeMenu(null)}
         >
@@ -2056,7 +2056,7 @@ export function GraphView() {
                       </span>
                       <span className="text-muted-foreground/60 ml-auto shrink-0">{c.nodeCount}</span>
                       {c.cohesion < 0.15 && c.nodeCount >= 3 && (
-                        <span className="text-amber-500 shrink-0" title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
+                        <span className="text-warning shrink-0" title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
                       )}
                     </div>
                   ))}
@@ -2074,7 +2074,7 @@ export function GraphView() {
             <div className="px-4 py-3 border-b">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Lightbulb className="h-4 w-4 text-amber-500" />
+                  <Lightbulb className="h-4 w-4 text-warning" />
                   <span className="text-sm font-medium">{t("graph.insights")}</span>
                 </div>
                 <button
@@ -2094,7 +2094,7 @@ export function GraphView() {
               {surprisingConns.filter((c) => !dismissedInsights.has(c.key)).length > 0 && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-foreground">
-                    <Link2 className="h-3.5 w-3.5 text-blue-500" />
+                    <Link2 className="h-3.5 w-3.5 text-info" />
                     {t("graph.surprisingConnections")}
                   </div>
                   <div className="flex flex-col gap-2">
@@ -2107,7 +2107,7 @@ export function GraphView() {
                         return (
                           <div
                             key={i}
-                            className={`relative rounded-lg border p-3 text-sm transition-colors ${isActive ? "bg-blue-500/10 border-blue-500/40" : "hover:bg-muted/50"}`}
+                            className={`relative rounded-lg border p-3 text-sm transition-colors ${isActive ? "bg-info/10 border-info/40" : "hover:bg-muted/50"}`}
                           >
                             <button
                               className="absolute top-1.5 right-1.5 z-10 rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
@@ -2120,10 +2120,7 @@ export function GraphView() {
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
+                            <button type="button"
                               className="cursor-pointer pr-6 text-left"
                               onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
                             >
@@ -2133,7 +2130,7 @@ export function GraphView() {
                               <p className="text-xs text-muted-foreground">
                                 {conn.reasons.join("，")}
                               </p>
-                            </div>
+                            </button>
                           </div>
                         )
                       })}
@@ -2145,7 +2142,7 @@ export function GraphView() {
               {knowledgeGaps.length > 0 && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-foreground">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    <AlertTriangle className="h-3.5 w-3.5 text-warning" />
                     {t("graph.knowledgeGaps")}
                   </div>
                   <div className="flex flex-col gap-2">
@@ -2155,18 +2152,15 @@ export function GraphView() {
                         [...ids].every((id) => highlightedNodes.has(id)) &&
                         [...highlightedNodes].every((id) => ids.has(id))
                       return (
-                        <div
+                        <button type="button"
                           key={i}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHighlightedNodes(isActive ? new Set() : ids) } }}
-                          className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-amber-500/10 border-amber-500/40" : "hover:bg-muted/50"}`}
+                          className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-warning/10 border-warning/40" : "hover:bg-muted/50"}`}
                           onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
                         >
                           <div className="font-medium text-xs text-foreground mb-1">{gap.title}</div>
                           <p className="text-xs text-muted-foreground mb-2">{gap.description}</p>
                           <p className="text-xs text-muted-foreground/80 italic mb-2">{gap.suggestion}</p>
-                        </div>
+                        </button>
                       )
                     })}
                   </div>

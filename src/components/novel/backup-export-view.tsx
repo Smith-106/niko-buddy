@@ -168,7 +168,7 @@ function formatSize(bytes: number): string {
 function Warnings({ items }: { items: string[] }) {
   if (items.length === 0) return null
   return (
-    <div className="text-yellow-600 text-xs space-y-1">
+    <div className="text-warning text-xs space-y-1">
       {items.map((w, i) => (
         <p key={i}>⚠ {w}</p>
       ))}
@@ -565,7 +565,7 @@ export function BackupExportView() {
         {exportResult && (
           <div className="text-sm space-y-1">
             {exportResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -586,7 +586,7 @@ export function BackupExportView() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{exportResult.error}</p>
               </div>
@@ -628,7 +628,7 @@ export function BackupExportView() {
         {verifyResult && (
           <div className="text-sm space-y-1">
             {verifyResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -643,7 +643,7 @@ export function BackupExportView() {
                     </p>
                   )}
                   {verifyResult.containerChecksumMatches === null && (
-                    <p className="text-xs text-yellow-600">
+                    <p className="text-xs text-warning">
                       {tOr(
                         "novel.backupExport.verifyShaMissing",
                         "未找到 .sha256 校验和文件：已降级为仅包内内容摘要校验（建议重新导出以获得完整校验）。",
@@ -653,7 +653,7 @@ export function BackupExportView() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{verifyResult.error}</p>
               </div>
@@ -695,7 +695,7 @@ export function BackupExportView() {
         {restoreResult && (
           <div className="text-sm space-y-1">
             {restoreResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -716,7 +716,7 @@ export function BackupExportView() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{restoreResult.error}</p>
               </div>
@@ -754,7 +754,7 @@ export function BackupExportView() {
         {autoResult && (
           <div className="text-sm space-y-1">
             {autoResult.success ? (
-              <div className="flex items-start gap-2 text-green-600">
+              <div className="flex items-start gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p>{tOr("novel.backupExport.autoSuccess", "自动备份完成")}</p>
@@ -762,7 +762,7 @@ export function BackupExportView() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-start gap-2 text-red-600">
+              <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>{autoResult.error}</p>
               </div>

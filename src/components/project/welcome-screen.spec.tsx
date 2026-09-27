@@ -157,8 +157,8 @@ describe("WelcomeScreen", () => {
     await waitFor(() => {
       expect(screen.getByText("Alpha Book")).toBeInTheDocument()
     })
-    // the X remove control is a div[role=button] with an aria-hidden icon (empty name)
-    const removeButtons = screen.getAllByRole("button", { name: "" })
+    // 删除控件是原生 button（含中文 aria-label）；键盘 Enter/Space 由浏览器原生转为 click
+    const removeButtons = screen.getAllByRole("button", { name: /移除最近项目/ })
     fireEvent.click(removeButtons[0])
     expect(mocks.removeFromRecentProjects).toHaveBeenCalledWith("/projects/alpha")
     await waitFor(() => {
@@ -167,14 +167,15 @@ describe("WelcomeScreen", () => {
     expect(mocks.getRecentProjects).toHaveBeenCalledTimes(2)
   })
 
-  it("removes a recent project via Enter key on the X button", async () => {
+  it("removes a recent project via keyboard activation on the X button (native button)", async () => {
     mocks.getRecentProjects.mockResolvedValueOnce(PROJECTS).mockResolvedValueOnce([PROJECTS[1]])
     renderWelcome()
     await waitFor(() => {
       expect(screen.getByText("Alpha Book")).toBeInTheDocument()
     })
-    const removeButtons = screen.getAllByRole("button", { name: "" })
-    fireEvent.keyDown(removeButtons[0], { key: "Enter" })
+    const removeButtons = screen.getAllByRole("button", { name: /移除最近项目/ })
+    // jsdom 不模拟原生键盘→click，click 即键盘激活的等价路径
+    fireEvent.click(removeButtons[0])
     await waitFor(() => {
       expect(mocks.removeFromRecentProjects).toHaveBeenCalledWith("/projects/alpha")
     })
@@ -252,13 +253,13 @@ describe("WelcomeScreen", () => {
     })
   })
 
-  it("non-Enter key on the remove control is a no-op (guard branch)", async () => {
+  it("non-activation key on the remove control is a no-op", async () => {
     mocks.getRecentProjects.mockResolvedValue(PROJECTS)
     renderWelcome()
     await waitFor(() => {
       expect(screen.getByText("Alpha Book")).toBeInTheDocument()
     })
-    const removeButtons = screen.getAllByRole("button", { name: "" })
+    const removeButtons = screen.getAllByRole("button", { name: /移除最近项目/ })
     fireEvent.keyDown(removeButtons[0], { key: "Tab" })
     expect(mocks.removeFromRecentProjects).not.toHaveBeenCalled()
   })

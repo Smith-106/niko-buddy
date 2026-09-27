@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { WandSparkles, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { DeAiSkill } from "@/lib/novel"
@@ -54,6 +55,7 @@ export function DeAiSkillOptionsPanel({
   onPick,
   onClose,
 }: DeAiSkillOptionsPanelProps) {
+  const { t } = useTranslation()
   const skillIds = useMemo(() => skills.map((skill) => skill.id), [skills])
   const [focusedSkillId, setFocusedSkillId] = useState<string | null>(null)
   const listboxRef = useRef<HTMLDivElement | null>(null)
@@ -73,7 +75,7 @@ export function DeAiSkillOptionsPanel({
   }, [errorMessage, loading, skills.length])
 
   if (loading) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground">正在读取技能...</div>
+    return <div className="px-2 py-3 text-xs text-muted-foreground">{t("skillLibrary.readingSkills")}</div>
   }
   if (errorMessage) {
     return <div className="px-2 py-3 text-xs text-destructive">{errorMessage}</div>

@@ -20,6 +20,7 @@
  * 同目录约定），中文标签直书（与 snapshot-viewer 历史版本/POV 区块同款约定）。
  */
 import type { KbMetrics, MetricSample } from "@/lib/novel"
+import { useTranslation } from "react-i18next"
 
 export interface KbHealthViewProps {
   /** 6 指标快照（生产源 = pack.kbMetrics；缺源项 value=null + unavailableReason）。 */
@@ -60,14 +61,15 @@ function isDriftAlarm(sample: MetricSample): boolean {
 }
 
 export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHealedFiles }: KbHealthViewProps) {
+  const { t } = useTranslation()
   const drift = metrics.truth_fold_drift
   const driftAlarmed = isDriftAlarm(drift)
   const selfHealed = !driftAlarmed && Array.isArray(selfHealedFiles) && selfHealedFiles.length > 0
   return (
     <div data-testid="kb-health-view" className="rounded-md border border-border bg-background px-3 py-2">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">KB 健康面板</h3>
-        <span className="text-xs text-muted-foreground">6 项核心指标（只读）</span>
+        <h3 className="text-sm font-semibold text-foreground">{t("novel.kbHealth")}</h3>
+        <span className="text-xs text-muted-foreground">{t("novel.kbHealthMetrics")}</span>
       </div>
       <div className="space-y-1.5">
         {METRIC_ROWS.map((row) => {
@@ -81,7 +83,7 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
               className={
                 "flex items-center justify-between gap-2 rounded border px-2 py-1.5 " +
                 (rowAlarmed
-                  ? "border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40"
+                  ? "border-warning bg-warning dark:border-warning/60 dark:bg-warning/40"
                   : "border-transparent")
               }
             >
@@ -113,16 +115,16 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
       {driftAlarmed ? (
         <div
           data-testid="kb-health-drift-alarm"
-          className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40"
+          className="mt-2 flex items-center justify-between gap-2 rounded-md border border-warning bg-warning px-3 py-2 dark:border-warning/60 dark:bg-warning/40"
         >
-          <p className="text-sm text-amber-900 dark:text-amber-200">
+          <p className="text-sm text-warning dark:text-warning">
             记忆漂移：truth_fold_drift={drift.value} &gt; 0，真相文件与快照重放不一致，建议执行全量重建。
           </p>
           <button
             type="button"
             onClick={onRebuild}
             disabled={!onRebuild || rebuilding}
-            title="重建过程库（按快照重放重建漂移的真相文件）"
+            title={t("novel.kbRebuild")}
             className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {rebuilding ? "重建中…" : "建议重建"}
@@ -132,9 +134,9 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
       {selfHealed ? (
         <div
           data-testid="kb-health-drift-selfhealed"
-          className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/40"
+          className="mt-2 rounded-md border border-success bg-success px-3 py-2 dark:border-success/60 dark:bg-success/40"
         >
-          <p className="text-sm text-emerald-900 dark:text-emerald-200">
+          <p className="text-sm text-success dark:text-success">
             漂移已自动修复：{selfHealedFiles!.length} 类真相文件经投影注册表重建，复测 drift=0。
           </p>
         </div>

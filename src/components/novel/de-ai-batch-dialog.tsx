@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
+import { useTranslation } from "react-i18next"
 
 export interface DeAiBatchChapterRow {
   chapterNumber: number
@@ -39,6 +40,7 @@ export function DeAiBatchDialog({
   onRejectChapter,
   onClose,
 }: DeAiBatchDialogProps) {
+  const { t } = useTranslation()
   const total = progress?.total ?? summary?.total ?? 0
   const done = progress?.done ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
@@ -85,7 +87,7 @@ export function DeAiBatchDialog({
               {readyChapters.length > 0 ? (
                 <div className="flex items-center justify-between rounded border border-border px-3 py-2">
                   <span>{readyChapters.length} 章待回填（Draft-first：确认后写回正式正文）</span>
-                  <Button size="sm" onClick={onAcceptAll}>全部回填</Button>
+                  <Button size="sm" onClick={onAcceptAll}>{t("novel.deai.fillAll")}</Button>
                 </div>
               ) : null}
               {chapters.length > 0 ? (
@@ -102,7 +104,7 @@ export function DeAiBatchDialog({
                       {chapter.status === "ready" ? (
                         <span className="flex gap-1">
                           <Button size="sm" variant="outline" onClick={() => onRejectChapter(chapter.chapterNumber)}>拒绝</Button>
-                          <Button size="sm" onClick={() => onAcceptChapter(chapter.chapterNumber)}>回填</Button>
+                          <Button size="sm" onClick={() => onAcceptChapter(chapter.chapterNumber)}>{t("novel.deai.fillBack")}</Button>
                         </span>
                       ) : null}
                     </div>
@@ -114,7 +116,7 @@ export function DeAiBatchDialog({
         </div>
         <DialogFooter>
           {running ? (
-            <Button variant="outline" onClick={onCancel}>中止</Button>
+            <Button variant="outline" onClick={onCancel}>{t("novel.deai.abort")}</Button>
           ) : (
             <Button variant="outline" onClick={onClose}>关闭</Button>
           )}

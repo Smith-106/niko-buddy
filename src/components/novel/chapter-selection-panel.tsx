@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2, Workflow } from "lucide-react"
@@ -80,6 +81,7 @@ export function ChapterSelectionPanel({
   onLoadExtractedCharacters,
   hasExtractedCharacters,
 }: ChapterSelectionPanelProps) {
+  const { t } = useTranslation()
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -335,13 +337,13 @@ export function ChapterSelectionPanel({
 
         {/* 提取完成提示 */}
         {extractionProgress?.isCompleted && (
-          <div className="shrink-0 mx-6 mt-4 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-4 py-4 space-y-2">
+          <div className="shrink-0 mx-6 mt-4 rounded-md border border-success/40 bg-success/5 px-4 py-4 space-y-2">
             <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span className="font-medium text-foreground">提取完成</span>
+              <CheckCircle2 className="h-4 w-4 text-success" />
+              <span className="font-medium text-foreground">{t("novel.extractDone")}</span>
             </div>
             {extractionProgress.error && (
-              <div className="text-xs text-amber-600">{extractionProgress.error}</div>
+              <div className="text-xs text-warning">{extractionProgress.error}</div>
             )}
             <div className="flex justify-end">
               <Button size="sm" onClick={onCancel}>
@@ -363,7 +365,7 @@ export function ChapterSelectionPanel({
           <div className="shrink-0 mx-6 mt-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span className="font-medium text-foreground">正在分析中</span>
+              <span className="font-medium text-foreground">{t("novel.analyzing")}</span>
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">
                 {recognitionStatus === "heuristic" && "读取章节中"}
@@ -418,7 +420,7 @@ export function ChapterSelectionPanel({
                 </Button>
 
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">快捷选择：</span>
+                  <span className="text-muted-foreground">{t("novel.quickSelect")}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -497,15 +499,15 @@ export function ChapterSelectionPanel({
             <div className="shrink-0 px-6 py-3 bg-muted/50">
               <div className="flex items-center justify-between text-sm">
                 <div>
-                  <span className="font-medium">已选择：</span>
+                  <span className="font-medium">{t("novel.selectedCount")}</span>
                   <span className="ml-2 text-primary font-semibold">{selectedCount}</span>
                   <span className="ml-1 text-muted-foreground">章</span>
                   <span className="mx-3 text-muted-foreground">|</span>
-                  <span className="font-medium">总字数：</span>
+                  <span className="font-medium">{t("novel.totalChars")}</span>
                   <span className="ml-2 text-primary font-semibold">
                     {totalWords.toLocaleString()}
                   </span>
-                  <span className="ml-1 text-muted-foreground">字</span>
+                  <span className="ml-1 text-muted-foreground">{t("novel.charUnit")}</span>
                 </div>
                 <div className="text-muted-foreground">
                   提示：分析大量章节会消耗较多时间和 token，建议先选择部分章节测试
@@ -516,7 +518,7 @@ export function ChapterSelectionPanel({
             {/* 章节列表 */}
             <div className="min-h-0 flex-1 overflow-y-auto px-6">
               {chapters.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">暂无章节可分析</div>
+                <div className="py-8 text-center text-xs text-muted-foreground">{t("novel.noChaptersToAnalyze")}</div>
               ) : (
               <div className="py-4 space-y-2">
                 {chapters.map((chapter) => {
@@ -624,6 +626,7 @@ function CharacterWorkstationOverlay({
   onClose: () => void
   onDraftChange: (id: string, draft: string) => void
 }) {
+  const { t } = useTranslation()
   return (
     <DialogRoot
       open
@@ -654,13 +657,13 @@ function CharacterWorkstationOverlay({
           <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
             <div>
               <DialogTitle asChild>
-                <h3 className="text-xl font-semibold">角色工作台</h3>
+                <h3 className="text-xl font-semibold">{t("novel.characterWorkstation")}</h3>
               </DialogTitle>
               <p className="text-sm text-muted-foreground mt-1">
                 为已识别角色独立保存草稿，切换不互相覆盖。
               </p>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭角色工作台">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label={t("novel.closeCharacterWorkstation")}>
               <X className="h-5 w-5" />
             </Button>
           </div>

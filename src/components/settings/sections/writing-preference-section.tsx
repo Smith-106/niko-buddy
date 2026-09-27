@@ -19,21 +19,21 @@ import type { UserPreference } from "@/lib/user-memory/types"
  * 人类可读标签 → 内部 key 前缀映射（PR8 录入门槛：普通作者零内部记号暴露）。
  * 标签即下拉选项；value 由用户输入（数值/文本）。
  */
-const PREFERENCE_PRESETS: Array<{ label: string; key: string; category: UserPreference["category"]; hint: string }> = [
-  { label: "事实一致性权重", key: "dim:facts", category: "review", hint: "0–1 数值，越高越重视事实一致性" },
-  { label: "情节权重", key: "dim:plot", category: "review", hint: "0–1 数值，越高越重视情节" },
-  { label: "人物权重", key: "dim:character", category: "review", hint: "0–1 数值，越高越重视人物" },
-  { label: "节奏权重", key: "dim:pacing", category: "review", hint: "0–1 数值，越高越重视节奏" },
-  { label: "连续性权重", key: "dim:continuity", category: "review", hint: "0–1 数值，越高越重视连续性" },
-  { label: "拉力权重", key: "dim:pull", category: "review", hint: "0–1 数值，越高越重视阅读拉力" },
-  { label: "词汇增强系数", key: "deai_boost:词汇", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "句式增强系数", key: "deai_boost:句式", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "叙事增强系数", key: "deai_boost:叙事", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "节奏增强系数", key: "deai_boost:节奏", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "对白增强系数", key: "deai_boost:对白", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "心理描写增强系数", key: "deai_boost:心理", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "场景增强系数", key: "deai_boost:场景", category: "vocabulary", hint: ">1 加强，<1 减弱" },
-  { label: "避用词", key: "avoid_words", category: "vocabulary", hint: "逗号分隔，生成时禁用" },
+const PREFERENCE_PRESETS: Array<{ labelKey: string; key: string; category: UserPreference["category"]; hintKey: string }> = [
+  { labelKey: "settings.sections.novel.writingPreference.presets.factsWeight", key: "dim:facts", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.factsWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.plotWeight", key: "dim:plot", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.plotWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.characterWeight", key: "dim:character", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.characterWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.pacingWeight", key: "dim:pacing", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.pacingWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.continuityWeight", key: "dim:continuity", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.continuityWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.pullWeight", key: "dim:pull", category: "review", hintKey: "settings.sections.novel.writingPreference.presets.pullWeightHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.vocabBoost", key: "deai_boost:词汇", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.sentenceBoost", key: "deai_boost:句式", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.narrativeBoost", key: "deai_boost:叙事", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.rhythmBoost", key: "deai_boost:节奏", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.dialogBoost", key: "deai_boost:对白", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.psychBoost", key: "deai_boost:心理", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.sceneBoost", key: "deai_boost:场景", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.boostHint" },
+  { labelKey: "settings.sections.novel.writingPreference.presets.avoidWords", key: "avoid_words", category: "vocabulary", hintKey: "settings.sections.novel.writingPreference.presets.avoidWordsHint" },
 ]
 
 /** 写作偏好区块：平铺列表 + 新增/删除（编辑降级为删后重建，GLM Q2 最小形态）。 */
@@ -71,7 +71,7 @@ export function WritingPreferenceSection() {
         key: preset.key,
         value: value.trim(),
         category: preset.category,
-        label: preset.label,
+        label: t(preset.labelKey),
       })
       setValue("")
       await refresh()
@@ -117,10 +117,10 @@ export function WritingPreferenceSection() {
               onChange={(e) => setSelectedPreset(e.target.value)}
             >
               {PREFERENCE_PRESETS.map((p) => (
-                <option key={p.key} value={p.key}>{p.label}</option>
+                <option key={p.key} value={p.key}>{t(p.labelKey)}</option>
               ))}
             </select>
-            <p className="text-xs text-muted-foreground">{preset.hint}</p>
+            <p className="text-xs text-muted-foreground">{t(preset.hintKey)}</p>
           </div>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor="writing-preference-value" className="text-xs">

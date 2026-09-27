@@ -152,6 +152,7 @@ function canOperateOnDeepChapterDraft(message: DisplayMessage): boolean {
 // (chat-store 按 id 去重)。isLastAssistant 只对末条 assistant 消息变化,
 // 非末条消息该 prop 恒定 false,不触发重渲染。
 function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
+  const { t } = useTranslation()
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
@@ -203,7 +204,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
           }`}
         >
           {message.discarded ? (
-            <span className="italic text-xs">已废弃</span>
+            <span className="italic text-xs">{t("chat.deprecated")}</span>
           ) : isUser ? (
             <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
           ) : (
@@ -267,7 +268,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 // VH-002 (odyssey-ui): amber resume button → primary token tier,
                 // consistent with the primary-tinted info banner above.
                 className={`${ACTION_BUTTON_BASE} border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
-                title="基于已有思考过程继续生成，减少重复消耗"
+                title={t("chat.continueFromThought")}
               >
                 继续未完成
               </button>
@@ -280,7 +281,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 type="button"
                 onClick={onRegenerate}
                 className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
-                title="重新生成这条回复"
+                title={t("chat.regenerate")}
               >
                 <RefreshCw className="h-3 w-3" /> 重新生成
               </button>
@@ -296,6 +297,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
 }
 
 function CopyButton({ content }: { content: string }) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
@@ -310,7 +312,7 @@ function CopyButton({ content }: { content: string }) {
       type="button"
       onClick={handleCopy}
       className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
-      title="复制到剪贴板"
+      title={t("chat.copyToClipboard")}
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
       {copied ? "已复制" : "复制"}
@@ -324,14 +326,14 @@ interface CitedPage {
 }
 
 const REF_TYPE_CONFIG: Record<string, { icon: typeof FileText; color: string }> = {
-  entity: { icon: Users, color: "text-blue-500" },
+  entity: { icon: Users, color: "text-info" },
   concept: { icon: Lightbulb, color: "text-purple-500" },
   source: { icon: BookOpen, color: "text-orange-500" },
-  query: { icon: HelpCircle, color: "text-green-500" },
-  synthesis: { icon: GitMerge, color: "text-red-500" },
+  query: { icon: HelpCircle, color: "text-success" },
+  synthesis: { icon: GitMerge, color: "text-destructive" },
   comparison: { icon: BarChart3, color: "text-teal-500" },
-  overview: { icon: Layout, color: "text-yellow-500" },
-  clip: { icon: Globe, color: "text-blue-400" },
+  overview: { icon: Layout, color: "text-warning" },
+  clip: { icon: Globe, color: "text-info" },
 }
 
 function getRefType(path: string): string {
@@ -693,6 +695,7 @@ interface StreamingMessageProps {
 }
 
 export function StreamingMessage({ content }: StreamingMessageProps) {
+  const { t } = useTranslation()
   const { thinking, answer } = useMemo(() => separateThinking(content), [content])
   const isThinking = thinking !== null && answer.length === 0
   // POLISH-01 (odyssey-ui): skeleton for the empty window before the first
@@ -709,7 +712,7 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
       </div>
       <div className="max-w-[95%] @md:max-w-[80%] min-w-0 overflow-x-auto rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
         {isEmpty ? (
-          <div className="flex flex-col gap-1.5 py-1" aria-label="正在生成回复" role="status">
+          <div className="flex flex-col gap-1.5 py-1" aria-label={t("chat.generating")} role="status">
             <div className="h-3 w-48 animate-pulse rounded bg-muted-foreground/20" />
             <div className="h-3 w-40 animate-pulse rounded bg-muted-foreground/20" style={{ animationDelay: "150ms" }} />
             <div className="h-3 w-44 animate-pulse rounded bg-muted-foreground/20" style={{ animationDelay: "300ms" }} />
@@ -1022,6 +1025,7 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
 
 /** Streaming workflow: show stages as they come in so user can see progress. */
 function StreamingWorkflowBlock({ content }: { content: string }) {
+  const { t } = useTranslation()
   const paragraphs = content
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\n/g, " ").trim())
@@ -1031,7 +1035,7 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
     <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 px-2.5 py-2 min-h-[3rem]">
       <div className="flex items-center gap-1.5 mb-1.5">
         <span className="text-sm animate-pulse">📋</span>
-        <span className="text-xs font-medium text-primary">工作流进行中...</span>
+        <span className="text-xs font-medium text-primary">{t("chat.workflowRunning")}</span>
       </div>
       <div className="max-h-72 overflow-y-auto pr-1 text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
         {paragraphs.map((p, i) => (
@@ -1047,6 +1051,7 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
 
 /** Completed workflow stages: keep visible so user can review what happened. */
 function WorkflowBlock({ content }: { content: string }) {
+  const { t } = useTranslation()
   const paragraphs = content
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\n/g, " ").trim())
@@ -1056,7 +1061,7 @@ function WorkflowBlock({ content }: { content: string }) {
     <div className="mb-2 rounded-md border border-dashed border-border bg-muted/40 min-h-[3rem]">
       <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
         <span className="text-sm">📋</span>
-        <span className="font-medium">工作流阶段</span>
+        <span className="font-medium">{t("chat.workflowStage")}</span>
         <span className="text-[10px] tabular-nums">{paragraphs.length} 个阶段</span>
       </div>
       <div className="max-h-72 overflow-y-auto border-t border-border px-2.5 py-2 pr-1 text-xs text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">

@@ -246,7 +246,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       )}
 
       {previewed && !safety.ok ? (
-        <ul data-testid="batchreplace-safety" className="text-xs text-amber-600">
+        <ul data-testid="batchreplace-safety" className="text-xs text-warning">
           {safety.issues.map((issue) => (
             <li key={`${issue.code}:${issue.detail ?? ""}`}>{formatReason(issue)}</li>
           ))}
@@ -268,7 +268,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       ) : null}
 
       {canonGate && canonGate.state !== "PASS" ? (
-        <ul data-testid="batchreplace-canon-gate" className="text-xs text-amber-600">
+        <ul data-testid="batchreplace-canon-gate" className="text-xs text-warning">
           {canonGate.conflicts.map((conflict) => (
             <li key={`${conflict.newEdgeId}-${conflict.code}`} title={conflict.reason}>
               {t(CANON_GATE_LABEL_KEY[conflict.code])}
@@ -295,7 +295,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
         {status.text}
       </p>
       {status.phase === "rolledback" ? (
-        <p data-testid="batchreplace-rollback-notice" className="text-xs text-red-500">
+        <p data-testid="batchreplace-rollback-notice" className="text-xs text-destructive">
           {t("batchreplace.transaction.rollback")}
         </p>
       ) : null}

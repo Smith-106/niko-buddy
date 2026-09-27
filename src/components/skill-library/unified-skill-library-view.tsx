@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { open } from "@tauri-apps/plugin-dialog"
 import { Star } from "lucide-react"
 import { readFile } from "@/commands/fs"
@@ -327,6 +328,7 @@ export function UnifiedSkillLibraryView() {
 }
 
 export function UnifiedSkillLibrarySidebarPanel() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -420,14 +422,14 @@ export function UnifiedSkillLibrarySidebarPanel() {
     <div data-testid="unified-skill-library-sidebar" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-3 py-2">
         <h1 className="text-sm font-semibold">技能库</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">统一检索写作 Skill 和去AI味技能。</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("skillLibrary.unifiedHint")}</p>
       </div>
       <div className="shrink-0 border-b px-3 py-2">
         <input
           data-testid="unified-skill-search-input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索技能名称、说明或规则"
+          placeholder={t("skillLibrary.searchPlaceholder")}
           className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -468,16 +470,8 @@ export function UnifiedSkillLibrarySidebarPanel() {
                 active ? "border-primary bg-accent/60" : "border-border"
               }`}
             >
-              <div
-                role="button"
-                tabIndex={0}
+              <button type="button"
                 onClick={() => handleSelectEntry(entry)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    handleSelectEntry(entry)
-                  }
-                }}
                 className="cursor-pointer pr-7"
               >
                 <div className="flex items-center gap-2">
@@ -489,12 +483,12 @@ export function UnifiedSkillLibrarySidebarPanel() {
                 <div className="mt-1 truncate text-xs text-muted-foreground">
                   {entry.description || "未填写说明"}
                 </div>
-              </div>
+              </button>
               <button
                 type="button"
                 className={`absolute top-2 right-2 shrink-0 rounded p-0.5 transition-colors ${
                   isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId)
-                    ? "text-yellow-500 hover:text-yellow-600"
+                    ? "text-warning hover:text-warning"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
                 aria-label={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}

@@ -464,6 +464,8 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
           {t("novel.soul.projectSoul")}
         </button>
         <button
+          role="tab"
+          aria-selected={soulTab === "character"}
           className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
             soulTab === "character"
               ? "border-primary text-primary"
@@ -557,7 +559,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
           {effectiveSection === "custom" && visibleAuras.length === 0 && (
             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
               <div>暂无自定义灵魂</div>
-              <div className="mt-2 text-xs">点击上方“新建角色灵魂”后，再填写资料并生成。</div>
+              <div className="mt-2 text-xs">{t("novel.soul.createFirstHint")}</div>
             </div>
           )}
         </div>
@@ -568,7 +570,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
         <div className="mx-auto max-w-3xl space-y-6">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
               <div className="text-sm leading-6 text-muted-foreground">
                 创建自定义灵魂时，仅使用公开或已授权资料，避免输入隐私、敏感信息或未授权聊天记录。角色灵魂不是复活真人，也不能用于冒充、欺骗或替代真实人物。
               </div>
@@ -577,7 +579,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
 
           <div className="rounded-lg border bg-card p-4">
             <h3 className="mb-2 font-semibold">绑定小说人物</h3>
-            <p className="mb-3 text-sm text-muted-foreground">从小说人物下拉框中选择要绑定的人物，绑定后也可以直接取消。</p>
+            <p className="mb-3 text-sm text-muted-foreground">{t("novel.soul.bindHint")}</p>
             <div className="flex gap-2">
               <select
                 aria-label={t("novel.soul.bindCharacterLabel", "绑定小说人物")}
@@ -587,7 +589,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                 disabled={characterOptions.length === 0 || isGeneratingCustomAura}
               >
                 {characterOptions.length === 0 ? (
-                  <option value="">请先在人物小传或实体页中添加小说人物</option>
+                  <option value="">{t("novel.soul.addCharacterFirst")}</option>
                 ) : (
                   characterOptions.map((option) => (
                     <option key={option} value={option}>{option}</option>
@@ -600,19 +602,19 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               </Button>
             </div>
             <div className="mt-3">
-              <Label>角色别名/昵称（可选，用逗号分隔）</Label>
+              <Label>{t("novel.soul.aliasLabel")}</Label>
               <input
                 type="text"
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 value={characterAliases}
                 onChange={(event) => setCharacterAliases(event.target.value)}
-                placeholder="例如：小林, 烬哥, 林公子"
+                placeholder={t("novel.soul.aliasPlaceholder")}
                 disabled={characterOptions.length === 0 || isGeneratingCustomAura}
               />
-              <p className="mt-1 text-xs text-muted-foreground">绑定后，任务描述或初稿正文中出现别名时也会命中该角色的灵魂设定。</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t("novel.soul.aliasHint")}</p>
             </div>
             <div className="mt-3 rounded-md border bg-muted/20 p-3">
-              <div className="text-xs font-medium text-muted-foreground">当前灵魂已绑定人物</div>
+              <div className="text-xs font-medium text-muted-foreground">{t("novel.soul.currentBound")}</div>
               {selectedBindings.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {selectedBindings.map((binding) => (
@@ -631,27 +633,27 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 text-xs text-muted-foreground">当前灵魂还没有绑定任何小说人物。</div>
+                <div className="mt-2 text-xs text-muted-foreground">{t("novel.soul.currentUnbound")}</div>
               )}
             </div>
             {message && <div role="status" className="mt-3 text-sm text-muted-foreground">{message}</div>}
           </div>
 
           <div className="rounded-lg border bg-card p-4">
-            <h3 className="mb-2 font-semibold">灵魂注入预览</h3>
-            <p className="mb-3 text-sm text-muted-foreground">输入本次写作任务，预览会进入上下文包的角色灵魂内容。只有任务中出现已绑定人物名时，灵魂才会注入。</p>
-            <Label>写作任务</Label>
+            <h3 className="mb-2 font-semibold">{t("novel.soul.injectPreview")}</h3>
+            <p className="mb-3 text-sm text-muted-foreground">{t("novel.soul.previewHint")}</p>
+            <Label>{t("novel.soul.taskLabel")}</Label>
             <textarea
               className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={auraPreviewTask}
               onChange={(event) => setAuraPreviewTask(event.target.value)}
-              placeholder="例如：写林烬进入皇城，与太子第一次交锋"
+              placeholder={t("novel.soul.taskPlaceholder")}
             />
             <div className="mt-3 flex items-center gap-2">
               <Button onClick={handlePreviewAuraContext} disabled={!project || !auraPreviewTask.trim() || auraPreviewLoading}>
                 预览本次注入
               </Button>
-              {auraPreviewLoading && <span className="text-sm text-muted-foreground">正在构建灵魂上下文…</span>}
+              {auraPreviewLoading && <span className="text-sm text-muted-foreground">{t("novel.soul.building")}</span>}
             </div>
             <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
               {auraPreview ? <pre className="whitespace-pre-wrap text-xs leading-5">{auraPreview}</pre> : EMPTY_AURA_PREVIEW_MESSAGE}
@@ -788,32 +790,32 @@ function AuraDetails({
         </div>
       </div>
 
-      <Detail label="人物分类" value={aura.category ?? "自定义灵魂"} />
-      <Detail label="灵魂文件夹" value={aura.skillFolder ?? "未关联灵魂文件夹"} />
+      <Detail label={t("novel.soul.personCategory")} value={aura.category ?? "自定义灵魂"} />
+      <Detail label={t("novel.soul.folder")} value={aura.skillFolder ?? "未关联灵魂文件夹"} />
       {!aura.builtIn && (
         <>
-          <Detail label="生成提示词" value={aura.generationPrompt ?? ""} />
-          <Detail label="AI 搜索" value={aura.webSearchEnabled ? "已开启" : "未开启"} />
+          <Detail label={t("novel.soul.generatePrompt")} value={aura.generationPrompt ?? ""} />
+          <Detail label={t("novel.soul.aiSearch")} value={aura.webSearchEnabled ? "已开启" : "未开启"} />
         </>
       )}
-      <Detail label="气质说明" value={aura.sourceNote} />
-      <Detail label="灵魂摘要" value={aura.styleDescription} />
-      <Detail label="怎么说话 / 表达特征" value={aura.expressionDna ?? aura.styleDescription} />
-      <Detail label="怎么想 / 心智模型" value={aura.mentalModel ?? aura.corpus} />
-      <Detail label="怎么判断 / 决策启发式" value={aura.decisionHeuristics ?? aura.behaviorRules} />
-      <Detail label="什么不做 / 价值观反模式" value={aura.valueAntiPatterns ?? aura.notes} />
-      <Detail label="知道局限 / 诚实边界" value={aura.honestyBoundaries ?? aura.boundaries} />
+      <Detail label={t("novel.soul.auraNote")} value={aura.sourceNote} />
+      <Detail label={t("novel.soul.soulSummary")} value={aura.styleDescription} />
+      <Detail label={t("novel.soul.howSpeak")} value={aura.expressionDna ?? aura.styleDescription} />
+      <Detail label={t("novel.soul.howThink")} value={aura.mentalModel ?? aura.corpus} />
+      <Detail label={t("novel.soul.howDecide")} value={aura.decisionHeuristics ?? aura.behaviorRules} />
+      <Detail label={t("novel.soul.howRefuse")} value={aura.valueAntiPatterns ?? aura.notes} />
+      <Detail label={t("novel.soul.howLimit")} value={aura.honestyBoundaries ?? aura.boundaries} />
 
       <div className="mt-5 rounded-md border bg-muted/20 p-4">
-        <div className="mb-2 text-sm font-medium">灵魂文档预览</div>
-        {skillLoading && <div className="text-sm text-muted-foreground">正在读取灵魂文档。</div>}
+        <div className="mb-2 text-sm font-medium">{t("novel.soul.docPreview")}</div>
+        {skillLoading && <div className="text-sm text-muted-foreground">{t("novel.soul.readingDoc")}</div>}
         {skillError && <div className="text-sm text-destructive">{skillError}</div>}
         {!skillLoading && !skillError && skillDocument && <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{skillDocument}</pre>}
-        {!skillLoading && !skillError && !skillDocument && <div className="text-sm text-muted-foreground">暂无灵魂文档。</div>}
+        {!skillLoading && !skillError && !skillDocument && <div className="text-sm text-muted-foreground">{t("novel.soul.noDoc")}</div>}
       </div>
 
       <div className="mt-5 rounded-md border bg-muted/20 p-4">
-        <div className="mb-3 text-sm font-medium">研究文件</div>
+        <div className="mb-3 text-sm font-medium">{t("novel.soul.researchFiles")}</div>
         <div className="mb-3 flex flex-wrap gap-2">
           {CHARACTER_AURA_RESEARCH_FILES.map((file) => (
             <button
@@ -829,10 +831,10 @@ function AuraDetails({
         <div className="mb-2 text-xs text-muted-foreground" title={researchFile}>
           {CHARACTER_AURA_RESEARCH_FILES.find((file) => file.fileName === researchFile)?.label ?? researchFile}
         </div>
-        {researchLoading && <div className="text-sm text-muted-foreground">正在读取研究文件。</div>}
+        {researchLoading && <div className="text-sm text-muted-foreground">{t("novel.soul.readingResearch")}</div>}
         {researchError && <div className="text-sm text-destructive">{researchError}</div>}
         {!researchLoading && !researchError && researchDocument && <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{researchDocument}</pre>}
-        {!researchLoading && !researchError && !researchDocument && <div className="text-sm text-muted-foreground">暂无研究文件。</div>}
+        {!researchLoading && !researchError && !researchDocument && <div className="text-sm text-muted-foreground">{t("novel.soul.noResearch")}</div>}
       </div>
     </div>
   )
@@ -861,6 +863,7 @@ function CustomAuraForm({
   isGenerating: boolean
   generationProgress: CharacterAuraGenerationProgress | null
 }) {
+  const { t } = useTranslation()
   const setField = (key: Exclude<keyof AuraFormState, "enableWebSearch">, value: string) => setForm({ ...form, [key]: value })
   const setBooleanField = (key: "enableWebSearch", value: boolean) => setForm({ ...form, [key]: value })
 
@@ -868,26 +871,26 @@ function CustomAuraForm({
     <div className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">{mode === "edit" ? "编辑角色灵魂" : "新建角色灵魂"}</h2>
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={isGenerating}>返回预览</Button>
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={isGenerating}>{t("novel.soul.backToPreview")}</Button>
       </div>
 
       <div className="space-y-5">
         <section className="rounded-md border bg-muted/10 p-4">
-          <h3 className="mb-3 text-sm font-medium">基础设置</h3>
+          <h3 className="mb-3 text-sm font-medium">{t("novel.soul.basicSettings")}</h3>
           <div className="grid gap-4">
             <Field label="名称" value={form.name} onChange={(value) => setField("name", value)} />
-            <Field label="人物分类" value={form.category} onChange={(value) => setField("category", value)} />
+            <Field label={t("novel.soul.personCategory")} value={form.category} onChange={(value) => setField("category", value)} />
           </div>
         </section>
 
         <section className="rounded-md border bg-muted/10 p-4">
-          <h3 className="mb-2 text-sm font-medium">生成设置</h3>
+          <h3 className="mb-2 text-sm font-medium">{t("novel.soul.generateSettings")}</h3>
           <p className="mb-3 text-xs text-muted-foreground">
             提示词会参与 6 步研究工作流；开启 AI 搜索后，会基于名称、分类和提示词联网补充资料。未配置 Web Search 时会自动降级为只使用你提供的资料。
           </p>
           <div className="grid gap-4">
             <TextField
-              label="生成提示词"
+              label={t("novel.soul.generatePrompt")}
               helper="例如：强调她的权力感、失而复得的克制、对亲密关系的防御性"
               value={form.generationPrompt}
               onChange={(value) => setField("generationPrompt", value)}
@@ -900,7 +903,7 @@ function CustomAuraForm({
                 onChange={(event) => setBooleanField("enableWebSearch", event.target.checked)}
               />
               <span className="space-y-1">
-                <span className="block font-medium">开启 AI 搜索</span>
+                <span className="block font-medium">{t("novel.soul.enableAiSearch")}</span>
                 <span className="block text-xs leading-5 text-muted-foreground">
                   开启后会先联网搜索公开资料，再把搜索结果连同你的资料一起导入 6 份研究文件；关闭时只依据你手动提供的资料生成。
                 </span>
@@ -911,7 +914,7 @@ function CustomAuraForm({
 
         {mode === "create" && (
           <section className="rounded-md border bg-muted/10 p-4">
-            <h3 className="mb-2 text-sm font-medium">生成流程预览</h3>
+            <h3 className="mb-2 text-sm font-medium">{t("novel.soul.flowPreview")}</h3>
             <p className="mb-3 text-xs leading-5 text-muted-foreground">
               点击“从资料生成角色灵魂”后，会先整理资料，再依次生成 6 份研究文件，最后汇总成角色灵魂。生成中会锁定切换，避免导出半成品。
             </p>
@@ -938,37 +941,37 @@ function CustomAuraForm({
         {mode === "edit" ? (
           <>
             <section className="rounded-md border bg-muted/10 p-4">
-              <h3 className="mb-2 text-sm font-medium">当前灵魂信息</h3>
-              <p className="mb-3 text-xs text-muted-foreground">这里编辑当前自定义灵魂已经生成的人物信息，保存后会同步更新预览内容。</p>
+              <h3 className="mb-2 text-sm font-medium">{t("novel.soul.currentInfo")}</h3>
+              <p className="mb-3 text-xs text-muted-foreground">{t("novel.soul.editHint")}</p>
               <div className="grid gap-4">
-                <TextField label="气质说明" value={form.sourceNote} onChange={(value) => setField("sourceNote", value)} />
-                <TextField label="灵魂摘要" value={form.styleDescription} onChange={(value) => setField("styleDescription", value)} />
-                <TextField label="怎么说话 / 表达特征" value={form.expressionDna} onChange={(value) => setField("expressionDna", value)} />
-                <TextField label="怎么想 / 心智模型" value={form.mentalModel} onChange={(value) => setField("mentalModel", value)} />
-                <TextField label="怎么判断 / 决策启发式" value={form.decisionHeuristics} onChange={(value) => setField("decisionHeuristics", value)} />
-                <TextField label="什么不做 / 价值观反模式" value={form.valueAntiPatterns} onChange={(value) => setField("valueAntiPatterns", value)} />
-                <TextField label="知道局限 / 诚实边界" value={form.honestyBoundaries} onChange={(value) => setField("honestyBoundaries", value)} />
-                <TextField label="资料文本 / 来源摘要" value={form.corpus} onChange={(value) => setField("corpus", value)} />
+                <TextField label={t("novel.soul.auraNote")} value={form.sourceNote} onChange={(value) => setField("sourceNote", value)} />
+                <TextField label={t("novel.soul.soulSummary")} value={form.styleDescription} onChange={(value) => setField("styleDescription", value)} />
+                <TextField label={t("novel.soul.howSpeak")} value={form.expressionDna} onChange={(value) => setField("expressionDna", value)} />
+                <TextField label={t("novel.soul.howThink")} value={form.mentalModel} onChange={(value) => setField("mentalModel", value)} />
+                <TextField label={t("novel.soul.howDecide")} value={form.decisionHeuristics} onChange={(value) => setField("decisionHeuristics", value)} />
+                <TextField label={t("novel.soul.howRefuse")} value={form.valueAntiPatterns} onChange={(value) => setField("valueAntiPatterns", value)} />
+                <TextField label={t("novel.soul.howLimit")} value={form.honestyBoundaries} onChange={(value) => setField("honestyBoundaries", value)} />
+                <TextField label={t("novel.soul.sourceSummary")} value={form.corpus} onChange={(value) => setField("corpus", value)} />
               </div>
             </section>
 
             <section className="rounded-md border bg-muted/10 p-4">
-              <h3 className="mb-2 text-sm font-medium">资料来源索引</h3>
-              <p className="mb-3 text-xs text-muted-foreground">如果你要补充或修正网页资料、本地文档来源，也可以在这里一起维护。</p>
+              <h3 className="mb-2 text-sm font-medium">{t("novel.soul.sourceIndex")}</h3>
+              <p className="mb-3 text-xs text-muted-foreground">{t("novel.soul.sourceMaintainHint")}</p>
               <div className="grid gap-4">
-                <TextField label="网页资料地址" helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
-                <TextField label="本地文档路径" helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
+                <TextField label={t("novel.soul.webSourceUrl")} helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
+                <TextField label={t("novel.soul.localDocPath")} helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
               </div>
             </section>
           </>
         ) : (
           <section className="rounded-md border bg-muted/10 p-4">
-            <h3 className="mb-2 text-sm font-medium">资料导入设置</h3>
-            <p className="mb-3 text-xs text-muted-foreground">只需要提供资料，系统会自动读取本地文档、抓取网页正文，并尝试用当前模型蒸馏表达特征、心智模型、决策启发式和边界说明；读取或模型失败时会记录降级说明，不阻断生成。</p>
+            <h3 className="mb-2 text-sm font-medium">{t("novel.soul.importSettings")}</h3>
+            <p className="mb-3 text-xs text-muted-foreground">{t("novel.soul.importHint")}</p>
             <div className="grid gap-4">
-              <TextField label="资料文本" value={form.corpus} onChange={(value) => setField("corpus", value)} />
-              <TextField label="网页资料地址" helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
-              <TextField label="本地文档路径" helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
+              <TextField label={t("novel.soul.sourceText")} value={form.corpus} onChange={(value) => setField("corpus", value)} />
+              <TextField label={t("novel.soul.webSourceUrl")} helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
+              <TextField label={t("novel.soul.localDocPath")} helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
             </div>
           </section>
         )}

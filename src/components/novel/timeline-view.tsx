@@ -97,17 +97,9 @@ export function TimelineView() {
             <div className="absolute left-6 top-0 h-full w-px bg-border" />
             <div className="space-y-0">
               {visibleEvents.map((item) => (
-                <div
+                <button type="button"
                   key={`${item.chapterNumber}-${item.event.slice(0, 16)}`}
-                  role="button"
-                  tabIndex={0}
                   onClick={() => void handleOpenChapter(item.chapterNumber)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault()
-                      void handleOpenChapter(item.chapterNumber)
-                    }
-                  }}
                   title={t("novel.timeline.openChapter", { num: item.chapterNumber, defaultValue: `打开第${item.chapterNumber}章` })}
                   className="relative flex cursor-pointer items-start gap-4 px-4 py-2 pl-10 hover:bg-muted/40"
                 >
@@ -116,7 +108,7 @@ export function TimelineView() {
                     {t("novel.timeline.chapter", { num: item.chapterNumber })}
                   </div>
                   <div className="text-sm text-foreground">{item.event}</div>
-                </div>
+                </button>
               ))}
             </div>
           </div>

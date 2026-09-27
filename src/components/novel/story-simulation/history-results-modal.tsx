@@ -148,12 +148,12 @@ export function HistoryResultsModal({
                         </span>
                       )}
                       {result.status === "degraded" && (
-                        <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-700 dark:text-red-300">
+                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive dark:text-destructive">
                           {t("storySimulation.badgeDegraded")}
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
-                        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning dark:text-warning">
                           {t("storySimulation.badgePartial")}
                         </span>
                       )}

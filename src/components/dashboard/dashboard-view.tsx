@@ -738,18 +738,13 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   }, [handleIgnoreDashItem, handleRestoreRewrite, handleViewRewrite, issueState.rewrites, rewriteBusyId, runAiRewrite, t])
 
   const renderDashCard = useCallback((item: DashItem, config: (typeof SEVERITY_CONFIG)[DashSeverity], key: string) => (
-    <div
+    <article
       key={key}
-      role="button"
-      tabIndex={0}
       onClick={() => void handleOpenDashItem(item)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault()
-          void handleOpenDashItem(item)
-        }
-      }}
       className={`group cursor-pointer rounded-lg border p-2 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${config.bgColor}`}
+      tabIndex={-1}
+      data-dash-card={item.id}
+      aria-label={`${item.message}（${t(formatDashItemDetail(item), item.detail)}）`}
     >
       <div className="flex items-center gap-2">
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${config.dotClass}`} aria-hidden="true" />
@@ -773,7 +768,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         <p className="mt-1 text-xs text-success">{item.suggestion}</p>
       )}
       {renderActionBar(item)}
-    </div>
+    </article>
   ), [handleEditDashItem, handleOpenDashItem, renderActionBar, t])
 
   return (

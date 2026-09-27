@@ -10,9 +10,22 @@ import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import { CharacterAuraView } from "./character-aura-view"
 import type { CharacterAura, CharacterAuraGenerationProgress, CharacterAuraBinding, CharacterAuraInput } from "@/lib/novel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const tMock = vi.hoisted(() => ({
-  t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
+  t: vi.fn((key: string, opts?: Record<string, unknown>) => {
+    const base = lookupZhLocale(key) ?? key
+    return opts ? `${base}::${JSON.stringify(opts)}` : base
+  }),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -218,8 +231,8 @@ afterEach(() => {
 })
 
 async function switchToCharacterTab() {
-  fireEvent.click(screen.getByText("novel.soul.characterSoul"))
-  await screen.findByText("角色灵魂")
+  fireEvent.click(screen.getByRole("tab", { name: "角色灵魂" }))
+  await screen.findByRole("tab", { name: "角色灵魂" })
 }
 
 /** Field/TextField 的 Label 与控件是兄弟节点（无 htmlFor），按 label 文本定位控件 */
@@ -233,8 +246,8 @@ describe("CharacterAuraView", () => {
   it("shows the project soul editor on the project tab", async () => {
     render(<CharacterAuraView />)
     expect(await screen.findByTestId("soul-doc-editor")).toBeInTheDocument()
-    // 默认选中项目灵魂 tab
-    expect(screen.queryByText("角色灵魂")).not.toBeInTheDocument()
+    // 默认选中项目灵魂 tab：角色灵魂 aside 面板不渲染（tab 按钮本身始终可见）
+    expect(screen.queryByText("绑定小说人物")).not.toBeInTheDocument()
   })
 
   it("loads auras, characters and bindings on mount", async () => {
@@ -780,7 +793,7 @@ describe("CharacterAuraView", () => {
     auraLib.listCharacterAuras.mockImplementationOnce(() => new Promise(() => {}))
     render(<CharacterAuraView hideSidebar />)
     // 无 tab、无侧栏
-    expect(screen.queryByText("novel.soul.projectSoul")).not.toBeInTheDocument()
+    expect(screen.queryByText("项目灵魂")).not.toBeInTheDocument()
     expect(screen.queryByText("内置灵魂")).not.toBeInTheDocument()
     // 自动进入创建编辑器
     expect(await screen.findByText("新建角色灵魂", { selector: "h2" })).toBeInTheDocument()
@@ -941,7 +954,7 @@ describe("CharacterAuraView", () => {
   it("returns to the project soul tab", async () => {
     render(<CharacterAuraView />)
     await switchToCharacterTab()
-    fireEvent.click(screen.getByText("novel.soul.projectSoul"))
+    fireEvent.click(screen.getByText("项目灵魂"))
     expect(await screen.findByTestId("soul-doc-editor")).toBeInTheDocument()
   })
 

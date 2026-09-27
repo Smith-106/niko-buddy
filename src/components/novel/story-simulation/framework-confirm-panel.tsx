@@ -35,9 +35,9 @@ interface FrameworkConfirmPanelProps {
 
 // 起/承/转/合 阶段对应的标签配色
 const PHASE_STYLES: Record<StoryNode["phase"], string> = {
-  起: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  承: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-  转: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  起: "bg-success/15 text-success dark:text-success",
+  承: "bg-info/15 text-info dark:text-info",
+  转: "bg-warning/15 text-warning dark:text-warning",
   合: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
 };
 
@@ -180,7 +180,7 @@ export function FrameworkConfirmPanel({
                 className="h-8 w-8 p-0"
                 onClick={saveTitle}
               >
-                <Check className="h-4 w-4 text-emerald-500" />
+                <Check className="h-4 w-4 text-success" />
               </Button>
               <Button
                 size="sm"
@@ -225,7 +225,7 @@ export function FrameworkConfirmPanel({
               <Button variant="outline" onClick={handleSave}>
                 {savedTip ? (
                   <>
-                    <Check className="mr-1 h-4 w-4 text-emerald-500" />
+                    <Check className="mr-1 h-4 w-4 text-success" />
                     {t("storySimulation.saved")}
                   </>
                 ) : (
@@ -450,7 +450,7 @@ function FrameworkNodeCard({
               className="h-7 w-7 p-0"
               onClick={save}
             >
-              <Check className="h-4 w-4 text-emerald-500" />
+              <Check className="h-4 w-4 text-success" />
             </Button>
             <Button
               size="sm"

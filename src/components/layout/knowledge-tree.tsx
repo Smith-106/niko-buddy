@@ -966,7 +966,7 @@ ${frontmatterBody}
                 ) : (
                   <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                 )}
-                <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                <Folder className="h-4 w-4 shrink-0 text-warning" />
                 <span className="truncate font-medium">{node.name}</span>
                 <span className="ml-auto text-[10px] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
@@ -1014,7 +1014,7 @@ ${frontmatterBody}
             }`}
             title={normalizedPath}
           >
-            {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+            {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-info" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             {renamingPath === normalizedPath ? (
               <input
                 type="text"
@@ -1238,7 +1238,7 @@ ${frontmatterBody}
                             }
                           }}
                         >
-                          <Folder className="h-3 w-3 shrink-0 text-amber-500" />
+                          <Folder className="h-3 w-3 shrink-0 text-warning" />
                           <span className="truncate">{vol.name}</span>
                           {isCurrentVolume && <span className="ml-auto text-[10px] text-muted-foreground">当前</span>}
                         </button>
@@ -1266,6 +1266,7 @@ ${frontmatterBody}
 }
 
 export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?: () => void }) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const tasks = useImportProgressStore((s) => s.tasks)
   const [expanded, setExpanded] = useState(false)
@@ -1298,8 +1299,8 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <BookOpen className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-        <span className="flex-1 text-left font-medium text-muted-foreground">提取中</span>
+        <BookOpen className="h-3.5 w-3.5 shrink-0 text-warning" />
+        <span className="flex-1 text-left font-medium text-muted-foreground">{t("knowledgeTree.extracting")}</span>
         {hasRunning ? (
           <span className="text-xs text-primary">{runningTasks.length} 个任务运行中</span>
         ) : null}
@@ -1324,7 +1325,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                       {isRunning ? (
                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
                       ) : task.status === "done" ? (
-                        <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                        <Check className="h-3 w-3 shrink-0 text-success" />
                       ) : task.status === "error" ? (
                         <X className="h-3 w-3 shrink-0 text-destructive" />
                       ) : task.status === "cancelled" ? (
@@ -1382,7 +1383,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
               )
             })
           ) : (
-            <div className="rounded-md bg-muted/40 px-2 py-2">暂无提取任务</div>
+            <div className="rounded-md bg-muted/40 px-2 py-2">{t("knowledgeTree.noTasks")}</div>
           )}
         </div>
       )}

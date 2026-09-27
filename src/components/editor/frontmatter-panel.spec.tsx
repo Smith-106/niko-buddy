@@ -15,6 +15,16 @@ import {
 import { FrontmatterPanel } from "./frontmatter-panel"
 import type { FrontmatterValue } from "@/lib/frontmatter"
 import type { FileNode } from "@/types/wiki"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const mocks = vi.hoisted(() => {
   const wikiState: {
@@ -28,7 +38,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     wikiState,
-    t: vi.fn((key: string) => key),
+    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
   }
 })
 

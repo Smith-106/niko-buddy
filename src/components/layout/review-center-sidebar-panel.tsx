@@ -233,7 +233,7 @@ export function ReviewCenterSidebarPanel() {
           >
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4" />
-              <span>角色命中报告</span>
+              <span>{t("reviewCenter.characterHitReport")}</span>
             </div>
           </button>
         </div>
@@ -259,7 +259,7 @@ export function ReviewCenterSidebarPanel() {
                   </span>
                 )}
                 {thrilLiveStatus.allStructuralOk && !thrilLiveStatus.fix1Blocked && (
-                  <span className="rounded border border-emerald-600/30 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">
+                  <span className="rounded border border-success/30 px-1.5 py-0.5 text-success dark:text-success">
                     {t("novel.settings.outlineThrillAllOk")}
                   </span>
                 )}
@@ -277,7 +277,7 @@ export function ReviewCenterSidebarPanel() {
                     <span
                       className={`shrink-0 font-mono ${
                         row.status === "pass"
-                          ? "text-emerald-600"
+                          ? "text-success"
                           : row.status === "fail"
                             ? "text-destructive"
                             : "text-muted-foreground/80"
@@ -305,7 +305,7 @@ export function ReviewCenterSidebarPanel() {
               onClick={() => setThrillSoftGateAcknowledged(selectedChapterNumber, !thrilAcknowledged)}
               className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
                 thrilAcknowledged
-                  ? "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                  ? "border-success/40 bg-success/10 text-success dark:text-success"
                   : "border-input bg-background text-muted-foreground qm-hover"
               }`}
               aria-pressed={thrilAcknowledged}
@@ -366,8 +366,8 @@ export function ReviewCenterSidebarPanel() {
             {t("reviewCenter.splitAcceptanceHint")}
           </p>
           <div className="mb-2">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
-              <span className="rounded border border-emerald-600/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-success dark:text-success">
+              <span className="rounded border border-success/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackAHint")}</span>
             </div>
             <div className="space-y-1">

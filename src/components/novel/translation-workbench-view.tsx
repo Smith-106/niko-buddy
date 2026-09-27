@@ -140,7 +140,7 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
       </div>
       <div className="space-y-4 pt-2">
         {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
-        {!port && <p className="text-xs text-amber-500">{t("novel.translation.noPort") ?? "未注入翻译端口——接入 LLM 适配器后可用"}</p>}
+        {!port && <p className="text-xs text-warning">{t("novel.translation.noPort") ?? "未注入翻译端口——接入 LLM 适配器后可用"}</p>}
         {summary && (
           <p className="text-xs text-muted-foreground">
             {summary.drafted}/{summary.total} drafted · {summary.reviewed} reviewed · {summary.finalized} finalized

@@ -4,9 +4,22 @@ import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, waitFor, within, act } from "@/test-helpers/component-test-utils"
 import { HistoryEntryRow, SnapshotDiffModal, SnapshotViewer } from "./snapshot-viewer"
 import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 const tMock = vi.hoisted(() => ({
-  t: vi.fn((key: string, opts?: Record<string, unknown>) => (opts ? `${key}::${JSON.stringify(opts)}` : key)),
+  t: vi.fn((key: string, opts?: Record<string, unknown>) => {
+    const base = lookupZhLocale(key) ?? key
+    return opts ? `${base}::${JSON.stringify(opts)}` : base
+  }),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -117,27 +130,27 @@ describe("SnapshotViewer", () => {
   it("loads and renders the read-only snapshot", async () => {
     const onClose = vi.fn()
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    expect(await screen.findByText("novel.snapshot.title::{\"number\":1}")).toBeInTheDocument()
+    expect(await screen.findByText("第{{number}}章快照::{\"number\":1}")).toBeInTheDocument()
     // sync time (valid date → toLocaleString zh-CN)
-    expect(screen.getByText(/novel.snapshot.memorySyncedAt/)).toBeInTheDocument()
+    expect(screen.getByText(/上次同步记忆/)).toBeInTheDocument()
     // sections
-    expect(screen.getByText("novel.snapshot.summary")).toBeInTheDocument()
+    expect(screen.getByText("摘要")).toBeInTheDocument()
     expect(screen.getByText("林烬入城")).toBeInTheDocument()
-    expect(screen.getByText("novel.snapshot.characters")).toBeInTheDocument()
+    expect(screen.getByText("出场人物")).toBeInTheDocument()
     expect(screen.getByText("林烬")).toBeInTheDocument()
     expect(screen.getByText("图谱节点")).toBeInTheDocument()
     expect(screen.getByText("node-1")).toBeInTheDocument()
     expect(screen.getByText("图谱关系边")).toBeInTheDocument()
     expect(screen.getByText("edge-1")).toBeInTheDocument()
-    expect(screen.getByText("novel.snapshot.endingHook")).toBeInTheDocument()
+    expect(screen.getByText("结尾钩子")).toBeInTheDocument()
     expect(screen.getByText("门外有人叩门")).toBeInTheDocument()
     // history + edit buttons
     expect(screen.getByText("历史版本")).toBeInTheDocument()
     expect(screen.getByText("编辑")).toBeInTheDocument()
     // JSON toggle
-    fireEvent.click(screen.getByText(/novel.snapshot.jsonDetails/))
+    fireEvent.click(screen.getByText(/JSON 详情/))
     expect(screen.getByText(/"chapterNumber": 1/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText(/novel.snapshot.jsonDetails/))
+    fireEvent.click(screen.getByText(/JSON 详情/))
   })
 
   it("skips empty sections and shows raw invalid sync time", async () => {
@@ -150,9 +163,9 @@ describe("SnapshotViewer", () => {
       }),
     )
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     // 空列表 Section 不渲染标题
-    expect(screen.queryByText("novel.snapshot.characters")).not.toBeInTheDocument()
+    expect(screen.queryByText("出场人物")).not.toBeInTheDocument()
     // 无效日期原样展示（嵌入 t 插值文本中）
     expect(screen.getByText(/not-a-date/)).toBeInTheDocument()
   })
@@ -161,7 +174,7 @@ describe("SnapshotViewer", () => {
     ingest.loadSnapshot.mockRejectedValue(new Error("no file"))
     ingest.listSnapshotHistory.mockRejectedValue(new Error("no history"))
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    expect(await screen.findByText("novel.snapshot.noSnapshot")).toBeInTheDocument()
+    expect(await screen.findByText("暂无可查看的快照，请先保存为正式章节并完成章节摄取。")).toBeInTheDocument()
   })
 
   it("uses the outline title when chapterNumber is negative", async () => {
@@ -174,22 +187,22 @@ describe("SnapshotViewer", () => {
   it("shows notSynced when memorySyncedAt is absent", async () => {
     ingest.loadSnapshot.mockResolvedValue(makeSnapshot({ memorySyncedAt: undefined }))
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    expect(await screen.findByText("novel.snapshot.notSynced")).toBeInTheDocument()
+    expect(await screen.findByText("尚未同步到小说记忆")).toBeInTheDocument()
   })
 
   it("edits a text field and saves via syncSnapshotToMemory", async () => {
     const onClose = vi.fn()
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     const summaryBox = screen.getByDisplayValue("林烬入城")
     fireEvent.change(summaryBox, { target: { value: "林烬深夜入城" } })
     // 编辑态切换 JSON 详情（editing && draft 分支）
-    fireEvent.click(screen.getByText(/novel.snapshot.jsonDetails/))
+    fireEvent.click(screen.getByText(/JSON 详情/))
     expect(screen.getByText(/"summary": "林烬深夜入城"/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText(/novel.snapshot.jsonDetails/))
+    fireEvent.click(screen.getByText(/JSON 详情/))
     fireEvent.click(screen.getByText("保存"))
-    expect(await screen.findByText(/novel.snapshot.syncMemorySuccess/)).toBeInTheDocument()
+    expect(await screen.findByText(/已同步到小说记忆/)).toBeInTheDocument()
     expect(ingest.syncSnapshotToMemory).toHaveBeenCalledTimes(1)
     expect(ingest.syncSnapshotToMemory.mock.calls[0][1].summary).toBe("林烬深夜入城")
     // 保存后回到只读模式并刷新历史
@@ -200,7 +213,7 @@ describe("SnapshotViewer", () => {
 
   it("edits every editable section and normalizes list input", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     const editor = screen.getByRole("dialog")
     const textareas = within(editor).getAllByRole("textbox")
@@ -211,7 +224,7 @@ describe("SnapshotViewer", () => {
       fireEvent.change(box, { target: { value: `条目${i}` } })
     })
     fireEvent.click(screen.getByText("保存"))
-    await screen.findByText(/novel.snapshot.syncMemorySuccess/)
+    await screen.findByText(/已同步到小说记忆/)
     const saved = ingest.syncSnapshotToMemory.mock.calls[0][1]
     expect(saved.summary).toBe("条目0")
     expect(saved.povCharacter).toBe("条目1")
@@ -234,23 +247,23 @@ describe("SnapshotViewer", () => {
 
   it("normalizes list input via textToList when editing a list section", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     const textarea = screen.getAllByPlaceholderText("每行一条，可删除、修改或新增")[0]
     fireEvent.change(textarea, { target: { value: "\n  林烬  \n\n沈微\n  " } })
     fireEvent.click(screen.getByText("保存"))
-    await screen.findByText(/novel.snapshot.syncMemorySuccess/)
+    await screen.findByText(/已同步到小说记忆/)
     expect(ingest.syncSnapshotToMemory.mock.calls[0][1].characters).toEqual(["林烬", "沈微"])
   })
 
   it("normalizes list input via textToList when editing a list section", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     const textarea = screen.getAllByPlaceholderText("每行一条，可删除、修改或新增")[0]
     fireEvent.change(textarea, { target: { value: "\n  林烬  \n\n沈微\n  " } })
     fireEvent.click(screen.getByText("保存"))
-    await screen.findByText(/novel.snapshot.syncMemorySuccess/)
+    await screen.findByText(/已同步到小说记忆/)
     expect(ingest.syncSnapshotToMemory.mock.calls[0][1].characters).toEqual(["林烬", "沈微"])
   })
 
@@ -259,7 +272,7 @@ describe("SnapshotViewer", () => {
       makeSnapshot({ characters: undefined as unknown as string[] }),
     )
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     // characters 为 undefined 时 listToText 返回空串（第一个列表输入框为空）
     const firstListBox = screen.getAllByPlaceholderText("每行一条，可删除、修改或新增")[0]
@@ -269,7 +282,7 @@ describe("SnapshotViewer", () => {
   it("ignores non-Escape/non-Tab keydowns (keydown handler fallthrough)", async () => {
     const onClose = vi.fn()
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.keyDown(document, { key: "Enter" })
     expect(onClose).not.toHaveBeenCalled()
   })
@@ -277,7 +290,7 @@ describe("SnapshotViewer", () => {
   it("reports save failure with an Error instance", async () => {
     ingest.syncSnapshotToMemory.mockRejectedValueOnce(new Error("权限不足"))
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.click(screen.getByText("保存"))
     expect(await screen.findByText("保存失败：权限不足")).toBeInTheDocument()
@@ -286,7 +299,7 @@ describe("SnapshotViewer", () => {
   it("reports save failure with a non-Error throw", async () => {
     ingest.syncSnapshotToMemory.mockRejectedValueOnce("字符串错误" as never)
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.click(screen.getByText("保存"))
     expect(await screen.findByText("保存失败：字符串错误")).toBeInTheDocument()
@@ -300,11 +313,11 @@ describe("SnapshotViewer", () => {
       driftSuspected: ["encounter-matrix.json", "particle-ledger.json"],
     })
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.click(screen.getByText("保存"))
     // 保存成功文案 + P2-IMP-08 追加「N 类记忆未同步，建议执行全量重建」
-    expect(await screen.findByText(/novel.snapshot.syncMemorySuccess/)).toBeInTheDocument()
+    expect(await screen.findByText(/已同步到小说记忆/)).toBeInTheDocument()
     expect(screen.getByText(/2 类记忆未同步，建议执行全量重建/)).toBeInTheDocument()
     // 触发 IMP-06 告警通道：sampleTruthFoldDrift → emitTruthFoldDriftAlarm
     await waitFor(() => {
@@ -318,10 +331,10 @@ describe("SnapshotViewer", () => {
 
   it("P2-IMP-08：无 drift → 不追加警告文案、不触发告警通道", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.click(screen.getByText("保存"))
-    expect(await screen.findByText(/novel.snapshot.syncMemorySuccess/)).toBeInTheDocument()
+    expect(await screen.findByText(/已同步到小说记忆/)).toBeInTheDocument()
     expect(screen.queryByText(/类记忆未同步，建议执行全量重建/)).not.toBeInTheDocument()
     expect(ingest.sampleTruthFoldDrift).not.toHaveBeenCalled()
     expect(ingest.emitTruthFoldDriftAlarm).not.toHaveBeenCalled()
@@ -329,7 +342,7 @@ describe("SnapshotViewer", () => {
 
   it("cancels editing and restores the original draft", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("编辑"))
     fireEvent.change(screen.getByDisplayValue("林烬入城"), { target: { value: "改坏了" } })
     fireEvent.click(screen.getByText("取消"))
@@ -339,7 +352,7 @@ describe("SnapshotViewer", () => {
 
   it("opens history and compares a historical version", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     expect(screen.getByText("2026-01-01 00:00")).toBeInTheDocument()
     fireEvent.click(screen.getByText("对比当前版本"))
@@ -355,7 +368,7 @@ describe("SnapshotViewer", () => {
   it("shows an empty history hint when there are no entries", async () => {
     ingest.listSnapshotHistory.mockResolvedValue([])
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     expect(screen.getByText("暂无历史版本。保存快照时会自动备份旧版本。")).toBeInTheDocument()
   })
@@ -363,7 +376,7 @@ describe("SnapshotViewer", () => {
   it("reports compare failure and closes the diff modal via its onClose prop", async () => {
     fsMock.readFile.mockRejectedValueOnce(new Error("读取失败"))
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("对比当前版本"))
     expect(await screen.findByText("对比失败：读取失败")).toBeInTheDocument()
@@ -382,7 +395,7 @@ describe("SnapshotViewer", () => {
   it("reports compare failure with a non-Error throw", async () => {
     fsMock.readFile.mockRejectedValueOnce("读取失败" as never)
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("对比当前版本"))
     expect(await screen.findByText("对比失败：读取失败")).toBeInTheDocument()
@@ -391,7 +404,7 @@ describe("SnapshotViewer", () => {
   it("restores a historical version after confirmation", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("恢复"))
     expect(await screen.findByText("已恢复历史快照，并自动重建小说记忆。")).toBeInTheDocument()
@@ -403,7 +416,7 @@ describe("SnapshotViewer", () => {
   it("skips restore when the user cancels the confirmation", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("恢复"))
     expect(ingest.restoreSnapshotHistory).not.toHaveBeenCalled()
@@ -414,7 +427,7 @@ describe("SnapshotViewer", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true)
     ingest.restoreSnapshotHistory.mockRejectedValueOnce(new Error("损坏文件"))
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("恢复"))
     expect(await screen.findByText("恢复失败：损坏文件")).toBeInTheDocument()
@@ -425,7 +438,7 @@ describe("SnapshotViewer", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true)
     ingest.restoreSnapshotHistory.mockRejectedValueOnce("损坏文件" as never)
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.click(screen.getByText("历史版本"))
     fireEvent.click(screen.getByText("恢复"))
     expect(await screen.findByText("恢复失败：损坏文件")).toBeInTheDocument()
@@ -459,13 +472,13 @@ describe("SnapshotViewer", () => {
     h1.reject(new Error("stale-history"))
     l2.reject(new Error("stale-snapshot"))
     h2.resolve([])
-    expect(await screen.findByText("novel.snapshot.title::{\"number\":3}")).toBeInTheDocument()
+    expect(await screen.findByText("第{{number}}章快照::{\"number\":3}")).toBeInTheDocument()
   })
 
   it("closes the viewer via Escape and closes the diff modal first when open", async () => {
     const onClose = vi.fn()
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     fireEvent.keyDown(document, { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(1)
 
@@ -482,7 +495,7 @@ describe("SnapshotViewer", () => {
 
   it("traps Tab focus within the dialog", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     const dialog = screen.getByRole("dialog")
     const focusables = dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")
     const first = focusables[0]
@@ -498,7 +511,7 @@ describe("SnapshotViewer", () => {
 
   it("does not wrap focus when Tab is pressed on a middle element", async () => {
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={() => {}} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     const dialog = screen.getByRole("dialog")
     const focusables = dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")
     const middle = focusables[Math.floor(focusables.length / 2)]
@@ -511,7 +524,7 @@ describe("SnapshotViewer", () => {
   it("closes when clicking the backdrop, but not the inner dialog", async () => {
     const onClose = vi.fn()
     const { container } = render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     const dialog = screen.getByRole("dialog")
     fireEvent.click(dialog)
     expect(onClose).not.toHaveBeenCalled()
@@ -525,7 +538,7 @@ describe("SnapshotViewer", () => {
   it("closes via the close button", async () => {
     const onClose = vi.fn()
     render(<SnapshotViewer projectPath="/project" chapterNumber={1} onClose={onClose} />)
-    await screen.findByText("novel.snapshot.title::{\"number\":1}")
+    await screen.findByText("第{{number}}章快照::{\"number\":1}")
     const closeButton = document.querySelector('[aria-label]') // fallback
     expect(closeButton).not.toBeNull()
   })

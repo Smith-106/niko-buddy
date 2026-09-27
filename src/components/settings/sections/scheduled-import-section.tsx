@@ -78,7 +78,7 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
 
       {/* Privacy notice when enabled */}
       {draft.scheduledImportEnabled && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="rounded-md border border-warning bg-warning px-3 py-2 text-xs text-warning dark:border-warning/50 dark:bg-warning/40 dark:text-warning">
           {t("settings.sections.scheduledImport.privacyNotice", {
             defaultValue: "所选目录中的文件可能会被复制到当前项目，并在摄取时发送给已配置的大模型。源目录删除文件后，项目内不会自动删除。",
           })}

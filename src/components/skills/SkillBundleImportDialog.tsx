@@ -115,14 +115,14 @@ export function SkillBundleImportDialog({
         </h2>
 
         {/* 信任级别恒定展示：untrusted 不由包内自述决定。 */}
-        <p className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+        <p className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <span className="font-mono">{SKILL_BUNDLE_TRUST_UNTRUSTED}</span> —{" "}
           {t("skillbundle.import.trustUntrusted")}
         </p>
 
         {busy && <p className="text-sm opacity-70">…</p>}
         {error && (
-          <p data-testid="skillbundle-import-error" role="alert" className="mb-3 text-sm text-red-500">
+          <p data-testid="skillbundle-import-error" role="alert" className="mb-3 text-sm text-destructive">
             {error.message}
             <details className="mt-1 opacity-70">
               <summary className="cursor-pointer">{t("skillbundle.import.diagnostics")}</summary>
@@ -177,7 +177,7 @@ export function SkillBundleImportDialog({
 
         {verify && verify.rejected.length > 0 && (
           <section className="mb-3 text-sm">
-            <h3 className="mb-1 font-medium text-red-500">{t("skillbundle.import.rejected")}</h3>
+            <h3 className="mb-1 font-medium text-destructive">{t("skillbundle.import.rejected")}</h3>
             {/* 校验器拒绝原因是英文诊断串（Rust 侧 Vec<String>）：不进主文案，只进诊断详情。 */}
             <details className="ml-4">
               <summary className="cursor-pointer opacity-70">
@@ -194,7 +194,7 @@ export function SkillBundleImportDialog({
 
         {verify && verify.mismatched.length > 0 && (
           <section className="mb-3 text-sm">
-            <h3 className="mb-1 font-medium text-red-500">{t("skillbundle.import.mismatched")}</h3>
+            <h3 className="mb-1 font-medium text-destructive">{t("skillbundle.import.mismatched")}</h3>
             <ul className="ml-4 list-disc font-mono">
               {verify.mismatched.map((path) => (
                 <li key={path}>{path}</li>
@@ -204,7 +204,7 @@ export function SkillBundleImportDialog({
         )}
 
         {gate && !gate.canImport && (
-          <p className="mb-3 text-sm text-red-500">{t("skillbundle.import.gateDenied")}</p>
+          <p className="mb-3 text-sm text-destructive">{t("skillbundle.import.gateDenied")}</p>
         )}
 
         <label className="mb-4 flex items-start gap-2 text-sm">
@@ -218,7 +218,7 @@ export function SkillBundleImportDialog({
         </label>
 
         {imported && (
-          <section className="mb-4 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+          <section className="mb-4 rounded border border-success/40 bg-success/10 p-3 text-sm">
             <p className="font-mono">{imported.installed_dir}</p>
             {imported.warnings.length > 0 ? (
               <details className="mt-1">

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo, type MutableRefObject } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -40,6 +41,7 @@ export interface CharacterSelectionPanelProps {
 }
 
 export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
+  const { t } = useTranslation()
   const {
     characters,
     selectedIds,
@@ -98,7 +100,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
           <div className="relative flex-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="搜索角色名"
+              placeholder={t("novel.searchCharacterName")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8"
@@ -109,8 +111,8 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
             onChange={(e) => setSortBy(e.target.value as "importance" | "appearances")}
             className="border rounded px-2 py-1 text-sm"
           >
-            <option value="importance">按重要度</option>
-            <option value="appearances">按出场次数</option>
+            <option value="importance">{t("novel.sortByImportance")}</option>
+            <option value="appearances">{t("novel.sortByAppearances")}</option>
           </select>
           <Button variant="outline" size="sm" onClick={onSelectAllMain}>
             全选主角配角
@@ -122,7 +124,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
 
         <div className="flex-1 overflow-y-auto border rounded min-h-0">
           {filtered.length === 0 ? (
-            <p className="p-4 text-center text-muted-foreground">无匹配角色</p>
+            <p className="p-4 text-center text-muted-foreground">{t("novel.noMatchingCharacter")}</p>
           ) : (
             <ul>
               {filtered.map((c) => {
@@ -168,7 +170,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={dismiss}>返回章节</Button>
+          <Button variant="ghost" onClick={dismiss}>{t("novel.backToChapter")}</Button>
           <Button
             disabled={!canExtract}
             onClick={onDeepExtract}
@@ -180,7 +182,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
             disabled={!canExtract}
             onClick={onSimpleExtract}
             variant="default"
-            className="bg-amber-500 hover:bg-amber-600"
+            className="bg-warning hover:bg-warning"
           >
             ⚡ 简单提取 {selectedCount} 个角色
           </Button>

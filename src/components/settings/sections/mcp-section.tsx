@@ -210,16 +210,16 @@ export function McpSection() {
           tools: runtime.mcpTools.length,
           capabilities: runtime.mcpCapabilities.length,
         })}
-        {savedAt ? <span className="ml-2 text-emerald-600">{t("settings.sections.mcp.saved")}</span> : null}
+        {savedAt ? <span className="ml-2 text-success">{t("settings.sections.mcp.saved")}</span> : null}
         {saveError ? (
-          <span data-testid="mcp-save-error" role="alert" className="ml-2 text-red-600">
+          <span data-testid="mcp-save-error" role="alert" className="ml-2 text-destructive">
             {saveError}
           </span>
         ) : null}
       </div>
 
       {runtime.warnings.length > 0 ? (
-        <div className="space-y-1 rounded-md border border-amber-400/40 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+        <div className="space-y-1 rounded-md border border-warning/40 bg-warning p-3 text-xs text-warning dark:bg-warning/30 dark:text-warning">
           <div className="font-medium">{t("settings.sections.mcp.warnings")}</div>
           {runtime.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
@@ -335,7 +335,7 @@ export function McpSection() {
                     : t("settings.sections.mcp.testConnection")}
                 </Button>
                 {testStates[server.id]?.status === "ok" ? (
-                  <span className="text-xs text-emerald-600">{testStates[server.id]?.message}</span>
+                  <span className="text-xs text-success">{testStates[server.id]?.message}</span>
                 ) : null}
                 {testStates[server.id]?.status === "error" ? (
                   <span className="text-xs text-destructive">

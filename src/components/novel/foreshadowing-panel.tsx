@@ -139,21 +139,13 @@ export function ForeshadowingPanel() {
                       {f.description && (
                         <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>
                       )}
-                      <p
-                        role="button"
-                        tabIndex={0}
+                      <button type="button"
                         onClick={() => void handleOpenChapter(f.plantedChapter)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault()
-                            void handleOpenChapter(f.plantedChapter)
-                          }
-                        }}
                         title={t("novel.foreshadowing.openPlanted", { num: f.plantedChapter, defaultValue: `打开第${f.plantedChapter}章` })}
                         className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
                       >
                         {t("novel.foreshadowing.plantedAt", { chapter: f.plantedChapter })}
-                      </p>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -176,21 +168,13 @@ export function ForeshadowingPanel() {
                           {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
-                      <p
-                        role="button"
-                        tabIndex={0}
+                      <button type="button"
                         onClick={() => { if (typeof f.resolvedChapter === "number") void handleOpenChapter(f.resolvedChapter) }}
-                        onKeyDown={(e) => {
-                          if ((e.key === "Enter" || e.key === " ") && typeof f.resolvedChapter === "number") {
-                            e.preventDefault()
-                            void handleOpenChapter(f.resolvedChapter)
-                          }
-                        }}
                         title={typeof f.resolvedChapter === "number" ? t("novel.foreshadowing.openResolved", { num: f.resolvedChapter, defaultValue: `打开第${f.resolvedChapter}章` }) : undefined}
                         className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
                       >
                         {t("novel.foreshadowing.resolvedAt", { chapter: f.resolvedChapter ?? "?" })}
-                      </p>
+                      </button>
                     </div>
                   ))}
                 </div>

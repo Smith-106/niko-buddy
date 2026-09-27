@@ -64,35 +64,30 @@ describe("PanelHeaderWithHelp", () => {
     )
   })
 
-  it("opens the URL on Enter and space keydown, and ignores other keys", () => {
+  it("opens the URL on click (native button; keyboard Enter/Space activate click)", () => {
     mocks.getHelpLinkUrl.mockReturnValue("https://docs.example.com/memory")
     render(<PanelHeaderWithHelp title="记忆" helpKey="memory" />)
     const button = screen.getByRole("button", { name: "记忆" })
 
-    fireEvent.keyDown(button, { key: "Enter" })
+    fireEvent.click(button)
     expect(mocks.openExternalUrl).toHaveBeenCalledTimes(1)
 
-    fireEvent.keyDown(button, { key: " " })
-    expect(mocks.openExternalUrl).toHaveBeenCalledTimes(2)
-
+    // 非激活键不触发 click：button 无自定义 keydown 处理
     fireEvent.keyDown(button, { key: "Tab" })
-    expect(mocks.openExternalUrl).toHaveBeenCalledTimes(2)
+    expect(mocks.openExternalUrl).toHaveBeenCalledTimes(1)
   })
 
-  it("stops propagation on click and keydown", () => {
+  it("stops propagation on click", () => {
     mocks.getHelpLinkUrl.mockReturnValue("https://docs.example.com/soul")
     const onClick = vi.fn()
-    const onKeyDown = vi.fn()
     render(
-      <div onClick={onClick} onKeyDown={onKeyDown}>
+      <div onClick={onClick}>
         <PanelHeaderWithHelp title="灵魂" helpKey="soul" />
       </div>,
     )
     const button = screen.getByRole("button", { name: "灵魂" })
     fireEvent.click(button)
     expect(onClick).not.toHaveBeenCalled()
-    fireEvent.keyDown(button, { key: "Enter" })
-    expect(onKeyDown).not.toHaveBeenCalled()
   })
 
   it("applies the custom className and shows the help icon", () => {

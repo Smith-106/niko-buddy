@@ -90,7 +90,7 @@ vi.mock("@/components/layout/panel-header-with-help", () => ({
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => lookupZhLocale(key) ?? key }),
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -113,6 +113,16 @@ vi.mock("@/stores/book-analysis-store", async (importOriginal) => {
 })
 
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -702,9 +712,9 @@ describe("BookAnalysisSidebarPanel", () => {
     expect(text).toContain("a.txt")
     // 错误信息
     expect(text).toContain("读取失败")
-    // 重试按钮（i18n key 渲染）
+    // 重试按钮（中文渲染）
     const retryBtn = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry")) as HTMLButtonElement | undefined
+      .find((b) => b.textContent?.includes("重试")) as HTMLButtonElement | undefined
     expect(retryBtn).toBeTruthy()
     await act(async () => {
       retryBtn?.click()
@@ -736,7 +746,7 @@ describe("BookAnalysisSidebarPanel", () => {
     const { cleanup } = renderPanel()
     await flushAsync(50)
     const retryBtn = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry")) as HTMLButtonElement | undefined
+      .find((b) => b.textContent?.includes("重试")) as HTMLButtonElement | undefined
     await act(async () => {
       retryBtn?.click()
       await new Promise((r) => setTimeout(r, 0))
@@ -772,7 +782,7 @@ describe("BookAnalysisSidebarPanel", () => {
     const { cleanup } = renderPanel()
     await flushAsync(50)
     const retryBtn = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("appLayout.bookAnalysis.retry"))
+      .find((b) => b.textContent?.includes("重试"))
     expect(retryBtn).toBeUndefined()
     cleanup()
     await flushAsync(20)

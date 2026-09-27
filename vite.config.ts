@@ -152,7 +152,7 @@ export default defineConfig(async () => ({
     // Loads .env.test.local into process.env for real-LLM tests.
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.
-    setupFiles: ["./src/test-helpers/load-test-env.ts"],
+    setupFiles: ["./src/test-helpers/load-test-env.ts", "./src/test-helpers/setup-i18n-mock.ts"],
     // CI flaky 止血（2026-08-22 三模型裁决，见 .workflow p1-flaky-debt）：
     // 仅 CI 重试 2 次（GA 默认 CI=true），本地 retry=0 保持 loud fail 不掩盖；
     // 确定性失败重试后仍红，真回归门信号保留。

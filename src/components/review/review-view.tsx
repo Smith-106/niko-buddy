@@ -1117,7 +1117,7 @@ export function ReviewView({
               <span className={`rounded px-2 py-0.5 text-xs ${
                 dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? "border border-violet-600/40 text-violet-700 dark:text-violet-300"
-                  : "border border-emerald-600/40 text-emerald-700 dark:text-emerald-300"
+                  : "border border-success/40 text-success dark:text-success"
               }`}>
                 {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? t("reviewCenter.trackBDimBadge")
@@ -1193,17 +1193,9 @@ export function ReviewView({
                   const typeLabel = i18n.exists(dimensionKey) ? i18n.t(dimensionKey) : item.detail
 
                   return (
-                    <div
+                    <button type="button"
                       key={item.id}
-                      role="button"
-                      tabIndex={0}
                       onClick={() => void openNovelReviewActionItem(item)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          void openNovelReviewActionItem(item)
-                        }
-                      }}
                       className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
                         item.reviewSeverity === "error"
                           ? "border-destructive/30 bg-destructive/5"
@@ -1237,7 +1229,7 @@ export function ReviewView({
                         </p>
                       )}
                       {renderNovelReviewActionBar(item)}
-                    </div>
+                    </button>
                   )
                 })}
               </div>
@@ -1511,7 +1503,7 @@ function ReviewRewritePreviewDialog({
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="min-h-0 rounded-md border bg-red-50/70 p-3 text-sm leading-6 whitespace-pre-wrap text-red-900 dark:bg-red-950/25 dark:text-red-200">
+                  <div className="min-h-0 rounded-md border bg-destructive/70 p-3 text-sm leading-6 whitespace-pre-wrap text-destructive dark:bg-destructive/25 dark:text-destructive">
                     {edit.originalText}
                   </div>
                   <textarea
@@ -1519,7 +1511,7 @@ function ReviewRewritePreviewDialog({
                     value={edit.replacementText}
                     onChange={(event) => onReplacementChange(edit.id, event.target.value)}
                     disabled={busy || ignored}
-                    className="min-h-32 rounded-md border bg-emerald-50/70 p-3 text-sm leading-6 text-emerald-950 outline-none focus:border-ring disabled:opacity-70 dark:bg-emerald-950/25 dark:text-emerald-100"
+                    className="min-h-32 rounded-md border bg-success/70 p-3 text-sm leading-6 text-success outline-none focus:border-ring disabled:opacity-70 dark:bg-success/25 dark:text-success"
                   />
                 </div>
               </div>
@@ -1548,9 +1540,9 @@ function BreakerStatusBadge({ status }: { status: { status: "tripped" | "armed" 
   const labelKey = `review.breakerStatus.${status.status}`
   const label = i18n.exists(labelKey) ? i18n.t(labelKey) : status.status
   const colorMap: Record<string, string> = {
-    tripped: "bg-red-600/20 text-red-700 border-red-500/40 dark:bg-red-900/30 dark:text-red-300",
-    armed: "bg-yellow-600/20 text-yellow-700 border-yellow-500/40 dark:bg-yellow-900/30 dark:text-yellow-300",
-    open: "bg-green-600/20 text-green-700 border-green-500/40 dark:bg-green-900/30 dark:text-green-300",
+    tripped: "bg-destructive/20 text-destructive border-destructive/40 dark:bg-destructive/30 dark:text-destructive",
+    armed: "bg-warning/20 text-warning border-warning/40 dark:bg-warning/30 dark:text-warning",
+    open: "bg-success/20 text-success border-success/40 dark:bg-success/30 dark:text-success",
   }
   return (
     <span
@@ -1558,7 +1550,7 @@ function BreakerStatusBadge({ status }: { status: { status: "tripped" | "armed" 
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium leading-none ${colorMap[status.status]}`}
     >
       <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
-        status.status === "tripped" ? "bg-red-500" : status.status === "armed" ? "bg-yellow-500" : "bg-green-500"
+        status.status === "tripped" ? "bg-destructive" : status.status === "armed" ? "bg-warning" : "bg-success"
       }`} aria-hidden="true" />
       {label}
     </span>

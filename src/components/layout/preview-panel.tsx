@@ -501,7 +501,7 @@ export function PreviewPanel() {
   })()
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium leading-5 text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success dark:text-success">
         <Check className="h-3 w-3" />
         <span>{chapterHeader.statusLabel}</span>
       </span>
@@ -1142,7 +1142,7 @@ export function PreviewPanel() {
       : fileContent
     return (
       <div className="flex h-full flex-col">
-        <div className="border-b px-3 py-2 bg-yellow-50 dark:bg-yellow-950/30">
+        <div className="border-b px-3 py-2 bg-warning dark:bg-warning/30">
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1">
               <div className="flex flex-col">
@@ -1264,8 +1264,8 @@ export function PreviewPanel() {
                 type="button"
                 onClick={() => setChapterToolbarMoreOpen((open) => !open)}
                 className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-                title="更多功能"
-                aria-label="更多功能"
+                title={t("preview.moreActions")}
+                aria-label={t("preview.moreActions")}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -1455,7 +1455,7 @@ export function PreviewPanel() {
               disabled={isOutlineIngesting}
               className={`shrink-0 rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
                 outlineIngested
-                  ? "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                  ? "border-success/50 text-success hover:bg-success dark:text-success dark:hover:bg-success/30"
                   : "border-border text-foreground hover:bg-accent"
               }`}
               title={outlineIngested ? "重新提取初始记忆（将覆盖上次提取的内容）" : t("novel.outlineGenerator.ingest")}
@@ -1468,7 +1468,7 @@ export function PreviewPanel() {
               type="button"
               onClick={() => setShowOutlineSnapshot(true)}
               className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title="查看该大纲提取的快照详情"
+              title={t("preview.viewSnapshotDetail")}
             >
               {t("novel.snapshot.viewButton")}
             </button>

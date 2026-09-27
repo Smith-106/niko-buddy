@@ -266,7 +266,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                 {chapter.content}
               </p>
               {chapter.rawContent && chapter.rawContent !== chapter.content && (
-                <div className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+                <div className="mt-2 rounded bg-warning px-2 py-1 text-xs text-warning dark:bg-warning/30 dark:text-warning">
                   {t("storySimulation.editedBadge")}
                 </div>
               )}
@@ -294,7 +294,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
 
           {importResult ? (
             <div className="space-y-3 py-2">
-              <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+              <div className="rounded-lg bg-success p-3 text-sm text-success dark:bg-success dark:text-success">
                 <div className="font-medium">{t("storySimulation.importSuccessCount", { count: importResult.count })}</div>
                 <div className="mt-1 text-xs opacity-80">
                   {t("storySimulation.chapterRange", {
@@ -333,7 +333,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                         type="checkbox"
                         checked={selectedIndices.includes(idx)}
                         onChange={() => toggleChapter(idx)}
-                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                       />
                       <span className="flex-1 truncate text-sm">
                         {idx + 1}. {chapter.title}
@@ -364,7 +364,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                         void getNextChapterNumber(projectPath).then(setStartChapter)
                       }
                     }}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                   />
                   <span className="text-sm font-medium">
                     {t("storySimulation.autoStartChapter")}
@@ -399,19 +399,19 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                     type="checkbox"
                     checked={overwrite}
                     onChange={(e) => setOverwrite(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                   />
                   <span className="text-sm font-medium">
                     {t("storySimulation.overwriteFiles")}
                   </span>
                 </label>
                 {overwrite && (
-                  <p className="pl-6 text-xs text-emerald-600 dark:text-emerald-400">
+                  <p className="pl-6 text-xs text-success dark:text-success">
                     {t("storySimulation.overwriteBackupHint")}
                   </p>
                 )}
                 {!overwrite && (
-                  <p className="pl-6 text-xs text-amber-600 dark:text-amber-400">
+                  <p className="pl-6 text-xs text-warning dark:text-warning">
                     {t("storySimulation.overwriteWarnHint")}
                   </p>
                 )}

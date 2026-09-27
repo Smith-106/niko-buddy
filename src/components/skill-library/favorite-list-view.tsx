@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Star, Copy, Trash2, Search } from "lucide-react"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -6,6 +7,7 @@ import { toast } from "@/lib/toast"
 import type { FavoriteSkillEntry } from "@/lib/novel"
 
 export function FavoriteListView() {
+  const { t } = useTranslation()
   const favorites = useFavoriteSkillStore((s) => s.favorites)
   const loaded = useFavoriteSkillStore((s) => s.loaded)
   const removeFavorite = useFavoriteSkillStore((s) => s.removeFavorite)
@@ -57,8 +59,8 @@ export function FavoriteListView() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Star className="h-12 w-12 opacity-30" />
-        <p className="text-sm">暂无收藏的技能</p>
-        <p className="text-xs">点击技能卡片上的星标按钮即可收藏</p>
+        <p className="text-sm">{t("skillLibrary.noFavorites")}</p>
+        <p className="text-xs">{t("skillLibrary.favoriteHint")}</p>
       </div>
     )
   }
@@ -71,7 +73,7 @@ export function FavoriteListView() {
           <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="搜索收藏的技能..."
+            placeholder={t("skillLibrary.searchFavorites")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"

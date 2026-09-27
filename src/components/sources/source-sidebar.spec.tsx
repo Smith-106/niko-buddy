@@ -6,6 +6,16 @@ import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, setupDomGlobals, waitFor, within } from "@/test-helpers/component-test-utils"
 import type { FileNode } from "@/types/wiki"
 import { SourceSidebar } from "./source-sidebar"
+import zhLocale from "@/i18n/zh.json"
+
+function lookupZhLocale(key: string): string | undefined {
+  let o: unknown = zhLocale
+  for (const p of key.split(".")) {
+    if (o == null || typeof o !== "object") return undefined
+    o = (o as Record<string, unknown>)[p]
+  }
+  return typeof o === "string" ? o : undefined
+}
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -118,7 +128,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => lookupZhLocale(key) ?? key }),
 }))
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -245,20 +255,20 @@ describe("SourceSidebar — 空态 / 数据态渲染", () => {
     render(<SourceSidebar />)
     await act(async () => {})
     expect(mocks.listDirectory).not.toHaveBeenCalled()
-    expect(screen.getByText("novel.sources.noSources")).toBeTruthy()
+    expect(screen.getByText("暂无大纲")).toBeTruthy()
   })
 
   it("项目目录为空时显示空态", async () => {
     mocks.listDirectory.mockResolvedValue([])
     render(<SourceSidebar />)
-    expect(await screen.findByText("novel.sources.noSources")).toBeTruthy()
+    expect(await screen.findByText("暂无大纲")).toBeTruthy()
     expect(mocks.listDirectory).toHaveBeenCalledWith("/p/raw/sources")
   })
 
   it("目录读取失败时回退为空态", async () => {
     mocks.listDirectory.mockRejectedValue(new Error("boom"))
     render(<SourceSidebar />)
-    expect(await screen.findByText("novel.sources.noSources")).toBeTruthy()
+    expect(await screen.findByText("暂无大纲")).toBeTruthy()
   })
 
   it("渲染过滤后的源树：过滤点文件与空目录，展示文件与文件夹", async () => {
@@ -319,7 +329,7 @@ describe("SourceSidebar — 树交互", () => {
     mocks.listDirectory.mockImplementation((_dir: string) => Promise.resolve(makeManyFiles(165)))
     render(<SourceSidebar />)
     expect(await screen.findByText("f0.md")).toBeTruthy()
-    expect(screen.getByText("sources.loadingMore")).toBeTruthy()
+    expect(screen.getByText("加载更多资料...")).toBeTruthy()
     // localeCompare 排序下 f99.md 位于第 161 行之后 → 初始不可见
     expect(screen.queryByText("f99.md")).toBeNull()
 
@@ -332,7 +342,7 @@ describe("SourceSidebar — 树交互", () => {
     await act(async () => {})
     expect(screen.getByText("f99.md")).toBeTruthy()
     // 全部可见后 loadingMore 消失
-    await waitFor(() => expect(screen.queryByText("sources.loadingMore")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("加载更多资料...")).toBeNull())
     // T5 flaky 治理（2026-08-23）：全量并发下实测 5486ms 超 5s 默认阈值
     // （大量节点渲染 + CPU 争抢），用例级放宽到 15s。
   }, 15_000)
@@ -394,10 +404,10 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
 
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    expect(within(row).getByTitle("sources.deleteFileConfirm")).toBeTruthy()
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    expect(within(row).getByTitle("再次点击删除 {{name}}")).toBeTruthy()
 
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await waitFor(() => expect(mocks.deleteSourceFile).toHaveBeenCalledWith("/p", fileA.path))
     expect(mocks.listDirectory).toHaveBeenCalledWith("/p")
     expect(mocks.state.setFileTree).toHaveBeenCalled()
@@ -411,8 +421,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith(null))
   })
 
@@ -421,8 +431,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await waitFor(() => expect(mocks.deleteSourceFile).toHaveBeenCalled())
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalledWith(null)
   })
@@ -434,8 +444,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("删除失败")))
     expect(errorSpy).toHaveBeenCalled()
     alertSpy.mockRestore()
@@ -448,14 +458,14 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     mocks.state.project = null
     rerender(<SourceSidebar />)
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await act(async () => {})
     expect(mocks.deleteSourceFile).not.toHaveBeenCalled()
     // 文件夹删除同样被 !project 守卫拦下
     const folderRow = fileRow("notes")
-    fireEvent.click(within(folderRow).getByTitle("sources.deleteFolder"))
-    fireEvent.click(within(folderRow).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(folderRow).getByTitle("删除文件夹 {{name}}（递归）"))
+    fireEvent.click(within(folderRow).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await act(async () => {})
     expect(mocks.deleteSourceFolder).not.toHaveBeenCalled()
   })
@@ -465,8 +475,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("notes")
     const row = fileRow("notes")
-    fireEvent.click(within(row).getByTitle("sources.deleteFolder"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
+    fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await waitFor(() => expect(mocks.deleteSourceFolder).toHaveBeenCalled())
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalledWith(null)
   })
@@ -477,10 +487,10 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     await screen.findByText("notes")
     const row = fileRow("notes")
 
-    fireEvent.click(within(row).getByTitle("sources.deleteFolder"))
-    expect(within(row).getByTitle("sources.deleteFolderConfirm")).toBeTruthy()
+    fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
+    expect(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容")).toBeTruthy()
 
-    fireEvent.click(within(row).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await waitFor(() => expect(mocks.deleteSourceFolder).toHaveBeenCalledWith("/p", folder))
     expect(mocks.state.setFileTree).toHaveBeenCalled()
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith(null)
@@ -492,8 +502,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("notes")
     const row = fileRow("notes")
-    fireEvent.click(within(row).getByTitle("sources.deleteFolder"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
+    fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith(null))
   })
 
@@ -504,8 +514,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     render(<SourceSidebar />)
     await screen.findByText("notes")
     const row = fileRow("notes")
-    fireEvent.click(within(row).getByTitle("sources.deleteFolder"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
+    fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("删除文件夹失败")))
     expect(errorSpy).toHaveBeenCalled()
     alertSpy.mockRestore()
@@ -519,12 +529,12 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
       await Promise.resolve()
     })
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    expect(within(row).getByTitle("sources.deleteFileConfirm")).toBeTruthy()
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    expect(within(row).getByTitle("再次点击删除 {{name}}")).toBeTruthy()
     act(() => {
       vi.advanceTimersByTime(5000)
     })
-    expect(within(row).queryByTitle("sources.deleteFileConfirm")).toBeNull()
+    expect(within(row).queryByTitle("再次点击删除 {{name}}")).toBeNull()
   })
 })
 
@@ -534,7 +544,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await act(async () => {})
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await act(async () => {
       await Promise.resolve()
     })
@@ -546,7 +556,7 @@ describe("SourceSidebar — 摄取队列", () => {
     })
     await act(async () => {})
         expect(row.querySelector(".lucide-check")).toBeTruthy()
-    expect(row.querySelector(".text-emerald-600")).toBeTruthy()
+    expect(row.querySelector(".text-success")).toBeTruthy()
     expect(row.querySelector(".lucide-book-open")).toBeNull()
   })
 
@@ -556,7 +566,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await act(async () => {})
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await act(async () => {
       await Promise.resolve()
     })
@@ -565,7 +575,7 @@ describe("SourceSidebar — 摄取队列", () => {
       vi.advanceTimersByTime(1000)
     })
     await act(async () => {})
-    expect(row.querySelector(".text-emerald-600")).toBeNull()
+    expect(row.querySelector(".text-success")).toBeNull()
   })
 
   it("任务仍在 pending 时保持提取中（Loader2 旋转）", async () => {
@@ -574,7 +584,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await act(async () => {})
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await act(async () => {
       await Promise.resolve()
     })
@@ -592,7 +602,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await act(async () => {})
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await act(async () => {
       await Promise.resolve()
     })
@@ -610,7 +620,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await waitFor(() => expect(mocks.enqueueSourceIngest).toHaveBeenCalled())
     await act(async () => {})
     expect(row.querySelector(".animate-spin")).toBeNull()
@@ -622,7 +632,7 @@ describe("SourceSidebar — 摄取队列", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await waitFor(() => expect(errorSpy).toHaveBeenCalled())
     await waitFor(() => expect(row.querySelector(".animate-spin")).toBeNull())
     errorSpy.mockRestore()
@@ -635,10 +645,10 @@ describe("SourceSidebar — 摄取队列", () => {
     )
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(within(fileRow("alpha.md")).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(fileRow("alpha.md")).getByTitle("提取初始记忆"))
     await act(async () => {})
     // ingestingPath 已设置 → 第二次点击直接返回
-    fireEvent.click(within(fileRow("beta.md")).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(fileRow("beta.md")).getByTitle("提取初始记忆"))
     expect(mocks.enqueueSourceIngest).toHaveBeenCalledTimes(1)
     await act(async () => {
       resolveIngest(["task-1"])
@@ -651,7 +661,7 @@ describe("SourceSidebar — 摄取队列", () => {
     mocks.state.project = null
     rerender(<SourceSidebar />)
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("novel.outlineGenerator.ingest"))
+    fireEvent.click(within(row).getByTitle("提取初始记忆"))
     await act(async () => {})
     expect(mocks.enqueueSourceIngest).not.toHaveBeenCalled()
   })
@@ -662,10 +672,10 @@ describe("SourceSidebar — 导入菜单", () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
     expect(alertSpy).toHaveBeenCalledWith("导入文件功能仅在桌面端可用")
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByText("文件夹"))
     expect(alertSpy).toHaveBeenCalledWith("导入文件夹功能仅在桌面端可用")
     alertSpy.mockRestore()
   })
@@ -675,9 +685,9 @@ describe("SourceSidebar — 导入菜单", () => {
     mocks.state.project = null
     render(<SourceSidebar />)
     await act(async () => {})
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    fireEvent.click(screen.getByText("文件夹"))
     await act(async () => {})
     expect(alertSpy).not.toHaveBeenCalled()
     expect(mocks.importSourceFiles).not.toHaveBeenCalled()
@@ -690,12 +700,12 @@ describe("SourceSidebar — 导入菜单", () => {
     mocks.dialogOpen.mockResolvedValue(null)
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await act(async () => {})
     expect(mocks.importSourceFiles).not.toHaveBeenCalled()
     // 菜单保持打开
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    expect(screen.getByText("导入文件")).toBeTruthy()
   })
 
   it("Tauri：导入单个文件（open 返回 string）", async () => {
@@ -707,13 +717,13 @@ describe("SourceSidebar — 导入菜单", () => {
     })
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(mocks.importSourceFiles).toHaveBeenCalled())
     expect(mocks.dialogOpen).toHaveBeenCalledWith(expect.objectContaining({ multiple: true }))
     expect(mocks.listDirectory).toHaveBeenCalled()
     // 菜单在 finally 中关闭
-    await waitFor(() => expect(screen.queryByText("sources.importFiles")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("导入文件")).toBeNull())
   })
 
   it("Tauri：导入多个文件（open 返回数组）并进入 importing 状态", async () => {
@@ -725,15 +735,15 @@ describe("SourceSidebar — 导入菜单", () => {
     )
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
-    await waitFor(() => expect(screen.getByText("sources.importing")).toBeTruthy())
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(screen.getByText("导入中...")).toBeTruthy())
     // importing 时导入按钮禁用
-    expect(screen.getByRole("button", { name: "sources.importing" }).hasAttribute("disabled")).toBe(true)
+    expect(screen.getByRole("button", { name: "导入中..." }).hasAttribute("disabled")).toBe(true)
     await act(async () => {
       resolveImport({ importedPaths: ["/p/raw/sources/a.md"], taskIdsByPath: {} })
     })
-    await waitFor(() => expect(screen.queryByText("sources.importing")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("导入中...")).toBeNull())
   })
 
   it("Tauri：导入文件夹（open 返回 string）", async () => {
@@ -745,11 +755,11 @@ describe("SourceSidebar — 导入菜单", () => {
     })
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => expect(mocks.importSourceFolder).toHaveBeenCalled())
     expect(mocks.dialogOpen).toHaveBeenCalledWith(expect.objectContaining({ directory: true }))
-    await waitFor(() => expect(screen.queryByText("sources.importFolder")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("文件夹")).toBeNull())
   })
 
   it("Tauri：导入文件夹对话框返回非字符串时直接返回", async () => {
@@ -757,8 +767,8 @@ describe("SourceSidebar — 导入菜单", () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/a", "/tmp/b"])
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFolder"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("文件夹"))
     await act(async () => {})
     expect(mocks.importSourceFolder).not.toHaveBeenCalled()
   })
@@ -769,8 +779,8 @@ describe("SourceSidebar — 导入菜单", () => {
     mocks.importSourceFiles.mockResolvedValue({ importedPaths: [], taskIdsByPath: {} })
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(mocks.importSourceFiles).toHaveBeenCalled())
   })
 
@@ -783,45 +793,45 @@ describe("SourceSidebar — 导入菜单", () => {
     })
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    fireEvent.click(screen.getByText("sources.importFiles"))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(mocks.importSourceFiles).toHaveBeenCalled())
   })
 
   it("导入菜单：外部 mousedown / Escape 关闭，菜单内点击不关闭", async () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    expect(screen.getByText("导入文件")).toBeTruthy()
 
     // 菜单内 pointerdown → 保持打开
-    fireEvent.mouseDown(screen.getByText("sources.importFiles"))
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    fireEvent.mouseDown(screen.getByText("导入文件"))
+    expect(screen.getByText("导入文件")).toBeTruthy()
 
     // 外部 pointerdown → 关闭
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByText("sources.importFiles")).toBeNull()
+    expect(screen.queryByText("导入文件")).toBeNull()
 
     // 重新打开后 Escape 关闭
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    expect(screen.getByText("导入文件")).toBeTruthy()
     fireEvent.keyDown(document, { key: "a" })
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    expect(screen.getByText("导入文件")).toBeTruthy()
     fireEvent.keyDown(document, { key: "Escape" })
-    expect(screen.queryByText("sources.importFiles")).toBeNull()
+    expect(screen.queryByText("导入文件")).toBeNull()
   })
 
   it("导入菜单：非 Node 目标 pointerdown 被忽略", async () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
-    fireEvent.click(screen.getByRole("button", { name: "novel.sources.import" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
     const evt = new MouseEvent("mousedown")
     Object.defineProperty(evt, "target", { value: {} })
     act(() => {
       document.dispatchEvent(evt)
     })
     // 非 Node 目标直接 return，菜单保持打开
-    expect(screen.getByText("sources.importFiles")).toBeTruthy()
+    expect(screen.getByText("导入文件")).toBeTruthy()
   })
 })
 
@@ -832,15 +842,15 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     await screen.findByText("alpha.md")
     const root = container.querySelector(".relative.flex.h-full.flex-col") as HTMLElement
     fireEvent.contextMenu(root)
-    expect(screen.getByText("sidebar.newOutline")).toBeTruthy()
-    expect(screen.getByText("sidebar.newFolder")).toBeTruthy()
+    expect(screen.getByText("新建大纲")).toBeTruthy()
+    expect(screen.getByText("新建文件夹")).toBeTruthy()
 
-    fireEvent.click(screen.getByText("sidebar.newOutline"))
+    fireEvent.click(screen.getByText("新建大纲"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "outline" })
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
 
     fireEvent.contextMenu(root)
-    fireEvent.click(screen.getByText("sidebar.newFolder"))
+    fireEvent.click(screen.getByText("新建文件夹"))
     expect(onRequestCreate).toHaveBeenCalledWith({ kind: "folder" })
   })
 
@@ -848,7 +858,7 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
   })
 
   it("文本节点上的右键被忽略（target 非 HTMLElement）", async () => {
@@ -860,15 +870,15 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     act(() => {
       textNode.dispatchEvent(evt)
     })
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
   })
 
   it("文件夹行（交互元素）上右键不打开创建菜单", async () => {
     render(<SourceSidebar />)
     await screen.findByText("notes")
     fireEvent.contextMenu(screen.getByText("notes"))
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
-    expect(screen.queryByText("knowledgeTree.rename")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
+    expect(screen.queryByText("重命名")).toBeNull()
   })
 
   it("创建菜单/文件菜单可通过文档 mousedown 与键盘关闭", async () => {
@@ -876,14 +886,14 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     await screen.findByText("alpha.md")
     const root = container.querySelector(".relative.flex.h-full.flex-col") as HTMLElement
     fireEvent.contextMenu(root)
-    expect(screen.getByText("sidebar.newOutline")).toBeTruthy()
+    expect(screen.getByText("新建大纲")).toBeTruthy()
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
 
     fireEvent.contextMenu(root)
-    expect(screen.getByText("sidebar.newOutline")).toBeTruthy()
+    expect(screen.getByText("新建大纲")).toBeTruthy()
     fireEvent.keyDown(document, { key: "Escape" })
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
   })
 
   it("点击容器空白区域关闭菜单", async () => {
@@ -891,17 +901,17 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     await screen.findByText("alpha.md")
     const root = container.querySelector(".relative.flex.h-full.flex-col") as HTMLElement
     fireEvent.contextMenu(root)
-    expect(screen.getByText("sidebar.newOutline")).toBeTruthy()
+    expect(screen.getByText("新建大纲")).toBeTruthy()
     fireEvent.click(root)
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
   })
 
   it("文件右键打开文件菜单，重命名按钮对文件进入重命名态", async () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    expect(screen.getByText("knowledgeTree.rename")).toBeTruthy()
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    expect(screen.getByText("重命名")).toBeTruthy()
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     expect(input).not.toBeNull()
   })
@@ -921,14 +931,14 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     mocks.state.dataVersion = 1
     rerender(<SourceSidebar />)
     await act(async () => {})
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
-    expect(screen.queryByText("knowledgeTree.rename")).toBeNull()
+    fireEvent.click(screen.getByText("重命名"))
+    expect(screen.queryByText("重命名")).toBeNull()
     expect(document.querySelector("input[type='text']")).toBeNull()
 
     // 场景 2：菜单在嵌套文件 inner.md 上打开，随后 inner.md 从树中消失 →
     // findNodeByPath 递归未命中（match=null）→ 仅关闭菜单
     fireEvent.contextMenu(screen.getByText("inner.md"))
-    expect(screen.getByText("knowledgeTree.rename")).toBeTruthy()
+    expect(screen.getByText("重命名")).toBeTruthy()
     mocks.listDirectory.mockResolvedValue([
       fileA,
       fileB,
@@ -937,8 +947,8 @@ describe("SourceSidebar — 空白右键创建菜单 / 文件菜单", () => {
     mocks.state.dataVersion = 2
     rerender(<SourceSidebar />)
     await act(async () => {})
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
-    expect(screen.queryByText("knowledgeTree.rename")).toBeNull()
+    fireEvent.click(screen.getByText("重命名"))
+    expect(screen.queryByText("重命名")).toBeNull()
     expect(document.querySelector("input[type='text']")).toBeNull()
   })
 })
@@ -948,7 +958,7 @@ describe("SourceSidebar — 重命名", () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     expect(input).not.toBeNull()
     return input
@@ -1036,7 +1046,7 @@ describe("SourceSidebar — 重命名", () => {
     render(<SourceSidebar />)
     await screen.findByText("LICENSE")
     fireEvent.contextMenu(screen.getByText("LICENSE"))
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     fireEvent.change(input, { target: { value: "renamed" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -1049,7 +1059,7 @@ describe("SourceSidebar — 重命名", () => {
     render(<SourceSidebar />)
     await screen.findByText("inner.md")
     fireEvent.contextMenu(screen.getByText("inner.md"))
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     fireEvent.change(input, { target: { value: "renamed" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -1091,7 +1101,7 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     fireEvent.change(input, { target: { value: "renamed" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -1108,7 +1118,7 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     render(<SourceSidebar />)
     await screen.findByText("LICENSE")
     fireEvent.contextMenu(screen.getByText("LICENSE"))
-    fireEvent.click(screen.getByText("knowledgeTree.rename"))
+    fireEvent.click(screen.getByText("重命名"))
     const input = document.querySelector("input[type='text']") as HTMLInputElement
     fireEvent.change(input, { target: { value: "renamed" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -1126,25 +1136,25 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
     root.appendChild(svg)
     fireEvent.contextMenu(svg)
-    expect(screen.queryByText("sidebar.newOutline")).toBeNull()
+    expect(screen.queryByText("新建大纲")).toBeNull()
   })
 
   it("创建菜单内 mousedown 不关闭（stopPropagation）", () => {
     const { container } = render(<SourceSidebar onRequestCreate={vi.fn()} />)
     const root = container.querySelector(".relative.flex.h-full.flex-col") as HTMLElement
     fireEvent.contextMenu(root)
-    const menu = screen.getByText("sidebar.newOutline").closest("div") as HTMLElement
+    const menu = screen.getByText("新建大纲").closest("div") as HTMLElement
     fireEvent.mouseDown(menu)
-    expect(screen.getByText("sidebar.newOutline")).toBeTruthy()
+    expect(screen.getByText("新建大纲")).toBeTruthy()
   })
 
   it("文件菜单内 mousedown 不关闭（stopPropagation）", async () => {
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    const menu = screen.getByText("knowledgeTree.rename").closest("div") as HTMLElement
+    const menu = screen.getByText("重命名").closest("div") as HTMLElement
     fireEvent.mouseDown(menu)
-    expect(screen.getByText("knowledgeTree.rename")).toBeTruthy()
+    expect(screen.getByText("重命名")).toBeTruthy()
   })
 
   it("getBoundingClientRect 为 null：空白右键菜单坐标回退到 event.clientX/Y", () => {
@@ -1154,7 +1164,7 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     const { container } = render(<SourceSidebar onRequestCreate={vi.fn()} />)
     const root = container.querySelector(".relative.flex.h-full.flex-col") as HTMLElement
     fireEvent.contextMenu(root)
-    const menu = screen.getByText("sidebar.newOutline").closest("div") as HTMLElement
+    const menu = screen.getByText("新建大纲").closest("div") as HTMLElement
     expect(menu.style.left).toBe("0px")
     rectSpy.mockRestore()
   })
@@ -1166,7 +1176,7 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.contextMenu(screen.getByText("alpha.md"))
-    const menu = screen.getByText("knowledgeTree.rename").closest("div") as HTMLElement
+    const menu = screen.getByText("重命名").closest("div") as HTMLElement
     expect(menu.style.left).toBe("0px")
     rectSpy.mockRestore()
   })
@@ -1176,8 +1186,8 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     const row = fileRow("alpha.md")
-    fireEvent.click(within(row).getByTitle("sources.deleteFile"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFileConfirm"))
+    fireEvent.click(within(row).getByTitle("删除 {{name}}"))
+    fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
     await waitFor(() => expect(mocks.deleteSourceFile).toHaveBeenCalled())
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
   })
@@ -1187,8 +1197,8 @@ describe("SourceSidebar — W4E5 补全（冲突循环/非 HTMLElement/rect-null
     render(<SourceSidebar />)
     await screen.findByText("notes")
     const row = fileRow("notes")
-    fireEvent.click(within(row).getByTitle("sources.deleteFolder"))
-    fireEvent.click(within(row).getByTitle("sources.deleteFolderConfirm"))
+    fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
+    fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
     await waitFor(() => expect(mocks.deleteSourceFolder).toHaveBeenCalled())
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
   })

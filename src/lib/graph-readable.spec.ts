@@ -255,18 +255,18 @@ describe("risk summary", () => {
     expect(filterNonZeroRiskSummaryItems(items)).toEqual([])
   })
 
-  it("colors conflict keys red and others orange", () => {
-    expect(getGraphRiskSummaryItemColor({ key: "canon-rule-conflict" } as never).text).toContain("red")
-    expect(getGraphRiskSummaryItemColor({ key: "timeline-conflict" } as never).text).toContain("red")
-    expect(getGraphRiskSummaryItemColor({ key: "secret-unrevealed" } as never).text).toContain("orange")
+  it("colors conflict keys destructive and others warning", () => {
+    expect(getGraphRiskSummaryItemColor({ key: "canon-rule-conflict" } as never).text).toContain("destructive")
+    expect(getGraphRiskSummaryItemColor({ key: "timeline-conflict" } as never).text).toContain("destructive")
+    expect(getGraphRiskSummaryItemColor({ key: "secret-unrevealed" } as never).text).toContain("warning")
   })
 
-  it("colors risk states red / orange / emerald", () => {
-    expect(getGraphNodeRiskStateLabelColor("疑似冲突").text).toContain("red")
-    expect(getGraphNodeRiskStateLabelColor("疑似矛盾").text).toContain("red")
-    expect(getGraphNodeRiskStateLabelColor("未回收").text).toContain("orange")
-    expect(getGraphNodeRiskStateLabelColor("部分揭露").text).toContain("orange")
-    expect(getGraphNodeRiskStateLabelColor("已回收").text).toContain("emerald")
+  it("colors risk states destructive / warning / success", () => {
+    expect(getGraphNodeRiskStateLabelColor("疑似冲突").text).toContain("destructive")
+    expect(getGraphNodeRiskStateLabelColor("疑似矛盾").text).toContain("destructive")
+    expect(getGraphNodeRiskStateLabelColor("未回收").text).toContain("warning")
+    expect(getGraphNodeRiskStateLabelColor("部分揭露").text).toContain("warning")
+    expect(getGraphNodeRiskStateLabelColor("已回收").text).toContain("success")
   })
 })
 

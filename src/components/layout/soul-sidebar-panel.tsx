@@ -138,21 +138,21 @@ export function SoulSidebarPanel() {
                 selectedSoulId === "de-ai-skill" ? "qm-selected" : "text-muted-foreground qm-hover"
               }`}
             >
-              <div className="font-medium">去AI味Skill</div>
-              <div className="mt-1 text-xs opacity-80">自定义去AI味规则，应用到全局</div>
+              <div className="font-medium">{t("novel.soul.deaiSkill")}</div>
+              <div className="mt-1 text-xs opacity-80">{t("novel.soul.deaiGlobalHint")}</div>
             </button>
 
             <div className="mt-3 rounded-md border bg-muted/20 p-3">
-              <div className="text-xs font-medium text-muted-foreground">已绑定人物</div>
+              <div className="text-xs font-medium text-muted-foreground">{t("novel.soul.boundCharacters")}</div>
               {bindings.length > 0 ? (
                 <div className="mt-2 space-y-2">
                   {bindings.map((binding) => (
                     <div key={binding.characterName} className="rounded-md border bg-background/80 p-2">
-                      <div className="text-[11px] font-medium text-muted-foreground">小说人物</div>
+                      <div className="text-[11px] font-medium text-muted-foreground">{t("novel.soul.novelCharacters")}</div>
                       <div className="mt-1 truncate text-sm font-medium text-foreground">{binding.characterName}</div>
                       <div className="mt-2 flex items-end gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-medium text-muted-foreground">绑定角色灵魂</div>
+                          <div className="text-[11px] font-medium text-muted-foreground">{t("novel.soul.bindSoul")}</div>
                           <select
                             value={binding.auraId}
                             onChange={(event) => void handleBindingAuraChange(binding, event.target.value)}
@@ -177,7 +177,7 @@ export function SoulSidebarPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 text-xs text-muted-foreground">还没有人物绑定角色灵魂</div>
+                <div className="mt-2 text-xs text-muted-foreground">{t("novel.soul.noBoundSoul")}</div>
               )}
               {message && <div className="mt-2 text-xs text-muted-foreground">{message}</div>}
             </div>
