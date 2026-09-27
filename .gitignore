@@ -27,6 +27,7 @@ src/test-helpers/*
 !src/test-helpers/
 !src/test-helpers/load-test-env.ts
 !src/test-helpers/component-test-utils.tsx
+!src/test-helpers/setup-i18n-mock.ts
 !src/lib/web-fs.spec.ts
 !src/lib/graph-relevance.spec.ts
 
