@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.12.1",
+    date: "2026-09-27",
+    highlights: {
+      en: [
+        "Type-debt zero-out (C2): zero `any` in production code; tsc --build 0 errors; lint + boundaries 4/4 green.",
+        "UI-debt zero-out (C3): 349 Chinese literals keyed into zh/en i18n maps; aria-labels completed; palette switched to semantic tokens (destructive/warning/success); nested-interaction fixes; spec assertions synced to Chinese rendering.",
+        "Test-debt zero-out (C4): 180 new specs covering all previously uncovered source files; test:mocks fully green (1070 files / 14155 tests + graph-view 75/75); type-only exports excluded from runtime assertions; bench harnesses stay in the dedicated bench channel.",
+      ],
+      zh: [
+        "类型债清零（C2）：生产代码零 any；tsc --build 0 错误；lint + boundaries 4/4 全绿。",
+        "UI 债清零（C3）：349 处中文硬编码 key 化进 zh/en 双语表；aria-label 补齐；调色板切语义 token（destructive/warning/success）；嵌套交互修复；spec 断言同步中文渲染。",
+        "测试债清零（C4）：180 个新 spec 覆盖全部无 spec 生产文件；test:mocks 全绿（1070 文件 / 14155 用例 + graph-view 75/75）；纯类型导出剔除运行时断言；bench  harness 保留独立 bench 通道。",
+      ],
+    },
+  },
+  {
     version: "2.12.0",
     date: "2026-09-26",
     highlights: {

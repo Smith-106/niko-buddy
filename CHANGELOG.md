@@ -7,6 +7,15 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.12.1] - 2026-09-27
+
+### Changed
+
+- **三债清零批次**（C2/C3/C4，ISS-20260914-004/002/001）：类型债——生产代码零 `any`，`tsc --build` 0 错误；UI 债——349 处中文硬编码 key 化进 zh/en 双语表，aria-label 补齐，调色板切语义 token，嵌套交互修复；测试债——180 个新 spec 覆盖全部无 spec 生产文件（纯类型导出剔除、bench 走独立通道）。
+- **工程卫生**：`.gitignore` 放行 `setup-i18n-mock.ts`（C3 新增全局 i18n mock，曾致 CI 1071 suites 缺文件挂）；删除遮蔽跟踪版的过期 `component-test-utils.ts` 草稿。
+- **验证**：`tsc --build` 0 错误；`npm run lint` 0；`test:mocks` 1070 files / 14155 tests + graph-view 75/75 全绿。
+- 发布语义：prerelease（同周 stable ≤1 约束；安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）。
+
 ## [2.12.0] - 2026-09-26
 
 ### Added
