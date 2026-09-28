@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.12.2",
+    date: "2026-09-28",
+    highlights: {
+      en: [
+        "UI interaction resilience & a11y: eliminated nested interactive elements (<button> inside <button>) across welcome screen, book analysis cards, and simulation history; fixed invalid HTML <details> inside <p> in SkillBundleImportDialog.",
+        "Overlay & keyboard anti-deadlock: added Escape key listeners and backdrop click dismissal to history modals, interview views, skill bundle dialogs, and gate confirmation dialogs.",
+        "A11y labels & theme tokens: added accessible aria-labels to icon buttons across skill library and simulation panels; normalized color classes to semantic theme tokens; expanded zh/en i18n keys for common operations.",
+        "Verified: tsc --build 0 errors; eslint 0 errors; boundaries 4/4 passed; full component test suites green.",
+      ],
+      zh: [
+        "UI 交互健壮性与无障碍优化：消除欢迎界面、全书分析卡片与推演历史项中的 <button> 嵌套交互元素；修复 SkillBundleImportDialog 中 <details> 位于 <p> 内的非法 HTML 结构，彻底根除 React 水合告警。",
+        "弹窗蒙层与键盘防死锁：为推演历史记录、访谈视图、技能包导入、快照恢复确认与门控对话框全面补齐 Escape 按键监听退出与遮罩点击关闭（正在处理时安全防误关）。",
+        "无障碍标签与语义色彩 Token：为技能库与推演面板图标按钮补齐规范 aria-label 与 title；统一使用主题语义色彩 Token；扩充通用操作与会话确认的 zh/en 双语字典。",
+        "验证：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；各受影响组件测试全绿。",
+      ],
+    },
+  },
+  {
     version: "2.12.1",
     date: "2026-09-27",
     highlights: {

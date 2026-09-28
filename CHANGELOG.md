@@ -7,6 +7,19 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.12.2] - 2026-09-28
+
+### Fixed
+
+- **UI 交互健壮性与无障碍优化**：
+  - **消除嵌套交互元素**：欢迎界面最近项目解构为语义化 `<div>` 容器，按键平级排布，彻底消除控制台 `In HTML, <button> cannot be a descendant of <button>` 水合告警；全书分析卡片与推演历史项解构外层点击卡片，消除交互内嵌；图谱风险状态标签转为无障碍 span 按钮。
+  - **消除非法标签水合告警**：技能包导入弹窗 `SkillBundleImportDialog` 修复 `<details>` / `<summary>` 位于段落 `<p>` 内的不规范 HTML 结构。
+  - **弹窗遮罩/键盘防死锁**：推演历史记录、访谈历史视图、技能包导入弹窗、快照恢复确认与自动门控弹窗全面补齐 `Escape` 按键监听退出与遮罩点击关闭（Backdrop Click Dismiss），对破坏性或正在运行的操作严格守卫防误关。
+  - **无障碍访问（a11y）标签补全**：技能库分类拖拽/重命名/删除按钮、标签移除按钮及推演结果删除按钮补全规范 `aria-label` 与 `title`。
+  - **主题 Token 统一与多语言扩充**：推演面板与门控确认按钮全面采用 Tailwind 语义色彩 Token；补充 `common.rename` / `common.dragSort` 及会话编辑/删除二次确认多语言映射。
+- **验证**：`tsc --build` 0 错误；`npm run lint` 0 错误（ESLint + boundaries 4/4 通过）；全量受影响组件单元测试全绿。
+- 发布语义：prerelease（安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）。
+
 ## [2.12.1] - 2026-09-27
 
 ### Changed
