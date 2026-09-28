@@ -347,6 +347,10 @@ export interface DraftChapter {
   correspondingNode: number
   /** 原始 AI 生成内容（编辑前的备份），未编辑时为 undefined */
   rawContent?: string
+  /** 核心深章门控评决结果（使用深章引擎时填充） */
+  decisionGates?: import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates
+  /** 审查结果列表 */
+  reviewResults?: import("@/lib/novel/review-adapter").NovelReviewResult[]
 }
 
 // ── 框架绑定 ──

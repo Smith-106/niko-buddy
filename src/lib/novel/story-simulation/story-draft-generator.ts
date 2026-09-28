@@ -13,11 +13,17 @@ import type {
 
 // ── 对外接口 ──
 
-interface DraftGenerationOptions {
+export interface DraftGenerationOptions {
   framework: StoryFramework
   report: SimulationReport
   selectedBranch: StoryBranch
   llmConfig: LlmConfig
+  /** 项目根路径，传入后自动接入 deep-chapter-generation 核心引擎 */
+  projectPath?: string
+  /** 写作配置 */
+  novelConfig?: import("@/stores/wiki-store").NovelConfig
+  /** 是否启用核心深章引擎（默认 true，若无 projectPath 则自动回退轻量流） */
+  useDeepChapterEngine?: boolean
   onProgress?: (label: string) => void
   onChapterGenerated?: (chapter: DraftChapter) => void
   signal?: AbortSignal
@@ -149,19 +155,60 @@ export async function generateStoryDraft(options: DraftGenerationOptions): Promi
       perChapterTarget,
     )
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ]
+    let trimmed = ""
+    let decisionGates: import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates | undefined
+    let reviewResults: import("@/lib/novel/review-adapter").NovelReviewResult[] | undefined
 
-    const content = await collectStream(llmConfig, messages, signal)
-    const trimmed = content.trim()
+    const shouldRunDeep = (options.useDeepChapterEngine ?? true) && !!options.projectPath
+    if (shouldRunDeep) {
+      try {
+        const { runDeepChapterGeneration } = await import("@/lib/novel/deep-chapter-generation")
+        const defaultNovelConfig = (await import("@/stores/wiki-store")).DEFAULT_NOVEL_CONFIG
+        const deepResult = await runDeepChapterGeneration(
+          {
+            projectPath: options.projectPath!,
+            userRequest: userPrompt,
+            chapterNumber: i + 1,
+            llmConfig,
+            novelConfig: options.novelConfig ?? defaultNovelConfig,
+          },
+          {
+            onThinking: (t) => onProgress?.(`[第 ${i + 1}/${nodeCount} 章] ${t.slice(0, 80)}`),
+            onFinalContent: (c) => {
+              trimmed = c.trim()
+            },
+          },
+          undefined,
+          signal,
+        )
+        trimmed = deepResult.finalContent.trim()
+        decisionGates = deepResult.decisionGates
+        reviewResults = deepResult.reviewResults
+      } catch {
+        // 深章引擎降级回退到轻量流式收集
+        const messages: ChatMessage[] = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ]
+        const content = await collectStream(llmConfig, messages, signal)
+        trimmed = content.trim()
+      }
+    } else {
+      const messages: ChatMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ]
+      const content = await collectStream(llmConfig, messages, signal)
+      trimmed = content.trim()
+    }
 
     const chapter: DraftChapter = {
       title: node.title,
       content: trimmed,
       correspondingNode: node.index,
       rawContent: trimmed,
+      decisionGates,
+      reviewResults,
     }
 
     chapters.push(chapter)

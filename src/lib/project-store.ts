@@ -720,6 +720,8 @@ function normalizeNovelConfig(
     referenceEnabled: config.referenceEnabled ?? DEFAULT_NOVEL_CONFIG.referenceEnabled,
     // 55 号设计 W1-1: genre 透传 (undefined 保留, 旧配置文件无此字段 → 加载 undefined 不报错)。
     genre: config.genre,
+    // 自动分章计划隐式阶段开关：默认 true，显式 false 保留。
+    autoPlanningEnabled: config.autoPlanningEnabled ?? DEFAULT_NOVEL_CONFIG.autoPlanningEnabled,
     // F-011 Voice Preservation spelling convention 三字段归一化。
     dialoguePunctuationStyle: config.dialoguePunctuationStyle ?? DEFAULT_NOVEL_CONFIG.dialoguePunctuationStyle,
     paragraphIndent: config.paragraphIndent ?? DEFAULT_NOVEL_CONFIG.paragraphIndent,

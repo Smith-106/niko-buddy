@@ -380,6 +380,8 @@ export interface NovelConfig {
    * F-011: Voice Preservation 第一层 — spelling convention 全局拼写约定。
    * 存储在 settings 中，作为全局默认拼写规范而非 per-project 粒度。
    */
+  /** 自动分章计划隐式阶段开关（default true）。开启后在深章生成时自动聚合本章分章计划并注入任务书。 */
+  autoPlanningEnabled: boolean
   dialoguePunctuationStyle: string
   paragraphIndent: string
   quoteConvention: string
@@ -439,6 +441,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   // 硬注入预算探针同时激活（hard_injection_budget_usage ← pack.hardInjectUsage.ratio）。
   hardInjectEnabled: true,
   usefulnessRerankEnabled: false,
+  autoPlanningEnabled: true,
   // F-011: Voice Preservation 第一层 — spelling convention 默认值
   dialoguePunctuationStyle: "",
   paragraphIndent: "",

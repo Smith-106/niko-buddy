@@ -1,4 +1,4 @@
-﻿import type { LlmConfig } from "@/stores/wiki-store"
+import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, isTransportInactivityError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { setLogTraceId, logger } from "@/lib/utils"
 import { resolveTaskExtraPrompt, resolveTaskSkillNames } from "./task-customization"
@@ -1652,10 +1652,19 @@ async function generateTaskBrief(
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
   }
 
-  // Wave 3 (v2.5.0): 计划模式预填注入（fail-open：planningPlan 缺省 → 零行为变化）。
+  // Wave 3 (v2.5.0): 计划模式预填注入（fail-open：planningPlan 缺省时根据 autoPlanningEnabled 隐式自动聚合）。
   // marker 守卫防重复（resume 检查点已含预填块时不二次注入）。
-  if (input.planningPlan && !taskBriefHasPlanningBlock(taskBrief)) {
-    taskBrief = appendPlanningBlockToTaskBrief(taskBrief, input.planningPlan)
+  let effectivePlan = input.planningPlan
+  if (!effectivePlan && (input.novelConfig?.autoPlanningEnabled ?? true) && input.chapterNumber != null && input.projectPath) {
+    try {
+      const { buildChapterPlan } = await import("./planning")
+      effectivePlan = await buildChapterPlan(input.projectPath, input.chapterNumber)
+    } catch {
+      // 隐式聚合失败静默降级（fail-open），绝不阻塞生成
+    }
+  }
+  if (effectivePlan && !taskBriefHasPlanningBlock(taskBrief)) {
+    taskBrief = appendPlanningBlockToTaskBrief(taskBrief, effectivePlan)
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))
   }
 

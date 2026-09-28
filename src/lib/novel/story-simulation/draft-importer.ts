@@ -36,6 +36,10 @@ export async function importDraftToChapters(
     selectedIndices?: number[]
     /** 导入进度回调 */
     onProgress?: (current: number, total: number, chapterTitle: string) => void
+    /** 导入后是否自动执行章节摄取（回填快照与 Canon 事实），默认 false */
+    autoIngest?: boolean
+    /** 用于章节摄取的 LLM 配置 */
+    llmConfig?: import("@/stores/wiki-store").LlmConfig
   },
 ): Promise<ImportResult> {
   const pp = normalizePath(projectPath)
@@ -124,6 +128,27 @@ export async function importDraftToChapters(
     await writeFileAtomic(filePath, content)
     chapterPaths.push(filePath)
     chapterNumOffset++
+  }
+
+  // 若开启了 autoIngest 且配置了可用模型，自动为导入的章节执行事实摄取与双写
+  if (options?.autoIngest && options?.llmConfig) {
+    try {
+      const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
+        import("@/lib/novel/chapter-ingest"),
+        import("@/lib/novel/canon-dual-write"),
+      ])
+      for (const chPath of chapterPaths) {
+        try {
+          await ingestChapter(pp, chPath, options.llmConfig?.model ?? "default", undefined, {
+            canonDualWriteDeps: defaultCanonDualWriteDeps(),
+          })
+        } catch (e) {
+          console.warn(`[draft-import] 自动摄取 ${chPath} 失败:`, e)
+        }
+      }
+    } catch (e) {
+      console.warn("[draft-import] 加载章节摄取模块失败:", e)
+    }
   }
 
   return {
