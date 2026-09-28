@@ -53,7 +53,7 @@ function normalizeFullWidthDigits(value: string): string {
   return value.replace(/[０-９]/g, (char) => String(char.charCodeAt(0) - 0xff10))
 }
 
-function parseChineseInteger(value: string): number | null {
+export function parseChineseInteger(value: string): number | null {
   const normalized = value.replace(/两/g, "二").replace(/[零〇]/g, "")
   if (!normalized) return 0
   const digitMap: Record<string, number> = {

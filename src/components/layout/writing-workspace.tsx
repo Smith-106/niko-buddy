@@ -11,6 +11,8 @@ import { getFileName, getRelativePath } from "@/lib/path-utils"
 import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
 import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
+import { Flame } from "lucide-react"
+import { CampaignDashboardDialog } from "@/components/novel/campaign-dashboard-dialog"
 
 const ChatPanel = lazy(async () => {
   const mod = await import("@/components/chat/chat-panel")
@@ -32,6 +34,7 @@ export function WritingWorkspace() {
   // 写作工具抽屉：只为「导出 PDF / 批量替换」提供壳层入口，展开不触发任何 IPC
   // （两个面板都只在自己按钮被点时调用命令；批量替换仍走预览 → 写前门 → 人工确认）。
   const [toolsPanel, setToolsPanel] = useState<"pdf" | "batch" | null>(null)
+  const [campaignOpen, setCampaignOpen] = useState(false)
 
   const chapter = useMemo(() => splitChapterHeading(fileContent), [fileContent])
   const paragraphs = useMemo(
@@ -145,6 +148,15 @@ export function WritingWorkspace() {
         >
           {t("workspace.tools.batchReplace")}
         </button>
+        <button
+          type="button"
+          data-testid="workspace-tools-toggle-campaign"
+          className="inline-flex items-center gap-1.5 rounded border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-600 hover:bg-orange-500/20 dark:text-orange-400"
+          onClick={() => setCampaignOpen(true)}
+        >
+          <Flame className="h-3 w-3 text-orange-500" />
+          <span>长程战役调度</span>
+        </button>
         <span className="truncate text-xs text-muted-foreground" data-testid="workspace-tools-target">
           {selectedFile ? `${chapterTitle} · ${fileName}` : t("workspace.tools.noFile")}
         </span>
@@ -186,6 +198,7 @@ export function WritingWorkspace() {
           </div>
         </div>
         {toolsBar}
+        <CampaignDashboardDialog open={campaignOpen} onOpenChange={setCampaignOpen} />
       </div>
     )
   }
@@ -209,6 +222,7 @@ export function WritingWorkspace() {
         </>
       )}
       {toolsBar}
+      <CampaignDashboardDialog open={campaignOpen} onOpenChange={setCampaignOpen} />
     </div>
   )
 }

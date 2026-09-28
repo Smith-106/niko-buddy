@@ -23,6 +23,8 @@ export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, s
 export type { BookRules } from "./book-rules"
 export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
+export { parseOutlineToChapters, unpackOutlineToChapterFiles } from "./outline-chapter-unpack"
+export type { UnpackedOutlineChapter, UnpackOutlineOptions, UnpackOutlineResult } from "./outline-chapter-unpack"
 export { advanceBudgetBatch, createBudgetRun } from "./budget-resume"
 export { defaultCanonDualWriteDeps, getCanonRevision, loadDivergenceTrace } from "./canon-dual-write"
 export { buildCanonEdgeFilter, getFactsKnownByPaged, queryCanonEdges } from "./canon-graph-client"

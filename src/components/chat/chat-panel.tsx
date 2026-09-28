@@ -525,10 +525,10 @@ export function ChatPanel() {
     }
   }, [activeConversationId, activeMessages])
 
-  const handleSaveAsChapter = useCallback(async (content: string) => {
-    if (!project) return
+  const executeSaveDraftAsChapter = useCallback(async (content: string): Promise<{ success: boolean; chapterNumber: number; chapterPath: string } | null> => {
+    if (!project) return null
     const latestDraftContext = getLatestAssistantDraftContext()
-    if (!latestDraftContext) return
+    if (!latestDraftContext) return null
     const pp = normalizePath(project.path)
     setChapterSaveState({
       conversationId: latestDraftContext.conversationId,
@@ -627,6 +627,7 @@ export function ChatPanel() {
 
       await refreshProjectState(pp)
       useWikiStore.getState().setActiveView("wiki")
+      return { success: true, chapterNumber: targetChapterNumber, chapterPath }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setChapterSaveState({
@@ -635,6 +636,7 @@ export function ChatPanel() {
         status: t("chat.saveFailed", { message }),
         isSaving: false,
       })
+      return { success: false, chapterNumber: 0, chapterPath: "" }
     } finally {
       setChapterSaveState((prev) => {
         if (
@@ -647,7 +649,11 @@ export function ChatPanel() {
         return { ...prev, isSaving: false }
       })
     }
-  }, [getLatestAssistantDraftContext, novelConfig, project, selectedFile, t])
+  }, [getLatestAssistantDraftContext, novelConfig, project, refreshProjectState, selectedFile, t])
+
+  const handleSaveAsChapter = useCallback(async (content: string) => {
+    await executeSaveDraftAsChapter(content)
+  }, [executeSaveDraftAsChapter])
 
   const handleDiscardDraft = useCallback(async () => {
     if (!project) return
@@ -1928,6 +1934,18 @@ export function ChatPanel() {
     handleSend(`请根据当前小说上下文、记忆库、最新章节结尾、下一章推进建议和章纲，继续生成下一章正文。只输出可直接保存到章节库的小说正文，不要解释，不要列提纲。正文必须是完整章节，目标约 ${target} 字，建议 ${target - 200}-${target + 300} 字，低于 ${target - 400} 字视为未完成。`)
   }, [createConversation, handleSend, isStreaming])
 
+  const handleAcceptAndContinueNextChapter = useCallback(async (content: string) => {
+    const res = await executeSaveDraftAsChapter(content)
+    if (!res || !res.success) return
+    const nextChapterNumber = res.chapterNumber + 1
+    createConversation()
+    const lengthSpec = resolveChapterLengthSpec(useWikiStore.getState().novelConfig?.chapterTargetChars)
+    const target = lengthSpec.targetChars
+    handleSend(
+      `请根据前情线索、人物认知、时间线与世界观设定，直接撰写第 ${nextChapterNumber} 章正文。保持人物性格连贯与伏笔呼应，目标字数约 ${target} 字。`
+    )
+  }, [createConversation, executeSaveDraftAsChapter, handleSend])
+
   const handleContinueUnfinished = useCallback(async (assistantMessage: DisplayMessage) => {
     if (isStreaming) return
 
@@ -2562,6 +2580,7 @@ export function ChatPanel() {
                           novelMode={novelMode}
                           projectPath={project?.path ?? null}
                           onSaveAsChapter={handleSaveAsChapter}
+                          onAcceptAndContinueNext={isLastAssistant ? handleAcceptAndContinueNextChapter : undefined}
                           onDiscardDraft={isLastAssistant ? handleDiscardDraft : undefined}
                           onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                           onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}

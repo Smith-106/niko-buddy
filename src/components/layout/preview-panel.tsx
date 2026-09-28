@@ -22,6 +22,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
 import { DeAiBatchDialog } from "@/components/novel/de-ai-batch-dialog"
+import { UnpackOutlineDialog } from "@/components/novel/unpack-outline-dialog"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
@@ -220,6 +221,7 @@ export function PreviewPanel() {
   const [batchProgress, setBatchProgress] = useState<DeAiBatchProgress | null>(null)
   const [batchSummary, setBatchSummary] = useState<DeAiBatchSummary | null>(null)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
+  const [showUnpackOutlineDialog, setShowUnpackOutlineDialog] = useState(false)
   const [batchChapters, setBatchChapters] = useState<Array<{ chapterNumber: number; status: string; lastError?: string }>>([])
   const batchAbortRef = useRef<AbortController | null>(null)
   const [deAiSourceContent, setDeAiSourceContent] = useState("")
@@ -1322,6 +1324,18 @@ export function PreviewPanel() {
                       {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "已提取记忆" : t("novel.outlineGenerator.ingest")}
                     </button>
                   ) : null}
+                  {canIngestOutline ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChapterToolbarMoreOpen(false)
+                        setShowUnpackOutlineDialog(true)
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
+                    >
+                      解构铺排章节
+                    </button>
+                  ) : null}
                   {canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
                     <button
                       type="button"
@@ -1461,6 +1475,16 @@ export function PreviewPanel() {
               title={outlineIngested ? "重新提取初始记忆（将覆盖上次提取的内容）" : t("novel.outlineGenerator.ingest")}
             >
               {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "✓ 已提取记忆" : t("novel.outlineGenerator.ingest")}
+            </button>
+          ) : null}
+          {!chapterToolbarCompact && canIngestOutline ? (
+            <button
+              type="button"
+              onClick={() => setShowUnpackOutlineDialog(true)}
+              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+              title="将大纲文本解析并批量生成章节空白骨架"
+            >
+              解构铺排章节
             </button>
           ) : null}
           {!chapterToolbarCompact && canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
@@ -1649,6 +1673,11 @@ export function PreviewPanel() {
         applyLabel="替换选中文本"
         onApply={handleApplySelectionTransform}
         onClose={handleCloseSelectionTransform}
+      />
+      <UnpackOutlineDialog
+        open={showUnpackOutlineDialog}
+        onOpenChange={setShowUnpackOutlineDialog}
+        outlineContent={fileContent}
       />
     </div>
   )

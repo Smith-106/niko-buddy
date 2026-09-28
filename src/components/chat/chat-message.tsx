@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css"
 import {
   Bot, User, FileText, ChevronDown, ChevronRight, RefreshCw, Copy, Check,
   Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, Layout, Globe,
-  Image as ImageIcon, Loader2,
+  Image as ImageIcon, Loader2, Sparkles,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useTranslation } from "react-i18next"
@@ -37,6 +37,7 @@ interface ChatMessageProps {
   novelMode?: boolean
   projectPath?: string | null
   onSaveAsChapter?: (content: string) => void
+  onAcceptAndContinueNext?: (content: string) => void
   onContinueNextChapter?: () => void
   onContinueUnfinished?: () => void
   onSaveAsDraft?: (content: string) => void
@@ -151,7 +152,7 @@ function canOperateOnDeepChapterDraft(message: DisplayMessage): boolean {
 // props;回调引用由父级 chat-panel useCallback 稳定,message 对象引用稳定
 // (chat-store 按 id 去重)。isLastAssistant 只对末条 assistant 消息变化,
 // 非末条消息该 prop 恒定 false,不触发重渲染。
-function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
+function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onAcceptAndContinueNext, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
   const { t } = useTranslation()
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
@@ -238,6 +239,19 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
               >
                 {isSaving ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Check className="h-3 w-3 shrink-0" />}
                 {isSaving ? "\u4fdd\u5b58\u4e2d" : "\u63a5\u53d7\u8349\u7a3f"}
+              </button>
+            )}
+            {canAcceptDraft && onAcceptAndContinueNext && (
+              <button
+                type="button"
+                onClick={() => onAcceptAndContinueNext(message.content)}
+                disabled={isSaving}
+                aria-busy={isSaving}
+                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary/60 bg-primary/10 font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
+                title="接受当前草稿并自动发起下一章撰写"
+              >
+                {isSaving ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Sparkles className="h-3 w-3 shrink-0" />}
+                {"接受并撰写下一章"}
               </button>
             )}
             {canRejectDraft && onDiscardDraft && (
